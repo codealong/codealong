@@ -1,3 +1,4 @@
+extern crate chrono;
 extern crate git2;
 
 mod analyzed_commit;
@@ -9,10 +10,10 @@ mod work_stats;
 
 use git2::{Repository, Revwalk};
 
-use analyzed_commit::AnalyzedCommit;
-use analyzer::Analyzer;
-use default_analyzer::DefaultAnalyzer;
-use error::Error;
+pub use analyzed_commit::AnalyzedCommit;
+pub use analyzer::Analyzer;
+pub use default_analyzer::DefaultAnalyzer;
+pub use error::Error;
 
 pub fn walk<'repo>(repo: &'repo Repository) -> AnalyzedRevwalk<'repo> {
     let mut revwalk = repo.revwalk().unwrap();

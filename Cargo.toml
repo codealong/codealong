@@ -1,7 +1,6 @@
-[package]
-name = "codealong"
-version = "0.1.0"
-authors = ["ghempton"]
+[workspace]
 
-[dependencies]
-git2 = "0.7"
+members = [
+    "codealong",
+    "codealong-elk"
+]

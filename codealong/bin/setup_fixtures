@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+
+cd fixtures
+for file in *.bundle
+do
+  git clone $file
+done
