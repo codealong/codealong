@@ -1,14 +1,11 @@
-use git2::{
-    Blame, BlameOptions, Commit, DiffDelta, DiffLine, DiffOptions, Oid, Repository, Signature,
-};
+use git2::{Commit, DiffDelta, DiffLine, DiffOptions, Repository, Signature};
 
 use std::collections::HashMap;
-use std::path::Path;
-use std::str;
 
 use analyzed_diff::AnalyzedDiff;
 use analyzer::Analyzer;
 use error::Error;
+use fast_blame::FastBlame;
 use work_stats::WorkStats;
 
 use std::cell::RefCell;
@@ -20,32 +17,27 @@ impl Analyzer for DefaultAnalyzer {
         &self,
         repo: &Repository,
         commit: &Commit,
-        parent: &Commit,
+        parent: Option<&Commit>,
     ) -> Result<AnalyzedDiff, Error> {
         let mut diff_opts = DiffOptions::new();
         diff_opts.ignore_whitespace(true);
         let diff =
             repo.diff_tree_to_tree(
-                Some(&parent.tree()?),
+                parent.map(|p| p.tree().unwrap()).as_ref(),
                 Some(&commit.tree()?),
                 Some(&mut diff_opts),
             ).unwrap();
         let mut stats = WorkStats::empty();
-        let mut blame_opts = BlameOptions::new();
-        blame_opts.newest_commit(parent.id());
-        blame_opts.track_copies_any_commit_copies(false);
-        blame_opts.track_copies_same_file(false);
-        blame_opts.track_copies_same_commit_copies(false);
-        blame_opts.track_copies_same_commit_moves(false);
-        blame_opts.first_parent(true);
-        let blame: RefCell<Option<Blame>> = RefCell::new(None);
+        let blame: RefCell<Option<FastBlame>> = RefCell::new(None);
         diff.foreach(
             &mut |diff_delta, _| {
-                if let Some(new_path) = diff_delta.new_file().path() {
-                    if let Ok(new_blame) = repo.blame_file(new_path, Some(&mut blame_opts)) {
-                        blame.replace(Some(new_blame));
-                    } else {
-                        blame.replace(None);
+                if let Some(old_path) = diff_delta.old_file().path() {
+                    if let Some(parent) = parent {
+                        if let Ok(new_blame) = FastBlame::new(&repo, &parent.id(), &old_path) {
+                            blame.replace(Some(new_blame));
+                        } else {
+                            blame.replace(None);
+                        }
                     }
                 }
                 true
@@ -53,22 +45,15 @@ impl Analyzer for DefaultAnalyzer {
             None,
             None,
             Some(&mut |diff_delta, _, diff_line| {
-                println!(
-                    "line: {:#?} {:#?} {:#?}",
-                    &diff_delta.status(),
-                    &diff_line.origin(),
-                    str::from_utf8(&diff_line.content())
-                );
                 let analyzed_delta =
                     self.analyze_line_diff(
                         &repo,
                         &commit,
-                        &parent,
+                        parent,
                         &diff_delta,
                         &diff_line,
                         blame.borrow().as_ref(),
                     ).unwrap();
-                println!("analyzed: {:#?}", analyzed_delta);
                 stats += analyzed_delta;
                 true
             }),
@@ -90,10 +75,10 @@ impl DefaultAnalyzer {
         &self,
         repo: &Repository,
         commit: &Commit,
-        parent: &Commit,
+        parent: Option<&Commit>,
         diff_delta: &DiffDelta,
         diff_line: &DiffLine,
-        blame: Option<&Blame>,
+        blame: Option<&FastBlame>,
     ) -> Result<WorkStats, Error> {
         match diff_line.origin() {
             '+' => Ok(WorkStats::new_work()),
@@ -113,25 +98,14 @@ impl DefaultAnalyzer {
         &self,
         repo: &Repository,
         commit: &Commit,
-        parent: &Commit,
-        diff_delta: &DiffDelta,
+        _parent: Option<&Commit>,
+        _diff_delta: &DiffDelta,
         diff_line: &DiffLine,
-        blame: &Blame,
+        blame: &FastBlame,
     ) -> Result<WorkStats, Error> {
-        let new_path = diff_delta
-            .new_file()
-            .path()
-            .expect("No file path available");
-        if let Some(blame_hunk) = blame.get_line(diff_line.old_lineno().unwrap() as usize) {
-            let previous_commit = repo.find_commit(blame_hunk.orig_commit_id()).unwrap();
-
-            println!("Via libgit2: #{:?}", previous_commit.id());
-            blame_line(
-                &repo,
-                &parent.id(),
-                new_path,
-                diff_line.old_lineno().unwrap(),
-            );
+        if let Some(previous_commit_oid) = blame.get_line(diff_line.old_lineno().unwrap() as usize)
+        {
+            let previous_commit = repo.find_commit(previous_commit_oid).unwrap();
 
             let diff_in_seconds =
                 commit.committer().when().seconds() - previous_commit.committer().when().seconds();
@@ -156,26 +130,28 @@ impl DefaultAnalyzer {
     }
 }
 
-use std::process::Command;
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use git2::Oid;
 
-// libgit2 has an extremely slow blame implementation:
-// https://github.com/libgit2/libgit2/issues/3027
-// so we use a git binary
-fn blame_line(repo: &Repository, parent: &Oid, new_path: &Path, old_lineno: u32) -> Oid {
-    let output = Command::new("git")
-        .current_dir(repo.path())
-        .arg("blame")
-        .arg(format!("-L {},{}", old_lineno, old_lineno))
-        .arg(parent.to_string())
-        .arg("-s")
-        .arg("-l")
-        .arg("--")
-        .arg(new_path)
-        .output()
-        .expect("failed to execute process")
-        .stdout;
+    fn analyze_against_parent(repo_path: &str, commit_id: &str) -> Result<AnalyzedDiff, Error> {
+        let repo = Repository::open(repo_path).unwrap();
+        let commit = repo.find_commit(Oid::from_str(commit_id).unwrap()).unwrap();
+        let parent = match commit.parent(0) {
+            Ok(parent) => Some(parent),
+            Err(_) => None,
+        };
+        let analyzer = DefaultAnalyzer::new();
+        analyzer.analyze_diff(&repo, &commit, parent.as_ref())
+    }
 
-    let raw = String::from_utf8_lossy(&output);
-    let mut split = raw.splitn(2, ' ');
-    Oid::from_str(split.next().unwrap()).unwrap()
+    #[test]
+    fn it_works_on_initial_commit() {
+        let res = analyze_against_parent(
+            "./fixtures/simple",
+            "86d242301830075e93ff039a4d1e88673a4a3020",
+        ).unwrap();
+        assert!(res.stats.new_work == 1);
+    }
 }

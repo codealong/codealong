@@ -1,11 +1,15 @@
 extern crate chrono;
 extern crate git2;
+extern crate regex;
+#[macro_use]
+extern crate lazy_static;
 
 mod analyzed_commit;
 mod analyzed_diff;
 mod analyzer;
 mod default_analyzer;
 mod error;
+mod fast_blame;
 mod work_stats;
 
 use git2::{Repository, Revwalk};
