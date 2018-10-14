@@ -1,0 +1,33 @@
+github: ghempton/codealong
+
+churn_cutoff: 14
+
+merge_defaults: true
+
+files:
+  "**/*.rb":
+    tags:
+      - "ruby"
+  "cassettes/**/*.yml":
+    ignore: true
+  "spec/**/*_spec.rb":
+    tags:
+      - "ruby"
+      - "rspec"
+      - "test"
+  "**/*.css":
+    tags:
+      - "styles"
+      - "css"
+    weight: 0.5
+  "*.md":
+    weight: 0.25
+    tags:
+      - "docs"
+
+authors:
+  "Gordon Hempton <ghempton@gmail.com>":
+    aliases:
+      - "Gordon Hempton <gordon@outreach.io>"
+    tags:
+      - "team-apollo"

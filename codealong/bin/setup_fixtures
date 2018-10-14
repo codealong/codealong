@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-cd fixtures
+cd fixtures/repos
 for file in *.bundle
 do
   git clone $file

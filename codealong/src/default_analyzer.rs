@@ -4,15 +4,22 @@ use std::collections::HashMap;
 
 use analyzed_diff::AnalyzedDiff;
 use analyzer::Analyzer;
+use config::Config;
 use error::Error;
 use fast_blame::FastBlame;
 use work_stats::WorkStats;
 
 use std::cell::RefCell;
 
-pub struct DefaultAnalyzer {}
+pub struct DefaultAnalyzer {
+    config: Config,
+}
 
 impl Analyzer for DefaultAnalyzer {
+    fn config(&self) -> &Config {
+        &self.config
+    }
+
     fn analyze_diff(
         &self,
         repo: &Repository,
@@ -68,7 +75,13 @@ impl Analyzer for DefaultAnalyzer {
 
 impl DefaultAnalyzer {
     pub fn new() -> DefaultAnalyzer {
-        DefaultAnalyzer {}
+        DefaultAnalyzer {
+            config: Config::default(),
+        }
+    }
+
+    pub fn with_config(config: Config) -> DefaultAnalyzer {
+        DefaultAnalyzer { config: config }
     }
 
     fn analyze_line_diff(
@@ -135,23 +148,27 @@ mod tests {
     use super::*;
     use git2::Oid;
 
-    fn analyze_against_parent(repo_path: &str, commit_id: &str) -> Result<AnalyzedDiff, Error> {
-        let repo = Repository::open(repo_path).unwrap();
-        let commit = repo.find_commit(Oid::from_str(commit_id).unwrap()).unwrap();
-        let parent = match commit.parent(0) {
-            Ok(parent) => Some(parent),
-            Err(_) => None,
-        };
+    #[test]
+    fn test_initial_commit() {
+        let repo = Repository::open("./fixtures/repos/simple").unwrap();
+        let commit = repo
+            .find_commit(Oid::from_str("86d242301830075e93ff039a4d1e88673a4a3020").unwrap())
+            .unwrap();
         let analyzer = DefaultAnalyzer::new();
-        analyzer.analyze_diff(&repo, &commit, parent.as_ref())
+        let res = analyzer.analyze_commit(&repo, &commit).unwrap();
+        assert_eq!(res.diff.stats.new_work, 1);
     }
 
     #[test]
-    fn it_works_on_initial_commit() {
-        let res = analyze_against_parent(
-            "./fixtures/simple",
-            "86d242301830075e93ff039a4d1e88673a4a3020",
-        ).unwrap();
-        assert!(res.stats.new_work == 1);
+    fn test_with_config() {
+        let repo = Repository::open("./fixtures/repos/simple").unwrap();
+        let commit = repo
+            .find_commit(Oid::from_str("86d242301830075e93ff039a4d1e88673a4a3020").unwrap())
+            .unwrap();
+        let analyzer = DefaultAnalyzer::with_config(
+            Config::from_file("./fixtures/configs/simple.yml").unwrap(),
+        );
+        let res = analyzer.analyze_commit(&repo, &commit).unwrap();
+        assert_eq!(res.github_url, Some("https://github.com/ghempton/codealong/commit/86d242301830075e93ff039a4d1e88673a4a3020".to_string()));
     }
 }

@@ -15,6 +15,7 @@ pub struct AnalyzedCommit {
     pub committer_email: Option<String>,
     pub committer_name: Option<String>,
     pub committed_at: DateTime<Utc>,
+    pub github_url: Option<String>,
 }
 
 impl AnalyzedCommit {
@@ -29,6 +30,7 @@ impl AnalyzedCommit {
             committer_email: commit.committer().email().map(|s| s.to_string()),
             committer_name: commit.committer().name().map(|s| s.to_string()),
             committed_at: convert_time(&commit.committer().when()),
+            github_url: None,
         }
     }
 

@@ -40,7 +40,7 @@ impl FastBlame {
                 child
                     .stdout
                     .take()
-                    .ok_or_else(|| "Could not capture standarxd output.")?,
+                    .ok_or_else(|| "Could not capture standard output.")?,
             )),
             child: child,
             line_map: RefCell::new(HashMap::new()),
@@ -112,7 +112,7 @@ mod tests {
 
     #[test]
     fn it_works() {
-        let repo = Repository::open(Path::new("./fixtures/simple")).unwrap();
+        let repo = Repository::open(Path::new("./fixtures/repos/simple")).unwrap();
         let blame = FastBlame::new(
             &repo,
             &Oid::from_str("86d242301830075e93ff039a4d1e88673a4a3020").unwrap(),

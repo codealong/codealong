@@ -1,12 +1,18 @@
 extern crate chrono;
 extern crate git2;
+extern crate glob;
 extern crate regex;
 #[macro_use]
 extern crate lazy_static;
+#[macro_use]
+extern crate serde_derive;
+extern crate serde;
+extern crate serde_yaml;
 
 mod analyzed_commit;
 mod analyzed_diff;
 mod analyzer;
+mod config;
 mod default_analyzer;
 mod error;
 mod fast_blame;
@@ -16,6 +22,7 @@ use git2::{Repository, Revwalk};
 
 pub use analyzed_commit::AnalyzedCommit;
 pub use analyzer::Analyzer;
+pub use config::Config;
 pub use default_analyzer::DefaultAnalyzer;
 pub use error::Error;
 
@@ -58,7 +65,7 @@ mod tests {
 
     #[test]
     fn simple_repo() {
-        let repo = Repository::open(Path::new("./fixtures/simple")).unwrap();
+        let repo = Repository::open(Path::new("./fixtures/repos/simple")).unwrap();
         for result in walk(&repo) {
             println!("analyzed: {:#?}", result);
         }
