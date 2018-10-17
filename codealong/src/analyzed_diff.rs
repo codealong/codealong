@@ -15,6 +15,19 @@ impl AnalyzedDiff {
             tag_stats: HashMap::new(),
         }
     }
+
+    /// Adds the stats to all tags
+    pub fn add_stats(&mut self, stats: WorkStats, tags: &Vec<String>) {
+        self.stats += stats;
+        for tag in tags {
+            if self.tag_stats.contains_key(tag) {
+                let v = self.tag_stats.get_mut(tag).unwrap();
+                *v += stats;
+            } else {
+                self.tag_stats.insert(tag.to_string(), stats);
+            }
+        }
+    }
 }
 
 impl Add for AnalyzedDiff {
@@ -80,8 +93,9 @@ fn merge_tag_stats(
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
-    fn it_adds() {
+    fn test_addition() {
         let mut tag_stats = HashMap::new();
         tag_stats.insert("migration".to_string(), WorkStats::new_work());
         let diff = AnalyzedDiff {
@@ -99,5 +113,17 @@ mod tests {
         let result = diff + diff2;
         assert_eq!(result.stats.new_work, 2);
         assert_eq!(result.tag_stats.get("migration").unwrap().new_work, 2);
+    }
+
+    #[test]
+    fn test_add_stats() {
+        let mut diff = AnalyzedDiff::empty();
+        diff.add_stats(
+            WorkStats::legacy_refactor(),
+            &vec!["ruby".to_string(), "rspec".to_string()],
+        );
+        assert_eq!(diff.tag_stats.len(), 2);
+        assert_eq!(diff.tag_stats.get("ruby").unwrap().legacy_refactor, 1);
+        assert_eq!(diff.tag_stats.get("rspec").unwrap().legacy_refactor, 1);
     }
 }

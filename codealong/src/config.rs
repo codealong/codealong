@@ -154,17 +154,8 @@ mod tests {
     #[test]
     fn test_config_lookup() {
         let config = Config::from_file("fixtures/configs/simple.yml").unwrap();
-        assert!(match config.config_for_file("schema.rb") {
-            Some(_) => true,
-            _ => false,
-        });
-        assert!(match config.config_for_file("spec/models/code_spec.rb") {
-            Some(_) => true,
-            _ => false,
-        });
-        assert!(match config.config_for_file("rusty.rs") {
-            Some(_) => false,
-            _ => true,
-        });
+        assert!(config.config_for_file("schema.rb").is_some());
+        assert!(config.config_for_file("spec/models/code_spec.rb").is_some());
+        assert!(config.config_for_file("rusty.rs").is_none());
     }
 }
