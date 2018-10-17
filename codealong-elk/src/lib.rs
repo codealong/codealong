@@ -34,15 +34,3 @@ pub fn index(repo: &Repository) {
 fn get_es_index(date: &DateTime<Utc>) -> String {
     date.format("logstash-%Y.%m.%d").to_string()
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::path::Path;
-
-    #[test]
-    fn it_indexes() {
-        let repo = Repository::open(Path::new("./fixtures/outreach")).unwrap();
-        index(&repo);
-    }
-}

@@ -1,0 +1,10 @@
+[package]
+name = "codealong-cli"
+version = "0.1.0"
+authors = ["Gordon Hempton <ghempton@gmail.com>"]
+
+[dependencies]
+codealong = { path = "../codealong" }
+codealong-elk = { path = "../codealong-elk" }
+clap = {version = "2.32", features = ["yaml"]}
+git2 = "0.7"

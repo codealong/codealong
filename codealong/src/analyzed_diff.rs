@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::ops::{Add, AddAssign};
 use work_stats::WorkStats;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AnalyzedDiff {
     pub stats: WorkStats,
     pub tag_stats: HashMap<String, WorkStats>,

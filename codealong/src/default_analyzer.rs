@@ -1,4 +1,4 @@
-use git2::{Commit, DiffDelta, DiffLine, DiffOptions, Repository, Signature};
+use git2::{Commit, Delta, DiffDelta, DiffLine, DiffOptions, Repository, Signature};
 
 use std::collections::HashMap;
 
@@ -89,6 +89,9 @@ impl DefaultAnalyzer {
         diff_delta: &DiffDelta,
         parent: Option<&Commit>,
     ) -> Option<FastBlame> {
+        if diff_delta.status() != Delta::Modified {
+            return None;
+        }
         diff_delta.old_file().path().and_then(|old_path| {
             parent.and_then(|parent| {
                 if let Ok(new_blame) = FastBlame::new(&repo, &parent.id(), &old_path) {

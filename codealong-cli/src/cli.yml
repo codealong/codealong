@@ -1,0 +1,19 @@
+name: codealong
+version: "1.0"
+author: Gordon L. Hempton <ghempton@gmail.com>
+about: Open source development metrics
+? args
+subcommands:
+  - index:
+      about: indexes commits
+      args:
+        - elasticsearch_url:
+            short: e
+            long: elasticsearch-url
+            help: url of elasticsearch instance to index into
+            default_value: "http://localhost:9200"
+        - repo_path:
+            short: p
+            long: repo-path
+            help: path to the repo to analyze
+            default_value: .

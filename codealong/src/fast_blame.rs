@@ -79,7 +79,9 @@ impl FastBlame {
 impl Drop for FastBlame {
     fn drop(&mut self) {
         // need this to prevent zombie "Z+" processes from occuring
+        self.child.kill().expect("unable to kill process");
         self.child.wait().expect("unable to wait for process");
+        println!("Finished Stopping!");
     }
 }
 

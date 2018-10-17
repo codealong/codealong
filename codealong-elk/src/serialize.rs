@@ -12,7 +12,9 @@ pub fn serialize(commit: &AnalyzedCommit) -> Value {
         "message": commit.summary,
         "type": "commit",
         "host": hostname::get_hostname(),
-        "author_email": commit.author_email
+        "author_email": commit.author_email,
+        "github_url": commit.github_url,
+        "diff": commit.diff
     });
     json
 }
