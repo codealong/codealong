@@ -8,3 +8,4 @@ codealong = { path = "../codealong" }
 codealong-elk = { path = "../codealong-elk" }
 clap = {version = "2.32", features = ["yaml"]}
 git2 = "0.7"
+indicatif = "0.9"

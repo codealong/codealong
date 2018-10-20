@@ -1,0 +1,7 @@
+files:
+  "**/*.js":
+    tags:
+      - "javascript"
+  "**/*.json":
+    tags:
+      - "json"

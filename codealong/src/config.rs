@@ -1,11 +1,16 @@
 use std::collections::HashMap;
 
+use git2::Repository;
 use serde_yaml;
 use std::fs::File;
 
 use glob::Pattern;
 
 use error::Error;
+
+use include_dir::Dir;
+
+static BASE_CONFIGS: Dir = include_dir!("./config");
 
 /// Understands the `.codealong/config.yml` file format.
 ///
@@ -46,6 +51,9 @@ pub struct Config {
     #[serde(default)]
     pub github: Option<String>,
 
+    #[serde(default)]
+    pub name: Option<String>,
+
     #[serde(default = "Config::default_merge_defaults")]
     pub merge_defaults: bool,
 
@@ -68,12 +76,32 @@ impl Config {
         }
     }
 
+    /// Base config with embedded defaults
+    pub fn base() -> Config {
+        let mut config = Config::default();
+        for file in BASE_CONFIGS.files() {
+            config.merge(serde_yaml::from_slice(file.contents()).unwrap());
+        }
+        config
+    }
+
+    // pub fn from_repo(repo: &Repository) -> Result<Config, Error> {
+    //     let file_path = repo.path();
+
+    // }
+
     fn default_merge_defaults() -> bool {
         true
     }
 
     fn default_churn_cutoff() -> u64 {
         14
+    }
+
+    /// Merges in all file and author configs
+    pub fn merge(&mut self, other: Config) {
+        self.files.extend(other.files);
+        self.authors.extend(other.authors);
     }
 
     pub fn config_for_file(&self, path: &str) -> Option<&FileConfig> {
@@ -101,6 +129,7 @@ impl Config {
 impl Default for Config {
     fn default() -> Config {
         Config {
+            name: None,
             github: None,
             merge_defaults: true,
             churn_cutoff: 14,
@@ -152,10 +181,61 @@ mod tests {
     }
 
     #[test]
-    fn test_config_lookup() {
+    fn test_config_for_file() {
         let config = Config::from_file("fixtures/configs/simple.yml").unwrap();
         assert!(config.config_for_file("schema.rb").is_some());
         assert!(config.config_for_file("spec/models/code_spec.rb").is_some());
         assert!(config.config_for_file("rusty.rs").is_none());
+    }
+
+    #[test]
+    fn test_merge() {
+        let mut config = Config {
+            github: None,
+            name: None,
+            merge_defaults: true,
+            churn_cutoff: 14,
+            files: HashMap::new(),
+            authors: HashMap::new(),
+        };
+
+        config.files.insert(
+            "**/*.rb".to_string(),
+            FileConfig {
+                weight: 1.0,
+                ignore: false,
+                tags: vec!["ruby".to_string()],
+            },
+        );
+
+        let mut config2 = Config {
+            github: None,
+            name: None,
+            merge_defaults: true,
+            churn_cutoff: 14,
+            files: HashMap::new(),
+            authors: HashMap::new(),
+        };
+
+        config2.files.insert(
+            "**/*.rs".to_string(),
+            FileConfig {
+                weight: 1.0,
+                ignore: false,
+                tags: vec!["rust".to_string()],
+            },
+        );
+
+        config.merge(config2);
+
+        assert!(config.files.keys().len() == 2);
+    }
+
+    #[test]
+    fn test_base() {
+        let config = Config::base();
+        assert!(config.config_for_file("schema.rb").is_some());
+        assert!(config.config_for_file("package.json").is_some());
+        assert!(config.config_for_file("asdasd.asdasdasd").is_none());
     }
 }

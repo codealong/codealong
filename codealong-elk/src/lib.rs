@@ -15,7 +15,7 @@ use rs_es::Client;
 
 use serialize::serialize;
 
-pub fn index(repo: &Repository) {
+pub fn index(repo: &Repository, cb: Option<&Fn()>) {
     let mut client = Client::new("http://localhost:9200").unwrap();
     for result in walk(&repo) {
         let commit = result.unwrap();
@@ -27,7 +27,9 @@ pub fn index(repo: &Repository) {
             .with_doc(&serialized)
             .send()
             .expect("able to index");
-        println!("put: {:#?} into {:#?}", serialized, es_index);
+        if let Some(cb) = cb {
+            cb()
+        }
     }
 }
 

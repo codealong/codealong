@@ -1,0 +1,20 @@
+files:
+  "**/*.rb":
+    tags:
+      - "ruby"
+  "cassettes/**/*.yml":
+    ignore: true
+  "spec/**/*_spec.rb":
+    tags:
+      - "rspec"
+      - "test"
+  "Gemfile*":
+    tags:
+      - "deps"
+      - "config"
+  "config/**/*":
+    tags:
+      - "config"
+  "db/migrations/**/*.rb":
+    tags:
+      - "migration"

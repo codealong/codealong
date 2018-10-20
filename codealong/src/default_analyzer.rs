@@ -94,7 +94,9 @@ impl DefaultAnalyzer {
         }
         diff_delta.old_file().path().and_then(|old_path| {
             parent.and_then(|parent| {
-                if let Ok(new_blame) = FastBlame::new(&repo, &parent.id(), &old_path) {
+                if let Ok(new_blame) =
+                    FastBlame::new(&repo, &parent.id(), &old_path, self.config.churn_cutoff)
+                {
                     Some(new_blame)
                 } else {
                     None
@@ -192,6 +194,27 @@ mod tests {
         let analyzer = DefaultAnalyzer::new();
         let res = analyzer.analyze_commit(&repo, &commit).unwrap();
         assert_eq!(res.diff.stats.new_work, 1);
+    }
+
+    #[test]
+    fn test_merge_commit() {
+        let repo = Repository::open("./fixtures/repos/simple").unwrap();
+        let commit = repo
+            .find_commit(Oid::from_str("301dfdc07a8c0770d3a352b6f6c2d8ff8159a9e3").unwrap())
+            .unwrap();
+        let analyzer = DefaultAnalyzer::new();
+        let res = analyzer.analyze_commit(&repo, &commit).unwrap();
+        assert_eq!(
+            res.diff.stats,
+            // XXX: tweak this
+            WorkStats {
+                new_work: 8,
+                legacy_refactor: 8,
+                churn: 0,
+                help_others: 0,
+                other: 0
+            }
+        );
     }
 
     #[test]

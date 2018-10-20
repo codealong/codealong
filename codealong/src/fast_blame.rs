@@ -20,7 +20,12 @@ pub struct FastBlame {
 }
 
 impl FastBlame {
-    pub fn new(repo: &Repository, parent: &Oid, old_path: &Path) -> Result<FastBlame, Error> {
+    pub fn new(
+        repo: &Repository,
+        parent: &Oid,
+        old_path: &Path,
+        churn_cutoff: u64,
+    ) -> Result<FastBlame, Error> {
         let mut child = Command::new("git")
             .current_dir(repo.path())
             .arg("blame")
@@ -29,6 +34,7 @@ impl FastBlame {
             .arg("-l")
             .arg("-p")
             .arg("--incremental")
+            .arg(format!("--since={}.days", churn_cutoff))
             .arg("--")
             .arg(old_path)
             .stdout(Stdio::piped())
@@ -81,7 +87,6 @@ impl Drop for FastBlame {
         // need this to prevent zombie "Z+" processes from occuring
         self.child.kill().expect("unable to kill process");
         self.child.wait().expect("unable to wait for process");
-        println!("Finished Stopping!");
     }
 }
 
@@ -119,6 +124,7 @@ mod tests {
             &repo,
             &Oid::from_str("86d242301830075e93ff039a4d1e88673a4a3020").unwrap(),
             Path::new("README.md"),
+            14,
         ).unwrap();
         assert!(
             Some(Oid::from_str("86d242301830075e93ff039a4d1e88673a4a3020").unwrap())

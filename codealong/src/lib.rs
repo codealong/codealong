@@ -1,6 +1,8 @@
 extern crate chrono;
 extern crate git2;
 extern crate glob;
+#[macro_use]
+extern crate include_dir;
 extern crate regex;
 #[macro_use]
 extern crate lazy_static;
@@ -64,10 +66,12 @@ mod tests {
     use std::path::Path;
 
     #[test]
-    fn simple_repo() {
+    fn test_walk_simple_repo() {
         let repo = Repository::open(Path::new("./fixtures/repos/simple")).unwrap();
-        for result in walk(&repo) {
-            println!("analyzed: {:#?}", result);
+        let mut count = 0;
+        for _result in walk(&repo) {
+            count += 1;
         }
+        assert!(count >= 5);
     }
 }
