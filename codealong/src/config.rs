@@ -1,11 +1,10 @@
 use std::collections::HashSet;
 
-use linked_hash_map::serde;
 use linked_hash_map::LinkedHashMap;
 
-use git2::Repository;
 use serde_yaml;
 use std::fs::File;
+use std::path::Path;
 
 use glob::Pattern;
 
@@ -71,16 +70,44 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn from_file(path: &str) -> Result<Config, Error> {
+    pub fn from_path(path: &Path) -> Result<Self, Error> {
         let file = File::open(path)?;
-        match serde_yaml::from_reader(file) {
-            Ok(config) => Ok(config),
+        Self::from_file(&file)
+    }
+
+    pub fn from_file(file: &File) -> Result<Self, Error> {
+        match serde_yaml::from_reader::<_, Config>(file) {
+            Ok(mut config) => {
+                config.maybe_apply_base();
+                Ok(config)
+            }
             Err(e) => Err(Error::from(e)),
         }
     }
 
+    /// Attempts to read the config from the conventional location within the
+    /// directory at `.codealong/config.yml`. If no config is found, fallback
+    /// to the base config.
+    ///
+    /// If the config has no `name`, then default to the name of the directory.
+    pub fn from_dir(path: &Path) -> Result<Self, Error> {
+        let file_path = path.join(".codealong").join("config.yml");
+        let mut config = if file_path.exists() {
+            Self::from_path(&file_path)?
+        } else {
+            Self::base()
+        };
+        if config.name.is_none() {
+            config.name = path
+                .file_name()
+                .and_then(|s| s.to_str())
+                .map(|s| s.to_owned());
+        }
+        Ok(config)
+    }
+
     /// Base config with embedded defaults
-    pub fn base() -> Config {
+    pub fn base() -> Self {
         let mut config = Config::default();
         for file in BASE_CONFIGS.files() {
             config.merge(serde_yaml::from_slice(file.contents()).unwrap());
@@ -88,10 +115,11 @@ impl Config {
         config
     }
 
-    // pub fn from_repo(repo: &Repository) -> Result<Config, Error> {
-    //     let file_path = repo.path();
-
-    // }
+    fn maybe_apply_base(&mut self) {
+        if self.merge_defaults {
+            self.merge(Self::base());
+        }
+    }
 
     fn default_merge_defaults() -> bool {
         true
@@ -211,15 +239,28 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_from_dir_without_config() {
+        let config = Config::from_dir(Path::new("fixtures/repos/simple")).unwrap();
+        assert_eq!(config.name, Some("simple".to_owned()));
+    }
+
+    #[test]
+    fn test_from_dir_with_config() {
+        let config = Config::from_dir(Path::new("fixtures/repos/bare_config")).unwrap();
+        assert_eq!(config.name, Some("bare_config".to_owned()));
+        assert!(config.config_for_file("README.md").is_some());
+    }
+
+    #[test]
     fn test_deserialization() {
-        let config = Config::from_file("fixtures/configs/simple.yml").unwrap();
+        let config = Config::from_path(Path::new("fixtures/configs/simple.yml")).unwrap();
         assert_eq!(config.files.len(), 5);
         assert_eq!(config.authors.len(), 1);
     }
 
     #[test]
     fn test_config_for_file() {
-        let config = Config::from_file("fixtures/configs/simple.yml").unwrap();
+        let config = Config::from_path(Path::new("fixtures/configs/simple.yml")).unwrap();
         assert!(config.config_for_file("schema.rb").is_some());
         assert!(config.config_for_file("spec/models/code_spec.rb").is_some());
         assert!(config.config_for_file("rusty.rs").is_none());

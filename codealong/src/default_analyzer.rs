@@ -28,12 +28,13 @@ impl Analyzer for DefaultAnalyzer {
     ) -> Result<AnalyzedDiff, Error> {
         let mut diff_opts = DiffOptions::new();
         diff_opts.ignore_whitespace(true);
-        let diff =
-            repo.diff_tree_to_tree(
+        let diff = repo
+            .diff_tree_to_tree(
                 parent.map(|p| p.tree().unwrap()).as_ref(),
                 Some(&commit.tree()?),
                 Some(&mut diff_opts),
-            ).unwrap();
+            )
+            .unwrap();
         let blame: RefCell<Option<FastBlame>> = RefCell::new(None);
         let author_config: Option<&AuthorConfig> = self.get_author_config(repo, commit);
         let file_config: RefCell<Option<FileConfig>> = RefCell::new(None);
@@ -56,15 +57,16 @@ impl Analyzer for DefaultAnalyzer {
                     .as_ref()
                     .and_then(|c| Some(tags.extend(c.tags().iter().map(|s| s.to_string()))));
                 author_config.and_then(|c| Some(tags.extend(c.tags.iter().map(|s| s.to_string()))));
-                let line_stats =
-                    self.analyze_line_diff(
+                let line_stats = self
+                    .analyze_line_diff(
                         &repo,
                         &commit,
                         parent,
                         &diff_delta,
                         &diff_line,
                         blame.borrow().as_ref(),
-                    ).unwrap();
+                    )
+                    .unwrap();
                 result.add_stats(line_stats, &tags);
                 true
             }),
@@ -185,6 +187,7 @@ impl DefaultAnalyzer {
 mod tests {
     use super::*;
     use git2::Oid;
+    use std::path::Path;
 
     #[test]
     fn test_initial_commit() {
@@ -225,7 +228,7 @@ mod tests {
             .find_commit(Oid::from_str("86d242301830075e93ff039a4d1e88673a4a3020").unwrap())
             .unwrap();
         let analyzer = DefaultAnalyzer::with_config(
-            Config::from_file("./fixtures/configs/simple.yml").unwrap(),
+            Config::from_path(Path::new("./fixtures/configs/simple.yml")).unwrap(),
         );
         let res = analyzer.analyze_commit(&repo, &commit).unwrap();
         assert_eq!(res.github_url, Some("https://github.com/ghempton/codealong/commit/86d242301830075e93ff039a4d1e88673a4a3020".to_string()));

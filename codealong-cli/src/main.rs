@@ -2,6 +2,7 @@
 extern crate clap;
 
 extern crate codealong_elk;
+extern crate console;
 extern crate git2;
 extern crate indicatif;
 
@@ -9,6 +10,11 @@ use codealong_elk::index;
 use git2::Repository;
 
 use indicatif::ProgressBar;
+
+use console::{style, Emoji};
+
+static LOOKING_GLASS: Emoji = Emoji("🔍 ", "");
+static CHART_INCREASING: Emoji = Emoji("📈 ", "");
 
 fn main() {
     use clap::App;
@@ -24,7 +30,20 @@ fn main() {
 fn index_command(matches: &clap::ArgMatches) {
     let path = matches.value_of("repo_path").unwrap();
     let repo = Repository::discover(path).expect("unable to open repository");
+
+    println!(
+        "{} {}Calculating stats...",
+        style("[1/2]").bold().dim(),
+        LOOKING_GLASS
+    );
+
     let count = calculate_size(&repo);
+
+    println!(
+        "{} {}Analyzing commits...",
+        style("[2/2]").bold().dim(),
+        CHART_INCREASING
+    );
 
     let pb = ProgressBar::new(count);
 

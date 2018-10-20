@@ -2,7 +2,7 @@ github: ghempton/codealong
 
 churn_cutoff: 14
 
-merge_defaults: true
+merge_defaults: false
 
 files:
   "**/*.rb":
