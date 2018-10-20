@@ -6,6 +6,7 @@ extern crate include_dir;
 extern crate regex;
 #[macro_use]
 extern crate lazy_static;
+extern crate linked_hash_map;
 #[macro_use]
 extern crate serde_derive;
 extern crate serde;

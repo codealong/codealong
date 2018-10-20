@@ -36,7 +36,7 @@ impl Analyzer for DefaultAnalyzer {
             ).unwrap();
         let blame: RefCell<Option<FastBlame>> = RefCell::new(None);
         let author_config: Option<&AuthorConfig> = self.get_author_config(repo, commit);
-        let file_config: RefCell<Option<&FileConfig>> = RefCell::new(None);
+        let file_config: RefCell<Option<FileConfig>> = RefCell::new(None);
         let mut result = AnalyzedDiff {
             tag_stats: HashMap::new(),
             stats: WorkStats::empty(),
@@ -53,8 +53,9 @@ impl Analyzer for DefaultAnalyzer {
                 let mut tags: Vec<String> = vec![];
                 file_config
                     .borrow()
-                    .and_then(|c| Some(tags.extend(c.tags.clone())));
-                author_config.and_then(|c| Some(tags.extend(c.tags.clone())));
+                    .as_ref()
+                    .and_then(|c| Some(tags.extend(c.tags().iter().map(|s| s.to_string()))));
+                author_config.and_then(|c| Some(tags.extend(c.tags.iter().map(|s| s.to_string()))));
                 let line_stats =
                     self.analyze_line_diff(
                         &repo,
@@ -105,7 +106,7 @@ impl DefaultAnalyzer {
         })
     }
 
-    fn get_file_config(&self, _repo: &Repository, diff_delta: &DiffDelta) -> Option<&FileConfig> {
+    fn get_file_config(&self, _repo: &Repository, diff_delta: &DiffDelta) -> Option<FileConfig> {
         diff_delta
             .new_file()
             .path()

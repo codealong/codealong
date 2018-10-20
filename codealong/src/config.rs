@@ -1,4 +1,7 @@
-use std::collections::HashMap;
+use std::collections::HashSet;
+
+use linked_hash_map::serde;
+use linked_hash_map::LinkedHashMap;
 
 use git2::Repository;
 use serde_yaml;
@@ -61,10 +64,10 @@ pub struct Config {
     pub churn_cutoff: u64,
 
     #[serde(default)]
-    pub files: HashMap<String, FileConfig>,
+    pub files: LinkedHashMap<String, GlobConfig>,
 
     #[serde(default)]
-    pub authors: HashMap<String, AuthorConfig>,
+    pub authors: LinkedHashMap<String, AuthorConfig>,
 }
 
 impl Config {
@@ -104,8 +107,9 @@ impl Config {
         self.authors.extend(other.authors);
     }
 
-    pub fn config_for_file(&self, path: &str) -> Option<&FileConfig> {
-        self.files
+    pub fn config_for_file(&self, path: &str) -> Option<FileConfig> {
+        let glob_configs: Vec<&GlobConfig> = self
+            .files
             .iter()
             .filter_map(|(s, config)| {
                 if let Ok(pattern) = Pattern::new(&s) {
@@ -118,7 +122,12 @@ impl Config {
                     None
                 }
             })
-            .next()
+            .collect();
+        if glob_configs.is_empty() {
+            None
+        } else {
+            Some(FileConfig::new(glob_configs))
+        }
     }
 
     pub fn config_for_author(&self, _author: &str) -> Option<&AuthorConfig> {
@@ -133,27 +142,55 @@ impl Default for Config {
             github: None,
             merge_defaults: true,
             churn_cutoff: 14,
-            files: HashMap::new(),
-            authors: HashMap::new(),
+            files: LinkedHashMap::new(),
+            authors: LinkedHashMap::new(),
         }
     }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct FileConfig {
+pub struct GlobConfig {
     #[serde(default)]
     pub tags: Vec<String>,
 
-    #[serde(default = "FileConfig::default_weight")]
+    #[serde(default = "GlobConfig::default_weight")]
     pub weight: f64,
 
     #[serde(default)]
     pub ignore: bool,
 }
 
-impl FileConfig {
+impl GlobConfig {
     fn default_weight() -> f64 {
         1.0
+    }
+}
+
+/// Represents multiple underlying glob-level configurations. A file can have
+/// mulitiple configurations if it matches multiple globs.
+pub struct FileConfig<'a> {
+    configs: Vec<&'a GlobConfig>,
+}
+
+impl<'a> FileConfig<'a> {
+    pub fn new(configs: Vec<&'a GlobConfig>) -> FileConfig<'a> {
+        FileConfig { configs: configs }
+    }
+
+    pub fn tags(&self) -> HashSet<&str> {
+        let mut res = HashSet::new();
+        for config in &self.configs {
+            res.extend(config.tags.iter().map(|s| &**s));
+        }
+        res
+    }
+
+    pub fn weight(&self) -> f64 {
+        self.configs.last().unwrap().weight
+    }
+
+    pub fn ignore(&self) -> bool {
+        self.configs.iter().any(|c| c.ignore)
     }
 }
 
@@ -190,36 +227,22 @@ mod tests {
 
     #[test]
     fn test_merge() {
-        let mut config = Config {
-            github: None,
-            name: None,
-            merge_defaults: true,
-            churn_cutoff: 14,
-            files: HashMap::new(),
-            authors: HashMap::new(),
-        };
+        let mut config = Config::default();
 
         config.files.insert(
             "**/*.rb".to_string(),
-            FileConfig {
+            GlobConfig {
                 weight: 1.0,
                 ignore: false,
                 tags: vec!["ruby".to_string()],
             },
         );
 
-        let mut config2 = Config {
-            github: None,
-            name: None,
-            merge_defaults: true,
-            churn_cutoff: 14,
-            files: HashMap::new(),
-            authors: HashMap::new(),
-        };
+        let mut config2 = Config::default();
 
         config2.files.insert(
             "**/*.rs".to_string(),
-            FileConfig {
+            GlobConfig {
                 weight: 1.0,
                 ignore: false,
                 tags: vec!["rust".to_string()],
@@ -237,5 +260,57 @@ mod tests {
         assert!(config.config_for_file("schema.rb").is_some());
         assert!(config.config_for_file("package.json").is_some());
         assert!(config.config_for_file("asdasd.asdasdasd").is_none());
+    }
+
+    #[test]
+    fn test_overlapping_globs() {
+        let mut config = Config::default();
+
+        config.files.insert(
+            "**/*.rb".to_string(),
+            GlobConfig {
+                weight: 1.0,
+                ignore: false,
+                tags: vec!["ruby".to_string()],
+            },
+        );
+
+        config.files.insert(
+            "**/*_spec.rb".to_string(),
+            GlobConfig {
+                weight: 0.5,
+                ignore: false,
+                tags: vec!["rspec".to_string()],
+            },
+        );
+
+        config.files.insert(
+            "some_bad_spec.rb".to_string(),
+            GlobConfig {
+                weight: 1.0,
+                ignore: true,
+                tags: vec![],
+            },
+        );
+
+        let file_config = config.config_for_file("db/schema.rb").unwrap();
+        let mut expected_set = HashSet::new();
+        expected_set.insert("ruby");
+        assert!(file_config.tags() == expected_set);
+        assert!(file_config.weight() == 1.0);
+        assert!(!file_config.ignore());
+
+        let file_config = config.config_for_file("spec/app_spec.rb").unwrap();
+        let mut expected_set = HashSet::new();
+        expected_set.insert("ruby");
+        expected_set.insert("rspec");
+        assert!(file_config.tags() == expected_set);
+        assert!(file_config.weight() == 0.5);
+        assert!(!file_config.ignore());
+
+        let file_config = config.config_for_file("some_bad_spec.rb").unwrap();
+        assert!(file_config.tags() == expected_set);
+        assert!(file_config.weight() == 1.0);
+        assert!(file_config.ignore());
     }
 }

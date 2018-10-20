@@ -10,6 +10,8 @@ chrono = "0.4"
 include_dir = "0.2"
 regex = "1"
 lazy_static = "1.1.0"
+linked-hash-map = {version = "0.5.1", features = ["serde_impl"]}
 serde = "1.0"
 serde_derive = "1.0"
+yaml-rust = {version = "*", features = ["preserve_order"]}
 serde_yaml = "0.8"
