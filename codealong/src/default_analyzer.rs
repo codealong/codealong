@@ -52,12 +52,12 @@ impl Analyzer for DefaultAnalyzer {
             None,
             Some(&mut |diff_delta, _, diff_line| {
                 let mut tags: Vec<String> = vec![];
+                let file_config = file_config.borrow();
                 file_config
-                    .borrow()
                     .as_ref()
                     .and_then(|c| Some(tags.extend(c.tags().iter().map(|s| s.to_string()))));
                 author_config.and_then(|c| Some(tags.extend(c.tags.iter().map(|s| s.to_string()))));
-                let line_stats = self
+                let mut line_stats = self
                     .analyze_line_diff(
                         &repo,
                         &commit,
@@ -67,6 +67,11 @@ impl Analyzer for DefaultAnalyzer {
                         blame.borrow().as_ref(),
                     )
                     .unwrap();
+                let weight = file_config
+                    .as_ref()
+                    .and_then(|c| Some(c.weight()))
+                    .unwrap_or(1.0);
+                line_stats.impact = self.calculate_impact(&line_stats, weight);
                 result.add_stats(line_stats, &tags);
                 true
             }),
@@ -181,6 +186,11 @@ impl DefaultAnalyzer {
         }
         return false;
     }
+
+    fn calculate_impact(&self, work_stats: &WorkStats, weight: f64) -> f64 {
+        ((work_stats.legacy_refactor * 4 + work_stats.help_others * 2 + work_stats.new_work) as f64)
+            * weight
+    }
 }
 
 #[cfg(test)]
@@ -216,7 +226,8 @@ mod tests {
                 legacy_refactor: 8,
                 churn: 0,
                 help_others: 0,
-                other: 0
+                other: 0,
+                impact: 40.0
             }
         );
     }
