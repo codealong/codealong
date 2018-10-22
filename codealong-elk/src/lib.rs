@@ -34,5 +34,5 @@ pub fn index(repo: &Repository, cb: Option<&Fn()>) {
 }
 
 fn get_es_index(date: &DateTime<Utc>) -> String {
-    date.format("logstash-%Y.%m.%d").to_string()
+    date.format("logstash-%Y.%m").to_string()
 }

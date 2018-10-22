@@ -1,10 +1,12 @@
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::collections::HashSet;
+use std::fs::File;
+use std::path::Path;
 
 use linked_hash_map::LinkedHashMap;
 
 use serde_yaml;
-use std::fs::File;
-use std::path::Path;
 
 use glob::Pattern;
 
@@ -67,6 +69,9 @@ pub struct Config {
 
     #[serde(default)]
     pub authors: LinkedHashMap<String, AuthorConfig>,
+
+    #[serde(default, skip_deserializing, skip_serializing)]
+    alias_cache: RefCell<Option<HashMap<String, String>>>,
 }
 
 impl Config {
@@ -129,6 +134,23 @@ impl Config {
         14
     }
 
+    fn ensure_alias_cache(&self) {
+        let mut cache = self.alias_cache.borrow_mut();
+        if cache.is_none() {
+            *cache = Some(self.build_alias_cache());
+        }
+    }
+
+    fn build_alias_cache(&self) -> HashMap<String, String> {
+        let mut res = HashMap::new();
+        for (author, config) in self.authors.iter() {
+            for alias in config.aliases.iter() {
+                res.insert(alias.clone(), author.to_owned());
+            }
+        }
+        res
+    }
+
     /// Merges in all file and author configs
     pub fn merge(&mut self, other: Config) {
         self.files.extend(other.files);
@@ -158,8 +180,16 @@ impl Config {
         }
     }
 
-    pub fn config_for_author(&self, _author: &str) -> Option<&AuthorConfig> {
-        None
+    pub fn config_for_author(&self, author: &str) -> Option<&AuthorConfig> {
+        let author = author.to_owned();
+        self.ensure_alias_cache();
+        let alias_cache = self.alias_cache.borrow();
+        let normalized_author = alias_cache
+            .as_ref()
+            .unwrap()
+            .get(&author)
+            .unwrap_or(&author);
+        self.authors.get(normalized_author)
     }
 }
 
@@ -172,6 +202,7 @@ impl Default for Config {
             churn_cutoff: 14,
             files: LinkedHashMap::new(),
             authors: LinkedHashMap::new(),
+            alias_cache: RefCell::new(None),
         }
     }
 }
@@ -264,6 +295,23 @@ mod tests {
         assert!(config.config_for_file("schema.rb").is_some());
         assert!(config.config_for_file("spec/models/code_spec.rb").is_some());
         assert!(config.config_for_file("rusty.rs").is_none());
+    }
+
+    #[test]
+    fn test_config_for_author() {
+        let config = Config::from_path(Path::new("fixtures/configs/simple.yml")).unwrap();
+        assert!(
+            config
+                .config_for_author("Gordon Hempton <ghempton@gmail.com>")
+                .is_some()
+        );
+        assert!(
+            config
+                .config_for_author("Gordon Hempton <gordon@outreach.io>")
+                .is_some()
+        );
+        assert!(config.config_for_author("<ghempton@gmail.com>").is_some());
+        assert!(config.config_for_author("Gordon Hempton").is_none());
     }
 
     #[test]
