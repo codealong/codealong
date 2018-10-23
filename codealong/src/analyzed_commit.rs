@@ -4,9 +4,10 @@ use chrono::prelude::*;
 use chrono::{DateTime, FixedOffset, TimeZone};
 use git2::{Commit, Time};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AnalyzedCommit {
     pub id: String,
+    #[serde(flatten)]
     pub diff: AnalyzedDiff,
     pub summary: Option<String>,
     pub author_email: Option<String>,
@@ -15,6 +16,7 @@ pub struct AnalyzedCommit {
     pub committer_email: Option<String>,
     pub committer_name: Option<String>,
     pub committed_at: DateTime<Utc>,
+    pub repo_name: Option<String>,
     pub github_url: Option<String>,
 }
 
@@ -30,6 +32,7 @@ impl AnalyzedCommit {
             committer_email: commit.committer().email().map(|s| s.to_string()),
             committer_name: commit.committer().name().map(|s| s.to_string()),
             committed_at: convert_time(&commit.committer().when()),
+            repo_name: None,
             github_url: None,
         }
     }

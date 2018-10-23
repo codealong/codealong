@@ -8,5 +8,7 @@ chrono = "0.4"
 codealong = { path = "../codealong" }
 git2 = "0.7"
 rs-es = "0.10"
+serde = "1.0"
+serde_derive = "1.0"
 serde_json = "1.0"
 hostname = "0.1"

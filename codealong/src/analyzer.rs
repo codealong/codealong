@@ -25,6 +25,9 @@ pub trait Analyzer {
                 github, result.id
             ));
         }
+        if let Some(ref repo_name) = self.config().repo_name {
+            result.repo_name = Some(repo_name.clone());
+        }
         return Ok(result);
     }
 

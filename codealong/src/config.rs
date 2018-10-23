@@ -56,7 +56,7 @@ pub struct Config {
     pub github: Option<String>,
 
     #[serde(default)]
-    pub name: Option<String>,
+    pub repo_name: Option<String>,
 
     #[serde(default = "Config::default_merge_defaults")]
     pub merge_defaults: bool,
@@ -102,8 +102,8 @@ impl Config {
         } else {
             Self::base()
         };
-        if config.name.is_none() {
-            config.name = path
+        if config.repo_name.is_none() {
+            config.repo_name = path
                 .file_name()
                 .and_then(|s| s.to_str())
                 .map(|s| s.to_owned());
@@ -196,7 +196,7 @@ impl Config {
 impl Default for Config {
     fn default() -> Config {
         Config {
-            name: None,
+            repo_name: None,
             github: None,
             merge_defaults: true,
             churn_cutoff: 14,
@@ -272,13 +272,13 @@ mod tests {
     #[test]
     fn test_from_dir_without_config() {
         let config = Config::from_dir(Path::new("fixtures/repos/simple")).unwrap();
-        assert_eq!(config.name, Some("simple".to_owned()));
+        assert_eq!(config.repo_name, Some("simple".to_owned()));
     }
 
     #[test]
     fn test_from_dir_with_config() {
         let config = Config::from_dir(Path::new("fixtures/repos/bare_config")).unwrap();
-        assert_eq!(config.name, Some("bare_config".to_owned()));
+        assert_eq!(config.repo_name, Some("bare_config".to_owned()));
         assert!(config.config_for_file("README.md").is_some());
     }
 

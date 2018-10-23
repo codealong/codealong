@@ -10,10 +10,7 @@ pub struct AnalyzedDiff {
 
 impl AnalyzedDiff {
     pub fn empty() -> AnalyzedDiff {
-        AnalyzedDiff {
-            stats: WorkStats::empty(),
-            tag_stats: HashMap::new(),
-        }
+        Default::default()
     }
 
     /// Adds the stats to all tags
@@ -26,6 +23,15 @@ impl AnalyzedDiff {
             } else {
                 self.tag_stats.insert(tag.to_string(), stats);
             }
+        }
+    }
+}
+
+impl Default for AnalyzedDiff {
+    fn default() -> Self {
+        AnalyzedDiff {
+            stats: WorkStats::empty(),
+            tag_stats: HashMap::new(),
         }
     }
 }
