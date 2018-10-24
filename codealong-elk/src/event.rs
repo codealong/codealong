@@ -35,4 +35,8 @@ impl Event {
     pub fn id(&self) -> &str {
         &self.commit.id
     }
+
+    pub fn timestamp(&self) -> &DateTime<Utc> {
+        &self.timestamp
+    }
 }
