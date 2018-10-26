@@ -83,7 +83,7 @@ impl Analyzer for DefaultAnalyzer {
 impl DefaultAnalyzer {
     pub fn new() -> DefaultAnalyzer {
         DefaultAnalyzer {
-            config: Config::default(),
+            config: Config::base(),
         }
     }
 

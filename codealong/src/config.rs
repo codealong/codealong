@@ -98,7 +98,9 @@ impl Config {
     pub fn from_dir(path: &Path) -> Result<Self, Error> {
         let file_path = path.join(".codealong").join("config.yml");
         let mut config = if file_path.exists() {
-            Self::from_path(&file_path)?
+            let mut config = Self::from_path(&file_path)?;
+            config.maybe_apply_base();
+            config
         } else {
             Self::base()
         };
