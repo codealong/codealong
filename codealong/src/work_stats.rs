@@ -7,7 +7,7 @@ pub struct WorkStats {
     pub churn: u64,
     pub help_others: u64,
     pub other: u64,
-    pub impact: f64,
+    pub impact: u64,
 }
 
 impl WorkStats {
@@ -59,7 +59,7 @@ impl Default for WorkStats {
             churn: 0,
             help_others: 0,
             other: 0,
-            impact: 0.0,
+            impact: 0,
         }
     }
 }
@@ -131,6 +131,6 @@ mod tests {
         assert_eq!(stats.churn, 0);
         assert_eq!(stats.help_others, 0);
         assert_eq!(stats.other, 0);
-        assert_eq!(stats.impact, 0.0);
+        assert_eq!(stats.impact, 0);
     }
 }

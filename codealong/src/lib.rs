@@ -14,35 +14,39 @@ extern crate serde_yaml;
 
 mod analyzed_commit;
 mod analyzed_diff;
-mod analyzer;
+mod commit_analyzer;
 mod config;
-mod default_analyzer;
+mod config_context;
+mod diff_analyzer;
 mod error;
 mod fast_blame;
+mod file_analyzer;
+mod hunk_analyzer;
+mod line_analyzer;
 mod work_stats;
 
 use git2::{Repository, Revwalk};
 
 pub use analyzed_commit::AnalyzedCommit;
-pub use analyzer::Analyzer;
+pub use commit_analyzer::CommitAnalyzer;
 pub use config::Config;
-pub use default_analyzer::DefaultAnalyzer;
 pub use error::Error;
 
 pub fn walk<'repo>(repo: &'repo Repository) -> AnalyzedRevwalk<'repo> {
     let mut revwalk = repo.revwalk().unwrap();
     revwalk.push_head().unwrap();
+    let config = Config::base();
     AnalyzedRevwalk {
-        analyzer: Box::new(DefaultAnalyzer::new()),
         repo,
         revwalk,
+        config,
     }
 }
 
 pub struct AnalyzedRevwalk<'repo> {
-    analyzer: Box<Analyzer>,
     repo: &'repo Repository,
     revwalk: Revwalk<'repo>,
+    config: Config,
 }
 
 impl<'repo> Iterator for AnalyzedRevwalk<'repo> {
@@ -55,7 +59,8 @@ impl<'repo> Iterator for AnalyzedRevwalk<'repo> {
             Some(rev) => {
                 let oid = rev.unwrap();
                 let commit = self.repo.find_commit(oid).unwrap();
-                Some(self.analyzer.analyze_commit(self.repo, &commit))
+                let analyzer = CommitAnalyzer::new(self.repo, &commit, &self.config);
+                Some(analyzer.analyze())
             }
         }
     }
