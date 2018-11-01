@@ -3,5 +3,6 @@
 members = [
     "codealong",
     "codealong-cli",
-    "codealong-elk"
+    "codealong-elk",
+    "codealong-github"
 ]
