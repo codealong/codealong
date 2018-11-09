@@ -81,11 +81,11 @@ mod tests {
             // XXX: tweak this
             WorkStats {
                 new_work: 8,
-                legacy_refactor: 8,
-                churn: 0,
+                legacy_refactor: 7,
+                churn: 1,
                 help_others: 0,
                 other: 0,
-                impact: 30
+                impact: 29
             }
         );
     }

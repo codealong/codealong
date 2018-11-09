@@ -1,8 +1,10 @@
 use analyzed_diff::AnalyzedDiff;
+use event::Event;
 
 use chrono::prelude::*;
 use chrono::{DateTime, FixedOffset, TimeZone};
 use git2::{Commit, Time};
+use std::borrow::Cow;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AnalyzedCommit {
@@ -39,6 +41,20 @@ impl AnalyzedCommit {
 
     pub fn merge_diff(&mut self, diff: &AnalyzedDiff) {
         self.diff = &self.diff + diff;
+    }
+}
+
+impl Event for AnalyzedCommit {
+    fn timestamp(&self) -> &DateTime<Utc> {
+        &self.authored_at
+    }
+
+    fn event_type(&self) -> &str {
+        "commit"
+    }
+
+    fn id(&self) -> Cow<str> {
+        Cow::Borrowed(&self.id)
     }
 }
 

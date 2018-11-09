@@ -24,7 +24,10 @@ impl Client {
         }
     }
 
-    pub fn index(&self, event: &Event) -> reqwest::Result<reqwest::Response> {
+    pub fn index<T: codealong::Event + serde::Serialize>(
+        &self,
+        event: &Event<T>,
+    ) -> reqwest::Result<reqwest::Response> {
         let client = reqwest::Client::new();
         let index = get_es_index(event.timestamp());
         let url = format!("{}/{}/_doc/{}", self.url, index, event.id());

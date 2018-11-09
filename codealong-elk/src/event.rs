@@ -1,11 +1,13 @@
 extern crate hostname;
-use codealong::AnalyzedCommit;
+use codealong;
 
 use chrono::prelude::*;
 use chrono::DateTime;
 
+use std::borrow::Cow;
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Event {
+pub struct Event<T: codealong::Event> {
     #[serde(rename = "@timestamp")]
     timestamp: DateTime<Utc>,
 
@@ -18,22 +20,25 @@ pub struct Event {
     event_type: String,
 
     #[serde(flatten)]
-    commit: AnalyzedCommit,
+    inner: T,
 }
 
-impl Event {
-    pub fn new(analyzed_commit: AnalyzedCommit) -> Event {
+impl<T> Event<T>
+where
+    T: codealong::Event,
+{
+    pub fn new(inner: T) -> Event<T> {
         Event {
-            event_type: "commit".to_owned(),
+            event_type: inner.event_type().to_string(),
             version: 1,
             host: hostname::get_hostname(),
-            timestamp: analyzed_commit.authored_at.clone(),
-            commit: analyzed_commit,
+            timestamp: inner.timestamp().clone(),
+            inner: inner,
         }
     }
 
-    pub fn id(&self) -> &str {
-        &self.commit.id
+    pub fn id(&self) -> Cow<str> {
+        self.inner.id()
     }
 
     pub fn timestamp(&self) -> &DateTime<Utc> {

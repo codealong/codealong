@@ -5,6 +5,7 @@ authors = ["Gordon Hempton <ghempton@gmail.com>"]
 
 [dependencies]
 codealong = { path = "../codealong" }
+chrono = {version = "0.4", features = ["serde"]}
 regex = "1"
 lazy_static = "1.1.0"
 reqwest = "0.9.4"

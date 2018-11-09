@@ -19,6 +19,7 @@ mod config;
 mod config_context;
 mod diff_analyzer;
 mod error;
+mod event;
 mod fast_blame;
 mod file_analyzer;
 mod hunk_analyzer;
@@ -31,6 +32,7 @@ pub use analyzed_commit::AnalyzedCommit;
 pub use commit_analyzer::CommitAnalyzer;
 pub use config::Config;
 pub use error::Error;
+pub use event::Event;
 
 pub fn walk<'repo>(repo: &'repo Repository) -> AnalyzedRevwalk<'repo> {
     let mut revwalk = repo.revwalk().unwrap();
