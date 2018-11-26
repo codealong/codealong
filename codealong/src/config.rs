@@ -4,13 +4,13 @@ use std::collections::HashSet;
 use std::fs::File;
 use std::path::Path;
 
+use git2::Repository;
+use glob::Pattern;
 use linked_hash_map::LinkedHashMap;
-
+use regex::Regex;
 use serde_yaml;
 
-use glob::Pattern;
-
-use error::Error;
+use error::{Error, Result};
 
 use include_dir::Dir;
 
@@ -75,12 +75,12 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn from_path(path: &Path) -> Result<Self, Error> {
+    pub fn from_path(path: &Path) -> Result<Self> {
         let file = File::open(path)?;
         Self::from_file(&file)
     }
 
-    pub fn from_file(file: &File) -> Result<Self, Error> {
+    pub fn from_file(file: &File) -> Result<Self> {
         match serde_yaml::from_reader::<_, Config>(file) {
             Ok(mut config) => {
                 config.maybe_apply_base();
@@ -95,7 +95,7 @@ impl Config {
     /// to the base config.
     ///
     /// If the config has no `name`, then default to the name of the directory.
-    pub fn from_dir(path: &Path) -> Result<Self, Error> {
+    pub fn from_dir(path: &Path) -> Result<Self> {
         let file_path = path.join(".codealong").join("config.yml");
         let mut config = if file_path.exists() {
             let mut config = Self::from_path(&file_path)?;
@@ -109,6 +109,23 @@ impl Config {
                 .file_name()
                 .and_then(|s| s.to_str())
                 .map(|s| s.to_owned());
+        }
+        Ok(config)
+    }
+
+    pub fn from_repo(repo: &Repository) -> Result<Self> {
+        let mut config = Self::from_dir(repo.path())?;
+        // attempt to infer a github value based off of origin
+        if let Ok(remote) = repo.find_remote("origin") {
+            if let Some(url) = remote.url() {
+                lazy_static! {
+                    static ref GITHUB_REGEX: Regex =
+                        Regex::new(r#"git@github.com:(.+/.+).git"#).unwrap();
+                }
+                GITHUB_REGEX
+                    .captures(url)
+                    .map(|captures| config.github.replace(captures[1].to_owned()));
+            }
         }
         Ok(config)
     }
@@ -285,6 +302,15 @@ mod tests {
     }
 
     #[test]
+    fn test_from_repo() {
+        let config =
+            Config::from_repo(&Repository::open("fixtures/repos/bare_config").unwrap()).unwrap();
+        assert_eq!(config.github, None);
+        let config = Config::from_repo(&Repository::open_from_env().unwrap()).unwrap();
+        assert_eq!(config.github, Some("ghempton/codealong".to_owned()));
+    }
+
+    #[test]
     fn test_deserialization() {
         let config = Config::from_path(Path::new("fixtures/configs/simple.yml")).unwrap();
         assert_eq!(config.files.len(), 5);
@@ -302,16 +328,12 @@ mod tests {
     #[test]
     fn test_config_for_author() {
         let config = Config::from_path(Path::new("fixtures/configs/simple.yml")).unwrap();
-        assert!(
-            config
-                .config_for_author("Gordon Hempton <ghempton@gmail.com>")
-                .is_some()
-        );
-        assert!(
-            config
-                .config_for_author("Gordon Hempton <gordon@outreach.io>")
-                .is_some()
-        );
+        assert!(config
+            .config_for_author("Gordon Hempton <ghempton@gmail.com>")
+            .is_some());
+        assert!(config
+            .config_for_author("Gordon Hempton <gordon@outreach.io>")
+            .is_some());
         assert!(config.config_for_author("<ghempton@gmail.com>").is_some());
         assert!(config.config_for_author("Gordon Hempton").is_none());
     }
