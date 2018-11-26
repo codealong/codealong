@@ -36,10 +36,10 @@ impl<'a> HunkAnalyzer<'a> {
         Ok(())
     }
 
-    pub fn finish(self) -> WorkStats {
+    pub fn finish(self) -> (Option<FastBlame>, WorkStats) {
         let mut result = self.result;
         result.impact = calculate_impact(&result, self.weight);
-        result
+        (self.blame, result)
     }
 }
 
@@ -64,6 +64,29 @@ impl<'a> HunkAnalyzer<'a> {
 fn calculate_impact(work_stats: &WorkStats, weight: f64) -> u64 {
     let line_value =
         work_stats.legacy_refactor * 4 + work_stats.help_others * 2 + work_stats.new_work;
-    let scaled_line_value = ((line_value.pow(4) + 1) as f64).log2();
+    let scaled_line_value = (line_value as f64).powf(0.5);
     (scaled_line_value * weight).round() as u64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_impact() {
+        assert_eq!(calculate_impact(&WorkStats {
+            new_work: 100,
+            ..Default::default()
+        }, 1.0), 10);
+
+        assert_eq!(calculate_impact(&WorkStats {
+            legacy_refactor: 100,
+            ..Default::default()
+        }, 1.0), 20);
+
+        assert_eq!(calculate_impact(&WorkStats {
+            churn: 100,
+            ..Default::default()
+        }, 1.0), 0);
+    }
 }

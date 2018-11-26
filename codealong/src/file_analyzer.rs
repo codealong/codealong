@@ -40,11 +40,7 @@ impl<'a> FileAnalyzer<'a> {
     }
 
     pub fn start_hunk(&mut self) -> Result<(), Error> {
-        if let Some(current_hunk) = self.current_hunk.take() {
-            let hunk_result = current_hunk.finish();
-            self.result
-                .add_stats(hunk_result, self.config_context.tags())
-        }
+        self.finish_hunk();
         self.current_hunk.replace(HunkAnalyzer::new(
             self.repo,
             self.commit,
@@ -61,12 +57,17 @@ impl<'a> FileAnalyzer<'a> {
         Ok(())
     }
 
-    pub fn finish(mut self) -> AnalyzedDiff {
+    fn finish_hunk(&mut self) {
         if let Some(current_hunk) = self.current_hunk.take() {
-            let hunk_result = current_hunk.finish();
+            let (blame, hunk_result) = current_hunk.finish();
+            self.blame = blame;
             self.result
-                .add_stats(hunk_result, self.config_context.tags())
+                .add_stats(hunk_result, self.config_context.tags());
         }
+    }
+
+    pub fn finish(mut self) -> AnalyzedDiff {
+        self.finish_hunk();
         self.result
     }
 }

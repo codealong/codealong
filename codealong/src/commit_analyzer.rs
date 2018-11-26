@@ -85,7 +85,7 @@ mod tests {
                 churn: 1,
                 help_others: 0,
                 other: 0,
-                impact: 29
+                impact: 8
             }
         );
     }

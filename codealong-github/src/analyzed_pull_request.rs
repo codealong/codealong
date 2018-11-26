@@ -1,5 +1,5 @@
 use chrono::prelude::*;
-use chrono::{DateTime, TimeZone};
+use chrono::DateTime;
 use std::borrow::Cow;
 
 use codealong::Event;
