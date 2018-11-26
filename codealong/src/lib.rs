@@ -1,4 +1,6 @@
 extern crate chrono;
+#[macro_use]
+extern crate error_chain;
 extern crate git2;
 extern crate glob;
 #[macro_use]
