@@ -1,23 +1,25 @@
 #[macro_use]
 extern crate clap;
-
 extern crate codealong;
 extern crate codealong_elk;
 extern crate console;
+#[macro_use]
+extern crate error_chain;
 extern crate git2;
 extern crate indicatif;
 
+mod error;
+
+use error::Result;
+
 use git2::Repository;
 
-use indicatif::ProgressBar;
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 
-use console::{style, Emoji};
-
-use codealong::{AnalyzedRevwalk, Config, Error};
+use codealong::{AnalyzedRevwalk, Config};
 use codealong_elk::Client;
 
-static LOOKING_GLASS: Emoji = Emoji("🔍 ", "");
-static CHART_INCREASING: Emoji = Emoji("📈 ", "");
+use std::thread;
 
 fn main() {
     use clap::App;
@@ -30,34 +32,34 @@ fn main() {
     }
 }
 
-fn index_command(matches: &clap::ArgMatches) -> Result<(), Error> {
-    let path = matches.value_of("repo_path").unwrap();
-    let repo = Repository::discover(path).expect("unable to open repository");
-    let config = Config::from_dir(repo.path())?;
-    let revwalk = AnalyzedRevwalk::new(&repo, config)?;
-    let client = Client::default();
+fn index_command(matches: &clap::ArgMatches) -> Result<()> {
+    let m = MultiProgress::new();
+    let style = ProgressStyle::default_bar()
+        .template("[{elapsed_precise}] {bar:40.cyan/blue} {pos:>7}/{len:7} {msg}")
+        .progress_chars("##-");
 
-    println!(
-        "{} {}Calculating stats...",
-        style("[1/2]").bold().dim(),
-        LOOKING_GLASS
-    );
+    let pb = m.add(ProgressBar::new(0));
+    pb.set_style(style.clone());
 
-    let count = revwalk.len();
+    let path = matches.value_of("repo_path").unwrap().to_owned();
 
-    println!(
-        "{} {}Analyzing commits...",
-        style("[2/2]").bold().dim(),
-        CHART_INCREASING
-    );
+    let _ = thread::spawn(move || -> Result<()> {
+        let repo = Repository::discover(path).expect("unable to open repository");
+        let config = Config::from_dir(repo.path())?;
+        let revwalk = AnalyzedRevwalk::new(&repo, config)?;
+        let client = Client::default();
+        pb.set_message("calculating");
+        let count = revwalk.len();
+        pb.set_length(count as u64);
+        pb.set_message("analyzing commits");
+        for analyzed_commit in revwalk {
+            client.index(analyzed_commit?)?;
+            pb.inc(1);
+        }
+        Ok(pb.finish_with_message("Done"))
+    });
 
-    let pb = ProgressBar::new(count as u64);
+    m.join_and_clear()?;
 
-    for analyzed_commit in revwalk {
-        client.index(analyzed_commit?).expect("unable to index");
-        pb.inc(1);
-    }
-
-    pb.finish_with_message("done");
     Ok(())
 }

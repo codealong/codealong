@@ -33,5 +33,5 @@ pub use analyzed_commit::AnalyzedCommit;
 pub use analyzed_revwalk::AnalyzedRevwalk;
 pub use commit_analyzer::CommitAnalyzer;
 pub use config::Config;
-pub use error::Error;
+pub use error::{Error, ErrorKind};
 pub use event::Event;

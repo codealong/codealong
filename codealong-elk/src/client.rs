@@ -3,6 +3,7 @@ use chrono::DateTime;
 
 use event::Event;
 
+use error::Result;
 use reqwest;
 
 pub struct Client {
@@ -27,12 +28,12 @@ impl Client {
     pub fn index<T: codealong::Event + serde::Serialize>(
         &self,
         event: T,
-    ) -> reqwest::Result<reqwest::Response> {
+    ) -> Result<reqwest::Response> {
         let event = Event::new(event);
         let client = reqwest::Client::new();
         let index = get_es_index(event.timestamp());
         let url = format!("{}/{}/_doc/{}", self.url, index, event.id());
-        client.put(&url).json(&event).send()
+        Ok(client.put(&url).json(&event).send()?)
     }
 }
 

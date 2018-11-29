@@ -9,5 +9,6 @@ codealong-elk = { path = "../codealong-elk" }
 codealong-github = { path = "../codealong-github" }
 clap = {git = "https://github.com/clap-rs/clap", branch = "v3-dev",  features = ["yaml"]}
 console = "0.6.2"
+error-chain = "0.12"
 git2 = "0.7"
 indicatif = "0.9"
