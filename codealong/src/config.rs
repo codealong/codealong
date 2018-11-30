@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::ffi::OsStr;
 use std::fs::File;
 use std::path::Path;
 
@@ -96,6 +97,12 @@ impl Config {
     ///
     /// If the config has no `name`, then default to the name of the directory.
     pub fn from_dir(path: &Path) -> Result<Self> {
+        // if the `.git` directory was specified we want to convert to the
+        // parent directory
+        let mut path = path;
+        if path.file_name() == Some(OsStr::new(".git")) {
+            path = path.parent().unwrap();
+        }
         let file_path = path.join(".codealong").join("config.yml");
         let mut config = if file_path.exists() {
             let mut config = Self::from_path(&file_path)?;
