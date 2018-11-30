@@ -1,7 +1,7 @@
 use analyzed_pull_request::AnalyzedPullRequest;
 use pull_request::PullRequest;
 
-struct PullRequestAnalyzer {
+pub struct PullRequestAnalyzer {
     pr: PullRequest,
 }
 
@@ -12,6 +12,6 @@ impl PullRequestAnalyzer {
 
     pub fn analyze(self) -> AnalyzedPullRequest {
         // TODO analyze head..base
-        AnalyzedPullRequest::new(self.pr);
+        AnalyzedPullRequest::new(self.pr)
     }
 }

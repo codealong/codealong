@@ -119,12 +119,21 @@ impl Config {
         if let Ok(remote) = repo.find_remote("origin") {
             if let Some(url) = remote.url() {
                 lazy_static! {
-                    static ref GITHUB_REGEX: Regex =
-                        Regex::new(r#"git@github.com:(.+/.+).git"#).unwrap();
+                    static ref GITHUB_REGEX: Regex = Regex::new(
+                        r#"(git@github.com:(?P<a>.+/.+).git)|(https://github.com/(?P<b>.+/.+).git)"#
+                    )
+                    .unwrap();
                 }
-                GITHUB_REGEX
-                    .captures(url)
-                    .map(|captures| config.github.replace(captures[1].to_owned()));
+                GITHUB_REGEX.captures(url).map(|captures| {
+                    config.github.replace(
+                        captures
+                            .name("a")
+                            .or_else(|| captures.name("b"))
+                            .unwrap()
+                            .as_str()
+                            .to_owned(),
+                    )
+                });
             }
         }
         Ok(config)

@@ -25,7 +25,7 @@ impl AnalyzedPullRequest {
 
 impl Event for AnalyzedPullRequest {
     fn timestamp(&self) -> &DateTime<Utc> {
-        return &self.timestamp;
+        &self.timestamp
     }
 
     fn id(&self) -> Cow<str> {

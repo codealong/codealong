@@ -9,7 +9,10 @@ where
 {
     client: &'client Client,
     next_url: Option<String>,
+    num_pages: Option<usize>,
+    per_page: Option<usize>,
     current_page: Option<std::vec::IntoIter<T>>,
+    has_loaded_page: bool,
 }
 
 impl<'client, T> Cursor<'client, T>
@@ -21,7 +24,16 @@ where
             client,
             next_url: Some(url.to_owned()),
             current_page: None,
+            num_pages: None,
+            per_page: None,
+            has_loaded_page: false,
         }
+    }
+
+    pub fn guess_len(&mut self) -> Option<usize> {
+        self.ensure_page_loaded();
+        self.num_pages
+            .and_then(|num_page| self.per_page.map(|per_page| num_page * per_page))
     }
 
     fn get_next_url(&self, headers: &HeaderMap) -> Option<String> {
@@ -35,6 +47,46 @@ where
                 .map(|captures| captures[1].to_owned())
         })
     }
+
+    fn read_from_current_page(&mut self) -> Option<T> {
+        self.current_page.as_mut().and_then(|iter| iter.next())
+    }
+
+    fn get_num_pages(&self, headers: &HeaderMap) -> Option<usize> {
+        let link = headers.get("link");
+        link.and_then(|link| {
+            lazy_static! {
+                static ref LINK_LAST_PAGE_REGEX: Regex =
+                    Regex::new(r#"<[^ ]*page=(\d+)[^ ]*>; rel="last""#).unwrap();
+            }
+            LINK_LAST_PAGE_REGEX
+                .captures(link.to_str().unwrap())
+                .map(|captures| captures[1].to_owned().parse::<usize>().unwrap())
+        })
+    }
+
+    fn ensure_page_loaded(&mut self) {
+        if !self.has_loaded_page {
+            self.load_next_page();
+        }
+    }
+
+    fn load_next_page(&mut self) {
+        self.has_loaded_page = true;
+        self.next_url.take().map(|next_url| {
+            let mut res = self.client.build_request(&next_url).send().unwrap();
+            let new_page = res.json::<Vec<T>>().unwrap().into_iter();
+            let headers = res.headers();
+            self.next_url = self.get_next_url(&headers);
+            if let None = self.num_pages {
+                self.num_pages = self.get_num_pages(&headers);
+            }
+            if let None = self.per_page {
+                self.per_page = Some(new_page.len());
+            }
+            self.current_page = Some(new_page);
+        });
+    }
 }
 
 impl<'client, T> Iterator for Cursor<'client, T>
@@ -44,20 +96,10 @@ where
     type Item = T;
 
     fn next(&mut self) -> Option<T> {
-        let v = self.current_page.as_mut().and_then(|iter| iter.next());
-
-        if let None = v {
-            self.next_url.take().map(|next_url| {
-                let mut res = self.client.build_request(&next_url).send().unwrap();
-                let new_page = res.json::<Vec<T>>().unwrap().into_iter();
-                let headers = res.headers();
-                self.next_url = self.get_next_url(&headers);
-                self.current_page = Some(new_page);
-            });
-            self.current_page.as_mut().and_then(|iter| iter.next())
-        } else {
-            v
-        }
+        self.read_from_current_page().or_else(|| {
+            self.load_next_page();
+            self.read_from_current_page()
+        })
     }
 }
 
@@ -69,10 +111,11 @@ mod tests {
     #[test]
     fn test_cursor() {
         let client = Client::public();
-        let cursor: Cursor<PullRequest> = Cursor::new(
+        let mut cursor: Cursor<PullRequest> = Cursor::new(
             &client,
             "https://api.github.com/repos/facebook/react/pulls?state=all",
         );
+        assert!(cursor.guess_len().unwrap() > 100);
         assert_eq!(cursor.take(100).collect::<Vec<PullRequest>>().len(), 100);
     }
 }
