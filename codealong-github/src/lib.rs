@@ -1,4 +1,7 @@
 extern crate chrono;
+#[macro_use]
+extern crate error_chain;
+extern crate git2;
 extern crate regex;
 #[macro_use]
 extern crate lazy_static;
@@ -12,11 +15,13 @@ extern crate serde_json;
 mod analyzed_pull_request;
 mod client;
 mod cursor;
+mod error;
 mod pull_request;
 mod pull_request_analyzer;
 
 pub use analyzed_pull_request::AnalyzedPullRequest;
 pub use client::Client;
 pub use cursor::Cursor;
+pub use error::{Error, ErrorKind};
 pub use pull_request::PullRequest;
 pub use pull_request_analyzer::PullRequestAnalyzer;

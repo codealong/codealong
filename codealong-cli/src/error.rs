@@ -1,5 +1,6 @@
 use codealong;
 use codealong_elk;
+use codealong_github;
 
 error_chain! {
 
@@ -10,5 +11,6 @@ error_chain! {
     links {
         Core(codealong::Error, codealong::ErrorKind);
         Elk(codealong_elk::Error, codealong_elk::ErrorKind);
+        Github(codealong_github::Error, codealong_github::ErrorKind);
     }
 }

@@ -2,7 +2,7 @@ use chrono::prelude::*;
 use chrono::DateTime;
 use std::borrow::Cow;
 
-use codealong::Event;
+use codealong::{AnalyzedDiff, Event};
 
 use pull_request::PullRequest;
 
@@ -12,13 +12,17 @@ pub struct AnalyzedPullRequest {
 
     #[serde(flatten)]
     pr: PullRequest,
+
+    #[serde(flatten)]
+    pub diff: Option<AnalyzedDiff>,
 }
 
 impl AnalyzedPullRequest {
-    pub fn new(pr: PullRequest) -> AnalyzedPullRequest {
+    pub fn new(pr: PullRequest, diff: Option<AnalyzedDiff>) -> AnalyzedPullRequest {
         AnalyzedPullRequest {
             timestamp: pr.merged_at.unwrap_or(pr.updated_at),
             pr,
+            diff,
         }
     }
 }

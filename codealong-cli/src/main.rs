@@ -43,12 +43,12 @@ fn index_command(matches: &clap::ArgMatches) -> Result<()> {
     let pb = m.add(ProgressBar::new(0));
     pb.set_style(style.clone());
     let p = path.clone();
-    let _ = thread::spawn(move || -> Result<()> { index_commits(pb, p) });
+    let _ = thread::spawn(move || index_commits(pb, p).unwrap());
 
     let pb = m.add(ProgressBar::new(0));
     pb.set_style(style.clone());
     let p = path.clone();
-    let _ = thread::spawn(move || -> Result<()> { index_prs(pb, p) });
+    let _ = thread::spawn(move || index_prs(pb, p).unwrap());
 
     m.join_and_clear()?;
 
@@ -81,7 +81,7 @@ fn index_prs(pb: ProgressBar, path: String) -> Result<()> {
     pb.set_message(&format!("{}: calculating", repo_name));
     let url = format!(
         "https://api.github.com/repos/{}/pulls?state=all",
-        config.github.unwrap()
+        config.github.clone().unwrap()
     );
     let mut cursor: codealong_github::Cursor<codealong_github::PullRequest> =
         codealong_github::Cursor::new(&github_client, &url);
@@ -91,8 +91,8 @@ fn index_prs(pb: ProgressBar, path: String) -> Result<()> {
     }
     pb.set_message(&format!("{}: analyzing pull requests", repo_name));
     for pr in cursor {
-        let analyzer = codealong_github::PullRequestAnalyzer::new(pr);
-        client.index(analyzer.analyze())?;
+        let analyzer = codealong_github::PullRequestAnalyzer::new(&repo, pr, &config);
+        client.index(analyzer.analyze()?)?;
         pb.inc(1);
     }
     Ok(pb.finish_with_message(&format!("{}: done", repo_name)))

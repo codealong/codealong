@@ -21,6 +21,14 @@ pub struct PullRequest {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Ref {
     pub sha: String,
+    #[serde(rename = "ref")]
+    pub reference: String,
+    pub repo: Option<Repo>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Repo {
+    pub html_url: String,
 }
 
 impl PullRequest {}
