@@ -2,9 +2,9 @@ name: codealong
 version: "1.0"
 author: Gordon L. Hempton <ghempton@gmail.com>
 about: Open source development metrics
-? args
+args:
 subcommands:
-  - index:
+  - analyze:
       about: indexes commits
       args:
         - elasticsearch_url:
@@ -16,4 +16,5 @@ subcommands:
             short: p
             long: repo-path
             help: path to the repo to analyze
+            multiple: true
             default_value: .
