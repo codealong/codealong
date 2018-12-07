@@ -19,9 +19,9 @@ mod error;
 mod pull_request;
 mod pull_request_analyzer;
 
-pub use analyzed_pull_request::AnalyzedPullRequest;
-pub use client::Client;
-pub use cursor::Cursor;
-pub use error::{Error, ErrorKind};
-pub use pull_request::PullRequest;
-pub use pull_request_analyzer::PullRequestAnalyzer;
+pub use crate::analyzed_pull_request::AnalyzedPullRequest;
+pub use crate::client::Client;
+pub use crate::cursor::Cursor;
+pub use crate::error::{Error, ErrorKind};
+pub use crate::pull_request::PullRequest;
+pub use crate::pull_request_analyzer::PullRequestAnalyzer;

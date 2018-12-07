@@ -6,7 +6,7 @@ use std::io::BufReader;
 use std::path::Path;
 use std::process::{Child, ChildStdout, Command, Stdio};
 
-use error::Error;
+use crate::error::Error;
 
 use regex::Regex;
 

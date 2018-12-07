@@ -3,11 +3,11 @@ use git2::{Commit, Diff, DiffOptions, Repository};
 use std::cell::RefCell;
 use std::collections::HashMap;
 
-use analyzed_diff::AnalyzedDiff;
-use config::Config;
-use error::Error;
-use file_analyzer::FileAnalyzer;
-use work_stats::WorkStats;
+use crate::analyzed_diff::AnalyzedDiff;
+use crate::config::Config;
+use crate::error::Error;
+use crate::file_analyzer::FileAnalyzer;
+use crate::work_stats::WorkStats;
 
 pub struct DiffAnalyzer<'a> {
     repo: &'a Repository,

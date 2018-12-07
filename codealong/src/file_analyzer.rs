@@ -1,11 +1,11 @@
 use git2::{Commit, Delta, DiffDelta, DiffLine, Repository};
 
-use analyzed_diff::AnalyzedDiff;
-use config::{AuthorConfig, Config, FileConfig};
-use config_context::ConfigContext;
-use error::Error;
-use fast_blame::FastBlame;
-use hunk_analyzer::HunkAnalyzer;
+use crate::analyzed_diff::AnalyzedDiff;
+use crate::config::{AuthorConfig, Config, FileConfig};
+use crate::config_context::ConfigContext;
+use crate::error::Error;
+use crate::fast_blame::FastBlame;
+use crate::hunk_analyzer::HunkAnalyzer;
 
 pub struct FileAnalyzer<'a> {
     repo: &'a Repository,

@@ -12,7 +12,7 @@ extern crate indicatif;
 mod analyze;
 mod error;
 
-use analyze::analyze;
+use crate::analyze::analyze;
 
 fn main() {
     use clap::App;

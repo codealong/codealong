@@ -4,7 +4,7 @@ use std::borrow::Cow;
 
 use codealong::{AnalyzedDiff, Event};
 
-use pull_request::PullRequest;
+use crate::pull_request::PullRequest;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AnalyzedPullRequest {

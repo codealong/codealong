@@ -1,9 +1,9 @@
 use git2::{Commit, DiffLine, Repository};
 
-use error::Error;
-use fast_blame::FastBlame;
-use line_analyzer::LineAnalyzer;
-use work_stats::WorkStats;
+use crate::error::Error;
+use crate::fast_blame::FastBlame;
+use crate::line_analyzer::LineAnalyzer;
+use crate::work_stats::WorkStats;
 
 pub struct HunkAnalyzer<'a> {
     repo: &'a Repository,

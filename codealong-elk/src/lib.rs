@@ -12,5 +12,5 @@ mod client;
 mod error;
 mod event;
 
-pub use client::Client;
-pub use error::{Error, ErrorKind};
+pub use crate::client::Client;
+pub use crate::error::{Error, ErrorKind};

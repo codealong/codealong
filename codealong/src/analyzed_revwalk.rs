@@ -1,7 +1,7 @@
-use analyzed_commit::AnalyzedCommit;
-use commit_analyzer::CommitAnalyzer;
-use config::Config;
-use error::Error;
+use crate::analyzed_commit::AnalyzedCommit;
+use crate::commit_analyzer::CommitAnalyzer;
+use crate::config::Config;
+use crate::error::Error;
 
 use git2::{Repository, Revwalk};
 

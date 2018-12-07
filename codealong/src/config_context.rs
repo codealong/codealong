@@ -1,4 +1,4 @@
-use config::{AuthorConfig, FileConfig};
+use crate::config::{AuthorConfig, FileConfig};
 
 pub struct ConfigContext {
     tags: Vec<String>,

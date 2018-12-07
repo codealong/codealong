@@ -1,4 +1,4 @@
-use client::Client;
+use crate::client::Client;
 use regex::Regex;
 use reqwest::header::HeaderMap;
 
@@ -106,7 +106,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pull_request::PullRequest;
+    use crate::pull_request::PullRequest;
 
     #[test]
     fn test_cursor() {

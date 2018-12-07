@@ -1,9 +1,9 @@
 use chrono::prelude::*;
 use chrono::DateTime;
 
-use event::Event;
+use crate::event::Event;
 
-use error::Result;
+use crate::error::Result;
 use reqwest;
 
 pub struct Client {

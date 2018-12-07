@@ -1,5 +1,5 @@
-use analyzed_diff::AnalyzedDiff;
-use event::Event;
+use crate::analyzed_diff::AnalyzedDiff;
+use crate::event::Event;
 
 use chrono::prelude::*;
 use chrono::{DateTime, FixedOffset, TimeZone};

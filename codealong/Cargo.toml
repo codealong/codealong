@@ -2,6 +2,7 @@
 name = "codealong"
 version = "0.1.0"
 authors = ["ghempton"]
+edition = "2018"
 
 [dependencies]
 error-chain = "0.12"

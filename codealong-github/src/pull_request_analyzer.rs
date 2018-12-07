@@ -1,8 +1,8 @@
 use git2::{Oid, Repository};
 
-use analyzed_pull_request::AnalyzedPullRequest;
-use error::{Error, Result};
-use pull_request::PullRequest;
+use crate::analyzed_pull_request::AnalyzedPullRequest;
+use crate::error::{Error, Result};
+use crate::pull_request::PullRequest;
 
 use codealong::{Config, DiffAnalyzer};
 

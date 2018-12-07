@@ -11,7 +11,7 @@ use linked_hash_map::LinkedHashMap;
 use regex::Regex;
 use serde_yaml;
 
-use error::{Error, Result};
+use crate::error::{Error, Result};
 
 use include_dir::Dir;
 

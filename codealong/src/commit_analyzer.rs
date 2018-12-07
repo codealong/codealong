@@ -1,9 +1,9 @@
 use git2::{Commit, Repository};
 
-use analyzed_commit::AnalyzedCommit;
-use config::Config;
-use diff_analyzer::DiffAnalyzer;
-use error::Error;
+use crate::analyzed_commit::AnalyzedCommit;
+use crate::config::Config;
+use crate::diff_analyzer::DiffAnalyzer;
+use crate::error::Error;
 
 pub struct CommitAnalyzer<'a> {
     repo: &'a Repository,
@@ -53,7 +53,7 @@ mod tests {
     use super::*;
     use git2::Oid;
     use std::path::Path;
-    use work_stats::WorkStats;
+    use crate::work_stats::WorkStats;
 
     #[test]
     fn test_initial_commit() {

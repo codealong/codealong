@@ -1,4 +1,4 @@
-use error::Result;
+use crate::error::Result;
 
 use git2::Repository;
 

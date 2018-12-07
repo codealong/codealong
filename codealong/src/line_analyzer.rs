@@ -1,8 +1,8 @@
 use git2::{Commit, DiffLine, Repository, Signature};
 
-use error::Error;
-use fast_blame::FastBlame;
-use work_stats::WorkStats;
+use crate::error::Error;
+use crate::fast_blame::FastBlame;
+use crate::work_stats::WorkStats;
 
 pub struct LineAnalyzer<'a> {
     repo: &'a Repository,
