@@ -127,7 +127,7 @@ impl Config {
             if let Some(url) = remote.url() {
                 lazy_static! {
                     static ref GITHUB_REGEX: Regex = Regex::new(
-                        r#"(git@github.com:(?P<a>.+/.+).git)|(https://github.com/(?P<b>.+/.+).git)"#
+                        r#"(git@github.com:(?P<a>.+/.+).git)|(https://github.com/(?P<b>.+/.+)(?:.git)?)"#
                     )
                     .unwrap();
                 }

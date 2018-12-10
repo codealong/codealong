@@ -15,6 +15,10 @@ subcommands:
         - repo_path:
             short: p
             long: repo-path
-            help: path to the repo to analyze
+            help: path to a repo to analyze
             multiple: true
-            default_value: .
+        - repo_url:
+            short: u
+            long: repo-url
+            help: URL of a repo to analyze
+            multiple: true

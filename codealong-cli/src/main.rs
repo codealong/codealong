@@ -4,6 +4,7 @@ extern crate codealong;
 extern crate codealong_elk;
 extern crate codealong_github;
 extern crate console;
+extern crate dirs;
 #[macro_use]
 extern crate error_chain;
 extern crate git2;
@@ -11,6 +12,8 @@ extern crate indicatif;
 
 mod analyze;
 mod error;
+mod repo;
+mod utils;
 
 use crate::analyze::analyze;
 

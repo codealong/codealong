@@ -6,6 +6,8 @@ error_chain! {
 
     foreign_links {
         IO(std::io::Error);
+        Git2(git2::Error);
+        Url(url::ParseError);
     }
 
     links {
