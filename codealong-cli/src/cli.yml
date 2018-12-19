@@ -5,7 +5,7 @@ about: Open source development metrics
 args:
 subcommands:
   - analyze:
-      about: indexes commits
+      about: analyze and index events
       args:
         - elasticsearch_url:
             short: e
@@ -22,3 +22,19 @@ subcommands:
             long: repo-url
             help: URL of a repo to analyze
             multiple: true
+        - github_org:
+            short: o
+            long: github-org
+            help: name of Github organization from which to pull all repositories
+            multiple: true
+        - concurrency:
+            short: c
+            long: concurrency
+            help: the number of concurrent worker threads
+            default_value: "6"
+        - skip_commits:
+            long: skip-commits
+            help: don't analyze commits
+        - skip_pull_requests:
+            long: skip-pull-requests
+            help: don't analyze pull requests

@@ -3,7 +3,7 @@ use std::fs::create_dir_all;
 use std::path::{Path, PathBuf};
 
 use git2::build::{CheckoutBuilder, RepoBuilder};
-use git2::{FetchOptions, RemoteCallbacks, Repository};
+use git2::{FetchOptions, Progress, RemoteCallbacks, Repository};
 use url::Url;
 
 use crate::error::Result;

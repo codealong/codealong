@@ -1,5 +1,6 @@
 use reqwest;
 use reqwest::RequestBuilder;
+use std::env;
 
 pub struct Client {
     token: Option<String>,
@@ -13,6 +14,12 @@ impl Client {
 
     pub fn public() -> Client {
         Client { token: None }
+    }
+
+    pub fn from_env() -> Client {
+        Client {
+            token: env::var_os("GITHUB_TOKEN").and_then(|s| s.into_string().ok()),
+        }
     }
 
     pub fn build_request(&self, url: &str) -> RequestBuilder {

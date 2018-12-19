@@ -8,6 +8,7 @@ error_chain! {
         IO(std::io::Error);
         Git2(git2::Error);
         Url(url::ParseError);
+        ArgParse(std::num::ParseIntError);
     }
 
     links {

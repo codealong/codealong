@@ -1,17 +1,19 @@
 use chrono::prelude::*;
 use chrono::DateTime;
 
+use crate::repo::Repo;
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PullRequest {
     pub id: u64,
-    pub url: String,
+    pub url: Option<String>,
     pub number: u64,
     pub base: Ref,
     pub head: Ref,
-    pub html_url: String,
-    pub state: String,
-    pub title: String,
-    pub body: String,
+    pub html_url: Option<String>,
+    pub state: Option<String>,
+    pub title: Option<String>,
+    pub body: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub closed_at: Option<DateTime<Utc>>,
@@ -25,10 +27,3 @@ pub struct Ref {
     pub reference: String,
     pub repo: Option<Repo>,
 }
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Repo {
-    pub html_url: String,
-}
-
-impl PullRequest {}

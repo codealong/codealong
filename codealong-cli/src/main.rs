@@ -11,8 +11,12 @@ extern crate git2;
 extern crate indicatif;
 
 mod analyze;
+mod analyze_repos;
 mod error;
+mod expand_repos;
+mod initialize_repos;
 mod repo;
+mod ui;
 mod utils;
 
 use crate::analyze::analyze;

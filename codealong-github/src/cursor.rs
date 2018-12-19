@@ -1,6 +1,9 @@
-use crate::client::Client;
 use regex::Regex;
 use reqwest::header::HeaderMap;
+use reqwest::StatusCode;
+
+use crate::client::Client;
+use crate::error::{ErrorKind, ErrorPayload, Result};
 
 /// Provides an iterator on top of the Github pagination API
 pub struct Cursor<'client, T>
@@ -71,21 +74,34 @@ where
         }
     }
 
-    fn load_next_page(&mut self) {
-        self.has_loaded_page = true;
-        self.next_url.take().map(|next_url| {
-            let mut res = self.client.build_request(&next_url).send().unwrap();
-            let new_page = res.json::<Vec<T>>().unwrap().into_iter();
-            let headers = res.headers();
-            self.next_url = self.get_next_url(&headers);
-            if let None = self.num_pages {
-                self.num_pages = self.get_num_pages(&headers);
+    fn load_next_page(&mut self) -> Result<()> {
+        if let Some(next_url) = self.next_url.take() {
+            let mut res = self.client.build_request(&next_url).send()?;
+            if res.status().is_success() {
+                self.has_loaded_page = true;
+                let new_page = res.json::<Vec<T>>().unwrap().into_iter();
+                let headers = res.headers();
+                self.next_url = self.get_next_url(&headers);
+                if let None = self.num_pages {
+                    self.num_pages = self.get_num_pages(&headers);
+                }
+                if let None = self.per_page {
+                    self.per_page = Some(new_page.len());
+                }
+                self.current_page = Some(new_page);
+                Ok(())
+            } else {
+                Err(self.get_error_kind(&mut res).into())
             }
-            if let None = self.per_page {
-                self.per_page = Some(new_page.len());
-            }
-            self.current_page = Some(new_page);
-        });
+        } else {
+            Ok(())
+        }
+    }
+
+    fn get_error_kind(&self, res: &mut reqwest::Response) -> ErrorKind {
+        let payload = res.json::<ErrorPayload>().unwrap();
+        println!("{:?}", payload);
+        ErrorKind::RateLimitted
     }
 }
 
@@ -110,7 +126,7 @@ mod tests {
 
     #[test]
     fn test_cursor() {
-        let client = Client::public();
+        let client = Client::from_env();
         let mut cursor: Cursor<PullRequest> = Cursor::new(
             &client,
             "https://api.github.com/repos/facebook/react/pulls?state=all",
