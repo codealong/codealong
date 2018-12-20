@@ -5,4 +5,5 @@ pub struct Repo {
     pub full_name: String,
     pub html_url: String,
     pub git_url: String,
+    pub fork: bool,
 }

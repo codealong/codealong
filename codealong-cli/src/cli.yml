@@ -32,6 +32,9 @@ subcommands:
             long: concurrency
             help: the number of concurrent worker threads
             default_value: "6"
+        - skip_forks:
+            long: skip-forks
+            help: don't include repositories which are forks
         - skip_commits:
             long: skip-commits
             help: don't analyze commits

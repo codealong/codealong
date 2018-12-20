@@ -18,18 +18,22 @@ pub fn expand_repos(matches: &clap::ArgMatches) -> Vec<Repo> {
     }
 
     if let Some(github_orgs) = matches.values_of("github_org") {
+        let skip_forks = matches.is_present("skip_forks");
         for github_org in github_orgs {
-            repos.append(&mut expand_github_org(github_org));
+            repos.append(&mut expand_github_org(github_org, skip_forks));
         }
     }
 
     repos
 }
 
-fn expand_github_org(org: &str) -> Vec<Repo> {
+fn expand_github_org(org: &str, skip_forks: bool) -> Vec<Repo> {
     let url = format!("https://api.github.com/orgs/{}/repos", org);
     let github_client = codealong_github::Client::from_env();
     let cursor: codealong_github::Cursor<codealong_github::Repo> =
         codealong_github::Cursor::new(&github_client, &url);
-    cursor.map(|r| Repo::Url(r.html_url)).collect()
+    cursor
+        .filter(|r| !r.fork || !skip_forks)
+        .map(|r| Repo::Url(r.html_url))
+        .collect()
 }
