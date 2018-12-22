@@ -14,6 +14,7 @@ pub struct FileAnalyzer<'a> {
     blame: Option<FastBlame>,
     config_context: ConfigContext,
     current_hunk: Option<HunkAnalyzer<'a>>,
+    ignored: bool,
 }
 
 impl<'a> FileAnalyzer<'a> {
@@ -36,6 +37,7 @@ impl<'a> FileAnalyzer<'a> {
             config_context,
             blame,
             current_hunk: None,
+            ignored: file_config.map(|c| c.ignore()).unwrap_or(false),
         }
     }
 
@@ -51,9 +53,11 @@ impl<'a> FileAnalyzer<'a> {
     }
 
     pub fn analyze_line(&mut self, diff_line: &DiffLine) -> Result<(), Error> {
-        let mut current_hunk = self.current_hunk.take().expect("no hunk started");
-        current_hunk.analyze_line(diff_line)?;
-        self.current_hunk.replace(current_hunk);
+        if !self.ignored {
+            let mut current_hunk = self.current_hunk.take().expect("no hunk started");
+            current_hunk.analyze_line(diff_line)?;
+            self.current_hunk.replace(current_hunk);
+        }
         Ok(())
     }
 
