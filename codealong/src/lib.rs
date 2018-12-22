@@ -26,6 +26,7 @@ mod event;
 mod fast_blame;
 mod file_analyzer;
 mod hunk_analyzer;
+mod identity;
 mod line_analyzer;
 mod work_stats;
 
@@ -33,7 +34,8 @@ pub use crate::analyzed_commit::AnalyzedCommit;
 pub use crate::analyzed_diff::AnalyzedDiff;
 pub use crate::analyzed_revwalk::AnalyzedRevwalk;
 pub use crate::commit_analyzer::CommitAnalyzer;
-pub use crate::diff_analyzer::DiffAnalyzer;
 pub use crate::config::Config;
+pub use crate::diff_analyzer::DiffAnalyzer;
 pub use crate::error::{Error, ErrorKind};
 pub use crate::event::Event;
+pub use crate::identity::Identity;

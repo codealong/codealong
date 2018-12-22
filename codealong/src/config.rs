@@ -12,6 +12,7 @@ use regex::Regex;
 use serde_yaml;
 
 use crate::error::{Error, Result};
+use crate::identity::Identity;
 
 use include_dir::Dir;
 
@@ -226,6 +227,18 @@ impl Config {
             .unwrap_or(&author);
         self.authors.get(normalized_author)
     }
+
+    pub fn normalized_identity(&self, identity: &Identity) -> Identity {
+        let author = format!("{}", identity);
+        self.ensure_alias_cache();
+        let alias_cache = self.alias_cache.borrow();
+        let normalized_author = alias_cache
+            .as_ref()
+            .unwrap()
+            .get(&author)
+            .unwrap_or(&author);
+        Identity::parse(normalized_author)
+    }
 }
 
 impl Default for Config {
@@ -352,6 +365,23 @@ mod tests {
             .is_some());
         assert!(config.config_for_author("<ghempton@gmail.com>").is_some());
         assert!(config.config_for_author("Gordon Hempton").is_none());
+    }
+
+    #[test]
+    fn test_normalized_identity() {
+        let config = Config::from_path(Path::new("fixtures/configs/simple.yml")).unwrap();
+        assert_eq!(
+            config.normalized_identity(&Identity {
+                email: Some("ghempton@gmail.com".to_owned()),
+                name: None,
+                github_login: None
+            }),
+            Identity {
+                name: Some("Gordon Hempton".to_owned()),
+                email: Some("ghempton@gmail.com".to_owned()),
+                github_login: None
+            }
+        )
     }
 
     #[test]

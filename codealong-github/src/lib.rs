@@ -14,6 +14,7 @@ extern crate serde_json;
 
 mod analyzed_pull_request;
 mod client;
+mod config;
 mod cursor;
 mod error;
 mod pull_request;
@@ -27,3 +28,4 @@ pub use crate::error::{Error, ErrorKind};
 pub use crate::pull_request::PullRequest;
 pub use crate::pull_request_analyzer::PullRequestAnalyzer;
 pub use crate::repo::Repo;
+//pub use crate::config::config_from_org;

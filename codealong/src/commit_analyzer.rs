@@ -44,6 +44,8 @@ impl<'a> CommitAnalyzer<'a> {
         if let Some(ref repo_name) = self.config.repo_name {
             result.repo_name = Some(repo_name.clone());
         }
+        result.normalized_author = Some(self.config.normalized_identity(&result.author));
+        result.normalized_committer = Some(self.config.normalized_identity(&result.committer));
         return Ok(result);
     }
 }
@@ -51,9 +53,9 @@ impl<'a> CommitAnalyzer<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::work_stats::WorkStats;
     use git2::Oid;
     use std::path::Path;
-    use crate::work_stats::WorkStats;
 
     #[test]
     fn test_initial_commit() {

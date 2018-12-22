@@ -5,7 +5,7 @@ pub struct ConfigContext {
     weight: f64,
 }
 
-/// During analyzation, this struct stores the current applicable config.
+/// During analysis, this struct stores the current applicable config.
 impl ConfigContext {
     pub fn new(
         file_config: Option<&FileConfig>,
