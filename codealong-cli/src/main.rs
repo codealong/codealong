@@ -14,12 +14,14 @@ mod analyze;
 mod analyze_repos;
 mod error;
 mod expand_repos;
+mod init;
 mod initialize_repos;
 mod repo;
 mod ui;
 mod utils;
 
 use crate::analyze::analyze;
+use crate::init::init;
 
 fn main() {
     use clap::App;
@@ -29,5 +31,9 @@ fn main() {
 
     if let Some(matches) = matches.subcommand_matches("analyze") {
         analyze(matches).unwrap();
+    }
+
+    if let Some(matches) = matches.subcommand_matches("init") {
+        init(matches).unwrap();
     }
 }

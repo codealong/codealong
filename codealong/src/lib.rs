@@ -34,7 +34,7 @@ pub use crate::analyzed_commit::AnalyzedCommit;
 pub use crate::analyzed_diff::AnalyzedDiff;
 pub use crate::analyzed_revwalk::AnalyzedRevwalk;
 pub use crate::commit_analyzer::CommitAnalyzer;
-pub use crate::config::Config;
+pub use crate::config::{AuthorConfig, Config, GlobConfig};
 pub use crate::diff_analyzer::DiffAnalyzer;
 pub use crate::error::{Error, ErrorKind};
 pub use crate::event::Event;

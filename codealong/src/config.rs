@@ -183,6 +183,9 @@ impl Config {
             for alias in config.aliases.iter() {
                 res.insert(alias.clone(), author.to_owned());
             }
+            for github_login in config.github_logins.iter() {
+                res.insert(github_login.clone(), author.to_owned());
+            }
         }
         res
     }
@@ -228,16 +231,27 @@ impl Config {
         self.authors.get(normalized_author)
     }
 
-    pub fn normalized_identity(&self, identity: &Identity) -> Identity {
-        let author = format!("{}", identity);
+    pub fn author_id(&self, identity: &Identity) -> Option<String> {
         self.ensure_alias_cache();
         let alias_cache = self.alias_cache.borrow();
-        let normalized_author = alias_cache
-            .as_ref()
-            .unwrap()
-            .get(&author)
-            .unwrap_or(&author);
-        Identity::parse(normalized_author)
+        for alias in self.aliases_for(identity) {
+            if let Some(author_id) = alias_cache.as_ref().unwrap().get(&alias) {
+                return Some(author_id.clone());
+            }
+        }
+        None
+    }
+
+    fn aliases_for(&self, identity: &Identity) -> Vec<String> {
+        [
+            Some(identity.clone()),
+            identity.only_email(),
+            identity.only_name(),
+        ]
+        .iter()
+        .filter(|i| i.is_none())
+        .map(|i| i.as_ref().unwrap().to_string())
+        .collect()
     }
 }
 
@@ -307,10 +321,24 @@ pub struct AuthorConfig {
     pub aliases: Vec<String>,
 
     #[serde(default)]
+    pub github_logins: Vec<String>,
+
+    #[serde(default)]
     pub tags: Vec<String>,
 
     #[serde(default)]
     pub ignore: bool,
+}
+
+impl Default for AuthorConfig {
+    fn default() -> AuthorConfig {
+        AuthorConfig {
+            aliases: vec![],
+            github_logins: vec![],
+            tags: vec![],
+            ignore: false,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -365,23 +393,6 @@ mod tests {
             .is_some());
         assert!(config.config_for_author("<ghempton@gmail.com>").is_some());
         assert!(config.config_for_author("Gordon Hempton").is_none());
-    }
-
-    #[test]
-    fn test_normalized_identity() {
-        let config = Config::from_path(Path::new("fixtures/configs/simple.yml")).unwrap();
-        assert_eq!(
-            config.normalized_identity(&Identity {
-                email: Some("ghempton@gmail.com".to_owned()),
-                name: None,
-                github_login: None
-            }),
-            Identity {
-                name: Some("Gordon Hempton".to_owned()),
-                email: Some("ghempton@gmail.com".to_owned()),
-                github_login: None
-            }
-        )
     }
 
     #[test]

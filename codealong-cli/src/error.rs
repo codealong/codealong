@@ -9,6 +9,7 @@ error_chain! {
         Git2(git2::Error);
         Url(url::ParseError);
         ArgParse(std::num::ParseIntError);
+        Config(serde_yaml::Error);
     }
 
     links {

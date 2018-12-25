@@ -44,8 +44,8 @@ impl<'a> CommitAnalyzer<'a> {
         if let Some(ref repo_name) = self.config.repo_name {
             result.repo_name = Some(repo_name.clone());
         }
-        result.normalized_author = Some(self.config.normalized_identity(&result.author));
-        result.normalized_committer = Some(self.config.normalized_identity(&result.committer));
+        result.author_id = self.config.author_id(&result.author);
+        result.committer_id = self.config.author_id(&result.committer);
         return Ok(result);
     }
 }

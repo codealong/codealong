@@ -1,25 +1,19 @@
 use regex::Regex;
 use std::fmt;
 
+/// Simple wrapper for Name <Email> strings
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Identity {
     pub name: Option<String>,
     pub email: Option<String>,
-    pub github_login: Option<String>,
-}
-
-impl Default for Identity {
-    fn default() -> Self {
-        Identity {
-            name: None,
-            email: None,
-            github_login: None,
-        }
-    }
 }
 
 impl Identity {
-    pub fn parse(s: &str) -> Identity {
+    pub fn to_string(&self) -> String {
+        format!("{}", self)
+    }
+
+    pub fn parse(s: &str) -> Self {
         lazy_static! {
             static ref NAME_EMAIL_REGEX: Regex =
                 Regex::new(r#"(?P<name>[^<]*[^< ])? *(?:<(?P<email>.*)>)?"#).unwrap();
@@ -29,10 +23,38 @@ impl Identity {
             Identity {
                 name: captures.name("name").map(|m| m.as_str().to_owned()),
                 email: captures.name("email").map(|m| m.as_str().to_owned()),
-                github_login: None,
             }
         } else {
             Identity::default()
+        }
+    }
+
+    pub fn only_name(&self) -> Option<Identity> {
+        if None == self.name {
+            return None;
+        };
+        Some(Identity {
+            name: self.name.clone(),
+            email: None,
+        })
+    }
+
+    pub fn only_email(&self) -> Option<Identity> {
+        if None == self.email {
+            return None;
+        };
+        Some(Identity {
+            name: None,
+            email: self.email.clone(),
+        })
+    }
+}
+
+impl Default for Identity {
+    fn default() -> Self {
+        Identity {
+            name: None,
+            email: None,
         }
     }
 }
@@ -42,7 +64,6 @@ impl<'a> From<git2::Signature<'a>> for Identity {
         Identity {
             name: sig.name().map(|s| s.to_owned()),
             email: sig.email().map(|s| s.to_owned()),
-            github_login: None,
         }
     }
 }
@@ -76,8 +97,7 @@ mod tests {
             Identity::parse("<test@test.com>"),
             Identity {
                 name: None,
-                email: Some("test@test.com".to_owned()),
-                github_login: None
+                email: Some("test@test.com".to_owned())
             }
         );
 
@@ -85,8 +105,7 @@ mod tests {
             Identity::parse("Test User <test@test.com>"),
             Identity {
                 name: Some("Test User".to_owned()),
-                email: Some("test@test.com".to_owned()),
-                github_login: None
+                email: Some("test@test.com".to_owned())
             }
         );
 
@@ -94,8 +113,7 @@ mod tests {
             Identity::parse("Test User"),
             Identity {
                 name: Some("Test User".to_owned()),
-                email: None,
-                github_login: None
+                email: None
             }
         );
     }

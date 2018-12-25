@@ -4,6 +4,14 @@ author: Gordon L. Hempton <ghempton@gmail.com>
 about: Open source development metrics
 args:
 subcommands:
+  - init:
+      about: generate a codealong config
+      args:
+        - github_org:
+            short: o
+            long: github-org
+            help: name of Github organization from which to read users
+            multiple: true
   - analyze:
       about: analyze and index events
       args:
