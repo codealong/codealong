@@ -11,7 +11,7 @@ use crate::repo::Repo;
 use crate::ui::{NamedProgressBar, ProgressPool};
 
 /// Clone and/or fetch all repos
-pub fn analyze_repos(matches: &clap::ArgMatches, repos: Vec<Repo>) -> Result<()> {
+pub fn analyze_repos(matches: &clap::ArgMatches, repos: Vec<Repo>, config: Config) -> Result<()> {
     let num_threads = matches
         .value_of("concurrency")
         .unwrap_or_else(|| "6")
@@ -24,6 +24,7 @@ pub fn analyze_repos(matches: &clap::ArgMatches, repos: Vec<Repo>) -> Result<()>
         let tasks = tasks.clone();
         let m = m.clone();
         let mut pb = m.add();
+        let config = config.clone();
         thread::spawn(move || loop {
             let task = {
                 let mut tasks = tasks.lock().unwrap();
@@ -31,7 +32,7 @@ pub fn analyze_repos(matches: &clap::ArgMatches, repos: Vec<Repo>) -> Result<()>
             };
             if let Some(task) = task {
                 pb.reset(task.display_name().to_owned());
-                task.analyze(&pb)
+                task.analyze(&pb, config)
                     .unwrap_or_else(|_err| pb.set_message("error"));
                 m.inc(1);
             } else {
@@ -74,10 +75,10 @@ struct AnalyzeTask {
 }
 
 impl AnalyzeTask {
-    fn analyze(&self, pb: &NamedProgressBar) -> Result<()> {
+    fn analyze(&self, pb: &NamedProgressBar, config: Config) -> Result<()> {
         match self.task_type {
-            AnalyzeTaskType::Commit => analyze_commits(pb, &self.repo.init()?),
-            AnalyzeTaskType::PullRequest => analyze_prs(pb, &self.repo.init()?),
+            AnalyzeTaskType::Commit => analyze_commits(pb, &self.repo.init()?, config),
+            AnalyzeTaskType::PullRequest => analyze_prs(pb, &self.repo.init()?, config),
         }
     }
 
@@ -86,8 +87,8 @@ impl AnalyzeTask {
     }
 }
 
-fn analyze_commits(pb: &NamedProgressBar, repo: &Repository) -> Result<()> {
-    let config = Config::from_repo(&repo)?;
+fn analyze_commits(pb: &NamedProgressBar, repo: &Repository, mut config: Config) -> Result<()> {
+    config.merge(Config::from_repo(&repo)?);
     let revwalk = AnalyzedRevwalk::new(&repo, config)?;
     let client = codealong_elk::Client::default();
     pb.set_message("calculating");
@@ -101,8 +102,8 @@ fn analyze_commits(pb: &NamedProgressBar, repo: &Repository) -> Result<()> {
     Ok(pb.finish())
 }
 
-fn analyze_prs(pb: &NamedProgressBar, repo: &Repository) -> Result<()> {
-    let config = Config::from_repo(&repo)?;
+fn analyze_prs(pb: &NamedProgressBar, repo: &Repository, mut config: Config) -> Result<()> {
+    config.merge(Config::from_repo(&repo)?);
     let github_client = codealong_github::Client::from_env();
     let client = codealong_elk::Client::default();
     pb.set_message("calculating");

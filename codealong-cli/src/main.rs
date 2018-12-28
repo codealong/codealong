@@ -12,6 +12,7 @@ extern crate indicatif;
 
 mod analyze;
 mod analyze_repos;
+mod config;
 mod error;
 mod expand_repos;
 mod init;

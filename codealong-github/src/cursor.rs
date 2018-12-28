@@ -1,6 +1,5 @@
 use regex::Regex;
 use reqwest::header::HeaderMap;
-use reqwest::StatusCode;
 
 use crate::client::Client;
 use crate::error::Result;

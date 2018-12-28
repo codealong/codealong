@@ -20,6 +20,11 @@ subcommands:
             long: elasticsearch-url
             help: url of elasticsearch instance to index into
             default_value: "http://localhost:9200"
+        - config_path:
+            short: c
+            long: config-path
+            help: path to a codealong config file
+            multiple: true
         - repo_path:
             short: p
             long: repo-path

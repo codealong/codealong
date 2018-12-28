@@ -52,7 +52,7 @@ static BASE_CONFIGS: Dir = include_dir!("./config");
 ///     tags:
 ///       - "team-apollo"
 /// ```
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Config {
     #[serde(default)]
     pub github: Option<String>,
@@ -269,7 +269,7 @@ impl Default for Config {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GlobConfig {
     #[serde(default)]
     pub tags: Vec<String>,
@@ -315,7 +315,7 @@ impl<'a> FileConfig<'a> {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AuthorConfig {
     #[serde(default)]
     pub aliases: Vec<String>,
