@@ -3,7 +3,7 @@ use std::fs::create_dir_all;
 use std::path::{Path, PathBuf};
 
 use git2::build::{CheckoutBuilder, RepoBuilder};
-use git2::{FetchOptions, Progress, RemoteCallbacks, Repository};
+use git2::{FetchOptions, RemoteCallbacks, Repository};
 use url::Url;
 
 use crate::error::Result;
@@ -15,11 +15,33 @@ pub enum Repo {
     Url(String, bool),
 }
 
+pub type ProgressCallback<'a> = FnMut(usize, usize) + 'a;
+
 impl Repo {
-    pub fn init(&self) -> Result<Repository> {
+    pub fn init<'a>(&self, cb: Option<Box<ProgressCallback<'a>>>) -> Result<Repository> {
+        match self {
+            Repo::Local(path) => {
+                let repository = Repository::discover(path)?;
+                fetch_repo(&repository, cb)?;
+                Ok(repository)
+            }
+            Repo::Url(url, _fork) => {
+                let path = clone_destination(url)?;
+                match Repository::discover(&path) {
+                    Ok(repository) => {
+                        fetch_repo(&repository, cb)?;
+                        Ok(repository)
+                    }
+                    Err(_e) => clone_repo(url, &path, cb),
+                }
+            }
+        }
+    }
+
+    pub fn repo(&self) -> Result<Repository> {
         match self {
             Repo::Local(path) => Ok(Repository::discover(path)?),
-            Repo::Url(url, _fork) => ensure_repo_exists(url),
+            Repo::Url(url, _fork) => Ok(Repository::discover(clone_destination(&url)?)?),
         }
     }
 
@@ -38,26 +60,49 @@ impl Repo {
     }
 }
 
-fn ensure_repo_exists(url: &str) -> Result<Repository> {
-    let path = clone_destination(url)?;
-    match Repository::discover(path.as_path()) {
-        Err(_) => clone_repo(url, path.as_path()),
-        Ok(r) => Ok(r),
-    }
-}
+fn fetch_repo<'a>(repo: &Repository, cb: Option<Box<ProgressCallback<'a>>>) -> Result<()> {
+    let remote = "origin";
+    let mut remote = repo.find_remote(remote)?;
 
-fn clone_repo(url: &str, into: &Path) -> Result<Repository> {
-    let mut cb = RemoteCallbacks::new();
-    cb.credentials(git_credentials_callback);
+    let mut rcb = RemoteCallbacks::new();
+    rcb.credentials(git_credentials_callback);
+
+    if let Some(mut cb) = cb {
+        rcb.transfer_progress(move |progress| {
+            cb(progress.received_objects(), progress.total_objects());
+            true
+        });
+    }
 
     let mut fo = FetchOptions::new();
-    fo.remote_callbacks(cb);
+    fo.remote_callbacks(rcb);
 
-    //let mut co = CheckoutBuilder::new();
+    Ok(remote.fetch(&["master"], Some(&mut fo), None)?)
+}
+
+fn clone_repo<'a>(
+    url: &str,
+    into: &Path,
+    cb: Option<Box<ProgressCallback<'a>>>,
+) -> Result<Repository> {
+    let mut rcb = RemoteCallbacks::new();
+    rcb.credentials(git_credentials_callback);
+
+    if let Some(mut cb) = cb {
+        rcb.transfer_progress(move |progress| {
+            cb(progress.received_objects(), progress.total_objects());
+            true
+        });
+    }
+
+    let mut fo = FetchOptions::new();
+    fo.remote_callbacks(rcb);
+
+    let co = CheckoutBuilder::new();
 
     Ok(RepoBuilder::new()
         .fetch_options(fo)
-        //.with_checkout(co)
+        .with_checkout(co)
         .clone(url, into)?)
 }
 

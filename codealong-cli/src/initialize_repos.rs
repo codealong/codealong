@@ -27,8 +27,12 @@ pub fn initialize_repos(matches: &clap::ArgMatches, repos: Vec<Repo>) -> Result<
             };
             if let Some(repo) = repo {
                 pb.reset(repo.display_name().to_owned());
-                pb.set_message("cloning");
-                match repo.init() {
+                pb.set_message("fetching");
+                let cb = |cur: usize, total: usize| {
+                    pb.set_length(total as u64);
+                    pb.set_position(cur as u64);
+                };
+                match repo.init(Some(Box::new(cb))) {
                     Ok(_) => pb.set_message("finished"),
                     Err(_) => pb.set_message("error"),
                 }

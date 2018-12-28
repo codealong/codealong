@@ -21,7 +21,11 @@ impl<'repo> AnalyzedRevwalk<'repo> {
         opts: AnalyzeOpts,
     ) -> Result<AnalyzedRevwalk<'repo>> {
         let mut revwalk = repo.revwalk()?;
-        revwalk.push_head()?;
+        if let Ok(remote) = repo.find_remote("master") {
+            revwalk.push_ref(remote.get_refspec(0).unwrap().str().unwrap())?;
+        } else {
+            revwalk.push_head()?;
+        }
         Ok(AnalyzedRevwalk {
             repo,
             config,

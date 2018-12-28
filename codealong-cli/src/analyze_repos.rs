@@ -82,10 +82,10 @@ impl AnalyzeTask {
     fn analyze(&self, pb: &NamedProgressBar, config: Config) -> Result<()> {
         match self.task_type {
             AnalyzeTaskType::Commit => {
-                analyze_commits(pb, &self.repo.init()?, config, self.opts.clone())
+                analyze_commits(pb, &self.repo.repo()?, config, self.opts.clone())
             }
             AnalyzeTaskType::PullRequest => {
-                analyze_prs(pb, &self.repo.init()?, config, self.opts.clone())
+                analyze_prs(pb, &self.repo.repo()?, config, self.opts.clone())
             }
         }
     }

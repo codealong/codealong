@@ -65,6 +65,10 @@ impl NamedProgressBar {
         self.pb.set_length(pos)
     }
 
+    pub fn set_position(&self, pos: u64) {
+        self.pb.set_position(pos);
+    }
+
     pub fn set_message(&self, msg: &str) {
         self.pb.set_message(msg)
     }
