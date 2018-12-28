@@ -4,7 +4,7 @@ use std::thread;
 
 use git2::Repository;
 
-use codealong::{AnalyzedRevwalk, Config};
+use codealong::{AnalyzeOpts, AnalyzedRevwalk, Config};
 
 use crate::error::Result;
 use crate::repo::Repo;
@@ -32,7 +32,7 @@ pub fn analyze_repos(matches: &clap::ArgMatches, repos: Vec<Repo>, config: Confi
             };
             if let Some(task) = task {
                 pb.reset(task.display_name().to_owned());
-                task.analyze(&pb, config)
+                task.analyze(&pb, config.clone())
                     .unwrap_or_else(|_err| pb.set_message("error"));
                 m.inc(1);
             } else {
@@ -48,16 +48,19 @@ pub fn analyze_repos(matches: &clap::ArgMatches, repos: Vec<Repo>, config: Confi
 fn expand_tasks(matches: &clap::ArgMatches, repos: Vec<Repo>) -> VecDeque<AnalyzeTask> {
     let mut tasks: VecDeque<AnalyzeTask> = VecDeque::new();
     for repo in repos {
+        let opts = analyze_opts_from_args(&repo, matches);
         if !matches.is_present("skip_commits") {
             tasks.push_back(AnalyzeTask {
                 repo: repo.clone(),
                 task_type: AnalyzeTaskType::Commit,
+                opts: opts.clone(),
             });
         }
         if !matches.is_present("skip_pull_requests") {
             tasks.push_back(AnalyzeTask {
                 repo: repo.clone(),
                 task_type: AnalyzeTaskType::PullRequest,
+                opts: opts.clone(),
             });
         }
     }
@@ -72,13 +75,18 @@ enum AnalyzeTaskType {
 struct AnalyzeTask {
     task_type: AnalyzeTaskType,
     repo: Repo,
+    opts: AnalyzeOpts,
 }
 
 impl AnalyzeTask {
     fn analyze(&self, pb: &NamedProgressBar, config: Config) -> Result<()> {
         match self.task_type {
-            AnalyzeTaskType::Commit => analyze_commits(pb, &self.repo.init()?, config),
-            AnalyzeTaskType::PullRequest => analyze_prs(pb, &self.repo.init()?, config),
+            AnalyzeTaskType::Commit => {
+                analyze_commits(pb, &self.repo.init()?, config, self.opts.clone())
+            }
+            AnalyzeTaskType::PullRequest => {
+                analyze_prs(pb, &self.repo.init()?, config, self.opts.clone())
+            }
         }
     }
 
@@ -87,9 +95,14 @@ impl AnalyzeTask {
     }
 }
 
-fn analyze_commits(pb: &NamedProgressBar, repo: &Repository, mut config: Config) -> Result<()> {
+fn analyze_commits(
+    pb: &NamedProgressBar,
+    repo: &Repository,
+    mut config: Config,
+    opts: AnalyzeOpts,
+) -> Result<()> {
     config.merge(Config::from_repo(&repo)?);
-    let revwalk = AnalyzedRevwalk::new(&repo, config)?;
+    let revwalk = AnalyzedRevwalk::new(&repo, config, opts)?;
     let client = codealong_elk::Client::default();
     pb.set_message("calculating");
     let count = revwalk.len();
@@ -102,7 +115,12 @@ fn analyze_commits(pb: &NamedProgressBar, repo: &Repository, mut config: Config)
     Ok(pb.finish())
 }
 
-fn analyze_prs(pb: &NamedProgressBar, repo: &Repository, mut config: Config) -> Result<()> {
+fn analyze_prs(
+    pb: &NamedProgressBar,
+    repo: &Repository,
+    mut config: Config,
+    opts: AnalyzeOpts,
+) -> Result<()> {
     config.merge(Config::from_repo(&repo)?);
     let github_client = codealong_github::Client::from_env();
     let client = codealong_elk::Client::default();
@@ -124,4 +142,11 @@ fn analyze_prs(pb: &NamedProgressBar, repo: &Repository, mut config: Config) -> 
         pb.inc(1);
     }
     Ok(pb.finish())
+}
+
+fn analyze_opts_from_args(repo: &Repo, matches: &clap::ArgMatches) -> AnalyzeOpts {
+    AnalyzeOpts {
+        ignore_unknown_authors: matches.is_present("skip_unknown_authors")
+            || repo.is_fork() && matches.is_present("skip_unknown_authors_in_forks"),
+    }
 }

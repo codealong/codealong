@@ -41,7 +41,7 @@ subcommands:
             help: name of Github organization from which to pull all repositories
             multiple: true
         - concurrency:
-            short: c
+            short: C
             long: concurrency
             help: the number of concurrent worker threads
             default_value: "6"
@@ -54,3 +54,9 @@ subcommands:
         - skip_pull_requests:
             long: skip-pull-requests
             help: don't analyze pull requests
+        - skip_unknown_authors:
+            long: skip-unknown-authors
+            help: don't analyze commits/PRs from authors not present in the config
+        - skip_unknown_authors_in_forks:
+            long: skip-unknown-authors-in-forks
+            help: don't analyze commits/PRs from authors not present in the config when analyzing forked repos

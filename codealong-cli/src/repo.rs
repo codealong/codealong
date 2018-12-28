@@ -12,21 +12,28 @@ use crate::utils::git_credentials_callback;
 #[derive(Debug, Clone, PartialEq)]
 pub enum Repo {
     Local(String),
-    Url(String),
+    Url(String, bool),
 }
 
 impl Repo {
     pub fn init(&self) -> Result<Repository> {
         match self {
             Repo::Local(path) => Ok(Repository::discover(path)?),
-            Repo::Url(url) => ensure_repo_exists(url),
+            Repo::Url(url, _fork) => ensure_repo_exists(url),
         }
     }
 
     pub fn display_name(&self) -> &str {
         match self {
             Repo::Local(path) => &path,
-            Repo::Url(url) => &url,
+            Repo::Url(url, _fork) => &url,
+        }
+    }
+
+    pub fn is_fork(&self) -> bool {
+        match self {
+            Repo::Url(_url, true) => true,
+            _ => false,
         }
     }
 }

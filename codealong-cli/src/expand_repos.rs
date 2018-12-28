@@ -13,7 +13,7 @@ pub fn expand_repos(matches: &clap::ArgMatches) -> Vec<Repo> {
 
     if let Some(repo_urls) = matches.values_of("repo_url") {
         for repo_url in repo_urls {
-            repos.push(Repo::Url(repo_url.to_owned()));
+            repos.push(Repo::Url(repo_url.to_owned(), false));
         }
     }
 
@@ -34,6 +34,6 @@ fn expand_github_org(org: &str, skip_forks: bool) -> Vec<Repo> {
         codealong_github::Cursor::new(&github_client, &url);
     cursor
         .filter(|r| !r.fork || !skip_forks)
-        .map(|r| Repo::Url(r.html_url))
+        .map(|r| Repo::Url(r.html_url, r.fork))
         .collect()
 }

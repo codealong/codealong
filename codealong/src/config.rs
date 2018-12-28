@@ -194,6 +194,9 @@ impl Config {
     pub fn merge(&mut self, other: Config) {
         self.files.extend(other.files);
         self.authors.extend(other.authors);
+        if let None = self.github {
+            self.github = other.github.clone()
+        }
     }
 
     pub fn config_for_file(&self, path: &str) -> Option<FileConfig> {
@@ -252,6 +255,10 @@ impl Config {
         .filter(|i| i.is_none())
         .map(|i| i.as_ref().unwrap().to_string())
         .collect()
+    }
+
+    pub fn is_known(&self, identity: &Identity) -> bool {
+        self.author_id(identity).is_some()
     }
 }
 

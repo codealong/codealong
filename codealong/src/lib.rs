@@ -14,6 +14,7 @@ extern crate serde_derive;
 extern crate serde;
 extern crate serde_yaml;
 
+mod analyze_opts;
 mod analyzed_commit;
 mod analyzed_diff;
 mod analyzed_revwalk;
@@ -30,6 +31,7 @@ mod identity;
 mod line_analyzer;
 mod work_stats;
 
+pub use crate::analyze_opts::AnalyzeOpts;
 pub use crate::analyzed_commit::AnalyzedCommit;
 pub use crate::analyzed_diff::AnalyzedDiff;
 pub use crate::analyzed_revwalk::AnalyzedRevwalk;
