@@ -34,8 +34,11 @@ pub fn initialize_repos(matches: &clap::ArgMatches, repos: Vec<Repo>) -> Result<
                 };
                 match repo.init(Some(Box::new(cb))) {
                     Ok(_) => pb.set_message("finished"),
-                    Err(_) => pb.set_message("error"),
-                }
+                    Err(e) => {
+                        pb.set_message(&format!("error: {}", e));
+                        thread::sleep(std::time::Duration::from_secs(2));
+                    }
+                };
                 m.inc(1);
             } else {
                 pb.finish();

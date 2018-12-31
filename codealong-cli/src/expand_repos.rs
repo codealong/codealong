@@ -34,6 +34,6 @@ fn expand_github_org(org: &str, skip_forks: bool) -> Vec<Repo> {
         codealong_github::Cursor::new(&github_client, &url);
     cursor
         .filter(|r| !r.fork || !skip_forks)
-        .map(|r| Repo::Url(r.html_url, r.fork))
+        .map(|r| Repo::Url(r.ssh_url, r.fork))
         .collect()
 }

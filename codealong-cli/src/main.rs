@@ -9,6 +9,8 @@ extern crate dirs;
 extern crate error_chain;
 extern crate git2;
 extern crate indicatif;
+#[macro_use]
+extern crate lazy_static;
 
 mod analyze;
 mod analyze_repos;

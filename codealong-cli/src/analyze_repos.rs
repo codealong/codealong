@@ -32,8 +32,10 @@ pub fn analyze_repos(matches: &clap::ArgMatches, repos: Vec<Repo>, config: Confi
             };
             if let Some(task) = task {
                 pb.reset(task.display_name().to_owned());
-                task.analyze(&pb, config.clone())
-                    .unwrap_or_else(|_err| pb.set_message("error"));
+                task.analyze(&pb, config.clone()).unwrap_or_else(|e| {
+                    pb.set_message(&format!("error: {}", e));
+                    std::thread::sleep(std::time::Duration::from_secs(2));
+                });
                 m.inc(1);
             } else {
                 pb.finish();

@@ -3,6 +3,12 @@ use codealong_elk;
 use codealong_github;
 
 error_chain! {
+    errors {
+        InvalidRepo(repo: String) {
+            description("invalid repo")
+            display("invalid repo: '{}'", repo)
+        }
+    }
 
     foreign_links {
         IO(std::io::Error);
