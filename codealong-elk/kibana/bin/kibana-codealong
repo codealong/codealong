@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# Wait for elasticsearch to come available and create a default .kibana index
+# if one does not already exist.
+
+ELASTICSEARCH_URL=${ELASTICSEARCH_URL:-"http://elasticsearch:9200"}
+KIBANA_INDEX=".kibana"
+
+for i in {1..12}
+do
+  curl --fail $ELASTICSEARCH_URL
+  if [ $? -eq 0 ]; then
+    sleep 5
+    break
+  else
+    echo "Could not reach $ELASTICSEARCH_URL"
+    sleep 5
+  fi
+done
+
+function init_kibana() {
+  elasticdump \
+    --input=/user/local/codealong/data/.kibana.json \
+    --output=$ELASTICSEARCH_URL/$KIBANA_INDEX \
+    --type=data
+}
+
+curl --fail -I -X HEAD "$ELASTICSEARCH_URL/$KIBANA_INDEX"
+if [ $? -eq 0 ]; then
+  if [ -z "$CODEALONG_KIBANA_RESET" ]; then
+    echo "$KIBANA_INDEX already exists, skipping default initialization"
+  else
+    echo "Forcing reset of kibana defaults"
+    init_kibana
+  fi
+else
+  echo "$KIBANA_INDEX not found, initializing with defaults"
+  init_kibana
+fi
+
+# Run the base image's executable
+/usr/local/bin/kibana-docker
