@@ -1,5 +1,5 @@
 use reqwest;
-use reqwest::{RequestBuilder, Response};
+use reqwest::Response;
 use std::env;
 
 use crate::error::{ErrorKind, ErrorPayload, Result};

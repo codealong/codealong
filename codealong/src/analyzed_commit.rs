@@ -1,6 +1,8 @@
 use crate::analyzed_diff::AnalyzedDiff;
 use crate::event::Event;
 use crate::identity::Identity;
+use crate::person::Person;
+use crate::repo::Repo;
 
 use chrono::prelude::*;
 use chrono::{DateTime, FixedOffset, TimeZone};
@@ -15,11 +17,11 @@ pub struct AnalyzedCommit {
     pub summary: Option<String>,
     pub author: Identity,
     pub authored_at: DateTime<Utc>,
-    pub author_id: Option<String>,
+    pub normalized_author: Option<Person>,
     pub committer: Identity,
     pub committed_at: DateTime<Utc>,
-    pub committer_id: Option<String>,
-    pub repo_name: Option<String>,
+    pub normalized_committer: Option<Person>,
+    pub repo: Option<Repo>,
     pub github_url: Option<String>,
 }
 
@@ -31,11 +33,11 @@ impl AnalyzedCommit {
             summary: commit.summary().map(|s| s.to_string()),
             author: Identity::from(commit.author()),
             authored_at: convert_time(&commit.author().when()),
-            author_id: None,
+            normalized_author: None,
             committer: Identity::from(commit.committer()),
             committed_at: convert_time(&commit.committer().when()),
-            committer_id: None,
-            repo_name: None,
+            normalized_committer: None,
+            repo: None,
             github_url: None,
         }
     }

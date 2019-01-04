@@ -29,6 +29,8 @@ mod file_analyzer;
 mod hunk_analyzer;
 mod identity;
 mod line_analyzer;
+mod person;
+mod repo;
 mod work_stats;
 
 pub use crate::analyze_opts::AnalyzeOpts;
@@ -41,3 +43,5 @@ pub use crate::diff_analyzer::DiffAnalyzer;
 pub use crate::error::{Error, ErrorKind};
 pub use crate::event::Event;
 pub use crate::identity::Identity;
+pub use crate::person::Person;
+pub use crate::repo::Repo;

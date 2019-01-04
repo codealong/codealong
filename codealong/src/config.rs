@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::fs::File;
+use std::iter;
 use std::path::Path;
 
 use git2::Repository;
@@ -13,6 +14,8 @@ use serde_yaml;
 
 use crate::error::{Error, Result};
 use crate::identity::Identity;
+use crate::person::Person;
+use crate::repo::Repo;
 
 use include_dir::Dir;
 
@@ -58,7 +61,7 @@ pub struct Config {
     pub github: Option<String>,
 
     #[serde(default)]
-    pub repo_name: Option<String>,
+    pub repo: Option<Repo>,
 
     #[serde(default = "Config::default_merge_defaults")]
     pub merge_defaults: bool,
@@ -71,9 +74,6 @@ pub struct Config {
 
     #[serde(default)]
     pub authors: LinkedHashMap<String, AuthorConfig>,
-
-    #[serde(default, skip_deserializing, skip_serializing)]
-    alias_cache: RefCell<Option<HashMap<String, String>>>,
 }
 
 impl Config {
@@ -112,11 +112,11 @@ impl Config {
         } else {
             Self::base()
         };
-        if config.repo_name.is_none() {
-            config.repo_name = path
-                .file_name()
-                .and_then(|s| s.to_str())
-                .map(|s| s.to_owned());
+        if config.repo.is_none() {
+            config.repo = path.file_name().and_then(|s| s.to_str()).map(|s| Repo {
+                name: s.to_owned(),
+                fork: false,
+            });
         }
         Ok(config)
     }
@@ -170,32 +170,15 @@ impl Config {
         14
     }
 
-    fn ensure_alias_cache(&self) {
-        let mut cache = self.alias_cache.borrow_mut();
-        if cache.is_none() {
-            *cache = Some(self.build_alias_cache());
-        }
-    }
-
-    fn build_alias_cache(&self) -> HashMap<String, String> {
-        let mut res = HashMap::new();
-        for (author, config) in self.authors.iter() {
-            for alias in config.aliases.iter() {
-                res.insert(alias.clone(), author.to_owned());
-            }
-            for github_login in config.github_logins.iter() {
-                res.insert(github_login.clone(), author.to_owned());
-            }
-        }
-        res
-    }
-
     /// Merges in all file and author configs
     pub fn merge(&mut self, other: Config) {
         self.files.extend(other.files);
         self.authors.extend(other.authors);
         if let None = self.github {
-            self.github = other.github.clone()
+            self.github = other.github.clone();
+        }
+        if let None = self.repo {
+            self.repo = other.repo.clone();
         }
     }
 
@@ -222,27 +205,23 @@ impl Config {
         }
     }
 
-    pub fn config_for_author(&self, author: &str) -> Option<&AuthorConfig> {
-        let author = author.to_owned();
-        self.ensure_alias_cache();
-        let alias_cache = self.alias_cache.borrow();
-        let normalized_author = alias_cache
-            .as_ref()
-            .unwrap()
-            .get(&author)
-            .unwrap_or(&author);
-        self.authors.get(normalized_author)
-    }
-
-    pub fn author_id(&self, identity: &Identity) -> Option<String> {
-        self.ensure_alias_cache();
-        let alias_cache = self.alias_cache.borrow();
-        for alias in self.aliases_for(identity) {
-            if let Some(author_id) = alias_cache.as_ref().unwrap().get(&alias) {
-                return Some(author_id.clone());
+    pub fn config_for_identity(&self, identity: &Identity) -> Option<PersonConfig> {
+        for (key, author_config) in &self.authors {
+            for alias in iter::once(key).chain(&author_config.aliases) {
+                if &Identity::parse(alias) == identity {
+                    return Some(PersonConfig::new(key, author_config));
+                }
             }
         }
         None
+    }
+
+    pub fn person_for_identity(&self, identity: &Identity) -> Person {
+        if let Some(person_config) = self.config_for_identity(identity) {
+            person_config.to_person()
+        } else {
+            identity.to_person()
+        }
     }
 
     fn aliases_for(&self, identity: &Identity) -> Vec<String> {
@@ -258,20 +237,19 @@ impl Config {
     }
 
     pub fn is_known(&self, identity: &Identity) -> bool {
-        self.author_id(identity).is_some()
+        self.config_for_identity(identity).is_some()
     }
 }
 
 impl Default for Config {
     fn default() -> Config {
         Config {
-            repo_name: None,
+            repo: None,
             github: None,
             merge_defaults: true,
             churn_cutoff: 14,
             files: LinkedHashMap::new(),
             authors: LinkedHashMap::new(),
-            alias_cache: RefCell::new(None),
         }
     }
 }
@@ -335,6 +313,43 @@ pub struct AuthorConfig {
 
     #[serde(default)]
     pub ignore: bool,
+
+    #[serde(default)]
+    pub team: Option<String>,
+
+    #[serde(default)]
+    pub role: Option<String>,
+}
+
+pub struct PersonConfig<'a> {
+    key: &'a str,
+    config: &'a AuthorConfig,
+}
+
+impl<'a> PersonConfig<'a> {
+    pub fn new(key: &'a str, config: &'a AuthorConfig) -> PersonConfig<'a> {
+        PersonConfig { key, config }
+    }
+
+    pub fn tags(&self) -> &'a Vec<String> {
+        &self.config.tags
+    }
+
+    pub fn ignore(&self) -> bool {
+        self.config.ignore
+    }
+
+    pub fn to_person(&self) -> Person {
+        let id = Identity::parse(self.key);
+        Person {
+            id: self.key.to_owned(),
+            name: id.name,
+            email: id.email,
+            role: self.config.role.clone(),
+            team: self.config.team.clone(),
+            github_login: self.config.github_logins.first().map(|s| s.to_owned()),
+        }
+    }
 }
 
 impl Default for AuthorConfig {
@@ -344,6 +359,8 @@ impl Default for AuthorConfig {
             github_logins: vec![],
             tags: vec![],
             ignore: false,
+            role: None,
+            team: None,
         }
     }
 }
@@ -355,13 +372,13 @@ mod tests {
     #[test]
     fn test_from_dir_without_config() {
         let config = Config::from_dir(Path::new("fixtures/repos/simple")).unwrap();
-        assert_eq!(config.repo_name, Some("simple".to_owned()));
+        assert_eq!(config.repo.as_ref().unwrap().name, "simple");
     }
 
     #[test]
     fn test_from_dir_with_config() {
         let config = Config::from_dir(Path::new("fixtures/repos/bare_config")).unwrap();
-        assert_eq!(config.repo_name, Some("bare_config".to_owned()));
+        assert_eq!(config.repo.as_ref().unwrap().name, "bare_config");
         assert!(config.config_for_file("README.md").is_some());
     }
 
@@ -390,16 +407,20 @@ mod tests {
     }
 
     #[test]
-    fn test_config_for_author() {
+    fn test_config_for_identity() {
         let config = Config::from_path(Path::new("fixtures/configs/simple.yml")).unwrap();
         assert!(config
-            .config_for_author("Gordon Hempton <ghempton@gmail.com>")
+            .config_for_identity(&Identity::parse("Gordon Hempton <ghempton@gmail.com>"))
             .is_some());
         assert!(config
-            .config_for_author("Gordon Hempton <gordon@outreach.io>")
+            .config_for_identity(&Identity::parse("Gordon Hempton <gordon@outreach.io>"))
             .is_some());
-        assert!(config.config_for_author("<ghempton@gmail.com>").is_some());
-        assert!(config.config_for_author("Gordon Hempton").is_none());
+        assert!(config
+            .config_for_identity(&Identity::parse("<ghempton@gmail.com>"))
+            .is_some());
+        assert!(config
+            .config_for_identity(&Identity::parse("Gordon Hempton"))
+            .is_none());
     }
 
     #[test]
