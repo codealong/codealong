@@ -42,7 +42,9 @@ impl<'a> PullRequestAnalyzer<'a> {
             })
             .ok();
 
-        Ok(AnalyzedPullRequest::new(self.pr, diff))
+        let normalized_author = self.config.person_for_github_login(&self.pr.user.login);
+
+        Ok(AnalyzedPullRequest::new(self.pr, diff, normalized_author))
     }
 
     fn fetch_remote(&self, reference: &Ref) -> Result<()> {

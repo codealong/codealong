@@ -216,11 +216,37 @@ impl Config {
         None
     }
 
+    pub fn config_for_github_login(&self, github_login: &str) -> Option<PersonConfig> {
+        for (key, author_config) in &self.authors {
+            for login in &author_config.github_logins {
+                if login == github_login {
+                    return Some(PersonConfig::new(key, author_config));
+                }
+            }
+        }
+        None
+    }
+
     pub fn person_for_identity(&self, identity: &Identity) -> Person {
         if let Some(person_config) = self.config_for_identity(identity) {
             person_config.to_person()
         } else {
             identity.to_person()
+        }
+    }
+
+    pub fn person_for_github_login(&self, github_login: &str) -> Person {
+        if let Some(person_config) = self.config_for_github_login(github_login) {
+            person_config.to_person()
+        } else {
+            Person {
+                id: github_login.to_owned(),
+                github_login: Some(github_login.to_owned()),
+                name: None,
+                email: None,
+                team: None,
+                role: None,
+            }
         }
     }
 

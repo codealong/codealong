@@ -2,6 +2,7 @@ use chrono::prelude::*;
 use chrono::DateTime;
 
 use crate::repo::Repo;
+use crate::user::User;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PullRequest {
@@ -14,6 +15,7 @@ pub struct PullRequest {
     pub state: Option<String>,
     pub title: Option<String>,
     pub body: Option<String>,
+    pub user: User,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub closed_at: Option<DateTime<Utc>>,
