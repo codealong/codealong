@@ -31,6 +31,7 @@ mod identity;
 mod line_analyzer;
 mod person;
 mod repo;
+mod utils;
 mod work_stats;
 
 pub use crate::analyze_opts::AnalyzeOpts;
@@ -45,3 +46,4 @@ pub use crate::event::Event;
 pub use crate::identity::Identity;
 pub use crate::person::Person;
 pub use crate::repo::Repo;
+pub use crate::utils::with_authentication;

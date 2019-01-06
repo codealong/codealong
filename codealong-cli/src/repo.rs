@@ -7,8 +7,9 @@ use git2::{FetchOptions, RemoteCallbacks, Repository};
 use regex::Regex;
 use url::Url;
 
+use codealong::with_authentication;
+
 use crate::error::*;
-use crate::utils::with_authentication;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Repo {
@@ -67,7 +68,7 @@ fn fetch_repo<'a>(repo: &Repository, mut cb: Option<Box<ProgressCallback<'a>>>) 
     let mut remote = repo.find_remote(remote)?;
     let git_config = git2::Config::open_default()?;
     let url = remote.url().unwrap().to_owned();
-    with_authentication(&url, &git_config, move |f| {
+    Ok(with_authentication(&url, &git_config, move |f| {
         let mut rcb = RemoteCallbacks::new();
         rcb.credentials(f);
 
@@ -82,7 +83,7 @@ fn fetch_repo<'a>(repo: &Repository, mut cb: Option<Box<ProgressCallback<'a>>>) 
         fo.remote_callbacks(rcb);
 
         Ok(remote.fetch(&["master"], Some(&mut fo), None)?)
-    })
+    })?)
 }
 
 fn clone_repo<'a>(
@@ -91,7 +92,7 @@ fn clone_repo<'a>(
     mut cb: Option<Box<ProgressCallback<'a>>>,
 ) -> Result<Repository> {
     let git_config = git2::Config::open_default()?;
-    with_authentication(url, &git_config, |f| {
+    Ok(with_authentication(url, &git_config, |f| {
         let mut rcb = RemoteCallbacks::new();
         rcb.credentials(f);
 
@@ -111,7 +112,7 @@ fn clone_repo<'a>(
             .fetch_options(fo)
             .with_checkout(co)
             .clone(url, into)?)
-    })
+    })?)
 }
 
 fn repo_dir() -> PathBuf {

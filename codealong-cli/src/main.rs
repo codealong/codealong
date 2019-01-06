@@ -25,7 +25,6 @@ mod initialize_repos;
 mod logger;
 mod repo;
 mod ui;
-mod utils;
 
 use error_chain::ChainedError;
 
