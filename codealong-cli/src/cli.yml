@@ -3,6 +3,21 @@ version: "1.0"
 author: Gordon L. Hempton <ghempton@gmail.com>
 about: Open source development metrics
 args:
+  - log_file:
+      long: log-file
+      help: the location of the log file
+      default_value: codealong.log
+  - log_level:
+      long: log-level
+      help: the verbosity of logging
+      default_value: info
+      possible_values:
+        - trace
+        - debug
+        - info
+        - warning
+        - error
+        - critical
 subcommands:
   - init:
       about: generate a codealong config

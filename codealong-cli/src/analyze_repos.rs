@@ -2,7 +2,9 @@ use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
+use error_chain::ChainedError;
 use git2::Repository;
+use slog::Logger;
 
 use codealong::{AnalyzeOpts, AnalyzedRevwalk, Config};
 
@@ -11,7 +13,12 @@ use crate::repo::Repo;
 use crate::ui::{NamedProgressBar, ProgressPool};
 
 /// Clone and/or fetch all repos
-pub fn analyze_repos(matches: &clap::ArgMatches, repos: Vec<Repo>, config: Config) -> Result<()> {
+pub fn analyze_repos(
+    matches: &clap::ArgMatches,
+    repos: Vec<Repo>,
+    config: Config,
+    logger: &Logger,
+) -> Result<()> {
     let num_threads = matches
         .value_of("concurrency")
         .unwrap_or_else(|| "6")
@@ -24,6 +31,7 @@ pub fn analyze_repos(matches: &clap::ArgMatches, repos: Vec<Repo>, config: Confi
         let tasks = tasks.clone();
         let m = m.clone();
         let mut pb = m.add();
+        let root_logger = logger.clone();
         let config = config.clone();
         thread::spawn(move || loop {
             let task = {
@@ -31,11 +39,11 @@ pub fn analyze_repos(matches: &clap::ArgMatches, repos: Vec<Repo>, config: Confi
                 tasks.pop_front()
             };
             if let Some(task) = task {
+                let logger = root_logger.new(o!("repo" => task.repo.display_name().to_owned()));
                 pb.reset(task.display_name().to_owned());
-                task.analyze(&pb, config.clone()).unwrap_or_else(|e| {
-                    pb.set_message(&format!("error: {}", e));
-                    std::thread::sleep(std::time::Duration::from_secs(2));
-                });
+                task.analyze(&pb, config.clone()).unwrap_or_else(
+                    |e| error!(logger, "error analyzing"; "error" => e.display_chain().to_string()),
+                );
                 m.inc(1);
             } else {
                 pb.finish();
@@ -121,7 +129,7 @@ fn analyze_prs(
     pb: &NamedProgressBar,
     repo: &Repository,
     mut config: Config,
-    opts: AnalyzeOpts,
+    _opts: AnalyzeOpts,
 ) -> Result<()> {
     config.merge(Config::from_repo(&repo)?);
     let github_client = codealong_github::Client::from_env();

@@ -3,12 +3,19 @@ use std::iter::FromIterator;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use crate::error::Result;
+use error_chain::ChainedError;
+use slog::Logger;
+
+use crate::error::*;
 use crate::repo::Repo;
 use crate::ui::ProgressPool;
 
 /// Clone and/or fetch all repos
-pub fn initialize_repos(matches: &clap::ArgMatches, repos: Vec<Repo>) -> Result<()> {
+pub fn initialize_repos(
+    matches: &clap::ArgMatches,
+    repos: Vec<Repo>,
+    logger: &Logger,
+) -> Result<()> {
     let num_threads = matches
         .value_of("concurrency")
         .unwrap_or_else(|| "6")
@@ -20,12 +27,14 @@ pub fn initialize_repos(matches: &clap::ArgMatches, repos: Vec<Repo>) -> Result<
         let repos = repos.clone();
         let m = m.clone();
         let mut pb = m.add();
+        let root_logger = logger.clone();
         thread::spawn(move || loop {
             let repo = {
                 let mut repos = repos.lock().unwrap();
                 repos.pop_front()
             };
             if let Some(repo) = repo {
+                let logger = root_logger.new(o!("repo" => repo.display_name().to_owned()));
                 pb.reset(repo.display_name().to_owned());
                 pb.set_message("fetching");
                 let cb = |cur: usize, total: usize| {
@@ -35,8 +44,7 @@ pub fn initialize_repos(matches: &clap::ArgMatches, repos: Vec<Repo>) -> Result<
                 match repo.init(Some(Box::new(cb))) {
                     Ok(_) => pb.set_message("finished"),
                     Err(e) => {
-                        pb.set_message(&format!("error: {}", e));
-                        thread::sleep(std::time::Duration::from_secs(2));
+                        error!(logger, "error initializing"; "error" => e.display_chain().to_string())
                     }
                 };
                 m.inc(1);
