@@ -24,7 +24,7 @@ pub fn analyze_repos(
         .unwrap_or_else(|| "6")
         .parse::<i32>()?;
     let tasks = expand_tasks(&matches, repos);
-    let m = Arc::new(ProgressPool::new(tasks.len() as u64));
+    let m = Arc::new(ProgressPool::new(tasks.len() as u64, true));
     let tasks = Arc::new(Mutex::new(tasks));
     m.set_message("Data sources analyzed");
     for _ in 0..num_threads {

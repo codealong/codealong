@@ -1,7 +1,7 @@
 use git2::{Commit, Delta, DiffDelta, DiffLine, Repository};
 
 use crate::analyzed_diff::AnalyzedDiff;
-use crate::config::{AuthorConfig, Config, FileConfig};
+use crate::config::{Config, FileConfig, PersonConfig};
 use crate::config_context::ConfigContext;
 use crate::error::Error;
 use crate::fast_blame::FastBlame;
@@ -84,9 +84,8 @@ fn get_file_config<'a>(config: &'a Config, diff_delta: &DiffDelta) -> Option<Fil
         .and_then(|path| path.to_str().and_then(|path| config.config_for_file(path)))
 }
 
-fn get_author_config(_config: &Config, _commit: &Commit) -> Option<AuthorConfig> {
-    // TODO
-    None
+fn get_author_config<'a>(config: &'a Config, commit: &Commit) -> Option<PersonConfig<'a>> {
+    config.config_for_identity(&commit.author().into())
 }
 
 fn get_blame(

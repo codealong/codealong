@@ -48,7 +48,7 @@ fn main() {
     }
 
     if let Some(matches) = matches.subcommand_matches("init") {
-        init(matches).map_err(|e| {
+        init(matches, &logger).map_err(|e| {
             error!(logger, "error invoking init subcommand"; "error" => e.display_chain().to_string());
             e
         }).unwrap();

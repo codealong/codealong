@@ -5,5 +5,4 @@ pub struct Person {
     pub email: Option<String>,
     pub github_login: Option<String>,
     pub role: Option<String>,
-    pub team: Option<String>
 }

@@ -10,9 +10,11 @@ pub struct ProgressPool {
 }
 
 impl ProgressPool {
-    pub fn new(count: u64) -> ProgressPool {
+    pub fn new(count: u64, visible: bool) -> ProgressPool {
         let m = MultiProgress::new();
-        //m.set_draw_target(ProgressDrawTarget::hidden());
+        if !visible {
+            m.set_draw_target(ProgressDrawTarget::hidden());
+        }
         let overall_pb = m.add(ProgressBar::new(count));
         overall_pb.set_style(ProgressStyle::default_bar().template("{pos:>7}/{len:7} {msg}"));
         let remaining = count;

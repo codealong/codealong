@@ -13,6 +13,8 @@ extern crate serde_derive;
 extern crate codealong;
 extern crate serde;
 extern crate serde_json;
+#[macro_use]
+extern crate slog;
 
 mod analyzed_pull_request;
 mod client;

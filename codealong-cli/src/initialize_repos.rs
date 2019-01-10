@@ -20,7 +20,7 @@ pub fn initialize_repos(
         .value_of("concurrency")
         .unwrap_or_else(|| "6")
         .parse::<i32>()?;
-    let m = Arc::new(ProgressPool::new(repos.len() as u64));
+    let m = Arc::new(ProgressPool::new(repos.len() as u64, true));
     m.set_message("Repos initialized");
     let repos = Arc::new(Mutex::new(VecDeque::from_iter(repos)));
     for _ in 0..num_threads {

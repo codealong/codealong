@@ -13,6 +13,8 @@ extern crate linked_hash_map;
 extern crate serde_derive;
 extern crate serde;
 extern crate serde_yaml;
+#[macro_use]
+extern crate slog;
 
 mod analyze_opts;
 mod analyzed_commit;
@@ -31,6 +33,7 @@ mod identity;
 mod line_analyzer;
 mod person;
 mod repo;
+pub mod test;
 mod utils;
 mod work_stats;
 

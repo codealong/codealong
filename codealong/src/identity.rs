@@ -57,7 +57,6 @@ impl Identity {
             name: self.name.clone(),
             email: self.email.clone(),
             github_login: None,
-            team: None,
             role: None,
         }
     }
