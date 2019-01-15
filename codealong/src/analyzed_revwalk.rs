@@ -22,7 +22,7 @@ impl<'repo> AnalyzedRevwalk<'repo> {
     ) -> Result<AnalyzedRevwalk<'repo>> {
         let mut revwalk = repo.revwalk()?;
         if let Ok(remote) = repo.find_remote("origin") {
-            revwalk.push_ref(remote.get_refspec(0).unwrap().str().unwrap())?;
+            revwalk.push_ref("refs/remotes/origin/master")?;
         } else {
             revwalk.push_head()?;
         }
