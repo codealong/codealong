@@ -1,6 +1,6 @@
+use crate::work_stats::WorkStats;
 use std::collections::HashMap;
 use std::ops::{Add, AddAssign};
-use crate::work_stats::WorkStats;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AnalyzedDiff {

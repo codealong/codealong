@@ -2,6 +2,7 @@ use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
+use console::style;
 use error_chain::ChainedError;
 use git2::Repository;
 use slog::Logger;
@@ -9,6 +10,7 @@ use slog::Logger;
 use codealong::{AnalyzeOpts, AnalyzedRevwalk, Config};
 
 use crate::error::Result;
+use crate::logger::OutputMode;
 use crate::repo::Repo;
 use crate::ui::{NamedProgressBar, ProgressPool};
 
@@ -18,13 +20,21 @@ pub fn analyze_repos(
     repos: Vec<Repo>,
     config: Config,
     logger: &Logger,
+    output_mode: OutputMode,
 ) -> Result<()> {
-    let num_threads = matches
-        .value_of("concurrency")
-        .unwrap_or_else(|| "6")
-        .parse::<i32>()?;
+    println!("{} Analyzing...", style("[3/3]").bold().dim());
+    let num_threads = std::cmp::min(
+        matches
+            .value_of("concurrency")
+            .unwrap_or_else(|| "6")
+            .parse::<i32>()?,
+        (repos.len() * 2) as i32,
+    );
     let tasks = expand_tasks(&matches, repos);
-    let m = Arc::new(ProgressPool::new(tasks.len() as u64, true));
+    let m = Arc::new(ProgressPool::new(
+        tasks.len() as u64,
+        output_mode == OutputMode::Progress,
+    ));
     let tasks = Arc::new(Mutex::new(tasks));
     m.set_message("Data sources analyzed");
     for _ in 0..num_threads {
@@ -41,7 +51,7 @@ pub fn analyze_repos(
             if let Some(task) = task {
                 let logger = root_logger.new(o!("repo" => task.repo.display_name().to_owned()));
                 pb.reset(task.display_name().to_owned());
-                task.analyze(&pb, config.clone()).unwrap_or_else(
+                task.analyze(&pb, config.clone(), &logger).unwrap_or_else(
                     |e| error!(logger, "error analyzing"; "error" => e.display_chain().to_string()),
                 );
                 m.inc(1);
@@ -89,13 +99,13 @@ struct AnalyzeTask {
 }
 
 impl AnalyzeTask {
-    fn analyze(&self, pb: &NamedProgressBar, config: Config) -> Result<()> {
+    fn analyze(&self, pb: &NamedProgressBar, config: Config, logger: &Logger) -> Result<()> {
         match self.task_type {
             AnalyzeTaskType::Commit => {
-                analyze_commits(pb, &self.repo.repo()?, config, self.opts.clone())
+                analyze_commits(pb, &self.repo.repo()?, config, self.opts.clone(), logger)
             }
             AnalyzeTaskType::PullRequest => {
-                analyze_prs(pb, &self.repo.repo()?, config, self.opts.clone())
+                analyze_prs(pb, &self.repo.repo()?, config, self.opts.clone(), logger)
             }
         }
     }
@@ -110,16 +120,17 @@ fn analyze_commits(
     repo: &Repository,
     mut config: Config,
     opts: AnalyzeOpts,
+    logger: &Logger,
 ) -> Result<()> {
     config.merge(Config::from_repo(&repo)?);
-    let revwalk = AnalyzedRevwalk::new(&repo, config, opts)?;
+    let revwalk = AnalyzedRevwalk::new(&repo, &config, opts, logger)?;
     let client = codealong_elk::Client::default();
     pb.set_message("calculating");
     let count = revwalk.len();
     pb.set_length(count as u64);
     pb.set_message("analyzing commits");
-    for analyzed_commit in revwalk {
-        client.index(analyzed_commit?)?;
+    for commit_analyzer in revwalk {
+        client.index(commit_analyzer?.analyze()?)?;
         pb.inc(1);
     }
     Ok(pb.finish())
@@ -130,6 +141,7 @@ fn analyze_prs(
     repo: &Repository,
     mut config: Config,
     _opts: AnalyzeOpts,
+    logger: &Logger,
 ) -> Result<()> {
     config.merge(Config::from_repo(&repo)?);
     let github_client = codealong_github::Client::from_env();

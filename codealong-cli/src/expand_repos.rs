@@ -1,8 +1,10 @@
 use crate::repo::Repo;
+use console::style;
 
 /// Given all possible repo-related arguments, expand them to a list of Repo
 /// structs.
 pub fn expand_repos(matches: &clap::ArgMatches) -> Vec<Repo> {
+    println!("{} Expanding repos...", style("[1/3]").bold().dim());
     let mut repos = Vec::new();
 
     if let Some(repo_paths) = matches.values_of("repo_path") {

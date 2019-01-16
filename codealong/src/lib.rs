@@ -1,3 +1,5 @@
+#![recursion_limit = "4096"]
+
 extern crate chrono;
 #[macro_use]
 extern crate error_chain;

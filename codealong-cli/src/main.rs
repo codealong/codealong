@@ -38,10 +38,10 @@ fn main() {
     let yml = load_yaml!("cli.yml");
     let matches = App::from_yaml(yml).get_matches();
 
-    let logger = build_logger(&matches);
+    let (logger, output_mode) = build_logger(&matches);
 
     if let Some(matches) = matches.subcommand_matches("analyze") {
-        analyze(matches, &logger).map_err(|e| {
+        analyze(matches, &logger, output_mode).map_err(|e| {
             error!(logger, "error invoking analyze subcommand"; "error" => e.display_chain().to_string());
             e
         }).unwrap();

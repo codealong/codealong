@@ -3,6 +3,25 @@ version: "1.0"
 author: Gordon L. Hempton <ghempton@gmail.com>
 about: Open source development metrics
 args:
+  - output_mode:
+      long: output-mode
+      help: how to display terminal output
+      default_value: progress
+      possible_values:
+        - progress
+        - log
+        - none
+  - verbosity:
+      long: verbosity
+      default_value: info
+      help: the verbosity of the output; only relevant when output-mode is log
+      possible_values:
+        - trace
+        - debug
+        - info
+        - warning
+        - error
+        - critical
   - log_file:
       long: log-file
       help: the location of the log file
