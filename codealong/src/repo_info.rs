@@ -1,5 +1,5 @@
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Repo {
+pub struct RepoInfo {
     pub name: String,
-    pub fork: bool
+    pub fork: bool,
 }

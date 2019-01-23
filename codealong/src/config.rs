@@ -1,5 +1,3 @@
-use std::cell::RefCell;
-use std::collections::HashMap;
 use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::fs::File;
@@ -15,7 +13,7 @@ use serde_yaml;
 use crate::error::{Error, Result};
 use crate::identity::Identity;
 use crate::person::Person;
-use crate::repo::Repo;
+use crate::repo_info::RepoInfo;
 
 use include_dir::Dir;
 
@@ -61,7 +59,7 @@ pub struct Config {
     pub github: Option<String>,
 
     #[serde(default)]
-    pub repo: Option<Repo>,
+    pub repo: Option<RepoInfo>,
 
     #[serde(default = "Config::default_merge_defaults")]
     pub merge_defaults: bool,
@@ -113,7 +111,7 @@ impl Config {
             Self::base()
         };
         if config.repo.is_none() {
-            config.repo = path.file_name().and_then(|s| s.to_str()).map(|s| Repo {
+            config.repo = path.file_name().and_then(|s| s.to_str()).map(|s| RepoInfo {
                 name: s.to_owned(),
                 fork: false,
             });
@@ -380,7 +378,7 @@ impl Default for AuthorConfig {
             github_logins: vec![],
             tags: vec![],
             ignore: false,
-            role: None
+            role: None,
         }
     }
 }
