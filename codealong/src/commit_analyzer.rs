@@ -45,13 +45,13 @@ impl<'a> CommitAnalyzer<'a> {
             let diff_analyzer = DiffAnalyzer::new(self.repo, &self.commit, None, self.config);
             result.merge_diff(&diff_analyzer.analyze()?);
         }
-        if let Some(ref github) = self.config.github {
+        if let Some(ref github_name) = self.config.repo.github_name {
             result.github_url = Some(format!(
                 "https://github.com/{}/commit/{}",
-                github, result.id
+                github_name, result.id
             ));
         }
-        result.repo = self.config.repo.clone();
+        result.repo = Some(self.config.repo.partial());
         result.normalized_author = Some(self.config.person_for_identity(&result.author));
         result.normalized_committer = Some(self.config.person_for_identity(&result.committer));
         info!(self.logger, "Done analyzing");
@@ -109,6 +109,7 @@ mod tests {
             .find_commit(Oid::from_str("86d242301830075e93ff039a4d1e88673a4a3020").unwrap())
             .unwrap();
         let config = Config::from_path(Path::new("./fixtures/configs/simple.yml")).unwrap();
+        dbg!(&config);
         let analyzer = CommitAnalyzer::new(&repo, commit, &config, &build_test_logger());
         let res = analyzer.analyze().unwrap();
         assert_eq!(res.github_url, Some("https://github.com/ghempton/codealong/commit/86d242301830075e93ff039a4d1e88673a4a3020".to_string()));

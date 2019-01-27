@@ -55,11 +55,8 @@ static BASE_CONFIGS: Dir = include_dir!("./config");
 /// ```
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Config {
-    #[serde(default)]
-    pub github: Option<String>,
-
-    #[serde(default)]
-    pub repo: Option<RepoInfo>,
+    #[serde(default, flatten)]
+    pub repo: RepoInfo,
 
     #[serde(default = "Config::default_merge_defaults")]
     pub merge_defaults: bool,
@@ -110,12 +107,15 @@ impl Config {
         } else {
             Self::base()
         };
-        if config.repo.is_none() {
-            config.repo = path.file_name().and_then(|s| s.to_str()).map(|s| RepoInfo {
-                name: s.to_owned(),
-                fork: false,
-            });
+        if config.repo.name.is_empty() {
+            path.file_name()
+                .and_then(|s| s.to_str())
+                .map(|s| config.repo.name = s.to_owned());
         }
+        if config.repo.clone_url.is_empty() {
+            config.repo.clone_url = path.to_string_lossy().to_string();
+        }
+        // TODO: read from remotes and set github_name and refs
         Ok(config)
     }
 
@@ -131,14 +131,14 @@ impl Config {
                     .unwrap();
                 }
                 GITHUB_REGEX.captures(url).map(|captures| {
-                    config.github.replace(
+                    config.repo.github_name.replace(
                         captures
                             .name("a")
                             .or_else(|| captures.name("b"))
                             .unwrap()
                             .as_str()
                             .to_owned(),
-                    )
+                    );
                 });
             }
         }
@@ -172,11 +172,8 @@ impl Config {
     pub fn merge(&mut self, other: Config) {
         self.files.extend(other.files);
         self.authors.extend(other.authors);
-        if let None = self.github {
-            self.github = other.github.clone();
-        }
-        if let None = self.repo {
-            self.repo = other.repo.clone();
+        if let None = self.repo.github_name {
+            self.repo.github_name = other.repo.github_name.clone();
         }
     }
 
@@ -267,8 +264,7 @@ impl Config {
 impl Default for Config {
     fn default() -> Config {
         Config {
-            repo: None,
-            github: None,
+            repo: RepoInfo::default(),
             merge_defaults: true,
             churn_cutoff: 14,
             files: LinkedHashMap::new(),
@@ -390,13 +386,13 @@ mod tests {
     #[test]
     fn test_from_dir_without_config() {
         let config = Config::from_dir(Path::new("fixtures/repos/simple")).unwrap();
-        assert_eq!(config.repo.as_ref().unwrap().name, "simple");
+        assert_eq!(config.repo.name, "simple");
     }
 
     #[test]
     fn test_from_dir_with_config() {
         let config = Config::from_dir(Path::new("fixtures/repos/bare_config")).unwrap();
-        assert_eq!(config.repo.as_ref().unwrap().name, "bare_config");
+        assert_eq!(config.repo.name, "bare_config");
         assert!(config.config_for_file("README.md").is_some());
     }
 
@@ -404,9 +400,12 @@ mod tests {
     fn test_from_repo() {
         let config =
             Config::from_repo(&Repository::open("fixtures/repos/bare_config").unwrap()).unwrap();
-        assert_eq!(config.github, None);
+        assert_eq!(config.repo.github_name, None);
         let config = Config::from_repo(&Repository::open_from_env().unwrap()).unwrap();
-        assert_eq!(config.github, Some("ghempton/codealong".to_owned()));
+        assert_eq!(
+            config.repo.github_name,
+            Some("ghempton/codealong".to_owned())
+        );
     }
 
     #[test]

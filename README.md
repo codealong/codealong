@@ -1,5 +1,7 @@
 # Codealong
 
+Codealong is a tool to gain visibility into all repos
+
 ## Getting Started With a Github Organization
 
 First, create a working directory and generate a configuration YAML file via the API:

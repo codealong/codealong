@@ -64,6 +64,7 @@ impl<'repo> Iterator for AnalyzedRevwalk<'repo> {
 
 impl<'repo> ExactSizeIterator for AnalyzedRevwalk<'repo> {
     fn len(&self) -> usize {
+        // XXX: need to take into account remote
         let mut revwalk = self.repo.revwalk().unwrap();
         revwalk.push_head().unwrap();
         revwalk.count()

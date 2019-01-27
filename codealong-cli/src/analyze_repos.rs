@@ -149,7 +149,7 @@ fn analyze_prs(
     pb.set_message("calculating");
     let url = format!(
         "https://api.github.com/repos/{}/pulls?state=all",
-        config.github.clone().unwrap()
+        config.repo.github_name.as_ref().unwrap()
     );
     let mut cursor: codealong_github::Cursor<codealong_github::PullRequest> =
         codealong_github::Cursor::new(&github_client, &url);

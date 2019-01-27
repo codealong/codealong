@@ -2,7 +2,7 @@ use crate::analyzed_diff::AnalyzedDiff;
 use crate::event::Event;
 use crate::identity::Identity;
 use crate::person::Person;
-use crate::repo_info::RepoInfo;
+use crate::repo_info::PartialRepoInfo;
 
 use chrono::prelude::*;
 use chrono::{DateTime, FixedOffset, TimeZone};
@@ -21,7 +21,7 @@ pub struct AnalyzedCommit {
     pub committer: Identity,
     pub committed_at: DateTime<Utc>,
     pub normalized_committer: Option<Person>,
-    pub repo: Option<RepoInfo>,
+    pub repo: Option<PartialRepoInfo>,
     pub github_url: Option<String>,
 }
 
