@@ -57,4 +57,4 @@ pub use crate::repo::Repo;
 pub use crate::repo_info::RepoInfo;
 pub use crate::utils::with_authentication;
 pub use crate::workspace::Workspace;
-pub use crate::workspace_config::WorkspaceConfig;
+pub use crate::workspace_config::{WorkspaceConfig, RepoEntry};

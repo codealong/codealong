@@ -46,6 +46,9 @@ subcommands:
             long: github-org
             help: name of Github organization from which to read users
             multiple: true
+        - destination:
+            help: the target directory
+            default_value: "."
   - analyze:
       about: analyze and index events
       args:

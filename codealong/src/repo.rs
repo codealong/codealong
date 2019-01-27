@@ -35,7 +35,7 @@ impl<'workspace> Repo<'workspace> {
 
     pub fn init<'a>(&self, mut cb: Option<Box<ProgressCallback<'a>>>) -> Result<Repository> {
         if let Ok(repository) = self.repository() {
-            self.fetch(&repository, cb);
+            self.fetch(&repository, cb)?;
             Ok(repository)
         } else {
             self.clone(cb)

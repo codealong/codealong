@@ -1,17 +1,31 @@
 use slog::Logger;
 
-use codealong::{AuthorConfig, Config, Identity};
+use codealong::{AuthorConfig, Config, Identity, RepoEntry, RepoInfo, WorkspaceConfig};
 
 use crate::client::Client;
 use crate::cursor::Cursor;
 use crate::error::{retry_when_rate_limited, Result};
+use crate::repo::Repo;
 use crate::user::User;
 
 /// Generate a `Config` from Github organization information. The primary use
 /// case here is to generate a list of authors with aliases from all of the
 /// organization's members.
-pub fn config_from_org(github_org: &str, logger: &Logger) -> Result<Config> {
-    let client = Client::from_env();
+pub fn config_from_org(
+    client: &Client,
+    github_org: &str,
+    logger: &Logger,
+) -> Result<WorkspaceConfig> {
+    let config = default_config_with_authors(client, github_org, logger)?;
+    let repos = build_repo_entries(client, github_org, logger)?;
+    Ok(WorkspaceConfig { config, repos })
+}
+
+fn default_config_with_authors(
+    client: &Client,
+    github_org: &str,
+    logger: &Logger,
+) -> Result<Config> {
     let url = format!("https://api.github.com/orgs/{}/members", github_org);
     let cursor: Cursor<User> = Cursor::new(&client, &url);
     let mut config = Config::default();
@@ -90,6 +104,26 @@ struct Signature {
     pub email: Option<String>,
 }
 
+fn build_repo_entries(
+    client: &Client,
+    github_org: &str,
+    logger: &Logger,
+) -> Result<Vec<RepoEntry>> {
+    let url = format!("https://api.github.com/orgs/{}/repos", github_org);
+    let cursor: Cursor<Repo> = Cursor::new(&client, &url);
+    let res = cursor.map(|repo| RepoEntry {
+        repo_info: RepoInfo {
+            name: repo.full_name,
+            github_name: repo.full_name,
+            clone_url: repo.clone_url,
+            fork: repo.fork,
+            ..Default::default()
+        },
+        path: None,
+    });
+    Ok(res.collect())
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -97,8 +131,10 @@ mod test {
 
     #[test]
     fn test_config_from_org() -> Result<()> {
-        let config = config_from_org("serde-rs", &build_test_logger())?;
-        assert!(config.authors.len() >= 3);
+        let client = Client::from_env();
+        let workspace_config = config_from_org(&client, "serde-rs", &build_test_logger())?;
+        assert!(workspace_config.config.authors.len() >= 3);
+        assert!(workspace_config.repos.len() > 1);
         Ok(())
     }
 }
