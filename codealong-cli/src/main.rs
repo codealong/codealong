@@ -10,20 +10,16 @@ extern crate error_chain;
 extern crate git2;
 extern crate indicatif;
 #[macro_use]
-extern crate lazy_static;
-#[macro_use]
 extern crate slog;
 extern crate sloggers;
 
 mod analyze;
 mod analyze_repos;
-mod config;
+mod build_workspace;
 mod error;
-mod expand_repos;
 mod init;
 mod initialize_repos;
 mod logger;
-mod repo;
 mod ui;
 
 use error_chain::ChainedError;

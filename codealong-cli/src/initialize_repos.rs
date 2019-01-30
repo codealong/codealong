@@ -7,9 +7,10 @@ use console::style;
 use error_chain::ChainedError;
 use slog::Logger;
 
+use codealong::Repo;
+
 use crate::error::*;
 use crate::logger::OutputMode;
-use crate::repo::Repo;
 use crate::ui::ProgressPool;
 
 /// Clone and/or fetch all repos
@@ -19,7 +20,7 @@ pub fn initialize_repos(
     logger: &Logger,
     output_mode: OutputMode,
 ) -> Result<()> {
-    println!("{} Initializing...", style("[2/3]").bold().dim());
+    println!("{} Initializing...", style("[1/2]").bold().dim());
     let num_threads = std::cmp::min(
         matches
             .value_of("concurrency")
@@ -44,8 +45,8 @@ pub fn initialize_repos(
                 repos.pop_front()
             };
             if let Some(repo) = repo {
-                let logger = root_logger.new(o!("repo" => repo.display_name().to_owned()));
-                pb.reset(repo.display_name().to_owned());
+                let logger = root_logger.new(o!("repo" => repo.repo_info().name.to_owned()));
+                pb.reset(repo.repo_info().name.to_owned());
                 pb.set_message("fetching");
                 let cb = |cur: usize, total: usize| {
                     pb.set_length(total as u64);

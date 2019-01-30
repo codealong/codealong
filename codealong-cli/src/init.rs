@@ -8,7 +8,6 @@ use codealong::WorkspaceConfig;
 use codealong_github::config_from_org;
 
 use crate::error::Result;
-use crate::logger::OutputMode;
 
 pub fn init(matches: &clap::ArgMatches, logger: &Logger) -> Result<()> {
     let config = build_config(matches, logger)?;

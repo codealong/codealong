@@ -7,22 +7,20 @@ use error_chain::ChainedError;
 use git2::Repository;
 use slog::Logger;
 
-use codealong::{AnalyzeOpts, AnalyzedRevwalk, Config};
+use codealong::{AnalyzeOpts, AnalyzedRevwalk, Config, Repo};
 
 use crate::error::Result;
 use crate::logger::OutputMode;
-use crate::repo::Repo;
 use crate::ui::{NamedProgressBar, ProgressPool};
 
 /// Clone and/or fetch all repos
 pub fn analyze_repos(
     matches: &clap::ArgMatches,
     repos: Vec<Repo>,
-    config: Config,
     logger: &Logger,
     output_mode: OutputMode,
 ) -> Result<()> {
-    println!("{} Analyzing...", style("[3/3]").bold().dim());
+    println!("{} Analyzing...", style("[2/2]").bold().dim());
     let num_threads = std::cmp::min(
         matches
             .value_of("concurrency")
@@ -42,14 +40,14 @@ pub fn analyze_repos(
         let m = m.clone();
         let mut pb = m.add();
         let root_logger = logger.clone();
-        let config = config.clone();
         thread::spawn(move || loop {
             let task = {
                 let mut tasks = tasks.lock().unwrap();
                 tasks.pop_front()
             };
             if let Some(task) = task {
-                let logger = root_logger.new(o!("repo" => task.repo.display_name().to_owned()));
+                let config = task.repo.config();
+                let logger = root_logger.new(o!("repo" => task.repo.repo_info().name.to_owned()));
                 pb.reset(task.display_name().to_owned());
                 task.analyze(&pb, config.clone(), &logger).unwrap_or_else(
                     |e| error!(logger, "error analyzing"; "error" => e.display_chain().to_string()),
@@ -101,17 +99,25 @@ struct AnalyzeTask {
 impl AnalyzeTask {
     fn analyze(&self, pb: &NamedProgressBar, config: Config, logger: &Logger) -> Result<()> {
         match self.task_type {
-            AnalyzeTaskType::Commit => {
-                analyze_commits(pb, &self.repo.repo()?, config, self.opts.clone(), logger)
-            }
-            AnalyzeTaskType::PullRequest => {
-                analyze_prs(pb, &self.repo.repo()?, config, self.opts.clone(), logger)
-            }
+            AnalyzeTaskType::Commit => analyze_commits(
+                pb,
+                &self.repo.repository()?,
+                config,
+                self.opts.clone(),
+                logger,
+            ),
+            AnalyzeTaskType::PullRequest => analyze_prs(
+                pb,
+                &self.repo.repository()?,
+                config,
+                self.opts.clone(),
+                logger,
+            ),
         }
     }
 
     fn display_name(&self) -> &str {
-        self.repo.display_name()
+        &self.repo.repo_info().name
     }
 }
 
@@ -169,6 +175,6 @@ fn analyze_prs(
 fn analyze_opts_from_args(repo: &Repo, matches: &clap::ArgMatches) -> AnalyzeOpts {
     AnalyzeOpts {
         ignore_unknown_authors: matches.is_present("skip_unknown_authors")
-            || repo.is_fork() && matches.is_present("skip_unknown_authors_in_forks"),
+            || repo.repo_info().fork && matches.is_present("skip_unknown_authors_in_forks"),
     }
 }

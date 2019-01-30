@@ -44,7 +44,7 @@ subcommands:
         - github_org:
             short: o
             long: github-org
-            help: name of Github organization from which to read users
+            help: name of a Github organization from which to read users
             multiple: true
         - destination:
             help: the target directory
@@ -59,23 +59,17 @@ subcommands:
             default_value: "http://localhost:9200"
         - config_path:
             short: c
-            long: config-path
-            help: path to a codealong config file
+            long: config
+            help: path to an additional codealong config file
             multiple: true
-        - repo_path:
-            short: p
-            long: repo-path
-            help: path to a repo to analyze
-            multiple: true
-        - repo_url:
-            short: u
-            long: repo-url
+        - workspace_path:
+            short: w
+            long: workspace
+            help: path to a codealong workspace
+        - repo:
+            short: r
+            long: repo
             help: URL of a repo to analyze
-            multiple: true
-        - github_org:
-            short: o
-            long: github-org
-            help: name of Github organization from which to pull all repositories
             multiple: true
         - concurrency:
             short: C

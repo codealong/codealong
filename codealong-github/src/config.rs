@@ -113,13 +113,13 @@ fn build_repo_entries(
     let cursor: Cursor<Repo> = Cursor::new(&client, &url);
     let res = cursor.map(|repo| RepoEntry {
         repo_info: RepoInfo {
-            name: repo.full_name,
-            github_name: repo.full_name,
+            name: repo.full_name.clone(),
+            github_name: Some(repo.full_name.clone()),
             clone_url: repo.clone_url,
             fork: repo.fork,
             ..Default::default()
         },
-        path: None,
+        path: Some(format!("{}.git", repo.full_name)),
     });
     Ok(res.collect())
 }

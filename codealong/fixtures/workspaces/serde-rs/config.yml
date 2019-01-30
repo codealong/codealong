@@ -1,0 +1,103 @@
+---
+name: ""
+fork: false
+github_name: ~
+clone_url: ""
+refs:
+  - origin/master
+merge_defaults: true
+churn_cutoff: 14
+files: {}
+authors:
+  David Tolnay <dtolnay@gmail.com>:
+    aliases: []
+    github_logins:
+      - dtolnay
+    tags: []
+    ignore: false
+    role: ~
+  Erick Tryzelaar <erick.tryzelaar@gmail.com>:
+    aliases: []
+    github_logins:
+      - erickt
+    tags: []
+    ignore: false
+    role: ~
+  Oliver Schneider <git-spam-no-reply9815368754983@oli-obk.de>:
+    aliases: []
+    github_logins:
+      - oli-obk
+    tags: []
+    ignore: false
+    role: ~
+repos:
+  - name: serde-rs/serde
+    fork: false
+    github_name: serde-rs/serde
+    clone_url: "https://github.com/serde-rs/serde.git"
+    refs:
+      - origin/master
+    path: serde-rs/serde.git
+  - name: serde-rs/json
+    fork: false
+    github_name: serde-rs/json
+    clone_url: "https://github.com/serde-rs/json.git"
+    refs:
+      - origin/master
+    path: serde-rs/json.git
+  - name: serde-rs/rfcs
+    fork: false
+    github_name: serde-rs/rfcs
+    clone_url: "https://github.com/serde-rs/rfcs.git"
+    refs:
+      - origin/master
+    path: serde-rs/rfcs.git
+  - name: serde-rs/json-benchmark
+    fork: false
+    github_name: serde-rs/json-benchmark
+    clone_url: "https://github.com/serde-rs/json-benchmark.git"
+    refs:
+      - origin/master
+    path: serde-rs/json-benchmark.git
+  - name: serde-rs/serde-rs.github.io
+    fork: false
+    github_name: serde-rs/serde-rs.github.io
+    clone_url: "https://github.com/serde-rs/serde-rs.github.io.git"
+    refs:
+      - origin/master
+    path: serde-rs/serde-rs.github.io.git
+  - name: serde-rs/docs
+    fork: false
+    github_name: serde-rs/docs
+    clone_url: "https://github.com/serde-rs/docs.git"
+    refs:
+      - origin/master
+    path: serde-rs/docs.git
+  - name: serde-rs/bench
+    fork: false
+    github_name: serde-rs/bench
+    clone_url: "https://github.com/serde-rs/bench.git"
+    refs:
+      - origin/master
+    path: serde-rs/bench.git
+  - name: serde-rs/bytes
+    fork: false
+    github_name: serde-rs/bytes
+    clone_url: "https://github.com/serde-rs/bytes.git"
+    refs:
+      - origin/master
+    path: serde-rs/bytes.git
+  - name: serde-rs/legacy
+    fork: false
+    github_name: serde-rs/legacy
+    clone_url: "https://github.com/serde-rs/legacy.git"
+    refs:
+      - origin/master
+    path: serde-rs/legacy.git
+  - name: serde-rs/example-format
+    fork: false
+    github_name: serde-rs/example-format
+    clone_url: "https://github.com/serde-rs/example-format.git"
+    refs:
+      - origin/master
+    path: serde-rs/example-format.git

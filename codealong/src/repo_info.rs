@@ -1,3 +1,9 @@
+use regex::Regex;
+use std::path::Path;
+use url::Url;
+
+use crate::error::*;
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RepoInfo {
     #[serde(default)]
@@ -18,6 +24,36 @@ pub struct RepoInfo {
 }
 
 impl RepoInfo {
+    pub fn from_url(url: &str) -> Result<RepoInfo> {
+        let name = if let Ok(url) = Url::parse(&url) {
+            url.path().to_owned().split_off(1)
+        } else {
+            // We cannot use the url crate to parse ssh urls since they are not
+            // standards compliant, e.g. git@github.com:getoutreach/broccoli-babel.git
+            lazy_static! {
+                static ref SSH_URL_REGEX: Regex =
+                    Regex::new(r#"(.+@)?(.+):(?P<path>.+).git"#).unwrap();
+            }
+            SSH_URL_REGEX
+                .captures(url)
+                .and_then(|captures| captures.name("path"))
+                .ok_or::<Error>(ErrorKind::InvalidRepo(url.to_owned()).into())?
+                .as_str()
+                .to_owned()
+        };
+
+        Ok(RepoInfo {
+            name: name.clone(),
+            github_name: if url.contains("github") {
+                Some(name)
+            } else {
+                None
+            },
+            clone_url: url.to_owned(),
+            ..Default::default()
+        })
+    }
+
     pub fn partial(&self) -> PartialRepoInfo {
         PartialRepoInfo {
             name: self.name.clone(),
@@ -43,4 +79,22 @@ impl Default for RepoInfo {
 pub struct PartialRepoInfo {
     name: String,
     fork: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_from_url() -> Result<()> {
+        assert_eq!(
+            RepoInfo::from_url("https://github.com/actix/actix-web")?.name,
+            "actix/actix-web"
+        );
+        assert_eq!(
+            RepoInfo::from_url("git@github.com:getoutreach/broccoli-babel.git")?.name,
+            "getoutreach/broccoli-babel"
+        );
+        Ok(())
+    }
 }

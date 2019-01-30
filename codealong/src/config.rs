@@ -154,7 +154,7 @@ impl Config {
         config
     }
 
-    fn maybe_apply_base(&mut self) {
+    pub fn maybe_apply_base(&mut self) {
         if self.merge_defaults {
             self.merge(Self::base());
         }
