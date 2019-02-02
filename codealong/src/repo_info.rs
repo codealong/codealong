@@ -1,5 +1,5 @@
+use git2::Repository;
 use regex::Regex;
-use std::path::Path;
 use url::Url;
 
 use crate::error::*;
@@ -54,6 +54,48 @@ impl RepoInfo {
         })
     }
 
+    pub fn from_repository(repo: &Repository) -> Result<RepoInfo> {
+        let mut repo_info = Self::default();
+        if let Ok(remote) = repo.find_remote("origin") {
+            let url = remote.url().ok_or::<Error>(
+                ErrorKind::InvalidRepo(repo.path().to_string_lossy().to_string()).into(),
+            )?;
+            repo_info.clone_url = url.to_owned();
+            lazy_static! {
+                static ref GITHUB_REGEX: Regex = Regex::new(
+                    r#"(git@github.com:(?P<a>.+/.+).git)|(https://github.com/(?P<b>.+/.+)(?:.git)?)"#
+                )
+                .unwrap();
+            }
+            GITHUB_REGEX.captures(url).map(|captures| {
+                repo_info.github_name.replace(
+                    captures
+                        .name("a")
+                        .or_else(|| captures.name("b"))
+                        .unwrap()
+                        .as_str()
+                        .to_owned(),
+                );
+            });
+        }
+
+        if let Some(ref github_name) = repo_info.github_name {
+            repo_info.name = github_name.to_owned();
+        } else {
+            // if we don't have a remote, we just use the name of the containing
+            // directory
+            repo_info.name = repo
+                .path()
+                .parent()
+                .unwrap()
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .to_string();
+        }
+        Ok(repo_info)
+    }
+
     pub fn partial(&self) -> PartialRepoInfo {
         PartialRepoInfo {
             name: self.name.clone(),
@@ -69,7 +111,7 @@ impl Default for RepoInfo {
             fork: false,
             github_name: None,
             clone_url: "".to_owned(),
-            refs: vec!["origin/master".to_owned()],
+            refs: vec!["refs/remotes/origin/master".to_owned()],
         }
     }
 }

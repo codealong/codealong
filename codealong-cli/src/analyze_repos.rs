@@ -7,7 +7,7 @@ use error_chain::ChainedError;
 use git2::Repository;
 use slog::Logger;
 
-use codealong::{AnalyzeOpts, AnalyzedRevwalk, Config, Repo};
+use codealong::{AnalyzeOpts, AnalyzedRevwalk, Config, Repo, RepoAnalyzer};
 
 use crate::error::Result;
 use crate::logger::OutputMode;
@@ -46,10 +46,9 @@ pub fn analyze_repos(
                 tasks.pop_front()
             };
             if let Some(task) = task {
-                let config = task.repo.config();
                 let logger = root_logger.new(o!("repo" => task.repo.repo_info().name.to_owned()));
                 pb.reset(task.display_name().to_owned());
-                task.analyze(&pb, config.clone(), &logger).unwrap_or_else(
+                task.analyze(&pb, &logger).unwrap_or_else(
                     |e| error!(logger, "error analyzing"; "error" => e.display_chain().to_string()),
                 );
                 m.inc(1);
@@ -97,22 +96,10 @@ struct AnalyzeTask {
 }
 
 impl AnalyzeTask {
-    fn analyze(&self, pb: &NamedProgressBar, config: Config, logger: &Logger) -> Result<()> {
+    fn analyze(&self, pb: &NamedProgressBar, logger: &Logger) -> Result<()> {
         match self.task_type {
-            AnalyzeTaskType::Commit => analyze_commits(
-                pb,
-                &self.repo.repository()?,
-                config,
-                self.opts.clone(),
-                logger,
-            ),
-            AnalyzeTaskType::PullRequest => analyze_prs(
-                pb,
-                &self.repo.repository()?,
-                config,
-                self.opts.clone(),
-                logger,
-            ),
+            AnalyzeTaskType::Commit => analyze_commits(pb, &self.repo, self.opts.clone(), logger),
+            AnalyzeTaskType::PullRequest => analyze_prs(pb, &self.repo, self.opts.clone(), logger),
         }
     }
 
@@ -123,19 +110,17 @@ impl AnalyzeTask {
 
 fn analyze_commits(
     pb: &NamedProgressBar,
-    repo: &Repository,
-    mut config: Config,
+    repo: &Repo,
     opts: AnalyzeOpts,
     logger: &Logger,
 ) -> Result<()> {
-    config.merge(Config::from_repo(&repo)?);
-    let revwalk = AnalyzedRevwalk::new(&repo, &config, opts, logger)?;
+    let analyzer = RepoAnalyzer::from_repo(repo, logger)?;
     let client = codealong_elk::Client::default();
     pb.set_message("calculating");
-    let count = revwalk.len();
+    let count = analyzer.guess_len(opts.clone())?;
     pb.set_length(count as u64);
     pb.set_message("analyzing commits");
-    for commit_analyzer in revwalk {
+    for commit_analyzer in analyzer.analyze(opts)? {
         client.index(commit_analyzer?.analyze()?)?;
         pb.inc(1);
     }
@@ -144,12 +129,12 @@ fn analyze_commits(
 
 fn analyze_prs(
     pb: &NamedProgressBar,
-    repo: &Repository,
-    mut config: Config,
+    repo: &Repo,
     _opts: AnalyzeOpts,
     logger: &Logger,
 ) -> Result<()> {
-    config.merge(Config::from_repo(&repo)?);
+    let analyzer = RepoAnalyzer::from_repo(repo, logger)?;
+    let config = repo.config();
     let github_client = codealong_github::Client::from_env();
     let client = codealong_elk::Client::default();
     pb.set_message("calculating");
@@ -164,8 +149,9 @@ fn analyze_prs(
         pb.set_length(count as u64);
     }
     pb.set_message("analyzing pull requests");
+    let repository = repo.repository()?;
     for pr in cursor {
-        let analyzer = codealong_github::PullRequestAnalyzer::new(&repo, pr, &config);
+        let analyzer = codealong_github::PullRequestAnalyzer::new(&repository, pr, &config);
         client.index(analyzer.analyze()?)?;
         pb.inc(1);
     }

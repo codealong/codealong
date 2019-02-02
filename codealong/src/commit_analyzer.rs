@@ -2,14 +2,14 @@ use git2::{Commit, Repository};
 use slog::Logger;
 
 use crate::analyzed_commit::AnalyzedCommit;
-use crate::config::Config;
 use crate::diff_analyzer::DiffAnalyzer;
 use crate::error::Error;
+use crate::repo_config::RepoConfig;
 
 pub struct CommitAnalyzer<'a> {
     repo: &'a Repository,
     commit: Commit<'a>,
-    config: &'a Config,
+    config: &'a RepoConfig,
     logger: Logger,
 }
 
@@ -17,7 +17,7 @@ impl<'a> CommitAnalyzer<'a> {
     pub fn new(
         repo: &'a Repository,
         commit: Commit<'a>,
-        config: &'a Config,
+        config: &'a RepoConfig,
         parent_logger: &Logger,
     ) -> CommitAnalyzer<'a> {
         let logger = parent_logger.new(o!("commit_id" => commit.id().to_string()));
@@ -36,13 +36,14 @@ impl<'a> CommitAnalyzer<'a> {
         let mut has_parents = false;
         for parent in self.commit.parents() {
             let diff_analyzer =
-                DiffAnalyzer::new(self.repo, &self.commit, Some(&parent), self.config);
+                DiffAnalyzer::new(self.repo, &self.commit, Some(&parent), &self.config.config);
             result.merge_diff(&diff_analyzer.analyze()?);
             has_parents = true;
         }
         // handle initial commit
         if !has_parents {
-            let diff_analyzer = DiffAnalyzer::new(self.repo, &self.commit, None, self.config);
+            let diff_analyzer =
+                DiffAnalyzer::new(self.repo, &self.commit, None, &self.config.config);
             result.merge_diff(&diff_analyzer.analyze()?);
         }
         if let Some(ref github_name) = self.config.repo.github_name {
@@ -52,8 +53,9 @@ impl<'a> CommitAnalyzer<'a> {
             ));
         }
         result.repo = Some(self.config.repo.partial());
-        result.normalized_author = Some(self.config.person_for_identity(&result.author));
-        result.normalized_committer = Some(self.config.person_for_identity(&result.committer));
+        result.normalized_author = Some(self.config.config.person_for_identity(&result.author));
+        result.normalized_committer =
+            Some(self.config.config.person_for_identity(&result.committer));
         info!(self.logger, "Done analyzing");
         return Ok(result);
     }
@@ -73,7 +75,7 @@ mod tests {
         let commit = repo
             .find_commit(Oid::from_str("86d242301830075e93ff039a4d1e88673a4a3020").unwrap())
             .unwrap();
-        let config = Config::default();
+        let config = RepoConfig::default();
         let analyzer = CommitAnalyzer::new(&repo, commit, &config, &build_test_logger());
         let res = analyzer.analyze().unwrap();
         assert_eq!(res.diff.stats.new_work, 1);
@@ -85,7 +87,7 @@ mod tests {
         let commit = repo
             .find_commit(Oid::from_str("301dfdc07a8c0770d3a352b6f6c2d8ff8159a9e3").unwrap())
             .unwrap();
-        let config = Config::default();
+        let config = RepoConfig::default();
         let analyzer = CommitAnalyzer::new(&repo, commit, &config, &build_test_logger());
         let res = analyzer.analyze().unwrap();
         assert_eq!(
@@ -108,8 +110,7 @@ mod tests {
         let commit = repo
             .find_commit(Oid::from_str("86d242301830075e93ff039a4d1e88673a4a3020").unwrap())
             .unwrap();
-        let config = Config::from_path(Path::new("./fixtures/configs/simple.yml")).unwrap();
-        dbg!(&config);
+        let config = RepoConfig::from_path(Path::new("./fixtures/configs/simple.yml")).unwrap();
         let analyzer = CommitAnalyzer::new(&repo, commit, &config, &build_test_logger());
         let res = analyzer.analyze().unwrap();
         assert_eq!(res.github_url, Some("https://github.com/ghempton/codealong/commit/86d242301830075e93ff039a4d1e88673a4a3020".to_string()));

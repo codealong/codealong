@@ -1,13 +1,10 @@
 use std::collections::HashSet;
-use std::ffi::OsStr;
 use std::fs::File;
 use std::iter;
 use std::path::Path;
 
-use git2::Repository;
 use glob::Pattern;
 use linked_hash_map::LinkedHashMap;
-use regex::Regex;
 use serde_yaml;
 
 use crate::error::{Error, Result};
@@ -55,9 +52,6 @@ static BASE_CONFIGS: Dir = include_dir!("./config");
 /// ```
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Config {
-    #[serde(default, flatten)]
-    pub repo: RepoInfo,
-
     #[serde(default = "Config::default_merge_defaults")]
     pub merge_defaults: bool,
 
@@ -87,64 +81,6 @@ impl Config {
         }
     }
 
-    /// Attempts to read the config from the conventional location within the
-    /// directory at `.codealong/config.yml`. If no config is found, fallback
-    /// to the base config.
-    ///
-    /// If the config has no `name`, then default to the name of the directory.
-    pub fn from_dir(path: &Path) -> Result<Self> {
-        // if the `.git` directory was specified we want to convert to the
-        // parent directory
-        let mut path = path;
-        if path.file_name() == Some(OsStr::new(".git")) {
-            path = path.parent().unwrap();
-        }
-        let file_path = path.join(".codealong").join("config.yml");
-        let mut config = if file_path.exists() {
-            let mut config = Self::from_path(&file_path)?;
-            config.maybe_apply_base();
-            config
-        } else {
-            Self::base()
-        };
-        if config.repo.name.is_empty() {
-            path.file_name()
-                .and_then(|s| s.to_str())
-                .map(|s| config.repo.name = s.to_owned());
-        }
-        if config.repo.clone_url.is_empty() {
-            config.repo.clone_url = path.to_string_lossy().to_string();
-        }
-        // TODO: read from remotes and set github_name and refs
-        Ok(config)
-    }
-
-    pub fn from_repo(repo: &Repository) -> Result<Self> {
-        let mut config = Self::from_dir(repo.path())?;
-        // attempt to infer a github value based off of origin
-        if let Ok(remote) = repo.find_remote("origin") {
-            if let Some(url) = remote.url() {
-                lazy_static! {
-                    static ref GITHUB_REGEX: Regex = Regex::new(
-                        r#"(git@github.com:(?P<a>.+/.+).git)|(https://github.com/(?P<b>.+/.+)(?:.git)?)"#
-                    )
-                    .unwrap();
-                }
-                GITHUB_REGEX.captures(url).map(|captures| {
-                    config.repo.github_name.replace(
-                        captures
-                            .name("a")
-                            .or_else(|| captures.name("b"))
-                            .unwrap()
-                            .as_str()
-                            .to_owned(),
-                    );
-                });
-            }
-        }
-        Ok(config)
-    }
-
     /// Base config with embedded defaults
     pub fn base() -> Self {
         let mut config = Config::default();
@@ -172,9 +108,6 @@ impl Config {
     pub fn merge(&mut self, other: Config) {
         self.files.extend(other.files);
         self.authors.extend(other.authors);
-        if let None = self.repo.github_name {
-            self.repo.github_name = other.repo.github_name.clone();
-        }
     }
 
     pub fn config_for_file(&self, path: &str) -> Option<FileConfig> {
@@ -264,7 +197,6 @@ impl Config {
 impl Default for Config {
     fn default() -> Config {
         Config {
-            repo: RepoInfo::default(),
             merge_defaults: true,
             churn_cutoff: 14,
             files: LinkedHashMap::new(),
@@ -382,31 +314,6 @@ impl Default for AuthorConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_from_dir_without_config() {
-        let config = Config::from_dir(Path::new("fixtures/repos/simple")).unwrap();
-        assert_eq!(config.repo.name, "simple");
-    }
-
-    #[test]
-    fn test_from_dir_with_config() {
-        let config = Config::from_dir(Path::new("fixtures/repos/bare_config")).unwrap();
-        assert_eq!(config.repo.name, "bare_config");
-        assert!(config.config_for_file("README.md").is_some());
-    }
-
-    #[test]
-    fn test_from_repo() {
-        let config =
-            Config::from_repo(&Repository::open("fixtures/repos/bare_config").unwrap()).unwrap();
-        assert_eq!(config.repo.github_name, None);
-        let config = Config::from_repo(&Repository::open_from_env().unwrap()).unwrap();
-        assert_eq!(
-            config.repo.github_name,
-            Some("ghempton/codealong".to_owned())
-        );
-    }
 
     #[test]
     fn test_deserialization() {

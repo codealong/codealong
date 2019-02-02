@@ -15,14 +15,14 @@ pub struct WorkspaceConfig {
 }
 
 impl WorkspaceConfig {
-    pub const DEFAULT_NAME: &'static str = "config.yml";
+    pub const DEFAULT_PATH: &'static str = "config.yml";
 
     pub fn exists(dir: &Path) -> bool {
-        Path::new(dir).join(Self::DEFAULT_NAME).exists()
+        Path::new(dir).join(Self::DEFAULT_PATH).exists()
     }
 
     pub fn from_dir(dir: &Path) -> Result<Self> {
-        Self::from_path(&Path::new(dir).join(Self::DEFAULT_NAME))
+        Self::from_path(&Path::new(dir).join(Self::DEFAULT_PATH))
     }
 
     pub fn from_path(path: &Path) -> Result<Self> {

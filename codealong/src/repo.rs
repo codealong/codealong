@@ -7,6 +7,8 @@ use regex::Regex;
 
 use crate::config::Config;
 use crate::error::*;
+use crate::repo_analyzer::RepoAnalyzer;
+use crate::repo_config::RepoConfig;
 use crate::repo_info::RepoInfo;
 use crate::utils::with_authentication;
 
@@ -62,7 +64,6 @@ impl Repo {
             let co = CheckoutBuilder::new();
 
             Ok(RepoBuilder::new()
-                .bare(true)
                 .fetch_options(fo)
                 .with_checkout(co)
                 .clone(url, &into)?)
@@ -105,10 +106,13 @@ impl Repo {
     }
 
     /// Combines base config with any config found in the repo itself
-    pub fn config(&self) -> Config {
+    pub fn config(&self) -> RepoConfig {
         // TODO once we go to bare repos we need to
         // read the object directly from git
-        self.base_config.clone()
+        RepoConfig {
+            repo: self.repo_info().clone(),
+            config: self.base_config.clone(),
+        }
     }
 }
 

@@ -1,6 +1,6 @@
 use git2::{Oid, Repository};
 
-use codealong::{with_authentication, Config, DiffAnalyzer};
+use codealong::{with_authentication, DiffAnalyzer, RepoConfig};
 
 use crate::analyzed_pull_request::AnalyzedPullRequest;
 use crate::error::{Error, Result};
@@ -8,7 +8,7 @@ use crate::pull_request::{PullRequest, Ref};
 
 pub struct PullRequestAnalyzer<'a> {
     repo: &'a Repository,
-    config: &'a Config,
+    config: &'a RepoConfig,
     pr: PullRequest,
 }
 
@@ -16,7 +16,7 @@ impl<'a> PullRequestAnalyzer<'a> {
     pub fn new(
         repo: &'a Repository,
         pr: PullRequest,
-        config: &'a Config,
+        config: &'a RepoConfig,
     ) -> PullRequestAnalyzer<'a> {
         PullRequestAnalyzer { repo, pr, config }
     }
@@ -34,15 +34,21 @@ impl<'a> PullRequestAnalyzer<'a> {
                     .find_commit(Oid::from_str(&self.pr.head.sha)?)
                     .map_err::<Error, _>(|e| e.into())
                     .and_then(|commit| {
-                        Ok(
-                            DiffAnalyzer::new(&self.repo, &commit, Some(&parent), &self.config)
-                                .analyze()?,
+                        Ok(DiffAnalyzer::new(
+                            &self.repo,
+                            &commit,
+                            Some(&parent),
+                            &self.config.config,
                         )
+                        .analyze()?)
                     })
             })
             .ok();
 
-        let normalized_author = self.config.person_for_github_login(&self.pr.user.login);
+        let normalized_author = self
+            .config
+            .config
+            .person_for_github_login(&self.pr.user.login);
 
         Ok(AnalyzedPullRequest::new(self.pr, diff, normalized_author))
     }
