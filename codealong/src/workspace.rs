@@ -60,6 +60,7 @@ impl Workspace {
         self.config
             .repos
             .iter()
+            .filter(|entry| !entry.ignore)
             .map(|entry| self.repo(&entry))
             .collect()
     }

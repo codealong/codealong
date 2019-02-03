@@ -44,6 +44,7 @@ impl WorkspaceConfig {
         // TODO: dedup against existing repos
         let entry = RepoEntry {
             repo_info: repo_info,
+            ignore: false,
             path,
         };
         self.repos.push(entry);
@@ -69,6 +70,9 @@ impl Default for WorkspaceConfig {
 pub struct RepoEntry {
     #[serde(flatten, default)]
     pub repo_info: RepoInfo,
+
+    #[serde(default)]
+    pub ignore: bool,
 
     #[serde(default)]
     pub path: Option<String>,

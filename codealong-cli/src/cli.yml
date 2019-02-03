@@ -66,6 +66,7 @@ subcommands:
             short: w
             long: workspace
             help: path to a codealong workspace
+            default_value: "~/.codealong"
         - repo:
             short: r
             long: repo

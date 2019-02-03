@@ -115,11 +115,12 @@ fn build_repo_entries(
         repo_info: RepoInfo {
             name: repo.full_name.clone(),
             github_name: Some(repo.full_name.clone()),
-            clone_url: repo.clone_url,
+            clone_url: repo.ssh_url,
             fork: repo.fork,
             ..Default::default()
         },
         path: Some(format!("{}.git", repo.full_name)),
+        ignore: false,
     });
     Ok(res.collect())
 }
