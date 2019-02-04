@@ -1,6 +1,8 @@
 use chrono::prelude::*;
 use chrono::DateTime;
 use std::borrow::Cow;
+use std::collections::HashSet;
+use std::iter::FromIterator;
 
 use codealong::{AnalyzedDiff, Event, Person};
 
@@ -45,5 +47,13 @@ impl Event for AnalyzedPullRequest {
 
     fn event_type(&self) -> &str {
         "pull_request"
+    }
+
+    fn tags(&self) -> HashSet<String> {
+        if let Some(ref diff) = self.diff {
+            HashSet::from_iter(diff.tag_stats.keys().map(|s| s.to_owned()))
+        } else {
+            HashSet::new()
+        }
     }
 }

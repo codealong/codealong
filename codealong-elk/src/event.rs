@@ -5,6 +5,7 @@ use chrono::prelude::*;
 use chrono::DateTime;
 
 use std::borrow::Cow;
+use std::collections::HashSet;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Event<T: codealong::Event> {
@@ -21,6 +22,8 @@ pub struct Event<T: codealong::Event> {
 
     #[serde(flatten)]
     inner: T,
+
+    tags: HashSet<String>,
 }
 
 impl<T> Event<T>
@@ -33,6 +36,7 @@ where
             version: 1,
             host: hostname::get_hostname(),
             timestamp: inner.timestamp().clone(),
+            tags: inner.tags(),
             inner: inner,
         }
     }

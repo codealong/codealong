@@ -8,6 +8,8 @@ use chrono::prelude::*;
 use chrono::{DateTime, FixedOffset, TimeZone};
 use git2::{Commit, Time};
 use std::borrow::Cow;
+use std::collections::HashSet;
+use std::iter::FromIterator;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AnalyzedCommit {
@@ -58,6 +60,10 @@ impl Event for AnalyzedCommit {
 
     fn id(&self) -> Cow<str> {
         Cow::Borrowed(&self.id)
+    }
+
+    fn tags(&self) -> HashSet<String> {
+        HashSet::from_iter(self.diff.tag_stats.keys().map(|s| s.to_owned()))
     }
 }
 
