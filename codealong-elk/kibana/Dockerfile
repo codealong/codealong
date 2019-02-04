@@ -1,4 +1,4 @@
-FROM docker.elastic.co/kibana/kibana-oss:6.5.4
+FROM docker.elastic.co/kibana/kibana-oss:6.6.0
 
 USER 0
 
