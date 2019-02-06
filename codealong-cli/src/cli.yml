@@ -5,7 +5,7 @@ about: Open source development metrics
 args:
   - output_mode:
       long: output-mode
-      help: how to display terminal output
+      help: How to display terminal output
       default_value: progress
       possible_values:
         - progress
@@ -14,7 +14,7 @@ args:
   - verbosity:
       long: verbosity
       default_value: info
-      help: the verbosity of the output; only relevant when output-mode is log
+      help: Verbosity of the output; only relevant when output-mode is log
       possible_values:
         - trace
         - debug
@@ -24,11 +24,11 @@ args:
         - critical
   - log_file:
       long: log-file
-      help: the location of the log file
+      help: Location of the log file
       default_value: codealong.log
   - log_level:
       long: log-level
-      help: the verbosity of logging
+      help: Verbosity of logging
       default_value: info
       possible_values:
         - trace
@@ -44,10 +44,10 @@ subcommands:
         - github_org:
             short: o
             long: github-org
-            help: name of a Github organization from which to read users
+            help: Name of a Github organization from which to read users
             multiple: true
         - destination:
-            help: the target directory
+            help: The target directory
             default_value: "."
   - analyze:
       about: analyze and index events
@@ -55,17 +55,17 @@ subcommands:
         - elasticsearch_url:
             short: e
             long: elasticsearch-url
-            help: url of elasticsearch instance to index into
+            help: URL of elasticsearch instance to index into
             default_value: "http://localhost:9200"
         - config_path:
             short: c
             long: config
-            help: path to an additional codealong config file
+            help: Path to an additional codealong config file
             multiple: true
         - workspace_path:
             short: w
             long: workspace
-            help: path to a codealong workspace
+            help: Path to a codealong workspace
             default_value: "~/.codealong"
         - repo:
             short: r
@@ -75,20 +75,24 @@ subcommands:
         - concurrency:
             short: C
             long: concurrency
-            help: the number of concurrent worker threads
+            help: The number of concurrent worker threads
             default_value: "6"
+        - since:
+            long: since
+            help: Only analyze commits occuring after this date
+            takes_value: true
         - skip_forks:
             long: skip-forks
-            help: don't include repositories which are forks
+            help: Don't include repositories which are forks
         - skip_commits:
             long: skip-commits
-            help: don't analyze commits
+            help: Don't analyze commits
         - skip_pull_requests:
             long: skip-pull-requests
-            help: don't analyze pull requests
+            help: Don't analyze pull requests
         - skip_unknown_authors:
             long: skip-unknown-authors
-            help: don't analyze commits/PRs from authors not present in the config
+            help: Don't analyze commits/PRs from authors not present in the config
         - skip_unknown_authors_in_forks:
             long: skip-unknown-authors-in-forks
-            help: don't analyze commits/PRs from authors not present in the config when analyzing forked repos
+            help: Don't analyze commits/PRs from authors not present in the config when analyzing forked repos

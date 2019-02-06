@@ -1,5 +1,3 @@
-#![recursion_limit = "4096"]
-
 extern crate chrono;
 #[macro_use]
 extern crate error_chain;
@@ -54,7 +52,7 @@ pub use crate::event::Event;
 pub use crate::identity::Identity;
 pub use crate::person::Person;
 pub use crate::repo::Repo;
-pub use crate::repo_analyzer::{RepoAnalyzer, AnalyzedRevwalk};
+pub use crate::repo_analyzer::{AnalyzedRevwalk, RepoAnalyzer};
 pub use crate::repo_config::RepoConfig;
 pub use crate::repo_info::RepoInfo;
 pub use crate::utils::with_authentication;

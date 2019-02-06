@@ -172,7 +172,6 @@ impl Config {
                 github_login: Some(github_login.to_owned()),
                 name: None,
                 email: None,
-                role: None,
             }
         }
     }
@@ -264,9 +263,6 @@ pub struct AuthorConfig {
 
     #[serde(default)]
     pub ignore: bool,
-
-    #[serde(default)]
-    pub role: Option<String>,
 }
 
 pub struct PersonConfig<'a> {
@@ -293,7 +289,6 @@ impl<'a> PersonConfig<'a> {
             id: self.key.to_owned(),
             name: id.name,
             email: id.email,
-            role: self.config.role.clone(),
             github_login: self.config.github_logins.first().map(|s| s.to_owned()),
         }
     }
@@ -306,7 +301,6 @@ impl Default for AuthorConfig {
             github_logins: vec![],
             tags: vec![],
             ignore: false,
-            role: None,
         }
     }
 }

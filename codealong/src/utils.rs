@@ -1,3 +1,7 @@
+use chrono::prelude::*;
+use chrono::DateTime;
+use git2::Time;
+
 use crate::error::*;
 use std::env;
 
@@ -214,4 +218,9 @@ where
         msg
     })?;
     Ok(res)
+}
+
+pub fn convert_time(time: &Time) -> DateTime<Utc> {
+    let tz = FixedOffset::east(time.offset_minutes() * 60);
+    tz.timestamp(time.seconds(), 0).with_timezone(&Utc)
 }

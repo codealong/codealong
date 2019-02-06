@@ -40,15 +40,33 @@ impl WorkspaceConfig {
         }
     }
 
-    pub fn add(&mut self, repo_info: RepoInfo, path: Option<String>) -> &RepoEntry {
-        // TODO: dedup against existing repos
+    /// Adds the repo to this configuration's list of repos. If a repo with the
+    /// same name already exists, it is overwritten.
+    pub fn add(&mut self, repo_info: RepoInfo, path: Option<String>) {
         let entry = RepoEntry {
             repo_info: repo_info,
             ignore: false,
             path,
         };
-        self.repos.push(entry);
-        self.repos.last().unwrap()
+
+        match self
+            .repos
+            .iter_mut()
+            .find(|ref entry| entry.repo_info.name == entry.repo_info.name)
+        {
+            Some(e) => {
+                *e = entry;
+            }
+            None => {
+                self.repos.push(entry);
+            }
+        }
+    }
+
+    pub fn get_entry(&self, name: &str) -> Option<&RepoEntry> {
+        self.repos
+            .iter()
+            .find(|ref entry| entry.repo_info.name == name)
     }
 
     pub fn merge(&mut self, other: WorkspaceConfig) {

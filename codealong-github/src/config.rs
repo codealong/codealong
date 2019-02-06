@@ -76,7 +76,7 @@ fn augment_with_search_data(client: &Client, user: &mut User, logger: &Logger) -
     )?;
     let results = resp.json::<SearchResults>()?;
 
-    if let [r, ..] = results.items.as_slice() {
+    if let Some(r) = results.items.first() {
         user.email = user.email.take().or_else(|| r.commit.author.email.clone());
         user.name = user.name.take().or_else(|| r.commit.author.name.clone());
     }

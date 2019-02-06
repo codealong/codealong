@@ -71,8 +71,11 @@ impl Workspace {
     }
 
     pub fn add(&mut self, repo_info: RepoInfo, path: Option<String>) -> Result<()> {
-        self.config.add(repo_info, path);
-        Ok(())
+        Ok(self.config.add(repo_info, path))
+    }
+
+    pub fn get_repo(self, name: &str) -> Option<Repo> {
+        self.config.get_entry(name).map(|entry| self.repo(entry))
     }
 
     pub fn add_config(&mut self, config: Config) {

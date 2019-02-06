@@ -7,6 +7,7 @@ use crate::identity::Identity;
 use crate::repo::Repo;
 use crate::repo_config::RepoConfig;
 use crate::slog::Logger;
+use crate::utils::convert_time;
 
 pub struct RepoAnalyzer {
     repo: Repository,
@@ -76,6 +77,14 @@ impl<'repo> Iterator for AnalyzedRevwalk<'repo> {
                 Some(rev) => {
                     let oid = rev.unwrap();
                     let commit = self.repo.find_commit(oid).unwrap();
+
+                    if let Some(ref since) = self.opts.since {
+                        let commit_time = convert_time(&commit.author().when());
+                        if since > &commit_time {
+                            continue;
+                        }
+                    }
+
                     if !self.opts.ignore_unknown_authors
                         || self
                             .config
@@ -110,6 +119,7 @@ mod tests {
         };
         let opts = AnalyzeOpts {
             ignore_unknown_authors: false,
+            since: None,
         };
         let analyzer = RepoAnalyzer::new(repo, config, &build_test_logger());
         assert!(analyzer.analyze(opts)?.count() > 4);
@@ -128,6 +138,7 @@ mod tests {
         };
         let opts = AnalyzeOpts {
             ignore_unknown_authors: true,
+            since: None,
         };
         let analyzer = RepoAnalyzer::new(repo, config, &build_test_logger());
         assert_eq!(analyzer.analyze(opts)?.count(), 0);

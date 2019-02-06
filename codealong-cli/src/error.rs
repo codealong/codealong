@@ -16,6 +16,7 @@ error_chain! {
         Url(url::ParseError);
         ArgParse(std::num::ParseIntError);
         Config(serde_yaml::Error);
+        DurationParse(humantime::DurationError);
     }
 
     links {

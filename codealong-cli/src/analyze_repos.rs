@@ -2,6 +2,9 @@ use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
+use chrono::offset::TimeZone;
+use chrono::Timelike;
+use chrono::Utc;
 use console::style;
 use error_chain::ChainedError;
 use git2::Repository;
@@ -65,7 +68,7 @@ pub fn analyze_repos(
 fn expand_tasks(matches: &clap::ArgMatches, repos: Vec<Repo>) -> VecDeque<AnalyzeTask> {
     let mut tasks: VecDeque<AnalyzeTask> = VecDeque::new();
     for repo in repos {
-        let opts = analyze_opts_from_args(&repo, matches);
+        let opts = analyze_opts_from_args(&repo, matches).unwrap();
         if !matches.is_present("skip_commits") {
             tasks.push_back(AnalyzeTask {
                 repo: repo.clone(),
@@ -158,9 +161,19 @@ fn analyze_prs(
     Ok(pb.finish())
 }
 
-fn analyze_opts_from_args(repo: &Repo, matches: &clap::ArgMatches) -> AnalyzeOpts {
-    AnalyzeOpts {
+fn analyze_opts_from_args(repo: &Repo, matches: &clap::ArgMatches) -> Result<AnalyzeOpts> {
+    let since =
+        if let Some(since) = matches.value_of("since") {
+            Some(humantime::parse_duration(since).map(|duration| {
+                Utc.timestamp(Utc::now().timestamp() - duration.as_secs() as i64, 0)
+            })?)
+        } else {
+            None
+        };
+
+    Ok(AnalyzeOpts {
+        since,
         ignore_unknown_authors: matches.is_present("skip_unknown_authors")
             || repo.repo_info().fork && matches.is_present("skip_unknown_authors_in_forks"),
-    }
+    })
 }

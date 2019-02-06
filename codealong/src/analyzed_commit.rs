@@ -3,6 +3,7 @@ use crate::event::Event;
 use crate::identity::Identity;
 use crate::person::Person;
 use crate::repo_info::PartialRepoInfo;
+use crate::utils::convert_time;
 
 use chrono::prelude::*;
 use chrono::{DateTime, FixedOffset, TimeZone};
@@ -65,9 +66,4 @@ impl Event for AnalyzedCommit {
     fn tags(&self) -> HashSet<String> {
         HashSet::from_iter(self.diff.tag_stats.keys().map(|s| s.to_owned()))
     }
-}
-
-fn convert_time(time: &Time) -> DateTime<Utc> {
-    let tz = FixedOffset::east(time.offset_minutes() * 60);
-    tz.timestamp(time.seconds(), 0).with_timezone(&Utc)
 }
