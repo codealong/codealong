@@ -1,14 +1,14 @@
 use git2::{Commit, DiffLine, Repository, Signature};
 
 use crate::error::Error;
-use crate::fast_blame::FastBlame;
+use crate::git_blame::GitBlame;
 use crate::work_stats::WorkStats;
 
 pub struct LineAnalyzer<'a> {
     repo: &'a Repository,
     commit: &'a Commit<'a>,
     diff_line: &'a DiffLine<'a>,
-    blame: Option<&'a FastBlame>,
+    blame: Option<&'a GitBlame>,
 }
 
 impl<'a> LineAnalyzer<'a> {
@@ -16,7 +16,7 @@ impl<'a> LineAnalyzer<'a> {
         repo: &'a Repository,
         commit: &'a Commit,
         diff_line: &'a DiffLine<'a>,
-        blame: Option<&'a FastBlame>,
+        blame: Option<&'a GitBlame>,
     ) -> LineAnalyzer<'a> {
         LineAnalyzer {
             repo,
@@ -37,7 +37,7 @@ impl<'a> LineAnalyzer<'a> {
     fn analyze_change(&self) -> Result<WorkStats, Error> {
         let blame = self.blame.expect("No blame found for change");
         if let Some(previous_commit_oid) =
-            blame.get_line(self.diff_line.old_lineno().unwrap() as usize)
+            blame.get_line(self.diff_line.old_lineno().unwrap() as usize)?
         {
             let previous_commit = self.repo.find_commit(previous_commit_oid).unwrap();
 

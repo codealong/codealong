@@ -8,6 +8,10 @@ error_chain! {
             description("invalid repo")
             display("invalid repo: '{}'", repo)
         }
+        BlameError(message: String) {
+            description("error running git blame")
+            display("blame error: {}", message)
+        }
     }
 
     foreign_links {

@@ -1,14 +1,14 @@
 use git2::{Commit, DiffLine, Repository};
 
 use crate::error::Error;
-use crate::fast_blame::FastBlame;
+use crate::git_blame::GitBlame;
 use crate::line_analyzer::LineAnalyzer;
 use crate::work_stats::WorkStats;
 
 pub struct HunkAnalyzer<'a> {
     repo: &'a Repository,
     commit: &'a Commit<'a>,
-    blame: Option<FastBlame>,
+    blame: Option<GitBlame>,
     result: WorkStats,
     weight: f64,
 }
@@ -17,7 +17,7 @@ impl<'a> HunkAnalyzer<'a> {
     pub fn new(
         repo: &'a Repository,
         commit: &'a Commit<'a>,
-        blame: Option<FastBlame>,
+        blame: Option<GitBlame>,
         weight: f64,
     ) -> HunkAnalyzer<'a> {
         HunkAnalyzer {
@@ -36,7 +36,7 @@ impl<'a> HunkAnalyzer<'a> {
         Ok(())
     }
 
-    pub fn finish(self) -> (Option<FastBlame>, WorkStats) {
+    pub fn finish(self) -> (Option<GitBlame>, WorkStats) {
         let mut result = self.result;
         result.impact = calculate_impact(&result, self.weight);
         (self.blame, result)
@@ -74,19 +74,37 @@ mod tests {
 
     #[test]
     fn test_impact() {
-        assert_eq!(calculate_impact(&WorkStats {
-            new_work: 100,
-            ..Default::default()
-        }, 1.0), 10);
+        assert_eq!(
+            calculate_impact(
+                &WorkStats {
+                    new_work: 100,
+                    ..Default::default()
+                },
+                1.0
+            ),
+            10
+        );
 
-        assert_eq!(calculate_impact(&WorkStats {
-            legacy_refactor: 100,
-            ..Default::default()
-        }, 1.0), 20);
+        assert_eq!(
+            calculate_impact(
+                &WorkStats {
+                    legacy_refactor: 100,
+                    ..Default::default()
+                },
+                1.0
+            ),
+            20
+        );
 
-        assert_eq!(calculate_impact(&WorkStats {
-            churn: 100,
-            ..Default::default()
-        }, 1.0), 0);
+        assert_eq!(
+            calculate_impact(
+                &WorkStats {
+                    churn: 100,
+                    ..Default::default()
+                },
+                1.0
+            ),
+            0
+        );
     }
 }

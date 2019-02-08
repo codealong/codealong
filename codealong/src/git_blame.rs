@@ -3,29 +3,31 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::BufRead;
 use std::io::BufReader;
+use std::io::Read;
 use std::path::Path;
-use std::process::{Child, ChildStdout, Command, Stdio};
+use std::process::{Child, ChildStderr, ChildStdout, Command, Stdio};
 
-use crate::error::Error;
+use crate::error::*;
 
 use regex::Regex;
 
 // libgit2 has an extremely slow blame implementation:
 // https://github.com/libgit2/libgit2/issues/3027
 // so we instead defer to a git binary on the current path
-pub struct FastBlame {
+pub struct GitBlame {
     child: Child,
     reader: RefCell<BufReader<ChildStdout>>,
+    error_reader: RefCell<BufReader<ChildStderr>>,
     line_map: RefCell<HashMap<usize, Oid>>,
 }
 
-impl FastBlame {
+impl GitBlame {
     pub fn new(
         repo: &Repository,
         parent: &Oid,
         old_path: &Path,
         churn_cutoff: u64,
-    ) -> Result<FastBlame, Error> {
+    ) -> Result<GitBlame> {
         let mut child = Command::new("git")
             .current_dir(repo.path())
             .arg("blame")
@@ -38,31 +40,37 @@ impl FastBlame {
             .arg("--")
             .arg(old_path)
             .stdout(Stdio::piped())
-            .spawn()
-            .expect("failed to execute git blame");
+            .stderr(Stdio::piped())
+            .spawn()?;
 
-        Ok(FastBlame {
+        Ok(GitBlame {
             reader: RefCell::new(BufReader::new(
                 child
                     .stdout
                     .take()
                     .ok_or_else(|| "Could not capture standard output.")?,
             )),
+            error_reader: RefCell::new(BufReader::new(
+                child
+                    .stderr
+                    .take()
+                    .ok_or_else(|| "Could not capture standard error.")?,
+            )),
             child: child,
             line_map: RefCell::new(HashMap::new()),
         })
     }
 
-    pub fn get_line(&self, lineno: usize) -> Option<Oid> {
+    pub fn get_line(&self, lineno: usize) -> Result<Option<Oid>> {
         if let Some(l) = self.line_map.borrow().get(&lineno) {
-            return Some(l.clone());
+            return Ok(Some(l.clone()));
         }
 
         self.scan_for_line(lineno)
     }
 
     // see https://git-scm.com/docs/git-blame#_the_porcelain_format
-    fn scan_for_line(&self, lineno: usize) -> Option<Oid> {
+    fn scan_for_line(&self, lineno: usize) -> Result<Option<Oid>> {
         let mut line = String::new();
         let mut reader = self.reader.borrow_mut();
         let mut line_map = self.line_map.borrow_mut();
@@ -73,16 +81,21 @@ impl FastBlame {
             if let Some(blame_line) = BlameLine::new(&line) {
                 line_map.insert(blame_line.original_lineno, blame_line.oid);
                 if blame_line.original_lineno == lineno {
-                    return Some(blame_line.oid.clone());
+                    return Ok(Some(blame_line.oid.clone()));
                 }
             }
             line.clear();
         }
-        None
+        let mut reader = self.error_reader.borrow_mut();
+        if reader.read_to_string(&mut line)? > 0 {
+            Err(ErrorKind::BlameError(line).into())
+        } else {
+            Ok(None)
+        }
     }
 }
 
-impl Drop for FastBlame {
+impl Drop for GitBlame {
     fn drop(&mut self) {
         // need this to prevent zombie "Z+" processes from occuring
         self.child.kill().expect("unable to kill process");
@@ -120,15 +133,25 @@ mod tests {
     #[test]
     fn it_works() {
         let repo = Repository::open(Path::new("./fixtures/repos/simple")).unwrap();
-        let blame = FastBlame::new(
+        let blame = GitBlame::new(
             &repo,
             &Oid::from_str("86d242301830075e93ff039a4d1e88673a4a3020").unwrap(),
             Path::new("README.md"),
             14,
-        ).unwrap();
+        )
+        .unwrap();
         assert!(
             Some(Oid::from_str("86d242301830075e93ff039a4d1e88673a4a3020").unwrap())
-                == blame.get_line(1)
+                == blame.get_line(1).unwrap()
         );
+
+        let blame = GitBlame::new(
+            &repo,
+            &Oid::from_str("86d242301830075e93ff039a4d1e88673a4a3020").unwrap(),
+            Path::new("bad_path.rs"),
+            14,
+        )
+        .unwrap();
+        assert!(blame.get_line(1).is_err())
     }
 }

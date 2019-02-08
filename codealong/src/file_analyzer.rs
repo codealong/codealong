@@ -4,14 +4,14 @@ use crate::analyzed_diff::AnalyzedDiff;
 use crate::config::{Config, FileConfig, PersonConfig};
 use crate::config_context::ConfigContext;
 use crate::error::Error;
-use crate::fast_blame::FastBlame;
+use crate::git_blame::GitBlame;
 use crate::hunk_analyzer::HunkAnalyzer;
 
 pub struct FileAnalyzer<'a> {
     repo: &'a Repository,
     commit: &'a Commit<'a>,
     result: AnalyzedDiff,
-    blame: Option<FastBlame>,
+    blame: Option<GitBlame>,
     config_context: ConfigContext,
     current_hunk: Option<HunkAnalyzer<'a>>,
     ignored: bool,
@@ -93,14 +93,14 @@ fn get_blame(
     diff_delta: &DiffDelta,
     parent: Option<&Commit>,
     config: &Config,
-) -> Option<FastBlame> {
+) -> Option<GitBlame> {
     if diff_delta.status() != Delta::Modified {
         return None;
     }
     diff_delta.old_file().path().and_then(|old_path| {
         parent.and_then(|parent| {
             if let Ok(new_blame) =
-                FastBlame::new(&repo, &parent.id(), &old_path, config.churn_cutoff)
+                GitBlame::new(&repo, &parent.id(), &old_path, config.churn_cutoff)
             {
                 Some(new_blame)
             } else {
