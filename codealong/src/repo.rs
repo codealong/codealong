@@ -1,13 +1,10 @@
-use std::fs::create_dir_all;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use git2::build::{CheckoutBuilder, RepoBuilder};
 use git2::{FetchOptions, RemoteCallbacks, Repository};
-use regex::Regex;
 
 use crate::config::Config;
 use crate::error::*;
-use crate::repo_analyzer::RepoAnalyzer;
 use crate::repo_config::RepoConfig;
 use crate::repo_info::RepoInfo;
 use crate::utils::with_authentication;
@@ -34,7 +31,7 @@ impl Repo {
         Ok(Repository::discover(&self.path)?)
     }
 
-    pub fn init<'a>(&self, mut cb: Option<Box<ProgressCallback<'a>>>) -> Result<Repository> {
+    pub fn init<'a>(&self, cb: Option<Box<ProgressCallback<'a>>>) -> Result<Repository> {
         if let Ok(repository) = self.repository() {
             self.fetch(&repository, cb)?;
             Ok(repository)

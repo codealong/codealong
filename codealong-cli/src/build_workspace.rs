@@ -1,7 +1,7 @@
 use slog::Logger;
 use std::path::Path;
 
-use codealong::{Config, Repo, RepoInfo, Workspace};
+use codealong::{Config, RepoInfo, Workspace};
 
 use crate::error::*;
 

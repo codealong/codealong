@@ -3,13 +3,11 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 use chrono::offset::TimeZone;
-use chrono::Timelike;
 use chrono::Utc;
 use error_chain::ChainedError;
-use git2::Repository;
 use slog::Logger;
 
-use codealong::{AnalyzeOpts, AnalyzedRevwalk, Config, Repo, RepoAnalyzer};
+use codealong::{AnalyzeOpts, Repo, RepoAnalyzer};
 
 use crate::error::Result;
 use crate::ui::{NamedProgressBar, ProgressPool};
@@ -140,7 +138,7 @@ fn analyze_prs(
         config.repo.github_name.as_ref().unwrap()
     );
     let mut cursor: codealong_github::Cursor<codealong_github::PullRequest> =
-        codealong_github::Cursor::new(&github_client, &url);
+        codealong_github::Cursor::new(&github_client, &url, &logger);
     let count = cursor.guess_len();
     if let Some(count) = count {
         pb.set_length(count as u64);

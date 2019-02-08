@@ -30,7 +30,7 @@ fn default_config_with_authors(
 ) -> Result<Config> {
     let all_teams = get_all_teams(client, github_org, logger)?;
     let url = format!("https://api.github.com/orgs/{}/members", github_org);
-    let cursor: Cursor<User> = Cursor::new(&client, &url);
+    let cursor: Cursor<User> = Cursor::new(&client, &url, &logger);
     let mut config = Config::default();
     for user in cursor {
         let teams = all_teams.get(&user.login);
@@ -45,11 +45,11 @@ fn get_all_teams(
     logger: &Logger,
 ) -> Result<HashMap<String, Vec<Team>>> {
     let url = format!("https://api.github.com/orgs/{}/teams", github_org);
-    let cursor: Cursor<Team> = Cursor::new(&client, &url);
+    let cursor: Cursor<Team> = Cursor::new(&client, &url, logger);
     let mut res: HashMap<String, Vec<Team>> = HashMap::new();
     for team in cursor {
         let url = format!("https://api.github.com/teams/{}/members", &team.id);
-        let cursor: Cursor<User> = Cursor::new(&client, &url);
+        let cursor: Cursor<User> = Cursor::new(&client, &url, logger);
         for user in cursor {
             let teams = res.entry(user.login).or_insert_with(|| Vec::new());
             teams.push(team.clone());
@@ -139,7 +139,7 @@ fn build_repo_entries(
     logger: &Logger,
 ) -> Result<Vec<RepoEntry>> {
     let url = format!("https://api.github.com/orgs/{}/repos", github_org);
-    let cursor: Cursor<Repo> = Cursor::new(&client, &url);
+    let cursor: Cursor<Repo> = Cursor::new(&client, &url, logger);
     let res = cursor.map(|repo| RepoEntry {
         repo_info: RepoInfo {
             name: repo.full_name.clone(),

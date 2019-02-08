@@ -6,8 +6,8 @@ use crate::repo_info::PartialRepoInfo;
 use crate::utils::convert_time;
 
 use chrono::prelude::*;
-use chrono::{DateTime, FixedOffset, TimeZone};
-use git2::{Commit, Time};
+use chrono::DateTime;
+use git2::Commit;
 use std::borrow::Cow;
 use std::collections::HashSet;
 use std::iter::FromIterator;

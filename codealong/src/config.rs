@@ -10,7 +10,6 @@ use serde_yaml;
 use crate::error::{Error, Result};
 use crate::identity::Identity;
 use crate::person::Person;
-use crate::repo_info::RepoInfo;
 
 use include_dir::Dir;
 
@@ -175,18 +174,6 @@ impl Config {
                 teams: vec![],
             }
         }
-    }
-
-    fn aliases_for(&self, identity: &Identity) -> Vec<String> {
-        [
-            Some(identity.clone()),
-            identity.only_email(),
-            identity.only_name(),
-        ]
-        .iter()
-        .filter(|i| i.is_none())
-        .map(|i| i.as_ref().unwrap().to_string())
-        .collect()
     }
 
     pub fn is_known(&self, identity: &Identity) -> bool {

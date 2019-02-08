@@ -1,5 +1,6 @@
 use regex::Regex;
 use reqwest::header::HeaderMap;
+use slog::Logger;
 
 use crate::client::Client;
 use crate::error::Result;
@@ -15,13 +16,14 @@ where
     per_page: Option<usize>,
     current_page: Option<std::vec::IntoIter<T>>,
     has_loaded_page: bool,
+    logger: Logger,
 }
 
 impl<'client, T> Cursor<'client, T>
 where
     for<'de> T: serde::Deserialize<'de>,
 {
-    pub fn new(client: &'client Client, url: &str) -> Cursor<'client, T> {
+    pub fn new(client: &'client Client, url: &str, logger: &Logger) -> Cursor<'client, T> {
         Cursor {
             client,
             next_url: Some(url.to_owned()),
@@ -29,6 +31,7 @@ where
             num_pages: None,
             per_page: None,
             has_loaded_page: false,
+            logger: logger.clone(),
         }
     }
 
@@ -69,11 +72,18 @@ where
 
     fn ensure_page_loaded(&mut self) {
         if !self.has_loaded_page {
-            self.load_next_page();
+            self.load_next_page()
         }
     }
 
-    fn load_next_page(&mut self) -> Result<()> {
+    fn load_next_page(&mut self) {
+        match self.load_next_page_helper() {
+            Ok(_) => (),
+            Err(e) => error!(self.logger, "Error loading page: {}", e),
+        }
+    }
+
+    fn load_next_page_helper(&mut self) -> Result<()> {
         if let Some(next_url) = self.next_url.take() {
             let mut res = self.client.get(&next_url)?;
             self.has_loaded_page = true;
@@ -112,13 +122,16 @@ where
 mod tests {
     use super::*;
     use crate::pull_request::PullRequest;
+    use codealong::test::build_test_logger;
 
     #[test]
     fn test_cursor() {
         let client = Client::from_env();
+        let logger = build_test_logger();
         let mut cursor: Cursor<PullRequest> = Cursor::new(
             &client,
             "https://api.github.com/repos/facebook/react/pulls?state=all",
+            &logger,
         );
         assert!(cursor.guess_len().unwrap() > 100);
         assert_eq!(cursor.take(100).collect::<Vec<PullRequest>>().len(), 100);

@@ -2,7 +2,6 @@ use std::fs::File;
 use std::path::Path;
 
 use git2::Repository;
-use regex::Regex;
 
 use crate::config::Config;
 use crate::error::*;

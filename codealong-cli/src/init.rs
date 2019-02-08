@@ -1,6 +1,6 @@
 use std::fs::create_dir_all;
 use std::fs::File;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use slog::Logger;
 

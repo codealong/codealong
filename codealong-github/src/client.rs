@@ -44,7 +44,6 @@ impl Client {
 
     fn get_error_kind(&self, res: &mut reqwest::Response) -> ErrorKind {
         let payload = res.json::<ErrorPayload>().unwrap();
-        println!("{:?}", payload);
         if payload
             .message
             .contains("have triggered an abuse detection mechanism")
