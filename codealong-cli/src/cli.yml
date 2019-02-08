@@ -3,15 +3,8 @@ version: "1.0"
 author: Gordon L. Hempton <ghempton@gmail.com>
 about: Open source development metrics
 args:
-  - output_mode:
-      long: output-mode
-      help: How to display terminal output
-      default_value: progress
-      possible_values:
-        - progress
-        - log
-        - none
   - verbosity:
+      short: v
       long: verbosity
       default_value: info
       help: Verbosity of the output; only relevant when output-mode is log
@@ -29,7 +22,7 @@ args:
   - log_level:
       long: log-level
       help: Verbosity of logging
-      default_value: info
+      default_value: warning
       possible_values:
         - trace
         - debug
@@ -52,6 +45,10 @@ subcommands:
   - analyze:
       about: analyze and index events
       args:
+        - progress:
+            short: p
+            long: progress
+            help: Show progress bars
         - elasticsearch_url:
             short: e
             long: elasticsearch-url

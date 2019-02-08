@@ -3,14 +3,12 @@ use std::iter::FromIterator;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use console::style;
 use error_chain::ChainedError;
 use slog::Logger;
 
 use codealong::Repo;
 
 use crate::error::*;
-use crate::logger::OutputMode;
 use crate::ui::ProgressPool;
 
 /// Clone and/or fetch all repos
@@ -18,9 +16,8 @@ pub fn initialize_repos(
     matches: &clap::ArgMatches,
     repos: Vec<Repo>,
     logger: &Logger,
-    output_mode: OutputMode,
 ) -> Result<()> {
-    println!("{} Initializing...", style("[1/2]").bold().dim());
+    info!(logger, "Initializing {} repos", repos.len());
     let num_threads = std::cmp::min(
         matches
             .value_of("concurrency")
@@ -30,7 +27,7 @@ pub fn initialize_repos(
     );
     let m = Arc::new(ProgressPool::new(
         repos.len() as u64,
-        output_mode == OutputMode::Progress,
+        matches.is_present("progress"),
     ));
     m.set_message("Repos initialized");
     let repos = Arc::new(Mutex::new(VecDeque::from_iter(repos)));
@@ -52,6 +49,7 @@ pub fn initialize_repos(
                     pb.set_length(total as u64);
                     pb.set_position(cur as u64);
                 };
+                info!(logger, "Initializing repo");
                 match repo.init(Some(Box::new(cb))) {
                     Ok(_) => pb.set_message("finished"),
                     Err(e) => {

@@ -10,9 +10,12 @@ use codealong_github::config_from_org;
 use crate::error::Result;
 
 pub fn init(matches: &clap::ArgMatches, logger: &Logger) -> Result<()> {
+    let dir = matches.value_of("destination").unwrap_or(".");
+    let dest = Path::join(Path::new(dir), "config.yml");
+    info!(logger, "Initializing config at {}", dest.to_str().unwrap());
     let config = build_config(matches, logger)?;
-    let dest = write_config(matches, &config)?;
-    println!("Initialized config at {}", dest.to_str().unwrap());
+    write_config(&dest, &config)?;
+    info!(logger, "Initialized config at {}", dest.to_str().unwrap());
     Ok(())
 }
 
@@ -28,11 +31,11 @@ fn build_config(matches: &clap::ArgMatches, logger: &Logger) -> Result<Workspace
     Ok(config)
 }
 
-fn write_config(matches: &clap::ArgMatches, config: &WorkspaceConfig) -> Result<PathBuf> {
-    let dir = matches.value_of("destination").unwrap_or(".");
-    let dest = Path::join(Path::new(dir), "config.yml");
-    create_dir_all(dir)?;
+fn write_config(dest: &Path, config: &WorkspaceConfig) -> Result<()> {
+    if let Some(parent) = dest.parent() {
+        create_dir_all(parent)?;
+    }
     let file = File::create(&dest)?;
     serde_yaml::to_writer(file, &config)?;
-    Ok(dest.to_path_buf())
+    Ok(())
 }

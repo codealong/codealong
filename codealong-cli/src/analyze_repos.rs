@@ -5,7 +5,6 @@ use std::thread;
 use chrono::offset::TimeZone;
 use chrono::Timelike;
 use chrono::Utc;
-use console::style;
 use error_chain::ChainedError;
 use git2::Repository;
 use slog::Logger;
@@ -13,17 +12,11 @@ use slog::Logger;
 use codealong::{AnalyzeOpts, AnalyzedRevwalk, Config, Repo, RepoAnalyzer};
 
 use crate::error::Result;
-use crate::logger::OutputMode;
 use crate::ui::{NamedProgressBar, ProgressPool};
 
 /// Clone and/or fetch all repos
-pub fn analyze_repos(
-    matches: &clap::ArgMatches,
-    repos: Vec<Repo>,
-    logger: &Logger,
-    output_mode: OutputMode,
-) -> Result<()> {
-    println!("{} Analyzing...", style("[2/2]").bold().dim());
+pub fn analyze_repos(matches: &clap::ArgMatches, repos: Vec<Repo>, logger: &Logger) -> Result<()> {
+    info!(logger, "Analyzing {} repos", repos.len());
     let num_threads = std::cmp::min(
         matches
             .value_of("concurrency")
@@ -34,7 +27,7 @@ pub fn analyze_repos(
     let tasks = expand_tasks(&matches, repos);
     let m = Arc::new(ProgressPool::new(
         tasks.len() as u64,
-        output_mode == OutputMode::Progress,
+        matches.is_present("progress"),
     ));
     let tasks = Arc::new(Mutex::new(tasks));
     m.set_message("Data sources analyzed");
@@ -117,6 +110,7 @@ fn analyze_commits(
     opts: AnalyzeOpts,
     logger: &Logger,
 ) -> Result<()> {
+    info!(logger, "Analyzing commits");
     let analyzer = RepoAnalyzer::from_repo(repo, logger)?;
     let client = codealong_elk::Client::default();
     pb.set_message("calculating");
@@ -136,7 +130,7 @@ fn analyze_prs(
     _opts: AnalyzeOpts,
     logger: &Logger,
 ) -> Result<()> {
-    let analyzer = RepoAnalyzer::from_repo(repo, logger)?;
+    info!(logger, "Analyzing pull requests");
     let config = repo.config();
     let github_client = codealong_github::Client::from_env();
     let client = codealong_elk::Client::default();

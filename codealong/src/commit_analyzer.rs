@@ -31,7 +31,7 @@ impl<'a> CommitAnalyzer<'a> {
 
     pub fn analyze(&self) -> Result<AnalyzedCommit, Error> {
         let mut result = AnalyzedCommit::new(&self.commit);
-        info!(self.logger, "Analyzing commit"; "commit_time" => &result.authored_at.to_rfc2822(), "commit_author" => &result.author.to_string(), "commit_summary" => &result.summary);
+        debug!(self.logger, "Analyzing commit"; "commit_time" => &result.authored_at.to_rfc2822(), "commit_author" => &result.author.to_string(), "commit_summary" => &result.summary);
         // TODO: deal with merge commits
         let mut has_parents = false;
         for parent in self.commit.parents() {
@@ -56,7 +56,7 @@ impl<'a> CommitAnalyzer<'a> {
         result.normalized_author = Some(self.config.config.person_for_identity(&result.author));
         result.normalized_committer =
             Some(self.config.config.person_for_identity(&result.committer));
-        info!(self.logger, "Done analyzing");
+        debug!(self.logger, "Done analyzing");
         return Ok(result);
     }
 }
