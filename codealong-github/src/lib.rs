@@ -22,6 +22,7 @@ mod error;
 mod pull_request;
 mod pull_request_analyzer;
 mod repo;
+mod team;
 mod user;
 
 pub use crate::analyzed_pull_request::AnalyzedPullRequest;

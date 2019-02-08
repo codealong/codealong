@@ -172,6 +172,7 @@ impl Config {
                 github_login: Some(github_login.to_owned()),
                 name: None,
                 email: None,
+                teams: vec![],
             }
         }
     }
@@ -262,6 +263,9 @@ pub struct AuthorConfig {
     pub tags: Vec<String>,
 
     #[serde(default)]
+    pub teams: Vec<String>,
+
+    #[serde(default)]
     pub ignore: bool,
 }
 
@@ -290,6 +294,7 @@ impl<'a> PersonConfig<'a> {
             name: id.name,
             email: id.email,
             github_login: self.config.github_logins.first().map(|s| s.to_owned()),
+            teams: self.config.teams.clone(),
         }
     }
 }
@@ -300,6 +305,7 @@ impl Default for AuthorConfig {
             aliases: vec![],
             github_logins: vec![],
             tags: vec![],
+            teams: vec![],
             ignore: false,
         }
     }

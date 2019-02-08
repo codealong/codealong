@@ -1,4 +1,5 @@
 use slog::Logger;
+use std::collections::HashMap;
 
 use codealong::{AuthorConfig, Config, Identity, RepoEntry, RepoInfo, WorkspaceConfig};
 
@@ -6,6 +7,7 @@ use crate::client::Client;
 use crate::cursor::Cursor;
 use crate::error::{retry_when_rate_limited, Result};
 use crate::repo::Repo;
+use crate::team::Team;
 use crate::user::User;
 
 /// Generate a `Config` from Github organization information. The primary use
@@ -26,27 +28,54 @@ fn default_config_with_authors(
     github_org: &str,
     logger: &Logger,
 ) -> Result<Config> {
+    let all_teams = get_all_teams(client, github_org, logger)?;
     let url = format!("https://api.github.com/orgs/{}/members", github_org);
     let cursor: Cursor<User> = Cursor::new(&client, &url);
     let mut config = Config::default();
     for user in cursor {
-        add_user_to_config(&client, &mut config, user, logger)?;
+        let teams = all_teams.get(&user.login);
+        add_user_to_config(&client, &mut config, user, teams, logger)?;
     }
     Ok(config)
+}
+
+fn get_all_teams(
+    client: &Client,
+    github_org: &str,
+    logger: &Logger,
+) -> Result<HashMap<String, Vec<Team>>> {
+    let url = format!("https://api.github.com/orgs/{}/teams", github_org);
+    let cursor: Cursor<Team> = Cursor::new(&client, &url);
+    let mut res: HashMap<String, Vec<Team>> = HashMap::new();
+    for team in cursor {
+        let url = format!("https://api.github.com/teams/{}/members", &team.id);
+        let cursor: Cursor<User> = Cursor::new(&client, &url);
+        for user in cursor {
+            let teams = res.entry(user.login).or_insert_with(|| Vec::new());
+            teams.push(team.clone());
+        }
+    }
+    Ok(res)
 }
 
 fn add_user_to_config(
     client: &Client,
     config: &mut Config,
     mut user: User,
+    teams: Option<&Vec<Team>>,
     logger: &Logger,
 ) -> Result<()> {
+    augment_with_search_data(client, &mut user, logger)?;
+
+    let formatted_teams = teams
+        .map(|teams| teams.iter().map(|team| team.name.clone()).collect())
+        .unwrap_or_else(|| Vec::new());
+
     let author_config = AuthorConfig {
         github_logins: vec![user.login.clone()],
+        teams: formatted_teams,
         ..Default::default()
     };
-
-    augment_with_search_data(client, &mut user, logger)?;
 
     // Prefer a User <email> formatted id for the author, but fallback to using
     // the github login
@@ -133,9 +162,20 @@ mod test {
     #[test]
     fn test_config_from_org() -> Result<()> {
         let client = Client::from_env();
-        let workspace_config = config_from_org(&client, "serde-rs", &build_test_logger())?;
-        assert!(workspace_config.config.authors.len() >= 3);
-        assert!(workspace_config.repos.len() > 1);
+        let workspace_config = config_from_org(&client, "codealong", &build_test_logger())?;
+        assert!(workspace_config.config.authors.len() >= 1);
+        assert!(workspace_config.repos.len() >= 1);
+        assert_eq!(
+            workspace_config
+                .config
+                .authors
+                .iter()
+                .next()
+                .unwrap()
+                .1
+                .tags,
+            vec!["team:Devs".to_owned(), "team:Ninjas".to_owned()]
+        );
         Ok(())
     }
 }

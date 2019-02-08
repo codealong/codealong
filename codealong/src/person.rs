@@ -4,4 +4,5 @@ pub struct Person {
     pub name: Option<String>,
     pub email: Option<String>,
     pub github_login: Option<String>,
+    pub teams: Vec<String>
 }
