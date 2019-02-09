@@ -5,5 +5,3 @@ for file in *.bundle
 do
   git clone $file
 done
-
-git clone https://github.com/gitlabhq/gitlabhq

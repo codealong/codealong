@@ -122,7 +122,7 @@ mod tests {
             since: None,
         };
         let analyzer = RepoAnalyzer::new(repo, config, &build_test_logger());
-        assert!(analyzer.analyze(opts)?.count() > 4);
+        assert!(analyzer.analyze(opts)?.count() >= 4);
         Ok(())
     }
 

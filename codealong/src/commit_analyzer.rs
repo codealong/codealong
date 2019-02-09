@@ -85,7 +85,7 @@ mod tests {
     fn test_merge_commit() {
         let repo = Repository::open("./fixtures/repos/simple").unwrap();
         let commit = repo
-            .find_commit(Oid::from_str("301dfdc07a8c0770d3a352b6f6c2d8ff8159a9e3").unwrap())
+            .find_commit(Oid::from_str("bf51d175af7e82fbd43cb8598b45aa1830890ff0").unwrap())
             .unwrap();
         let config = RepoConfig::default();
         let analyzer = CommitAnalyzer::new(&repo, commit, &config, &build_test_logger());
@@ -94,12 +94,12 @@ mod tests {
             res.diff.stats,
             // XXX: tweak this
             WorkStats {
-                new_work: 8,
-                legacy_refactor: 7,
+                new_work: 11,
+                legacy_refactor: 10,
                 churn: 1,
                 help_others: 0,
                 other: 0,
-                impact: 8
+                impact: 10
             }
         );
     }
