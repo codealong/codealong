@@ -30,6 +30,11 @@ args:
         - warning
         - error
         - critical
+  - progress:
+      short: p
+      long: progress
+      help: Show progress bars instread of log output
+      global: true
 subcommands:
   - init:
       about: generate a codealong config
@@ -45,10 +50,6 @@ subcommands:
   - analyze:
       about: analyze and index events
       args:
-        - progress:
-            short: p
-            long: progress
-            help: Show progress bars
         - elasticsearch_url:
             short: e
             long: elasticsearch-url
