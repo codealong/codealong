@@ -1,4 +1,5 @@
 use git2::{Oid, Repository};
+use slog::Logger;
 
 use codealong::{with_authentication, DiffAnalyzer, RepoConfig};
 
@@ -10,6 +11,7 @@ pub struct PullRequestAnalyzer<'a> {
     repo: &'a Repository,
     config: &'a RepoConfig,
     pr: PullRequest,
+    logger: Logger,
 }
 
 impl<'a> PullRequestAnalyzer<'a> {
@@ -17,11 +19,19 @@ impl<'a> PullRequestAnalyzer<'a> {
         repo: &'a Repository,
         pr: PullRequest,
         config: &'a RepoConfig,
+        parent_logger: &Logger,
     ) -> PullRequestAnalyzer<'a> {
-        PullRequestAnalyzer { repo, pr, config }
+        let logger = parent_logger.new(o!("pull_request_id" => pr.id));
+        PullRequestAnalyzer {
+            repo,
+            pr,
+            config,
+            logger,
+        }
     }
 
     pub fn analyze(self) -> Result<AnalyzedPullRequest> {
+        debug!(self.logger, "Analyzing pull_request"; "updated_at" => &self.pr.updated_at.to_rfc2822(), "user" => &self.pr.user.login, "title" => &self.pr.title);
         self.fetch_remote(&self.pr.base)?;
         self.fetch_remote(&self.pr.head)?;
 
@@ -49,7 +59,7 @@ impl<'a> PullRequestAnalyzer<'a> {
             .config
             .config
             .person_for_github_login(&self.pr.user.login);
-
+        debug!(self.logger, "Done analyzing");
         Ok(AnalyzedPullRequest::new(self.pr, diff, normalized_author))
     }
 

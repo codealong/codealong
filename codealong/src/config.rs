@@ -179,6 +179,10 @@ impl Config {
     pub fn is_known(&self, identity: &Identity) -> bool {
         self.config_for_identity(identity).is_some()
     }
+
+    pub fn is_github_login_known(&self, github_login: &str) -> bool {
+        self.config_for_github_login(github_login).is_some()
+    }
 }
 
 impl Default for Config {

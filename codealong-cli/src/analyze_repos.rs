@@ -8,6 +8,7 @@ use error_chain::ChainedError;
 use slog::Logger;
 
 use codealong::{AnalyzeOpts, Repo, RepoAnalyzer};
+use codealong_github::PullRequestsAnalyzer;
 
 use crate::error::Result;
 use crate::ui::{NamedProgressBar, ProgressPool};
@@ -125,29 +126,19 @@ fn analyze_commits(
 fn analyze_prs(
     pb: &NamedProgressBar,
     repo: &Repo,
-    _opts: AnalyzeOpts,
+    opts: AnalyzeOpts,
     logger: &Logger,
 ) -> Result<()> {
     info!(logger, "Analyzing pull requests");
-    let config = repo.config();
     let github_client = codealong_github::Client::from_env();
+    let analyzer = PullRequestsAnalyzer::from_repo(repo, &github_client, logger)?;
     let client = codealong_elk::Client::default();
     pb.set_message("calculating");
-    let url = format!(
-        "https://api.github.com/repos/{}/pulls?state=all",
-        config.repo.github_name.as_ref().unwrap()
-    );
-    let mut cursor: codealong_github::Cursor<codealong_github::PullRequest> =
-        codealong_github::Cursor::new(&github_client, &url, &logger);
-    let count = cursor.guess_len();
-    if let Some(count) = count {
-        pb.set_length(count as u64);
-    }
+    let count = analyzer.guess_len(opts.clone())?;
+    pb.set_length(count as u64);
     pb.set_message("analyzing pull requests");
-    let repository = repo.repository()?;
-    for pr in cursor {
-        let analyzer = codealong_github::PullRequestAnalyzer::new(&repository, pr, &config);
-        client.index(analyzer.analyze()?)?;
+    for pull_request_analyzer in analyzer.analyze(opts)? {
+        client.index(pull_request_analyzer?.analyze()?)?;
         pb.inc(1);
     }
     Ok(pb.finish())
