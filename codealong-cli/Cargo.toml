@@ -21,3 +21,7 @@ regex = "1"
 slog = "2.4"
 sloggers = "0.3"
 url = "1.7"
+
+[[bin]]
+name = "codealong"
+path = "src/main.rs"
