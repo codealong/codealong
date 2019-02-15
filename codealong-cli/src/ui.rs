@@ -16,7 +16,9 @@ impl ProgressPool {
             m.set_draw_target(ProgressDrawTarget::hidden());
         }
         let overall_pb = m.add(ProgressBar::new(count));
-        overall_pb.set_style(ProgressStyle::default_bar().template("{pos:>7}/{len:7} {msg}"));
+        overall_pb.set_style(
+            ProgressStyle::default_bar().template("[{elapsed_precise}] {pos}/{len} {msg}"),
+        );
         let remaining = count;
         ProgressPool {
             m: Arc::new(m),
@@ -62,6 +64,7 @@ impl NamedProgressBar {
     pub fn reset(&mut self, name: String) {
         self.name.replace(name);
         self.reset_style();
+        self.pb.reset_eta();
         self.pb.set_position(0);
     }
 
@@ -93,13 +96,13 @@ impl NamedProgressBar {
         if let Some(ref name) = self.name {
             ProgressStyle::default_bar()
                 .template(&format!(
-                    "[{{elapsed_precise}}] {{bar:40.green/cyan}} {{pos:>7}}/{{len:7}} {} - {{msg}}",
+                    "{{bar:32.cyan/magenta}} {{pos:>5}}/{{len:5}} {} - {{msg}}",
                     name
                 ))
                 .progress_chars("##-")
         } else {
             ProgressStyle::default_bar()
-                .template("[{elapsed_precise}] {bar:40.green/cyan} {pos:>7}/{len:7} {msg}")
+                .template("{bar:32.cyan/magenta} {pos:>5}/{len:5} {msg}")
                 .progress_chars("##-")
         }
     }

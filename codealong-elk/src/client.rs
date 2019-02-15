@@ -35,6 +35,12 @@ impl Client {
         let url = format!("{}/{}/_doc/{}", self.url, index, event.id());
         Ok(client.put(&url).json(&event).send()?)
     }
+
+    pub fn health(&self) -> Result<reqwest::Response> {
+        let client = reqwest::Client::new();
+        let url = format!("{}/{}", self.url, "_cluster/health");
+        Ok(client.get(&url).send()?)
+    }
 }
 
 fn get_es_index(date: &DateTime<Utc>) -> String {

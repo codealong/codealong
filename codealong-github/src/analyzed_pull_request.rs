@@ -1,5 +1,5 @@
 use chrono::prelude::*;
-use chrono::DateTime;
+use chrono::{DateTime, Duration};
 use std::borrow::Cow;
 use std::collections::HashSet;
 use std::iter::FromIterator;
@@ -19,6 +19,8 @@ pub struct AnalyzedPullRequest {
 
     #[serde(flatten)]
     pub diff: Option<AnalyzedDiff>,
+
+    pub time_to_resolve: Option<i64>,
 }
 
 impl AnalyzedPullRequest {
@@ -30,8 +32,12 @@ impl AnalyzedPullRequest {
         AnalyzedPullRequest {
             timestamp: pr.merged_at.unwrap_or(pr.updated_at),
             normalized_author,
-            pr,
             diff,
+            time_to_resolve: pr
+                .merged_at
+                .as_ref()
+                .map(|ma| (ma.clone() - pr.created_at.clone()).num_seconds()),
+            pr,
         }
     }
 }

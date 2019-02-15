@@ -6,12 +6,21 @@ use crate::analyze_repos::analyze_repos;
 use crate::build_workspace::build_workspace;
 use crate::error::Result;
 use crate::initialize_repos::initialize_repos;
+use crate::utils::build_es_client;
 
 pub fn analyze(matches: &clap::ArgMatches, logger: &Logger) -> Result<()> {
+    validate_args(matches)?;
     let workspace = build_workspace(matches, logger)?;
     let repos = build_repos(&workspace, matches);
     initialize_repos(matches, repos.clone(), logger)?;
     analyze_repos(matches, repos.clone(), logger)?;
+    Ok(())
+}
+
+fn validate_args(matches: &clap::ArgMatches) -> Result<()> {
+    // Ensure ES is accessible
+    let client = build_es_client(matches);
+    client.health()?;
     Ok(())
 }
 
