@@ -1,19 +1,21 @@
 [package]
 name = "codealong-cli"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Gordon Hempton <ghempton@gmail.com>"]
+description = "Codealong command-line interface"
+license = "MIT"
 edition = "2018"
 
 [dependencies]
-codealong = { path = "../codealong" }
-codealong-elk = { path = "../codealong-elk" }
-codealong-github = { path = "../codealong-github" }
+codealong = { path = "../codealong", version = "0.1.1" }
+codealong-elk = { path = "../codealong-elk", version = "0.1.1" }
+codealong-github = { path = "../codealong-github", version = "0.1.1" }
 chrono = {version = "0.4", features = ["serde"]}
-clap = {git = "https://github.com/clap-rs/clap", branch = "v3-dev",  features = ["yaml"]}
+clap = {version = "2.32.0", features = ["yaml"]}
 console = "0.6.2"
 dirs = "1.0.4"
 error-chain = "0.12"
-git2 = "0.7"
+git2 = "0.8"
 humantime = "1.2.0"
 indicatif = "0.11.0"
 serde_yaml = "0.8"

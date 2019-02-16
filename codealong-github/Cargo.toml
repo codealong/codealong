@@ -1,14 +1,16 @@
 [package]
 name = "codealong-github"
-version = "0.1.0"
-authors = ["Gordon Hempton <ghempton@gmail.com>"]
+version = "0.1.1"
+authors = ["Gordon L. Hempton <ghempton@gmail.com>"]
+description = "Codealong Github support"
+license = "MIT"
 edition = "2018"
 
 [dependencies]
-codealong = { path = "../codealong" }
+codealong = { path = "../codealong", version = "0.1.1" }
 chrono = {version = "0.4", features = ["serde"]}
 error-chain = "0.12"
-git2 = "0.7"
+git2 = "0.8"
 regex = "1"
 lazy_static = "1.1.0"
 reqwest = "0.9.4"

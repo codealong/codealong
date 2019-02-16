@@ -60,7 +60,7 @@ impl<'client> PullRequestsAnalyzer<'client> {
         Ok(Self::new(repo.repository()?, repo.config(), client, logger))
     }
 
-    fn build_cursor(&self, opts: AnalyzeOpts) -> Cursor<PullRequest> {
+    fn build_cursor(&self, _opts: AnalyzeOpts) -> Cursor<PullRequest> {
         let url = format!(
             "https://api.github.com/repos/{}/pulls?state=all",
             self.config.repo.github_name.as_ref().unwrap()

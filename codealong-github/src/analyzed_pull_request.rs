@@ -1,5 +1,5 @@
 use chrono::prelude::*;
-use chrono::{DateTime, Duration};
+use chrono::DateTime;
 use std::borrow::Cow;
 use std::collections::HashSet;
 use std::iter::FromIterator;

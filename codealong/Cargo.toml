@@ -1,12 +1,14 @@
 [package]
 name = "codealong"
-version = "0.1.0"
-authors = ["ghempton"]
+version = "0.1.1"
+authors = ["Gordon L. Hempton <ghempton@gmail.com>"]
+description = "Git analytics"
+license = "MIT"
 edition = "2018"
 
 [dependencies]
 error-chain = "0.12"
-git2 = "0.7"
+git2 = "0.8"
 glob = "0.2"
 chrono = {version = "0.4", features = ["serde"]}
 include_dir = "0.2"
@@ -15,7 +17,7 @@ lazy_static = "1.1.0"
 linked-hash-map = {version = "0.5.1", features = ["serde_impl"]}
 serde = "1.0"
 serde_derive = "1.0"
-yaml-rust = {version = "*", features = ["preserve_order"]}
+yaml-rust = "0.4.2"
 serde_yaml = "0.8"
 slog = "2.4"
 dirs = "1.0.4"
