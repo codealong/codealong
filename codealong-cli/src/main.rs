@@ -30,10 +30,14 @@ use crate::init::init;
 use crate::logger::build_logger;
 
 fn main() {
-    use clap::App;
+    use clap::{App, AppSettings};
 
     let yml = load_yaml!("cli.yml");
-    let matches = App::from_yaml(yml).get_matches();
+    let matches = App::from_yaml(yml)
+        .about(crate_description!())
+        .version(crate_version!())
+        .setting(AppSettings::SubcommandRequiredElseHelp)
+        .get_matches();
 
     let logger = build_logger(&matches);
 

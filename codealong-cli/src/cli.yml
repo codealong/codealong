@@ -1,13 +1,12 @@
 name: codealong
-version: "1.0"
 author: Gordon L. Hempton <ghempton@gmail.com>
-about: Open source development metrics
 args:
   - verbosity:
       short: v
       long: verbosity
       default_value: info
       help: Verbosity of the output; only relevant when output-mode is log
+      takes_value: true
       possible_values:
         - trace
         - debug
@@ -19,6 +18,7 @@ args:
       long: log-file
       help: Location of the log file
       default_value: codealong.log
+      takes_value: true
   - log_level:
       long: log-level
       help: Verbosity of logging
@@ -30,6 +30,7 @@ args:
         - warning
         - error
         - critical
+      takes_value: true
   - progress:
       short: p
       long: progress
@@ -37,44 +38,50 @@ args:
       global: true
 subcommands:
   - init:
-      about: generate a codealong config
+      about: Generate a codealong config
       args:
         - github_org:
             short: o
             long: github-org
             help: Name of a Github organization from which to read users
             multiple: true
+            takes_value: true
         - destination:
             help: The target directory
             default_value: "."
   - analyze:
-      about: analyze and index events
+      about: Analyze and index pull requests and commits
       args:
         - elasticsearch_url:
             short: e
             long: elasticsearch-url
             help: URL of elasticsearch instance to index into
             default_value: "http://localhost:9200"
+            takes_value: true
         - config_path:
             short: c
             long: config
             help: Path to an additional codealong config file
             multiple: true
+            takes_value: true
         - workspace_path:
             short: w
             long: workspace
             help: Path to a codealong workspace
             default_value: "~/.codealong"
+            takes_value: true
         - repo:
             short: r
             long: repo
             help: URL of a repo to analyze
             multiple: true
+            takes_value: true
         - concurrency:
             short: C
             long: concurrency
             help: The number of concurrent worker threads
             default_value: "6"
+            takes_value: true
         - since:
             long: since
             help: Only analyze commits occuring after this date

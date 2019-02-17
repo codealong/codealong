@@ -1,3 +1,4 @@
 target/
 .vscode/
 codealong.log
+.DS_Store

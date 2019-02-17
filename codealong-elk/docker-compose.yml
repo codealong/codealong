@@ -18,7 +18,7 @@ services:
       - 9200:9200
 
   kibana:
-    image: codealong-kibana:latest
+    image: codealong/codealong-kibana:latest
     container_name: kibana
     ports:
       - 5601:5601
