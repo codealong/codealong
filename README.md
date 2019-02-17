@@ -35,7 +35,7 @@ cd ~/codealong
 codealong init . --github-org YOUR_GITHUB_ORGANIZATION
 ```
 
-Note that in the above commands, `YOUR_GITHUB_ORGANIZATION` should be replaced with the Github organization containing the users and repos to be analyzed. Mulitple organization's can be specified by specifying multiple `--github-org` arguments. As part of the initialization, information about the organization and the users will be cralwed via the Github API. The `config.yml` file can also be manually modified to include specific repos.
+Note that in the above commands, `YOUR_GITHUB_ORGANIZATION` should be replaced with the Github organization containing the users and repos to be analyzed. Mulitple organization's can be specified by specifying multiple `--github-org` arguments. As part of the initialization, information about the organization and the users will be crawled via the Github API. The `config.yml` file can also be manually modified to include specific repos.
 
 ### 3. Setup Elasticsearch and Kibana
 
@@ -74,7 +74,7 @@ volumes:
 
 Within the workspace directory, run `docker-compose up` to start Elasticsearch and Kibana. The above image, [codealong/codealong-kibana](https://cloud.docker.com/u/codealong/repository/docker/codealong/codealong-kibana), is a custom kibana image containing some pre-made visualizations and dashboards.
 
-### 4. Run the analyze command
+### 4. Run the analyze subcommand
 
 Run the following command from within the workspace directory:
 
@@ -84,7 +84,7 @@ codealong analyze -w . --skip-forks -p --since 3months
 
 This will clone/fetch all relevant repos and then walk the revision tree and analyze each commit and pull request and store them in Elasticsearch. Run `codealong analyze -h` for more information on each of the flags.
 
-The `analyze` command is idemptotent and can be re-run to pick up new commits and configuration changes.
+The `analyze` subcommand is idempotent and can be re-run to pick up new commits and configuration changes.
 
 ### 5. Visualize via Kibana
 
@@ -92,4 +92,10 @@ After or during the step 4, go to [http://localhost:5601](http://localhost:5601)
 
 ## Git and Github Credentials
 
-TODO
+In order to checkout private repos, ensure that your private SSH key is added to your ssh-agent.
+
+To examine the pull requests of private repos, create a [Github personal access token](https://help.github.com/articles/creating-a-personal-access-token-for-the-command-line/) and store it an environment variable called `GITHUB_TOKEN`.
+
+## Configuration
+
+More information soon, but for now the [source documentation](https://docs.rs/codealong/latest/codealong/struct.Config.html) is the best bet.
