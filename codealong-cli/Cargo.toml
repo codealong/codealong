@@ -1,6 +1,6 @@
 [package]
 name = "codealong-cli"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["Gordon Hempton <ghempton@gmail.com>"]
 description = "Codealong command-line interface"
 license = "MIT"
