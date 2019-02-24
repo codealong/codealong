@@ -98,7 +98,7 @@ mod tests {
         let config = RepoConfig::from_repository(&Repository::open_from_env().unwrap()).unwrap();
         assert_eq!(
             config.repo.github_name,
-            Some("ghempton/codealong".to_owned())
+            Some("codealong/codealong".to_owned())
         );
     }
 }

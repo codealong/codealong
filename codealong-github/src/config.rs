@@ -1,7 +1,7 @@
 use slog::Logger;
 use std::collections::HashMap;
 
-use codealong::{AuthorConfig, Config, Identity, RepoEntry, RepoInfo, WorkspaceConfig};
+use codealong::{Config, Identity, Person, PersonConfig, RepoEntry, RepoInfo, WorkspaceConfig};
 
 use crate::client::Client;
 use crate::cursor::Cursor;
@@ -75,25 +75,24 @@ fn add_user_to_config(
         .map(|teams| teams.iter().map(|team| team.name.clone()).collect())
         .unwrap_or_else(|| Vec::new());
 
-    let author_config = AuthorConfig {
-        github_logins: vec![user.login.clone()],
+    let mut person = Person {
         teams: formatted_teams,
-        ..Default::default()
+        ..Person::from_github_login(&user.login)
     };
 
     // Prefer a User <email> formatted id for the author, but fallback to using
     // the github login
-    let key = if user.email.is_some() || user.name.is_some() {
-        Identity {
+    if user.email.is_some() || user.name.is_some() {
+        person.identities.push(Identity {
             name: user.name,
             email: user.email,
-        }
-        .to_string()
-    } else {
-        user.login
-    };
+        });
+    }
 
-    config.authors.insert(key, author_config);
+    config.contributors.push(PersonConfig {
+        person,
+        ..Default::default()
+    });
     Ok(())
 }
 
@@ -167,16 +166,15 @@ mod test {
     fn test_config_from_org() -> Result<()> {
         let client = Client::from_env();
         let workspace_config = config_from_org(&client, "codealong", &build_test_logger())?;
-        assert!(workspace_config.config.authors.len() >= 1);
+        assert!(workspace_config.config.contributors.len() >= 1);
         assert!(workspace_config.repos.len() >= 1);
         assert_eq!(
             workspace_config
                 .config
-                .authors
+                .contributors
                 .iter()
                 .next()
                 .unwrap()
-                .1
                 .tags,
             vec!["team:Devs".to_owned(), "team:Ninjas".to_owned()]
         );

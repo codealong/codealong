@@ -1,8 +1,7 @@
 use std::path::{Path, PathBuf};
 
-use crate::config::{AuthorConfig, Config};
+use crate::config::{Config, PersonConfig};
 use crate::error::*;
-use crate::identity::Identity;
 use crate::person::Person;
 use crate::repo::Repo;
 use crate::repo_info::RepoInfo;
@@ -84,15 +83,11 @@ impl Workspace {
         self.config.config.merge(config);
     }
 
-    pub fn add_person(&mut self, person: Person) {
-        self.config.config.authors.insert(
-            Identity::from_person(&person).to_string(),
-            AuthorConfig {
-                github_logins: person.github_login.into_iter().collect(),
-                teams: person.teams,
-                ..Default::default()
-            },
-        );
+    pub fn add_contributor(&mut self, person: Person) {
+        self.config.config.contributors.push(PersonConfig {
+            person,
+            ..Default::default()
+        });
     }
 
     pub fn save(&self) -> Result<()> {

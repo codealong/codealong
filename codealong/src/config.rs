@@ -5,6 +5,7 @@ use linked_hash_map::LinkedHashMap;
 use serde_yaml;
 
 use crate::error::*;
+use crate::person::Person;
 
 use include_dir::Dir;
 
@@ -56,7 +57,7 @@ pub struct Config {
     pub files: LinkedHashMap<String, GlobConfig>,
 
     #[serde(default)]
-    pub authors: LinkedHashMap<String, AuthorConfig>,
+    pub contributors: Vec<PersonConfig>,
 }
 
 impl Config {
@@ -89,7 +90,7 @@ impl Config {
     /// Merges in all file and author configs
     pub fn merge(&mut self, other: Config) {
         self.files.extend(other.files);
-        self.authors.extend(other.authors);
+        self.contributors.extend(other.contributors);
     }
 }
 
@@ -99,7 +100,7 @@ impl Default for Config {
             merge_defaults: true,
             churn_cutoff: 14,
             files: LinkedHashMap::new(),
-            authors: LinkedHashMap::new(),
+            contributors: Vec::new(),
         }
     }
 }
@@ -123,30 +124,22 @@ impl GlobConfig {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct AuthorConfig {
-    #[serde(default)]
-    pub aliases: Vec<String>,
-
-    #[serde(default)]
-    pub github_logins: Vec<String>,
+pub struct PersonConfig {
+    #[serde(flatten)]
+    pub person: Person,
 
     #[serde(default)]
     pub tags: Vec<String>,
 
     #[serde(default)]
-    pub teams: Vec<String>,
-
-    #[serde(default)]
     pub ignore: bool,
 }
 
-impl Default for AuthorConfig {
-    fn default() -> AuthorConfig {
-        AuthorConfig {
-            aliases: vec![],
-            github_logins: vec![],
+impl Default for PersonConfig {
+    fn default() -> PersonConfig {
+        PersonConfig {
+            person: Default::default(),
             tags: vec![],
-            teams: vec![],
             ignore: false,
         }
     }
@@ -160,7 +153,7 @@ mod tests {
     fn test_deserialization() {
         let config = Config::from_path(Path::new("fixtures/configs/simple.yml")).unwrap();
         assert_eq!(config.files.len(), 5);
-        assert_eq!(config.authors.len(), 1);
+        assert_eq!(config.contributors.len(), 1);
     }
 
     #[test]

@@ -25,10 +25,12 @@ files:
     tags:
       - "docs"
 
-authors:
-  "Gordon Hempton <ghempton@gmail.com>":
-    aliases:
-      - "Gordon Hempton <gordon@outreach.io>"
-      - "<ghempton@gmail.com>"
+contributors:
+  - id: ghempton
+    identities:
+      - name: Gordon Hempton
+        email: ghempton@gmail.com
+      - name: Gordon Hempton
+        email: gordon@outreach.io
     tags:
-      - "team-apollo"
+      - "team-a"

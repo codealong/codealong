@@ -1,12 +1,12 @@
 use regex::Regex;
 use std::fmt;
 
-use crate::person::Person;
-
 /// Simple wrapper for Name <Email> strings
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Identity {
+    #[serde(default)]
     pub name: Option<String>,
+    #[serde(default)]
     pub email: Option<String>,
 }
 
@@ -49,23 +49,6 @@ impl Identity {
             name: None,
             email: self.email.clone(),
         })
-    }
-
-    pub fn to_person(&self) -> Person {
-        Person {
-            id: self.to_string(),
-            name: self.name.clone(),
-            email: self.email.clone(),
-            github_login: None,
-            teams: vec![],
-        }
-    }
-
-    pub fn from_person(person: &Person) -> Identity {
-        Identity {
-            name: person.name.clone(),
-            email: person.email.clone(),
-        }
     }
 }
 

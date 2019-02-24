@@ -46,7 +46,7 @@ pub use crate::analyze_opts::AnalyzeOpts;
 pub use crate::analyzed_commit::AnalyzedCommit;
 pub use crate::analyzed_diff::AnalyzedDiff;
 pub use crate::commit_analyzer::CommitAnalyzer;
-pub use crate::config::{AuthorConfig, Config, GlobConfig};
+pub use crate::config::{Config, GlobConfig, PersonConfig};
 pub use crate::diff_analyzer::DiffAnalyzer;
 pub use crate::error::{Error, ErrorKind};
 pub use crate::event::Event;

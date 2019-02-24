@@ -1,11 +1,12 @@
 use git2::{Commit, Delta, DiffDelta, DiffLine, Repository};
 
 use crate::analyzed_diff::AnalyzedDiff;
+use crate::config::PersonConfig;
 use crate::config_context::ConfigContext;
 use crate::error::Error;
 use crate::git_blame::GitBlame;
 use crate::hunk_analyzer::HunkAnalyzer;
-use crate::working_config::{FileConfig, PersonConfig, WorkingConfig};
+use crate::working_config::{FileConfig, WorkingConfig};
 
 pub struct FileAnalyzer<'a> {
     repo: &'a Repository,
@@ -27,7 +28,7 @@ impl<'a> FileAnalyzer<'a> {
     ) -> FileAnalyzer<'a> {
         let file_config = get_file_config(config, &diff_delta);
         let author_config = get_author_config(config, commit);
-        let config_context = ConfigContext::new(file_config.as_ref(), author_config.as_ref());
+        let config_context = ConfigContext::new(file_config.as_ref(), author_config);
         let blame = get_blame(repo, diff_delta, parent, config);
 
         FileAnalyzer {
@@ -87,7 +88,7 @@ fn get_file_config<'a>(
         .and_then(|path| path.to_str().and_then(|path| config.config_for_file(path)))
 }
 
-fn get_author_config<'a>(config: &'a WorkingConfig, commit: &Commit) -> Option<PersonConfig<'a>> {
+fn get_author_config<'a>(config: &'a WorkingConfig, commit: &Commit) -> Option<&'a PersonConfig> {
     config.config_for_identity(&commit.author().into())
 }
 

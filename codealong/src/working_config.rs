@@ -1,8 +1,7 @@
 use glob::Pattern;
 use std::collections::HashSet;
-use std::iter;
 
-use crate::config::{AuthorConfig, Config, GlobConfig};
+use crate::config::{Config, GlobConfig, PersonConfig};
 use crate::identity::Identity;
 use crate::person::Person;
 
@@ -50,24 +49,24 @@ impl WorkingConfig {
         }
     }
 
-    pub fn config_for_identity(&self, identity: &Identity) -> Option<PersonConfig> {
+    pub fn config_for_identity(&self, identity: &Identity) -> Option<&PersonConfig> {
         let config = &self.config;
-        for (key, author_config) in &config.authors {
-            for alias in iter::once(key).chain(&author_config.aliases) {
-                if &Identity::parse(alias) == identity {
-                    return Some(PersonConfig::new(key, author_config));
+        for person_config in &config.contributors {
+            for alias in &person_config.person.identities {
+                if identity == alias {
+                    return Some(person_config);
                 }
             }
         }
         None
     }
 
-    pub fn config_for_github_login(&self, github_login: &str) -> Option<PersonConfig> {
+    pub fn config_for_github_login(&self, github_login: &str) -> Option<&PersonConfig> {
         let config = &self.config;
-        for (key, author_config) in &config.authors {
-            for login in &author_config.github_logins {
+        for person_config in &config.contributors {
+            for login in &person_config.person.github_logins {
                 if login == github_login {
-                    return Some(PersonConfig::new(key, author_config));
+                    return Some(&person_config);
                 }
             }
         }
@@ -76,23 +75,17 @@ impl WorkingConfig {
 
     pub fn person_for_identity(&self, identity: &Identity) -> Person {
         if let Some(person_config) = self.config_for_identity(identity) {
-            person_config.to_person()
+            person_config.person.clone()
         } else {
-            identity.to_person()
+            Person::from_identity(identity)
         }
     }
 
     pub fn person_for_github_login(&self, github_login: &str) -> Person {
         if let Some(person_config) = self.config_for_github_login(github_login) {
-            person_config.to_person()
+            person_config.person.clone()
         } else {
-            Person {
-                id: github_login.to_owned(),
-                github_login: Some(github_login.to_owned()),
-                name: None,
-                email: None,
-                teams: vec![],
-            }
+            Person::from_github_login(github_login)
         }
     }
 
@@ -133,36 +126,6 @@ impl<'a> FileConfig<'a> {
     }
 }
 
-pub struct PersonConfig<'a> {
-    key: &'a str,
-    config: &'a AuthorConfig,
-}
-
-impl<'a> PersonConfig<'a> {
-    pub fn new(key: &'a str, config: &'a AuthorConfig) -> PersonConfig<'a> {
-        PersonConfig { key, config }
-    }
-
-    pub fn tags(&self) -> &'a Vec<String> {
-        &self.config.tags
-    }
-
-    pub fn ignore(&self) -> bool {
-        self.config.ignore
-    }
-
-    pub fn to_person(&self) -> Person {
-        let id = Identity::parse(self.key);
-        Person {
-            id: self.key.to_owned(),
-            name: id.name,
-            email: id.email,
-            github_login: self.config.github_logins.first().map(|s| s.to_owned()),
-            teams: self.config.teams.clone(),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -191,7 +154,7 @@ mod tests {
             .is_some());
         assert!(config
             .config_for_identity(&Identity::parse("<ghempton@gmail.com>"))
-            .is_some());
+            .is_none());
         assert!(config
             .config_for_identity(&Identity::parse("Gordon Hempton"))
             .is_none());
@@ -209,6 +172,7 @@ mod tests {
     #[test]
     fn test_overlapping_globs() {
         let mut config = Config::default();
+        config.merge_defaults = false;
 
         config.files.insert(
             "**/*.rb".to_string(),

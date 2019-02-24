@@ -71,7 +71,7 @@ impl<'a> CommitAnalyzer<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::Config;
+    use crate::repo_config::RepoConfig;
     use crate::test::build_test_logger;
     use crate::work_stats::WorkStats;
     use git2::Oid;
@@ -121,10 +121,10 @@ mod tests {
         let repo = Repository::open("./fixtures/repos/simple")?;
         let commit =
             repo.find_commit(Oid::from_str("86d242301830075e93ff039a4d1e88673a4a3020")?)?;
-        let config = WorkingConfig::new(Config::from_path(Path::new(
+        let RepoConfig { config, repo: repo_info } = RepoConfig::from_path(Path::new(
             "./fixtures/configs/simple.yml",
-        ))?);
-        let repo_info = RepoInfo::default();
+        ))?;
+        let config = WorkingConfig::new(config);
         let analyzer =
             CommitAnalyzer::new(&repo, commit, &config, &repo_info, &build_test_logger());
         let res = analyzer.analyze().unwrap();

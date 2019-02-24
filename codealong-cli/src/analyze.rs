@@ -17,7 +17,7 @@ pub fn analyze(matches: &clap::ArgMatches, logger: &Logger) -> Result<()> {
     if results.new_authors.len() > 0 {
         info!(logger, "Found additional contributors, adding to config");
         for person in results.new_authors {
-            workspace.add_person(person);
+            workspace.add_contributor(person);
         }
         workspace.save()?;
     }
