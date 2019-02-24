@@ -47,8 +47,7 @@ impl RepoConfig {
         let path = repo.path();
         let file_path = path.join(".codealong").join(Self::DEFAULT_PATH);
         let mut config = if file_path.exists() {
-            let mut config = Self::from_path(&file_path)?;
-            config
+            Self::from_path(&file_path)?
         } else {
             Self::default()
         };

@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 use codealong;
 use git2;
 use reqwest;

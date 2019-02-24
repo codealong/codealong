@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 use git2;
 use serde_yaml;
 use std::io;

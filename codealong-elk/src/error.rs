@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 use reqwest;
 
 error_chain! {

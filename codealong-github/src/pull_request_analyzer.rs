@@ -10,7 +10,6 @@ use crate::pull_request::{PullRequest, Ref};
 pub struct PullRequestAnalyzer<'a> {
     repo: &'a Repository,
     config: &'a WorkingConfig,
-    repo_info: &'a RepoInfo,
     pr: PullRequest,
     logger: Logger,
 }
@@ -20,7 +19,7 @@ impl<'a> PullRequestAnalyzer<'a> {
         repo: &'a Repository,
         pr: PullRequest,
         config: &'a WorkingConfig,
-        repo_info: &'a RepoInfo,
+        _repo_info: &'a RepoInfo,
         parent_logger: &Logger,
     ) -> PullRequestAnalyzer<'a> {
         let logger = parent_logger.new(o!("pull_request_id" => pr.id));
@@ -28,7 +27,6 @@ impl<'a> PullRequestAnalyzer<'a> {
             repo,
             pr,
             config,
-            repo_info,
             logger,
         }
     }

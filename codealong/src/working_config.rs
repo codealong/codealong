@@ -1,10 +1,8 @@
 use glob::Pattern;
 use std::collections::HashSet;
 use std::iter;
-use std::path::Path;
 
 use crate::config::{AuthorConfig, Config, GlobConfig};
-use crate::error::*;
 use crate::identity::Identity;
 use crate::person::Person;
 
@@ -168,6 +166,8 @@ impl<'a> PersonConfig<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::error::*;
+    use std::path::Path;
 
     #[test]
     fn test_config_for_file() -> Result<()> {

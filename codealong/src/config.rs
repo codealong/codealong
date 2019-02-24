@@ -4,7 +4,7 @@ use std::path::Path;
 use linked_hash_map::LinkedHashMap;
 use serde_yaml;
 
-use crate::error::{Error, Result};
+use crate::error::*;
 
 use include_dir::Dir;
 
@@ -66,10 +66,7 @@ impl Config {
     }
 
     pub fn from_file(file: &File) -> Result<Self> {
-        match serde_yaml::from_reader::<_, Config>(file) {
-            Ok(mut config) => Ok(config),
-            Err(e) => Err(Error::from(e)),
-        }
+        Ok(serde_yaml::from_reader::<_, Config>(file)?)
     }
 
     /// Base config with embedded defaults

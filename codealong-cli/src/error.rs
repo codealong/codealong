@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 use codealong;
 use codealong_elk;
 use codealong_github;
