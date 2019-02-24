@@ -10,12 +10,12 @@ use crate::pull_request::PullRequest;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AnalyzedPullRequest {
-    timestamp: DateTime<Utc>,
+    pub timestamp: DateTime<Utc>,
 
-    normalized_author: Person,
+    pub normalized_author: Person,
 
     #[serde(flatten)]
-    pr: PullRequest,
+    pub pr: PullRequest,
 
     #[serde(flatten)]
     pub diff: Option<AnalyzedDiff>,

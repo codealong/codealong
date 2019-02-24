@@ -20,7 +20,11 @@ pub fn config_from_org(
 ) -> Result<WorkspaceConfig> {
     let config = default_config_with_authors(client, github_org, logger)?;
     let repos = build_repo_entries(client, github_org, logger)?;
-    Ok(WorkspaceConfig { config, repos })
+    Ok(WorkspaceConfig {
+        config,
+        repos,
+        path: None,
+    })
 }
 
 fn default_config_with_authors(

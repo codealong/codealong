@@ -1,5 +1,5 @@
 use std::fs::File;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::config::Config;
 use crate::error::*;
@@ -7,6 +7,9 @@ use crate::repo_info::RepoInfo;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WorkspaceConfig {
+    #[serde(skip_serializing, default)]
+    pub path: Option<PathBuf>,
+
     #[serde(flatten)]
     pub config: Config,
 
@@ -27,17 +30,18 @@ impl WorkspaceConfig {
 
     pub fn from_path(path: &Path) -> Result<Self> {
         let file = File::open(path)?;
-        Self::from_file(&file)
+        let mut res = Self::from_file(&file)?;
+        res.path.replace(path.to_owned());
+        Ok(res)
     }
 
     pub fn from_file(file: &File) -> Result<Self> {
-        match serde_yaml::from_reader::<_, WorkspaceConfig>(file) {
-            Ok(mut config) => {
-                config.config.maybe_apply_base();
-                Ok(config)
-            }
-            Err(e) => Err(Error::from(e)),
-        }
+        Ok(serde_yaml::from_reader::<_, WorkspaceConfig>(file)?)
+    }
+
+    pub fn save(&self) -> Result<()> {
+        let file = File::create(self.path.as_ref().ok_or("No path specified")?)?;
+        Ok(serde_yaml::to_writer(file, self)?)
     }
 
     /// Adds the repo to this configuration's list of repos. If a repo with the
@@ -80,6 +84,7 @@ impl Default for WorkspaceConfig {
         WorkspaceConfig {
             config: Config::default(),
             repos: vec![],
+            path: None,
         }
     }
 }

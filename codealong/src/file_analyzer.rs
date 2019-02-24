@@ -1,11 +1,11 @@
 use git2::{Commit, Delta, DiffDelta, DiffLine, Repository};
 
 use crate::analyzed_diff::AnalyzedDiff;
-use crate::config::{Config, FileConfig, PersonConfig};
 use crate::config_context::ConfigContext;
 use crate::error::Error;
 use crate::git_blame::GitBlame;
 use crate::hunk_analyzer::HunkAnalyzer;
+use crate::working_config::{FileConfig, PersonConfig, WorkingConfig};
 
 pub struct FileAnalyzer<'a> {
     repo: &'a Repository,
@@ -23,7 +23,7 @@ impl<'a> FileAnalyzer<'a> {
         commit: &'a Commit<'a>,
         parent: Option<&'a Commit<'a>>,
         diff_delta: &DiffDelta,
-        config: &'a Config,
+        config: &'a WorkingConfig,
     ) -> FileAnalyzer<'a> {
         let file_config = get_file_config(config, &diff_delta);
         let author_config = get_author_config(config, commit);
@@ -76,7 +76,10 @@ impl<'a> FileAnalyzer<'a> {
     }
 }
 
-fn get_file_config<'a>(config: &'a Config, diff_delta: &DiffDelta) -> Option<FileConfig<'a>> {
+fn get_file_config<'a>(
+    config: &'a WorkingConfig,
+    diff_delta: &DiffDelta,
+) -> Option<FileConfig<'a>> {
     diff_delta
         .new_file()
         .path()
@@ -84,7 +87,7 @@ fn get_file_config<'a>(config: &'a Config, diff_delta: &DiffDelta) -> Option<Fil
         .and_then(|path| path.to_str().and_then(|path| config.config_for_file(path)))
 }
 
-fn get_author_config<'a>(config: &'a Config, commit: &Commit) -> Option<PersonConfig<'a>> {
+fn get_author_config<'a>(config: &'a WorkingConfig, commit: &Commit) -> Option<PersonConfig<'a>> {
     config.config_for_identity(&commit.author().into())
 }
 
@@ -92,7 +95,7 @@ fn get_blame(
     repo: &Repository,
     diff_delta: &DiffDelta,
     parent: Option<&Commit>,
-    config: &Config,
+    config: &WorkingConfig,
 ) -> Option<GitBlame> {
     if diff_delta.status() != Delta::Modified {
         return None;
@@ -100,7 +103,7 @@ fn get_blame(
     diff_delta.old_file().path().and_then(|old_path| {
         parent.and_then(|parent| {
             if let Ok(new_blame) =
-                GitBlame::new(&repo, &parent.id(), &old_path, config.churn_cutoff)
+                GitBlame::new(&repo, &parent.id(), &old_path, config.churn_cutoff())
             {
                 Some(new_blame)
             } else {

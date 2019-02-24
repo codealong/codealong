@@ -60,6 +60,13 @@ impl Identity {
             teams: vec![],
         }
     }
+
+    pub fn from_person(person: &Person) -> Identity {
+        Identity {
+            name: person.name.clone(),
+            email: person.email.clone(),
+        }
+    }
 }
 
 impl Default for Identity {

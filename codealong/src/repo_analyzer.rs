@@ -3,22 +3,26 @@ use git2::{Repository, Revwalk};
 use crate::analyze_opts::AnalyzeOpts;
 use crate::commit_analyzer::CommitAnalyzer;
 use crate::error::*;
-use crate::identity::Identity;
 use crate::repo::Repo;
 use crate::repo_config::RepoConfig;
+use crate::repo_info::RepoInfo;
 use crate::slog::Logger;
 use crate::utils::convert_time;
+use crate::working_config::WorkingConfig;
 
 pub struct RepoAnalyzer {
     repo: Repository,
     config: RepoConfig,
+    working_config: WorkingConfig,
     logger: Logger,
 }
 
 impl RepoAnalyzer {
     pub fn new(repo: Repository, config: RepoConfig, parent_logger: &Logger) -> RepoAnalyzer {
+        let working_config = WorkingConfig::new(config.config.clone());
         RepoAnalyzer {
             repo,
+            working_config,
             logger: parent_logger.new(o!("repo" => config.repo.name.to_owned())),
             config,
         }
@@ -43,7 +47,8 @@ impl RepoAnalyzer {
         Ok(AnalyzedRevwalk {
             repo: &self.repo,
             revwalk,
-            config: &self.config,
+            config: &self.working_config,
+            repo_info: &self.config.repo,
             opts,
             logger: self.logger.clone(),
         })
@@ -61,7 +66,8 @@ impl RepoAnalyzer {
 pub struct AnalyzedRevwalk<'repo> {
     repo: &'repo Repository,
     revwalk: Revwalk<'repo>,
-    config: &'repo RepoConfig,
+    config: &'repo WorkingConfig,
+    repo_info: &'repo RepoInfo,
     opts: AnalyzeOpts,
     logger: Logger,
 }
@@ -85,16 +91,19 @@ impl<'repo> Iterator for AnalyzedRevwalk<'repo> {
                         }
                     }
 
-                    if !self.opts.ignore_unknown_authors
-                        || self
-                            .config
-                            .config
-                            .is_known(&Identity::from(commit.author()))
-                    {
-                        let analyzer =
-                            CommitAnalyzer::new(self.repo, commit, self.config, &self.logger);
-                        break Some(Ok(analyzer));
+                    let analyzer = CommitAnalyzer::new(
+                        self.repo,
+                        commit,
+                        self.config,
+                        &self.repo_info,
+                        &self.logger,
+                    );
+
+                    if self.opts.ignore_unknown_authors && !analyzer.is_author_known() {
+                        continue;
                     }
+
+                    break Some(Ok(analyzer));
                 }
             }
         }

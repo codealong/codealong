@@ -1,7 +1,7 @@
 use git2::Repository;
 use slog::Logger;
 
-use codealong::{AnalyzeOpts, Repo, RepoConfig};
+use codealong::{AnalyzeOpts, Repo, RepoConfig, RepoInfo, WorkingConfig};
 
 use crate::client::Client;
 use crate::cursor::Cursor;
@@ -12,6 +12,7 @@ use crate::pull_request_analyzer::PullRequestAnalyzer;
 pub struct PullRequestsAnalyzer<'client> {
     repo: Repository,
     config: RepoConfig,
+    working_config: WorkingConfig,
     client: &'client Client,
     logger: Logger,
 }
@@ -23,8 +24,10 @@ impl<'client> PullRequestsAnalyzer<'client> {
         client: &'client Client,
         parent_logger: &Logger,
     ) -> PullRequestsAnalyzer<'client> {
+        let working_config = WorkingConfig::new(config.config.clone());
         PullRequestsAnalyzer {
             repo,
+            working_config,
             logger: parent_logger.new(o!("repo" => config.repo.name.to_owned())),
             config,
             client,
@@ -39,7 +42,8 @@ impl<'client> PullRequestsAnalyzer<'client> {
         Ok(PullRequestsCursor {
             repo: &self.repo,
             cursor,
-            config: &self.config,
+            config: &self.working_config,
+            repo_info: &self.config.repo,
             opts,
             logger: self.logger.clone(),
         })
@@ -71,7 +75,8 @@ impl<'client> PullRequestsAnalyzer<'client> {
 
 struct PullRequestsCursor<'client> {
     repo: &'client Repository,
-    config: &'client RepoConfig,
+    config: &'client WorkingConfig,
+    repo_info: &'client RepoInfo,
     cursor: Cursor<'client, PullRequest>,
     opts: AnalyzeOpts,
     logger: Logger,
@@ -93,10 +98,15 @@ impl<'client> Iterator for PullRequestsCursor<'client> {
                     }
 
                     if !self.opts.ignore_unknown_authors
-                        || self.config.config.is_github_login_known(&pr.user.login)
+                        || self.config.is_github_login_known(&pr.user.login)
                     {
-                        let analyzer =
-                            PullRequestAnalyzer::new(&self.repo, pr, &self.config, &self.logger);
+                        let analyzer = PullRequestAnalyzer::new(
+                            &self.repo,
+                            pr,
+                            &self.config,
+                            &self.repo_info,
+                            &self.logger,
+                        );
                         break Some(Ok(analyzer));
                     }
                 }

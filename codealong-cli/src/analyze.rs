@@ -10,10 +10,17 @@ use crate::utils::build_es_client;
 
 pub fn analyze(matches: &clap::ArgMatches, logger: &Logger) -> Result<()> {
     validate_args(matches)?;
-    let workspace = build_workspace(matches, logger)?;
+    let mut workspace = build_workspace(matches, logger)?;
     let repos = build_repos(&workspace, matches);
     initialize_repos(matches, repos.clone(), logger)?;
-    analyze_repos(matches, repos.clone(), logger)?;
+    let results = analyze_repos(matches, repos.clone(), logger)?;
+    if results.new_authors.len() > 0 {
+        info!(logger, "Found additional contributors, adding to config");
+        for person in results.new_authors {
+            workspace.add_person(person);
+        }
+        workspace.save()?;
+    }
     Ok(())
 }
 

@@ -29,13 +29,7 @@ impl RepoConfig {
     }
 
     pub fn from_file(file: &File) -> Result<Self> {
-        match serde_yaml::from_reader::<_, RepoConfig>(file) {
-            Ok(mut config) => {
-                config.config.maybe_apply_base();
-                Ok(config)
-            }
-            Err(e) => Err(Error::from(e)),
-        }
+        Ok(serde_yaml::from_reader::<_, RepoConfig>(file)?)
     }
 
     /// Attempts to read the config from the conventional location within the
@@ -54,7 +48,6 @@ impl RepoConfig {
         let file_path = path.join(".codealong").join(Self::DEFAULT_PATH);
         let mut config = if file_path.exists() {
             let mut config = Self::from_path(&file_path)?;
-            config.config.maybe_apply_base();
             config
         } else {
             Self::default()
@@ -80,6 +73,7 @@ impl Default for RepoConfig {
         }
     }
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;

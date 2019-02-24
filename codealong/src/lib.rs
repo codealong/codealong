@@ -38,6 +38,7 @@ mod repo_info;
 pub mod test;
 mod utils;
 mod work_stats;
+mod working_config;
 mod workspace;
 mod workspace_config;
 
@@ -56,5 +57,6 @@ pub use crate::repo_analyzer::{AnalyzedRevwalk, RepoAnalyzer};
 pub use crate::repo_config::RepoConfig;
 pub use crate::repo_info::RepoInfo;
 pub use crate::utils::with_authentication;
+pub use crate::working_config::WorkingConfig;
 pub use crate::workspace::Workspace;
 pub use crate::workspace_config::{RepoEntry, WorkspaceConfig};

@@ -4,16 +4,16 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 
 use crate::analyzed_diff::AnalyzedDiff;
-use crate::config::Config;
 use crate::error::Error;
 use crate::file_analyzer::FileAnalyzer;
 use crate::work_stats::WorkStats;
+use crate::working_config::WorkingConfig;
 
 pub struct DiffAnalyzer<'a> {
     repo: &'a Repository,
     commit: &'a Commit<'a>,
     parent: Option<&'a Commit<'a>>,
-    config: &'a Config,
+    config: &'a WorkingConfig,
 }
 
 impl<'a> DiffAnalyzer<'a> {
@@ -21,7 +21,7 @@ impl<'a> DiffAnalyzer<'a> {
         repo: &'a Repository,
         commit: &'a Commit,
         parent: Option<&'a Commit>,
-        config: &'a Config,
+        config: &'a WorkingConfig,
     ) -> DiffAnalyzer<'a> {
         DiffAnalyzer {
             repo,

@@ -1,7 +1,7 @@
 use git2::{Oid, Repository};
 use slog::Logger;
 
-use codealong::{with_authentication, DiffAnalyzer, RepoConfig};
+use codealong::{with_authentication, DiffAnalyzer, RepoInfo, WorkingConfig};
 
 use crate::analyzed_pull_request::AnalyzedPullRequest;
 use crate::error::{Error, Result};
@@ -9,7 +9,8 @@ use crate::pull_request::{PullRequest, Ref};
 
 pub struct PullRequestAnalyzer<'a> {
     repo: &'a Repository,
-    config: &'a RepoConfig,
+    config: &'a WorkingConfig,
+    repo_info: &'a RepoInfo,
     pr: PullRequest,
     logger: Logger,
 }
@@ -18,7 +19,8 @@ impl<'a> PullRequestAnalyzer<'a> {
     pub fn new(
         repo: &'a Repository,
         pr: PullRequest,
-        config: &'a RepoConfig,
+        config: &'a WorkingConfig,
+        repo_info: &'a RepoInfo,
         parent_logger: &Logger,
     ) -> PullRequestAnalyzer<'a> {
         let logger = parent_logger.new(o!("pull_request_id" => pr.id));
@@ -26,6 +28,7 @@ impl<'a> PullRequestAnalyzer<'a> {
             repo,
             pr,
             config,
+            repo_info,
             logger,
         }
     }
@@ -44,23 +47,21 @@ impl<'a> PullRequestAnalyzer<'a> {
                     .find_commit(Oid::from_str(&self.pr.head.sha)?)
                     .map_err::<Error, _>(|e| e.into())
                     .and_then(|commit| {
-                        Ok(DiffAnalyzer::new(
-                            &self.repo,
-                            &commit,
-                            Some(&parent),
-                            &self.config.config,
+                        Ok(
+                            DiffAnalyzer::new(&self.repo, &commit, Some(&parent), &self.config)
+                                .analyze()?,
                         )
-                        .analyze()?)
                     })
             })
             .ok();
 
-        let normalized_author = self
-            .config
-            .config
-            .person_for_github_login(&self.pr.user.login);
+        let normalized_author = self.config.person_for_github_login(&self.pr.user.login);
         debug!(self.logger, "Done analyzing");
         Ok(AnalyzedPullRequest::new(self.pr, diff, normalized_author))
+    }
+
+    pub fn is_author_known(&self) -> bool {
+        self.config.is_github_login_known(&self.pr.user.login)
     }
 
     fn fetch_remote(&self, reference: &Ref) -> Result<()> {

@@ -1,7 +1,9 @@
 use std::path::{Path, PathBuf};
 
-use crate::config::Config;
+use crate::config::{AuthorConfig, Config};
 use crate::error::*;
+use crate::identity::Identity;
+use crate::person::Person;
 use crate::repo::Repo;
 use crate::repo_info::RepoInfo;
 use crate::workspace_config::{RepoEntry, WorkspaceConfig};
@@ -80,6 +82,21 @@ impl Workspace {
 
     pub fn add_config(&mut self, config: Config) {
         self.config.config.merge(config);
+    }
+
+    pub fn add_person(&mut self, person: Person) {
+        self.config.config.authors.insert(
+            Identity::from_person(&person).to_string(),
+            AuthorConfig {
+                github_logins: person.github_login.into_iter().collect(),
+                teams: person.teams,
+                ..Default::default()
+            },
+        );
+    }
+
+    pub fn save(&self) -> Result<()> {
+        self.config.save()
     }
 
     pub fn dir(&self) -> &Path {
