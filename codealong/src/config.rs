@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::fs::File;
 use std::path::Path;
 
@@ -100,7 +99,7 @@ impl Config {
         // This is n^2 and could be more efficient, but the cardinality of
         // contributors is not high...
         let mut index = 0;
-        let mut indexes_to_remove = HashSet::new();
+        let mut indexes_to_remove = Vec::new();
         let len = self.contributors.len();
         while index < len {
             let mut next_index = index + 1;
@@ -110,13 +109,15 @@ impl Config {
                 let next = &tail[next_index - index - 1];
                 if curr.contributor.is_dupe(&next.contributor) {
                     curr.contributor.merge(&next.contributor);
-                    indexes_to_remove.insert(next_index);
+                    indexes_to_remove.push(next_index);
                 }
                 next_index += 1;
             }
             index += 1;
         }
 
+        indexes_to_remove.sort();
+        indexes_to_remove.reverse();
         for i in indexes_to_remove {
             self.contributors.remove(i);
         }

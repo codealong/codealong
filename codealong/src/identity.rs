@@ -52,13 +52,8 @@ impl Identity {
     }
 
     pub fn partial_eq(&self, other: &Identity) -> bool {
-        if self.email.is_none() || other.email.is_none() {
-            // if either identity has no email, we just compare names
-            self.name == other.name
-        } else {
-            // otherwise the emails must be the same
-            self.email == other.email
-        }
+        self.email.is_some() && self.email == other.email
+            || self.name.is_some() && self.name == other.name
     }
 }
 
