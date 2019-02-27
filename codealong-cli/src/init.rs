@@ -23,8 +23,11 @@ fn build_config(
     path: &Path,
     logger: &Logger,
 ) -> Result<WorkspaceConfig> {
-    let mut config = WorkspaceConfig::default();
-    config.path = Some(path.to_owned());
+    let mut config = WorkspaceConfig::from_path(path).unwrap_or_else(|_| {
+        let mut config = WorkspaceConfig::default();
+        config.path = Some(path.to_owned());
+        config
+    });
     let client = codealong_github::Client::from_env();
     if let Some(github_orgs) = matches.values_of("github_org") {
         for github_org in github_orgs {
@@ -32,6 +35,7 @@ fn build_config(
             config.merge(org_config);
         }
     }
+    config.config.dedup_contributors();
     Ok(config)
 }
 

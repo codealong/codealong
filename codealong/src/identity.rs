@@ -50,6 +50,16 @@ impl Identity {
             email: self.email.clone(),
         })
     }
+
+    pub fn partial_eq(&self, other: &Identity) -> bool {
+        if self.email.is_none() || other.email.is_none() {
+            // if either identity has no email, we just compare names
+            self.name == other.name
+        } else {
+            // otherwise the emails must be the same
+            self.email == other.email
+        }
+    }
 }
 
 impl Default for Identity {

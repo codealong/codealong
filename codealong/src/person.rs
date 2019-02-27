@@ -37,6 +37,30 @@ impl Person {
             teams: self.teams.clone(),
         }
     }
+
+    pub fn is_dupe(&self, other: &Person) -> bool {
+        self.identities
+            .iter()
+            .find(|id_a| {
+                other
+                    .identities
+                    .iter()
+                    .find(|id_b| id_a.partial_eq(id_b))
+                    .is_some()
+            })
+            .is_some()
+    }
+
+    pub fn merge(&mut self, other: &Person) {
+        self.identities
+            .extend(other.identities.iter().map(|e| e.to_owned()));
+        self.identities.dedup();
+        self.github_logins
+            .extend(other.github_logins.iter().map(|e| e.to_owned()));
+        self.github_logins.dedup();
+        self.teams.extend(other.teams.iter().map(|e| e.to_owned()));
+        self.teams.dedup();
+    }
 }
 
 impl Default for Person {

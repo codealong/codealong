@@ -35,13 +35,14 @@ pub fn analyze_repos(
     let tasks = Arc::new(Mutex::new(tasks));
     let results = Arc::new(Mutex::new(AnalyzeResults::new()));
     m.set_message("Data sources analyzed");
+    let mut threads = Vec::new();
     for _ in 0..num_threads {
         let results = results.clone();
         let tasks = tasks.clone();
         let m = m.clone();
         let mut pb = m.add();
         let root_logger = logger.clone();
-        thread::spawn(move || loop {
+        threads.push(thread::spawn(move || loop {
             let task = {
                 let mut tasks = tasks.lock().unwrap();
                 tasks.pop_front()
@@ -63,15 +64,16 @@ pub fn analyze_repos(
                 pb.finish();
                 break;
             }
-        });
+        }));
     }
     m.join_and_clear()?;
-    Ok(Arc::try_unwrap(results)
-        .unwrap_or(Mutex::new(AnalyzeResults::new()))
-        .into_inner()
-        .expect("Mutex still locked"))
+    for handle in threads {
+        handle.join().unwrap();
+    }
+    Ok(Arc::try_unwrap(results).unwrap().into_inner().unwrap())
 }
 
+#[derive(Debug)]
 pub struct AnalyzeResults {
     pub new_authors: HashSet<Person>,
 }

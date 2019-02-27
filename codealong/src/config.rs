@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::fs::File;
 use std::path::Path;
 
@@ -92,6 +93,34 @@ impl Config {
         self.files.extend(other.files);
         self.contributors.extend(other.contributors);
     }
+
+    /// Merges contributors based on name and email matches. The contributor
+    /// higher in the list has precedence.
+    pub fn dedup_contributors(&mut self) {
+        // This is n^2 and could be more efficient, but the cardinality of
+        // contributors is not high...
+        let mut index = 0;
+        let mut indexes_to_remove = HashSet::new();
+        let len = self.contributors.len();
+        while index < len {
+            let mut next_index = index + 1;
+            let (head, tail) = self.contributors.split_at_mut(next_index);
+            let curr = head.last_mut().unwrap();
+            while next_index < len {
+                let next = &tail[next_index - index - 1];
+                if curr.person.is_dupe(&next.person) {
+                    curr.person.merge(&next.person);
+                    indexes_to_remove.insert(next_index);
+                }
+                next_index += 1;
+            }
+            index += 1;
+        }
+
+        for i in indexes_to_remove {
+            self.contributors.remove(i);
+        }
+    }
 }
 
 impl Default for Config {
@@ -183,5 +212,59 @@ mod tests {
         config.merge(config2);
 
         assert!(config.files.keys().len() == 2);
+    }
+
+    #[test]
+    fn test_dedup_contributors() {
+        use crate::identity::Identity;
+        let mut config = Config::default();
+
+        config.contributors.push(PersonConfig {
+            person: Person {
+                id: "a".to_owned(),
+                identities: vec![Identity::parse("Gordon Hempton")],
+                ..Person::default()
+            },
+            ..PersonConfig::default()
+        });
+
+        config.contributors.push(PersonConfig {
+            person: Person {
+                id: "b".to_owned(),
+                identities: vec![Identity::parse("Gordon Hempton <ghempton@gmail.com>")],
+                ..Person::default()
+            },
+            ..PersonConfig::default()
+        });
+
+        config.contributors.push(PersonConfig {
+            person: Person {
+                id: "c".to_owned(),
+                identities: vec![Identity::parse("Someone Else <test@test.com>")],
+                ..Person::default()
+            },
+            ..PersonConfig::default()
+        });
+
+        config.dedup_contributors();
+
+        assert_eq!(config.contributors.len(), 2);
+        assert_eq!(
+            config.contributors.first().as_ref().unwrap().person.id,
+            "a".to_owned()
+        );
+        assert_eq!(
+            config
+                .contributors
+                .first()
+                .as_ref()
+                .unwrap()
+                .person
+                .identities,
+            vec![
+                Identity::parse("Gordon Hempton"),
+                Identity::parse("Gordon Hempton <ghempton@gmail.com>")
+            ]
+        );
     }
 }
