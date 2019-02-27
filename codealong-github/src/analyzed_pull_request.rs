@@ -4,7 +4,7 @@ use std::borrow::Cow;
 use std::collections::HashSet;
 use std::iter::FromIterator;
 
-use codealong::{AnalyzedDiff, Event, Person};
+use codealong::{AnalyzedDiff, Event, Contributor};
 
 use crate::pull_request::PullRequest;
 
@@ -12,7 +12,7 @@ use crate::pull_request::PullRequest;
 pub struct AnalyzedPullRequest {
     pub timestamp: DateTime<Utc>,
 
-    pub normalized_author: Person,
+    pub normalized_author: Contributor,
 
     #[serde(flatten)]
     pub pr: PullRequest,
@@ -27,7 +27,7 @@ impl AnalyzedPullRequest {
     pub fn new(
         pr: PullRequest,
         diff: Option<AnalyzedDiff>,
-        normalized_author: Person,
+        normalized_author: Contributor,
     ) -> AnalyzedPullRequest {
         AnalyzedPullRequest {
             timestamp: pr.merged_at.unwrap_or(pr.updated_at),

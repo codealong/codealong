@@ -1,7 +1,7 @@
 use git2::{Commit, Delta, DiffDelta, DiffLine, Repository};
 
 use crate::analyzed_diff::AnalyzedDiff;
-use crate::config::PersonConfig;
+use crate::config::ContributorConfig;
 use crate::config_context::ConfigContext;
 use crate::error::Error;
 use crate::git_blame::GitBlame;
@@ -88,7 +88,7 @@ fn get_file_config<'a>(
         .and_then(|path| path.to_str().and_then(|path| config.config_for_file(path)))
 }
 
-fn get_author_config<'a>(config: &'a WorkingConfig, commit: &Commit) -> Option<&'a PersonConfig> {
+fn get_author_config<'a>(config: &'a WorkingConfig, commit: &Commit) -> Option<&'a ContributorConfig> {
     config.config_for_identity(&commit.author().into())
 }
 

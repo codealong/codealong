@@ -5,8 +5,8 @@ use std::path::Path;
 use linked_hash_map::LinkedHashMap;
 use serde_yaml;
 
+use crate::contributor::Contributor;
 use crate::error::*;
-use crate::person::Person;
 
 use include_dir::Dir;
 
@@ -58,7 +58,7 @@ pub struct Config {
     pub files: LinkedHashMap<String, GlobConfig>,
 
     #[serde(default)]
-    pub contributors: Vec<PersonConfig>,
+    pub contributors: Vec<ContributorConfig>,
 }
 
 impl Config {
@@ -108,8 +108,8 @@ impl Config {
             let curr = head.last_mut().unwrap();
             while next_index < len {
                 let next = &tail[next_index - index - 1];
-                if curr.person.is_dupe(&next.person) {
-                    curr.person.merge(&next.person);
+                if curr.contributor.is_dupe(&next.contributor) {
+                    curr.contributor.merge(&next.contributor);
                     indexes_to_remove.insert(next_index);
                 }
                 next_index += 1;
@@ -153,9 +153,9 @@ impl GlobConfig {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct PersonConfig {
+pub struct ContributorConfig {
     #[serde(flatten)]
-    pub person: Person,
+    pub contributor: Contributor,
 
     #[serde(default)]
     pub tags: Vec<String>,
@@ -164,10 +164,10 @@ pub struct PersonConfig {
     pub ignore: bool,
 }
 
-impl Default for PersonConfig {
-    fn default() -> PersonConfig {
-        PersonConfig {
-            person: Default::default(),
+impl Default for ContributorConfig {
+    fn default() -> ContributorConfig {
+        ContributorConfig {
+            contributor: Default::default(),
             tags: vec![],
             ignore: false,
         }
@@ -219,38 +219,38 @@ mod tests {
         use crate::identity::Identity;
         let mut config = Config::default();
 
-        config.contributors.push(PersonConfig {
-            person: Person {
+        config.contributors.push(ContributorConfig {
+            contributor: Contributor {
                 id: "a".to_owned(),
                 identities: vec![Identity::parse("Gordon Hempton")],
-                ..Person::default()
+                ..Contributor::default()
             },
-            ..PersonConfig::default()
+            ..ContributorConfig::default()
         });
 
-        config.contributors.push(PersonConfig {
-            person: Person {
+        config.contributors.push(ContributorConfig {
+            contributor: Contributor {
                 id: "b".to_owned(),
                 identities: vec![Identity::parse("Gordon Hempton <ghempton@gmail.com>")],
-                ..Person::default()
+                ..Contributor::default()
             },
-            ..PersonConfig::default()
+            ..ContributorConfig::default()
         });
 
-        config.contributors.push(PersonConfig {
-            person: Person {
+        config.contributors.push(ContributorConfig {
+            contributor: Contributor {
                 id: "c".to_owned(),
                 identities: vec![Identity::parse("Someone Else <test@test.com>")],
-                ..Person::default()
+                ..Contributor::default()
             },
-            ..PersonConfig::default()
+            ..ContributorConfig::default()
         });
 
         config.dedup_contributors();
 
         assert_eq!(config.contributors.len(), 2);
         assert_eq!(
-            config.contributors.first().as_ref().unwrap().person.id,
+            config.contributors.first().as_ref().unwrap().contributor.id,
             "a".to_owned()
         );
         assert_eq!(
@@ -259,7 +259,7 @@ mod tests {
                 .first()
                 .as_ref()
                 .unwrap()
-                .person
+                .contributor
                 .identities,
             vec![
                 Identity::parse("Gordon Hempton"),

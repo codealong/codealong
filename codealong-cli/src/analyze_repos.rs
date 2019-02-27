@@ -7,7 +7,7 @@ use chrono::Utc;
 use error_chain::ChainedError;
 use slog::Logger;
 
-use codealong::{AnalyzeOpts, Person, Repo, RepoAnalyzer};
+use codealong::{AnalyzeOpts, Contributor, Repo, RepoAnalyzer};
 use codealong_github::PullRequestsAnalyzer;
 
 use crate::error::Result;
@@ -75,7 +75,7 @@ pub fn analyze_repos(
 
 #[derive(Debug)]
 pub struct AnalyzeResults {
-    pub new_authors: HashSet<Person>,
+    pub new_authors: HashSet<Contributor>,
 }
 
 impl AnalyzeResults {

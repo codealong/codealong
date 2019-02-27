@@ -1,7 +1,9 @@
 use slog::Logger;
 use std::collections::HashMap;
 
-use codealong::{Config, Identity, Person, PersonConfig, RepoEntry, RepoInfo, WorkspaceConfig};
+use codealong::{
+    Config, Contributor, ContributorConfig, Identity, RepoEntry, RepoInfo, WorkspaceConfig,
+};
 
 use crate::client::Client;
 use crate::cursor::Cursor;
@@ -75,22 +77,22 @@ fn add_user_to_config(
         .map(|teams| teams.iter().map(|team| team.name.clone()).collect())
         .unwrap_or_else(|| Vec::new());
 
-    let mut person = Person {
+    let mut contributor = Contributor {
         teams: formatted_teams,
-        ..Person::from_github_login(&user.login)
+        ..Contributor::from_github_login(&user.login)
     };
 
     // Prefer a User <email> formatted id for the author, but fallback to using
     // the github login
     if user.email.is_some() || user.name.is_some() {
-        person.identities.push(Identity {
+        contributor.identities.push(Identity {
             name: user.name,
             email: user.email,
         });
     }
 
-    config.contributors.push(PersonConfig {
-        person,
+    config.contributors.push(ContributorConfig {
+        contributor,
         ..Default::default()
     });
     Ok(())

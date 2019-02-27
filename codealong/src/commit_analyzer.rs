@@ -57,8 +57,8 @@ impl<'a> CommitAnalyzer<'a> {
             ));
         }
         result.repo = Some(self.repo_info.partial());
-        result.normalized_author = Some(self.config.person_for_identity(&result.author));
-        result.normalized_committer = Some(self.config.person_for_identity(&result.committer));
+        result.normalized_author = Some(self.config.contributor_for_identity(&result.author));
+        result.normalized_committer = Some(self.config.contributor_for_identity(&result.committer));
         debug!(self.logger, "Done analyzing");
         return Ok(result);
     }

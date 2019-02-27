@@ -1,8 +1,8 @@
 use std::path::{Path, PathBuf};
 
-use crate::config::{Config, PersonConfig};
+use crate::config::{Config, ContributorConfig};
+use crate::contributor::Contributor;
 use crate::error::*;
-use crate::person::Person;
 use crate::repo::Repo;
 use crate::repo_info::RepoInfo;
 use crate::workspace_config::{RepoEntry, WorkspaceConfig};
@@ -83,9 +83,9 @@ impl Workspace {
         self.config.config.merge(config);
     }
 
-    pub fn add_contributor(&mut self, person: Person) {
-        self.config.config.contributors.push(PersonConfig {
-            person,
+    pub fn add_contributor(&mut self, contributor: Contributor) {
+        self.config.config.contributors.push(ContributorConfig {
+            contributor,
             ..Default::default()
         });
     }

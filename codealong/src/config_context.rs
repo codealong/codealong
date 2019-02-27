@@ -1,4 +1,4 @@
-use crate::config::PersonConfig;
+use crate::config::ContributorConfig;
 use crate::working_config::FileConfig;
 
 pub struct ConfigContext {
@@ -10,12 +10,12 @@ pub struct ConfigContext {
 impl ConfigContext {
     pub fn new(
         file_config: Option<&FileConfig>,
-        person_config: Option<&PersonConfig>,
+        contributor_config: Option<&ContributorConfig>,
     ) -> ConfigContext {
         let weight = file_config.map(|c| c.weight()).unwrap_or(1.0);
         let mut tags: Vec<String> = vec![];
         file_config.map(|c| tags.extend(c.tags().iter().map(|s| s.to_string())));
-        person_config.map(|c| tags.extend(c.tags.iter().map(|s| s.to_string())));
+        contributor_config.map(|c| tags.extend(c.tags.iter().map(|s| s.to_string())));
         ConfigContext { tags, weight }
     }
 

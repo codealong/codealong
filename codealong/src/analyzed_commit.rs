@@ -1,7 +1,7 @@
 use crate::analyzed_diff::AnalyzedDiff;
+use crate::contributor::Contributor;
 use crate::event::Event;
 use crate::identity::Identity;
-use crate::person::Person;
 use crate::repo_info::PartialRepoInfo;
 use crate::utils::convert_time;
 
@@ -20,10 +20,10 @@ pub struct AnalyzedCommit {
     pub summary: Option<String>,
     pub author: Identity,
     pub authored_at: DateTime<Utc>,
-    pub normalized_author: Option<Person>,
+    pub normalized_author: Option<Contributor>,
     pub committer: Identity,
     pub committed_at: DateTime<Utc>,
-    pub normalized_committer: Option<Person>,
+    pub normalized_committer: Option<Contributor>,
     pub repo: Option<PartialRepoInfo>,
     pub github_url: Option<String>,
 }

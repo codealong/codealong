@@ -53,7 +53,9 @@ impl<'a> PullRequestAnalyzer<'a> {
             })
             .ok();
 
-        let normalized_author = self.config.person_for_github_login(&self.pr.user.login);
+        let normalized_author = self
+            .config
+            .contributor_for_github_login(&self.pr.user.login);
         debug!(self.logger, "Done analyzing");
         Ok(AnalyzedPullRequest::new(self.pr, diff, normalized_author))
     }

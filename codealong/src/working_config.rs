@@ -1,9 +1,9 @@
 use glob::Pattern;
 use std::collections::HashSet;
 
-use crate::config::{Config, GlobConfig, PersonConfig};
+use crate::config::{Config, ContributorConfig, GlobConfig};
+use crate::contributor::Contributor;
 use crate::identity::Identity;
-use crate::person::Person;
 
 pub struct WorkingConfig {
     config: Config,
@@ -49,43 +49,43 @@ impl WorkingConfig {
         }
     }
 
-    pub fn config_for_identity(&self, identity: &Identity) -> Option<&PersonConfig> {
+    pub fn config_for_identity(&self, identity: &Identity) -> Option<&ContributorConfig> {
         let config = &self.config;
-        for person_config in &config.contributors {
-            for alias in &person_config.person.identities {
+        for contributor_config in &config.contributors {
+            for alias in &contributor_config.contributor.identities {
                 if identity == alias {
-                    return Some(person_config);
+                    return Some(contributor_config);
                 }
             }
         }
         None
     }
 
-    pub fn config_for_github_login(&self, github_login: &str) -> Option<&PersonConfig> {
+    pub fn config_for_github_login(&self, github_login: &str) -> Option<&ContributorConfig> {
         let config = &self.config;
-        for person_config in &config.contributors {
-            for login in &person_config.person.github_logins {
+        for contributor_config in &config.contributors {
+            for login in &contributor_config.contributor.github_logins {
                 if login == github_login {
-                    return Some(&person_config);
+                    return Some(&contributor_config);
                 }
             }
         }
         None
     }
 
-    pub fn person_for_identity(&self, identity: &Identity) -> Person {
-        if let Some(person_config) = self.config_for_identity(identity) {
-            person_config.person.clone()
+    pub fn contributor_for_identity(&self, identity: &Identity) -> Contributor {
+        if let Some(contributor_config) = self.config_for_identity(identity) {
+            contributor_config.contributor.clone()
         } else {
-            Person::from_identity(identity)
+            Contributor::from_identity(identity)
         }
     }
 
-    pub fn person_for_github_login(&self, github_login: &str) -> Person {
-        if let Some(person_config) = self.config_for_github_login(github_login) {
-            person_config.person.clone()
+    pub fn contributor_for_github_login(&self, github_login: &str) -> Contributor {
+        if let Some(contributor_config) = self.config_for_github_login(github_login) {
+            contributor_config.contributor.clone()
         } else {
-            Person::from_github_login(github_login)
+            Contributor::from_github_login(github_login)
         }
     }
 
