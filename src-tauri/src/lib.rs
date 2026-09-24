@@ -1,6 +1,7 @@
 //! Codealong: every agent runs in a worktree, and every worktree is a lane.
 
 mod appserver;
+mod bar;
 mod board;
 mod claude;
 mod claudeapp;
@@ -11,6 +12,7 @@ mod git;
 mod github;
 mod launch;
 mod model;
+mod perf;
 mod procs;
 mod repos;
 mod start;
@@ -96,6 +98,30 @@ fn set_pinned_worktrees(engine: State<'_, engine::Handle>, ids: Vec<String>) {
     engine.set_pinned_worktrees(ids);
 }
 
+/// A window's own timing line for the perf log (see perf.rs), while `[debug] perf_log` is on.
+#[tauri::command(async)]
+fn perf_mark(window: tauri::Window, line: String) {
+    perf::log(&format!("ui[{}] {line}", window.label()));
+}
+
+/// The floating bar's page measured itself.
+#[tauri::command]
+fn fit_bar(app: tauri::AppHandle, width: f64, height: f64) {
+    bar::fit(&app, width, height);
+}
+
+/// Brings the main window forward; `reveal` is a session or PR for it to select.
+#[tauri::command]
+fn show_main(app: tauri::AppHandle, reveal: Option<serde_json::Value>) -> Result<(), String> {
+    bar::show_main(&app, reveal).map_err(|e| e.to_string())
+}
+
+/// Turns the floating bar on or off.
+#[tauri::command]
+fn set_bar_on(app: tauri::AppHandle, on: bool) {
+    bar::set_on(&app, on);
+}
+
 /// A PR's description, reviews and changed files.
 #[tauri::command(async)]
 fn pr_detail(repo: String, number: u64) -> Result<github::PrDetail, String> {
@@ -175,7 +201,21 @@ fn native_theme(theme: config::Theme) -> Option<tauri::Theme> {
     }
 }
 
+/// Every second while the perf log is on, posts to the main thread and logs how late it ran:
+/// the main thread carries every click and pointer move to the windows, so its lag is theirs.
+fn watch_main_thread(app: tauri::AppHandle) {
+    std::thread::spawn(move || loop {
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        if !perf::enabled() {
+            continue;
+        }
+        let t = std::time::Instant::now();
+        let _ = app.run_on_main_thread(move || perf::lag("main thread", t.elapsed()));
+    });
+}
+
 pub fn run() {
+    perf::arm();
     tauri::Builder::default()
         .setup(|app| {
             // Set before the page loads, so a window never opens in the wrong theme.
@@ -193,11 +233,23 @@ pub fn run() {
                 let _ = emitter.emit("board", board);
             });
             app.manage(engine);
+            if let Err(e) = bar::setup(app.handle()) {
+                eprintln!("Couldn't make the floating bar: {e:#}");
+            }
+            watch_main_thread(app.handle().clone());
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![get_board, open_target, open_config, mark_seen, refresh, refresh_usage, set_pinned, set_pinned_worktrees, archive_session, pr_detail, approve_pr, review_in_codex, open_url, get_accounts, save_accounts, sign_in, start_options, start_session, set_theme, open_project_window])
-        .run(tauri::generate_context!())
-        .expect("error while running Codealong");
+        .on_window_event(bar::on_window_event)
+        .invoke_handler(tauri::generate_handler![get_board, open_target, open_config, mark_seen, refresh, refresh_usage, set_pinned, set_pinned_worktrees, archive_session, pr_detail, approve_pr, review_in_codex, open_url, get_accounts, save_accounts, sign_in, start_options, start_session, set_theme, open_project_window, fit_bar, show_main, set_bar_on, perf_mark])
+        .build(tauri::generate_context!())
+        .expect("error while running Codealong")
+        .run(|app, event| {
+            // The Dock icon brings the main window back after it was closed.
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { .. } = event {
+                let _ = bar::show_main(app, None);
+            }
+        });
 }
 
 /// `codealong --snapshot [--table] [--no-github] [--usage] [--accounts]`: one pass over everything,

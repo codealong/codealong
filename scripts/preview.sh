@@ -4,7 +4,7 @@
 #
 #   scripts/preview.sh [view] [project] [check.js]
 #
-#   view     worktrees | sessions | prs (default worktrees)
+#   view     worktrees | sessions | prs, or bar for the floating bar (default worktrees)
 #   project  the project to show (default: the first one)
 #   check.js optional script run in the page; whatever it puts in document.title is printed
 #            (use it to click things and read window.__calls). Without it, a screenshot is
@@ -12,6 +12,8 @@
 #
 # PREVIEW_SCHEME=dark renders as if macOS were in dark mode (the screenshot is <view>-dark.png).
 # Under theme = "system" the page follows it; "light" and "dark" in config.toml win over it.
+# The bar renders on a stand-in desktop at $PREVIEW_SIZE (default 1100,64, which is also the
+# screen width it fits itself to).
 #
 # Needs a release build of the engine (cargo build --release in src-tauri) for the snapshot.
 # PR details come from $PREVIEW_DIR/pr-detail.json if you put one there:
@@ -44,6 +46,12 @@ cp scripts/preview/fake-tauri.js "$dir/"
 
 setup="localStorage.setItem('codealong.view','$view');localStorage.setItem('codealong.age','all');"
 [ -n "$project" ] && setup="$setup localStorage.setItem('codealong.project','$project');"
+size="1440,900"
+if [ "$view" = bar ]; then
+  size="${PREVIEW_SIZE:-1100,64}"
+  # Headless Chrome's screen is 800 wide whatever the window; the bar fits itself to the screen.
+  setup="$setup window.__CODEALONG_BAR__=true;Object.defineProperty(screen,'availWidth',{value:${size%%,*}});</script><style>html.is-bar{background:linear-gradient(135deg,rgb(93,111,134),rgb(169,182,196))!important}</style><script>"
+fi
 tail=""
 if [ -n "$check" ]; then
   cp "$check" "$dir/check.js"
@@ -57,8 +65,8 @@ trap 'kill $server 2>/dev/null || true' EXIT
 sleep 1
 url="http://127.0.0.1:$port/preview.html"
 if [ -n "$check" ]; then
-  "$chrome" --headless=new --disable-gpu ${scheme:+"$scheme"} --virtual-time-budget=8000 --dump-dom "$url" 2>/dev/null | sed -n 's#.*<title>\(.*\)</title>.*#\1#p'
+  "$chrome" --headless=new --disable-gpu ${scheme:+"$scheme"} --window-size="$size" --virtual-time-budget=8000 --dump-dom "$url" 2>/dev/null | sed -n 's#.*<title>\(.*\)</title>.*#\1#p'
 else
-  "$chrome" --headless=new --disable-gpu ${scheme:+"$scheme"} --hide-scrollbars --force-device-scale-factor=1 --window-size=1440,900 --virtual-time-budget=6000 --screenshot="$shot" "$url" 2>/dev/null
+  "$chrome" --headless=new --disable-gpu ${scheme:+"$scheme"} --hide-scrollbars --force-device-scale-factor=1 --window-size="$size" --virtual-time-budget=6000 --screenshot="$shot" "$url" 2>/dev/null
   echo "$shot"
 fi

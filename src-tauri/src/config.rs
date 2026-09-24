@@ -23,12 +23,21 @@ pub struct Config {
     pub accounts: Vec<AccountCfg>,
     #[serde(default)]
     pub projects: Vec<ProjectCfg>,
+    #[serde(default)]
+    pub debug: DebugCfg,
 }
 
 impl Default for Config {
     fn default() -> Self {
-        Config { scan: default_scan(), apps: AppsCfg::default(), appearance: AppearanceCfg::default(), accounts: Vec::new(), projects: Vec::new() }
+        Config { scan: default_scan(), apps: AppsCfg::default(), appearance: AppearanceCfg::default(), accounts: Vec::new(), projects: Vec::new(), debug: DebugCfg::default() }
     }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct DebugCfg {
+    /// Appends timings to ~/Library/Logs/Codealong/perf.log (see perf.rs).
+    #[serde(default)]
+    pub perf_log: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
@@ -355,6 +364,7 @@ mod tests {
                 repos: vec!["github.com/northwindai/*".into()],
                 folders: vec!["~/projects/atlasai/osprey".into()],
             }],
+            debug: DebugCfg::default(),
         };
         let parsed: Config = toml::from_str(&render(&cfg)).unwrap();
         assert_eq!(parsed, cfg);

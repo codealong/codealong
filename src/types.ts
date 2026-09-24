@@ -172,6 +172,8 @@ export interface Board {
   prs: PrItem[];
   /** Who `gh` is signed in as. */
   githubLogin: string | null;
+  /** True while `[debug] perf_log` is on: the window reports its timings to the perf log. */
+  perfLog?: boolean;
   /** From config.toml. */
   theme: Theme;
 }
