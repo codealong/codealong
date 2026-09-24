@@ -95,6 +95,9 @@ editor = "cursor"
 [appearance]
 theme = "system"               # follows macOS; or "light", "dark"
 
+[debug]
+perf_log = false               # true logs timings to ~/Library/Logs/Codealong/perf.log
+
 [[accounts]]
 name = "claude2"               # what the board shows
 harness = "claude"

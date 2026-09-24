@@ -21,6 +21,7 @@ use crate::git;
 use crate::github::{self, PrRaw};
 use crate::launch;
 use crate::model::*;
+use crate::perf;
 use crate::repos::{self, Checkout};
 use crate::state::SeenState;
 use crate::usage;
@@ -55,6 +56,8 @@ pub enum Msg {
     SetArchived(String, bool),
     /// The theme, already saved to config.toml.
     SetTheme(Theme),
+    /// Sent every second while the perf log is on; how late it's read is the engine's lag.
+    Ping(Instant),
 }
 
 /// What the UI talks to. Cheap to clone.
@@ -201,6 +204,13 @@ pub fn start(emit: impl Fn(&Board) + Send + 'static) -> Handle {
     // The theme is on the board before the first scan finishes, so windows open in it.
     let board = Arc::new(RwLock::new(Board { loading: true, theme: config::theme(), ..Default::default() }));
     let handle = Handle { tx: tx.clone(), board: board.clone() };
+    let ping = tx.clone();
+    std::thread::spawn(move || loop {
+        std::thread::sleep(Duration::from_secs(1));
+        if perf::enabled() && ping.send(Msg::Ping(Instant::now())).is_err() {
+            return;
+        }
+    });
     std::thread::Builder::new()
         .name("codealong-engine".into())
         .spawn(move || {
@@ -366,6 +376,7 @@ struct Engine {
     dirty: bool,
     loading: bool,
     last_publish: Option<Instant>,
+    perf: perf::Counters,
 }
 
 impl Engine {
@@ -416,6 +427,7 @@ impl Engine {
             dirty: false,
             loading: true,
             last_publish: None,
+            perf: perf::Counters::default(),
         }
     }
 
@@ -461,6 +473,7 @@ impl Engine {
         self.load_config();
         let mut rest = self.cfg.clone();
         rest.appearance = before.appearance.clone();
+        rest.debug = before.debug.clone();
         if rest == before {
             self.dirty = true;
             return;
@@ -522,6 +535,7 @@ impl Engine {
                     self.cfg.appearance.theme = theme;
                     self.publish();
                 }
+                Ok(Msg::Ping(sent)) => perf::lag("engine", sent.elapsed()),
                 Ok(Msg::UsageDone(list)) => {
                     self.usage_inflight = false;
                     self.usage_backoff = list.iter().any(|u| u.rate_limited);
@@ -548,7 +562,9 @@ impl Engine {
                 if quiet || overdue {
                     let batch = std::mem::take(&mut pending);
                     first_event = None;
+                    let (n, t) = (batch.len(), Instant::now());
                     self.apply_fs(batch);
+                    self.perf.fs(n, t.elapsed());
                 }
             }
             if last_tick.elapsed() >= Duration::from_secs(10) {
@@ -587,6 +603,7 @@ impl Engine {
                 }
             }
         }
+        perf::set_enabled(self.cfg.debug.perf_log);
     }
 
     fn account(&self, name: &str) -> Option<&AccountCfg> {
@@ -791,6 +808,7 @@ impl Engine {
 
     fn on_git(&mut self, path: PathBuf, info: GitInfo) {
         self.git_inflight.remove(&path);
+        self.perf.git_jobs += 1;
         if self.seeds.iter().any(|s| s.path == path) {
             self.git.insert(path.clone(), info);
             self.dirty = true;
@@ -1315,6 +1333,7 @@ impl Engine {
         board.usage = self.compose_usage(now);
         board.pinned_worktrees = self.seen.pinned_worktrees.clone();
         board.theme = self.cfg.appearance.theme;
+        board.perf_log = perf::enabled();
         board
     }
 
@@ -1333,15 +1352,26 @@ impl Engine {
     }
 
     fn publish(&mut self) {
+        let t = Instant::now();
         let board = self.compose();
+        let composed = t.elapsed();
         self.dirty = false;
+        let since_last = self.last_publish.map(|t| t.elapsed());
         self.last_publish = Some(Instant::now());
         let hash = board_hash(&board);
+        let hashed = t.elapsed() - composed;
         if hash == self.last_hash {
+            perf::log(&format!("publish skipped, nothing changed: compose {} ms, hash {} ms", composed.as_millis(), hashed.as_millis()));
             return;
         }
         self.last_hash = hash;
+        let t = Instant::now();
         (self.emit)(&board);
+        let emitted = t.elapsed();
+        if perf::enabled() {
+            let line = self.perf.publish_line(&board, composed, hashed, emitted, since_last);
+            perf::log(&line);
+        }
         if let Ok(mut slot) = self.board.write() {
             *slot = board;
         }
@@ -1491,7 +1521,11 @@ fn spawn_git_workers(back: Sender<Msg>) -> Sender<(PathBuf, Option<String>)> {
                 Err(_) => return,
             };
             let Ok((path, base)) = job else { return };
+            let t = Instant::now();
             let info = git::status(&path, base.as_deref());
+            if perf::enabled() {
+                perf::log(&format!("git status {} ms: {}", t.elapsed().as_millis(), path.display()));
+            }
             if back.send(Msg::GitDone(path, info)).is_err() {
                 return;
             }

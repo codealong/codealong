@@ -9,6 +9,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { fitBar, getBoard, markSeen, onBoard, openTarget, setBarOn, showMain } from '../api';
 import { barItems, fitGroups, GROUPS, plain, reviewRequests, type BarItem, type Group, type GroupFit } from '../bar';
 import { showContextMenu, type MenuSpec } from '../contextMenu';
+import { usePerf } from '../perf';
 import type { Board, PrItem, Status } from '../types';
 import { Icon, Mark, STATUS_WORD, StatusGlyph } from './primitives';
 import { applyTheme } from './ThemeSwitch';
@@ -154,11 +155,16 @@ export function Bar() {
   const measure = useRef<HTMLDivElement>(null);
   const drag = useRef<{ x: number; y: number; moved: boolean } | null>(null);
 
+  const boardArrived = useRef<number | null>(null);
+  usePerf(board, boardArrived);
   useEffect(() => {
     getBoard()
       .then(setBoard)
       .catch(() => {});
-    return onBoard(setBoard);
+    return onBoard((next) => {
+      boardArrived.current = performance.now();
+      setBoard(next);
+    });
   }, []);
 
   useEffect(() => {

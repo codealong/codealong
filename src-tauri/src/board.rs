@@ -736,6 +736,7 @@ pub fn compose(inp: Inputs) -> Board {
         prs: pr_list,
         github_login: github_login.map(str::to_string),
         theme: Default::default(),
+        perf_log: false,
     }
 }
 

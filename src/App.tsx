@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import { showContextMenu } from './contextMenu';
 import { AGENT_BAY, BAYS, buildBays, failingPr, filterByAge, laneInFilter, type BoardRow, type Filter } from './lanes';
 import { approvePr, archiveSession, barOn, getBoard, markSeen, onBarOn, onBoard, onReveal, openConfig, openProjectWindow, openTarget, openUrl, refresh, refreshUsage, reviewInCodex, setBarOn, setPinned, setPinnedWorktrees, setTheme, signIn, startSession, type Reveal } from './api';
+import { usePerf } from './perf';
 import { usePins } from './pins';
 import type { Bay, Board, Lane, PrItem, Session, StartSpec, Theme } from './types';
 import { AccountsDialog } from './ui/AccountsDialog';
@@ -234,11 +235,16 @@ export function App() {
   const searchRef = useRef<HTMLInputElement>(null);
   const gPending = useRef(false);
 
+  const boardArrived = useRef<number | null>(null);
+  usePerf(board, boardArrived);
   useEffect(() => {
     getBoard()
       .then(setBoard)
       .catch((e: unknown) => setLoadError(String(e)));
-    return onBoard(setBoard);
+    return onBoard((b) => {
+      boardArrived.current = performance.now();
+      setBoard(b);
+    });
   }, []);
 
   useEffect(() => {

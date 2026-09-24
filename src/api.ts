@@ -15,6 +15,11 @@ export async function getBoard(): Promise<Board> {
   return (await res.json()) as Board;
 }
 
+/** A timing line for ~/Library/Logs/Codealong/perf.log, while `[debug] perf_log` is on. */
+export function perfMark(line: string): void {
+  if (inTauri) void invoke('perf_mark', { line });
+}
+
 /** Calls `cb` with every board the engine publishes. Returns an unsubscribe function. */
 export function onBoard(cb: (board: Board) => void): () => void {
   if (!inTauri) return () => {};
