@@ -1534,15 +1534,28 @@ body.is-resizing * {
   color: var(--pr-merged);
 }
 
-/* The PR panel. */
+/* The PR panel. The pills sit beside the number when they fit, else on their own lines below
+   it, one by one; the number keeps its width. */
+.ca-prinsp .ca-insp-title {
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+.ca-prinsp .ca-insp-call {
+  flex: none;
+}
 .ca-prinsp-status {
   display: flex;
   flex-wrap: wrap;
-  justify-content: flex-end;
   align-items: center;
   gap: 4px;
   min-width: 0;
   margin-left: auto;
+}
+.ca-prinsp-status .ca-prpills {
+  display: contents;
+}
+.ca-prinsp-status .ca-tag {
+  margin-left: 0;
 }
 .ca-prinsp header {
   display: grid;
