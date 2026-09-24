@@ -3,7 +3,7 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import type { AccountCfg, AccountInfo, Board, PrDetail } from './types';
+import type { AccountCfg, AccountInfo, Board, PrDetail, StartOptions, Started, StartSpec } from './types';
 
 export const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
@@ -119,4 +119,17 @@ export async function saveAccounts(accounts: AccountCfg[]): Promise<void> {
 export async function signIn(name: string): Promise<void> {
   if (!inTauri) return;
   await invoke('sign_in', { name });
+}
+
+/** Where each account can start a session, for the new-session sheet. */
+export async function startOptions(): Promise<StartOptions> {
+  if (inTauri) return invoke<StartOptions>('start_options');
+  const res = await fetch('./start-options.json');
+  return res.ok ? ((await res.json()) as StartOptions) : { accounts: [], codexProjects: [] };
+}
+
+/** Starts a session in a worktree: in the terminal, or in the Claude or Codex app. */
+export async function startSession(spec: StartSpec): Promise<Started | null> {
+  if (!inTauri) throw new Error('Starting a session needs the app.');
+  return invoke<Started | null>('start_session', { spec });
 }

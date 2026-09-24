@@ -228,3 +228,37 @@ export interface PrDetail {
   files: PrFile[];
   moreFiles: boolean;
 }
+
+/** Where a new session runs: the terminal, or the Claude or Codex app. */
+export type StartPlace = 'terminal' | 'claude-app' | 'codex-app';
+
+/** An account as the new-session sheet offers it (src-tauri/src/start.rs). */
+export interface StartAccount {
+  name: string;
+  harness: Harness;
+  /** Where this account can start a session, the usual place first. */
+  places: { place: StartPlace; label: string }[];
+  /** Why there's nowhere, when `places` is empty. */
+  unavailable: string | null;
+}
+
+export interface StartOptions {
+  /** In config order. */
+  accounts: StartAccount[];
+  /** Folders the Codex app has as projects. A thread started anywhere else adds one. */
+  codexProjects: string[];
+}
+
+export interface StartSpec {
+  laneId: string;
+  account: string;
+  place: StartPlace;
+  prompt: string;
+}
+
+export interface Started {
+  /** The new session's key when Codealong chose its ID, so the board can select it. */
+  key: string | null;
+  /** What to do next, when the app is waiting on you. */
+  message: string | null;
+}

@@ -27,6 +27,12 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     description, reviews, checks and changed files with their diffs.
 - **Open where it lives**: the session's own Ghostty tab, the Claude app session, the Codex
   thread, a background job attached in a new window, or the folder in Cursor.
+- **New session** (⌘N, the title bar, the inspector, or a worktree's or session's right-click
+  menu): pick the worktree, the account, and where it runs. Ghostty starts Claude Code on your
+  prompt; the Claude app and Codex open a new session with the prompt filled in, and you send it
+  there (their own worktree choice included). Auto starts whichever account of that harness has
+  the most room before a limit. Codealong only launches: the session shows on the board like
+  any other, and one started in Ghostty is selected as soon as it appears.
 - **Usage** for every account in a bar across the top: 5-hour and weekly limits, per-model
   limits such as Fable, and time to reset. Add accounts in Accounts (⌘,).
 - **Filters**: the Inbox (Needs you, Working, Your turn, In review, Checks failing), search,
@@ -88,6 +94,8 @@ are kept in `state.json` next to it.
   control Ghostty (Automation). Without it, Codealong can still open plain Ghostty windows.
 - Codealong only reads: it never creates, resets or removes worktrees, never changes
   branches, and never types into a live session. Git runs with `GIT_OPTIONAL_LOCKS=0`.
+- Starting a session types the account's command into a new Ghostty window; the prompt goes in
+  the window's environment (`CODEALONG_PROMPT`), so nothing in it is typed or needs quoting.
 - Transcripts stay on the Mac; only titles, statuses and short excerpts are kept in memory.
 
 ## Code
@@ -99,6 +107,7 @@ are kept in `state.json` next to it.
 | `src-tauri/src/claude.rs`, `codex.rs` | Harness adapters: registries, transcripts, rollouts, incremental tailing |
 | `src-tauri/src/repos.rs`, `git.rs`, `github.rs` | Repo discovery, callsigns, worktrees, git status, PRs |
 | `src-tauri/src/launch.rs` | App profiles: Ghostty (AppleScript, exact tab focus), Cursor (CLI), deep links |
+| `src-tauri/src/start.rs`, `src/start.ts` | New sessions: where each account can start one, the launch it makes, Auto's pick |
 | `src-tauri/src/usage.rs` | Plan usage: Claude through its sign-in and usage endpoint, Codex from its rollouts |
 | `src-tauri/src/appserver.rs` | Codex actions through its app-server (archiving) |
 | `src-tauri/src/claudeapp.rs` | The Claude app's session records (its IDs, what you archived there) |

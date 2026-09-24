@@ -1272,3 +1272,152 @@ button {
 .ca-patch > .is-hunk {
   color: var(--ink-3);
 }
+
+/* ---- New session sheet ---- */
+.ca-start .ca-dialog-body {
+  gap: var(--space-4);
+  padding-top: var(--space-4);
+}
+.ca-start-select {
+  position: relative;
+  display: grid;
+}
+.ca-start-select select,
+.ca-start textarea {
+  box-sizing: border-box;
+  width: 100%;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  outline: none;
+}
+.ca-start-select select {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 30px;
+  padding: 0 28px 0 8px;
+  font: 500 13px/18px var(--font-sans);
+  cursor: pointer;
+}
+.ca-start-select .ca-icon {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+  color: var(--ink-3);
+  pointer-events: none;
+}
+.ca-start textarea {
+  min-height: 92px;
+  max-height: 280px;
+  padding: 7px 8px;
+  resize: vertical;
+  font: 400 13px/19px var(--font-sans);
+  -webkit-user-select: text;
+  user-select: text;
+}
+.ca-start-select select:focus-visible,
+.ca-start textarea:focus {
+  border-color: var(--focus);
+  box-shadow: var(--shadow-focus);
+}
+.ca-picks {
+  display: grid;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+.ca-pick {
+  display: grid;
+  grid-template-columns: 14px 64px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+  padding: 6px 12px 6px 10px;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+  cursor: pointer;
+}
+.ca-pick:first-child {
+  border-top: 0;
+}
+.ca-pick:hover {
+  background: var(--surface-hover);
+}
+.ca-pick.is-on {
+  background: var(--surface-selected);
+}
+.ca-pick.is-disabled {
+  cursor: default;
+}
+.ca-pick.is-disabled > :not(input) {
+  opacity: 0.55;
+}
+.ca-pick input {
+  -webkit-appearance: none;
+  appearance: none;
+  box-sizing: border-box;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  /* Not the text fields' padding from .ca-field input. */
+  padding: 0;
+  border: 1.5px solid var(--line-strong);
+  border-radius: 50%;
+  background: var(--surface);
+}
+.ca-pick input:checked {
+  border: 4.5px solid var(--ink);
+}
+.ca-pick input:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+.ca-pick-name {
+  overflow: hidden;
+  font: 600 13px/18px var(--font-mono);
+  color: var(--ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ca-pick.is-auto .ca-pick-name {
+  font-family: var(--font-sans);
+}
+.ca-pick-detail {
+  overflow: hidden;
+  font: 400 12px/16px var(--font-sans);
+  color: var(--ink-3);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ca-pick-meters {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.ca-pick .ca-meter.is-compact {
+  grid-template-columns: auto 30px auto;
+  gap: 5px;
+}
+.ca-pick .ca-meter-reset {
+  display: none;
+}
+.ca-pick-note {
+  font: 400 12px/16px var(--font-sans);
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+.ca-start-places {
+  justify-self: start;
+}
+.ca-start-places .ca-icon {
+  color: var(--ink-3);
+}
+.ca-start-places button.is-on .ca-icon {
+  color: var(--ink);
+}
+.ca-start-foot {
+  justify-content: flex-end;
+  gap: 8px;
+}

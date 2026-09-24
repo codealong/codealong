@@ -13,6 +13,7 @@ mod launch;
 mod model;
 mod procs;
 mod repos;
+mod start;
 mod state;
 mod usage;
 mod util;
@@ -144,6 +145,20 @@ fn sign_in(engine: State<'_, engine::Handle>, name: String) -> Result<(), String
     engine.sign_in(&name).map_err(|e| format!("{e:#}"))
 }
 
+/// Where each account can start a session, for the new-session sheet.
+#[tauri::command(async)]
+fn start_options() -> Result<start::StartOptions, String> {
+    let cfg = config::load().map_err(|e| format!("{e:#}"))?.unwrap_or_default();
+    Ok(start::options_for(&cfg))
+}
+
+/// Starts a session in a worktree: in the terminal, or in the Claude or Codex app.
+#[tauri::command(async)]
+fn start_session(engine: State<'_, engine::Handle>, spec: start::StartSpec) -> Result<start::Started, String> {
+    let cfg = config::load().map_err(|e| format!("{e:#}"))?.unwrap_or_default();
+    start::start(&engine.board(), &cfg, &spec).map_err(|e| format!("{e:#}"))
+}
+
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
@@ -154,7 +169,7 @@ pub fn run() {
             app.manage(engine);
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![get_board, open_target, open_config, mark_seen, refresh, refresh_usage, set_pinned, set_pinned_worktrees, archive_session, pr_detail, approve_pr, review_in_codex, open_url, get_accounts, save_accounts, sign_in, open_project_window])
+        .invoke_handler(tauri::generate_handler![get_board, open_target, open_config, mark_seen, refresh, refresh_usage, set_pinned, set_pinned_worktrees, archive_session, pr_detail, approve_pr, review_in_codex, open_url, get_accounts, save_accounts, sign_in, start_options, start_session, open_project_window])
         .run(tauri::generate_context!())
         .expect("error while running Codealong");
 }
@@ -163,8 +178,36 @@ pub fn run() {
 /// printed. Claude usage is read only with `--usage`.
 /// `codealong --snapshot --open <lane id> <target id>`: opens a target the way a click does.
 /// `codealong --snapshot --pr <owner/name> <number>`: a PR's detail, as the PR panel gets it.
+/// `codealong --snapshot --start-options`: where each account can start a session.
+/// `codealong --snapshot --start-plan <folder> <account> <place> [prompt]`: what starting one
+/// would do, without doing it.
 pub fn snapshot_cli(args: &[String]) -> i32 {
     let started = std::time::Instant::now();
+    if args.iter().any(|a| a == "--start-options") {
+        let cfg = config::load().ok().flatten().unwrap_or_default();
+        println!("{}", serde_json::to_string_pretty(&start::options_for(&cfg)).unwrap_or_default());
+        return 0;
+    }
+    if let Some(i) = args.iter().position(|a| a == "--start-plan") {
+        let help = "usage: codealong --snapshot --start-plan <folder> <account> <terminal|claude-app|codex-app> [prompt]";
+        let (Some(folder), Some(name), Some(place)) = (args.get(i + 1), args.get(i + 2), args.get(i + 3)) else {
+            eprintln!("{help}");
+            return 2;
+        };
+        let Ok(place) = serde_json::from_value::<start::Place>(serde_json::Value::String(place.clone())) else {
+            eprintln!("{help}");
+            return 2;
+        };
+        let cfg = config::load().ok().flatten().unwrap_or_default();
+        let Some(account) = cfg.accounts.iter().find(|a| &a.name == name) else {
+            eprintln!("There's no account named {name}.");
+            return 1;
+        };
+        let prompt = args.get(i + 4).cloned().unwrap_or_default();
+        let plan = start::plan(account, place, &util::expand(folder), &prompt, &start::new_session_id());
+        println!("{}", serde_json::to_string_pretty(&plan).unwrap_or_default());
+        return 0;
+    }
     if args.iter().any(|a| a == "--accounts") {
         let cfg = config::load().ok().flatten().unwrap_or_default();
         let list: Vec<model::AccountInfo> = cfg.accounts.iter().map(usage::describe).collect();

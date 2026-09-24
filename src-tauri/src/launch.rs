@@ -23,15 +23,20 @@ pub fn editor_name(id: &str) -> String {
     }
 }
 
+/// Arguments: the folder, the input to type (or ""), then any `KEY=VALUE` environment entries.
 const GHOSTTY_NEW_WINDOW: &str = r#"
 on run argv
   set thePath to item 1 of argv
   set theInput to item 2 of argv
+  set theEnv to {}
+  if (count of argv) > 2 then set theEnv to items 3 thru -1 of argv
   tell application "Ghostty"
     if theInput is "" then
       set cfg to {initial working directory:thePath}
-    else
+    else if theEnv is {} then
       set cfg to {initial working directory:thePath, initial input:theInput}
+    else
+      set cfg to {initial working directory:thePath, initial input:theInput, environment variables:theEnv}
     end if
     new window with configuration cfg
     activate
@@ -126,6 +131,21 @@ pub fn terminal_open(profile: &str, path: &Path, input: Option<&str>) -> Result<
                 }
                 Err(e) => Err(e),
             }
+        }
+        other => bail!("There's no terminal profile called {other:?} yet. Use \"ghostty\" in config.toml."),
+    }
+}
+
+/// Opens a new terminal window at `path` with `env` set in its shell, and types `input` (a
+/// command plus return). The shell expands variables in `input` from `env`.
+pub fn terminal_run(profile: &str, path: &Path, input: &str, env: &[(String, String)]) -> Result<()> {
+    match profile {
+        "ghostty" => {
+            let dir = path.to_string_lossy();
+            let entries: Vec<String> = env.iter().map(|(k, v)| format!("{k}={v}")).collect();
+            let mut args: Vec<&str> = vec![&dir, input];
+            args.extend(entries.iter().map(String::as_str));
+            osascript(GHOSTTY_NEW_WINDOW, &args).map(|_| ())
         }
         other => bail!("There's no terminal profile called {other:?} yet. Use \"ghostty\" in config.toml."),
     }
@@ -323,6 +343,28 @@ mod tests {
             let r = procs::run_stdin("/usr/bin/osacompile", &["-o", &out.to_string_lossy()], script, Duration::from_secs(20));
             assert!(r.is_ok(), "script {i} failed to compile: {r:?}");
         }
+    }
+
+    /// Opens a real Ghostty window whose shell writes the prompt it was handed back to a file,
+    /// then exits. Opt in: `cargo test --release ghostty_hands_over -- --ignored`.
+    #[test]
+    #[ignore]
+    fn ghostty_hands_over_the_environment() {
+        let out = std::env::temp_dir().join(format!("codealong-env-{}", std::process::id()));
+        let _ = std::fs::remove_file(&out);
+        let prompt = "Fix the \"flaky\" test\n\tthen run `npm test` and $(say nope) 'quoted' -v";
+        let input = format!("printenv CODEALONG_PROMPT > '{}'; exit\n", out.display());
+        terminal_run("ghostty", &std::env::temp_dir(), &input, &[("CODEALONG_PROMPT".to_string(), prompt.to_string())]).unwrap();
+        for _ in 0..100 {
+            if std::fs::metadata(&out).map(|m| m.len() > 0).unwrap_or(false) {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        std::thread::sleep(Duration::from_millis(200));
+        let got = std::fs::read_to_string(&out).expect("the shell wrote nothing");
+        let _ = std::fs::remove_file(&out);
+        assert_eq!(got.strip_suffix('\n').unwrap_or(&got), prompt);
     }
 
     #[test]

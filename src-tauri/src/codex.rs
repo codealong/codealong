@@ -82,6 +82,31 @@ pub fn read_index(codex_home: &Path) -> HashMap<String, (String, i64)> {
     out
 }
 
+/// Folders the Codex app has as projects, from the state it saves in
+/// `<CODEX_HOME>/.codex-global-state.json`. A new thread started in any other folder makes the
+/// app add a project for it.
+pub fn app_project_roots(codex_home: &Path) -> Vec<String> {
+    #[derive(serde::Deserialize)]
+    struct State {
+        #[serde(rename = "local-projects", default)]
+        projects: HashMap<String, Project>,
+        #[serde(rename = "electron-saved-workspace-roots", default)]
+        roots: Vec<String>,
+    }
+    #[derive(serde::Deserialize)]
+    struct Project {
+        #[serde(rename = "rootPaths", default)]
+        root_paths: Vec<String>,
+    }
+    // The file runs to megabytes; only these two keys are kept while parsing.
+    let Ok(bytes) = std::fs::read(codex_home.join(".codex-global-state.json")) else { return Vec::new() };
+    let Ok(state) = serde_json::from_slice::<State>(&bytes) else { return Vec::new() };
+    let mut out: Vec<String> = state.projects.into_values().flat_map(|p| p.root_paths).chain(state.roots).collect();
+    out.sort();
+    out.dedup();
+    out
+}
+
 /// Rollout files modified since `since_ms`, plus any whose thread is in `keep` (pinned ones),
 /// however old.
 pub fn rollout_files(codex_home: &Path, since_ms: i64, keep: &HashSet<String>) -> Vec<(PathBuf, i64)> {
@@ -418,6 +443,17 @@ mod tests {
     }
 
     const META_USER: &str = r#"{"timestamp":"2026-09-21T15:47:36.000Z","type":"session_meta","payload":{"id":"01a0c4a6-bc7b-7212-b766-77fcc7a15d43","cwd":"/Users/me/projects/atlasai/atlas-infra","originator":"Codex Desktop","source":"vscode","thread_source":"user","git":{"branch":"main"}}}"#;
+
+    #[test]
+    fn reads_the_app_project_folders() {
+        let home = std::env::temp_dir().join(format!("codealong-codex-state-{}", std::process::id()));
+        std::fs::create_dir_all(&home).unwrap();
+        assert!(app_project_roots(&home).is_empty());
+        let state = r#"{"project-order":["local-a"],"local-projects":{"local-a":{"id":"local-a","name":"kestrel","rootPaths":["/r/kestrel"]},"local-b":{"id":"local-b","rootPaths":["/r/atlas"]}},"electron-saved-workspace-roots":["/r/kestrel","/r/atlas-app4"],"thread-writable-roots":{"t":["/elsewhere"]}}"#;
+        std::fs::write(home.join(".codex-global-state.json"), state).unwrap();
+        assert_eq!(app_project_roots(&home), vec!["/r/atlas", "/r/atlas-app4", "/r/kestrel"]);
+        let _ = std::fs::remove_dir_all(&home);
+    }
 
     #[test]
     fn keeps_only_threads_you_started() {

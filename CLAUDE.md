@@ -34,6 +34,9 @@ The engine binary doubles as a CLI for checking behavior without a window:
 - `codealong --snapshot --accounts`: configured accounts and sign-in state.
 - `codealong --snapshot --open <lane id> <target id>`: runs a click's open action.
 - `codealong --snapshot --pr <owner/name> <number>`: a PR's detail, as the PR panel gets it.
+- `codealong --snapshot --start-options`: where each account can start a session.
+- `codealong --snapshot --start-plan <folder> <account> <terminal|claude-app|codex-app> [prompt]`:
+  the command or link starting a session would use, without starting one.
 
 ## Checking UI changes
 
@@ -83,6 +86,12 @@ Claude Code
   `gitBranch` fields repeat through the file, so the tail has the current ones. Claude Code
   deletes transcripts after about 30 days.
 - Background jobs (`kind: bg`) have no terminal; `<account command> attach <jobId>` opens one.
+- `--session-id <uuid>` gives a new session the ID you choose, so Codealong knows it before it
+  appears. The prompt is a positional argument parsed like any other: one that starts with `-`
+  reads as an option, and one that is only a subcommand's name (`update`, `doctor`) runs that
+  command. `start.rs` pads such prompts with a space.
+- Also available, not used yet: `--bg` starts a session in the background and prints the ID
+  `attach` takes; `-w/--worktree [name]` makes a worktree under `<repo>/.claude/worktrees/`.
 - Sign-in lives in the login keychain: service `Claude Code-credentials` for `~/.claude`,
   `Claude Code-credentials-<first 8 hex of sha256(config dir)>` for any other folder, account
   `$USER`. Read it with `/usr/bin/security find-generic-password -a $USER -s <service> -w`
@@ -101,6 +110,8 @@ Claude app
   `claude://resume?session=<uuid>` imports a CLI session and opens it. Rejected links are
   logged as `claudeURLHandler: code entry link invalid ?session` in `~/Library/Logs/Claude/main.log`.
 - Offers no way for another program to archive a session.
+- `claude://code/new?folder=<path>&q=<prompt>` (`prompt=` works too) opens the new-session page
+  with the folder and prompt filled in; you send it there.
 
 Codex
 
@@ -117,6 +128,11 @@ Codex
 - The desktop app is `/Applications/ChatGPT.app` (bundle id `com.openai.codex`; an older
   `/Applications/Codex.app` copy may exist). `codex://threads/<uuid>` opens a thread (the app
   reads it first and ignores ones it can't), `codex://review?pr=<url>` opens a PR review.
+- `codex://threads/new?path=<folder>&prompt=<text>` opens a new thread there with the prompt
+  filled in (it also takes `originUrl`, `projectId` and `mode`); `codex://threads/<uuid>?prompt=`
+  fills in a reply. A folder the app has no project for becomes a new project. Its projects are
+  in `<CODEX_HOME>/.codex-global-state.json` (`local-projects[].rootPaths`,
+  `electron-saved-workspace-roots`), a file of several megabytes.
 - Actions go through its app-server: `/Applications/ChatGPT.app/Contents/Resources/codex
   app-server --listen stdio://` with `CODEX_HOME` set, JSON lines: `initialize {clientInfo}`,
   then `{"method":"initialized"}`, then e.g. `thread/archive {threadId}`. No shared daemon runs,
@@ -126,7 +142,8 @@ Codex
 Ghostty (1.3, AppleScript dictionary in the app bundle)
 
 - Windows, tabs and terminals with `id`, `name`, `working directory`; `focus`, `select tab`,
-  `activate window`; `new window with configuration {initial working directory, initial input}`.
+  `activate window`; `new window with configuration {initial working directory, initial input,
+  environment variables}`, the last a list of `KEY=VALUE` set in the window's shell.
 - No TTY or PID property. To focus a session's own tab, Codealong writes an OSC 7 folder report
   with a unique path to the session's TTY (`ps -o tty= -p <pid>`), finds the terminal reporting
   it, selects that tab, then reports the real folder again. Claude Code titles tabs
@@ -145,4 +162,7 @@ GitHub
 Don't use real data to test actions that reach outside the Mac or can't be undone: approving
 PRs, archiving threads, typing into sessions. For Codex archiving there's an opt-in round-trip
 test that unarchives and re-archives a thread that's already archived:
-`CODEALONG_TEST_THREAD=<id> cargo test --release appserver -- --ignored`.
+`CODEALONG_TEST_THREAD=<id> cargo test --release appserver -- --ignored`. Starting sessions
+is checked without starting one: `--snapshot --start-plan` prints the launch, and
+`cargo test --release ghostty_hands_over -- --ignored` opens a real Ghostty window that echoes
+a tricky prompt back through its environment, then closes.

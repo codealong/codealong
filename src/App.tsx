@@ -10,12 +10,13 @@ import { AGENT_BAY, BAYS, buildBays, failingPr, filterByAge, laneInFilter, type 
 import { approvePr, archiveSession, getBoard, markSeen, onBoard, openConfig, openProjectWindow, openTarget, openUrl, refresh, refreshUsage, reviewInCodex, setPinned, setPinnedWorktrees, signIn } from './api';
 import { ago } from './format';
 import { usePins } from './pins';
-import type { Bay, Board, Lane, PrItem, Session } from './types';
+import type { Bay, Board, Lane, PrItem, Session, Started } from './types';
 import { AccountsDialog } from './ui/AccountsDialog';
 import { Inspector } from './ui/Inspector';
+import { NewSessionSheet } from './ui/NewSessionSheet';
 import { AgentRow, LaneRow } from './ui/LaneRow';
 import { PinnedSection, type PinDrag } from './ui/PinnedSection';
-import { BayHeader, Icon, Kbd, NavItem } from './ui/primitives';
+import { BayHeader, Button, Icon, Kbd, NavItem } from './ui/primitives';
 import { ALL_PROJECTS, openSwitcher, ProjectSwitcher, type ActionCounts } from './ui/ProjectSwitcher';
 import { PrInspector } from './ui/PrInspector';
 import { prIsOpen, prSections, PrsView, type PrRowItem } from './ui/PrsView';
@@ -194,6 +195,11 @@ export function App() {
   // The Accounts dialog, open at one account when a usage chip opened it.
   const [accountsDialog, setAccountsDialog] = useState<{ focus: string | null } | null>(null);
   const closeAccounts = useCallback(() => setAccountsDialog(null), []);
+  // The new-session sheet, open at a worktree.
+  const [newSession, setNewSession] = useState<{ laneId: string | null } | null>(null);
+  const closeNewSession = useCallback(() => setNewSession(null), []);
+  // A session started from here, selected once it shows on the board.
+  const [pendingSession, setPendingSession] = useState<{ key: string; until: number } | null>(null);
   const now = useNow(15_000);
   const searchRef = useRef<HTMLInputElement>(null);
   const gPending = useRef(false);
@@ -518,6 +524,7 @@ export function App() {
           ];
       void showContextMenu([
         { label: target?.label ?? 'Open', run: () => open(lane, s.openTarget) },
+        { label: 'New session here…', run: () => setNewSession({ laneId: lane.id }) },
         'separator',
         ...pins,
         { label: s.archived ? 'Unarchive' : s.harness === 'codex' ? 'Archive in Codex' : 'Archive', run: () => setArchived(s.key, !s.archived, s.title) },
@@ -540,6 +547,7 @@ export function App() {
       void showContextMenu([
         { label: main?.label ?? 'Open', run: () => open(lane, lane.defaultTarget) },
         ...more,
+        { label: 'New session here…', run: () => setNewSession({ laneId: lane.id }) },
         'separator',
         { label: lanePins.set.has(lane.id) ? 'Unpin worktree' : 'Pin worktree', run: () => toggleLanePin(lane) },
         'separator',
@@ -598,6 +606,8 @@ export function App() {
       const typing = document.activeElement === searchRef.current;
       const mod = e.metaKey;
       const key = e.key.toLowerCase();
+      // The new-session sheet has the keyboard while it's open.
+      if (newSession) return;
       if (mod && e.key === ',') {
         e.preventDefault();
         setAccountsDialog({ focus: null });
@@ -619,6 +629,11 @@ export function App() {
       if (mod && e.shiftKey && key === 'n') {
         e.preventDefault();
         openWindow(current);
+        return;
+      }
+      if (mod && key === 'n') {
+        e.preventDefault();
+        setNewSession({ laneId: selectedLane?.id ?? null });
         return;
       }
       if (typing) {
@@ -720,7 +735,38 @@ export function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [visible, selected, selectedLane, move, open, openRow, copy, accountsDialog, view, setView, toggleLanePin, sessionPins, lanePins, pinnedRows, pinnedLaneRows, movePinnedSession, movePinnedLane, current, setArchived]);
+  }, [visible, selected, selectedLane, move, open, openRow, copy, accountsDialog, newSession, view, setView, toggleLanePin, sessionPins, lanePins, pinnedRows, pinnedLaneRows, movePinnedSession, movePinnedLane, current, setArchived]);
+
+  /** The sheet handed the session to its harness: say what's next, and select the session
+   *  when it shows up if Codealong chose its ID. */
+  const onStarted = useCallback((started: Started | null) => {
+    setNewSession(null);
+    if (started?.message) setToast(started.message);
+    if (started?.key) setPendingSession({ key: started.key, until: Date.now() + 60_000 });
+  }, []);
+
+  useEffect(() => {
+    if (!pendingSession) return;
+    if (Date.now() > pendingSession.until) {
+      setPendingSession(null);
+      return;
+    }
+    for (const lane of lanes) {
+      const session = lane.sessions.find((s) => s.key === pendingSession.key);
+      if (!session) continue;
+      if (view === 'prs') setView('worktrees');
+      focusSession(lane, session);
+      setPendingSession(null);
+      return;
+    }
+  }, [lanes, pendingSession]);
+
+  // Where the sheet can start a session: this project's worktrees, and the one it opened at.
+  const startLanes = useMemo(() => {
+    const at = newSession?.laneId;
+    const extra = at && !projectLanes.some((l) => l.id === at) ? lanes.filter((l) => l.id === at) : [];
+    return [...projectLanes, ...extra];
+  }, [projectLanes, lanes, newSession?.laneId]);
 
   const toggleBay = (f: Filter) => setBayFilter(bayFilter === f ? null : f);
   const openWindow = (name: string) => {
@@ -786,6 +832,9 @@ export function App() {
         <div className="ca-bar-status" data-tauri-drag-region>
           {board?.githubAt ? `PRs as of ${ago(board.githubAt, now)}` : board && !board.loading ? 'Loading PRs' : ''}
         </div>
+        <Button size="sm" icon="plus" title="Start a session in the selected worktree (⌘N)" onClick={() => setNewSession({ laneId: selectedLane?.id ?? null })}>
+          New session
+        </Button>
       </div>
       <UsageBar
         usage={board?.usage ?? []}
@@ -1030,6 +1079,7 @@ export function App() {
             apps={board?.apps ?? { terminal: 'Terminal', terminalId: '', editor: 'Editor', editorId: '' }}
             now={now}
             onOpen={(id) => open(selectedLane, id)}
+            onNewSession={() => selectedLane && setNewSession({ laneId: selectedLane.id })}
           />
         )}
       </div>
@@ -1042,6 +1092,9 @@ export function App() {
           onClose={closeAccounts}
           onEditConfig={editConfig}
         />
+      )}
+      {newSession && (
+        <NewSessionSheet lanes={startLanes} laneId={newSession.laneId} usage={board?.usage ?? []} now={now} onClose={closeNewSession} onStarted={onStarted} />
       )}
       {undo && !toast && (
         <div className="ca-toast" role="status">

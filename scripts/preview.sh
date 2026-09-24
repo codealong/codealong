@@ -31,6 +31,7 @@ cp -R dist/. "$dir/"
 cp scripts/preview/fake-tauri.js "$dir/"
 "$bin" --snapshot >"$dir/board.json" 2>/dev/null
 "$bin" --snapshot --accounts >"$dir/accounts.json" 2>/dev/null
+"$bin" --snapshot --start-options >"$dir/start-options.json" 2>/dev/null
 
 setup="localStorage.setItem('codealong.view','$view');localStorage.setItem('codealong.age','all');"
 [ -n "$project" ] && setup="$setup localStorage.setItem('codealong.project','$project');"
