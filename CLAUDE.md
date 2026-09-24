@@ -210,7 +210,8 @@ Tauri and macOS (from the Tauri 2.11 and tao 0.35 sources)
 - `always_on_top` is AppKit's floating level, where other apps' panels can cover a window; the
   floating bar sets the status item level (still under menus) through objc2.
 - A plain JS `listen()` hears events sent to any window with `emit_to`; listen on the window
-  (`getCurrentWebviewWindow().listen`) for the ones meant for it.
+  (`getCurrentWebviewWindow().listen`) for the ones meant for it. A window's own `emit`
+  (`w.emit`) goes to every window, however it listens: send to one with `emit_to(label, …)`.
 - `show()` orders a window front without activating the app; `set_focus()` activates it.
   Commands without `async` run on the main thread.
 - Transparent windows need `macOSPrivateApi` in tauri.conf.json and the `macos-private-api`
