@@ -310,15 +310,15 @@ export function App() {
     [rawLanes, archiveOverride, current],
   );
   // The age filter: worktrees and sessions active since the cutoff. Pinned worktrees always
-  // show, and so do pinned sessions: in Sessions, and in any worktree that shows.
+  // show on the board and in the sidebar, and pinned sessions in Sessions.
   const ageMs = AGES.find((a) => a.id === age)?.ms ?? 0;
   const cutoff = ageMs > 0 ? now - ageMs : 0;
   const since = (AGES.find((a) => a.id === age)?.title ?? '').replace(/^Active /, '');
   // Worktrees active since the cutoff and pinned ones, each showing only its sessions active
   // since then.
   const recentLanes = useMemo(
-    () => filterByAge(projectLanes, cutoff, lanePins.set, sessionPins.set, since),
-    [projectLanes, cutoff, lanePins.set, sessionPins.set, since],
+    () => filterByAge(projectLanes, cutoff, lanePins.set, since),
+    [projectLanes, cutoff, lanePins.set, since],
   );
   // The Sessions view: each session once, in the worktree it runs in.
   const sessionItems = useMemo(
@@ -413,12 +413,12 @@ export function App() {
   const actions = useMemo(() => {
     const out: Record<string, ActionCounts> = {};
     for (const name of [...projects.map((p) => p.name), ALL_PROJECTS]) {
-      const groups = buildBays(filterByAge(lanes.filter((l) => inProject(l, name)), cutoff, lanePins.set, sessionPins.set, since));
+      const groups = buildBays(filterByAge(lanes.filter((l) => inProject(l, name)), cutoff, lanePins.set, since));
       const n = (bay: Bay) => groups.find((g) => g.bay === bay)?.rows.length ?? 0;
       out[name] = { needs: n('needs'), unread: n('unread') };
     }
     return out;
-  }, [lanes, projects, cutoff, lanePins.set, sessionPins.set, since]);
+  }, [lanes, projects, cutoff, lanePins.set, since]);
 
   useEffect(() => {
     const base = WINDOW_PROJECT ? `Codealong · ${current}` : 'Codealong';
@@ -528,21 +528,23 @@ export function App() {
     [lanePins, view],
   );
 
-  /** A session's right-click menu: open it, pin it or its worktree, archive it, copy its ID. */
+  /**
+   * A session's right-click menu: open it, pin it, archive it, copy its ID. Each list pins what
+   * it shows: Sessions pins the session; the board and the sidebar, lists of worktrees, pin the
+   * session's worktree.
+   */
   const sessionMenu = useCallback(
-    (lane: Lane, s: Session) => {
+    (lane: Lane, s: Session, pin: 'session' | 'worktree') => {
       const target = lane.targets.find((t) => t.id === s.openTarget);
-      const pins = s.archived
-        ? []
-        : [
-            { label: sessionPins.set.has(s.key) ? 'Unpin session' : 'Pin session', run: () => sessionPins.toggle(s.key) },
-            { label: lanePins.set.has(lane.id) ? 'Unpin worktree' : 'Pin worktree', run: () => toggleLanePin(lane) },
-          ];
+      const pinItem =
+        pin === 'session'
+          ? { label: sessionPins.set.has(s.key) ? 'Unpin session' : 'Pin session', run: () => sessionPins.toggle(s.key) }
+          : { label: lanePins.set.has(lane.id) ? 'Unpin worktree' : 'Pin worktree', run: () => toggleLanePin(lane) };
       void showContextMenu([
         { label: target?.label ?? 'Open', run: () => open(lane, s.openTarget) },
         { label: 'New session here…', run: () => setNewSession({ laneId: lane.id }) },
         'separator',
-        ...pins,
+        ...(s.archived ? [] : [pinItem]),
         { label: s.archived ? 'Unarchive' : s.harness === 'codex' ? 'Archive in Codex' : 'Archive', run: () => setArchived(s.key, !s.archived, s.title) },
         'separator',
         { label: 'Copy session ID', run: () => copy(s.id, 'session ID') },
@@ -874,9 +876,8 @@ export function App() {
               now={now}
               selectedLaneId={selectedLane?.id ?? null}
               selectedSessionKey={selected?.kind === 'agent' ? selected.session.key : null}
-              pinnedSessions={sessionPins.set}
               onLaneMenu={laneMenu}
-              onSessionMenu={sessionMenu}
+              onSessionMenu={(lane, s) => sessionMenu(lane, s, 'worktree')}
               onSelectLane={focusLane}
               onOpenLane={(lane) => open(lane, lane.defaultTarget)}
               onOpenSession={(lane, session) => {
@@ -1015,7 +1016,7 @@ export function App() {
                   setSelectedKey(r.key);
                   openRow(r);
                 }}
-                onContextMenu={(r) => sessionMenu(r.lane, r.session)}
+                onContextMenu={(r) => sessionMenu(r.lane, r.session, 'session')}
                 onMovePinned={movePinnedSession}
                 archived={archivedItems}
                 showArchived={showArchived}
@@ -1056,8 +1057,7 @@ export function App() {
                             setSelectedKey(r.key);
                             openRow(r);
                           }}
-                          pinned={sessionPins.set.has(r.session.key)}
-                          onContextMenu={() => sessionMenu(r.lane, r.session)}
+                          onContextMenu={() => sessionMenu(r.lane, r.session, 'worktree')}
                         />
                       ) : (
                         laneRow(r)

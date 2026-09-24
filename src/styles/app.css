@@ -905,11 +905,6 @@ button {
 .ca-lane.is-drag-source .ca-grip {
   opacity: 1;
 }
-.ca-tree-pin {
-  display: inline-flex;
-  flex: none;
-  color: var(--ink-3);
-}
 
 /* The age filter, right of the view switch. */
 .ca-agefilter {

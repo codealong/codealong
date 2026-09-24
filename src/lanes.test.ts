@@ -27,28 +27,28 @@ describe('ageFiltered', () => {
   const mine = session('mine', 'working', NOW - 60_000);
 
   it("drops old sessions and takes the lane's status from the rest", () => {
-    const l = ageFiltered(lane([stuck, mine], null), NOW - DAY, new Set(), 'in the last 24 hours');
+    const l = ageFiltered(lane([stuck, mine], null), NOW - DAY, 'in the last 24 hours');
     expect(l.sessions.map((s) => s.key)).toEqual(['mine']);
     expect([l.bay, l.glyph]).toEqual(['working', 'working']);
   });
 
   it('writes a plain headline when nothing active is left', () => {
-    const l = ageFiltered(lane([stuck], pr('open')), NOW - DAY, new Set(), 'in the last 24 hours');
+    const l = ageFiltered(lane([stuck], pr('open')), NOW - DAY, 'in the last 24 hours');
     expect(l.bay).toBe('review');
     expect(l.headline).toBe('#7 Fix it');
-    expect(ageFiltered(lane([stuck], null), NOW - DAY, new Set(), 'in the last 24 hours').headline).toBe('No agents active in the last 24 hours');
+    expect(ageFiltered(lane([stuck], null), NOW - DAY, 'in the last 24 hours').headline).toBe('No agents active in the last 24 hours');
   });
 
   it('takes the headline from the agent that sets the new status', () => {
     const done = { ...session('done', 'unread', NOW - 3_600_000), headline: '`claude` finished · Fix it', detail: 'Pushed the fix' } as Session;
-    const l = ageFiltered(lane([stuck, done], pr('merged')), NOW - DAY, new Set(), 'in the last 24 hours');
+    const l = ageFiltered(lane([stuck, done], pr('merged')), NOW - DAY, 'in the last 24 hours');
     expect([l.bay, l.headline, l.detail]).toEqual(['unread', '`claude` finished · Fix it', 'Pushed the fix']);
   });
 
-  it('keeps pinned sessions and leaves unfiltered lanes alone', () => {
+  it('leaves a lane alone when nothing in it is filtered out', () => {
     const l = lane([stuck, mine], null);
-    expect(ageFiltered(l, NOW - DAY, new Set(['stuck']), '')).toBe(l);
-    expect(ageFiltered(l, 0, new Set(), '')).toBe(l);
+    expect(ageFiltered(l, NOW - 4 * DAY, '')).toBe(l);
+    expect(ageFiltered(l, 0, '')).toBe(l);
   });
 });
 
@@ -57,16 +57,16 @@ describe('filterByAge', () => {
   const busy = { ...lane([session('mine', 'working', NOW - 60_000)], null), id: '/r/busy', lastActivity: NOW - 60_000 } as Lane;
 
   it('keeps pinned worktrees however quiet, with only their recent sessions', () => {
-    const shown = filterByAge([quiet, busy], NOW - DAY, new Set(['/r/quiet']), new Set(), 'in the last 24 hours');
+    const shown = filterByAge([quiet, busy], NOW - DAY, new Set(['/r/quiet']), 'in the last 24 hours');
     expect(shown.map((l) => l.id)).toEqual(['/r/quiet', '/r/busy']);
     expect(shown[0].sessions).toEqual([]);
     expect([shown[0].bay, shown[0].headline]).toEqual(['idle', 'No agents active in the last 24 hours']);
   });
 
   it('drops quiet worktrees that are not pinned, and filters nothing without a cutoff', () => {
-    expect(filterByAge([quiet, busy], NOW - DAY, new Set(), new Set(), '').map((l) => l.id)).toEqual(['/r/busy']);
+    expect(filterByAge([quiet, busy], NOW - DAY, new Set(), '').map((l) => l.id)).toEqual(['/r/busy']);
     const all = [quiet, busy];
-    expect(filterByAge(all, 0, new Set(), new Set(), '')).toBe(all);
+    expect(filterByAge(all, 0, new Set(), '')).toBe(all);
   });
 });
 

@@ -31,8 +31,6 @@ interface WorktreeTreeProps {
   now: number;
   selectedLaneId: string | null;
   selectedSessionKey: string | null;
-  /** Pinned session keys, marked in the tree. */
-  pinnedSessions: Set<string>;
   onSelectLane: (lane: Lane) => void;
   /** Double-click on a worktree: opens its most recent session. */
   onOpenLane: (lane: Lane) => void;
@@ -43,7 +41,7 @@ interface WorktreeTreeProps {
   onSessionMenu: (lane: Lane, session: Session) => void;
 }
 
-export function WorktreeTree({ groups, now, selectedLaneId, selectedSessionKey, pinnedSessions, onSelectLane, onOpenLane, onOpenSession, onLaneMenu, onSessionMenu }: WorktreeTreeProps) {
+export function WorktreeTree({ groups, now, selectedLaneId, selectedSessionKey, onSelectLane, onOpenLane, onOpenSession, onLaneMenu, onSessionMenu }: WorktreeTreeProps) {
   // Worktrees with an agent that needs you, is working or just finished start open; the rest
   // start closed. Toggles are remembered.
   const [overrides, setOverrides] = useState<Record<string, boolean>>(loadOverrides);
@@ -140,11 +138,6 @@ export function WorktreeTree({ groups, now, selectedLaneId, selectedSessionKey, 
                         <StatusGlyph status={s.status} size={10} />
                         <span className="ca-tree-acct">{s.account}</span>
                         <span className="ca-tree-title">{s.title}</span>
-                        {pinnedSessions.has(s.key) && (
-                          <span className="ca-tree-pin" title="Pinned">
-                            <Icon name="pinned" size={11} />
-                          </span>
-                        )}
                         <span className="ca-tree-age">{ago(s.lastActivity, now)}</span>
                       </button>
                     ))}
