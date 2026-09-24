@@ -106,6 +106,12 @@ Codex
 
 - Rollouts: `<CODEX_HOME>/sessions/YYYY/MM/DD/rollout-<time>-<id>.jsonl`; archived ones move to
   `archived_sessions/`; names in `session_index.jsonl`; shared state in `state_5.sqlite`.
+- A turn is `event_msg` `task_started` … `task_complete` (with `last_agent_message`) or
+  `turn_aborted`. One turn can write megabytes of tool output, so the event that opened it can
+  be far behind the tail: `parse_rollout` reads back for it. Newer versions record prompts as
+  `item_completed` with a `UserMessage` item, not `user_message`, and wrap context around them
+  (`## My request:`, `<heartbeat>`, `<realtime_delegation>`; answers to the agent's questions
+  are `<send_user_message_question_reply>`). No approval events have been seen in them yet.
 - Each turn's `token_count` event carries `rate_limits` (`primary`/`secondary` windows with
   `used_percent`, `window_minutes`, `resets_at`; `limit_id` `codex` or per model; `plan_type`).
 - The desktop app is `/Applications/ChatGPT.app` (bundle id `com.openai.codex`; an older
