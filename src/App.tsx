@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { showContextMenu, type MenuSpec } from './contextMenu';
 import { AGENT_BAY, BAYS, buildBays, failingPr, filterByAge, inboxCounts, lanePromptAt, narrowed, rowItems, worktreeRow, type BoardRow, type Filter, type WorktreeRow } from './lanes';
-import { approvePr, archiveSession, barOn, expandImages, getBoard, markSeen, onBarOn, onBoard, onReveal, onSettings, openConfig, openProjectWindow, openTarget, openUrl, refresh, refreshUsage, reviewInCodex, setBarOn, setPinned, setPinnedWorktrees, setTheme, signIn, startSession, type Reveal } from './api';
+import { approvePr, archiveSession, barOn, expandImages, getBoard, markSeen, onBarOn, onBoard, onNewWindow, onReveal, onSettings, openConfig, openProjectWindow, openTarget, openUrl, refresh, refreshUsage, reviewInCodex, setBarOn, setPinned, setPinnedWorktrees, setTheme, signIn, startSession, type Reveal } from './api';
 import { usePerf } from './perf';
 import { reorderPinned, usePins } from './pins';
 import { COLOR_WORD, newTodo, sessionHomes, STATUSES, STATUS_WORD, todoIndex, todoInFilter, todoInQuery, todoItem, todoPrompt, todoSections, useTodoStore, type TodoItem } from './todos';
@@ -1009,12 +1009,8 @@ export function App() {
         openSwitcher();
         return;
       }
-      if (mod && e.shiftKey && key === 'n') {
-        e.preventDefault();
-        openWindow(current);
-        return;
-      }
-      if (mod && key === 'n') {
+      // ⌘⇧N is File › New window's, so it works with no window open too.
+      if (mod && !e.shiftKey && key === 'n') {
         e.preventDefault();
         // On a todo, the session is for the todo.
         if (selected?.kind === 'todo') startForTodo(selected);
@@ -1173,9 +1169,16 @@ export function App() {
   }, [projectLanes, lanes, newSession?.laneId]);
 
   const toggleBay = (f: Filter) => setBayFilter(bayFilter === f ? null : f);
-  const openWindow = (name: string) => {
-    openProjectWindow(name).catch((e: unknown) => setToast(String(e)));
+  const openWindow = (name: string, another = false) => {
+    openProjectWindow(name, another).catch((e: unknown) => setToast(String(e)));
   };
+  // File › New window (⌘⇧N): one more window on the project this one shows.
+  const newWindow = useRef(() => {});
+  newWindow.current = () => openWindow(current, true);
+  useEffect(() => onNewWindow(() => newWindow.current()), []);
+  // In the switcher, the button on the project you're looking at does the same (its tooltip
+  // says ⌘⇧N); on another project it brings that project's window forward if it has one.
+  const switcherWindow = (name: string) => openWindow(name, name === current);
   const editConfig = () => {
     openConfig().catch((e: unknown) => setToast(String(e)));
   };
@@ -1222,7 +1225,7 @@ export function App() {
   return (
     <div className="ca-win ca-win--app">
       <div className="ca-win-bar" data-tauri-drag-region>
-        <ProjectSwitcher projects={projects} current={current} total={totalLanes} actions={actions} onPick={pickProject} onOpenWindow={openWindow} onEditProjects={() => openSettings('projects')} />
+        <ProjectSwitcher projects={projects} current={current} total={totalLanes} actions={actions} onPick={pickProject} onOpenWindow={switcherWindow} onEditProjects={() => openSettings('projects')} />
         <label className="ca-search">
           <Icon name="search" size={14} />
           <input

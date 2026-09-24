@@ -17,16 +17,18 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   - **Worktrees**: each worktree once, pinned ones first in your order, then the rest by
     status: Needs you, Working, Your turn, In review, Idle, Merged. A worktree's row has a
     line for each agent that needs you, is working or just finished, which you select, open
-    or right-click as you would a row. Within a status, the worktree and the agent you last
-    sent a prompt come first, so rows hold still while agents work. Stuck agents (busy but
-    silent for 30 minutes) show in Needs you with the command they're stuck on. The Inbox
-    filters narrow each worktree to the agents they're about. Pin a worktree with `p` or the
-    right-click menu of the worktree or one of its agents, and reorder pins by dragging or
-    with ⌥↑ ⌥↓; a pinned worktree stays whatever the age filter says.
+    or right-click as you would a row. An agent is listed under the worktree it's working
+    in, where most of its latest commands ran and edits landed, even if it started somewhere
+    else; resuming it still happens where it started. Within a status, the worktree and the
+    agent you last sent a prompt come first, so rows hold still while agents work. Stuck
+    agents (busy but silent for 30 minutes) show in Needs you with the command they're stuck
+    on. The Inbox filters narrow each worktree to the agents they're about. Pin a worktree
+    with `p` or the right-click menu of the worktree or one of its agents, and reorder pins
+    by dragging or with ⌥↑ ⌥↓; a pinned worktree stays whatever the age filter says.
   - **Sessions**: every session, pinned ones first in your order (drag or ⌥↑ ⌥↓), then by
-    day, most urgent first and then the one you last sent a prompt. Sessions are pinned here, with `p` or the right-click menu, and their pins show only
-    here. Archive a session with `a` or its right-click menu; Codex threads are archived in
-    Codex itself.
+    day, most urgent first and then the one you last sent a prompt. Sessions are pinned
+    here, with `p` or the right-click menu, and their pins show only here. Archive a session
+    with `a` or its right-click menu; Codex threads are archived in Codex itself.
   - **PRs**: every PR in the project's repos, with the worktree and sessions that worked on
     each. Reviews asked of you come first, with one-click Approve. Selecting a PR shows its
     description, reviews, checks and changed files with their diffs, and under On this Mac
@@ -77,7 +79,9 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   that lists them. The mark brings Codealong forward; drag the bar by it or by its gaps. The
   capsule button at the top right of the window turns it on and off, as do Window › Floating
   bar and the bar's own right-click menu.
-- Closing the main window hides it; the Dock icon or the bar brings it back, and ⌘Q quits.
+- **New window** (File › New window, ⌘⇧N): one more window on the project you're looking at.
+  Closing the main window hides it; New window, the Dock icon or the bar brings it back, and
+  ⌘Q quits.
 
 Next: the menu bar icon and popover, and notifications (the design system's *Build plan*).
 

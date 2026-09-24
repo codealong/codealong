@@ -82,10 +82,28 @@ export async function openUrl(url: string): Promise<void> {
   await invoke('open_url', { url });
 }
 
-/** Opens a project in a window of its own, or brings that window forward. */
-export async function openProjectWindow(project: string): Promise<void> {
+/** Opens a project in a window of its own, or brings that window forward; with `another`
+ *  (File › New window), always opens one more. */
+export async function openProjectWindow(project: string, another = false): Promise<void> {
   if (!inTauri) return;
-  await invoke('open_project_window', { project });
+  await invoke('open_project_window', { project, another });
+}
+
+/** Calls `cb` when File › New window asks this window for another one like it. */
+export function onNewWindow(cb: () => void): () => void {
+  if (!inTauri) return () => {};
+  let cancelled = false;
+  let unlisten: (() => void) | undefined;
+  void getCurrentWebviewWindow()
+    .listen('new-window', () => cb())
+    .then((u) => {
+      if (cancelled) u();
+      else unlisten = u;
+    });
+  return () => {
+    cancelled = true;
+    unlisten?.();
+  };
 }
 
 /** Archives or unarchives a session; Codex threads are archived in Codex itself. */
