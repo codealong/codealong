@@ -369,6 +369,16 @@ pub fn open_codex(url: &str) -> Result<()> {
     open_url(url)
 }
 
+/// Brings Antigravity forward. It has no link to a conversation (its only deep link teleports
+/// into AI Studio), so the app is as close as Codealong can get.
+pub fn open_antigravity() -> Result<()> {
+    let app = "/Applications/Antigravity.app";
+    if !Path::new(app).is_dir() {
+        bail!("Antigravity isn't installed in /Applications.");
+    }
+    procs::run("/usr/bin/open", &["-a", app], None, Duration::from_secs(10)).map(|_| ()).map_err(|e| anyhow!("Couldn't open Antigravity: {e}"))
+}
+
 pub fn codex_thread_url(thread_id: &str) -> String {
     format!("codex://threads/{}", urlencoding::encode(thread_id))
 }

@@ -1,13 +1,13 @@
-// Settings › Accounts: the Claude Code and Codex accounts Codealong reads. Saving rewrites the
+// Settings › Accounts: the Claude Code, Codex, OpenCode and Antigravity accounts Codealong
+// reads. Saving rewrites the
 // [[accounts]] tables in config.toml and leaves the rest of the file as you wrote it.
 
 import { useEffect, useState } from 'react';
 import { getAccounts, saveAccounts, signIn } from '../api';
+import { HARNESSES, HARNESS_WORD } from '../harness';
 import type { AccountCfg, AccountInfo, Harness, Usage } from '../types';
 import { Button, Icon, Rich } from './primitives';
 import { asOfPhrase, UsageMeter } from './UsageBar';
-
-const HARNESS_WORD: Record<Harness, string> = { claude: 'Claude Code', codex: 'Codex' };
 
 interface Draft {
   /** The account being edited, or null when adding one. */
@@ -20,11 +20,61 @@ interface Draft {
   touched: { home: boolean; command: boolean };
 }
 
+/** Where a harness keeps a second account's files, and the command that runs it there. */
 function defaultsFor(harness: Harness, name: string): { home: string; command: string } {
-  const home = `~/.${name}`;
   const plain = name === harness;
-  const command = plain ? harness : harness === 'claude' ? `CLAUDE_CONFIG_DIR=${home} claude` : `CODEX_HOME=${home} codex`;
-  return { home, command };
+  switch (harness) {
+    case 'claude':
+      return { home: `~/.${name}`, command: plain ? 'claude' : `CLAUDE_CONFIG_DIR=~/.${name} claude` };
+    case 'codex':
+      return { home: `~/.${name}`, command: plain ? 'codex' : `CODEX_HOME=~/.${name} codex` };
+    case 'opencode':
+      // OpenCode's data folder is `<XDG_DATA_HOME>/opencode`.
+      return plain ? { home: '~/.local/share/opencode', command: 'opencode' } : { home: `~/.${name}/opencode`, command: `XDG_DATA_HOME=~/.${name} opencode` };
+    case 'antigravity':
+      // Antigravity keeps every app data folder under ~/.gemini and has no command.
+      return { home: `~/.gemini/${name}`, command: '' };
+  }
+}
+
+/** What the config folder holds for a harness, and how it's told about a second one. */
+function folderHelp(harness: Harness): React.ReactNode {
+  switch (harness) {
+    case 'claude':
+      return (
+        <>
+          Where this account keeps its sign-in and sessions. Claude Code reads it from <code className="ca-ic">CLAUDE_CONFIG_DIR</code>.
+        </>
+      );
+    case 'codex':
+      return (
+        <>
+          Where this account keeps its sign-in and sessions. Codex reads it from <code className="ca-ic">CODEX_HOME</code>.
+        </>
+      );
+    case 'opencode':
+      return (
+        <>
+          OpenCode's data folder, with its sessions database. It's <code className="ca-ic">opencode</code> under <code className="ca-ic">XDG_DATA_HOME</code>.
+        </>
+      );
+    case 'antigravity':
+      return <>Antigravity's app data folder, with its conversation summaries. The app's own is ~/.gemini/antigravity.</>;
+  }
+}
+
+/** What Codealong does with the command for a harness. */
+function commandHelp(harness: Harness, terminal: string): string {
+  switch (harness) {
+    case 'claude':
+      return `Starts this account in ${terminal}. Codealong adds --resume to reopen a session.`;
+    case 'codex':
+      return `Signs this account in from ${terminal}. Threads open in the Codex app.`;
+    case 'opencode':
+      return `Starts this account in ${terminal}. Codealong adds --session to reopen a session.`;
+    case 'antigravity':
+      return 'Antigravity has no command line; conversations open in the app.';
+  }
 }
 
 /** The next free `claude2`, `claude3`… with its own folder. */
@@ -33,7 +83,7 @@ export function suggestAccount(harness: Harness, taken: AccountCfg[]): Omit<Draf
   const homes = new Set(taken.map((a) => a.home.replace(/\/$/, '')));
   let n = 1;
   const nameFor = (i: number) => (i === 1 ? harness : `${harness}${i}`);
-  while (names.has(nameFor(n)) || homes.has(`~/.${nameFor(n)}`)) n++;
+  while (names.has(nameFor(n)) || homes.has(defaultsFor(harness, nameFor(n)).home)) n++;
   const name = nameFor(n);
   return { harness, name, ...defaultsFor(harness, name) };
 }
@@ -135,7 +185,7 @@ export function AccountsSection({ focus, usage, terminal, now, onSaved }: Accoun
       <div className="ca-acct-form-head">
         <span className="ca-ucard-name">{draft.original ? `Edit ${draft.original}` : 'New account'}</span>
         <div className="ca-segctl" role="radiogroup" aria-label="Harness">
-          {(['claude', 'codex'] as Harness[]).map((h) => (
+          {HARNESSES.map((h) => (
             <button
               key={h}
               type="button"
@@ -174,24 +224,12 @@ export function AccountsSection({ focus, usage, terminal, now, onSaved }: Accoun
       <label className="ca-field">
         <span>Config folder</span>
         <input value={draft.home} spellCheck={false} autoCapitalize="off" autoCorrect="off" onChange={(e) => setDraft({ ...draft, home: e.target.value, touched: { ...draft.touched, home: true } })} />
-        <small>
-          {draft.harness === 'claude' ? (
-            <>
-              Where this account keeps its sign-in and sessions. Claude Code reads it from <code className="ca-ic">CLAUDE_CONFIG_DIR</code>.
-            </>
-          ) : (
-            <>
-              Where this account keeps its sign-in and sessions. Codex reads it from <code className="ca-ic">CODEX_HOME</code>.
-            </>
-          )}
-        </small>
+        <small>{folderHelp(draft.harness)}</small>
       </label>
       <label className="ca-field">
         <span>Command</span>
         <input value={draft.command} spellCheck={false} autoCapitalize="off" autoCorrect="off" onChange={(e) => setDraft({ ...draft, command: e.target.value, touched: { ...draft.touched, command: true } })} />
-        <small>
-          Starts this account in {terminal}. Codealong adds <code className="ca-ic">--resume</code> to reopen a session.
-        </small>
+        <small>{commandHelp(draft.harness, terminal)}</small>
       </label>
       <div className="ca-acct-actions">
         <Button variant="primary" size="sm" type="submit" disabled={busy}>
@@ -242,7 +280,7 @@ export function AccountsSection({ focus, usage, terminal, now, onSaved }: Accoun
               <dt>Folder</dt>
               <dd className="ca-code">{a.home}</dd>
               <dt>Command</dt>
-              <dd className="ca-code">{a.command ?? a.name}</dd>
+              <dd className="ca-code">{a.command ?? (a.harness === 'antigravity' ? '—' : a.name)}</dd>
             </dl>
             {removing === a.name ? (
               <div className="ca-acct-confirm" role="alert">
@@ -278,12 +316,11 @@ export function AccountsSection({ focus, usage, terminal, now, onSaved }: Accoun
       {draft && !draft.original && form}
       {!draft && accounts !== null && (
         <div className="ca-acct-add">
-          <Button icon="plus" onClick={() => startAdd('claude')}>
-            Add Claude Code account
-          </Button>
-          <Button icon="plus" onClick={() => startAdd('codex')}>
-            Add Codex account
-          </Button>
+          {HARNESSES.map((h) => (
+            <Button key={h} icon="plus" onClick={() => startAdd(h)}>
+              Add {HARNESS_WORD[h]} account
+            </Button>
+          ))}
         </div>
       )}
       {error && (

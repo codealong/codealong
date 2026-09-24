@@ -12,10 +12,12 @@ use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 
 use crate::board::{self, LaneSeed, ELSEWHERE};
+use crate::antigravity;
 use crate::appserver;
 use crate::claude::{self, RegistryEntry, TranscriptInfo};
 use crate::claudeapp;
 use crate::codex::{self, ThreadInfo};
+use crate::opencode;
 use crate::config::{self, AccountCfg, Config, Theme};
 use crate::git;
 use crate::github::{self, PrRaw};
@@ -52,6 +54,8 @@ pub enum Msg {
     Visitors(HashMap<PathBuf, Vec<String>>),
     RefreshUsage,
     UsageDone(Vec<Usage>),
+    /// What each OpenCode account's background service said, or None where it isn't running.
+    OpencodeLive(Vec<(String, Option<opencode::Live>)>),
     /// The full pinned list, in order.
     SetPinned(Vec<String>),
     /// The full list of pinned worktrees (lane ids), in order.
@@ -219,6 +223,7 @@ pub fn open_on(board: &Board, lane_id: &str, target_id: &str) -> Result<Option<S
                 }
                 "claude-app" => launch::open_url(&launch::claude_app_url(&s.id))?,
                 "codex" => launch::open_codex(&launch::codex_thread_url(&s.id))?,
+                "antigravity" => launch::open_antigravity()?,
                 other => bail!("Unknown action {other:?}"),
             }
             return Ok(Some(s.key.clone()));
@@ -387,6 +392,16 @@ struct Engine {
     /// `None` marks a thread that's never shown (a guardian review, a subagent), so its
     /// constant writes are ignored.
     rollouts: HashMap<PathBuf, (String, Option<(ThreadInfo, u64)>)>,
+    /// OpenCode sessions by account, newest first.
+    opencode_sessions: HashMap<String, Vec<opencode::SessionRow>>,
+    /// What each OpenCode account's background service said last, while it was running.
+    opencode_live: HashMap<String, opencode::Live>,
+    /// OpenCode's interactive terminals, refreshed on the tick.
+    opencode_terminals: Vec<opencode::Terminal>,
+    opencode_inflight: bool,
+    opencode_last: Option<Instant>,
+    /// Antigravity conversations by account, newest first.
+    antigravity: HashMap<String, Vec<antigravity::Conversation>>,
     /// Session folders that aren't in any repo, so they're not looked up again.
     not_repos: HashSet<PathBuf>,
     /// Hash of the last published board, to skip publishing when nothing changed.
@@ -454,6 +469,12 @@ impl Engine {
             transcripts: HashMap::new(),
             codex_index: HashMap::new(),
             rollouts: HashMap::new(),
+            opencode_sessions: HashMap::new(),
+            opencode_live: HashMap::new(),
+            opencode_terminals: Vec::new(),
+            opencode_inflight: false,
+            opencode_last: None,
+            antigravity: HashMap::new(),
             not_repos: HashSet::new(),
             last_hash: 0,
             visitors: HashMap::new(),
@@ -509,8 +530,67 @@ impl Engine {
         self.queue_git_all();
         self.fetch_github(true);
         self.fetch_usage();
+        self.poll_opencode();
         self.watch();
         self.refresh_visitors(false);
+    }
+
+    /// Asks each OpenCode account's background service what's running and what it's waiting
+    /// on, on a background thread: one poll at a time, and not more than one every 2 seconds.
+    fn poll_opencode(&mut self) {
+        if self.opencode_inflight || self.opencode_last.map(|t| t.elapsed() < Duration::from_secs(2)).unwrap_or(false) {
+            return;
+        }
+        let accounts: Vec<AccountCfg> = self.cfg.accounts.iter().filter(|a| a.harness == "opencode").cloned().collect();
+        if accounts.is_empty() {
+            return;
+        }
+        self.opencode_inflight = true;
+        self.opencode_last = Some(Instant::now());
+        let tx = self.tx.clone();
+        std::thread::spawn(move || {
+            procs::utility_thread();
+            let now = now_ms();
+            let results = accounts.into_iter().map(|a| (a.name.clone(), opencode::service(&a.home_path()).and_then(|svc| opencode::poll(&svc, now)))).collect();
+            let _ = tx.send(Msg::OpencodeLive(results));
+        });
+    }
+
+    /// OpenCode's interactive terminals: which sessions are live, and where each shows.
+    fn refresh_opencode_terminals(&mut self) -> bool {
+        if !self.cfg.accounts.iter().any(|a| a.harness == "opencode") {
+            return false;
+        }
+        let fresh = opencode::terminals();
+        let changed = fresh != self.opencode_terminals;
+        self.opencode_terminals = fresh;
+        changed
+    }
+
+    /// Reads an OpenCode or Antigravity account's database again after it changed. True when a
+    /// session appeared that wasn't there before.
+    fn reread_database(&mut self, account: &str) -> bool {
+        let Some(a) = self.account(account).cloned() else { return false };
+        let since = now_ms() - WINDOW_MS;
+        match a.harness.as_str() {
+            "opencode" => {
+                let rows = opencode::read_sessions(&a.home_path(), since, &self.seen.pinned_ids("opencode", &a.name));
+                let before: HashSet<String> = self.opencode_sessions.get(account).map(|v| v.iter().map(|r| r.id.clone()).collect()).unwrap_or_default();
+                let added = rows.iter().any(|r| !before.contains(&r.id));
+                self.opencode_sessions.insert(a.name.clone(), rows);
+                // A write means a run may have started or asked something: ask the service.
+                self.poll_opencode();
+                added
+            }
+            "antigravity" => {
+                let rows = antigravity::read_conversations(&a.home_path(), since, &self.seen.pinned_ids("antigravity", &a.name));
+                let before: HashSet<String> = self.antigravity.get(account).map(|v| v.iter().map(|c| c.id.clone()).collect()).unwrap_or_default();
+                let added = rows.iter().any(|c| !before.contains(&c.id));
+                self.antigravity.insert(a.name.clone(), rows);
+                added
+            }
+            _ => false,
+        }
     }
 
     /// Reads Claude usage on a background thread; Codex usage comes from the rollouts.
@@ -586,6 +666,20 @@ impl Engine {
                     self.dirty = true;
                 }
                 Ok(Msg::RefreshUsage) => self.fetch_usage(),
+                Ok(Msg::OpencodeLive(results)) => {
+                    self.opencode_inflight = false;
+                    for (account, live) in results {
+                        match live {
+                            Some(l) => {
+                                self.opencode_live.insert(account, l);
+                            }
+                            None => {
+                                self.opencode_live.remove(&account);
+                            }
+                        }
+                    }
+                    self.dirty = true;
+                }
                 Ok(Msg::SetArchived(key, archived)) => {
                     self.seen.set_archived(&key, archived, now_ms());
                     self.seen.save();
@@ -718,6 +812,8 @@ impl Engine {
         self.transcripts.clear();
         self.codex_index.clear();
         self.rollouts.clear();
+        self.opencode_sessions.clear();
+        self.antigravity.clear();
         for a in self.cfg.accounts.clone() {
             let home = a.home_path();
             match a.harness.as_str() {
@@ -738,9 +834,18 @@ impl Engine {
                         self.rollouts.insert(path, (a.name.clone(), parsed));
                     }
                 }
+                "opencode" => {
+                    let rows = opencode::read_sessions(&home, since, &self.seen.pinned_ids("opencode", &a.name));
+                    self.opencode_sessions.insert(a.name.clone(), rows);
+                }
+                "antigravity" => {
+                    let rows = antigravity::read_conversations(&home, since, &self.seen.pinned_ids("antigravity", &a.name));
+                    self.antigravity.insert(a.name.clone(), rows);
+                }
                 _ => {}
             }
         }
+        self.refresh_opencode_terminals();
         self.refresh_archived_rollouts();
     }
 
@@ -769,6 +874,8 @@ impl Engine {
         }
         out.extend(self.transcripts.values().map(|(_, (_, t, _))| t.cwd.clone()));
         out.extend(self.rollouts.values().filter_map(|(_, t)| t.as_ref().map(|(t, _)| t.cwd.clone())));
+        out.extend(self.opencode_sessions.values().flatten().map(|r| r.directory.clone()));
+        out.extend(self.antigravity.values().flatten().filter_map(|c| c.cwd.clone()));
         out
     }
 
@@ -1003,6 +1110,10 @@ impl Engine {
                 self.dirty = true;
             }
         }
+        if self.refresh_opencode_terminals() {
+            self.dirty = true;
+        }
+        self.poll_opencode();
         if self.gh_last.map(|t| t.elapsed() >= GITHUB_EVERY).unwrap_or(true) {
             self.fetch_github(true);
         }
@@ -1066,6 +1177,7 @@ impl Engine {
         let mut indexes = BTreeSet::new();
         let mut transcripts = Vec::new();
         let mut rollouts = Vec::new();
+        let mut databases = BTreeSet::new();
         let mut lanes = BTreeSet::new();
         let mut reload_repos = false;
         let mut reload_config = false;
@@ -1107,6 +1219,14 @@ impl Engine {
                             continue 'paths;
                         }
                         if p.starts_with(&home) {
+                            continue 'paths;
+                        }
+                    }
+                    "opencode" | "antigravity" => {
+                        if p.starts_with(&home) {
+                            if p.parent() == Some(home.as_path()) && file_name(&p).contains(".db") {
+                                databases.insert(a.name.clone());
+                            }
                             continue 'paths;
                         }
                     }
@@ -1181,6 +1301,10 @@ impl Engine {
                     self.rollouts.remove(&p);
                 }
             }
+            self.dirty = true;
+        }
+        for a in databases {
+            sessions_changed |= self.reread_database(&a);
             self.dirty = true;
         }
         // A new session may have started somewhere no lane covers yet.
@@ -1337,6 +1461,8 @@ impl Engine {
                     paths.push((home.clone(), RecursiveMode::NonRecursive));
                     paths.push((home.join("sessions"), RecursiveMode::Recursive));
                 }
+                // The database, its WAL and its journal, all in the folder itself.
+                "opencode" | "antigravity" => paths.push((home.clone(), RecursiveMode::NonRecursive)),
                 _ => {}
             }
         }
@@ -1414,6 +1540,32 @@ impl Engine {
                         let name = index.and_then(|i| i.get(&th.id)).map(|(n, _)| n.as_str());
                         let mut s = board::codex_session(a, th, name, self.seen.seen_at(&key), now);
                         s.archived = path.starts_with(&archived_dir);
+                        out.push(s);
+                    }
+                }
+                "opencode" => {
+                    let live = self.opencode_live.get(&a.name);
+                    let rows = self.opencode_sessions.get(&a.name).map(|v| v.as_slice()).unwrap_or(&[]);
+                    // A terminal in a folder shows the folder's latest session (rows are newest first).
+                    let mut latest: HashMap<&str, &str> = HashMap::new();
+                    for r in rows {
+                        latest.entry(r.directory.as_str()).or_insert(r.id.as_str());
+                    }
+                    for r in rows {
+                        let key = format!("opencode:{}:{}", a.name, r.id);
+                        let latest_here = latest.get(r.directory.as_str()) == Some(&r.id.as_str());
+                        let terminal = opencode::terminal_for(&self.opencode_terminals, r, latest_here).map(|t| t.pid);
+                        let mut s = board::opencode_session(a, r, live, terminal, self.seen.seen_at(&key), now);
+                        // Archived in OpenCode, or here until it's active again.
+                        s.archived |= self.seen.archived_at(&key).map(|at| s.last_activity <= at).unwrap_or(false);
+                        out.push(s);
+                    }
+                }
+                "antigravity" => {
+                    for c in self.antigravity.get(&a.name).map(|v| v.as_slice()).unwrap_or(&[]) {
+                        let key = format!("antigravity:{}:{}", a.name, c.id);
+                        let mut s = board::antigravity_session(a, c, self.seen.seen_at(&key), now);
+                        s.archived = self.seen.archived_at(&key).map(|at| s.last_activity <= at).unwrap_or(false);
                         out.push(s);
                     }
                 }
@@ -1540,6 +1692,8 @@ impl Engine {
                     let reports = self.rollouts.values().filter(|(acct, _)| acct == &a.name).filter_map(|(_, p)| p.as_ref().map(|(th, _)| &th.rate_limits));
                     usage::codex(a, reports, now)
                 }
+                "opencode" => usage::none(a, "OpenCode bills the provider you bring, so it has no plan limits to show."),
+                "antigravity" => usage::none(a, "Antigravity keeps its quotas in the app."),
                 _ => self.usage.get(&a.name).cloned().unwrap_or_else(|| usage::loading(a)),
             })
             .collect()
@@ -1770,6 +1924,8 @@ fn first_run_config() -> Config {
                     read_first_line(&p, 4 * 1024 * 1024).and_then(|l| codex::parse_meta(&l)).map(|m| m.cwd)
                 }));
             }
+            "opencode" => cwds.extend(opencode::read_sessions(&home, since, &HashSet::new()).into_iter().map(|r| r.directory)),
+            "antigravity" => cwds.extend(antigravity::read_conversations(&home, since, &HashSet::new()).into_iter().filter_map(|c| c.cwd)),
             _ => {}
         }
     }

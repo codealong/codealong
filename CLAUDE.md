@@ -1,7 +1,7 @@
 # Codealong
 
 A Mac app (Tauri 2: Rust engine, React UI) that tracks every coding agent running on this Mac,
-across Claude Code accounts (`~/.claude`, `~/.claude2`) and Codex, organized by project →
+across Claude Code accounts (`~/.claude`, `~/.claude2`), Codex, OpenCode and Antigravity, organized by project →
 repo → worktree → branch → PR. It shows what each agent is doing, opens any session where it
 lives, and shows plan usage. README.md has the feature list, settings and code map. The design
 system (tokens, components, the model and build plan) is the artifact
@@ -205,6 +205,59 @@ Codex
   then `{"method":"initialized"}`, then e.g. `thread/archive {threadId}`. No shared daemon runs,
   so `codex app-server proxy` fails. `codex app-server generate-json-schema --out <dir>` dumps
   the protocol. Logs: `~/Library/Logs/com.openai.codex/`.
+
+OpenCode (2.0.16, from its source at that tag and its files here)
+
+- Data folder `~/.local/share/opencode` (`opencode debug paths` prints every folder;
+  `XDG_DATA_HOME` moves it). Sessions are rows in `opencode.db` (SQLite, WAL mode):
+  `session_v2` (`id` is `ses_…`, `directory`, `title`, `parent_id` on subagents, `time_created`,
+  `time_updated`, `time_idle` and `idle_outcome` written when a run ends, `time_viewed`,
+  `time_archived`) and `session_message` (`type` user, assistant…; `seq`; `data` JSON: a user
+  message's `text`, an assistant's `content` parts of type text, reasoning or tool with `name`
+  and `state.input`). A run streams writes many times a second; Codealong watches the folder
+  and re-reads both tables. The `event` table stayed empty when a session was made through
+  the API, so a run in progress is a user message newer than `time_idle`.
+- Permission and question requests never reach the database. The background service
+  (`opencode serve --service`, started by the TUI) knows them: `~/.local/state/opencode/service.json`
+  has its `url`, `pid` and `password` (mode 600; HTTP Basic auth as user `opencode`).
+  `GET /api/session/active` gives `{data: {ses_…: {type: "running"}}}`, `GET
+  /api/session/<id>/permission` and `/form` what it waits on, `GET /api/session` the list
+  (takes `directory`), `/openapi.json` the rest. Codealong polls every 10 seconds and after
+  each database change, and without a service goes by the database with a 15-minute stale
+  cap. The password goes to curl on stdin, never on the command line.
+- The TUI (`opencode [dir]`) is a client of the service: `--session <id>` (`-s`) continues a
+  session, `--prompt <text>` starts on a prompt, `--continue` the last one. Nothing lets
+  Codealong choose a session's id, so a started session shows once OpenCode writes it.
+  `opencode run` is non-interactive and `mini` a small interactive one; both count as
+  terminals only for `mini`. The TUI titles its tab `OC | <title>` (can be turned off), and two
+  terminals can show one session. Codealong pairs a `--session` terminal with its session and
+  any other with its folder's latest session.
+- Sign-in is `opencode auth login`; credentials live in the database (`credential`, and
+  `account` for OpenCode Go) or a legacy `auth.json`. There are no plan limits to read.
+- Creating a session through the API in a folder made OpenCode point its `global` project
+  (its project for folders without version control) at that folder.
+
+Antigravity (2.17.0, from its app bundle and files here)
+
+- Now an Electron hub app (`/Applications/Antigravity.app`, bundle id `com.google.antigravity`),
+  not the earlier VS Code fork. Its agent is `Contents/Resources/bin/language_server` (Go;
+  "gemini_coder" protos), which serves the UI on random local ports (logged in
+  `~/Library/Logs/Antigravity/language_server.log`) behind a CSRF token.
+- App data: `~/.gemini/antigravity` (`--app_data_dir antigravity`; a separately installed IDE
+  uses `~/.gemini/antigravity-ide`). `conversation_summaries.db` (SQLite, written by gorm) has
+  a row per conversation: `conversation_id`, `title`, `preview`, `step_count`,
+  `last_modified_time` and `last_user_input_time` (text such as
+  `2026-09-24 14:16:07.434615-07:00`), `workspace_uris` (JSON list of `file://` URIs),
+  `status`, `source`, `parent_conversation_id` and `nesting_depth` (subagents), `not_fully_idle`,
+  `killed`, `raw_summary` (a `CascadeTrajectorySummary` protobuf). The conversations themselves
+  are protobufs in `conversations/`, artifacts in `brain/`. No conversation had run on this Mac
+  when the adapter was written, so `status` values are unseen: the hub's own rules are unread
+  when `lastModifiedTime` passes the last view and working when `notFullyIdle`, and Codealong
+  goes by those, taking a status containing waiting, blocked or paused as Needs you.
+- Deep links: the app registers `antigravity://`, but its UI handles only
+  `antigravity://teleport/ai_studio`; nothing opens a conversation or starts one, so Codealong
+  brings the app forward. Sign-in is the token file `~/.gemini/jetski-standalone-oauth-token`
+  (mode 600; only its presence is checked). Quotas show in the app only.
 
 Ghostty (1.3, AppleScript dictionary in the app bundle)
 

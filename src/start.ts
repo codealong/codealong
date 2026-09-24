@@ -1,14 +1,14 @@
 // The new-session sheet's rules: the account Auto starts, where each choice can open, and the
 // choice the sheet opens with. Auto only chooses between accounts of one harness: picking Claude
-// Code or Codex is picking an agent, not just whose limits to spend.
+// Code, Codex or OpenCode is picking an agent, not just whose limits to spend.
 
+import { HARNESSES } from './harness';
 import type { Harness, StartAccount, StartPlace, Usage } from './types';
 
 /** An account's name, or `auto:<harness>` for Auto. */
 export type Choice = string;
 
 const AUTO = 'auto:';
-const HARNESSES: Harness[] = ['claude', 'codex'];
 const REMEMBER_KEY = 'codealong.start';
 const HOUR = 60 * 60 * 1000;
 /** A weekly limit resetting this soon has room that will be lost unless it's used. */

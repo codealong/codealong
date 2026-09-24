@@ -55,6 +55,7 @@ function openLabel(i: BarItem, terminal: string): string {
     resume: `Resume in ${terminal}`,
     'claude-app': 'Open in Claude app',
     codex: 'Open in Codex',
+    antigravity: 'Open Antigravity',
   };
   return how[i.session.openTarget.split('|')[2]] ?? 'Open';
 }
