@@ -2,8 +2,9 @@
 //! agents that need you and the ones running. It's up unless you turn it off, from the toggle at
 //! the top right of the board, the bar's own menu, or Window › Floating bar.
 //!
-//! The bar never takes the keyboard, so the board keeps it. Clicking the bar still makes Codealong
-//! the active app, which it has to be for Ghostty or Codex to come forward.
+//! It's a non-activating panel: macOS lets only those onto another app's full-screen Space. So a
+//! click in the bar doesn't make Codealong the active app, and it never takes the keyboard. After
+//! it opens a session, Codealong asks macOS to bring that app forward (`bring_forward`).
 //!
 //! Closing the main window hides it and the app keeps running with the bar; the Dock icon and the
 //! bar's mark bring it back. Whether the bar is on and where you left it are kept in `bar.json`
@@ -22,8 +23,8 @@ use crate::config::support_dir;
 
 pub const LABEL: &str = "bar";
 const MENU_ID: &str = "floating-bar";
-/// How often a moved bar's place is written down: a drag moves it many times a second.
-const SAVE_EVERY: Duration = Duration::from_secs(1);
+/// How often the bar checks that it's up (when on) and writes down where it was moved to.
+const CHECK_EVERY: Duration = Duration::from_secs(1);
 /// The bar's size before its page has measured itself.
 const START: (f64, f64) = (240.0, 48.0);
 /// Space between a newly placed bar and the menu bar.
@@ -164,12 +165,13 @@ pub fn setup(app: &AppHandle) -> Result<()> {
         .accept_first_mouse(true)
         .visible(false)
         .build()?;
+    native::make_panel(&window);
     native::prepare(&window);
     if let Some(r) = start_frame(frame, &native::screens()) {
         native::set_frame(&window, r);
     }
     if !off {
-        window.show()?;
+        native::show(&window);
     }
 
     let item = CheckMenuItem::with_id(app, MENU_ID, "Floating bar", true, !off, None::<&str>)?;
@@ -190,15 +192,30 @@ pub fn setup(app: &AppHandle) -> Result<()> {
 
     let handle = app.clone();
     std::thread::Builder::new().name("codealong-bar".into()).spawn(move || loop {
-        std::thread::sleep(SAVE_EVERY);
-        let Some(state) = handle.try_state::<Bar>() else { continue };
-        if state.moved.swap(false, Ordering::Relaxed) {
-            if let Ok(saved) = state.saved.lock() {
-                saved.save();
-            }
+        std::thread::sleep(CHECK_EVERY);
+        let app = handle.clone();
+        if handle.run_on_main_thread(move || keep_up(&app)).is_err() {
+            break;
         }
     })?;
     Ok(())
+}
+
+/// Puts the bar back up if it's on but not on screen, and writes down where it is after a move (a
+/// drag moves it many times a second). On the main thread.
+fn keep_up(app: &AppHandle) {
+    let (Some(bar), Some(state)) = (app.get_webview_window(LABEL), app.try_state::<Bar>()) else {
+        return;
+    };
+    let on = state.saved.lock().map(|s| !s.off).unwrap_or(false);
+    if on && !native::on_screen(&bar) {
+        native::show(&bar);
+    }
+    if state.moved.swap(false, Ordering::Relaxed) {
+        if let Ok(saved) = state.saved.lock() {
+            saved.save();
+        }
+    }
 }
 
 /// Window events that concern the bar: closing the main window hides it instead, and a moved bar
@@ -254,9 +271,33 @@ pub fn set_on(app: &AppHandle, on: bool) {
         let _ = item.set_checked(on);
     }
     if let Some(bar) = app.get_webview_window(LABEL) {
-        let _ = if on { bar.show() } else { bar.hide() };
+        if on {
+            native::show(&bar);
+        } else {
+            let _ = bar.hide();
+        }
     }
     let _ = app.emit("floating-bar", on);
+}
+
+/// The app an open target lands in, by bundle ID: the terminal for terminal sessions, else the
+/// Claude or Codex app. `terminal` is the terminal's profile in config.toml.
+pub fn target_app(target_id: &str, terminal: &str) -> Option<&'static str> {
+    match target_id.rsplit('|').next()? {
+        "focus" | "attach" | "resume" => match terminal {
+            "ghostty" => Some("com.mitchellh.ghostty"),
+            _ => None,
+        },
+        "claude-app" => Some("com.anthropic.claudefordesktop"),
+        "codex" => Some("com.openai.codex"),
+        _ => None,
+    }
+}
+
+/// After the bar opened something, asks macOS to bring that app forward. A click in the bar leaves
+/// Codealong inactive, and macOS may refuse an inactive app; the open itself has already happened.
+pub fn bring_forward(app: &AppHandle, bundle_id: &'static str) {
+    let _ = app.run_on_main_thread(move || native::activate_app(bundle_id));
 }
 
 /// Brings the main window forward. `reveal` (a session or PR) goes to its page, which selects it.
@@ -273,9 +314,12 @@ pub fn show_main(app: &AppHandle, reveal: Option<serde_json::Value>) -> Result<(
 
 #[cfg(target_os = "macos")]
 mod native {
-    use objc2::MainThreadMarker;
-    use objc2_app_kit::{NSScreen, NSStatusWindowLevel, NSWindow, NSWindowCollectionBehavior};
-    use objc2_foundation::{NSPoint, NSRect, NSSize};
+    use std::sync::OnceLock;
+
+    use objc2::runtime::{AnyClass, AnyObject, Bool, ClassBuilder, Sel};
+    use objc2::{sel, ClassType, MainThreadMarker};
+    use objc2_app_kit::{NSApplicationActivationOptions, NSPanel, NSRunningApplication, NSScreen, NSStatusWindowLevel, NSWindow, NSWindowCollectionBehavior, NSWindowOcclusionState, NSWindowStyleMask};
+    use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
     use tauri::WebviewWindow;
 
     use super::{Rect, Screen};
@@ -287,6 +331,56 @@ mod native {
         // SAFETY: Tauri hands out the window's own NSWindow, which lives as long as the window,
         // and this is the main thread, where AppKit expects to be called.
         unsafe { ptr.as_ref() }
+    }
+
+    /// NSPanel that never becomes key or main, so the board keeps the keyboard and its place.
+    fn panel_class() -> &'static AnyClass {
+        static CLASS: OnceLock<&'static AnyClass> = OnceLock::new();
+        CLASS.get_or_init(|| {
+            extern "C" fn no(_: &AnyObject, _: Sel) -> Bool {
+                Bool::NO
+            }
+            match ClassBuilder::new(c"CodealongBarPanel", NSPanel::class()) {
+                Some(mut builder) => {
+                    // SAFETY: both overrides match NSWindow's `- (BOOL)canBecome…Window`.
+                    unsafe {
+                        builder.add_method(sel!(canBecomeKeyWindow), no as extern "C" fn(_, _) -> _);
+                        builder.add_method(sel!(canBecomeMainWindow), no as extern "C" fn(_, _) -> _);
+                    }
+                    builder.register()
+                }
+                None => AnyClass::get(c"CodealongBarPanel").unwrap_or(NSPanel::class()),
+            }
+        })
+    }
+
+    /// Turns the bar's window into a non-activating panel, the only kind macOS puts on another
+    /// app's full-screen Space. Tauri makes windows, so the class is swapped after the fact.
+    pub fn make_panel(w: &WebviewWindow) {
+        let Some(n) = ns(w) else { return };
+        let obj: &AnyObject = n;
+        let panel = panel_class();
+        // NSPanel keeps no storage of its own beyond NSWindow's, so the swap needs no more room
+        // than tao's window already has; if that ever changes, the bar stays a plain window.
+        if panel.instance_size() > obj.class().instance_size() {
+            return;
+        }
+        // SAFETY: the object is tao's NSWindow subclass, at least as large as the panel class,
+        // which only adds methods. tao reads its own ivar only when focusability changes, which
+        // the bar never does after it's made.
+        unsafe { AnyObject::set_class(obj, panel) };
+        n.setStyleMask(n.styleMask() | NSWindowStyleMask::NonactivatingPanel);
+        // Panels hide when their app deactivates unless told not to.
+        n.setHidesOnDeactivate(false);
+    }
+
+    /// Asks the running app with this bundle ID to come forward.
+    pub fn activate_app(bundle_id: &str) {
+        let apps = NSRunningApplication::runningApplicationsWithBundleIdentifier(&NSString::from_str(bundle_id));
+        if apps.count() > 0 {
+            #[allow(deprecated)]
+            let _ = apps.objectAtIndex(0).activateWithOptions(NSApplicationActivationOptions::empty());
+        }
     }
 
     fn rect(r: NSRect) -> Rect {
@@ -309,6 +403,19 @@ mod native {
             n.setExcludedFromWindowsMenu(true);
             n.setCanHide(false);
         }
+    }
+
+    /// Brings the bar up without making it key or activating Codealong, whichever app is in front.
+    pub fn show(w: &WebviewWindow) {
+        if let Some(n) = ns(w) {
+            n.orderFrontRegardless();
+        }
+    }
+
+    /// Ordered in and some part of it on screen. The bar sits above ordinary windows, so when it's
+    /// ordered in but can't be seen, macOS kept it off the Space in front.
+    pub fn on_screen(w: &WebviewWindow) -> bool {
+        ns(w).map(|n| n.isVisible() && n.occlusionState().contains(NSWindowOcclusionState::Visible)).unwrap_or(true)
     }
 
     pub fn frame(w: &WebviewWindow) -> Option<Rect> {
@@ -336,7 +443,16 @@ mod native {
 
     use super::{Rect, Screen};
 
+    pub fn make_panel(_: &WebviewWindow) {}
+    pub fn activate_app(_: &str) {}
     pub fn prepare(_: &WebviewWindow) {}
+    pub fn show(w: &WebviewWindow) {
+        let _ = w.show();
+    }
+    pub fn on_screen(w: &WebviewWindow) -> bool {
+        w.is_visible().unwrap_or(true)
+    }
+
     pub fn frame(_: &WebviewWindow) -> Option<Rect> {
         None
     }
@@ -388,6 +504,16 @@ mod tests {
         // That screen is gone: back to the default place, at the saved size.
         assert_eq!(start_frame(Some(there), &[main]), Some(r(600.0, 821.0, 300.0, 48.0)));
         assert_eq!(start_frame(None, &[]), None);
+    }
+
+    #[test]
+    fn knows_which_app_a_target_lands_in() {
+        assert_eq!(target_app("s|claude:claude:1|focus", "ghostty"), Some("com.mitchellh.ghostty"));
+        assert_eq!(target_app("s|claude:claude2:1|resume", "ghostty"), Some("com.mitchellh.ghostty"));
+        assert_eq!(target_app("s|claude:claude:1|claude-app", "ghostty"), Some("com.anthropic.claudefordesktop"));
+        assert_eq!(target_app("s|codex:codex:1|codex", "ghostty"), Some("com.openai.codex"));
+        assert_eq!(target_app("s|claude:claude:1|focus", "iterm"), None);
+        assert_eq!(target_app("l|editor", "ghostty"), None);
     }
 
     #[test]

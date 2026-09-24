@@ -24,7 +24,7 @@ Hand a change to the user by rebuilding and relaunching the bundle (this closes 
 Codealong windows):
 
 ```bash
-pkill -f "Codealong.app/Contents/MacOS/codealong"; npx tauri build && open src-tauri/target/release/bundle/macos/Codealong.app
+pkill -f "Codealong.app/Contents/MacOS/codeal[o]ng"; npx tauri build && open src-tauri/target/release/bundle/macos/Codealong.app
 ```
 
 The engine binary doubles as a CLI for checking behavior without a window:
@@ -190,6 +190,14 @@ Tauri and macOS (from the Tauri 2.11 and tao 0.35 sources)
   or fully covered.
 - `always_on_top` is AppKit's floating level, where other apps' panels can cover a window; the
   floating bar sets the status item level (still under menus) through objc2.
+- Only a non-activating NSPanel goes onto another app's full-screen Space; an ordinary window
+  doesn't, whatever its level or `fullScreenAuxiliary`. Tauri makes NSWindows, so `bar.rs` swaps
+  the bar's class to an NSPanel subclass (NSPanel adds no storage) before it's first shown: a
+  window once shown as a window stays off full-screen Spaces after the swap.
+- A click in a non-activating panel leaves the app inactive, and macOS may refuse an inactive
+  app's request to bring another app forward, so the bar asks after opening (`bring_forward`).
+- `pkill -f <pattern>` also matches any shell whose command line contains the pattern, such as
+  another session's build; write it as `codeal[o]ng` so it can't match itself.
 - A plain JS `listen()` hears events sent to any window with `emit_to`; listen on the window
   (`getCurrentWebviewWindow().listen`) for the ones meant for it.
 - `show()` orders a window front without activating the app; `set_focus()` activates it.

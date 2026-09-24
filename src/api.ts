@@ -179,6 +179,12 @@ export async function fitBar(width: number, height: number): Promise<void> {
   await invoke('fit_bar', { width, height });
 }
 
+/** Opens a session from the floating bar, which also asks macOS to bring its app forward. */
+export async function openFromBar(laneId: string, targetId: string): Promise<void> {
+  if (!inTauri) return;
+  await invoke('open_from_bar', { laneId, targetId });
+}
+
 /** Whether the floating bar is on. Outside the app it counts as on. */
 export async function barOn(): Promise<boolean> {
   if (!inTauri) return true;
