@@ -24,7 +24,7 @@ Hand a change to the user by rebuilding and relaunching the bundle (this closes 
 Codealong windows):
 
 ```bash
-pkill -f "Codealong.app/Contents/MacOS/codealong"; npx tauri build && open src-tauri/target/release/bundle/macos/Codealong.app
+pkill -f "Codealong.app/Contents/MacOS/codeal[o]ng"; npx tauri build && open src-tauri/target/release/bundle/macos/Codealong.app
 ```
 
 The engine binary doubles as a CLI for checking behavior without a window:
@@ -38,7 +38,8 @@ The engine binary doubles as a CLI for checking behavior without a window:
 - `codealong --snapshot --pr <owner/name> <number>`: a PR's detail, as the PR panel gets it.
 - `codealong --snapshot --start-options`: where each account can start a session.
 - `codealong --snapshot --start-plan <folder> <account> <terminal|claude-app|codex-app> [prompt]
-  [--model <model>]`: the command or link starting a session would use, without starting one.
+  [--model <model>] [--worktree]`: the command or link starting a session would use, without
+  starting one.
 
 ## Checking UI changes
 
@@ -53,7 +54,8 @@ screenshot, for a state a click gets to (Settings opens on a synthetic ⌘, keyd
 check that runs for a while should set its title on an interval. Native menus, window creation and real opens
 can't be seen this way; say so rather than claiming they were checked.
 `scripts/preview.sh bar` renders the floating bar on a stand-in desktop (`PREVIEW_SIZE=1600,64` for
-a wider screen).
+a wider screen). `PREVIEW_TODOS=scripts/preview/todos-sample.json scripts/preview.sh todo` shows
+sample todos linked to your real worktrees and sessions in place of your own.
 
 ## Checking performance
 
@@ -124,7 +126,12 @@ Claude Code
   commands and edits worked; `util::command_dir` has the rule for commands.
 - Background jobs (`kind: bg`) have no terminal; `<account command> attach <jobId>` opens one.
 - `--session-id <uuid>` gives a new session the ID you choose, so Codealong knows it before it
-  appears. The prompt is a positional argument parsed like any other: one that starts with `-`
+  appears. The prompt argument goes through the same path as typed text: `@"<path>"` mentions
+  attach files, an image of up to 256 KB (262,144 bytes) as an image; a bigger one is silently
+  not attached and is left for the Read tool. Image paths without `@` are only picked up when
+  pasted. Reading outside the working folder asks unless the folder is given with `--add-dir`,
+  which takes several folders: put it before the other options (or `--add-dir=<dir>`), or it
+  swallows the prompt. There's no image flag. The prompt is a positional argument parsed like any other: one that starts with `-`
   reads as an option, and one that is only a subcommand's name (`update`, `doctor`) runs that
   command. `start.rs` pads such prompts with a space.
 - `--model` takes a full name or an alias for the newest model of a family: `sonnet`, `opus`,
@@ -132,8 +139,15 @@ Claude Code
   Quote it when typing it: zsh reads `fable[1m]` as a file pattern ("no matches found"). Without
   it a session starts on `model` from the account's `settings.json` (a repo's
   `.claude/settings.json` can override that).
+- `-w/--worktree [name]` makes a worktree for the session (read from 2.1.282's code): folder
+  `.claude/worktrees/<name>` under the checkout, branch `worktree-<name>`, a word-pair name when
+  none is given, based on a freshly fetched `origin/<default branch>` (settings
+  `"worktree": {"baseRef": "head"}` bases it on HEAD). A `WorktreeCreate` hook in settings.json
+  replaces all of that, even in a git repo, and prints the path. It refuses folders that haven't
+  been trusted yet. Its name is optional, so it must come before the prompt, which it would
+  otherwise take as the name: `start.rs` types `--worktree` first.
 - Also available, not used yet: `--bg` starts a session in the background and prints the ID
-  `attach` takes; `-w/--worktree [name]` makes a worktree under `<repo>/.claude/worktrees/`.
+  `attach` takes.
 - Sign-in lives in the login keychain: service `Claude Code-credentials` for `~/.claude`,
   `Claude Code-credentials-<first 8 hex of sha256(config dir)>` for any other folder, account
   `$USER`. Read it with `/usr/bin/security find-generic-password -a $USER -s <service> -w`
@@ -153,7 +167,11 @@ Claude app
   logged as `claudeURLHandler: code entry link invalid ?session` in `~/Library/Logs/Claude/main.log`.
 - Offers no way for another program to archive a session.
 - `claude://code/new?folder=<path>&q=<prompt>` (`prompt=` works too) opens the new-session page
-  with the folder and prompt filled in; you send it there.
+  with the folder and prompt filled in; you send it there. It takes no model or worktree: the
+  page has its own choices. `q` is capped at 14,336 characters; `folder` can repeat;
+  `ssh_host`, `ssh_port`, `ssh_folder` and `source` are taken too. `file` is only logged, so a
+  new Code session can't be handed images (`claude://cowork/new?file=` does take files). The
+  Code tab takes images only from its own input box.
 
 Codex
 
@@ -175,8 +193,11 @@ Codex
   `/Applications/Codex.app` copy may exist). `codex://threads/<uuid>` opens a thread (the app
   reads it first and ignores ones it can't), `codex://review?pr=<url>` opens a PR review.
 - `codex://threads/new?path=<folder>&prompt=<text>` opens a new thread there with the prompt
-  filled in (it also takes `originUrl`, `projectId` and `mode`); `codex://threads/<uuid>?prompt=`
-  fills in a reply. A folder the app has no project for becomes a new project. Its projects are
+  filled in (it also takes `originUrl`, `projectId`, `mode` and `browserUrl`, and no images);
+  `codex://threads/<uuid>?prompt=` fills in a reply. `mode` is chat, work or codex, not a
+  worktree choice: the new-thread page has its own Local or Worktree. The app sends images as
+  `{type: "localImage", path}`, and so does the app-server's `turn/start` input; the CLI's
+  `-i/--image <FILE>...` attaches images to its first prompt (prompt first, or after `--`). A folder the app has no project for becomes a new project. Its projects are
   in `<CODEX_HOME>/.codex-global-state.json` (`local-projects[].rootPaths`,
   `electron-saved-workspace-roots`), a file of several megabytes.
 - Actions go through its app-server: `/Applications/ChatGPT.app/Contents/Resources/codex
@@ -262,6 +283,14 @@ Tauri and macOS (from the Tauri 2.11 and tao 0.35 sources)
   or fully covered.
 - `always_on_top` is AppKit's floating level, where other apps' panels can cover a window; the
   floating bar sets the status item level (still under menus) through objc2.
+- Only a non-activating NSPanel goes onto another app's full-screen Space; an ordinary window
+  doesn't, whatever its level or `fullScreenAuxiliary`. Tauri makes NSWindows, so `bar.rs` swaps
+  the bar's class to an NSPanel subclass (NSPanel adds no storage) before it's first shown: a
+  window once shown as a window stays off full-screen Spaces after the swap.
+- A click in a non-activating panel leaves the app inactive, and macOS may refuse an inactive
+  app's request to bring another app forward, so the bar asks after opening (`bring_forward`).
+- `pkill -f <pattern>` also matches any shell whose command line contains the pattern, such as
+  another session's build; write it as `codeal[o]ng` so it can't match itself.
 - A plain JS `listen()` hears events sent to any window with `emit_to`; listen on the window
   (`getCurrentWebviewWindow().listen`) for the ones meant for it. A window's own `emit`
   (`w.emit`) goes to every window, however it listens: send to one with `emit_to(label, …)`.

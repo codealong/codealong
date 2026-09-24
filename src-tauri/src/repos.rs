@@ -291,10 +291,8 @@ pub fn callsign(checkout: &Checkout, wt: &Path, branch: Option<&str>, home: &Pat
         let id = rest.components().next().map(|c| c.as_os_str().to_string_lossy().into_owned()).unwrap_or_default();
         return format!("codex-{id}");
     }
-    if let Ok(rest) = wt.strip_prefix(checkout.root.join(".claude/worktrees")) {
-        if let Some(first) = rest.components().next() {
-            return strip_hash_suffix(&first.as_os_str().to_string_lossy());
-        }
+    if made_by_claude(wt) {
+        return strip_hash_suffix(&file_name(wt));
     }
     let folder = file_name(wt);
     match folder.strip_prefix(&format!("{}-", checkout.name)) {
@@ -303,13 +301,19 @@ pub fn callsign(checkout: &Checkout, wt: &Path, branch: Option<&str>, home: &Pat
     }
 }
 
+/// A worktree Claude made: `claude -w` and the Claude app put theirs in `.claude/worktrees/`
+/// under whichever checkout they ran in, not only the main one.
+fn made_by_claude(wt: &Path) -> bool {
+    wt.parent().is_some_and(|p| p.ends_with(".claude/worktrees"))
+}
+
 /// Who made the lane. See *The model*, Where a lane came from.
 pub fn origin(checkout: &Checkout, wt: &Path, home: &Path) -> Origin {
     if wt == checkout.root {
         Origin::Main
     } else if wt.starts_with(home.join(".codex/worktrees")) {
         Origin::Codex
-    } else if wt.starts_with(checkout.root.join(".claude/worktrees")) {
+    } else if made_by_claude(wt) {
         Origin::ClaudeApp
     } else if scratchpad_owner(wt).is_some() {
         Origin::Scratchpad
@@ -381,6 +385,7 @@ mod tests {
         assert_eq!(cs("/Users/me/.codex/worktrees/e8e5/atlas", Some("codex/class-c-secure-configuration")), "class-c-secure-configuration");
         assert_eq!(cs("/Users/me/.codex/worktrees/5941/atlas", None), "codex-5941");
         assert_eq!(cs("/Users/me/projects/atlasai/atlas/.claude/worktrees/bold-fermi-1ac421", Some("claude/bold-fermi-1ac421")), "bold-fermi");
+        assert_eq!(cs("/Users/me/projects/atlasai/atlas-app4/.claude/worktrees/keen-fox", Some("worktree-keen-fox")), "keen-fox");
         assert_eq!(cs("/private/tmp/atlas-fix-vulns-2026-09-21", Some("codex/fix-vulns")), "fix-vulns-2026-09-21");
         assert_eq!(cs("/Users/me/projects/kestrelhq/kestrel-worktrees/lumen-diag", Some("lumen-diag")), "lumen-diag");
 
@@ -389,6 +394,7 @@ mod tests {
         assert_eq!(or("/Users/me/projects/atlasai/atlas-app4"), Origin::Script);
         assert_eq!(or("/Users/me/.codex/worktrees/e8e5/atlas"), Origin::Codex);
         assert_eq!(or("/Users/me/projects/atlasai/atlas/.claude/worktrees/bold-fermi-1ac421"), Origin::ClaudeApp);
+        assert_eq!(or("/Users/me/projects/atlasai/atlas-app4/.claude/worktrees/keen-fox"), Origin::ClaudeApp);
         assert_eq!(or("/private/tmp/atlas-fix-vulns-2026-09-21"), Origin::Temp);
         let scratch = "/private/tmp/claude-501/-Users-me-projects-osprey/59530ddd-e0c9-4a13-8eed-6b14db725855/scratchpad/atlas-nx-cache";
         assert_eq!(or(scratch), Origin::Scratchpad);

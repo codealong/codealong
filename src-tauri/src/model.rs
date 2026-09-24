@@ -64,6 +64,7 @@ pub enum Origin {
     Main,
     Script,
     Codex,
+    /// In a `.claude/worktrees/` folder: made by `claude -w` or the Claude app.
     ClaudeApp,
     /// Inside a Claude session's scratchpad: made by that session.
     Scratchpad,
@@ -87,6 +88,25 @@ impl PrState {
     pub fn is_open(self) -> bool {
         matches!(self, PrState::Draft | PrState::Open | PrState::Approved | PrState::Changes)
     }
+}
+
+/// Whether GitHub would merge an open PR now, as its merge box says (`mergeStateStatus`).
+#[derive(Serialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Merge {
+    /// Nothing stands in the way: the reviews the repo requires, passing checks, no conflicts.
+    Clean,
+    /// The branch conflicts with its base.
+    Conflicts,
+    /// The repo wants the branch up to date with its base, and it's behind.
+    Behind,
+    /// Held back by a review or check the repo requires, a rule, or being a draft.
+    Blocked,
+    /// It could merge, but checks that aren't required didn't pass.
+    Unstable,
+    /// GitHub hasn't worked it out yet (asking starts that), or the PR is merged or closed.
+    #[default]
+    Unknown,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -166,6 +186,7 @@ pub struct Pr {
     pub url: String,
     pub state: PrState,
     pub checks: Checks,
+    pub merge: Merge,
     pub updated_at: i64,
     pub merged_at: Option<i64>,
     pub closed_at: Option<i64>,
@@ -341,6 +362,10 @@ pub struct Board {
     pub theme: Theme,
     /// True while `[debug] perf_log` is on, so windows report their timings too.
     pub perf_log: bool,
+    /// Every todo, in your order.
+    pub todos: Vec<crate::todos::Todo>,
+    /// Todo labels, in your order.
+    pub labels: Vec<crate::todos::Label>,
 }
 
 /// A PR in the PRs view, with the worktrees and sessions that worked on it.
@@ -364,6 +389,7 @@ pub struct PrItem {
     pub head: String,
     pub base: Option<String>,
     pub checks: Checks,
+    pub merge: Merge,
     pub additions: u64,
     pub deletions: u64,
     pub changed_files: u64,

@@ -5,8 +5,9 @@
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { absolute, ago, agoPhrase, middleTruncate } from '../format';
 import { AGENT_BAY, withoutAccount, type AgentItem, type WorktreeRow } from '../lanes';
-import type { GitInfo, Lane, Pr, Session } from '../types';
+import type { GitInfo, Lane, Pr, Session, Todo } from '../types';
 import { HarnessChip, Icon, LaneGlyph, PrChip, Rich, StatusGlyph } from './primitives';
+import { TodoChips } from './TodoBits';
 
 interface LaneRowProps {
   row: WorktreeRow;
@@ -29,6 +30,13 @@ interface LaneRowProps {
   pinIndex?: number;
   onPointerDown?: (e: ReactPointerEvent<HTMLDivElement>) => void;
   extraClass?: string;
+  /** Todos the worktree or its sessions are linked to: a row without agent lines shows them. */
+  todos?: Todo[];
+  /** Todos linked to the worktree itself: a row with agent lines shows them at its foot. */
+  worktreeTodos?: Todo[];
+  /** Todos a session is linked to, for its line. */
+  todosFor?: (sessionKey: string) => Todo[] | undefined;
+  onShowTodo?: (todo: Todo) => void;
 }
 
 const DAY = 86_400_000;
@@ -86,7 +94,7 @@ export function LaneRow(props: LaneRowProps) {
 }
 
 /** A worktree with no agent that needs you, is working or just finished: its sentence, and chips for its recent sessions. */
-function WorktreeOnlyRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpenTarget, pinned, onContextMenu, pinIndex, onPointerDown, extraClass }: LaneRowProps) {
+function WorktreeOnlyRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpenTarget, pinned, onContextMenu, pinIndex, onPointerDown, extraClass, todos, onShowTodo }: LaneRowProps) {
   const { lane } = row;
   const chips = currentSessions(lane, now);
   const shown = chips.slice(0, 2);
@@ -146,6 +154,7 @@ function WorktreeOnlyRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpe
             ))}
             {extra > 0 && <span className="ca-chip ca-chip--more">+{extra}</span>}
             {chips.length === 0 && <span className="ca-none">{lane.sessions.length ? `No agents today · ${lane.sessions.length} earlier` : 'No agents'}</span>}
+            <TodoChips todos={todos} onShow={onShowTodo} />
           </span>
           <span className="ca-lane-right">
             {lane.pr && <PrChip pr={lane.pr} compact />}
@@ -165,7 +174,7 @@ function WorktreeOnlyRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpe
  * A worktree with agents that need you, are working or just finished: the worktree once on the
  * left, and a line for each agent, which you select, open and right-click like a row of its own.
  */
-function GroupRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpenTarget, pinned, onContextMenu, onAgentMenu, pinIndex, onPointerDown, extraClass }: LaneRowProps) {
+function GroupRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpenTarget, pinned, onContextMenu, onAgentMenu, pinIndex, onPointerDown, extraClass, worktreeTodos, todosFor, onShowTodo }: LaneRowProps) {
   const { lane, agents } = row;
   const { sub, branch } = laneSub(lane);
   const listed = new Set(agents.map((a) => a.session.key));
@@ -176,7 +185,10 @@ function GroupRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpenTarget
   const hasSelection = agents.some((a) => a.key === selectedKey);
   // A worktree can need you for its PR alone (failing checks, changes requested): say so above its agents.
   const prNeeds = lane.bay === 'needs' && !agents.some((a) => AGENT_BAY[a.session.status] === 'needs');
-  const foot = shown.length > 0 || lane.pr != null || (lane.git != null && ((lane.git.added ?? 0) > 0 || (lane.git.removed ?? 0) > 0 || lane.git.dirty > 0));
+  // The worktree's own todos, less the ones its agents' lines already show.
+  const onLines = new Set(agents.flatMap((a) => todosFor?.(a.session.key) ?? []));
+  const footTodos = (worktreeTodos ?? []).filter((t) => !onLines.has(t));
+  const foot = shown.length > 0 || footTodos.length > 0 || lane.pr != null || (lane.git != null && ((lane.git.added ?? 0) > 0 || (lane.git.removed ?? 0) > 0 || lane.git.dirty > 0));
   const selectFirst = () => onSelect(agents[0].key);
   return (
     <div
@@ -230,6 +242,8 @@ function GroupRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpenTarget
             onSelect={() => onSelect(a.key)}
             onOpen={() => onOpenTarget(lane, a.session.openTarget)}
             onContextMenu={onAgentMenu ? () => onAgentMenu(a.session) : undefined}
+            todos={todosFor?.(a.session.key)}
+            onShowTodo={onShowTodo}
           />
         ))}
         {foot && (
@@ -247,6 +261,7 @@ function GroupRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpenTarget
                   />
                 ))}
                 {extra > 0 && <span className="ca-chip ca-chip--more">+{extra}</span>}
+                <TodoChips todos={footTodos} onShow={onShowTodo} />
               </span>
               <span className="ca-lane-right">
                 {lane.pr && <PrChip pr={lane.pr} compact />}
@@ -271,10 +286,13 @@ interface AgentLineProps {
   onSelect: () => void;
   onOpen: () => void;
   onContextMenu?: () => void;
+  /** Todos the agent's session is linked to. */
+  todos?: Todo[];
+  onShowTodo?: (todo: Todo) => void;
 }
 
-/** One agent on its worktree's row: its chip (click to open), its sentence, and its age. */
-function AgentLine({ item, now, domId, selected, pinned, onSelect, onOpen, onContextMenu }: AgentLineProps) {
+/** One agent on its worktree's row: its chip (click to open), its todo, its sentence, and its age. */
+function AgentLine({ item, now, domId, selected, pinned, onSelect, onOpen, onContextMenu, todos, onShowTodo }: AgentLineProps) {
   const s = item.session;
   return (
     <div
@@ -294,6 +312,7 @@ function AgentLine({ item, now, domId, selected, pinned, onSelect, onOpen, onCon
             onOpen();
           }}
         />
+        <TodoChips todos={todos} onShow={onShowTodo} />
         <span className="ca-agentline-text">
           <span className="ca-lane-headline">
             <Rich text={withoutAccount(s.headline)} now={now} />
@@ -328,10 +347,13 @@ interface AgentRowProps {
   pinIndex?: number;
   onPointerDown?: (e: ReactPointerEvent<HTMLDivElement>) => void;
   extraClass?: string;
+  /** Todos the session is linked to. */
+  todos?: Todo[];
+  onShowTodo?: (todo: Todo) => void;
 }
 
 /** One session in the Sessions view, with its worktree as context. */
-export function AgentRow({ lane, session: s, domId, now, selected, onSelect, onOpen, pinned, onContextMenu, pinIndex, onPointerDown, extraClass }: AgentRowProps) {
+export function AgentRow({ lane, session: s, domId, now, selected, onSelect, onOpen, pinned, onContextMenu, pinIndex, onPointerDown, extraClass, todos, onShowTodo }: AgentRowProps) {
   const { sub, branch } = laneSub(lane);
   return (
     <div
@@ -377,6 +399,7 @@ export function AgentRow({ lane, session: s, domId, now, selected, onSelect, onO
         <div className="ca-lane-line2">
           <span className="ca-lane-agents">
             <HarnessChip session={s} onOpen={onOpen} />
+            <TodoChips todos={todos} onShow={onShowTodo} />
           </span>
           <span className="ca-lane-right">
             {lane.pr && <PrChip pr={lane.pr} compact />}

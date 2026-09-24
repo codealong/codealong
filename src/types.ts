@@ -6,6 +6,8 @@ export type Status = 'needs' | 'error' | 'working' | 'unread' | 'idle' | 'stoppe
 export type Bay = 'needs' | 'working' | 'unread' | 'review' | 'idle' | 'merged';
 export type Origin = 'main' | 'script' | 'codex' | 'claude-app' | 'scratchpad' | 'temp' | 'folder' | 'other';
 export type PrState = 'draft' | 'open' | 'approved' | 'changes' | 'merged' | 'closed';
+/** Whether GitHub would merge an open PR now (its `mergeStateStatus`); `unknown` once it's closed. */
+export type Merge = 'clean' | 'conflicts' | 'behind' | 'blocked' | 'unstable' | 'unknown';
 
 export interface Session {
   key: string;
@@ -63,6 +65,7 @@ export interface Pr {
   url: string;
   state: PrState;
   checks: Checks;
+  merge: Merge;
   updatedAt: number;
   mergedAt: number | null;
   closedAt: number | null;
@@ -215,6 +218,51 @@ export interface Board {
   perfLog?: boolean;
   /** From config.toml. */
   theme: Theme;
+  /** Every todo, in your order (src-tauri/src/todos.rs). */
+  todos: Todo[];
+  /** Todo labels, in your order. */
+  labels: Label[];
+}
+
+export type TodoStatus = 'todo' | 'in-progress' | 'done';
+
+/** The label colors; each is a `--label-<color>` token. */
+export const LABEL_COLORS = ['gray', 'red', 'pink', 'purple', 'indigo', 'blue', 'teal', 'green'] as const;
+export type LabelColor = (typeof LABEL_COLORS)[number];
+
+export interface Label {
+  id: string;
+  name: string;
+  color: LabelColor;
+}
+
+/** A start in the Claude or Codex app, waiting for its session to show up. */
+export interface PendingStart {
+  lane: string;
+  harness: Harness;
+  account: string;
+  at: number;
+}
+
+/** Work you mean to hand an agent. */
+export interface Todo {
+  id: string;
+  /** Empty until you pick a project or link a worktree. */
+  project: string;
+  title: string;
+  /** Plain text; images are `![…](images/<name>)`. */
+  description: string;
+  status: TodoStatus;
+  /** Label ids. */
+  labels: string[];
+  /** Linked worktrees (lane ids). */
+  worktrees: string[];
+  /** Linked session keys. */
+  sessions: string[];
+  createdAt: number;
+  updatedAt: number;
+  doneAt: number | null;
+  pending: PendingStart[];
 }
 
 /** Light, dark, or following macOS. */
@@ -237,6 +285,7 @@ export interface PrItem {
   head: string;
   base: string | null;
   checks: Checks;
+  merge: Merge;
   additions: number;
   deletions: number;
   changedFiles: number;
@@ -313,6 +362,10 @@ export interface StartSpec {
   prompt: string;
   /** `--model` for a terminal start; null starts on the account's default. */
   model: string | null;
+  /** A terminal start in a new worktree Claude Code makes (`--worktree`). */
+  worktree: boolean;
+  /** The todo the session is for: it's linked once it starts. */
+  todo: string | null;
 }
 
 export interface Started {

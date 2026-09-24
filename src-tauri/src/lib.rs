@@ -12,6 +12,7 @@ mod config;
 mod engine;
 mod git;
 mod github;
+mod images;
 mod launch;
 mod model;
 mod perf;
@@ -20,6 +21,7 @@ mod repos;
 mod start;
 mod state;
 mod throttle;
+mod todos;
 mod usage;
 mod util;
 
@@ -131,6 +133,17 @@ fn show_main(app: tauri::AppHandle, reveal: Option<serde_json::Value>) -> Result
     bar::show_main(&app, reveal).map_err(|e| e.to_string())
 }
 
+/// Opens a session from the floating bar, then asks macOS to bring its app forward: a click in the
+/// bar doesn't make Codealong the active app.
+#[tauri::command(async)]
+fn open_from_bar(app: tauri::AppHandle, engine: State<'_, engine::Handle>, lane_id: String, target_id: String) -> Result<(), String> {
+    engine.open(&lane_id, &target_id).map_err(|e| e.to_string())?;
+    if let Some(bundle) = bar::target_app(&target_id, &engine.board().apps.terminal_id) {
+        bar::bring_forward(&app, bundle);
+    }
+    Ok(())
+}
+
 /// Whether the floating bar is on.
 #[tauri::command]
 fn bar_on(app: tauri::AppHandle) -> bool {
@@ -217,11 +230,85 @@ fn start_options() -> Result<start::StartOptions, String> {
     Ok(start::options_for(&cfg))
 }
 
-/// Starts a session in a worktree: in the terminal, or in the Claude or Codex app.
+/// Starts a session in a worktree: in the terminal, or in the Claude or Codex app. A start from
+/// a todo links the todo to the session, or to the next one of that account in the repo when an
+/// app picks the session's ID.
 #[tauri::command(async)]
 fn start_session(engine: State<'_, engine::Handle>, spec: start::StartSpec) -> Result<start::Started, String> {
     let cfg = config::load().map_err(|e| format!("{e:#}"))?.unwrap_or_default();
-    start::start(&engine.board(), &cfg, &spec).map_err(|e| format!("{e:#}"))
+    let started = start::start(&engine.board(), &cfg, &spec).map_err(|e| format!("{e:#}"))?;
+    if let Some(id) = spec.todo.clone() {
+        let pending = match (&started.key, spec.place) {
+            (Some(_), _) => None,
+            (None, place) => Some(todos::PendingStart {
+                lane: spec.lane_id.clone(),
+                harness: if place == start::Place::CodexApp { "codex" } else { "claude" }.into(),
+                account: spec.account.clone(),
+                at: util::now_ms(),
+            }),
+        };
+        // A session in a new worktree won't be in the one it started from: only it is linked.
+        let lane = (!(spec.worktree && spec.place == start::Place::Terminal)).then(|| spec.lane_id.clone());
+        engine.todo_started(id, lane, started.key.clone(), pending);
+    }
+    Ok(started)
+}
+
+/// A change to a todo or to the labels. Returns the time of the first board that shows it.
+#[tauri::command(async)]
+fn todo_op(engine: State<'_, engine::Handle>, op: todos::TodoOp) -> Result<i64, String> {
+    engine.todo(op)
+}
+
+/// Keeps an image pasted into a description or a prompt. The window sends the file's bytes as
+/// they are, not as JSON; the reply is the name text refers to it by.
+#[tauri::command(async)]
+fn save_image(request: tauri::ipc::Request<'_>) -> Result<String, String> {
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+        return Err("That wasn't an image.".into());
+    };
+    images::save(bytes).map_err(|e| format!("{e:#}"))
+}
+
+/// Keeps a copy of an image file dropped from the Finder.
+#[tauri::command(async)]
+fn import_image(path: String) -> Result<String, String> {
+    images::import(std::path::Path::new(&path)).map_err(|e| format!("{e:#}"))
+}
+
+/// Text with its images as full paths, for copying a todo as a prompt.
+#[tauri::command]
+fn expand_images(text: String) -> String {
+    images::expand(&text, images::Style::Path)
+}
+
+/// Opens a kept image in the app that opens images (Preview, usually).
+#[tauri::command(async)]
+fn open_image(name: String) -> Result<(), String> {
+    let path = images::file(&name).ok_or("That isn't one of Codealong's images.")?;
+    launch::open_url(&path.to_string_lossy()).map_err(|e| e.to_string())
+}
+
+/// Serves kept images to the windows at `codealong-image://localhost/<name>`. Only names
+/// Codealong made are read, so nothing outside the images folder can be.
+fn serve_image(request: tauri::http::Request<Vec<u8>>, responder: tauri::UriSchemeResponder) {
+    let name = request.uri().path().trim_start_matches('/').to_string();
+    std::thread::spawn(move || {
+        let found = images::file(&name).and_then(|p| std::fs::read(p).ok());
+        let response = match found {
+            Some(bytes) => tauri::http::Response::builder()
+                .header(tauri::http::header::CONTENT_TYPE, images::mime(&name))
+                // A name is the image's content, so it never changes.
+                .header(tauri::http::header::CACHE_CONTROL, "max-age=31536000, immutable")
+                .body(bytes),
+            None => tauri::http::Response::builder().status(tauri::http::StatusCode::NOT_FOUND).body(Vec::new()),
+        };
+        responder.respond(response.unwrap_or_else(|_| {
+            let mut r = tauri::http::Response::new(Vec::new());
+            *r.status_mut() = tauri::http::StatusCode::INTERNAL_SERVER_ERROR;
+            r
+        }));
+    });
 }
 
 /// Saves the theme to config.toml. Every window follows, through the board.
@@ -351,7 +438,8 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(bar::on_window_event)
-        .invoke_handler(tauri::generate_handler![get_board, open_target, open_config, mark_seen, refresh, refresh_usage, set_pinned, set_pinned_worktrees, archive_session, pr_detail, approve_pr, review_in_codex, open_url, get_accounts, save_accounts, get_config, save_config, save_config_text, sign_in, start_options, start_session, set_theme, open_project_window, fit_bar, show_main, bar_on, set_bar_on, perf_mark])
+        .register_asynchronous_uri_scheme_protocol("codealong-image", |_ctx, request, responder| serve_image(request, responder))
+        .invoke_handler(tauri::generate_handler![get_board, open_target, open_config, mark_seen, refresh, refresh_usage, set_pinned, set_pinned_worktrees, archive_session, pr_detail, approve_pr, review_in_codex, open_url, get_accounts, save_accounts, get_config, save_config, save_config_text, sign_in, start_options, start_session, todo_op, save_image, import_image, open_image, expand_images, set_theme, open_project_window, fit_bar, show_main, bar_on, set_bar_on, open_from_bar, perf_mark])
         .build(tauri::generate_context!())
         .expect("error while running Codealong")
         .run(|app, event| {
@@ -369,8 +457,8 @@ pub fn run() {
 /// `codealong --snapshot --open <lane id> <target id>`: opens a target the way a click does.
 /// `codealong --snapshot --pr <owner/name> <number>`: a PR's detail, as the PR panel gets it.
 /// `codealong --snapshot --start-options`: where each account can start a session.
-/// `codealong --snapshot --start-plan <folder> <account> <place> [prompt] [--model <model>]`: what
-/// starting one would do, without doing it.
+/// `codealong --snapshot --start-plan <folder> <account> <place> [prompt] [--model <model>]
+/// [--worktree]`: what starting one would do, without doing it.
 pub fn snapshot_cli(args: &[String]) -> i32 {
     let started = std::time::Instant::now();
     if args.iter().any(|a| a == "--start-options") {
@@ -379,7 +467,7 @@ pub fn snapshot_cli(args: &[String]) -> i32 {
         return 0;
     }
     if let Some(i) = args.iter().position(|a| a == "--start-plan") {
-        let help = "usage: codealong --snapshot --start-plan <folder> <account> <terminal|claude-app|codex-app> [prompt] [--model <model>]";
+        let help = "usage: codealong --snapshot --start-plan <folder> <account> <terminal|claude-app|codex-app> [prompt] [--model <model>] [--worktree]";
         let (Some(folder), Some(name), Some(place)) = (args.get(i + 1), args.get(i + 2), args.get(i + 3)) else {
             eprintln!("{help}");
             return 2;
@@ -395,7 +483,8 @@ pub fn snapshot_cli(args: &[String]) -> i32 {
         };
         let model = args.iter().position(|a| a == "--model").and_then(|j| args.get(j + 1)).cloned();
         let prompt = args.get(i + 4).filter(|p| !p.starts_with("--")).cloned().unwrap_or_default();
-        let plan = start::plan(account, place, &util::expand(folder), &prompt, &start::new_session_id(), model.as_deref());
+        let worktree = args.iter().any(|a| a == "--worktree");
+        let plan = start::plan(account, place, &util::expand(folder), &prompt, &start::new_session_id(), model.as_deref(), worktree);
         println!("{}", serde_json::to_string_pretty(&plan).unwrap_or_default());
         return 0;
     }

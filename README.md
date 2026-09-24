@@ -14,7 +14,7 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
 
 ## What it does
 
-- **Three views** of the current project, each in a window of its own if you like (⌘⇧N):
+- **Four views** of the current project, each in a window of its own if you like (⌘⇧N):
   - **Worktrees**: each worktree once, pinned ones first in your order, then the rest by
     status: Needs you, Working, Your turn, In review, Idle, Merged. A worktree's row has a
     line for each agent that needs you, is working or just finished, which you select, open
@@ -31,26 +31,44 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     here, with `p` or the right-click menu, and their pins show only here. Archive a session
     with `a` or its right-click menu; Codex threads are archived in Codex itself.
   - **PRs**: every PR in the project's repos, with the worktree and sessions that worked on
-    each. Reviews asked of you come first, with one-click Approve. Selecting a PR shows its
+    each. Reviews asked of you come first, with one-click Approve. Colored pills say where
+    each PR stands: its review, its checks, and conflicts or an out-of-date branch, or one
+    green Ready to merge when GitHub would merge it now. Rows that are your move are marked
+    at the left edge: amber for a review asked of you or something to fix, red for failing
+    checks, green for your PRs that are ready to merge. Selecting a PR shows its
     description, reviews, checks and changed files with their diffs, and under On this Mac
     the worktrees and sessions behind it, drawn like the sidebar's tree: whether the worktree
     has anything GitHub doesn't, and the agents that worked on the PR, including one that made
     the worktree from another folder.
+  - **Todo**: work you mean to hand an agent. Each todo has a title, a description that can
+    hold screenshots (paste, drop or pick them), colored labels, and a status: Todo, In
+    progress (an agent is on it) or Done. Add one in the box at the top (`n`), reorder by
+    dragging or with ⌥↑ ⌥↓, mark one done with `x`. Start session (⌘N) opens the new-session
+    sheet with the todo as the prompt, and the session it starts is linked to the todo, which
+    moves to In progress; one started in the Claude or Codex app is linked when it shows up.
+    Link worktrees and sessions you already have from the todo, or from a session's or
+    worktree's right-click menu (Add to todo). A session or worktree on a todo shows the
+    todo's chip; click it to go to the todo.
 - **Open where it lives**: the session's own Ghostty tab, the Claude app session, the Codex
   thread, an OpenCode session in its terminal (or resumed in a new one with `--session`),
   Antigravity brought forward (it has no link to a conversation), a background job attached
   in a new window, or the folder in Cursor.
 - **New session** (⌘N, the title bar, the inspector, or a worktree's or session's right-click
-  menu): pick the worktree (pinned ones first), the account, and where it runs. Ghostty starts
-  Claude Code on your prompt, on the account's default model or one you pick (Fable, Opus,
-  Sonnet, Haiku, 1M context, Opus Plan Mode), or OpenCode on your prompt (`--prompt`); the
-  Claude app and Codex open a new session with the prompt filled in, and you send it there
-  (their own model and worktree choices included). Antigravity starts conversations only in
-  its own window. Auto picks between accounts of
+  menu): pick the worktree (it starts at whatever's selected: a worktree, a session's, a PR's,
+  or for a PR with none here its repo's main checkout; pinned ones first), the account, and
+  where it runs. Ghostty starts Claude Code on your prompt, on the account's default model or
+  one you pick (Fable, Opus, Sonnet, Haiku, 1M context, Opus Plan Mode), and with New
+  worktree Claude Code makes a fresh worktree for it (`claude --worktree`: its folder, branch
+  and base are Claude Code's choice). The Claude app and Codex open a new session with the
+  prompt filled in, and you send it there (their own model and worktree choices included).
+  OpenCode starts in Ghostty on your prompt (`--prompt`); Antigravity starts conversations
+  only in its own window. Auto picks between accounts of
   one harness: first the one whose weekly limit resets soonest within 48 hours, so its room
   isn't lost, else the one with the most room; accounts at 90% of a limit are passed over.
   Codealong only launches: the session shows on the board like any other, and one started in
-  Ghostty is selected as soon as it appears.
+  Ghostty is selected as soon as it appears. Paste or drop screenshots into the prompt: Claude
+  Code in Ghostty gets them as file mentions (attached when they're 256 KB or less, read
+  otherwise, with the images folder added so it doesn't ask), and the apps get their paths.
 - **Usage** for every account in a bar across the top: 5-hour and weekly limits, per-model
   limits such as Fable, and time to reset. OpenCode (bring your own provider) and Antigravity
   (quotas in the app) have none to show. Add accounts in Settings › Accounts.
@@ -67,13 +85,13 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   of the sidebar. The choice is saved in config.toml, and every window follows it.
 - **Resizable panels**: drag the inner edge of the sidebar or the panel on the right, and
   double-click it to go back to the default width. The PR panel keeps a width of its own.
-- **Floating bar**: a small bar on top of every window, on every Space, with a pill for each
-  agent that needs you, whose turn just ended, or that's running, across all projects, and one
-  for PRs waiting on your review. Click a pill to open the session where it lives; right-click
-  it to show it in Codealong or mark it seen. Pills that don't fit fold into one per group
-  that lists them. The mark brings Codealong forward; drag the bar by it or by its gaps. The
-  capsule button at the top right of the window turns it on and off, as do Window › Floating
-  bar and the bar's own right-click menu.
+- **Floating bar**: a small bar on top of every window, on every Space and over full-screen
+  apps, with a pill for each agent that needs you, whose turn just ended, or that's running,
+  across all projects, and one for PRs waiting on your review. Click a pill to open the
+  session where it lives; right-click it to show it in Codealong or mark it seen. Pills that
+  don't fit fold into one per group that lists them. The mark brings Codealong forward; drag
+  the bar by it or by its gaps. The capsule button at the top right of the window turns it on
+  and off, as do Window › Floating bar and the bar's own right-click menu.
 - **New window** (File › New window, ⌘⇧N): one more window on the project you're looking at.
   Closing the main window hides it; New window, the Dock icon or the bar brings it back, and
   ⌘Q quits.
@@ -144,7 +162,8 @@ folders = []
 
 What you've seen (for Your turn), what you've pinned and what you've archived in Codealong
 are kept in `state.json` next to it; whether the floating bar is on, and where you left it, in
-`bar.json`.
+`bar.json`. Todos and labels are in `todos.json`, which is watched, so an agent or an editor can
+add to it; the images in them are in `images/`, named by their content.
 
 ## Permissions and safety
 
@@ -167,11 +186,13 @@ are kept in `state.json` next to it; whether the floating bar is on, and where y
 | `src-tauri/src/repos.rs`, `git.rs`, `github.rs` | Repo discovery, callsigns, worktrees, git status, PRs |
 | `src-tauri/src/launch.rs` | App profiles: Ghostty (AppleScript, exact tab focus), Cursor (CLI), deep links |
 | `src-tauri/src/start.rs`, `src/start.ts` | New sessions: where each account can start one, the launch it makes, Auto's pick |
+| `src-tauri/src/todos.rs`, `src/todos.ts` | Todos: the store and its changes, linking sessions started from a todo; the list's sections, filters and prompt |
+| `src-tauri/src/images.rs` | Images in descriptions and prompts: kept by content, served to windows, handed to agents as paths |
 | `src-tauri/src/usage.rs` | Plan usage: Claude through its sign-in and usage endpoint, Codex from its rollouts, none for OpenCode and Antigravity |
 | `src-tauri/src/appserver.rs` | Codex actions through its app-server (archiving) |
 | `src-tauri/src/claudeapp.rs` | The Claude app's session records (its IDs, what you archived there) |
 | `src-tauri/src/config.rs`, `state.rs` | `config.toml` (accounts saved in place) and `state.json` (seen, pinned, archived) |
 | `src-tauri/src/bar.rs` | The floating bar's window: when it shows (AppKit's occlusion state), where it sits, Window › Floating bar |
-| `src/` | The React UI, built from the design system's components and tokens; `lanes.ts` groups the board and mirrors the engine's status rules for the age filter; `pins.ts` keeps the pinned lists; `bar.ts` and `ui/Bar.tsx` are the floating bar; `ui/SettingsDialog.tsx` and `ui/AccountsSection.tsx` are Settings |
+| `src/` | The React UI, built from the design system's components and tokens; `lanes.ts` groups the board and mirrors the engine's status rules for the age filter; `pins.ts` keeps the pinned lists; `prStatus.ts` and `ui/PrPills.tsx` say where a PR stands and which PRs are your move; `bar.ts` and `ui/Bar.tsx` are the floating bar; `ui/SettingsDialog.tsx` and `ui/AccountsSection.tsx` are Settings |
 | `scripts/preview.sh` | Headless preview against real data, for screenshots and scripted checks |
 | `design/tokens.json` | Design tokens; `npm run tokens` regenerates `src/styles/tokens.css` |

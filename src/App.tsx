@@ -1,17 +1,21 @@
 // The main window. One project at a time, picked in the switcher at top left. The sidebar
-// lists that project's worktrees. The main area has three views: Worktrees lists pinned
+// lists that project's worktrees. The main area has four views: Worktrees lists pinned
 // worktrees in your order, then every other worktree once, in Needs you, Working, Your turn, In
 // review, Idle or Merged, with a line for each agent that needs you, is working or just
 // finished; Sessions lists every session, pinned ones first in your order; PRs lists the
-// project's pull requests. Keyboard map: the design system's Surfaces page.
+// project's pull requests; Todo lists work you mean to hand an agent, and the sessions on it.
+// Keyboard map: the design system's Surfaces page.
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import { showContextMenu } from './contextMenu';
+import { showContextMenu, type MenuSpec } from './contextMenu';
 import { AGENT_BAY, BAYS, buildBays, failingPr, filterByAge, inboxCounts, lanePromptAt, narrowed, rowItems, worktreeRow, type BoardRow, type Filter, type WorktreeRow } from './lanes';
-import { approvePr, archiveSession, barOn, getBoard, markSeen, onBarOn, onBoard, onNewWindow, onReveal, onSettings, openConfig, openProjectWindow, openTarget, openUrl, refresh, refreshUsage, reviewInCodex, setBarOn, setPinned, setPinnedWorktrees, setTheme, signIn, startSession, type Reveal } from './api';
+import { approvePr, archiveSession, barOn, expandImages, getBoard, markSeen, onBarOn, onBoard, onNewWindow, onReveal, onSettings, openConfig, openProjectWindow, openTarget, openUrl, refresh, refreshUsage, reviewInCodex, setBarOn, setPinned, setPinnedWorktrees, setTheme, signIn, startSession, type Reveal } from './api';
 import { usePerf } from './perf';
-import { usePins } from './pins';
-import type { Bay, Board, Lane, PrItem, Session, StartSpec, Theme } from './types';
+import { reorderPinned, usePins } from './pins';
+import { prFlag } from './prStatus';
+import { COLOR_WORD, newTodo, sessionHomes, STATUSES, STATUS_WORD, todoIndex, todoInFilter, todoInQuery, todoItem, todoPrompt, todoSections, useTodoStore, type TodoItem } from './todos';
+import type { Bay, Board, Label, Lane, PrItem, Session, StartSpec, Theme, Todo, TodoStatus } from './types';
+import { LABEL_COLORS } from './types';
 import { SettingsDialog, type SettingsSection } from './ui/SettingsDialog';
 import { Inspector } from './ui/Inspector';
 import { NewSessionSheet, type SheetDraft } from './ui/NewSessionSheet';
@@ -23,6 +27,9 @@ import { PrInspector } from './ui/PrInspector';
 import { prIsOpen, prPlaces, prSections, PrsView, type PrRowItem } from './ui/PrsView';
 import { Resizer, usePanelWidth } from './ui/Resizer';
 import { SessionsView, timeSections, type SessionItem } from './ui/SessionsView';
+import { LabelDot } from './ui/TodoBits';
+import { TodoPanel } from './ui/TodoPanel';
+import { TodoComposer, TodoView, type ComposerContext } from './ui/TodoView';
 import { applyTheme, ThemeSwitch } from './ui/ThemeSwitch';
 import { UsageBar } from './ui/UsageBar';
 import { WorktreeTree, type TreeGroup } from './ui/WorktreeTree';
@@ -44,13 +51,15 @@ const AGE_KEY = 'codealong.age';
 const SIDEBAR_WIDTH_KEY = 'codealong.sidebarWidth';
 const INSPECTOR_WIDTH_KEY = 'codealong.inspectorWidth';
 const PR_PANEL_WIDTH_KEY = 'codealong.prPanelWidth';
+const TODO_PANEL_WIDTH_KEY = 'codealong.todoPanelWidth';
 const DAY = 24 * 60 * 60 * 1000;
 
-type View = 'worktrees' | 'sessions' | 'prs';
+type View = 'worktrees' | 'sessions' | 'prs' | 'todo';
 const VIEWS: { id: View; label: string }[] = [
   { id: 'worktrees', label: 'Worktrees' },
   { id: 'sessions', label: 'Sessions' },
   { id: 'prs', label: 'PRs' },
+  { id: 'todo', label: 'Todo' },
 ];
 /** How recently a worktree or session must have been active to show. */
 type Age = '1d' | '3d' | '7d' | 'all';
@@ -61,7 +70,7 @@ const AGES: { id: Age; label: string; title: string; ms: number }[] = [
   { id: 'all', label: 'All', title: 'Everything from the last 14 days', ms: 0 },
 ];
 
-type Row = BoardRow | PrRowItem;
+type Row = BoardRow | PrRowItem | TodoItem;
 
 function inProject(lane: Lane, project: string): boolean {
   if (project === ALL_PROJECTS) return !lane.hidden;
@@ -122,8 +131,10 @@ function prInFilter(r: PrRowItem, f: Filter | null): boolean {
   switch (f) {
     case null:
       return true;
-    case 'needs':
-      return prIsOpen(p) && (p.reviewRequested || (p.mine && (p.checks.failed > 0 || p.state === 'changes')));
+    case 'needs': {
+      const flag = prFlag(p);
+      return flag === 'attn' || flag === 'alert';
+    }
     case 'working':
     case 'unread':
       // As on the board, a session from another lane doesn't lend its status: one agent that
@@ -173,6 +184,12 @@ function storedProject(): string | null {
   }
 }
 
+/** Whether the keyboard is in a text field (other than search, which has keys of its own). */
+function inField(el: Element | null, search: HTMLInputElement | null): boolean {
+  if (!el || el === search) return false;
+  return el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement || (el as HTMLElement).isContentEditable;
+}
+
 /** A dragged panel width for the grid's style; left out, the panel takes its default from the CSS. */
 const widthVar = (width: number | null) => (width == null ? undefined : `${width}px`);
 
@@ -189,6 +206,7 @@ export function App() {
   const [sidebarWidth, setSidebarWidth] = usePanelWidth(SIDEBAR_WIDTH_KEY);
   const [inspectorWidth, setInspectorWidth] = usePanelWidth(INSPECTOR_WIDTH_KEY);
   const [prPanelWidth, setPrPanelWidth] = usePanelWidth(PR_PANEL_WIDTH_KEY);
+  const [todoPanelWidth, setTodoPanelWidth] = usePanelWidth(TODO_PANEL_WIDTH_KEY);
   // Archives made here (key → archived), shown until the board catches up: Codex takes a moment.
   const [archiveOverride, setArchiveOverride] = useState<Record<string, boolean>>({});
   const [undo, setUndo] = useState<{ key: string; title: string } | null>(null);
@@ -210,8 +228,9 @@ export function App() {
     if (settings) lastSection.current = settings.section;
   }, [settings]);
   useEffect(() => onSettings(() => openSettings()), [openSettings]);
-  // The new-session sheet, open at a worktree; after a failed start, with what you wrote and why.
-  const [newSession, setNewSession] = useState<{ laneId: string | null; draft?: SheetDraft; error?: string } | null>(null);
+  // The new-session sheet, open at a worktree, maybe for a todo; after a failed start, with what
+  // you wrote and why.
+  const [newSession, setNewSession] = useState<{ laneId: string | null; todo?: string | null; prompt?: string; draft?: SheetDraft; error?: string } | null>(null);
   const closeNewSession = useCallback(() => setNewSession(null), []);
   const sheetOpen = useRef(false);
   useEffect(() => {
@@ -425,17 +444,65 @@ export function App() {
   const openPrCount = useMemo(() => projectPrs.filter((p) => prIsOpen(p) && p.updatedAt >= cutoff).length, [projectPrs, cutoff]);
   const requestedCount = useMemo(() => projectPrs.filter((p) => prIsOpen(p) && p.reviewRequested).length, [projectPrs]);
 
+  // The Todo view: the project's todos as the engine has them, with this window's changes on top
+  // until the engine's board shows them.
+  const todoStore = useTodoStore(board, setToast);
+  const runTodo = todoStore.run;
+  const [showDoneTodos, setShowDoneTodos] = useState(false);
+  const [labelFilter, setLabelFilter] = useState<string | null>(null);
+  // The box that adds todos, and what a new one gets linked to.
+  const [composer, setComposer] = useState<{ text: string; context: ComposerContext | null }>({ text: '', context: null });
+  const composerRef = useRef<HTMLInputElement>(null);
+  const [composerFocus, setComposerFocus] = useState(0);
+  const [todoUndo, setTodoUndo] = useState<{ message: string; undo: () => void } | null>(null);
+  const homes = useMemo(() => sessionHomes(lanes), [lanes]);
+  const labelById = useMemo(() => new Map(todoStore.labels.map((l) => [l.id, l])), [todoStore.labels]);
+  const projectTodos = useMemo(() => todoStore.todos.filter((t) => current === ALL_PROJECTS || t.project === current), [todoStore.todos, current]);
+  const todoItems = useMemo(() => projectTodos.map((t) => todoItem(t, laneById, homes, labelById)), [projectTodos, laneById, homes, labelById]);
+  const todoRows = useMemo(
+    () => todoItems.filter((r) => todoInQuery(r, query) && todoInFilter(r, bayFilter) && (!labelFilter || r.todo.labels.includes(labelFilter))),
+    [todoItems, query, bayFilter, labelFilter],
+  );
+  const todoSecs = useMemo(() => todoSections(todoRows), [todoRows]);
+  const todoVisible = useMemo<Row[]>(() => todoSecs.flatMap((s) => (s.id === 'done' && !showDoneTodos ? [] : s.rows)), [todoSecs, showDoneTodos]);
+  const openTodoCount = useMemo(() => projectTodos.filter((t) => t.status !== 'done').length, [projectTodos]);
+  // Which todos each session and worktree is on, for their chips.
+  const todoLinks = useMemo(() => todoIndex(todoStore.todos, homes), [todoStore.todos, homes]);
+  useEffect(() => {
+    if (composerFocus === 0) return;
+    composerRef.current?.focus();
+    composerRef.current?.select();
+  }, [composerFocus]);
+  useEffect(() => {
+    if (!todoUndo) return;
+    const id = window.setTimeout(() => setTodoUndo(null), 8000);
+    return () => window.clearTimeout(id);
+  }, [todoUndo]);
+
   const sessionRows = useMemo<Row[]>(
     () => [...pinnedRows, ...sessionSections.flatMap((s) => s.rows), ...(showArchived ? archivedItems : [])],
     [pinnedRows, sessionSections, showArchived, archivedItems],
   );
-  const visible = view === 'sessions' ? sessionRows : view === 'prs' ? prVisible : worktreeItems;
+  const visible = view === 'sessions' ? sessionRows : view === 'prs' ? prVisible : view === 'todo' ? todoVisible : worktreeItems;
   // When the selected agent's line goes (you marked it seen, it stopped), the selection stays
-  // on its worktree rather than jumping to the top.
+  // on its worktree rather than jumping to the top. A todo that leaves the list (marked done
+  // while Done is folded, or no longer matching the search or a filter) stays in the panel: the
+  // next key you press is still about the todo you see, and an edit in progress isn't cut off.
   const selectedLaneId = selectedKey?.split('::')[0];
   const selected =
-    visible.find((r) => r.key === selectedKey) ?? visible.find((r) => r.kind !== 'pr' && r.lane.id === selectedLaneId) ?? visible[0] ?? null;
+    visible.find((r) => r.key === selectedKey) ??
+    (view === 'todo' ? todoItems.find((r) => r.key === selectedKey) : visible.find((r) => r.kind !== 'pr' && r.kind !== 'todo' && r.lane.id === selectedLaneId)) ??
+    visible[0] ??
+    null;
   const selectedLane = selected?.lane ?? null;
+  // Where a new session starts: the selected worktree, session or PR's worktree; for a PR with
+  // no worktree on this Mac, its repo's main checkout.
+  const startLaneId = useMemo(() => {
+    if (!selected) return null;
+    if (selected.lane) return selected.lane.id;
+    if (selected.kind !== 'pr') return null;
+    return lanes.find((l) => l.repoSlug === selected.pr.repoSlug && l.origin === 'main')?.id ?? null;
+  }, [selected, lanes]);
   const indexByKey = useMemo(() => new Map(visible.map((r, i) => [r.key, i])), [visible]);
   const domIdOf = (key: string) => `row-${indexByKey.get(key) ?? -1}`;
   const domId = (r: Row) => domIdOf(r.key);
@@ -478,6 +545,14 @@ export function App() {
       if (!row) return;
       if (row.kind === 'pr') {
         openUrl(row.pr.url).catch((e: unknown) => setToast(String(e)));
+        return;
+      }
+      if (row.kind === 'todo') {
+        // A todo opens its agent where it lives: the live one, else the latest. Without one,
+        // it's time to start one.
+        const s = row.sessions.find((x) => x.session.live) ?? row.sessions[0];
+        if (s) open(s.lane, s.session.openTarget);
+        else setNewSession({ laneId: row.lane?.id ?? null, todo: row.todo.id, prompt: todoPrompt(row.todo) });
         return;
       }
       open(row.lane, row.kind === 'agent' ? row.session.openTarget : row.lane.defaultTarget);
@@ -535,6 +610,208 @@ export function App() {
     return () => window.clearTimeout(id);
   }, [undo]);
 
+  /** Opens the new-session sheet for a todo: in its worktree, with the todo as the prompt. */
+  const startForTodo = (r: TodoItem) => setNewSession({ laneId: r.lane?.id ?? selectedLane?.id ?? null, todo: r.todo.id, prompt: todoPrompt(r.todo) });
+
+  /** Shows a todo in the Todo view, in its project, with nothing hiding it. */
+  const showTodo = (t: Todo) => {
+    const home = t.project && projects.some((p) => p.name === t.project) ? t.project : ALL_PROJECTS;
+    if (current !== ALL_PROJECTS && current !== home) pickProject(home);
+    setView('todo');
+    setBayFilter(null);
+    setLabelFilter(null);
+    setQuery('');
+    if (t.status === 'done') setShowDoneTodos(true);
+    setSelectedKey(`todo:${t.id}`);
+  };
+
+  /** Adds a todo from the box at the top of the list, linked to what it was made from. */
+  const createTodo = (title: string, context: ComposerContext | null) => {
+    const lane = context?.worktree ? laneById.get(context.worktree) : undefined;
+    const project = current !== ALL_PROJECTS ? current : (lane?.project ?? '');
+    const t = newTodo(
+      {
+        title,
+        project,
+        worktrees: context?.worktree ? [context.worktree] : [],
+        sessions: context?.session ? [context.session] : [],
+        // Made while a label filter is on, it takes the label, so it stays in view.
+        labels: labelFilter ? [labelFilter] : [],
+      },
+      Date.now(),
+    );
+    runTodo({ op: 'create', todo: t });
+    setSelectedKey(`todo:${t.id}`);
+    setComposer({ text: '', context: null });
+  };
+
+  /** Opens the Todo view with the box at the top ready for a todo linked to `context`. */
+  const newTodoFrom = (context: ComposerContext, title = '') => {
+    setView('todo');
+    setBayFilter(null);
+    setComposer({ text: title, context });
+    setComposerFocus((n) => n + 1);
+  };
+
+  const setTodoStatus = (t: Todo, status: TodoStatus) => runTodo({ op: 'update', id: t.id, patch: { status } });
+
+  /** Deletes a todo; the toast can put it back where it was. */
+  const deleteTodo = (t: Todo) => {
+    const index = todoStore.todos.findIndex((x) => x.id === t.id);
+    const at = todoVisible.findIndex((r) => r.key === `todo:${t.id}`);
+    if (selected?.key === `todo:${t.id}`) setSelectedKey((todoVisible[at + 1] ?? todoVisible[at - 1])?.key ?? null);
+    runTodo({ op: 'delete', id: t.id });
+    setTodoUndo({ message: `Deleted “${t.title || 'Untitled'}”.`, undo: () => runTodo({ op: 'restore', todo: t, index }) });
+  };
+
+  /** Moves a todo to insertion point `index` among the rows its section shows. */
+  const moveTodo = (section: TodoStatus, id: string, index: number) => {
+    const shown = todoSecs.find((s) => s.id === section)?.rows.map((r) => r.todo.id) ?? [];
+    const all = todoStore.todos.map((t) => t.id);
+    const next = reorderPinned(all, shown, id, index);
+    if (next !== all) runTodo({ op: 'order', ids: next });
+  };
+
+  const labelsRef = useRef(todoStore.labels);
+  labelsRef.current = todoStore.labels;
+  /** Deletes a label everywhere; the toast can bring it back where it was. */
+  const deleteLabel = (label: Label) => {
+    const at = todoStore.labels.findIndex((l) => l.id === label.id);
+    runTodo({ op: 'labels', labels: todoStore.labels.filter((l) => l.id !== label.id) });
+    if (labelFilter === label.id) setLabelFilter(null);
+    setTodoUndo({
+      message: `Deleted the label “${label.name}”.`,
+      undo: () => {
+        const labels = labelsRef.current.filter((l) => l.id !== label.id);
+        labels.splice(Math.min(at, labels.length), 0, label);
+        runTodo({ op: 'labels', labels });
+      },
+    });
+  };
+
+  /** A label's right-click menu, in the label picker: its color, rename, delete. */
+  const labelMenu = (label: Label, rename: () => void) => {
+    void showContextMenu([
+      {
+        label: 'Color',
+        items: LABEL_COLORS.map((c) => ({
+          label: COLOR_WORD[c],
+          checked: label.color === c,
+          run: () => runTodo({ op: 'labels', labels: labelsRef.current.map((l) => (l.id === label.id ? { ...l, color: c } : l)) }),
+        })),
+      },
+      { label: 'Rename…', run: rename },
+      'separator',
+      { label: 'Delete label', run: () => deleteLabel(label) },
+    ]).catch((e: unknown) => setToast(String(e)));
+  };
+
+  /** The labels as checkmarks that put them on a todo or take them off. */
+  const labelItems = (t: Todo): MenuSpec =>
+    todoStore.labels.map((l) => ({
+      label: l.name,
+      checked: t.labels.includes(l.id),
+      run: () => runTodo({ op: 'update', id: t.id, patch: { labels: t.labels.includes(l.id) ? t.labels.filter((x) => x !== l.id) : [...t.labels, l.id] } }),
+    }));
+
+  /** Projects a todo can move to, the one it's in checked. */
+  const projectItems = (t: Todo): MenuSpec =>
+    projects
+      .filter((p) => p.name !== ELSEWHERE)
+      .map((p) => ({ label: p.name, checked: t.project === p.name, run: () => runTodo({ op: 'update', id: t.id, patch: { project: p.name } }) }));
+
+  /** Copies a todo as the prompt it would start a session with, images as their paths. */
+  const copyPrompt = (t: Todo) => {
+    expandImages(todoPrompt(t))
+      .then((text) => copy(text, 'todo as a prompt'))
+      .catch((e: unknown) => setToast(String(e)));
+  };
+
+  /** A todo's right-click menu. */
+  const todoMenu = (r: TodoItem) => {
+    const t = r.todo;
+    const agent = r.sessions.find((x) => x.session.live) ?? r.sessions[0];
+    void showContextMenu([
+      { label: 'Start session…', run: () => startForTodo(r) },
+      ...(agent ? [{ label: `Open ${agent.session.account}: ${agent.session.title.slice(0, 48)}`, run: () => open(agent.lane, agent.session.openTarget) }] : []),
+      'separator',
+      ...STATUSES.map((st) => ({ label: STATUS_WORD[st], checked: t.status === st, run: () => setTodoStatus(t, st) })),
+      'separator',
+      { label: 'Labels', items: labelItems(t) },
+      { label: 'Move to project', items: projectItems(t) },
+      'separator',
+      { label: 'Copy as prompt', run: () => copyPrompt(t) },
+      'separator',
+      { label: 'Delete todo', run: () => deleteTodo(t) },
+    ]).catch((e: unknown) => setToast(String(e)));
+  };
+
+  /** The panel's ⋯ menu. */
+  const todoMoreMenu = (r: TodoItem, at: { x: number; y: number }) => {
+    const t = r.todo;
+    void showContextMenu(
+      [
+        { label: 'Move to project', items: projectItems(t) },
+        { label: 'Copy as prompt', run: () => copyPrompt(t) },
+        'separator',
+        { label: 'Delete todo', run: () => deleteTodo(t) },
+      ],
+      at,
+    ).catch((e: unknown) => setToast(String(e)));
+  };
+
+  /** Link…: the project's worktrees (pinned first) and recent sessions a todo isn't linked to. */
+  const todoLinkMenu = (r: TodoItem, at: { x: number; y: number }) => {
+    const t = r.todo;
+    const inProjectLanes = lanes.filter((l) => !l.hidden && (t.project ? l.project === t.project : inProject(l, current)));
+    const pinnedFirst = [...lanePins.keys.flatMap((id) => inProjectLanes.filter((l) => l.id === id)), ...inProjectLanes.filter((l) => !lanePins.set.has(l.id)).sort((a, b) => b.lastActivity - a.lastActivity)];
+    const worktreeItems = pinnedFirst
+      .filter((l) => !t.worktrees.includes(l.id))
+      .slice(0, 20)
+      .map((l) => ({
+        label: l.branch && l.branch !== l.callsign ? `${l.callsign} · ${l.branch}` : l.callsign,
+        run: () => runTodo({ op: 'link', id: t.id, worktree: l.id, linked: true }),
+      }));
+    const sessionItems = inProjectLanes
+      .flatMap((lane) => lane.sessions.filter((s) => !s.visitor && !s.archived && !t.sessions.includes(s.key)).map((session) => ({ lane, session })))
+      .sort((a, b) => b.session.lastActivity - a.session.lastActivity)
+      .slice(0, 20)
+      .map(({ lane, session }) => ({
+        label: `${session.account}: ${session.title.slice(0, 56)} (${lane.callsign})`,
+        run: () => runTodo({ op: 'link', id: t.id, session: session.key, linked: true }),
+      }));
+    void showContextMenu(
+      [
+        { label: 'Worktree', items: worktreeItems },
+        { label: 'Session', items: sessionItems },
+      ],
+      at,
+    ).catch((e: unknown) => setToast(String(e)));
+  };
+
+  /**
+   * "Add to todo" for a session's or a worktree's menu: the project's open todos it isn't on,
+   * newest first, and a new one; then taking it off the todos it's on.
+   */
+  const todoMenuItems = (project: string, link: { worktree?: string; session?: string }, context: ComposerContext, title = ''): MenuSpec => {
+    const on = todoStore.todos.filter((t) => (link.session ? t.sessions.includes(link.session) : t.worktrees.includes(link.worktree ?? '')));
+    const open = todoStore.todos
+      .filter((t) => t.status !== 'done' && !on.includes(t) && (!t.project || t.project === project))
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .slice(0, 15);
+    return [
+      {
+        label: 'Add to todo',
+        items: [
+          ...open.map((t) => ({ label: t.title || 'Untitled', run: () => runTodo({ op: 'link', id: t.id, ...link, linked: true }) })),
+          ...(open.length > 0 ? ['separator' as const] : []),
+          { label: 'New todo…', run: () => newTodoFrom(context, title) },
+        ],
+      },
+      ...on.map((t) => ({ label: `Remove from todo “${(t.title || 'Untitled').slice(0, 40)}”`, run: () => runTodo({ op: 'link', id: t.id, ...link, linked: false }) })),
+    ];
+  };
+
   /** A PR's right-click menu. */
   const prMenu = useCallback(
     (r: PrRowItem) => {
@@ -560,6 +837,8 @@ export function App() {
    * it shows: Sessions pins the session; the board and the sidebar, lists of worktrees, pin the
    * session's worktree.
    */
+  const todoItemsRef = useRef(todoMenuItems);
+  todoItemsRef.current = todoMenuItems;
   const sessionMenu = useCallback(
     (lane: Lane, s: Session, pin: 'session' | 'worktree') => {
       const target = lane.targets.find((t) => t.id === s.openTarget);
@@ -570,6 +849,8 @@ export function App() {
       void showContextMenu([
         { label: target?.label ?? 'Open', run: () => open(lane, s.openTarget) },
         { label: 'New session here…', run: () => setNewSession({ laneId: lane.id }) },
+        'separator',
+        ...todoItemsRef.current(lane.project, { session: s.key }, { session: s.key, worktree: lane.id, label: `${s.account} in ${lane.callsign}` }, s.title),
         'separator',
         ...(s.archived ? [] : [pinItem]),
         { label: s.archived ? 'Unarchive' : s.harness === 'codex' ? 'Archive in Codex' : 'Archive', run: () => setArchived(s.key, !s.archived, s.title) },
@@ -593,6 +874,8 @@ export function App() {
         { label: main?.label ?? 'Open', run: () => open(lane, lane.defaultTarget) },
         ...more,
         { label: 'New session here…', run: () => setNewSession({ laneId: lane.id }) },
+        'separator',
+        ...todoItemsRef.current(lane.project, { worktree: lane.id }, { worktree: lane.id, label: lane.callsign }),
         'separator',
         { label: lanePins.set.has(lane.id) ? 'Unpin worktree' : 'Pin worktree', run: () => toggleLanePin(lane) },
         'separator',
@@ -664,7 +947,7 @@ export function App() {
     if (current !== ALL_PROJECTS && current !== home) pickProject(home);
     setQuery('');
     if (lane && session) {
-      if (view === 'prs') setView('worktrees');
+      if (view === 'prs' || view === 'todo') setView('worktrees');
       setBayFilter(null);
       // Its own row in Sessions, its line on its worktree's row on the board.
       setSelectedKey(`${lane.id}::${session.key}`);
@@ -676,6 +959,40 @@ export function App() {
   };
   useEffect(() => onReveal((r) => reveal.current(r)), []);
 
+  // The Todo view's own keys, bound fresh each render so they see the rows as they are. N adds a
+  // todo, X marks one done (or reopens it), Delete deletes it, ⌥↑ ⌥↓ move it.
+  const todoKeys = useRef<(e: KeyboardEvent, key: string) => boolean>(() => false);
+  todoKeys.current = (e, key) => {
+    if (view !== 'todo' || e.metaKey || e.ctrlKey) return false;
+    if (key === 'n' && !e.altKey) {
+      e.preventDefault();
+      setComposerFocus((n) => n + 1);
+      return true;
+    }
+    if (selected?.kind !== 'todo') return false;
+    const t = selected.todo;
+    if (key === 'x' && !e.altKey) {
+      setTodoStatus(t, t.status !== 'done' ? 'done' : t.sessions.length > 0 ? 'in-progress' : 'todo');
+      return true;
+    }
+    // Only from the list: a button in the panel keeps the keyboard's other uses.
+    const onList = !document.activeElement || document.activeElement === document.body || !!document.activeElement.closest('.ca-board-list');
+    if ((e.key === 'Backspace' || e.key === 'Delete') && onList) {
+      e.preventDefault();
+      deleteTodo(t);
+      return true;
+    }
+    if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown') && t.status !== 'done') {
+      e.preventDefault();
+      const rows = todoSecs.find((s) => s.id === t.status)?.rows ?? [];
+      const i = rows.findIndex((r) => r.key === selected.key);
+      // Insertion points: one up is the row's own index less one; one down is two past it.
+      if (i >= 0) moveTodo(t.status, t.id, e.key === 'ArrowUp' ? i - 1 : i + 2);
+      return true;
+    }
+    return false;
+  };
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const typing = document.activeElement === searchRef.current;
@@ -683,6 +1000,8 @@ export function App() {
       const key = e.key.toLowerCase();
       // The new-session sheet has the keyboard while it's open.
       if (newSession) return;
+      // So does a text field, a todo's title or description say, but for the window's own ⌘ keys.
+      if (inField(document.activeElement, searchRef.current) && !(mod && (key === 'k' || key === 'p' || e.key === ','))) return;
       if (mod && e.key === ',') {
         e.preventDefault();
         openSettings();
@@ -704,7 +1023,9 @@ export function App() {
       // ⌘⇧N is File › New window's, so it works with no window open too.
       if (mod && !e.shiftKey && key === 'n') {
         e.preventDefault();
-        setNewSession({ laneId: selectedLane?.id ?? null });
+        // On a todo, the session is for the todo.
+        if (selected?.kind === 'todo') startForTodo(selected);
+        else setNewSession({ laneId: startLaneId });
         return;
       }
       if (typing) {
@@ -734,8 +1055,9 @@ export function App() {
         setView(VIEWS[(i + 1) % VIEWS.length].id);
         return;
       }
+      if (todoKeys.current(e, key)) return;
       // P pins what the view lists: worktrees on the board, sessions in Sessions.
-      if (key === 'p' && !mod && selected && selected.kind !== 'pr') {
+      if (key === 'p' && !mod && selected && selected.kind !== 'pr' && selected.kind !== 'todo') {
         if (view === 'worktrees') toggleLanePin(selected.lane);
         else if (selected.kind === 'agent' && !selected.session.archived) sessionPins.toggle(selected.session.key);
         return;
@@ -752,7 +1074,7 @@ export function App() {
           movePinnedSession(selected.session.key, step(pinnedRows.findIndex((r) => r.key === selected.key)));
           return;
         }
-        if (view === 'worktrees' && selected && selected.kind !== 'pr' && lanePins.set.has(selected.lane.id)) {
+        if (view === 'worktrees' && selected && selected.kind !== 'pr' && selected.kind !== 'todo' && lanePins.set.has(selected.lane.id)) {
           e.preventDefault();
           movePinnedLane(selected.lane.id, step(pinnedLaneRows.findIndex((r) => r.key === selected.lane.id)));
           return;
@@ -800,7 +1122,7 @@ export function App() {
         e.preventDefault();
         copy(lane?.branch, 'branch name');
       } else if (key === 'e' && !mod) {
-        const sessions = selected?.kind === 'agent' ? [selected.session] : (lane?.sessions ?? []);
+        const sessions = selected?.kind === 'agent' ? [selected.session] : selected?.kind === 'todo' ? selected.sessions.map((x) => x.session) : (lane?.sessions ?? []);
         void markSeen(sessions.filter((s) => s.status === 'unread').map((s) => s.key));
       } else if (key === 'g' && !mod) {
         gPending.current = true;
@@ -809,7 +1131,7 @@ export function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [visible, selected, selectedLane, move, open, openRow, copy, settings, openSettings, newSession, view, setView, toggleLanePin, sessionPins, lanePins, pinnedRows, pinnedLaneRows, shownBays, movePinnedSession, movePinnedLane, current, setArchived]);
+  }, [visible, selected, selectedLane, startLaneId, move, open, openRow, copy, settings, openSettings, newSession, view, setView, toggleLanePin, sessionPins, lanePins, pinnedRows, pinnedLaneRows, shownBays, movePinnedSession, movePinnedLane, current, setArchived]);
 
   /** The sheet's Start. The sheet closes and a spinner shows while the harness takes the
    *  session; then it says what's next, and selects the session when it shows up if Codealong
@@ -826,7 +1148,7 @@ export function App() {
           const error = String(e).replace(/^Error: /, '');
           // A sheet opened meanwhile keeps its place; the failure shows as a toast.
           if (sheetOpen.current) setToast(error);
-          else setNewSession({ laneId: spec.laneId, draft, error });
+          else setNewSession({ laneId: spec.laneId, todo: draft.todo, draft, error });
         });
     },
     [track],
@@ -841,9 +1163,11 @@ export function App() {
     for (const lane of lanes) {
       const session = lane.sessions.find((s) => s.key === pendingSession.key);
       if (!session) continue;
+      setPendingSession(null);
+      // Started from a todo: the todo stays selected, and its panel shows the new session.
+      if (view === 'todo') return;
       if (view === 'prs') setView('worktrees');
       focusSession(lane, session);
-      setPendingSession(null);
       return;
     }
   }, [lanes, pendingSession]);
@@ -901,6 +1225,10 @@ export function App() {
       pinned={drag != null}
       onContextMenu={() => laneMenu(r.lane)}
       onAgentMenu={(s) => sessionMenu(r.lane, s, 'worktree')}
+      todos={todoLinks.byLane.get(r.lane.id)}
+      worktreeTodos={todoLinks.byWorktree.get(r.lane.id)}
+      todosFor={(k) => todoLinks.bySession.get(k)}
+      onShowTodo={showTodo}
       {...drag}
     />
   );
@@ -933,7 +1261,12 @@ export function App() {
             <Icon name="capsule-horizontal" size={16} />
           </button>
         </div>
-        <Button size="sm" icon="plus" title="Start a session in the selected worktree (⌘N)" onClick={() => setNewSession({ laneId: selectedLane?.id ?? null })}>
+        <Button
+          size="sm"
+          icon="plus"
+          title={selected?.kind === 'todo' ? 'Start a session for the selected todo (⌘N)' : 'Start a session in the selected worktree (⌘N)'}
+          onClick={() => (selected?.kind === 'todo' ? startForTodo(selected) : setNewSession({ laneId: startLaneId }))}
+        >
           New session
         </Button>
       </div>
@@ -945,8 +1278,8 @@ export function App() {
         onSignIn={startSignIn}
       />
       <div
-        className={['ca-win-body', view === 'prs' && 'is-prs'].filter(Boolean).join(' ')}
-        style={{ '--sidebar-w': widthVar(sidebarWidth), '--panel-w': widthVar(view === 'prs' ? prPanelWidth : inspectorWidth) } as CSSProperties}
+        className={['ca-win-body', view === 'prs' && 'is-prs', view === 'todo' && 'is-todo'].filter(Boolean).join(' ')}
+        style={{ '--sidebar-w': widthVar(sidebarWidth), '--panel-w': widthVar(view === 'prs' ? prPanelWidth : view === 'todo' ? todoPanelWidth : inspectorWidth) } as CSSProperties}
       >
         <nav className="ca-side" aria-label="Sidebar">
           <div className="ca-label ca-side-label">Inbox</div>
@@ -1012,20 +1345,32 @@ export function App() {
                   onClick={() => setView(v.id)}
                 >
                   {v.label}
-                  <span className="ca-segctl-count">{v.id === 'worktrees' ? recentLanes.length : v.id === 'sessions' ? shownSessionCount : openPrCount}</span>
+                  <span className="ca-segctl-count">{v.id === 'worktrees' ? recentLanes.length : v.id === 'sessions' ? shownSessionCount : v.id === 'todo' ? openTodoCount : openPrCount}</span>
                   {v.id === 'prs' && requestedCount > 0 && <span className="ca-segctl-badge">{requestedCount}</span>}
                 </button>
               ))}
             </div>
-            <div className="ca-segctl ca-agefilter" role="radiogroup" aria-label="Active in">
-              {AGES.map((a) => (
-                <button key={a.id} type="button" role="radio" aria-checked={age === a.id} className={age === a.id ? 'is-on' : undefined} title={a.title} onClick={() => setAge(a.id)}>
-                  {a.label}
-                </button>
-              ))}
-            </div>
+            {view === 'todo' ? (
+              <div className="ca-agefilter ca-todofilter">
+                {labelFilter && labelById.get(labelFilter) && (
+                  <button type="button" className="ca-labelchip ca-labelchip--button ca-labelfilter" title="Show every label" onClick={() => setLabelFilter(null)}>
+                    <LabelDot label={labelById.get(labelFilter) as Label} />
+                    <span>{labelById.get(labelFilter)?.name}</span>
+                    <Icon name="x" size={10} stroke={2.25} />
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="ca-segctl ca-agefilter" role="radiogroup" aria-label="Active in">
+                {AGES.map((a) => (
+                  <button key={a.id} type="button" role="radio" aria-checked={age === a.id} className={age === a.id ? 'is-on' : undefined} title={a.title} onClick={() => setAge(a.id)}>
+                    {a.label}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
-          {view !== 'prs' && (
+          {view !== 'prs' && view !== 'todo' && (
             <div className="ca-board-cols ca-label" aria-hidden="true">
               <span />
               <span>Worktree</span>
@@ -1066,11 +1411,53 @@ export function App() {
           )}
           <div
             role="listbox"
-            aria-label={view === 'sessions' ? 'Sessions' : view === 'prs' ? 'Pull requests' : 'Agents and worktrees'}
+            aria-label={view === 'sessions' ? 'Sessions' : view === 'prs' ? 'Pull requests' : view === 'todo' ? 'Todos' : 'Agents and worktrees'}
             aria-activedescendant={selected ? domId(selected) : undefined}
             tabIndex={0}
             className="ca-board-list"
           >
+            {view === 'todo' && board && (
+              <TodoView
+                sections={todoSecs}
+                now={now}
+                selectedKey={selected?.key ?? null}
+                domId={domId}
+                showProject={current === ALL_PROJECTS}
+                canReorder
+                onSelect={(r) => setSelectedKey(r.key)}
+                onOpen={(r) => {
+                  setSelectedKey(r.key);
+                  openRow(r);
+                }}
+                onContextMenu={(r) => {
+                  setSelectedKey(r.key);
+                  todoMenu(r);
+                }}
+                onOpenSession={(lane, session) => open(lane, session.openTarget)}
+                onFilterLabel={(l) => setLabelFilter(labelFilter === l.id ? null : l.id)}
+                onMove={moveTodo}
+                showDone={showDoneTodos}
+                onToggleDone={() => setShowDoneTodos(!showDoneTodos)}
+                composer={
+                  <TodoComposer
+                    ref={composerRef}
+                    value={composer.text}
+                    onChange={(text) => setComposer((c) => ({ ...c, text }))}
+                    context={composer.context}
+                    onClearContext={() => setComposer((c) => ({ ...c, context: null }))}
+                    onCreate={(title) => createTodo(title, composer.context)}
+                    where={current === ALL_PROJECTS ? (composer.context?.worktree ? (laneById.get(composer.context.worktree)?.project ?? null) : 'no project') : null}
+                  />
+                }
+                empty={
+                  projectTodos.length === 0
+                    ? 'No todos yet. Add work you mean to hand an agent: a title, labels, screenshots. When it’s time, start a session from it, and the session is linked to it.'
+                    : query
+                      ? `No todos in ${current} match “${query}”.`
+                      : 'No todos here right now.'
+                }
+              />
+            )}
             {view === 'prs' && (
               <PrsView
                 sections={prSecs}
@@ -1107,6 +1494,8 @@ export function App() {
                 archived={archivedItems}
                 showArchived={showArchived}
                 onToggleArchived={() => setShowArchived(!showArchived)}
+                todosFor={(k) => todoLinks.bySession.get(k)}
+                onShowTodo={showTodo}
               />
             )}
             {view === 'worktrees' && pinnedLaneRows.length > 0 && (
@@ -1141,8 +1530,32 @@ export function App() {
             })}
           </div>
         </main>
-        <Resizer panel="after" cssVar="--panel-w" onResize={view === 'prs' ? setPrPanelWidth : setInspectorWidth} />
-        {view === 'prs' ? (
+        <Resizer panel="after" cssVar="--panel-w" onResize={view === 'prs' ? setPrPanelWidth : view === 'todo' ? setTodoPanelWidth : setInspectorWidth} />
+        {view === 'todo' ? (
+          selected?.kind === 'todo' ? (
+            <TodoPanel
+              key={selected.todo.id}
+              item={selected}
+              labels={todoStore.labels}
+              lanes={laneById}
+              now={now}
+              onRun={runTodo}
+              onStart={() => startForTodo(selected)}
+              onOpenSession={(lane, session) => open(lane, session.openTarget)}
+              onShowLane={focusLane}
+              onLaneMenu={(lane) => laneMenu(lane)}
+              onSessionMenu={(lane, s) => sessionMenu(lane, s, 'worktree')}
+              onLinkMenu={(at) => todoLinkMenu(selected, at)}
+              onMoreMenu={(at) => todoMoreMenu(selected, at)}
+              onLabelMenu={labelMenu}
+              onError={setToast}
+            />
+          ) : (
+            <aside className="ca-insp ca-insp--empty">
+              <p>{projectTodos.length ? 'Select a todo to see its description, labels and the sessions on it.' : 'Todos are work you mean to hand an agent. Add one on the left.'}</p>
+            </aside>
+          )
+        ) : view === 'prs' ? (
           selected?.kind === 'pr' ? (
             <PrInspector
               key={selected.pr.key}
@@ -1168,6 +1581,9 @@ export function App() {
             now={now}
             onOpen={(id) => open(selectedLane, id)}
             onNewSession={() => selectedLane && setNewSession({ laneId: selectedLane.id })}
+            todos={selectedLane ? todoLinks.byLane.get(selectedLane.id) : undefined}
+            todosFor={(k) => todoLinks.bySession.get(k)}
+            onShowTodo={showTodo}
           />
         )}
       </div>
@@ -1194,6 +1610,9 @@ export function App() {
           pinned={lanePins.keys}
           usage={board?.usage ?? []}
           now={now}
+          todo={newSession.todo ? (todoStore.todos.find((t) => t.id === newSession.todo) ?? null) : null}
+          prompt={newSession.prompt}
+          onError={setToast}
           onClose={closeNewSession}
           onStart={startFromSheet}
         />
@@ -1214,6 +1633,22 @@ export function App() {
             onClick={() => {
               setArchived(undo.key, false, undo.title);
               setUndo(null);
+            }}
+          >
+            Undo
+          </button>
+        </div>
+      )}
+      {todoUndo && !toast && !undo && busy.length === 0 && (
+        <div className="ca-toast" role="status">
+          <Icon name="trash" size={16} />
+          <span>{todoUndo.message}</span>
+          <button
+            type="button"
+            className="ca-toast-action"
+            onClick={() => {
+              todoUndo.undo();
+              setTodoUndo(null);
             }}
           >
             Undo
