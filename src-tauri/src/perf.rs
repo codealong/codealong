@@ -92,6 +92,8 @@ pub struct Counters {
     lanes: HashMap<String, u64>,
     sessions: HashMap<String, u64>,
     prs: HashMap<String, u64>,
+    /// The rest of the board, part by part, to name what else made a publish differ.
+    rest: HashMap<String, u64>,
 }
 
 impl Counters {
@@ -110,13 +112,31 @@ impl Counters {
         let lanes = diff(&mut self.lanes, board.lanes.iter().map(|l| (l.id.clone(), hash_of(&l))));
         let sessions = diff(&mut self.sessions, board.lanes.iter().flat_map(|l| l.sessions.iter()).map(|s| (s.key.clone(), hash_of(&s))));
         let prs = diff(&mut self.prs, board.prs.iter().map(|p| (p.key.clone(), hash_of(&p))));
+        let parts = [
+            ("apps", hash_of(&board.apps)),
+            ("projects", hash_of(&board.projects)),
+            ("warnings", hash_of(&board.warnings)),
+            ("loading", hash_of(&board.loading)),
+            ("githubAt", hash_of(&board.github_at)),
+            ("usage", hash_of(&board.usage)),
+            ("pinned", hash_of(&board.pinned)),
+            ("pinnedWorktrees", hash_of(&board.pinned_worktrees)),
+            ("githubLogin", hash_of(&board.github_login)),
+            ("theme", hash_of(&board.theme)),
+        ];
+        let mut rest: Vec<&str> = parts.iter().filter(|(k, h)| self.rest.get(*k) != Some(h)).map(|(k, _)| *k).collect();
+        self.rest = parts.iter().map(|(k, h)| (k.to_string(), *h)).collect();
+        if rest.is_empty() {
+            rest.push("nothing else");
+        }
         let since = since_last.map(|d| format!("{} ms", d.as_millis())).unwrap_or_else(|| "first".into());
         let line = format!(
-            "publish {} KB after {since}: changed {lanes} of {} lanes, {sessions} of {} sessions, {prs} of {} prs; compose {} ms, hash {} ms, emit {} ms; since last: {} fs batches ({} paths, {} ms), {} git runs",
+            "publish {} KB after {since}: changed {lanes} of {} lanes, {sessions} of {} sessions, {prs} of {} prs, {}; compose {} ms, hash {} ms, emit {} ms; since last: {} fs batches ({} paths, {} ms), {} git runs",
             bytes / 1024,
             board.lanes.len(),
             self.sessions.len(),
             board.prs.len(),
+            rest.join(", "),
             compose.as_millis(),
             hash.as_millis(),
             emit.as_millis(),
