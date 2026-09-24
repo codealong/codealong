@@ -47,6 +47,8 @@ The stub records every command in `window.__calls`, so a check can click, double
 right-click and assert what the app would have sent. `PREVIEW_SCHEME=dark` renders as if macOS
 were in dark mode; check UI changes in both. Native menus, window creation and real opens
 can't be seen this way; say so rather than claiming they were checked.
+`scripts/preview.sh bar` renders the floating bar on a stand-in desktop (`PREVIEW_SIZE=1600,64` for
+a wider screen).
 
 Done means: typecheck and tests pass, the engine builds without warnings, UI changes are
 previewed, and the app is rebuilt and relaunched.
@@ -154,6 +156,19 @@ Ghostty (1.3, AppleScript dictionary in the app bundle)
   `<glyph> <title>` and animates the glyph while working, so titles are only a fallback.
 - macOS doesn't let a background process bring an app forward: `activate` from a shell leaves
   Ghostty behind; from a click in Codealong it works.
+
+Tauri and macOS (from the Tauri 2.11 and tao 0.35 sources)
+
+- Tauri doesn't say whether a window can be seen. `bar.rs` reads `NSWindow.occlusionState`
+  through objc2: visible means some part is on screen, so not minimized, hidden, on another
+  Space or fully covered.
+- A plain JS `listen()` hears events sent to any window with `emit_to`; listen on the window
+  (`getCurrentWebviewWindow().listen`) for the ones meant for it.
+- `show()` orders a window front without activating the app; `set_focus()` activates it.
+  Commands without `async` run on the main thread.
+- Transparent windows need `macOSPrivateApi` in tauri.conf.json and the `macos-private-api`
+  feature. `data-tauri-drag-region="deep"` drags from anywhere inside except controls.
+- WebKit holds back ResizeObserver and animation frames while a window is hidden.
 
 GitHub
 

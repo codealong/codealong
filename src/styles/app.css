@@ -1411,3 +1411,124 @@ button {
   justify-content: flex-end;
   gap: 8px;
 }
+
+/* ---- Floating bar: its own window, transparent, sized to the bar plus 12px for its shadow ---- */
+html.is-bar,
+html.is-bar body {
+  background: transparent;
+}
+.ca-hud {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: max-content;
+  padding: 5px;
+  box-sizing: border-box;
+  border-radius: var(--radius-pill);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-hud);
+}
+.ca-hud-mark {
+  appearance: none;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  cursor: default;
+}
+.ca-hud-mark:hover {
+  background: var(--surface-hover);
+}
+.ca-hud-divider {
+  flex: none;
+  width: 1px;
+  height: 16px;
+  background: var(--line);
+}
+.ca-hud-pill {
+  appearance: none;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 180px;
+  height: 24px;
+  padding: 0 10px 0 8px;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--neutral-tint);
+  color: var(--ink-2);
+  font: 500 12px/16px var(--font-sans);
+  white-space: nowrap;
+  cursor: default;
+  transition: box-shadow var(--dur-fast) ease-out;
+}
+.ca-hud-pill > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ca-hud-pill:hover {
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+.ca-hud-pill:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+.ca-hud-pill.is-needs,
+.ca-hud-pill.is-reviews {
+  background: var(--attn-tint);
+  color: var(--attn);
+}
+.ca-hud-pill.is-error {
+  background: var(--alert-tint);
+  color: var(--alert);
+}
+.ca-hud-pill.is-unread {
+  background: var(--unread-tint);
+  color: var(--unread);
+}
+.ca-hud-fold {
+  padding: 0 9px 0 7px;
+  font: 500 11px/14px var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.ca-hud-note {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 520px;
+  padding: 0 8px 0 2px;
+  border: 0;
+  background: transparent;
+  color: var(--ink-3);
+  font: 400 12px/16px var(--font-sans);
+  white-space: nowrap;
+  cursor: default;
+}
+.ca-hud-note > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ca-hud-note.is-error {
+  color: var(--alert);
+}
+.ca-hud-measure {
+  position: fixed;
+  top: -100px;
+  left: 0;
+  display: flex;
+  visibility: hidden;
+  pointer-events: none;
+}

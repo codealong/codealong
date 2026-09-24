@@ -1,0 +1,358 @@
+// The floating bar's page: pills for the sessions that need you, whose turn ended, or that are
+// running, in every project, and one for PRs waiting on your review. The engine shows the window
+// whenever no board window can be seen; the page sizes the window to itself. Pills that don't
+// fit fold into one per group that lists them. Clicking a pill opens the session where it lives,
+// right-clicking shows its menu, and the mark brings Codealong forward.
+
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react';
+import { getCurrentWindow } from '@tauri-apps/api/window';
+import { fitBar, getBoard, markSeen, onBoard, openTarget, setBarOn, showMain } from '../api';
+import { barItems, fitGroups, GROUPS, plain, reviewRequests, type BarItem, type Group, type GroupFit } from '../bar';
+import { showContextMenu, type MenuSpec } from '../contextMenu';
+import type { Board, PrItem, Status } from '../types';
+import { Icon, Mark, STATUS_WORD, StatusGlyph } from './primitives';
+import { applyTheme } from './ThemeSwitch';
+
+/** Room around the bar for its shadow: the window is this much bigger on every side. */
+const MARGIN = 12;
+/** The widest the bar gets, and the room it leaves at the screen's sides. */
+const MAX_WIDTH = 900;
+const SCREEN_ROOM = 48;
+/** Sizes from app.css (.ca-hud) that decide what fits. */
+const GAP = 4;
+const DIVIDER = 1;
+const PADDING = 5;
+const MARK = 24;
+/** A folded pill is measured holding this, so a real count never outgrows it. */
+const FOLD_SAMPLE = '+88';
+
+const GROUP_GLYPH: Record<Group, Status> = { needs: 'needs', unread: 'unread', working: 'working' };
+const GROUP_WORD: Record<Group, string> = { needs: 'need you', unread: 'your turn', working: 'working' };
+
+function useNow(everyMs: number): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), everyMs);
+    return () => window.clearInterval(id);
+  }, [everyMs]);
+  return now;
+}
+
+/** The pill's class for a status: errors are red, the rest of Needs you amber. */
+function tone(status: Status): string {
+  return status === 'error' ? 'is-error' : `is-${status}`;
+}
+
+/** The session menu's open item: its lane's label for it, or one from how the session opens
+ *  (lanes list targets for their first few sessions only). */
+function openLabel(i: BarItem, terminal: string): string {
+  const target = i.lane.targets.find((t) => t.id === i.session.openTarget);
+  if (target) return target.label;
+  const how: Record<string, string> = {
+    focus: `Show in ${terminal}`,
+    attach: `Attach in ${terminal}`,
+    resume: `Resume in ${terminal}`,
+    'claude-app': 'Open in Claude app',
+    codex: 'Open in Codex',
+  };
+  return how[i.session.openTarget.split('|')[2]] ?? 'Open';
+}
+
+function sessionTip(i: BarItem, now: number): string {
+  const s = i.session;
+  const where = `${STATUS_WORD[s.status]} · ${i.lane.callsign} · ${s.account}`;
+  return [s.title, where, s.detail ? plain(s.detail, now) : ''].filter(Boolean).join('\n');
+}
+
+function SessionPill({ item, now, onOpen, onMenu, measure }: { item: BarItem; now: number; onOpen?: () => void; onMenu?: () => void; measure?: boolean }) {
+  const s = item.session;
+  return (
+    <button
+      type="button"
+      className={`ca-hud-pill ${tone(s.status)}`}
+      title={measure ? undefined : sessionTip(item, now)}
+      data-pill={measure ? item.group : undefined}
+      onClick={onOpen}
+      onContextMenu={
+        onMenu
+          ? (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onMenu();
+            }
+          : undefined
+      }
+    >
+      <StatusGlyph status={s.status} title="" />
+      <span>{s.title}</span>
+    </button>
+  );
+}
+
+function FoldPill({ group, label, title, onOpen, measure }: { group: Group; label: string; title?: string; onOpen?: (e: MouseEvent<HTMLButtonElement>) => void; measure?: boolean }) {
+  return (
+    <button
+      type="button"
+      className={`ca-hud-pill ca-hud-fold is-${group}`}
+      title={title}
+      data-fold={measure ? group : undefined}
+      onClick={onOpen}
+      onContextMenu={
+        onOpen
+          ? (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onOpen(e);
+            }
+          : undefined
+      }
+    >
+      <StatusGlyph status={GROUP_GLYPH[group]} title="" />
+      <span>{label}</span>
+    </button>
+  );
+}
+
+function ReviewsPill({ prs, onOpen, measure }: { prs: PrItem[]; onOpen?: (e: MouseEvent<HTMLButtonElement>) => void; measure?: boolean }) {
+  return (
+    <button
+      type="button"
+      className="ca-hud-pill is-reviews"
+      title={measure ? undefined : prs.map((p) => `#${p.number} ${p.title} · ${p.repo}`).join('\n')}
+      data-reviews={measure ? '' : undefined}
+      onClick={onOpen}
+      onContextMenu={
+        onOpen
+          ? (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onOpen(e);
+            }
+          : undefined
+      }
+    >
+      <Icon name="pr" size={12} stroke={1.75} />
+      <span>{prs.length} to review</span>
+    </button>
+  );
+}
+
+/** Where a menu dropped from a pill goes: under its left edge. */
+function below(e: MouseEvent<HTMLElement>): { x: number; y: number } {
+  const r = e.currentTarget.getBoundingClientRect();
+  return { x: r.left, y: r.bottom + 4 };
+}
+
+export function Bar() {
+  const [board, setBoard] = useState<Board | null>(null);
+  const [fits, setFits] = useState<GroupFit[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  // Fonts load after the first layout; pills are measured again once they have.
+  const [fontsReady, setFontsReady] = useState(false);
+  const now = useNow(30_000);
+  const hud = useRef<HTMLDivElement>(null);
+  const measure = useRef<HTMLDivElement>(null);
+  const drag = useRef<{ x: number; y: number; moved: boolean } | null>(null);
+
+  useEffect(() => {
+    getBoard()
+      .then(setBoard)
+      .catch(() => {});
+    return onBoard(setBoard);
+  }, []);
+
+  useEffect(() => {
+    void document.fonts.ready.then(() => setFontsReady(true));
+  }, []);
+
+  // The theme from config.toml, as in the board's windows.
+  const theme = board?.theme ?? 'system';
+  useEffect(() => applyTheme(theme), [theme]);
+
+  useEffect(() => {
+    if (!error) return;
+    const id = window.setTimeout(() => setError(null), 6000);
+    return () => window.clearTimeout(id);
+  }, [error]);
+
+  const items = useMemo(() => (board ? barItems(board) : []), [board]);
+  const reviews = useMemo(() => (board ? reviewRequests(board) : []), [board]);
+  const byGroup = useMemo(() => {
+    const out: Record<Group, BarItem[]> = { needs: [], unread: [], working: [] };
+    for (const i of items) out[i.group].push(i);
+    return out;
+  }, [items]);
+
+  // Every pill measured at full size, then folded until the bar fits the screen.
+  useLayoutEffect(() => {
+    const el = measure.current;
+    if (!el) return;
+    const width = (sel: string) => el.querySelector<HTMLElement>(sel)?.getBoundingClientRect().width ?? 0;
+    const pills: Record<Group, number[]> = { needs: [], unread: [], working: [] };
+    el.querySelectorAll<HTMLElement>('[data-pill]').forEach((p) => pills[p.dataset.pill as Group].push(p.getBoundingClientRect().width));
+    const fold = { needs: width('[data-fold="needs"]'), unread: width('[data-fold="unread"]'), working: width('[data-fold="working"]') };
+    const room = Math.min(MAX_WIDTH, window.screen.availWidth - SCREEN_ROOM);
+    setFits(fitGroups({ pills, fold, mark: MARK, reviews: reviews.length ? width('[data-reviews]') : 0, gap: GAP, divider: DIVIDER, padding: PADDING }, room));
+  }, [items, reviews, fontsReady]);
+
+  // The window follows the bar's size: after every render, since WebKit holds back resize
+  // notifications while the window is hidden, and on resizes renders don't cause (fonts).
+  const reported = useRef('');
+  const report = useCallback(() => {
+    const r = hud.current?.getBoundingClientRect();
+    if (!r) return;
+    const size = [Math.ceil(r.width) + 2 * MARGIN, Math.ceil(r.height) + 2 * MARGIN];
+    if (size.join('x') === reported.current) return;
+    reported.current = size.join('x');
+    void fitBar(size[0], size[1]);
+  }, []);
+  useLayoutEffect(report);
+  useEffect(() => {
+    if (!hud.current) return;
+    const observer = new ResizeObserver(report);
+    observer.observe(hud.current);
+    return () => observer.disconnect();
+  }, [report]);
+
+  const open = (i: BarItem) => {
+    const target = i.lane.targets.find((t) => t.id === i.session.openTarget);
+    if (target?.disabled) {
+      setError(target.detail ?? `${target.label} isn't available right now.`);
+      return;
+    }
+    openTarget(i.lane.id, i.session.openTarget).catch((e: unknown) => setError(String(e).replace(/^Error: /, '')));
+  };
+
+  const reveal = (i: BarItem) => void showMain({ kind: 'session', laneId: i.lane.id, key: i.session.key });
+
+  const sessionMenu = (i: BarItem) => {
+    const s = i.session;
+    void showContextMenu([
+      { label: `${s.title} · ${i.lane.callsign}`, run: () => {}, enabled: false },
+      'separator',
+      { label: openLabel(i, board?.apps.terminal ?? 'Terminal'), run: () => open(i) },
+      { label: 'Show in Codealong', run: () => reveal(i) },
+      ...(s.status === 'unread' ? [{ label: 'Mark as seen', run: () => void markSeen([s.key]) }] : []),
+    ]);
+  };
+
+  const foldMenu = (group: Group, folded: BarItem[], e: MouseEvent<HTMLButtonElement>) => {
+    const menu: MenuSpec = folded.map((i) => ({ label: `${i.session.title} · ${i.lane.callsign}`, run: () => open(i) }));
+    if (group === 'unread') menu.push('separator', { label: 'Mark these as seen', run: () => void markSeen(folded.map((i) => i.key)) });
+    void showContextMenu(menu, below(e));
+  };
+
+  const reviewsMenu = (e: MouseEvent<HTMLButtonElement>) => {
+    if (reviews.length === 1) {
+      void showMain({ kind: 'pr', key: reviews[0].key });
+      return;
+    }
+    void showContextMenu(
+      reviews.map((p) => ({ label: `#${p.number} ${p.title} · ${p.repo}`, run: () => void showMain({ kind: 'pr', key: p.key }) })),
+      below(e),
+    );
+  };
+
+  const barMenu = () => {
+    const unread = byGroup.unread;
+    void showContextMenu([
+      { label: 'Show Codealong', run: () => void showMain() },
+      ...(unread.length ? [{ label: 'Mark all as seen', run: () => void markSeen(unread.map((i) => i.key)) }] : []),
+      'separator',
+      { label: 'Hide floating bar', run: () => void setBarOn(false) },
+    ]);
+  };
+
+  // What the bar shows, in sections with a divider between each.
+  const sections: ReactNode[][] = [];
+  if (error) {
+    sections.push([
+      <button key="error" type="button" className="ca-hud-note is-error" role="alert" title={error} onClick={() => setError(null)}>
+        <Icon name="alert" size={14} />
+        <span>{error}</span>
+      </button>,
+    ]);
+  } else if (!board) {
+    sections.push([
+      <span key="note" className="ca-hud-note">
+        Reading sessions…
+      </span>,
+    ]);
+  } else if (items.length === 0 && reviews.length === 0) {
+    sections.push([
+      <span key="note" className="ca-hud-note">
+        No agents running
+      </span>,
+    ]);
+  } else {
+    for (const group of GROUPS) {
+      const list = byGroup[group];
+      if (list.length === 0) continue;
+      const f = fits?.find((x) => x.group === group);
+      const shown = list.slice(0, f?.shown ?? list.length);
+      const folded = list.slice(shown.length);
+      sections.push([
+        ...shown.map((i) => <SessionPill key={i.key} item={i} now={now} onOpen={() => open(i)} onMenu={() => sessionMenu(i)} />),
+        ...(folded.length
+          ? [
+              <FoldPill
+                key={`fold-${group}`}
+                group={group}
+                label={shown.length ? `+${folded.length}` : String(folded.length)}
+                title={`${folded.length} ${shown.length ? 'more ' : ''}${GROUP_WORD[group]}:\n${folded.map((i) => i.session.title).join('\n')}`}
+                onOpen={(e) => foldMenu(group, folded, e)}
+              />,
+            ]
+          : []),
+      ]);
+    }
+    if (reviews.length) sections.push([<ReviewsPill key="reviews" prs={reviews} onOpen={reviewsMenu} />]);
+  }
+
+  return (
+    <>
+      <div
+        ref={hud}
+        className="ca-hud"
+        data-tauri-drag-region="deep"
+        onContextMenu={(e) => {
+          e.preventDefault();
+          barMenu();
+        }}
+      >
+        <button
+          type="button"
+          className="ca-hud-mark"
+          title="Show Codealong"
+          onPointerDown={(e) => {
+            if (e.button === 0) drag.current = { x: e.screenX, y: e.screenY, moved: false };
+          }}
+          onPointerMove={(e) => {
+            // The mark doubles as the bar's handle: pressing and moving drags the window.
+            const d = drag.current;
+            if (!d || d.moved || !(e.buttons & 1) || Math.abs(e.screenX - d.x) + Math.abs(e.screenY - d.y) < 4) return;
+            d.moved = true;
+            void getCurrentWindow().startDragging();
+          }}
+          onClick={() => {
+            const moved = drag.current?.moved;
+            drag.current = null;
+            if (!moved) void showMain();
+          }}
+        >
+          <Mark size={16} />
+        </button>
+        {sections.flatMap((section, i) => [<span key={`divider-${i}`} className="ca-hud-divider" aria-hidden="true" />, ...section])}
+      </div>
+      <div ref={measure} className="ca-hud-measure" aria-hidden="true">
+        {items.map((i) => (
+          <SessionPill key={i.key} item={i} now={now} measure />
+        ))}
+        {GROUPS.map((g) => (
+          <FoldPill key={g} group={g} label={FOLD_SAMPLE} measure />
+        ))}
+        {reviews.length > 0 && <ReviewsPill prs={reviews} measure />}
+      </div>
+    </>
+  );
+}

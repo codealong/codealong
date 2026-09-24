@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { showContextMenu } from './contextMenu';
 import { AGENT_BAY, BAYS, buildBays, failingPr, filterByAge, laneInFilter, type BoardRow, type Filter } from './lanes';
-import { approvePr, archiveSession, getBoard, markSeen, onBoard, openConfig, openProjectWindow, openTarget, openUrl, refresh, refreshUsage, reviewInCodex, setPinned, setPinnedWorktrees, setTheme, signIn } from './api';
+import { approvePr, archiveSession, getBoard, markSeen, onBoard, onReveal, openConfig, openProjectWindow, openTarget, openUrl, refresh, refreshUsage, reviewInCodex, setPinned, setPinnedWorktrees, setTheme, signIn, type Reveal } from './api';
 import { ago } from './format';
 import { usePins } from './pins';
 import type { Bay, Board, Lane, PrItem, Session, Started, Theme } from './types';
@@ -618,6 +618,29 @@ export function App() {
     if (!onBoardAsAgent && lane.parked) setShowParked(true);
     setSelectedKey(onBoardAsAgent ? `${lane.id}::${session.key}` : lane.id);
   };
+
+  // The floating bar asks to show a session or PR here: in its project, with no search hiding it.
+  const reveal = useRef<(r: Reveal) => void>(() => {});
+  reveal.current = (r: Reveal) => {
+    const lane = r.kind === 'session' ? lanes.find((l) => l.id === r.laneId) : undefined;
+    const session = lane?.sessions.find((s) => s.key === (r.kind === 'session' ? r.key : ''));
+    const pr = r.kind === 'pr' ? board?.prs.find((p) => p.key === r.key) : undefined;
+    const home = lane?.project ?? pr?.project;
+    if (!home) return;
+    if (current !== ALL_PROJECTS && current !== home) pickProject(home);
+    setQuery('');
+    if (lane && session) {
+      if (view === 'prs') setView('worktrees');
+      setBayFilter(null);
+      // Its own row in Sessions and on the board, where a pinned worktree's row holds its agents.
+      setSelectedKey(view !== 'sessions' && lanePins.set.has(lane.id) ? lane.id : `${lane.id}::${session.key}`);
+    } else if (pr) {
+      setView('prs');
+      setBayFilter(null);
+      setSelectedKey(`pr:${pr.key}`);
+    }
+  };
+  useEffect(() => onReveal((r) => reveal.current(r)), []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
