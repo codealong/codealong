@@ -304,6 +304,8 @@ pub struct Board {
     pub usage: Vec<Usage>,
     /// Pinned session keys, in order.
     pub pinned: Vec<String>,
+    /// Pinned worktrees (lane ids), in order.
+    pub pinned_worktrees: Vec<String>,
     /// Every PR in the repos the projects cover, newest activity first.
     pub prs: Vec<PrItem>,
     /// Who `gh` is signed in as.

@@ -1,6 +1,7 @@
 //! What you've seen and pinned. A finished turn is "Your turn" until you open the session from
-//! Codealong or mark it seen. Pinned sessions stay at the top of the Sessions view, in your
-//! order. Stored in `state.json` next to the config.
+//! Codealong or mark it seen. Pinned sessions stay at the top of the Sessions view and pinned
+//! worktrees at the top of the Worktrees view, each in your order. Stored in `state.json` next
+//! to the config.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -22,6 +23,9 @@ pub struct SeenState {
     /// Pinned session keys, in the order you put them.
     #[serde(default)]
     pub pinned: Vec<String>,
+    /// Pinned worktrees by lane id (the worktree's path), in the order you put them.
+    #[serde(default)]
+    pub pinned_worktrees: Vec<String>,
     /// Sessions archived from Codealong, and when.
     #[serde(default)]
     pub archived: Vec<ArchivedSession>,
@@ -64,8 +68,12 @@ impl SeenState {
 
     /// Replaces the pinned list, keeping the first of any repeats.
     pub fn set_pinned(&mut self, keys: Vec<String>) {
-        let mut seen = std::collections::HashSet::new();
-        self.pinned = keys.into_iter().filter(|k| !k.is_empty() && seen.insert(k.clone())).collect();
+        self.pinned = unique(keys);
+    }
+
+    /// Replaces the pinned worktrees, keeping the first of any repeats.
+    pub fn set_pinned_worktrees(&mut self, ids: Vec<String>) {
+        self.pinned_worktrees = unique(ids);
     }
 
     /// Records an archive (or its undoing) made from Codealong.
@@ -99,6 +107,12 @@ fn path() -> PathBuf {
     support_dir().join("state.json")
 }
 
+/// The keys in order, without empty ones or repeats.
+fn unique(keys: Vec<String>) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    keys.into_iter().filter(|k| !k.is_empty() && seen.insert(k.clone())).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -119,6 +133,19 @@ mod tests {
         assert_eq!(s.pinned_ids("claude", "claude2").into_iter().collect::<Vec<_>>(), vec!["a".to_string()]);
         let old: SeenState = serde_json::from_str(r#"{"firstRun":5,"seen":{}}"#).unwrap();
         assert!(old.pinned.is_empty());
+    }
+
+    #[test]
+    fn pinned_worktrees_keep_their_order_apart_from_pinned_sessions() {
+        let mut s = SeenState::default();
+        s.set_pinned(vec!["claude:claude:a".into()]);
+        s.set_pinned_worktrees(vec!["/r/app3".into(), "/r/main".into(), "/r/app3".into(), "".into()]);
+        assert_eq!(s.pinned_worktrees, vec!["/r/app3".to_string(), "/r/main".to_string()]);
+        assert_eq!(s.pinned, vec!["claude:claude:a".to_string()]);
+        let old: SeenState = serde_json::from_str(r#"{"firstRun":5,"seen":{},"pinned":["claude:claude:a"]}"#).unwrap();
+        assert!(old.pinned_worktrees.is_empty());
+        let text = serde_json::to_string(&s).unwrap();
+        assert!(text.contains(r#""pinnedWorktrees":["/r/app3","/r/main"]"#));
     }
 
     #[test]

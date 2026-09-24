@@ -90,6 +90,11 @@ fn set_pinned(engine: State<'_, engine::Handle>, keys: Vec<String>) {
     engine.set_pinned(keys);
 }
 
+#[tauri::command]
+fn set_pinned_worktrees(engine: State<'_, engine::Handle>, ids: Vec<String>) {
+    engine.set_pinned_worktrees(ids);
+}
+
 /// A PR's description, reviews and changed files.
 #[tauri::command(async)]
 fn pr_detail(repo: String, number: u64) -> Result<github::PrDetail, String> {
@@ -149,7 +154,7 @@ pub fn run() {
             app.manage(engine);
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![get_board, open_target, open_config, mark_seen, refresh, refresh_usage, set_pinned, archive_session, pr_detail, approve_pr, review_in_codex, open_url, get_accounts, save_accounts, sign_in, open_project_window])
+        .invoke_handler(tauri::generate_handler![get_board, open_target, open_config, mark_seen, refresh, refresh_usage, set_pinned, set_pinned_worktrees, archive_session, pr_detail, approve_pr, review_in_codex, open_url, get_accounts, save_accounts, sign_in, open_project_window])
         .run(tauri::generate_context!())
         .expect("error while running Codealong");
 }

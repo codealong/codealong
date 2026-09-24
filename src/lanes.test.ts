@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ageFiltered, bayOf } from './lanes';
+import { ageFiltered, bayOf, buildBays, filterByAge, laneInFilter } from './lanes';
 import type { Lane, Pr, Session } from './types';
 
 const NOW = 1_790_200_000_000;
@@ -39,9 +39,60 @@ describe('ageFiltered', () => {
     expect(ageFiltered(lane([stuck], null), NOW - DAY, new Set(), 'in the last 24 hours').headline).toBe('No agents active in the last 24 hours');
   });
 
+  it('takes the headline from the agent that sets the new status', () => {
+    const done = { ...session('done', 'unread', NOW - 3_600_000), headline: '`claude` finished · Fix it', detail: 'Pushed the fix' } as Session;
+    const l = ageFiltered(lane([stuck, done], pr('merged')), NOW - DAY, new Set(), 'in the last 24 hours');
+    expect([l.bay, l.headline, l.detail]).toEqual(['unread', '`claude` finished · Fix it', 'Pushed the fix']);
+  });
+
   it('keeps pinned sessions and leaves unfiltered lanes alone', () => {
     const l = lane([stuck, mine], null);
     expect(ageFiltered(l, NOW - DAY, new Set(['stuck']), '')).toBe(l);
     expect(ageFiltered(l, 0, new Set(), '')).toBe(l);
+  });
+});
+
+describe('filterByAge', () => {
+  const quiet = { ...lane([session('old', 'unread', NOW - 5 * DAY)], null), id: '/r/quiet', lastActivity: NOW - 5 * DAY } as Lane;
+  const busy = { ...lane([session('mine', 'working', NOW - 60_000)], null), id: '/r/busy', lastActivity: NOW - 60_000 } as Lane;
+
+  it('keeps pinned worktrees however quiet, with only their recent sessions', () => {
+    const shown = filterByAge([quiet, busy], NOW - DAY, new Set(['/r/quiet']), new Set(), 'in the last 24 hours');
+    expect(shown.map((l) => l.id)).toEqual(['/r/quiet', '/r/busy']);
+    expect(shown[0].sessions).toEqual([]);
+    expect([shown[0].bay, shown[0].headline]).toEqual(['idle', 'No agents active in the last 24 hours']);
+  });
+
+  it('drops quiet worktrees that are not pinned, and filters nothing without a cutoff', () => {
+    expect(filterByAge([quiet, busy], NOW - DAY, new Set(), new Set(), '').map((l) => l.id)).toEqual(['/r/busy']);
+    const all = [quiet, busy];
+    expect(filterByAge(all, 0, new Set(), new Set(), '')).toBe(all);
+  });
+});
+
+describe('buildBays', () => {
+  it('gives agents that need you, work or just finished rows of their own, and other worktrees one row', () => {
+    const busy = { ...lane([session('a', 'needs', NOW), session('b', 'working', NOW - 1000), session('c', 'idle', NOW)], null), id: '/r/busy', lastActivity: NOW } as Lane;
+    const quiet = { ...lane([session('d', 'idle', NOW)], pr('open')), id: '/r/quiet', lastActivity: NOW } as Lane;
+    expect(buildBays([busy, quiet]).map((g) => [g.bay, g.rows.map((r) => r.key)])).toEqual([
+      ['needs', ['/r/busy::a']],
+      ['working', ['/r/busy::b']],
+      ['review', ['/r/quiet']],
+    ]);
+  });
+});
+
+describe('laneInFilter', () => {
+  it('matches a worktree when any of its rows on the board would', () => {
+    const busy = { ...lane([session('a', 'needs', NOW), session('b', 'working', NOW)], pr('open', 1)), id: '/r/busy' } as Lane;
+    expect(laneInFilter(busy, null)).toBe(true);
+    expect(laneInFilter(busy, 'needs')).toBe(true);
+    expect(laneInFilter(busy, 'working')).toBe(true);
+    expect(laneInFilter(busy, 'failing')).toBe(true);
+    expect(laneInFilter(busy, 'unread')).toBe(false);
+    expect(laneInFilter(busy, 'review')).toBe(false);
+    const inReview = { ...lane([session('c', 'idle', NOW)], pr('open')), id: '/r/review' } as Lane;
+    expect(laneInFilter(inReview, 'review')).toBe(true);
+    expect(laneInFilter(inReview, 'failing')).toBe(false);
   });
 });

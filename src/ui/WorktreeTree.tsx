@@ -1,9 +1,11 @@
-// The sidebar tree: the project's worktrees, grouped by repo, each opening to its own agents.
+// The sidebar tree: the project's worktrees, pinned ones first in your order and the rest
+// grouped by repo, each opening to its own agents.
 
 import { useState } from 'react';
 import { ago } from '../format';
+import { failingPr } from '../lanes';
 import type { Lane, Session } from '../types';
-import { currentSessions, failingPr, failingTitle } from './LaneRow';
+import { currentSessions, failingTitle } from './LaneRow';
 import { Icon, LaneGlyph, StatusGlyph } from './primitives';
 
 const EXPANDED_KEY = 'codealong.tree';
@@ -17,20 +19,29 @@ function loadOverrides(): Record<string, boolean> {
   }
 }
 
+/** A repo's worktrees, or the pinned ones (`pinned`), which can come from any repo. */
+export interface TreeGroup {
+  repo: string;
+  lanes: Lane[];
+  pinned?: boolean;
+}
+
 interface WorktreeTreeProps {
-  groups: { repo: string; lanes: Lane[] }[];
+  groups: TreeGroup[];
   now: number;
   selectedLaneId: string | null;
   selectedSessionKey: string | null;
   /** Pinned session keys, marked in the tree. */
-  pinned: Set<string>;
+  pinnedSessions: Set<string>;
   onSelectLane: (lane: Lane) => void;
   onOpenSession: (lane: Lane, session: Session) => void;
+  /** Right-click on a worktree. */
+  onLaneMenu: (lane: Lane) => void;
   /** Right-click on a session. */
   onSessionMenu: (lane: Lane, session: Session) => void;
 }
 
-export function WorktreeTree({ groups, now, selectedLaneId, selectedSessionKey, pinned, onSelectLane, onOpenSession, onSessionMenu }: WorktreeTreeProps) {
+export function WorktreeTree({ groups, now, selectedLaneId, selectedSessionKey, pinnedSessions, onSelectLane, onOpenSession, onLaneMenu, onSessionMenu }: WorktreeTreeProps) {
   // Worktrees with an agent that needs you, is working or just finished start open; the rest
   // start closed. Toggles are remembered.
   const [overrides, setOverrides] = useState<Record<string, boolean>>(loadOverrides);
@@ -48,8 +59,16 @@ export function WorktreeTree({ groups, now, selectedLaneId, selectedSessionKey, 
   return (
     <div className="ca-tree" role="tree" aria-label="Worktrees">
       {groups.map((g) => (
-        <div key={g.repo} className="ca-wt-group" role="group" aria-label={g.repo}>
-          {groups.length > 1 && <div className="ca-wt-repo">{g.repo}</div>}
+        <div key={g.pinned ? ':pinned' : g.repo} className="ca-wt-group" role="group" aria-label={g.pinned ? 'Pinned' : g.repo}>
+          {groups.length > 1 &&
+            (g.pinned ? (
+              <div className="ca-wt-repo ca-wt-pinned">
+                <Icon name="pinned" size={11} />
+                Pinned
+              </div>
+            ) : (
+              <div className="ca-wt-repo">{g.repo}</div>
+            ))}
           {g.lanes.map((lane) => {
             const open = isOpen(lane);
             const recent = currentSessions(lane, now);
@@ -60,7 +79,13 @@ export function WorktreeTree({ groups, now, selectedLaneId, selectedSessionKey, 
             const failing = failingPr(lane);
             return (
               <div key={lane.id} role="treeitem" aria-expanded={lane.sessions.length ? open : undefined} aria-selected={selectedLaneId === lane.id}>
-                <div className={['ca-tree-node', lane.parked && 'is-parked', selectedLaneId === lane.id && !selectedSessionKey && 'is-active'].filter(Boolean).join(' ')}>
+                <div
+                  className={['ca-tree-node', lane.parked && 'is-parked', selectedLaneId === lane.id && !selectedSessionKey && 'is-active'].filter(Boolean).join(' ')}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    onLaneMenu(lane);
+                  }}
+                >
                   <button
                     type="button"
                     className={['ca-tree-toggle', open && 'is-open'].filter(Boolean).join(' ')}
@@ -103,7 +128,7 @@ export function WorktreeTree({ groups, now, selectedLaneId, selectedSessionKey, 
                         <StatusGlyph status={s.status} size={10} />
                         <span className="ca-tree-acct">{s.account}</span>
                         <span className="ca-tree-title">{s.title}</span>
-                        {pinned.has(s.key) && (
+                        {pinnedSessions.has(s.key) && (
                           <span className="ca-tree-pin" title="Pinned">
                             <Icon name="pinned" size={11} />
                           </span>

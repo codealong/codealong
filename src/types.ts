@@ -166,6 +166,8 @@ export interface Board {
   usage: Usage[];
   /** Pinned session keys, in order. */
   pinned: string[];
+  /** Pinned worktrees (lane ids), in order. */
+  pinnedWorktrees: string[];
   /** Every PR in the repos the projects cover, newest activity first. */
   prs: PrItem[];
   /** Who `gh` is signed in as. */

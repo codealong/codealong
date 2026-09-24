@@ -263,6 +263,18 @@ export function BayHeader({ bay, count, action }: { bay: Bay; count: number; act
   );
 }
 
+/** A section that isn't a bay: Pinned, the days in Sessions, Archived. */
+export function SectionHeader({ icon, label, count, hint }: { icon?: string; label: string; count: number; hint?: ReactNode }) {
+  return (
+    <div className="ca-bay ca-bay--section" role="heading" aria-level={3}>
+      {icon && <Icon name={icon} size={12} />}
+      <span>{label}</span>
+      <span className="ca-bay-count">{count}</span>
+      {hint && <span className="ca-bay-action ca-bay-hint">{hint}</span>}
+    </div>
+  );
+}
+
 interface NavItemProps {
   label: string;
   icon?: string;

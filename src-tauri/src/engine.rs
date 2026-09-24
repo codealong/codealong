@@ -49,6 +49,8 @@ pub enum Msg {
     UsageDone(Vec<Usage>),
     /// The full pinned list, in order.
     SetPinned(Vec<String>),
+    /// The full list of pinned worktrees (lane ids), in order.
+    SetPinnedWorktrees(Vec<String>),
     /// A session archived (true) or unarchived from Codealong; Codex has already done its part.
     SetArchived(String, bool),
 }
@@ -79,6 +81,10 @@ impl Handle {
 
     pub fn set_pinned(&self, keys: Vec<String>) {
         let _ = self.tx.send(Msg::SetPinned(keys));
+    }
+
+    pub fn set_pinned_worktrees(&self, ids: Vec<String>) {
+        let _ = self.tx.send(Msg::SetPinnedWorktrees(ids));
     }
 
     /// Archives or unarchives a session. Codex threads are archived in Codex itself, so the
@@ -483,6 +489,11 @@ impl Engine {
                 }
                 Ok(Msg::SetPinned(keys)) => {
                     self.seen.set_pinned(keys);
+                    self.seen.save();
+                    self.dirty = true;
+                }
+                Ok(Msg::SetPinnedWorktrees(ids)) => {
+                    self.seen.set_pinned_worktrees(ids);
                     self.seen.save();
                     self.dirty = true;
                 }
@@ -1277,6 +1288,7 @@ impl Engine {
             github_login: self.gh_login.as_deref(),
         });
         board.usage = self.compose_usage(now);
+        board.pinned_worktrees = self.seen.pinned_worktrees.clone();
         board
     }
 

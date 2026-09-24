@@ -14,11 +14,13 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
 ## What it does
 
 - **Three views** of the current project, each in a window of its own if you like (⌘⇧N):
-  - **Worktrees**: agents that need you, are working or just finished, then worktrees in
-    review, idle and merged. Stuck agents (busy but silent for 30 minutes) show in Needs you
-    with the command they're stuck on.
+  - **Worktrees**: pinned worktrees first in your order, then agents that need you, are
+    working or just finished, then worktrees in review, idle and merged. Stuck agents (busy
+    but silent for 30 minutes) show in Needs you with the command they're stuck on. Pin a
+    worktree with `p` or its right-click menu, and reorder pins by dragging or with ⌥↑ ⌥↓; a
+    pinned worktree shows as one row with its agents, and stays whatever the age filter says.
   - **Sessions**: every session, pinned ones first in your order (drag or ⌥↑ ⌥↓), then by
-    day. Archive a session with `a` or its right-click menu; Codex threads are archived in
+    day. `p` pins a session here. Archive a session with `a` or its right-click menu; Codex threads are archived in
     Codex itself.
   - **PRs**: every PR in the project's repos, with the worktree and sessions that worked on
     each. Reviews asked of you come first, with one-click Approve. Selecting a PR shows its
@@ -101,6 +103,6 @@ are kept in `state.json` next to it.
 | `src-tauri/src/appserver.rs` | Codex actions through its app-server (archiving) |
 | `src-tauri/src/claudeapp.rs` | The Claude app's session records (its IDs, what you archived there) |
 | `src-tauri/src/config.rs`, `state.rs` | `config.toml` (accounts saved in place) and `state.json` (seen, pinned, archived) |
-| `src/` | The React UI, built from the design system's components and tokens; `lanes.ts` mirrors the engine's status rules for the age filter |
+| `src/` | The React UI, built from the design system's components and tokens; `lanes.ts` groups the board and mirrors the engine's status rules for the age filter; `pins.ts` keeps the pinned lists |
 | `scripts/preview.sh` | Headless preview against real data, for screenshots and scripted checks |
 | `design/tokens.json` | Design tokens; `npm run tokens` regenerates `src/styles/tokens.css` |

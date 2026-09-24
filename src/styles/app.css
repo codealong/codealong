@@ -303,6 +303,12 @@ button {
   font: 500 11px/14px var(--font-mono);
   color: var(--ink-3);
 }
+.ca-wt-pinned {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-sans);
+}
 .ca-wt .ca-glyph,
 .ca-wt .ca-lane-pricon {
   flex: none;
@@ -847,7 +853,7 @@ button {
   cursor: pointer;
 }
 
-/* Reordering pinned sessions by dragging them. */
+/* Reordering pinned rows (sessions or worktrees) by dragging them. */
 .ca-pinned .ca-lane {
   cursor: grab;
 }

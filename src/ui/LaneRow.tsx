@@ -14,17 +14,16 @@ interface LaneRowProps {
   onOpen: (lane: Lane) => void;
   /** Opens one session where it lives. */
   onOpenTarget: (lane: Lane, targetId: string) => void;
+  pinned?: boolean;
+  /** Right-click: the worktree's menu (open, pin, copy…). */
+  onContextMenu?: () => void;
+  /** Position among pinned rows, for dragging them into a new order. */
+  pinIndex?: number;
+  onPointerDown?: (e: ReactPointerEvent<HTMLDivElement>) => void;
+  extraClass?: string;
 }
 
 const DAY = 86_400_000;
-
-/** Sessions worth showing at a glance: live ones, ones with news, and anything from the last
- *  day. The inspector lists every session from the last 14 days. */
-/** The lane's open PR when its checks are failing. */
-export function failingPr(lane: Lane): Pr | null {
-  const pr = lane.pr;
-  return pr && pr.state !== 'merged' && pr.state !== 'closed' && pr.checks.failed > 0 ? pr : null;
-}
 
 /** `#1044: 1 failing (unit-test)`. */
 export function failingTitle(pr: Pr): string {
@@ -32,11 +31,13 @@ export function failingTitle(pr: Pr): string {
   return `#${pr.number}: ${pr.checks.failed} failing${names ? ` (${names})` : ''}`;
 }
 
+/** Sessions worth showing at a glance: live ones, ones with news, and anything from the last
+ *  day. The inspector lists every session from the last 14 days. */
 export function currentSessions(lane: Lane, now: number) {
   return lane.sessions.filter((s) => s.live || s.status === 'needs' || s.status === 'error' || s.status === 'working' || s.status === 'unread' || now - s.lastActivity < DAY);
 }
 
-export function LaneRow({ lane, domId, now, selected, onSelect, onOpen, onOpenTarget }: LaneRowProps) {
+export function LaneRow({ lane, domId, now, selected, onSelect, onOpen, onOpenTarget, pinned, onContextMenu, pinIndex, onPointerDown, extraClass }: LaneRowProps) {
   const chips = currentSessions(lane, now);
   const shown = chips.slice(0, 2);
   const extra = chips.length - shown.length;
@@ -49,10 +50,25 @@ export function LaneRow({ lane, domId, now, selected, onSelect, onOpen, onOpenTa
       id={domId}
       role="option"
       aria-selected={selected}
-      className={['ca-lane', `is-${lane.bay}`, selected && 'is-selected'].filter(Boolean).join(' ')}
+      className={['ca-lane', `is-${lane.bay}`, selected && 'is-selected', pinned && 'is-pinned', extraClass].filter(Boolean).join(' ')}
+      data-pin-index={pinIndex}
+      onPointerDown={onPointerDown}
       onMouseDown={() => onSelect(lane.id)}
       onDoubleClick={() => onOpen(lane)}
+      onContextMenu={
+        onContextMenu
+          ? (e) => {
+              e.preventDefault();
+              onContextMenu();
+            }
+          : undefined
+      }
     >
+      {pinIndex != null && (
+        <span className="ca-grip" aria-hidden="true">
+          <Icon name="grip-vertical" size={10} />
+        </span>
+      )}
       <div className="ca-seg ca-seg-glyph">
         <LaneGlyph lane={lane} />
       </div>
@@ -96,6 +112,11 @@ export function LaneRow({ lane, domId, now, selected, onSelect, onOpen, onOpenTa
       </div>
       <div className="ca-seg ca-seg-age" title={lane.lastActivity ? absolute(lane.lastActivity) : undefined}>
         {lane.lastActivity ? ago(lane.lastActivity, now) : ''}
+        {pinned && (
+          <span className="ca-pinmark" title="Pinned">
+            <Icon name="pinned" size={12} />
+          </span>
+        )}
       </div>
     </div>
   );

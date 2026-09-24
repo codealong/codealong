@@ -93,6 +93,12 @@ export async function setPinned(keys: string[]): Promise<void> {
   await invoke('set_pinned', { keys });
 }
 
+/** Saves the whole list of pinned worktrees (lane ids), in order. */
+export async function setPinnedWorktrees(ids: string[]): Promise<void> {
+  if (!inTauri) return;
+  await invoke('set_pinned_worktrees', { ids });
+}
+
 export async function refreshUsage(): Promise<void> {
   if (!inTauri) return;
   await invoke('refresh_usage');

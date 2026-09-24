@@ -1,27 +1,28 @@
 // The main window. One project at a time, picked in the switcher at top left. The sidebar
-// lists that project's worktrees. The main area has two views: Worktrees lists agents in Needs
-// you, Working and Your turn, and worktrees in In review, Idle and Merged; Sessions lists every
-// session, pinned ones first in your order. Keyboard map: the design system's Surfaces page.
+// lists that project's worktrees. The main area has three views: Worktrees lists pinned
+// worktrees in your order, then agents in Needs you, Working and Your turn, and worktrees in In
+// review, Idle and Merged; Sessions lists every session, pinned ones first in your order; PRs
+// lists the project's pull requests. Keyboard map: the design system's Surfaces page.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { showContextMenu } from './contextMenu';
-import { ageFiltered } from './lanes';
-import { approvePr, archiveSession, getBoard, markSeen, onBoard, openConfig, openProjectWindow, openTarget, openUrl, refresh, refreshUsage, reviewInCodex, setPinned, signIn } from './api';
+import { AGENT_BAY, BAYS, buildBays, failingPr, filterByAge, laneInFilter, type BoardRow, type Filter } from './lanes';
+import { approvePr, archiveSession, getBoard, markSeen, onBoard, openConfig, openProjectWindow, openTarget, openUrl, refresh, refreshUsage, reviewInCodex, setPinned, setPinnedWorktrees, signIn } from './api';
 import { ago } from './format';
-import type { Bay, Board, Lane, PrItem, Session, Status } from './types';
+import { usePins } from './pins';
+import type { Bay, Board, Lane, PrItem, Session } from './types';
 import { AccountsDialog } from './ui/AccountsDialog';
 import { Inspector } from './ui/Inspector';
-import { AgentRow, failingPr, LaneRow } from './ui/LaneRow';
+import { AgentRow, LaneRow } from './ui/LaneRow';
+import { PinnedSection, type PinDrag } from './ui/PinnedSection';
 import { BayHeader, Icon, Kbd, NavItem } from './ui/primitives';
 import { ALL_PROJECTS, openSwitcher, ProjectSwitcher, type ActionCounts } from './ui/ProjectSwitcher';
 import { PrInspector } from './ui/PrInspector';
 import { prIsOpen, prSections, PrsView, type PrRowItem } from './ui/PrsView';
-import { reorderPinned, SessionsView, timeSections, type SessionItem } from './ui/SessionsView';
+import { SessionsView, timeSections, type SessionItem } from './ui/SessionsView';
 import { UsageBar } from './ui/UsageBar';
-import { WorktreeTree } from './ui/WorktreeTree';
+import { WorktreeTree, type TreeGroup } from './ui/WorktreeTree';
 
-const BAYS: Bay[] = ['needs', 'working', 'unread', 'review', 'idle', 'merged'];
-const AGENT_BAY: Partial<Record<Status, Bay>> = { needs: 'needs', error: 'needs', working: 'working', unread: 'unread' };
 const ELSEWHERE = 'Elsewhere';
 
 declare global {
@@ -53,28 +54,9 @@ const AGES: { id: Age; label: string; title: string; ms: number }[] = [
   { id: 'all', label: 'All', title: 'Everything from the last 14 days', ms: 0 },
 ];
 
-/** A row on the Worktrees board or in Sessions: an agent in its worktree, or a worktree. */
-type BoardRow = { kind: 'agent'; key: string; lane: Lane; session: Session } | { kind: 'lane'; key: string; lane: Lane };
 type Row = BoardRow | PrRowItem;
-/** What the Inbox narrows the board to: one bay, or worktrees whose PR checks are failing. */
-type Filter = Bay | 'failing';
-
-/** Agents go in the agent bays, one row each; worktrees go in the rest, one row each. */
-function buildBays(lanes: Lane[]): { bay: Bay; rows: BoardRow[] }[] {
-  const groups: Record<Bay, BoardRow[]> = { needs: [], working: [], unread: [], review: [], idle: [], merged: [] };
-  for (const lane of lanes) {
-    const own = lane.sessions.filter((s) => !s.visitor);
-    for (const s of own) {
-      const bay = AGENT_BAY[s.status];
-      if (bay) groups[bay].push({ kind: 'agent', key: `${lane.id}::${s.key}`, lane, session: s });
-    }
-    const needsFromAgents = own.some((s) => s.status === 'needs' || s.status === 'error');
-    const agentBay = lane.bay === 'working' || lane.bay === 'unread' || (lane.bay === 'needs' && needsFromAgents);
-    if (!agentBay) groups[lane.bay].push({ kind: 'lane', key: lane.id, lane });
-  }
-  const at = (r: BoardRow) => (r.kind === 'agent' ? r.session.lastActivity : r.lane.lastActivity);
-  return BAYS.map((bay) => ({ bay, rows: groups[bay].sort((a, b) => at(b) - at(a)) })).filter((g) => g.rows.length > 0);
-}
+/** A worktree's own row. */
+type LaneItem = Extract<BoardRow, { kind: 'lane' }>;
 
 function inProject(lane: Lane, project: string): boolean {
   if (project === ALL_PROJECTS) return !lane.hidden;
@@ -117,6 +99,12 @@ function sessionInFilter(r: SessionItem, f: Filter | null): boolean {
   }
 }
 
+/** A worktree's row on the board when it isn't pinned: its first agent's row, else its own. */
+function boardRowKey(lane: Lane): string {
+  const own = lane.sessions.find((s) => !s.visitor && AGENT_BAY[s.status]);
+  return own ? `${lane.id}::${own.key}` : lane.id;
+}
+
 /** The bay a row sits in, for the g shortcuts. */
 function rowBay(r: Row): Bay | undefined {
   if (r.kind === 'pr') return undefined;
@@ -148,10 +136,6 @@ function prInFilter(r: PrRowItem, f: Filter | null): boolean {
     default:
       return false;
   }
-}
-
-function sameList(a: string[], b: string[]): boolean {
-  return a.length === b.length && a.every((x, i) => x === b[i]);
 }
 
 function storedAge(): Age {
@@ -198,8 +182,6 @@ export function App() {
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [view, setViewState] = useState<View>(storedView);
   const [age, setAgeState] = useState<Age>(storedAge);
-  // Pins as last changed here, shown until the engine's board catches up.
-  const [pinOverride, setPinOverride] = useState<string[] | null>(null);
   // Archives made here (key → archived), shown until the board catches up: Codex takes a moment.
   const [archiveOverride, setArchiveOverride] = useState<Record<string, boolean>>({});
   const [undo, setUndo] = useState<{ key: string; title: string } | null>(null);
@@ -271,23 +253,10 @@ export function App() {
     }
   }, []);
 
-  const pinnedKeys = useMemo(() => pinOverride ?? board?.pinned ?? [], [pinOverride, board?.pinned]);
-  const pinnedSet = useMemo(() => new Set(pinnedKeys), [pinnedKeys]);
-  useEffect(() => {
-    if (pinOverride && board && sameList(board.pinned ?? [], pinOverride)) setPinOverride(null);
-  }, [board, pinOverride]);
-  const savePins = useCallback((next: string[]) => {
-    setPinOverride(next);
-    setPinned(next).catch((e: unknown) => {
-      setPinOverride(null);
-      setToast(String(e));
-    });
-  }, []);
-  /** New pins go to the top of Pinned. */
-  const togglePin = useCallback(
-    (key: string) => savePins(pinnedSet.has(key) ? pinnedKeys.filter((k) => k !== key) : [key, ...pinnedKeys]),
-    [pinnedKeys, pinnedSet, savePins],
-  );
+  // Pinned sessions head the Sessions view and pinned worktrees the Worktrees view, each in
+  // your order.
+  const sessionPins = usePins(board?.pinned, setPinned, setToast);
+  const lanePins = usePins(board?.pinnedWorktrees, setPinnedWorktrees, setToast);
 
   // Archived sessions leave every view but the Archived list.
   const rawLanes = useMemo(() => board?.lanes ?? [], [board?.lanes]);
@@ -318,14 +287,16 @@ export function App() {
         .sort((a, b) => b.session.lastActivity - a.session.lastActivity),
     [rawLanes, archiveOverride, current],
   );
-  // The age filter: worktrees and sessions active since the cutoff. Pinned sessions always show.
+  // The age filter: worktrees and sessions active since the cutoff. Pinned worktrees always
+  // show, and so do pinned sessions: in Sessions, and in any worktree that shows.
   const ageMs = AGES.find((a) => a.id === age)?.ms ?? 0;
   const cutoff = ageMs > 0 ? now - ageMs : 0;
   const since = (AGES.find((a) => a.id === age)?.title ?? '').replace(/^Active /, '');
-  // Worktrees active since the cutoff, each showing only its sessions active since then.
+  // Worktrees active since the cutoff and pinned ones, each showing only its sessions active
+  // since then.
   const recentLanes = useMemo(
-    () => (cutoff > 0 ? projectLanes.filter((l) => l.lastActivity >= cutoff).map((l) => ageFiltered(l, cutoff, pinnedSet, since)) : projectLanes),
-    [projectLanes, cutoff, pinnedSet, since],
+    () => filterByAge(projectLanes, cutoff, lanePins.set, sessionPins.set, since),
+    [projectLanes, cutoff, lanePins.set, sessionPins.set, since],
   );
   // The Sessions view: each session once, in the worktree it runs in.
   const sessionItems = useMemo(
@@ -335,17 +306,29 @@ export function App() {
   const shownSessions = useMemo(
     () =>
       sessionItems.filter(
-        (r) => (r.session.lastActivity >= cutoff || pinnedSet.has(r.session.key)) && sessionInQuery(r, query) && sessionInFilter(r, bayFilter),
+        (r) => (r.session.lastActivity >= cutoff || sessionPins.set.has(r.session.key)) && sessionInQuery(r, query) && sessionInFilter(r, bayFilter),
       ),
-    [sessionItems, cutoff, pinnedSet, query, bayFilter],
+    [sessionItems, cutoff, sessionPins.set, query, bayFilter],
   );
-  const shownSessionCount = useMemo(() => sessionItems.filter((r) => r.session.lastActivity >= cutoff || pinnedSet.has(r.session.key)).length, [sessionItems, cutoff, pinnedSet]);
+  const shownSessionCount = useMemo(
+    () => sessionItems.filter((r) => r.session.lastActivity >= cutoff || sessionPins.set.has(r.session.key)).length,
+    [sessionItems, cutoff, sessionPins.set],
+  );
   const pinnedRows = useMemo(() => {
     const byKey = new Map(shownSessions.map((r) => [r.session.key, r]));
-    return pinnedKeys.flatMap((k) => byKey.get(k) ?? []);
-  }, [shownSessions, pinnedKeys]);
-  const sessionSections = useMemo(() => timeSections(shownSessions.filter((r) => !pinnedSet.has(r.session.key)), now), [shownSessions, pinnedSet, now]);
-  const allBays = useMemo(() => buildBays(recentLanes.filter((l) => inQuery(l, query))), [recentLanes, query]);
+    return sessionPins.keys.flatMap((k) => byKey.get(k) ?? []);
+  }, [shownSessions, sessionPins.keys]);
+  const sessionSections = useMemo(() => timeSections(shownSessions.filter((r) => !sessionPins.set.has(r.session.key)), now), [shownSessions, sessionPins.set, now]);
+  // Pinned worktrees that match the search and the Inbox filter, in your order. Each shows as one
+  // row at the top of the board, with its agents on it, and leaves the bays below.
+  const pinnedLaneRows = useMemo(() => {
+    const byId = new Map(recentLanes.map((l) => [l.id, l]));
+    return lanePins.keys.flatMap((id): LaneItem[] => {
+      const lane = byId.get(id);
+      return lane && inQuery(lane, query) && laneInFilter(lane, bayFilter) ? [{ kind: 'lane', key: lane.id, lane }] : [];
+    });
+  }, [recentLanes, lanePins.keys, query, bayFilter]);
+  const allBays = useMemo(() => buildBays(recentLanes.filter((l) => inQuery(l, query) && !lanePins.set.has(l.id))), [recentLanes, query, lanePins.set]);
   const bays = useMemo(() => {
     if (bayFilter === 'failing') {
       return allBays.map((b) => ({ ...b, rows: b.rows.filter((r) => failingPr(r.lane)) })).filter((b) => b.rows.length > 0);
@@ -354,7 +337,10 @@ export function App() {
   }, [allBays, bayFilter]);
   const foldParked = !showParked && !query;
   const parkedCount = useMemo(() => bays.flatMap((b) => b.rows).filter((r) => r.kind === 'lane' && r.lane.parked).length, [bays]);
-  const worktreeRows = useMemo(() => bays.flatMap((b) => b.rows.filter((r) => !foldParked || r.kind === 'agent' || !r.lane.parked)), [bays, foldParked]);
+  const worktreeRows = useMemo(
+    () => [...pinnedLaneRows, ...bays.flatMap((b) => b.rows.filter((r) => !foldParked || r.kind === 'agent' || !r.lane.parked))],
+    [pinnedLaneRows, bays, foldParked],
+  );
   // The PRs view: the project's PRs with their worktree and sessions.
   const sessionIndex = useMemo(() => {
     const m = new Map<string, { lane: Lane; session: Session }>();
@@ -405,12 +391,12 @@ export function App() {
   const actions = useMemo(() => {
     const out: Record<string, ActionCounts> = {};
     for (const name of [...projects.map((p) => p.name), ALL_PROJECTS]) {
-      const groups = buildBays(lanes.filter((l) => inProject(l, name) && l.lastActivity >= cutoff).map((l) => ageFiltered(l, cutoff, pinnedSet, since)));
+      const groups = buildBays(filterByAge(lanes.filter((l) => inProject(l, name)), cutoff, lanePins.set, sessionPins.set, since));
       const n = (bay: Bay) => groups.find((g) => g.bay === bay)?.rows.length ?? 0;
       out[name] = { needs: n('needs'), unread: n('unread') };
     }
     return out;
-  }, [lanes, projects, cutoff, pinnedSet, since]);
+  }, [lanes, projects, cutoff, lanePins.set, sessionPins.set, since]);
 
   useEffect(() => {
     const base = WINDOW_PROJECT ? `Codealong · ${current}` : 'Codealong';
@@ -510,40 +496,82 @@ export function App() {
     [approve, copy],
   );
 
-  /** A session's right-click menu: open it, pin it, archive it, copy its ID. */
+  /** Pins or unpins a worktree. On the board, its row stays selected as it moves. */
+  const toggleLanePin = useCallback(
+    (lane: Lane) => {
+      const pinning = !lanePins.set.has(lane.id);
+      lanePins.toggle(lane.id);
+      if (view === 'worktrees') setSelectedKey(pinning ? lane.id : boardRowKey(lane));
+    },
+    [lanePins, view],
+  );
+
+  /** A session's right-click menu: open it, pin it or its worktree, archive it, copy its ID. */
   const sessionMenu = useCallback(
     (lane: Lane, s: Session) => {
       const target = lane.targets.find((t) => t.id === s.openTarget);
-      const pinned = pinnedSet.has(s.key);
+      const pins = s.archived
+        ? []
+        : [
+            { label: sessionPins.set.has(s.key) ? 'Unpin session' : 'Pin session', run: () => sessionPins.toggle(s.key) },
+            { label: lanePins.set.has(lane.id) ? 'Unpin worktree' : 'Pin worktree', run: () => toggleLanePin(lane) },
+          ];
       void showContextMenu([
         { label: target?.label ?? 'Open', run: () => open(lane, s.openTarget) },
         'separator',
-        ...(s.archived ? [] : [{ label: pinned ? 'Unpin' : 'Pin', run: () => togglePin(s.key) }]),
+        ...pins,
         { label: s.archived ? 'Unarchive' : s.harness === 'codex' ? 'Archive in Codex' : 'Archive', run: () => setArchived(s.key, !s.archived, s.title) },
         'separator',
         { label: 'Copy session ID', run: () => copy(s.id, 'session ID') },
         ...(s.resumeCommand ? [{ label: 'Copy resume command', run: () => copy(s.resumeCommand, 'resume command') }] : []),
       ]).catch((e: unknown) => setToast(String(e)));
     },
-    [pinnedSet, open, togglePin, setArchived, copy],
+    [sessionPins, lanePins, toggleLanePin, open, setArchived, copy],
+  );
+
+  /** A worktree's right-click menu: open it, pin it, copy its path or branch. */
+  const laneMenu = useCallback(
+    (lane: Lane) => {
+      const main = lane.targets.find((t) => t.id === lane.defaultTarget);
+      const more = ['l|editor', 'l|finder'].flatMap((id) => {
+        const t = lane.targets.find((x) => x.id === id);
+        return t && id !== lane.defaultTarget ? [{ label: t.label, run: () => open(lane, id) }] : [];
+      });
+      void showContextMenu([
+        { label: main?.label ?? 'Open', run: () => open(lane, lane.defaultTarget) },
+        ...more,
+        'separator',
+        { label: lanePins.set.has(lane.id) ? 'Unpin worktree' : 'Pin worktree', run: () => toggleLanePin(lane) },
+        'separator',
+        { label: 'Copy path', run: () => copy(lane.path, 'worktree path') },
+        ...(lane.branch ? [{ label: 'Copy branch name', run: () => copy(lane.branch, 'branch name') }] : []),
+      ]).catch((e: unknown) => setToast(String(e)));
+    },
+    [lanePins, toggleLanePin, open, copy],
   );
 
   /** Moves a pinned session to insertion point `index` among the pinned ones showing. */
-  const movePinned = useCallback(
-    (key: string, index: number) => {
-      const next = reorderPinned(pinnedKeys, pinnedRows.map((r) => r.session.key), key, index);
-      if (next !== pinnedKeys) savePins(next);
-    },
-    [pinnedKeys, pinnedRows, savePins],
+  const movePinnedSession = useCallback(
+    (key: string, index: number) => sessionPins.move(pinnedRows.map((r) => r.session.key), key, index),
+    [sessionPins, pinnedRows],
   );
 
-  /** Selects a worktree from the sidebar, in the Worktrees view: its first agent row, else its own row. */
+  /** Moves a pinned worktree to insertion point `index` among the pinned ones showing. */
+  const movePinnedLane = useCallback(
+    (id: string, index: number) => lanePins.move(pinnedLaneRows.map((r) => r.lane.id), id, index),
+    [lanePins, pinnedLaneRows],
+  );
+
+  /** Selects a worktree from the sidebar, in the Worktrees view: its pinned row, else its first agent row, else its own row. */
   const focusLane = (lane: Lane) => {
     setView('worktrees');
     setBayFilter(null);
+    if (lanePins.set.has(lane.id)) {
+      setSelectedKey(lane.id);
+      return;
+    }
     if (lane.parked) setShowParked(true);
-    const own = lane.sessions.find((s) => !s.visitor && AGENT_BAY[s.status]);
-    setSelectedKey(own ? `${lane.id}::${own.key}` : lane.id);
+    setSelectedKey(boardRowKey(lane));
   };
 
   /** Selects a session's row: in Sessions its own row; on the board its agent row, else its worktree's row. */
@@ -555,6 +583,10 @@ export function App() {
         setSelectedKey(item.key);
         return;
       }
+    }
+    if (lanePins.set.has(lane.id)) {
+      setSelectedKey(lane.id);
+      return;
     }
     const onBoardAsAgent = !session.visitor && AGENT_BAY[session.status];
     if (!onBoardAsAgent && lane.parked) setShowParked(true);
@@ -613,19 +645,29 @@ export function App() {
         setView(VIEWS[(i + 1) % VIEWS.length].id);
         return;
       }
-      if (key === 'p' && !mod && selected?.kind === 'agent') {
-        togglePin(selected.session.key);
+      // P pins what the view lists: worktrees on the board, sessions in Sessions.
+      if (key === 'p' && !mod && selected && selected.kind !== 'pr') {
+        if (view === 'worktrees') toggleLanePin(selected.lane);
+        else if (selected.kind === 'agent' && !selected.session.archived) sessionPins.toggle(selected.session.key);
         return;
       }
       if (key === 'a' && !mod && selected?.kind === 'agent') {
         setArchived(selected.session.key, !selected.session.archived, selected.session.title);
         return;
       }
-      if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown') && view === 'sessions' && selected?.kind === 'agent' && pinnedSet.has(selected.session.key)) {
-        e.preventDefault();
-        const i = pinnedRows.findIndex((r) => r.key === selected.key);
-        movePinned(selected.session.key, e.key === 'ArrowUp' ? i - 1 : i + 2);
-        return;
+      if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+        // Insertion points: one up is the row's own index less one; one down is two past it.
+        const step = (i: number) => (e.key === 'ArrowUp' ? i - 1 : i + 2);
+        if (view === 'sessions' && selected?.kind === 'agent' && sessionPins.set.has(selected.session.key)) {
+          e.preventDefault();
+          movePinnedSession(selected.session.key, step(pinnedRows.findIndex((r) => r.key === selected.key)));
+          return;
+        }
+        if (view === 'worktrees' && selected?.kind === 'lane' && lanePins.set.has(selected.lane.id)) {
+          e.preventDefault();
+          movePinnedLane(selected.lane.id, step(pinnedLaneRows.findIndex((r) => r.key === selected.key)));
+          return;
+        }
       }
       if (e.key === '/') {
         e.preventDefault();
@@ -678,7 +720,7 @@ export function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [visible, selected, selectedLane, move, open, openRow, copy, accountsDialog, view, setView, togglePin, pinnedSet, pinnedRows, movePinned, current, setArchived]);
+  }, [visible, selected, selectedLane, move, open, openRow, copy, accountsDialog, view, setView, toggleLanePin, sessionPins, lanePins, pinnedRows, pinnedLaneRows, movePinnedSession, movePinnedLane, current, setArchived]);
 
   const toggleBay = (f: Filter) => setBayFilter(bayFilter === f ? null : f);
   const openWindow = (name: string) => {
@@ -691,15 +733,39 @@ export function App() {
     signIn(account).catch((e: unknown) => setToast(String(e)));
   };
 
-  // The sidebar's worktrees, grouped by repo: active ones first, parked ones last.
-  const worktrees = useMemo(() => {
+  // The sidebar's worktrees: pinned ones first in your order, then the rest grouped by repo,
+  // active ones first and parked ones last.
+  const worktrees = useMemo((): TreeGroup[] => {
+    const byId = new Map(recentLanes.map((l) => [l.id, l]));
+    const pinned = lanePins.keys.flatMap((id) => byId.get(id) ?? []);
     const byRepo = new Map<string, Lane[]>();
-    for (const l of recentLanes) byRepo.set(l.repo, [...(byRepo.get(l.repo) ?? []), l]);
+    for (const l of recentLanes) if (!lanePins.set.has(l.id)) byRepo.set(l.repo, [...(byRepo.get(l.repo) ?? []), l]);
     const rank = (l: Lane) => (l.parked ? 9 : BAYS.indexOf(l.bay));
-    return [...byRepo.entries()]
+    const repos = [...byRepo.entries()]
       .sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]))
       .map(([repo, ls]) => ({ repo, lanes: ls.sort((a, b) => rank(a) - rank(b) || b.lastActivity - a.lastActivity) }));
-  }, [projectLanes]);
+    return pinned.length > 0 ? [{ repo: '', lanes: pinned, pinned: true }, ...repos] : repos;
+  }, [recentLanes, lanePins]);
+
+  /** A worktree's row on the board; `drag` when it's pinned. */
+  const laneRow = (r: LaneItem, drag?: PinDrag) => (
+    <LaneRow
+      key={r.key}
+      lane={r.lane}
+      domId={domId(r)}
+      now={now}
+      selected={r.key === selected?.key}
+      onSelect={() => setSelectedKey(r.key)}
+      onOpen={(lane) => open(lane, lane.defaultTarget)}
+      onOpenTarget={(lane, id) => {
+        setSelectedKey(r.key);
+        open(lane, id);
+      }}
+      pinned={drag != null}
+      onContextMenu={() => laneMenu(r.lane)}
+      {...drag}
+    />
+  );
 
   return (
     <div className="ca-win ca-win--app">
@@ -743,7 +809,8 @@ export function App() {
               now={now}
               selectedLaneId={selectedLane?.id ?? null}
               selectedSessionKey={selected?.kind === 'agent' ? selected.session.key : null}
-              pinned={pinnedSet}
+              pinnedSessions={sessionPins.set}
+              onLaneMenu={laneMenu}
               onSessionMenu={sessionMenu}
               onSelectLane={focusLane}
               onOpenSession={(lane, session) => {
@@ -788,9 +855,9 @@ export function App() {
                 </button>
               ))}
             </div>
-            {view === 'sessions' && pinnedKeys.length === 0 && (
+            {view !== 'prs' && (view === 'sessions' ? sessionPins : lanePins).keys.length === 0 && (
               <span className="ca-board-head-hint">
-                Pin a session with <Kbd keys={['P']} /> to keep it at the top
+                Pin a {view === 'sessions' ? 'session' : 'worktree'} with <Kbd keys={['P']} /> to keep it at the top
               </span>
             )}
             <div className="ca-agefilter">
@@ -830,7 +897,7 @@ export function App() {
                     : 'No sessions in the last 14 days.'}
             </div>
           )}
-          {board && !board.loading && view === 'worktrees' && bays.length === 0 && (
+          {board && !board.loading && view === 'worktrees' && bays.length === 0 && pinnedLaneRows.length === 0 && (
             <div className="ca-board-empty">
               {query
                 ? `Nothing in ${current} matches “${query}”.`
@@ -882,11 +949,14 @@ export function App() {
                   openRow(r);
                 }}
                 onContextMenu={(r) => sessionMenu(r.lane, r.session)}
-                onMovePinned={movePinned}
+                onMovePinned={movePinnedSession}
                 archived={archivedItems}
                 showArchived={showArchived}
                 onToggleArchived={() => setShowArchived(!showArchived)}
               />
+            )}
+            {view === 'worktrees' && pinnedLaneRows.length > 0 && (
+              <PinnedSection items={pinnedLaneRows} keyOf={(r) => r.lane.id} onMove={movePinnedLane} row={laneRow} />
             )}
             {view === 'worktrees' && bays.map((b) => {
               const shown = b.rows.filter((r) => !foldParked || r.kind === 'agent' || !r.lane.parked);
@@ -919,23 +989,11 @@ export function App() {
                             setSelectedKey(r.key);
                             openRow(r);
                           }}
-                          pinned={pinnedSet.has(r.session.key)}
+                          pinned={sessionPins.set.has(r.session.key)}
                           onContextMenu={() => sessionMenu(r.lane, r.session)}
                         />
                       ) : (
-                        <LaneRow
-                          key={r.key}
-                          lane={r.lane}
-                          domId={domId(r)}
-                          now={now}
-                          selected={r.key === selected?.key}
-                          onSelect={() => setSelectedKey(r.key)}
-                          onOpen={(lane) => open(lane, lane.defaultTarget)}
-                          onOpenTarget={(lane, id) => {
-                            setSelectedKey(r.key);
-                            open(lane, id);
-                          }}
-                        />
+                        laneRow(r)
                       ),
                     )}
                     {b.bay === 'idle' && foldParked && parkedCount > 0 && (

@@ -59,8 +59,8 @@ previewed, and the app is rebuilt and relaunched.
 
 - The frontend never shells out; every side effect is a Tauri command in `src-tauri/src/lib.rs`.
 - `src-tauri/src/board.rs` holds the model's rules as pure functions with tests; the engine
-  gathers inputs and calls them. `src/lanes.ts` mirrors `bay_of` for the age filter; keep them
-  in step.
+  gathers inputs and calls them. `src/lanes.ts` mirrors `bay_of` (and the agent bays'
+  headlines) for the age filter; keep them in step.
 - Styles: tokens in `design/tokens.json` (`npm run tokens`), colors only through CSS
   variables. `src/styles/components.css` is the design system's bundle; app styles go in
   `src/styles/app.css`. Icons are Tabler outline paths in `src/ui/icons.ts`.

@@ -1,33 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { Lane, Session } from '../types';
-import { reorderPinned, timeSections, type SessionItem } from './SessionsView';
+import { timeSections, type SessionItem } from './SessionsView';
 
 const item = (key: string, lastActivity: number): SessionItem => ({
   kind: 'agent',
   key: `lane::${key}`,
   lane: {} as Lane,
   session: { key, lastActivity } as Session,
-});
-
-describe('reorderPinned', () => {
-  it('moves a pin to an insertion point', () => {
-    const all = ['a', 'b', 'c'];
-    expect(reorderPinned(all, all, 'a', 2)).toEqual(['b', 'a', 'c']);
-    expect(reorderPinned(all, all, 'c', 0)).toEqual(['c', 'a', 'b']);
-    expect(reorderPinned(all, all, 'b', 3)).toEqual(['a', 'c', 'b']);
-  });
-
-  it('leaves the list alone for a move to where it already is', () => {
-    const all = ['a', 'b', 'c'];
-    expect(reorderPinned(all, all, 'a', -1)).toBe(all);
-    expect(reorderPinned(all, all, 'b', 1)).toBe(all);
-    expect(reorderPinned(all, all, 'b', 2)).toBe(all);
-    expect(reorderPinned(all, all, 'c', 9)).toBe(all);
-  });
-
-  it('keeps pins hidden by the project or filter in their places', () => {
-    expect(reorderPinned(['a', 'x', 'b', 'c'], ['a', 'b', 'c'], 'c', 0)).toEqual(['c', 'x', 'a', 'b']);
-  });
 });
 
 describe('timeSections', () => {
