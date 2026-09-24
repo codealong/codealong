@@ -482,13 +482,13 @@ export function App() {
   );
   const visible = view === 'sessions' ? sessionRows : view === 'prs' ? prVisible : view === 'todo' ? todoVisible : worktreeItems;
   // When the selected agent's line goes (you marked it seen, it stopped), the selection stays
-  // on its worktree rather than jumping to the top. A todo marked done while Done is folded
-  // leaves the list, but the panel keeps it: the next key you press is still about the todo
-  // you see.
+  // on its worktree rather than jumping to the top. A todo that leaves the list (marked done
+  // while Done is folded, or no longer matching the search or a filter) stays in the panel: the
+  // next key you press is still about the todo you see, and an edit in progress isn't cut off.
   const selectedLaneId = selectedKey?.split('::')[0];
   const selected =
     visible.find((r) => r.key === selectedKey) ??
-    (view === 'todo' ? todoRows.find((r) => r.key === selectedKey) : visible.find((r) => r.kind !== 'pr' && r.kind !== 'todo' && r.lane.id === selectedLaneId)) ??
+    (view === 'todo' ? todoItems.find((r) => r.key === selectedKey) : visible.find((r) => r.kind !== 'pr' && r.kind !== 'todo' && r.lane.id === selectedLaneId)) ??
     visible[0] ??
     null;
   const selectedLane = selected?.lane ?? null;

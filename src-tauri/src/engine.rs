@@ -371,8 +371,11 @@ struct Engine {
     todos: TodoStore,
     /// todos.json as last read or written, so the watcher can tell someone else's edit from ours.
     todos_text: String,
-    /// Why todos.json couldn't be read; nothing is written over it until it can.
+    /// Why todos.json couldn't be read or saved.
     todos_warning: Option<String>,
+    /// todos.json is there but doesn't read as a todo list: nothing is written over it, and
+    /// changes are turned away, until it's fixed or deleted.
+    todos_unreadable: bool,
     checkouts: Vec<(String, Checkout)>,
     seeds: Vec<LaneSeed>,
     /// `<main>/.git/worktrees/<name>` → the linked worktree's path.
@@ -442,6 +445,7 @@ impl Engine {
             todos: TodoStore::default(),
             todos_text: String::new(),
             todos_warning: None,
+            todos_unreadable: false,
             checkouts: Vec::new(),
             seeds: Vec::new(),
             gitdir_to_lane: HashMap::new(),
@@ -489,10 +493,13 @@ impl Engine {
         self.seen = SeenState::load();
         self.seen.save();
         self.load_todos();
-        let texts: Vec<String> = self.todos.todos.iter().map(|t| t.description.clone()).collect();
-        let _ = std::thread::Builder::new().name("codealong-images".into()).spawn(move || {
-            images::collect_garbage(&texts.iter().map(String::as_str).collect::<Vec<_>>());
-        });
+        // Only with every todo read: a list that didn't read would make every image look unused.
+        if !self.todos_unreadable {
+            let texts: Vec<String> = self.todos.todos.iter().map(|t| t.description.clone()).collect();
+            let _ = std::thread::Builder::new().name("codealong-images".into()).spawn(move || {
+                images::collect_garbage(&texts.iter().map(String::as_str).collect::<Vec<_>>());
+            });
+        }
         self.app_records.refresh(&claudeapp::records_dir());
         self.app_records_at = Some(Instant::now());
         self.scan_sessions();
@@ -605,7 +612,12 @@ impl Engine {
                 Ok(Msg::Ping(sent)) => perf::lag("engine", sent.elapsed()),
                 Ok(Msg::Todo(op, reply)) => {
                     let lanes = self.lane_index();
-                    let result = match self.todos.apply(op, &lanes, now_ms()) {
+                    let result = match self.todos_unreadable {
+                        // A change now would be lost when the file is fixed, so it's turned away.
+                        true => Err(self.todos_warning.clone().unwrap_or_default()),
+                        false => self.todos.apply(op, &lanes, now_ms()).map_err(|e| format!("{e:#}")),
+                    };
+                    let result = match result {
                         Ok(changed) => {
                             if changed {
                                 self.save_todos();
@@ -614,13 +626,13 @@ impl Engine {
                             }
                             Ok(self.board.read().map(|b| b.generated_at).unwrap_or(0))
                         }
-                        Err(e) => Err(format!("{e:#}")),
+                        Err(e) => Err(e),
                     };
                     let _ = reply.send(result);
                 }
                 Ok(Msg::TodoStarted { id, lane, session, pending }) => {
                     let lanes = self.lane_index();
-                    if self.todos.started(&id, &lane, session.as_deref(), pending, &lanes, now_ms()) {
+                    if !self.todos_unreadable && self.todos.started(&id, &lane, session.as_deref(), pending, &lanes, now_ms()) {
                         self.save_todos();
                     }
                 }
@@ -1417,16 +1429,20 @@ impl Engine {
                 self.todos = store;
                 self.todos_text = text;
                 self.todos_warning = None;
+                self.todos_unreadable = false;
             }
-            Err(e) => self.todos_warning = Some(format!("{e:#}")),
+            Err(e) => {
+                self.todos_warning = Some(format!("{e:#}"));
+                self.todos_unreadable = true;
+            }
         }
     }
 
     /// todos.json changed on disk. Our own writes come back through the watcher too; only
-    /// someone else's edit is read again.
+    /// someone else's edit is read again, or any change while the file didn't read.
     fn reload_todos(&mut self) {
         let text = std::fs::read_to_string(todos::path()).unwrap_or_default();
-        if text == self.todos_text {
+        if text == self.todos_text && !self.todos_unreadable {
             return;
         }
         self.load_todos();
@@ -1436,11 +1452,14 @@ impl Engine {
     fn save_todos(&mut self) {
         self.dirty = true;
         // A file that didn't read is left for you to fix, not replaced.
-        if self.todos_warning.is_some() {
+        if self.todos_unreadable {
             return;
         }
         match todos::save(&self.todos) {
-            Ok(text) => self.todos_text = text,
+            Ok(text) => {
+                self.todos_text = text;
+                self.todos_warning = None;
+            }
             Err(e) => self.todos_warning = Some(format!("Couldn't save todos.json: {e:#}")),
         }
     }

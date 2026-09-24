@@ -30,9 +30,9 @@ export function useImageDrop(ref: RefObject<HTMLElement | null>, onNames: (names
     if (!enabled) return;
     return onFileDrop((paths, at) => {
       const el = ref.current;
-      if (!el) return;
-      const r = el.getBoundingClientRect();
-      if (at.x < r.left || at.x > r.right || at.y < r.top || at.y > r.bottom) return;
+      // The element on top where it landed: a sheet over a panel takes the drop, not the panel.
+      const hit = document.elementFromPoint(at.x, at.y);
+      if (!el || !hit || !el.contains(hit)) return;
       const images = paths.filter((p) => IMAGE_FILE.test(p));
       if (images.length === 0) {
         latest.current.onError('Only PNG, JPEG, GIF and WebP images can go in.');

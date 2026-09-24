@@ -109,6 +109,16 @@ export function DescriptionEditor({ value, onSave, onError }: DescriptionEditorP
   // The latest save, so a new board (and with it a new callback) doesn't restart the wait.
   const save = useRef(onSave);
   save.current = onSave;
+  const latest = useRef({ editing, draft, value });
+  latest.current = { editing, draft, value };
+  // Selecting another todo swaps the panel before the text area sees a blur: save what's typed.
+  useEffect(
+    () => () => {
+      const l = latest.current;
+      if (l.editing && l.draft !== l.value) save.current(l.draft);
+    },
+    [],
+  );
 
   // While you're not editing, the text follows the saved one (another window may change it).
   useEffect(() => {

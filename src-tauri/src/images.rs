@@ -176,12 +176,13 @@ pub fn expand(text: &str, style: Style) -> String {
     expand_in(text, &dir(), style)
 }
 
-/// Removes images no text refers to any more, once they've sat unused for a week, so an image
-/// cut from a description (or a todo deleted and restored) is still there for a while.
+/// Removes images no todo refers to any more, once they've sat unused for 30 days: an image cut
+/// from a description, or a todo deleted and restored, is still there for a while, and so is one
+/// a session was started with for as long as Claude Code keeps the session.
 pub fn collect_garbage(texts: &[&str]) {
     let keep: std::collections::HashSet<String> = texts.iter().flat_map(|t| referenced(t)).collect();
     let Ok(entries) = std::fs::read_dir(dir()) else { return };
-    let cutoff = std::time::SystemTime::now() - std::time::Duration::from_millis(7 * DAY_MS as u64);
+    let cutoff = std::time::SystemTime::now() - std::time::Duration::from_millis(30 * DAY_MS as u64);
     for e in entries.flatten() {
         let name = e.file_name().to_string_lossy().to_string();
         if !valid_name(&name) || keep.contains(&name) {

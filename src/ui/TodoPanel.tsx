@@ -20,6 +20,10 @@ function TitleField({ value, onSave }: { value: string; onSave: (title: string) 
   // The latest save, so a new board (and with it a new callback) doesn't restart the wait.
   const save = useRef(onSave);
   save.current = onSave;
+  // Escape puts the title back; the blur that follows mustn't save what it replaced.
+  const cancelled = useRef(false);
+  const latest = useRef({ draft, value, focused });
+  latest.current = { draft, value, focused };
   useEffect(() => {
     if (!focused) setDraft(value);
   }, [value, focused]);
@@ -28,6 +32,14 @@ function TitleField({ value, onSave }: { value: string; onSave: (title: string) 
     const id = window.setTimeout(() => save.current(draft), 600);
     return () => window.clearTimeout(id);
   }, [draft, focused, value]);
+  // Selecting another todo swaps the panel before this field sees a blur: save what's typed.
+  useEffect(
+    () => () => {
+      const l = latest.current;
+      if (l.focused && !cancelled.current && l.draft.trim() !== l.value.trim()) save.current(l.draft);
+    },
+    [],
+  );
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
@@ -43,17 +55,23 @@ function TitleField({ value, onSave }: { value: string; onSave: (title: string) 
       spellCheck
       placeholder="Untitled"
       aria-label="Title"
-      onFocus={() => setFocused(true)}
+      onFocus={() => {
+        cancelled.current = false;
+        setFocused(true);
+      }}
       onChange={(e) => setDraft(e.target.value.replace(/\n/g, ' '))}
       onBlur={() => {
         setFocused(false);
-        if (draft.trim() !== value.trim()) onSave(draft);
+        if (!cancelled.current && draft.trim() !== value.trim()) onSave(draft);
       }}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === 'Escape') {
           e.preventDefault();
           e.stopPropagation();
-          if (e.key === 'Escape') setDraft(value);
+          if (e.key === 'Escape') {
+            cancelled.current = true;
+            setDraft(value);
+          }
           ref.current?.blur();
         }
       }}
@@ -79,8 +97,9 @@ function LabelPicker({ labels, chosen, onToggle, onCreate, onRename, onMenu, onC
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
+    // A click outside closes it; one on its own button (in the same anchor) toggles it instead.
     const onDown = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node)) onClose();
+      if (!ref.current?.parentElement?.contains(e.target as Node)) onClose();
     };
     document.addEventListener('mousedown', onDown);
     return () => document.removeEventListener('mousedown', onDown);

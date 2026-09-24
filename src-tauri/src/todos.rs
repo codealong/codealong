@@ -34,8 +34,10 @@ pub const LABEL_COLORS: [&str; 8] = ["gray", "red", "pink", "purple", "indigo", 
 pub enum TodoStatus {
     #[default]
     Todo,
-    /// An agent is on it.
+    /// An agent is on it. The other spellings are for lists written by hand or by an agent.
+    #[serde(alias = "in_progress", alias = "inprogress", alias = "doing")]
     InProgress,
+    #[serde(alias = "complete", alias = "completed")]
     Done,
 }
 
@@ -54,6 +56,9 @@ pub struct PendingStart {
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Todo {
+    /// Letters, digits, `-` and `_`. One written by hand without an id, or with other
+    /// characters, gets one when it's read.
+    #[serde(default)]
     pub id: String,
     /// The project it belongs to; empty until you pick one or link a worktree.
     #[serde(default)]
@@ -87,9 +92,12 @@ pub struct Todo {
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Label {
+    #[serde(default)]
     pub id: String,
+    #[serde(default)]
     pub name: String,
-    /// One of `LABEL_COLORS`.
+    /// One of `LABEL_COLORS`; any other is gray.
+    #[serde(default)]
     pub color: String,
 }
 
@@ -144,6 +152,50 @@ pub trait Lanes {
 
 fn valid_id(id: &str) -> bool {
     !id.is_empty() && id.len() <= 64 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+
+/// An id made usable: other characters become `-`, and an empty one takes `fallback`.
+fn usable_id(id: &str, fallback: &str) -> String {
+    let cleaned: String = id.trim().chars().take(60).map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '-' }).collect();
+    if cleaned.trim_matches('-').is_empty() {
+        fallback.to_string()
+    } else {
+        cleaned
+    }
+}
+
+/// A list read from disk, with every todo and label given a usable, unique id, and the labels on
+/// each todo following theirs. Nothing someone wrote by hand is dropped for its id.
+fn repaired(mut s: TodoStore) -> TodoStore {
+    let mut seen = HashSet::new();
+    let mut renamed = std::collections::HashMap::new();
+    for (i, l) in s.labels.iter_mut().enumerate() {
+        let usable = usable_id(&l.id, &format!("l-{}", i + 1));
+        let mut id = usable.clone();
+        while !seen.insert(id.clone()) {
+            id.push('_');
+        }
+        // Todos follow a label whose id had to change; a repeat keeps pointing at the first.
+        if usable != l.id && !l.id.is_empty() {
+            renamed.entry(l.id.clone()).or_insert_with(|| id.clone());
+        }
+        l.id = id;
+    }
+    s.labels = clean_labels(s.labels);
+    let mut seen = HashSet::new();
+    for (i, t) in s.todos.iter_mut().enumerate() {
+        let mut id = usable_id(&t.id, &format!("t-{}", i + 1));
+        while !seen.insert(id.clone()) {
+            id.push('_');
+        }
+        t.id = id;
+        for l in &mut t.labels {
+            if let Some(new) = renamed.get(l) {
+                *l = new.clone();
+            }
+        }
+    }
+    s
 }
 
 fn clip(s: &str, max: usize) -> String {
@@ -408,11 +460,7 @@ pub fn load() -> Result<(TodoStore, String)> {
         Err(e) => bail!("Couldn't read {}: {e}", p.display()),
     };
     match serde_json::from_str::<TodoStore>(&text) {
-        Ok(mut s) => {
-            s.labels = clean_labels(std::mem::take(&mut s.labels));
-            s.todos.retain(|t| valid_id(&t.id));
-            Ok((s, text))
-        }
+        Ok(s) => Ok((repaired(s), text)),
         Err(e) => bail!("todos.json doesn't read as a todo list ({e}). Codealong won't change it until it does."),
     }
 }
@@ -654,6 +702,22 @@ mod tests {
         s.started("a", "/r/app", None, Some(pending("/r/app", "codex", "codex", 1)), &lanes(), 1);
         s.apply(TodoOp::Link { id: "a".into(), worktree: Some("/r/app".into()), session: None, linked: false }, &lanes(), 2).unwrap();
         assert!(s.todos[0].pending.is_empty() && s.todos[0].worktrees.is_empty());
+    }
+
+    #[test]
+    fn a_list_written_by_hand_keeps_every_todo() {
+        let hand: TodoStore = serde_json::from_str(
+            r#"{"todos":[{"id":"fix login","title":"A","labels":["my label"]},{"title":"No id","status":"in_progress"},{"id":"fix-login","title":"Clash","status":"completed"}],
+                "labels":[{"id":"my label","name":"Mine","color":"teal"},{"name":"No id either"}]}"#,
+        )
+        .unwrap();
+        let s = repaired(hand);
+        let ids: Vec<&str> = s.todos.iter().map(|t| t.id.as_str()).collect();
+        assert_eq!(ids, vec!["fix-login", "t-2", "fix-login_"]);
+        assert_eq!((s.todos[1].status, s.todos[2].status), (TodoStatus::InProgress, TodoStatus::Done));
+        assert_eq!(s.labels.iter().map(|l| l.id.as_str()).collect::<Vec<_>>(), vec!["my-label", "l-2"]);
+        // The todo keeps its label under the label's new id.
+        assert_eq!(s.todos[0].labels, vec!["my-label".to_string()]);
     }
 
     #[test]
