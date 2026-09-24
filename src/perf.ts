@@ -36,7 +36,8 @@ export function usePerf(board: Board | null, arrived: MutableRefObject<number | 
       const now = performance.now();
       const late = now - last - 1000;
       last = now;
-      if (late > 100) perfMark(`stall: a 1 s timer ran ${late.toFixed(0)} ms late`);
+      // A hidden window's timers are slowed on purpose (the bar, when a board window is up).
+      if (late > 100 && !document.hidden) perfMark(`stall: a 1 s timer ran ${late.toFixed(0)} ms late`);
       if (worst > 50) perfMark(`input: pointer moves waited up to ${worst.toFixed(0)} ms (${moves} in 1 s)`);
       worst = 0;
       moves = 0;
