@@ -11,23 +11,26 @@ The design lives in the Codealong design system (tokens, components, and the mod
 surfaces, harness adapters, apps, architecture and build plan pages):
 https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
 
-## Status: 0.1, the board
+## What it does
 
-- Lanes for every worktree of your project repos, with callsigns and origin tags.
-- Live Claude Code sessions for every config folder (`~/.claude`, `~/.claude2`) from their
-  session registries, plus transcripts from the last 14 days.
-- Codex threads from `~/.codex` (threads you started; guardian reviews and subagents are
-  skipped).
-- Git state per lane (branch, ahead/behind, uncommitted files, diff against the default
-  branch), read-only.
-- PRs and checks from GitHub through your `gh` sign-in.
-- Bays: Needs you, Working, Your turn, In review, Idle, Merged. Parked lanes fold away.
-- Open where it lives: focus a live terminal session in Ghostty, resume a stopped one
-  (`claude2 --resume <id>`), open Claude app sessions and Codex threads by deep link, open
-  the folder in Cursor, open the PR on GitHub or review it in Codex.
+- **Three views** of the current project, each in a window of its own if you like (⌘⇧N):
+  - **Worktrees**: agents that need you, are working or just finished, then worktrees in
+    review, idle and merged. Stuck agents (busy but silent for 30 minutes) show in Needs you
+    with the command they're stuck on.
+  - **Sessions**: every session, pinned ones first in your order (drag or ⌥↑ ⌥↓), then by
+    day. Archive a session with `a` or its right-click menu; Codex threads are archived in
+    Codex itself.
+  - **PRs**: every PR in the project's repos, with the worktree and sessions that worked on
+    each. Reviews asked of you come first, with one-click Approve. Selecting a PR shows its
+    description, reviews, checks and changed files with their diffs.
+- **Open where it lives**: the session's own Ghostty tab, the Claude app session, the Codex
+  thread, a background job attached in a new window, or the folder in Cursor.
+- **Usage** for every account in a bar across the top: 5-hour and weekly limits, per-model
+  limits such as Fable, and time to reset. Add accounts in Accounts (⌘,).
+- **Filters**: the Inbox (Needs you, Working, Your turn, In review, Checks failing), search,
+  and how recently things were active (24h, 3d, 7d, all).
 
-Next (0.2): the menu bar icon and popover, usage for both Claude accounts and Codex, and
-notifications. See the design system's *Build plan*.
+Next: the menu bar icon and popover, and notifications (the design system's *Build plan*).
 
 ## Requirements
 
@@ -45,8 +48,10 @@ npm run tauri build    # src-tauri/target/release/bundle/macos/Codealong.app
 npm run snapshot       # print the board as a table without opening a window
 ```
 
-Tests: `npm test` (formatting), `npm run typecheck`, and `cargo test` in `src-tauri`
-(model rules, parsers, git and GitHub parsing, deep links, Ghostty scripts).
+Tests: `npm test` (vitest), `npm run typecheck`, and `cargo test --release` in `src-tauri`
+(model rules, parsers, git and GitHub parsing, usage, config writes, deep links, Ghostty
+scripts). `scripts/preview.sh` renders the UI in headless Chrome against your real data with
+Tauri's IPC stubbed. CLAUDE.md has the rest of the working notes.
 
 ## Settings
 
@@ -72,7 +77,8 @@ repos = ["github.com/northwindai/*"]
 folders = []
 ```
 
-What you've seen (for Your turn) is kept in `state.json` next to it.
+What you've seen (for Your turn), what you've pinned and what you've archived in Codealong
+are kept in `state.json` next to it.
 
 ## Permissions and safety
 
@@ -90,6 +96,11 @@ What you've seen (for Your turn) is kept in `state.json` next to it.
 | `src-tauri/src/board.rs` | The model's rules: status, bays, headlines, open targets (pure, tested) |
 | `src-tauri/src/claude.rs`, `codex.rs` | Harness adapters: registries, transcripts, rollouts, incremental tailing |
 | `src-tauri/src/repos.rs`, `git.rs`, `github.rs` | Repo discovery, callsigns, worktrees, git status, PRs |
-| `src-tauri/src/launch.rs` | App profiles: Ghostty (AppleScript), Cursor (CLI), deep links |
-| `src/` | The React UI, built from the design system's components and tokens |
+| `src-tauri/src/launch.rs` | App profiles: Ghostty (AppleScript, exact tab focus), Cursor (CLI), deep links |
+| `src-tauri/src/usage.rs` | Plan usage: Claude through its sign-in and usage endpoint, Codex from its rollouts |
+| `src-tauri/src/appserver.rs` | Codex actions through its app-server (archiving) |
+| `src-tauri/src/claudeapp.rs` | The Claude app's session records (its IDs, what you archived there) |
+| `src-tauri/src/config.rs`, `state.rs` | `config.toml` (accounts saved in place) and `state.json` (seen, pinned, archived) |
+| `src/` | The React UI, built from the design system's components and tokens; `lanes.ts` mirrors the engine's status rules for the age filter |
+| `scripts/preview.sh` | Headless preview against real data, for screenshots and scripted checks |
 | `design/tokens.json` | Design tokens; `npm run tokens` regenerates `src/styles/tokens.css` |
