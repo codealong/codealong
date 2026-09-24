@@ -172,6 +172,7 @@ pub fn claude_session(
         pid: reg.map(|r| r.pid),
         title: truncate(&plain(&title), 90),
         cwd,
+        work: tr.map(|t| t.work.clone()).unwrap_or_default(),
         name: reg.and_then(|r| r.name.clone()),
         started_at: reg.and_then(|r| r.started_at).or_else(|| tr.and_then(|t| t.started_at)),
         status_since: reg.and_then(|r| r.status_updated_at),
@@ -228,6 +229,7 @@ pub fn codex_session(account: &AccountCfg, th: &ThreadInfo, name: Option<&str>, 
         pid: None,
         title: truncate(&plain(&title), 90),
         cwd: th.cwd.clone(),
+        work: th.work.clone(),
         name: None,
         started_at: th.started_at,
         status_since: if status == Status::Working { th.turn_started_at } else { th.last_complete_at },
@@ -253,10 +255,36 @@ pub fn best_seed(seeds: &[LaneSeed], cwd: &Path) -> Option<usize> {
         .map(|(i, _)| i)
 }
 
+/// How many of a session's latest commands and edits in worktrees decide which one it's in.
+const WORK_WINDOW: usize = 5;
+
+/// The lane a session is working in. Agents often start in one worktree and then work in
+/// another (`cd ../repo-fix && …`), so it's where most of the last few commands ran and edits
+/// landed, the latest winning a tie, and a stray command elsewhere doesn't move it. Work
+/// outside every worktree doesn't count. With none, where the session was started.
+pub fn session_seed(seeds: &[LaneSeed], s: &Session) -> Option<usize> {
+    let recent: Vec<usize> = s.work.iter().rev().filter_map(|p| best_seed(seeds, Path::new(p))).take(WORK_WINDOW).collect();
+    let votes = |i: usize| recent.iter().filter(|&&j| j == i).count();
+    // Oldest first: of the lanes tied for most, `max_by_key` keeps the last, the latest.
+    recent.iter().rev().copied().max_by_key(|&i| votes(i)).or_else(|| best_seed(seeds, Path::new(&s.cwd)))
+}
+
+/// How urgent a status is. Idle and stopped rank the same: a Codex thread is never stopped, so
+/// telling them apart would only sort the harnesses apart.
+fn urgency(s: Status) -> u8 {
+    match s {
+        Status::Needs => 0,
+        Status::Error => 1,
+        Status::Working => 2,
+        Status::Unread => 3,
+        Status::Idle | Status::Stopped => 4,
+    }
+}
+
 /// Most urgent first, then the one you last sent a prompt. Activity would reorder working
 /// sessions with every tool call; your prompts only move one when you do something.
 fn sort_sessions(sessions: &mut [Session]) {
-    sessions.sort_by(|a, b| a.status.cmp(&b.status).then(b.last_prompt_at.cmp(&a.last_prompt_at)).then(b.last_activity.cmp(&a.last_activity)));
+    sessions.sort_by(|a, b| urgency(a.status).cmp(&urgency(b.status)).then(b.last_prompt_at.cmp(&a.last_prompt_at)).then(b.last_activity.cmp(&a.last_activity)));
 }
 
 /// When you last sent a prompt to one of a lane's own sessions; for a lane with none, when
@@ -632,7 +660,7 @@ pub fn compose(inp: Inputs) -> Board {
     let owners: HashMap<String, Session> = sessions.iter().filter(|s| s.harness == Harness::Claude && !s.archived).map(|s| (s.id.clone(), s.clone())).collect();
     let by_key: HashMap<String, Session> = sessions.iter().map(|s| (s.key.clone(), s.clone())).collect();
     for s in sessions {
-        if let Some(i) = best_seed(seeds, Path::new(&s.cwd)) {
+        if let Some(i) = session_seed(seeds, &s) {
             by_lane[i].push(s);
         }
     }
@@ -1059,6 +1087,44 @@ mod tests {
     }
 
     #[test]
+    fn lists_a_session_under_the_worktree_it_works_in() {
+        let seeds = vec![seed("/r/codealong", "main"), seed("/r/codealong-pins", "pins")];
+        let mut s = claude_session(&acct("claude"), Some(&reg("busy", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
+        s.cwd = "/r/codealong".into();
+        let at = |s: &Session| session_seed(&seeds, s).map(|i| seeds[i].path.to_string_lossy().into_owned());
+        let work = |paths: &[&str]| paths.iter().map(|p| p.to_string()).collect::<Vec<_>>();
+        assert_eq!(at(&s).as_deref(), Some("/r/codealong"), "no work yet: where it started");
+        s.work = work(&["/r/codealong", "/r/codealong-pins", "/r/codealong-pins/src/App.tsx", "/r/codealong-pins"]);
+        assert_eq!(at(&s).as_deref(), Some("/r/codealong-pins"));
+        s.work.push("/r/codealong".into());
+        assert_eq!(at(&s).as_deref(), Some("/r/codealong-pins"), "one stray command doesn't move it");
+        s.work = work(&["/r/codealong-pins", "/r/codealong-pins", "/r/codealong", "/r/codealong"]);
+        assert_eq!(at(&s).as_deref(), Some("/r/codealong"), "a tie goes to the latest");
+        s.work = work(&["/r/codealong-pins", "/tmp/scratch", "/Users/me/.claude/plans/x.md"]);
+        assert_eq!(at(&s).as_deref(), Some("/r/codealong-pins"), "work outside every worktree doesn't count");
+        s.cwd = "/Users/me/Downloads".into();
+        s.work.clear();
+        assert_eq!(at(&s), None);
+    }
+
+    #[test]
+    fn a_session_working_in_another_worktree_puts_it_in_working() {
+        let apps = AppNames::default();
+        let seeds = vec![seed("/r/codealong", "main"), seed("/r/codealong-pins", "pins")];
+        let mut s = claude_session(&acct("claude"), Some(&reg("busy", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
+        s.cwd = "/r/codealong".into();
+        s.work = vec!["/r/codealong-pins".into(); 3];
+        let (git, prs, visitors) = (HashMap::new(), HashMap::new(), HashMap::new());
+        let order = vec!["Northwind".to_string()];
+        let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![s], visitors: &visitors, git: &git, prs: &prs, project_order: &order, warnings: vec![], loading: false, github_at: None, pinned: &[], github_login: None });
+        let lane = |p: &str| board.lanes.iter().find(|l| l.path == p).unwrap();
+        assert_eq!(lane("/r/codealong-pins").bay, Bay::Working);
+        assert_eq!(lane("/r/codealong-pins").sessions.len(), 1);
+        assert_eq!(lane("/r/codealong").bay, Bay::Idle);
+        assert!(lane("/r/codealong").sessions.is_empty());
+    }
+
+    #[test]
     fn finds_prs_by_branch_and_owner() {
         let s = seed("/r/atlas-quarry", "quarry");
         let mut prs = HashMap::new();
@@ -1191,14 +1257,18 @@ mod tests {
             s
         };
         // The one working hardest right now doesn't jump ahead of the one you asked more recently.
+        // A stopped session (no registry entry) ranks with idle ones, by your last prompt.
+        let mut stopped = at("idle", Some(NOW - 30_000), NOW - 20_000, "stopped");
+        stopped.status = Status::Stopped;
         let mut sessions = vec![
             at("busy", Some(NOW - 3_600_000), NOW - 1_000, "old-ask"),
             at("idle", Some(NOW - 60_000), NOW - 30_000, "finished"),
+            stopped,
             at("busy", Some(NOW - 600_000), NOW - 400_000, "new-ask"),
             at("waiting", Some(NOW - 7_200_000), NOW - 7_000_000, "needs"),
         ];
         sort_sessions(&mut sessions);
-        assert_eq!(sessions.iter().map(|s| s.key.as_str()).collect::<Vec<_>>(), vec!["needs", "new-ask", "old-ask", "finished"]);
+        assert_eq!(sessions.iter().map(|s| s.key.as_str()).collect::<Vec<_>>(), vec!["needs", "new-ask", "old-ask", "stopped", "finished"]);
         // With no prompt in its log, a session counts from when it started.
         let unknown = at("busy", None, NOW, "unknown");
         assert_eq!(unknown.last_prompt_at, NOW - 3_600_000);

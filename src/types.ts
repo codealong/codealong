@@ -152,6 +152,42 @@ export interface AccountCfg {
   command: string | null;
 }
 
+/** A `[[projects]]` table in config.toml. */
+export interface ProjectCfg {
+  name: string;
+  /** `github.com/owner/*` or `github.com/owner/name`. */
+  repos: string[];
+  /** Folders that aren't repos but belong to the project. */
+  folders: string[];
+}
+
+/** config.toml, as the engine parses it (src-tauri/src/config.rs). Keys are the file's own. */
+export interface Config {
+  scan: string[];
+  apps: { terminal: string; editor: string };
+  appearance: { theme: Theme };
+  accounts: AccountCfg[];
+  projects: ProjectCfg[];
+  debug: { perf_log: boolean };
+}
+
+/** A terminal or editor profile `[apps]` can name. */
+export interface Profile {
+  id: string;
+  name: string;
+}
+
+/** What Settings works from: the settings as parsed, the file as written, and its error. */
+export interface ConfigView {
+  config: Config;
+  text: string;
+  path: string;
+  /** Why the file can't be parsed; then `config` is the defaults and the form is read-only. */
+  error: string | null;
+  terminals: Profile[];
+  editors: Profile[];
+}
+
 export interface AccountInfo extends AccountCfg {
   folderExists: boolean;
   signedIn: boolean;

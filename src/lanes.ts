@@ -8,8 +8,9 @@ import type { Bay, Lane, Pr, Session, Status } from './types';
 export const BAYS: Bay[] = ['needs', 'working', 'unread', 'review', 'idle', 'merged'];
 /** The Inbox state an agent is in, for the statuses that have one. */
 export const AGENT_BAY: Partial<Record<Status, Bay>> = { needs: 'needs', error: 'needs', working: 'working', unread: 'unread' };
-/** Statuses from most to least urgent, as the engine sorts them. */
-const STATUS_ORDER: Status[] = ['needs', 'error', 'working', 'unread', 'idle', 'stopped'];
+/** How urgent a status is, as the engine ranks it. Idle and stopped rank the same: a Codex
+ *  thread is never stopped, so telling them apart would only sort the harnesses apart. */
+const URGENCY: Record<Status, number> = { needs: 0, error: 1, working: 2, unread: 3, idle: 4, stopped: 4 };
 
 /** An agent in the worktree it runs in: a line in a worktree's row, or a row in Sessions. */
 export type AgentItem = { kind: 'agent'; key: string; lane: Lane; session: Session };
@@ -35,7 +36,7 @@ export type Filter = Bay | 'failing';
  * one when you do something.
  */
 export function bySession(a: Session, b: Session): number {
-  return STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status) || b.lastPromptAt - a.lastPromptAt || b.lastActivity - a.lastActivity;
+  return URGENCY[a.status] - URGENCY[b.status] || b.lastPromptAt - a.lastPromptAt || b.lastActivity - a.lastActivity;
 }
 
 /** When you last sent a prompt to one of a worktree's own agents; with none, when anything last happened in it. */

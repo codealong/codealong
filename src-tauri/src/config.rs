@@ -1,12 +1,12 @@
 //! `config.toml`: apps, theme, accounts, projects and scan roots. Codealong writes it on first
-//! run from what it finds. After that you edit it, or the Accounts dialog rewrites the
-//! `[[accounts]]` tables and the theme buttons the `theme` line, in place, leaving the rest of
-//! the file, comments included, as you wrote it.
+//! run from what it finds. After that you edit it, or Settings does: its form sets each value
+//! in place, leaving the rest of the file, comments included, as you wrote it; its config.toml
+//! tab saves the text as typed, once it parses.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::util::{expand, home};
@@ -200,31 +200,32 @@ pub fn save_accounts(accounts: &[AccountCfg]) -> Result<()> {
 
 /// `text` with its `[[accounts]]` tables replaced. The comment above the first one stays.
 pub fn with_accounts(text: &str, accounts: &[AccountCfg]) -> Result<String> {
-    use toml_edit::{value, ArrayOfTables, DocumentMut, Item, Table};
-    let mut doc: DocumentMut = text.parse().context("config.toml has an error; fix it before saving accounts")?;
-    let lead = doc
-        .get("accounts")
-        .and_then(Item::as_array_of_tables)
-        .and_then(|a| a.get(0))
-        .and_then(|t| t.decor().prefix().and_then(|p| p.as_str().map(str::to_string)));
-    let mut tables = ArrayOfTables::new();
-    for (i, a) in accounts.iter().enumerate() {
-        let mut t = Table::new();
-        t["name"] = value(a.name.trim());
-        t["harness"] = value(a.harness.trim());
-        t["home"] = value(a.home.trim());
-        if let Some(c) = a.command.as_deref().map(str::trim).filter(|c| !c.is_empty()) {
-            t["command"] = value(c);
-        }
-        let prefix = if i == 0 { lead.clone().unwrap_or_else(|| "\n".to_string()) } else { "\n".to_string() };
-        t.decor_mut().set_prefix(prefix);
-        tables.push(t);
-    }
-    doc["accounts"] = Item::ArrayOfTables(tables);
+    let mut doc: toml_edit::DocumentMut = text.parse().context("config.toml has an error; fix it before saving accounts")?;
+    set_accounts(&mut doc, accounts);
     Ok(doc.to_string())
 }
 
+fn set_accounts(doc: &mut toml_edit::DocumentMut, accounts: &[AccountCfg]) {
+    use toml_edit::{value, Table};
+    let rows = accounts
+        .iter()
+        .map(|a| {
+            let mut t = Table::new();
+            t["name"] = value(a.name.trim());
+            t["harness"] = value(a.harness.trim());
+            t["home"] = value(a.home.trim());
+            if let Some(c) = a.command.as_deref().map(str::trim).filter(|c| !c.is_empty()) {
+                t["command"] = value(c);
+            }
+            t
+        })
+        .collect();
+    set_tables(doc, "accounts", rows);
+}
+
+const APPS_COMMENT: &str = "# Where Codealong opens things. Built-in profiles: terminal \"ghostty\", editor \"cursor\".\n";
 const APPEARANCE_COMMENT: &str = "# Light or dark. \"system\" follows macOS. The buttons at the foot of the sidebar set this too.\n";
+const DEBUG_COMMENT: &str = "# Timings for finding what makes the app slow, in ~/Library/Logs/Codealong/perf.log.\n";
 
 /// Sets `[appearance] theme` in config.toml and keeps everything else as written.
 pub fn save_theme(theme: Theme) -> Result<()> {
@@ -239,8 +240,13 @@ pub fn save_theme(theme: Theme) -> Result<()> {
 /// `text` with its theme set. A file from before there was a theme gets an `[appearance]`
 /// table after `[apps]`, commented as a new file would be; a comment after the value stays.
 pub fn with_theme(text: &str, theme: Theme) -> Result<String> {
-    use toml_edit::{value, DocumentMut, Item, Table, Value};
-    let mut doc: DocumentMut = text.parse().context("config.toml has an error; fix it before changing the theme")?;
+    let mut doc: toml_edit::DocumentMut = text.parse().context("config.toml has an error; fix it before changing the theme")?;
+    set_theme(&mut doc, theme);
+    Ok(doc.to_string())
+}
+
+fn set_theme(doc: &mut toml_edit::DocumentMut, theme: Theme) {
+    use toml_edit::{Item, Table, Value};
     if !doc.get("appearance").is_some_and(Item::is_table_like) {
         let mut t = Table::new();
         t.decor_mut().set_prefix(format!("\n{APPEARANCE_COMMENT}"));
@@ -251,16 +257,181 @@ pub fn with_theme(text: &str, theme: Theme) -> Result<String> {
         }
         doc.insert("appearance", Item::Table(t));
     }
-    let slot = &mut doc["appearance"]["theme"];
+    set_value(&mut doc["appearance"]["theme"], Value::from(theme.as_str()));
+}
+
+/// A terminal or editor profile the `[apps]` table can name.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct Profile {
+    pub id: String,
+    pub name: String,
+}
+
+/// The built-in app profiles (see launch.rs): what the Settings form offers for `[apps]`.
+pub fn terminal_profiles() -> Vec<Profile> {
+    vec![Profile { id: "ghostty".into(), name: "Ghostty".into() }]
+}
+pub fn editor_profiles() -> Vec<Profile> {
+    vec![Profile { id: "cursor".into(), name: "Cursor".into() }]
+}
+
+/// What Settings works from: the settings as parsed, the file as written, and why it couldn't
+/// be parsed, if it couldn't (then `config` is the defaults and the form stays read-only).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfigView {
+    pub config: Config,
+    pub text: String,
+    pub path: String,
+    pub error: Option<String>,
+    pub terminals: Vec<Profile>,
+    pub editors: Vec<Profile>,
+}
+
+pub fn view() -> ConfigView {
+    let path = config_path();
+    let text = std::fs::read_to_string(&path).unwrap_or_default();
+    view_of(&text, &crate::util::tilde(&path))
+}
+
+fn view_of(text: &str, path: &str) -> ConfigView {
+    let (config, error) = match toml::from_str::<Config>(text) {
+        Ok(c) => (c, None),
+        Err(e) => (Config::default(), Some(e.to_string().trim().to_string())),
+    };
+    ConfigView { config, text: text.to_string(), path: path.to_string(), error, terminals: terminal_profiles(), editors: editor_profiles() }
+}
+
+/// Why a list of projects can't be saved, in words.
+pub fn check_projects(projects: &[ProjectCfg]) -> std::result::Result<(), String> {
+    let mut names = std::collections::HashSet::new();
+    for p in projects {
+        let name = p.name.trim();
+        if name.is_empty() {
+            return Err("Every project needs a name.".into());
+        }
+        if !names.insert(name) {
+            return Err(format!("Two projects are named {name}."));
+        }
+        if p.repos.iter().chain(&p.folders).any(|s| s.trim().is_empty()) {
+            return Err(format!("{name} has an empty repo or folder entry."));
+        }
+    }
+    Ok(())
+}
+
+/// Why the whole config can't be saved, in words.
+pub fn check(cfg: &Config) -> std::result::Result<(), String> {
+    check_accounts(&cfg.accounts)?;
+    check_projects(&cfg.projects)?;
+    if cfg.scan.iter().any(|s| s.trim().is_empty()) {
+        return Err("A scan folder is empty.".into());
+    }
+    if cfg.apps.terminal.trim().is_empty() || cfg.apps.editor.trim().is_empty() {
+        return Err("The terminal and editor need a profile name.".into());
+    }
+    Ok(())
+}
+
+/// Saves every setting in config.toml, in place. The watcher sees the change and reloads.
+pub fn save(cfg: &Config) -> Result<()> {
+    check(cfg).map_err(anyhow::Error::msg)?;
+    std::fs::create_dir_all(support_dir())?;
+    let text = match std::fs::read_to_string(config_path()) {
+        Ok(t) => t,
+        Err(_) => render(&Config::default()),
+    };
+    write_atomic(&with_config(&text, cfg)?)
+}
+
+/// Saves config.toml as typed, once it parses as settings.
+pub fn save_text(text: &str) -> Result<()> {
+    parse(text)?;
+    std::fs::create_dir_all(support_dir())?;
+    write_atomic(text)
+}
+
+/// The settings in `text`, or why it can't be saved.
+pub fn parse(text: &str) -> Result<Config> {
+    let cfg: Config = toml::from_str(text).map_err(|e| anyhow!("{}", e.to_string().trim()))?;
+    check(&cfg).map_err(anyhow::Error::msg)?;
+    Ok(cfg)
+}
+
+/// `text` with every setting set to `cfg`'s, each in its place; tables the file doesn't have
+/// yet are added, commented as a new file would be.
+pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
+    use toml_edit::{Array, DocumentMut, Item, Table, Value};
+    let mut doc: DocumentMut = text.parse().context("config.toml has an error; fix it before saving settings")?;
+    let strings = |items: &[String]| Value::Array(Array::from_iter(items.iter().map(|s| s.trim())));
+
+    set_value(&mut doc["scan"], strings(&cfg.scan));
+
+    ensure_table(&mut doc, "apps", APPS_COMMENT);
+    set_value(&mut doc["apps"]["terminal"], Value::from(cfg.apps.terminal.trim()));
+    set_value(&mut doc["apps"]["editor"], Value::from(cfg.apps.editor.trim()));
+
+    set_theme(&mut doc, cfg.appearance.theme);
+
+    ensure_table(&mut doc, "debug", DEBUG_COMMENT);
+    set_value(&mut doc["debug"]["perf_log"], Value::from(cfg.debug.perf_log));
+
+    set_accounts(&mut doc, &cfg.accounts);
+
+    let projects: Vec<Table> = cfg
+        .projects
+        .iter()
+        .map(|p| {
+            let mut t = Table::new();
+            t["name"] = Item::Value(Value::from(p.name.trim()));
+            t["repos"] = Item::Value(strings(&p.repos));
+            t["folders"] = Item::Value(strings(&p.folders));
+            t
+        })
+        .collect();
+    set_tables(&mut doc, "projects", projects);
+    Ok(doc.to_string())
+}
+
+/// Sets a value and keeps the comments and spacing around the old one.
+fn set_value(slot: &mut toml_edit::Item, new: toml_edit::Value) {
     match slot.as_value_mut() {
         Some(v) => {
             let decor = v.decor().clone();
-            *v = Value::from(theme.as_str());
+            *v = new;
             *v.decor_mut() = decor;
         }
-        None => *slot = value(theme.as_str()),
+        None => *slot = toml_edit::Item::Value(new),
     }
-    Ok(doc.to_string())
+}
+
+/// Adds an empty `[name]` table with its comment when the file has none. It lands at the end,
+/// which is where a new file puts `[debug]` too.
+fn ensure_table(doc: &mut toml_edit::DocumentMut, name: &str, comment: &str) {
+    use toml_edit::{Item, Table};
+    if doc.get(name).is_some_and(Item::is_table_like) {
+        return;
+    }
+    let mut t = Table::new();
+    t.decor_mut().set_prefix(format!("\n{comment}"));
+    doc.insert(name, Item::Table(t));
+}
+
+/// Replaces the `[[name]]` tables. The comment above the first one stays.
+fn set_tables(doc: &mut toml_edit::DocumentMut, name: &str, rows: Vec<toml_edit::Table>) {
+    use toml_edit::{ArrayOfTables, Item};
+    let lead = doc
+        .get(name)
+        .and_then(Item::as_array_of_tables)
+        .and_then(|a| a.get(0))
+        .and_then(|t| t.decor().prefix().and_then(|p| p.as_str().map(str::to_string)));
+    let mut tables = ArrayOfTables::new();
+    for (i, mut t) in rows.into_iter().enumerate() {
+        let prefix = if i == 0 { lead.clone().unwrap_or_else(|| "\n".to_string()) } else { "\n".to_string() };
+        t.decor_mut().set_prefix(prefix);
+        tables.push(t);
+    }
+    doc[name] = Item::ArrayOfTables(tables);
 }
 
 /// Finds Claude config folders (`~/.claude*` with a `projects` folder) and Codex.
@@ -317,7 +488,7 @@ pub fn render(cfg: &Config) -> String {
     s.push_str("# Codealong settings. Codealong watches this file and applies changes when you save it.\n\n");
     s.push_str("# Folders searched for repos, three levels deep.\n");
     s.push_str(&format!("scan = {}\n\n", list(&cfg.scan)));
-    s.push_str("# Where Codealong opens things. Built-in profiles: terminal \"ghostty\", editor \"cursor\".\n");
+    s.push_str(APPS_COMMENT);
     s.push_str("[apps]\n");
     s.push_str(&format!("terminal = {}\n", q(&cfg.apps.terminal)));
     s.push_str(&format!("editor = {}\n", q(&cfg.apps.editor)));
@@ -342,6 +513,10 @@ pub fn render(cfg: &Config) -> String {
         s.push_str(&format!("repos = {}\n", list(&p.repos)));
         s.push_str(&format!("folders = {}\n", list(&p.folders)));
     }
+    s.push('\n');
+    s.push_str(DEBUG_COMMENT);
+    s.push_str("[debug]\n");
+    s.push_str(&format!("perf_log = {}\n", cfg.debug.perf_log));
     s
 }
 
@@ -457,6 +632,82 @@ mod tests {
         let text = render(&cfg);
         assert!(text.contains("[appearance]\ntheme = \"light\"\n"));
         assert_eq!(toml::from_str::<Config>(&text).unwrap(), cfg);
+    }
+
+    fn full() -> Config {
+        Config {
+            scan: vec!["~/projects".into(), "~/work".into()],
+            apps: AppsCfg::default(),
+            appearance: AppearanceCfg { theme: Theme::Dark },
+            accounts: vec![
+                AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: Some("claude".into()) },
+                AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: None },
+            ],
+            projects: vec![
+                ProjectCfg { name: "Northwind".into(), repos: vec!["github.com/northwindai/*".into()], folders: vec!["~/projects/atlasai/osprey".into()] },
+                ProjectCfg { name: "Kestrel".into(), repos: vec!["github.com/kestrelhq/*".into()], folders: vec![] },
+            ],
+            debug: DebugCfg { perf_log: true },
+        }
+    }
+
+    #[test]
+    fn saving_everything_sets_each_value_in_place() {
+        let text = render(&full()).replace("[apps]\n", "[apps]\n# my editor of choice\n").replace("scan = ", "# roots\nscan = ");
+        let mut next = full();
+        next.scan = vec!["~/code".into()];
+        next.apps.editor = "zed".into();
+        next.appearance.theme = Theme::Light;
+        next.debug.perf_log = false;
+        next.accounts.pop();
+        next.projects[1].folders.push("~/extra".into());
+        next.projects.push(ProjectCfg { name: "Codealong".into(), repos: vec!["github.com/codealong/*".into()], folders: vec![] });
+        let out = with_config(&text, &next).unwrap();
+        assert_eq!(toml::from_str::<Config>(&out).unwrap(), next);
+        for kept in ["# my editor of choice", "# roots", "# Harness accounts.", "# Projects group repos", APPS_COMMENT, DEBUG_COMMENT] {
+            assert!(out.contains(kept), "lost {kept:?} in:\n{out}");
+        }
+        // The file keeps its order: scan, apps, appearance, accounts, projects, debug.
+        let at = |s: &str| out.find(s).unwrap_or_else(|| panic!("no {s:?} in:\n{out}"));
+        assert!(at("scan =") < at("[apps]") && at("[apps]") < at("[appearance]") && at("[appearance]") < at("[[accounts]]"));
+        assert!(at("[[accounts]]") < at("[[projects]]") && at("[[projects]]") < at("[debug]"));
+        // Saving the same settings again changes nothing.
+        assert_eq!(with_config(&out, &next).unwrap(), out);
+    }
+
+    #[test]
+    fn saving_everything_adds_what_a_bare_file_lacks() {
+        let out = with_config("scan = [\"~/code\"]\n", &full()).unwrap();
+        assert_eq!(toml::from_str::<Config>(&out).unwrap(), full());
+        assert!(out.contains(&format!("{APPS_COMMENT}[apps]\n")), "{out}");
+        assert!(out.contains(&format!("{DEBUG_COMMENT}[debug]\nperf_log = true\n")), "{out}");
+        assert!(with_config("scan = [", &full()).is_err());
+    }
+
+    #[test]
+    fn checks_what_the_form_and_the_text_can_save() {
+        assert!(check(&full()).is_ok());
+        let mut bad = full();
+        bad.projects[1].name = "Northwind".into();
+        assert!(check(&bad).unwrap_err().contains("Two projects"));
+        let mut bad = full();
+        bad.projects[0].repos.push(" ".into());
+        assert!(check(&bad).unwrap_err().contains("empty"));
+        let mut bad = full();
+        bad.scan.push(String::new());
+        assert!(check(&bad).is_err());
+        assert!(parse("scan = [").unwrap_err().to_string().contains("expected"));
+        assert!(parse("[[accounts]]\nname = \"a b\"\nharness = \"claude\"\nhome = \"~/.claude\"\n").is_err());
+        assert_eq!(parse(&render(&full())).unwrap(), full());
+    }
+
+    #[test]
+    fn a_new_file_has_the_debug_table() {
+        let text = render(&Config::default());
+        assert!(text.ends_with("[debug]\nperf_log = false\n"), "{text}");
+        assert_eq!(view_of(&text, "").error, None);
+        let broken = view_of("scan = [", "~/x/config.toml");
+        assert!(broken.error.is_some() && broken.config == Config::default() && broken.text == "scan = [");
     }
 
     #[test]
