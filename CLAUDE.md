@@ -309,6 +309,11 @@ GitHub
 - Through `gh` only: one GraphQL query per repo (viewer, open and recent PRs, a
   `review-requested:@me` search); PR detail from GraphQL `bodyHTML` plus the REST files
   endpoint; approving with `gh pr review --approve`.
+- `mergeStateStatus` (no preview header needed) is GitHub's own answer to whether a PR can
+  merge: `CLEAN` (or `HAS_HOOKS`) means ready, `DIRTY` is conflicts, `BEHIND` an out-of-date
+  branch the repo won't merge, `BLOCKED` a required review or check (also drafts), `UNSTABLE`
+  failing checks that aren't required. Approved with passing checks can still be `DIRTY`. It's
+  `UNKNOWN` until GitHub has worked it out, which asking starts, so the next poll has it.
 
 ## Testing against real data
 
