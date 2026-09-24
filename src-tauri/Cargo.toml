@@ -35,7 +35,9 @@ objc2 = "0.6"
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "objc2-core-foundation", "NSGraphics", "NSPanel", "NSResponder", "NSRunningApplication", "NSScreen", "NSWindow"] }
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSGeometry", "NSString"] }
 
+# Built for rebuild speed, not the last few percent of engine speed: no LTO (thin LTO relinks
+# the whole crate for a one-line change), incremental on, default codegen units.
 [profile.release]
-lto = "thin"
-codegen-units = 4
+lto = false
+incremental = true
 strip = true

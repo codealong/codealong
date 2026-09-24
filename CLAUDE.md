@@ -15,17 +15,20 @@ repos or naming. Behavior comes from what the harnesses record and from `config.
 ```bash
 npm run typecheck                       # tsc
 npm test                                # vitest (format, lanes, pins, sections)
-(cd src-tauri && cargo test --release)  # engine rules, parsers, usage, config, launch scripts
+(cd src-tauri && cargo test)            # engine rules, parsers, usage, config, launch scripts
 (cd src-tauri && cargo build --release) # the engine binary; cargo test does NOT rebuild it
-npx tauri build                         # src-tauri/target/release/bundle/macos/Codealong.app
+scripts/relaunch.sh                     # builds the bundle, then quits and reopens the app
 ```
 
-Hand a change to the user by rebuilding and relaunching the bundle (this closes their open
-Codealong windows):
-
-```bash
-pkill -f "Codealong.app/Contents/MacOS/codeal[o]ng"; npx tauri build && open src-tauri/target/release/bundle/macos/Codealong.app
-```
+Every checkout and worktree builds into one directory, `../codealong-target` next to them
+(`.cargo/config.toml`), so dependencies compile once and concurrent builds queue on cargo's lock
+instead of fighting for cores. `scripts/target-dir.sh` prints it; the engine binary is
+`<dir>/release/codealong` and the bundle `<dir>/release/bundle/macos/Codealong.app`. Tests
+run in the debug profile: after the first build they rebuild in seconds, and the release
+profile is tuned for rebuild speed too (no LTO). Hand a change to the user with
+`scripts/relaunch.sh`: it waits for any bundle build in progress, builds, and only then quits
+the running app and opens the new one. Don't `pkill` the app by hand; a pattern that contains
+the app's path also matches other sessions' shells, and kills their builds.
 
 The engine binary doubles as a CLI for checking behavior without a window:
 
@@ -297,7 +300,8 @@ Tauri and macOS (from the Tauri 2.11 and tao 0.35 sources)
 - A click in a non-activating panel leaves the app inactive, and macOS may refuse an inactive
   app's request to bring another app forward, so the bar asks after opening (`bring_forward`).
 - `pkill -f <pattern>` also matches any shell whose command line contains the pattern, such as
-  another session's build; write it as `codeal[o]ng` so it can't match itself.
+  another session's build; `scripts/relaunch.sh` anchors it (`codeal[o]ng$`) so only the app
+  matches.
 - A plain JS `listen()` hears events sent to any window with `emit_to`; listen on the window
   (`getCurrentWebviewWindow().listen`) for the ones meant for it. A window's own `emit`
   (`w.emit`) goes to every window, however it listens: send to one with `emit_to(label, …)`.
@@ -323,7 +327,7 @@ GitHub
 Don't use real data to test actions that reach outside the Mac or can't be undone: approving
 PRs, archiving threads, typing into sessions. For Codex archiving there's an opt-in round-trip
 test that unarchives and re-archives a thread that's already archived:
-`CODEALONG_TEST_THREAD=<id> cargo test --release appserver -- --ignored`. Starting sessions
+`CODEALONG_TEST_THREAD=<id> cargo test appserver -- --ignored`. Starting sessions
 is checked without starting one: `--snapshot --start-plan` prints the launch, and
-`cargo test --release ghostty_hands_over -- --ignored` opens a real Ghostty window that echoes
+`cargo test ghostty_hands_over -- --ignored` opens a real Ghostty window that echoes
 a tricky prompt back through its environment, then closes.
