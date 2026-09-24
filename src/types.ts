@@ -313,6 +313,8 @@ export interface StartSpec {
   prompt: string;
   /** `--model` for a terminal start; null starts on the account's default. */
   model: string | null;
+  /** A terminal start in a new worktree Claude Code makes (`--worktree`). */
+  worktree: boolean;
 }
 
 export interface Started {

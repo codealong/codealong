@@ -378,8 +378,8 @@ pub fn run() {
 /// `codealong --snapshot --open <lane id> <target id>`: opens a target the way a click does.
 /// `codealong --snapshot --pr <owner/name> <number>`: a PR's detail, as the PR panel gets it.
 /// `codealong --snapshot --start-options`: where each account can start a session.
-/// `codealong --snapshot --start-plan <folder> <account> <place> [prompt] [--model <model>]`: what
-/// starting one would do, without doing it.
+/// `codealong --snapshot --start-plan <folder> <account> <place> [prompt] [--model <model>]
+/// [--worktree]`: what starting one would do, without doing it.
 pub fn snapshot_cli(args: &[String]) -> i32 {
     let started = std::time::Instant::now();
     if args.iter().any(|a| a == "--start-options") {
@@ -388,7 +388,7 @@ pub fn snapshot_cli(args: &[String]) -> i32 {
         return 0;
     }
     if let Some(i) = args.iter().position(|a| a == "--start-plan") {
-        let help = "usage: codealong --snapshot --start-plan <folder> <account> <terminal|claude-app|codex-app> [prompt] [--model <model>]";
+        let help = "usage: codealong --snapshot --start-plan <folder> <account> <terminal|claude-app|codex-app> [prompt] [--model <model>] [--worktree]";
         let (Some(folder), Some(name), Some(place)) = (args.get(i + 1), args.get(i + 2), args.get(i + 3)) else {
             eprintln!("{help}");
             return 2;
@@ -404,7 +404,8 @@ pub fn snapshot_cli(args: &[String]) -> i32 {
         };
         let model = args.iter().position(|a| a == "--model").and_then(|j| args.get(j + 1)).cloned();
         let prompt = args.get(i + 4).filter(|p| !p.starts_with("--")).cloned().unwrap_or_default();
-        let plan = start::plan(account, place, &util::expand(folder), &prompt, &start::new_session_id(), model.as_deref());
+        let worktree = args.iter().any(|a| a == "--worktree");
+        let plan = start::plan(account, place, &util::expand(folder), &prompt, &start::new_session_id(), model.as_deref(), worktree);
         println!("{}", serde_json::to_string_pretty(&plan).unwrap_or_default());
         return 0;
     }
