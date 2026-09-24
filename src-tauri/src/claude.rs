@@ -11,7 +11,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 
 use crate::procs;
-use crate::util::{code, file_name, mtime_ms, one_line, parse_rfc3339_ms, read_head};
+use crate::util::{code, file_name, mtime_ms, one_line, parse_rfc3339_ms, read_head, scan_lines_back};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct RegistryEntry {
@@ -120,6 +120,8 @@ pub struct TranscriptInfo {
     pub ai_title: Option<String>,
     pub first_prompt: Option<String>,
     pub last_prompt: Option<String>,
+    /// When you last sent a prompt. It doesn't move while the session works, so lists sort by it.
+    pub last_prompt_at: Option<i64>,
     pub started_at: Option<i64>,
     pub last_ts: i64,
     /// The tool call waiting on a result, e.g. "Bash · `yarn test`".
@@ -216,6 +218,7 @@ const FRESH_TAIL: u64 = 256 * 1024;
 pub fn parse_transcript(path: &Path, mtime: i64, prev: Option<Parsed>) -> Option<Parsed> {
     let len = std::fs::metadata(path).ok()?.len();
     let resume = prev.filter(|(_, _, st)| st.offset <= len && len - st.offset <= 4 * FRESH_TAIL);
+    let fresh = resume.is_none();
     let (head, mut info, mut state, text, start) = match resume {
         Some((head, info, state)) => {
             let start = state.offset;
@@ -247,11 +250,34 @@ pub fn parse_transcript(path: &Path, mtime: i64, prev: Option<Parsed>) -> Option
     // Only whole lines are consumed; a line still being written is read next time.
     let complete = text.rfind('\n').map(|i| i + 1).unwrap_or(0);
     apply_tail(&mut info, &mut state, &text[..complete]);
+    // One turn can write far more than the tail holds, so the prompt that started it may be
+    // further back. A first read looks back for it once; later reads carry it forward.
+    if fresh && info.last_prompt_at.is_none() {
+        info.last_prompt_at = prompt_before(path, start);
+    }
     state.offset = start + complete as u64;
     if info.last_ts == 0 {
         info.last_ts = mtime;
     }
     Some((head, info, state))
+}
+
+/// When the last prompt you typed before `end` (a line start) was sent, reading backwards.
+fn prompt_before(path: &Path, end: u64) -> Option<i64> {
+    let mut at = None;
+    scan_lines_back(path, 0, end, |line| {
+        // Most lines are tool calls and their results; only a prompt can pass both checks.
+        if !line.contains("\"type\":\"user\"") || line.contains("\"tool_use_id\"") {
+            return false;
+        }
+        let Ok(v) = serde_json::from_str::<Value>(line) else { return false };
+        if !you_typed(&v) {
+            return false;
+        }
+        at = str_of(&v, "timestamp").as_deref().and_then(parse_rfc3339_ms);
+        at.is_some()
+    });
+    at
 }
 
 fn read_range(path: &Path, start: u64, end: u64) -> Option<String> {
@@ -350,6 +376,11 @@ pub fn apply_tail(info: &mut TranscriptInfo, state: &mut TailState, tail: &str) 
                 if user_prompt(&v).is_some() {
                     open_tools.clear();
                 }
+                if you_typed(&v) {
+                    if let Some(ts) = str_of(&v, "timestamp").as_deref().and_then(parse_rfc3339_ms) {
+                        info.last_prompt_at = Some(ts);
+                    }
+                }
             }
             _ => {}
         }
@@ -361,9 +392,10 @@ fn str_of(v: &Value, key: &str) -> Option<String> {
     v.get(key).and_then(Value::as_str).map(String::from)
 }
 
-/// A real prompt you typed, not a tool result, command wrapper or meta line.
+/// A real prompt you typed, not a tool result, command wrapper, compaction summary or meta line.
 fn user_prompt(v: &Value) -> Option<String> {
-    if v.get("isMeta").and_then(Value::as_bool) == Some(true) || v.get("isSidechain").and_then(Value::as_bool) == Some(true) {
+    let flag = |k: &str| v.get(k).and_then(Value::as_bool) == Some(true);
+    if flag("isMeta") || flag("isSidechain") || flag("isCompactSummary") {
         return None;
     }
     let content = v.pointer("/message/content")?;
@@ -380,6 +412,24 @@ fn user_prompt(v: &Value) -> Option<String> {
         return None;
     }
     Some(one_line(t, 140))
+}
+
+/// A turn you took: a prompt you typed, pasted or ran as a slash command. Claude Code marks
+/// these `origin: {kind: "human"}`; a background task's notification (`task-notification`) or
+/// another session's message (`peer`) is marked otherwise. Older transcripts have no mark, so
+/// for them this is whatever `user_prompt` takes for a prompt.
+fn you_typed(v: &Value) -> bool {
+    if v.get("type").and_then(Value::as_str) != Some("user") {
+        return false;
+    }
+    let flag = |k: &str| v.get(k).and_then(Value::as_bool) == Some(true);
+    if flag("isMeta") || flag("isSidechain") || flag("isCompactSummary") {
+        return false;
+    }
+    match v.pointer("/origin/kind").and_then(Value::as_str) {
+        Some(kind) => kind == "human",
+        None => user_prompt(v).is_some(),
+    }
 }
 
 fn short_path(p: &str) -> String {
@@ -494,6 +544,39 @@ mod tests {
         drop(f);
         let (_, info, _) = parse_transcript(&path, 3, Some((head, info, state))).unwrap();
         assert_eq!(info.pending_tool.as_deref(), Some("Bash · `yarn test`"));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn times_the_last_prompt_you_typed() {
+        let tail = r#"{"type":"user","timestamp":"2026-09-23T15:00:00.000Z","origin":{"kind":"human"},"message":{"content":"<pasted_content id=\"a\">\nlog\n</pasted_content id=\"a\">\n\nwhy does this fail?"}}
+{"type":"assistant","timestamp":"2026-09-23T15:00:05.000Z","message":{"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"yarn test"}}]}}
+{"type":"user","timestamp":"2026-09-23T15:00:09.000Z","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}}
+{"type":"user","timestamp":"2026-09-23T15:01:00.000Z","origin":{"kind":"task-notification"},"message":{"content":"<task-notification>\n<task-id>b1</task-id>\n</task-notification>"}}
+{"type":"user","timestamp":"2026-09-23T15:02:00.000Z","origin":{"kind":"peer","from":"review"},"isMeta":true,"message":{"content":"Another Claude session sent a message"}}
+{"type":"user","timestamp":"2026-09-23T15:03:00.000Z","isCompactSummary":true,"isVisibleInTranscriptOnly":true,"message":{"content":"This session is being continued from a previous conversation."}}
+"#;
+        let info = parse_lines(HEAD, tail);
+        assert_eq!(info.last_prompt_at, parse_rfc3339_ms("2026-09-23T15:00:00.000Z"));
+        // Transcripts from before Claude Code marked prompts: a plain prompt counts.
+        let old = r#"{"type":"user","timestamp":"2026-09-23T16:00:00.000Z","message":{"content":"Now the migration"}}
+"#;
+        assert_eq!(parse_lines(HEAD, old).last_prompt_at, parse_rfc3339_ms("2026-09-23T16:00:00.000Z"));
+        assert_eq!(parse_lines(HEAD, "").last_prompt_at, None);
+    }
+
+    #[test]
+    fn finds_the_last_prompt_behind_a_long_turn() {
+        let dir = std::env::temp_dir().join(format!("codealong-prompt-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("s.jsonl");
+        let prompt = r#"{"type":"user","timestamp":"2026-09-23T15:00:00.000Z","origin":{"kind":"human"},"message":{"content":"Refactor the parser"}}"#;
+        let output = |i: usize| format!(r#"{{"type":"user","timestamp":"2026-09-23T15:10:00.000Z","message":{{"content":[{{"type":"tool_result","tool_use_id":"t{i}","content":"{}"}}]}}}}"#, "x".repeat(120_000));
+        let mut lines = vec![HEAD.trim_end().to_string(), prompt.to_string()];
+        lines.extend((0..12).map(output));
+        std::fs::write(&path, lines.join("\n") + "\n").unwrap();
+        let (_, info, _) = parse_transcript(&path, 1, None).unwrap();
+        assert_eq!(info.last_prompt_at, parse_rfc3339_ms("2026-09-23T15:00:00.000Z"));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

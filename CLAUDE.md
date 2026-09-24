@@ -74,8 +74,9 @@ previewed, and the app is rebuilt and relaunched.
 
 - The frontend never shells out; every side effect is a Tauri command in `src-tauri/src/lib.rs`.
 - `src-tauri/src/board.rs` holds the model's rules as pure functions with tests; the engine
-  gathers inputs and calls them. `src/lanes.ts` mirrors `bay_of` (and the agent bays'
-  headlines) for the age filter; keep them in step.
+  gathers inputs and calls them. `src/lanes.ts` mirrors `bay_of`, the agent bays'
+  headlines and the order of sessions and lanes (`sort_sessions`, `lane_prompt_at`) for the
+  filters; keep them in step.
 - Styles: tokens in `design/tokens.json` (`npm run tokens`), colors only through CSS
   variables. Dark values apply under `prefers-color-scheme` unless `data-theme` on the root
   says otherwise; it comes from `theme` in config.toml, which also sets the app's native
@@ -100,6 +101,12 @@ Claude Code
   `<session>/subagents/agent-*.jsonl`. `ai-title` lines (the terminal tab's title) and
   `gitBranch` fields repeat through the file, so the tail has the current ones. Claude Code
   deletes transcripts after about 30 days.
+- Prompts you typed, pasted or ran as a slash command are `user` lines with `origin: {kind:
+  "human"}`; background tasks' notifications are `task-notification`, other sessions'
+  messages `peer`, compaction summaries `isCompactSummary`. Older transcripts have no
+  `origin`. `last-prompt` lines repeat the prompt's text but carry no time. One turn often
+  writes more than the last 256KB, so the prompt can be far behind the tail. A message sent
+  while a session is busy doesn't change the registry's `statusUpdatedAt`.
 - Background jobs (`kind: bg`) have no terminal; `<account command> attach <jobId>` opens one.
 - `--session-id <uuid>` gives a new session the ID you choose, so Codealong knows it before it
   appears. The prompt is a positional argument parsed like any other: one that starts with `-`

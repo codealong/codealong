@@ -97,6 +97,9 @@ pub struct Session {
     /// When the current status began (turn start while Working).
     pub status_since: Option<i64>,
     pub last_activity: i64,
+    /// When you last sent it a prompt, or when it started if its log doesn't say. Unlike its
+    /// last activity this holds still while it works, so lists sort by it.
+    pub last_prompt_at: i64,
     /// What the session is doing or asking. Backtick spans render as code.
     pub excerpt: Option<String>,
     pub resume_command: Option<String>,

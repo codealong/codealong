@@ -175,6 +175,11 @@ pub fn claude_session(
         name: reg.and_then(|r| r.name.clone()),
         started_at: reg.and_then(|r| r.started_at).or_else(|| tr.and_then(|t| t.started_at)),
         status_since: reg.and_then(|r| r.status_updated_at),
+        last_prompt_at: tr
+            .and_then(|t| t.last_prompt_at)
+            .or_else(|| reg.and_then(|r| r.started_at))
+            .or_else(|| tr.and_then(|t| t.started_at))
+            .unwrap_or(last_activity),
         last_activity,
         excerpt,
         branch: tr.and_then(|t| t.git_branch.clone()),
@@ -226,6 +231,7 @@ pub fn codex_session(account: &AccountCfg, th: &ThreadInfo, name: Option<&str>, 
         name: None,
         started_at: th.started_at,
         status_since: if status == Status::Working { th.turn_started_at } else { th.last_complete_at },
+        last_prompt_at: th.last_prompt_at.or(th.started_at).unwrap_or(th.last_ts),
         last_activity: th.last_ts,
         excerpt,
         resume_command: None,
@@ -247,8 +253,16 @@ pub fn best_seed(seeds: &[LaneSeed], cwd: &Path) -> Option<usize> {
         .map(|(i, _)| i)
 }
 
+/// Most urgent first, then the one you last sent a prompt. Activity would reorder working
+/// sessions with every tool call; your prompts only move one when you do something.
 fn sort_sessions(sessions: &mut [Session]) {
-    sessions.sort_by(|a, b| a.status.cmp(&b.status).then(b.last_activity.cmp(&a.last_activity)));
+    sessions.sort_by(|a, b| a.status.cmp(&b.status).then(b.last_prompt_at.cmp(&a.last_prompt_at)).then(b.last_activity.cmp(&a.last_activity)));
+}
+
+/// When you last sent a prompt to one of a lane's own sessions; for a lane with none, when
+/// anything last happened in it.
+fn lane_prompt_at(sessions: &[Session], last_activity: i64) -> i64 {
+    sessions.iter().filter(|s| s.visitor.is_none() && !s.archived).map(|s| s.last_prompt_at).max().unwrap_or(last_activity)
 }
 
 /// The PR for a lane: an open one on its branch, else one merged or closed in the last
@@ -433,7 +447,10 @@ pub fn session_headline(s: &Session) -> (String, Option<String>) {
         },
         Status::Error => (format!("{acct} stopped with an error"), s.excerpt.clone()),
         Status::Working => {
-            let detail = match (s.status_since, &s.excerpt) {
+            // How long it has worked on what you last asked. Claude Code doesn't restart a busy
+            // session's clock for a message sent while it works, but that message is a new ask.
+            let since = s.status_since.map(|t| t.max(s.last_prompt_at));
+            let detail = match (since, &s.excerpt) {
                 (Some(t), Some(ex)) => Some(format!("{{for:{t}}} · {ex}")),
                 (Some(t), None) => Some(format!("{{for:{t}}}")),
                 (None, ex) => ex.clone(),
@@ -698,7 +715,7 @@ pub fn compose(inp: Inputs) -> Board {
             default_target,
         });
     }
-    lanes.sort_by(|a, b| a.bay.cmp(&b.bay).then(b.last_activity.cmp(&a.last_activity)));
+    lanes.sort_by_key(|l| (l.bay, Reverse(lane_prompt_at(&l.sessions, l.last_activity)), Reverse(l.last_activity)));
     let pr_list = pr_items(seeds, &lanes, prs, github_login);
 
     let mut projects = Vec::new();
@@ -1094,6 +1111,10 @@ mod tests {
         let (h, d) = headline(Bay::Working, &[working], None, None);
         assert_eq!(h, "`claude2` · Quarry daily log + photo sync");
         assert_eq!(d, Some(format!("{{for:{}}} · running `yarn test`", NOW - 5_000)));
+        // A message sent while it works restarts the clock.
+        let nudged = TranscriptInfo { last_prompt_at: Some(NOW - 2_000), ..tr() };
+        let working = claude_session(&a, Some(&reg("busy", NOW - 5_000)), Some(&nudged), 0, NOW, &Quiet::default()).unwrap();
+        assert_eq!(headline(Bay::Working, &[working], None, None).1, Some(format!("{{for:{}}} · running `yarn test`", NOW - 2_000)));
         let failing = find_pr(&seed("/r", "quarry"), &HashMap::from([("northwindai/atlas".to_string(), vec![pr(PrState::Open, 2)])]), NOW);
         assert_eq!(
             headline(Bay::Needs, &[], failing.as_ref(), None),
@@ -1158,6 +1179,29 @@ mod tests {
         assert_eq!(default.as_deref(), Some(needs.open_target.as_str()));
         let (_, default) = targets(&lane, &[guest.clone()], None, &apps);
         assert_eq!(default.as_deref(), Some(guest.open_target.as_str()));
+    }
+
+    #[test]
+    fn sessions_sort_by_status_then_your_last_prompt() {
+        let a = acct("claude");
+        let at = |status: &str, prompt: Option<i64>, activity: i64, key: &str| {
+            let t = TranscriptInfo { last_prompt_at: prompt, last_ts: activity, ..tr() };
+            let mut s = claude_session(&a, Some(&reg(status, NOW - 7_200_000)), Some(&t), NOW, NOW, &Quiet::default()).unwrap();
+            s.key = key.into();
+            s
+        };
+        // The one working hardest right now doesn't jump ahead of the one you asked more recently.
+        let mut sessions = vec![
+            at("busy", Some(NOW - 3_600_000), NOW - 1_000, "old-ask"),
+            at("idle", Some(NOW - 60_000), NOW - 30_000, "finished"),
+            at("busy", Some(NOW - 600_000), NOW - 400_000, "new-ask"),
+            at("waiting", Some(NOW - 7_200_000), NOW - 7_000_000, "needs"),
+        ];
+        sort_sessions(&mut sessions);
+        assert_eq!(sessions.iter().map(|s| s.key.as_str()).collect::<Vec<_>>(), vec!["needs", "new-ask", "old-ask", "finished"]);
+        // With no prompt in its log, a session counts from when it started.
+        let unknown = at("busy", None, NOW, "unknown");
+        assert_eq!(unknown.last_prompt_at, NOW - 3_600_000);
     }
 
     #[test]

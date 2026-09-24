@@ -24,6 +24,9 @@ export interface Session {
   startedAt: number | null;
   statusSince: number | null;
   lastActivity: number;
+  /** When you last sent it a prompt, or when it started if its log doesn't say. It holds still
+   *  while the session works, so lists sort by it. */
+  lastPromptAt: number;
   /** Backtick spans render as code. */
   excerpt: string | null;
   /** The branch it worked on. */

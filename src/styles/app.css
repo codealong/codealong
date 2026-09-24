@@ -926,6 +926,93 @@ body.is-resizing * {
   gap: 4px;
 }
 
+/* A worktree's row with a line for each agent that needs you, is working or just finished:
+   the worktree once on the left, its agents stacked on the right, each with its own age. You
+   select, open and right-click a line as you would a row. */
+.ca-lane.is-group:hover {
+  background: var(--surface);
+}
+.ca-lane.is-group.has-selection .ca-seg-glyph {
+  background: var(--surface-selected);
+}
+.ca-lane.is-group.is-tall .ca-seg-glyph {
+  justify-content: flex-start;
+  padding-top: 9px;
+}
+.ca-lane.is-group.is-tall .ca-seg-call {
+  justify-content: flex-start;
+  padding-top: 5px;
+  padding-bottom: 8px;
+}
+.ca-seg-lines {
+  grid-column: 3 / 5;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border-left: 1px solid var(--line);
+}
+.ca-agentline {
+  display: flex;
+  flex: 1 0 auto;
+  min-width: 0;
+  min-height: 30px;
+}
+.ca-agentline + .ca-agentline:not(.ca-agentline--foot) {
+  border-top: 1px solid var(--line);
+}
+.ca-agentline[role='option']:hover {
+  background: var(--surface-hover);
+}
+.ca-agentline.is-selected,
+.ca-agentline.is-selected:hover {
+  background: var(--surface-selected);
+}
+.ca-board-list:focus-visible .ca-agentline.is-selected {
+  box-shadow: inset 0 0 0 2px var(--focus);
+}
+.ca-agentline--foot {
+  flex: none;
+  min-height: 26px;
+  padding-bottom: 4px;
+}
+.ca-agentline-main {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1;
+  min-width: 0;
+  padding: 0 var(--space-3);
+}
+.ca-agentline-text,
+.ca-agentline--lane .ca-agentline-main {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 400 13px/18px var(--font-sans);
+}
+.ca-agentline--lane .ca-agentline-main {
+  display: block;
+  line-height: 30px;
+}
+.ca-agentline-age {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  flex: none;
+  width: 52px;
+  box-sizing: border-box;
+  padding: 0 var(--space-3);
+  border-left: 1px solid var(--line);
+  font: 400 12px/18px var(--font-sans);
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+.ca-agentline-age .ca-pinmark {
+  margin-top: 0;
+}
+
 /* Pinned rows carry a small mark under their age. */
 .ca-lane {
   position: relative;

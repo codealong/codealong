@@ -1,18 +1,53 @@
-// Lanes on the board: grouped into bays, seen through the age filter, and matched against the
-// Inbox filters. The engine sets a lane's bay and headline from all of its sessions; when the
-// age filter hides some of them, the lane's status and sentence are worked out again from
-// what's left, with the same rules as the engine (board.rs, `bay_of` and `headline`).
+// Lanes on the board: grouped into bays, seen through the age and Inbox filters, and sorted.
+// The engine sets a lane's bay and headline from all of its sessions; when a filter hides some
+// of them, the lane's status and sentence are worked out again from what's left, with the same
+// rules as the engine (board.rs, `bay_of` and `headline`).
 
 import type { Bay, Lane, Pr, Session, Status } from './types';
 
 export const BAYS: Bay[] = ['needs', 'working', 'unread', 'review', 'idle', 'merged'];
-/** The bay an agent's own row goes in, for the statuses that get one. */
+/** The Inbox state an agent is in, for the statuses that have one. */
 export const AGENT_BAY: Partial<Record<Status, Bay>> = { needs: 'needs', error: 'needs', working: 'working', unread: 'unread' };
+/** Statuses from most to least urgent, as the engine sorts them. */
+const STATUS_ORDER: Status[] = ['needs', 'error', 'working', 'unread', 'idle', 'stopped'];
 
-/** A row on the Worktrees board or in Sessions: an agent in its worktree, or a worktree. */
-export type BoardRow = { kind: 'agent'; key: string; lane: Lane; session: Session } | { kind: 'lane'; key: string; lane: Lane };
+/** An agent in the worktree it runs in: a line in a worktree's row, or a row in Sessions. */
+export type AgentItem = { kind: 'agent'; key: string; lane: Lane; session: Session };
+/** A worktree with no agent that needs you, is working or just finished. */
+export type LaneItem = { kind: 'lane'; key: string; lane: Lane };
+/** Something you can select on the Worktrees board or in Sessions. */
+export type BoardRow = AgentItem | LaneItem;
+/**
+ * A worktree's row on the board: a line for each of its agents that needs you, is working or
+ * just finished, or, with none, the worktree alone.
+ */
+export interface WorktreeRow {
+  key: string;
+  lane: Lane;
+  agents: AgentItem[];
+}
 /** What the Inbox narrows the board to: one bay, or worktrees whose PR checks are failing. */
 export type Filter = Bay | 'failing';
+
+/**
+ * Most urgent first, then the one you last sent a prompt, as the engine sorts a lane's
+ * sessions. Activity would reorder working agents with every tool call; your prompts only move
+ * one when you do something.
+ */
+export function bySession(a: Session, b: Session): number {
+  return STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status) || b.lastPromptAt - a.lastPromptAt || b.lastActivity - a.lastActivity;
+}
+
+/** When you last sent a prompt to one of a worktree's own agents; with none, when anything last happened in it. */
+export function lanePromptAt(lane: Lane): number {
+  const own = lane.sessions.filter((s) => !s.visitor && !s.archived);
+  return own.length > 0 ? Math.max(...own.map((s) => s.lastPromptAt)) : lane.lastActivity;
+}
+
+/** Worktrees in a bay: the one you last sent a prompt first. */
+function byLane(a: Lane, b: Lane): number {
+  return lanePromptAt(b) - lanePromptAt(a) || b.lastActivity - a.lastActivity;
+}
 
 function prOpen(pr: Pr): boolean {
   return pr.state !== 'merged' && pr.state !== 'closed';
@@ -42,8 +77,8 @@ export function bayOf(sessions: Session[], pr: Pr | null): [Bay, Status] {
 
 /**
  * The sentence for a lane whose status changed under the filter. As in the engine (board.rs,
- * `headline`), an agent bay takes its sentence from the newest agent with that status; the
- * rest get a plain one.
+ * `headline`), an agent bay takes its sentence from the first agent with that status in the
+ * lane's order, the one you last sent a prompt; the rest get a plain one.
  */
 function headlineFor(bay: Bay, status: Status, own: Session[], pr: Pr | null, since: string): [string, string | null] {
   const first = (...statuses: Status[]) => statuses.map((st) => own.find((s) => s.status === st)).find((s) => s != null);
@@ -55,19 +90,24 @@ function headlineFor(bay: Bay, status: Status, own: Session[], pr: Pr | null, si
   return [`No agents active ${since}`, null];
 }
 
-/**
- * The lane with only the sessions active since `cutoff`. When that changes its status, the bay,
- * glyph and headline are worked out again.
- */
-export function ageFiltered(lane: Lane, cutoff: number, since: string): Lane {
-  if (cutoff <= 0) return lane;
-  const sessions = lane.sessions.filter((s) => s.lastActivity >= cutoff);
+/** The lane with only `sessions`. When that changes its status, the bay, glyph and headline are worked out again. */
+function withSessions(lane: Lane, sessions: Session[], since: string): Lane {
   if (sessions.length === lane.sessions.length) return lane;
   const own = sessions.filter((s) => !s.visitor);
   const [bay, glyph] = bayOf(own, lane.pr);
   if (bay === lane.bay && glyph === lane.glyph) return { ...lane, sessions };
   const [headline, detail] = headlineFor(bay, glyph, own, lane.pr, since);
   return { ...lane, sessions, bay, glyph, headline, detail };
+}
+
+/** The lane with only the sessions active since `cutoff`. */
+export function ageFiltered(lane: Lane, cutoff: number, since: string): Lane {
+  if (cutoff <= 0) return lane;
+  return withSessions(
+    lane,
+    lane.sessions.filter((s) => s.lastActivity >= cutoff),
+    since,
+  );
 }
 
 /**
@@ -80,29 +120,73 @@ export function filterByAge(lanes: Lane[], cutoff: number, pinnedLanes: Set<stri
   return lanes.filter((l) => l.lastActivity >= cutoff || pinnedLanes.has(l.id)).map((l) => ageFiltered(l, cutoff, since));
 }
 
-/** Agents go in the agent bays, one row each; worktrees go in the rest, one row each. */
-export function buildBays(lanes: Lane[]): { bay: Bay; rows: BoardRow[] }[] {
-  const groups: Record<Bay, BoardRow[]> = { needs: [], working: [], unread: [], review: [], idle: [], merged: [] };
+/** A worktree's row: a line for each own agent that needs you, is working or just finished. */
+export function worktreeRow(lane: Lane): WorktreeRow {
+  const agents = lane.sessions
+    .filter((s) => !s.visitor && !s.archived && AGENT_BAY[s.status])
+    .sort(bySession)
+    .map((session): AgentItem => ({ kind: 'agent', key: `${lane.id}::${session.key}`, lane, session }));
+  return { key: lane.id, lane, agents };
+}
+
+/** What you can select in a row: its agents, or the worktree itself when it has none. */
+export function rowItems(row: WorktreeRow): BoardRow[] {
+  return row.agents.length > 0 ? row.agents : [{ kind: 'lane', key: row.lane.id, lane: row.lane }];
+}
+
+/**
+ * Each worktree once, in the bay its status puts it in, with its agents on its row. Within a
+ * bay, the worktree you last sent a prompt comes first.
+ */
+export function buildBays(lanes: Lane[]): { bay: Bay; rows: WorktreeRow[] }[] {
+  const groups: Record<Bay, Lane[]> = { needs: [], working: [], unread: [], review: [], idle: [], merged: [] };
+  for (const lane of lanes) groups[lane.bay].push(lane);
+  return BAYS.map((bay) => ({ bay, rows: groups[bay].sort(byLane).map(worktreeRow) })).filter((g) => g.rows.length > 0);
+}
+
+/**
+ * A worktree as an Inbox filter shows it, or null when the filter leaves it out. Needs you,
+ * Working and Your turn narrow it to its agents in that state, and it moves to that state's
+ * bay, as it does under the age filter; In review and Checks failing are about its PR and keep
+ * it whole.
+ */
+export function narrowed(lane: Lane, f: Filter | null, since: string): Lane | null {
+  if (!f) return lane;
+  if (f === 'failing') return failingPr(lane) ? lane : null;
+  if (f !== 'needs' && f !== 'working' && f !== 'unread') return lane.bay === f ? lane : null;
+  const sessions = lane.sessions.filter((s) => !s.visitor && AGENT_BAY[s.status] === f);
+  // A worktree can need you for its PR alone: failing checks or changes requested.
+  if (sessions.length === 0) return f === 'needs' && lane.bay === 'needs' ? { ...lane, sessions: [] } : null;
+  // It shows in the filter's bay even when its agents alone would put it elsewhere: finished
+  // agents on a branch whose checks fail would otherwise make it need you.
+  const glyph: Status = f === 'needs' ? (sessions.some((s) => s.status === 'needs') ? 'needs' : 'error') : f;
+  const [headline, detail] = headlineFor(f, glyph, sessions, lane.pr, since);
+  return { ...lane, sessions, bay: f, glyph, headline, detail };
+}
+
+/**
+ * The Inbox's counts: agents that need you, are working or just finished, and worktrees whose
+ * PR needs you, is in review or has failing checks.
+ */
+export function inboxCounts(lanes: Lane[]): { needs: number; working: number; unread: number; review: number; failing: number } {
+  const c = { needs: 0, working: 0, unread: 0, review: 0, failing: 0 };
   for (const lane of lanes) {
     const own = lane.sessions.filter((s) => !s.visitor);
     for (const s of own) {
       const bay = AGENT_BAY[s.status];
-      if (bay) groups[bay].push({ kind: 'agent', key: `${lane.id}::${s.key}`, lane, session: s });
+      if (bay === 'needs' || bay === 'working' || bay === 'unread') c[bay]++;
     }
-    const needsFromAgents = own.some((s) => s.status === 'needs' || s.status === 'error');
-    const agentBay = lane.bay === 'working' || lane.bay === 'unread' || (lane.bay === 'needs' && needsFromAgents);
-    if (!agentBay) groups[lane.bay].push({ kind: 'lane', key: lane.id, lane });
+    if (lane.bay === 'needs' && !own.some((s) => AGENT_BAY[s.status] === 'needs')) c.needs++;
+    if (lane.bay === 'review') c.review++;
+    if (failingPr(lane)) c.failing++;
   }
-  const at = (r: BoardRow) => (r.kind === 'agent' ? r.session.lastActivity : r.lane.lastActivity);
-  return BAYS.map((bay) => ({ bay, rows: groups[bay].sort((a, b) => at(b) - at(a)) })).filter((g) => g.rows.length > 0);
+  return c;
 }
 
 /**
- * The Inbox filters, applied to a whole worktree: it matches when any of its rows on the board
- * would. A pinned worktree shows as a single row, so this decides whether that row shows.
+ * A session's sentence without the account it starts with, which the chip beside it shows:
+ * "`claude` finished · Fix the test" reads "finished · Fix the test".
  */
-export function laneInFilter(lane: Lane, f: Filter | null): boolean {
-  if (!f) return true;
-  if (f === 'failing') return failingPr(lane) != null;
-  return buildBays([lane]).some((g) => g.bay === f);
+export function withoutAccount(headline: string): string {
+  return headline.replace(/^`[^`]*`\s*(?:·\s*)?/, '');
 }
