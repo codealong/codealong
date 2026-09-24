@@ -21,8 +21,18 @@ const AGENT_BAY: Partial<Record<Status, Bay>> = { needs: 'needs', error: 'needs'
 const ELSEWHERE = 'Elsewhere';
 const PROJECT_KEY = 'codealong.project';
 const VIEW_KEY = 'codealong.view';
+const AGE_KEY = 'codealong.age';
+const DAY = 24 * 60 * 60 * 1000;
 
 type View = 'worktrees' | 'sessions';
+/** How recently a worktree or session must have been active to show. */
+type Age = '1d' | '3d' | '7d' | 'all';
+const AGES: { id: Age; label: string; title: string; ms: number }[] = [
+  { id: '1d', label: '24h', title: 'Active in the last 24 hours', ms: DAY },
+  { id: '3d', label: '3d', title: 'Active in the last 3 days', ms: 3 * DAY },
+  { id: '7d', label: '7d', title: 'Active in the last 7 days', ms: 7 * DAY },
+  { id: 'all', label: 'All', title: 'Everything from the last 14 days', ms: 0 },
+];
 
 type Row = { kind: 'agent'; key: string; lane: Lane; session: Session } | { kind: 'lane'; key: string; lane: Lane };
 /** What the Inbox narrows the board to: one bay, or worktrees whose PR checks are failing. */
@@ -95,6 +105,15 @@ function sameList(a: string[], b: string[]): boolean {
   return a.length === b.length && a.every((x, i) => x === b[i]);
 }
 
+function storedAge(): Age {
+  try {
+    const v = window.localStorage.getItem(AGE_KEY);
+    return AGES.some((a) => a.id === v) ? (v as Age) : 'all';
+  } catch {
+    return 'all';
+  }
+}
+
 function storedView(): View {
   try {
     return window.localStorage.getItem(VIEW_KEY) === 'sessions' ? 'sessions' : 'worktrees';
@@ -128,6 +147,7 @@ export function App() {
   const [query, setQuery] = useState('');
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [view, setViewState] = useState<View>(storedView);
+  const [age, setAgeState] = useState<Age>(storedAge);
   // Pins as last changed here, shown until the engine's board catches up.
   const [pinOverride, setPinOverride] = useState<string[] | null>(null);
   const [showParked, setShowParked] = useState(false);
@@ -183,6 +203,15 @@ export function App() {
     }
   }, []);
 
+  const setAge = useCallback((a: Age) => {
+    setAgeState(a);
+    try {
+      window.localStorage.setItem(AGE_KEY, a);
+    } catch {
+      // Storage can be unavailable; the filter just won't persist.
+    }
+  }, []);
+
   const pinnedKeys = useMemo(() => pinOverride ?? board?.pinned ?? [], [pinOverride, board?.pinned]);
   const pinnedSet = useMemo(() => new Set(pinnedKeys), [pinnedKeys]);
   useEffect(() => {
@@ -203,18 +232,29 @@ export function App() {
 
   const lanes = board?.lanes ?? [];
   const projectLanes = useMemo(() => lanes.filter((l) => inProject(l, current)), [lanes, current]);
+  // The age filter: worktrees and sessions active since the cutoff. Pinned sessions always show.
+  const ageMs = AGES.find((a) => a.id === age)?.ms ?? 0;
+  const cutoff = ageMs > 0 ? now - ageMs : 0;
+  const recentLanes = useMemo(() => (cutoff > 0 ? projectLanes.filter((l) => l.lastActivity >= cutoff) : projectLanes), [projectLanes, cutoff]);
   // The Sessions view: each session once, in the worktree it runs in.
   const sessionItems = useMemo(
     () => projectLanes.flatMap((lane) => lane.sessions.filter((s) => !s.visitor).map((s): SessionItem => ({ kind: 'agent', key: `${lane.id}::${s.key}`, lane, session: s }))),
     [projectLanes],
   );
-  const shownSessions = useMemo(() => sessionItems.filter((r) => sessionInQuery(r, query) && sessionInFilter(r, bayFilter)), [sessionItems, query, bayFilter]);
+  const shownSessions = useMemo(
+    () =>
+      sessionItems.filter(
+        (r) => (r.session.lastActivity >= cutoff || pinnedSet.has(r.session.key)) && sessionInQuery(r, query) && sessionInFilter(r, bayFilter),
+      ),
+    [sessionItems, cutoff, pinnedSet, query, bayFilter],
+  );
+  const shownSessionCount = useMemo(() => sessionItems.filter((r) => r.session.lastActivity >= cutoff || pinnedSet.has(r.session.key)).length, [sessionItems, cutoff, pinnedSet]);
   const pinnedRows = useMemo(() => {
     const byKey = new Map(shownSessions.map((r) => [r.session.key, r]));
     return pinnedKeys.flatMap((k) => byKey.get(k) ?? []);
   }, [shownSessions, pinnedKeys]);
   const sessionSections = useMemo(() => timeSections(shownSessions.filter((r) => !pinnedSet.has(r.session.key)), now), [shownSessions, pinnedSet, now]);
-  const allBays = useMemo(() => buildBays(projectLanes.filter((l) => inQuery(l, query))), [projectLanes, query]);
+  const allBays = useMemo(() => buildBays(recentLanes.filter((l) => inQuery(l, query))), [recentLanes, query]);
   const bays = useMemo(() => {
     if (bayFilter === 'failing') {
       return allBays.map((b) => ({ ...b, rows: b.rows.filter((r) => failingPr(r.lane)) })).filter((b) => b.rows.length > 0);
@@ -231,10 +271,10 @@ export function App() {
   const domId = (r: Row) => `row-${visible.indexOf(r)}`;
 
   const counts = useMemo(() => {
-    const groups = buildBays(projectLanes);
+    const groups = buildBays(recentLanes);
     const n = (bay: Bay) => groups.find((g) => g.bay === bay)?.rows.length ?? 0;
-    return { needs: n('needs'), working: n('working'), unread: n('unread'), review: n('review'), failing: projectLanes.filter((l) => failingPr(l)).length };
-  }, [projectLanes]);
+    return { needs: n('needs'), working: n('working'), unread: n('unread'), review: n('review'), failing: recentLanes.filter((l) => failingPr(l)).length };
+  }, [recentLanes]);
 
   const totalLanes = useMemo(() => lanes.filter((l) => !l.hidden).length, [lanes]);
 
@@ -445,7 +485,7 @@ export function App() {
   // The sidebar's worktrees, grouped by repo: active ones first, parked ones last.
   const worktrees = useMemo(() => {
     const byRepo = new Map<string, Lane[]>();
-    for (const l of projectLanes) byRepo.set(l.repo, [...(byRepo.get(l.repo) ?? []), l]);
+    for (const l of recentLanes) byRepo.set(l.repo, [...(byRepo.get(l.repo) ?? []), l]);
     const rank = (l: Lane) => (l.parked ? 9 : BAYS.indexOf(l.bay));
     return [...byRepo.entries()]
       .sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]))
@@ -487,7 +527,7 @@ export function App() {
           <NavItem glyph="unread" label="Your turn" count={counts.unread} active={bayFilter === 'unread'} onClick={() => toggleBay('unread')} />
           <NavItem icon="pr" label="In review" count={counts.review} active={bayFilter === 'review'} onClick={() => toggleBay('review')} />
           <NavItem glyph="error" label="Checks failing" count={counts.failing} tone="alert" active={bayFilter === 'failing'} onClick={() => toggleBay('failing')} />
-          <div className="ca-label ca-side-label">Worktrees · {projectLanes.length}</div>
+          <div className="ca-label ca-side-label">Worktrees · {recentLanes.length}</div>
           <div className="ca-side-scroll">
             <WorktreeTree
               groups={worktrees}
@@ -525,7 +565,7 @@ export function App() {
               {(['worktrees', 'sessions'] as View[]).map((v) => (
                 <button key={v} type="button" role="tab" aria-selected={view === v} className={view === v ? 'is-on' : undefined} title="Switch views (V)" onClick={() => setView(v)}>
                   {v === 'worktrees' ? 'Worktrees' : 'Sessions'}
-                  <span className="ca-segctl-count">{v === 'worktrees' ? projectLanes.length : sessionItems.length}</span>
+                  <span className="ca-segctl-count">{v === 'worktrees' ? recentLanes.length : shownSessionCount}</span>
                 </button>
               ))}
             </div>
@@ -534,6 +574,16 @@ export function App() {
                 Pin a session with <Kbd keys={['P']} /> to keep it at the top
               </span>
             )}
+            <div className="ca-agefilter">
+              <span className="ca-agefilter-label">Active in</span>
+              <div className="ca-segctl" role="radiogroup" aria-label="Active in">
+                {AGES.map((a) => (
+                  <button key={a.id} type="button" role="radio" aria-checked={age === a.id} className={age === a.id ? 'is-on' : undefined} title={a.title} onClick={() => setAge(a.id)}>
+                    {a.label}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
           <div className="ca-board-cols ca-label" aria-hidden="true">
             <span />
@@ -545,7 +595,13 @@ export function App() {
           {!loadError && (!board || (board.loading && lanes.length === 0)) && <div className="ca-board-empty">Reading sessions…</div>}
           {board && !board.loading && view === 'sessions' && sessionRows.length === 0 && (
             <div className="ca-board-empty">
-              {query ? `No sessions in ${current} match “${query}”.` : bayFilter ? 'No sessions here right now.' : 'No sessions in the last 14 days.'}
+              {query
+                ? `No sessions in ${current} match “${query}”.`
+                : bayFilter
+                  ? 'No sessions here right now.'
+                  : cutoff > 0
+                    ? `No sessions ${AGES.find((a) => a.id === age)?.title.toLowerCase()}.`
+                    : 'No sessions in the last 14 days.'}
             </div>
           )}
           {board && !board.loading && view === 'worktrees' && bays.length === 0 && (
@@ -556,7 +612,9 @@ export function App() {
                   ? 'No PR checks are failing.'
                   : bayFilter
                     ? 'Nothing here right now.'
-                  : 'No worktrees yet. Codealong looks for repos under the folders in config.toml and for the agents working in them.'}
+                  : cutoff > 0
+                    ? `No worktrees ${AGES.find((a) => a.id === age)?.title.toLowerCase()}.`
+                    : 'No worktrees yet. Codealong looks for repos under the folders in config.toml and for the agents working in them.'}
             </div>
           )}
           <div

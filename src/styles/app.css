@@ -910,3 +910,19 @@ button {
   flex: none;
   color: var(--ink-3);
 }
+
+/* The age filter, right of the view switch. */
+.ca-agefilter {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+.ca-agefilter-label {
+  font: 500 12px/16px var(--font-sans);
+  color: var(--ink-3);
+}
+.ca-agefilter .ca-segctl button {
+  padding: 0 9px;
+  font-variant-numeric: tabular-nums;
+}
