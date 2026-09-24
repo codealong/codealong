@@ -20,6 +20,8 @@ pub struct RegistryEntry {
     /// `busy`, `idle`, `shell`, `waiting`, `blocked`…
     pub status: String,
     pub kind: Option<String>,
+    /// Set on a background job (`kind: "bg"`): what `claude attach` takes.
+    pub job_id: Option<String>,
     pub entrypoint: Option<String>,
     pub name: Option<String>,
     pub name_source: Option<String>,
@@ -35,6 +37,7 @@ struct RawRegistry {
     cwd: Option<String>,
     status: Option<String>,
     kind: Option<String>,
+    job_id: Option<String>,
     entrypoint: Option<String>,
     name: Option<String>,
     name_source: Option<String>,
@@ -50,6 +53,7 @@ pub fn parse_registry(text: &str) -> Option<RegistryEntry> {
         cwd: raw.cwd?,
         status: raw.status.unwrap_or_else(|| "idle".into()),
         kind: raw.kind,
+        job_id: raw.job_id,
         entrypoint: raw.entrypoint,
         name: raw.name,
         name_source: raw.name_source,
@@ -110,6 +114,9 @@ pub struct TranscriptInfo {
     pub entrypoint: Option<String>,
     /// From `custom-title` or `agent-name` lines.
     pub title: Option<String>,
+    /// The title Claude Code generates and shows in the terminal tab, from `ai-title` lines.
+    /// They repeat every few dozen lines, so the tail always has the current one.
+    pub ai_title: Option<String>,
     pub first_prompt: Option<String>,
     pub last_prompt: Option<String>,
     pub started_at: Option<i64>,
@@ -288,6 +295,11 @@ pub fn apply_tail(info: &mut TranscriptInfo, state: &mut TailState, tail: &str) 
             Some("custom-title") => {
                 if let Some(t) = str_of(&v, "customTitle").filter(|t| !t.trim().is_empty()) {
                     info.title = Some(one_line(&t, 90));
+                }
+            }
+            Some("ai-title") => {
+                if let Some(t) = str_of(&v, "aiTitle").filter(|t| !t.trim().is_empty()) {
+                    info.ai_title = Some(one_line(&t, 90));
                 }
             }
             Some("agent-name") => {

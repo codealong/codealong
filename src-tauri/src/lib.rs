@@ -78,6 +78,7 @@ pub fn run() {
 }
 
 /// `codealong --snapshot [--table] [--no-github] [--accounts]`: one pass over everything, printed.
+/// `codealong --snapshot --open <lane id> <target id>`: opens a target the way a click does.
 pub fn snapshot_cli(args: &[String]) -> i32 {
     let started = std::time::Instant::now();
     if args.iter().any(|a| a == "--accounts") {
@@ -85,6 +86,20 @@ pub fn snapshot_cli(args: &[String]) -> i32 {
         let list: Vec<model::AccountInfo> = cfg.accounts.iter().map(usage::describe).collect();
         println!("{}", serde_json::to_string_pretty(&list).unwrap_or_default());
         return 0;
+    }
+    if let Some(i) = args.iter().position(|a| a == "--open") {
+        let (Some(lane), Some(target)) = (args.get(i + 1), args.get(i + 2)) else {
+            eprintln!("usage: codealong --snapshot --open <lane id> <target id>");
+            return 2;
+        };
+        let board = engine::snapshot(false);
+        return match engine::open_on(&board, lane, target) {
+            Ok(_) => 0,
+            Err(e) => {
+                eprintln!("{e:#}");
+                1
+            }
+        };
     }
     let board = engine::snapshot(!args.iter().any(|a| a == "--no-github"));
     if args.iter().any(|a| a == "--table") {

@@ -107,9 +107,11 @@ pub fn claude_session(
     let user_named = reg
         .filter(|r| matches!(r.name_source.as_deref(), Some("user") | Some("peer")))
         .and_then(|r| r.name.clone());
+    // The order Claude Code titles its terminal tab in, so rows and tabs read the same.
     let title = tr
         .and_then(|t| t.title.clone())
         .or(user_named)
+        .or_else(|| tr.and_then(|t| t.ai_title.clone()))
         .or_else(|| tr.and_then(|t| t.first_prompt.clone()))
         .or_else(|| reg.and_then(|r| r.name.clone()))
         .unwrap_or_else(|| format!("Session {}", short_id(&id)));
@@ -135,8 +137,13 @@ pub fn claude_session(
         _ => tr.and_then(|t| t.last_text.clone().or_else(|| t.last_prompt.clone())),
     };
     let key = format!("claude:{}:{}", account.name, id);
+    let attach_command = reg
+        .filter(|r| r.kind.as_deref() == Some("bg"))
+        .and_then(|r| r.job_id.clone())
+        .map(|job| format!("{} attach {job}", account.command()));
     let action = match (surface, reg.is_some()) {
         (Surface::App, _) => "claude-app",
+        (Surface::Cli, true) if attach_command.is_some() => "attach",
         (Surface::Cli, true) => "focus",
         (Surface::Cli, false) => "resume",
     };
@@ -162,6 +169,7 @@ pub fn claude_session(
         status_since: reg.and_then(|r| r.status_updated_at),
         last_activity,
         excerpt,
+        attach_command,
         stalled_since,
         app_account: account.home_path() == crate::util::home().join(".claude"),
     })
@@ -212,6 +220,7 @@ pub fn codex_session(account: &AccountCfg, th: &ThreadInfo, name: Option<&str>, 
         excerpt,
         resume_command: None,
         app_account: false,
+        attach_command: None,
         stalled_since: None,
     }
 }
@@ -435,6 +444,10 @@ pub fn targets(seed: &LaneSeed, sessions: &[Session], pr: Option<&Pr>, apps: &Ap
         let who = format!("{} · {}", s.account, truncate(&s.title, 48));
         let respond = s.status == Status::Needs;
         match (s.harness, s.surface) {
+            (Harness::Claude, Surface::Cli) if s.live && s.attach_command.is_some() => {
+                let why = format!("{who} · runs in the background");
+                t.push(target(format!("s|{}|attach", s.key), "terminal", format!("Attach in {term}"), Some(why), enter, false, "session"));
+            }
             (Harness::Claude, Surface::Cli) if s.live => {
                 let verb = if respond { "Respond in" } else { "Show in" };
                 t.push(target(format!("s|{}|focus", s.key), "terminal", format!("{verb} {term}"), Some(who), enter, false, "session"));
@@ -616,6 +629,7 @@ mod tests {
             cwd: "/r/atlas-quarry/apps/server".into(),
             status: status.into(),
             kind: Some("interactive".into()),
+            job_id: None,
             entrypoint: Some("cli".into()),
             name: Some("atlas-quarry-8f".into()),
             name_source: Some("derived".into()),
@@ -684,6 +698,17 @@ mod tests {
         assert_eq!(stopped.resume_command.as_deref(), Some("claude2 --resume abc1234567"));
         assert_eq!(stopped.open_target, "s|claude:claude2:abc1234567|resume");
         assert_eq!(stopped.title, "Quarry daily log + photo sync");
+    }
+
+    #[test]
+    fn a_background_job_is_attached_not_focused() {
+        let a = acct("claude2");
+        let mut r = reg("idle", NOW);
+        r.kind = Some("bg".into());
+        r.job_id = Some("6e07c149".into());
+        let s = claude_session(&a, Some(&r), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
+        assert_eq!(s.attach_command.as_deref(), Some("claude2 attach 6e07c149"));
+        assert_eq!(s.open_target, "s|claude:claude2:abc1234567|attach");
     }
 
     #[test]

@@ -7,6 +7,7 @@ use std::time::Duration;
 use anyhow::{anyhow, bail, Result};
 
 use crate::procs;
+use crate::util::{file_name, home, mtime_ms};
 
 pub fn terminal_name(id: &str) -> String {
     match id {
@@ -39,30 +40,63 @@ on run argv
 end run
 "#;
 
-const GHOSTTY_FOCUS: &str = r#"
+const GHOSTTY_LIST: &str = r#"
 on run argv
-  set wantName to item 1 of argv
-  set wantDir to item 2 of argv
+  set out to ""
   tell application "Ghostty"
-    if wantName is not "" then
-      repeat with t in terminals
-        if (name of t) contains wantName then
-          focus t
-          activate
-          return "ok"
-        end if
-      end repeat
-    end if
-    repeat with t in terminals
-      if (working directory of t) is wantDir then
-        focus t
-        activate
-        return "ok"
-      end if
+    set ids to id of every terminal
+    set dirs to working directory of every terminal
+    set names to name of every terminal
+    repeat with i from 1 to count of ids
+      set out to out & (item i of ids) & tab & (item i of dirs) & tab & (item i of names) & linefeed
     end repeat
   end tell
-  return "none"
+  return out
 end run
+"#;
+
+/// `tag <marker>`: waits up to two seconds for a terminal whose folder contains the marker and
+/// focuses it. `id <terminal id>`: focuses that terminal. Returns the focused terminal's id.
+const GHOSTTY_FOCUS: &str = r#"
+on run argv
+  set mode to item 1 of argv
+  set want to item 2 of argv
+  tell application "Ghostty"
+    if mode is "id" then
+      if my focusTerminal(want) then return want
+      return ""
+    end if
+    repeat 40 times
+      set ids to id of every terminal
+      set dirs to working directory of every terminal
+      repeat with i from 1 to count of ids
+        if (item i of dirs) contains want then
+          set found to item i of ids
+          if my focusTerminal(found) then return found
+        end if
+      end repeat
+      delay 0.05
+    end repeat
+  end tell
+  return ""
+end run
+
+on focusTerminal(want)
+  tell application "Ghostty"
+    repeat with w in windows
+      repeat with tb in tabs of w
+        if (id of every terminal of tb) contains want then
+          select tab tb
+          activate window w
+          focus (first terminal of tb whose id is want)
+          activate
+          return true
+        end if
+      end repeat
+    end repeat
+  end tell
+  return false
+end focusTerminal
 "#;
 
 fn osascript(script: &str, args: &[&str]) -> Result<String> {
@@ -97,15 +131,103 @@ pub fn terminal_open(profile: &str, path: &Path, input: Option<&str>) -> Result<
     }
 }
 
-/// Focuses the terminal a live session runs in. `Ok(false)` when it can't be found.
-pub fn terminal_focus(profile: &str, name: Option<&str>, cwd: &Path) -> Result<bool> {
-    match profile {
-        "ghostty" => {
-            let out = osascript(GHOSTTY_FOCUS, &[name.unwrap_or(""), &cwd.to_string_lossy()])?;
-            Ok(out.trim() == "ok")
-        }
-        other => bail!("There's no terminal profile called {other:?} yet."),
+#[derive(Debug, Clone, PartialEq)]
+pub struct GhosttyTerminal {
+    pub id: String,
+    pub cwd: String,
+    pub name: String,
+}
+
+fn ghostty_terminals() -> Result<Vec<GhosttyTerminal>> {
+    Ok(osascript(GHOSTTY_LIST, &[])?
+        .lines()
+        .filter_map(|line| {
+            let mut parts = line.splitn(3, '\t');
+            Some(GhosttyTerminal { id: parts.next()?.to_string(), cwd: parts.next()?.to_string(), name: parts.next().unwrap_or("").to_string() })
+        })
+        .filter(|t| !t.id.is_empty())
+        .collect())
+}
+
+/// Focuses the terminal tab a live session runs in. `Ok(false)` when there's no such tab.
+///
+/// The tab is found exactly: Codealong reports a unique folder (OSC 7) on the session's TTY,
+/// finds the Ghostty terminal showing that folder, selects its tab, then reports the real
+/// folder again. Claude Code rewrites tab titles as it works but never the folder, so the mark
+/// holds. Where that can't work (tmux, a session outside Ghostty), tabs are matched by title,
+/// then by folder.
+pub fn terminal_focus_session(profile: &str, pid: u32, title: &str, cwd: &Path) -> Result<bool> {
+    if profile != "ghostty" {
+        bail!("There's no terminal profile called {profile:?} yet.");
     }
+    let Some(tty) = tty_of(pid) else {
+        bail!("This session runs in the background, so it has no terminal tab.");
+    };
+    let terminals = ghostty_terminals()?;
+    let mark = format!("/tmp/codealong-{pid}-{}", crate::util::now_ms());
+    if write_osc7(&tty, &mark).is_ok() {
+        let found = osascript(GHOSTTY_FOCUS, &["tag", &mark]).unwrap_or_default();
+        let found = found.trim();
+        let real = terminals
+            .iter()
+            .find(|t| t.id == found)
+            .map(|t| t.cwd.clone())
+            .filter(|c| !c.is_empty())
+            .unwrap_or_else(|| cwd.to_string_lossy().into_owned());
+        let _ = write_osc7(&tty, &real);
+        if !found.is_empty() {
+            return Ok(true);
+        }
+    }
+    match pick_by_title(&terminals, title, cwd) {
+        Some(id) => Ok(!osascript(GHOSTTY_FOCUS, &["id", &id])?.trim().is_empty()),
+        None => Ok(false),
+    }
+}
+
+/// The terminal device a process writes to, or None for a background process.
+fn tty_of(pid: u32) -> Option<std::path::PathBuf> {
+    let out = procs::run("/bin/ps", &["-o", "tty=", "-p", &pid.to_string()], None, Duration::from_secs(3)).ok()?;
+    let tty = out.trim();
+    tty.starts_with("tty").then(|| Path::new("/dev").join(tty))
+}
+
+/// Reports `dir` as the terminal's folder. Never blocks: a full or stuck terminal just misses it.
+fn write_osc7(tty: &Path, dir: &str) -> std::io::Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    let mut f = std::fs::OpenOptions::new().write(true).custom_flags(libc::O_NOCTTY | libc::O_NONBLOCK).open(tty)?;
+    f.write_all(osc7(dir).as_bytes())
+}
+
+/// The escape sequence a shell sends to report its folder.
+pub fn osc7(dir: &str) -> String {
+    let path: String = dir
+        .bytes()
+        .map(|b| if b.is_ascii_alphanumeric() || b"/-._~".contains(&b) { (b as char).to_string() } else { format!("%{b:02X}") })
+        .collect();
+    format!("\x1b]7;file://localhost{path}\x07")
+}
+
+/// Claude Code titles a tab with a status glyph, a space and the session title.
+fn tab_title(name: &str) -> &str {
+    match name.split_once(' ') {
+        Some((glyph, rest)) if glyph.chars().count() == 1 && !glyph.chars().all(char::is_alphanumeric) => rest,
+        _ => name,
+    }
+}
+
+/// A tab titled like the session, preferring one in its folder; else any tab in its folder.
+pub fn pick_by_title(terminals: &[GhosttyTerminal], title: &str, cwd: &Path) -> Option<String> {
+    let dir = cwd.to_string_lossy();
+    let titled: Vec<&GhosttyTerminal> = terminals.iter().filter(|t| !title.is_empty() && tab_title(&t.name) == title).collect();
+    titled
+        .iter()
+        .find(|t| t.cwd == dir)
+        .or_else(|| titled.first())
+        .copied()
+        .or_else(|| terminals.iter().find(|t| t.cwd == dir))
+        .map(|t| t.id.clone())
 }
 
 pub fn editor_open(profile: &str, path: &Path) -> Result<()> {
@@ -127,8 +249,42 @@ pub fn reveal(path: &Path) -> Result<()> {
     procs::run("/usr/bin/open", &["-R", &path.to_string_lossy()], None, Duration::from_secs(10)).map(|_| ())
 }
 
-pub fn claude_app_url(session_id: &str) -> String {
-    format!("claude://code/continue?session={}", urlencoding::encode(session_id))
+/// Opens a session in the Claude app. A session the app runs is selected by the app's own ID
+/// (`code/continue` takes only `local_…` IDs); any other is imported first (`resume`).
+pub fn claude_app_url(cli_session_id: &str) -> String {
+    claude_app_url_in(&home().join("Library/Application Support/Claude/claude-code-sessions"), cli_session_id)
+}
+
+fn claude_app_url_in(records: &Path, cli_session_id: &str) -> String {
+    match claude_app_session(records, cli_session_id) {
+        Some(local) => format!("claude://code/continue?session={}", urlencoding::encode(&local)),
+        None => format!("claude://resume?session={}", urlencoding::encode(cli_session_id)),
+    }
+}
+
+/// The Claude app keeps a record per Code session, `<account>/<org>/local_<id>.json`, naming
+/// the CLI session it runs as `cliSessionId`. Newest first, since that's usually the one.
+fn claude_app_session(records: &Path, cli_session_id: &str) -> Option<String> {
+    let subdirs = |p: &Path| -> Vec<std::path::PathBuf> {
+        std::fs::read_dir(p).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect()
+    };
+    let mut files: Vec<(i64, std::path::PathBuf)> = subdirs(records)
+        .iter()
+        .flat_map(|account| subdirs(account))
+        .flat_map(|org| std::fs::read_dir(org).into_iter().flatten().flatten().map(|e| e.path()))
+        .filter(|p| file_name(p).starts_with("local_") && p.extension().and_then(|x| x.to_str()) == Some("json"))
+        .map(|p| (mtime_ms(&p).unwrap_or(0), p))
+        .collect();
+    files.sort_by(|a, b| b.0.cmp(&a.0));
+    files.into_iter().find_map(|(_, path)| {
+        let text = std::fs::read_to_string(&path).ok()?;
+        if !text.contains(cli_session_id) {
+            return None;
+        }
+        let v: serde_json::Value = serde_json::from_str(&text).ok()?;
+        (v.get("cliSessionId").and_then(|x| x.as_str()) == Some(cli_session_id))
+            .then(|| v.get("sessionId").and_then(|x| x.as_str()).map(str::to_string).unwrap_or_else(|| file_name(&path).trim_end_matches(".json").to_string()))
+    })
 }
 
 /// Opens a `codex://` link in the Codex app that's running. The Codex app ships as
@@ -160,7 +316,8 @@ mod tests {
 
     #[test]
     fn builds_deep_links() {
-        assert_eq!(claude_app_url("87412567-2cd2"), "claude://code/continue?session=87412567-2cd2");
+        let empty = std::env::temp_dir().join("codealong-no-records");
+        assert_eq!(claude_app_url_in(&empty, "87412567-2cd2"), "claude://resume?session=87412567-2cd2");
         assert_eq!(codex_thread_url("01a0c4a6"), "codex://threads/01a0c4a6");
         assert_eq!(
             codex_review_url("https://github.com/northwindai/atlas/pull/1037"),
@@ -174,10 +331,43 @@ mod tests {
         if !Path::new("/Applications/Ghostty.app").exists() {
             return;
         }
-        for (i, script) in [GHOSTTY_NEW_WINDOW, GHOSTTY_FOCUS].iter().enumerate() {
+        for (i, script) in [GHOSTTY_NEW_WINDOW, GHOSTTY_LIST, GHOSTTY_FOCUS].iter().enumerate() {
             let out = std::env::temp_dir().join(format!("codealong-test-{i}.scpt"));
             let r = procs::run_stdin("/usr/bin/osacompile", &["-o", &out.to_string_lossy()], script, Duration::from_secs(20));
             assert!(r.is_ok(), "script {i} failed to compile: {r:?}");
         }
+    }
+
+    #[test]
+    fn finds_the_claude_app_session_for_a_cli_session() {
+        let root = std::env::temp_dir().join(format!("codealong-records-{}", std::process::id()));
+        let org = root.join("acct").join("org");
+        std::fs::create_dir_all(&org).unwrap();
+        std::fs::write(org.join("local_aaa.json"), r#"{"sessionId":"local_aaa","cliSessionId":"11111111-0000-0000-0000-000000000000"}"#).unwrap();
+        std::fs::write(org.join("local_bbb.json"), r#"{"sessionId":"local_bbb","cliSessionId":"87412567-2cd2-4c10-8635-d144e1c53c78"}"#).unwrap();
+        assert_eq!(claude_app_url_in(&root, "87412567-2cd2-4c10-8635-d144e1c53c78"), "claude://code/continue?session=local_bbb");
+        assert_eq!(claude_app_url_in(&root, "22222222-0000-0000-0000-000000000000"), "claude://resume?session=22222222-0000-0000-0000-000000000000");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn reports_a_folder_the_way_a_shell_does() {
+        assert_eq!(osc7("/tmp/codealong-1-2"), "\x1b]7;file://localhost/tmp/codealong-1-2\x07");
+        assert_eq!(osc7("/Users/me/My Repo"), "\x1b]7;file://localhost/Users/me/My%20Repo\x07");
+    }
+
+    #[test]
+    fn matches_tabs_by_title_then_folder() {
+        let t = |id: &str, cwd: &str, name: &str| GhosttyTerminal { id: id.into(), cwd: cwd.into(), name: name.into() };
+        let tabs = vec![
+            t("a", "/r/app4", "✳ RLS work and other tables"),
+            t("b", "/r/app2", "✳ Cloud agent execution regressions"),
+            t("c", "/r/app2", "✳ Cloud agent execution regressions ⑂"),
+            t("d", "/r/app4", "…/projects/app4"),
+        ];
+        assert_eq!(pick_by_title(&tabs, "Cloud agent execution regressions ⑂", Path::new("/r/app2")).as_deref(), Some("c"));
+        assert_eq!(pick_by_title(&tabs, "Cloud agent execution regressions", Path::new("/r/app2")).as_deref(), Some("b"));
+        assert_eq!(pick_by_title(&tabs, "Something else", Path::new("/r/app4")).as_deref(), Some("a"));
+        assert_eq!(pick_by_title(&tabs, "Something else", Path::new("/r/none")), None);
     }
 }

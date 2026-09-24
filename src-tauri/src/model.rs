@@ -108,6 +108,8 @@ pub struct Session {
     /// This session's own one sentence, for rows in the agent bays.
     pub headline: String,
     pub detail: Option<String>,
+    /// A background job has no terminal tab; this opens it in a new one (`claude attach <job>`).
+    pub attach_command: Option<String>,
     /// Set when the session says it's busy but nothing has happened for a long while: it's stuck
     /// mid-turn, usually on a command waiting for input. When it went quiet.
     pub stalled_since: Option<i64>,

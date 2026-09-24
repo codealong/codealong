@@ -26,6 +26,8 @@ export interface Session {
   lastActivity: number;
   /** Backtick spans render as code. */
   excerpt: string | null;
+  /** A background job's `claude attach <job>`: it has no terminal tab of its own. */
+  attachCommand: string | null;
   /** Busy but silent for a long while: stuck mid-turn. When it went quiet. */
   stalledSince: number | null;
   resumeCommand: string | null;

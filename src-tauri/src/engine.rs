@@ -98,54 +98,59 @@ impl Handle {
 
     /// Opens a lane's target where it lives. See *Surfaces*, Open where it lives.
     pub fn open(&self, lane_id: &str, target_id: &str) -> Result<()> {
-        let (lane, apps) = {
-            let board = self.board.read().map_err(|_| anyhow!("board unavailable"))?;
-            let lane = board
-                .lanes
-                .iter()
-                .find(|l| l.id == lane_id)
-                .cloned()
-                .ok_or_else(|| anyhow!("That lane just changed. Try again."))?;
-            (lane, board.apps.clone())
-        };
-        let path = PathBuf::from(&lane.path);
-        let parts: Vec<&str> = target_id.splitn(3, '|').collect();
-        match parts.as_slice() {
-            ["s", key, action] => {
-                let s = lane.sessions.iter().find(|s| s.key == *key).ok_or_else(|| anyhow!("That session is gone."))?;
-                let cwd = if Path::new(&s.cwd).is_dir() { PathBuf::from(&s.cwd) } else { path.clone() };
-                match *action {
-                    "focus" => {
-                        if !launch::terminal_focus(&apps.terminal_id, s.name.as_deref(), &cwd)? {
-                            let pid = s.pid.map(|p| format!(" It's running as pid {p}.")).unwrap_or_default();
-                            bail!("Couldn't find {}'s terminal in {}.{pid}", s.account, apps.terminal);
-                        }
-                    }
-                    "resume" => {
-                        let cmd = s.resume_command.clone().ok_or_else(|| anyhow!("This session can't be resumed in a terminal."))?;
-                        launch::terminal_open(&apps.terminal_id, &cwd, Some(&format!("{cmd}\n")))?;
-                    }
-                    "claude-app" => launch::open_url(&launch::claude_app_url(&s.id))?,
-                    "codex" => launch::open_codex(&launch::codex_thread_url(&s.id))?,
-                    other => bail!("Unknown action {other:?}"),
-                }
-                self.mark_seen(vec![s.key.clone()]);
-            }
-            ["l", "terminal"] => launch::terminal_open(&apps.terminal_id, &path, None)?,
-            ["l", "editor"] => launch::editor_open(&apps.editor_id, &path)?,
-            ["l", "finder"] => launch::reveal(&path)?,
-            ["p", which] => {
-                let pr = lane.pr.as_ref().ok_or_else(|| anyhow!("This lane has no PR."))?;
-                match *which {
-                    "github" => launch::open_url(&pr.url)?,
-                    "codex-review" => launch::open_codex(&launch::codex_review_url(&pr.url))?,
-                    other => bail!("Unknown PR action {other:?}"),
-                }
-            }
-            _ => bail!("Unknown target {target_id:?}"),
+        let board = self.board.read().map(|b| b.clone()).map_err(|_| anyhow!("board unavailable"))?;
+        if let Some(key) = open_on(&board, lane_id, target_id)? {
+            self.mark_seen(vec![key]);
         }
         Ok(())
     }
+}
+
+/// Opens a lane's target on `board`. Returns the key of the session it opened, if any.
+pub fn open_on(board: &Board, lane_id: &str, target_id: &str) -> Result<Option<String>> {
+    let lane = board.lanes.iter().find(|l| l.id == lane_id).cloned().ok_or_else(|| anyhow!("That lane just changed. Try again."))?;
+    let apps = board.apps.clone();
+    let path = PathBuf::from(&lane.path);
+    let parts: Vec<&str> = target_id.splitn(3, '|').collect();
+    match parts.as_slice() {
+        ["s", key, action] => {
+            let s = lane.sessions.iter().find(|s| s.key == *key).ok_or_else(|| anyhow!("That session is gone."))?;
+            let cwd = if Path::new(&s.cwd).is_dir() { PathBuf::from(&s.cwd) } else { path.clone() };
+            match *action {
+                "focus" => {
+                    let pid = s.pid.ok_or_else(|| anyhow!("That session isn't running any more."))?;
+                    if !launch::terminal_focus_session(&apps.terminal_id, pid, &s.title, &cwd)? {
+                        bail!("Couldn't find {}'s terminal in {}. It's running as pid {pid}.", s.account, apps.terminal);
+                    }
+                }
+                "attach" => {
+                    let cmd = s.attach_command.clone().ok_or_else(|| anyhow!("This session isn't a background job."))?;
+                    launch::terminal_open(&apps.terminal_id, &cwd, Some(&format!("{cmd}\n")))?;
+                }
+                "resume" => {
+                    let cmd = s.resume_command.clone().ok_or_else(|| anyhow!("This session can't be resumed in a terminal."))?;
+                    launch::terminal_open(&apps.terminal_id, &cwd, Some(&format!("{cmd}\n")))?;
+                }
+                "claude-app" => launch::open_url(&launch::claude_app_url(&s.id))?,
+                "codex" => launch::open_codex(&launch::codex_thread_url(&s.id))?,
+                other => bail!("Unknown action {other:?}"),
+            }
+            return Ok(Some(s.key.clone()));
+        }
+        ["l", "terminal"] => launch::terminal_open(&apps.terminal_id, &path, None)?,
+        ["l", "editor"] => launch::editor_open(&apps.editor_id, &path)?,
+        ["l", "finder"] => launch::reveal(&path)?,
+        ["p", which] => {
+            let pr = lane.pr.as_ref().ok_or_else(|| anyhow!("This lane has no PR."))?;
+            match *which {
+                "github" => launch::open_url(&pr.url)?,
+                "codex-review" => launch::open_codex(&launch::codex_review_url(&pr.url))?,
+                other => bail!("Unknown PR action {other:?}"),
+            }
+        }
+        _ => bail!("Unknown target {target_id:?}"),
+    }
+    Ok(None)
 }
 
 pub fn start(emit: impl Fn(&Board) + Send + 'static) -> Handle {
