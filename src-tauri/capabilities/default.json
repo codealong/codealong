@@ -1,10 +1,11 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Codealong windows (the main one and one per project): board events and dragging the unified toolbar.",
+  "description": "Codealong windows (the main one, one per project, and the floating bar): board events, menus and dragging the toolbar or the bar.",
   "windows": [
     "main",
-    "project-*"
+    "project-*",
+    "bar"
   ],
   "permissions": [
     "core:default",

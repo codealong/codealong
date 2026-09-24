@@ -46,6 +46,16 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   and how recently things were active (24h, 3d, 7d, all).
 - **Light or dark**: follows macOS unless you pick light or dark with the buttons at the foot
   of the sidebar. The choice is saved in config.toml, and every window follows it.
+- **Resizable panels**: drag the inner edge of the sidebar or the panel on the right, and
+  double-click it to go back to the default width. The PR panel keeps a width of its own.
+- **Floating bar**: whenever no Codealong window can be seen (closed, minimized, on another
+  Space or covered), a small bar floats above everything, on every Space. It has a pill for
+  each agent that needs you, whose turn just ended, or that's running, across all projects,
+  and one for PRs waiting on your review. Click a pill to open the session where it lives;
+  right-click it to show it in Codealong or mark it seen. Pills that don't fit fold into one
+  per group that lists them. The mark brings Codealong back; drag the bar by it. Window ›
+  Floating bar, or the bar's own right-click menu, turns it off.
+- Closing the main window hides it; the Dock icon or the bar brings it back, and ⌘Q quits.
 
 Next: the menu bar icon and popover, and notifications (the design system's *Build plan*).
 
@@ -101,7 +111,8 @@ folders = []
 ```
 
 What you've seen (for Your turn), what you've pinned and what you've archived in Codealong
-are kept in `state.json` next to it.
+are kept in `state.json` next to it; whether the floating bar is on, and where you left it, in
+`bar.json`.
 
 ## Permissions and safety
 
@@ -127,6 +138,7 @@ are kept in `state.json` next to it.
 | `src-tauri/src/appserver.rs` | Codex actions through its app-server (archiving) |
 | `src-tauri/src/claudeapp.rs` | The Claude app's session records (its IDs, what you archived there) |
 | `src-tauri/src/config.rs`, `state.rs` | `config.toml` (accounts saved in place) and `state.json` (seen, pinned, archived) |
-| `src/` | The React UI, built from the design system's components and tokens; `lanes.ts` groups the board and mirrors the engine's status rules for the age filter; `pins.ts` keeps the pinned lists |
+| `src-tauri/src/bar.rs` | The floating bar's window: when it shows (AppKit's occlusion state), where it sits, Window › Floating bar |
+| `src/` | The React UI, built from the design system's components and tokens; `lanes.ts` groups the board and mirrors the engine's status rules for the age filter; `pins.ts` keeps the pinned lists; `bar.ts` and `ui/Bar.tsx` are the floating bar |
 | `scripts/preview.sh` | Headless preview against real data, for screenshots and scripted checks |
 | `design/tokens.json` | Design tokens; `npm run tokens` regenerates `src/styles/tokens.css` |

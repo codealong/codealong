@@ -3,6 +3,7 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import type { AccountCfg, AccountInfo, Board, PrDetail, StartOptions, Started, StartSpec, Theme } from './types';
 
 export const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -143,4 +144,43 @@ export async function startSession(spec: StartSpec): Promise<Started | null> {
 export async function setTheme(theme: Theme): Promise<void> {
   if (!inTauri) return;
   await invoke('set_theme', { theme });
+}
+
+/** What the floating bar asks the main window to show. */
+export type Reveal = { kind: 'session'; laneId: string; key: string } | { kind: 'pr'; key: string };
+
+/** Brings the main window forward, showing a session or PR if given. */
+export async function showMain(reveal: Reveal | null = null): Promise<void> {
+  if (!inTauri) return;
+  await invoke('show_main', { reveal });
+}
+
+/** Calls `cb` when the floating bar asks this window to show something. Only events sent to
+ *  this window count: a plain listener would hear ones sent to any window. */
+export function onReveal(cb: (r: Reveal) => void): () => void {
+  if (!inTauri) return () => {};
+  let cancelled = false;
+  let unlisten: (() => void) | undefined;
+  void getCurrentWebviewWindow()
+    .listen<Reveal>('reveal', (e) => cb(e.payload))
+    .then((u) => {
+      if (cancelled) u();
+      else unlisten = u;
+    });
+  return () => {
+    cancelled = true;
+    unlisten?.();
+  };
+}
+
+/** The floating bar measured itself; its window takes that size. */
+export async function fitBar(width: number, height: number): Promise<void> {
+  if (!inTauri) return;
+  await invoke('fit_bar', { width, height });
+}
+
+/** Turns the floating bar on or off. */
+export async function setBarOn(on: boolean): Promise<void> {
+  if (!inTauri) return;
+  await invoke('set_bar_on', { on });
 }

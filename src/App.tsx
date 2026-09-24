@@ -4,11 +4,12 @@
 // review, Idle and Merged; Sessions lists every session, pinned ones first in your order; PRs
 // lists the project's pull requests. Keyboard map: the design system's Surfaces page.
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { showContextMenu } from './contextMenu';
 import { AGENT_BAY, BAYS, buildBays, failingPr, filterByAge, laneInFilter, type BoardRow, type Filter } from './lanes';
-import { approvePr, archiveSession, getBoard, markSeen, onBoard, openConfig, openProjectWindow, openTarget, openUrl, perfMark, refresh, refreshUsage, reviewInCodex, setPinned, setPinnedWorktrees, setTheme, signIn, startSession } from './api';
+import { approvePr, archiveSession, getBoard, markSeen, onBoard, onReveal, openConfig, openProjectWindow, openTarget, openUrl, refresh, refreshUsage, reviewInCodex, setPinned, setPinnedWorktrees, setTheme, signIn, startSession, type Reveal } from './api';
 import { ago } from './format';
+import { usePerf } from './perf';
 import { usePins } from './pins';
 import type { Bay, Board, Lane, PrItem, Session, StartSpec, Theme } from './types';
 import { AccountsDialog } from './ui/AccountsDialog';
@@ -20,6 +21,7 @@ import { BayHeader, Button, Icon, Kbd, NavItem, StatusGlyph } from './ui/primiti
 import { ALL_PROJECTS, openSwitcher, ProjectSwitcher, type ActionCounts } from './ui/ProjectSwitcher';
 import { PrInspector } from './ui/PrInspector';
 import { prIsOpen, prPlaces, prSections, PrsView, type PrRowItem } from './ui/PrsView';
+import { Resizer, usePanelWidth } from './ui/Resizer';
 import { SessionsView, timeSections, type SessionItem } from './ui/SessionsView';
 import { applyTheme, ThemeSwitch } from './ui/ThemeSwitch';
 import { UsageBar } from './ui/UsageBar';
@@ -39,6 +41,9 @@ const WINDOW_PROJECT = typeof window !== 'undefined' ? (window.__CODEALONG_PROJE
 const PROJECT_KEY = 'codealong.project';
 const VIEW_KEY = 'codealong.view';
 const AGE_KEY = 'codealong.age';
+const SIDEBAR_WIDTH_KEY = 'codealong.sidebarWidth';
+const INSPECTOR_WIDTH_KEY = 'codealong.inspectorWidth';
+const PR_PANEL_WIDTH_KEY = 'codealong.prPanelWidth';
 const DAY = 24 * 60 * 60 * 1000;
 
 type View = 'worktrees' | 'sessions' | 'prs';
@@ -169,50 +174,6 @@ function useNow(everyMs: number): number {
   return now;
 }
 
-/** While `[debug] perf_log` is on, reports to the perf log what this window costs: each board
- *  push from arrival to commit and to paint, pointer events that waited in the queue (the
- *  wait a hover feels), and event-loop stalls, once a second at most. */
-function usePerf(board: Board | null, arrived: MutableRefObject<number | null>) {
-  const on = board?.perfLog ?? false;
-  useLayoutEffect(() => {
-    const at = arrived.current;
-    if (!on || at == null) return;
-    arrived.current = null;
-    const commit = performance.now() - at;
-    requestAnimationFrame(() =>
-      window.setTimeout(() => {
-        const painted = performance.now() - at;
-        const rows = document.querySelectorAll('[role="option"]').length;
-        perfMark(`push: commit ${commit.toFixed(0)} ms, painted ${painted.toFixed(0)} ms, ${rows} rows`);
-      }, 0),
-    );
-  }, [board, on, arrived]);
-  useEffect(() => {
-    if (!on) return;
-    let worst = 0;
-    let moves = 0;
-    const onMove = (e: PointerEvent) => {
-      worst = Math.max(worst, performance.now() - e.timeStamp);
-      moves++;
-    };
-    window.addEventListener('pointermove', onMove, { capture: true, passive: true });
-    let last = performance.now();
-    const id = window.setInterval(() => {
-      const now = performance.now();
-      const late = now - last - 1000;
-      last = now;
-      if (late > 100) perfMark(`stall: a 1 s timer ran ${late.toFixed(0)} ms late`);
-      if (worst > 50) perfMark(`input: pointer moves waited up to ${worst.toFixed(0)} ms (${moves} in 1 s)`);
-      worst = 0;
-      moves = 0;
-    }, 1000);
-    return () => {
-      window.removeEventListener('pointermove', onMove, { capture: true });
-      window.clearInterval(id);
-    };
-  }, [on]);
-}
-
 function storedProject(): string | null {
   try {
     return window.localStorage.getItem(PROJECT_KEY);
@@ -220,6 +181,9 @@ function storedProject(): string | null {
     return null;
   }
 }
+
+/** A dragged panel width for the grid's style; left out, the panel takes its default from the CSS. */
+const widthVar = (width: number | null) => (width == null ? undefined : `${width}px`);
 
 export function App() {
   const [board, setBoard] = useState<Board | null>(null);
@@ -230,6 +194,10 @@ export function App() {
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [view, setViewState] = useState<View>(storedView);
   const [age, setAgeState] = useState<Age>(storedAge);
+  // Panel widths as you last dragged them. The PR panel has its own: it starts out wider.
+  const [sidebarWidth, setSidebarWidth] = usePanelWidth(SIDEBAR_WIDTH_KEY);
+  const [inspectorWidth, setInspectorWidth] = usePanelWidth(INSPECTOR_WIDTH_KEY);
+  const [prPanelWidth, setPrPanelWidth] = usePanelWidth(PR_PANEL_WIDTH_KEY);
   // Archives made here (key → archived), shown until the board catches up: Codex takes a moment.
   const [archiveOverride, setArchiveOverride] = useState<Record<string, boolean>>({});
   const [undo, setUndo] = useState<{ key: string; title: string } | null>(null);
@@ -685,6 +653,29 @@ export function App() {
     setSelectedKey(onBoardAsAgent ? `${lane.id}::${session.key}` : lane.id);
   };
 
+  // The floating bar asks to show a session or PR here: in its project, with no search hiding it.
+  const reveal = useRef<(r: Reveal) => void>(() => {});
+  reveal.current = (r: Reveal) => {
+    const lane = r.kind === 'session' ? lanes.find((l) => l.id === r.laneId) : undefined;
+    const session = lane?.sessions.find((s) => s.key === (r.kind === 'session' ? r.key : ''));
+    const pr = r.kind === 'pr' ? board?.prs.find((p) => p.key === r.key) : undefined;
+    const home = lane?.project ?? pr?.project;
+    if (!home) return;
+    if (current !== ALL_PROJECTS && current !== home) pickProject(home);
+    setQuery('');
+    if (lane && session) {
+      if (view === 'prs') setView('worktrees');
+      setBayFilter(null);
+      // Its own row in Sessions and on the board, where a pinned worktree's row holds its agents.
+      setSelectedKey(view !== 'sessions' && lanePins.set.has(lane.id) ? lane.id : `${lane.id}::${session.key}`);
+    } else if (pr) {
+      setView('prs');
+      setBayFilter(null);
+      setSelectedKey(`pr:${pr.key}`);
+    }
+  };
+  useEffect(() => onReveal((r) => reveal.current(r)), []);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const typing = document.activeElement === searchRef.current;
@@ -940,7 +931,10 @@ export function App() {
         onAccounts={(account) => setAccountsDialog({ focus: account ?? null })}
         onSignIn={startSignIn}
       />
-      <div className={['ca-win-body', view === 'prs' && 'is-prs'].filter(Boolean).join(' ')}>
+      <div
+        className={['ca-win-body', view === 'prs' && 'is-prs'].filter(Boolean).join(' ')}
+        style={{ '--sidebar-w': widthVar(sidebarWidth), '--panel-w': widthVar(view === 'prs' ? prPanelWidth : inspectorWidth) } as CSSProperties}
+      >
         <nav className="ca-side" aria-label="Sidebar">
           <div className="ca-label ca-side-label">Inbox</div>
           <NavItem glyph="needs" label="Needs you" count={counts.needs} tone="attn" active={bayFilter === 'needs'} onClick={() => toggleBay('needs')} />
@@ -983,6 +977,7 @@ export function App() {
             </div>
           )}
         </nav>
+        <Resizer panel="before" cssVar="--sidebar-w" onResize={setSidebarWidth} />
         <main className="ca-board" aria-label={VIEWS.find((v) => v.id === view)?.label}>
           <div className="ca-board-head">
             <div className="ca-segctl" role="tablist" aria-label="View">
@@ -1145,6 +1140,7 @@ export function App() {
             })}
           </div>
         </main>
+        <Resizer panel="after" cssVar="--panel-w" onResize={view === 'prs' ? setPrPanelWidth : setInspectorWidth} />
         {view === 'prs' ? (
           selected?.kind === 'pr' ? (
             <PrInspector
