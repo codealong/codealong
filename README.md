@@ -46,6 +46,8 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   and how recently things were active (24h, 3d, 7d, all).
 - **Light or dark**: follows macOS unless you pick light or dark with the buttons at the foot
   of the sidebar. The choice is saved in config.toml, and every window follows it.
+- **Resizable panels**: drag the inner edge of the sidebar or the panel on the right, and
+  double-click it to go back to the default width. The PR panel keeps a width of its own.
 
 Next: the menu bar icon and popover, and notifications (the design system's *Build plan*).
 

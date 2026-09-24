@@ -4,7 +4,7 @@
 // review, Idle and Merged; Sessions lists every session, pinned ones first in your order; PRs
 // lists the project's pull requests. Keyboard map: the design system's Surfaces page.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { showContextMenu } from './contextMenu';
 import { AGENT_BAY, BAYS, buildBays, failingPr, filterByAge, laneInFilter, type BoardRow, type Filter } from './lanes';
 import { approvePr, archiveSession, getBoard, markSeen, onBoard, openConfig, openProjectWindow, openTarget, openUrl, refresh, refreshUsage, reviewInCodex, setPinned, setPinnedWorktrees, setTheme, signIn, startSession } from './api';
@@ -20,6 +20,7 @@ import { BayHeader, Button, Icon, Kbd, NavItem, StatusGlyph } from './ui/primiti
 import { ALL_PROJECTS, openSwitcher, ProjectSwitcher, type ActionCounts } from './ui/ProjectSwitcher';
 import { PrInspector } from './ui/PrInspector';
 import { prIsOpen, prPlaces, prSections, PrsView, type PrRowItem } from './ui/PrsView';
+import { Resizer, usePanelWidth } from './ui/Resizer';
 import { SessionsView, timeSections, type SessionItem } from './ui/SessionsView';
 import { applyTheme, ThemeSwitch } from './ui/ThemeSwitch';
 import { UsageBar } from './ui/UsageBar';
@@ -39,6 +40,9 @@ const WINDOW_PROJECT = typeof window !== 'undefined' ? (window.__CODEALONG_PROJE
 const PROJECT_KEY = 'codealong.project';
 const VIEW_KEY = 'codealong.view';
 const AGE_KEY = 'codealong.age';
+const SIDEBAR_WIDTH_KEY = 'codealong.sidebarWidth';
+const INSPECTOR_WIDTH_KEY = 'codealong.inspectorWidth';
+const PR_PANEL_WIDTH_KEY = 'codealong.prPanelWidth';
 const DAY = 24 * 60 * 60 * 1000;
 
 type View = 'worktrees' | 'sessions' | 'prs';
@@ -177,6 +181,9 @@ function storedProject(): string | null {
   }
 }
 
+/** A dragged panel width for the grid's style; left out, the panel takes its default from the CSS. */
+const widthVar = (width: number | null) => (width == null ? undefined : `${width}px`);
+
 export function App() {
   const [board, setBoard] = useState<Board | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -186,6 +193,10 @@ export function App() {
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [view, setViewState] = useState<View>(storedView);
   const [age, setAgeState] = useState<Age>(storedAge);
+  // Panel widths as you last dragged them. The PR panel has its own: it starts out wider.
+  const [sidebarWidth, setSidebarWidth] = usePanelWidth(SIDEBAR_WIDTH_KEY);
+  const [inspectorWidth, setInspectorWidth] = usePanelWidth(INSPECTOR_WIDTH_KEY);
+  const [prPanelWidth, setPrPanelWidth] = usePanelWidth(PR_PANEL_WIDTH_KEY);
   // Archives made here (key → archived), shown until the board catches up: Codex takes a moment.
   const [archiveOverride, setArchiveOverride] = useState<Record<string, boolean>>({});
   const [undo, setUndo] = useState<{ key: string; title: string } | null>(null);
@@ -891,7 +902,10 @@ export function App() {
         onAccounts={(account) => setAccountsDialog({ focus: account ?? null })}
         onSignIn={startSignIn}
       />
-      <div className={['ca-win-body', view === 'prs' && 'is-prs'].filter(Boolean).join(' ')}>
+      <div
+        className={['ca-win-body', view === 'prs' && 'is-prs'].filter(Boolean).join(' ')}
+        style={{ '--sidebar-w': widthVar(sidebarWidth), '--panel-w': widthVar(view === 'prs' ? prPanelWidth : inspectorWidth) } as CSSProperties}
+      >
         <nav className="ca-side" aria-label="Sidebar">
           <div className="ca-label ca-side-label">Inbox</div>
           <NavItem glyph="needs" label="Needs you" count={counts.needs} tone="attn" active={bayFilter === 'needs'} onClick={() => toggleBay('needs')} />
@@ -934,6 +948,7 @@ export function App() {
             </div>
           )}
         </nav>
+        <Resizer panel="before" cssVar="--sidebar-w" onResize={setSidebarWidth} />
         <main className="ca-board" aria-label={VIEWS.find((v) => v.id === view)?.label}>
           <div className="ca-board-head">
             <div className="ca-segctl" role="tablist" aria-label="View">
@@ -1096,6 +1111,7 @@ export function App() {
             })}
           </div>
         </main>
+        <Resizer panel="after" cssVar="--panel-w" onResize={view === 'prs' ? setPrPanelWidth : setInspectorWidth} />
         {view === 'prs' ? (
           selected?.kind === 'pr' ? (
             <PrInspector
