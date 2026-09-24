@@ -2,18 +2,23 @@
 // pick the account, or Auto. Codealong only launches it: the harness runs it, and it shows on
 // the board like any other session.
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { startOptions } from '../api';
 import { middleTruncate, resetsPhrase, tildePath } from '../format';
+import { keepImages, pastedImages, useImageDrop } from '../imageInput';
 import { accountFor, autoHarness, autoPicks, choices, initialChoice, initialPlace, placesFor, remember, remembered, type AutoPick, type Choice } from '../start';
-import type { Harness, Lane, StartOptions, StartPlace, StartSpec, Usage } from '../types';
+import { imageNames, insertImage, withoutImage } from '../todos';
+import type { Harness, Lane, StartOptions, StartPlace, StartSpec, Todo, Usage } from '../types';
+import { ImageStrip } from './DescriptionEditor';
 import { Button, Icon } from './primitives';
+import { TodoGlyph } from './TodoBits';
 import { UsageMeter } from './UsageBar';
 
 const HARNESS_WORD: Record<Harness, string> = { claude: 'Claude Code', codex: 'Codex' };
 
 /** Pinned worktrees first, in your order, then the rest grouped by repo, the most recently
- *  active repo and worktree first. */
+ *  active repo first. In each repo its main checkout leads, then the most recently active
+ *  worktrees: the main checkout can be on any branch, so its place is what finds it. */
 function laneGroups(lanes: Lane[], pinned: string[]): { label: string; lanes: Lane[] }[] {
   const byId = new Map(lanes.map((l) => [l.id, l]));
   const pins = pinned.flatMap((id) => byId.get(id) ?? []);
@@ -27,7 +32,7 @@ function laneGroups(lanes: Lane[], pinned: string[]): { label: string; lanes: La
   }
   const latest = (ls: Lane[]) => Math.max(...ls.map((l) => l.lastActivity));
   const repos = [...groups.entries()]
-    .map(([label, ls]) => ({ label, lanes: [...ls].sort((a, b) => b.lastActivity - a.lastActivity) }))
+    .map(([label, ls]) => ({ label, lanes: [...ls].sort((a, b) => Number(b.origin === 'main') - Number(a.origin === 'main') || b.lastActivity - a.lastActivity) }))
     .sort((a, b) => latest(b.lanes) - latest(a.lanes));
   return pins.length > 0 ? [{ label: 'Pinned', lanes: pins }, ...repos] : repos;
 }
@@ -39,8 +44,9 @@ function autoReason(p: AutoPick, now: number): string {
 }
 
 function laneLabel(l: Lane): string {
+  const name = l.origin === 'main' ? `${l.callsign} (main checkout)` : l.callsign;
   const branch = l.branch ?? (l.detached ? `detached @ ${l.detached}` : null);
-  return branch && branch !== l.callsign ? `${l.callsign} · ${middleTruncate(branch, 44)}` : l.callsign;
+  return branch && branch !== l.callsign ? `${name} · ${middleTruncate(branch, 44)}` : name;
 }
 
 /** Why an account shows no meters. */
@@ -58,6 +64,8 @@ export interface SheetDraft {
   prompt: string;
   model: string | null;
   worktree: boolean;
+  /** The todo the session is for, unless you unlinked it. */
+  todo: string | null;
 }
 
 interface NewSessionSheetProps {
@@ -71,19 +79,52 @@ interface NewSessionSheetProps {
   pinned: string[];
   usage: Usage[];
   now: number;
+  /** The todo it opened for: the prompt starts as the todo, and the session is linked to it. */
+  todo?: Todo | null;
+  /** The prompt it opens with, when there's no draft. */
+  prompt?: string;
+  onError: (message: string) => void;
   onClose: () => void;
   /** Start: the sheet's owner closes it, runs the start and shows `label` while it waits. */
   onStart: (spec: StartSpec, draft: SheetDraft, label: string) => void;
 }
 
-export function NewSessionSheet({ lanes, laneId: firstLane, draft, error: failed, pinned, usage, now, onClose, onStart }: NewSessionSheetProps) {
+export function NewSessionSheet({ lanes, laneId: firstLane, draft, error: failed, pinned, usage, now, todo, prompt: firstPrompt, onError, onClose, onStart }: NewSessionSheetProps) {
   const groups = useMemo(() => laneGroups(lanes, pinned), [lanes, pinned]);
   const [options, setOptions] = useState<StartOptions | null>(null);
   // Without a selected worktree, the first on the list: a pinned one, else the latest.
   const [laneId, setLaneId] = useState(firstLane ?? groups[0]?.lanes[0]?.id ?? '');
   const [choice, setChoice] = useState<Choice | null>(null);
   const [place, setPlace] = useState<StartPlace | null>(null);
-  const [prompt, setPrompt] = useState(draft?.prompt ?? '');
+  const [prompt, setPrompt] = useState(draft?.prompt ?? firstPrompt ?? '');
+  // The todo it's for; you can unlink it and start a plain session.
+  const [todoId, setTodoId] = useState<string | null>(draft ? draft.todo : (todo?.id ?? null));
+  const promptRef = useRef<HTMLTextAreaElement>(null);
+  const promptBox = useRef<HTMLLabelElement>(null);
+  const promptNow = useRef(prompt);
+  promptNow.current = prompt;
+  // Images go in at the cursor, each on a line of its own.
+  const addImages = (names: string[]) => {
+    const el = promptRef.current;
+    let text = promptNow.current;
+    let at = el && document.activeElement === el ? el.selectionStart : text.length;
+    for (const n of names) {
+      const r = insertImage(text, at, n);
+      text = r.text;
+      at = r.cursor;
+    }
+    setPrompt(text);
+    window.requestAnimationFrame(() => {
+      promptRef.current?.focus();
+      promptRef.current?.setSelectionRange(at, at);
+    });
+  };
+  const addBlobs = (blobs: Blob[]) => {
+    keepImages(blobs)
+      .then(addImages)
+      .catch((e: unknown) => onError(String(e).replace(/^Error: /, '')));
+  };
+  useImageDrop(promptBox, addImages, onError);
   // A model for a terminal start; null is the account's own default. Not remembered: the
   // default stays the default.
   const [model, setModel] = useState<string | null>(draft?.model ?? null);
@@ -132,7 +173,7 @@ export function NewSessionSheet({ lanes, laneId: firstLane, draft, error: failed
         : place === 'claude-app'
           ? `Opening a new session in the Claude app…`
           : `Opening a new thread in Codex…`;
-    onStart({ laneId: lane.id, account, place, prompt, model: chosenModel, worktree: inNewWorktree }, { choice, place, prompt, model, worktree: newWorktree }, label);
+    onStart({ laneId: lane.id, account, place, prompt, model: chosenModel, worktree: inNewWorktree, todo: todoId }, { choice, place, prompt, model, worktree: newWorktree, todo: todoId }, label);
   };
 
   // ⌘⏎ starts and Escape closes, wherever the focus is. Re-bound each render so Start sees the
@@ -197,6 +238,8 @@ export function NewSessionSheet({ lanes, laneId: firstLane, draft, error: failed
           ? `Codex opens a new thread in ${where}${prompted ? ' with this prompt filled in' : ''}. You send it from there, and can choose a new worktree there too.`
           : '';
   const newToCodex = place === 'codex-app' && !!lane && !!options && !options.codexProjects.includes(lane.path);
+  const images = imageNames(prompt);
+  const forTodo = todo && todoId === todo.id ? todo : null;
 
   return (
     <div
@@ -224,6 +267,19 @@ export function NewSessionSheet({ lanes, laneId: firstLane, draft, error: failed
           <Button variant="ghost" size="sm" icon="x" aria-label="Close" onClick={onClose} />
         </header>
         <div className="ca-dialog-body">
+          {forTodo && (
+            <div className="ca-field">
+              <span>For todo</span>
+              <div className="ca-start-todo">
+                <TodoGlyph status={forTodo.status} />
+                <span className="ca-start-todo-title">{forTodo.title || 'Untitled'}</span>
+                <button type="button" className="ca-linkbtn" title="Start a session that isn't linked to this todo" onClick={() => setTodoId(null)}>
+                  Don’t link
+                </button>
+              </div>
+              <small>The session is linked to this todo{place === 'terminal' ? ' as it starts' : ' once it shows up'}, and the todo moves to In progress.</small>
+            </div>
+          )}
           <div className="ca-field">
             <span id="ca-start-lane">Worktree</span>
             <div className="ca-start-lane">
@@ -324,12 +380,28 @@ export function NewSessionSheet({ lanes, laneId: firstLane, draft, error: failed
               </label>
             </div>
           )}
-          <label className="ca-field">
+          <label className="ca-field" ref={promptBox}>
             <span>Prompt</span>
-            <textarea value={prompt} rows={5} autoFocus spellCheck placeholder="What should it work on? You can also leave this empty and type in the session." onChange={(e) => setPrompt(e.target.value)} />
+            <textarea
+              ref={promptRef}
+              value={prompt}
+              rows={5}
+              autoFocus
+              spellCheck
+              placeholder="What should it work on? Paste or drop screenshots too. You can also leave this empty and type in the session."
+              onChange={(e) => setPrompt(e.target.value)}
+              onPaste={(e) => {
+                const pasted = pastedImages(e);
+                if (pasted.length === 0) return;
+                e.preventDefault();
+                addBlobs(pasted);
+              }}
+            />
+            <ImageStrip names={images} onRemove={(n) => setPrompt(withoutImage(prompt, n))} />
             {happens && (
               <small>
                 {happens}
+                {images.length > 0 && ` ${images.length === 1 ? 'The image goes' : 'Images go'} as ${images.length === 1 ? 'a file path' : 'file paths'} the agent opens.`}
                 {newToCodex && ' Codex adds this folder as a project if it isn’t one yet.'}
               </small>
             )}

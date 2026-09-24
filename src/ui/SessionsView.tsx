@@ -3,7 +3,7 @@
 // prompt. Drag a pinned session, or press ⌥↑ ⌥↓, to reorder.
 
 import { bySession } from '../lanes';
-import type { Lane, Session } from '../types';
+import type { Lane, Session, Todo } from '../types';
 import { AgentRow } from './LaneRow';
 import { PinnedSection, type PinDrag } from './PinnedSection';
 import { SectionHeader } from './primitives';
@@ -63,10 +63,13 @@ interface SessionsViewProps {
   archived: SessionItem[];
   showArchived: boolean;
   onToggleArchived: () => void;
+  /** Todos a session is linked to, for its chip. */
+  todosFor?: (sessionKey: string) => Todo[] | undefined;
+  onShowTodo?: (todo: Todo) => void;
 }
 
 export function SessionsView(props: SessionsViewProps) {
-  const { pinned, sections, now, selectedKey, domId, onSelect, onOpen, onContextMenu, onMovePinned, archived, showArchived, onToggleArchived } = props;
+  const { pinned, sections, now, selectedKey, domId, onSelect, onOpen, onContextMenu, onMovePinned, archived, showArchived, onToggleArchived, todosFor, onShowTodo } = props;
 
   const row = (r: SessionItem, drag?: PinDrag) => (
     <AgentRow
@@ -80,6 +83,8 @@ export function SessionsView(props: SessionsViewProps) {
       onOpen={() => onOpen(r)}
       pinned={drag != null}
       onContextMenu={() => onContextMenu(r)}
+      todos={todosFor?.(r.session.key)}
+      onShowTodo={onShowTodo}
       {...drag}
     />
   );
