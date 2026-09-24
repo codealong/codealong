@@ -117,6 +117,11 @@ Claude Code
   `origin`. `last-prompt` lines repeat the prompt's text but carry no time. One turn often
   writes more than the last 256KB, so the prompt can be far behind the tail. A message sent
   while a session is busy doesn't change the registry's `statusUpdatedAt`.
+- A line's `cwd` is the shell's folder. After a command that `cd`s outside the session's
+  folder the shell goes back to it, so an agent working in another worktree starts each
+  command there with `cd <folder> &&`, and its other commands (temp files, `osascript`) run
+  where it started. `board::session_seed` lists an agent where most of its last five
+  commands and edits worked; `util::command_dir` has the rule for commands.
 - Background jobs (`kind: bg`) have no terminal; `<account command> attach <jobId>` opens one.
 - `--session-id <uuid>` gives a new session the ID you choose, so Codealong knows it before it
   appears. The prompt is a positional argument parsed like any other: one that starts with `-`
@@ -160,6 +165,10 @@ Codex
   `item_completed` with a `UserMessage` item, not `user_message`, and wrap context around them
   (`## My request:`, `<heartbeat>`, `<realtime_delegation>`; answers to the agent's questions
   are `<send_user_message_question_reply>`). No approval events have been seen in them yet.
+- Commands are `item_completed` `CommandExecution` items with the folder the agent chose
+  (`cwd`, a `file://` URL) and `[shell, "-lc", script]`. Scripts don't `cd` (none of 3,096
+  recent ones did), and 45% ran outside the thread's own folder. File edits are `FileChange`
+  items, `changes` keyed by path.
 - Each turn's `token_count` event carries `rate_limits` (`primary`/`secondary` windows with
   `used_percent`, `window_minutes`, `resets_at`; `limit_id` `codex` or per model; `plan_type`).
 - The desktop app is `/Applications/ChatGPT.app` (bundle id `com.openai.codex`; an older

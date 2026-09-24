@@ -11,7 +11,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 
 use crate::procs;
-use crate::util::{code, file_name, mtime_ms, one_line, parse_rfc3339_ms, read_head, scan_lines_back};
+use crate::util::{code, command_dir, file_name, mtime_ms, note_work, one_line, parse_rfc3339_ms, read_head, resolve, scan_lines_back, without_cd};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct RegistryEntry {
@@ -130,6 +130,8 @@ pub struct TranscriptInfo {
     pub last_tool: Option<String>,
     /// First line of the latest assistant text.
     pub last_text: Option<String>,
+    /// Where its latest commands ran and edits landed, oldest first.
+    pub work: Vec<String>,
 }
 
 /// Transcript files modified since `since_ms`, one level below `<home>/projects`.
@@ -345,6 +347,9 @@ pub fn apply_tail(info: &mut TranscriptInfo, state: &mut TailState, tail: &str) 
             }
             Some("assistant") => {
                 let Some(items) = v.pointer("/message/content").and_then(Value::as_array) else { continue };
+                // The shell's folder when the call was made: a `cd` inside the session's
+                // folders carries over to later commands, and shows up here.
+                let cwd = str_of(&v, "cwd").unwrap_or_else(|| info.cwd.clone());
                 for item in items {
                     match item.get("type").and_then(Value::as_str) {
                         Some("tool_use") => {
@@ -353,6 +358,9 @@ pub fn apply_tail(info: &mut TranscriptInfo, state: &mut TailState, tail: &str) 
                             let input = item.get("input").cloned().unwrap_or(Value::Null);
                             info.last_tool = Some(tool_activity(&name, &input));
                             open_tools.push((id, tool_request(&name, &input)));
+                            if let Some(p) = work_path(&name, &input, &cwd) {
+                                note_work(&mut info.work, p);
+                            }
                         }
                         Some("text") => {
                             if let Some(t) = str_of(item, "text").filter(|t| !t.trim().is_empty()) {
@@ -440,10 +448,21 @@ fn input_str(input: &Value, key: &str) -> Option<String> {
     input.get(key).and_then(Value::as_str).map(String::from)
 }
 
+/// Where a tool call works: the folder a command runs in, or the file an edit changes. Reads
+/// and searches don't count; agents often look into other worktrees without working there.
+fn work_path(name: &str, input: &Value, cwd: &str) -> Option<String> {
+    match name {
+        "Bash" => command_dir(&input_str(input, "command")?, cwd),
+        "Edit" | "Write" | "MultiEdit" => Some(resolve(cwd, &input_str(input, "file_path")?)),
+        "NotebookEdit" => Some(resolve(cwd, &input_str(input, "notebook_path")?)),
+        _ => None,
+    }
+}
+
 /// What a pending tool call asks for, e.g. "Bash · `yarn mikro-orm migration:up`".
 pub fn tool_request(name: &str, input: &Value) -> String {
     let detail = match name {
-        "Bash" => input_str(input, "command").map(|c| code(&one_line(&c, 80))),
+        "Bash" => input_str(input, "command").map(|c| code(&one_line(without_cd(&c), 80))),
         "Edit" | "Write" | "MultiEdit" | "NotebookEdit" | "Read" => input_str(input, "file_path").map(|p| code(&short_path(&p))),
         "WebFetch" => input_str(input, "url").map(|u| code(&one_line(&u, 60))),
         "WebSearch" => input_str(input, "query").map(|q| one_line(&q, 60)),
@@ -460,7 +479,7 @@ pub fn tool_request(name: &str, input: &Value) -> String {
 /// The same call as an activity, e.g. "running `yarn test`".
 pub fn tool_activity(name: &str, input: &Value) -> String {
     match name {
-        "Bash" => input_str(input, "command").map(|c| format!("running {}", code(&one_line(&c, 60)))),
+        "Bash" => input_str(input, "command").map(|c| format!("running {}", code(&one_line(without_cd(&c), 60)))),
         "Edit" | "Write" | "MultiEdit" | "NotebookEdit" => input_str(input, "file_path").map(|p| format!("editing {}", code(&short_path(&p)))),
         "Read" => input_str(input, "file_path").map(|p| format!("reading {}", code(&short_path(&p)))),
         "Grep" | "Glob" => input_str(input, "pattern").map(|p| format!("searching {}", code(&one_line(&p, 40)))),
@@ -505,6 +524,27 @@ mod tests {
         let info = parse_lines(HEAD, tail);
         assert_eq!(info.pending_tool, None);
         assert_eq!(info.last_tool.as_deref(), Some("editing `App.tsx`"));
+    }
+
+    #[test]
+    fn records_where_commands_ran_and_edits_landed() {
+        let tail = r#"{"type":"assistant","cwd":"/Users/me/projects/atlasai/atlas-quarry","message":{"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"git worktree add ../atlas-fix"}}]}}
+{"type":"assistant","cwd":"/Users/me/projects/atlasai/atlas-quarry","message":{"content":[{"type":"tool_use","id":"t2","name":"Bash","input":{"command":"cd ../atlas-fix && yarn test"}}]}}
+{"type":"assistant","cwd":"/Users/me/projects/atlasai/atlas-quarry","message":{"content":[{"type":"tool_use","id":"t3","name":"Edit","input":{"file_path":"/Users/me/projects/atlasai/atlas-fix/src/a.ts"}}]}}
+{"type":"assistant","cwd":"/Users/me/projects/atlasai/atlas-fix","message":{"content":[{"type":"tool_use","id":"t4","name":"Bash","input":{"command":"yarn lint"}}]}}
+{"type":"assistant","cwd":"/Users/me/projects/atlasai/atlas-fix","message":{"content":[{"type":"tool_use","id":"t5","name":"Read","input":{"file_path":"/Users/me/projects/atlasai/atlas/README.md"}}]}}
+"#;
+        let info = parse_lines(HEAD, tail);
+        // Making the worktree names a folder outside the one it runs in, so it isn't work there.
+        assert_eq!(
+            info.work,
+            [
+                "/Users/me/projects/atlasai/atlas-fix",
+                "/Users/me/projects/atlasai/atlas-fix/src/a.ts",
+                "/Users/me/projects/atlasai/atlas-fix",
+            ]
+        );
+        assert_eq!(info.last_tool.as_deref(), Some("reading `README.md`"));
     }
 
     #[test]
@@ -593,5 +633,9 @@ mod tests {
         let input = serde_json::json!({"command": "git status\n--short"});
         assert_eq!(tool_request("Bash", &input), "Bash · `git status`");
         assert_eq!(tool_request("mcp__northwind__search", &Value::Null), "northwind · search");
+        // The row already names the worktree a leading `cd` goes to.
+        let input = serde_json::json!({"command": "cd /Users/me/projects/app-fix && yarn test"});
+        assert_eq!(tool_request("Bash", &input), "Bash · `yarn test`");
+        assert_eq!(tool_activity("Bash", &input), "running `yarn test`");
     }
 }
