@@ -1,0 +1,41 @@
+import { describe, expect, it } from 'vitest';
+import type { GitInfo, Lane, Session } from '../types';
+import { prPlaces, syncWords } from './PrsView';
+
+const lane = (id: string) => ({ id }) as Lane;
+const session = (key: string) => ({ key }) as Session;
+
+describe('prPlaces', () => {
+  it('lists the worktrees that hold the PR first, each with its sessions', () => {
+    const [held, other] = [lane('held'), lane('other')];
+    const places = prPlaces([held], [
+      { lane: other, session: session('a') },
+      { lane: held, session: session('b') },
+      { lane: other, session: session('c') },
+    ]);
+    expect(places.map((p) => [p.lane.id, p.holds, p.sessions.map((s) => s.key)])).toEqual([
+      ['held', true, ['b']],
+      ['other', false, ['a', 'c']],
+    ]);
+  });
+
+  it('keeps a worktree that holds the PR even with no sessions', () => {
+    expect(prPlaces([lane('held')], []).map((p) => [p.lane.id, p.sessions.length])).toEqual([['held', 0]]);
+  });
+});
+
+describe('syncWords', () => {
+  const git = (g: Partial<GitInfo>): GitInfo => ({ upstream: 'origin/x', ahead: 0, behind: 0, dirty: 0, lastCommit: null, lastCommitAt: null, added: null, removed: null, ...g });
+
+  it('says what GitHub is missing or has that the worktree lacks', () => {
+    expect(syncWords(git({}))).toBe('pushed · clean');
+    expect(syncWords(git({ ahead: 2, dirty: 1 }))).toBe('2 unpushed commits · 1 uncommitted file');
+    expect(syncWords(git({ behind: 1 }))).toBe('1 commit behind');
+  });
+
+  it("doesn't claim a branch is pushed without an upstream", () => {
+    expect(syncWords(git({ upstream: null }))).toBe('clean');
+    expect(syncWords(git({ upstream: null, dirty: 3 }))).toBe('3 uncommitted files');
+    expect(syncWords(null)).toBeNull();
+  });
+});

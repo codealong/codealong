@@ -2,18 +2,55 @@
 // one-click Approve; then yours, then everyone else's; merged and closed ones fold at the end.
 // Each row names the local worktree and the sessions that worked on the PR.
 
-import { absolute, ago } from '../format';
-import type { Checks, Lane, PrItem, Session } from '../types';
+import { absolute, ago, count } from '../format';
+import type { Checks, GitInfo, Lane, PrItem, Session } from '../types';
 import { HarnessChip, Icon, PR_ICON, PR_WORD } from './primitives';
 
 export interface PrRowItem {
   kind: 'pr';
   key: string;
   pr: PrItem;
-  /** The worktree with the PR's branch checked out, if there is one. */
+  /** The first worktree that holds the PR, if one does. */
   lane: Lane | null;
-  /** The sessions that worked on the PR, with their worktrees. */
+  /** The sessions that worked on the PR, with the worktrees they're listed under. */
   sessions: { lane: Lane; session: Session }[];
+  /** The same, as the PR panel shows them: each worktree with its sessions. */
+  places: PrPlace[];
+}
+
+/** A worktree on this Mac that holds a PR or that the PR's sessions worked in. */
+export interface PrPlace {
+  lane: Lane;
+  /** The worktree holds the PR: the Worktrees view shows the PR on it. */
+  holds: boolean;
+  sessions: Session[];
+}
+
+/** Puts each session under its worktree. Worktrees that hold the PR come first. */
+export function prPlaces(holding: Lane[], sessions: { lane: Lane; session: Session }[]): PrPlace[] {
+  const places: PrPlace[] = holding.map((lane) => ({ lane, holds: true, sessions: [] }));
+  for (const { lane, session } of sessions) {
+    let place = places.find((p) => p.lane.id === lane.id);
+    if (!place) {
+      place = { lane, holds: false, sessions: [] };
+      places.push(place);
+    }
+    place.sessions.push(session);
+  }
+  return places;
+}
+
+/** How a worktree that holds a PR stands against its branch on GitHub. */
+export function syncWords(g: GitInfo | null): string | null {
+  if (!g) return null;
+  const parts = [
+    g.ahead > 0 ? count(g.ahead, 'unpushed commit') : null,
+    g.behind > 0 ? `${count(g.behind, 'commit')} behind` : null,
+    g.dirty > 0 ? count(g.dirty, 'uncommitted file') : null,
+  ].filter((p): p is string => p !== null);
+  if (parts.length > 0) return parts.join(' · ');
+  // Without an upstream, git can't say whether the branch is pushed.
+  return g.upstream ? 'pushed · clean' : 'clean';
 }
 
 export interface PrSection {

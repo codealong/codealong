@@ -203,10 +203,17 @@ export interface PrItem {
   updatedAt: number;
   mergedAt: number | null;
   closedAt: number | null;
-  /** Worktree (lane) ids with the PR's branch checked out. */
+  /** Worktrees (lane ids) that hold the PR: the ones the Worktrees view shows it on. */
   lanes: string[];
-  /** Keys of the sessions that worked on the PR's branch while it was open. */
-  sessions: string[];
+  /** The sessions that worked on the PR while it was open, each with the worktree it's listed under. */
+  sessions: PrSession[];
+}
+
+/** A session that worked on a PR. */
+export interface PrSession {
+  key: string;
+  /** The lane it's listed under: its own, or the worktree it made or worked in. */
+  lane: string;
 }
 
 export interface PrReview {

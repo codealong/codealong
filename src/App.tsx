@@ -19,7 +19,7 @@ import { PinnedSection, type PinDrag } from './ui/PinnedSection';
 import { BayHeader, Button, Icon, Kbd, NavItem } from './ui/primitives';
 import { ALL_PROJECTS, openSwitcher, ProjectSwitcher, type ActionCounts } from './ui/ProjectSwitcher';
 import { PrInspector } from './ui/PrInspector';
-import { prIsOpen, prSections, PrsView, type PrRowItem } from './ui/PrsView';
+import { prIsOpen, prPlaces, prSections, PrsView, type PrRowItem } from './ui/PrsView';
 import { SessionsView, timeSections, type SessionItem } from './ui/SessionsView';
 import { applyTheme, ThemeSwitch } from './ui/ThemeSwitch';
 import { UsageBar } from './ui/UsageBar';
@@ -130,7 +130,9 @@ function prInFilter(r: PrRowItem, f: Filter | null): boolean {
       return prIsOpen(p) && (p.reviewRequested || (p.mine && (p.checks.failed > 0 || p.state === 'changes')));
     case 'working':
     case 'unread':
-      return r.sessions.some(({ session }) => session.status === f);
+      // As on the board, a session from another lane doesn't lend its status: one agent that
+      // made many worktrees would otherwise put all of their PRs in Working.
+      return r.sessions.some(({ session }) => !session.visitor && session.status === f);
     case 'review':
       return prIsOpen(p);
     case 'failing':
@@ -363,10 +365,12 @@ export function App() {
     () => [...pinnedLaneRows, ...bays.flatMap((b) => b.rows.filter((r) => !foldParked || r.kind === 'agent' || !r.lane.parked))],
     [pinnedLaneRows, bays, foldParked],
   );
-  // The PRs view: the project's PRs with their worktree and sessions.
+  // The PRs view: the project's PRs with the worktrees that hold them and the sessions that
+  // worked on them. A session is looked up in the worktree it's listed under, which for one that
+  // made or worked in a worktree isn't its own.
   const sessionIndex = useMemo(() => {
     const m = new Map<string, { lane: Lane; session: Session }>();
-    for (const lane of lanes) for (const session of lane.sessions) if (!session.visitor) m.set(session.key, { lane, session });
+    for (const lane of lanes) for (const session of lane.sessions) m.set(`${lane.id}::${session.key}`, { lane, session });
     return m;
   }, [lanes]);
   const laneById = useMemo(() => new Map(lanes.map((l) => [l.id, l])), [lanes]);
@@ -375,15 +379,11 @@ export function App() {
     () =>
       projectPrs
         .filter((p) => p.updatedAt >= cutoff && prInQuery(p, query))
-        .map(
-          (p): PrRowItem => ({
-            kind: 'pr',
-            key: `pr:${p.key}`,
-            pr: p,
-            lane: p.lanes.map((id) => laneById.get(id)).find((l): l is Lane => !!l) ?? null,
-            sessions: p.sessions.flatMap((k) => sessionIndex.get(k) ?? []),
-          }),
-        )
+        .map((p): PrRowItem => {
+          const holding = p.lanes.flatMap((id) => laneById.get(id) ?? []);
+          const sessions = p.sessions.flatMap((s) => sessionIndex.get(`${s.lane}::${s.key}`) ?? []);
+          return { kind: 'pr', key: `pr:${p.key}`, pr: p, lane: holding[0] ?? null, sessions, places: prPlaces(holding, sessions) };
+        })
         .filter((r) => prInFilter(r, bayFilter)),
     [projectPrs, cutoff, query, bayFilter, laneById, sessionIndex],
   );
@@ -1076,6 +1076,8 @@ export function App() {
               onApprove={() => approve(selected.pr)}
               onOpenSession={(lane, session) => open(lane, session.openTarget)}
               onShowLane={focusLane}
+              onLaneMenu={laneMenu}
+              onSessionMenu={(lane, s) => sessionMenu(lane, s, 'worktree')}
             />
           ) : (
             <aside className="ca-insp ca-insp--empty">
