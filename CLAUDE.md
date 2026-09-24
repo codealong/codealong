@@ -64,6 +64,11 @@ time, file-watcher batches and git runs since the last one), git runs, engine an
 lag, and per window the push-to-paint time, how long pointer events waited in the queue, and
 event-loop stalls. `perf.rs` has the details. Set it back to false when done; the log grows.
 
+Git is the engine's biggest cost and starts during load by construction, so `throttle.rs`
+spaces runs in one worktree two seconds apart, publishes git-only changes in two-second
+batches (session changes still go out at once), runs git at nice 10, and puts the engine and
+git threads in the utility QoS class. At launch, worktrees with the latest activity go first.
+
 Done means: typecheck and tests pass, the engine builds without warnings, UI changes are
 previewed, and the app is rebuilt and relaunched.
 
@@ -190,9 +195,11 @@ Ghostty (1.3, AppleScript dictionary in the app bundle)
 
 Tauri and macOS (from the Tauri 2.11 and tao 0.35 sources)
 
-- Tauri doesn't say whether a window can be seen. `bar.rs` reads `NSWindow.occlusionState`
-  through objc2: visible means some part is on screen, so not minimized, hidden, on another
-  Space or fully covered.
+- Tauri doesn't say whether a window can be seen; AppKit's `NSWindow.occlusionState` (through
+  objc2) does: visible means some part is on screen, so not minimized, hidden, on another Space
+  or fully covered.
+- `always_on_top` is AppKit's floating level, where other apps' panels can cover a window; the
+  floating bar sets the status item level (still under menus) through objc2.
 - A plain JS `listen()` hears events sent to any window with `emit_to`; listen on the window
   (`getCurrentWebviewWindow().listen`) for the ones meant for it.
 - `show()` orders a window front without activating the app; `set_focus()` activates it.

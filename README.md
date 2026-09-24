@@ -59,13 +59,13 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   of the sidebar. The choice is saved in config.toml, and every window follows it.
 - **Resizable panels**: drag the inner edge of the sidebar or the panel on the right, and
   double-click it to go back to the default width. The PR panel keeps a width of its own.
-- **Floating bar**: whenever no Codealong window can be seen (closed, minimized, on another
-  Space or covered), a small bar floats above everything, on every Space. It has a pill for
-  each agent that needs you, whose turn just ended, or that's running, across all projects,
-  and one for PRs waiting on your review. Click a pill to open the session where it lives;
-  right-click it to show it in Codealong or mark it seen. Pills that don't fit fold into one
-  per group that lists them. The mark brings Codealong back; drag the bar by it. Window ›
-  Floating bar, or the bar's own right-click menu, turns it off.
+- **Floating bar**: a small bar on top of every window, on every Space, with a pill for each
+  agent that needs you, whose turn just ended, or that's running, across all projects, and one
+  for PRs waiting on your review. Click a pill to open the session where it lives; right-click
+  it to show it in Codealong or mark it seen. Pills that don't fit fold into one per group
+  that lists them. The mark brings Codealong forward; drag the bar by it or by its gaps. The
+  capsule button at the top right of the window turns it on and off, as do Window › Floating
+  bar and the bar's own right-click menu.
 - Closing the main window hides it; the Dock icon or the bar brings it back, and ⌘Q quits.
 
 Next: the menu bar icon and popover, and notifications (the design system's *Build plan*).
@@ -139,7 +139,7 @@ are kept in `state.json` next to it; whether the floating bar is on, and where y
 
 | Path | What |
 | --- | --- |
-| `src-tauri/src/engine.rs` | Caches, file watching (FSEvents), git workers, GitHub, publishing the board |
+| `src-tauri/src/engine.rs`, `throttle.rs` | Caches, file watching (FSEvents), git workers (spaced per worktree, results published in batches), GitHub, publishing the board |
 | `src-tauri/src/board.rs` | The model's rules: status, bays, headlines, open targets (pure, tested) |
 | `src-tauri/src/claude.rs`, `codex.rs` | Harness adapters: registries, transcripts, rollouts, incremental tailing |
 | `src-tauri/src/repos.rs`, `git.rs`, `github.rs` | Repo discovery, callsigns, worktrees, git status, PRs |

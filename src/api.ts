@@ -216,8 +216,29 @@ export async function fitBar(width: number, height: number): Promise<void> {
   await invoke('fit_bar', { width, height });
 }
 
+/** Whether the floating bar is on. Outside the app it counts as on. */
+export async function barOn(): Promise<boolean> {
+  if (!inTauri) return true;
+  return (await invoke<boolean | null>('bar_on')) ?? true;
+}
+
 /** Turns the floating bar on or off. */
 export async function setBarOn(on: boolean): Promise<void> {
   if (!inTauri) return;
   await invoke('set_bar_on', { on });
+}
+
+/** Calls `cb` whenever the floating bar is turned on or off, from any window or menu. */
+export function onBarOn(cb: (on: boolean) => void): () => void {
+  if (!inTauri) return () => {};
+  let cancelled = false;
+  let unlisten: (() => void) | undefined;
+  void listen<boolean>('floating-bar', (e) => cb(e.payload)).then((u) => {
+    if (cancelled) u();
+    else unlisten = u;
+  });
+  return () => {
+    cancelled = true;
+    unlisten?.();
+  };
 }

@@ -1,14 +1,13 @@
-//! The floating bar: a small window above every other that shows the agents that need you and the
-//! ones running, whenever no board window is on screen: closed, minimized, on another Space or
-//! covered by other windows. macOS keeps track of whether any part of a window can be seen (its
-//! occlusion state); Tauri doesn't pass that on, so the bar reads it from AppKit.
+//! The floating bar: a small window, on top of every other and on every Space, that shows the
+//! agents that need you and the ones running. It's up unless you turn it off, from the toggle at
+//! the top right of the board, the bar's own menu, or Window › Floating bar.
 //!
 //! The bar never takes the keyboard, so the board keeps it. Clicking the bar still makes Codealong
 //! the active app, which it has to be for Ghostty or Codex to come forward.
 //!
-//! Closing the main window hides it, so the bar has something to stand in for; the Dock icon and
-//! the bar bring it back. Whether you turned the bar off and where you left it are kept in
-//! `bar.json` next to the config.
+//! Closing the main window hides it and the app keeps running with the bar; the Dock icon and the
+//! bar's mark bring it back. Whether the bar is on and where you left it are kept in `bar.json`
+//! next to the config.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
@@ -23,9 +22,8 @@ use crate::config::support_dir;
 
 pub const LABEL: &str = "bar";
 const MENU_ID: &str = "floating-bar";
-/// How often the bar checks whether a board window can be seen. There's no event for it that
-/// Tauri passes on, and the check is a property read.
-const POLL: Duration = Duration::from_millis(400);
+/// How often a moved bar's place is written down: a drag moves it many times a second.
+const SAVE_EVERY: Duration = Duration::from_secs(1);
 /// The bar's size before its page has measured itself.
 const START: (f64, f64) = (240.0, 48.0);
 /// Space between a newly placed bar and the menu bar.
@@ -142,7 +140,7 @@ struct Bar {
     item: Mutex<Option<CheckMenuItem<Wry>>>,
 }
 
-/// Makes the bar (hidden), adds Window › Floating bar, and starts watching the board windows.
+/// Makes the bar, shows it unless it's turned off, and adds Window › Floating bar.
 pub fn setup(app: &AppHandle) -> Result<()> {
     let saved = Saved::load();
     let (off, frame) = (saved.off, saved.frame);
@@ -170,6 +168,9 @@ pub fn setup(app: &AppHandle) -> Result<()> {
     if let Some(r) = start_frame(frame, &native::screens()) {
         native::set_frame(&window, r);
     }
+    if !off {
+        window.show()?;
+    }
 
     let item = CheckMenuItem::with_id(app, MENU_ID, "Floating bar", true, !off, None::<&str>)?;
     if let Some(MenuItemKind::Submenu(menu)) = app.menu().and_then(|m| m.get(WINDOW_SUBMENU_ID)) {
@@ -189,41 +190,19 @@ pub fn setup(app: &AppHandle) -> Result<()> {
 
     let handle = app.clone();
     std::thread::Builder::new().name("codealong-bar".into()).spawn(move || loop {
-        std::thread::sleep(POLL);
-        let app = handle.clone();
-        if handle.run_on_main_thread(move || tick(&app)).is_err() {
-            break;
+        std::thread::sleep(SAVE_EVERY);
+        let Some(state) = handle.try_state::<Bar>() else { continue };
+        if state.moved.swap(false, Ordering::Relaxed) {
+            if let Ok(saved) = state.saved.lock() {
+                saved.save();
+            }
         }
     })?;
     Ok(())
 }
 
-fn is_board(label: &str) -> bool {
-    label == "main" || label.starts_with("project-")
-}
-
-/// Shows the bar when no board window can be seen, hides it when one can, and writes down where
-/// the bar is after it moves. On the main thread.
-fn tick(app: &AppHandle) {
-    let (Some(bar), Some(state)) = (app.get_webview_window(LABEL), app.try_state::<Bar>()) else {
-        return;
-    };
-    let off = state.saved.lock().map(|s| s.off).unwrap_or(false);
-    let board_seen = app.webview_windows().iter().any(|(label, w)| is_board(label) && native::on_screen(w));
-    let want = !off && !board_seen;
-    if want != bar.is_visible().unwrap_or(false) {
-        let _ = if want { bar.show() } else { bar.hide() };
-    }
-    if state.moved.swap(false, Ordering::Relaxed) {
-        if let (Some(frame), Ok(mut saved)) = (native::frame(&bar), state.saved.lock()) {
-            saved.frame = Some(frame);
-            saved.save();
-        }
-    }
-}
-
 /// Window events that concern the bar: closing the main window hides it instead, and a moved bar
-/// is remembered.
+/// is remembered. On the main thread.
 pub fn on_window_event(window: &Window, event: &WindowEvent) {
     match event {
         WindowEvent::CloseRequested { api, .. } if window.label() == "main" => {
@@ -231,9 +210,14 @@ pub fn on_window_event(window: &Window, event: &WindowEvent) {
             let _ = window.hide();
         }
         WindowEvent::Moved(_) if window.label() == LABEL => {
-            if let Some(state) = window.try_state::<Bar>() {
+            let (Some(state), Some(bar)) = (window.try_state::<Bar>(), window.app_handle().get_webview_window(LABEL)) else {
+                return;
+            };
+            let Some(frame) = native::frame(&bar) else { return };
+            if let Ok(mut saved) = state.saved.lock() {
+                saved.frame = Some(frame);
                 state.moved.store(true, Ordering::Relaxed);
-            }
+            };
         }
         _ => {}
     }
@@ -253,7 +237,13 @@ pub fn fit(app: &AppHandle, width: f64, height: f64) {
     });
 }
 
-/// Turns the bar on or off, and keeps Window › Floating bar in step.
+/// Whether the bar is on.
+pub fn is_on(app: &AppHandle) -> bool {
+    app.try_state::<Bar>().and_then(|s| s.saved.lock().ok().map(|s| !s.off)).unwrap_or(false)
+}
+
+/// Turns the bar on or off, and tells every window, so the toggle at the top right and Window ›
+/// Floating bar stay in step with wherever it was changed.
 pub fn set_on(app: &AppHandle, on: bool) {
     let Some(state) = app.try_state::<Bar>() else { return };
     if let Ok(mut saved) = state.saved.lock() {
@@ -263,8 +253,10 @@ pub fn set_on(app: &AppHandle, on: bool) {
     if let Some(item) = state.item.lock().ok().and_then(|i| i.clone()) {
         let _ = item.set_checked(on);
     }
-    let handle = app.clone();
-    let _ = app.run_on_main_thread(move || tick(&handle));
+    if let Some(bar) = app.get_webview_window(LABEL) {
+        let _ = if on { bar.show() } else { bar.hide() };
+    }
+    let _ = app.emit("floating-bar", on);
 }
 
 /// Brings the main window forward. `reveal` (a session or PR) goes to its page, which selects it.
@@ -282,7 +274,7 @@ pub fn show_main(app: &AppHandle, reveal: Option<serde_json::Value>) -> Result<(
 #[cfg(target_os = "macos")]
 mod native {
     use objc2::MainThreadMarker;
-    use objc2_app_kit::{NSScreen, NSWindow, NSWindowCollectionBehavior, NSWindowOcclusionState};
+    use objc2_app_kit::{NSScreen, NSStatusWindowLevel, NSWindow, NSWindowCollectionBehavior};
     use objc2_foundation::{NSPoint, NSRect, NSSize};
     use tauri::WebviewWindow;
 
@@ -301,17 +293,12 @@ mod native {
         Rect { x: r.origin.x, y: r.origin.y, w: r.size.width, h: r.size.height }
     }
 
-    /// Some part of the window can be seen: it's open, not minimized, on this Space and not
-    /// entirely covered. When that can't be told, it counts as seen, so the bar stays out of the
-    /// way.
-    pub fn on_screen(w: &WebviewWindow) -> bool {
-        ns(w).map(|n| n.isVisible() && n.occlusionState().contains(NSWindowOcclusionState::Visible)).unwrap_or(true)
-    }
-
-    /// On every Space and over full-screen apps, left in place by Mission Control, kept out of ⌘`
-    /// and the Window menu, and still up when Codealong is hidden (⌘H), which hides the board.
+    /// Above other apps' floating panels too (the status item level, still under menus), on every
+    /// Space and over full-screen apps, left in place by Mission Control, kept out of ⌘` and the
+    /// Window menu, and still up when Codealong is hidden (⌘H).
     pub fn prepare(w: &WebviewWindow) {
         if let Some(n) = ns(w) {
+            n.setLevel(NSStatusWindowLevel);
             n.setCollectionBehavior(
                 n.collectionBehavior()
                     | NSWindowCollectionBehavior::CanJoinAllSpaces
@@ -342,16 +329,13 @@ mod native {
     }
 }
 
-/// Elsewhere there's no bar: board windows always count as seen.
+/// Elsewhere the bar is an ordinary always-on-top window, left where it opens.
 #[cfg(not(target_os = "macos"))]
 mod native {
     use tauri::WebviewWindow;
 
     use super::{Rect, Screen};
 
-    pub fn on_screen(_: &WebviewWindow) -> bool {
-        true
-    }
     pub fn prepare(_: &WebviewWindow) {}
     pub fn frame(_: &WebviewWindow) -> Option<Rect> {
         None
