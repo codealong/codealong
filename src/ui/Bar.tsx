@@ -6,7 +6,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { fitBar, getBoard, markSeen, onBoard, openTarget, setBarOn, showMain } from '../api';
+import { fitBar, getBoard, markSeen, onBoard, openFromBar, setBarOn, showMain } from '../api';
 import { barItems, fitGroups, GROUPS, plain, reviewRequests, type BarItem, type Group, type GroupFit } from '../bar';
 import { showContextMenu, type MenuSpec } from '../contextMenu';
 import { usePerf } from '../perf';
@@ -226,7 +226,7 @@ export function Bar() {
       setError(target.detail ?? `${target.label} isn't available right now.`);
       return;
     }
-    openTarget(i.lane.id, i.session.openTarget).catch((e: unknown) => setError(String(e).replace(/^Error: /, '')));
+    openFromBar(i.lane.id, i.session.openTarget).catch((e: unknown) => setError(String(e).replace(/^Error: /, '')));
   };
 
   const reveal = (i: BarItem) => void showMain({ kind: 'session', laneId: i.lane.id, key: i.session.key });

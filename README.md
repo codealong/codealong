@@ -64,13 +64,13 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   of the sidebar. The choice is saved in config.toml, and every window follows it.
 - **Resizable panels**: drag the inner edge of the sidebar or the panel on the right, and
   double-click it to go back to the default width. The PR panel keeps a width of its own.
-- **Floating bar**: a small bar on top of every window, on every Space, with a pill for each
-  agent that needs you, whose turn just ended, or that's running, across all projects, and one
-  for PRs waiting on your review. Click a pill to open the session where it lives; right-click
-  it to show it in Codealong or mark it seen. Pills that don't fit fold into one per group
-  that lists them. The mark brings Codealong forward; drag the bar by it or by its gaps. The
-  capsule button at the top right of the window turns it on and off, as do Window › Floating
-  bar and the bar's own right-click menu.
+- **Floating bar**: a small bar on top of every window, on every Space and over full-screen
+  apps, with a pill for each agent that needs you, whose turn just ended, or that's running,
+  across all projects, and one for PRs waiting on your review. Click a pill to open the
+  session where it lives; right-click it to show it in Codealong or mark it seen. Pills that
+  don't fit fold into one per group that lists them. The mark brings Codealong forward; drag
+  the bar by it or by its gaps. The capsule button at the top right of the window turns it on
+  and off, as do Window › Floating bar and the bar's own right-click menu.
 - **New window** (File › New window, ⌘⇧N): one more window on the project you're looking at.
   Closing the main window hides it; New window, the Dock icon or the bar brings it back, and
   ⌘Q quits.
