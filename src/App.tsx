@@ -923,11 +923,6 @@ export function App() {
                 </button>
               ))}
             </div>
-            {view !== 'prs' && (view === 'sessions' ? sessionPins : lanePins).keys.length === 0 && (
-              <span className="ca-board-head-hint">
-                Pin a {view === 'sessions' ? 'session' : 'worktree'} with <Kbd keys={['P']} /> to keep it at the top
-              </span>
-            )}
             <div className="ca-segctl ca-agefilter" role="radiogroup" aria-label="Active in">
               {AGES.map((a) => (
                 <button key={a.id} type="button" role="radio" aria-checked={age === a.id} className={age === a.id ? 'is-on' : undefined} title={a.title} onClick={() => setAge(a.id)}>
