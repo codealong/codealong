@@ -55,6 +55,12 @@ export async function openProjectWindow(project: string): Promise<void> {
   await invoke('open_project_window', { project });
 }
 
+/** Archives or unarchives a session; Codex threads are archived in Codex itself. */
+export async function archiveSession(key: string, archived: boolean): Promise<void> {
+  if (!inTauri) return;
+  await invoke('archive_session', { key, archived });
+}
+
 /** Saves the whole pinned list, in order. */
 export async function setPinned(keys: string[]): Promise<void> {
   if (!inTauri) return;

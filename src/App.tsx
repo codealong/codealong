@@ -4,7 +4,7 @@
 // session, pinned ones first in your order. Keyboard map: the design system's Surfaces page.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { getBoard, markSeen, onBoard, openConfig, openProjectWindow, openTarget, refresh, refreshUsage, setPinned, signIn } from './api';
+import { archiveSession, getBoard, markSeen, onBoard, openConfig, openProjectWindow, openTarget, refresh, refreshUsage, setPinned, signIn } from './api';
 import { ago } from './format';
 import type { Bay, Board, Lane, Session, Status } from './types';
 import { AccountsDialog } from './ui/AccountsDialog';
@@ -160,6 +160,10 @@ export function App() {
   const [age, setAgeState] = useState<Age>(storedAge);
   // Pins as last changed here, shown until the engine's board catches up.
   const [pinOverride, setPinOverride] = useState<string[] | null>(null);
+  // Archives made here (key → archived), shown until the board catches up: Codex takes a moment.
+  const [archiveOverride, setArchiveOverride] = useState<Record<string, boolean>>({});
+  const [undo, setUndo] = useState<{ key: string; title: string } | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
   const [showParked, setShowParked] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   // The Accounts dialog, open at one account when a usage chip opened it.
@@ -242,8 +246,35 @@ export function App() {
     [pinnedKeys, pinnedSet, savePins],
   );
 
-  const lanes = board?.lanes ?? [];
+  // Archived sessions leave every view but the Archived list.
+  const rawLanes = useMemo(() => board?.lanes ?? [], [board?.lanes]);
+  const lanes = useMemo(
+    () =>
+      rawLanes.map((l) => {
+        if (!l.sessions.some((s) => s.archived || s.key in archiveOverride)) return l;
+        const sessions = l.sessions.filter((s) => !(archiveOverride[s.key] ?? s.archived)).map((s) => (s.archived ? { ...s, archived: false } : s));
+        return { ...l, sessions };
+      }),
+    [rawLanes, archiveOverride],
+  );
+  useEffect(() => {
+    const settled = Object.keys(archiveOverride).filter((k) => rawLanes.some((l) => l.sessions.some((s) => s.key === k && s.archived === archiveOverride[k])));
+    if (settled.length === 0) return;
+    setArchiveOverride((o) => Object.fromEntries(Object.entries(o).filter(([k]) => !settled.includes(k))));
+  }, [rawLanes, archiveOverride]);
   const projectLanes = useMemo(() => lanes.filter((l) => inProject(l, current)), [lanes, current]);
+  const archivedItems = useMemo(
+    () =>
+      rawLanes
+        .filter((l) => inProject(l, current))
+        .flatMap((lane) =>
+          lane.sessions
+            .filter((s) => !s.visitor && (archiveOverride[s.key] ?? s.archived))
+            .map((s): SessionItem => ({ kind: 'agent', key: `${lane.id}::${s.key}`, lane, session: { ...s, archived: true } })),
+        )
+        .sort((a, b) => b.session.lastActivity - a.session.lastActivity),
+    [rawLanes, archiveOverride, current],
+  );
   // The age filter: worktrees and sessions active since the cutoff. Pinned sessions always show.
   const ageMs = AGES.find((a) => a.id === age)?.ms ?? 0;
   const cutoff = ageMs > 0 ? now - ageMs : 0;
@@ -276,7 +307,10 @@ export function App() {
   const foldParked = !showParked && !query;
   const parkedCount = useMemo(() => bays.flatMap((b) => b.rows).filter((r) => r.kind === 'lane' && r.lane.parked).length, [bays]);
   const worktreeRows = useMemo(() => bays.flatMap((b) => b.rows.filter((r) => !foldParked || r.kind === 'agent' || !r.lane.parked)), [bays, foldParked]);
-  const sessionRows = useMemo<Row[]>(() => [...pinnedRows, ...sessionSections.flatMap((s) => s.rows)], [pinnedRows, sessionSections]);
+  const sessionRows = useMemo<Row[]>(
+    () => [...pinnedRows, ...sessionSections.flatMap((s) => s.rows), ...(showArchived ? archivedItems : [])],
+    [pinnedRows, sessionSections, showArchived, archivedItems],
+  );
   const visible = view === 'sessions' ? sessionRows : worktreeRows;
   const selected = visible.find((r) => r.key === selectedKey) ?? visible[0] ?? null;
   const selectedLane = selected?.lane ?? null;
@@ -345,6 +379,23 @@ export function App() {
     },
     [visible, selected],
   );
+
+  /** Archives a session (Codex threads in Codex itself), or unarchives it. */
+  const setArchived = useCallback((key: string, archived: boolean, title: string) => {
+    setArchiveOverride((o) => ({ ...o, [key]: archived }));
+    setUndo(archived ? { key, title } : null);
+    archiveSession(key, archived).catch((e: unknown) => {
+      setArchiveOverride((o) => Object.fromEntries(Object.entries(o).filter(([k]) => k !== key)));
+      setUndo(null);
+      setToast(String(e));
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!undo) return;
+    const id = window.setTimeout(() => setUndo(null), 8000);
+    return () => window.clearTimeout(id);
+  }, [undo]);
 
   /** Moves a pinned session to insertion point `index` among the pinned ones showing. */
   const movePinned = useCallback(
@@ -434,6 +485,10 @@ export function App() {
         togglePin(selected.session.key);
         return;
       }
+      if (key === 'a' && !mod && selected?.kind === 'agent') {
+        setArchived(selected.session.key, !selected.session.archived, selected.session.title);
+        return;
+      }
       if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown') && view === 'sessions' && selected?.kind === 'agent' && pinnedSet.has(selected.session.key)) {
         e.preventDefault();
         const i = pinnedRows.findIndex((r) => r.key === selected.key);
@@ -490,7 +545,7 @@ export function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [visible, selected, selectedLane, move, open, openRow, copy, accountsDialog, view, setView, togglePin, pinnedSet, pinnedRows, movePinned, current]);
+  }, [visible, selected, selectedLane, move, open, openRow, copy, accountsDialog, view, setView, togglePin, pinnedSet, pinnedRows, movePinned, current, setArchived]);
 
   const toggleBay = (f: Filter) => setBayFilter(bayFilter === f ? null : f);
   const openWindow = (name: string) => {
@@ -659,6 +714,10 @@ export function App() {
                 }}
                 onTogglePin={(r) => togglePin(r.session.key)}
                 onMovePinned={movePinned}
+                archived={archivedItems}
+                showArchived={showArchived}
+                onToggleArchived={() => setShowArchived(!showArchived)}
+                onArchive={(r, archived) => setArchived(r.session.key, archived, r.session.title)}
               />
             )}
             {view === 'worktrees' && bays.map((b) => {
@@ -694,6 +753,7 @@ export function App() {
                           }}
                           pinned={pinnedSet.has(r.session.key)}
                           onTogglePin={() => togglePin(r.session.key)}
+                          onArchive={() => setArchived(r.session.key, true, r.session.title)}
                         />
                       ) : (
                         <LaneRow
@@ -739,6 +799,22 @@ export function App() {
           onClose={closeAccounts}
           onEditConfig={editConfig}
         />
+      )}
+      {undo && !toast && (
+        <div className="ca-toast" role="status">
+          <Icon name="archive" size={16} />
+          <span>Archived “{undo.title}”.</span>
+          <button
+            type="button"
+            className="ca-toast-action"
+            onClick={() => {
+              setArchived(undo.key, false, undo.title);
+              setUndo(null);
+            }}
+          >
+            Undo
+          </button>
+        </div>
       )}
       {toast && (
         <div className="ca-toast" role="status" onClick={() => setToast(null)}>

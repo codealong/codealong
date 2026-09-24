@@ -171,6 +171,7 @@ pub fn claude_session(
         status_since: reg.and_then(|r| r.status_updated_at),
         last_activity,
         excerpt,
+        archived: false,
         attach_command,
         stalled_since,
         app_account: account.home_path() == crate::util::home().join(".claude"),
@@ -222,6 +223,7 @@ pub fn codex_session(account: &AccountCfg, th: &ThreadInfo, name: Option<&str>, 
         excerpt,
         resume_command: None,
         app_account: false,
+        archived: false,
         attach_command: None,
         stalled_since: None,
     }
@@ -510,13 +512,15 @@ pub fn compose(inp: Inputs) -> Board {
     let mut by_lane: Vec<Vec<Session>> = vec![Vec::new(); seeds.len()];
     // A worktree made inside a Claude session's scratchpad also shows the session that made it,
     // even though that session runs in another lane.
-    let owners: HashMap<String, Session> = sessions.iter().filter(|s| s.harness == Harness::Claude).map(|s| (s.id.clone(), s.clone())).collect();
+    let owners: HashMap<String, Session> = sessions.iter().filter(|s| s.harness == Harness::Claude && !s.archived).map(|s| (s.id.clone(), s.clone())).collect();
     let by_key: HashMap<String, Session> = sessions.iter().map(|s| (s.key.clone(), s.clone())).collect();
     for s in sessions {
         if let Some(i) = best_seed(seeds, Path::new(&s.cwd)) {
             by_lane[i].push(s);
         }
     }
+    // Archived sessions don't visit other lanes.
+    let by_key: HashMap<String, Session> = by_key.into_iter().filter(|(_, s)| !s.archived).collect();
     // Sessions from other lanes shown here: the one that made a scratchpad worktree, and any
     // whose logs show they worked in it.
     let guests: Vec<Vec<Session>> = seeds
@@ -539,7 +543,9 @@ pub fn compose(inp: Inputs) -> Board {
         })
         .collect();
     let mut lanes = Vec::with_capacity(seeds.len());
-    for ((seed, mut sessions), guests) in seeds.iter().zip(by_lane).zip(guests) {
+    for ((seed, sessions), guests) in seeds.iter().zip(by_lane).zip(guests) {
+        // Archived sessions stay in the lane's list, last, and out of its status.
+        let (mut sessions, archived): (Vec<Session>, Vec<Session>) = sessions.into_iter().partition(|s| !s.archived);
         sort_sessions(&mut sessions);
         let mut kept = 0;
         sessions.retain(|s| {
@@ -565,6 +571,7 @@ pub fn compose(inp: Inputs) -> Board {
             .chain(g.as_ref().and_then(|g| g.last_commit_at))
             .max()
             .unwrap_or(0);
+        sessions.extend(archived);
         let dirty = g.as_ref().map(|g| g.dirty > 0).unwrap_or(false);
         let parked = bay == Bay::Idle && !dirty && now - last_activity > 14 * DAY_MS;
         lanes.push(Lane {
@@ -878,6 +885,36 @@ mod tests {
         assert_eq!(lane.headline, "Made by `claude` · Quarry daily log + photo sync");
         assert_eq!(lane.default_target.as_deref(), Some("s|claude:claude:abc12345-0000-0000-0000-000000000000|focus"));
         assert_eq!(board.lanes.iter().find(|l| l.path == "/r/osprey").unwrap().sessions.len(), 1);
+    }
+
+    #[test]
+    fn archived_sessions_stay_listed_but_out_of_the_lanes_status() {
+        let apps = AppNames::default();
+        let seeds = vec![seed("/r/atlas-quarry", "quarry")];
+        let a = acct("claude2");
+        let mut needs = claude_session(&a, Some(&reg("waiting", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
+        needs.archived = true;
+        let (git, prs, visitors) = (HashMap::new(), HashMap::new(), HashMap::new());
+        let order = vec!["Northwind".to_string()];
+        let board = compose(Inputs {
+            now: NOW,
+            apps: &apps,
+            seeds: &seeds,
+            sessions: vec![needs],
+            visitors: &visitors,
+            git: &git,
+            prs: &prs,
+            project_order: &order,
+            warnings: vec![],
+            loading: false,
+            github_at: None,
+            pinned: &[],
+        });
+        let lane = &board.lanes[0];
+        assert_eq!(lane.bay, Bay::Idle);
+        assert_eq!(lane.sessions.len(), 1);
+        assert!(lane.sessions[0].archived);
+        assert!(lane.targets.iter().all(|t| !t.id.starts_with("s|")));
     }
 
     #[test]

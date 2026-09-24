@@ -108,6 +108,22 @@ pub fn rollout_files(codex_home: &Path, since_ms: i64, keep: &HashSet<String>) -
     out
 }
 
+/// Rollouts in `archived_sessions` for the threads in `ids`: the ones archived from Codealong,
+/// shown in its Archived list so they can be unarchived there.
+pub fn archived_rollout_files(codex_home: &Path, ids: &HashSet<String>) -> Vec<(PathBuf, i64)> {
+    if ids.is_empty() {
+        return Vec::new();
+    }
+    std::fs::read_dir(codex_home.join("archived_sessions"))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| thread_id_of(p).map(|id| ids.contains(&id)).unwrap_or(false))
+        .filter_map(|p| mtime_ms(&p).map(|m| (p, m)))
+        .collect()
+}
+
 /// The thread id at the end of a rollout file name.
 pub fn thread_id_of(path: &Path) -> Option<String> {
     let name = file_name(path);

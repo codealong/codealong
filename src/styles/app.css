@@ -824,42 +824,73 @@ button {
   gap: 4px;
 }
 
-/* Pins: a button under the age, shown on hover and when selected, kept when pinned. */
+/* Session row actions: pin and archive, shown on hover and on the selected row. */
 .ca-lane {
   position: relative;
 }
-.ca-pinbtn {
+.ca-rowactions {
+  position: absolute;
+  top: 6px;
+  right: 58px;
+  z-index: 1;
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-lift);
+  opacity: 0;
+  pointer-events: none;
+}
+.ca-lane:hover .ca-rowactions,
+.ca-lane.is-selected .ca-rowactions,
+.ca-rowactions:focus-within {
+  opacity: 1;
+  pointer-events: auto;
+}
+.ca-rowaction {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
-  margin-top: 2px;
-  margin-right: -4px;
-  padding: 0;
+  gap: 4px;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 4px;
   border: 0;
   border-radius: var(--radius-xs);
   background: transparent;
-  color: var(--ink-3);
+  color: var(--ink-2);
+  font: 500 12px/16px var(--font-sans);
   cursor: pointer;
-  opacity: 0;
 }
-.ca-lane:hover .ca-pinbtn,
-.ca-lane.is-selected .ca-pinbtn,
-.ca-pinbtn:focus-visible,
-.ca-pinbtn.is-on {
-  opacity: 1;
-}
-.ca-pinbtn:hover {
+.ca-rowaction:hover {
   background: var(--surface-hover);
   color: var(--ink);
 }
-.ca-pinbtn.is-on {
-  color: var(--ink-2);
+.ca-rowaction.is-on {
+  color: var(--ink);
 }
-.ca-pinbtn:focus-visible {
+.ca-rowaction:focus-visible {
   outline: none;
   box-shadow: var(--shadow-focus);
+}
+.ca-pinmark {
+  display: inline-flex;
+  margin-top: 4px;
+  color: var(--ink-3);
+}
+.ca-archived .ca-lane {
+  opacity: 0.8;
+}
+.ca-toast-action {
+  margin-left: 4px;
+  padding: 2px 8px;
+  border: 1px solid currentColor;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: inherit;
+  font: 600 12px/16px var(--font-sans);
+  cursor: pointer;
 }
 
 /* Reordering pinned sessions by dragging them. */

@@ -1,7 +1,9 @@
 //! Codealong: every agent runs in a worktree, and every worktree is a lane.
 
+mod appserver;
 mod board;
 mod claude;
+mod claudeapp;
 mod codex;
 mod config;
 mod engine;
@@ -89,6 +91,11 @@ fn set_pinned(engine: State<'_, engine::Handle>, keys: Vec<String>) {
 }
 
 #[tauri::command(async)]
+fn archive_session(engine: State<'_, engine::Handle>, key: String, archived: bool) -> Result<(), String> {
+    engine.archive(&key, archived).map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command(async)]
 fn get_accounts(engine: State<'_, engine::Handle>) -> Result<Vec<model::AccountInfo>, String> {
     engine.accounts().map_err(|e| format!("{e:#}"))
 }
@@ -113,12 +120,13 @@ pub fn run() {
             app.manage(engine);
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![get_board, open_target, open_config, mark_seen, refresh, refresh_usage, set_pinned, get_accounts, save_accounts, sign_in, open_project_window])
+        .invoke_handler(tauri::generate_handler![get_board, open_target, open_config, mark_seen, refresh, refresh_usage, set_pinned, archive_session, get_accounts, save_accounts, sign_in, open_project_window])
         .run(tauri::generate_context!())
         .expect("error while running Codealong");
 }
 
-/// `codealong --snapshot [--table] [--no-github] [--accounts]`: one pass over everything, printed.
+/// `codealong --snapshot [--table] [--no-github] [--usage] [--accounts]`: one pass over everything,
+/// printed. Claude usage is read only with `--usage`.
 /// `codealong --snapshot --open <lane id> <target id>`: opens a target the way a click does.
 pub fn snapshot_cli(args: &[String]) -> i32 {
     let started = std::time::Instant::now();
@@ -133,7 +141,7 @@ pub fn snapshot_cli(args: &[String]) -> i32 {
             eprintln!("usage: codealong --snapshot --open <lane id> <target id>");
             return 2;
         };
-        let board = engine::snapshot(false);
+        let board = engine::snapshot(false, false);
         return match engine::open_on(&board, lane, target) {
             Ok(_) => 0,
             Err(e) => {
@@ -142,7 +150,7 @@ pub fn snapshot_cli(args: &[String]) -> i32 {
             }
         };
     }
-    let board = engine::snapshot(!args.iter().any(|a| a == "--no-github"));
+    let board = engine::snapshot(!args.iter().any(|a| a == "--no-github"), args.iter().any(|a| a == "--usage"));
     if args.iter().any(|a| a == "--table") {
         print_table(&board);
     } else {

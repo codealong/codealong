@@ -12,7 +12,9 @@ use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 
 use crate::board::{self, LaneSeed, ELSEWHERE};
+use crate::appserver;
 use crate::claude::{self, RegistryEntry, TranscriptInfo};
+use crate::claudeapp;
 use crate::codex::{self, ThreadInfo};
 use crate::config::{self, AccountCfg, Config};
 use crate::git;
@@ -47,6 +49,8 @@ pub enum Msg {
     UsageDone(Vec<Usage>),
     /// The full pinned list, in order.
     SetPinned(Vec<String>),
+    /// A session archived (true) or unarchived from Codealong; Codex has already done its part.
+    SetArchived(String, bool),
 }
 
 /// What the UI talks to. Cheap to clone.
@@ -75,6 +79,23 @@ impl Handle {
 
     pub fn set_pinned(&self, keys: Vec<String>) {
         let _ = self.tx.send(Msg::SetPinned(keys));
+    }
+
+    /// Archives or unarchives a session. Codex threads are archived in Codex itself, so the
+    /// Codex app shows it too; neither Claude Code nor the Claude app lets another program
+    /// archive, so a Claude session is archived in Codealong until it's active again.
+    pub fn archive(&self, key: &str, archived: bool) -> Result<()> {
+        let mut parts = key.splitn(3, ':');
+        let (Some(harness), Some(account), Some(id)) = (parts.next(), parts.next(), parts.next()) else {
+            bail!("That isn't a session.");
+        };
+        if harness == "codex" {
+            let cfg = config::load()?.unwrap_or_default();
+            let a = cfg.accounts.iter().find(|a| a.name == account).ok_or_else(|| anyhow!("There's no account named {account}."))?;
+            appserver::set_archived(&a.home_path(), id, archived)?;
+        }
+        let _ = self.tx.send(Msg::SetArchived(key.to_string(), archived));
+        Ok(())
     }
 
     /// The accounts in config.toml, each with whether it's signed in.
@@ -174,14 +195,16 @@ pub fn start(emit: impl Fn(&Board) + Send + 'static) -> Handle {
     handle
 }
 
-/// One synchronous pass for `--snapshot`: everything the board needs, no watchers.
-pub fn snapshot(with_github: bool) -> Board {
+/// One synchronous pass for `--snapshot`: everything the board needs, no watchers. Claude usage
+/// is read only when asked: the usage endpoint rate-limits, and the app polls it already.
+pub fn snapshot(with_github: bool, with_usage: bool) -> Board {
     let (tx, _rx) = channel();
     let mut e = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
     let t = Instant::now();
     let lap = |label: &str, t: &Instant| eprintln!("  {label:<10} {:>6} ms", t.elapsed().as_millis());
     e.load_config();
     e.seen = SeenState::load();
+    e.app_records.refresh(&claudeapp::records_dir());
     lap("config", &t);
     e.scan_sessions();
     lap("sessions", &t);
@@ -197,10 +220,12 @@ pub fn snapshot(with_github: bool) -> Board {
         e.git.insert(p, info);
     }
     lap("git", &t);
-    for u in usage::claude_all(&e.cfg.accounts) {
-        e.usage.insert(u.account.clone(), u);
+    if with_usage {
+        for u in usage::claude_all(&e.cfg.accounts) {
+            e.usage.insert(u.account.clone(), u);
+        }
+        lap("usage", &t);
     }
-    lap("usage", &t);
     if with_github {
         let slugs: Vec<String> = e.github_slugs().into_iter().collect();
         let results = parallel_map(slugs, |slug| {
@@ -309,6 +334,9 @@ struct Engine {
     missing_homes: Vec<PathBuf>,
     /// Claude usage by account, from the last background read.
     usage: HashMap<String, Usage>,
+    /// The Claude app's session records, for what you archived there.
+    app_records: claudeapp::Records,
+    app_records_at: Option<Instant>,
     /// (pid, status time) → the command a stuck Claude session's shell is running.
     stuck: Mutex<HashMap<(u32, i64), Option<String>>>,
     usage_inflight: bool,
@@ -357,6 +385,8 @@ impl Engine {
             watch_warning: None,
             missing_homes: Vec::new(),
             usage: HashMap::new(),
+            app_records: claudeapp::Records::default(),
+            app_records_at: None,
             stuck: Mutex::new(HashMap::new()),
             usage_inflight: false,
             usage_last: None,
@@ -371,6 +401,8 @@ impl Engine {
         self.load_config();
         self.seen = SeenState::load();
         self.seen.save();
+        self.app_records.refresh(&claudeapp::records_dir());
+        self.app_records_at = Some(Instant::now());
         self.scan_sessions();
         self.load_repos();
         self.loading = false;
@@ -436,6 +468,14 @@ impl Engine {
                     self.dirty = true;
                 }
                 Ok(Msg::RefreshUsage) => self.fetch_usage(),
+                Ok(Msg::SetArchived(key, archived)) => {
+                    self.seen.set_archived(&key, archived, now_ms());
+                    self.seen.save();
+                    if key.starts_with("codex:") {
+                        self.refresh_archived_rollouts();
+                    }
+                    self.dirty = true;
+                }
                 Ok(Msg::SetPinned(keys)) => {
                     self.seen.set_pinned(keys);
                     self.seen.save();
@@ -539,6 +579,25 @@ impl Engine {
                     }
                 }
                 _ => {}
+            }
+        }
+        self.refresh_archived_rollouts();
+    }
+
+    /// Loads the Codex threads archived from Codealong from `archived_sessions`, so its Archived
+    /// list can show them, and drops ones that were unarchived or are no longer listed.
+    fn refresh_archived_rollouts(&mut self) {
+        for a in self.cfg.accounts.clone().iter().filter(|a| a.harness == "codex") {
+            let dir = a.home_path().join("archived_sessions");
+            let ids = self.seen.archived_ids("codex", &a.name);
+            self.rollouts.retain(|path, (acct, _)| {
+                acct != &a.name || !path.starts_with(&dir) || (path.exists() && codex::thread_id_of(path).map(|id| ids.contains(&id)).unwrap_or(false))
+            });
+            for (path, m) in codex::archived_rollout_files(&a.home_path(), &ids) {
+                if !self.rollouts.contains_key(&path) {
+                    let parsed = codex::parse_rollout(&path, m, None);
+                    self.rollouts.insert(path, (a.name.clone(), parsed));
+                }
             }
         }
     }
@@ -775,6 +834,12 @@ impl Engine {
         let every = if self.usage_backoff { USAGE_BACKOFF } else { USAGE_EVERY };
         if self.usage_last.map(|t| t.elapsed() >= every).unwrap_or(true) {
             self.fetch_usage();
+        }
+        if self.app_records_at.map(|t| t.elapsed() >= Duration::from_secs(30)).unwrap_or(true) {
+            self.app_records_at = Some(Instant::now());
+            if self.app_records.refresh(&claudeapp::records_dir()) {
+                self.dirty = true;
+            }
         }
         // A new account's folder appears when it first signs in; start reading it.
         if self.missing_homes.iter().any(|p| p.exists()) {
@@ -1125,6 +1190,7 @@ impl Engine {
         for a in &self.cfg.accounts {
             match a.harness.as_str() {
                 "claude" => {
+                    let app_archived = self.app_records.archived();
                     let mut by_id: HashMap<&str, (Option<&RegistryEntry>, Option<(&Path, &TranscriptInfo)>)> = HashMap::new();
                     for r in self.registry.get(&a.name).map(|v| v.as_slice()).unwrap_or(&[]) {
                         by_id.entry(r.session_id.as_str()).or_default().0 = Some(r);
@@ -1150,18 +1216,25 @@ impl Engine {
                             _ => (None, None),
                         };
                         let quiet = board::Quiet { subagent_at, running: running.as_deref() };
-                        if let Some(s) = board::claude_session(a, reg, info, self.seen.seen_at(&key), now, &quiet) {
+                        if let Some(mut s) = board::claude_session(a, reg, info, self.seen.seen_at(&key), now, &quiet) {
+                            // Archived here until it's active again, or archived in the Claude app.
+                            let here = self.seen.archived_at(&key).map(|at| s.last_activity <= at).unwrap_or(false);
+                            s.archived = here || app_archived.contains(id);
                             out.push(s);
                         }
                     }
                 }
                 "codex" => {
                     let index = self.codex_index.get(&a.name);
-                    for (acct, info) in self.rollouts.values() {
+                    // Codex decides what's archived: its archived threads live in `archived_sessions`.
+                    let archived_dir = a.home_path().join("archived_sessions");
+                    for (path, (acct, info)) in &self.rollouts {
                         let (true, Some((th, _))) = (acct == &a.name, info.as_ref()) else { continue };
                         let key = format!("codex:{}:{}", a.name, th.id);
                         let name = index.and_then(|i| i.get(&th.id)).map(|(n, _)| n.as_str());
-                        out.push(board::codex_session(a, th, name, self.seen.seen_at(&key), now));
+                        let mut s = board::codex_session(a, th, name, self.seen.seen_at(&key), now);
+                        s.archived = path.starts_with(&archived_dir);
+                        out.push(s);
                     }
                 }
                 _ => {}

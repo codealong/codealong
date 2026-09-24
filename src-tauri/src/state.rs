@@ -22,6 +22,16 @@ pub struct SeenState {
     /// Pinned session keys, in the order you put them.
     #[serde(default)]
     pub pinned: Vec<String>,
+    /// Sessions archived from Codealong, and when.
+    #[serde(default)]
+    pub archived: Vec<ArchivedSession>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ArchivedSession {
+    pub key: String,
+    pub at: i64,
 }
 
 impl SeenState {
@@ -58,6 +68,26 @@ impl SeenState {
         self.pinned = keys.into_iter().filter(|k| !k.is_empty() && seen.insert(k.clone())).collect();
     }
 
+    /// Records an archive (or its undoing) made from Codealong.
+    pub fn set_archived(&mut self, key: &str, archived: bool, at: i64) {
+        self.archived.retain(|a| a.key != key);
+        if archived {
+            self.archived.push(ArchivedSession { key: key.to_string(), at });
+            self.pinned.retain(|k| k != key);
+        }
+    }
+
+    /// When the session was archived from Codealong.
+    pub fn archived_at(&self, key: &str) -> Option<i64> {
+        self.archived.iter().find(|a| a.key == key).map(|a| a.at)
+    }
+
+    /// Session ids archived from Codealong for one account.
+    pub fn archived_ids(&self, harness: &str, account: &str) -> std::collections::HashSet<String> {
+        let prefix = format!("{harness}:{account}:");
+        self.archived.iter().filter_map(|a| a.key.strip_prefix(&prefix).map(str::to_string)).collect()
+    }
+
     /// Session ids pinned for one account (`<harness>:<account>:<id>` keys).
     pub fn pinned_ids(&self, harness: &str, account: &str) -> std::collections::HashSet<String> {
         let prefix = format!("{harness}:{account}:");
@@ -89,5 +119,17 @@ mod tests {
         assert_eq!(s.pinned_ids("claude", "claude2").into_iter().collect::<Vec<_>>(), vec!["a".to_string()]);
         let old: SeenState = serde_json::from_str(r#"{"firstRun":5,"seen":{}}"#).unwrap();
         assert!(old.pinned.is_empty());
+    }
+
+    #[test]
+    fn archiving_unpins_and_can_be_undone() {
+        let mut s = SeenState::default();
+        s.set_pinned(vec!["codex:codex:t1".into()]);
+        s.set_archived("codex:codex:t1", true, 50);
+        assert_eq!(s.archived_at("codex:codex:t1"), Some(50));
+        assert!(s.pinned.is_empty());
+        assert!(s.archived_ids("codex", "codex").contains("t1"));
+        s.set_archived("codex:codex:t1", false, 60);
+        assert_eq!(s.archived_at("codex:codex:t1"), None);
     }
 }

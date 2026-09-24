@@ -79,9 +79,15 @@ interface SessionsViewProps {
   onTogglePin: (row: SessionItem) => void;
   /** Moves a pinned session to insertion point `index` among the pinned ones showing. */
   onMovePinned: (key: string, index: number) => void;
+  /** Archived sessions, listed under a fold at the end. */
+  archived: SessionItem[];
+  showArchived: boolean;
+  onToggleArchived: () => void;
+  onArchive: (row: SessionItem, archived: boolean) => void;
 }
 
-export function SessionsView({ pinned, sections, now, selectedKey, domId, onSelect, onOpen, onTogglePin, onMovePinned }: SessionsViewProps) {
+export function SessionsView(props: SessionsViewProps) {
+  const { pinned, sections, now, selectedKey, domId, onSelect, onOpen, onTogglePin, onMovePinned, archived, showArchived, onToggleArchived, onArchive } = props;
   const pinnedRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ key: string; startY: number; active: boolean; index: number } | null>(null);
   const [drag, setDrag] = useState<{ key: string; index: number } | null>(null);
@@ -138,6 +144,7 @@ export function SessionsView({ pinned, sections, now, selectedKey, domId, onSele
         onOpen={() => onOpen(r)}
         pinned={extra != null}
         onTogglePin={() => onTogglePin(r)}
+        onArchive={() => onArchive(r, !r.session.archived)}
         pinIndex={extra?.index}
         onPointerDown={extra ? (e) => startDrag(e, r.session.key) : undefined}
         extraClass={[dragging && 'is-drag-source', dropBefore && 'is-drop-before', dropAfter && 'is-drop-after'].filter(Boolean).join(' ') || undefined}
@@ -170,6 +177,21 @@ export function SessionsView({ pinned, sections, now, selectedKey, domId, onSele
           <div className="ca-bay-lanes">{s.rows.map((r) => row(r))}</div>
         </section>
       ))}
+      {archived.length > 0 && (
+        <section className="ca-bayblock ca-archived">
+          <SectionHeader
+            icon="archive"
+            label="Archived"
+            count={archived.length}
+            hint={
+              <button type="button" className="ca-linkbtn" aria-expanded={showArchived} onClick={onToggleArchived}>
+                {showArchived ? 'Hide' : 'Show'}
+              </button>
+            }
+          />
+          {showArchived && <div className="ca-bay-lanes">{archived.map((r) => row(r))}</div>}
+        </section>
+      )}
     </>
   );
 }

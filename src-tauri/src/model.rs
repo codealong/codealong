@@ -108,6 +108,9 @@ pub struct Session {
     /// This session's own one sentence, for rows in the agent bays.
     pub headline: String,
     pub detail: Option<String>,
+    /// Archived: from Codealong, in Codex, or in the Claude app. Kept last in its lane and left
+    /// out of the lane's status.
+    pub archived: bool,
     /// A background job has no terminal tab; this opens it in a new one (`claude attach <job>`).
     pub attach_command: Option<String>,
     /// Set when the session says it's busy but nothing has happened for a long while: it's stuck

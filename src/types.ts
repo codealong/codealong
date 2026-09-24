@@ -26,6 +26,8 @@ export interface Session {
   lastActivity: number;
   /** Backtick spans render as code. */
   excerpt: string | null;
+  /** Archived from Codealong, in Codex, or in the Claude app. */
+  archived: boolean;
   /** A background job's `claude attach <job>`: it has no terminal tab of its own. */
   attachCommand: string | null;
   /** Busy but silent for a long while: stuck mid-turn. When it went quiet. */

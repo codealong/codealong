@@ -7,7 +7,7 @@ use std::time::Duration;
 use anyhow::{anyhow, bail, Result};
 
 use crate::procs;
-use crate::util::{file_name, home, mtime_ms};
+use crate::util::home;
 
 pub fn terminal_name(id: &str) -> String {
     match id {
@@ -262,28 +262,15 @@ fn claude_app_url_in(records: &Path, cli_session_id: &str) -> String {
     }
 }
 
-/// The Claude app keeps a record per Code session, `<account>/<org>/local_<id>.json`, naming
-/// the CLI session it runs as `cliSessionId`. Newest first, since that's usually the one.
+/// The Claude app's ID for the session running `cli_session_id`, from its records (newest first,
+/// since that's usually the one; only files that mention the session are parsed).
 fn claude_app_session(records: &Path, cli_session_id: &str) -> Option<String> {
-    let subdirs = |p: &Path| -> Vec<std::path::PathBuf> {
-        std::fs::read_dir(p).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect()
-    };
-    let mut files: Vec<(i64, std::path::PathBuf)> = subdirs(records)
-        .iter()
-        .flat_map(|account| subdirs(account))
-        .flat_map(|org| std::fs::read_dir(org).into_iter().flatten().flatten().map(|e| e.path()))
-        .filter(|p| file_name(p).starts_with("local_") && p.extension().and_then(|x| x.to_str()) == Some("json"))
-        .map(|p| (mtime_ms(&p).unwrap_or(0), p))
-        .collect();
-    files.sort_by(|a, b| b.0.cmp(&a.0));
-    files.into_iter().find_map(|(_, path)| {
+    crate::claudeapp::record_files(records).into_iter().find_map(|(path, _)| {
         let text = std::fs::read_to_string(&path).ok()?;
         if !text.contains(cli_session_id) {
             return None;
         }
-        let v: serde_json::Value = serde_json::from_str(&text).ok()?;
-        (v.get("cliSessionId").and_then(|x| x.as_str()) == Some(cli_session_id))
-            .then(|| v.get("sessionId").and_then(|x| x.as_str()).map(str::to_string).unwrap_or_else(|| file_name(&path).trim_end_matches(".json").to_string()))
+        crate::claudeapp::parse_record(&text, &path).filter(|r| r.cli_session_id == cli_session_id).map(|r| r.local_id)
     })
 }
 

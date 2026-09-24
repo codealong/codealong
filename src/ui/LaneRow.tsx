@@ -112,6 +112,8 @@ interface AgentRowProps {
   pinned?: boolean;
   /** Shows the pin button when given. */
   onTogglePin?: () => void;
+  /** Shows the archive button when given; on an archived session it unarchives. */
+  onArchive?: () => void;
   /** Position among pinned rows, for dragging them into a new order. */
   pinIndex?: number;
   onPointerDown?: (e: ReactPointerEvent<HTMLDivElement>) => void;
@@ -119,7 +121,7 @@ interface AgentRowProps {
 }
 
 /** One agent in the Needs you, Working or Your turn bays, with its worktree as context. */
-export function AgentRow({ lane, session: s, domId, now, selected, onSelect, onOpen, pinned, onTogglePin, pinIndex, onPointerDown, extraClass }: AgentRowProps) {
+export function AgentRow({ lane, session: s, domId, now, selected, onSelect, onOpen, pinned, onTogglePin, onArchive, pinIndex, onPointerDown, extraClass }: AgentRowProps) {
   const branch = lane.branch ?? (lane.detached ? `detached @ ${lane.detached}` : null);
   const sub = branch && branch !== lane.callsign ? `${lane.repo} · ${middleTruncate(branch, 26)}` : lane.repo;
   const g = lane.git;
@@ -181,24 +183,46 @@ export function AgentRow({ lane, session: s, domId, now, selected, onSelect, onO
       </div>
       <div className="ca-seg ca-seg-age" title={absolute(s.lastActivity)}>
         {ago(s.lastActivity, now)}
-        {onTogglePin && (
-          <button
-            type="button"
-            className={['ca-pinbtn', pinned && 'is-on'].filter(Boolean).join(' ')}
-            aria-pressed={!!pinned}
-            aria-label={pinned ? `Unpin ${s.title}` : `Pin ${s.title}`}
-            title={pinned ? 'Unpin (P)' : 'Pin to the top of Sessions (P)'}
-            onMouseDown={(e) => e.stopPropagation()}
-            onDoubleClick={(e) => e.stopPropagation()}
-            onClick={(e) => {
-              e.stopPropagation();
-              onTogglePin();
-            }}
-          >
-            <Icon name={pinned ? 'pinned' : 'pin'} size={14} />
-          </button>
+        {pinned && (
+          <span className="ca-pinmark" title="Pinned">
+            <Icon name="pinned" size={12} />
+          </span>
         )}
       </div>
+      {(onTogglePin || onArchive) && (
+        <div className="ca-rowactions" onMouseDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+          {onTogglePin && !s.archived && (
+            <button
+              type="button"
+              className={['ca-rowaction', pinned && 'is-on'].filter(Boolean).join(' ')}
+              aria-pressed={!!pinned}
+              aria-label={pinned ? `Unpin ${s.title}` : `Pin ${s.title}`}
+              title={pinned ? 'Unpin (P)' : 'Pin to the top of Sessions (P)'}
+              onClick={(e) => {
+                e.stopPropagation();
+                onTogglePin();
+              }}
+            >
+              <Icon name={pinned ? 'pinned' : 'pin'} size={14} />
+            </button>
+          )}
+          {onArchive && (
+            <button
+              type="button"
+              className="ca-rowaction"
+              aria-label={s.archived ? `Unarchive ${s.title}` : `Archive ${s.title}`}
+              title={s.archived ? 'Unarchive' : s.harness === 'codex' ? 'Archive in Codex (A)' : 'Archive (A)'}
+              onClick={(e) => {
+                e.stopPropagation();
+                onArchive();
+              }}
+            >
+              <Icon name="archive" size={14} />
+              {s.archived && <span>Unarchive</span>}
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
