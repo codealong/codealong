@@ -17,6 +17,42 @@ mod util;
 
 use tauri::{Emitter, Manager, State};
 
+/// `Kestrel` → `project-kestrel`: window labels allow letters, digits, `-`, `/`, `:` and `_`.
+fn project_window_label(project: &str) -> String {
+    let slug: String = project.chars().map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '-' }).collect();
+    format!("project-{}", slug.trim_matches('-'))
+}
+
+/// Opens a project in a window of its own, or brings that window forward. The window reads its
+/// project from `window.__CODEALONG_PROJECT__`, set before the page loads.
+#[tauri::command(async)]
+fn open_project_window(app: tauri::AppHandle, project: String) -> Result<(), String> {
+    let label = project_window_label(&project);
+    if let Some(w) = app.get_webview_window(&label) {
+        let _ = w.unminimize();
+        let _ = w.show();
+        return w.set_focus().map_err(|e| e.to_string());
+    }
+    let script = format!("window.__CODEALONG_PROJECT__ = {};", serde_json::to_string(&project).map_err(|e| e.to_string())?);
+    let mut builder = tauri::WebviewWindowBuilder::new(&app, &label, tauri::WebviewUrl::App("index.html".into()))
+        .title(format!("Codealong · {project}"))
+        .inner_size(1320.0, 860.0)
+        .min_inner_size(980.0, 600.0)
+        .title_bar_style(tauri::TitleBarStyle::Overlay)
+        .hidden_title(true)
+        .traffic_light_position(tauri::LogicalPosition::new(18.0, 20.0))
+        .initialization_script(&script);
+    // Cascade from the main window so the new one doesn't sit exactly on top of it.
+    if let Some(main) = app.get_webview_window("main") {
+        if let (Ok(pos), Ok(scale)) = (main.outer_position(), main.scale_factor()) {
+            let at = pos.to_logical::<f64>(scale);
+            let step = 28.0 * app.webview_windows().len() as f64;
+            builder = builder.position(at.x + step, at.y + step);
+        }
+    }
+    builder.build().map(|_| ()).map_err(|e| format!("Couldn't open a window for {project}: {e}"))
+}
+
 #[tauri::command]
 fn get_board(engine: State<'_, engine::Handle>) -> model::Board {
     engine.board()
@@ -77,7 +113,7 @@ pub fn run() {
             app.manage(engine);
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![get_board, open_target, open_config, mark_seen, refresh, refresh_usage, set_pinned, get_accounts, save_accounts, sign_in])
+        .invoke_handler(tauri::generate_handler![get_board, open_target, open_config, mark_seen, refresh, refresh_usage, set_pinned, get_accounts, save_accounts, sign_in, open_project_window])
         .run(tauri::generate_context!())
         .expect("error while running Codealong");
 }

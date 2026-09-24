@@ -926,3 +926,41 @@ button {
   padding: 0 9px;
   font-variant-numeric: tabular-nums;
 }
+
+/* Project menu rows: pick the project here, or open it in a window of its own. */
+.ca-projswitch-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.ca-projswitch-row > .ca-menu-item {
+  flex: 1;
+  min-width: 0;
+}
+.ca-projswitch-newwin {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+  opacity: 0;
+}
+.ca-projswitch-row:hover .ca-projswitch-newwin,
+.ca-projswitch-newwin:focus-visible {
+  opacity: 1;
+}
+.ca-projswitch-newwin:hover {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+.ca-projswitch-newwin:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}

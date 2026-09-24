@@ -4,7 +4,7 @@
 // session, pinned ones first in your order. Keyboard map: the design system's Surfaces page.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { getBoard, markSeen, onBoard, openConfig, openTarget, refresh, refreshUsage, setPinned, signIn } from './api';
+import { getBoard, markSeen, onBoard, openConfig, openProjectWindow, openTarget, refresh, refreshUsage, setPinned, signIn } from './api';
 import { ago } from './format';
 import type { Bay, Board, Lane, Session, Status } from './types';
 import { AccountsDialog } from './ui/AccountsDialog';
@@ -19,6 +19,16 @@ import { WorktreeTree } from './ui/WorktreeTree';
 const BAYS: Bay[] = ['needs', 'working', 'unread', 'review', 'idle', 'merged'];
 const AGENT_BAY: Partial<Record<Status, Bay>> = { needs: 'needs', error: 'needs', working: 'working', unread: 'unread' };
 const ELSEWHERE = 'Elsewhere';
+
+declare global {
+  interface Window {
+    /** Set on a project's own window before the page loads. */
+    __CODEALONG_PROJECT__?: string;
+  }
+}
+
+/** The project this window was opened for; null in the main window. */
+const WINDOW_PROJECT = typeof window !== 'undefined' ? (window.__CODEALONG_PROJECT__ ?? null) : null;
 const PROJECT_KEY = 'codealong.project';
 const VIEW_KEY = 'codealong.view';
 const AGE_KEY = 'codealong.age';
@@ -142,7 +152,7 @@ function storedProject(): string | null {
 export function App() {
   const [board, setBoard] = useState<Board | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [project, setProject] = useState<string | null>(storedProject);
+  const [project, setProject] = useState<string | null>(() => WINDOW_PROJECT ?? storedProject());
   const [bayFilter, setBayFilter] = useState<Filter | null>(null);
   const [query, setQuery] = useState('');
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -187,6 +197,8 @@ export function App() {
     setBayFilter(null);
     setShowParked(false);
     setSelectedKey(null);
+    // A project window keeps its choice to itself; the main window's is remembered.
+    if (WINDOW_PROJECT) return;
     try {
       window.localStorage.setItem(PROJECT_KEY, name);
     } catch {
@@ -290,8 +302,9 @@ export function App() {
   }, [lanes, projects]);
 
   useEffect(() => {
-    document.title = counts.needs > 0 ? `Codealong · ${counts.needs} need you` : 'Codealong';
-  }, [counts.needs]);
+    const base = WINDOW_PROJECT ? `Codealong · ${current}` : 'Codealong';
+    document.title = counts.needs > 0 ? `${base} · ${counts.needs} need you` : base;
+  }, [counts.needs, current]);
 
   useEffect(() => {
     if (selected) document.getElementById(domId(selected))?.scrollIntoView({ block: 'nearest' });
@@ -389,6 +402,11 @@ export function App() {
         openSwitcher();
         return;
       }
+      if (mod && e.shiftKey && key === 'n') {
+        e.preventDefault();
+        openWindow(current);
+        return;
+      }
       if (typing) {
         if (e.key === 'Escape') {
           setQuery('');
@@ -472,9 +490,12 @@ export function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [visible, selected, selectedLane, move, open, openRow, copy, accountsDialog, view, setView, togglePin, pinnedSet, pinnedRows, movePinned]);
+  }, [visible, selected, selectedLane, move, open, openRow, copy, accountsDialog, view, setView, togglePin, pinnedSet, pinnedRows, movePinned, current]);
 
   const toggleBay = (f: Filter) => setBayFilter(bayFilter === f ? null : f);
+  const openWindow = (name: string) => {
+    openProjectWindow(name).catch((e: unknown) => setToast(String(e)));
+  };
   const editConfig = () => {
     openConfig().catch((e: unknown) => setToast(String(e)));
   };
@@ -495,7 +516,7 @@ export function App() {
   return (
     <div className="ca-win ca-win--app">
       <div className="ca-win-bar" data-tauri-drag-region>
-        <ProjectSwitcher projects={projects} current={current} total={totalLanes} actions={actions} onPick={pickProject} onEditConfig={editConfig} />
+        <ProjectSwitcher projects={projects} current={current} total={totalLanes} actions={actions} onPick={pickProject} onOpenWindow={openWindow} onEditConfig={editConfig} />
         <label className="ca-search">
           <Icon name="search" size={14} />
           <input

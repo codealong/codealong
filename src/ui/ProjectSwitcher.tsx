@@ -18,10 +18,12 @@ interface ProjectSwitcherProps {
   total: number;
   actions: Record<string, ActionCounts>;
   onPick: (name: string) => void;
+  /** Opens a project in a window of its own. */
+  onOpenWindow: (name: string) => void;
   onEditConfig: () => void;
 }
 
-export function ProjectSwitcher({ projects, current, total, actions, onPick, onEditConfig }: ProjectSwitcherProps) {
+export function ProjectSwitcher({ projects, current, total, actions, onPick, onOpenWindow, onEditConfig }: ProjectSwitcherProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -51,28 +53,43 @@ export function ProjectSwitcher({ projects, current, total, actions, onPick, onE
   const item = (name: string, count: number) => {
     const a = actions[name];
     return (
-      <button key={name} type="button" role="menuitemradio" aria-checked={name === current} className={['ca-menu-item', name === current && 'is-on'].filter(Boolean).join(' ')} onClick={() => pick(name)}>
-        <Icon name={name === ALL_PROJECTS ? 'stack' : 'folder'} size={16} />
-        <span className="ca-menu-label">
-          <span>{name}</span>
-        </span>
-        {a && a.needs > 0 && (
-          <span className="ca-projswitch-action is-needs" title={`${a.needs} need you`}>
-            <StatusGlyph status="needs" size={10} title="" />
-            {a.needs}
+      <div key={name} className="ca-projswitch-row" role="none">
+        <button type="button" role="menuitemradio" aria-checked={name === current} className={['ca-menu-item', name === current && 'is-on'].filter(Boolean).join(' ')} onClick={() => pick(name)}>
+          <Icon name={name === ALL_PROJECTS ? 'stack' : 'folder'} size={16} />
+          <span className="ca-menu-label">
+            <span>{name}</span>
           </span>
-        )}
-        {a && a.unread > 0 && (
-          <span className="ca-projswitch-action is-unread" title={`${a.unread} finished`}>
-            <StatusGlyph status="unread" size={10} title="" />
-            {a.unread}
+          {a && a.needs > 0 && (
+            <span className="ca-projswitch-action is-needs" title={`${a.needs} need you`}>
+              <StatusGlyph status="needs" size={10} title="" />
+              {a.needs}
+            </span>
+          )}
+          {a && a.unread > 0 && (
+            <span className="ca-projswitch-action is-unread" title={`${a.unread} finished`}>
+              <StatusGlyph status="unread" size={10} title="" />
+              {a.unread}
+            </span>
+          )}
+          <span className="ca-nav-count" title={`${count} worktrees`}>
+            {count}
           </span>
-        )}
-        <span className="ca-nav-count" title={`${count} worktrees`}>
-          {count}
-        </span>
-        <span className="ca-projswitch-check">{name === current ? <Icon name="check" size={14} /> : null}</span>
-      </button>
+          <span className="ca-projswitch-check">{name === current ? <Icon name="check" size={14} /> : null}</span>
+        </button>
+        <button
+          type="button"
+          role="menuitem"
+          className="ca-projswitch-newwin"
+          aria-label={`Open ${name} in a new window`}
+          title={name === current ? 'Open in a new window (⌘⇧N)' : 'Open in a new window'}
+          onClick={() => {
+            setOpen(false);
+            onOpenWindow(name);
+          }}
+        >
+          <Icon name="external" size={14} />
+        </button>
+      </div>
     );
   };
   return (

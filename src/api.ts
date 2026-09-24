@@ -49,6 +49,12 @@ export async function refresh(): Promise<void> {
   await invoke('refresh');
 }
 
+/** Opens a project in a window of its own, or brings that window forward. */
+export async function openProjectWindow(project: string): Promise<void> {
+  if (!inTauri) return;
+  await invoke('open_project_window', { project });
+}
+
 /** Saves the whole pinned list, in order. */
 export async function setPinned(keys: string[]): Promise<void> {
   if (!inTauri) return;

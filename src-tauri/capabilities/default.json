@@ -1,7 +1,13 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "The main window: board events and dragging the unified toolbar.",
-  "windows": ["main"],
-  "permissions": ["core:default", "core:window:allow-start-dragging"]
+  "description": "Codealong windows (the main one and one per project): board events and dragging the unified toolbar.",
+  "windows": [
+    "main",
+    "project-*"
+  ],
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging"
+  ]
 }
