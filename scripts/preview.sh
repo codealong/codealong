@@ -4,7 +4,7 @@
 #
 #   scripts/preview.sh [view] [project] [check.js]
 #
-#   view     worktrees | sessions | prs, or bar for the floating bar (default worktrees)
+#   view     worktrees | sessions | prs | todo, or bar for the floating bar (default worktrees)
 #   project  the project to show (default: the first one)
 #   check.js optional script run in the page; whatever it puts in document.title is printed
 #            (use it to click things and read window.__calls). Without it, a screenshot is
@@ -14,6 +14,10 @@
 # Under theme = "system" the page follows it; "light" and "dark" in config.toml win over it.
 # The bar renders on a stand-in desktop at $PREVIEW_SIZE (default 1100,64, which is also the
 # screen width it fits itself to).
+#
+# PREVIEW_TODOS=<file> shows the todos in it (scripts/preview/todos-sample.json has some) in
+# place of yours; "$lane:N" and "$session:N" in it stand for the project's Nth most recent
+# worktree and session. Images come from $PREVIEW_IMAGES (default: Codealong's own images).
 #
 # Needs a release build of the engine (cargo build --release in src-tauri) for the snapshot.
 # PR details come from $PREVIEW_DIR/pr-detail.json if you put one there:
@@ -40,6 +44,15 @@ mkdir -p "$dir"
 rm -rf "$dir/assets"
 cp -R dist/. "$dir/"
 cp scripts/preview/fake-tauri.js "$dir/"
+rm -f "$dir/todos-fixture.json"
+if [ -n "${PREVIEW_TODOS:-}" ]; then
+  cp "$PREVIEW_TODOS" "$dir/todos-fixture.json"
+fi
+images="${PREVIEW_IMAGES:-$HOME/Library/Application Support/Codealong/images}"
+rm -rf "$dir/images"
+if [ -d "$images" ]; then
+  cp -R "$images" "$dir/images"
+fi
 "$bin" --snapshot >"$dir/board.json" 2>/dev/null
 "$bin" --snapshot --accounts >"$dir/accounts.json" 2>/dev/null
 "$bin" --snapshot --start-options >"$dir/start-options.json" 2>/dev/null

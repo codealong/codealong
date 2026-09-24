@@ -48,7 +48,8 @@ right-click and assert what the app would have sent. `PREVIEW_SCHEME=dark` rende
 were in dark mode; check UI changes in both. Native menus, window creation and real opens
 can't be seen this way; say so rather than claiming they were checked.
 `scripts/preview.sh bar` renders the floating bar on a stand-in desktop (`PREVIEW_SIZE=1600,64` for
-a wider screen).
+a wider screen). `PREVIEW_TODOS=scripts/preview/todos-sample.json scripts/preview.sh todo` shows
+sample todos linked to your real worktrees and sessions in place of your own.
 
 ## Checking performance
 
@@ -102,7 +103,12 @@ Claude Code
   deletes transcripts after about 30 days.
 - Background jobs (`kind: bg`) have no terminal; `<account command> attach <jobId>` opens one.
 - `--session-id <uuid>` gives a new session the ID you choose, so Codealong knows it before it
-  appears. The prompt is a positional argument parsed like any other: one that starts with `-`
+  appears. The prompt argument goes through the same path as typed text: `@"<path>"` mentions
+  attach files, an image of up to 256 KB (262,144 bytes) as an image; a bigger one is silently
+  not attached and is left for the Read tool. Image paths without `@` are only picked up when
+  pasted. Reading outside the working folder asks unless the folder is given with `--add-dir`,
+  which takes several folders: put it before the other options (or `--add-dir=<dir>`), or it
+  swallows the prompt. There's no image flag. The prompt is a positional argument parsed like any other: one that starts with `-`
   reads as an option, and one that is only a subcommand's name (`update`, `doctor`) runs that
   command. `start.rs` pads such prompts with a space.
 - `--model` takes a full name or an alias for the newest model of a family: `sonnet`, `opus`,
@@ -131,7 +137,10 @@ Claude app
   logged as `claudeURLHandler: code entry link invalid ?session` in `~/Library/Logs/Claude/main.log`.
 - Offers no way for another program to archive a session.
 - `claude://code/new?folder=<path>&q=<prompt>` (`prompt=` works too) opens the new-session page
-  with the folder and prompt filled in; you send it there.
+  with the folder and prompt filled in; you send it there. `q` is capped at 14,336 characters;
+  `folder` can repeat; `ssh_host`, `ssh_port`, `ssh_folder` and `source` are taken too. `file`
+  is only logged, so a new Code session can't be handed images (`claude://cowork/new?file=`
+  does take files). The Code tab takes images only from its own input box.
 
 Codex
 
@@ -149,8 +158,10 @@ Codex
   `/Applications/Codex.app` copy may exist). `codex://threads/<uuid>` opens a thread (the app
   reads it first and ignores ones it can't), `codex://review?pr=<url>` opens a PR review.
 - `codex://threads/new?path=<folder>&prompt=<text>` opens a new thread there with the prompt
-  filled in (it also takes `originUrl`, `projectId` and `mode`); `codex://threads/<uuid>?prompt=`
-  fills in a reply. A folder the app has no project for becomes a new project. Its projects are
+  filled in (it also takes `originUrl`, `projectId`, `mode` and `browserUrl`, and no images);
+  `codex://threads/<uuid>?prompt=` fills in a reply. The app sends images as
+  `{type: "localImage", path}`, and so does the app-server's `turn/start` input; the CLI's
+  `-i/--image <FILE>...` attaches images to its first prompt (prompt first, or after `--`). A folder the app has no project for becomes a new project. Its projects are
   in `<CODEX_HOME>/.codex-global-state.json` (`local-projects[].rootPaths`,
   `electron-saved-workspace-roots`), a file of several megabytes.
 - Actions go through its app-server: `/Applications/ChatGPT.app/Contents/Resources/codex

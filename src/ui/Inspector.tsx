@@ -2,8 +2,10 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { absolute, ago, count, middleTruncate, tildePath } from '../format';
-import type { Board, Lane, Origin, Session, Target } from '../types';
+import type { Board, Lane, Origin, Session, Target, Todo } from '../types';
 import { BranchLabel, Button, HarnessChip, Icon, Kbd, LaneGlyph, PrChip, Rich, StatusGlyph } from './primitives';
+import { TodoChips, TodoGlyph } from './TodoBits';
+import { STATUS_WORD } from '../todos';
 
 const ORIGIN_WORD: Record<Origin, string> = {
   main: 'Main checkout',
@@ -91,7 +93,7 @@ export function OpenInMenu({ targets, defaultId, onOpen }: { targets: Target[]; 
   );
 }
 
-function SessionRow({ session: s, now, focused, onOpen }: { session: Session; now: number; focused: boolean; onOpen: (id: string) => void }) {
+function SessionRow({ session: s, now, focused, onOpen, todos, onShowTodo }: { session: Session; now: number; focused: boolean; onOpen: (id: string) => void; todos?: Todo[]; onShowTodo?: (todo: Todo) => void }) {
   const verb = s.stalledSince ? 'Open' : s.status === 'needs' ? 'Respond' : s.status === 'stopped' ? 'Resume' : 'Open';
   const where = s.surface === 'cli' ? 'Ghostty' : s.harness === 'claude' ? 'the Claude app' : 'Codex';
   const open = () => onOpen(s.openTarget);
@@ -121,6 +123,7 @@ function SessionRow({ session: s, now, focused, onOpen }: { session: Session; no
           <span title={absolute(s.lastActivity)}>{ago(s.lastActivity, now)}</span>
           {s.live && s.pid ? <span>pid {s.pid}</span> : null}
           {s.visitor ? <span>{s.visitor}</span> : null}
+          <TodoChips todos={todos} onShow={onShowTodo} />
         </div>
         {s.excerpt && (
           <div className="ca-srow-excerpt">
@@ -145,9 +148,14 @@ interface InspectorProps {
   onOpen: (targetId: string) => void;
   /** Opens the new-session sheet at this worktree. */
   onNewSession: () => void;
+  /** Todos the worktree or its sessions are linked to. */
+  todos?: Todo[];
+  /** Todos a session is linked to. */
+  todosFor?: (sessionKey: string) => Todo[] | undefined;
+  onShowTodo?: (todo: Todo) => void;
 }
 
-export function Inspector({ lane, focusKey, apps, now, onOpen, onNewSession }: InspectorProps) {
+export function Inspector({ lane, focusKey, apps, now, onOpen, onNewSession, todos, todosFor, onShowTodo }: InspectorProps) {
   const [showAll, setShowAll] = useState(false);
   useEffect(() => setShowAll(false), [lane?.id]);
   if (!lane) {
@@ -188,6 +196,20 @@ export function Inspector({ lane, focusKey, apps, now, onOpen, onNewSession }: I
         <Button icon="code" title={`Open in ${apps.editor}`} aria-label={`Open in ${apps.editor}`} onClick={() => onOpen('l|editor')} />
         {pr && <Button icon="external" title={`Open #${pr.number} on GitHub`} aria-label={`Open #${pr.number} on GitHub`} onClick={() => onOpen('p|github')} />}
       </div>
+      {todos && todos.length > 0 && (
+        <section className="ca-insp-sec">
+          <h4 className="ca-label">Todos · {todos.length}</h4>
+          <div className="ca-insp-todos">
+            {todos.map((t) => (
+              <button key={t.id} type="button" className="ca-insp-todo" title="Show it in Todo" onClick={() => onShowTodo?.(t)}>
+                <TodoGlyph status={t.status} />
+                <span className="ca-insp-todo-title">{t.title || 'Untitled'}</span>
+                <span className="ca-meta">{STATUS_WORD[t.status]}</span>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
       <section className="ca-insp-sec">
         <h4 className="ca-label">Sessions · {lane.sessions.length}</h4>
         {lane.sessions.length === 0 ? (
@@ -195,7 +217,7 @@ export function Inspector({ lane, focusKey, apps, now, onOpen, onNewSession }: I
         ) : (
           <div className="ca-srows">
             {sessions.map((s) => (
-              <SessionRow key={s.key} session={s} now={now} focused={s.key === focusKey} onOpen={onOpen} />
+              <SessionRow key={s.key} session={s} now={now} focused={s.key === focusKey} onOpen={onOpen} todos={todosFor?.(s.key)} onShowTodo={onShowTodo} />
             ))}
           </div>
         )}

@@ -2,8 +2,9 @@
 
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { absolute, ago, middleTruncate } from '../format';
-import type { Lane, Pr, Session } from '../types';
+import type { Lane, Pr, Session, Todo } from '../types';
 import { HarnessChip, Icon, LaneGlyph, PrChip, Rich, StatusGlyph } from './primitives';
+import { TodoChips } from './TodoBits';
 
 interface LaneRowProps {
   lane: Lane;
@@ -21,6 +22,9 @@ interface LaneRowProps {
   pinIndex?: number;
   onPointerDown?: (e: ReactPointerEvent<HTMLDivElement>) => void;
   extraClass?: string;
+  /** Todos the worktree or its sessions are linked to. */
+  todos?: Todo[];
+  onShowTodo?: (todo: Todo) => void;
 }
 
 const DAY = 86_400_000;
@@ -37,7 +41,7 @@ export function currentSessions(lane: Lane, now: number) {
   return lane.sessions.filter((s) => s.live || s.status === 'needs' || s.status === 'error' || s.status === 'working' || s.status === 'unread' || now - s.lastActivity < DAY);
 }
 
-export function LaneRow({ lane, domId, now, selected, onSelect, onOpen, onOpenTarget, pinned, onContextMenu, pinIndex, onPointerDown, extraClass }: LaneRowProps) {
+export function LaneRow({ lane, domId, now, selected, onSelect, onOpen, onOpenTarget, pinned, onContextMenu, pinIndex, onPointerDown, extraClass, todos, onShowTodo }: LaneRowProps) {
   const chips = currentSessions(lane, now);
   const shown = chips.slice(0, 2);
   const extra = chips.length - shown.length;
@@ -98,6 +102,7 @@ export function LaneRow({ lane, domId, now, selected, onSelect, onOpen, onOpenTa
             ))}
             {extra > 0 && <span className="ca-chip ca-chip--more">+{extra}</span>}
             {chips.length === 0 && <span className="ca-none">{lane.sessions.length ? `No agents today · ${lane.sessions.length} earlier` : 'No agents'}</span>}
+            <TodoChips todos={todos} onShow={onShowTodo} />
           </span>
           <span className="ca-lane-right">
             {lane.pr && <PrChip pr={lane.pr} compact />}
@@ -137,10 +142,13 @@ interface AgentRowProps {
   pinIndex?: number;
   onPointerDown?: (e: ReactPointerEvent<HTMLDivElement>) => void;
   extraClass?: string;
+  /** Todos the session is linked to. */
+  todos?: Todo[];
+  onShowTodo?: (todo: Todo) => void;
 }
 
 /** One agent in the Needs you, Working or Your turn bays, with its worktree as context. */
-export function AgentRow({ lane, session: s, domId, now, selected, onSelect, onOpen, pinned, onContextMenu, pinIndex, onPointerDown, extraClass }: AgentRowProps) {
+export function AgentRow({ lane, session: s, domId, now, selected, onSelect, onOpen, pinned, onContextMenu, pinIndex, onPointerDown, extraClass, todos, onShowTodo }: AgentRowProps) {
   const branch = lane.branch ?? (lane.detached ? `detached @ ${lane.detached}` : null);
   const sub = branch && branch !== lane.callsign ? `${lane.repo} · ${middleTruncate(branch, 26)}` : lane.repo;
   const g = lane.git;
@@ -196,6 +204,7 @@ export function AgentRow({ lane, session: s, domId, now, selected, onSelect, onO
         <div className="ca-lane-line2">
           <span className="ca-lane-agents">
             <HarnessChip session={s} onOpen={onOpen} />
+            <TodoChips todos={todos} onShow={onShowTodo} />
           </span>
           <span className="ca-lane-right">
             {lane.pr && <PrChip pr={lane.pr} compact />}

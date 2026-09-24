@@ -24,6 +24,8 @@ use crate::model::*;
 use crate::perf;
 use crate::repos::{self, Checkout};
 use crate::state::SeenState;
+use crate::todos::{self, TodoOp, TodoStore};
+use crate::images;
 use crate::usage;
 use crate::util::{expand, file_name, home, mtime_ms, now_ms, read_first_line, DAY_MS};
 
@@ -58,6 +60,12 @@ pub enum Msg {
     SetTheme(Theme),
     /// Sent every second while the perf log is on; how late it's read is the engine's lag.
     Ping(Instant),
+    /// A change to a todo or to the labels, from a window. The reply is the time of the board
+    /// that shows it.
+    Todo(TodoOp, Sender<std::result::Result<i64, String>>),
+    /// A session started from a todo: its worktree, and the session's key when Codealong chose
+    /// its ID, or the start to wait for.
+    TodoStarted { id: String, lane: String, session: Option<String>, pending: Option<todos::PendingStart> },
 }
 
 /// What the UI talks to. Cheap to clone.
@@ -90,6 +98,19 @@ impl Handle {
 
     pub fn set_pinned_worktrees(&self, ids: Vec<String>) {
         let _ = self.tx.send(Msg::SetPinnedWorktrees(ids));
+    }
+
+    /// A change to a todo or the labels. Returns once a board that shows it has gone out, with
+    /// that board's time, so a window knows when its own copy of the change can go.
+    pub fn todo(&self, op: TodoOp) -> std::result::Result<i64, String> {
+        let (tx, rx) = channel();
+        self.tx.send(Msg::Todo(op, tx)).map_err(|_| "Codealong's engine stopped.".to_string())?;
+        rx.recv_timeout(Duration::from_secs(20)).map_err(|_| "Codealong is busy; the change will show when it catches up.".to_string())?
+    }
+
+    /// Links a session started from a todo, or waits for it to show up.
+    pub fn todo_started(&self, id: String, lane: String, session: Option<String>, pending: Option<todos::PendingStart>) {
+        let _ = self.tx.send(Msg::TodoStarted { id, lane, session, pending });
     }
 
     /// Archives or unarchives a session. Codex threads are archived in Codex itself, so the
@@ -231,6 +252,7 @@ pub fn snapshot(with_github: bool, with_usage: bool) -> Board {
     let lap = |label: &str, t: &Instant| eprintln!("  {label:<10} {:>6} ms", t.elapsed().as_millis());
     e.load_config();
     e.seen = SeenState::load();
+    e.load_todos();
     e.app_records.refresh(&claudeapp::records_dir());
     lap("config", &t);
     e.scan_sessions();
@@ -325,6 +347,12 @@ struct Engine {
     cfg: Config,
     config_warning: Option<String>,
     seen: SeenState,
+    /// Todos and labels, as in todos.json.
+    todos: TodoStore,
+    /// todos.json as last read or written, so the watcher can tell someone else's edit from ours.
+    todos_text: String,
+    /// Why todos.json couldn't be read; nothing is written over it until it can.
+    todos_warning: Option<String>,
     checkouts: Vec<(String, Checkout)>,
     seeds: Vec<LaneSeed>,
     /// `<main>/.git/worktrees/<name>` → the linked worktree's path.
@@ -389,6 +417,9 @@ impl Engine {
             cfg: Config::default(),
             config_warning: None,
             seen: SeenState::default(),
+            todos: TodoStore::default(),
+            todos_text: String::new(),
+            todos_warning: None,
             checkouts: Vec::new(),
             seeds: Vec::new(),
             gitdir_to_lane: HashMap::new(),
@@ -435,6 +466,11 @@ impl Engine {
         self.load_config();
         self.seen = SeenState::load();
         self.seen.save();
+        self.load_todos();
+        let texts: Vec<String> = self.todos.todos.iter().map(|t| t.description.clone()).collect();
+        let _ = std::thread::Builder::new().name("codealong-images".into()).spawn(move || {
+            images::collect_garbage(&texts.iter().map(String::as_str).collect::<Vec<_>>());
+        });
         self.app_records.refresh(&claudeapp::records_dir());
         self.app_records_at = Some(Instant::now());
         self.scan_sessions();
@@ -536,6 +572,27 @@ impl Engine {
                     self.publish();
                 }
                 Ok(Msg::Ping(sent)) => perf::lag("engine", sent.elapsed()),
+                Ok(Msg::Todo(op, reply)) => {
+                    let lanes = self.lane_index();
+                    let result = match self.todos.apply(op, &lanes, now_ms()) {
+                        Ok(changed) => {
+                            if changed {
+                                self.save_todos();
+                                // Now rather than on the next tick: the window waits for it.
+                                self.publish();
+                            }
+                            Ok(self.board.read().map(|b| b.generated_at).unwrap_or(0))
+                        }
+                        Err(e) => Err(format!("{e:#}")),
+                    };
+                    let _ = reply.send(result);
+                }
+                Ok(Msg::TodoStarted { id, lane, session, pending }) => {
+                    let lanes = self.lane_index();
+                    if self.todos.started(&id, &lane, session.as_deref(), pending, &lanes, now_ms()) {
+                        self.save_todos();
+                    }
+                }
                 Ok(Msg::UsageDone(list)) => {
                     self.usage_inflight = false;
                     self.usage_backoff = list.iter().any(|u| u.rate_limited);
@@ -947,6 +1004,7 @@ impl Engine {
         paths.sort();
         paths.dedup();
         let config_path = config::config_path();
+        let todos_path = todos::path();
         let accounts = self.cfg.accounts.clone();
         let mut registries = BTreeSet::new();
         let mut indexes = BTreeSet::new();
@@ -958,6 +1016,10 @@ impl Engine {
         'paths: for p in paths {
             if p == config_path {
                 reload_config = true;
+                continue;
+            }
+            if p == todos_path {
+                self.reload_todos();
                 continue;
             }
             for a in &accounts {
@@ -1305,6 +1367,73 @@ impl Engine {
         out
     }
 
+    fn load_todos(&mut self) {
+        match todos::load() {
+            Ok((store, text)) => {
+                self.todos = store;
+                self.todos_text = text;
+                self.todos_warning = None;
+            }
+            Err(e) => self.todos_warning = Some(format!("{e:#}")),
+        }
+    }
+
+    /// todos.json changed on disk. Our own writes come back through the watcher too; only
+    /// someone else's edit is read again.
+    fn reload_todos(&mut self) {
+        let text = std::fs::read_to_string(todos::path()).unwrap_or_default();
+        if text == self.todos_text {
+            return;
+        }
+        self.load_todos();
+        self.dirty = true;
+    }
+
+    fn save_todos(&mut self) {
+        self.dirty = true;
+        // A file that didn't read is left for you to fix, not replaced.
+        if self.todos_warning.is_some() {
+            return;
+        }
+        match todos::save(&self.todos) {
+            Ok(text) => self.todos_text = text,
+            Err(e) => self.todos_warning = Some(format!("Couldn't save todos.json: {e:#}")),
+        }
+    }
+
+    /// Each lane's project and repo, for linking todos.
+    fn lane_index(&self) -> LaneIndex {
+        let board = self.board.read().map(|b| b.lanes.iter().map(|l| (l.id.clone(), (l.project.clone(), repo_identity(l)))).collect()).unwrap_or_default();
+        LaneIndex(board)
+    }
+
+    /// Links sessions that starts in the apps were waiting for, from the board just composed.
+    fn link_pending(&mut self, board: &Board) -> bool {
+        if self.todos.todos.iter().all(|t| t.pending.is_empty()) {
+            return false;
+        }
+        let harness = |h: Harness| if h == Harness::Codex { "codex" } else { "claude" };
+        let sessions: Vec<todos::SessionRef> = board
+            .lanes
+            .iter()
+            .flat_map(|l| {
+                l.sessions.iter().filter(|s| s.visitor.is_none()).map(move |s| todos::SessionRef {
+                    key: &s.key,
+                    lane: &l.id,
+                    harness: harness(s.harness),
+                    account: &s.account,
+                    started: s.started_at.unwrap_or(s.last_activity),
+                })
+            })
+            .collect();
+        let lanes = LaneIndex(board.lanes.iter().map(|l| (l.id.clone(), (l.project.clone(), repo_identity(l)))).collect());
+        let changed = self.todos.resolve_pending(&sessions, &lanes, now_ms());
+        if changed {
+            self.save_todos();
+        }
+        changed
+    }
+
     fn compose(&self) -> Board {
         let now = now_ms();
         let apps = AppNames {
@@ -1314,7 +1443,7 @@ impl Engine {
             editor_id: self.cfg.apps.editor.clone(),
         };
         let order: Vec<String> = self.cfg.projects.iter().map(|p| p.name.clone()).collect();
-        let warnings = [&self.config_warning, &self.gh_warning, &self.watch_warning].into_iter().flatten().cloned().collect();
+        let warnings = [&self.config_warning, &self.gh_warning, &self.watch_warning, &self.todos_warning].into_iter().flatten().cloned().collect();
         let mut board = board::compose(board::Inputs {
             now,
             apps: &apps,
@@ -1334,6 +1463,8 @@ impl Engine {
         board.pinned_worktrees = self.seen.pinned_worktrees.clone();
         board.theme = self.cfg.appearance.theme;
         board.perf_log = perf::enabled();
+        board.todos = self.todos.todos.clone();
+        board.labels = self.todos.labels.clone();
         board
     }
 
@@ -1353,7 +1484,10 @@ impl Engine {
 
     fn publish(&mut self) {
         let t = Instant::now();
-        let board = self.compose();
+        let mut board = self.compose();
+        if self.link_pending(&board) {
+            board.todos = self.todos.todos.clone();
+        }
         let composed = t.elapsed();
         self.dirty = false;
         let since_last = self.last_publish.map(|t| t.elapsed());
@@ -1376,6 +1510,23 @@ impl Engine {
             *slot = board;
         }
     }
+}
+
+/// Each lane's project and repo identity, by lane id.
+struct LaneIndex(HashMap<String, (String, String)>);
+
+impl todos::Lanes for LaneIndex {
+    fn project_of(&self, lane: &str) -> Option<String> {
+        self.0.get(lane).map(|(p, _)| p.clone()).filter(|p| p != ELSEWHERE)
+    }
+    fn repo_of(&self, lane: &str) -> Option<String> {
+        self.0.get(lane).map(|(_, r)| r.clone())
+    }
+}
+
+/// What every worktree of a repo shares: its GitHub slug, else its project and name.
+fn repo_identity(l: &Lane) -> String {
+    l.repo_slug.clone().unwrap_or_else(|| format!("{}/{}", l.project, l.repo))
 }
 
 /// Which lanes a file shows work in, each with when that work first appears.

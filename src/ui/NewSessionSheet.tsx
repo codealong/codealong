@@ -2,12 +2,16 @@
 // pick the account, or Auto. Codealong only launches it: the harness runs it, and it shows on
 // the board like any other session.
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { startOptions } from '../api';
 import { middleTruncate, resetsPhrase, tildePath } from '../format';
+import { keepImages, pastedImages, useImageDrop } from '../imageInput';
 import { accountFor, autoHarness, autoPicks, choices, initialChoice, initialPlace, placesFor, remember, remembered, type AutoPick, type Choice } from '../start';
-import type { Harness, Lane, StartOptions, StartPlace, StartSpec, Usage } from '../types';
+import { imageNames, insertImage, withoutImage } from '../todos';
+import type { Harness, Lane, StartOptions, StartPlace, StartSpec, Todo, Usage } from '../types';
+import { ImageStrip } from './DescriptionEditor';
 import { Button, Icon } from './primitives';
+import { TodoGlyph } from './TodoBits';
 import { UsageMeter } from './UsageBar';
 
 const HARNESS_WORD: Record<Harness, string> = { claude: 'Claude Code', codex: 'Codex' };
@@ -57,6 +61,8 @@ export interface SheetDraft {
   place: StartPlace | null;
   prompt: string;
   model: string | null;
+  /** The todo the session is for, unless you unlinked it. */
+  todo: string | null;
 }
 
 interface NewSessionSheetProps {
@@ -70,19 +76,52 @@ interface NewSessionSheetProps {
   pinned: string[];
   usage: Usage[];
   now: number;
+  /** The todo it opened for: the prompt starts as the todo, and the session is linked to it. */
+  todo?: Todo | null;
+  /** The prompt it opens with, when there's no draft. */
+  prompt?: string;
+  onError: (message: string) => void;
   onClose: () => void;
   /** Start: the sheet's owner closes it, runs the start and shows `label` while it waits. */
   onStart: (spec: StartSpec, draft: SheetDraft, label: string) => void;
 }
 
-export function NewSessionSheet({ lanes, laneId: firstLane, draft, error: failed, pinned, usage, now, onClose, onStart }: NewSessionSheetProps) {
+export function NewSessionSheet({ lanes, laneId: firstLane, draft, error: failed, pinned, usage, now, todo, prompt: firstPrompt, onError, onClose, onStart }: NewSessionSheetProps) {
   const groups = useMemo(() => laneGroups(lanes, pinned), [lanes, pinned]);
   const [options, setOptions] = useState<StartOptions | null>(null);
   // Without a selected worktree, the first on the list: a pinned one, else the latest.
   const [laneId, setLaneId] = useState(firstLane ?? groups[0]?.lanes[0]?.id ?? '');
   const [choice, setChoice] = useState<Choice | null>(null);
   const [place, setPlace] = useState<StartPlace | null>(null);
-  const [prompt, setPrompt] = useState(draft?.prompt ?? '');
+  const [prompt, setPrompt] = useState(draft?.prompt ?? firstPrompt ?? '');
+  // The todo it's for; you can unlink it and start a plain session.
+  const [todoId, setTodoId] = useState<string | null>(draft ? draft.todo : (todo?.id ?? null));
+  const promptRef = useRef<HTMLTextAreaElement>(null);
+  const promptBox = useRef<HTMLLabelElement>(null);
+  const promptNow = useRef(prompt);
+  promptNow.current = prompt;
+  // Images go in at the cursor, each on a line of its own.
+  const addImages = (names: string[]) => {
+    const el = promptRef.current;
+    let text = promptNow.current;
+    let at = el && document.activeElement === el ? el.selectionStart : text.length;
+    for (const n of names) {
+      const r = insertImage(text, at, n);
+      text = r.text;
+      at = r.cursor;
+    }
+    setPrompt(text);
+    window.requestAnimationFrame(() => {
+      promptRef.current?.focus();
+      promptRef.current?.setSelectionRange(at, at);
+    });
+  };
+  const addBlobs = (blobs: Blob[]) => {
+    keepImages(blobs)
+      .then(addImages)
+      .catch((e: unknown) => onError(String(e).replace(/^Error: /, '')));
+  };
+  useImageDrop(promptBox, addImages, onError);
   // A model for a terminal start; null is the account's own default. Not remembered: the
   // default stays the default.
   const [model, setModel] = useState<string | null>(draft?.model ?? null);
@@ -127,7 +166,7 @@ export function NewSessionSheet({ lanes, laneId: firstLane, draft, error: failed
         : place === 'claude-app'
           ? `Opening a new session in the Claude app…`
           : `Opening a new thread in Codex…`;
-    onStart({ laneId: lane.id, account, place, prompt, model: chosenModel }, { choice, place, prompt, model }, label);
+    onStart({ laneId: lane.id, account, place, prompt, model: chosenModel, todo: todoId }, { choice, place, prompt, model, todo: todoId }, label);
   };
 
   // ⌘⏎ starts and Escape closes, wherever the focus is. Re-bound each render so Start sees the
@@ -188,6 +227,8 @@ export function NewSessionSheet({ lanes, laneId: firstLane, draft, error: failed
           ? `Codex opens a new thread in ${where}${prompted ? ' with this prompt filled in' : ''}. You send it from there.`
           : '';
   const newToCodex = place === 'codex-app' && !!lane && !!options && !options.codexProjects.includes(lane.path);
+  const images = imageNames(prompt);
+  const forTodo = todo && todoId === todo.id ? todo : null;
 
   return (
     <div
@@ -215,6 +256,19 @@ export function NewSessionSheet({ lanes, laneId: firstLane, draft, error: failed
           <Button variant="ghost" size="sm" icon="x" aria-label="Close" onClick={onClose} />
         </header>
         <div className="ca-dialog-body">
+          {forTodo && (
+            <div className="ca-field">
+              <span>For todo</span>
+              <div className="ca-start-todo">
+                <TodoGlyph status={forTodo.status} />
+                <span className="ca-start-todo-title">{forTodo.title || 'Untitled'}</span>
+                <button type="button" className="ca-linkbtn" title="Start a session that isn't linked to this todo" onClick={() => setTodoId(null)}>
+                  Don’t link
+                </button>
+              </div>
+              <small>The session is linked to this todo{place === 'terminal' ? ' as it starts' : ' once it shows up'}, and the todo moves to In progress.</small>
+            </div>
+          )}
           <label className="ca-field">
             <span>Worktree</span>
             <span className="ca-start-select">
@@ -297,12 +351,28 @@ export function NewSessionSheet({ lanes, laneId: firstLane, draft, error: failed
               </label>
             </div>
           )}
-          <label className="ca-field">
+          <label className="ca-field" ref={promptBox}>
             <span>Prompt</span>
-            <textarea value={prompt} rows={5} autoFocus spellCheck placeholder="What should it work on? You can also leave this empty and type in the session." onChange={(e) => setPrompt(e.target.value)} />
+            <textarea
+              ref={promptRef}
+              value={prompt}
+              rows={5}
+              autoFocus
+              spellCheck
+              placeholder="What should it work on? Paste or drop screenshots too. You can also leave this empty and type in the session."
+              onChange={(e) => setPrompt(e.target.value)}
+              onPaste={(e) => {
+                const pasted = pastedImages(e);
+                if (pasted.length === 0) return;
+                e.preventDefault();
+                addBlobs(pasted);
+              }}
+            />
+            <ImageStrip names={images} onRemove={(n) => setPrompt(withoutImage(prompt, n))} />
             {happens && (
               <small>
                 {happens}
+                {images.length > 0 && ` ${images.length === 1 ? 'The image goes' : 'Images go'} as ${images.length === 1 ? 'a file path' : 'file paths'} the agent opens.`}
                 {newToCodex && ' Codex adds this folder as a project if it isn’t one yet.'}
               </small>
             )}

@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::codex;
 use crate::config::{AccountCfg, Config};
+use crate::images;
 use crate::launch;
 use crate::model::{Board, Harness};
 use crate::util::{home, tilde};
@@ -16,6 +17,8 @@ use crate::util::{home, tilde};
 /// The environment variable a terminal start hands the prompt over in. The command Codealong
 /// types stays short and needs no quoting, whatever the prompt holds.
 pub const PROMPT_VAR: &str = "CODEALONG_PROMPT";
+/// The images folder, for `--add-dir`, when the prompt has images. Its path has a space in it.
+pub const IMAGES_VAR: &str = "CODEALONG_IMAGES";
 
 /// The models a Claude Code start can ask for, as `--model` takes them: aliases for the newest
 /// model of each family, the way Claude Code's own `/model` picker offers them (2.1.282 knows
@@ -97,6 +100,9 @@ pub struct StartSpec {
     /// `--model` for a terminal start; None starts on the account's default.
     #[serde(default)]
     pub model: Option<String>,
+    /// The todo this session is for, which it's linked to once it starts.
+    #[serde(default)]
+    pub todo: Option<String>,
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
@@ -185,16 +191,32 @@ pub fn options_for(cfg: &Config) -> StartOptions {
 /// The launch for one start. In the terminal Claude Code takes `session_id` as its own
 /// (`--session-id`), so the board knows the session the moment it appears. The apps get a link
 /// that opens their new-session page with the folder and prompt filled in; you send it there.
+///
+/// Images in the prompt (`images/<name>`) go to Claude Code as file mentions, with the images
+/// folder added so it can read them without asking; `--add-dir` takes several folders, so it
+/// comes before the other options, where the next one ends it. The apps get the paths.
 pub fn plan(account: &AccountCfg, place: Place, folder: &Path, prompt: &str, session_id: &str, model: Option<&str>) -> Plan {
+    plan_in(account, place, folder, prompt, session_id, model, &images::dir())
+}
+
+fn plan_in(account: &AccountCfg, place: Place, folder: &Path, prompt: &str, session_id: &str, model: Option<&str>, images_dir: &Path) -> Plan {
+    let has_images = !images::referenced(prompt).is_empty();
+    let style = if place == Place::CodexApp { images::Style::Path } else { images::Style::Mention };
+    let prompt = images::expand_in(prompt, images_dir, style);
     let prompt = prompt.trim();
     let dir = folder.to_string_lossy();
     match place {
         Place::Terminal => {
-            let mut input = format!("{} --session-id {session_id}", account.command());
+            let mut input = account.command().to_string();
+            let mut env = Vec::new();
+            if has_images {
+                input.push_str(&format!(" --add-dir \"${IMAGES_VAR}\""));
+                env.push((IMAGES_VAR.to_string(), images_dir.to_string_lossy().to_string()));
+            }
+            input.push_str(&format!(" --session-id {session_id}"));
             if let Some(m) = model.filter(|m| valid_model(m)) {
                 input.push_str(&format!(" --model '{m}'"));
             }
-            let mut env = Vec::new();
             if !prompt.is_empty() {
                 input.push_str(&format!(" \"${PROMPT_VAR}\""));
                 env.push((PROMPT_VAR.to_string(), as_argument(prompt)));
@@ -355,6 +377,33 @@ mod tests {
         let custom = account("claude3", "claude", "~/.claude3", Some("CLAUDE_CONFIG_DIR=~/.claude3 claude"));
         let Plan::Terminal { input, .. } = plan(&custom, Place::Terminal, Path::new("/r/x"), "", id, None) else { panic!() };
         assert_eq!(input, format!("CLAUDE_CONFIG_DIR=~/.claude3 claude --session-id {id}\n"));
+    }
+
+    #[test]
+    fn hands_images_over_as_paths_claude_code_may_read() {
+        let a = account("claude2", "claude", "~/.claude2", Some("claude2"));
+        let id = "0b7c2a4e-1d2f-4e3a-9b8c-7d6e5f4a3b2c";
+        let dir = Path::new("/Users/me/Library/Application Support/Codealong/images");
+        let prompt = "Match this:\n![image](images/0123456789abcdef.png)";
+        let Plan::Terminal { input, env, .. } = plan_in(&a, Place::Terminal, Path::new("/r/x"), prompt, id, Some("opus"), dir) else { panic!() };
+        assert_eq!(input, format!("claude2 --add-dir \"$CODEALONG_IMAGES\" --session-id {id} --model 'opus' \"$CODEALONG_PROMPT\"\n"));
+        assert_eq!(
+            env,
+            vec![
+                (IMAGES_VAR.to_string(), dir.to_string_lossy().to_string()),
+                (PROMPT_VAR.to_string(), format!("Match this:\n@\"{}/0123456789abcdef.png\"", dir.display())),
+            ]
+        );
+        // Without images, nothing changes.
+        let Plan::Terminal { input, .. } = plan_in(&a, Place::Terminal, Path::new("/r/x"), "Fix it", id, None, dir) else { panic!() };
+        assert_eq!(input, format!("claude2 --session-id {id} \"$CODEALONG_PROMPT\"\n"));
+        // Codex opens the path; the Claude app gets the same mention the terminal does.
+        let codex = account("codex", "codex", "~/.codex", None);
+        let Plan::CodexApp { url } = plan_in(&codex, Place::CodexApp, Path::new("/r/x"), prompt, id, None, dir) else { panic!() };
+        assert!(url.ends_with(&urlencoding::encode(&format!("Match this:\n![image]({}/0123456789abcdef.png)", dir.display())).to_string()));
+        let claude = account("claude", "claude", "~/.claude", Some("claude"));
+        let Plan::ClaudeApp { url } = plan_in(&claude, Place::ClaudeApp, Path::new("/r/x"), prompt, id, None, dir) else { panic!() };
+        assert!(url.contains(&urlencoding::encode("@\"/Users/me/Library").to_string()));
     }
 
     #[test]

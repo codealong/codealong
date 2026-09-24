@@ -1612,3 +1612,550 @@ html.is-bar body {
   visibility: hidden;
   pointer-events: none;
 }
+
+/* ---- Todo: the fourth view, its panel, and the chips sessions show for their todos ---- */
+
+/* A todo's box: square, so it never reads as a session's round status glyph. */
+.ca-todoglyph {
+  flex: none;
+  display: inline-block;
+  vertical-align: middle;
+  overflow: visible;
+}
+.ca-tg-box {
+  fill: none;
+  stroke: var(--ink-3);
+  stroke-width: 1.4;
+}
+.ca-todoglyph.is-in-progress .ca-tg-box {
+  stroke: var(--ink-2);
+}
+.ca-tg-fill {
+  fill: var(--ink-2);
+}
+.ca-todoglyph.is-done .ca-tg-box {
+  fill: var(--ink-3);
+}
+.ca-tg-check {
+  fill: none;
+  stroke: var(--surface);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Labels: a colored square in a neutral chip. The color names a category, not a status. */
+.ca-labeldot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--label-gray);
+}
+.ca-labeldot.is-red { background: var(--label-red); }
+.ca-labeldot.is-pink { background: var(--label-pink); }
+.ca-labeldot.is-purple { background: var(--label-purple); }
+.ca-labeldot.is-indigo { background: var(--label-indigo); }
+.ca-labeldot.is-blue { background: var(--label-blue); }
+.ca-labeldot.is-teal { background: var(--label-teal); }
+.ca-labeldot.is-green { background: var(--label-green); }
+.ca-labelchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  height: 20px;
+  padding: 0 7px 0 6px;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: var(--neutral-tint);
+  color: var(--ink-2);
+  font: 500 11px/14px var(--font-sans);
+  white-space: nowrap;
+}
+.ca-labelchip--button {
+  cursor: pointer;
+}
+.ca-labelchip--button:hover {
+  background: var(--surface-selected);
+  color: var(--ink);
+}
+.ca-labelchip--button:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+.ca-labelchip > button {
+  display: inline-flex;
+  margin: 0 -3px 0 0;
+  padding: 1px;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+.ca-labelchip > button:hover {
+  color: var(--ink);
+}
+.ca-labelchip--add {
+  border: 1px dashed var(--line-strong);
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+.ca-labelchip--add:hover,
+.ca-labelchip--add[aria-expanded='true'] {
+  border-style: solid;
+  color: var(--ink);
+}
+.ca-labelfilter .ca-icon {
+  color: var(--ink-3);
+}
+
+/* A todo on a session's or a worktree's row. */
+.ca-chip.ca-todochip {
+  max-width: 240px;
+  min-width: 0;
+  font: 500 11px/14px var(--font-sans);
+}
+.ca-todochip-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ca-srow-meta .ca-todochip {
+  max-width: 100%;
+}
+
+/* Todo rows: no worktree column; the worktree shows on the right of the second line. */
+.ca-lane.ca-todorow {
+  grid-template-columns: 32px minmax(0, 1fr) 52px;
+}
+.ca-todorow .ca-seg-main {
+  border-left: 0;
+  padding-left: 0;
+}
+.ca-todorow-title {
+  color: var(--ink);
+  font-weight: 500;
+}
+.ca-todorow.is-done .ca-todorow-title {
+  color: var(--ink-3);
+}
+.ca-todorow-lane {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font: 400 11px/14px var(--font-mono);
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+.ca-todorow-lane .ca-icon {
+  color: var(--ink-3);
+}
+.ca-chip.ca-todorow-waiting {
+  font-family: var(--font-sans);
+  color: var(--ink-3);
+}
+.ca-lane.is-draggable {
+  cursor: grab;
+}
+.ca-lane.is-draggable:hover .ca-grip {
+  opacity: 1;
+}
+.ca-todo-done .ca-lane {
+  opacity: 0.8;
+}
+/* The age filter's place in the board head; the todo view shows its label filter there. */
+.ca-todofilter {
+  display: flex;
+  align-items: center;
+  min-height: 28px;
+}
+
+/* The box that adds todos, at the top of the list. */
+.ca-todonew {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  margin-top: var(--space-2);
+  padding: 0 var(--space-3) 0 11px;
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  color: var(--ink-3);
+}
+.ca-todonew:focus-within {
+  box-shadow: inset 0 0 0 2px var(--focus);
+}
+.ca-todonew input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--ink);
+  font: 400 13px/18px var(--font-sans);
+}
+.ca-todonew input::placeholder {
+  color: var(--ink-3);
+}
+.ca-todonew-ctx {
+  max-width: 45%;
+  font-family: var(--font-sans);
+}
+.ca-todonew-ctx > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ca-todonew-ctx button {
+  display: inline-flex;
+  padding: 1px;
+  border: 0;
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+.ca-todonew-ctx button:hover {
+  color: var(--ink);
+}
+.ca-todonew-where {
+  font: 400 12px/16px var(--font-sans);
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+/* The todo panel: wider than the worktree inspector, for descriptions with screenshots. */
+.ca-win--app .ca-win-body.is-todo {
+  --panel-w: min(460px, 40vw);
+}
+.ca-todoinsp header {
+  display: grid;
+  gap: 6px;
+}
+.ca-todoinsp .ca-insp-title .ca-tag {
+  margin-left: 0;
+}
+.ca-todoinsp-more {
+  margin-left: auto;
+}
+.ca-todoinsp-title {
+  display: block;
+  width: calc(100% + 12px);
+  margin: 0 -6px;
+  padding: 3px 6px;
+  box-sizing: border-box;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink);
+  font: 600 17px/22px var(--font-sans);
+  resize: none;
+  overflow: hidden;
+  outline: none;
+}
+.ca-todoinsp-title:hover {
+  border-color: var(--line);
+}
+.ca-todoinsp-title:focus {
+  border-color: var(--focus);
+  box-shadow: var(--shadow-focus);
+}
+.ca-todoinsp-title::placeholder {
+  color: var(--ink-3);
+}
+.ca-todoinsp-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  font: 400 12px/16px var(--font-sans);
+  color: var(--ink-3);
+}
+.ca-insp-actions.ca-todoinsp-actions {
+  flex-wrap: wrap;
+  margin-right: 0;
+}
+.ca-todoinsp-labels {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+.ca-labelpick-anchor {
+  position: relative;
+  display: inline-flex;
+}
+.ca-menu.ca-labelpick {
+  min-width: 240px;
+  max-width: 300px;
+}
+.ca-labelpick-input,
+.ca-labelpick-rename {
+  box-sizing: border-box;
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font: 400 13px/18px var(--font-sans);
+  outline: none;
+}
+.ca-labelpick-input {
+  margin-bottom: 4px;
+}
+.ca-labelpick-input:focus,
+.ca-labelpick-rename:focus {
+  border-color: var(--focus);
+}
+.ca-labelpick-rename {
+  flex: 1;
+  min-width: 0;
+  height: 24px;
+}
+.ca-labelpick-list {
+  max-height: 240px;
+  overflow: auto;
+}
+.ca-labelpick .ca-menu-item {
+  gap: 8px;
+}
+.ca-labelpick-check {
+  display: inline-flex;
+  flex: none;
+  width: 14px;
+  color: var(--ink-2);
+}
+.ca-labelpick-note {
+  margin: 4px 8px 2px;
+  font: 400 11px/14px var(--font-sans);
+  color: var(--ink-3);
+}
+.ca-label.ca-todoinsp-linkhead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.ca-todoinsp-linkhead .ca-linkbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.ca-todoinsp-waiting {
+  display: flex;
+  gap: 6px;
+  margin: 6px 0 0;
+  font: 400 12px/16px var(--font-sans);
+  color: var(--ink-3);
+}
+.ca-todoinsp-waiting .ca-icon {
+  flex: none;
+  margin-top: 2px;
+}
+.ca-empty .ca-kbds {
+  vertical-align: -3px;
+}
+
+/* A description: text and screenshots. Click it to edit the text. */
+.ca-desc {
+  display: grid;
+  gap: 6px;
+}
+.ca-desc-view {
+  margin: 0 -8px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  color: var(--ink);
+  font: 400 13px/19px var(--font-sans);
+  cursor: text;
+  outline: none;
+}
+.ca-desc-view:hover {
+  background: var(--surface-hover);
+}
+.ca-desc-view:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--focus);
+}
+.ca-desc-view.is-empty {
+  color: var(--ink-3);
+}
+.ca-desc-text {
+  margin: 0 0 8px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.ca-desc-text:last-child {
+  margin-bottom: 0;
+}
+.ca-desc-text a {
+  color: var(--ink);
+  text-decoration: underline;
+  text-decoration-color: var(--line-strong);
+  text-underline-offset: 2px;
+}
+.ca-desc-img {
+  display: block;
+  max-width: 100%;
+  margin: 0 0 8px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  overflow: hidden;
+  cursor: zoom-in;
+}
+.ca-desc-img:last-child {
+  margin-bottom: 0;
+}
+.ca-desc-img img {
+  display: block;
+  max-width: 100%;
+  max-height: 360px;
+  object-fit: contain;
+}
+.ca-desc-area {
+  display: block;
+  width: 100%;
+  min-height: 96px;
+  box-sizing: border-box;
+  padding: 7px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font: 400 13px/19px var(--font-sans);
+  resize: none;
+  outline: none;
+  -webkit-user-select: text;
+  user-select: text;
+}
+.ca-desc-area:focus {
+  border-color: var(--focus);
+  box-shadow: var(--shadow-focus);
+}
+.ca-desc-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.ca-desc-foot .ca-linkbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.ca-desc-foot small {
+  font: 400 11px/14px var(--font-sans);
+  color: var(--ink-3);
+}
+
+/* Image thumbnails, under a prompt or a description being edited. */
+.ca-imgstrip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 2px;
+}
+.ca-imgthumb {
+  position: relative;
+  display: inline-flex;
+}
+.ca-imgthumb-open {
+  display: block;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  overflow: hidden;
+  cursor: zoom-in;
+}
+.ca-imgthumb-open img {
+  display: block;
+  height: 56px;
+  max-width: 120px;
+  object-fit: cover;
+}
+.ca-imgthumb-x {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+  background: var(--surface-raised);
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.ca-imgthumb-x:hover {
+  color: var(--ink);
+}
+
+/* The new-session sheet's todo, when it opened for one. */
+.ca-start-todo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+}
+.ca-start-todo-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 500 13px/18px var(--font-sans);
+  color: var(--ink);
+}
+
+/* A worktree's todos, in its inspector. */
+.ca-insp-todos {
+  display: grid;
+  gap: 1px;
+}
+.ca-insp-todo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 28px;
+  margin: 0 calc(-1 * var(--space-2));
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink);
+  font: 400 13px/18px var(--font-sans);
+  text-align: left;
+  cursor: pointer;
+}
+.ca-insp-todo:hover {
+  background: var(--surface-hover);
+}
+.ca-insp-todo:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--focus);
+}
+.ca-insp-todo-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

@@ -13,7 +13,7 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
 
 ## What it does
 
-- **Three views** of the current project, each in a window of its own if you like (⌘⇧N):
+- **Four views** of the current project, each in a window of its own if you like (⌘⇧N):
   - **Worktrees**: pinned worktrees first in your order, then agents that need you, are
     working or just finished, then worktrees in review, idle and merged. Stuck agents (busy
     but silent for 30 minutes) show in Needs you with the command they're stuck on. Pin a
@@ -30,6 +30,15 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     the worktrees and sessions behind it, drawn like the sidebar's tree: whether the worktree
     has anything GitHub doesn't, and the agents that worked on the PR, including one that made
     the worktree from another folder.
+  - **Todo**: work you mean to hand an agent. Each todo has a title, a description that can
+    hold screenshots (paste, drop or pick them), colored labels, and a status: Todo, In
+    progress (an agent is on it) or Done. Add one in the box at the top (`n`), reorder by
+    dragging or with ⌥↑ ⌥↓, mark one done with `x`. Start session (⌘N) opens the new-session
+    sheet with the todo as the prompt, and the session it starts is linked to the todo, which
+    moves to In progress; one started in the Claude or Codex app is linked when it shows up.
+    Link worktrees and sessions you already have from the todo, or from a session's or
+    worktree's right-click menu (Add to todo). A session or worktree on a todo shows the
+    todo's chip; click it to go to the todo.
 - **Open where it lives**: the session's own Ghostty tab, the Claude app session, the Codex
   thread, a background job attached in a new window, or the folder in Cursor.
 - **New session** (⌘N, the title bar, the inspector, or a worktree's or session's right-click
@@ -40,7 +49,9 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   one harness: first the one whose weekly limit resets soonest within 48 hours, so its room
   isn't lost, else the one with the most room; accounts at 90% of a limit are passed over.
   Codealong only launches: the session shows on the board like any other, and one started in
-  Ghostty is selected as soon as it appears.
+  Ghostty is selected as soon as it appears. Paste or drop screenshots into the prompt: Claude
+  Code in Ghostty gets them as file mentions (attached when they're 256 KB or less, read
+  otherwise, with the images folder added so it doesn't ask), and the apps get their paths.
 - **Usage** for every account in a bar across the top: 5-hour and weekly limits, per-model
   limits such as Fable, and time to reset. Add accounts in Accounts (⌘,).
 - **Filters**: the Inbox (Needs you, Working, Your turn, In review, Checks failing), search,
@@ -113,7 +124,8 @@ folders = []
 
 What you've seen (for Your turn), what you've pinned and what you've archived in Codealong
 are kept in `state.json` next to it; whether the floating bar is on, and where you left it, in
-`bar.json`.
+`bar.json`. Todos and labels are in `todos.json`, which is watched, so an agent or an editor can
+add to it; the images in them are in `images/`, named by their content.
 
 ## Permissions and safety
 
@@ -135,6 +147,8 @@ are kept in `state.json` next to it; whether the floating bar is on, and where y
 | `src-tauri/src/repos.rs`, `git.rs`, `github.rs` | Repo discovery, callsigns, worktrees, git status, PRs |
 | `src-tauri/src/launch.rs` | App profiles: Ghostty (AppleScript, exact tab focus), Cursor (CLI), deep links |
 | `src-tauri/src/start.rs`, `src/start.ts` | New sessions: where each account can start one, the launch it makes, Auto's pick |
+| `src-tauri/src/todos.rs`, `src/todos.ts` | Todos: the store and its changes, linking sessions started from a todo; the list's sections, filters and prompt |
+| `src-tauri/src/images.rs` | Images in descriptions and prompts: kept by content, served to windows, handed to agents as paths |
 | `src-tauri/src/usage.rs` | Plan usage: Claude through its sign-in and usage endpoint, Codex from its rollouts |
 | `src-tauri/src/appserver.rs` | Codex actions through its app-server (archiving) |
 | `src-tauri/src/claudeapp.rs` | The Claude app's session records (its IDs, what you archived there) |

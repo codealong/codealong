@@ -316,6 +316,10 @@ pub struct Board {
     pub theme: Theme,
     /// True while `[debug] perf_log` is on, so windows report their timings too.
     pub perf_log: bool,
+    /// Every todo, in your order.
+    pub todos: Vec<crate::todos::Todo>,
+    /// Todo labels, in your order.
+    pub labels: Vec<crate::todos::Label>,
 }
 
 /// A PR in the PRs view, with the worktrees and sessions that worked on it.
