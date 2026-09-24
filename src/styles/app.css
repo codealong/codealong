@@ -1349,9 +1349,19 @@ body.is-resizing * {
 .ca-prrow .ca-seg-main {
   border-left: 0;
 }
-.ca-prrow.is-requested .ca-seg-glyph {
+/* A row that's your move (see prFlag) gets a colored edge: amber for a review asked of you or
+   something to fix, red for failing checks, green for your PRs that GitHub would merge. */
+.ca-prrow.is-flag-attn .ca-seg-glyph {
   box-shadow: inset 3px 0 0 var(--attn-solid);
   background: var(--attn-tint);
+}
+.ca-prrow.is-flag-alert .ca-seg-glyph {
+  box-shadow: inset 3px 0 0 var(--alert-solid);
+  background: var(--alert-tint);
+}
+.ca-prrow.is-flag-ready .ca-seg-glyph {
+  box-shadow: inset 3px 0 0 var(--pr-open-solid);
+  background: var(--pr-open-tint);
 }
 .ca-prrow-num {
   flex: none;
@@ -1401,7 +1411,50 @@ body.is-resizing * {
   gap: 4px;
 }
 
+/* Where a PR stands: its review, checks and merge as the design system's status pills. */
+.ca-prpills {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+}
+.ca-prpill {
+  flex: none;
+}
+.ca-pill.is-ready,
+.ca-pill.is-pass {
+  background: var(--pr-open-tint);
+  color: var(--pr-open);
+}
+.ca-pill.is-ready {
+  font-weight: 600;
+}
+.ca-pill.is-attn {
+  background: var(--attn-tint);
+  color: var(--attn);
+}
+.ca-pill.is-alert {
+  background: var(--alert-tint);
+  color: var(--alert);
+}
+.ca-pill.is-quiet {
+  color: var(--ink-3);
+}
+.ca-pill.is-merged {
+  background: var(--pr-merged-tint);
+  color: var(--pr-merged);
+}
+
 /* The PR panel. */
+.ca-prinsp-status {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  margin-left: auto;
+}
 .ca-prinsp header {
   display: grid;
   gap: 6px;

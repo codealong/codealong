@@ -74,6 +74,25 @@ impl PrState {
     }
 }
 
+/// Whether GitHub would merge an open PR now, as its merge box says (`mergeStateStatus`).
+#[derive(Serialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Merge {
+    /// Nothing stands in the way: the reviews the repo requires, passing checks, no conflicts.
+    Clean,
+    /// The branch conflicts with its base.
+    Conflicts,
+    /// The repo wants the branch up to date with its base, and it's behind.
+    Behind,
+    /// Held back by a review or check the repo requires, a rule, or being a draft.
+    Blocked,
+    /// It could merge, but checks that aren't required didn't pass.
+    Unstable,
+    /// GitHub hasn't worked it out yet (asking starts that), or the PR is merged or closed.
+    #[default]
+    Unknown,
+}
+
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Session {
@@ -144,6 +163,7 @@ pub struct Pr {
     pub url: String,
     pub state: PrState,
     pub checks: Checks,
+    pub merge: Merge,
     pub updated_at: i64,
     pub merged_at: Option<i64>,
     pub closed_at: Option<i64>,
@@ -342,6 +362,7 @@ pub struct PrItem {
     pub head: String,
     pub base: Option<String>,
     pub checks: Checks,
+    pub merge: Merge,
     pub additions: u64,
     pub deletions: u64,
     pub changed_files: u64,

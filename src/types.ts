@@ -6,6 +6,8 @@ export type Status = 'needs' | 'error' | 'working' | 'unread' | 'idle' | 'stoppe
 export type Bay = 'needs' | 'working' | 'unread' | 'review' | 'idle' | 'merged';
 export type Origin = 'main' | 'script' | 'codex' | 'claude-app' | 'scratchpad' | 'temp' | 'folder' | 'other';
 export type PrState = 'draft' | 'open' | 'approved' | 'changes' | 'merged' | 'closed';
+/** Whether GitHub would merge an open PR now (its `mergeStateStatus`); `unknown` once it's closed. */
+export type Merge = 'clean' | 'conflicts' | 'behind' | 'blocked' | 'unstable' | 'unknown';
 
 export interface Session {
   key: string;
@@ -63,6 +65,7 @@ export interface Pr {
   url: string;
   state: PrState;
   checks: Checks;
+  merge: Merge;
   updatedAt: number;
   mergedAt: number | null;
   closedAt: number | null;
@@ -237,6 +240,7 @@ export interface PrItem {
   head: string;
   base: string | null;
   checks: Checks;
+  merge: Merge;
   additions: number;
   deletions: number;
   changedFiles: number;
