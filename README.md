@@ -37,6 +37,8 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   limits such as Fable, and time to reset. Add accounts in Accounts (⌘,).
 - **Filters**: the Inbox (Needs you, Working, Your turn, In review, Checks failing), search,
   and how recently things were active (24h, 3d, 7d, all).
+- **Light or dark**: follows macOS unless you pick light or dark with the buttons at the foot
+  of the sidebar. The choice is saved in config.toml, and every window follows it.
 
 Next: the menu bar icon and popover, and notifications (the design system's *Build plan*).
 
@@ -72,6 +74,9 @@ scan = ["~/projects"]          # where repos are found, three levels deep
 [apps]
 terminal = "ghostty"
 editor = "cursor"
+
+[appearance]
+theme = "system"               # follows macOS; or "light", "dark"
 
 [[accounts]]
 name = "claude2"               # what the board shows

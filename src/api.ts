@@ -3,7 +3,7 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import type { AccountCfg, AccountInfo, Board, PrDetail, StartOptions, Started, StartSpec } from './types';
+import type { AccountCfg, AccountInfo, Board, PrDetail, StartOptions, Started, StartSpec, Theme } from './types';
 
 export const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
@@ -132,4 +132,10 @@ export async function startOptions(): Promise<StartOptions> {
 export async function startSession(spec: StartSpec): Promise<Started | null> {
   if (!inTauri) throw new Error('Starting a session needs the app.');
   return invoke<Started | null>('start_session', { spec });
+}
+
+/** Saves the theme to config.toml. Every window follows. */
+export async function setTheme(theme: Theme): Promise<void> {
+  if (!inTauri) return;
+  await invoke('set_theme', { theme });
 }

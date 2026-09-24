@@ -7,10 +7,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { showContextMenu } from './contextMenu';
 import { AGENT_BAY, BAYS, buildBays, failingPr, filterByAge, laneInFilter, type BoardRow, type Filter } from './lanes';
-import { approvePr, archiveSession, getBoard, markSeen, onBoard, openConfig, openProjectWindow, openTarget, openUrl, refresh, refreshUsage, reviewInCodex, setPinned, setPinnedWorktrees, signIn } from './api';
+import { approvePr, archiveSession, getBoard, markSeen, onBoard, openConfig, openProjectWindow, openTarget, openUrl, refresh, refreshUsage, reviewInCodex, setPinned, setPinnedWorktrees, setTheme, signIn } from './api';
 import { ago } from './format';
 import { usePins } from './pins';
-import type { Bay, Board, Lane, PrItem, Session, Started } from './types';
+import type { Bay, Board, Lane, PrItem, Session, Started, Theme } from './types';
 import { AccountsDialog } from './ui/AccountsDialog';
 import { Inspector } from './ui/Inspector';
 import { NewSessionSheet } from './ui/NewSessionSheet';
@@ -21,6 +21,7 @@ import { ALL_PROJECTS, openSwitcher, ProjectSwitcher, type ActionCounts } from '
 import { PrInspector } from './ui/PrInspector';
 import { prIsOpen, prSections, PrsView, type PrRowItem } from './ui/PrsView';
 import { SessionsView, timeSections, type SessionItem } from './ui/SessionsView';
+import { applyTheme, ThemeSwitch } from './ui/ThemeSwitch';
 import { UsageBar } from './ui/UsageBar';
 import { WorktreeTree, type TreeGroup } from './ui/WorktreeTree';
 
@@ -222,6 +223,21 @@ export function App() {
     const id = window.setTimeout(() => setToast(null), 6000);
     return () => window.clearTimeout(id);
   }, [toast]);
+
+  // The theme from config.toml, or the one just picked here until the board has it.
+  const [pickedTheme, setPickedTheme] = useState<Theme | null>(null);
+  const theme = pickedTheme ?? board?.theme ?? 'system';
+  useEffect(() => applyTheme(theme), [theme]);
+  useEffect(() => {
+    if (pickedTheme && board?.theme === pickedTheme) setPickedTheme(null);
+  }, [board?.theme, pickedTheme]);
+  const pickTheme = useCallback((t: Theme) => {
+    setPickedTheme(t);
+    setTheme(t).catch((e: unknown) => {
+      setPickedTheme(null);
+      setToast(String(e));
+    });
+  }, []);
 
   const projects = board?.projects ?? [];
   const known = project === ALL_PROJECTS || projects.some((p) => p.name === project);
@@ -874,6 +890,7 @@ export function App() {
               <Icon name="settings" size={14} />
               <span>Edit config.toml</span>
             </button>
+            <ThemeSwitch theme={theme} onPick={pickTheme} />
           </div>
           {board && board.warnings.length > 0 && (
             <div className="ca-side-warnings" role="status">

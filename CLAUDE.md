@@ -44,8 +44,9 @@ The engine binary doubles as a CLI for checking behavior without a window:
 Tauri's IPC with `scripts/preview/fake-tauri.js`, and renders in headless Chrome: a screenshot
 in `.preview/<view>.png`, or with `check.js`, whatever the script puts in `document.title`.
 The stub records every command in `window.__calls`, so a check can click, double-click or
-right-click and assert what the app would have sent. Native menus, window creation and real
-opens can't be seen this way; say so rather than claiming they were checked.
+right-click and assert what the app would have sent. `PREVIEW_SCHEME=dark` renders as if macOS
+were in dark mode; check UI changes in both. Native menus, window creation and real opens
+can't be seen this way; say so rather than claiming they were checked.
 
 Done means: typecheck and tests pass, the engine builds without warnings, UI changes are
 previewed, and the app is rebuilt and relaunched.
@@ -65,8 +66,11 @@ previewed, and the app is rebuilt and relaunched.
   gathers inputs and calls them. `src/lanes.ts` mirrors `bay_of` (and the agent bays'
   headlines) for the age filter; keep them in step.
 - Styles: tokens in `design/tokens.json` (`npm run tokens`), colors only through CSS
-  variables. `src/styles/components.css` is the design system's bundle; app styles go in
-  `src/styles/app.css`. Icons are Tabler outline paths in `src/ui/icons.ts`.
+  variables. Dark values apply under `prefers-color-scheme` unless `data-theme` on the root
+  says otherwise; it comes from `theme` in config.toml, which also sets the app's native
+  appearance (window chrome, menus) in `lib.rs`. `src/styles/components.css` is the design
+  system's bundle; app styles go in `src/styles/app.css`. Icons are Tabler outline paths in
+  `src/ui/icons.ts`.
 - UI copy is sentence case and plain words. Comments explain why, in plain sentences.
 - `rustfmt` isn't installed here, so Rust formatting is unchecked; match the surrounding code.
 

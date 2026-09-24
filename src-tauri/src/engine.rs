@@ -16,7 +16,7 @@ use crate::appserver;
 use crate::claude::{self, RegistryEntry, TranscriptInfo};
 use crate::claudeapp;
 use crate::codex::{self, ThreadInfo};
-use crate::config::{self, AccountCfg, Config};
+use crate::config::{self, AccountCfg, Config, Theme};
 use crate::git;
 use crate::github::{self, PrRaw};
 use crate::launch;
@@ -53,6 +53,8 @@ pub enum Msg {
     SetPinnedWorktrees(Vec<String>),
     /// A session archived (true) or unarchived from Codealong; Codex has already done its part.
     SetArchived(String, bool),
+    /// The theme, already saved to config.toml.
+    SetTheme(Theme),
 }
 
 /// What the UI talks to. Cheap to clone.
@@ -113,6 +115,14 @@ impl Handle {
     /// Saves the account list to config.toml. The watcher sees the change and reloads.
     pub fn save_accounts(&self, accounts: Vec<AccountCfg>) -> Result<()> {
         config::save_accounts(&accounts)
+    }
+
+    /// Saves the theme to config.toml and publishes it at once, rather than when the watcher
+    /// notices the file.
+    pub fn set_theme(&self, theme: Theme) -> Result<()> {
+        config::save_theme(theme)?;
+        let _ = self.tx.send(Msg::SetTheme(theme));
+        Ok(())
     }
 
     /// Opens a terminal window that signs the account in.
@@ -188,7 +198,8 @@ pub fn open_on(board: &Board, lane_id: &str, target_id: &str) -> Result<Option<S
 
 pub fn start(emit: impl Fn(&Board) + Send + 'static) -> Handle {
     let (tx, rx) = channel();
-    let board = Arc::new(RwLock::new(Board { loading: true, ..Default::default() }));
+    // The theme is on the board before the first scan finishes, so windows open in it.
+    let board = Arc::new(RwLock::new(Board { loading: true, theme: config::theme(), ..Default::default() }));
     let handle = Handle { tx: tx.clone(), board: board.clone() };
     std::thread::Builder::new()
         .name("codealong-engine".into())
@@ -442,9 +453,18 @@ impl Engine {
         });
     }
 
-    /// Everything that depends on config.toml, read again.
+    /// Everything that depends on config.toml, read again. When nothing but the theme changed,
+    /// a new board is enough: reading everything again also asks for Claude usage, and the usage
+    /// endpoint turns away calls that come often.
     fn reload(&mut self) {
+        let before = self.cfg.clone();
         self.load_config();
+        let mut rest = self.cfg.clone();
+        rest.appearance = before.appearance.clone();
+        if rest == before {
+            self.dirty = true;
+            return;
+        }
         self.scan_sessions();
         self.load_repos();
         self.queue_git_all();
@@ -496,6 +516,11 @@ impl Engine {
                     self.seen.set_pinned_worktrees(ids);
                     self.seen.save();
                     self.dirty = true;
+                }
+                Ok(Msg::SetTheme(theme)) => {
+                    // Published now, not on the next tick: the app's appearance follows the board.
+                    self.cfg.appearance.theme = theme;
+                    self.publish();
                 }
                 Ok(Msg::UsageDone(list)) => {
                     self.usage_inflight = false;
@@ -1289,6 +1314,7 @@ impl Engine {
         });
         board.usage = self.compose_usage(now);
         board.pinned_worktrees = self.seen.pinned_worktrees.clone();
+        board.theme = self.cfg.appearance.theme;
         board
     }
 

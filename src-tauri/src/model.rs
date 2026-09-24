@@ -2,6 +2,8 @@
 
 use serde::Serialize;
 
+use crate::config::Theme;
+
 #[derive(Serialize, Clone, Copy, PartialEq, Eq, Hash, Debug)]
 #[serde(rename_all = "lowercase")]
 pub enum Harness {
@@ -310,6 +312,8 @@ pub struct Board {
     pub prs: Vec<PrItem>,
     /// Who `gh` is signed in as.
     pub github_login: Option<String>,
+    /// Light, dark, or following macOS, from config.toml.
+    pub theme: Theme,
 }
 
 /// A PR in the PRs view, with the worktrees and sessions that worked on it.

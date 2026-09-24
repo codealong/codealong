@@ -10,6 +10,9 @@
 #            (use it to click things and read window.__calls). Without it, a screenshot is
 #            written to $PREVIEW_DIR/<view>.png.
 #
+# PREVIEW_SCHEME=dark renders as if macOS were in dark mode (the screenshot is <view>-dark.png).
+# Under theme = "system" the page follows it; "light" and "dark" in config.toml win over it.
+#
 # Needs a release build of the engine (cargo build --release in src-tauri) for the snapshot.
 # PR details come from $PREVIEW_DIR/pr-detail.json if you put one there:
 #   src-tauri/target/release/codealong --snapshot --pr owner/name 123 > .preview/pr-detail.json
@@ -22,6 +25,12 @@ dir="${PREVIEW_DIR:-.preview}"
 # A free port unless one is given, so a stray server can't answer for this one.
 port="${PREVIEW_PORT:-$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')}"
 chrome="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+scheme=""
+case "${PREVIEW_SCHEME:-}" in
+  dark) scheme="--blink-settings=preferredColorScheme=0" ;;
+  light) scheme="--blink-settings=preferredColorScheme=1" ;;
+esac
+shot="$dir/$view${PREVIEW_SCHEME:+-$PREVIEW_SCHEME}.png"
 bin="src-tauri/target/release/codealong"
 
 npm run build >/dev/null
@@ -48,8 +57,8 @@ trap 'kill $server 2>/dev/null || true' EXIT
 sleep 1
 url="http://127.0.0.1:$port/preview.html"
 if [ -n "$check" ]; then
-  "$chrome" --headless=new --disable-gpu --virtual-time-budget=8000 --dump-dom "$url" 2>/dev/null | sed -n 's#.*<title>\(.*\)</title>.*#\1#p'
+  "$chrome" --headless=new --disable-gpu ${scheme:+"$scheme"} --virtual-time-budget=8000 --dump-dom "$url" 2>/dev/null | sed -n 's#.*<title>\(.*\)</title>.*#\1#p'
 else
-  "$chrome" --headless=new --disable-gpu --hide-scrollbars --force-device-scale-factor=1 --window-size=1440,900 --virtual-time-budget=6000 --screenshot="$dir/$view.png" "$url" 2>/dev/null
-  echo "$dir/$view.png"
+  "$chrome" --headless=new --disable-gpu ${scheme:+"$scheme"} --hide-scrollbars --force-device-scale-factor=1 --window-size=1440,900 --virtual-time-budget=6000 --screenshot="$shot" "$url" 2>/dev/null
+  echo "$shot"
 fi

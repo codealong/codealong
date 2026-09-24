@@ -1,5 +1,6 @@
 // Generates src/styles/tokens.css from design/tokens.json (the Codealong design system's
 // tokens): light values on :root, dark values under prefers-color-scheme, fonts from src/fonts.
+// The theme in config.toml sets data-theme on the root: "light" or "dark" wins over macOS.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
@@ -28,10 +29,15 @@ ${families}
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     color-scheme: dark;
 ${decls(themed, 'dark').replace(/^/gm, '  ')}
   }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+${decls(themed, 'dark')}
 }
 `;
 writeFileSync(join(root, 'src/styles/tokens.css'), css);

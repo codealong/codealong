@@ -715,6 +715,7 @@ pub fn compose(inp: Inputs) -> Board {
         pinned_worktrees: Vec::new(),
         prs: pr_list,
         github_login: github_login.map(str::to_string),
+        theme: Default::default(),
     }
 }
 

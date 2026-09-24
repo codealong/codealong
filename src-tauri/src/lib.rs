@@ -159,17 +159,43 @@ fn start_session(engine: State<'_, engine::Handle>, spec: start::StartSpec) -> R
     start::start(&engine.board(), &cfg, &spec).map_err(|e| format!("{e:#}"))
 }
 
+/// Saves the theme to config.toml. Every window follows, through the board.
+#[tauri::command(async)]
+fn set_theme(engine: State<'_, engine::Handle>, theme: config::Theme) -> Result<(), String> {
+    engine.set_theme(theme).map_err(|e| format!("{e:#}"))
+}
+
+/// The app's own appearance for a theme: `None` lets macOS decide. Window chrome, native menus
+/// and each page's `prefers-color-scheme` all go by it.
+fn native_theme(theme: config::Theme) -> Option<tauri::Theme> {
+    match theme {
+        config::Theme::System => None,
+        config::Theme::Light => Some(tauri::Theme::Light),
+        config::Theme::Dark => Some(tauri::Theme::Dark),
+    }
+}
+
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
+            // Set before the page loads, so a window never opens in the wrong theme.
+            let theme = config::theme();
+            app.set_theme(native_theme(theme));
+            let shown = std::sync::Mutex::new(theme);
             let emitter = app.handle().clone();
             let engine = engine::start(move |board| {
+                if let Ok(mut shown) = shown.lock() {
+                    if *shown != board.theme {
+                        *shown = board.theme;
+                        emitter.set_theme(native_theme(board.theme));
+                    }
+                }
                 let _ = emitter.emit("board", board);
             });
             app.manage(engine);
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![get_board, open_target, open_config, mark_seen, refresh, refresh_usage, set_pinned, set_pinned_worktrees, archive_session, pr_detail, approve_pr, review_in_codex, open_url, get_accounts, save_accounts, sign_in, start_options, start_session, open_project_window])
+        .invoke_handler(tauri::generate_handler![get_board, open_target, open_config, mark_seen, refresh, refresh_usage, set_pinned, set_pinned_worktrees, archive_session, pr_detail, approve_pr, review_in_codex, open_url, get_accounts, save_accounts, sign_in, start_options, start_session, set_theme, open_project_window])
         .run(tauri::generate_context!())
         .expect("error while running Codealong");
 }

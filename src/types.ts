@@ -172,7 +172,12 @@ export interface Board {
   prs: PrItem[];
   /** Who `gh` is signed in as. */
   githubLogin: string | null;
+  /** From config.toml. */
+  theme: Theme;
 }
+
+/** Light, dark, or following macOS. */
+export type Theme = 'system' | 'light' | 'dark';
 
 /** A PR in the PRs view, with the worktrees and sessions that worked on it. */
 export interface PrItem {
