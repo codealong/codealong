@@ -215,6 +215,10 @@ Ghostty (1.3, AppleScript dictionary in the app bundle)
   with a unique path to the session's TTY (`ps -o tty= -p <pid>`), finds the terminal reporting
   it, selects that tab, then reports the real folder again. Claude Code titles tabs
   `<glyph> <title>` and animates the glyph while working, so titles are only a fallback.
+  The mark normally shows within a fraction of a second, but on a busy Mac (load in the
+  hundreds) Ghostty takes seconds, so the wait is 8 s, and only for sessions whose process
+  descends from Ghostty (claude → zsh → login → ghostty); tmux and other terminals go straight to
+  titles. Once the tab is selected, the other focus steps are best effort.
 - macOS doesn't let a background process bring an app forward: `activate` from a shell leaves
   Ghostty behind; from a click in Codealong it works.
 - Scripts can take many seconds: while Ghostty launches or is busy, and while macOS asks whether

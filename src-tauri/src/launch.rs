@@ -60,9 +60,11 @@ on run argv
 end run
 "#;
 
-/// `tag <marker>`: waits two to three seconds for a terminal whose folder contains the marker
-/// and focuses it. `id <terminal id>`: focuses that terminal. Returns the focused terminal's id.
-/// The wait is timed, not counted: with many terminals open each look takes longer.
+/// `tag <marker> <seconds>`: waits up to that long for a terminal whose folder contains the
+/// marker and focuses it. `id <terminal id>`: focuses that terminal. Returns the focused
+/// terminal's id. The wait is timed, not counted: with many terminals open each look takes
+/// longer. Once the tab is selected, the rest is best effort, so a slow or refused step can't
+/// turn a tab that was found into an error.
 const GHOSTTY_FOCUS: &str = r#"
 on run argv
   set mode to item 1 of argv
@@ -72,6 +74,7 @@ on run argv
       if my focusTerminal(want) then return want
       return ""
     end if
+    set waitFor to (item 3 of argv) as integer
     set started to current date
     repeat
       set ids to id of every terminal
@@ -82,8 +85,8 @@ on run argv
           if my focusTerminal(found) then return found
         end if
       end repeat
-      if ((current date) - started) > 2 then exit repeat
-      delay 0.05
+      if ((current date) - started) > waitFor then exit repeat
+      delay 0.1
     end repeat
   end tell
   return ""
@@ -95,9 +98,15 @@ on focusTerminal(want)
       repeat with tb in tabs of w
         if (id of every terminal of tb) contains want then
           select tab tb
-          activate window w
-          focus (first terminal of tb whose id is want)
-          activate
+          try
+            activate window w
+          end try
+          try
+            focus (first terminal of tb whose id is want)
+          end try
+          try
+            activate
+          end try
           return true
         end if
       end repeat
@@ -106,6 +115,11 @@ on focusTerminal(want)
   return false
 end focusTerminal
 "#;
+
+/// How long to wait for Ghostty to show a session's marker. It's there within a fraction of a
+/// second normally; on a Mac busy enough to fall seconds behind, a short wait reported tabs as
+/// missing that Ghostty then showed.
+const GHOSTTY_MARK_WAIT_SECS: &str = "8";
 
 /// How long Codealong waits for Ghostty. It can be slow to answer while it launches, while it's
 /// busy, or while macOS asks whether Codealong may control it (asked again after each rebuild).
@@ -195,25 +209,60 @@ pub fn terminal_focus_session(profile: &str, pid: u32, title: &str, cwd: &Path) 
         bail!("This session runs in the background, so it has no terminal tab.");
     };
     let terminals = ghostty_terminals()?;
+    // A session Ghostty didn't start (tmux, another terminal) can't show the mark: don't wait.
+    let in_ghostty = procs::run("/bin/ps", &["-A", "-o", "pid=,ppid=,comm="], None, Duration::from_secs(3))
+        .map(|table| runs_under(&table, pid, "ghostty"))
+        .unwrap_or(true);
     let mark = format!("/tmp/codealong-{pid}-{}", crate::util::now_ms());
-    if write_osc7(&tty, &mark).is_ok() {
-        let found = osascript(GHOSTTY_FOCUS, &["tag", &mark]).unwrap_or_default();
-        let found = found.trim();
+    let mut failed = None;
+    if in_ghostty && write_osc7(&tty, &mark).is_ok() {
+        let found = osascript(GHOSTTY_FOCUS, &["tag", &mark, GHOSTTY_MARK_WAIT_SECS]);
+        let id = found.as_deref().map(str::trim).unwrap_or_default().to_string();
         let real = terminals
             .iter()
-            .find(|t| t.id == found)
+            .find(|t| t.id == id)
             .map(|t| t.cwd.clone())
             .filter(|c| !c.is_empty())
             .unwrap_or_else(|| cwd.to_string_lossy().into_owned());
         let _ = write_osc7(&tty, &real);
-        if !found.is_empty() {
-            return Ok(true);
+        match found {
+            Ok(_) if !id.is_empty() => return Ok(true),
+            Ok(_) => {}
+            // Ghostty was too slow or refused: say that, unless the fallback finds the tab.
+            Err(e) => failed = Some(e),
         }
     }
     match pick_by_title(&terminals, title, cwd) {
         Some(id) => Ok(!osascript(GHOSTTY_FOCUS, &["id", &id])?.trim().is_empty()),
-        None => Ok(false),
+        None => failed.map_or(Ok(false), Err),
     }
+}
+
+/// Whether `pid` runs inside the app whose executable is named `exe`, from a `ps -A -o
+/// pid=,ppid=,comm=` table. Ghostty starts a login shell per tab: claude → zsh → login → ghostty.
+pub fn runs_under(table: &str, pid: u32, exe: &str) -> bool {
+    let parents: std::collections::HashMap<u32, (u32, &str)> = table
+        .lines()
+        .filter_map(|line| {
+            // `  849     1 /Applications/Ghostty.app/Contents/MacOS/ghostty`; names can have spaces.
+            let (pid, rest) = line.trim_start().split_once(char::is_whitespace)?;
+            let rest = rest.trim_start();
+            let (ppid, comm) = rest.split_once(char::is_whitespace).unwrap_or((rest, ""));
+            Some((pid.parse().ok()?, (ppid.parse().ok()?, comm.trim())))
+        })
+        .collect();
+    let mut at = pid;
+    for _ in 0..16 {
+        let Some(&(ppid, comm)) = parents.get(&at) else { return false };
+        if Path::new(comm).file_name().is_some_and(|n| n == exe) {
+            return true;
+        }
+        if ppid <= 1 {
+            return false;
+        }
+        at = ppid;
+    }
+    false
 }
 
 /// The terminal device a process writes to, or None for a background process.
@@ -394,6 +443,23 @@ mod tests {
     fn reports_a_folder_the_way_a_shell_does() {
         assert_eq!(osc7("/tmp/codealong-1-2"), "\x1b]7;file://localhost/tmp/codealong-1-2\x07");
         assert_eq!(osc7("/Users/me/My Repo"), "\x1b]7;file://localhost/Users/me/My%20Repo\x07");
+    }
+
+    #[test]
+    fn knows_a_session_ghostty_started() {
+        let table = "  849     1 /Applications/Ghostty.app/Contents/MacOS/ghostty
+  958   849 /usr/bin/login
+  997   958 -/bin/zsh
+68277   997 claude
+ 4100     1 tmux
+ 4101  4100 -/bin/zsh
+ 4102  4101 claude
+ 5000     1 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
+";
+        assert!(runs_under(table, 68277, "ghostty"));
+        assert!(!runs_under(table, 4102, "ghostty"));
+        assert!(!runs_under(table, 5000, "ghostty"));
+        assert!(!runs_under(table, 999_999, "ghostty"));
     }
 
     #[test]
