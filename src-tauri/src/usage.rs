@@ -8,6 +8,9 @@
 //!
 //! Codex: no network and no credentials. Every turn records the account's rate limits in its
 //! rollout, and the newest report wins.
+//!
+//! OpenCode and Antigravity: nothing to read. OpenCode bills whichever provider you bring, and
+//! Antigravity keeps its quotas in the app.
 
 use std::collections::BTreeMap;
 use std::io::Write;
@@ -31,7 +34,7 @@ const KEYCHAIN_TIMEOUT: Duration = Duration::from_secs(10);
 pub fn loading(account: &AccountCfg) -> Usage {
     Usage {
         account: account.name.clone(),
-        harness: if account.harness == "codex" { Harness::Codex } else { Harness::Claude },
+        harness: Harness::from_config(&account.harness),
         plan: None,
         meters: Vec::new(),
         as_of: None,
@@ -40,6 +43,11 @@ pub fn loading(account: &AccountCfg) -> Usage {
         loading: true,
         rate_limited: false,
     }
+}
+
+/// An account whose harness reports no limits, with why in words.
+pub fn none(account: &AccountCfg, note: &str) -> Usage {
+    Usage { loading: false, error: Some(note.to_string()), ..loading(account) }
 }
 
 // ---- Claude ----
@@ -343,6 +351,9 @@ pub fn describe(a: &AccountCfg) -> AccountInfo {
                 .and_then(|v| v.pointer("/oauthAccount/emailAddress").and_then(Value::as_str).map(str::to_string));
             (claude_signed_in(&dir), email)
         }
+        "opencode" => (crate::opencode::signed_in(&dir), None),
+        // The sign-in lives beside the app data folder, under ~/.gemini.
+        "antigravity" => (dir.parent().map(|p| p.join("jetski-standalone-oauth-token").is_file()).unwrap_or(false), None),
         _ => (dir.join("auth.json").is_file(), None),
     };
     AccountInfo {
@@ -361,6 +372,9 @@ pub fn sign_in_command(a: &AccountCfg) -> String {
     match a.harness.as_str() {
         // Codex wants its folder to exist before it will use it.
         "codex" => format!("mkdir -p {} && {} login", a.home, a.command()),
+        "opencode" => format!("{} auth login", a.command()),
+        // Antigravity signs in from its own window.
+        "antigravity" => "open -a Antigravity".to_string(),
         _ => a.command().to_string(),
     }
 }

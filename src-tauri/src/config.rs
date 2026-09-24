@@ -82,9 +82,9 @@ impl Default for AppsCfg {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AccountCfg {
-    /// What you type, and what chips show: claude, claude2, codex.
+    /// What you type, and what chips show: claude, claude2, codex, opencode, antigravity.
     pub name: String,
-    /// `claude` or `codex`.
+    /// `claude`, `codex`, `opencode` or `antigravity`.
     pub harness: String,
     pub home: String,
     /// The command that starts this account, used for `<command> --resume <id>`.
@@ -160,7 +160,7 @@ fn write_atomic(text: &str) -> Result<()> {
     Ok(())
 }
 
-pub const HARNESSES: [&str; 2] = ["claude", "codex"];
+pub const HARNESSES: [&str; 4] = ["claude", "codex", "opencode", "antigravity"];
 
 /// Why a list of accounts can't be saved, in words.
 pub fn check_accounts(accounts: &[AccountCfg]) -> std::result::Result<(), String> {
@@ -171,7 +171,7 @@ pub fn check_accounts(accounts: &[AccountCfg]) -> std::result::Result<(), String
             return Err(format!("\"{}\" can't be an account name. Use letters, numbers, dots, dashes or underscores.", a.name));
         }
         if !HARNESSES.contains(&a.harness.as_str()) {
-            return Err(format!("{} needs a harness: claude or codex.", a.name));
+            return Err(format!("{} needs a harness: claude, codex, opencode or antigravity.", a.name));
         }
         if a.home.trim().is_empty() {
             return Err(format!("{} needs a config folder.", a.name));
@@ -434,7 +434,8 @@ fn set_tables(doc: &mut toml_edit::DocumentMut, name: &str, rows: Vec<toml_edit:
     doc[name] = Item::ArrayOfTables(tables);
 }
 
-/// Finds Claude config folders (`~/.claude*` with a `projects` folder) and Codex.
+/// Finds Claude config folders (`~/.claude*` with a `projects` folder), Codex, OpenCode and
+/// Antigravity, each by the files it keeps sessions in.
 pub fn discover_accounts() -> Vec<AccountCfg> {
     let h = home();
     let mut claude: Vec<String> = std::fs::read_dir(&h)
@@ -457,6 +458,12 @@ pub fn discover_accounts() -> Vec<AccountCfg> {
         .collect();
     if h.join(".codex/sessions").is_dir() {
         out.push(AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: None });
+    }
+    if h.join(".local/share/opencode/opencode.db").is_file() {
+        out.push(AccountCfg { name: "opencode".into(), harness: "opencode".into(), home: "~/.local/share/opencode".into(), command: Some("opencode".into()) });
+    }
+    if h.join(".gemini/antigravity/conversation_summaries.db").is_file() {
+        out.push(AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: "~/.gemini/antigravity".into(), command: None });
     }
     out
 }

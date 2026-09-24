@@ -9,6 +9,21 @@ use crate::config::Theme;
 pub enum Harness {
     Claude,
     Codex,
+    Opencode,
+    Antigravity,
+}
+
+impl Harness {
+    /// The harness an account's config names; anything unknown reads as Claude Code, which
+    /// `config::check_accounts` never lets be saved.
+    pub fn from_config(s: &str) -> Harness {
+        match s {
+            "codex" => Harness::Codex,
+            "opencode" => Harness::Opencode,
+            "antigravity" => Harness::Antigravity,
+            _ => Harness::Claude,
+        }
+    }
 }
 
 /// Where a session runs: the configured terminal app, or the harness's own app.
@@ -77,12 +92,13 @@ impl PrState {
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Session {
-    /// `claude:claude2:<id>` or `codex:codex:<id>`.
+    /// `claude:claude2:<id>`, `codex:codex:<id>`, `opencode:opencode:<id>` or
+    /// `antigravity:antigravity:<id>`.
     pub key: String,
     pub id: String,
     pub short_id: String,
     pub harness: Harness,
-    /// The account name as you type it: claude, claude2, codex.
+    /// The account name as you type it: claude, claude2, codex, opencode, antigravity.
     pub account: String,
     pub surface: Surface,
     pub status: Status,
@@ -110,7 +126,8 @@ pub struct Session {
     pub resume_command: Option<String>,
     /// The Claude app is signed into this session's account (`~/.claude`), so it can open it.
     pub app_account: bool,
-    /// The target that opens this session where it lives (focus, resume, Claude app, Codex).
+    /// The target that opens this session where it lives (focus, resume, Claude app, Codex,
+    /// Antigravity).
     pub open_target: String,
     /// Why a session from another lane shows here: "made this worktree" or "worked here".
     /// Visitors don't count toward this lane's bay.
@@ -120,8 +137,8 @@ pub struct Session {
     pub detail: Option<String>,
     /// The branch it worked on: Claude's latest `gitBranch`, Codex's thread metadata.
     pub branch: Option<String>,
-    /// Archived: from Codealong, in Codex, or in the Claude app. Kept last in its lane and left
-    /// out of the lane's status.
+    /// Archived: from Codealong, in Codex, in OpenCode, or in the Claude app. Kept last in its
+    /// lane and left out of the lane's status.
     pub archived: bool,
     /// A background job has no terminal tab; this opens it in a new one (`claude attach <job>`).
     pub attach_command: Option<String>,

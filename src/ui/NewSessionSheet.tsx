@@ -1,16 +1,16 @@
-// New session: start an agent in a worktree, in the terminal or in the Claude or Codex app. You
+// New session: start an agent in a worktree, in the terminal or in the Claude or Codex app
+// (Antigravity starts its own). You
 // pick the account, or Auto. Codealong only launches it: the harness runs it, and it shows on
 // the board like any other session.
 
 import { useEffect, useMemo, useState } from 'react';
 import { startOptions } from '../api';
 import { middleTruncate, resetsPhrase, tildePath } from '../format';
+import { HARNESS_WORD, usageNote } from '../harness';
 import { accountFor, autoHarness, autoPicks, choices, initialChoice, initialPlace, placesFor, remember, remembered, type AutoPick, type Choice } from '../start';
-import type { Harness, Lane, StartOptions, StartPlace, StartSpec, Usage } from '../types';
+import type { Lane, StartOptions, StartPlace, StartSpec, Usage } from '../types';
 import { Button, Icon } from './primitives';
 import { UsageMeter } from './UsageBar';
-
-const HARNESS_WORD: Record<Harness, string> = { claude: 'Claude Code', codex: 'Codex' };
 
 /** Pinned worktrees first, in your order, then the rest grouped by repo, the most recently
  *  active repo and worktree first. */
@@ -41,14 +41,6 @@ function autoReason(p: AutoPick, now: number): string {
 function laneLabel(l: Lane): string {
   const branch = l.branch ?? (l.detached ? `detached @ ${l.detached}` : null);
   return branch && branch !== l.callsign ? `${l.callsign} · ${middleTruncate(branch, 44)}` : l.callsign;
-}
-
-/** Why an account shows no meters. */
-function usageNote(u: Usage | undefined): string {
-  if (!u) return 'No usage yet';
-  if (u.needsSignIn) return 'Not signed in';
-  if (u.loading) return 'Reading…';
-  return u.harness === 'codex' ? 'No turns yet' : 'Usage unavailable';
 }
 
 /** What you chose and wrote, kept so a failed start can bring the sheet back as you left it. */
@@ -112,8 +104,11 @@ export function NewSessionSheet({ lanes, laneId: firstLane, draft, error: failed
     setPlace(initialPlace(c, accounts, remembered().places?.[c]));
   };
 
-  // The apps' links take no model, so only a terminal start asks for one.
-  const chosenModel = place === 'terminal' ? model : null;
+  // The apps' links take no model, and only Claude Code takes one on the command line, so
+  // only a terminal start of a Claude Code account asks for one.
+  const harness = choice ? (autoHarness(choice) ?? accounts.find((a) => a.name === choice)?.harness ?? null) : null;
+  const picksModel = place === 'terminal' && harness === 'claude';
+  const chosenModel = picksModel ? model : null;
   const modelLabel = options?.claudeModels.find((m) => m.id === chosenModel)?.label.split(':')[0] ?? null;
   const defaultModel = accounts.find((a) => a.name === account)?.defaultModel ?? null;
 
@@ -278,7 +273,7 @@ export function NewSessionSheet({ lanes, laneId: firstLane, draft, error: failed
               <label className="ca-field">
                 <span>Model</span>
                 <span className="ca-start-select">
-                  {place === 'terminal' ? (
+                  {picksModel ? (
                     <select value={model ?? ''} onChange={(e) => setModel(e.target.value || null)}>
                       <option value="">{defaultModel ? `Account default (${defaultModel})` : 'Account default'}</option>
                       {(options?.claudeModels ?? []).map((m) => (
@@ -288,8 +283,8 @@ export function NewSessionSheet({ lanes, laneId: firstLane, draft, error: failed
                       ))}
                     </select>
                   ) : (
-                    <select value="" disabled title="The app's new-session link can't pick a model; choose it there before you send.">
-                      <option value="">{place === 'claude-app' ? 'Chosen in the Claude app' : 'Chosen in Codex'}</option>
+                    <select value="" disabled title={place === 'terminal' ? 'OpenCode picks its model from its own settings.' : "The app's new-session link can't pick a model; choose it there before you send."}>
+                      <option value="">{place === 'claude-app' ? 'Chosen in the Claude app' : place === 'codex-app' ? 'Chosen in Codex' : 'Chosen in OpenCode'}</option>
                     </select>
                   )}
                   <Icon name="chevron-down" size={14} />

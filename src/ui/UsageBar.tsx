@@ -4,6 +4,7 @@
 // Codex numbers arrive with each Codex turn.
 
 import { agoPhrase, resetsPhrase, untilShort } from '../format';
+import { usageNote } from '../harness';
 import type { Meter, Usage } from '../types';
 import { Button, Icon } from './primitives';
 
@@ -90,7 +91,7 @@ function AccountChip({ usage: u, now, onOpen, onSignIn }: { usage: Usage; now: n
         u.meters.map((m) => <UsageMeter key={m.key} meter={m} now={now} />)
       ) : (
         <span className="ca-uchip-note" title={plain || undefined}>
-          {u.loading ? 'Reading…' : u.harness === 'codex' ? 'No turns yet' : 'Usage unavailable'}
+          {usageNote(u)}
         </span>
       )}
       {stale && <Icon name="alert" size={12} />}

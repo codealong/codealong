@@ -1,9 +1,10 @@
 # Codealong
 
 A Mac app that keeps track of every coding agent you have running: Claude Code on two
-accounts (`claude`, `claude2`) and the Codex app. It sorts them by project, worktree,
-branch and PR, shows what each one is doing, and opens any session where it lives:
-Ghostty for terminal sessions, the Claude app, Codex, or Cursor for the folder.
+accounts (`claude`, `claude2`), the Codex app, OpenCode and Antigravity. It sorts them by
+project, worktree, branch and PR, shows what each one is doing, and opens any session where
+it lives: Ghostty for terminal sessions, the Claude app, Codex, Antigravity, or Cursor for
+the folder.
 
 **Every agent runs in a worktree, and every worktree is a lane.**
 
@@ -36,18 +37,23 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     has anything GitHub doesn't, and the agents that worked on the PR, including one that made
     the worktree from another folder.
 - **Open where it lives**: the session's own Ghostty tab, the Claude app session, the Codex
-  thread, a background job attached in a new window, or the folder in Cursor.
+  thread, an OpenCode session in its terminal (or resumed in a new one with `--session`),
+  Antigravity brought forward (it has no link to a conversation), a background job attached
+  in a new window, or the folder in Cursor.
 - **New session** (⌘N, the title bar, the inspector, or a worktree's or session's right-click
   menu): pick the worktree (pinned ones first), the account, and where it runs. Ghostty starts
   Claude Code on your prompt, on the account's default model or one you pick (Fable, Opus,
-  Sonnet, Haiku, 1M context, Opus Plan Mode); the Claude app and Codex open a new session with
-  the prompt filled in, and you send it there (their own model and worktree choices included). Auto picks between accounts of
+  Sonnet, Haiku, 1M context, Opus Plan Mode), or OpenCode on your prompt (`--prompt`); the
+  Claude app and Codex open a new session with the prompt filled in, and you send it there
+  (their own model and worktree choices included). Antigravity starts conversations only in
+  its own window. Auto picks between accounts of
   one harness: first the one whose weekly limit resets soonest within 48 hours, so its room
   isn't lost, else the one with the most room; accounts at 90% of a limit are passed over.
   Codealong only launches: the session shows on the board like any other, and one started in
   Ghostty is selected as soon as it appears.
 - **Usage** for every account in a bar across the top: 5-hour and weekly limits, per-model
-  limits such as Fable, and time to reset. Add accounts in Settings › Accounts.
+  limits such as Fable, and time to reset. OpenCode (bring your own provider) and Antigravity
+  (quotas in the app) have none to show. Add accounts in Settings › Accounts.
 - **Settings** (⌘,, the app menu, or the foot of the sidebar): a form for everything in
   config.toml. General has the folders searched for repos, the terminal and editor, and the
   theme; Accounts adds, edits, removes and signs in accounts; Projects groups repos by pattern;
@@ -115,9 +121,20 @@ perf_log = false               # true logs timings to ~/Library/Logs/Codealong/p
 
 [[accounts]]
 name = "claude2"               # what the board shows
-harness = "claude"
+harness = "claude"             # claude, codex, opencode or antigravity
 home = "~/.claude2"
 command = "claude2"            # used for `claude2 --resume <id>`
+
+[[accounts]]
+name = "opencode"
+harness = "opencode"
+home = "~/.local/share/opencode"  # OpenCode's data folder, with opencode.db
+command = "opencode"           # used for `opencode --session <id>`
+
+[[accounts]]
+name = "antigravity"
+harness = "antigravity"
+home = "~/.gemini/antigravity" # its app data folder, with conversation_summaries.db
 
 [[projects]]
 name = "Northwind"
@@ -146,10 +163,11 @@ are kept in `state.json` next to it; whether the floating bar is on, and where y
 | `src-tauri/src/engine.rs`, `throttle.rs` | Caches, file watching (FSEvents), git workers (spaced per worktree, results published in batches), GitHub, publishing the board |
 | `src-tauri/src/board.rs` | The model's rules: status, bays, headlines, open targets (pure, tested) |
 | `src-tauri/src/claude.rs`, `codex.rs` | Harness adapters: registries, transcripts, rollouts, incremental tailing |
+| `src-tauri/src/opencode.rs`, `antigravity.rs` | Harness adapters: OpenCode's database and background service, Antigravity's conversation summaries |
 | `src-tauri/src/repos.rs`, `git.rs`, `github.rs` | Repo discovery, callsigns, worktrees, git status, PRs |
 | `src-tauri/src/launch.rs` | App profiles: Ghostty (AppleScript, exact tab focus), Cursor (CLI), deep links |
 | `src-tauri/src/start.rs`, `src/start.ts` | New sessions: where each account can start one, the launch it makes, Auto's pick |
-| `src-tauri/src/usage.rs` | Plan usage: Claude through its sign-in and usage endpoint, Codex from its rollouts |
+| `src-tauri/src/usage.rs` | Plan usage: Claude through its sign-in and usage endpoint, Codex from its rollouts, none for OpenCode and Antigravity |
 | `src-tauri/src/appserver.rs` | Codex actions through its app-server (archiving) |
 | `src-tauri/src/claudeapp.rs` | The Claude app's session records (its IDs, what you archived there) |
 | `src-tauri/src/config.rs`, `state.rs` | `config.toml` (accounts saved in place) and `state.json` (seen, pinned, archived) |

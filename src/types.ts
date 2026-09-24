@@ -1,6 +1,6 @@
 // The board as the Rust engine serializes it (src-tauri/src/model.rs). Option<T> arrives as null.
 
-export type Harness = 'claude' | 'codex';
+export type Harness = 'claude' | 'codex' | 'opencode' | 'antigravity';
 export type Surface = 'cli' | 'app';
 export type Status = 'needs' | 'error' | 'working' | 'unread' | 'idle' | 'stopped';
 export type Bay = 'needs' | 'working' | 'unread' | 'review' | 'idle' | 'merged';
@@ -12,7 +12,7 @@ export interface Session {
   id: string;
   shortId: string;
   harness: Harness;
-  /** The account name as you type it: claude, claude2, codex. */
+  /** The account name as you type it: claude, claude2, codex, opencode, antigravity. */
   account: string;
   surface: Surface;
   status: Status;
@@ -31,7 +31,7 @@ export interface Session {
   excerpt: string | null;
   /** The branch it worked on. */
   branch: string | null;
-  /** Archived from Codealong, in Codex, or in the Claude app. */
+  /** Archived from Codealong, in Codex, in OpenCode, or in the Claude app. */
   archived: boolean;
   /** A background job's `claude attach <job>`: it has no terminal tab of its own. */
   attachCommand: string | null;
@@ -40,7 +40,7 @@ export interface Session {
   resumeCommand: string | null;
   /** The Claude app is signed into this session's account. */
   appAccount: boolean;
-  /** Opens this session where it lives: Ghostty, the Claude app, or Codex. */
+  /** Opens this session where it lives: Ghostty, the Claude app, Codex, or Antigravity. */
   openTarget: string;
   /** Why a session from another lane shows here: "made this worktree" or "worked here". */
   visitor: string | null;

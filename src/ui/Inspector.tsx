@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { absolute, ago, count, middleTruncate, tildePath } from '../format';
+import { HARNESS_APP } from '../harness';
 import type { Board, Lane, Origin, Session, Target } from '../types';
 import { BranchLabel, Button, HarnessChip, Icon, Kbd, LaneGlyph, PrChip, Rich, StatusGlyph } from './primitives';
 
@@ -93,7 +94,7 @@ export function OpenInMenu({ targets, defaultId, onOpen }: { targets: Target[]; 
 
 function SessionRow({ session: s, now, focused, onOpen }: { session: Session; now: number; focused: boolean; onOpen: (id: string) => void }) {
   const verb = s.stalledSince ? 'Open' : s.status === 'needs' ? 'Respond' : s.status === 'stopped' ? 'Resume' : 'Open';
-  const where = s.surface === 'cli' ? 'Ghostty' : s.harness === 'claude' ? 'the Claude app' : 'Codex';
+  const where = s.surface === 'cli' ? 'Ghostty' : s.harness === 'claude' ? 'the Claude app' : HARNESS_APP[s.harness];
   const open = () => onOpen(s.openTarget);
   return (
     <div

@@ -122,16 +122,13 @@ pub enum Plan {
 }
 
 fn harness_of(a: &AccountCfg) -> Harness {
-    if a.harness == "codex" {
-        Harness::Codex
-    } else {
-        Harness::Claude
-    }
+    Harness::from_config(&a.harness)
 }
 
 /// Where each account can start a session. The Claude app and the Codex app each run one
 /// account, the one in the default folder (`~/.claude`, `~/.codex`); the terminal runs any
-/// Claude account through its command. `default_model` reads an account's default model.
+/// Claude Code or OpenCode account through its command. Antigravity starts conversations only
+/// in its own window. `default_model` reads an account's default model.
 pub fn options(accounts: &[AccountCfg], terminal: &str, codex_projects: Vec<String>, home: &Path, default_model: impl Fn(&AccountCfg) -> Option<String>) -> StartOptions {
     let accounts = accounts
         .iter()
@@ -152,6 +149,10 @@ pub fn options(accounts: &[AccountCfg], terminal: &str, codex_projects: Vec<Stri
                     } else {
                         unavailable = Some(format!("The Codex app runs the account in ~/.codex, so {} can't start threads from here.", a.name));
                     }
+                }
+                Harness::Opencode => places.push(PlaceOption { place: Place::Terminal, label: terminal.to_string() }),
+                Harness::Antigravity => {
+                    unavailable = Some(format!("Antigravity starts conversations in its own window, so {} can't start one from here.", a.name));
                 }
             }
             let default_model = if harness == Harness::Claude { default_model(a) } else { None };
@@ -183,19 +184,22 @@ pub fn options_for(cfg: &Config) -> StartOptions {
 }
 
 /// The launch for one start. In the terminal Claude Code takes `session_id` as its own
-/// (`--session-id`), so the board knows the session the moment it appears. The apps get a link
-/// that opens their new-session page with the folder and prompt filled in; you send it there.
+/// (`--session-id`), so the board knows the session the moment it appears; OpenCode picks its
+/// own and takes the prompt as `--prompt`. The apps get a link that opens their new-session
+/// page with the folder and prompt filled in; you send it there.
 pub fn plan(account: &AccountCfg, place: Place, folder: &Path, prompt: &str, session_id: &str, model: Option<&str>) -> Plan {
     let prompt = prompt.trim();
     let dir = folder.to_string_lossy();
     match place {
         Place::Terminal => {
-            let mut input = format!("{} --session-id {session_id}", account.command());
-            if let Some(m) = model.filter(|m| valid_model(m)) {
+            let opencode = harness_of(account) == Harness::Opencode;
+            let mut input = if opencode { account.command().to_string() } else { format!("{} --session-id {session_id}", account.command()) };
+            if let Some(m) = model.filter(|m| valid_model(m) && !opencode) {
                 input.push_str(&format!(" --model '{m}'"));
             }
             let mut env = Vec::new();
             if !prompt.is_empty() {
+                input.push_str(if opencode { " --prompt" } else { "" });
                 input.push_str(&format!(" \"${PROMPT_VAR}\""));
                 env.push((PROMPT_VAR.to_string(), as_argument(prompt)));
             }
@@ -258,8 +262,8 @@ pub fn start(board: &Board, cfg: &Config, spec: &StartSpec) -> Result<Started> {
     if !offered.places.iter().any(|p| p.place == spec.place) {
         bail!(offered.unavailable.unwrap_or_else(|| format!("{} can't start a session there.", account.name)));
     }
-    // The apps pick their model themselves, so a model only goes with a terminal start.
-    let model = spec.model.as_deref().map(str::trim).filter(|m| !m.is_empty() && spec.place == Place::Terminal);
+    // The apps pick their model themselves, and only Claude Code takes one on the command line.
+    let model = spec.model.as_deref().map(str::trim).filter(|m| !m.is_empty() && spec.place == Place::Terminal && harness_of(account) == Harness::Claude);
     if let Some(m) = model.filter(|m| !valid_model(m)) {
         bail!("{m:?} isn't a model name Codealong can pass to Claude Code.");
     }
@@ -268,7 +272,11 @@ pub fn start(board: &Board, cfg: &Config, spec: &StartSpec) -> Result<Started> {
     match plan(account, spec.place, folder, &spec.prompt, &id, model) {
         Plan::Terminal { cwd, input, env } => {
             launch::terminal_run(&cfg.apps.terminal, &cwd, &input, &env)?;
-            Ok(Started { key: Some(format!("claude:{}:{id}", account.name)), message: None })
+            // OpenCode names its own session; it shows on the board once it's written.
+            match harness_of(account) {
+                Harness::Opencode => Ok(Started { key: None, message: Some(format!("OpenCode is starting in {}.", lane.callsign)) }),
+                _ => Ok(Started { key: Some(format!("claude:{}:{id}", account.name)), message: None }),
+            }
         }
         Plan::ClaudeApp { url } => {
             launch::open_url(&url)?;
@@ -310,6 +318,8 @@ mod tests {
             account("claude2", "claude", "/Users/me/.claude2", Some("claude2")),
             account("codex", "codex", "/Users/me/.codex", None),
             account("codex2", "codex", "/Users/me/.codex2", None),
+            account("opencode", "opencode", "/Users/me/.local/share/opencode", Some("opencode")),
+            account("antigravity", "antigravity", "/Users/me/.gemini/antigravity", None),
         ];
         let o = options(&accounts, "Ghostty", vec!["/r/kestrel".into()], Path::new("/Users/me"), |a| (a.name == "claude2").then(|| "claude-fable-5-1".to_string()));
         assert_eq!(places(&o, "claude"), vec![Place::Terminal, Place::ClaudeApp]);
@@ -317,6 +327,10 @@ mod tests {
         assert_eq!(places(&o, "codex"), vec![Place::CodexApp]);
         assert!(places(&o, "codex2").is_empty());
         assert!(o.accounts[3].unavailable.as_deref().unwrap_or("").contains("~/.codex"));
+        assert_eq!(places(&o, "opencode"), vec![Place::Terminal]);
+        assert!(places(&o, "antigravity").is_empty());
+        assert!(o.accounts[5].unavailable.as_deref().unwrap_or("").contains("its own window"));
+        assert_eq!(o.accounts[4].default_model, None);
         assert_eq!(o.accounts[0].places[0].label, "Ghostty");
         assert_eq!(o.codex_projects, vec!["/r/kestrel".to_string()]);
         assert_eq!(o.accounts[1].default_model.as_deref(), Some("claude-fable-5-1"));
@@ -355,6 +369,18 @@ mod tests {
         let custom = account("claude3", "claude", "~/.claude3", Some("CLAUDE_CONFIG_DIR=~/.claude3 claude"));
         let Plan::Terminal { input, .. } = plan(&custom, Place::Terminal, Path::new("/r/x"), "", id, None) else { panic!() };
         assert_eq!(input, format!("CLAUDE_CONFIG_DIR=~/.claude3 claude --session-id {id}\n"));
+    }
+
+    #[test]
+    fn starts_opencode_on_its_own_terms() {
+        let a = account("opencode", "opencode", "~/.local/share/opencode", Some("opencode"));
+        let id = "0b7c2a4e-1d2f-4e3a-9b8c-7d6e5f4a3b2c";
+        let Plan::Terminal { input, env, .. } = plan(&a, Place::Terminal, Path::new("/r/x"), "Fix it", id, Some("opus")) else { panic!() };
+        assert_eq!(input, "opencode --prompt \"$CODEALONG_PROMPT\"\n");
+        assert_eq!(env, vec![(PROMPT_VAR.to_string(), "Fix it".to_string())]);
+        let Plan::Terminal { input, env, .. } = plan(&a, Place::Terminal, Path::new("/r/x"), "", id, None) else { panic!() };
+        assert_eq!(input, "opencode\n");
+        assert!(env.is_empty());
     }
 
     #[test]

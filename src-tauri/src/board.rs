@@ -5,8 +5,10 @@ use std::cmp::Reverse;
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
+use crate::antigravity::Conversation;
 use crate::claude::{RegistryEntry, TranscriptInfo};
 use crate::codex::ThreadInfo;
+use crate::opencode::{Live, SessionRow};
 use crate::config::AccountCfg;
 use crate::github::PrRaw;
 use crate::model::*;
@@ -14,6 +16,11 @@ use crate::util::{code, one_line, tilde, truncate, DAY_MS};
 
 /// A Codex turn with no events for this long is treated as interrupted.
 const CODEX_STALE_MS: i64 = 15 * 60 * 1000;
+/// An OpenCode run with no writes for this long is treated as interrupted, when its service
+/// isn't there to say.
+const OPENCODE_STALE_MS: i64 = 15 * 60 * 1000;
+/// An Antigravity conversation that says it's busy but hasn't changed for this long isn't.
+const ANTIGRAVITY_STALE_MS: i64 = 30 * 60 * 1000;
 /// A Bash call can't run past 10 minutes, so a Claude session that has said busy this long with
 /// nothing new in its transcript is stuck, not working: typically a command waiting on input
 /// no one will give it, like a browser sign-in inside a background job.
@@ -245,6 +252,126 @@ pub fn codex_session(account: &AccountCfg, th: &ThreadInfo, name: Option<&str>, 
     }
 }
 
+/// An OpenCode session. `live` is what its background service says, when the service is
+/// running; without it, a prompt after the last run ended means a run in progress, until the
+/// session goes quiet. `terminal` is the interactive OpenCode showing it, if one is.
+pub fn opencode_session(account: &AccountCfg, row: &SessionRow, live: Option<&Live>, terminal: Option<u32>, seen_at: i64, now: i64) -> Session {
+    let running = match live {
+        Some(l) => l.active.contains(&row.id),
+        None => row.turn_open() && now - row.last_ts < OPENCODE_STALE_MS,
+    };
+    let pending = live.and_then(|l| l.pending.get(&row.id)).cloned();
+    // A run's end is news until you open the session here or look at it in OpenCode.
+    let unseen = row.idle_at.filter(|_| !running).map(|t| t > seen_at && row.viewed_at.map(|v| v < t).unwrap_or(true)).unwrap_or(false);
+    let status = if pending.is_some() {
+        Status::Needs
+    } else if running {
+        Status::Working
+    } else if unseen && row.outcome.as_deref() == Some("failed") {
+        Status::Error
+    } else if unseen {
+        Status::Unread
+    } else {
+        Status::Idle
+    };
+    let title = row.title.clone().or_else(|| row.last_prompt.clone()).unwrap_or_else(|| "OpenCode session".to_string());
+    let excerpt = match status {
+        Status::Needs => pending,
+        Status::Working => row.last_tool.clone().or_else(|| row.last_prompt.clone()),
+        _ => row.last_text.clone().or_else(|| row.last_prompt.clone()),
+    };
+    let key = format!("opencode:{}:{}", account.name, row.id);
+    let action = if terminal.is_some() { "focus" } else { "resume" };
+    Session {
+        open_target: format!("s|{key}|{action}"),
+        visitor: None,
+        headline: String::new(),
+        detail: None,
+        key,
+        id: row.id.clone(),
+        short_id: short_id(row.id.trim_start_matches("ses_")),
+        harness: Harness::Opencode,
+        account: account.name.clone(),
+        surface: Surface::Cli,
+        status,
+        live: running || terminal.is_some(),
+        pid: terminal,
+        title: truncate(&plain(&title), 90),
+        cwd: row.directory.clone(),
+        work: Vec::new(),
+        name: None,
+        started_at: Some(row.created_at),
+        status_since: if running { row.last_prompt_at } else { row.idle_at },
+        last_prompt_at: row.last_prompt_at.unwrap_or(row.created_at),
+        last_activity: row.last_ts,
+        excerpt,
+        resume_command: Some(format!("{} --session {}", account.command(), row.id)),
+        app_account: false,
+        branch: None,
+        archived: row.archived_at.is_some(),
+        attach_command: None,
+        stalled_since: None,
+    }
+}
+
+/// An Antigravity conversation, from its summary. The summary's status words haven't been
+/// seen on a real conversation yet, so only `not_fully_idle` and the times are relied on;
+/// a status that says waiting, blocked or paused is taken at its word.
+pub fn antigravity_session(account: &AccountCfg, c: &Conversation, seen_at: i64, now: i64) -> Session {
+    let fresh = now - c.last_modified < ANTIGRAVITY_STALE_MS;
+    let waiting = ["waiting", "blocked", "paused"].iter().any(|w| c.status.contains(w));
+    let news = c.last_modified > seen_at;
+    let status = if c.killed {
+        Status::Idle
+    } else if c.status.contains("error") && news {
+        Status::Error
+    } else if waiting {
+        Status::Needs
+    } else if c.not_fully_idle && fresh {
+        Status::Working
+    } else if news && c.last_modified > c.last_input.unwrap_or(0) {
+        Status::Unread
+    } else {
+        Status::Idle
+    };
+    let title = c.title.clone().or_else(|| c.preview.clone()).unwrap_or_else(|| "Antigravity conversation".to_string());
+    let excerpt = match status {
+        Status::Needs | Status::Error => Some(c.status.clone()).filter(|s| !s.is_empty()),
+        _ => c.preview.clone(),
+    };
+    let key = format!("antigravity:{}:{}", account.name, c.id);
+    Session {
+        open_target: format!("s|{key}|antigravity"),
+        visitor: None,
+        headline: String::new(),
+        detail: None,
+        key,
+        id: c.id.clone(),
+        short_id: short_id(&c.id),
+        harness: Harness::Antigravity,
+        account: account.name.clone(),
+        surface: Surface::App,
+        status,
+        live: status == Status::Working,
+        pid: None,
+        title: truncate(&plain(&title), 90),
+        cwd: c.cwd.clone().unwrap_or_default(),
+        work: Vec::new(),
+        name: None,
+        started_at: None,
+        status_since: if status == Status::Working { c.last_input } else { Some(c.last_modified) },
+        last_prompt_at: c.last_input.unwrap_or(c.last_modified),
+        last_activity: c.last_modified,
+        excerpt,
+        resume_command: None,
+        app_account: false,
+        branch: None,
+        archived: false,
+        attach_command: None,
+        stalled_since: None,
+    }
+}
+
 /// Index of the seed whose path is the longest prefix of `cwd`.
 pub fn best_seed(seeds: &[LaneSeed], cwd: &Path) -> Option<usize> {
     seeds
@@ -470,7 +597,8 @@ pub fn session_headline(s: &Session) -> (String, Option<String>) {
     match s.status {
         Status::Needs => match (&s.excerpt, s.harness) {
             (Some(ex), Harness::Claude) => (format!("{acct} is waiting for approval"), Some(ex.clone())),
-            (Some(ex), Harness::Codex) => (format!("{acct} asks for approval"), Some(ex.clone())),
+            (Some(ex), Harness::Codex | Harness::Opencode) => (format!("{acct} asks for approval"), Some(ex.clone())),
+            (Some(ex), Harness::Antigravity) => (format!("{acct} needs you"), Some(ex.clone())),
             (None, _) => (format!("{acct} needs you"), Some(s.title.clone())),
         },
         Status::Error => (format!("{acct} stopped with an error"), s.excerpt.clone()),
@@ -626,6 +754,19 @@ pub fn targets(seed: &LaneSeed, sessions: &[Session], pr: Option<&Pr>, apps: &Ap
             (Harness::Codex, _) => {
                 let verb = if respond { "Respond in" } else { "Open in" };
                 t.push(target(format!("s|{}|codex", s.key), "app", format!("{verb} Codex"), Some(who), enter, false, "session"));
+            }
+            (Harness::Opencode, _) => {
+                // A terminal showing it is focused; otherwise `opencode --session` opens a new one.
+                let (verb, action) = match (respond, s.pid.is_some()) {
+                    (true, _) => ("Respond in", if s.pid.is_some() { "focus" } else { "resume" }),
+                    (false, true) => ("Show in", "focus"),
+                    (false, false) => ("Resume in", "resume"),
+                };
+                t.push(target(format!("s|{}|{action}", s.key), "terminal", format!("{verb} {term}"), Some(who), enter, false, "session"));
+            }
+            (Harness::Antigravity, _) => {
+                let why = format!("{who} · no link to a conversation, so the app comes forward");
+                t.push(target(format!("s|{}|antigravity", s.key), "app", "Open Antigravity".into(), Some(why), enter, false, "session"));
             }
         }
     }
@@ -1076,6 +1217,89 @@ mod tests {
         assert_eq!(codex_session(&a, &th, None, NOW, NOW).status, Status::Idle);
         th.pending_approval = Some("Run · `yarn install`".into());
         assert_eq!(codex_session(&a, &th, None, 0, NOW).status, Status::Needs);
+    }
+
+    #[test]
+    fn maps_opencode_statuses() {
+        let a = AccountCfg { name: "opencode".into(), harness: "opencode".into(), home: "~/.local/share/opencode".into(), command: None };
+        let mut row = SessionRow {
+            id: "ses_abc1234567".into(),
+            directory: "/r".into(),
+            title: Some("Fix the build".into()),
+            created_at: NOW - 60_000,
+            updated_at: NOW - 1_000,
+            last_prompt: Some("Fix the build".into()),
+            last_prompt_at: Some(NOW - 50_000),
+            last_tool: Some("bash · `npm test`".into()),
+            last_text: Some("Done.".into()),
+            last_ts: NOW - 1_000,
+            ..Default::default()
+        };
+        // Without the service, a prompt after the last run's end is a run in progress.
+        let s = opencode_session(&a, &row, None, None, 0, NOW);
+        assert_eq!((s.status, s.live, s.excerpt.as_deref()), (Status::Working, true, Some("bash · `npm test`")));
+        assert_eq!(s.open_target, "s|opencode:opencode:ses_abc1234567|resume");
+        assert_eq!(s.resume_command.as_deref(), Some("opencode --session ses_abc1234567"));
+        assert_eq!(s.short_id, "abc1234");
+        row.last_ts = NOW - OPENCODE_STALE_MS - 1;
+        assert_eq!(opencode_session(&a, &row, None, None, 0, NOW).status, Status::Idle);
+        // The service knows better either way.
+        row.last_ts = NOW - 1_000;
+        let quiet = Live::default();
+        assert_eq!(opencode_session(&a, &row, Some(&quiet), None, 0, NOW).status, Status::Idle);
+        let mut busy = Live::default();
+        busy.active.insert("ses_abc1234567".into());
+        assert_eq!(opencode_session(&a, &row, Some(&busy), Some(42), 0, NOW).open_target, "s|opencode:opencode:ses_abc1234567|focus");
+        busy.pending.insert("ses_abc1234567".into(), "Bash · `npm install`".into());
+        let s = opencode_session(&a, &row, Some(&busy), None, 0, NOW);
+        assert_eq!((s.status, s.excerpt.as_deref()), (Status::Needs, Some("Bash · `npm install`")));
+        assert_eq!(session_headline(&s).0, "`opencode` asks for approval");
+        // A run that ended is news until seen here or viewed in OpenCode.
+        row.idle_at = Some(NOW - 500);
+        row.outcome = Some("succeeded".into());
+        assert_eq!(opencode_session(&a, &row, Some(&quiet), None, NOW - 2_000, NOW).status, Status::Unread);
+        assert_eq!(opencode_session(&a, &row, Some(&quiet), None, NOW, NOW).status, Status::Idle);
+        row.viewed_at = Some(NOW - 100);
+        assert_eq!(opencode_session(&a, &row, Some(&quiet), None, NOW - 2_000, NOW).status, Status::Idle);
+        row.viewed_at = None;
+        row.outcome = Some("failed".into());
+        assert_eq!(opencode_session(&a, &row, Some(&quiet), None, NOW - 2_000, NOW).status, Status::Error);
+        row.archived_at = Some(NOW);
+        assert!(opencode_session(&a, &row, Some(&quiet), None, NOW - 2_000, NOW).archived);
+    }
+
+    #[test]
+    fn maps_antigravity_statuses() {
+        let a = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: "~/.gemini/antigravity".into(), command: None };
+        let mut c = Conversation {
+            id: "c1".into(),
+            title: Some("Photo tools".into()),
+            preview: Some("Tighten the photo tools".into()),
+            cwd: Some("/r".into()),
+            not_fully_idle: true,
+            last_modified: NOW - 1_000,
+            last_input: Some(NOW - 5_000),
+            ..Default::default()
+        };
+        let s = antigravity_session(&a, &c, 0, NOW);
+        assert_eq!((s.status, s.live, s.surface), (Status::Working, true, Surface::App));
+        assert_eq!(s.open_target, "s|antigravity:antigravity:c1|antigravity");
+        assert_eq!(s.cwd, "/r");
+        c.last_modified = NOW - ANTIGRAVITY_STALE_MS - 1;
+        assert_eq!(antigravity_session(&a, &c, 0, NOW).status, Status::Idle);
+        c.last_modified = NOW - 1_000;
+        c.not_fully_idle = false;
+        assert_eq!(antigravity_session(&a, &c, NOW - 2_000, NOW).status, Status::Unread);
+        assert_eq!(antigravity_session(&a, &c, NOW, NOW).status, Status::Idle);
+        // Nothing new since you wrote: not your turn.
+        c.last_input = Some(NOW - 500);
+        assert_eq!(antigravity_session(&a, &c, 0, NOW).status, Status::Idle);
+        c.status = "waiting".into();
+        let s = antigravity_session(&a, &c, 0, NOW);
+        assert_eq!((s.status, s.excerpt.as_deref()), (Status::Needs, Some("waiting")));
+        assert_eq!(session_headline(&s).0, "`antigravity` needs you");
+        c.killed = true;
+        assert_eq!(antigravity_session(&a, &c, 0, NOW).status, Status::Idle);
     }
 
     #[test]

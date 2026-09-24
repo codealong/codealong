@@ -3,6 +3,7 @@
 import type { ButtonHTMLAttributes, ReactNode } from 'react';
 import { Fragment } from 'react';
 import { middleTruncate, withTimes } from '../format';
+import { sessionPlace } from '../harness';
 import type { Bay, Lane, Pr, PrState, Session, Status, Surface } from '../types';
 import { ICONS } from './icons';
 
@@ -169,7 +170,7 @@ export function Button({ variant = 'secondary', size = 'md', icon, kbd, children
 }
 
 export function HarnessChip({ session, withStatus = true, onOpen }: { session: Session; withStatus?: boolean; onOpen?: () => void }) {
-  const where = session.surface === 'cli' ? 'terminal' : session.harness === 'claude' ? 'Claude app' : 'Codex';
+  const where = sessionPlace(session, 'terminal');
   const title = `${session.account} · ${session.title} · ${STATUS_WORD[session.status]}`;
   const inner = (
     <>
