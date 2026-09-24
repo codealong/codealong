@@ -3,27 +3,39 @@
 // the board like any other session.
 
 import { useEffect, useMemo, useState } from 'react';
-import { startOptions, startSession } from '../api';
-import { middleTruncate, tildePath } from '../format';
-import { accountFor, autoHarness, autoPicks, choices, fullest, initialChoice, initialPlace, placesFor, remember, remembered, type Choice } from '../start';
-import type { Harness, Lane, StartOptions, StartPlace, Started, Usage } from '../types';
+import { startOptions } from '../api';
+import { middleTruncate, resetsPhrase, tildePath } from '../format';
+import { accountFor, autoHarness, autoPicks, choices, initialChoice, initialPlace, placesFor, remember, remembered, type AutoPick, type Choice } from '../start';
+import type { Harness, Lane, StartOptions, StartPlace, StartSpec, Usage } from '../types';
 import { Button, Icon } from './primitives';
 import { UsageMeter } from './UsageBar';
 
 const HARNESS_WORD: Record<Harness, string> = { claude: 'Claude Code', codex: 'Codex' };
 
-/** Worktrees grouped by repo, the most recently active repo and worktree first. */
-function laneGroups(lanes: Lane[]): { label: string; lanes: Lane[] }[] {
+/** Pinned worktrees first, in your order, then the rest grouped by repo, the most recently
+ *  active repo and worktree first. */
+function laneGroups(lanes: Lane[], pinned: string[]): { label: string; lanes: Lane[] }[] {
+  const byId = new Map(lanes.map((l) => [l.id, l]));
+  const pins = pinned.flatMap((id) => byId.get(id) ?? []);
+  const pinnedIds = new Set(pins.map((l) => l.id));
   const projects = new Set(lanes.map((l) => l.project)).size;
   const groups = new Map<string, Lane[]>();
   for (const l of lanes) {
+    if (pinnedIds.has(l.id)) continue;
     const label = projects > 1 ? `${l.project} · ${l.repo}` : l.repo;
     groups.set(label, [...(groups.get(label) ?? []), l]);
   }
   const latest = (ls: Lane[]) => Math.max(...ls.map((l) => l.lastActivity));
-  return [...groups.entries()]
+  const repos = [...groups.entries()]
     .map(([label, ls]) => ({ label, lanes: [...ls].sort((a, b) => b.lastActivity - a.lastActivity) }))
     .sort((a, b) => latest(b.lanes) - latest(a.lanes));
+  return pins.length > 0 ? [{ label: 'Pinned', lanes: pins }, ...repos] : repos;
+}
+
+/** Why Auto starts the account it does, after the harness's name. */
+function autoReason(p: AutoPick, now: number): string {
+  if (p.reason === 'reset' && p.resetsAt) return `${p.account}'s week resets ${resetsPhrase(p.resetsAt, now)}`;
+  return p.reason === 'room' ? `${p.account} has the most room` : `starts ${p.account}`;
 }
 
 function laneLabel(l: Lane): string {
@@ -39,31 +51,42 @@ function usageNote(u: Usage | undefined): string {
   return u.harness === 'codex' ? 'No turns yet' : 'Usage unavailable';
 }
 
+/** What you chose and wrote, kept so a failed start can bring the sheet back as you left it. */
+export interface SheetDraft {
+  choice: Choice | null;
+  place: StartPlace | null;
+  prompt: string;
+}
+
 interface NewSessionSheetProps {
   /** Where a session can start, the preselected one among them. */
   lanes: Lane[];
   laneId: string | null;
+  /** After a failed start: what you had chosen and written, and why it failed. */
+  draft?: SheetDraft;
+  error?: string;
+  /** Pinned worktree ids, in your order: they head the list. */
+  pinned: string[];
   usage: Usage[];
   now: number;
   onClose: () => void;
-  /** After the harness has it; `started.key` names the session when Codealong chose its ID. */
-  onStarted: (started: Started | null, lane: Lane) => void;
+  /** Start: the sheet's owner closes it, runs the start and shows `label` while it waits. */
+  onStart: (spec: StartSpec, draft: SheetDraft, label: string) => void;
 }
 
-export function NewSessionSheet({ lanes, laneId: firstLane, usage, now, onClose, onStarted }: NewSessionSheetProps) {
-  const groups = useMemo(() => laneGroups(lanes), [lanes]);
+export function NewSessionSheet({ lanes, laneId: firstLane, draft, error: failed, pinned, usage, now, onClose, onStart }: NewSessionSheetProps) {
+  const groups = useMemo(() => laneGroups(lanes, pinned), [lanes, pinned]);
   const [options, setOptions] = useState<StartOptions | null>(null);
-  // Without a selected worktree, the most recently active one.
+  // Without a selected worktree, the first on the list: a pinned one, else the latest.
   const [laneId, setLaneId] = useState(firstLane ?? groups[0]?.lanes[0]?.id ?? '');
   const [choice, setChoice] = useState<Choice | null>(null);
   const [place, setPlace] = useState<StartPlace | null>(null);
-  const [prompt, setPrompt] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [prompt, setPrompt] = useState(draft?.prompt ?? '');
+  const [error, setError] = useState<string | null>(failed ?? null);
 
   const accounts = useMemo(() => options?.accounts ?? [], [options]);
   // Auto follows usage while the sheet is open, and resolves when you press Start.
-  const picks = useMemo(() => autoPicks(accounts, usage), [accounts, usage]);
+  const picks = useMemo(() => autoPicks(accounts, usage, now), [accounts, usage, now]);
   const lane = lanes.find((l) => l.id === laneId) ?? null;
   const places = placesFor(choice, accounts);
   const account = accountFor(choice, picks);
@@ -73,9 +96,9 @@ export function NewSessionSheet({ lanes, laneId: firstLane, usage, now, onClose,
       .then((o) => {
         setOptions(o);
         const last = remembered();
-        const c = initialChoice(o.accounts, autoPicks(o.accounts, usage), last.choice);
+        const c = initialChoice(o.accounts, autoPicks(o.accounts, usage, now), draft?.choice ?? last.choice);
         setChoice(c);
-        setPlace(initialPlace(c, o.accounts, c ? last.places?.[c] : undefined));
+        setPlace(initialPlace(c, o.accounts, draft?.place ?? (c ? last.places?.[c] : undefined)));
       })
       .catch((e: unknown) => setError(String(e).replace(/^Error: /, '')));
   }, []);
@@ -85,19 +108,17 @@ export function NewSessionSheet({ lanes, laneId: firstLane, usage, now, onClose,
     setPlace(initialPlace(c, accounts, remembered().places?.[c]));
   };
 
-  const ready = !!lane && !!account && !!place && !busy;
-  const submit = async () => {
-    if (!ready || !lane || !account || !place) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const started = await startSession({ laneId: lane.id, account, place, prompt });
-      if (choice) remember(choice, place);
-      onStarted(started, lane);
-    } catch (e) {
-      setError(String(e).replace(/^Error: /, ''));
-      setBusy(false);
-    }
+  const ready = !!lane && !!account && !!place;
+  const submit = () => {
+    if (!lane || !account || !place) return;
+    if (choice) remember(choice, place);
+    const label =
+      place === 'terminal'
+        ? `Starting ${account} in ${lane.callsign}…`
+        : place === 'claude-app'
+          ? `Opening a new session in the Claude app…`
+          : `Opening a new thread in Codex…`;
+    onStart({ laneId: lane.id, account, place, prompt }, { choice, place, prompt }, label);
   };
 
   // ⌘⏎ starts and Escape closes, wherever the focus is. Re-bound each render so Start sees the
@@ -109,7 +130,7 @@ export function NewSessionSheet({ lanes, laneId: firstLane, usage, now, onClose,
         onClose();
       } else if (e.key === 'Enter' && e.metaKey) {
         e.preventDefault();
-        void submit();
+        submit();
       }
     };
     window.addEventListener('keydown', onKey);
@@ -118,17 +139,19 @@ export function NewSessionSheet({ lanes, laneId: firstLane, usage, now, onClose,
 
   const rows = choices(accounts, picks).map((c) => {
     const h = autoHarness(c);
-    if (h) {
-      const pick = picks[h] ?? '';
-      const measured = fullest(usage.find((u) => u.account === pick)) !== null;
+    const p = h ? picks[h] : undefined;
+    if (h && p) {
       return {
         id: c,
         auto: true,
         name: 'Auto',
-        detail: `${HARNESS_WORD[h]} · ${measured ? `${pick} has the most room` : `starts ${pick}`}`,
+        detail: `${HARNESS_WORD[h]} · ${autoReason(p, now)}`,
         usage: undefined,
         disabled: false,
-        title: `Starts the ${HARNESS_WORD[h]} account whose fullest limit is least full when you press Start. Right now that's ${pick}.`,
+        title:
+          `Starts the ${HARNESS_WORD[h]} account whose weekly limit resets soonest within 48 hours, so its room isn't lost, ` +
+          `else the one whose fullest limit is least full. Accounts at 90% of a limit are passed over while another has room. ` +
+          `Decided when you press Start; right now it's ${p.account}.`,
       };
     }
     const a = accounts.find((x) => x.name === c);
@@ -171,7 +194,7 @@ export function NewSessionSheet({ lanes, laneId: firstLane, usage, now, onClose,
         aria-labelledby="ca-start-title"
         onSubmit={(e) => {
           e.preventDefault();
-          void submit();
+          submit();
         }}
         onKeyDown={(e) => {
           // Return in the account list doesn't start; only ⌘⏎ or the Start button does.
@@ -264,7 +287,7 @@ export function NewSessionSheet({ lanes, laneId: firstLane, usage, now, onClose,
             Cancel
           </Button>
           <Button variant="primary" size="sm" type="submit" disabled={!ready} kbd={['⌘', '⏎']}>
-            {busy ? 'Starting…' : 'Start'}
+            Start
           </Button>
         </footer>
       </form>

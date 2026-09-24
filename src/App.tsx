@@ -7,19 +7,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { showContextMenu } from './contextMenu';
 import { AGENT_BAY, BAYS, buildBays, failingPr, filterByAge, laneInFilter, type BoardRow, type Filter } from './lanes';
-import { approvePr, archiveSession, getBoard, markSeen, onBoard, onReveal, openConfig, openProjectWindow, openTarget, openUrl, refresh, refreshUsage, reviewInCodex, setPinned, setPinnedWorktrees, setTheme, signIn, type Reveal } from './api';
+import { approvePr, archiveSession, getBoard, markSeen, onBoard, onReveal, openConfig, openProjectWindow, openTarget, openUrl, refresh, refreshUsage, reviewInCodex, setPinned, setPinnedWorktrees, setTheme, signIn, startSession, type Reveal } from './api';
 import { ago } from './format';
 import { usePins } from './pins';
-import type { Bay, Board, Lane, PrItem, Session, Started, Theme } from './types';
+import type { Bay, Board, Lane, PrItem, Session, StartSpec, Theme } from './types';
 import { AccountsDialog } from './ui/AccountsDialog';
 import { Inspector } from './ui/Inspector';
-import { NewSessionSheet } from './ui/NewSessionSheet';
+import { NewSessionSheet, type SheetDraft } from './ui/NewSessionSheet';
 import { AgentRow, LaneRow } from './ui/LaneRow';
 import { PinnedSection, type PinDrag } from './ui/PinnedSection';
-import { BayHeader, Button, Icon, Kbd, NavItem } from './ui/primitives';
+import { BayHeader, Button, Icon, Kbd, NavItem, StatusGlyph } from './ui/primitives';
 import { ALL_PROJECTS, openSwitcher, ProjectSwitcher, type ActionCounts } from './ui/ProjectSwitcher';
 import { PrInspector } from './ui/PrInspector';
-import { prIsOpen, prSections, PrsView, type PrRowItem } from './ui/PrsView';
+import { prIsOpen, prPlaces, prSections, PrsView, type PrRowItem } from './ui/PrsView';
 import { SessionsView, timeSections, type SessionItem } from './ui/SessionsView';
 import { applyTheme, ThemeSwitch } from './ui/ThemeSwitch';
 import { UsageBar } from './ui/UsageBar';
@@ -130,7 +130,9 @@ function prInFilter(r: PrRowItem, f: Filter | null): boolean {
       return prIsOpen(p) && (p.reviewRequested || (p.mine && (p.checks.failed > 0 || p.state === 'changes')));
     case 'working':
     case 'unread':
-      return r.sessions.some(({ session }) => session.status === f);
+      // As on the board, a session from another lane doesn't lend its status: one agent that
+      // made many worktrees would otherwise put all of their PRs in Working.
+      return r.sessions.some(({ session }) => !session.visitor && session.status === f);
     case 'review':
       return prIsOpen(p);
     case 'failing':
@@ -196,9 +198,26 @@ export function App() {
   // The Accounts dialog, open at one account when a usage chip opened it.
   const [accountsDialog, setAccountsDialog] = useState<{ focus: string | null } | null>(null);
   const closeAccounts = useCallback(() => setAccountsDialog(null), []);
-  // The new-session sheet, open at a worktree.
-  const [newSession, setNewSession] = useState<{ laneId: string | null } | null>(null);
+  // The new-session sheet, open at a worktree; after a failed start, with what you wrote and why.
+  const [newSession, setNewSession] = useState<{ laneId: string | null; draft?: SheetDraft; error?: string } | null>(null);
   const closeNewSession = useCallback(() => setNewSession(null), []);
+  const sheetOpen = useRef(false);
+  useEffect(() => {
+    sheetOpen.current = !!newSession;
+  }, [newSession]);
+  // Opens and starts still waiting on their app: a spinner shows once one takes a moment.
+  const [busy, setBusy] = useState<{ id: number; label: string }[]>([]);
+  const busySeq = useRef(0);
+  const track = useCallback(<T,>(label: string, work: Promise<T>): Promise<T> => {
+    const id = ++busySeq.current;
+    const timer = window.setTimeout(() => setBusy((b) => [...b, { id, label }]), 300);
+    const done = () => {
+      window.clearTimeout(timer);
+      setBusy((b) => b.filter((x) => x.id !== id));
+    };
+    work.then(done, done);
+    return work;
+  }, []);
   // A session started from here, selected once it shows on the board.
   const [pendingSession, setPendingSession] = useState<{ key: string; until: number } | null>(null);
   const now = useNow(15_000);
@@ -363,10 +382,12 @@ export function App() {
     () => [...pinnedLaneRows, ...bays.flatMap((b) => b.rows.filter((r) => !foldParked || r.kind === 'agent' || !r.lane.parked))],
     [pinnedLaneRows, bays, foldParked],
   );
-  // The PRs view: the project's PRs with their worktree and sessions.
+  // The PRs view: the project's PRs with the worktrees that hold them and the sessions that
+  // worked on them. A session is looked up in the worktree it's listed under, which for one that
+  // made or worked in a worktree isn't its own.
   const sessionIndex = useMemo(() => {
     const m = new Map<string, { lane: Lane; session: Session }>();
-    for (const lane of lanes) for (const session of lane.sessions) if (!session.visitor) m.set(session.key, { lane, session });
+    for (const lane of lanes) for (const session of lane.sessions) m.set(`${lane.id}::${session.key}`, { lane, session });
     return m;
   }, [lanes]);
   const laneById = useMemo(() => new Map(lanes.map((l) => [l.id, l])), [lanes]);
@@ -375,15 +396,11 @@ export function App() {
     () =>
       projectPrs
         .filter((p) => p.updatedAt >= cutoff && prInQuery(p, query))
-        .map(
-          (p): PrRowItem => ({
-            kind: 'pr',
-            key: `pr:${p.key}`,
-            pr: p,
-            lane: p.lanes.map((id) => laneById.get(id)).find((l): l is Lane => !!l) ?? null,
-            sessions: p.sessions.flatMap((k) => sessionIndex.get(k) ?? []),
-          }),
-        )
+        .map((p): PrRowItem => {
+          const holding = p.lanes.flatMap((id) => laneById.get(id) ?? []);
+          const sessions = p.sessions.flatMap((s) => sessionIndex.get(`${s.lane}::${s.key}`) ?? []);
+          return { kind: 'pr', key: `pr:${p.key}`, pr: p, lane: holding[0] ?? null, sessions, places: prPlaces(holding, sessions) };
+        })
         .filter((r) => prInFilter(r, bayFilter)),
     [projectPrs, cutoff, query, bayFilter, laneById, sessionIndex],
   );
@@ -436,8 +453,8 @@ export function App() {
       setToast(target.detail ?? `${target.label} isn't available right now.`);
       return;
     }
-    openTarget(lane.id, targetId).catch((e: unknown) => setToast(String(e)));
-  }, []);
+    track(`${target?.label ?? 'Opening'}…`, openTarget(lane.id, targetId)).catch((e: unknown) => setToast(String(e)));
+  }, [track]);
 
   const openRow = useCallback(
     (row: Row | null) => {
@@ -778,13 +795,26 @@ export function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, [visible, selected, selectedLane, move, open, openRow, copy, accountsDialog, newSession, view, setView, toggleLanePin, sessionPins, lanePins, pinnedRows, pinnedLaneRows, movePinnedSession, movePinnedLane, current, setArchived]);
 
-  /** The sheet handed the session to its harness: say what's next, and select the session
-   *  when it shows up if Codealong chose its ID. */
-  const onStarted = useCallback((started: Started | null) => {
-    setNewSession(null);
-    if (started?.message) setToast(started.message);
-    if (started?.key) setPendingSession({ key: started.key, until: Date.now() + 60_000 });
-  }, []);
+  /** The sheet's Start. The sheet closes and a spinner shows while the harness takes the
+   *  session; then it says what's next, and selects the session when it shows up if Codealong
+   *  chose its ID. A failed start brings the sheet back with what you wrote and why. */
+  const startFromSheet = useCallback(
+    (spec: StartSpec, draft: SheetDraft, label: string) => {
+      setNewSession(null);
+      track(label, startSession(spec))
+        .then((started) => {
+          if (started?.message) setToast(started.message);
+          if (started?.key) setPendingSession({ key: started.key, until: Date.now() + 60_000 });
+        })
+        .catch((e: unknown) => {
+          const error = String(e).replace(/^Error: /, '');
+          // A sheet opened meanwhile keeps its place; the failure shows as a toast.
+          if (sheetOpen.current) setToast(error);
+          else setNewSession({ laneId: spec.laneId, draft, error });
+        });
+    },
+    [track],
+  );
 
   useEffect(() => {
     if (!pendingSession) return;
@@ -1099,6 +1129,8 @@ export function App() {
               onApprove={() => approve(selected.pr)}
               onOpenSession={(lane, session) => open(lane, session.openTarget)}
               onShowLane={focusLane}
+              onLaneMenu={laneMenu}
+              onSessionMenu={(lane, s) => sessionMenu(lane, s, 'worktree')}
             />
           ) : (
             <aside className="ca-insp ca-insp--empty">
@@ -1127,9 +1159,25 @@ export function App() {
         />
       )}
       {newSession && (
-        <NewSessionSheet lanes={startLanes} laneId={newSession.laneId} usage={board?.usage ?? []} now={now} onClose={closeNewSession} onStarted={onStarted} />
+        <NewSessionSheet
+          lanes={startLanes}
+          laneId={newSession.laneId}
+          draft={newSession.draft}
+          error={newSession.error}
+          pinned={lanePins.keys}
+          usage={board?.usage ?? []}
+          now={now}
+          onClose={closeNewSession}
+          onStart={startFromSheet}
+        />
       )}
-      {undo && !toast && (
+      {busy.length > 0 && !toast && (
+        <div className="ca-toast is-busy" role="status" aria-live="polite">
+          <StatusGlyph status="working" size={14} title="In progress" />
+          <span>{busy[busy.length - 1].label}</span>
+        </div>
+      )}
+      {undo && !toast && busy.length === 0 && (
         <div className="ca-toast" role="status">
           <Icon name="archive" size={16} />
           <span>Archived “{undo.title}”.</span>

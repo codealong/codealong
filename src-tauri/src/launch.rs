@@ -60,8 +60,9 @@ on run argv
 end run
 "#;
 
-/// `tag <marker>`: waits up to two seconds for a terminal whose folder contains the marker and
-/// focuses it. `id <terminal id>`: focuses that terminal. Returns the focused terminal's id.
+/// `tag <marker>`: waits two to three seconds for a terminal whose folder contains the marker
+/// and focuses it. `id <terminal id>`: focuses that terminal. Returns the focused terminal's id.
+/// The wait is timed, not counted: with many terminals open each look takes longer.
 const GHOSTTY_FOCUS: &str = r#"
 on run argv
   set mode to item 1 of argv
@@ -71,7 +72,8 @@ on run argv
       if my focusTerminal(want) then return want
       return ""
     end if
-    repeat 40 times
+    set started to current date
+    repeat
       set ids to id of every terminal
       set dirs to working directory of every terminal
       repeat with i from 1 to count of ids
@@ -80,6 +82,7 @@ on run argv
           if my focusTerminal(found) then return found
         end if
       end repeat
+      if ((current date) - started) > 2 then exit repeat
       delay 0.05
     end repeat
   end tell
@@ -104,13 +107,21 @@ on focusTerminal(want)
 end focusTerminal
 "#;
 
+/// How long Codealong waits for Ghostty. It can be slow to answer while it launches, while it's
+/// busy, or while macOS asks whether Codealong may control it (asked again after each rebuild).
+/// Stopping early doesn't stop Ghostty: it still does what it was asked, so a short wait
+/// reported failures for windows that then opened.
+const OSASCRIPT_TIMEOUT: Duration = Duration::from_secs(60);
+
 fn osascript(script: &str, args: &[&str]) -> Result<String> {
     let mut full = vec!["-"];
     full.extend_from_slice(args);
-    procs::run_stdin("/usr/bin/osascript", &full, script, Duration::from_secs(10)).map_err(|e| {
+    procs::run_stdin("/usr/bin/osascript", &full, script, OSASCRIPT_TIMEOUT).map_err(|e| {
         let msg = e.to_string();
         if msg.contains("-1743") || msg.contains("Not authorized") {
             anyhow!("Codealong isn't allowed to control Ghostty. Turn it on in System Settings → Privacy & Security → Automation.")
+        } else if msg.contains("timed out") {
+            anyhow!("Ghostty didn't answer within a minute. It may still open the window; if macOS asked whether Codealong may control Ghostty, allow it and try again.")
         } else {
             anyhow!("Ghostty didn't respond: {msg}")
         }

@@ -10,6 +10,11 @@ export type Choice = string;
 const AUTO = 'auto:';
 const HARNESSES: Harness[] = ['claude', 'codex'];
 const REMEMBER_KEY = 'codealong.start';
+const HOUR = 60 * 60 * 1000;
+/** A weekly limit resetting this soon has room that will be lost unless it's used. */
+export const RESET_SOON_MS = 48 * HOUR;
+/** An account this close to any limit could stall a new session. */
+const NEAR_LIMIT = 90;
 
 export function autoChoice(h: Harness): Choice {
   return `${AUTO}${h}`;
@@ -25,30 +30,65 @@ export function fullest(u: Usage | undefined): number | null {
   return Math.max(...u.meters.map((m) => m.percent));
 }
 
-/** The account Auto starts for each harness with more than one account that can start
- *  sessions: the one whose fullest limit is least full. Accounts without numbers are picked
- *  only when none have them. */
-export function autoPicks(accounts: StartAccount[], usage: Usage[]): Partial<Record<Harness, string>> {
-  const out: Partial<Record<Harness, string>> = {};
+/** When an account's weekly limit resets, if it's been used this week. */
+export function weeklyReset(u: Usage | undefined): number | null {
+  return u?.meters.find((m) => m.key === 'week')?.resetsAt ?? null;
+}
+
+function nearLimit(u: Usage): boolean {
+  return u.meters.some((m) => m.severity === 'critical' || m.percent >= NEAR_LIMIT);
+}
+
+/** Auto's account for a harness, and why: its weekly limit resets soon (`reset`), it has the
+ *  most room (`room`), or there are no numbers to go by (`first`). */
+export interface AutoPick {
+  account: string;
+  reason: 'reset' | 'room' | 'first';
+  /** The weekly reset, for `reset`. */
+  resetsAt: number | null;
+}
+
+export type Picks = Partial<Record<Harness, AutoPick>>;
+
+/**
+ * The account Auto starts for each harness with more than one account that can start sessions.
+ * Room that's about to reset is spent first: among accounts not near a limit, the one whose
+ * weekly limit resets soonest within 48 hours. Without one, the account whose fullest limit is
+ * least full. Accounts at 90% of any limit are passed over while another has room, and accounts
+ * without numbers are picked only when none have them.
+ */
+export function autoPicks(accounts: StartAccount[], usage: Usage[], now: number): Picks {
+  const out: Picks = {};
   for (const h of HARNESSES) {
     const mine = accounts.filter((a) => a.harness === h && a.places.length > 0);
     if (mine.length < 2) continue;
-    let pick = mine[0].name;
-    let least = Infinity;
-    for (const a of mine) {
-      const full = fullest(usage.find((u) => u.account === a.name));
-      if (full !== null && full < least) {
-        least = full;
-        pick = a.name;
-      }
+    const measured = mine.flatMap((a) => {
+      const u = usage.find((x) => x.account === a.name);
+      const full = fullest(u);
+      return u && full !== null ? [{ name: a.name, u, full }] : [];
+    });
+    if (measured.length === 0) {
+      out[h] = { account: mine[0].name, reason: 'first', resetsAt: null };
+      continue;
     }
-    out[h] = pick;
+    const roomy = measured.filter((m) => !nearLimit(m.u));
+    const pool = roomy.length > 0 ? roomy : measured;
+    const soon = pool
+      .map((m) => ({ ...m, at: weeklyReset(m.u) }))
+      .filter((m): m is typeof m & { at: number } => m.at !== null && m.at > now && m.at - now <= RESET_SOON_MS)
+      .sort((a, b) => a.at - b.at || a.full - b.full);
+    if (soon.length > 0) {
+      out[h] = { account: soon[0].name, reason: 'reset', resetsAt: soon[0].at };
+      continue;
+    }
+    const least = pool.reduce((best, m) => (m.full < best.full ? m : best));
+    out[h] = { account: least.name, reason: 'room', resetsAt: null };
   }
   return out;
 }
 
 /** The choices the sheet lists: Auto for each harness that has it, then every account. */
-export function choices(accounts: StartAccount[], picks: Partial<Record<Harness, string>>): Choice[] {
+export function choices(accounts: StartAccount[], picks: Picks): Choice[] {
   return [...HARNESSES.filter((h) => picks[h]).map(autoChoice), ...accounts.map((a) => a.name)];
 }
 
@@ -64,15 +104,15 @@ export function placesFor(choice: Choice | null, accounts: StartAccount[]): Star
 }
 
 /** The account a choice starts right now. */
-export function accountFor(choice: Choice | null, picks: Partial<Record<Harness, string>>): string | null {
+export function accountFor(choice: Choice | null, picks: Picks): string | null {
   if (!choice) return null;
   const h = autoHarness(choice);
-  return h ? (picks[h] ?? null) : choice;
+  return h ? (picks[h]?.account ?? null) : choice;
 }
 
 /** The choice the sheet opens with: the last one you started with while it's still offered,
  *  else the first on the list that can start a session. */
-export function initialChoice(accounts: StartAccount[], picks: Partial<Record<Harness, string>>, last: Choice | undefined): Choice | null {
+export function initialChoice(accounts: StartAccount[], picks: Picks, last: Choice | undefined): Choice | null {
   const offered = choices(accounts, picks).filter((c) => placesFor(c, accounts).length > 0);
   return last && offered.includes(last) ? last : (offered[0] ?? null);
 }

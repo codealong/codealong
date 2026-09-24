@@ -26,15 +26,20 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     Codex itself.
   - **PRs**: every PR in the project's repos, with the worktree and sessions that worked on
     each. Reviews asked of you come first, with one-click Approve. Selecting a PR shows its
-    description, reviews, checks and changed files with their diffs.
+    description, reviews, checks and changed files with their diffs, and under On this Mac
+    the worktrees and sessions behind it, drawn like the sidebar's tree: whether the worktree
+    has anything GitHub doesn't, and the agents that worked on the PR, including one that made
+    the worktree from another folder.
 - **Open where it lives**: the session's own Ghostty tab, the Claude app session, the Codex
   thread, a background job attached in a new window, or the folder in Cursor.
 - **New session** (⌘N, the title bar, the inspector, or a worktree's or session's right-click
-  menu): pick the worktree, the account, and where it runs. Ghostty starts Claude Code on your
-  prompt; the Claude app and Codex open a new session with the prompt filled in, and you send it
-  there (their own worktree choice included). Auto starts whichever account of that harness has
-  the most room before a limit. Codealong only launches: the session shows on the board like
-  any other, and one started in Ghostty is selected as soon as it appears.
+  menu): pick the worktree (pinned ones first), the account, and where it runs. Ghostty starts
+  Claude Code on your prompt; the Claude app and Codex open a new session with the prompt filled
+  in, and you send it there (their own worktree choice included). Auto picks between accounts of
+  one harness: first the one whose weekly limit resets soonest within 48 hours, so its room
+  isn't lost, else the one with the most room; accounts at 90% of a limit are passed over.
+  Codealong only launches: the session shows on the board like any other, and one started in
+  Ghostty is selected as soon as it appears.
 - **Usage** for every account in a bar across the top: 5-hour and weekly limits, per-model
   limits such as Fable, and time to reset. Add accounts in Accounts (⌘,).
 - **Filters**: the Inbox (Needs you, Working, Your turn, In review, Checks failing), search,

@@ -156,6 +156,11 @@ Ghostty (1.3, AppleScript dictionary in the app bundle)
   `<glyph> <title>` and animates the glyph while working, so titles are only a fallback.
 - macOS doesn't let a background process bring an app forward: `activate` from a shell leaves
   Ghostty behind; from a click in Codealong it works.
+- Scripts can take many seconds: while Ghostty launches or is busy, and while macOS asks whether
+  Codealong may control it. The bundle is ad-hoc signed with a per-build identifier
+  (`codealong-<hash>`), so macOS treats each rebuild as a new app and asks again. Ghostty still
+  carries out an Apple event after `osascript` is killed, so `launch.rs` waits a minute rather
+  than report a failure for a window that then opens.
 
 Tauri and macOS (from the Tauri 2.11 and tao 0.35 sources)
 
