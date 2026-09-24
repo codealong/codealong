@@ -192,7 +192,10 @@ export function HarnessChip({ session, withStatus = true, onOpen }: { session: S
       title={`${title}. Click to open in ${where}.`}
       onMouseDown={(e) => e.stopPropagation()}
       onDoubleClick={(e) => e.stopPropagation()}
-      onClick={onOpen}
+      // A double-click on a row often lands here: open once, not in two terminals.
+      onClick={(e) => {
+        if (e.detail < 2) onOpen();
+      }}
     >
       {inner}
     </button>

@@ -862,6 +862,7 @@ export function App() {
               onLaneMenu={laneMenu}
               onSessionMenu={sessionMenu}
               onSelectLane={focusLane}
+              onOpenLane={(lane) => open(lane, lane.defaultTarget)}
               onOpenSession={(lane, session) => {
                 focusSession(lane, session);
                 open(lane, session.openTarget);

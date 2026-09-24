@@ -34,6 +34,8 @@ interface WorktreeTreeProps {
   /** Pinned session keys, marked in the tree. */
   pinnedSessions: Set<string>;
   onSelectLane: (lane: Lane) => void;
+  /** Double-click on a worktree: opens its most recent session. */
+  onOpenLane: (lane: Lane) => void;
   onOpenSession: (lane: Lane, session: Session) => void;
   /** Right-click on a worktree. */
   onLaneMenu: (lane: Lane) => void;
@@ -41,7 +43,7 @@ interface WorktreeTreeProps {
   onSessionMenu: (lane: Lane, session: Session) => void;
 }
 
-export function WorktreeTree({ groups, now, selectedLaneId, selectedSessionKey, pinnedSessions, onSelectLane, onOpenSession, onLaneMenu, onSessionMenu }: WorktreeTreeProps) {
+export function WorktreeTree({ groups, now, selectedLaneId, selectedSessionKey, pinnedSessions, onSelectLane, onOpenLane, onOpenSession, onLaneMenu, onSessionMenu }: WorktreeTreeProps) {
   // Worktrees with an agent that needs you, is working or just finished start open; the rest
   // start closed. Toggles are remembered.
   const [overrides, setOverrides] = useState<Record<string, boolean>>(loadOverrides);
@@ -77,6 +79,7 @@ export function WorktreeTree({ groups, now, selectedLaneId, selectedSessionKey, 
             const older = lane.sessions.length - recent.length;
             const active = lane.sessions.filter((s) => !s.visitor && ACTIVE.has(s.status)).length;
             const failing = failingPr(lane);
+            const opens = lane.defaultTarget?.startsWith('s|') ? 'its most recent session' : 'a new terminal window here';
             return (
               <div key={lane.id} role="treeitem" aria-expanded={lane.sessions.length ? open : undefined} aria-selected={selectedLaneId === lane.id}>
                 <div
@@ -95,7 +98,13 @@ export function WorktreeTree({ groups, now, selectedLaneId, selectedSessionKey, 
                   >
                     {lane.sessions.length > 0 && <Icon name="chevron-right" size={12} stroke={2} />}
                   </button>
-                  <button type="button" className="ca-tree-label" title={`${lane.callsign} · ${lane.branch ?? lane.detached ?? ''}`} onClick={() => onSelectLane(lane)}>
+                  <button
+                    type="button"
+                    className="ca-tree-label"
+                    title={`${lane.callsign} · ${lane.branch ?? lane.detached ?? ''}. Double-click to open ${opens}.`}
+                    onClick={() => onSelectLane(lane)}
+                    onDoubleClick={() => onOpenLane(lane)}
+                  >
                     <LaneGlyph lane={lane} />
                     <span className="ca-nav-label">{lane.callsign}</span>
                     {failing && (
@@ -119,7 +128,10 @@ export function WorktreeTree({ groups, now, selectedLaneId, selectedSessionKey, 
                         role="treeitem"
                         className={['ca-tree-session', s.visitor && 'is-visitor', selectedSessionKey === s.key && selectedLaneId === lane.id && 'is-active'].filter(Boolean).join(' ')}
                         title={`${s.account} · ${s.title}${s.visitor ? ` (${s.visitor})` : ''}. Click to open it where it lives.`}
-                        onClick={() => onOpenSession(lane, s)}
+                        // A double-click here is two clicks: open once, not in two terminals.
+                        onClick={(e) => {
+                          if (e.detail < 2) onOpenSession(lane, s);
+                        }}
                         onContextMenu={(e) => {
                           e.preventDefault();
                           onSessionMenu(lane, s);

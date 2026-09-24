@@ -1,6 +1,7 @@
 //! The rules from *The model*: session status, lane bays, headlines and open targets.
 //! Pure functions over already-read data, so every rule is unit-tested here.
 
+use std::cmp::Reverse;
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
@@ -505,12 +506,23 @@ fn target(id: String, icon: &str, label: String, detail: Option<String>, kbd: Op
     }
 }
 
+/// The session a lane opens to: its most recent own session, else the most recent one that
+/// visited it. A tie goes to the one listed first, the more urgent.
+fn latest_session(sessions: &[Session]) -> Option<&Session> {
+    let newest = |visitors: bool| sessions.iter().filter(|s| s.visitor.is_some() == visitors).min_by_key(|s| Reverse(s.last_activity));
+    newest(false).or_else(|| newest(true))
+}
+
 /// Everywhere a lane can open, the default first. See *Surfaces*, Open where it lives.
 pub fn targets(seed: &LaneSeed, sessions: &[Session], pr: Option<&Pr>, apps: &AppNames) -> (Vec<Target>, Option<String>) {
     let term = &apps.terminal;
     let editor = &apps.editor;
     let mut t = Vec::new();
-    for (i, s) in sessions.iter().take(4).enumerate() {
+    // The most recent session leads, since opening the lane opens it; the rest keep the lane's
+    // order, most urgent first.
+    let latest = latest_session(sessions);
+    let rest = sessions.iter().filter(|s| latest.map_or(true, |l| l.key != s.key));
+    for (i, s) in latest.into_iter().chain(rest).take(4).enumerate() {
         let first = i == 0;
         let enter: Option<&[&str]> = if first { Some(&["⏎"]) } else { None };
         let who = format!("{} · {}", s.account, truncate(&s.title, 48));
@@ -560,8 +572,8 @@ pub fn targets(seed: &LaneSeed, sessions: &[Session], pr: Option<&Pr>, apps: &Ap
         t.push(target("p|github".into(), "external", format!("Open #{} on GitHub", pr.number), None, Some(&["⌘", "O"]), false, "pr"));
         t.push(target("p|codex-review".into(), "eye", format!("Review #{} in Codex", pr.number), None, None, false, "pr"));
     }
-    // The main action pulls up a session in its own app; with no sessions, a terminal at the
-    // lane. The editor is always secondary.
+    // The main action pulls up the most recent session where it lives; with no sessions, a
+    // terminal at the lane. The editor is always secondary.
     let default = t
         .iter()
         .find(|x| x.group == "session" && !x.disabled)
@@ -991,6 +1003,41 @@ mod tests {
         let (none, default) = targets(&seed("/r/x", "x"), &[], None, &apps);
         assert_eq!(default.as_deref(), Some("l|terminal"));
         assert_eq!(none.len(), 3);
+    }
+
+    #[test]
+    fn a_lane_opens_its_most_recent_session() {
+        let apps = AppNames::default();
+        let lane = seed("/r/x", "x");
+        let a = acct("claude2");
+        let mut needs = claude_session(&a, Some(&reg("waiting", NOW - 3_600_000)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
+        needs.last_activity = NOW - 3_600_000;
+        let mut newer = claude_session(&a, None, Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
+        newer.key = "claude:claude2:newer".into();
+        newer.open_target = format!("s|{}|resume", newer.key);
+        newer.last_activity = NOW - 60_000;
+        // The lane lists the one that needs you first, but opening the lane resumes the newer one.
+        let (t, default) = targets(&lane, &[needs.clone(), newer.clone()], None, &apps);
+        assert_eq!(default.as_deref(), Some(newer.open_target.as_str()));
+        assert_eq!(t[0].id, newer.open_target);
+        assert_eq!(t[0].kbd, Some(vec!["⏎".to_string()]));
+        let other = t.iter().find(|x| x.id == needs.open_target).expect("the other session is still offered");
+        assert_eq!(other.kbd, None);
+        // A tie goes to the more urgent one, listed first.
+        newer.last_activity = needs.last_activity;
+        let (_, default) = targets(&lane, &[needs.clone(), newer.clone()], None, &apps);
+        assert_eq!(default.as_deref(), Some(needs.open_target.as_str()));
+        // A session from another lane that worked here more recently doesn't beat the lane's own,
+        // but opens a lane that has none.
+        let mut guest = newer.clone();
+        guest.key = "claude:claude2:guest".into();
+        guest.open_target = format!("s|{}|resume", guest.key);
+        guest.visitor = Some("worked here".into());
+        guest.last_activity = NOW;
+        let (_, default) = targets(&lane, &[needs.clone(), guest.clone()], None, &apps);
+        assert_eq!(default.as_deref(), Some(needs.open_target.as_str()));
+        let (_, default) = targets(&lane, &[guest.clone()], None, &apps);
+        assert_eq!(default.as_deref(), Some(guest.open_target.as_str()));
     }
 
     #[test]
