@@ -6,14 +6,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { showContextMenu } from './contextMenu';
 import { ageFiltered } from './lanes';
-import { archiveSession, getBoard, markSeen, onBoard, openConfig, openProjectWindow, openTarget, refresh, refreshUsage, setPinned, signIn } from './api';
+import { approvePr, archiveSession, getBoard, markSeen, onBoard, openConfig, openProjectWindow, openTarget, openUrl, refresh, refreshUsage, reviewInCodex, setPinned, signIn } from './api';
 import { ago } from './format';
-import type { Bay, Board, Lane, Session, Status } from './types';
+import type { Bay, Board, Lane, PrItem, Session, Status } from './types';
 import { AccountsDialog } from './ui/AccountsDialog';
 import { Inspector } from './ui/Inspector';
 import { AgentRow, failingPr, LaneRow } from './ui/LaneRow';
 import { BayHeader, Icon, Kbd, NavItem } from './ui/primitives';
 import { ALL_PROJECTS, openSwitcher, ProjectSwitcher, type ActionCounts } from './ui/ProjectSwitcher';
+import { PrInspector } from './ui/PrInspector';
+import { prIsOpen, prSections, PrsView, type PrRowItem } from './ui/PrsView';
 import { reorderPinned, SessionsView, timeSections, type SessionItem } from './ui/SessionsView';
 import { UsageBar } from './ui/UsageBar';
 import { WorktreeTree } from './ui/WorktreeTree';
@@ -36,7 +38,12 @@ const VIEW_KEY = 'codealong.view';
 const AGE_KEY = 'codealong.age';
 const DAY = 24 * 60 * 60 * 1000;
 
-type View = 'worktrees' | 'sessions';
+type View = 'worktrees' | 'sessions' | 'prs';
+const VIEWS: { id: View; label: string }[] = [
+  { id: 'worktrees', label: 'Worktrees' },
+  { id: 'sessions', label: 'Sessions' },
+  { id: 'prs', label: 'PRs' },
+];
 /** How recently a worktree or session must have been active to show. */
 type Age = '1d' | '3d' | '7d' | 'all';
 const AGES: { id: Age; label: string; title: string; ms: number }[] = [
@@ -46,13 +53,15 @@ const AGES: { id: Age; label: string; title: string; ms: number }[] = [
   { id: 'all', label: 'All', title: 'Everything from the last 14 days', ms: 0 },
 ];
 
-type Row = { kind: 'agent'; key: string; lane: Lane; session: Session } | { kind: 'lane'; key: string; lane: Lane };
+/** A row on the Worktrees board or in Sessions: an agent in its worktree, or a worktree. */
+type BoardRow = { kind: 'agent'; key: string; lane: Lane; session: Session } | { kind: 'lane'; key: string; lane: Lane };
+type Row = BoardRow | PrRowItem;
 /** What the Inbox narrows the board to: one bay, or worktrees whose PR checks are failing. */
 type Filter = Bay | 'failing';
 
 /** Agents go in the agent bays, one row each; worktrees go in the rest, one row each. */
-function buildBays(lanes: Lane[]): { bay: Bay; rows: Row[] }[] {
-  const groups: Record<Bay, Row[]> = { needs: [], working: [], unread: [], review: [], idle: [], merged: [] };
+function buildBays(lanes: Lane[]): { bay: Bay; rows: BoardRow[] }[] {
+  const groups: Record<Bay, BoardRow[]> = { needs: [], working: [], unread: [], review: [], idle: [], merged: [] };
   for (const lane of lanes) {
     const own = lane.sessions.filter((s) => !s.visitor);
     for (const s of own) {
@@ -63,7 +72,7 @@ function buildBays(lanes: Lane[]): { bay: Bay; rows: Row[] }[] {
     const agentBay = lane.bay === 'working' || lane.bay === 'unread' || (lane.bay === 'needs' && needsFromAgents);
     if (!agentBay) groups[lane.bay].push({ kind: 'lane', key: lane.id, lane });
   }
-  const at = (r: Row) => (r.kind === 'agent' ? r.session.lastActivity : r.lane.lastActivity);
+  const at = (r: BoardRow) => (r.kind === 'agent' ? r.session.lastActivity : r.lane.lastActivity);
   return BAYS.map((bay) => ({ bay, rows: groups[bay].sort((a, b) => at(b) - at(a)) })).filter((g) => g.rows.length > 0);
 }
 
@@ -110,7 +119,35 @@ function sessionInFilter(r: SessionItem, f: Filter | null): boolean {
 
 /** The bay a row sits in, for the g shortcuts. */
 function rowBay(r: Row): Bay | undefined {
+  if (r.kind === 'pr') return undefined;
   return r.kind === 'agent' ? AGENT_BAY[r.session.status] : r.lane.bay;
+}
+
+/** Search in the PRs view: number, title, author, branch, repo. */
+function prInQuery(p: PrItem, q: string): boolean {
+  if (!q) return true;
+  const needle = q.toLowerCase().replace(/^#/, '');
+  return [String(p.number), p.title, p.author ?? '', p.head, p.repoSlug].some((h) => h.toLowerCase().includes(needle));
+}
+
+/** The Inbox filters, applied to a PR and the sessions that worked on it. */
+function prInFilter(r: PrRowItem, f: Filter | null): boolean {
+  const p = r.pr;
+  switch (f) {
+    case null:
+      return true;
+    case 'needs':
+      return prIsOpen(p) && (p.reviewRequested || (p.mine && (p.checks.failed > 0 || p.state === 'changes')));
+    case 'working':
+    case 'unread':
+      return r.sessions.some(({ session }) => session.status === f);
+    case 'review':
+      return prIsOpen(p);
+    case 'failing':
+      return prIsOpen(p) && p.checks.failed > 0;
+    default:
+      return false;
+  }
 }
 
 function sameList(a: string[], b: string[]): boolean {
@@ -128,7 +165,8 @@ function storedAge(): Age {
 
 function storedView(): View {
   try {
-    return window.localStorage.getItem(VIEW_KEY) === 'sessions' ? 'sessions' : 'worktrees';
+    const v = window.localStorage.getItem(VIEW_KEY);
+    return VIEWS.some((x) => x.id === v) ? (v as View) : 'worktrees';
   } catch {
     return 'worktrees';
   }
@@ -166,6 +204,9 @@ export function App() {
   const [archiveOverride, setArchiveOverride] = useState<Record<string, boolean>>({});
   const [undo, setUndo] = useState<{ key: string; title: string } | null>(null);
   const [showArchived, setShowArchived] = useState(false);
+  const [showDonePrs, setShowDonePrs] = useState(false);
+  // PRs being approved, by key: the button waits on GitHub.
+  const [approving, setApproving] = useState<Set<string>>(() => new Set());
   const [showParked, setShowParked] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   // The Accounts dialog, open at one account when a usage chip opened it.
@@ -314,11 +355,40 @@ export function App() {
   const foldParked = !showParked && !query;
   const parkedCount = useMemo(() => bays.flatMap((b) => b.rows).filter((r) => r.kind === 'lane' && r.lane.parked).length, [bays]);
   const worktreeRows = useMemo(() => bays.flatMap((b) => b.rows.filter((r) => !foldParked || r.kind === 'agent' || !r.lane.parked)), [bays, foldParked]);
+  // The PRs view: the project's PRs with their worktree and sessions.
+  const sessionIndex = useMemo(() => {
+    const m = new Map<string, { lane: Lane; session: Session }>();
+    for (const lane of lanes) for (const session of lane.sessions) if (!session.visitor) m.set(session.key, { lane, session });
+    return m;
+  }, [lanes]);
+  const laneById = useMemo(() => new Map(lanes.map((l) => [l.id, l])), [lanes]);
+  const projectPrs = useMemo(() => (board?.prs ?? []).filter((p) => current === ALL_PROJECTS || p.project === current), [board?.prs, current]);
+  const prRows = useMemo(
+    () =>
+      projectPrs
+        .filter((p) => p.updatedAt >= cutoff && prInQuery(p, query))
+        .map(
+          (p): PrRowItem => ({
+            kind: 'pr',
+            key: `pr:${p.key}`,
+            pr: p,
+            lane: p.lanes.map((id) => laneById.get(id)).find((l): l is Lane => !!l) ?? null,
+            sessions: p.sessions.flatMap((k) => sessionIndex.get(k) ?? []),
+          }),
+        )
+        .filter((r) => prInFilter(r, bayFilter)),
+    [projectPrs, cutoff, query, bayFilter, laneById, sessionIndex],
+  );
+  const prSecs = useMemo(() => prSections(prRows), [prRows]);
+  const prVisible = useMemo<Row[]>(() => prSecs.flatMap((s) => (s.id === 'done' && !showDonePrs ? [] : s.rows)), [prSecs, showDonePrs]);
+  const openPrCount = useMemo(() => projectPrs.filter((p) => prIsOpen(p) && p.updatedAt >= cutoff).length, [projectPrs, cutoff]);
+  const requestedCount = useMemo(() => projectPrs.filter((p) => prIsOpen(p) && p.reviewRequested).length, [projectPrs]);
+
   const sessionRows = useMemo<Row[]>(
     () => [...pinnedRows, ...sessionSections.flatMap((s) => s.rows), ...(showArchived ? archivedItems : [])],
     [pinnedRows, sessionSections, showArchived, archivedItems],
   );
-  const visible = view === 'sessions' ? sessionRows : worktreeRows;
+  const visible = view === 'sessions' ? sessionRows : view === 'prs' ? prVisible : worktreeRows;
   const selected = visible.find((r) => r.key === selectedKey) ?? visible[0] ?? null;
   const selectedLane = selected?.lane ?? null;
   const domId = (r: Row) => `row-${visible.indexOf(r)}`;
@@ -364,10 +434,29 @@ export function App() {
   const openRow = useCallback(
     (row: Row | null) => {
       if (!row) return;
+      if (row.kind === 'pr') {
+        openUrl(row.pr.url).catch((e: unknown) => setToast(String(e)));
+        return;
+      }
       open(row.lane, row.kind === 'agent' ? row.session.openTarget : row.lane.defaultTarget);
     },
     [open],
   );
+
+  /** Approves a PR as you, in one click. */
+  const approve = useCallback((pr: PrItem) => {
+    setApproving((a) => new Set(a).add(pr.key));
+    approvePr(pr.repoSlug, pr.number)
+      .then(() => setToast(`Approved #${pr.number}.`))
+      .catch((e: unknown) => setToast(String(e).replace(/^Error: /, '')))
+      .finally(() =>
+        setApproving((a) => {
+          const next = new Set(a);
+          next.delete(pr.key);
+          return next;
+        }),
+      );
+  }, []);
 
   const copy = useCallback((text: string | null | undefined, what: string) => {
     if (!text) return;
@@ -403,6 +492,23 @@ export function App() {
     const id = window.setTimeout(() => setUndo(null), 8000);
     return () => window.clearTimeout(id);
   }, [undo]);
+
+  /** A PR's right-click menu. */
+  const prMenu = useCallback(
+    (r: PrRowItem) => {
+      const p = r.pr;
+      void showContextMenu([
+        { label: 'Open on GitHub', run: () => void openUrl(p.url) },
+        { label: 'Review in Codex', run: () => void reviewInCodex(p.url) },
+        ...(p.reviewRequested && prIsOpen(p) ? ['separator' as const, { label: `Approve #${p.number}`, run: () => approve(p) }] : []),
+        'separator',
+        ...(r.lane ? [{ label: `Show worktree ${r.lane.callsign}`, run: () => r.lane && focusLane(r.lane) }] : []),
+        { label: 'Copy link', run: () => copy(p.url, 'PR link') },
+        { label: 'Copy branch name', run: () => copy(p.head, 'branch name') },
+      ]).catch((e: unknown) => setToast(String(e)));
+    },
+    [approve, copy],
+  );
 
   /** A session's right-click menu: open it, pin it, archive it, copy its ID. */
   const sessionMenu = useCallback(
@@ -503,7 +609,8 @@ export function App() {
       }
       const lane = selectedLane;
       if (key === 'v' && !mod) {
-        setView(view === 'sessions' ? 'worktrees' : 'sessions');
+        const i = VIEWS.findIndex((x) => x.id === view);
+        setView(VIEWS[(i + 1) % VIEWS.length].id);
         return;
       }
       if (key === 'p' && !mod && selected?.kind === 'agent') {
@@ -553,7 +660,8 @@ export function App() {
         open(lane, lane?.targets.find((t) => t.id.endsWith('|codex') && !t.disabled)?.id);
       } else if (mod && key === 'o') {
         e.preventDefault();
-        if (lane?.pr) open(lane, 'p|github');
+        if (selected?.kind === 'pr') openRow(selected);
+        else if (lane?.pr) open(lane, 'p|github');
       } else if (mod && e.shiftKey && key === 'c') {
         e.preventDefault();
         copy(lane?.path, 'worktree path');
@@ -620,7 +728,7 @@ export function App() {
         onAccounts={(account) => setAccountsDialog({ focus: account ?? null })}
         onSignIn={startSignIn}
       />
-      <div className="ca-win-body">
+      <div className={['ca-win-body', view === 'prs' && 'is-prs'].filter(Boolean).join(' ')}>
         <nav className="ca-side" aria-label="Sidebar">
           <div className="ca-label ca-side-label">Inbox</div>
           <NavItem glyph="needs" label="Needs you" count={counts.needs} tone="attn" active={bayFilter === 'needs'} onClick={() => toggleBay('needs')} />
@@ -661,13 +769,22 @@ export function App() {
             </div>
           )}
         </nav>
-        <main className="ca-board" aria-label={view === 'sessions' ? 'Sessions' : 'Worktrees'}>
+        <main className="ca-board" aria-label={VIEWS.find((v) => v.id === view)?.label}>
           <div className="ca-board-head">
             <div className="ca-segctl" role="tablist" aria-label="View">
-              {(['worktrees', 'sessions'] as View[]).map((v) => (
-                <button key={v} type="button" role="tab" aria-selected={view === v} className={view === v ? 'is-on' : undefined} title="Switch views (V)" onClick={() => setView(v)}>
-                  {v === 'worktrees' ? 'Worktrees' : 'Sessions'}
-                  <span className="ca-segctl-count">{v === 'worktrees' ? recentLanes.length : shownSessionCount}</span>
+              {VIEWS.map((v) => (
+                <button
+                  key={v.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={view === v.id}
+                  className={view === v.id ? 'is-on' : undefined}
+                  title={v.id === 'prs' && requestedCount > 0 ? `${requestedCount} PRs want your review. Switch views (V)` : 'Switch views (V)'}
+                  onClick={() => setView(v.id)}
+                >
+                  {v.label}
+                  <span className="ca-segctl-count">{v.id === 'worktrees' ? recentLanes.length : v.id === 'sessions' ? shownSessionCount : openPrCount}</span>
+                  {v.id === 'prs' && requestedCount > 0 && <span className="ca-segctl-badge">{requestedCount}</span>}
                 </button>
               ))}
             </div>
@@ -687,12 +804,19 @@ export function App() {
               </div>
             </div>
           </div>
-          <div className="ca-board-cols ca-label" aria-hidden="true">
-            <span />
-            <span>Worktree</span>
-            <span>{view === 'sessions' ? 'Session' : 'Now'}</span>
-            <span className="ca-board-cols-age">Age</span>
-          </div>
+          {view !== 'prs' && (
+            <div className="ca-board-cols ca-label" aria-hidden="true">
+              <span />
+              <span>Worktree</span>
+              <span>{view === 'sessions' ? 'Session' : 'Now'}</span>
+              <span className="ca-board-cols-age">Age</span>
+            </div>
+          )}
+          {board && !board.loading && view === 'prs' && prRows.length === 0 && (
+            <div className="ca-board-empty">
+              {query ? `No PRs in ${current} match “${query}”.` : board.githubAt ? 'No PRs here right now.' : 'Loading PRs from GitHub…'}
+            </div>
+          )}
           {loadError && <div className="ca-board-empty">{loadError}</div>}
           {!loadError && (!board || (board.loading && lanes.length === 0)) && <div className="ca-board-empty">Reading sessions…</div>}
           {board && !board.loading && view === 'sessions' && sessionRows.length === 0 && (
@@ -721,11 +845,30 @@ export function App() {
           )}
           <div
             role="listbox"
-            aria-label={view === 'sessions' ? 'Sessions' : 'Agents and worktrees'}
+            aria-label={view === 'sessions' ? 'Sessions' : view === 'prs' ? 'Pull requests' : 'Agents and worktrees'}
             aria-activedescendant={selected ? domId(selected) : undefined}
             tabIndex={0}
             className="ca-board-list"
           >
+            {view === 'prs' && (
+              <PrsView
+                sections={prSecs}
+                now={now}
+                selectedKey={selected?.key ?? null}
+                domId={domId}
+                showDone={showDonePrs}
+                onToggleDone={() => setShowDonePrs(!showDonePrs)}
+                approving={approving}
+                onSelect={(r) => setSelectedKey(r.key)}
+                onOpen={(r) => {
+                  setSelectedKey(r.key);
+                  openRow(r);
+                }}
+                onApprove={(r) => approve(r.pr)}
+                onOpenSession={(lane, session) => open(lane, session.openTarget)}
+                onContextMenu={(r) => prMenu(r)}
+              />
+            )}
             {view === 'sessions' && (
               <SessionsView
                 pinned={pinnedRows}
@@ -806,13 +949,31 @@ export function App() {
             })}
           </div>
         </main>
-        <Inspector
-          lane={selectedLane}
-          focusKey={selected?.kind === 'agent' ? selected.session.key : null}
-          apps={board?.apps ?? { terminal: 'Terminal', terminalId: '', editor: 'Editor', editorId: '' }}
-          now={now}
-          onOpen={(id) => open(selectedLane, id)}
-        />
+        {view === 'prs' ? (
+          selected?.kind === 'pr' ? (
+            <PrInspector
+              key={selected.pr.key}
+              item={selected}
+              now={now}
+              approving={approving.has(selected.pr.key)}
+              onApprove={() => approve(selected.pr)}
+              onOpenSession={(lane, session) => open(lane, session.openTarget)}
+              onShowLane={focusLane}
+            />
+          ) : (
+            <aside className="ca-insp ca-insp--empty">
+              <p>Select a PR to see its description, reviews and changes.</p>
+            </aside>
+          )
+        ) : (
+          <Inspector
+            lane={selectedLane}
+            focusKey={selected?.kind === 'agent' ? selected.session.key : null}
+            apps={board?.apps ?? { terminal: 'Terminal', terminalId: '', editor: 'Editor', editorId: '' }}
+            now={now}
+            onOpen={(id) => open(selectedLane, id)}
+          />
+        )}
       </div>
       {accountsDialog && (
         <AccountsDialog

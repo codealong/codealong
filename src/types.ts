@@ -26,6 +26,8 @@ export interface Session {
   lastActivity: number;
   /** Backtick spans render as code. */
   excerpt: string | null;
+  /** The branch it worked on. */
+  branch: string | null;
   /** Archived from Codealong, in Codex, or in the Claude app. */
   archived: boolean;
   /** A background job's `claude attach <job>`: it has no terminal tab of its own. */
@@ -164,4 +166,63 @@ export interface Board {
   usage: Usage[];
   /** Pinned session keys, in order. */
   pinned: string[];
+  /** Every PR in the repos the projects cover, newest activity first. */
+  prs: PrItem[];
+  /** Who `gh` is signed in as. */
+  githubLogin: string | null;
+}
+
+/** A PR in the PRs view, with the worktrees and sessions that worked on it. */
+export interface PrItem {
+  /** `owner/name#number`. */
+  key: string;
+  repoSlug: string;
+  repo: string;
+  project: string;
+  number: number;
+  title: string;
+  url: string;
+  state: PrState;
+  author: string | null;
+  mine: boolean;
+  reviewRequested: boolean;
+  head: string;
+  base: string | null;
+  checks: Checks;
+  additions: number;
+  deletions: number;
+  changedFiles: number;
+  createdAt: number;
+  updatedAt: number;
+  mergedAt: number | null;
+  closedAt: number | null;
+  /** Worktree (lane) ids with the PR's branch checked out. */
+  lanes: string[];
+  /** Keys of the sessions that worked on the PR's branch while it was open. */
+  sessions: string[];
+}
+
+export interface PrReview {
+  author: string;
+  state: 'APPROVED' | 'CHANGES_REQUESTED' | 'COMMENTED' | 'DISMISSED' | string;
+  at: number | null;
+}
+
+export interface PrFile {
+  path: string;
+  status: string;
+  additions: number;
+  deletions: number;
+  patch: string | null;
+}
+
+export interface PrDetail {
+  /** The description as GitHub renders it. */
+  bodyHtml: string;
+  mergeable: string | null;
+  commits: number;
+  reviews: PrReview[];
+  requested: string[];
+  files: PrFile[];
+  moreFiles: boolean;
 }

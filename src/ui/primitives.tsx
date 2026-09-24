@@ -26,7 +26,7 @@ export const BAY_WORD: Record<Bay, string> = {
   merged: 'Merged',
 };
 
-const PR_WORD: Record<PrState, string> = {
+export const PR_WORD: Record<PrState, string> = {
   draft: 'Draft',
   open: 'Open',
   approved: 'Approved',
@@ -35,7 +35,7 @@ const PR_WORD: Record<PrState, string> = {
   closed: 'Closed',
 };
 
-const PR_ICON: Record<PrState, string> = {
+export const PR_ICON: Record<PrState, string> = {
   draft: 'pr-draft',
   open: 'pr',
   approved: 'pr',

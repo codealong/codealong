@@ -68,6 +68,8 @@ pub struct Inputs<'a> {
     pub github_at: Option<i64>,
     /// Pinned session keys, in order; they're never cut from a lane's list.
     pub pinned: &'a [String],
+    /// Who `gh` is signed in as, to tell your PRs from others'.
+    pub github_login: Option<&'a str>,
 }
 
 fn plain(s: &str) -> String {
@@ -171,6 +173,7 @@ pub fn claude_session(
         status_since: reg.and_then(|r| r.status_updated_at),
         last_activity,
         excerpt,
+        branch: tr.and_then(|t| t.git_branch.clone()),
         archived: false,
         attach_command,
         stalled_since,
@@ -223,6 +226,7 @@ pub fn codex_session(account: &AccountCfg, th: &ThreadInfo, name: Option<&str>, 
         excerpt,
         resume_command: None,
         app_account: false,
+        branch: th.branch.clone(),
         archived: false,
         attach_command: None,
         stalled_since: None,
@@ -275,6 +279,70 @@ pub fn find_pr(seed: &LaneSeed, prs: &HashMap<String, Vec<PrRaw>>, now: i64) -> 
         merged_at: pick.merged_at,
         closed_at: pick.closed_at,
     })
+}
+
+/// Every PR in a repo a project covers, each with the worktrees that have its branch checked
+/// out and the sessions that worked on that branch while the PR was open. A PR from the default
+/// branch (a fork's `main`) links no sessions: every session on `main` would match. Long-lived
+/// branches carry one PR after another, so a session counts only if it was active after the PR
+/// opened (give or take an hour) and started before it merged or closed.
+pub fn pr_items(seeds: &[LaneSeed], lanes: &[Lane], prs: &HashMap<String, Vec<PrRaw>>, login: Option<&str>) -> Vec<PrItem> {
+    let mut project_of: HashMap<&str, (&str, &str, Option<&str>)> = HashMap::new();
+    for s in seeds {
+        if let Some(slug) = s.repo_slug.as_deref() {
+            project_of.entry(slug).or_insert((s.project.as_str(), s.repo.as_str(), s.default_branch.as_deref()));
+        }
+    }
+    let mut out = Vec::new();
+    for (slug, list) in prs {
+        let Some(&(project, repo, default_branch)) = project_of.get(slug.as_str()) else { continue };
+        let here: Vec<&Lane> = lanes.iter().filter(|l| l.repo_slug.as_deref() == Some(slug.as_str())).collect();
+        for p in list {
+            let head = p.head_ref.as_str();
+            let ended = p.merged_at.or(p.closed_at);
+            let during = |s: &Session| s.last_activity >= p.created_at - 3_600_000 && ended.map(|end| s.started_at.unwrap_or(s.last_activity) <= end).unwrap_or(true);
+            let sessions = if default_branch == Some(head) {
+                Vec::new()
+            } else {
+                here.iter()
+                    .flat_map(|l| {
+                        l.sessions
+                            .iter()
+                            .filter(move |s| s.visitor.is_none() && !s.archived && (s.branch.as_deref() == Some(head) || (s.branch.is_none() && l.branch.as_deref() == Some(head))))
+                            .filter(|s| during(s))
+                    })
+                    .map(|s| s.key.clone())
+                    .collect()
+            };
+            out.push(PrItem {
+                key: format!("{slug}#{}", p.number),
+                repo_slug: slug.clone(),
+                repo: repo.to_string(),
+                project: project.to_string(),
+                number: p.number,
+                title: p.title.clone(),
+                url: p.url.clone(),
+                state: p.state,
+                author: p.author.clone(),
+                mine: login.is_some() && p.author.as_deref() == login,
+                review_requested: p.review_requested,
+                head: p.head_ref.clone(),
+                base: p.base_ref.clone(),
+                checks: p.checks.clone(),
+                additions: p.additions,
+                deletions: p.deletions,
+                changed_files: p.changed_files,
+                created_at: p.created_at,
+                updated_at: p.updated_at,
+                merged_at: p.merged_at,
+                closed_at: p.closed_at,
+                lanes: here.iter().filter(|l| l.branch.as_deref() == Some(head)).map(|l| l.id.clone()).collect(),
+                sessions,
+            });
+        }
+    }
+    out.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    out
 }
 
 /// The first rule that matches. See *The model*, Lane status.
@@ -503,7 +571,7 @@ pub fn targets(seed: &LaneSeed, sessions: &[Session], pr: Option<&Pr>, apps: &Ap
 }
 
 pub fn compose(inp: Inputs) -> Board {
-    let Inputs { now, apps, seeds, mut sessions, visitors, git, prs, project_order, warnings, loading, github_at, pinned } = inp;
+    let Inputs { now, apps, seeds, mut sessions, visitors, git, prs, project_order, warnings, loading, github_at, pinned, github_login } = inp;
     for s in &mut sessions {
         let (h, d) = session_headline(s);
         s.headline = h;
@@ -599,6 +667,7 @@ pub fn compose(inp: Inputs) -> Board {
         });
     }
     lanes.sort_by(|a, b| a.bay.cmp(&b.bay).then(b.last_activity.cmp(&a.last_activity)));
+    let pr_list = pr_items(seeds, &lanes, prs, github_login);
 
     let mut projects = Vec::new();
     let mut names: Vec<String> = project_order.to_vec();
@@ -621,7 +690,19 @@ pub fn compose(inp: Inputs) -> Board {
             repos: repos.into_iter().map(|(name, (lanes, folder))| RepoSummary { name, lanes, folder }).collect(),
         });
     }
-    Board { generated_at: now, apps: apps.clone(), projects, lanes, warnings, loading, github_at, usage: Vec::new(), pinned: pinned.to_vec() }
+    Board {
+        generated_at: now,
+        apps: apps.clone(),
+        projects,
+        lanes,
+        warnings,
+        loading,
+        github_at,
+        usage: Vec::new(),
+        pinned: pinned.to_vec(),
+        prs: pr_list,
+        github_login: github_login.map(str::to_string),
+    }
 }
 
 pub const ELSEWHERE: &str = "Elsewhere";
@@ -694,7 +775,53 @@ mod tests {
             merged_at: if state == PrState::Merged { Some(NOW - 7_200_000) } else { None },
             closed_at: None,
             checks: Checks { passed: 11, failed, failing: (0..failed).map(|i| format!("check-{i}")).collect(), ..Default::default() },
+            author: Some("ghempton".into()),
+            base_ref: Some("main".into()),
+            created_at: NOW - 86_400_000,
+            additions: 120,
+            deletions: 8,
+            changed_files: 6,
+            review_requested: false,
         }
+    }
+
+    #[test]
+    fn links_prs_to_the_worktrees_and_sessions_on_their_branch() {
+        let apps = AppNames::default();
+        let mut s = seed("/r/atlas-quarry", "quarry");
+        s.repo_slug = Some("northwindai/atlas".into());
+        let seeds = vec![s];
+        let a = acct("claude2");
+        let mut on_branch = claude_session(&a, Some(&reg("idle", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
+        on_branch.branch = Some("quarry".into());
+        let mut elsewhere = on_branch.clone();
+        elsewhere.key = "claude:claude2:other".into();
+        elsewhere.branch = Some("app4".into());
+        let prs = HashMap::from([("northwindai/atlas".to_string(), vec![pr(PrState::Open, 0)])]);
+        let (git, visitors) = (HashMap::new(), HashMap::new());
+        let order = vec!["Northwind".to_string()];
+        let board = compose(Inputs {
+            now: NOW,
+            apps: &apps,
+            seeds: &seeds,
+            sessions: vec![on_branch.clone(), elsewhere],
+            visitors: &visitors,
+            git: &git,
+            prs: &prs,
+            project_order: &order,
+            warnings: vec![],
+            loading: false,
+            github_at: None,
+            pinned: &[],
+            github_login: Some("ghempton"),
+        });
+        assert_eq!(board.prs.len(), 1);
+        let p = &board.prs[0];
+        assert_eq!(p.key, "northwindai/atlas#1037");
+        assert!(p.mine);
+        assert_eq!(p.lanes, vec!["/r/atlas-quarry".to_string()]);
+        assert_eq!(p.sessions, vec![on_branch.key]);
+        assert_eq!(board.github_login.as_deref(), Some("ghempton"));
     }
 
     #[test]
@@ -877,7 +1004,7 @@ mod tests {
         maker.cwd = "/r/osprey".into();
         let (git, prs, order) = (HashMap::new(), HashMap::new(), vec!["Northwind".to_string()]);
         let visitors = HashMap::new();
-        let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![maker], visitors: &visitors, git: &git, prs: &prs, project_order: &order, warnings: vec![], loading: false, github_at: None, pinned: &[] });
+        let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![maker], visitors: &visitors, git: &git, prs: &prs, project_order: &order, warnings: vec![], loading: false, github_at: None, pinned: &[], github_login: None });
         let lane = board.lanes.iter().find(|l| l.path == scratch).unwrap();
         assert_eq!(lane.sessions.len(), 1);
         assert_eq!(lane.sessions[0].visitor.as_deref(), Some("made this worktree"));
@@ -909,6 +1036,7 @@ mod tests {
             loading: false,
             github_at: None,
             pinned: &[],
+            github_login: None,
         });
         let lane = &board.lanes[0];
         assert_eq!(lane.bay, Bay::Idle);
@@ -947,6 +1075,7 @@ mod tests {
             loading: false,
             github_at: None,
             pinned: &pinned,
+            github_login: None,
         });
         let lane = &board.lanes[0];
         assert_eq!(lane.sessions.len(), MAX_SESSIONS_PER_LANE + 1);
@@ -977,6 +1106,7 @@ mod tests {
             loading: false,
             github_at: None,
             pinned: &[],
+            github_login: None,
         });
         assert_eq!(board.lanes.len(), 2);
         assert_eq!(board.lanes[0].bay, Bay::Needs);

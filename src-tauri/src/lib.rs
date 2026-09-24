@@ -90,6 +90,35 @@ fn set_pinned(engine: State<'_, engine::Handle>, keys: Vec<String>) {
     engine.set_pinned(keys);
 }
 
+/// A PR's description, reviews and changed files.
+#[tauri::command(async)]
+fn pr_detail(repo: String, number: u64) -> Result<github::PrDetail, String> {
+    github::detail(&repo, number).map_err(|e| format!("{e:#}"))
+}
+
+/// Approves a PR as you, then refreshes PRs so the board shows it.
+#[tauri::command(async)]
+fn approve_pr(engine: State<'_, engine::Handle>, repo: String, number: u64) -> Result<(), String> {
+    github::approve(&repo, number).map_err(|e| format!("{e:#}"))?;
+    engine.refresh_github();
+    Ok(())
+}
+
+/// Opens a PR in Codex's review.
+#[tauri::command(async)]
+fn review_in_codex(url: String) -> Result<(), String> {
+    launch::open_codex(&launch::codex_review_url(&url)).map_err(|e| e.to_string())
+}
+
+/// Opens a web link (from a PR description) in the browser.
+#[tauri::command(async)]
+fn open_url(url: String) -> Result<(), String> {
+    if !(url.starts_with("https://") || url.starts_with("http://")) {
+        return Err("Only web links open from here.".into());
+    }
+    launch::open_url(&url).map_err(|e| e.to_string())
+}
+
 #[tauri::command(async)]
 fn archive_session(engine: State<'_, engine::Handle>, key: String, archived: bool) -> Result<(), String> {
     engine.archive(&key, archived).map_err(|e| format!("{e:#}"))
@@ -120,7 +149,7 @@ pub fn run() {
             app.manage(engine);
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![get_board, open_target, open_config, mark_seen, refresh, refresh_usage, set_pinned, archive_session, get_accounts, save_accounts, sign_in, open_project_window])
+        .invoke_handler(tauri::generate_handler![get_board, open_target, open_config, mark_seen, refresh, refresh_usage, set_pinned, archive_session, pr_detail, approve_pr, review_in_codex, open_url, get_accounts, save_accounts, sign_in, open_project_window])
         .run(tauri::generate_context!())
         .expect("error while running Codealong");
 }
@@ -128,6 +157,7 @@ pub fn run() {
 /// `codealong --snapshot [--table] [--no-github] [--usage] [--accounts]`: one pass over everything,
 /// printed. Claude usage is read only with `--usage`.
 /// `codealong --snapshot --open <lane id> <target id>`: opens a target the way a click does.
+/// `codealong --snapshot --pr <owner/name> <number>`: a PR's detail, as the PR panel gets it.
 pub fn snapshot_cli(args: &[String]) -> i32 {
     let started = std::time::Instant::now();
     if args.iter().any(|a| a == "--accounts") {
@@ -135,6 +165,22 @@ pub fn snapshot_cli(args: &[String]) -> i32 {
         let list: Vec<model::AccountInfo> = cfg.accounts.iter().map(usage::describe).collect();
         println!("{}", serde_json::to_string_pretty(&list).unwrap_or_default());
         return 0;
+    }
+    if let Some(i) = args.iter().position(|a| a == "--pr") {
+        let (Some(repo), Some(number)) = (args.get(i + 1), args.get(i + 2).and_then(|n| n.parse::<u64>().ok())) else {
+            eprintln!("usage: codealong --snapshot --pr <owner/name> <number>");
+            return 2;
+        };
+        return match github::detail(repo, number) {
+            Ok(d) => {
+                println!("{}", serde_json::to_string_pretty(&d).unwrap_or_default());
+                0
+            }
+            Err(e) => {
+                eprintln!("{e:#}");
+                1
+            }
+        };
     }
     if let Some(i) = args.iter().position(|a| a == "--open") {
         let (Some(lane), Some(target)) = (args.get(i + 1), args.get(i + 2)) else {

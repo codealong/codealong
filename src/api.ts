@@ -3,7 +3,7 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import type { AccountCfg, AccountInfo, Board } from './types';
+import type { AccountCfg, AccountInfo, Board, PrDetail } from './types';
 
 export const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
@@ -47,6 +47,32 @@ export async function markSeen(keys: string[]): Promise<void> {
 export async function refresh(): Promise<void> {
   if (!inTauri) return;
   await invoke('refresh');
+}
+
+/** A PR's description, reviews and changed files. */
+export async function prDetail(repo: string, number: number): Promise<PrDetail> {
+  if (!inTauri) throw new Error('PR details need the app.');
+  return invoke<PrDetail>('pr_detail', { repo, number });
+}
+
+/** Approves a PR as you. */
+export async function approvePr(repo: string, number: number): Promise<void> {
+  if (!inTauri) throw new Error('Approving needs the app.');
+  await invoke('approve_pr', { repo, number });
+}
+
+export async function reviewInCodex(url: string): Promise<void> {
+  if (!inTauri) return;
+  await invoke('review_in_codex', { url });
+}
+
+/** Opens a web link in the browser. */
+export async function openUrl(url: string): Promise<void> {
+  if (!inTauri) {
+    window.open(url, '_blank', 'noopener');
+    return;
+  }
+  await invoke('open_url', { url });
 }
 
 /** Opens a project in a window of its own, or brings that window forward. */

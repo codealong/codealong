@@ -108,6 +108,8 @@ pub struct Session {
     /// This session's own one sentence, for rows in the agent bays.
     pub headline: String,
     pub detail: Option<String>,
+    /// The branch it worked on: Claude's latest `gitBranch`, Codex's thread metadata.
+    pub branch: Option<String>,
     /// Archived: from Codealong, in Codex, or in the Claude app. Kept last in its lane and left
     /// out of the lane's status.
     pub archived: bool,
@@ -302,4 +304,42 @@ pub struct Board {
     pub usage: Vec<Usage>,
     /// Pinned session keys, in order.
     pub pinned: Vec<String>,
+    /// Every PR in the repos the projects cover, newest activity first.
+    pub prs: Vec<PrItem>,
+    /// Who `gh` is signed in as.
+    pub github_login: Option<String>,
+}
+
+/// A PR in the PRs view, with the worktrees and sessions that worked on it.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PrItem {
+    /// `owner/name#number`.
+    pub key: String,
+    pub repo_slug: String,
+    pub repo: String,
+    pub project: String,
+    pub number: u64,
+    pub title: String,
+    pub url: String,
+    pub state: PrState,
+    pub author: Option<String>,
+    /// You opened it.
+    pub mine: bool,
+    /// Your review is requested.
+    pub review_requested: bool,
+    pub head: String,
+    pub base: Option<String>,
+    pub checks: Checks,
+    pub additions: u64,
+    pub deletions: u64,
+    pub changed_files: u64,
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub merged_at: Option<i64>,
+    pub closed_at: Option<i64>,
+    /// Worktrees with the PR's branch checked out.
+    pub lanes: Vec<String>,
+    /// Keys of the sessions that worked on the PR's branch.
+    pub sessions: Vec<String>,
 }

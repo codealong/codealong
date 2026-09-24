@@ -40,7 +40,7 @@ pub enum Msg {
     Fs(Vec<PathBuf>),
     GitDone(PathBuf, GitInfo),
     /// An empty slug marks the end of a GitHub batch.
-    GithubDone(String, std::result::Result<Vec<PrRaw>, String>),
+    GithubDone(String, std::result::Result<github::RepoPrs, String>),
     RefreshGithub,
     MarkSeen(Vec<String>),
     /// Lane path → session keys whose logs mention it.
@@ -234,8 +234,11 @@ pub fn snapshot(with_github: bool, with_usage: bool) -> Board {
         });
         for (slug, result) in results {
             match result {
-                Ok(list) => {
-                    e.prs.insert(slug, list);
+                Ok(repo) => {
+                    e.prs.insert(slug, repo.prs);
+                    if repo.login.is_some() {
+                        e.gh_login = repo.login;
+                    }
                     e.gh_at = Some(now_ms());
                 }
                 Err(err) => e.gh_warning = Some(err.to_string()),
@@ -328,6 +331,7 @@ struct Engine {
     gh_inflight: bool,
     gh_last: Option<Instant>,
     gh_at: Option<i64>,
+    gh_login: Option<String>,
     watcher: Option<RecommendedWatcher>,
     watch_warning: Option<String>,
     /// Account folders that didn't exist at the last watch: a new account before sign-in.
@@ -381,6 +385,7 @@ impl Engine {
             gh_inflight: false,
             gh_last: None,
             gh_at: None,
+            gh_login: None,
             watcher: None,
             watch_warning: None,
             missing_homes: Vec::new(),
@@ -793,18 +798,21 @@ impl Engine {
                     });
                 }
             });
-            let _ = tx.send(Msg::GithubDone(String::new(), Ok(Vec::new())));
+            let _ = tx.send(Msg::GithubDone(String::new(), Ok(github::RepoPrs::default())));
         });
     }
 
-    fn on_github(&mut self, slug: String, result: std::result::Result<Vec<PrRaw>, String>) {
+    fn on_github(&mut self, slug: String, result: std::result::Result<github::RepoPrs, String>) {
         if slug.is_empty() {
             self.gh_inflight = false;
             return;
         }
         match result {
-            Ok(list) => {
-                self.prs.insert(slug, list);
+            Ok(repo) => {
+                self.prs.insert(slug, repo.prs);
+                if repo.login.is_some() {
+                    self.gh_login = repo.login;
+                }
                 self.gh_warning = None;
                 self.gh_at = Some(now_ms());
             }
@@ -1266,6 +1274,7 @@ impl Engine {
             github_at: self.gh_at,
             visitors: &self.visitors,
             pinned: &self.seen.pinned,
+            github_login: self.gh_login.as_deref(),
         });
         board.usage = self.compose_usage(now);
         board

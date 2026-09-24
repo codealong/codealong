@@ -294,6 +294,10 @@ pub fn apply_tail(info: &mut TranscriptInfo, state: &mut TailState, tail: &str) 
         if let Some(ts) = str_of(&v, "timestamp").as_deref().and_then(parse_rfc3339_ms) {
             info.last_ts = info.last_ts.max(ts);
         }
+        // Sessions switch branches; the latest line says which one it's on now.
+        if let Some(b) = str_of(&v, "gitBranch").filter(|b| !b.is_empty() && b != "HEAD") {
+            info.git_branch = Some(b);
+        }
         match v.get("type").and_then(Value::as_str) {
             Some("custom-title") => {
                 if let Some(t) = str_of(&v, "customTitle").filter(|t| !t.trim().is_empty()) {
