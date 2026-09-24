@@ -1,0 +1,787 @@
+/* The real window, on top of the design system's component styles. */
+
+html,
+body,
+#root {
+  height: 100%;
+}
+body {
+  margin: 0;
+  overflow: hidden;
+  background: var(--ground);
+  color: var(--ink);
+  font: 400 13px/18px var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: default;
+}
+input {
+  -webkit-user-select: text;
+  user-select: text;
+}
+button {
+  font: inherit;
+}
+
+/* Native window: no rounded corners or shadow of our own; room for the traffic lights. */
+.ca-win--app {
+  height: 100%;
+  border-radius: 0;
+  box-shadow: none;
+}
+.ca-win--app .ca-win-bar {
+  gap: var(--space-4);
+  padding-left: 84px;
+}
+.ca-scope {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 190px;
+  font: 600 14px/18px var(--font-sans);
+  color: var(--ink);
+  white-space: nowrap;
+}
+.ca-search input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--ink);
+  font: 400 13px/18px var(--font-sans);
+}
+.ca-search input::placeholder {
+  color: var(--ink-3);
+}
+.ca-search:focus-within {
+  box-shadow: var(--shadow-focus);
+}
+.ca-bar-status {
+  min-width: 190px;
+  text-align: right;
+  font: 400 12px/16px var(--font-sans);
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Sidebar rows are buttons. */
+.ca-nav {
+  width: 100%;
+  flex: none;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.ca-side-scroll {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  overflow: auto;
+  margin: 0 calc(-1 * var(--space-2));
+  padding: 0 var(--space-2) var(--space-3);
+}
+.ca-side-warnings {
+  display: grid;
+  gap: 6px;
+  margin: 0 calc(-1 * var(--space-2));
+  padding: var(--space-3) var(--space-4) var(--space-4);
+  border-top: 1px solid var(--line);
+}
+.ca-warning {
+  display: flex;
+  gap: 6px;
+  font: 400 12px/16px var(--font-sans);
+  color: var(--alert);
+  -webkit-user-select: text;
+  user-select: text;
+}
+.ca-warning .ca-icon {
+  flex: none;
+  margin-top: 1px;
+}
+
+/* Board */
+.ca-board-list:focus {
+  outline: none;
+}
+.ca-board-list:focus-visible .ca-lane.is-selected {
+  box-shadow: inset 0 0 0 2px var(--focus);
+}
+.ca-board-empty {
+  max-width: 560px;
+  padding: var(--space-8) var(--space-6);
+  color: var(--ink-3);
+}
+.ca-linkbtn {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink-3);
+  font: 500 12px/16px var(--font-sans);
+  cursor: pointer;
+}
+.ca-linkbtn:hover {
+  color: var(--ink);
+}
+
+/* Inspector */
+.ca-insp--empty {
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-3);
+  text-align: center;
+}
+.ca-insp-path {
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.ca-insp-path span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ca-insp-path:hover span {
+  color: var(--ink-2);
+  text-decoration: underline;
+}
+.ca-empty {
+  margin: 4px 0 0;
+  font: 400 12px/16px var(--font-sans);
+  color: var(--ink-3);
+}
+.ca-more-btn {
+  padding: 8px 0 0 24px;
+  border: 0;
+  background: transparent;
+  color: var(--ink-3);
+  font: 500 12px/16px var(--font-sans);
+  text-align: left;
+  cursor: pointer;
+}
+.ca-more-btn:hover {
+  color: var(--ink);
+}
+.ca-prcard-failing {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--alert);
+}
+.ca-srow-meta .ca-code {
+  color: var(--ink-3);
+}
+
+/* Toast */
+.ca-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 560px;
+  padding: 10px 14px;
+  transform: translateX(-50%);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-popover);
+  color: var(--ink);
+  font: 400 13px/18px var(--font-sans);
+  cursor: pointer;
+}
+.ca-toast .ca-icon {
+  flex: none;
+  color: var(--alert);
+}
+
+/* Clickable sessions: a chip on a lane, a row in the inspector. */
+.ca-chip--button {
+  border: 0;
+  font: 500 11px/14px var(--font-mono);
+  cursor: pointer;
+}
+.ca-chip--button:hover {
+  background: var(--surface-selected);
+  color: var(--ink);
+}
+.ca-chip--button:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+.ca-srow--button {
+  margin: 0 calc(-1 * var(--space-2));
+  padding-left: var(--space-2);
+  padding-right: var(--space-2);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  outline: none;
+}
+.ca-srow--button:hover {
+  background: var(--surface-hover);
+}
+.ca-srow--button:hover .ca-srow-action {
+  background: var(--surface-selected);
+  color: var(--ink);
+}
+.ca-srow--button:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--focus);
+}
+.ca-srow-action {
+  pointer-events: none;
+}
+
+.ca-side-foot {
+  margin: 0 calc(-1 * var(--space-2));
+  padding: var(--space-2) var(--space-4) var(--space-3);
+  border-top: 1px solid var(--line);
+}
+.ca-side-config {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Project switcher: top left, like an org switcher. */
+.ca-projswitch {
+  position: relative;
+  flex: none;
+}
+.ca-projswitch-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 10px 0 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink);
+  font: 600 14px/18px var(--font-sans);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ca-projswitch-btn:hover,
+.ca-projswitch-btn[aria-expanded='true'] {
+  background: var(--surface-hover);
+}
+.ca-projswitch-btn > .ca-icon {
+  color: var(--ink-3);
+}
+.ca-projswitch-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+.ca-projswitch-menu {
+  min-width: 280px;
+}
+.ca-projswitch-check {
+  display: inline-flex;
+  width: 16px;
+  color: var(--ink-2);
+}
+
+/* The current project's worktrees in the sidebar. */
+.ca-wt-group + .ca-wt-group {
+  margin-top: var(--space-2);
+}
+.ca-wt-repo {
+  padding: 6px 8px 2px;
+  font: 500 11px/14px var(--font-mono);
+  color: var(--ink-3);
+}
+.ca-wt .ca-glyph,
+.ca-wt .ca-lane-pricon {
+  flex: none;
+}
+.ca-nav.is-parked {
+  color: var(--ink-3);
+}
+.ca-srow.is-focus {
+  background: var(--surface-selected);
+}
+
+/* The worktree tree: worktrees, each opening to its own agents. */
+.ca-tree-node {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: var(--row-h);
+  border-radius: var(--radius-sm);
+}
+.ca-tree-node:hover {
+  background: var(--surface-hover);
+}
+.ca-tree-node.is-active {
+  background: var(--surface-selected);
+}
+.ca-tree-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+.ca-tree-toggle:disabled {
+  cursor: default;
+}
+.ca-tree-toggle .ca-icon {
+  transition: transform var(--dur-fast) ease-out;
+}
+.ca-tree-toggle.is-open .ca-icon {
+  transform: rotate(90deg);
+}
+.ca-tree-toggle:focus-visible,
+.ca-tree-label:focus-visible,
+.ca-tree-session:focus-visible,
+.ca-tree-more:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--focus);
+}
+.ca-tree-label {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 100%;
+  padding: 0 8px 0 2px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-2);
+  font: 400 12px/16px var(--font-mono);
+  text-align: left;
+  cursor: pointer;
+}
+.ca-tree-node.is-active .ca-tree-label {
+  color: var(--ink);
+  font-weight: 500;
+}
+.ca-tree-node.is-parked .ca-tree-label {
+  color: var(--ink-3);
+}
+.ca-tree-label .ca-glyph,
+.ca-tree-label .ca-lane-pricon {
+  flex: none;
+}
+.ca-tree-children {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 1px 0 4px 9px;
+  padding-left: 11px;
+  border-left: 1px solid var(--line);
+}
+.ca-tree-session {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  height: 24px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-2);
+  font: 400 12px/16px var(--font-sans);
+  text-align: left;
+  cursor: pointer;
+}
+.ca-tree-session:hover {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+.ca-tree-session.is-active {
+  background: var(--surface-selected);
+  color: var(--ink);
+}
+.ca-tree-session.is-visitor {
+  color: var(--ink-3);
+}
+.ca-tree-session .ca-glyph {
+  flex: none;
+}
+.ca-tree-acct {
+  flex: none;
+  font: 500 11px/14px var(--font-mono);
+  color: var(--ink-3);
+}
+.ca-tree-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ca-tree-age {
+  flex: none;
+  font-size: 11px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+.ca-tree-more {
+  height: 22px;
+  padding: 0 6px 0 22px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-3);
+  font: 500 11px/14px var(--font-sans);
+  text-align: left;
+  cursor: pointer;
+}
+.ca-tree-more:hover {
+  color: var(--ink);
+}
+
+/* Other projects' action items, on the switcher and in its menu. */
+.ca-projswitch-badge {
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  box-sizing: border-box;
+  border-radius: var(--radius-pill);
+  background: var(--brand);
+  color: var(--on-brand);
+  font: 600 11px/16px var(--font-mono);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.ca-projswitch-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--unread-solid);
+}
+.ca-projswitch-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font: 500 11px/14px var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.ca-projswitch-action.is-needs {
+  color: var(--attn);
+}
+.ca-projswitch-action.is-unread {
+  color: var(--unread);
+}
+
+/* ---- Usage bar: one chip per account, under the title bar ---- */
+.ca-win--app {
+  grid-template-rows: var(--titlebar-h) auto minmax(0, 1fr);
+}
+.ca-usagebar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+  height: 38px;
+  padding: 0 var(--space-3) 0 var(--space-4);
+  background: var(--surface-sunken);
+  border-bottom: 1px solid var(--line);
+  container-type: inline-size;
+}
+.ca-usagebar-accts {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  overflow: hidden;
+}
+.ca-uchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  flex: none;
+  height: 26px;
+  padding: 0 11px 0 10px;
+  box-sizing: border-box;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+  transition: background var(--dur-fast) ease-out, border-color var(--dur-fast) ease-out;
+}
+.ca-uchip:hover {
+  background: var(--surface-hover);
+  border-color: var(--line-strong);
+}
+.ca-uchip:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+.ca-uchip.is-attn {
+  border-color: var(--attn-solid);
+  background: var(--attn-tint);
+}
+.ca-uchip.is-stale .ca-meter {
+  opacity: 0.55;
+}
+.ca-uchip > .ca-icon {
+  color: var(--ink-3);
+}
+.ca-uchip-name {
+  font: 600 12px/16px var(--font-mono);
+  color: var(--ink);
+}
+.ca-uchip-note {
+  font: 400 12px/16px var(--font-sans);
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+.ca-uchip-signin {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font: 500 12px/16px var(--font-sans);
+  color: var(--attn);
+}
+.ca-uchip .ca-meter.is-compact {
+  grid-template-columns: auto 30px auto auto;
+  gap: 5px;
+}
+.ca-meter-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+}
+.ca-uchip .ca-meter-label > span {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ca-meter-reset {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font: 400 11px/14px var(--font-mono);
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.ca-meter.is-model .ca-meter-label {
+  color: var(--ink-2);
+}
+.ca-meter.is-warning .ca-meter-fill {
+  background: var(--attn-solid);
+}
+.ca-meter.is-warning .ca-meter-value {
+  color: var(--attn);
+}
+.ca-meter.is-critical .ca-meter-fill {
+  background: var(--alert-solid);
+}
+.ca-meter.is-critical .ca-meter-value {
+  color: var(--alert);
+}
+.ca-usagebar-end {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+}
+/* Narrower windows drop the bars first, then the reset times; the percentages always stay. */
+@container (max-width: 1260px) {
+  .ca-uchip .ca-meter-track {
+    display: none;
+  }
+  .ca-uchip .ca-meter.is-compact {
+    grid-template-columns: auto auto auto;
+  }
+}
+@container (max-width: 960px) {
+  .ca-uchip .ca-meter-reset {
+    display: none;
+  }
+  .ca-uchip .ca-meter.is-compact {
+    grid-template-columns: auto auto;
+  }
+}
+
+/* ---- Accounts dialog ---- */
+.ca-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--scrim);
+}
+.ca-dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(620px, 100%);
+  max-height: min(780px, calc(100vh - 48px));
+  background: var(--surface-raised);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-popover);
+  overflow: hidden;
+}
+.ca-dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-4) var(--space-3) 0 var(--space-5);
+}
+.ca-dialog-head h2 {
+  margin: 0;
+  font: 600 16px/22px var(--font-sans);
+  color: var(--ink);
+}
+.ca-dialog-lede {
+  margin: 4px var(--space-5) var(--space-4);
+  font: 400 13px/18px var(--font-sans);
+  color: var(--ink-2);
+}
+.ca-dialog-body {
+  display: grid;
+  gap: var(--space-3);
+  padding: 0 var(--space-5) var(--space-5);
+  overflow: auto;
+}
+.ca-dialog-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-3) var(--space-4) var(--space-3) var(--space-5);
+  border-top: 1px solid var(--line);
+}
+.ca-acct {
+  gap: var(--space-3);
+}
+.ca-acct.is-focus {
+  border-color: var(--focus);
+}
+.ca-acct .ca-tag.is-ok {
+  color: var(--ink-2);
+}
+.ca-acct .ca-tag.is-attn {
+  background: var(--attn-tint);
+  color: var(--attn);
+}
+.ca-acct-meters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--space-4);
+}
+.ca-acct-meters .ca-meter-value {
+  font-size: 20px;
+  line-height: 20px;
+}
+.ca-acct-note {
+  margin: 0;
+  font: 400 12px/16px var(--font-sans);
+  color: var(--ink-3);
+}
+.ca-acct-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ca-acct-asof {
+  margin-left: auto;
+  font: 400 12px/16px var(--font-sans);
+  color: var(--ink-3);
+}
+.ca-acct-confirm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  font: 400 12px/16px var(--font-sans);
+  color: var(--ink-2);
+}
+.ca-acct-confirm > span {
+  flex: 1;
+}
+.ca-acct-add {
+  display: flex;
+  gap: 8px;
+}
+.ca-acct-form {
+  gap: var(--space-3);
+  border-color: var(--line-strong);
+}
+.ca-acct-form-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.ca-field {
+  display: grid;
+  gap: 4px;
+}
+.ca-field > span {
+  font: 500 12px/16px var(--font-sans);
+  color: var(--ink-2);
+}
+.ca-field input {
+  height: 30px;
+  padding: 0 8px;
+  box-sizing: border-box;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font: 400 13px/18px var(--font-mono);
+  outline: none;
+}
+.ca-field input:focus {
+  border-color: var(--focus);
+  box-shadow: var(--shadow-focus);
+}
+.ca-field small {
+  font: 400 12px/16px var(--font-sans);
+  color: var(--ink-3);
+}
+.ca-form-error {
+  margin: 0;
+  font: 500 12px/16px var(--font-sans);
+  color: var(--alert);
+}
+
+/* Failing PR checks: in the Inbox count and on a worktree in the tree. */
+.ca-nav-count.is-alert {
+  color: var(--alert);
+}
+.ca-tree-fail {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  flex: none;
+  font: 500 11px/14px var(--font-mono);
+  color: var(--alert);
+  font-variant-numeric: tabular-nums;
+}

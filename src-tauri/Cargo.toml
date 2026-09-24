@@ -1,0 +1,33 @@
+[package]
+name = "codealong"
+version = "0.1.0"
+description = "Every agent runs in a worktree, and every worktree is a lane."
+edition = "2021"
+rust-version = "1.80"
+publish = false
+
+[lib]
+name = "codealong_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "1"
+notify = "8"
+ignore = "0.4"
+dirs = "6"
+anyhow = "1"
+libc = "0.2"
+urlencoding = "2"
+sha2 = "0.10"
+toml_edit = "0.23"
+
+[profile.release]
+lto = "thin"
+codegen-units = 4
+strip = true

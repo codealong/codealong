@@ -1,0 +1,161 @@
+// The board as the Rust engine serializes it (src-tauri/src/model.rs). Option<T> arrives as null.
+
+export type Harness = 'claude' | 'codex';
+export type Surface = 'cli' | 'app';
+export type Status = 'needs' | 'error' | 'working' | 'unread' | 'idle' | 'stopped';
+export type Bay = 'needs' | 'working' | 'unread' | 'review' | 'idle' | 'merged';
+export type Origin = 'main' | 'script' | 'codex' | 'claude-app' | 'scratchpad' | 'temp' | 'folder' | 'other';
+export type PrState = 'draft' | 'open' | 'approved' | 'changes' | 'merged' | 'closed';
+
+export interface Session {
+  key: string;
+  id: string;
+  shortId: string;
+  harness: Harness;
+  /** The account name as you type it: claude, claude2, codex. */
+  account: string;
+  surface: Surface;
+  status: Status;
+  live: boolean;
+  pid: number | null;
+  title: string;
+  cwd: string;
+  name: string | null;
+  startedAt: number | null;
+  statusSince: number | null;
+  lastActivity: number;
+  /** Backtick spans render as code. */
+  excerpt: string | null;
+  /** Busy but silent for a long while: stuck mid-turn. When it went quiet. */
+  stalledSince: number | null;
+  resumeCommand: string | null;
+  /** The Claude app is signed into this session's account. */
+  appAccount: boolean;
+  /** Opens this session where it lives: Ghostty, the Claude app, or Codex. */
+  openTarget: string;
+  /** Why a session from another lane shows here: "made this worktree" or "worked here". */
+  visitor: string | null;
+  /** This session's own sentence; backtick spans and time tokens as in lane headlines. */
+  headline: string;
+  detail: string | null;
+}
+
+export interface Checks {
+  passed: number;
+  failed: number;
+  pending: number;
+  skipped: number;
+  failing: string[];
+}
+
+export interface Pr {
+  number: number;
+  title: string;
+  url: string;
+  state: PrState;
+  checks: Checks;
+  updatedAt: number;
+  mergedAt: number | null;
+  closedAt: number | null;
+}
+
+export interface GitInfo {
+  upstream: string | null;
+  ahead: number;
+  behind: number;
+  dirty: number;
+  lastCommit: string | null;
+  lastCommitAt: number | null;
+  added: number | null;
+  removed: number | null;
+}
+
+export interface Target {
+  id: string;
+  icon: string;
+  label: string;
+  detail: string | null;
+  kbd: string[] | null;
+  disabled: boolean;
+  group: 'session' | 'lane' | 'pr';
+}
+
+export interface Lane {
+  id: string;
+  project: string;
+  repo: string;
+  repoSlug: string | null;
+  path: string;
+  callsign: string;
+  origin: Origin;
+  branch: string | null;
+  detached: string | null;
+  bay: Bay;
+  glyph: Status;
+  parked: boolean;
+  hidden: boolean;
+  /** Backtick spans render as code; {ago:ms} and {for:ms} render as live times. */
+  headline: string;
+  detail: string | null;
+  sessions: Session[];
+  pr: Pr | null;
+  git: GitInfo | null;
+  lastActivity: number;
+  targets: Target[];
+  defaultTarget: string | null;
+}
+
+export interface ProjectSummary {
+  name: string;
+  lanes: number;
+  repos: { name: string; lanes: number; folder: boolean }[];
+}
+
+export type Severity = 'normal' | 'warning' | 'critical';
+
+/** One plan limit: the 5-hour session, the week, or a per-model week such as Fable's. */
+export interface Meter {
+  key: string;
+  label: string;
+  window: string;
+  percent: number;
+  resetsAt: number | null;
+  severity: Severity;
+  model: string | null;
+}
+
+export interface Usage {
+  account: string;
+  harness: Harness;
+  plan: string | null;
+  meters: Meter[];
+  asOf: number | null;
+  error: string | null;
+  needsSignIn: boolean;
+  loading: boolean;
+}
+
+/** An `[[accounts]]` table in config.toml. */
+export interface AccountCfg {
+  name: string;
+  harness: Harness;
+  home: string;
+  command: string | null;
+}
+
+export interface AccountInfo extends AccountCfg {
+  folderExists: boolean;
+  signedIn: boolean;
+  email: string | null;
+}
+
+export interface Board {
+  generatedAt: number;
+  apps: { terminal: string; terminalId: string; editor: string; editorId: string };
+  projects: ProjectSummary[];
+  lanes: Lane[];
+  warnings: string[];
+  loading: boolean;
+  githubAt: number | null;
+  usage: Usage[];
+}

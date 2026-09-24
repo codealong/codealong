@@ -1,0 +1,883 @@
+//! The rules from *The model*: session status, lane bays, headlines and open targets.
+//! Pure functions over already-read data, so every rule is unit-tested here.
+
+use std::collections::{BTreeMap, HashMap};
+use std::path::{Path, PathBuf};
+
+use crate::claude::{RegistryEntry, TranscriptInfo};
+use crate::codex::ThreadInfo;
+use crate::config::AccountCfg;
+use crate::github::PrRaw;
+use crate::model::*;
+use crate::util::{code, one_line, tilde, truncate, DAY_MS};
+
+/// A Codex turn with no events for this long is treated as interrupted.
+const CODEX_STALE_MS: i64 = 15 * 60 * 1000;
+/// A Bash call can't run past 10 minutes, so a Claude session that has said busy this long with
+/// nothing new in its transcript is stuck, not working: typically a command waiting on input
+/// no one will give it, like a browser sign-in inside a background job.
+pub const CLAUDE_STALL_MS: i64 = 30 * 60 * 1000;
+
+/// When a busy Claude session last showed signs of life in its transcript or status; None when
+/// it isn't busy.
+pub fn claude_busy_since(reg: Option<&RegistryEntry>, tr: Option<&TranscriptInfo>) -> Option<i64> {
+    let r = reg.filter(|r| matches!(r.status.as_str(), "busy" | "shell"))?;
+    Some([tr.map(|t| t.last_ts), r.status_updated_at].into_iter().flatten().max().unwrap_or(0))
+}
+
+/// What the engine found outside the transcript for a busy session that has gone quiet.
+#[derive(Default)]
+pub struct Quiet<'a> {
+    /// The newest write to the session's subagent logs.
+    pub subagent_at: Option<i64>,
+    /// The command its shell is running, from the process table.
+    pub running: Option<&'a str>,
+}
+const MAX_SESSIONS_PER_LANE: usize = 30;
+
+#[derive(Debug, Clone)]
+pub struct LaneSeed {
+    pub path: PathBuf,
+    pub project: String,
+    pub repo: String,
+    pub repo_slug: Option<String>,
+    /// GitHub owners a PR head may come from (the repo and its forks).
+    pub head_owners: Vec<String>,
+    pub callsign: String,
+    pub origin: Origin,
+    pub branch: Option<String>,
+    pub head: Option<String>,
+    /// The default branch name without the remote, e.g. `main`.
+    pub default_branch: Option<String>,
+    /// Lanes for sessions outside every project; hidden unless they need you.
+    pub elsewhere: bool,
+}
+
+pub struct Inputs<'a> {
+    pub now: i64,
+    pub apps: &'a AppNames,
+    pub seeds: &'a [LaneSeed],
+    pub sessions: Vec<Session>,
+    /// Lane path → keys of sessions from other lanes whose logs show they worked there.
+    pub visitors: &'a HashMap<PathBuf, Vec<String>>,
+    pub git: &'a HashMap<PathBuf, GitInfo>,
+    pub prs: &'a HashMap<String, Vec<PrRaw>>,
+    pub project_order: &'a [String],
+    pub warnings: Vec<String>,
+    pub loading: bool,
+    pub github_at: Option<i64>,
+}
+
+fn plain(s: &str) -> String {
+    s.replace('`', "'")
+}
+
+fn short_id(id: &str) -> String {
+    id.chars().take(7).collect()
+}
+
+/// A Claude Code session from its registry entry (when live) and transcript.
+pub fn claude_session(
+    account: &AccountCfg,
+    reg: Option<&RegistryEntry>,
+    tr: Option<&TranscriptInfo>,
+    seen_at: i64,
+    now: i64,
+    quiet: &Quiet,
+) -> Option<Session> {
+    let id = reg.map(|r| r.session_id.clone()).or_else(|| tr.map(|t| t.session_id.clone()))?;
+    let cwd = reg.map(|r| r.cwd.clone()).or_else(|| tr.map(|t| t.cwd.clone()))?;
+    // The registry doesn't refresh while a session is busy; its transcript, status changes and
+    // subagent logs do. Stuck mid-turn, it can't go on without you.
+    let stalled_since = claude_busy_since(reg, tr)
+        .map(|t| t.max(quiet.subagent_at.unwrap_or(0)))
+        .filter(|t| now - t > CLAUDE_STALL_MS);
+    let status = match reg {
+        None => Status::Stopped,
+        Some(_) if stalled_since.is_some() => Status::Needs,
+        Some(r) => match r.status.as_str() {
+            "busy" | "shell" => Status::Working,
+            "waiting" | "blocked" => Status::Needs,
+            "idle" if r.status_updated_at.unwrap_or(0) > seen_at => Status::Unread,
+            _ => Status::Idle,
+        },
+    };
+    let entrypoint = reg.and_then(|r| r.entrypoint.clone()).or_else(|| tr.and_then(|t| t.entrypoint.clone())).unwrap_or_default();
+    let surface = if entrypoint.contains("desktop") { Surface::App } else { Surface::Cli };
+    let user_named = reg
+        .filter(|r| matches!(r.name_source.as_deref(), Some("user") | Some("peer")))
+        .and_then(|r| r.name.clone());
+    let title = tr
+        .and_then(|t| t.title.clone())
+        .or(user_named)
+        .or_else(|| tr.and_then(|t| t.first_prompt.clone()))
+        .or_else(|| reg.and_then(|r| r.name.clone()))
+        .unwrap_or_else(|| format!("Session {}", short_id(&id)));
+    let last_activity = [
+        tr.map(|t| t.last_ts),
+        reg.and_then(|r| r.status_updated_at),
+        reg.and_then(|r| r.started_at),
+    ]
+    .into_iter()
+    .flatten()
+    .max()
+    .unwrap_or(0);
+    let excerpt = match status {
+        _ if stalled_since.is_some() => {
+            let t = stalled_since.unwrap_or(0);
+            Some(match quiet.running {
+                Some(cmd) => format!("Stuck on {} for {{for:{t}}}", code(&truncate(&one_line(cmd, 200), 80))),
+                None => format!("No activity for {{for:{t}}}"),
+            })
+        }
+        Status::Needs => tr.and_then(|t| t.pending_tool.clone()),
+        Status::Working => tr.and_then(|t| t.last_tool.clone()),
+        _ => tr.and_then(|t| t.last_text.clone().or_else(|| t.last_prompt.clone())),
+    };
+    let key = format!("claude:{}:{}", account.name, id);
+    let action = match (surface, reg.is_some()) {
+        (Surface::App, _) => "claude-app",
+        (Surface::Cli, true) => "focus",
+        (Surface::Cli, false) => "resume",
+    };
+    Some(Session {
+        open_target: format!("s|{key}|{action}"),
+        visitor: None,
+        headline: String::new(),
+        detail: None,
+        key,
+        short_id: short_id(&id),
+        resume_command: Some(format!("{} --resume {}", account.command(), id)),
+        id,
+        harness: Harness::Claude,
+        account: account.name.clone(),
+        surface,
+        status,
+        live: reg.is_some(),
+        pid: reg.map(|r| r.pid),
+        title: truncate(&plain(&title), 90),
+        cwd,
+        name: reg.and_then(|r| r.name.clone()),
+        started_at: reg.and_then(|r| r.started_at).or_else(|| tr.and_then(|t| t.started_at)),
+        status_since: reg.and_then(|r| r.status_updated_at),
+        last_activity,
+        excerpt,
+        stalled_since,
+        app_account: account.home_path() == crate::util::home().join(".claude"),
+    })
+}
+
+/// A Codex thread. Threads have no process of their own, so they are never Stopped.
+pub fn codex_session(account: &AccountCfg, th: &ThreadInfo, name: Option<&str>, seen_at: i64, now: i64) -> Session {
+    let fresh = now - th.last_ts < CODEX_STALE_MS;
+    let status = if th.pending_approval.is_some() {
+        Status::Needs
+    } else if th.turn_open && fresh {
+        Status::Working
+    } else if th.last_complete_at.map(|t| t > seen_at).unwrap_or(false) {
+        Status::Unread
+    } else {
+        Status::Idle
+    };
+    let title = name
+        .map(String::from)
+        .or_else(|| th.last_user_message.clone())
+        .unwrap_or_else(|| "Codex thread".to_string());
+    let excerpt = match status {
+        Status::Needs => th.pending_approval.clone(),
+        Status::Working => th.last_user_message.clone(),
+        _ => th.last_agent_message.clone(),
+    };
+    let key = format!("codex:{}:{}", account.name, th.id);
+    Session {
+        open_target: format!("s|{key}|codex"),
+        visitor: None,
+        headline: String::new(),
+        detail: None,
+        key,
+        id: th.id.clone(),
+        short_id: short_id(&th.id),
+        harness: Harness::Codex,
+        account: account.name.clone(),
+        surface: Surface::App,
+        status,
+        live: th.turn_open && fresh,
+        pid: None,
+        title: truncate(&plain(&title), 90),
+        cwd: th.cwd.clone(),
+        name: None,
+        started_at: th.started_at,
+        status_since: if status == Status::Working { th.turn_started_at } else { th.last_complete_at },
+        last_activity: th.last_ts,
+        excerpt,
+        resume_command: None,
+        app_account: false,
+        stalled_since: None,
+    }
+}
+
+/// Index of the seed whose path is the longest prefix of `cwd`.
+pub fn best_seed(seeds: &[LaneSeed], cwd: &Path) -> Option<usize> {
+    seeds
+        .iter()
+        .enumerate()
+        .filter(|(_, s)| cwd.starts_with(&s.path))
+        .max_by_key(|(_, s)| s.path.components().count())
+        .map(|(i, _)| i)
+}
+
+fn sort_sessions(sessions: &mut [Session]) {
+    sessions.sort_by(|a, b| a.status.cmp(&b.status).then(b.last_activity.cmp(&a.last_activity)));
+}
+
+/// The PR for a lane: an open one on its branch, else one merged or closed in the last
+/// seven days whose head is still the lane's HEAD.
+pub fn find_pr(seed: &LaneSeed, prs: &HashMap<String, Vec<PrRaw>>, now: i64) -> Option<Pr> {
+    let slug = seed.repo_slug.as_ref()?;
+    let branch = seed.branch.as_ref()?;
+    if seed.default_branch.as_ref() == Some(branch) {
+        return None;
+    }
+    let list = prs.get(slug)?;
+    let ours = |p: &&PrRaw| &p.head_ref == branch && p.head_owner.as_ref().map(|o| seed.head_owners.contains(o)).unwrap_or(true);
+    let open = list.iter().filter(ours).filter(|p| p.state.is_open()).max_by_key(|p| p.updated_at);
+    let pick = open.or_else(|| {
+        list.iter()
+            .filter(ours)
+            .filter(|p| !p.state.is_open())
+            .filter(|p| p.merged_at.or(p.closed_at).map(|t| now - t < 7 * DAY_MS).unwrap_or(false))
+            .filter(|p| match (&p.head_oid, &seed.head) {
+                (Some(pr_head), Some(lane_head)) => pr_head == lane_head,
+                _ => true,
+            })
+            .max_by_key(|p| p.merged_at.or(p.closed_at))
+    })?;
+    Some(Pr {
+        number: pick.number,
+        title: pick.title.clone(),
+        url: pick.url.clone(),
+        state: pick.state,
+        checks: pick.checks.clone(),
+        updated_at: pick.updated_at,
+        merged_at: pick.merged_at,
+        closed_at: pick.closed_at,
+    })
+}
+
+/// The first rule that matches. See *The model*, Lane status.
+pub fn bay_of(sessions: &[Session], pr: Option<&Pr>) -> (Bay, Status) {
+    let has = |st: Status| sessions.iter().any(|s| s.status == st);
+    let working = has(Status::Working);
+    if has(Status::Needs) {
+        return (Bay::Needs, Status::Needs);
+    }
+    if has(Status::Error) {
+        return (Bay::Needs, Status::Error);
+    }
+    if let Some(pr) = pr {
+        if pr.state.is_open() && !working {
+            if pr.checks.failed > 0 {
+                return (Bay::Needs, Status::Error);
+            }
+            if pr.state == PrState::Changes {
+                return (Bay::Needs, Status::Needs);
+            }
+        }
+    }
+    if working {
+        return (Bay::Working, Status::Working);
+    }
+    if has(Status::Unread) {
+        return (Bay::Unread, Status::Unread);
+    }
+    match pr {
+        Some(pr) if pr.state.is_open() => (Bay::Review, Status::Idle),
+        Some(_) => (Bay::Merged, Status::Idle),
+        None => (Bay::Idle, Status::Idle),
+    }
+}
+
+pub fn checks_summary(c: &Checks) -> String {
+    let mut parts = Vec::new();
+    if c.failed > 0 {
+        parts.push(format!("{} failing", c.failed));
+    }
+    if c.pending > 0 {
+        parts.push(format!("{} running", c.pending));
+    }
+    if c.passed > 0 {
+        parts.push(format!("{} passed", c.passed));
+    }
+    if parts.is_empty() {
+        return "No checks".to_string();
+    }
+    if parts.len() == 1 && c.passed > 0 {
+        return format!("{} checks passed", c.passed);
+    }
+    parts.join(" · ")
+}
+
+/// A session's own sentence. See *The model*, Headlines.
+pub fn session_headline(s: &Session) -> (String, Option<String>) {
+    let acct = code(&s.account);
+    if s.stalled_since.is_some() {
+        return (format!("{acct} is stuck · {}", s.title), s.excerpt.clone());
+    }
+    match s.status {
+        Status::Needs => match (&s.excerpt, s.harness) {
+            (Some(ex), Harness::Claude) => (format!("{acct} is waiting for approval"), Some(ex.clone())),
+            (Some(ex), Harness::Codex) => (format!("{acct} asks for approval"), Some(ex.clone())),
+            (None, _) => (format!("{acct} needs you"), Some(s.title.clone())),
+        },
+        Status::Error => (format!("{acct} stopped with an error"), s.excerpt.clone()),
+        Status::Working => {
+            let detail = match (s.status_since, &s.excerpt) {
+                (Some(t), Some(ex)) => Some(format!("{{for:{t}}} · {ex}")),
+                (Some(t), None) => Some(format!("{{for:{t}}}")),
+                (None, ex) => ex.clone(),
+            };
+            (format!("{acct} · {}", s.title), detail)
+        }
+        Status::Unread => (format!("{acct} finished · {}", s.title), s.excerpt.clone()),
+        Status::Idle => (format!("{acct} · {}", s.title), Some(format!("last turn {{ago:{}}}", s.last_activity))),
+        Status::Stopped => (format!("{acct} · {}", s.title), Some(format!("stopped {{ago:{}}}", s.last_activity))),
+    }
+}
+
+/// The lane's one sentence, from the rule that picked its bay. See *The model*, Headlines.
+pub fn headline(bay: Bay, sessions: &[Session], pr: Option<&Pr>, git: Option<&GitInfo>) -> (String, Option<String>) {
+    let acct = |s: &Session| code(&s.account);
+    let first = |st: Status| sessions.iter().find(|s| s.status == st);
+    match bay {
+        Bay::Needs => {
+            if let Some(s) = first(Status::Needs).or_else(|| first(Status::Error)) {
+                return session_headline(s);
+            }
+            match pr {
+                Some(pr) if pr.checks.failed > 0 => {
+                    let mut names: Vec<String> = pr.checks.failing.iter().take(3).map(|n| code(n)).collect();
+                    if pr.checks.failing.len() > 3 {
+                        names.push(format!("+{} more", pr.checks.failing.len() - 3));
+                    }
+                    (format!("Checks failing on #{}", pr.number), Some(names.join(" · ")))
+                }
+                Some(pr) => (format!("Changes requested on #{}", pr.number), Some(plain(&truncate(&pr.title, 80)))),
+                None => ("Needs you".to_string(), None),
+            }
+        }
+        Bay::Working => session_headline(first(Status::Working).expect("working bay has a working session")),
+        Bay::Unread => session_headline(first(Status::Unread).expect("unread bay has an unread session")),
+        Bay::Review => {
+            let pr = pr.expect("review bay has a PR");
+            let c = &pr.checks;
+            let head = match pr.state {
+                PrState::Approved if c.failed == 0 && c.pending == 0 => format!("#{} approved · ready to merge", pr.number),
+                PrState::Approved => format!("#{} approved · checks running", pr.number),
+                PrState::Draft => format!("#{} is a draft", pr.number),
+                PrState::Changes => format!("#{} · changes requested", pr.number),
+                _ if c.pending > 0 => format!("#{} · checks running", pr.number),
+                _ => format!("#{} waiting for review", pr.number),
+            };
+            (head, Some(checks_summary(c)))
+        }
+        Bay::Merged => {
+            let pr = pr.expect("merged bay has a PR");
+            let (verb, when) = match pr.merged_at {
+                Some(t) => ("merged", t),
+                None => ("closed", pr.closed_at.unwrap_or(pr.updated_at)),
+            };
+            let detail = match sessions.iter().find(|s| s.live) {
+                Some(s) => format!("{} is still open", acct(s)),
+                None => "No agents running".to_string(),
+            };
+            (format!("#{} {verb} {{ago:{when}}}", pr.number), Some(detail))
+        }
+        Bay::Idle => {
+            if let Some(s) = sessions.iter().max_by_key(|s| s.last_activity) {
+                let (h, _) = session_headline(s);
+                return (h, Some(format!("last turn {{ago:{}}}", s.last_activity)));
+            }
+            match git {
+                Some(g) if g.dirty > 0 => ("Uncommitted changes".to_string(), Some(format!("{} files", g.dirty))),
+                Some(g) => (
+                    "No agents".to_string(),
+                    g.last_commit.as_ref().map(|c| match g.last_commit_at {
+                        Some(t) => format!("Last commit {{ago:{t}}} · {}", plain(&truncate(c, 70))),
+                        None => plain(&truncate(c, 70)),
+                    }),
+                ),
+                None => ("No agents".to_string(), None),
+            }
+        }
+    }
+}
+
+fn target(id: String, icon: &str, label: String, detail: Option<String>, kbd: Option<&[&str]>, disabled: bool, group: &str) -> Target {
+    Target {
+        id,
+        icon: icon.to_string(),
+        label,
+        detail,
+        kbd: kbd.map(|k| k.iter().map(|s| s.to_string()).collect()),
+        disabled,
+        group: group.to_string(),
+    }
+}
+
+/// Everywhere a lane can open, the default first. See *Surfaces*, Open where it lives.
+pub fn targets(seed: &LaneSeed, sessions: &[Session], pr: Option<&Pr>, apps: &AppNames) -> (Vec<Target>, Option<String>) {
+    let term = &apps.terminal;
+    let editor = &apps.editor;
+    let mut t = Vec::new();
+    for (i, s) in sessions.iter().take(4).enumerate() {
+        let first = i == 0;
+        let enter: Option<&[&str]> = if first { Some(&["⏎"]) } else { None };
+        let who = format!("{} · {}", s.account, truncate(&s.title, 48));
+        let respond = s.status == Status::Needs;
+        match (s.harness, s.surface) {
+            (Harness::Claude, Surface::Cli) if s.live => {
+                let verb = if respond { "Respond in" } else { "Show in" };
+                t.push(target(format!("s|{}|focus", s.key), "terminal", format!("{verb} {term}"), Some(who), enter, false, "session"));
+                if first && s.app_account {
+                    let why = format!("Live in {term}, finish there first");
+                    t.push(target(format!("s|{}|claude-app", s.key), "app", "Open in Claude app".into(), Some(why), None, true, "session"));
+                }
+            }
+            (Harness::Claude, Surface::Cli) => {
+                t.push(target(format!("s|{}|resume", s.key), "terminal", format!("Resume in {term}"), Some(who.clone()), enter, false, "session"));
+                // Only the account the Claude app is signed into can continue there.
+                if first && s.app_account {
+                    t.push(target(format!("s|{}|claude-app", s.key), "app", "Continue in Claude app".into(), Some(who), None, false, "session"));
+                }
+            }
+            (Harness::Claude, Surface::App) => {
+                let verb = if respond { "Respond in" } else { "Open in" };
+                t.push(target(format!("s|{}|claude-app", s.key), "app", format!("{verb} Claude app"), Some(who.clone()), enter, false, "session"));
+                if first {
+                    if s.live {
+                        t.push(target(format!("s|{}|resume", s.key), "terminal", format!("Resume in {term}"), Some("Live in the Claude app".into()), None, true, "session"));
+                    } else {
+                        t.push(target(format!("s|{}|resume", s.key), "terminal", format!("Resume in {term}"), Some(who), None, false, "session"));
+                    }
+                }
+            }
+            (Harness::Codex, _) => {
+                let verb = if respond { "Respond in" } else { "Open in" };
+                t.push(target(format!("s|{}|codex", s.key), "app", format!("{verb} Codex"), Some(who), enter, false, "session"));
+            }
+        }
+    }
+    let here = tilde(&seed.path);
+    t.push(target("l|terminal".into(), "terminal", format!("New {term} window here"), Some(here), Some(&["⌘", "1"]), false, "lane"));
+    t.push(target("l|editor".into(), "code", format!("Open in {editor}"), None, Some(&["⌘", "2"]), false, "lane"));
+    t.push(target("l|finder".into(), "folder", "Reveal in Finder".into(), None, None, false, "lane"));
+    if let Some(pr) = pr {
+        t.push(target("p|github".into(), "external", format!("Open #{} on GitHub", pr.number), None, Some(&["⌘", "O"]), false, "pr"));
+        t.push(target("p|codex-review".into(), "eye", format!("Review #{} in Codex", pr.number), None, None, false, "pr"));
+    }
+    // The main action pulls up a session in its own app; with no sessions, a terminal at the
+    // lane. The editor is always secondary.
+    let default = t
+        .iter()
+        .find(|x| x.group == "session" && !x.disabled)
+        .map(|x| x.id.clone())
+        .or_else(|| Some("l|terminal".to_string()));
+    (t, default)
+}
+
+pub fn compose(inp: Inputs) -> Board {
+    let Inputs { now, apps, seeds, mut sessions, visitors, git, prs, project_order, warnings, loading, github_at } = inp;
+    for s in &mut sessions {
+        let (h, d) = session_headline(s);
+        s.headline = h;
+        s.detail = d;
+    }
+    let mut by_lane: Vec<Vec<Session>> = vec![Vec::new(); seeds.len()];
+    // A worktree made inside a Claude session's scratchpad also shows the session that made it,
+    // even though that session runs in another lane.
+    let owners: HashMap<String, Session> = sessions.iter().filter(|s| s.harness == Harness::Claude).map(|s| (s.id.clone(), s.clone())).collect();
+    let by_key: HashMap<String, Session> = sessions.iter().map(|s| (s.key.clone(), s.clone())).collect();
+    for s in sessions {
+        if let Some(i) = best_seed(seeds, Path::new(&s.cwd)) {
+            by_lane[i].push(s);
+        }
+    }
+    // Sessions from other lanes shown here: the one that made a scratchpad worktree, and any
+    // whose logs show they worked in it.
+    let guests: Vec<Vec<Session>> = seeds
+        .iter()
+        .enumerate()
+        .map(|(i, seed)| {
+            let mut out: Vec<Session> = Vec::new();
+            if let Some(owner) = crate::repos::scratchpad_owner(&seed.path).and_then(|id| owners.get(&id)) {
+                out.push(Session { visitor: Some("made this worktree".into()), ..owner.clone() });
+            }
+            for key in visitors.get(&seed.path).map(|v| v.as_slice()).unwrap_or(&[]) {
+                if let Some(s) = by_key.get(key) {
+                    if !out.iter().any(|o| &o.key == key) {
+                        out.push(Session { visitor: Some("worked here".into()), ..s.clone() });
+                    }
+                }
+            }
+            out.retain(|g| !by_lane[i].iter().any(|s| s.key == g.key));
+            out
+        })
+        .collect();
+    let mut lanes = Vec::with_capacity(seeds.len());
+    for ((seed, mut sessions), guests) in seeds.iter().zip(by_lane).zip(guests) {
+        sort_sessions(&mut sessions);
+        sessions.truncate(MAX_SESSIONS_PER_LANE);
+        let g = git.get(&seed.path).cloned();
+        let pr = find_pr(seed, prs, now);
+        // The bay and headline come from the lane's own sessions; the maker is shown after them.
+        let (bay, glyph) = bay_of(&sessions, pr.as_ref());
+        let (mut headline, mut detail) = headline(bay, &sessions, pr.as_ref(), g.as_ref());
+        if let (Bay::Idle, true, Some(g)) = (bay, sessions.is_empty(), guests.first()) {
+            let verb = if g.visitor.as_deref() == Some("made this worktree") { "Made by" } else { "Worked on by" };
+            headline = format!("{verb} {} · {}", code(&g.account), g.title);
+            detail = Some(format!("last turn {{ago:{}}}", g.last_activity));
+        }
+        sessions.extend(guests);
+        let (targets, default_target) = targets(seed, &sessions, pr.as_ref(), apps);
+        let last_activity = sessions
+            .iter()
+            .map(|s| s.last_activity)
+            .chain(g.as_ref().and_then(|g| g.last_commit_at))
+            .max()
+            .unwrap_or(0);
+        let dirty = g.as_ref().map(|g| g.dirty > 0).unwrap_or(false);
+        let parked = bay == Bay::Idle && !dirty && now - last_activity > 14 * DAY_MS;
+        lanes.push(Lane {
+            id: seed.path.to_string_lossy().into_owned(),
+            project: seed.project.clone(),
+            repo: seed.repo.clone(),
+            repo_slug: seed.repo_slug.clone(),
+            path: seed.path.to_string_lossy().into_owned(),
+            callsign: seed.callsign.clone(),
+            origin: seed.origin,
+            branch: seed.branch.clone(),
+            detached: if seed.branch.is_none() { seed.head.as_ref().map(|h| h.chars().take(7).collect()) } else { None },
+            bay,
+            glyph,
+            parked,
+            hidden: seed.elsewhere && bay != Bay::Needs,
+            headline,
+            detail,
+            sessions,
+            pr,
+            git: g,
+            last_activity,
+            targets,
+            default_target,
+        });
+    }
+    lanes.sort_by(|a, b| a.bay.cmp(&b.bay).then(b.last_activity.cmp(&a.last_activity)));
+
+    let mut projects = Vec::new();
+    let mut names: Vec<String> = project_order.to_vec();
+    if lanes.iter().any(|l| l.project == ELSEWHERE) && !names.iter().any(|n| n == ELSEWHERE) {
+        names.push(ELSEWHERE.to_string());
+    }
+    for name in names {
+        let mine: Vec<&Lane> = lanes.iter().filter(|l| l.project == name).collect();
+        if mine.is_empty() {
+            continue;
+        }
+        let mut repos: BTreeMap<String, (usize, bool)> = BTreeMap::new();
+        for l in &mine {
+            let e = repos.entry(l.repo.clone()).or_insert((0, l.origin == Origin::Folder));
+            e.0 += 1;
+        }
+        projects.push(ProjectSummary {
+            name,
+            lanes: mine.len(),
+            repos: repos.into_iter().map(|(name, (lanes, folder))| RepoSummary { name, lanes, folder }).collect(),
+        });
+    }
+    Board { generated_at: now, apps: apps.clone(), projects, lanes, warnings, loading, github_at, usage: Vec::new() }
+}
+
+pub const ELSEWHERE: &str = "Elsewhere";
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const NOW: i64 = 1_790_200_000_000;
+
+    fn acct(name: &str) -> AccountCfg {
+        AccountCfg { name: name.into(), harness: "claude".into(), home: format!("~/.{name}"), command: Some(name.into()) }
+    }
+
+    fn reg(status: &str, updated: i64) -> RegistryEntry {
+        RegistryEntry {
+            pid: 1,
+            session_id: "abc1234567".into(),
+            cwd: "/r/atlas-quarry/apps/server".into(),
+            status: status.into(),
+            kind: Some("interactive".into()),
+            entrypoint: Some("cli".into()),
+            name: Some("atlas-quarry-8f".into()),
+            name_source: Some("derived".into()),
+            started_at: Some(NOW - 3_600_000),
+            status_updated_at: Some(updated),
+        }
+    }
+
+    fn tr() -> TranscriptInfo {
+        TranscriptInfo {
+            session_id: "abc1234567".into(),
+            cwd: "/r/atlas-quarry/apps/server".into(),
+            title: Some("Quarry daily log + photo sync".into()),
+            pending_tool: Some("Bash · `yarn mikro-orm migration:up`".into()),
+            last_tool: Some("running `yarn test`".into()),
+            last_text: Some("Done.".into()),
+            last_ts: NOW - 60_000,
+            ..Default::default()
+        }
+    }
+
+    fn seed(path: &str, branch: &str) -> LaneSeed {
+        LaneSeed {
+            path: PathBuf::from(path),
+            project: "Northwind".into(),
+            repo: "atlas".into(),
+            repo_slug: Some("northwindai/atlas".into()),
+            head_owners: vec!["northwindai".into(), "ghempton".into()],
+            callsign: "quarry".into(),
+            origin: Origin::Script,
+            branch: Some(branch.into()),
+            head: Some("0ef4ed2".into()),
+            default_branch: Some("main".into()),
+            elsewhere: false,
+        }
+    }
+
+    fn pr(state: PrState, failed: u32) -> PrRaw {
+        PrRaw {
+            number: 1037,
+            title: "Let the agent add and caption project photos".into(),
+            url: "https://github.com/northwindai/atlas/pull/1037".into(),
+            state,
+            head_ref: "quarry".into(),
+            head_owner: Some("ghempton".into()),
+            head_oid: Some("0ef4ed2".into()),
+            updated_at: NOW - 3_600_000,
+            merged_at: if state == PrState::Merged { Some(NOW - 7_200_000) } else { None },
+            closed_at: None,
+            checks: Checks { passed: 11, failed, failing: (0..failed).map(|i| format!("check-{i}")).collect(), ..Default::default() },
+        }
+    }
+
+    #[test]
+    fn maps_claude_statuses() {
+        let a = acct("claude2");
+        let s = |status: &str, updated: i64, seen: i64| claude_session(&a, Some(&reg(status, updated)), Some(&tr()), seen, NOW, &Quiet::default()).unwrap().status;
+        assert_eq!(s("busy", NOW, 0), Status::Working);
+        assert_eq!(s("shell", NOW, 0), Status::Working);
+        assert_eq!(s("waiting", NOW, 0), Status::Needs);
+        assert_eq!(s("idle", NOW - 10, NOW - 100), Status::Unread);
+        assert_eq!(s("idle", NOW - 100, NOW - 10), Status::Idle);
+        let stopped = claude_session(&a, None, Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
+        assert_eq!(stopped.status, Status::Stopped);
+        assert!(!stopped.live);
+        assert_eq!(stopped.resume_command.as_deref(), Some("claude2 --resume abc1234567"));
+        assert_eq!(stopped.open_target, "s|claude:claude2:abc1234567|resume");
+        assert_eq!(stopped.title, "Quarry daily log + photo sync");
+    }
+
+    #[test]
+    fn a_long_silent_busy_session_is_stuck() {
+        let a = acct("claude2");
+        let mut t = tr();
+        t.last_ts = NOW - 3 * DAY_MS;
+        let r = reg("shell", NOW - 3 * DAY_MS);
+        let stuck = claude_session(&a, Some(&r), Some(&t), 0, NOW, &Quiet { subagent_at: None, running: Some("gcloud auth login") }).unwrap();
+        assert_eq!(stuck.status, Status::Needs);
+        assert_eq!(stuck.stalled_since, Some(NOW - 3 * DAY_MS));
+        assert_eq!(stuck.excerpt.as_deref(), Some(format!("Stuck on `gcloud auth login` for {{for:{}}}", NOW - 3 * DAY_MS).as_str()));
+        assert_eq!(session_headline(&stuck).0, "`claude2` is stuck · Quarry daily log + photo sync");
+        let silent = claude_session(&a, Some(&r), Some(&t), 0, NOW, &Quiet::default()).unwrap();
+        assert!(silent.excerpt.as_deref().unwrap_or_default().starts_with("No activity for {for:"));
+        // A subagent still writing its log keeps the session working.
+        let sub = claude_session(&a, Some(&r), Some(&t), 0, NOW, &Quiet { subagent_at: Some(NOW - 60_000), running: None }).unwrap();
+        assert_eq!(sub.status, Status::Working);
+        // So does a transcript that's still moving.
+        t.last_ts = NOW - 60_000;
+        let busy = claude_session(&a, Some(&reg("busy", NOW - 3 * DAY_MS)), Some(&t), 0, NOW, &Quiet::default()).unwrap();
+        assert_eq!(busy.status, Status::Working);
+        assert_eq!(busy.stalled_since, None);
+    }
+
+    #[test]
+    fn claude_excerpts_follow_status() {
+        let a = acct("claude2");
+        let needs = claude_session(&a, Some(&reg("waiting", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
+        assert_eq!(needs.excerpt.as_deref(), Some("Bash · `yarn mikro-orm migration:up`"));
+        let working = claude_session(&a, Some(&reg("busy", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
+        assert_eq!(working.excerpt.as_deref(), Some("running `yarn test`"));
+    }
+
+    #[test]
+    fn maps_codex_statuses() {
+        let a = AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: None };
+        let mut th = ThreadInfo { id: "01a0c4a6".into(), cwd: "/r".into(), last_ts: NOW - 1_000, turn_open: true, turn_started_at: Some(NOW - 5_000), ..Default::default() };
+        assert_eq!(codex_session(&a, &th, Some("Photo tools"), 0, NOW).status, Status::Working);
+        assert_eq!(codex_session(&a, &th, None, 0, NOW).open_target, "s|codex:codex:01a0c4a6|codex");
+        th.last_ts = NOW - CODEX_STALE_MS - 1;
+        assert_eq!(codex_session(&a, &th, None, 0, NOW).status, Status::Idle);
+        th.turn_open = false;
+        th.last_complete_at = Some(NOW - 1_000);
+        assert_eq!(codex_session(&a, &th, None, NOW - 2_000, NOW).status, Status::Unread);
+        assert_eq!(codex_session(&a, &th, None, NOW, NOW).status, Status::Idle);
+        th.pending_approval = Some("Run · `yarn install`".into());
+        assert_eq!(codex_session(&a, &th, None, 0, NOW).status, Status::Needs);
+    }
+
+    #[test]
+    fn assigns_sessions_to_the_deepest_lane() {
+        let seeds = vec![seed("/r/atlas", "app"), seed("/r/atlas/.claude/worktrees/bold-fermi-1ac421", "claude/bold-fermi")];
+        assert_eq!(best_seed(&seeds, Path::new("/r/atlas/.claude/worktrees/bold-fermi-1ac421/src")), Some(1));
+        assert_eq!(best_seed(&seeds, Path::new("/r/atlas/apps")), Some(0));
+        assert_eq!(best_seed(&seeds, Path::new("/r/atlas-app2")), None);
+    }
+
+    #[test]
+    fn finds_prs_by_branch_and_owner() {
+        let s = seed("/r/atlas-quarry", "quarry");
+        let mut prs = HashMap::new();
+        prs.insert("northwindai/atlas".to_string(), vec![pr(PrState::Approved, 0)]);
+        assert_eq!(find_pr(&s, &prs, NOW).map(|p| p.number), Some(1037));
+        let mut other_owner = pr(PrState::Open, 0);
+        other_owner.head_owner = Some("stranger".into());
+        prs.insert("northwindai/atlas".to_string(), vec![other_owner]);
+        assert!(find_pr(&s, &prs, NOW).is_none());
+        let mut main = s.clone();
+        main.branch = Some("main".into());
+        assert!(find_pr(&main, &prs, NOW).is_none());
+        let mut old = pr(PrState::Merged, 0);
+        old.merged_at = Some(NOW - 8 * DAY_MS);
+        prs.insert("northwindai/atlas".to_string(), vec![old]);
+        assert!(find_pr(&s, &prs, NOW).is_none());
+        let mut moved_on = pr(PrState::Merged, 0);
+        moved_on.head_oid = Some("ffffff0".into());
+        prs.insert("northwindai/atlas".to_string(), vec![moved_on]);
+        assert!(find_pr(&s, &prs, NOW).is_none(), "a reused branch drops its merged PR");
+    }
+
+    #[test]
+    fn ranks_bays() {
+        let a = acct("claude2");
+        let needs = claude_session(&a, Some(&reg("waiting", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
+        let working = claude_session(&a, Some(&reg("busy", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
+        let unread = claude_session(&a, Some(&reg("idle", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
+        let open_pr = find_pr(&seed("/r", "quarry"), &HashMap::from([("northwindai/atlas".to_string(), vec![pr(PrState::Open, 0)])]), NOW);
+        let failing = find_pr(&seed("/r", "quarry"), &HashMap::from([("northwindai/atlas".to_string(), vec![pr(PrState::Open, 2)])]), NOW);
+        let merged = find_pr(&seed("/r", "quarry"), &HashMap::from([("northwindai/atlas".to_string(), vec![pr(PrState::Merged, 0)])]), NOW);
+        assert_eq!(bay_of(&[working.clone(), needs.clone()], None), (Bay::Needs, Status::Needs));
+        assert_eq!(bay_of(&[unread.clone()], failing.as_ref()), (Bay::Needs, Status::Error));
+        assert_eq!(bay_of(&[working.clone()], failing.as_ref()), (Bay::Working, Status::Working));
+        assert_eq!(bay_of(&[unread.clone()], open_pr.as_ref()), (Bay::Unread, Status::Unread));
+        assert_eq!(bay_of(&[], open_pr.as_ref()), (Bay::Review, Status::Idle));
+        assert_eq!(bay_of(&[], merged.as_ref()), (Bay::Merged, Status::Idle));
+        assert_eq!(bay_of(&[], None), (Bay::Idle, Status::Idle));
+    }
+
+    #[test]
+    fn writes_headlines() {
+        let a = acct("claude2");
+        let needs = claude_session(&a, Some(&reg("waiting", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
+        assert_eq!(
+            headline(Bay::Needs, &[needs], None, None),
+            ("`claude2` is waiting for approval".to_string(), Some("Bash · `yarn mikro-orm migration:up`".to_string()))
+        );
+        let working = claude_session(&a, Some(&reg("busy", NOW - 5_000)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
+        let (h, d) = headline(Bay::Working, &[working], None, None);
+        assert_eq!(h, "`claude2` · Quarry daily log + photo sync");
+        assert_eq!(d, Some(format!("{{for:{}}} · running `yarn test`", NOW - 5_000)));
+        let failing = find_pr(&seed("/r", "quarry"), &HashMap::from([("northwindai/atlas".to_string(), vec![pr(PrState::Open, 2)])]), NOW);
+        assert_eq!(
+            headline(Bay::Needs, &[], failing.as_ref(), None),
+            ("Checks failing on #1037".to_string(), Some("`check-0` · `check-1`".to_string()))
+        );
+        let approved = find_pr(&seed("/r", "quarry"), &HashMap::from([("northwindai/atlas".to_string(), vec![pr(PrState::Approved, 0)])]), NOW);
+        assert_eq!(
+            headline(Bay::Review, &[], approved.as_ref(), None),
+            ("#1037 approved · ready to merge".to_string(), Some("11 checks passed".to_string()))
+        );
+    }
+
+    #[test]
+    fn builds_targets_with_app_names() {
+        let apps = AppNames { terminal: "Ghostty".into(), terminal_id: "ghostty".into(), editor: "Cursor".into(), editor_id: "cursor".into() };
+        let a = acct("claude2");
+        let live = claude_session(&a, Some(&reg("waiting", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
+        let (t, default) = targets(&seed("/r/atlas-quarry", "quarry"), &[live], None, &apps);
+        assert_eq!(t[0].label, "Respond in Ghostty");
+        assert_eq!(default.as_deref(), Some("s|claude:claude2:abc1234567|focus"));
+        assert!(t.iter().all(|x| !x.id.ends_with("|claude-app")), "claude2 isn't the Claude app's account");
+        assert!(t.iter().any(|x| x.label == "Open in Cursor"));
+        let main = AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: None };
+        let mine = claude_session(&main, Some(&reg("waiting", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
+        let (t, _) = targets(&seed("/r/atlas-quarry", "quarry"), &[mine], None, &apps);
+        assert!(t[1].disabled && t[1].id.ends_with("|claude-app"), "live elsewhere, so offered but disabled");
+        let (none, default) = targets(&seed("/r/x", "x"), &[], None, &apps);
+        assert_eq!(default.as_deref(), Some("l|terminal"));
+        assert_eq!(none.len(), 3);
+    }
+
+    #[test]
+    fn scratchpad_worktrees_show_the_session_that_made_them() {
+        let apps = AppNames::default();
+        let scratch = "/private/tmp/claude-501/-r-osprey/abc12345-0000-0000-0000-000000000000/scratchpad/atlas-nx-cache";
+        let seeds = vec![seed("/r/osprey", "main"), seed(scratch, "nx-cache")];
+        let a = acct("claude");
+        let mut maker = claude_session(&a, Some(&reg("busy", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
+        maker.id = "abc12345-0000-0000-0000-000000000000".into();
+        maker.key = format!("claude:claude:{}", maker.id);
+        maker.cwd = "/r/osprey".into();
+        let (git, prs, order) = (HashMap::new(), HashMap::new(), vec!["Northwind".to_string()]);
+        let visitors = HashMap::new();
+        let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![maker], visitors: &visitors, git: &git, prs: &prs, project_order: &order, warnings: vec![], loading: false, github_at: None });
+        let lane = board.lanes.iter().find(|l| l.path == scratch).unwrap();
+        assert_eq!(lane.sessions.len(), 1);
+        assert_eq!(lane.sessions[0].visitor.as_deref(), Some("made this worktree"));
+        assert_eq!(lane.bay, Bay::Idle, "the maker works in another lane, so it doesn't make this one Working");
+        assert_eq!(lane.headline, "Made by `claude` · Quarry daily log + photo sync");
+        assert_eq!(lane.default_target.as_deref(), Some("s|claude:claude:abc12345-0000-0000-0000-000000000000|focus"));
+        assert_eq!(board.lanes.iter().find(|l| l.path == "/r/osprey").unwrap().sessions.len(), 1);
+    }
+
+    #[test]
+    fn composes_a_board() {
+        let apps = AppNames::default();
+        let seeds = vec![seed("/r/atlas-quarry", "quarry"), seed("/r/atlas-app3", "app3")];
+        let a = acct("claude2");
+        let needs = claude_session(&a, Some(&reg("waiting", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
+        let git = HashMap::new();
+        let prs = HashMap::new();
+        let order = vec!["Northwind".to_string()];
+        let visitors = HashMap::from([(PathBuf::from("/r/atlas-app3"), vec!["claude:claude2:abc1234567".to_string()])]);
+        let board = compose(Inputs {
+            now: NOW,
+            apps: &apps,
+            seeds: &seeds,
+            sessions: vec![needs],
+            visitors: &visitors,
+            git: &git,
+            prs: &prs,
+            project_order: &order,
+            warnings: vec![],
+            loading: false,
+            github_at: None,
+        });
+        assert_eq!(board.lanes.len(), 2);
+        assert_eq!(board.lanes[0].bay, Bay::Needs);
+        assert_eq!(board.lanes[0].sessions.len(), 1);
+        assert_eq!(board.lanes[1].bay, Bay::Idle, "a visitor doesn't change the bay");
+        assert_eq!(board.lanes[1].sessions[0].visitor.as_deref(), Some("worked here"));
+        assert_eq!(board.lanes[1].headline, "Worked on by `claude2` · Quarry daily log + photo sync");
+        assert_eq!(board.lanes[0].sessions[0].headline, "`claude2` is waiting for approval");
+        assert_eq!(board.projects[0].lanes, 2);
+    }
+}

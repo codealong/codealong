@@ -1,0 +1,502 @@
+// The main window. One project at a time, picked in the switcher at top left. The sidebar
+// lists that project's worktrees; the board lists agents in Needs you, Working and Your turn,
+// and worktrees in In review, Idle and Merged. Keyboard map: the design system's Surfaces page.
+
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { getBoard, markSeen, onBoard, openConfig, openTarget, refresh, refreshUsage, signIn } from './api';
+import { ago } from './format';
+import type { Bay, Board, Lane, Session, Status } from './types';
+import { AccountsDialog } from './ui/AccountsDialog';
+import { Inspector } from './ui/Inspector';
+import { AgentRow, failingPr, LaneRow } from './ui/LaneRow';
+import { BayHeader, Icon, Kbd, NavItem } from './ui/primitives';
+import { ALL_PROJECTS, openSwitcher, ProjectSwitcher, type ActionCounts } from './ui/ProjectSwitcher';
+import { UsageBar } from './ui/UsageBar';
+import { WorktreeTree } from './ui/WorktreeTree';
+
+const BAYS: Bay[] = ['needs', 'working', 'unread', 'review', 'idle', 'merged'];
+const AGENT_BAY: Partial<Record<Status, Bay>> = { needs: 'needs', error: 'needs', working: 'working', unread: 'unread' };
+const ELSEWHERE = 'Elsewhere';
+const PROJECT_KEY = 'codealong.project';
+
+type Row = { kind: 'agent'; key: string; lane: Lane; session: Session } | { kind: 'lane'; key: string; lane: Lane };
+/** What the Inbox narrows the board to: one bay, or worktrees whose PR checks are failing. */
+type Filter = Bay | 'failing';
+
+/** Agents go in the agent bays, one row each; worktrees go in the rest, one row each. */
+function buildBays(lanes: Lane[]): { bay: Bay; rows: Row[] }[] {
+  const groups: Record<Bay, Row[]> = { needs: [], working: [], unread: [], review: [], idle: [], merged: [] };
+  for (const lane of lanes) {
+    const own = lane.sessions.filter((s) => !s.visitor);
+    for (const s of own) {
+      const bay = AGENT_BAY[s.status];
+      if (bay) groups[bay].push({ kind: 'agent', key: `${lane.id}::${s.key}`, lane, session: s });
+    }
+    const needsFromAgents = own.some((s) => s.status === 'needs' || s.status === 'error');
+    const agentBay = lane.bay === 'working' || lane.bay === 'unread' || (lane.bay === 'needs' && needsFromAgents);
+    if (!agentBay) groups[lane.bay].push({ kind: 'lane', key: lane.id, lane });
+  }
+  const at = (r: Row) => (r.kind === 'agent' ? r.session.lastActivity : r.lane.lastActivity);
+  return BAYS.map((bay) => ({ bay, rows: groups[bay].sort((a, b) => at(b) - at(a)) })).filter((g) => g.rows.length > 0);
+}
+
+function inProject(lane: Lane, project: string): boolean {
+  if (project === ALL_PROJECTS) return !lane.hidden;
+  return lane.project === project && (project === ELSEWHERE || !lane.hidden);
+}
+
+function inQuery(lane: Lane, q: string): boolean {
+  if (!q) return true;
+  const needle = q.toLowerCase();
+  const hay = [lane.callsign, lane.repo, lane.branch ?? '', lane.headline, lane.path, lane.pr ? `#${lane.pr.number} ${lane.pr.title}` : '', ...lane.sessions.map((s) => `${s.account} ${s.title}`)];
+  return hay.some((h) => h.toLowerCase().includes(needle));
+}
+
+function useNow(everyMs: number): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), everyMs);
+    return () => window.clearInterval(id);
+  }, [everyMs]);
+  return now;
+}
+
+function storedProject(): string | null {
+  try {
+    return window.localStorage.getItem(PROJECT_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function App() {
+  const [board, setBoard] = useState<Board | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [project, setProject] = useState<string | null>(storedProject);
+  const [bayFilter, setBayFilter] = useState<Filter | null>(null);
+  const [query, setQuery] = useState('');
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [showParked, setShowParked] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+  // The Accounts dialog, open at one account when a usage chip opened it.
+  const [accountsDialog, setAccountsDialog] = useState<{ focus: string | null } | null>(null);
+  const closeAccounts = useCallback(() => setAccountsDialog(null), []);
+  const now = useNow(15_000);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const gPending = useRef(false);
+
+  useEffect(() => {
+    getBoard()
+      .then(setBoard)
+      .catch((e: unknown) => setLoadError(String(e)));
+    return onBoard(setBoard);
+  }, []);
+
+  useEffect(() => {
+    const onFocus = () => void refresh();
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, []);
+
+  useEffect(() => {
+    if (!toast) return;
+    const id = window.setTimeout(() => setToast(null), 6000);
+    return () => window.clearTimeout(id);
+  }, [toast]);
+
+  const projects = board?.projects ?? [];
+  const known = project === ALL_PROJECTS || projects.some((p) => p.name === project);
+  const current = known && project ? project : (projects.find((p) => p.name !== ELSEWHERE)?.name ?? ALL_PROJECTS);
+
+  const pickProject = (name: string) => {
+    setProject(name);
+    setBayFilter(null);
+    setShowParked(false);
+    setSelectedKey(null);
+    try {
+      window.localStorage.setItem(PROJECT_KEY, name);
+    } catch {
+      // Private windows can refuse storage; the choice just won't persist.
+    }
+  };
+
+  const lanes = board?.lanes ?? [];
+  const projectLanes = useMemo(() => lanes.filter((l) => inProject(l, current)), [lanes, current]);
+  const allBays = useMemo(() => buildBays(projectLanes.filter((l) => inQuery(l, query))), [projectLanes, query]);
+  const bays = useMemo(() => {
+    if (bayFilter === 'failing') {
+      return allBays.map((b) => ({ ...b, rows: b.rows.filter((r) => failingPr(r.lane)) })).filter((b) => b.rows.length > 0);
+    }
+    return bayFilter ? allBays.filter((b) => b.bay === bayFilter) : allBays;
+  }, [allBays, bayFilter]);
+  const foldParked = !showParked && !query;
+  const parkedCount = useMemo(() => bays.flatMap((b) => b.rows).filter((r) => r.kind === 'lane' && r.lane.parked).length, [bays]);
+  const visible = useMemo(() => bays.flatMap((b) => b.rows.filter((r) => !foldParked || r.kind === 'agent' || !r.lane.parked)), [bays, foldParked]);
+  const selected = visible.find((r) => r.key === selectedKey) ?? visible[0] ?? null;
+  const selectedLane = selected?.lane ?? null;
+  const domId = (r: Row) => `row-${visible.indexOf(r)}`;
+
+  const counts = useMemo(() => {
+    const groups = buildBays(projectLanes);
+    const n = (bay: Bay) => groups.find((g) => g.bay === bay)?.rows.length ?? 0;
+    return { needs: n('needs'), working: n('working'), unread: n('unread'), review: n('review'), failing: projectLanes.filter((l) => failingPr(l)).length };
+  }, [projectLanes]);
+
+  const totalLanes = useMemo(() => lanes.filter((l) => !l.hidden).length, [lanes]);
+
+  // Needs you and Your turn per project, for the switcher's badge and menu.
+  const actions = useMemo(() => {
+    const out: Record<string, ActionCounts> = {};
+    for (const name of [...projects.map((p) => p.name), ALL_PROJECTS]) {
+      const groups = buildBays(lanes.filter((l) => inProject(l, name)));
+      const n = (bay: Bay) => groups.find((g) => g.bay === bay)?.rows.length ?? 0;
+      out[name] = { needs: n('needs'), unread: n('unread') };
+    }
+    return out;
+  }, [lanes, projects]);
+
+  useEffect(() => {
+    document.title = counts.needs > 0 ? `Codealong · ${counts.needs} need you` : 'Codealong';
+  }, [counts.needs]);
+
+  useEffect(() => {
+    if (selected) document.getElementById(domId(selected))?.scrollIntoView({ block: 'nearest' });
+  }, [selected?.key]);
+
+  const open = useCallback((lane: Lane | null, targetId: string | null | undefined) => {
+    if (!lane || !targetId) return;
+    const target = lane.targets.find((t) => t.id === targetId);
+    if (target?.disabled) {
+      setToast(target.detail ?? `${target.label} isn't available right now.`);
+      return;
+    }
+    openTarget(lane.id, targetId).catch((e: unknown) => setToast(String(e)));
+  }, []);
+
+  const openRow = useCallback(
+    (row: Row | null) => {
+      if (!row) return;
+      open(row.lane, row.kind === 'agent' ? row.session.openTarget : row.lane.defaultTarget);
+    },
+    [open],
+  );
+
+  const copy = useCallback((text: string | null | undefined, what: string) => {
+    if (!text) return;
+    navigator.clipboard
+      .writeText(text)
+      .then(() => setToast(`Copied the ${what}.`))
+      .catch(() => setToast(`Couldn't copy the ${what}.`));
+  }, []);
+
+  const move = useCallback(
+    (delta: number) => {
+      if (visible.length === 0) return;
+      const i = selected ? visible.indexOf(selected) : -1;
+      const next = visible[Math.min(visible.length - 1, Math.max(0, i + delta))];
+      if (next) setSelectedKey(next.key);
+    },
+    [visible, selected],
+  );
+
+  /** Selects a worktree from the sidebar: its first agent row, else its own row. */
+  const focusLane = (lane: Lane) => {
+    setBayFilter(null);
+    if (lane.parked) setShowParked(true);
+    const own = lane.sessions.find((s) => !s.visitor && AGENT_BAY[s.status]);
+    setSelectedKey(own ? `${lane.id}::${own.key}` : lane.id);
+  };
+
+  /** Selects a session's row on the board: its agent row, else its worktree's row. */
+  const focusSession = (lane: Lane, session: Session) => {
+    setBayFilter(null);
+    const onBoardAsAgent = !session.visitor && AGENT_BAY[session.status];
+    if (!onBoardAsAgent && lane.parked) setShowParked(true);
+    setSelectedKey(onBoardAsAgent ? `${lane.id}::${session.key}` : lane.id);
+  };
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const typing = document.activeElement === searchRef.current;
+      const mod = e.metaKey;
+      const key = e.key.toLowerCase();
+      if (mod && e.key === ',') {
+        e.preventDefault();
+        setAccountsDialog({ focus: null });
+        return;
+      }
+      // The Accounts dialog has the keyboard while it's open.
+      if (accountsDialog) return;
+      if (mod && key === 'k') {
+        e.preventDefault();
+        searchRef.current?.focus();
+        searchRef.current?.select();
+        return;
+      }
+      if (mod && key === 'p') {
+        e.preventDefault();
+        openSwitcher();
+        return;
+      }
+      if (typing) {
+        if (e.key === 'Escape') {
+          setQuery('');
+          searchRef.current?.blur();
+        } else if (e.key === 'ArrowDown' || e.key === 'Enter') {
+          e.preventDefault();
+          searchRef.current?.blur();
+          if (e.key === 'Enter') openRow(selected);
+        }
+        return;
+      }
+      if (gPending.current) {
+        gPending.current = false;
+        const bay = ({ n: 'needs', w: 'working', t: 'unread', r: 'review' } as Record<string, Bay | undefined>)[key];
+        const first = bay ? bays.find((b) => b.bay === bay)?.rows[0] : undefined;
+        if (first) setSelectedKey(first.key);
+        return;
+      }
+      const lane = selectedLane;
+      if (e.key === '/') {
+        e.preventDefault();
+        searchRef.current?.focus();
+      } else if (e.key === 'ArrowDown' || (key === 'j' && !mod)) {
+        e.preventDefault();
+        move(1);
+      } else if (e.key === 'ArrowUp' || (key === 'k' && !mod)) {
+        e.preventDefault();
+        move(-1);
+      } else if (e.key === 'Enter' && !mod) {
+        e.preventDefault();
+        openRow(selected);
+      } else if (e.key === 'Enter' && mod) {
+        e.preventDefault();
+        const primary = selected?.kind === 'agent' ? selected.session.openTarget : lane?.defaultTarget;
+        const alt = lane?.targets.find(
+          (t) => t.group === 'session' && !t.disabled && t.id !== primary && (selected?.kind !== 'agent' || t.id.startsWith(`s|${selected.session.key}|`)),
+        );
+        open(lane, alt?.id ?? 'l|editor');
+      } else if (mod && key === '1') {
+        e.preventDefault();
+        open(lane, 'l|terminal');
+      } else if (mod && key === '2') {
+        e.preventDefault();
+        open(lane, 'l|editor');
+      } else if (mod && key === '3') {
+        e.preventDefault();
+        open(lane, lane?.targets.find((t) => t.id.endsWith('|claude-app') && !t.disabled)?.id);
+      } else if (mod && key === '4') {
+        e.preventDefault();
+        open(lane, lane?.targets.find((t) => t.id.endsWith('|codex') && !t.disabled)?.id);
+      } else if (mod && key === 'o') {
+        e.preventDefault();
+        if (lane?.pr) open(lane, 'p|github');
+      } else if (mod && e.shiftKey && key === 'c') {
+        e.preventDefault();
+        copy(lane?.path, 'worktree path');
+      } else if (mod && key === 'c' && !window.getSelection()?.toString()) {
+        e.preventDefault();
+        copy(lane?.branch, 'branch name');
+      } else if (key === 'e' && !mod) {
+        const sessions = selected?.kind === 'agent' ? [selected.session] : (lane?.sessions ?? []);
+        void markSeen(sessions.filter((s) => s.status === 'unread').map((s) => s.key));
+      } else if (key === 'g' && !mod) {
+        gPending.current = true;
+        window.setTimeout(() => (gPending.current = false), 1200);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [bays, selected, selectedLane, move, open, openRow, copy, accountsDialog]);
+
+  const toggleBay = (f: Filter) => setBayFilter(bayFilter === f ? null : f);
+  const editConfig = () => {
+    openConfig().catch((e: unknown) => setToast(String(e)));
+  };
+  const startSignIn = (account: string) => {
+    signIn(account).catch((e: unknown) => setToast(String(e)));
+  };
+
+  // The sidebar's worktrees, grouped by repo: active ones first, parked ones last.
+  const worktrees = useMemo(() => {
+    const byRepo = new Map<string, Lane[]>();
+    for (const l of projectLanes) byRepo.set(l.repo, [...(byRepo.get(l.repo) ?? []), l]);
+    const rank = (l: Lane) => (l.parked ? 9 : BAYS.indexOf(l.bay));
+    return [...byRepo.entries()]
+      .sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]))
+      .map(([repo, ls]) => ({ repo, lanes: ls.sort((a, b) => rank(a) - rank(b) || b.lastActivity - a.lastActivity) }));
+  }, [projectLanes]);
+
+  return (
+    <div className="ca-win ca-win--app">
+      <div className="ca-win-bar" data-tauri-drag-region>
+        <ProjectSwitcher projects={projects} current={current} total={totalLanes} actions={actions} onPick={pickProject} onEditConfig={editConfig} />
+        <label className="ca-search">
+          <Icon name="search" size={14} />
+          <input
+            ref={searchRef}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={`Filter ${current === ALL_PROJECTS ? 'all projects' : current}`}
+            aria-label="Filter worktrees, sessions and PRs"
+            spellCheck={false}
+          />
+          {!query && <Kbd keys={['⌘', 'K']} />}
+        </label>
+        <div className="ca-bar-status" data-tauri-drag-region>
+          {board?.githubAt ? `PRs as of ${ago(board.githubAt, now)}` : board && !board.loading ? 'Loading PRs' : ''}
+        </div>
+      </div>
+      <UsageBar
+        usage={board?.usage ?? []}
+        now={now}
+        onRefresh={() => void refreshUsage()}
+        onAccounts={(account) => setAccountsDialog({ focus: account ?? null })}
+        onSignIn={startSignIn}
+      />
+      <div className="ca-win-body">
+        <nav className="ca-side" aria-label="Sidebar">
+          <div className="ca-label ca-side-label">Inbox</div>
+          <NavItem glyph="needs" label="Needs you" count={counts.needs} tone="attn" active={bayFilter === 'needs'} onClick={() => toggleBay('needs')} />
+          <NavItem glyph="working" label="Working" count={counts.working} active={bayFilter === 'working'} onClick={() => toggleBay('working')} />
+          <NavItem glyph="unread" label="Your turn" count={counts.unread} active={bayFilter === 'unread'} onClick={() => toggleBay('unread')} />
+          <NavItem icon="pr" label="In review" count={counts.review} active={bayFilter === 'review'} onClick={() => toggleBay('review')} />
+          <NavItem glyph="error" label="Checks failing" count={counts.failing} tone="alert" active={bayFilter === 'failing'} onClick={() => toggleBay('failing')} />
+          <div className="ca-label ca-side-label">Worktrees · {projectLanes.length}</div>
+          <div className="ca-side-scroll">
+            <WorktreeTree
+              groups={worktrees}
+              now={now}
+              selectedLaneId={selectedLane?.id ?? null}
+              selectedSessionKey={selected?.kind === 'agent' ? selected.session.key : null}
+              onSelectLane={focusLane}
+              onOpenSession={(lane, session) => {
+                focusSession(lane, session);
+                open(lane, session.openTarget);
+              }}
+            />
+          </div>
+          <div className="ca-side-foot">
+            <button type="button" className="ca-linkbtn ca-side-config" title="~/Library/Application Support/Codealong/config.toml" onClick={editConfig}>
+              <Icon name="settings" size={14} />
+              <span>Edit config.toml</span>
+            </button>
+          </div>
+          {board && board.warnings.length > 0 && (
+            <div className="ca-side-warnings" role="status">
+              {board.warnings.map((w) => (
+                <div key={w} className="ca-warning">
+                  <Icon name="alert" size={14} />
+                  <span>{w}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </nav>
+        <main className="ca-board" aria-label="Board">
+          <div className="ca-board-cols ca-label" aria-hidden="true">
+            <span />
+            <span>Worktree</span>
+            <span>Now</span>
+            <span className="ca-board-cols-age">Age</span>
+          </div>
+          {loadError && <div className="ca-board-empty">{loadError}</div>}
+          {!loadError && (!board || (board.loading && lanes.length === 0)) && <div className="ca-board-empty">Reading sessions…</div>}
+          {board && !board.loading && bays.length === 0 && (
+            <div className="ca-board-empty">
+              {query
+                ? `Nothing in ${current} matches “${query}”.`
+                : bayFilter === 'failing'
+                  ? 'No PR checks are failing.'
+                  : bayFilter
+                    ? 'Nothing here right now.'
+                  : 'No worktrees yet. Codealong looks for repos under the folders in config.toml and for the agents working in them.'}
+            </div>
+          )}
+          <div role="listbox" aria-label="Agents and worktrees" aria-activedescendant={selected ? domId(selected) : undefined} tabIndex={0} className="ca-board-list">
+            {bays.map((b) => {
+              const shown = b.rows.filter((r) => !foldParked || r.kind === 'agent' || !r.lane.parked);
+              const unreadKeys = b.bay === 'unread' ? b.rows.flatMap((r) => (r.kind === 'agent' ? [r.session.key] : [])) : [];
+              return (
+                <section key={b.bay} className="ca-bayblock">
+                  <BayHeader
+                    bay={b.bay}
+                    count={b.rows.length}
+                    action={
+                      unreadKeys.length > 0 ? (
+                        <button type="button" className="ca-linkbtn" onClick={() => void markSeen(unreadKeys)}>
+                          Mark all seen
+                        </button>
+                      ) : undefined
+                    }
+                  />
+                  <div className="ca-bay-lanes">
+                    {shown.map((r) =>
+                      r.kind === 'agent' ? (
+                        <AgentRow
+                          key={r.key}
+                          lane={r.lane}
+                          session={r.session}
+                          domId={domId(r)}
+                          now={now}
+                          selected={r.key === selected?.key}
+                          onSelect={() => setSelectedKey(r.key)}
+                          onOpen={() => {
+                            setSelectedKey(r.key);
+                            openRow(r);
+                          }}
+                        />
+                      ) : (
+                        <LaneRow
+                          key={r.key}
+                          lane={r.lane}
+                          domId={domId(r)}
+                          now={now}
+                          selected={r.key === selected?.key}
+                          onSelect={() => setSelectedKey(r.key)}
+                          onOpen={(lane) => open(lane, lane.defaultTarget)}
+                          onOpenTarget={(lane, id) => {
+                            setSelectedKey(r.key);
+                            open(lane, id);
+                          }}
+                        />
+                      ),
+                    )}
+                    {b.bay === 'idle' && foldParked && parkedCount > 0 && (
+                      <button type="button" className="ca-parked" onClick={() => setShowParked(true)}>
+                        Show {parkedCount} parked {parkedCount === 1 ? 'worktree' : 'worktrees'}
+                      </button>
+                    )}
+                  </div>
+                </section>
+              );
+            })}
+          </div>
+        </main>
+        <Inspector
+          lane={selectedLane}
+          focusKey={selected?.kind === 'agent' ? selected.session.key : null}
+          apps={board?.apps ?? { terminal: 'Terminal', terminalId: '', editor: 'Editor', editorId: '' }}
+          now={now}
+          onOpen={(id) => open(selectedLane, id)}
+        />
+      </div>
+      {accountsDialog && (
+        <AccountsDialog
+          focus={accountsDialog.focus}
+          usage={board?.usage ?? []}
+          terminal={board?.apps.terminal ?? 'Terminal'}
+          now={now}
+          onClose={closeAccounts}
+          onEditConfig={editConfig}
+        />
+      )}
+      {toast && (
+        <div className="ca-toast" role="status" onClick={() => setToast(null)}>
+          <Icon name="alert" size={16} />
+          <span>{toast}</span>
+        </div>
+      )}
+    </div>
+  );
+}
