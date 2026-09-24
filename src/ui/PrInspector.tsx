@@ -9,8 +9,9 @@ import { useEffect, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import { openUrl, prDetail, reviewInCodex } from '../api';
 import { absolute, ago, middleTruncate } from '../format';
 import type { Lane, PrDetail, PrFile, Session } from '../types';
-import { Button, Icon, LaneGlyph, PR_WORD, StatusGlyph } from './primitives';
-import { ChecksSummary, PrGlyph, prIsOpen, reviewWord, syncWords, type PrPlace, type PrRowItem } from './PrsView';
+import { PrPills } from './PrPills';
+import { Button, Icon, LaneGlyph, StatusGlyph } from './primitives';
+import { ChecksSummary, PrGlyph, prIsOpen, syncWords, type PrPlace, type PrRowItem } from './PrsView';
 
 /** Details already fetched, by PR and last update, so going back to a PR is instant. */
 const cache = new Map<string, PrDetail>();
@@ -196,8 +197,10 @@ export function PrInspector({ item, now, approving, onApprove, onOpenSession, on
         <div className="ca-insp-title">
           <PrGlyph pr={pr} />
           <span className="ca-insp-call">#{pr.number}</span>
-          {requested && <span className="ca-tag is-attn">Review requested</span>}
-          <span className="ca-tag">{prIsOpen(pr) ? reviewWord(pr) : PR_WORD[pr.state]}</span>
+          <span className="ca-prinsp-status">
+            {requested && <span className="ca-tag is-attn">Review requested</span>}
+            <PrPills pr={pr} />
+          </span>
         </div>
         <h3 className="ca-prinsp-title">{pr.title}</h3>
         <div className="ca-prinsp-meta">

@@ -12,6 +12,7 @@ import { AGENT_BAY, BAYS, buildBays, failingPr, filterByAge, inboxCounts, lanePr
 import { approvePr, archiveSession, barOn, expandImages, getBoard, markSeen, onBarOn, onBoard, onNewWindow, onReveal, onSettings, openConfig, openProjectWindow, openTarget, openUrl, refresh, refreshUsage, reviewInCodex, setBarOn, setPinned, setPinnedWorktrees, setTheme, signIn, startSession, type Reveal } from './api';
 import { usePerf } from './perf';
 import { reorderPinned, usePins } from './pins';
+import { prFlag } from './prStatus';
 import { COLOR_WORD, newTodo, sessionHomes, STATUSES, STATUS_WORD, todoIndex, todoInFilter, todoInQuery, todoItem, todoPrompt, todoSections, useTodoStore, type TodoItem } from './todos';
 import type { Bay, Board, Label, Lane, PrItem, Session, StartSpec, Theme, Todo, TodoStatus } from './types';
 import { LABEL_COLORS } from './types';
@@ -130,8 +131,10 @@ function prInFilter(r: PrRowItem, f: Filter | null): boolean {
   switch (f) {
     case null:
       return true;
-    case 'needs':
-      return prIsOpen(p) && (p.reviewRequested || (p.mine && (p.checks.failed > 0 || p.state === 'changes')));
+    case 'needs': {
+      const flag = prFlag(p);
+      return flag === 'attn' || flag === 'alert';
+    }
     case 'working':
     case 'unread':
       // As on the board, a session from another lane doesn't lend its status: one agent that

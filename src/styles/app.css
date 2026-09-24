@@ -1349,9 +1349,19 @@ body.is-resizing * {
 .ca-prrow .ca-seg-main {
   border-left: 0;
 }
-.ca-prrow.is-requested .ca-seg-glyph {
+/* A row that's your move (see prFlag) gets a colored edge: amber for a review asked of you or
+   something to fix, red for failing checks, green for your PRs that GitHub would merge. */
+.ca-prrow.is-flag-attn .ca-seg-glyph {
   box-shadow: inset 3px 0 0 var(--attn-solid);
   background: var(--attn-tint);
+}
+.ca-prrow.is-flag-alert .ca-seg-glyph {
+  box-shadow: inset 3px 0 0 var(--alert-solid);
+  background: var(--alert-tint);
+}
+.ca-prrow.is-flag-ready .ca-seg-glyph {
+  box-shadow: inset 3px 0 0 var(--pr-open-solid);
+  background: var(--pr-open-tint);
 }
 .ca-prrow-num {
   flex: none;
@@ -1372,27 +1382,11 @@ body.is-resizing * {
   font: 400 12px/16px var(--font-mono);
   color: var(--ink-3);
 }
-.ca-prrow-review {
-  flex: none;
-  font: 500 12px/16px var(--font-sans);
-  color: var(--ink-2);
-}
-.ca-prrow-review.is-approved {
-  color: var(--pr-open);
-}
-.ca-prrow-review.is-changes {
-  color: var(--alert);
-}
-.ca-prrow-review.is-draft,
-.ca-prrow-review.is-merged,
-.ca-prrow-review.is-closed {
-  color: var(--ink-3);
-}
 .ca-prrow .ca-lane-line2 {
   gap: 8px;
 }
-/* A PR row's second line. The review word, checks and diff always show; the rest takes the room
-   that's left, in this order: the first 12 characters of the repo · branch · author line, the
+/* A PR row's second line. The pills and the diff always show; the rest takes the room that's
+   left, in this order: the first 12 characters of the repo · branch · author line, the
    agents with their +n, the worktree tag, then the rest of that line. A piece that doesn't fit
    wraps onto a second line that is cut off, so it shows whole or not at all, and the repo ·
    branch · author line takes back its room. The PR panel lists them all.
@@ -1411,39 +1405,21 @@ body.is-resizing * {
   margin: -4px;
   padding: 4px;
   overflow: clip;
+  container: prfit / inline-size;
 }
-/* The repo · branch · author line with the review word and checks. The line is drawn first but
-   comes last in the markup, so when there's no room for 12 characters of it, it wraps away
-   instead of showing a stub. It counts as 12 characters when the agents and tag are fitted. */
+/* The pills, then the repo · branch · author line. The line comes last, so when there's no room
+   for 12 characters of it, it wraps away instead of showing a stub. It counts as 12 characters
+   when the agents and tag are fitted. */
 .ca-prrow-lead {
   display: flex;
   flex: 1 1 auto;
-  flex-flow: row-reverse wrap;
-  justify-content: flex-end;
+  flex-wrap: wrap;
   align-content: flex-start;
   align-items: center;
   column-gap: 8px;
   min-width: 0;
   height: 20px;
   overflow: clip;
-}
-.ca-prrow-status {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  min-height: 20px;
-}
-/* When even the review word and checks don't fit, "1 failing" wraps its word away and keeps
-   the count. */
-.ca-prrow .ca-checks {
-  min-width: 0;
-}
-.ca-prrow .ca-checks > span {
-  min-width: 0;
-  height: 14px;
-  overflow: clip;
-  white-space: normal;
 }
 .ca-prrow-agents {
   display: flex;
@@ -1460,7 +1436,7 @@ body.is-resizing * {
   text-overflow: ellipsis;
 }
 /* The diff keeps to the right edge, as in the Worktrees view. Beside an Approve button, where
-   room is shortest, it doesn't hold its column's full width, so the checks keep their word. */
+   room is shortest, it doesn't hold its column's full width, so the pills keep their words. */
 .ca-prrow .ca-diff {
   justify-content: flex-end;
 }
@@ -1481,7 +1457,93 @@ body.is-resizing * {
   gap: 4px;
 }
 
+/* Where a PR stands: its review, checks and merge as the design system's status pills. */
+.ca-prpills {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+}
+.ca-prpill {
+  flex: none;
+}
+/* In a row the pills get the room the line has (see .ca-prrow-fit), and short of room they say
+   less: first the checks keep only their count ("3 failing" becomes 3), then Conflicts or Out of
+   date keeps only its icon, its word giving way with an ellipsis in between. Their titles and
+   the PR panel still say it all. The widths fit the widest sets of pills: three with the checks
+   shortened, three in full, and two in full. */
+.ca-prrow .ca-prpills {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.ca-prrow .ca-prpill--merge {
+  flex: 0 1 auto;
+  box-sizing: border-box;
+  min-width: 25px;
+}
+.ca-prrow .ca-prpill--merge > .ca-prpill-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ca-prpill-short {
+  display: none;
+}
+@container prfit (max-width: 290px) {
+  .ca-prpills[data-count='3'] > .ca-prpill--checks.has-short > .ca-prpill-text {
+    display: none;
+  }
+  .ca-prpills[data-count='3'] > .ca-prpill--checks > .ca-prpill-short {
+    display: inline;
+  }
+}
+@container prfit (max-width: 220px) {
+  .ca-prpills[data-count='3'] > .ca-prpill--merge > .ca-prpill-text {
+    display: none;
+  }
+}
+@container prfit (max-width: 200px) {
+  .ca-prpills > .has-short > .ca-prpill-text {
+    display: none;
+  }
+  .ca-prpill-short {
+    display: inline;
+  }
+}
+.ca-pill.is-ready,
+.ca-pill.is-pass {
+  background: var(--pr-open-tint);
+  color: var(--pr-open);
+}
+.ca-pill.is-ready {
+  font-weight: 600;
+}
+.ca-pill.is-attn {
+  background: var(--attn-tint);
+  color: var(--attn);
+}
+.ca-pill.is-alert {
+  background: var(--alert-tint);
+  color: var(--alert);
+}
+.ca-pill.is-quiet {
+  color: var(--ink-3);
+}
+.ca-pill.is-merged {
+  background: var(--pr-merged-tint);
+  color: var(--pr-merged);
+}
+
 /* The PR panel. */
+.ca-prinsp-status {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  margin-left: auto;
+}
 .ca-prinsp header {
   display: grid;
   gap: 6px;

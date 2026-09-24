@@ -3,7 +3,9 @@
 // Each row names the local worktree and the sessions that worked on the PR.
 
 import { absolute, ago, count } from '../format';
+import { prFlag } from '../prStatus';
 import type { Checks, GitInfo, Lane, PrItem, Session } from '../types';
+import { PrPills } from './PrPills';
 import { HarnessChip, Icon, PR_ICON, PR_WORD } from './primitives';
 
 export interface PrRowItem {
@@ -76,22 +78,6 @@ export function prSections(rows: PrRowItem[]): PrSection[] {
   return sections.filter((s) => s.rows.length > 0);
 }
 
-/** Where a PR stands with its reviewers, in a word or two. */
-export function reviewWord(pr: PrItem): string {
-  switch (pr.state) {
-    case 'approved':
-      return 'Approved';
-    case 'changes':
-      return 'Changes requested';
-    case 'draft':
-      return 'Draft';
-    case 'open':
-      return 'Awaiting review';
-    default:
-      return PR_WORD[pr.state];
-  }
-}
-
 export function ChecksSummary({ checks: c }: { checks: Checks }) {
   if (c.failed > 0) {
     return (
@@ -144,13 +130,14 @@ interface PrRowProps {
 function PrRow({ item, domId, now, selected, approving, onSelect, onOpen, onApprove, onOpenSession, onContextMenu }: PrRowProps) {
   const { pr } = item;
   const requested = pr.reviewRequested && prIsOpen(pr);
+  const flag = prFlag(pr);
   const shown = item.sessions.slice(0, 2);
   return (
     <div
       id={domId}
       role="option"
       aria-selected={selected}
-      className={['ca-lane', 'ca-prrow', requested && 'is-requested', selected && 'is-selected'].filter(Boolean).join(' ')}
+      className={['ca-lane', 'ca-prrow', requested && 'is-requested', flag && `is-flag-${flag}`, selected && 'is-selected'].filter(Boolean).join(' ')}
       onMouseDown={onSelect}
       onDoubleClick={onOpen}
       onContextMenu={(e) => {
@@ -172,13 +159,10 @@ function PrRow({ item, domId, now, selected, approving, onSelect, onOpen, onAppr
           {/* Shows what fits: the agents and the worktree tag drop out whole when there's no
               room (see .ca-prrow-fit), and the PR panel lists them all. */}
           <div className="ca-prrow-fit">
-            {/* The repo · branch · author line comes after the review word and checks here
-                and is drawn before them, so it's the one that drops out of the lead. */}
+            {/* The repo · branch · author line comes after the pills, so it's the one that
+                drops out of the lead. */}
             <span className="ca-prrow-lead">
-              <span className="ca-prrow-status">
-                <span className={`ca-prrow-review is-${pr.state}`}>{reviewWord(pr)}</span>
-                <ChecksSummary checks={pr.checks} />
-              </span>
+              <PrPills pr={pr} />
               <span className="ca-prrow-meta" title={`${pr.repoSlug} · ${pr.head}${pr.base ? ` → ${pr.base}` : ''}`}>
                 {pr.repo} · {pr.head} · {pr.mine ? 'you' : (pr.author ?? 'unknown')}
               </span>

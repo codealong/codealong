@@ -6,7 +6,7 @@ use std::time::Duration;
 use anyhow::{anyhow, Result};
 use serde_json::Value;
 
-use crate::model::{Checks, PrState};
+use crate::model::{Checks, Merge, PrState};
 use crate::procs;
 use crate::util::parse_rfc3339_ms;
 
@@ -24,6 +24,8 @@ pub struct PrRaw {
     pub merged_at: Option<i64>,
     pub closed_at: Option<i64>,
     pub checks: Checks,
+    /// Asked only of open PRs.
+    pub merge: Merge,
     pub author: Option<String>,
     pub base_ref: Option<String>,
     pub created_at: i64,
@@ -45,7 +47,7 @@ const QUERY: &str = r#"
 query($owner: String!, $name: String!, $requested: String!) {
   viewer { login }
   repository(owner: $owner, name: $name) {
-    open: pullRequests(states: OPEN, first: 100, orderBy: {field: UPDATED_AT, direction: DESC}) { nodes { ...pr } }
+    open: pullRequests(states: OPEN, first: 100, orderBy: {field: UPDATED_AT, direction: DESC}) { nodes { ...pr mergeStateStatus } }
     done: pullRequests(states: [MERGED, CLOSED], first: 40, orderBy: {field: UPDATED_AT, direction: DESC}) { nodes { ...pr } }
   }
   requested: search(query: $requested, type: ISSUE, first: 50) { nodes { ... on PullRequest { number } } }
@@ -148,6 +150,7 @@ fn parse_pr(n: &Value) -> Option<PrRaw> {
         merged_at: ts("mergedAt"),
         closed_at: ts("closedAt"),
         checks: tally(&contexts),
+        merge: merge_of(s("mergeStateStatus")),
         author: n.pointer("/author/login").and_then(Value::as_str).map(String::from),
         base_ref: s("baseRefName").map(String::from),
         created_at: ts("createdAt").unwrap_or(0),
@@ -283,6 +286,18 @@ pub fn approve(slug: &str, number: u64) -> Result<()> {
         .map_err(|e| anyhow!("Couldn't approve #{number}: {e}"))
 }
 
+/// GitHub's `mergeStateStatus`. `HAS_HOOKS` is clean with server-side hooks to run on merge.
+fn merge_of(status: Option<&str>) -> Merge {
+    match status {
+        Some("CLEAN") | Some("HAS_HOOKS") => Merge::Clean,
+        Some("DIRTY") => Merge::Conflicts,
+        Some("BEHIND") => Merge::Behind,
+        Some("BLOCKED") | Some("DRAFT") => Merge::Blocked,
+        Some("UNSTABLE") => Merge::Unstable,
+        _ => Merge::Unknown,
+    }
+}
+
 pub fn tally(contexts: &[Value]) -> Checks {
     let mut c = Checks::default();
     for ctx in contexts {
@@ -324,7 +339,7 @@ mod tests {
     #[test]
     fn parses_prs_and_checks() {
         let json = r#"{"data":{"viewer":{"login":"ghempton"},"requested":{"nodes":[{"number":1037}]},"repository":{
-          "open":{"nodes":[{"number":1037,"title":"Let the agent add and caption project photos","url":"https://github.com/northwindai/atlas/pull/1037","state":"OPEN","isDraft":false,"reviewDecision":"APPROVED","updatedAt":"2026-09-23T20:00:00Z","mergedAt":null,"closedAt":null,"headRefName":"quarry","headRefOid":"0ef4ed2","headRepositoryOwner":{"login":"ghempton"},
+          "open":{"nodes":[{"number":1037,"title":"Let the agent add and caption project photos","url":"https://github.com/northwindai/atlas/pull/1037","state":"OPEN","isDraft":false,"reviewDecision":"APPROVED","mergeStateStatus":"UNSTABLE","updatedAt":"2026-09-23T20:00:00Z","mergedAt":null,"closedAt":null,"headRefName":"quarry","headRefOid":"0ef4ed2","headRepositoryOwner":{"login":"ghempton"},
              "commits":{"nodes":[{"commit":{"statusCheckRollup":{"contexts":{"nodes":[
                {"__typename":"CheckRun","name":"server:test","status":"COMPLETED","conclusion":"SUCCESS"},
                {"__typename":"CheckRun","name":"docker-smoke","status":"COMPLETED","conclusion":"FAILURE"},
@@ -340,7 +355,9 @@ mod tests {
         assert_eq!(prs[0].head_oid.as_deref(), Some("0ef4ed2"));
         assert_eq!((prs[0].checks.passed, prs[0].checks.failed, prs[0].checks.pending, prs[0].checks.skipped), (2, 1, 1, 1));
         assert_eq!(prs[0].checks.failing, vec!["docker-smoke".to_string()]);
+        assert_eq!(prs[0].merge, Merge::Unstable);
         assert_eq!(prs[1].state, PrState::Merged);
+        assert_eq!(prs[1].merge, Merge::Unknown);
         assert!(prs[1].merged_at.is_some());
         assert_eq!(repo.login.as_deref(), Some("ghempton"));
         assert!(prs[0].review_requested);

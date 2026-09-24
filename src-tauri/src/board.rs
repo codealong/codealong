@@ -321,6 +321,7 @@ pub fn find_pr(seed: &LaneSeed, prs: &HashMap<String, Vec<PrRaw>>, now: i64) -> 
         url: pick.url.clone(),
         state: pick.state,
         checks: pick.checks.clone(),
+        merge: pick.merge,
         updated_at: pick.updated_at,
         merged_at: pick.merged_at,
         closed_at: pick.closed_at,
@@ -392,6 +393,7 @@ pub fn pr_items(seeds: &[LaneSeed], lanes: &[Lane], prs: &HashMap<String, Vec<Pr
                 head: p.head_ref.clone(),
                 base: p.base_ref.clone(),
                 checks: p.checks.clone(),
+                merge: p.merge,
                 additions: p.additions,
                 deletions: p.deletions,
                 changed_files: p.changed_files,
@@ -517,13 +519,20 @@ pub fn headline(bay: Bay, sessions: &[Session], pr: Option<&Pr>, git: Option<&Gi
         Bay::Review => {
             let pr = pr.expect("review bay has a PR");
             let c = &pr.checks;
+            // Ready to merge is GitHub's word for it: the reviews the repo requires, passing
+            // checks and no conflicts. Until GitHub has worked that out, an approval is only that.
+            let n = pr.number;
             let head = match pr.state {
-                PrState::Approved if c.failed == 0 && c.pending == 0 => format!("#{} approved · ready to merge", pr.number),
-                PrState::Approved => format!("#{} approved · checks running", pr.number),
-                PrState::Draft => format!("#{} is a draft", pr.number),
-                PrState::Changes => format!("#{} · changes requested", pr.number),
-                _ if c.pending > 0 => format!("#{} · checks running", pr.number),
-                _ => format!("#{} waiting for review", pr.number),
+                PrState::Draft => format!("#{n} is a draft"),
+                _ if pr.merge == Merge::Conflicts => format!("#{n} has conflicts"),
+                _ if pr.merge == Merge::Behind => format!("#{n} · branch out of date"),
+                PrState::Changes => format!("#{n} · changes requested"),
+                _ if c.pending > 0 && pr.state == PrState::Approved => format!("#{n} approved · checks running"),
+                _ if c.pending > 0 => format!("#{n} · checks running"),
+                PrState::Approved if pr.merge == Merge::Clean => format!("#{n} approved · ready to merge"),
+                PrState::Approved => format!("#{n} approved"),
+                _ if pr.merge == Merge::Clean => format!("#{n} ready to merge"),
+                _ => format!("#{n} waiting for review"),
             };
             (head, Some(checks_summary(c)))
         }
@@ -857,6 +866,7 @@ mod tests {
             merged_at: if state == PrState::Merged { Some(NOW - 7_200_000) } else { None },
             closed_at: None,
             checks: Checks { passed: 11, failed, failing: (0..failed).map(|i| format!("check-{i}")).collect(), ..Default::default() },
+            merge: Merge::Unknown,
             author: Some("ghempton".into()),
             base_ref: Some("main".into()),
             created_at: NOW - 86_400_000,
@@ -1188,11 +1198,17 @@ mod tests {
             headline(Bay::Needs, &[], failing.as_ref(), None),
             ("Checks failing on #1037".to_string(), Some("`check-0` · `check-1`".to_string()))
         );
-        let approved = find_pr(&seed("/r", "quarry"), &HashMap::from([("northwindai/atlas".to_string(), vec![pr(PrState::Approved, 0)])]), NOW);
-        assert_eq!(
-            headline(Bay::Review, &[], approved.as_ref(), None),
-            ("#1037 approved · ready to merge".to_string(), Some("11 checks passed".to_string()))
-        );
+        let review = |state: PrState, merge: Merge| {
+            let pr = find_pr(&seed("/r", "quarry"), &HashMap::from([("northwindai/atlas".to_string(), vec![PrRaw { merge, ..pr(state, 0) }])]), NOW);
+            headline(Bay::Review, &[], pr.as_ref(), None)
+        };
+        assert_eq!(review(PrState::Approved, Merge::Clean), ("#1037 approved · ready to merge".to_string(), Some("11 checks passed".to_string())));
+        // Only GitHub can say it's ready: approved and passing can still conflict with the base.
+        assert_eq!(review(PrState::Approved, Merge::Unknown).0, "#1037 approved");
+        assert_eq!(review(PrState::Approved, Merge::Conflicts).0, "#1037 has conflicts");
+        assert_eq!(review(PrState::Open, Merge::Blocked).0, "#1037 waiting for review");
+        // A repo that requires no review.
+        assert_eq!(review(PrState::Open, Merge::Clean).0, "#1037 ready to merge");
     }
 
     #[test]

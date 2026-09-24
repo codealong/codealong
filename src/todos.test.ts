@@ -110,7 +110,7 @@ describe('the list', () => {
   const working = session('claude:claude:w', { status: 'working', live: true, lastActivity: NOW });
   const idle = session('claude:claude:i', { lastActivity: NOW - 50_000 });
   const visitor = session('claude:claude:w', { visitor: 'worked here' });
-  const lanes = [lane('/r/app', [working, idle]), lane('/r/app3', [visitor], { pr: { number: 7, title: 'x', url: '', state: 'open', checks: { passed: 0, failed: 2, pending: 0, skipped: 0, failing: [] }, updatedAt: NOW, mergedAt: null, closedAt: null } })];
+  const lanes = [lane('/r/app', [working, idle]), lane('/r/app3', [visitor], { pr: { number: 7, title: 'x', url: '', state: 'open', checks: { passed: 0, failed: 2, pending: 0, skipped: 0, failing: [] }, merge: 'blocked', updatedAt: NOW, mergedAt: null, closedAt: null } })];
   const byId = new Map(lanes.map((l) => [l.id, l]));
   const homes = sessionHomes(lanes);
   const bug: Label = { id: 'l1', name: 'Bug', color: 'red' };

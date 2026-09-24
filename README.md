@@ -30,7 +30,11 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     here, with `p` or the right-click menu, and their pins show only here. Archive a session
     with `a` or its right-click menu; Codex threads are archived in Codex itself.
   - **PRs**: every PR in the project's repos, with the worktree and sessions that worked on
-    each. Reviews asked of you come first, with one-click Approve. Selecting a PR shows its
+    each. Reviews asked of you come first, with one-click Approve. Colored pills say where
+    each PR stands: its review, its checks, and conflicts or an out-of-date branch, or one
+    green Ready to merge when GitHub would merge it now. Rows that are your move are marked
+    at the left edge: amber for a review asked of you or something to fix, red for failing
+    checks, green for your PRs that are ready to merge. Selecting a PR shows its
     description, reviews, checks and changed files with their diffs, and under On this Mac
     the worktrees and sessions behind it, drawn like the sidebar's tree: whether the worktree
     has anything GitHub doesn't, and the agents that worked on the PR, including one that made
@@ -171,6 +175,6 @@ add to it; the images in them are in `images/`, named by their content.
 | `src-tauri/src/claudeapp.rs` | The Claude app's session records (its IDs, what you archived there) |
 | `src-tauri/src/config.rs`, `state.rs` | `config.toml` (accounts saved in place) and `state.json` (seen, pinned, archived) |
 | `src-tauri/src/bar.rs` | The floating bar's window: when it shows (AppKit's occlusion state), where it sits, Window › Floating bar |
-| `src/` | The React UI, built from the design system's components and tokens; `lanes.ts` groups the board and mirrors the engine's status rules for the age filter; `pins.ts` keeps the pinned lists; `bar.ts` and `ui/Bar.tsx` are the floating bar; `ui/SettingsDialog.tsx` and `ui/AccountsSection.tsx` are Settings |
+| `src/` | The React UI, built from the design system's components and tokens; `lanes.ts` groups the board and mirrors the engine's status rules for the age filter; `pins.ts` keeps the pinned lists; `prStatus.ts` and `ui/PrPills.tsx` say where a PR stands and which PRs are your move; `bar.ts` and `ui/Bar.tsx` are the floating bar; `ui/SettingsDialog.tsx` and `ui/AccountsSection.tsx` are Settings |
 | `scripts/preview.sh` | Headless preview against real data, for screenshots and scripted checks |
 | `design/tokens.json` | Design tokens; `npm run tokens` regenerates `src/styles/tokens.css` |
