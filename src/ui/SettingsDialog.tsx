@@ -48,17 +48,10 @@ interface SettingsDialogProps {
 export function SettingsDialog({ section, onSection, focus, usage, apps, theme, onPickTheme, now, onClose, onOpenConfig }: SettingsDialogProps) {
   const [view, setView] = useState<ConfigView | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // What you've typed in the config.toml section, kept while you look at another section.
+  const [fileDraft, setFileDraft] = useState<FileDraft | null>(null);
 
-  const load = useCallback(
-    () =>
-      getConfig()
-        .then((v) => {
-          setView(v);
-          setError(null);
-        })
-        .catch((e: unknown) => setError(plain(e))),
-    [],
-  );
+  const load = useCallback(() => getConfig().then(setView).catch((e: unknown) => setError(plain(e))), []);
 
   useEffect(() => {
     void load();
@@ -125,7 +118,7 @@ export function SettingsDialog({ section, onSection, focus, usage, apps, theme, 
   } else if (section === 'advanced' && cfg) {
     pane = <AdvancedPane cfg={cfg} view={view} disabled={!!broken} onSave={save} />;
   } else if (section === 'file') {
-    pane = <FilePane view={view} editor={apps.editor} onOpenConfig={onOpenConfig} onSaved={() => void load()} />;
+    pane = <FilePane view={view} draft={fileDraft} onDraft={setFileDraft} editor={apps.editor} onOpenConfig={onOpenConfig} onSaved={() => void load()} />;
   }
 
   return (
@@ -146,7 +139,7 @@ export function SettingsDialog({ section, onSection, focus, usage, apps, theme, 
               <NavItem key={s.id} label={s.label} icon={s.icon} active={section === s.id} onClick={() => onSection(s.id)} />
             ))}
           </nav>
-          <div className={section === 'file' ? 'ca-settings-pane is-file' : 'ca-settings-pane'} key={section}>
+          <div className={section === 'file' ? 'ca-settings-pane is-file' : 'ca-settings-pane'}>
             {gate}
             {pane}
             {error && section !== 'accounts' && view !== null && (
@@ -414,29 +407,38 @@ function AdvancedPane({ cfg, view, disabled, onSave }: PaneProps & { view: Confi
 
 /* ---- config.toml ---- */
 
-function FilePane({ view, editor, onOpenConfig, onSaved }: { view: ConfigView | null; editor: string; onOpenConfig: () => void; onSaved: () => void }) {
+/** What you're typing in the config.toml section, and the file it started from. */
+interface FileDraft {
+  text: string;
+  base: string;
+}
+
+interface FilePaneProps {
+  view: ConfigView | null;
+  draft: FileDraft | null;
+  onDraft: (d: FileDraft | null) => void;
+  editor: string;
+  onOpenConfig: () => void;
+  onSaved: () => void;
+}
+
+function FilePane({ view, draft, onDraft, editor, onOpenConfig, onSaved }: FilePaneProps) {
   const onDisk = view?.text ?? '';
-  // What you're typing, and the file it started from: when the file changes underneath an
-  // untouched editor the text follows; under an edited one it waits, and says so.
-  const [text, setText] = useState(onDisk);
-  const [base, setBase] = useState(onDisk);
+  // An untouched editor follows the file; an edited one waits, and says so when the file moved.
+  const text = draft?.text ?? onDisk;
+  const base = draft?.base ?? onDisk;
+  const dirty = text !== base;
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const area = useRef<HTMLTextAreaElement>(null);
-  const dirty = text !== base;
-  useEffect(() => {
-    if (!dirty && onDisk !== base) {
-      setText(onDisk);
-      setBase(onDisk);
-    }
-  }, [onDisk, base, dirty]);
+  const setText = (t: string) => onDraft(t === onDisk ? null : { text: t, base });
 
   const save = async () => {
     setBusy(true);
     setError(null);
     try {
       await saveConfigText(text);
-      setBase(text);
+      onDraft(null);
       onSaved();
     } catch (e) {
       setError(plain(e));
@@ -446,8 +448,7 @@ function FilePane({ view, editor, onOpenConfig, onSaved }: { view: ConfigView | 
   };
 
   const revert = () => {
-    setText(onDisk);
-    setBase(onDisk);
+    onDraft(null);
     setError(null);
   };
 
