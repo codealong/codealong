@@ -1973,3 +1973,58 @@ html.is-bar body {
   visibility: hidden;
   pointer-events: none;
 }
+
+/* The worktree picker and its New worktree box. */
+.ca-start-lane {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+}
+.ca-check {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font: 500 12px/16px var(--font-sans);
+  color: var(--ink-2);
+  white-space: nowrap;
+  cursor: pointer;
+}
+/* The real box stays for the keyboard and screen readers; the drawn one shows its state. */
+.ca-check input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.ca-check-box {
+  display: inline-grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  box-sizing: border-box;
+  border: 1.5px solid var(--line-strong);
+  border-radius: 4px;
+  background: var(--surface);
+  color: transparent;
+}
+.ca-check input:checked + .ca-check-box {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--surface);
+}
+.ca-check input:focus-visible + .ca-check-box {
+  box-shadow: var(--shadow-focus);
+}
+.ca-check.is-disabled {
+  color: var(--ink-3);
+  cursor: default;
+}
+.ca-check.is-disabled .ca-check-box {
+  opacity: 0.55;
+}

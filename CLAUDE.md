@@ -38,7 +38,8 @@ The engine binary doubles as a CLI for checking behavior without a window:
 - `codealong --snapshot --pr <owner/name> <number>`: a PR's detail, as the PR panel gets it.
 - `codealong --snapshot --start-options`: where each account can start a session.
 - `codealong --snapshot --start-plan <folder> <account> <terminal|claude-app|codex-app> [prompt]
-  [--model <model>]`: the command or link starting a session would use, without starting one.
+  [--model <model>] [--worktree]`: the command or link starting a session would use, without
+  starting one.
 
 ## Checking UI changes
 
@@ -132,8 +133,15 @@ Claude Code
   Quote it when typing it: zsh reads `fable[1m]` as a file pattern ("no matches found"). Without
   it a session starts on `model` from the account's `settings.json` (a repo's
   `.claude/settings.json` can override that).
+- `-w/--worktree [name]` makes a worktree for the session (read from 2.1.282's code): folder
+  `.claude/worktrees/<name>` under the checkout, branch `worktree-<name>`, a word-pair name when
+  none is given, based on a freshly fetched `origin/<default branch>` (settings
+  `"worktree": {"baseRef": "head"}` bases it on HEAD). A `WorktreeCreate` hook in settings.json
+  replaces all of that, even in a git repo, and prints the path. It refuses folders that haven't
+  been trusted yet. Its name is optional, so it must come before the prompt, which it would
+  otherwise take as the name: `start.rs` types `--worktree` first.
 - Also available, not used yet: `--bg` starts a session in the background and prints the ID
-  `attach` takes; `-w/--worktree [name]` makes a worktree under `<repo>/.claude/worktrees/`.
+  `attach` takes.
 - Sign-in lives in the login keychain: service `Claude Code-credentials` for `~/.claude`,
   `Claude Code-credentials-<first 8 hex of sha256(config dir)>` for any other folder, account
   `$USER`. Read it with `/usr/bin/security find-generic-password -a $USER -s <service> -w`
@@ -153,7 +161,8 @@ Claude app
   logged as `claudeURLHandler: code entry link invalid ?session` in `~/Library/Logs/Claude/main.log`.
 - Offers no way for another program to archive a session.
 - `claude://code/new?folder=<path>&q=<prompt>` (`prompt=` works too) opens the new-session page
-  with the folder and prompt filled in; you send it there.
+  with the folder and prompt filled in; you send it there. It takes no model or worktree: the
+  page has its own choices.
 
 Codex
 
@@ -176,7 +185,8 @@ Codex
   reads it first and ignores ones it can't), `codex://review?pr=<url>` opens a PR review.
 - `codex://threads/new?path=<folder>&prompt=<text>` opens a new thread there with the prompt
   filled in (it also takes `originUrl`, `projectId` and `mode`); `codex://threads/<uuid>?prompt=`
-  fills in a reply. A folder the app has no project for becomes a new project. Its projects are
+  fills in a reply. `mode` is chat, work or codex, not a worktree choice: the new-thread page
+  has its own Local or Worktree. A folder the app has no project for becomes a new project. Its projects are
   in `<CODEX_HOME>/.codex-global-state.json` (`local-projects[].rootPaths`,
   `electron-saved-workspace-roots`), a file of several megabytes.
 - Actions go through its app-server: `/Applications/ChatGPT.app/Contents/Resources/codex
