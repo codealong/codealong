@@ -7,11 +7,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { startOptions } from '../api';
 import { middleTruncate, resetsPhrase, tildePath } from '../format';
 import { HARNESS_WORD, usageNote } from '../harness';
-import { keepImages, pastedImages, useImageDrop } from '../imageInput';
+import { filesToAttach, keepFiles, useFileDrop } from '../attachInput';
 import { accountFor, autoHarness, autoPicks, choices, initialChoice, initialPlace, placesFor, remember, remembered, type AutoPick, type Choice } from '../start';
-import { imageNames, insertImage, withoutImage } from '../todos';
-import type { Lane, StartOptions, StartPlace, StartSpec, Todo, Usage } from '../types';
-import { ImageStrip } from './DescriptionEditor';
+import { attachmentsIn, insertAttachments, withoutAttachment } from '../todos';
+import type { Attachment, Lane, StartOptions, StartPlace, StartSpec, Todo, Usage } from '../types';
+import { AttachmentStrip } from './DescriptionEditor';
 import { Button, Icon } from './primitives';
 import { TodoGlyph } from './TodoBits';
 import { UsageMeter } from './UsageBar';
@@ -95,28 +95,23 @@ export function NewSessionSheet({ lanes, laneId: firstLane, draft, error: failed
   const promptBox = useRef<HTMLLabelElement>(null);
   const promptNow = useRef(prompt);
   promptNow.current = prompt;
-  // Images go in at the cursor, each on a line of its own.
-  const addImages = (names: string[]) => {
+  // Attachments go in at the cursor, each on a line of its own.
+  const addAttachments = (kept: Attachment[]) => {
     const el = promptRef.current;
-    let text = promptNow.current;
-    let at = el && document.activeElement === el ? el.selectionStart : text.length;
-    for (const n of names) {
-      const r = insertImage(text, at, n);
-      text = r.text;
-      at = r.cursor;
-    }
-    setPrompt(text);
+    const text = promptNow.current;
+    const r = insertAttachments(text, el && document.activeElement === el ? el.selectionStart : text.length, kept);
+    setPrompt(r.text);
     window.requestAnimationFrame(() => {
       promptRef.current?.focus();
-      promptRef.current?.setSelectionRange(at, at);
+      promptRef.current?.setSelectionRange(r.cursor, r.cursor);
     });
   };
-  const addBlobs = (blobs: Blob[]) => {
-    keepImages(blobs)
-      .then(addImages)
+  const addFiles = (files: File[]) => {
+    keepFiles(files)
+      .then(addAttachments)
       .catch((e: unknown) => onError(String(e).replace(/^Error: /, '')));
   };
-  useImageDrop(promptBox, addImages, onError);
+  useFileDrop(promptBox, addAttachments, onError);
   // A model for a terminal start; null is the account's own default. Not remembered: the
   // default stays the default.
   const [model, setModel] = useState<string | null>(draft?.model ?? null);
@@ -234,7 +229,7 @@ export function NewSessionSheet({ lanes, laneId: firstLane, draft, error: failed
           ? `Codex opens a new thread in ${where}${prompted ? ' with this prompt filled in' : ''}. You send it from there, and can choose a new worktree there too.`
           : '';
   const newToCodex = place === 'codex-app' && !!lane && !!options && !options.codexProjects.includes(lane.path);
-  const images = imageNames(prompt);
+  const attached = attachmentsIn(prompt);
   const forTodo = todo && todoId === todo.id ? todo : null;
 
   return (
@@ -384,20 +379,20 @@ export function NewSessionSheet({ lanes, laneId: firstLane, draft, error: failed
               rows={5}
               autoFocus
               spellCheck
-              placeholder="What should it work on? Paste or drop screenshots too. You can also leave this empty and type in the session."
+              placeholder="What should it work on? Paste or drop screenshots and files too. You can also leave this empty and type in the session."
               onChange={(e) => setPrompt(e.target.value)}
               onPaste={(e) => {
-                const pasted = pastedImages(e);
-                if (pasted.length === 0) return;
+                const files = filesToAttach(e);
+                if (files.length === 0) return;
                 e.preventDefault();
-                addBlobs(pasted);
+                addFiles(files);
               }}
             />
-            <ImageStrip names={images} onRemove={(n) => setPrompt(withoutImage(prompt, n))} />
+            <AttachmentStrip items={attached} onRemove={(a) => setPrompt(withoutAttachment(prompt, a.path))} />
             {happens && (
               <small>
                 {happens}
-                {images.length > 0 && ` ${images.length === 1 ? 'The image goes' : 'Images go'} as ${images.length === 1 ? 'a file path' : 'file paths'} the agent opens.`}
+                {attached.length > 0 && ` ${attached.length === 1 ? 'The attachment goes' : 'Attachments go'} as ${attached.length === 1 ? 'a file path' : 'file paths'} the agent opens.`}
                 {newToCodex && ' Codex adds this folder as a project if it isn’t one yet.'}
               </small>
             )}

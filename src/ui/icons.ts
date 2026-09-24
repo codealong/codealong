@@ -268,5 +268,8 @@ export const ICONS: Record<string, string[]> = {
  ],
  "capsule-horizontal": [
   "M3 12a6 6 0 0 1 6 -6h6a6 6 0 0 1 6 6a6 6 0 0 1 -6 6h-6a6 6 0 0 1 -6 -6"
+ ],
+ "paperclip": [
+  "M15 7l-6.5 6.5a1.5 1.5 0 0 0 3 3l6.5 -6.5a3 3 0 0 0 -6 -6l-6.5 6.5a4.5 4.5 0 0 0 9 9l6.5 -6.5"
  ]
 };

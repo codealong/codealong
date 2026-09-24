@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::codex;
 use crate::config::{AccountCfg, Config};
-use crate::images;
+use crate::attachments::{self, Style};
 use crate::launch;
 use crate::model::{Board, Harness};
 use crate::util::{home, tilde};
@@ -19,6 +19,8 @@ use crate::util::{home, tilde};
 pub const PROMPT_VAR: &str = "CODEALONG_PROMPT";
 /// The images folder, for `--add-dir`, when the prompt has images. Its path has a space in it.
 pub const IMAGES_VAR: &str = "CODEALONG_IMAGES";
+/// The attached files' folder, for `--add-dir`, when the prompt has other files.
+pub const FILES_VAR: &str = "CODEALONG_FILES";
 
 /// The models a Claude Code start can ask for, as `--model` takes them: aliases for the newest
 /// model of each family, the way Claude Code's own `/model` picker offers them (2.1.282 knows
@@ -201,19 +203,19 @@ pub fn options_for(cfg: &Config) -> StartOptions {
 /// branch and base itself (or a repo's WorktreeCreate hook does). `--worktree` takes an
 /// optional name, so it goes first: followed by the prompt it would take the prompt as a name.
 ///
-/// Images in the prompt (`images/<name>`) go to Claude Code as file mentions, with the images
-/// folder added so it can read them without asking; `--add-dir` takes several folders, so it
-/// comes before `--session-id`, which ends it. The apps get the paths.
+/// Attachments in the prompt (`images/…`, `files/…`) go to Claude Code as file mentions, with
+/// their folders added so it can read them without asking; `--add-dir` takes several folders,
+/// so each comes before `--session-id`, which ends it. The apps get the paths.
 pub fn plan(account: &AccountCfg, place: Place, folder: &Path, prompt: &str, session_id: &str, model: Option<&str>, worktree: bool) -> Plan {
-    plan_in(account, place, folder, prompt, session_id, model, worktree, &images::dir())
+    plan_in(account, place, folder, prompt, session_id, model, worktree, (&attachments::images_dir(), &attachments::files_dir()))
 }
 
 #[allow(clippy::too_many_arguments)]
-fn plan_in(account: &AccountCfg, place: Place, folder: &Path, prompt: &str, session_id: &str, model: Option<&str>, worktree: bool, images_dir: &Path) -> Plan {
-    let has_images = !images::referenced(prompt).is_empty();
+fn plan_in(account: &AccountCfg, place: Place, folder: &Path, prompt: &str, session_id: &str, model: Option<&str>, worktree: bool, (images_dir, files_dir): (&Path, &Path)) -> Plan {
+    let (has_images, has_files) = attachments::kinds(prompt);
     // OpenCode has no --add-dir; it gets plain paths, as Codex does.
-    let style = if place == Place::CodexApp || harness_of(account) == Harness::Opencode { images::Style::Path } else { images::Style::Mention };
-    let prompt = images::expand_in(prompt, images_dir, style);
+    let style = if place == Place::CodexApp || harness_of(account) == Harness::Opencode { Style::Path } else { Style::Mention };
+    let prompt = attachments::expand_in(prompt, images_dir, files_dir, style);
     let prompt = prompt.trim();
     let dir = folder.to_string_lossy();
     match place {
@@ -226,9 +228,11 @@ fn plan_in(account: &AccountCfg, place: Place, folder: &Path, prompt: &str, sess
             if worktree && !opencode {
                 input.push_str(" --worktree");
             }
-            if has_images && !opencode {
-                input.push_str(&format!(" --add-dir \"${IMAGES_VAR}\""));
-                env.push((IMAGES_VAR.to_string(), images_dir.to_string_lossy().to_string()));
+            for (has, var, dir) in [(has_images, IMAGES_VAR, images_dir), (has_files, FILES_VAR, files_dir)] {
+                if has && !opencode {
+                    input.push_str(&format!(" --add-dir \"${var}\""));
+                    env.push((var.to_string(), dir.to_string_lossy().to_string()));
+                }
             }
             if !opencode {
                 input.push_str(&format!(" --session-id {session_id}"));
@@ -430,7 +434,7 @@ mod tests {
         let id = "0b7c2a4e-1d2f-4e3a-9b8c-7d6e5f4a3b2c";
         let dir = Path::new("/Users/me/Library/Application Support/Codealong/images");
         let prompt = "Match this:\n![image](images/0123456789abcdef.png)";
-        let Plan::Terminal { input, env, .. } = plan_in(&a, Place::Terminal, Path::new("/r/x"), prompt, id, Some("opus"), false, dir) else { panic!() };
+        let Plan::Terminal { input, env, .. } = plan_in(&a, Place::Terminal, Path::new("/r/x"), prompt, id, Some("opus"), false, (dir, Path::new("/f"))) else { panic!() };
         assert_eq!(input, format!("claude2 --add-dir \"$CODEALONG_IMAGES\" --session-id {id} --model 'opus' \"$CODEALONG_PROMPT\"\n"));
         assert_eq!(
             env,
@@ -440,18 +444,39 @@ mod tests {
             ]
         );
         // Without images, nothing changes.
-        let Plan::Terminal { input, .. } = plan_in(&a, Place::Terminal, Path::new("/r/x"), "Fix it", id, None, false, dir) else { panic!() };
+        let Plan::Terminal { input, .. } = plan_in(&a, Place::Terminal, Path::new("/r/x"), "Fix it", id, None, false, (dir, Path::new("/f"))) else { panic!() };
         assert_eq!(input, format!("claude2 --session-id {id} \"$CODEALONG_PROMPT\"\n"));
         // Codex opens the path; the Claude app gets the same mention the terminal does.
         let codex = account("codex", "codex", "~/.codex", None);
-        let Plan::CodexApp { url } = plan_in(&codex, Place::CodexApp, Path::new("/r/x"), prompt, id, None, false, dir) else { panic!() };
+        let Plan::CodexApp { url } = plan_in(&codex, Place::CodexApp, Path::new("/r/x"), prompt, id, None, false, (dir, Path::new("/f"))) else { panic!() };
         assert!(url.ends_with(&urlencoding::encode(&format!("Match this:\n![image]({}/0123456789abcdef.png)", dir.display())).to_string()));
         let claude = account("claude", "claude", "~/.claude", Some("claude"));
-        let Plan::ClaudeApp { url } = plan_in(&claude, Place::ClaudeApp, Path::new("/r/x"), prompt, id, None, false, dir) else { panic!() };
+        let Plan::ClaudeApp { url } = plan_in(&claude, Place::ClaudeApp, Path::new("/r/x"), prompt, id, None, false, (dir, Path::new("/f"))) else { panic!() };
         assert!(url.contains(&urlencoding::encode("@\"/Users/me/Library").to_string()));
         // In a new worktree, the images folder comes after --worktree, which takes an optional name.
-        let Plan::Terminal { input, .. } = plan_in(&a, Place::Terminal, Path::new("/r/x"), prompt, id, None, true, dir) else { panic!() };
+        let Plan::Terminal { input, .. } = plan_in(&a, Place::Terminal, Path::new("/r/x"), prompt, id, None, true, (dir, Path::new("/f"))) else { panic!() };
         assert_eq!(input, format!("claude2 --worktree --add-dir \"$CODEALONG_IMAGES\" --session-id {id} \"$CODEALONG_PROMPT\"\n"));
+    }
+
+    #[test]
+    fn hands_other_files_over_from_their_own_folder() {
+        let a = account("claude2", "claude", "~/.claude2", Some("claude2"));
+        let id = "0b7c2a4e-1d2f-4e3a-9b8c-7d6e5f4a3b2c";
+        let (images, files) = (Path::new("/i"), Path::new("/Users/me/Library/Application Support/Codealong/files"));
+        let prompt = "Why does this fail?\n[crash.log](files/0123456789abcdef/crash.log)";
+        let Plan::Terminal { input, env, .. } = plan_in(&a, Place::Terminal, Path::new("/r/x"), prompt, id, None, false, (images, files)) else { panic!() };
+        assert_eq!(input, format!("claude2 --add-dir \"$CODEALONG_FILES\" --session-id {id} \"$CODEALONG_PROMPT\"\n"));
+        assert_eq!(env[0], (FILES_VAR.to_string(), files.to_string_lossy().to_string()));
+        assert_eq!(env[1].1, format!("Why does this fail?\n@\"{}/0123456789abcdef/crash.log\"", files.display()));
+        // With an image too, both folders, each its own --add-dir.
+        let both = format!("{prompt}\n![image](images/fedcba9876543210.png)");
+        let Plan::Terminal { input, .. } = plan_in(&a, Place::Terminal, Path::new("/r/x"), &both, id, None, false, (images, files)) else { panic!() };
+        assert_eq!(input, format!("claude2 --add-dir \"$CODEALONG_IMAGES\" --add-dir \"$CODEALONG_FILES\" --session-id {id} \"$CODEALONG_PROMPT\"\n"));
+        // OpenCode gets the path, and no folders it has no option for.
+        let o = account("opencode", "opencode", "~/.local/share/opencode", Some("opencode"));
+        let Plan::Terminal { input, env, .. } = plan_in(&o, Place::Terminal, Path::new("/r/x"), prompt, id, None, false, (images, files)) else { panic!() };
+        assert_eq!(input, "opencode --prompt \"$CODEALONG_PROMPT\"\n");
+        assert_eq!(env[0].1, format!("Why does this fail?\n[crash.log]({}/0123456789abcdef/crash.log)", files.display()));
     }
 
     #[test]

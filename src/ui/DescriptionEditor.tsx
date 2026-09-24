@@ -1,63 +1,99 @@
-// A todo's description: text with screenshots in it. It reads as text and images; click it to
-// edit the text, where images are `![image](images/<name>)` lines. Paste an image, drop one
-// from the Finder, or pick a file, and it goes in at the cursor. Changes save as you type.
+// A todo's description: text with attachments in it. It reads as text, with images shown in
+// place and other files as chips; click it to edit the text, where an image is an
+// `![image](images/…)` line and a file a `[name](files/…)` line. Paste files or a screenshot, drop
+// them from the Finder, or pick them with Attach, and they go in at the cursor. Changes save as
+// you type.
 
 import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
-import { imageUrl, openImage, openUrl } from '../api';
-import { keepImages, pastedImages, useImageDrop } from '../imageInput';
-import { imageNames, insertImage, pieces, withoutImage } from '../todos';
+import { imageUrl, openAttachment, openUrl } from '../api';
+import { filesToAttach, keepFiles, useFileDrop } from '../attachInput';
+import { attachmentsIn, inlines, insertAttachments, pieces, withoutAttachment } from '../todos';
+import type { Attachment } from '../types';
 import { Icon } from './primitives';
 
-const URL_RE = /(https?:\/\/[^\s<>()]+[^\s<>().,;:!?'"])/g;
+const open = (path: string) => void openAttachment(path);
 
-/** Text with its web links clickable; they open in the browser. */
-function Linked({ text }: { text: string }) {
-  const parts = text.split(URL_RE);
+/** A kept file in text: its name, and a click opens it. */
+function FileChip({ name, path, onRemove }: { name: string; path: string; onRemove?: () => void }) {
+  return (
+    <span className="ca-filechip">
+      <button
+        type="button"
+        className="ca-filechip-open"
+        title={`Open ${name}`}
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={(e) => {
+          e.stopPropagation();
+          open(path);
+        }}
+      >
+        <Icon name="paperclip" size={12} />
+        <span>{name}</span>
+      </button>
+      {onRemove && (
+        <button type="button" className="ca-filechip-x" aria-label={`Remove ${name}`} title="Remove" onMouseDown={(e) => e.preventDefault()} onClick={onRemove}>
+          <Icon name="x" size={10} stroke={2.25} />
+        </button>
+      )}
+    </span>
+  );
+}
+
+/** Text with its web links and kept files clickable: links open in the browser, files where
+ *  they open. */
+function InlineText({ text }: { text: string }) {
   return (
     <>
-      {parts.map((p, i) =>
-        i % 2 ? (
+      {inlines(text).map((part, i) =>
+        part.kind === 'url' ? (
           <a
             key={i}
-            href={p}
+            href={part.url}
             onClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
-              void openUrl(p);
+              void openUrl(part.url);
             }}
           >
-            {p}
+            {part.url}
           </a>
+        ) : part.kind === 'file' ? (
+          <FileChip key={i} name={part.name} path={part.path} />
         ) : (
-          <Fragment key={i}>{p}</Fragment>
+          <Fragment key={i}>{part.text}</Fragment>
         ),
       )}
     </>
   );
 }
 
-/** Thumbnails of the images a text holds. Click one to open it; × takes it out of the text. */
-export function ImageStrip({ names, onRemove }: { names: string[]; onRemove?: (name: string) => void }) {
-  if (names.length === 0) return null;
+/** What a text has attached: images as thumbnails, other files as chips. Click one to open it;
+ *  × takes it out of the text. */
+export function AttachmentStrip({ items, onRemove }: { items: Attachment[]; onRemove?: (a: Attachment) => void }) {
+  if (items.length === 0) return null;
   return (
     <div className="ca-imgstrip">
-      {names.map((n) => (
-        <span key={n} className="ca-imgthumb">
-          <button type="button" className="ca-imgthumb-open" title="Open in Preview" onMouseDown={(e) => e.preventDefault()} onClick={() => void openImage(n)}>
-            <img src={imageUrl(n)} alt="" draggable={false} />
-          </button>
-          {onRemove && (
-            <button type="button" className="ca-imgthumb-x" aria-label="Remove image" title="Remove image" onMouseDown={(e) => e.preventDefault()} onClick={() => onRemove(n)}>
-              <Icon name="x" size={10} stroke={2.25} />
+      {items.map((a) =>
+        a.kind === 'image' ? (
+          <span key={a.path} className="ca-imgthumb">
+            <button type="button" className="ca-imgthumb-open" title="Open in Preview" onMouseDown={(e) => e.preventDefault()} onClick={() => open(a.path)}>
+              <img src={imageUrl(a.path.replace(/^images\//, ''))} alt="" draggable={false} />
             </button>
-          )}
-        </span>
-      ))}
+            {onRemove && (
+              <button type="button" className="ca-imgthumb-x" aria-label="Remove image" title="Remove" onMouseDown={(e) => e.preventDefault()} onClick={() => onRemove(a)}>
+                <Icon name="x" size={10} stroke={2.25} />
+              </button>
+            )}
+          </span>
+        ) : (
+          <FileChip key={a.path} name={a.name} path={a.path} onRemove={onRemove ? () => onRemove(a) : undefined} />
+        ),
+      )}
     </div>
   );
 }
 
-/** A description as it reads: paragraphs, links and images. */
+/** A description as it reads: paragraphs with their links and files, and images. */
 export function DescriptionView({ text }: { text: string }) {
   return (
     <>
@@ -71,7 +107,7 @@ export function DescriptionView({ text }: { text: string }) {
               title="Open in Preview"
               onClick={(e) => {
                 e.stopPropagation();
-                void openImage(p.name);
+                open(`images/${p.name}`);
               }}
             >
               <img src={imageUrl(p.name)} alt={p.alt} draggable={false} />
@@ -81,7 +117,7 @@ export function DescriptionView({ text }: { text: string }) {
         const t = p.text.replace(/^\n+|\n+$/g, '');
         return t ? (
           <p key={i} className="ca-desc-text">
-            <Linked text={t} />
+            <InlineText text={t} />
           </p>
         ) : null;
       })}
@@ -102,7 +138,7 @@ export function DescriptionEditor({ value, onSave, onError }: DescriptionEditorP
   const areaRef = useRef<HTMLTextAreaElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
-  // Where images go: the cursor when you last left it, else the end.
+  // Where attachments go: the cursor when you last left it, else the end.
   const cursor = useRef<number | null>(null);
   const draftRef = useRef(draft);
   draftRef.current = draft;
@@ -155,30 +191,25 @@ export function DescriptionEditor({ value, onSave, onError }: DescriptionEditorP
     setEditing(false);
   };
 
-  // Images go in at once and save at once, editing or not.
-  const addImages = (names: string[]) => {
-    let text = draftRef.current;
-    let at = cursor.current ?? text.length;
-    for (const n of names) {
-      const r = insertImage(text, Math.min(at, text.length), n);
-      text = r.text;
-      at = r.cursor;
-    }
-    cursor.current = at;
-    setDraft(text);
-    onSave(text);
+  // Attachments go in at once and save at once, editing or not.
+  const addAttachments = (kept: Attachment[]) => {
+    const current = draftRef.current;
+    const r = insertAttachments(current, cursor.current ?? current.length, kept);
+    cursor.current = r.cursor;
+    setDraft(r.text);
+    onSave(r.text);
     if (editing) {
-      window.requestAnimationFrame(() => areaRef.current?.setSelectionRange(at, at));
+      window.requestAnimationFrame(() => areaRef.current?.setSelectionRange(r.cursor, r.cursor));
     }
   };
-  const addBlobs = (blobs: Blob[]) => {
-    keepImages(blobs)
-      .then(addImages)
+  const addFiles = (files: File[]) => {
+    keepFiles(files)
+      .then(addAttachments)
       .catch((e: unknown) => onError(String(e).replace(/^Error: /, '')));
   };
-  useImageDrop(boxRef, addImages, onError);
+  useFileDrop(boxRef, addAttachments, onError);
 
-  const names = imageNames(editing ? draft : value);
+  const attached = attachmentsIn(editing ? draft : value);
   return (
     <div ref={boxRef} className={['ca-desc', editing && 'is-editing'].filter(Boolean).join(' ')}>
       {editing ? (
@@ -189,18 +220,18 @@ export function DescriptionEditor({ value, onSave, onError }: DescriptionEditorP
             value={draft}
             rows={4}
             spellCheck
-            placeholder="What should the agent know? Paste or drop screenshots here."
+            placeholder="What should the agent know? Paste or drop screenshots and files here."
             onChange={(e) => {
               setDraft(e.target.value);
               cursor.current = e.target.selectionStart;
             }}
             onSelect={(e) => (cursor.current = e.currentTarget.selectionStart)}
             onPaste={(e) => {
-              const images = pastedImages(e);
-              if (images.length === 0) return;
+              const files = filesToAttach(e);
+              if (files.length === 0) return;
               e.preventDefault();
               cursor.current = e.currentTarget.selectionStart;
-              addBlobs(images);
+              addFiles(files);
             }}
             onBlur={finish}
             onKeyDown={(e) => {
@@ -211,10 +242,10 @@ export function DescriptionEditor({ value, onSave, onError }: DescriptionEditorP
               }
             }}
           />
-          <ImageStrip
-            names={names}
-            onRemove={(n) => {
-              const text = withoutImage(draftRef.current, n);
+          <AttachmentStrip
+            items={attached}
+            onRemove={(a) => {
+              const text = withoutAttachment(draftRef.current, a.path);
               setDraft(text);
               onSave(text);
             }}
@@ -235,7 +266,7 @@ export function DescriptionEditor({ value, onSave, onError }: DescriptionEditorP
             }
           }}
         >
-          {value.trim() ? <DescriptionView text={value} /> : <span>Add a description. Paste or drop screenshots here.</span>}
+          {value.trim() ? <DescriptionView text={value} /> : <span>Add a description. Paste or drop screenshots and files here.</span>}
         </div>
       )}
       <div className="ca-desc-foot">
@@ -248,20 +279,19 @@ export function DescriptionEditor({ value, onSave, onError }: DescriptionEditorP
             fileRef.current?.click();
           }}
         >
-          <Icon name="photo" size={13} />
-          Add image
+          <Icon name="paperclip" size={13} />
+          Attach
         </button>
         {editing && <small>Esc or ⌘⏎ when you’re done</small>}
         <input
           ref={fileRef}
           type="file"
-          accept="image/png,image/jpeg,image/gif,image/webp"
           multiple
           hidden
           onChange={(e) => {
             const files = [...(e.target.files ?? [])];
             e.target.value = '';
-            if (files.length > 0) addBlobs(files);
+            if (files.length > 0) addFiles(files);
           }}
         />
       </div>

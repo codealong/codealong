@@ -29,7 +29,7 @@ use crate::repos::{self, Checkout};
 use crate::state::SeenState;
 use crate::throttle::{self, GitQueue, Verdict};
 use crate::todos::{self, TodoOp, TodoStore};
-use crate::images;
+use crate::attachments;
 use crate::usage;
 use crate::util::{expand, file_name, home, mtime_ms, now_ms, read_first_line, DAY_MS};
 
@@ -514,11 +514,11 @@ impl Engine {
         self.seen = SeenState::load();
         self.seen.save();
         self.load_todos();
-        // Only with every todo read: a list that didn't read would make every image look unused.
+        // Only with every todo read: a list that didn't read would make every attachment look unused.
         if !self.todos_unreadable {
             let texts: Vec<String> = self.todos.todos.iter().map(|t| t.description.clone()).collect();
-            let _ = std::thread::Builder::new().name("codealong-images".into()).spawn(move || {
-                images::collect_garbage(&texts.iter().map(String::as_str).collect::<Vec<_>>());
+            let _ = std::thread::Builder::new().name("codealong-attachments".into()).spawn(move || {
+                attachments::collect_garbage(&texts.iter().map(String::as_str).collect::<Vec<_>>());
             });
         }
         self.app_records.refresh(&claudeapp::records_dir());

@@ -226,6 +226,15 @@ export interface Board {
 
 export type TodoStatus = 'todo' | 'in-progress' | 'done';
 
+/** A kept attachment (src-tauri/src/attachments.rs): an image shown in place, or any other file. */
+export interface Attachment {
+  kind: 'image' | 'file';
+  /** How text refers to it: `images/<hash>.<ext>` or `files/<hash>/<name>`. */
+  path: string;
+  /** The file's own name. */
+  name: string;
+}
+
 /** The label colors; each is a `--label-<color>` token. */
 export const LABEL_COLORS = ['gray', 'red', 'pink', 'purple', 'indigo', 'blue', 'teal', 'green'] as const;
 export type LabelColor = (typeof LABEL_COLORS)[number];

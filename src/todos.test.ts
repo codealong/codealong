@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { applyOp, imageNames, insertImage, newTodo, nextColor, pieces, sessionHomes, snippet, todoIndex, todoInFilter, todoInQuery, todoItem, todoPrompt, todoSections, withoutImage, type TodoStore } from './todos';
+import { filesToAttach } from './attachInput';
+import { applyOp, attachmentsIn, inlines, insertAttachments, newTodo, nextColor, pieces, sessionHomes, snippet, todoIndex, todoInFilter, todoInQuery, todoItem, todoPrompt, todoSections, withoutAttachment, type TodoStore } from './todos';
 import type { Label, Lane, Session, Todo } from './types';
 
 const NOW = 1_790_000_000_000;
@@ -174,16 +175,53 @@ describe('prompts and images', () => {
       { kind: 'image', name: shot, alt: 'image' },
       { kind: 'text', text: '\nafter ![x](images/nope.png) and ![y](https://e.com/a.png)' },
     ]);
-    expect(imageNames(`${text} ![again](images/${shot})`)).toEqual([shot]);
     expect(snippet(text)).toBe('Before after and');
   });
 
-  it('puts an image on a line of its own at the cursor, and takes it out again', () => {
-    const r = insertImage('See this for the bug', 8, shot);
-    expect(r.text).toBe(`See this\n![image](images/${shot})\n for the bug`);
-    expect(r.text.slice(0, r.cursor)).toBe(`See this\n![image](images/${shot})\n`);
-    expect(insertImage('', 0, shot).text).toBe(`![image](images/${shot})`);
-    expect(withoutImage(`One\n\n![image](images/${shot})\n\nTwo`, shot)).toBe('One\n\nTwo');
+  const log = 'files/fedcba9876543210/Crash-report-1-.log';
+
+  it('finds what a text has attached, images and files, once each', () => {
+    const text = `See [Crash report (1).log](${log}) and\n![image](images/${shot})\nagain [Crash report (1).log](${log}), not [x](files/nope/x) or ![y](images/nope.png)`;
+    expect(attachmentsIn(text)).toEqual([
+      { kind: 'file', path: log, name: 'Crash report (1).log' },
+      { kind: 'image', path: `images/${shot}`, name: 'image' },
+    ]);
+    expect(snippet(`Fails on save.\n[crash.log](${log})`)).toBe('Fails on save. crash.log');
+  });
+
+  it('shows links and files inside the text', () => {
+    expect(inlines(`Log: [crash.log](${log}), see https://e.com/x. Done`)).toEqual([
+      { kind: 'text', text: 'Log: ' },
+      { kind: 'file', name: 'crash.log', path: log },
+      { kind: 'text', text: ', see ' },
+      { kind: 'url', url: 'https://e.com/x' },
+      { kind: 'text', text: '. Done' },
+    ]);
+    // An image isn't a file link.
+    expect(inlines(`![image](images/${shot})`)).toEqual([{ kind: 'text', text: `![image](images/${shot})` }]);
+  });
+
+  it('puts attachments on lines of their own at the cursor, and takes them out again', () => {
+    const img = { kind: 'image' as const, path: `images/${shot}`, name: 'image.png' };
+    const file = { kind: 'file' as const, path: log, name: 'Crash [1].log' };
+    const r = insertAttachments('See this for the bug', 8, [img, file]);
+    expect(r.text).toBe(`See this\n![image](images/${shot})\n[Crash 1.log](${log})\n for the bug`);
+    expect(r.text.slice(0, r.cursor)).toBe(`See this\n![image](images/${shot})\n[Crash 1.log](${log})\n`);
+    expect(insertAttachments('', 0, [img]).text).toBe(`![image](images/${shot})`);
+    expect(withoutAttachment(`One\n\n![image](images/${shot})\n\nTwo`, `images/${shot}`)).toBe('One\n\nTwo');
+    expect(withoutAttachment(`One\n[Crash 1.log](${log})\nTwo`, log)).toBe('One\nTwo');
+  });
+
+  it('pastes text over the pictures apps put next to it, and attaches files', () => {
+    const paste = (files: File[], text: string) =>
+      filesToAttach({ clipboardData: { files, items: [], getData: (t: string) => (t === 'text/plain' ? text : '') } } as unknown as Parameters<typeof filesToAttach>[0]);
+    const picture = new File(['x'], 'image.png', { type: 'image/png' });
+    const pdf = new File(['%PDF'], 'spec.pdf', { type: 'application/pdf' });
+    expect(paste([picture], '')).toEqual([picture]);
+    expect(paste([picture], 'A1\tB1')).toEqual([]);
+    expect(paste([pdf], '')).toEqual([pdf]);
+    expect(paste([pdf, picture], 'spec.pdf')).toEqual([pdf, picture]);
+    expect(paste([], 'plain text')).toEqual([]);
   });
 
   it('gives new labels a color no label has yet', () => {

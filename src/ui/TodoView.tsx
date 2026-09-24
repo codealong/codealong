@@ -5,7 +5,7 @@
 
 import { forwardRef, type ReactNode } from 'react';
 import { absolute, ago, middleTruncate } from '../format';
-import { snippet, STATUS_WORD, todoPr, type TodoItem, type TodoSection } from '../todos';
+import { attachmentsIn, snippet, STATUS_WORD, todoPr, type TodoItem, type TodoSection } from '../todos';
 import type { Label, Lane, Session, TodoStatus } from '../types';
 import { HarnessChip, Icon, Kbd, PrChip } from './primitives';
 import { LabelChip, TodoGlyph } from './TodoBits';
@@ -97,6 +97,7 @@ function TodoRow({ item, domId, now, selected, showProject, onSelect, onOpen, on
   const more = item.sessions.length - sessions.length;
   const lanes = item.places.map((p) => p.lane);
   const waiting = todo.pending.length > 0;
+  const attached = attachmentsIn(todo.description);
   return (
     <div
       id={domId}
@@ -131,6 +132,12 @@ function TodoRow({ item, domId, now, selected, showProject, onSelect, onOpen, on
             {item.labels.map((l) => (
               <LabelChip key={l.id} label={l} title={`Show only “${l.name}”`} onClick={() => onFilterLabel(l)} />
             ))}
+            {attached.length > 0 && (
+              <span className="ca-chip ca-todorow-attached" title={attached.map((a) => (a.kind === 'image' ? 'Image' : a.name)).join('\n')}>
+                <Icon name="paperclip" size={12} />
+                {attached.length}
+              </span>
+            )}
             {sessions.map(({ lane, session }) => (
               <HarnessChip key={session.key} session={session} onOpen={() => onOpenSession(lane, session)} />
             ))}

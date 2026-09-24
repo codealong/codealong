@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { showContextMenu, type MenuSpec } from './contextMenu';
 import { AGENT_BAY, BAYS, buildBays, failingPr, filterByAge, inboxCounts, lanePromptAt, narrowed, rowItems, worktreeRow, type BoardRow, type Filter, type WorktreeRow } from './lanes';
-import { approvePr, archiveSession, barOn, expandImages, getBoard, markSeen, onBarOn, onBoard, onNewWindow, onReveal, onSettings, openConfig, openProjectWindow, openTarget, openUrl, refresh, refreshUsage, reviewInCodex, setBarOn, setPinned, setPinnedWorktrees, setTheme, signIn, startSession, type Reveal } from './api';
+import { approvePr, archiveSession, barOn, expandAttachments, getBoard, markSeen, onBarOn, onBoard, onNewWindow, onReveal, onSettings, openConfig, openProjectWindow, openTarget, openUrl, refresh, refreshUsage, reviewInCodex, setBarOn, setPinned, setPinnedWorktrees, setTheme, signIn, startSession, type Reveal } from './api';
 import { usePerf } from './perf';
 import { reorderPinned, usePins } from './pins';
 import { prFlag } from './prStatus';
@@ -720,9 +720,9 @@ export function App() {
       .filter((p) => p.name !== ELSEWHERE)
       .map((p) => ({ label: p.name, checked: t.project === p.name, run: () => runTodo({ op: 'update', id: t.id, patch: { project: p.name } }) }));
 
-  /** Copies a todo as the prompt it would start a session with, images as their paths. */
+  /** Copies a todo as the prompt it would start a session with, attachments as their paths. */
   const copyPrompt = (t: Todo) => {
-    expandImages(todoPrompt(t))
+    expandAttachments(todoPrompt(t))
       .then((text) => copy(text, 'todo as a prompt'))
       .catch((e: unknown) => setToast(String(e)));
   };

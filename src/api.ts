@@ -4,7 +4,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import type { AccountCfg, AccountInfo, Board, Config, ConfigView, PrDetail, StartOptions, Started, StartSpec, Theme } from './types';
+import type { AccountCfg, AccountInfo, Attachment, Board, Config, ConfigView, PrDetail, StartOptions, Started, StartSpec, Theme } from './types';
 import type { TodoOp } from './todos';
 
 export const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -202,29 +202,29 @@ export async function todoOp(op: TodoOp): Promise<number> {
   return invoke<number>('todo_op', { op });
 }
 
-/** Keeps a pasted image and returns the name text refers to it by (`images/<name>`). The bytes
- *  go as they are, not as JSON. */
-export async function saveImage(image: Blob): Promise<string> {
-  if (!inTauri) throw new Error('Images need the app.');
-  return invoke<string>('save_image', new Uint8Array(await image.arrayBuffer()));
+/** Keeps a pasted or picked file and says how text refers to it. The bytes go as they are,
+ *  not as JSON, and the name in a header. */
+export async function saveAttachment(file: Blob, name: string): Promise<Attachment> {
+  if (!inTauri) throw new Error('Attachments need the app.');
+  return invoke<Attachment>('save_attachment', new Uint8Array(await file.arrayBuffer()), { headers: { 'x-name': encodeURIComponent(name) } });
 }
 
-/** Keeps a copy of an image file dropped from the Finder. */
-export async function importImage(path: string): Promise<string> {
-  if (!inTauri) throw new Error('Images need the app.');
-  return invoke<string>('import_image', { path });
+/** Keeps a copy of a file dropped from the Finder. */
+export async function importAttachment(path: string): Promise<Attachment> {
+  if (!inTauri) throw new Error('Attachments need the app.');
+  return invoke<Attachment>('import_attachment', { path });
 }
 
-/** The text with each kept image as its full path, for pasting into an agent. */
-export async function expandImages(text: string): Promise<string> {
+/** The text with each attachment as its full path, for pasting into an agent. */
+export async function expandAttachments(text: string): Promise<string> {
   if (!inTauri) return text;
-  return invoke<string>('expand_images', { text });
+  return invoke<string>('expand_attachments', { text });
 }
 
-/** Opens a kept image in Preview (or whatever opens images). */
-export async function openImage(name: string): Promise<void> {
+/** Opens a kept attachment in the app that opens its kind (Preview for an image, say). */
+export async function openAttachment(path: string): Promise<void> {
   if (!inTauri) return;
-  await invoke('open_image', { name });
+  await invoke('open_attachment', { path });
 }
 
 /** A browser preview of the UI (scripts/preview.sh), where Tauri's IPC is a stand-in. */

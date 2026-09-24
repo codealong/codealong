@@ -57,8 +57,8 @@ function optionalJson(file) {
   return fetch(file).then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; });
 }
 window.__TAURI_INTERNALS__ = {
-  invoke: function (cmd, args) {
-    window.__calls.push([cmd, args]);
+  invoke: function (cmd, args, options) {
+    window.__calls.push([cmd, args, options]);
     if (cmd === 'get_board') {
       return Promise.all([
         fetch('./board.json').then(function (r) { return r.json(); }),
@@ -74,7 +74,12 @@ window.__TAURI_INTERNALS__ = {
     if (cmd === 'plugin:menu|new') return Promise.resolve([window.__calls.length, 'menu-' + window.__calls.length]);
     // A todo change "shows" on a board that never comes, so the page keeps its own copy of it.
     if (cmd === 'todo_op') return Promise.resolve(Number.MAX_SAFE_INTEGER);
-    if (cmd === 'save_image' || cmd === 'import_image') return Promise.resolve('0123456789abcdef.png');
+    // A PNG is kept as an image to show; anything else as a file, by the name it came with.
+    if (cmd === 'save_attachment' || cmd === 'import_attachment') {
+      var png = args instanceof Uint8Array && args[0] === 0x89;
+      var name = cmd === 'import_attachment' ? String(args.path).split('/').pop() : decodeURIComponent(((options || {}).headers || {})['x-name'] || 'file');
+      return Promise.resolve(png ? { kind: 'image', path: 'images/0123456789abcdef.png', name: name } : { kind: 'file', path: 'files/fedcba9876543210/' + name.replace(/[^\w.-]+/g, '-'), name: name });
+    }
     return Promise.resolve(null);
   },
   transformCallback: function (cb) {

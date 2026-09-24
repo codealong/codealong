@@ -133,8 +133,8 @@ Claude Code
 - Background jobs (`kind: bg`) have no terminal; `<account command> attach <jobId>` opens one.
 - `--session-id <uuid>` gives a new session the ID you choose, so Codealong knows it before it
   appears. The prompt argument goes through the same path as typed text: `@"<path>"` mentions
-  attach files, an image of up to 256 KB (262,144 bytes) as an image; a bigger one is silently
-  not attached and is left for the Read tool. Image paths without `@` are only picked up when
+  attach files of up to 256 KB (262,144 bytes), an image as an image and a PDF whatever its
+  size; a bigger one is silently not attached and is left for the Read tool. Image paths without `@` are only picked up when
   pasted. Reading outside the working folder asks unless the folder is given with `--add-dir`,
   which takes several folders: put it before the other options (or `--add-dir=<dir>`), or it
   swallows the prompt. There's no image flag. The prompt is a positional argument parsed like any other: one that starts with `-`

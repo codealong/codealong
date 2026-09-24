@@ -6,7 +6,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { todoOp } from './api';
-import type { Board, Label, LabelColor, Lane, Pr, Session, Todo, TodoStatus } from './types';
+import type { Attachment, Board, Label, LabelColor, Lane, Pr, Session, Todo, TodoStatus } from './types';
 import { LABEL_COLORS } from './types';
 
 export type TodoPatch = Partial<Pick<Todo, 'title' | 'description' | 'status' | 'labels' | 'project'>>;
@@ -312,16 +312,19 @@ export function todoPrompt(t: Todo): string {
   return body ? `${title}\n\n${body}` : title;
 }
 
-/** The first line of a description, for a row. Images and markup drop out. */
+/** The first line of a description, for a row. Images drop out; a file leaves its name. */
 export function snippet(description: string, max = 140): string {
   const text = description
     .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
+    .replace(FILE_LINK, (_, name: string) => ` ${name} `)
     .replace(/\s+/g, ' ')
     .trim();
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 
 const IMAGE_NAME = /^[0-9a-f]{16}\.(png|jpg|gif|webp)$/;
+/** `[name](files/<hash>/<name>)`, as attachments.rs keeps and names them. */
+const FILE_LINK = /(?<!!)\[([^\]\n]*)\]\((files\/[0-9a-f]{16}\/[^)\s/]+)\)/g;
 
 /** A piece of a description as it's shown: text, or an image kept by Codealong. */
 export type Piece = { kind: 'text'; text: string } | { kind: 'image'; name: string; alt: string };
@@ -341,34 +344,76 @@ export function pieces(text: string): Piece[] {
   return out;
 }
 
-/** The images a text holds, in order, without repeats. */
-export function imageNames(text: string): string[] {
-  return [...new Set(pieces(text).flatMap((p) => (p.kind === 'image' ? [p.name] : [])))];
+/** A run of text as it's shown: words, a web link, or a kept file. */
+export type Inline = { kind: 'text'; text: string } | { kind: 'url'; url: string } | { kind: 'file'; name: string; path: string };
+
+const URL_RE = /https?:\/\/[^\s<>()]+[^\s<>().,;:!?'"]/g;
+
+/** Splits text into words, web links and file links, so each can be shown for what it is. */
+export function inlines(text: string): Inline[] {
+  const found: { at: number; end: number; part: Inline }[] = [];
+  for (const m of text.matchAll(FILE_LINK)) found.push({ at: m.index, end: m.index + m[0].length, part: { kind: 'file', name: m[1] || m[2].split('/').pop() || 'file', path: m[2] } });
+  for (const m of text.matchAll(URL_RE)) {
+    if (!found.some((f) => m.index < f.end && m.index + m[0].length > f.at)) found.push({ at: m.index, end: m.index + m[0].length, part: { kind: 'url', url: m[0] } });
+  }
+  found.sort((a, b) => a.at - b.at);
+  const out: Inline[] = [];
+  let last = 0;
+  for (const f of found) {
+    if (f.at > last) out.push({ kind: 'text', text: text.slice(last, f.at) });
+    out.push(f.part);
+    last = f.end;
+  }
+  if (last < text.length) out.push({ kind: 'text', text: text.slice(last) });
+  return out;
 }
 
-/** How text refers to a kept image. */
-export function imageRef(name: string): string {
-  return `![image](images/${name})`;
+/** The attachments a text holds, images and files, in order, without repeats. */
+export function attachmentsIn(text: string): Attachment[] {
+  const found: { at: number; a: Attachment }[] = [];
+  for (const m of text.matchAll(/!\[([^\]\n]*)\]\((images\/([^)\s]+))\)/g)) {
+    if (IMAGE_NAME.test(m[3])) found.push({ at: m.index, a: { kind: 'image', path: m[2], name: m[1] || 'image' } });
+  }
+  for (const m of text.matchAll(FILE_LINK)) found.push({ at: m.index, a: { kind: 'file', path: m[2], name: m[1] || m[2].split('/').pop() || 'file' } });
+  const seen = new Set<string>();
+  return found
+    .sort((x, y) => x.at - y.at)
+    .flatMap(({ a }) => {
+      if (seen.has(a.path)) return [];
+      seen.add(a.path);
+      return [a];
+    });
 }
 
-/** The text without an image's references, and without the blank lines they leave. */
-export function withoutImage(text: string, name: string): string {
-  const escaped = name.replace(/[.]/g, '\\.');
+/** How text refers to a kept attachment: an image shows in place, a file is a link. */
+export function attachmentRef(a: Attachment): string {
+  return a.kind === 'image' ? `![image](${a.path})` : `[${a.name.replace(/[[\]\n]/g, '')}](${a.path})`;
+}
+
+/** The text without an attachment's references, and without the blank lines they leave. */
+export function withoutAttachment(text: string, path: string): string {
+  const escaped = path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   return text
-    .replace(new RegExp(`[ \\t]*!\\[[^\\]\\n]*\\]\\(images/${escaped}\\)[ \\t]*\\n?`, 'g'), '')
+    .replace(new RegExp(`[ \\t]*!?\\[[^\\]\\n]*\\]\\(${escaped}\\)[ \\t]*\\n?`, 'g'), '')
     .replace(/\n{3,}/g, '\n\n')
     .trimEnd();
 }
 
 /**
- * Puts an image reference into text at the cursor, on a line of its own. Returns the new text
- * and where the cursor goes, after the reference.
+ * Puts attachments into text at the cursor, each on a line of its own. Returns the new text and
+ * where the cursor goes, after the last one.
  */
-export function insertImage(text: string, at: number, name: string): { text: string; cursor: number } {
-  const before = text.slice(0, at);
-  const after = text.slice(at);
-  const lead = before === '' || before.endsWith('\n') ? '' : '\n';
-  const tail = after === '' || after.startsWith('\n') ? '' : '\n';
-  const ref = `${lead}${imageRef(name)}${tail}`;
-  return { text: before + ref + after, cursor: before.length + ref.length };
+export function insertAttachments(text: string, at: number, kept: Attachment[]): { text: string; cursor: number } {
+  let out = text;
+  let cursor = Math.min(at, text.length);
+  for (const a of kept) {
+    const before = out.slice(0, cursor);
+    const after = out.slice(cursor);
+    const lead = before === '' || before.endsWith('\n') ? '' : '\n';
+    const tail = after === '' || after.startsWith('\n') ? '' : '\n';
+    const ref = `${lead}${attachmentRef(a)}${tail}`;
+    out = before + ref + after;
+    cursor = before.length + ref.length;
+  }
+  return { text: out, cursor };
 }

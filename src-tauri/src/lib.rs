@@ -1,6 +1,7 @@
 //! Codealong: every agent runs in a worktree, and every worktree is a lane.
 
 mod appserver;
+mod attachments;
 mod bar;
 mod board;
 mod claude;
@@ -12,7 +13,6 @@ mod config;
 mod engine;
 mod git;
 mod github;
-mod images;
 mod launch;
 mod model;
 mod perf;
@@ -260,33 +260,38 @@ fn todo_op(engine: State<'_, engine::Handle>, op: todos::TodoOp) -> Result<i64, 
     engine.todo(op)
 }
 
-/// Keeps an image pasted into a description or a prompt. The window sends the file's bytes as
-/// they are, not as JSON; the reply is the name text refers to it by.
+/// Keeps a file pasted or picked into a description or a prompt. The window sends its bytes as
+/// they are, not as JSON, and its name in `x-name` (URL-encoded, as headers are ASCII); the reply
+/// says how text refers to it.
 #[tauri::command(async)]
-fn save_image(request: tauri::ipc::Request<'_>) -> Result<String, String> {
+fn save_attachment(request: tauri::ipc::Request<'_>) -> Result<attachments::Attachment, String> {
     let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
-        return Err("That wasn't an image.".into());
+        return Err("That wasn't a file.".into());
     };
-    images::save(bytes).map_err(|e| format!("{e:#}"))
+    let name = request.headers().get("x-name").and_then(|v| v.to_str().ok()).and_then(|v| urlencoding::decode(v).ok()).map(|v| v.into_owned()).unwrap_or_default();
+    attachments::keep(bytes, &name).map_err(|e| format!("{e:#}"))
 }
 
-/// Keeps a copy of an image file dropped from the Finder.
+/// Keeps a copy of a file dropped from the Finder.
 #[tauri::command(async)]
-fn import_image(path: String) -> Result<String, String> {
-    images::import(std::path::Path::new(&path)).map_err(|e| format!("{e:#}"))
+fn import_attachment(path: String) -> Result<attachments::Attachment, String> {
+    attachments::import(std::path::Path::new(&path)).map_err(|e| format!("{e:#}"))
 }
 
-/// Text with its images as full paths, for copying a todo as a prompt.
+/// Text with its attachments as full paths, for copying a todo as a prompt.
 #[tauri::command]
-fn expand_images(text: String) -> String {
-    images::expand(&text, images::Style::Path)
+fn expand_attachments(text: String) -> String {
+    attachments::expand(&text, attachments::Style::Path)
 }
 
-/// Opens a kept image in the app that opens images (Preview, usually).
+/// Opens a kept attachment in the app that opens its kind (Preview for an image, say).
 #[tauri::command(async)]
-fn open_image(name: String) -> Result<(), String> {
-    let path = images::file(&name).ok_or("That isn't one of Codealong's images.")?;
-    launch::open_url(&path.to_string_lossy()).map_err(|e| e.to_string())
+fn open_attachment(path: String) -> Result<(), String> {
+    let file = attachments::locate(&path).ok_or("That isn't one of Codealong's attachments.")?;
+    if !file.exists() {
+        return Err("That attachment is gone: it's cleared 30 days after no todo uses it.".into());
+    }
+    launch::open_url(&file.to_string_lossy()).map_err(|e| e.to_string())
 }
 
 /// Serves kept images to the windows at `codealong-image://localhost/<name>`. Only names
@@ -294,10 +299,10 @@ fn open_image(name: String) -> Result<(), String> {
 fn serve_image(request: tauri::http::Request<Vec<u8>>, responder: tauri::UriSchemeResponder) {
     let name = request.uri().path().trim_start_matches('/').to_string();
     std::thread::spawn(move || {
-        let found = images::file(&name).and_then(|p| std::fs::read(p).ok());
+        let found = attachments::locate(&format!("{}{name}", attachments::IMAGES)).and_then(|p| std::fs::read(p).ok());
         let response = match found {
             Some(bytes) => tauri::http::Response::builder()
-                .header(tauri::http::header::CONTENT_TYPE, images::mime(&name))
+                .header(tauri::http::header::CONTENT_TYPE, attachments::mime(&name))
                 // A name is the image's content, so it never changes.
                 .header(tauri::http::header::CACHE_CONTROL, "max-age=31536000, immutable")
                 .body(bytes),
@@ -439,7 +444,7 @@ pub fn run() {
         })
         .on_window_event(bar::on_window_event)
         .register_asynchronous_uri_scheme_protocol("codealong-image", |_ctx, request, responder| serve_image(request, responder))
-        .invoke_handler(tauri::generate_handler![get_board, open_target, open_config, mark_seen, refresh, refresh_usage, set_pinned, set_pinned_worktrees, archive_session, pr_detail, approve_pr, review_in_codex, open_url, get_accounts, save_accounts, get_config, save_config, save_config_text, sign_in, start_options, start_session, todo_op, save_image, import_image, open_image, expand_images, set_theme, open_project_window, fit_bar, show_main, bar_on, set_bar_on, open_from_bar, perf_mark])
+        .invoke_handler(tauri::generate_handler![get_board, open_target, open_config, mark_seen, refresh, refresh_usage, set_pinned, set_pinned_worktrees, archive_session, pr_detail, approve_pr, review_in_codex, open_url, get_accounts, save_accounts, get_config, save_config, save_config_text, sign_in, start_options, start_session, todo_op, save_attachment, import_attachment, open_attachment, expand_attachments, set_theme, open_project_window, fit_bar, show_main, bar_on, set_bar_on, open_from_bar, perf_mark])
         .build(tauri::generate_context!())
         .expect("error while running Codealong")
         .run(|app, event| {

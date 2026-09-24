@@ -41,7 +41,8 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     has anything GitHub doesn't, and the agents that worked on the PR, including one that made
     the worktree from another folder.
   - **Todo**: work you mean to hand an agent. Each todo has a title, a description that can
-    hold screenshots (paste, drop or pick them), colored labels, and a status: Todo, In
+    hold screenshots and any other files (paste, drop or attach them; files copied in the
+    Finder paste too), colored labels, and a status: Todo, In
     progress (an agent is on it) or Done. Add one in the box at the top (`n`), reorder by
     dragging or with ⌥↑ ⌥↓, mark one done with `x`. Start session (⌘N) opens the new-session
     sheet with the todo as the prompt, and the session it starts is linked to the todo, which
@@ -66,9 +67,10 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   one harness: first the one whose weekly limit resets soonest within 48 hours, so its room
   isn't lost, else the one with the most room; accounts at 90% of a limit are passed over.
   Codealong only launches: the session shows on the board like any other, and one started in
-  Ghostty is selected as soon as it appears. Paste or drop screenshots into the prompt: Claude
-  Code in Ghostty gets them as file mentions (attached when they're 256 KB or less, read
-  otherwise, with the images folder added so it doesn't ask), and the apps get their paths.
+  Ghostty is selected as soon as it appears. Paste or drop screenshots and other files into
+  the prompt: Claude Code in Ghostty gets them as file mentions (attached when they're 256 KB
+  or less, read otherwise, with their folders added so it doesn't ask), and the apps and
+  OpenCode get their paths.
 - **Usage** for every account in a bar across the top: 5-hour and weekly limits, per-model
   limits such as Fable, and time to reset. When they don't all fit, each account shows the
   limit it's closest to running out of and the rest on hover, and the bar scrolls sideways.
@@ -167,7 +169,8 @@ folders = []
 What you've seen (for Your turn), what you've pinned and what you've archived in Codealong
 are kept in `state.json` next to it; whether the floating bar is on, and where you left it, in
 `bar.json`. Todos and labels are in `todos.json`, which is watched, so an agent or an editor can
-add to it; the images in them are in `images/`, named by their content.
+add to it. Attachments are kept by their content: images in `images/`, other files in
+`files/<hash>/<name>`; ones no todo uses are cleared after 30 days.
 
 ## Permissions and safety
 
@@ -191,7 +194,7 @@ add to it; the images in them are in `images/`, named by their content.
 | `src-tauri/src/launch.rs` | App profiles: Ghostty (AppleScript, exact tab focus), Cursor (CLI), deep links |
 | `src-tauri/src/start.rs`, `src/start.ts` | New sessions: where each account can start one, the launch it makes, Auto's pick |
 | `src-tauri/src/todos.rs`, `src/todos.ts` | Todos: the store and its changes, linking sessions started from a todo; the list's sections, filters and prompt |
-| `src-tauri/src/images.rs` | Images in descriptions and prompts: kept by content, served to windows, handed to agents as paths |
+| `src-tauri/src/attachments.rs`, `src/attachInput.ts` | Files in descriptions and prompts: pasted, dropped or picked, kept by content, images shown in place, all handed to agents as paths |
 | `src-tauri/src/usage.rs` | Plan usage: Claude through its sign-in and usage endpoint, Codex from its rollouts, none for OpenCode and Antigravity |
 | `src-tauri/src/appserver.rs` | Codex actions through its app-server (archiving) |
 | `src-tauri/src/claudeapp.rs` | The Claude app's session records (its IDs, what you archived there) |

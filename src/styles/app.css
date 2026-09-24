@@ -2724,3 +2724,74 @@ html.is-bar body {
 .ca-check.is-disabled .ca-check-box {
   opacity: 0.55;
 }
+
+/* A file attached to a description or a prompt: its name as a chip; click to open it. In text
+   it sits in the line; under a text being edited it has an × to take it out. */
+.ca-filechip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  vertical-align: -3px;
+  border-radius: var(--radius-sm);
+  background: var(--neutral-tint);
+  color: var(--ink-2);
+}
+.ca-filechip-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  max-width: 280px;
+  height: 22px;
+  padding: 0 8px 0 7px;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  color: inherit;
+  font: 500 12px/16px var(--font-sans);
+  cursor: pointer;
+}
+.ca-filechip-open > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ca-filechip-open .ca-icon {
+  color: var(--ink-3);
+}
+.ca-filechip-open:hover {
+  color: var(--ink);
+  text-decoration: underline;
+  text-decoration-color: var(--line-strong);
+  text-underline-offset: 2px;
+}
+.ca-filechip-open:focus-visible,
+.ca-filechip-x:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+.ca-filechip-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 22px;
+  margin-left: -4px;
+  padding: 0;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+.ca-filechip-x:hover {
+  color: var(--ink);
+}
+.ca-imgstrip .ca-filechip {
+  align-self: center;
+}
+.ca-chip.ca-todorow-attached {
+  gap: 3px;
+  font-family: var(--font-sans);
+  color: var(--ink-3);
+}

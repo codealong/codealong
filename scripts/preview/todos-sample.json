@@ -1,39 +1,72 @@
 {
   "labels": [
-    { "id": "l-bug", "name": "Bug", "color": "red" },
-    { "id": "l-ui", "name": "UI", "color": "purple" },
-    { "id": "l-perf", "name": "Performance", "color": "teal" },
-    { "id": "l-docs", "name": "Docs", "color": "blue" }
+    {
+      "id": "l-bug",
+      "name": "Bug",
+      "color": "red"
+    },
+    {
+      "id": "l-ui",
+      "name": "UI",
+      "color": "purple"
+    },
+    {
+      "id": "l-perf",
+      "name": "Performance",
+      "color": "teal"
+    },
+    {
+      "id": "l-docs",
+      "name": "Docs",
+      "color": "blue"
+    }
   ],
   "todos": [
     {
       "id": "t-sample1",
       "title": "Keep the sidebar's scroll position when switching projects",
-      "description": "Switching projects jumps the worktree list back to the top.\n\n![image](images/0123456789abcdef.png)\n\nIt should stay where it was, per project.",
+      "description": "Switching projects jumps the worktree list back to the top.\n\n![image](images/0123456789abcdef.png)\n\nIt should stay where it was, per project. The last time it happened:\n[scroll-trace.log](files/fedcba9876543210/scroll-trace.log)",
       "status": "in-progress",
-      "labels": ["l-bug", "l-ui"],
-      "worktrees": ["$lane:0"],
-      "sessions": ["$session:0"]
+      "labels": [
+        "l-bug",
+        "l-ui"
+      ],
+      "worktrees": [
+        "$lane:0"
+      ],
+      "sessions": [
+        "$session:0"
+      ]
     },
     {
       "id": "t-sample2",
       "title": "Show how long each check has been running",
       "description": "Pending checks on a PR should say how long they've run, like GitHub does.",
       "status": "in-progress",
-      "labels": ["l-ui"],
-      "sessions": ["$session:3"]
+      "labels": [
+        "l-ui"
+      ],
+      "sessions": [
+        "$session:3"
+      ]
     },
     {
       "id": "t-sample3",
       "title": "Cut the board push size in half",
       "description": "Every publish is the whole board. Send only what changed.",
-      "labels": ["l-perf"]
+      "labels": [
+        "l-perf"
+      ]
     },
     {
       "id": "t-sample4",
       "title": "Write up the config.toml settings",
-      "labels": ["l-docs"],
-      "worktrees": ["$lane:2"]
+      "labels": [
+        "l-docs"
+      ],
+      "worktrees": [
+        "$lane:2"
+      ]
     },
     {
       "id": "t-sample5",
@@ -44,8 +77,12 @@
       "id": "t-sample6",
       "title": "Fix the flicker when a session starts",
       "status": "done",
-      "labels": ["l-bug"],
-      "sessions": ["$session:5"]
+      "labels": [
+        "l-bug"
+      ],
+      "sessions": [
+        "$session:5"
+      ]
     }
   ]
 }
