@@ -1,7 +1,7 @@
 //! Codex: the thread index (`~/.codex/session_index.jsonl`) and rollouts
 //! (`~/.codex/sessions/YYYY/MM/DD/rollout-<time>-<id>.jsonl`). See *Harness adapters*.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use serde_json::Value;
@@ -82,19 +82,21 @@ pub fn read_index(codex_home: &Path) -> HashMap<String, (String, i64)> {
     out
 }
 
-/// Rollout files modified since `since_ms`.
-pub fn rollout_files(codex_home: &Path, since_ms: i64) -> Vec<(PathBuf, i64)> {
-    fn walk(dir: &Path, depth: usize, since: i64, out: &mut Vec<(PathBuf, i64)>) {
+/// Rollout files modified since `since_ms`, plus any whose thread is in `keep` (pinned ones),
+/// however old.
+pub fn rollout_files(codex_home: &Path, since_ms: i64, keep: &HashSet<String>) -> Vec<(PathBuf, i64)> {
+    fn walk(dir: &Path, depth: usize, since: i64, keep: &HashSet<String>, out: &mut Vec<(PathBuf, i64)>) {
         let Ok(entries) = std::fs::read_dir(dir) else { return };
         for e in entries.flatten() {
             let path = e.path();
             let is_dir = e.file_type().map(|t| t.is_dir()).unwrap_or(false);
             if is_dir && depth > 0 {
                 // Every day folder is walked: a thread keeps writing to the folder of the day it started.
-                walk(&path, depth - 1, since, out);
+                walk(&path, depth - 1, since, keep, out);
             } else if !is_dir && file_name(&path).starts_with("rollout-") && path.extension().and_then(|x| x.to_str()) == Some("jsonl") {
                 if let Some(m) = mtime_ms(&path) {
-                    if m >= since {
+                    let pinned = || thread_id_of(&path).map(|id| keep.contains(&id)).unwrap_or(false);
+                    if m >= since || (!keep.is_empty() && pinned()) {
                         out.push((path, m));
                     }
                 }
@@ -102,7 +104,7 @@ pub fn rollout_files(codex_home: &Path, since_ms: i64) -> Vec<(PathBuf, i64)> {
         }
     }
     let mut out = Vec::new();
-    walk(&codex_home.join("sessions"), 3, since_ms, &mut out);
+    walk(&codex_home.join("sessions"), 3, since_ms, keep, &mut out);
     out
 }
 

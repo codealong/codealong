@@ -1,6 +1,7 @@
 //! Claude Code: the live session registry (`<home>/sessions/<pid>.json`) and transcripts
 //! (`<home>/projects/<encoded-cwd>/<session>.jsonl`). See *Harness adapters*.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
@@ -130,7 +131,9 @@ pub struct TranscriptInfo {
 }
 
 /// Transcript files modified since `since_ms`, one level below `<home>/projects`.
-pub fn transcript_files(home: &Path, since_ms: i64) -> Vec<(PathBuf, i64)> {
+/// Transcripts modified since `since_ms`, plus any whose session is in `keep` (pinned ones),
+/// however old.
+pub fn transcript_files(home: &Path, since_ms: i64, keep: &HashSet<String>) -> Vec<(PathBuf, i64)> {
     let mut out = Vec::new();
     let Ok(dirs) = std::fs::read_dir(home.join("projects")) else { return out };
     for d in dirs.flatten() {
@@ -144,7 +147,7 @@ pub fn transcript_files(home: &Path, since_ms: i64) -> Vec<(PathBuf, i64)> {
                 continue;
             }
             if let Some(m) = mtime_ms(&path) {
-                if m >= since_ms {
+                if m >= since_ms || (!keep.is_empty() && keep.contains(file_name(&path).trim_end_matches(".jsonl"))) {
                     out.push((path, m));
                 }
             }

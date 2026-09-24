@@ -160,4 +160,6 @@ export interface Board {
   loading: boolean;
   githubAt: number | null;
   usage: Usage[];
+  /** Pinned session keys, in order. */
+  pinned: string[];
 }

@@ -1,5 +1,23 @@
 // Tabler Icons (MIT) outline paths, 24px grid, copied from the Codealong design system (@tabler/icons 3.44.0).
 export const ICONS: Record<string, string[]> = {
+ "pin": [
+  "M15 4.5l-4 4l-4 1.5l-1.5 1.5l7 7l1.5 -1.5l1.5 -4l4 -4",
+  "M9 15l-4.5 4.5",
+  "M14.5 4l5.5 5.5"
+ ],
+ "pinned": [
+  "M9 4v6l-2 4v2h10v-2l-2 -4v-6",
+  "M12 16l0 5",
+  "M8 4l8 0"
+ ],
+ "grip-vertical": [
+  "M9 5m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0",
+  "M9 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0",
+  "M9 19m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0",
+  "M15 5m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0",
+  "M15 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0",
+  "M15 19m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"
+ ],
  "sparkles": [
   "M16 18a2 2 0 0 1 2 2a2 2 0 0 1 2 -2a2 2 0 0 1 -2 -2a2 2 0 0 1 -2 2zm0 -12a2 2 0 0 1 2 2a2 2 0 0 1 2 -2a2 2 0 0 1 -2 -2a2 2 0 0 1 -2 2zm-7 12a6 6 0 0 1 6 -6a6 6 0 0 1 -6 -6a6 6 0 0 1 -6 6a6 6 0 0 1 6 6z"
  ],

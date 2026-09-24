@@ -49,6 +49,12 @@ export async function refresh(): Promise<void> {
   await invoke('refresh');
 }
 
+/** Saves the whole pinned list, in order. */
+export async function setPinned(keys: string[]): Promise<void> {
+  if (!inTauri) return;
+  await invoke('set_pinned', { keys });
+}
+
 export async function refreshUsage(): Promise<void> {
   if (!inTauri) return;
   await invoke('refresh_usage');

@@ -1,8 +1,9 @@
 // One worktree as a flight strip: status, callsign, what's happening, agents, PR, diff, age.
 
+import type { PointerEvent as ReactPointerEvent } from 'react';
 import { absolute, ago, middleTruncate } from '../format';
 import type { Lane, Pr, Session } from '../types';
-import { HarnessChip, LaneGlyph, PrChip, Rich, StatusGlyph } from './primitives';
+import { HarnessChip, Icon, LaneGlyph, PrChip, Rich, StatusGlyph } from './primitives';
 
 interface LaneRowProps {
   lane: Lane;
@@ -108,10 +109,17 @@ interface AgentRowProps {
   selected: boolean;
   onSelect: () => void;
   onOpen: () => void;
+  pinned?: boolean;
+  /** Shows the pin button when given. */
+  onTogglePin?: () => void;
+  /** Position among pinned rows, for dragging them into a new order. */
+  pinIndex?: number;
+  onPointerDown?: (e: ReactPointerEvent<HTMLDivElement>) => void;
+  extraClass?: string;
 }
 
 /** One agent in the Needs you, Working or Your turn bays, with its worktree as context. */
-export function AgentRow({ lane, session: s, domId, now, selected, onSelect, onOpen }: AgentRowProps) {
+export function AgentRow({ lane, session: s, domId, now, selected, onSelect, onOpen, pinned, onTogglePin, pinIndex, onPointerDown, extraClass }: AgentRowProps) {
   const branch = lane.branch ?? (lane.detached ? `detached @ ${lane.detached}` : null);
   const sub = branch && branch !== lane.callsign ? `${lane.repo} · ${middleTruncate(branch, 26)}` : lane.repo;
   const g = lane.git;
@@ -121,10 +129,19 @@ export function AgentRow({ lane, session: s, domId, now, selected, onSelect, onO
       id={domId}
       role="option"
       aria-selected={selected}
-      className={['ca-lane', 'is-agent', `is-${s.status === 'error' ? 'needs' : s.status}`, selected && 'is-selected'].filter(Boolean).join(' ')}
+      className={['ca-lane', 'is-agent', `is-${s.status === 'error' ? 'needs' : s.status}`, selected && 'is-selected', pinned && 'is-pinned', extraClass]
+        .filter(Boolean)
+        .join(' ')}
+      data-pin-index={pinIndex}
+      onPointerDown={onPointerDown}
       onMouseDown={onSelect}
       onDoubleClick={onOpen}
     >
+      {pinIndex != null && (
+        <span className="ca-grip" aria-hidden="true">
+          <Icon name="grip-vertical" size={10} />
+        </span>
+      )}
       <div className="ca-seg ca-seg-glyph">
         <StatusGlyph status={s.status} />
       </div>
@@ -164,6 +181,23 @@ export function AgentRow({ lane, session: s, domId, now, selected, onSelect, onO
       </div>
       <div className="ca-seg ca-seg-age" title={absolute(s.lastActivity)}>
         {ago(s.lastActivity, now)}
+        {onTogglePin && (
+          <button
+            type="button"
+            className={['ca-pinbtn', pinned && 'is-on'].filter(Boolean).join(' ')}
+            aria-pressed={!!pinned}
+            aria-label={pinned ? `Unpin ${s.title}` : `Pin ${s.title}`}
+            title={pinned ? 'Unpin (P)' : 'Pin to the top of Sessions (P)'}
+            onMouseDown={(e) => e.stopPropagation()}
+            onDoubleClick={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              onTogglePin();
+            }}
+          >
+            <Icon name={pinned ? 'pinned' : 'pin'} size={14} />
+          </button>
+        )}
       </div>
     </div>
   );

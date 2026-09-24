@@ -66,6 +66,8 @@ pub struct Inputs<'a> {
     pub warnings: Vec<String>,
     pub loading: bool,
     pub github_at: Option<i64>,
+    /// Pinned session keys, in order; they're never cut from a lane's list.
+    pub pinned: &'a [String],
 }
 
 fn plain(s: &str) -> String {
@@ -499,7 +501,7 @@ pub fn targets(seed: &LaneSeed, sessions: &[Session], pr: Option<&Pr>, apps: &Ap
 }
 
 pub fn compose(inp: Inputs) -> Board {
-    let Inputs { now, apps, seeds, mut sessions, visitors, git, prs, project_order, warnings, loading, github_at } = inp;
+    let Inputs { now, apps, seeds, mut sessions, visitors, git, prs, project_order, warnings, loading, github_at, pinned } = inp;
     for s in &mut sessions {
         let (h, d) = session_headline(s);
         s.headline = h;
@@ -539,7 +541,12 @@ pub fn compose(inp: Inputs) -> Board {
     let mut lanes = Vec::with_capacity(seeds.len());
     for ((seed, mut sessions), guests) in seeds.iter().zip(by_lane).zip(guests) {
         sort_sessions(&mut sessions);
-        sessions.truncate(MAX_SESSIONS_PER_LANE);
+        let mut kept = 0;
+        sessions.retain(|s| {
+            let keep = kept < MAX_SESSIONS_PER_LANE || pinned.contains(&s.key);
+            kept += keep as usize;
+            keep
+        });
         let g = git.get(&seed.path).cloned();
         let pr = find_pr(seed, prs, now);
         // The bay and headline come from the lane's own sessions; the maker is shown after them.
@@ -607,7 +614,7 @@ pub fn compose(inp: Inputs) -> Board {
             repos: repos.into_iter().map(|(name, (lanes, folder))| RepoSummary { name, lanes, folder }).collect(),
         });
     }
-    Board { generated_at: now, apps: apps.clone(), projects, lanes, warnings, loading, github_at, usage: Vec::new() }
+    Board { generated_at: now, apps: apps.clone(), projects, lanes, warnings, loading, github_at, usage: Vec::new(), pinned: pinned.to_vec() }
 }
 
 pub const ELSEWHERE: &str = "Elsewhere";
@@ -863,7 +870,7 @@ mod tests {
         maker.cwd = "/r/osprey".into();
         let (git, prs, order) = (HashMap::new(), HashMap::new(), vec!["Northwind".to_string()]);
         let visitors = HashMap::new();
-        let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![maker], visitors: &visitors, git: &git, prs: &prs, project_order: &order, warnings: vec![], loading: false, github_at: None });
+        let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![maker], visitors: &visitors, git: &git, prs: &prs, project_order: &order, warnings: vec![], loading: false, github_at: None, pinned: &[] });
         let lane = board.lanes.iter().find(|l| l.path == scratch).unwrap();
         assert_eq!(lane.sessions.len(), 1);
         assert_eq!(lane.sessions[0].visitor.as_deref(), Some("made this worktree"));
@@ -871,6 +878,43 @@ mod tests {
         assert_eq!(lane.headline, "Made by `claude` · Quarry daily log + photo sync");
         assert_eq!(lane.default_target.as_deref(), Some("s|claude:claude:abc12345-0000-0000-0000-000000000000|focus"));
         assert_eq!(board.lanes.iter().find(|l| l.path == "/r/osprey").unwrap().sessions.len(), 1);
+    }
+
+    #[test]
+    fn pinned_sessions_are_never_cut_from_a_lane() {
+        let apps = AppNames::default();
+        let seeds = vec![seed("/r/atlas-quarry", "quarry")];
+        let a = acct("claude2");
+        let sessions: Vec<Session> = (0..MAX_SESSIONS_PER_LANE + 5)
+            .map(|i| {
+                let mut s = claude_session(&a, None, Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
+                s.key = format!("claude:claude2:s{i}");
+                s.last_activity = NOW - i as i64 * 60_000;
+                s
+            })
+            .collect();
+        let oldest = format!("claude:claude2:s{}", MAX_SESSIONS_PER_LANE + 4);
+        let pinned = vec![oldest.clone()];
+        let (git, prs, visitors) = (HashMap::new(), HashMap::new(), HashMap::new());
+        let order = vec!["Northwind".to_string()];
+        let board = compose(Inputs {
+            now: NOW,
+            apps: &apps,
+            seeds: &seeds,
+            sessions,
+            visitors: &visitors,
+            git: &git,
+            prs: &prs,
+            project_order: &order,
+            warnings: vec![],
+            loading: false,
+            github_at: None,
+            pinned: &pinned,
+        });
+        let lane = &board.lanes[0];
+        assert_eq!(lane.sessions.len(), MAX_SESSIONS_PER_LANE + 1);
+        assert!(lane.sessions.iter().any(|s| s.key == oldest));
+        assert_eq!(board.pinned, pinned);
     }
 
     #[test]
@@ -895,6 +939,7 @@ mod tests {
             warnings: vec![],
             loading: false,
             github_at: None,
+            pinned: &[],
         });
         assert_eq!(board.lanes.len(), 2);
         assert_eq!(board.lanes[0].bay, Bay::Needs);

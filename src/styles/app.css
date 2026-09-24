@@ -785,3 +785,128 @@ button {
   color: var(--alert);
   font-variant-numeric: tabular-nums;
 }
+
+/* ---- Views: Worktrees and Sessions, above the board ---- */
+.ca-board-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: 44px;
+  padding: 0 var(--space-3);
+  background: var(--ground);
+}
+.ca-board .ca-board-cols {
+  top: 44px;
+}
+.ca-segctl button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.ca-segctl-count {
+  font: 500 11px/14px var(--font-mono);
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+.ca-board-head-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font: 400 12px/16px var(--font-sans);
+  color: var(--ink-3);
+}
+.ca-bay-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Pins: a button under the age, shown on hover and when selected, kept when pinned. */
+.ca-lane {
+  position: relative;
+}
+.ca-pinbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin-top: 2px;
+  margin-right: -4px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+  opacity: 0;
+}
+.ca-lane:hover .ca-pinbtn,
+.ca-lane.is-selected .ca-pinbtn,
+.ca-pinbtn:focus-visible,
+.ca-pinbtn.is-on {
+  opacity: 1;
+}
+.ca-pinbtn:hover {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+.ca-pinbtn.is-on {
+  color: var(--ink-2);
+}
+.ca-pinbtn:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+
+/* Reordering pinned sessions by dragging them. */
+.ca-pinned .ca-lane {
+  cursor: grab;
+}
+.ca-bay-lanes.is-dragging,
+.ca-bay-lanes.is-dragging .ca-lane {
+  cursor: grabbing;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.ca-lane.is-drag-source {
+  opacity: 0.45;
+}
+.ca-lane.is-drop-before::before,
+.ca-lane.is-drop-after::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 1;
+  height: 2px;
+  background: var(--focus);
+}
+.ca-lane.is-drop-before::before {
+  top: -1px;
+}
+.ca-lane.is-drop-after::after {
+  bottom: -1px;
+}
+.ca-grip {
+  position: absolute;
+  top: 50%;
+  left: 1px;
+  display: inline-flex;
+  color: var(--ink-3);
+  opacity: 0;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+.ca-pinned .ca-lane:hover .ca-grip,
+.ca-lane.is-drag-source .ca-grip {
+  opacity: 1;
+}
+.ca-tree-pin {
+  display: inline-flex;
+  flex: none;
+  color: var(--ink-3);
+}

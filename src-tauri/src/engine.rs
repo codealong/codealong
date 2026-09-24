@@ -45,6 +45,8 @@ pub enum Msg {
     Visitors(HashMap<PathBuf, Vec<String>>),
     RefreshUsage,
     UsageDone(Vec<Usage>),
+    /// The full pinned list, in order.
+    SetPinned(Vec<String>),
 }
 
 /// What the UI talks to. Cheap to clone.
@@ -69,6 +71,10 @@ impl Handle {
 
     pub fn refresh_usage(&self) {
         let _ = self.tx.send(Msg::RefreshUsage);
+    }
+
+    pub fn set_pinned(&self, keys: Vec<String>) {
+        let _ = self.tx.send(Msg::SetPinned(keys));
     }
 
     /// The accounts in config.toml, each with whether it's signed in.
@@ -430,6 +436,11 @@ impl Engine {
                     self.dirty = true;
                 }
                 Ok(Msg::RefreshUsage) => self.fetch_usage(),
+                Ok(Msg::SetPinned(keys)) => {
+                    self.seen.set_pinned(keys);
+                    self.seen.save();
+                    self.dirty = true;
+                }
                 Ok(Msg::UsageDone(list)) => {
                     self.usage_inflight = false;
                     self.usage_backoff = list.iter().any(|u| u.rate_limited);
@@ -512,14 +523,14 @@ impl Engine {
             match a.harness.as_str() {
                 "claude" => {
                     self.registry.insert(a.name.clone(), claude::read_registry(&home));
-                    let files = claude::transcript_files(&home, since);
+                    let files = claude::transcript_files(&home, since, &self.seen.pinned_ids("claude", &a.name));
                     for (path, parsed) in parallel_map(files, |(p, m)| claude::parse_transcript(&p, m, None).map(|r| (p, r))) {
                         self.transcripts.insert(path, (a.name.clone(), parsed));
                     }
                 }
                 "codex" => {
                     self.codex_index.insert(a.name.clone(), codex::read_index(&home));
-                    let files = codex::rollout_files(&home, since);
+                    let files = codex::rollout_files(&home, since, &self.seen.pinned_ids("codex", &a.name));
                     for (path, parsed) in parallel_map(files, |(p, m)| {
                         let parsed = codex::parse_rollout(&p, m, None);
                         Some((p, parsed))
@@ -1181,6 +1192,7 @@ impl Engine {
             loading: self.loading,
             github_at: self.gh_at,
             visitors: &self.visitors,
+            pinned: &self.seen.pinned,
         });
         board.usage = self.compose_usage(now);
         board
@@ -1377,11 +1389,11 @@ fn first_run_config() -> Config {
         let home = a.home_path();
         match a.harness.as_str() {
             "claude" => {
-                let files = claude::transcript_files(&home, since);
+                let files = claude::transcript_files(&home, since, &HashSet::new());
                 cwds.extend(parallel_map(files, |(p, _)| claude::transcript_cwd(&p)));
             }
             "codex" => {
-                let files = codex::rollout_files(&home, since);
+                let files = codex::rollout_files(&home, since, &HashSet::new());
                 cwds.extend(parallel_map(files, |(p, _)| {
                     read_first_line(&p, 4 * 1024 * 1024).and_then(|l| codex::parse_meta(&l)).map(|m| m.cwd)
                 }));

@@ -47,6 +47,11 @@ fn refresh_usage(engine: State<'_, engine::Handle>) {
     engine.refresh_usage();
 }
 
+#[tauri::command]
+fn set_pinned(engine: State<'_, engine::Handle>, keys: Vec<String>) {
+    engine.set_pinned(keys);
+}
+
 #[tauri::command(async)]
 fn get_accounts(engine: State<'_, engine::Handle>) -> Result<Vec<model::AccountInfo>, String> {
     engine.accounts().map_err(|e| format!("{e:#}"))
@@ -72,7 +77,7 @@ pub fn run() {
             app.manage(engine);
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![get_board, open_target, open_config, mark_seen, refresh, refresh_usage, get_accounts, save_accounts, sign_in])
+        .invoke_handler(tauri::generate_handler![get_board, open_target, open_config, mark_seen, refresh, refresh_usage, set_pinned, get_accounts, save_accounts, sign_in])
         .run(tauri::generate_context!())
         .expect("error while running Codealong");
 }

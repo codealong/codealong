@@ -297,4 +297,6 @@ pub struct Board {
     /// When PRs were last loaded from GitHub.
     pub github_at: Option<i64>,
     pub usage: Vec<Usage>,
+    /// Pinned session keys, in order.
+    pub pinned: Vec<String>,
 }
