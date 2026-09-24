@@ -97,7 +97,7 @@ export function ChecksSummary({ checks: c }: { checks: Checks }) {
     return (
       <span className="ca-checks is-fail" title={c.failing.join(', ')}>
         <Icon name="x" size={11} stroke={2.25} />
-        {c.failed} failing
+        <span>{c.failed} failing</span>
       </span>
     );
   }
@@ -105,7 +105,7 @@ export function ChecksSummary({ checks: c }: { checks: Checks }) {
     return (
       <span className="ca-checks is-pending" title={`${c.pending} running`}>
         <Icon name="circle-dashed" size={11} stroke={2} />
-        {c.pending} running
+        <span>{c.pending} running</span>
       </span>
     );
   }
@@ -113,7 +113,7 @@ export function ChecksSummary({ checks: c }: { checks: Checks }) {
     return (
       <span className="ca-checks is-pass" title={`${c.passed} passed`}>
         <Icon name="check" size={11} stroke={2.25} />
-        {c.passed}
+        <span>{c.passed}</span>
       </span>
     );
   }
@@ -169,21 +169,35 @@ function PrRow({ item, domId, now, selected, approving, onSelect, onOpen, onAppr
           </span>
         </div>
         <div className="ca-lane-line2">
-          <span className="ca-prrow-meta" title={`${pr.repoSlug} · ${pr.head}${pr.base ? ` → ${pr.base}` : ''}`}>
-            {pr.repo} · {pr.head} · {pr.mine ? 'you' : (pr.author ?? 'unknown')}
-          </span>
-          <span className={`ca-prrow-review is-${pr.state}`}>{reviewWord(pr)}</span>
-          <ChecksSummary checks={pr.checks} />
-          {shown.map(({ lane, session }) => (
-            <HarnessChip key={session.key} session={session} onOpen={() => onOpenSession(lane, session)} />
-          ))}
-          {item.sessions.length > shown.length && <span className="ca-prrow-more">+{item.sessions.length - shown.length}</span>}
-          {item.lane && (
-            <span className="ca-tag" title={item.lane.path}>
-              <Icon name="folder" size={11} />
-              {item.lane.callsign}
+          {/* Shows what fits: the agents and the worktree tag drop out whole when there's no
+              room (see .ca-prrow-fit), and the PR panel lists them all. */}
+          <div className="ca-prrow-fit">
+            {/* The repo · branch · author line comes after the review word and checks here
+                and is drawn before them, so it's the one that drops out of the lead. */}
+            <span className="ca-prrow-lead">
+              <span className="ca-prrow-status">
+                <span className={`ca-prrow-review is-${pr.state}`}>{reviewWord(pr)}</span>
+                <ChecksSummary checks={pr.checks} />
+              </span>
+              <span className="ca-prrow-meta" title={`${pr.repoSlug} · ${pr.head}${pr.base ? ` → ${pr.base}` : ''}`}>
+                {pr.repo} · {pr.head} · {pr.mine ? 'you' : (pr.author ?? 'unknown')}
+              </span>
             </span>
-          )}
+            {shown.length > 0 && (
+              <span className="ca-prrow-agents">
+                {shown.map(({ lane, session }) => (
+                  <HarnessChip key={session.key} session={session} onOpen={() => onOpenSession(lane, session)} />
+                ))}
+                {item.sessions.length > shown.length && <span className="ca-prrow-more">+{item.sessions.length - shown.length}</span>}
+              </span>
+            )}
+            {item.lane && (
+              <span className="ca-tag" title={item.lane.path}>
+                <Icon name="folder" size={11} />
+                <span>{item.lane.callsign}</span>
+              </span>
+            )}
+          </div>
           <span className="ca-lane-right ca-diff">
             +{pr.additions.toLocaleString('en-US')} −{pr.deletions.toLocaleString('en-US')}
           </span>

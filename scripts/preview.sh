@@ -15,8 +15,8 @@
 #
 # PREVIEW_SCHEME=dark renders as if macOS were in dark mode (the screenshot is <view>-dark.png).
 # Under theme = "system" the page follows it; "light" and "dark" in config.toml win over it.
-# The bar renders on a stand-in desktop at $PREVIEW_SIZE (default 1100,64, which is also the
-# screen width it fits itself to).
+# PREVIEW_SIZE sets the window size (default 1440,900). The bar renders on a stand-in desktop
+# of that size (default 1100,64, which is also the screen width it fits itself to).
 #
 # PREVIEW_TODOS=<file> shows the todos in it (scripts/preview/todos-sample.json has some) in
 # place of yours; "$lane:N" and "$session:N" in it stand for the project's Nth most recent
@@ -63,7 +63,7 @@ fi
 
 setup="localStorage.setItem('codealong.view','$view');localStorage.setItem('codealong.age','all');"
 [ -n "$project" ] && setup="$setup localStorage.setItem('codealong.project','$project');"
-size="1440,900"
+size="${PREVIEW_SIZE:-1440,900}"
 if [ "$view" = bar ]; then
   size="${PREVIEW_SIZE:-1100,64}"
   # Headless Chrome's screen is 800 wide whatever the window; the bar fits itself to the screen.

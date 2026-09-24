@@ -379,11 +379,12 @@ impl TodoStore {
         }
     }
 
-    /// A session started from a todo: links its worktree, and the session when Codealong chose
-    /// its ID, or waits for it to show up. Starting one reopens a todo that was done.
-    pub fn started(&mut self, id: &str, lane: &str, session: Option<&str>, pending: Option<PendingStart>, lanes: &dyn Lanes, now: i64) -> bool {
+    /// A session started from a todo: links its worktree (unless it runs in a new one), and the
+    /// session when Codealong chose its ID, or waits for it to show up. Starting one reopens a
+    /// todo that was done.
+    pub fn started(&mut self, id: &str, lane: Option<&str>, session: Option<&str>, pending: Option<PendingStart>, lanes: &dyn Lanes, now: i64) -> bool {
         let Some(t) = self.todos.iter_mut().find(|t| t.id == id) else { return false };
-        link(t, Some(lane), session, lanes, now);
+        link(t, lane, session, lanes, now);
         if let Some(p) = pending {
             t.pending.push(p);
         }
@@ -652,17 +653,21 @@ mod tests {
     fn a_terminal_start_links_its_session_at_once() {
         let mut s = store(&["a"]);
         s.todos[0].status = TodoStatus::Done;
-        assert!(s.started("a", "/r/app3", Some("claude:claude2:uuid"), None, &lanes(), 100));
+        assert!(s.started("a", Some("/r/app3"), Some("claude:claude2:uuid"), None, &lanes(), 100));
         let t = &s.todos[0];
         assert_eq!((t.worktrees.clone(), t.sessions.clone()), (vec!["/r/app3".to_string()], vec!["claude:claude2:uuid".to_string()]));
         assert_eq!((t.status, t.done_at, t.project.as_str()), (TodoStatus::InProgress, None, "Northwind"));
+        // In a new worktree, only the session is linked: it won't be in the one it started from.
+        let mut s = store(&["b"]);
+        s.started("b", None, Some("claude:claude:new-wt"), None, &lanes(), 100);
+        assert_eq!((s.todos[0].worktrees.len(), s.todos[0].sessions.len()), (0, 1));
     }
 
     #[test]
     fn an_app_start_links_the_next_session_in_its_repo() {
         let mut s = store(&["a", "b"]);
         let at = 1_000_000;
-        s.started("a", "/r/app", None, Some(pending("/r/app", "codex", "codex", at)), &lanes(), at);
+        s.started("a", Some("/r/app"), None, Some(pending("/r/app", "codex", "codex", at)), &lanes(), at);
         let board = [
             // Too early, the wrong account, the wrong repo, or another harness: not it.
             session("codex:codex:old", "/r/app", "codex", "codex", at - 10 * 60_000),
@@ -678,7 +683,7 @@ mod tests {
         assert_eq!(s.todos[0].sessions, vec!["codex:codex:new".to_string()]);
         assert!(s.todos[0].pending.is_empty());
         // A session already on a todo isn't taken again.
-        s.started("b", "/r/app", None, Some(pending("/r/app", "codex", "codex", at)), &lanes(), at);
+        s.started("b", Some("/r/app"), None, Some(pending("/r/app", "codex", "codex", at)), &lanes(), at);
         assert!(!s.resolve_pending(&board, &lanes(), at + 40_000));
         assert_eq!(s.todos[1].pending.len(), 1);
     }
@@ -687,11 +692,11 @@ mod tests {
     fn a_start_prefers_its_own_worktree_and_gives_up_after_half_an_hour() {
         let mut s = store(&["a"]);
         let at = 5_000_000;
-        s.started("a", "/r/app3", None, Some(pending("/r/app3", "claude", "claude", at)), &lanes(), at);
+        s.started("a", Some("/r/app3"), None, Some(pending("/r/app3", "claude", "claude", at)), &lanes(), at);
         let board = [session("claude:claude:elsewhere", "/r/app", "claude", "claude", at + 1_000), session("claude:claude:here", "/r/app3", "claude", "claude", at + 9_000)];
         assert!(s.resolve_pending(&board, &lanes(), at + 10_000));
         assert_eq!(s.todos[0].sessions, vec!["claude:claude:here".to_string()]);
-        s.started("a", "/r/app3", None, Some(pending("/r/app3", "claude", "claude", at)), &lanes(), at);
+        s.started("a", Some("/r/app3"), None, Some(pending("/r/app3", "claude", "claude", at)), &lanes(), at);
         assert!(s.resolve_pending(&[], &lanes(), at + PENDING_MS + 1));
         assert!(s.todos[0].pending.is_empty());
     }
@@ -699,7 +704,7 @@ mod tests {
     #[test]
     fn unlinking_the_worktree_drops_a_start_waiting_there() {
         let mut s = store(&["a"]);
-        s.started("a", "/r/app", None, Some(pending("/r/app", "codex", "codex", 1)), &lanes(), 1);
+        s.started("a", Some("/r/app"), None, Some(pending("/r/app", "codex", "codex", 1)), &lanes(), 1);
         s.apply(TodoOp::Link { id: "a".into(), worktree: Some("/r/app".into()), session: None, linked: false }, &lanes(), 2).unwrap();
         assert!(s.todos[0].pending.is_empty() && s.todos[0].worktrees.is_empty());
     }

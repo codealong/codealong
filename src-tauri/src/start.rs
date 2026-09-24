@@ -100,6 +100,10 @@ pub struct StartSpec {
     /// `--model` for a terminal start; None starts on the account's default.
     #[serde(default)]
     pub model: Option<String>,
+    /// A terminal start in a new worktree Claude Code makes (`--worktree`). The apps have
+    /// their own worktree choice on their new-session pages.
+    #[serde(default)]
+    pub worktree: bool,
     /// The todo this session is for, which it's linked to once it starts.
     #[serde(default)]
     pub todo: Option<String>,
@@ -192,14 +196,19 @@ pub fn options_for(cfg: &Config) -> StartOptions {
 /// (`--session-id`), so the board knows the session the moment it appears. The apps get a link
 /// that opens their new-session page with the folder and prompt filled in; you send it there.
 ///
+/// With `worktree`, Claude Code makes a new worktree for the session and chooses its folder,
+/// branch and base itself (or a repo's WorktreeCreate hook does). `--worktree` takes an
+/// optional name, so it goes first: followed by the prompt it would take the prompt as a name.
+///
 /// Images in the prompt (`images/<name>`) go to Claude Code as file mentions, with the images
 /// folder added so it can read them without asking; `--add-dir` takes several folders, so it
-/// comes before the other options, where the next one ends it. The apps get the paths.
-pub fn plan(account: &AccountCfg, place: Place, folder: &Path, prompt: &str, session_id: &str, model: Option<&str>) -> Plan {
-    plan_in(account, place, folder, prompt, session_id, model, &images::dir())
+/// comes before `--session-id`, which ends it. The apps get the paths.
+pub fn plan(account: &AccountCfg, place: Place, folder: &Path, prompt: &str, session_id: &str, model: Option<&str>, worktree: bool) -> Plan {
+    plan_in(account, place, folder, prompt, session_id, model, worktree, &images::dir())
 }
 
-fn plan_in(account: &AccountCfg, place: Place, folder: &Path, prompt: &str, session_id: &str, model: Option<&str>, images_dir: &Path) -> Plan {
+#[allow(clippy::too_many_arguments)]
+fn plan_in(account: &AccountCfg, place: Place, folder: &Path, prompt: &str, session_id: &str, model: Option<&str>, worktree: bool, images_dir: &Path) -> Plan {
     let has_images = !images::referenced(prompt).is_empty();
     let style = if place == Place::CodexApp { images::Style::Path } else { images::Style::Mention };
     let prompt = images::expand_in(prompt, images_dir, style);
@@ -208,6 +217,9 @@ fn plan_in(account: &AccountCfg, place: Place, folder: &Path, prompt: &str, sess
     match place {
         Place::Terminal => {
             let mut input = account.command().to_string();
+            if worktree {
+                input.push_str(" --worktree");
+            }
             let mut env = Vec::new();
             if has_images {
                 input.push_str(&format!(" --add-dir \"${IMAGES_VAR}\""));
@@ -280,14 +292,15 @@ pub fn start(board: &Board, cfg: &Config, spec: &StartSpec) -> Result<Started> {
     if !offered.places.iter().any(|p| p.place == spec.place) {
         bail!(offered.unavailable.unwrap_or_else(|| format!("{} can't start a session there.", account.name)));
     }
-    // The apps pick their model themselves, so a model only goes with a terminal start.
+    // The apps pick their model and worktree themselves, so those only go with a terminal start.
     let model = spec.model.as_deref().map(str::trim).filter(|m| !m.is_empty() && spec.place == Place::Terminal);
+    let worktree = spec.worktree && spec.place == Place::Terminal;
     if let Some(m) = model.filter(|m| !valid_model(m)) {
         bail!("{m:?} isn't a model name Codealong can pass to Claude Code.");
     }
     let id = new_session_id();
     let prompted = !spec.prompt.trim().is_empty();
-    match plan(account, spec.place, folder, &spec.prompt, &id, model) {
+    match plan(account, spec.place, folder, &spec.prompt, &id, model, worktree) {
         Plan::Terminal { cwd, input, env } => {
             launch::terminal_run(&cfg.apps.terminal, &cwd, &input, &env)?;
             Ok(Started { key: Some(format!("claude:{}:{id}", account.name)), message: None })
@@ -350,16 +363,16 @@ mod tests {
     fn asks_claude_code_for_a_model_in_quotes() {
         let a = account("claude2", "claude", "~/.claude2", Some("claude2"));
         let id = "0b7c2a4e-1d2f-4e3a-9b8c-7d6e5f4a3b2c";
-        let Plan::Terminal { input, .. } = plan(&a, Place::Terminal, Path::new("/r/x"), "Fix it", id, Some("fable[1m]")) else { panic!() };
+        let Plan::Terminal { input, .. } = plan(&a, Place::Terminal, Path::new("/r/x"), "Fix it", id, Some("fable[1m]"), false) else { panic!() };
         assert_eq!(input, format!("claude2 --session-id {id} --model 'fable[1m]' \"$CODEALONG_PROMPT\"\n"));
         // Nothing that could leave the quotes is ever typed.
-        let Plan::Terminal { input, .. } = plan(&a, Place::Terminal, Path::new("/r/x"), "", id, Some("opus'; rm -rf ~ '")) else { panic!() };
+        let Plan::Terminal { input, .. } = plan(&a, Place::Terminal, Path::new("/r/x"), "", id, Some("opus'; rm -rf ~ '"), false) else { panic!() };
         assert_eq!(input, format!("claude2 --session-id {id}\n"));
         assert!(valid_model("claude-opus-5-5") && valid_model("sonnet[1m]") && valid_model("opusplan"));
         assert!(!valid_model("") && !valid_model("opus fable") && !valid_model("$(x)") && !valid_model("a'b"));
         // The apps take no model.
         let claude = account("claude", "claude", "~/.claude", Some("claude"));
-        assert_eq!(plan(&claude, Place::ClaudeApp, Path::new("/r/x"), "", id, Some("opus")), Plan::ClaudeApp { url: "claude://code/new?folder=%2Fr%2Fx".into() });
+        assert_eq!(plan(&claude, Place::ClaudeApp, Path::new("/r/x"), "", id, Some("opus"), false), Plan::ClaudeApp { url: "claude://code/new?folder=%2Fr%2Fx".into() });
     }
 
     #[test]
@@ -367,15 +380,15 @@ mod tests {
         let a = account("claude2", "claude", "~/.claude2", Some("claude2"));
         let id = "0b7c2a4e-1d2f-4e3a-9b8c-7d6e5f4a3b2c";
         let prompt = "Fix the \"flaky\" test\nthen run `npm test` and $(say done)";
-        let Plan::Terminal { cwd, input, env } = plan(&a, Place::Terminal, Path::new("/r/atlas-app4"), &format!("  {prompt}\n"), id, None) else { panic!() };
+        let Plan::Terminal { cwd, input, env } = plan(&a, Place::Terminal, Path::new("/r/atlas-app4"), &format!("  {prompt}\n"), id, None, false) else { panic!() };
         assert_eq!(cwd, PathBuf::from("/r/atlas-app4"));
         assert_eq!(input, format!("claude2 --session-id {id} \"$CODEALONG_PROMPT\"\n"));
         assert_eq!(env, vec![(PROMPT_VAR.to_string(), prompt.to_string())]);
-        let Plan::Terminal { input, env, .. } = plan(&a, Place::Terminal, Path::new("/r/x"), "  ", id, None) else { panic!() };
+        let Plan::Terminal { input, env, .. } = plan(&a, Place::Terminal, Path::new("/r/x"), "  ", id, None, false) else { panic!() };
         assert_eq!(input, format!("claude2 --session-id {id}\n"));
         assert!(env.is_empty());
         let custom = account("claude3", "claude", "~/.claude3", Some("CLAUDE_CONFIG_DIR=~/.claude3 claude"));
-        let Plan::Terminal { input, .. } = plan(&custom, Place::Terminal, Path::new("/r/x"), "", id, None) else { panic!() };
+        let Plan::Terminal { input, .. } = plan(&custom, Place::Terminal, Path::new("/r/x"), "", id, None, false) else { panic!() };
         assert_eq!(input, format!("CLAUDE_CONFIG_DIR=~/.claude3 claude --session-id {id}\n"));
     }
 
@@ -385,7 +398,7 @@ mod tests {
         let id = "0b7c2a4e-1d2f-4e3a-9b8c-7d6e5f4a3b2c";
         let dir = Path::new("/Users/me/Library/Application Support/Codealong/images");
         let prompt = "Match this:\n![image](images/0123456789abcdef.png)";
-        let Plan::Terminal { input, env, .. } = plan_in(&a, Place::Terminal, Path::new("/r/x"), prompt, id, Some("opus"), dir) else { panic!() };
+        let Plan::Terminal { input, env, .. } = plan_in(&a, Place::Terminal, Path::new("/r/x"), prompt, id, Some("opus"), false, dir) else { panic!() };
         assert_eq!(input, format!("claude2 --add-dir \"$CODEALONG_IMAGES\" --session-id {id} --model 'opus' \"$CODEALONG_PROMPT\"\n"));
         assert_eq!(
             env,
@@ -395,15 +408,30 @@ mod tests {
             ]
         );
         // Without images, nothing changes.
-        let Plan::Terminal { input, .. } = plan_in(&a, Place::Terminal, Path::new("/r/x"), "Fix it", id, None, dir) else { panic!() };
+        let Plan::Terminal { input, .. } = plan_in(&a, Place::Terminal, Path::new("/r/x"), "Fix it", id, None, false, dir) else { panic!() };
         assert_eq!(input, format!("claude2 --session-id {id} \"$CODEALONG_PROMPT\"\n"));
         // Codex opens the path; the Claude app gets the same mention the terminal does.
         let codex = account("codex", "codex", "~/.codex", None);
-        let Plan::CodexApp { url } = plan_in(&codex, Place::CodexApp, Path::new("/r/x"), prompt, id, None, dir) else { panic!() };
+        let Plan::CodexApp { url } = plan_in(&codex, Place::CodexApp, Path::new("/r/x"), prompt, id, None, false, dir) else { panic!() };
         assert!(url.ends_with(&urlencoding::encode(&format!("Match this:\n![image]({}/0123456789abcdef.png)", dir.display())).to_string()));
         let claude = account("claude", "claude", "~/.claude", Some("claude"));
-        let Plan::ClaudeApp { url } = plan_in(&claude, Place::ClaudeApp, Path::new("/r/x"), prompt, id, None, dir) else { panic!() };
+        let Plan::ClaudeApp { url } = plan_in(&claude, Place::ClaudeApp, Path::new("/r/x"), prompt, id, None, false, dir) else { panic!() };
         assert!(url.contains(&urlencoding::encode("@\"/Users/me/Library").to_string()));
+        // In a new worktree, the images folder comes after --worktree, which takes an optional name.
+        let Plan::Terminal { input, .. } = plan_in(&a, Place::Terminal, Path::new("/r/x"), prompt, id, None, true, dir) else { panic!() };
+        assert_eq!(input, format!("claude2 --worktree --add-dir \"$CODEALONG_IMAGES\" --session-id {id} \"$CODEALONG_PROMPT\"\n"));
+    }
+
+    #[test]
+    fn asks_claude_code_for_a_new_worktree_before_anything_it_could_take_as_its_name() {
+        let a = account("claude2", "claude", "~/.claude2", Some("claude2"));
+        let id = "0b7c2a4e-1d2f-4e3a-9b8c-7d6e5f4a3b2c";
+        let Plan::Terminal { cwd, input, .. } = plan(&a, Place::Terminal, Path::new("/r/atlas"), "Fix it", id, Some("opus"), true) else { panic!() };
+        assert_eq!(cwd, PathBuf::from("/r/atlas"));
+        assert_eq!(input, format!("claude2 --worktree --session-id {id} --model 'opus' \"$CODEALONG_PROMPT\"\n"));
+        // The apps choose their own worktrees.
+        let claude = account("claude", "claude", "~/.claude", Some("claude"));
+        assert_eq!(plan(&claude, Place::ClaudeApp, Path::new("/r/x"), "", id, None, true), Plan::ClaudeApp { url: "claude://code/new?folder=%2Fr%2Fx".into() });
     }
 
     #[test]
@@ -420,12 +448,12 @@ mod tests {
         let codex = account("codex", "codex", "~/.codex", None);
         let folder = Path::new("/Users/me/My Repo");
         assert_eq!(
-            plan(&claude, Place::ClaudeApp, folder, "Fix it & ship\nnow", "id", None),
+            plan(&claude, Place::ClaudeApp, folder, "Fix it & ship\nnow", "id", None, false),
             Plan::ClaudeApp { url: "claude://code/new?folder=%2FUsers%2Fme%2FMy%20Repo&q=Fix%20it%20%26%20ship%0Anow".into() }
         );
-        assert_eq!(plan(&claude, Place::ClaudeApp, folder, "", "id", None), Plan::ClaudeApp { url: "claude://code/new?folder=%2FUsers%2Fme%2FMy%20Repo".into() });
+        assert_eq!(plan(&claude, Place::ClaudeApp, folder, "", "id", None, false), Plan::ClaudeApp { url: "claude://code/new?folder=%2FUsers%2Fme%2FMy%20Repo".into() });
         assert_eq!(
-            plan(&codex, Place::CodexApp, folder, "Review #12", "id", None),
+            plan(&codex, Place::CodexApp, folder, "Review #12", "id", None, false),
             Plan::CodexApp { url: "codex://threads/new?path=%2FUsers%2Fme%2FMy%20Repo&prompt=Review%20%2312".into() }
         );
     }

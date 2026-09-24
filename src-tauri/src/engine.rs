@@ -65,9 +65,9 @@ pub enum Msg {
     /// A change to a todo or to the labels, from a window. The reply is the time of the board
     /// that shows it.
     Todo(TodoOp, Sender<std::result::Result<i64, String>>),
-    /// A session started from a todo: its worktree, and the session's key when Codealong chose
-    /// its ID, or the start to wait for.
-    TodoStarted { id: String, lane: String, session: Option<String>, pending: Option<todos::PendingStart> },
+    /// A session started from a todo: its worktree (none for a new one), and the session's key
+    /// when Codealong chose its ID, or the start to wait for.
+    TodoStarted { id: String, lane: Option<String>, session: Option<String>, pending: Option<todos::PendingStart> },
 }
 
 /// What the UI talks to. Cheap to clone.
@@ -111,7 +111,7 @@ impl Handle {
     }
 
     /// Links a session started from a todo, or waits for it to show up.
-    pub fn todo_started(&self, id: String, lane: String, session: Option<String>, pending: Option<todos::PendingStart>) {
+    pub fn todo_started(&self, id: String, lane: Option<String>, session: Option<String>, pending: Option<todos::PendingStart>) {
         let _ = self.tx.send(Msg::TodoStarted { id, lane, session, pending });
     }
 
@@ -632,7 +632,7 @@ impl Engine {
                 }
                 Ok(Msg::TodoStarted { id, lane, session, pending }) => {
                     let lanes = self.lane_index();
-                    if !self.todos_unreadable && self.todos.started(&id, &lane, session.as_deref(), pending, &lanes, now_ms()) {
+                    if !self.todos_unreadable && self.todos.started(&id, lane.as_deref(), session.as_deref(), pending, &lanes, now_ms()) {
                         self.save_todos();
                     }
                 }

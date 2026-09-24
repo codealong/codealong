@@ -1361,6 +1361,10 @@ body.is-resizing * {
   font-variant-numeric: tabular-nums;
 }
 .ca-prrow-meta {
+  /* Fitted as 12 characters (see .ca-prrow-lead), then it grows into what's left. */
+  flex: 1 1 auto;
+  width: 12ch;
+  max-width: max-content;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1386,6 +1390,82 @@ body.is-resizing * {
 }
 .ca-prrow .ca-lane-line2 {
   gap: 8px;
+}
+/* A PR row's second line. The review word, checks and diff always show; the rest takes the room
+   that's left, in this order: the first 12 characters of the repo · branch · author line, the
+   agents with their +n, the worktree tag, then the rest of that line. A piece that doesn't fit
+   wraps onto a second line that is cut off, so it shows whole or not at all, and the repo ·
+   branch · author line takes back its room. The PR panel lists them all.
+   The padding, which the margin takes back, leaves room for a chip's focus ring, and the gap
+   keeps the second line out of it. Clip rather than hidden, so focusing a chip that wrapped
+   away can't scroll the line. */
+.ca-prrow-fit {
+  display: flex;
+  flex: 1 1 0;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 20px;
+  margin: -4px;
+  padding: 4px;
+  overflow: clip;
+}
+/* The repo · branch · author line with the review word and checks. The line is drawn first but
+   comes last in the markup, so when there's no room for 12 characters of it, it wraps away
+   instead of showing a stub. It counts as 12 characters when the agents and tag are fitted. */
+.ca-prrow-lead {
+  display: flex;
+  flex: 1 1 auto;
+  flex-flow: row-reverse wrap;
+  justify-content: flex-end;
+  align-content: flex-start;
+  align-items: center;
+  column-gap: 8px;
+  min-width: 0;
+  height: 20px;
+  overflow: clip;
+}
+.ca-prrow-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 20px;
+}
+/* When even the review word and checks don't fit, "1 failing" wraps its word away and keeps
+   the count. */
+.ca-prrow .ca-checks {
+  min-width: 0;
+}
+.ca-prrow .ca-checks > span {
+  min-width: 0;
+  height: 14px;
+  overflow: clip;
+  white-space: normal;
+}
+.ca-prrow-agents {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+}
+.ca-prrow .ca-tag {
+  max-width: 144px;
+}
+.ca-prrow .ca-tag > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* The diff keeps to the right edge, as in the Worktrees view. Beside an Approve button, where
+   room is shortest, it doesn't hold its column's full width, so the checks keep their word. */
+.ca-prrow .ca-diff {
+  justify-content: flex-end;
+}
+.ca-prrow.is-requested .ca-diff {
+  min-width: 0;
 }
 .ca-prrow-more {
   font: 500 11px/14px var(--font-mono);
@@ -2444,4 +2524,59 @@ html.is-bar body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* The worktree picker and its New worktree box. */
+.ca-start-lane {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+}
+.ca-check {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font: 500 12px/16px var(--font-sans);
+  color: var(--ink-2);
+  white-space: nowrap;
+  cursor: pointer;
+}
+/* The real box stays for the keyboard and screen readers; the drawn one shows its state. */
+.ca-check input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.ca-check-box {
+  display: inline-grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  box-sizing: border-box;
+  border: 1.5px solid var(--line-strong);
+  border-radius: 4px;
+  background: var(--surface);
+  color: transparent;
+}
+.ca-check input:checked + .ca-check-box {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--surface);
+}
+.ca-check input:focus-visible + .ca-check-box {
+  box-shadow: var(--shadow-focus);
+}
+.ca-check.is-disabled {
+  color: var(--ink-3);
+  cursor: default;
+}
+.ca-check.is-disabled .ca-check-box {
+  opacity: 0.55;
 }

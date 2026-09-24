@@ -492,6 +492,14 @@ export function App() {
     visible[0] ??
     null;
   const selectedLane = selected?.lane ?? null;
+  // Where a new session starts: the selected worktree, session or PR's worktree; for a PR with
+  // no worktree on this Mac, its repo's main checkout.
+  const startLaneId = useMemo(() => {
+    if (!selected) return null;
+    if (selected.lane) return selected.lane.id;
+    if (selected.kind !== 'pr') return null;
+    return lanes.find((l) => l.repoSlug === selected.pr.repoSlug && l.origin === 'main')?.id ?? null;
+  }, [selected, lanes]);
   const indexByKey = useMemo(() => new Map(visible.map((r, i) => [r.key, i])), [visible]);
   const domIdOf = (key: string) => `row-${indexByKey.get(key) ?? -1}`;
   const domId = (r: Row) => domIdOf(r.key);
@@ -1014,7 +1022,7 @@ export function App() {
         e.preventDefault();
         // On a todo, the session is for the todo.
         if (selected?.kind === 'todo') startForTodo(selected);
-        else setNewSession({ laneId: selectedLane?.id ?? null });
+        else setNewSession({ laneId: startLaneId });
         return;
       }
       if (typing) {
@@ -1120,7 +1128,7 @@ export function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [visible, selected, selectedLane, move, open, openRow, copy, settings, openSettings, newSession, view, setView, toggleLanePin, sessionPins, lanePins, pinnedRows, pinnedLaneRows, shownBays, movePinnedSession, movePinnedLane, current, setArchived]);
+  }, [visible, selected, selectedLane, startLaneId, move, open, openRow, copy, settings, openSettings, newSession, view, setView, toggleLanePin, sessionPins, lanePins, pinnedRows, pinnedLaneRows, shownBays, movePinnedSession, movePinnedLane, current, setArchived]);
 
   /** The sheet's Start. The sheet closes and a spinner shows while the harness takes the
    *  session; then it says what's next, and selects the session when it shows up if Codealong
@@ -1254,7 +1262,7 @@ export function App() {
           size="sm"
           icon="plus"
           title={selected?.kind === 'todo' ? 'Start a session for the selected todo (⌘N)' : 'Start a session in the selected worktree (⌘N)'}
-          onClick={() => (selected?.kind === 'todo' ? startForTodo(selected) : setNewSession({ laneId: selectedLane?.id ?? null }))}
+          onClick={() => (selected?.kind === 'todo' ? startForTodo(selected) : setNewSession({ laneId: startLaneId }))}
         >
           New session
         </Button>
