@@ -254,6 +254,8 @@ export interface StartAccount {
   places: { place: StartPlace; label: string }[];
   /** Why there's nowhere, when `places` is empty. */
   unavailable: string | null;
+  /** The model a session starts on without one chosen: the account's settings.json `model`. */
+  defaultModel: string | null;
 }
 
 export interface StartOptions {
@@ -261,6 +263,8 @@ export interface StartOptions {
   accounts: StartAccount[];
   /** Folders the Codex app has as projects. A thread started anywhere else adds one. */
   codexProjects: string[];
+  /** Models a Claude Code start in the terminal can ask for, as `--model` takes them. */
+  claudeModels: { id: string; label: string }[];
 }
 
 export interface StartSpec {
@@ -268,6 +272,8 @@ export interface StartSpec {
   account: string;
   place: StartPlace;
   prompt: string;
+  /** `--model` for a terminal start; null starts on the account's default. */
+  model: string | null;
 }
 
 export interface Started {

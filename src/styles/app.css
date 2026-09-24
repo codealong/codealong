@@ -1486,6 +1486,18 @@ body.is-resizing * {
   cursor: default;
 }
 
+/* Where the session opens and the model it starts on, side by side. */
+.ca-start-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: var(--space-5);
+}
+.ca-start-select select:disabled {
+  color: var(--ink-3);
+  cursor: default;
+}
+
 /* ---- Floating bar: its own window, transparent, sized to the bar plus 12px for its shadow ---- */
 html.is-bar,
 html.is-bar body {

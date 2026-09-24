@@ -7,9 +7,9 @@ const claudeApp = { place: 'claude-app' as const, label: 'Claude app' };
 const codexApp = { place: 'codex-app' as const, label: 'Codex app' };
 
 const ACCOUNTS: StartAccount[] = [
-  { name: 'claude', harness: 'claude', places: [ghostty, claudeApp], unavailable: null },
-  { name: 'claude2', harness: 'claude', places: [ghostty], unavailable: null },
-  { name: 'codex', harness: 'codex', places: [codexApp], unavailable: null },
+  { name: 'claude', harness: 'claude', places: [ghostty, claudeApp], unavailable: null, defaultModel: null },
+  { name: 'claude2', harness: 'claude', places: [ghostty], unavailable: null, defaultModel: null },
+  { name: 'codex', harness: 'codex', places: [codexApp], unavailable: null, defaultModel: null },
 ];
 
 const NOW = Date.UTC(2026, 8, 24, 12);
@@ -70,7 +70,7 @@ describe('Auto', () => {
   });
 
   it('is only offered for a harness with more than one account that can start sessions', () => {
-    const lone: StartAccount[] = [ACCOUNTS[0], { ...ACCOUNTS[1], places: [], unavailable: 'no' }, ACCOUNTS[2]];
+    const lone: StartAccount[] = [ACCOUNTS[0], { ...ACCOUNTS[1], places: [], unavailable: 'no', defaultModel: null }, ACCOUNTS[2]];
     expect(autoPicks(lone, [], NOW)).toEqual({});
     expect(choices(ACCOUNTS, autoPicks(ACCOUNTS, [], NOW))).toEqual(['auto:claude', 'claude', 'claude2', 'codex']);
   });
@@ -97,7 +97,7 @@ describe('the sheet opens with', () => {
     expect(initialChoice(ACCOUNTS, picks, 'codex')).toBe('codex');
     expect(initialChoice(ACCOUNTS, picks, 'claude3')).toBe('auto:claude');
     expect(initialChoice(ACCOUNTS, {}, undefined)).toBe('claude');
-    const none: StartAccount[] = [{ name: 'codex2', harness: 'codex', places: [], unavailable: 'no' }];
+    const none: StartAccount[] = [{ name: 'codex2', harness: 'codex', places: [], unavailable: 'no', defaultModel: null }];
     expect(initialChoice(none, {}, undefined)).toBeNull();
   });
 
