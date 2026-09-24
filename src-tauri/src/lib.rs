@@ -117,6 +117,12 @@ fn show_main(app: tauri::AppHandle, reveal: Option<serde_json::Value>) -> Result
     bar::show_main(&app, reveal).map_err(|e| e.to_string())
 }
 
+/// Whether the floating bar is on.
+#[tauri::command]
+fn bar_on(app: tauri::AppHandle) -> bool {
+    bar::is_on(&app)
+}
+
 /// Turns the floating bar on or off.
 #[tauri::command]
 fn set_bar_on(app: tauri::AppHandle, on: bool) {
@@ -241,7 +247,7 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(bar::on_window_event)
-        .invoke_handler(tauri::generate_handler![get_board, open_target, open_config, mark_seen, refresh, refresh_usage, set_pinned, set_pinned_worktrees, archive_session, pr_detail, approve_pr, review_in_codex, open_url, get_accounts, save_accounts, sign_in, start_options, start_session, set_theme, open_project_window, fit_bar, show_main, set_bar_on, perf_mark])
+        .invoke_handler(tauri::generate_handler![get_board, open_target, open_config, mark_seen, refresh, refresh_usage, set_pinned, set_pinned_worktrees, archive_session, pr_detail, approve_pr, review_in_codex, open_url, get_accounts, save_accounts, sign_in, start_options, start_session, set_theme, open_project_window, fit_bar, show_main, bar_on, set_bar_on, perf_mark])
         .build(tauri::generate_context!())
         .expect("error while running Codealong")
         .run(|app, event| {

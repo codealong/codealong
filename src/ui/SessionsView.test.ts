@@ -30,7 +30,9 @@ describe('timeSections', () => {
       item('busy-old-ask', at(14, 59), 'working', at(9)),
       item('busy-new-ask', at(14, 30), 'working', at(14)),
       item('blocked', at(12), 'needs', at(11)),
+      // Stopped ranks with idle, by your last prompt.
+      item('stopped', at(14, 50), 'stopped', at(14, 50)),
     ];
-    expect(timeSections(rows, now)[0].rows.map((r) => r.session.key)).toEqual(['blocked', 'busy-new-ask', 'busy-old-ask', 'idle']);
+    expect(timeSections(rows, now)[0].rows.map((r) => r.session.key)).toEqual(['blocked', 'busy-new-ask', 'busy-old-ask', 'idle', 'stopped']);
   });
 });
