@@ -12,6 +12,8 @@ export interface PrPill {
   tone: PrTone;
   icon: string | null;
   text: string;
+  /** What it says in a row short of room: `3` for `3 failing`, or nothing beside its icon. */
+  short: string | null;
   title: string;
 }
 
@@ -34,7 +36,7 @@ export function prReady(pr: PrFacts): boolean {
 }
 
 function reviewPill(pr: PrFacts): PrPill {
-  const pill = (tone: PrTone, text: string, title: string): PrPill => ({ key: 'review', tone, icon: null, text, title });
+  const pill = (tone: PrTone, text: string, title: string): PrPill => ({ key: 'review', tone, icon: null, text, short: null, title });
   switch (pr.state) {
     case 'draft':
       return pill('quiet', 'Draft', 'A draft: not ready for review yet');
@@ -52,31 +54,31 @@ function reviewPill(pr: PrFacts): PrPill {
 function checksPill(c: Checks): PrPill | null {
   if (c.failed > 0) {
     const names = c.failing.length > 0 ? `: ${c.failing.join(', ')}` : '';
-    return { key: 'checks', tone: 'alert', icon: 'x', text: `${c.failed} failing`, title: `${plural(c.failed, 'check')} failing${names}` };
+    return { key: 'checks', tone: 'alert', icon: 'x', text: `${c.failed} failing`, short: `${c.failed}`, title: `${plural(c.failed, 'check')} failing${names}` };
   }
   if (c.pending > 0) {
     const passed = c.passed > 0 ? `, ${c.passed} passed` : '';
-    return { key: 'checks', tone: 'plain', icon: 'circle-dashed', text: `${c.pending} running`, title: `${plural(c.pending, 'check')} running${passed}` };
+    return { key: 'checks', tone: 'plain', icon: 'circle-dashed', text: `${c.pending} running`, short: `${c.pending}`, title: `${plural(c.pending, 'check')} running${passed}` };
   }
-  if (c.passed > 0) return { key: 'checks', tone: 'pass', icon: 'check', text: `${c.passed}`, title: `${plural(c.passed, 'check')} passed` };
+  if (c.passed > 0) return { key: 'checks', tone: 'pass', icon: 'check', text: `${c.passed}`, short: null, title: `${plural(c.passed, 'check')} passed` };
   return null;
 }
 
 /** The pills for a PR, in a fixed order so they line up down a list: review, checks, merge. */
 export function prPills(pr: PrFacts): PrPill[] {
-  if (pr.state === 'merged') return [{ key: 'state', tone: 'merged', icon: null, text: 'Merged', title: 'Merged' }];
-  if (pr.state === 'closed') return [{ key: 'state', tone: 'quiet', icon: null, text: 'Closed', title: 'Closed without merging' }];
+  if (pr.state === 'merged') return [{ key: 'state', tone: 'merged', icon: null, text: 'Merged', short: null, title: 'Merged' }];
+  if (pr.state === 'closed') return [{ key: 'state', tone: 'quiet', icon: null, text: 'Closed', short: null, title: 'Closed without merging' }];
   const c = pr.checks;
   if (prReady(pr)) {
     const why = [pr.state === 'approved' ? 'Approved' : null, c.passed > 0 ? `${plural(c.passed, 'check')} passed` : null, 'no conflicts'].filter(Boolean).join(', ');
-    return [{ key: 'ready', tone: 'ready', icon: 'merge', text: 'Ready to merge', title: `${why[0].toUpperCase()}${why.slice(1)}: GitHub can merge it` }];
+    return [{ key: 'ready', tone: 'ready', icon: 'merge', text: 'Ready to merge', short: null, title: `${why[0].toUpperCase()}${why.slice(1)}: GitHub can merge it` }];
   }
   const base = pr.base ?? 'its base';
   const pills = [reviewPill(pr), checksPill(c)].filter((p): p is PrPill => p !== null);
   if (pr.merge === 'conflicts') {
-    pills.push({ key: 'merge', tone: 'attn', icon: 'alert', text: 'Conflicts', title: `Conflicts with ${base}: resolve them before it can merge` });
+    pills.push({ key: 'merge', tone: 'attn', icon: 'alert', text: 'Conflicts', short: '', title: `Conflicts with ${base}: resolve them before it can merge` });
   } else if (pr.merge === 'behind') {
-    pills.push({ key: 'merge', tone: 'attn', icon: null, text: 'Out of date', title: `Behind ${base}, and the repo wants it up to date before it merges` });
+    pills.push({ key: 'merge', tone: 'attn', icon: 'refresh', text: 'Out of date', short: '', title: `Behind ${base}, and the repo wants it up to date before it merges` });
   }
   return pills;
 }

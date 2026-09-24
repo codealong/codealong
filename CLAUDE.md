@@ -38,7 +38,8 @@ The engine binary doubles as a CLI for checking behavior without a window:
 - `codealong --snapshot --pr <owner/name> <number>`: a PR's detail, as the PR panel gets it.
 - `codealong --snapshot --start-options`: where each account can start a session.
 - `codealong --snapshot --start-plan <folder> <account> <terminal|claude-app|codex-app> [prompt]
-  [--model <model>]`: the command or link starting a session would use, without starting one.
+  [--model <model>] [--worktree]`: the command or link starting a session would use, without
+  starting one.
 
 ## Checking UI changes
 
@@ -117,6 +118,11 @@ Claude Code
   `origin`. `last-prompt` lines repeat the prompt's text but carry no time. One turn often
   writes more than the last 256KB, so the prompt can be far behind the tail. A message sent
   while a session is busy doesn't change the registry's `statusUpdatedAt`.
+- A line's `cwd` is the shell's folder. After a command that `cd`s outside the session's
+  folder the shell goes back to it, so an agent working in another worktree starts each
+  command there with `cd <folder> &&`, and its other commands (temp files, `osascript`) run
+  where it started. `board::session_seed` lists an agent where most of its last five
+  commands and edits worked; `util::command_dir` has the rule for commands.
 - Background jobs (`kind: bg`) have no terminal; `<account command> attach <jobId>` opens one.
 - `--session-id <uuid>` gives a new session the ID you choose, so Codealong knows it before it
   appears. The prompt is a positional argument parsed like any other: one that starts with `-`
@@ -127,8 +133,15 @@ Claude Code
   Quote it when typing it: zsh reads `fable[1m]` as a file pattern ("no matches found"). Without
   it a session starts on `model` from the account's `settings.json` (a repo's
   `.claude/settings.json` can override that).
+- `-w/--worktree [name]` makes a worktree for the session (read from 2.1.282's code): folder
+  `.claude/worktrees/<name>` under the checkout, branch `worktree-<name>`, a word-pair name when
+  none is given, based on a freshly fetched `origin/<default branch>` (settings
+  `"worktree": {"baseRef": "head"}` bases it on HEAD). A `WorktreeCreate` hook in settings.json
+  replaces all of that, even in a git repo, and prints the path. It refuses folders that haven't
+  been trusted yet. Its name is optional, so it must come before the prompt, which it would
+  otherwise take as the name: `start.rs` types `--worktree` first.
 - Also available, not used yet: `--bg` starts a session in the background and prints the ID
-  `attach` takes; `-w/--worktree [name]` makes a worktree under `<repo>/.claude/worktrees/`.
+  `attach` takes.
 - Sign-in lives in the login keychain: service `Claude Code-credentials` for `~/.claude`,
   `Claude Code-credentials-<first 8 hex of sha256(config dir)>` for any other folder, account
   `$USER`. Read it with `/usr/bin/security find-generic-password -a $USER -s <service> -w`
@@ -148,7 +161,8 @@ Claude app
   logged as `claudeURLHandler: code entry link invalid ?session` in `~/Library/Logs/Claude/main.log`.
 - Offers no way for another program to archive a session.
 - `claude://code/new?folder=<path>&q=<prompt>` (`prompt=` works too) opens the new-session page
-  with the folder and prompt filled in; you send it there.
+  with the folder and prompt filled in; you send it there. It takes no model or worktree: the
+  page has its own choices.
 
 Codex
 
@@ -160,6 +174,10 @@ Codex
   `item_completed` with a `UserMessage` item, not `user_message`, and wrap context around them
   (`## My request:`, `<heartbeat>`, `<realtime_delegation>`; answers to the agent's questions
   are `<send_user_message_question_reply>`). No approval events have been seen in them yet.
+- Commands are `item_completed` `CommandExecution` items with the folder the agent chose
+  (`cwd`, a `file://` URL) and `[shell, "-lc", script]`. Scripts don't `cd` (none of 3,096
+  recent ones did), and 45% ran outside the thread's own folder. File edits are `FileChange`
+  items, `changes` keyed by path.
 - Each turn's `token_count` event carries `rate_limits` (`primary`/`secondary` windows with
   `used_percent`, `window_minutes`, `resets_at`; `limit_id` `codex` or per model; `plan_type`).
 - The desktop app is `/Applications/ChatGPT.app` (bundle id `com.openai.codex`; an older
@@ -167,7 +185,8 @@ Codex
   reads it first and ignores ones it can't), `codex://review?pr=<url>` opens a PR review.
 - `codex://threads/new?path=<folder>&prompt=<text>` opens a new thread there with the prompt
   filled in (it also takes `originUrl`, `projectId` and `mode`); `codex://threads/<uuid>?prompt=`
-  fills in a reply. A folder the app has no project for becomes a new project. Its projects are
+  fills in a reply. `mode` is chat, work or codex, not a worktree choice: the new-thread page
+  has its own Local or Worktree. A folder the app has no project for becomes a new project. Its projects are
   in `<CODEX_HOME>/.codex-global-state.json` (`local-projects[].rootPaths`,
   `electron-saved-workspace-roots`), a file of several megabytes.
 - Actions go through its app-server: `/Applications/ChatGPT.app/Contents/Resources/codex
@@ -201,7 +220,8 @@ Tauri and macOS (from the Tauri 2.11 and tao 0.35 sources)
 - `always_on_top` is AppKit's floating level, where other apps' panels can cover a window; the
   floating bar sets the status item level (still under menus) through objc2.
 - A plain JS `listen()` hears events sent to any window with `emit_to`; listen on the window
-  (`getCurrentWebviewWindow().listen`) for the ones meant for it.
+  (`getCurrentWebviewWindow().listen`) for the ones meant for it. A window's own `emit`
+  (`w.emit`) goes to every window, however it listens: send to one with `emit_to(label, …)`.
 - `show()` orders a window front without activating the app; `set_focus()` activates it.
   Commands without `async` run on the main thread.
 - Transparent windows need `macOSPrivateApi` in tauri.conf.json and the `macos-private-api`

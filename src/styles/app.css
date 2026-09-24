@@ -1371,6 +1371,10 @@ body.is-resizing * {
   font-variant-numeric: tabular-nums;
 }
 .ca-prrow-meta {
+  /* Fitted as 12 characters (see .ca-prrow-lead), then it grows into what's left. */
+  flex: 1 1 auto;
+  width: 12ch;
+  max-width: max-content;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1378,24 +1382,66 @@ body.is-resizing * {
   font: 400 12px/16px var(--font-mono);
   color: var(--ink-3);
 }
-.ca-prrow-review {
-  flex: none;
-  font: 500 12px/16px var(--font-sans);
-  color: var(--ink-2);
-}
-.ca-prrow-review.is-approved {
-  color: var(--pr-open);
-}
-.ca-prrow-review.is-changes {
-  color: var(--alert);
-}
-.ca-prrow-review.is-draft,
-.ca-prrow-review.is-merged,
-.ca-prrow-review.is-closed {
-  color: var(--ink-3);
-}
 .ca-prrow .ca-lane-line2 {
   gap: 8px;
+}
+/* A PR row's second line. The pills and the diff always show; the rest takes the room that's
+   left, in this order: the first 12 characters of the repo · branch · author line, the
+   agents with their +n, the worktree tag, then the rest of that line. A piece that doesn't fit
+   wraps onto a second line that is cut off, so it shows whole or not at all, and the repo ·
+   branch · author line takes back its room. The PR panel lists them all.
+   The padding, which the margin takes back, leaves room for a chip's focus ring, and the gap
+   keeps the second line out of it. Clip rather than hidden, so focusing a chip that wrapped
+   away can't scroll the line. */
+.ca-prrow-fit {
+  display: flex;
+  flex: 1 1 0;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 20px;
+  margin: -4px;
+  padding: 4px;
+  overflow: clip;
+  container: prfit / inline-size;
+}
+/* The pills, then the repo · branch · author line. The line comes last, so when there's no room
+   for 12 characters of it, it wraps away instead of showing a stub. It counts as 12 characters
+   when the agents and tag are fitted. */
+.ca-prrow-lead {
+  display: flex;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  align-items: center;
+  column-gap: 8px;
+  min-width: 0;
+  height: 20px;
+  overflow: clip;
+}
+.ca-prrow-agents {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+}
+.ca-prrow .ca-tag {
+  max-width: 144px;
+}
+.ca-prrow .ca-tag > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* The diff keeps to the right edge, as in the Worktrees view. Beside an Approve button, where
+   room is shortest, it doesn't hold its column's full width, so the pills keep their words. */
+.ca-prrow .ca-diff {
+  justify-content: flex-end;
+}
+.ca-prrow.is-requested .ca-diff {
+  min-width: 0;
 }
 .ca-prrow-more {
   font: 500 11px/14px var(--font-mono);
@@ -1420,6 +1466,49 @@ body.is-resizing * {
 }
 .ca-prpill {
   flex: none;
+}
+/* In a row the pills get the room the line has (see .ca-prrow-fit), and short of room they say
+   less: first the checks keep only their count ("3 failing" becomes 3), then Conflicts or Out of
+   date keeps only its icon, its word giving way with an ellipsis in between. Their titles and
+   the PR panel still say it all. The widths fit the widest sets of pills: three with the checks
+   shortened, three in full, and two in full. */
+.ca-prrow .ca-prpills {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.ca-prrow .ca-prpill--merge {
+  flex: 0 1 auto;
+  box-sizing: border-box;
+  min-width: 25px;
+}
+.ca-prrow .ca-prpill--merge > .ca-prpill-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ca-prpill-short {
+  display: none;
+}
+@container prfit (max-width: 290px) {
+  .ca-prpills[data-count='3'] > .ca-prpill--checks.has-short > .ca-prpill-text {
+    display: none;
+  }
+  .ca-prpills[data-count='3'] > .ca-prpill--checks > .ca-prpill-short {
+    display: inline;
+  }
+}
+@container prfit (max-width: 220px) {
+  .ca-prpills[data-count='3'] > .ca-prpill--merge > .ca-prpill-text {
+    display: none;
+  }
+}
+@container prfit (max-width: 200px) {
+  .ca-prpills > .has-short > .ca-prpill-text {
+    display: none;
+  }
+  .ca-prpill-short {
+    display: inline;
+  }
 }
 .ca-pill.is-ready,
 .ca-pill.is-pass {
@@ -1945,4 +2034,59 @@ html.is-bar body {
   display: flex;
   visibility: hidden;
   pointer-events: none;
+}
+
+/* The worktree picker and its New worktree box. */
+.ca-start-lane {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+}
+.ca-check {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font: 500 12px/16px var(--font-sans);
+  color: var(--ink-2);
+  white-space: nowrap;
+  cursor: pointer;
+}
+/* The real box stays for the keyboard and screen readers; the drawn one shows its state. */
+.ca-check input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.ca-check-box {
+  display: inline-grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  box-sizing: border-box;
+  border: 1.5px solid var(--line-strong);
+  border-radius: 4px;
+  background: var(--surface);
+  color: transparent;
+}
+.ca-check input:checked + .ca-check-box {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--surface);
+}
+.ca-check input:focus-visible + .ca-check-box {
+  box-shadow: var(--shadow-focus);
+}
+.ca-check.is-disabled {
+  color: var(--ink-3);
+  cursor: default;
+}
+.ca-check.is-disabled .ca-check-box {
+  opacity: 0.55;
 }

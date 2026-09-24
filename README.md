@@ -17,16 +17,18 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   - **Worktrees**: each worktree once, pinned ones first in your order, then the rest by
     status: Needs you, Working, Your turn, In review, Idle, Merged. A worktree's row has a
     line for each agent that needs you, is working or just finished, which you select, open
-    or right-click as you would a row. Within a status, the worktree and the agent you last
-    sent a prompt come first, so rows hold still while agents work. Stuck agents (busy but
-    silent for 30 minutes) show in Needs you with the command they're stuck on. The Inbox
-    filters narrow each worktree to the agents they're about. Pin a worktree with `p` or the
-    right-click menu of the worktree or one of its agents, and reorder pins by dragging or
-    with ⌥↑ ⌥↓; a pinned worktree stays whatever the age filter says.
+    or right-click as you would a row. An agent is listed under the worktree it's working
+    in, where most of its latest commands ran and edits landed, even if it started somewhere
+    else; resuming it still happens where it started. Within a status, the worktree and the
+    agent you last sent a prompt come first, so rows hold still while agents work. Stuck
+    agents (busy but silent for 30 minutes) show in Needs you with the command they're stuck
+    on. The Inbox filters narrow each worktree to the agents they're about. Pin a worktree
+    with `p` or the right-click menu of the worktree or one of its agents, and reorder pins
+    by dragging or with ⌥↑ ⌥↓; a pinned worktree stays whatever the age filter says.
   - **Sessions**: every session, pinned ones first in your order (drag or ⌥↑ ⌥↓), then by
-    day, most urgent first and then the one you last sent a prompt. Sessions are pinned here, with `p` or the right-click menu, and their pins show only
-    here. Archive a session with `a` or its right-click menu; Codex threads are archived in
-    Codex itself.
+    day, most urgent first and then the one you last sent a prompt. Sessions are pinned
+    here, with `p` or the right-click menu, and their pins show only here. Archive a session
+    with `a` or its right-click menu; Codex threads are archived in Codex itself.
   - **PRs**: every PR in the project's repos, with the worktree and sessions that worked on
     each. Reviews asked of you come first, with one-click Approve. Selecting a PR shows its
     description, reviews, checks and changed files with their diffs, and under On this Mac
@@ -36,10 +38,13 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
 - **Open where it lives**: the session's own Ghostty tab, the Claude app session, the Codex
   thread, a background job attached in a new window, or the folder in Cursor.
 - **New session** (⌘N, the title bar, the inspector, or a worktree's or session's right-click
-  menu): pick the worktree (pinned ones first), the account, and where it runs. Ghostty starts
-  Claude Code on your prompt, on the account's default model or one you pick (Fable, Opus,
-  Sonnet, Haiku, 1M context, Opus Plan Mode); the Claude app and Codex open a new session with
-  the prompt filled in, and you send it there (their own model and worktree choices included). Auto picks between accounts of
+  menu): pick the worktree (it starts at whatever's selected: a worktree, a session's, a PR's,
+  or for a PR with none here its repo's main checkout; pinned ones first), the account, and
+  where it runs. Ghostty starts Claude Code on your prompt, on the account's default model or
+  one you pick (Fable, Opus, Sonnet, Haiku, 1M context, Opus Plan Mode), and with New
+  worktree Claude Code makes a fresh worktree for it (`claude --worktree`: its folder, branch
+  and base are Claude Code's choice). The Claude app and Codex open a new session with the
+  prompt filled in, and you send it there (their own model and worktree choices included). Auto picks between accounts of
   one harness: first the one whose weekly limit resets soonest within 48 hours, so its room
   isn't lost, else the one with the most room; accounts at 90% of a limit are passed over.
   Codealong only launches: the session shows on the board like any other, and one started in

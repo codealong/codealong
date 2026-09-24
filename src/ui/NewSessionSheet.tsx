@@ -57,6 +57,7 @@ export interface SheetDraft {
   place: StartPlace | null;
   prompt: string;
   model: string | null;
+  worktree: boolean;
 }
 
 interface NewSessionSheetProps {
@@ -86,6 +87,9 @@ export function NewSessionSheet({ lanes, laneId: firstLane, draft, error: failed
   // A model for a terminal start; null is the account's own default. Not remembered: the
   // default stays the default.
   const [model, setModel] = useState<string | null>(draft?.model ?? null);
+  // A new worktree for a terminal start: Claude Code makes it (its folder, branch and base are
+  // its own business). The apps offer their own worktree choice on their new-session pages.
+  const [newWorktree, setNewWorktree] = useState(draft?.worktree ?? false);
   const [error, setError] = useState<string | null>(failed ?? null);
 
   const accounts = useMemo(() => options?.accounts ?? [], [options]);
@@ -114,6 +118,7 @@ export function NewSessionSheet({ lanes, laneId: firstLane, draft, error: failed
 
   // The apps' links take no model, so only a terminal start asks for one.
   const chosenModel = place === 'terminal' ? model : null;
+  const inNewWorktree = place === 'terminal' && newWorktree;
   const modelLabel = options?.claudeModels.find((m) => m.id === chosenModel)?.label.split(':')[0] ?? null;
   const defaultModel = accounts.find((a) => a.name === account)?.defaultModel ?? null;
 
@@ -123,11 +128,11 @@ export function NewSessionSheet({ lanes, laneId: firstLane, draft, error: failed
     if (choice) remember(choice, place);
     const label =
       place === 'terminal'
-        ? `Starting ${account}${modelLabel ? ` on ${modelLabel}` : ''} in ${lane.callsign}…`
+        ? `Starting ${account}${modelLabel ? ` on ${modelLabel}` : ''} in ${inNewWorktree ? `a new worktree of ${lane.repo}` : lane.callsign}…`
         : place === 'claude-app'
           ? `Opening a new session in the Claude app…`
           : `Opening a new thread in Codex…`;
-    onStart({ laneId: lane.id, account, place, prompt, model: chosenModel }, { choice, place, prompt, model }, label);
+    onStart({ laneId: lane.id, account, place, prompt, model: chosenModel, worktree: inNewWorktree }, { choice, place, prompt, model, worktree: newWorktree }, label);
   };
 
   // ⌘⏎ starts and Escape closes, wherever the focus is. Re-bound each render so Start sees the
@@ -179,13 +184,17 @@ export function NewSessionSheet({ lanes, laneId: firstLane, draft, error: failed
   const where = lane?.callsign ?? 'the worktree';
   const prompted = prompt.trim().length > 0;
   const placeLabel = places.find((p) => p.place === place)?.label ?? '';
+  const onModel = modelLabel ? ` on ${modelLabel}` : '';
+  const withPrompt = prompted ? ' with this prompt' : '';
   const happens =
     place === 'terminal'
-      ? `${placeLabel} opens a new window in ${where} and starts ${account ?? 'the account'}${modelLabel ? ` on ${modelLabel}` : ''}${prompted ? ' with this prompt' : ''}.`
+      ? inNewWorktree && lane
+        ? `${placeLabel} opens a new window, and Claude Code makes a new worktree of ${lane.repo} and starts ${account ?? 'the account'}${onModel} there${withPrompt}.`
+        : `${placeLabel} opens a new window in ${where} and starts ${account ?? 'the account'}${onModel}${withPrompt}.`
       : place === 'claude-app'
-        ? `The Claude app opens a new session in ${where}${prompted ? ' with this prompt filled in' : ''}. You send it from there.`
+        ? `The Claude app opens a new session in ${where}${prompted ? ' with this prompt filled in' : ''}. You send it from there, and can choose a new worktree there too.`
         : place === 'codex-app'
-          ? `Codex opens a new thread in ${where}${prompted ? ' with this prompt filled in' : ''}. You send it from there.`
+          ? `Codex opens a new thread in ${where}${prompted ? ' with this prompt filled in' : ''}. You send it from there, and can choose a new worktree there too.`
           : '';
   const newToCodex = place === 'codex-app' && !!lane && !!options && !options.codexProjects.includes(lane.path);
 
@@ -215,24 +224,42 @@ export function NewSessionSheet({ lanes, laneId: firstLane, draft, error: failed
           <Button variant="ghost" size="sm" icon="x" aria-label="Close" onClick={onClose} />
         </header>
         <div className="ca-dialog-body">
-          <label className="ca-field">
-            <span>Worktree</span>
-            <span className="ca-start-select">
-              <select value={laneId} onChange={(e) => setLaneId(e.target.value)} disabled={lanes.length === 0}>
-                {groups.map((g) => (
-                  <optgroup key={g.label} label={g.label}>
-                    {g.lanes.map((l) => (
-                      <option key={l.id} value={l.id}>
-                        {laneLabel(l)}
-                      </option>
-                    ))}
-                  </optgroup>
-                ))}
-              </select>
-              <Icon name="chevron-down" size={14} />
-            </span>
-            <small className="ca-code">{lane ? tildePath(lane.path) : 'No worktrees in this project yet.'}</small>
-          </label>
+          <div className="ca-field">
+            <span id="ca-start-lane">Worktree</span>
+            <div className="ca-start-lane">
+              <span className="ca-start-select">
+                <select aria-labelledby="ca-start-lane" value={laneId} onChange={(e) => setLaneId(e.target.value)} disabled={lanes.length === 0}>
+                  {groups.map((g) => (
+                    <optgroup key={g.label} label={g.label}>
+                      {g.lanes.map((l) => (
+                        <option key={l.id} value={l.id}>
+                          {laneLabel(l)}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+                <Icon name="chevron-down" size={14} />
+              </span>
+              <label
+                className={['ca-check', place !== 'terminal' && 'is-disabled'].filter(Boolean).join(' ')}
+                title={place === 'terminal' ? 'Claude Code makes the worktree: its folder, branch and base.' : 'The app has its own worktree choice; pick it there before you send.'}
+              >
+                <input type="checkbox" checked={inNewWorktree} disabled={place !== 'terminal'} onChange={(e) => setNewWorktree(e.target.checked)} />
+                <span className="ca-check-box" aria-hidden="true">
+                  <Icon name="check" size={11} stroke={2.5} />
+                </span>
+                New worktree
+              </label>
+            </div>
+            {!lane ? (
+              <small>No worktrees in this project yet.</small>
+            ) : inNewWorktree ? (
+              <small>Claude Code makes a new worktree of {lane.repo} for this session.</small>
+            ) : (
+              <small className="ca-code">{tildePath(lane.path)}</small>
+            )}
+          </div>
           <div className="ca-field" role="radiogroup" aria-labelledby="ca-start-account">
             <span id="ca-start-account">Account</span>
             {options === null && !error ? (

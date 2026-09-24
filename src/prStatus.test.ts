@@ -28,7 +28,10 @@ describe('prPills', () => {
     expect(texts({ checks: checks({ passed: 3, failed: 2, failing: ['lint', 'e2e'] }) })).toEqual([['Awaiting review', 'plain'], ['2 failing', 'alert']]);
     expect(texts({ state: 'changes', checks: checks({ pending: 4 }) })).toEqual([['Changes requested', 'attn'], ['4 running', 'plain']]);
     expect(texts({ state: 'draft', checks: checks() })).toEqual([['Draft', 'quiet']]);
-    expect(prPills(facts({ checks: checks({ failed: 2, failing: ['lint', 'e2e'] }) }))[1].title).toBe('2 checks failing: lint, e2e');
+    const failing = prPills(facts({ checks: checks({ failed: 2, failing: ['lint', 'e2e'] }) }))[1];
+    expect([failing.short, failing.title]).toEqual(['2', '2 checks failing: lint, e2e']);
+    // Short of room, Conflicts keeps only its icon.
+    expect(prPills(facts({ merge: 'conflicts' })).map((p) => p.short)).toEqual([null, null, '']);
   });
 
   it("says only merged or closed once it's done", () => {

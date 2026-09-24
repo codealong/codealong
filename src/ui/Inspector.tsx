@@ -9,7 +9,7 @@ const ORIGIN_WORD: Record<Origin, string> = {
   main: 'Main checkout',
   script: 'Worktree',
   codex: 'Made by Codex',
-  'claude-app': 'Made by Claude app',
+  'claude-app': 'Made by Claude',
   scratchpad: 'Made by an agent',
   temp: 'Temporary',
   folder: 'Folder',
