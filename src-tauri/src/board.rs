@@ -253,10 +253,22 @@ pub fn best_seed(seeds: &[LaneSeed], cwd: &Path) -> Option<usize> {
         .map(|(i, _)| i)
 }
 
+/// How urgent a status is. Idle and stopped rank the same: a Codex thread is never stopped, so
+/// telling them apart would only sort the harnesses apart.
+fn urgency(s: Status) -> u8 {
+    match s {
+        Status::Needs => 0,
+        Status::Error => 1,
+        Status::Working => 2,
+        Status::Unread => 3,
+        Status::Idle | Status::Stopped => 4,
+    }
+}
+
 /// Most urgent first, then the one you last sent a prompt. Activity would reorder working
 /// sessions with every tool call; your prompts only move one when you do something.
 fn sort_sessions(sessions: &mut [Session]) {
-    sessions.sort_by(|a, b| a.status.cmp(&b.status).then(b.last_prompt_at.cmp(&a.last_prompt_at)).then(b.last_activity.cmp(&a.last_activity)));
+    sessions.sort_by(|a, b| urgency(a.status).cmp(&urgency(b.status)).then(b.last_prompt_at.cmp(&a.last_prompt_at)).then(b.last_activity.cmp(&a.last_activity)));
 }
 
 /// When you last sent a prompt to one of a lane's own sessions; for a lane with none, when
@@ -1191,14 +1203,18 @@ mod tests {
             s
         };
         // The one working hardest right now doesn't jump ahead of the one you asked more recently.
+        // A stopped session (no registry entry) ranks with idle ones, by your last prompt.
+        let mut stopped = at("idle", Some(NOW - 30_000), NOW - 20_000, "stopped");
+        stopped.status = Status::Stopped;
         let mut sessions = vec![
             at("busy", Some(NOW - 3_600_000), NOW - 1_000, "old-ask"),
             at("idle", Some(NOW - 60_000), NOW - 30_000, "finished"),
+            stopped,
             at("busy", Some(NOW - 600_000), NOW - 400_000, "new-ask"),
             at("waiting", Some(NOW - 7_200_000), NOW - 7_000_000, "needs"),
         ];
         sort_sessions(&mut sessions);
-        assert_eq!(sessions.iter().map(|s| s.key.as_str()).collect::<Vec<_>>(), vec!["needs", "new-ask", "old-ask", "finished"]);
+        assert_eq!(sessions.iter().map(|s| s.key.as_str()).collect::<Vec<_>>(), vec!["needs", "new-ask", "old-ask", "stopped", "finished"]);
         // With no prompt in its log, a session counts from when it started.
         let unknown = at("busy", None, NOW, "unknown");
         assert_eq!(unknown.last_prompt_at, NOW - 3_600_000);
