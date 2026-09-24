@@ -13,7 +13,8 @@ import { UsageMeter } from './UsageBar';
 const HARNESS_WORD: Record<Harness, string> = { claude: 'Claude Code', codex: 'Codex' };
 
 /** Pinned worktrees first, in your order, then the rest grouped by repo, the most recently
- *  active repo and worktree first. */
+ *  active repo first. In each repo its main checkout leads, then the most recently active
+ *  worktrees: the main checkout can be on any branch, so its place is what finds it. */
 function laneGroups(lanes: Lane[], pinned: string[]): { label: string; lanes: Lane[] }[] {
   const byId = new Map(lanes.map((l) => [l.id, l]));
   const pins = pinned.flatMap((id) => byId.get(id) ?? []);
@@ -27,7 +28,7 @@ function laneGroups(lanes: Lane[], pinned: string[]): { label: string; lanes: La
   }
   const latest = (ls: Lane[]) => Math.max(...ls.map((l) => l.lastActivity));
   const repos = [...groups.entries()]
-    .map(([label, ls]) => ({ label, lanes: [...ls].sort((a, b) => b.lastActivity - a.lastActivity) }))
+    .map(([label, ls]) => ({ label, lanes: [...ls].sort((a, b) => Number(b.origin === 'main') - Number(a.origin === 'main') || b.lastActivity - a.lastActivity) }))
     .sort((a, b) => latest(b.lanes) - latest(a.lanes));
   return pins.length > 0 ? [{ label: 'Pinned', lanes: pins }, ...repos] : repos;
 }
@@ -39,8 +40,9 @@ function autoReason(p: AutoPick, now: number): string {
 }
 
 function laneLabel(l: Lane): string {
+  const name = l.origin === 'main' ? `${l.callsign} (main checkout)` : l.callsign;
   const branch = l.branch ?? (l.detached ? `detached @ ${l.detached}` : null);
-  return branch && branch !== l.callsign ? `${l.callsign} · ${middleTruncate(branch, 44)}` : l.callsign;
+  return branch && branch !== l.callsign ? `${name} · ${middleTruncate(branch, 44)}` : name;
 }
 
 /** Why an account shows no meters. */
