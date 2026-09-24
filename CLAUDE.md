@@ -164,9 +164,11 @@ Ghostty (1.3, AppleScript dictionary in the app bundle)
 
 Tauri and macOS (from the Tauri 2.11 and tao 0.35 sources)
 
-- Tauri doesn't say whether a window can be seen. `bar.rs` reads `NSWindow.occlusionState`
-  through objc2: visible means some part is on screen, so not minimized, hidden, on another
-  Space or fully covered.
+- Tauri doesn't say whether a window can be seen; AppKit's `NSWindow.occlusionState` (through
+  objc2) does: visible means some part is on screen, so not minimized, hidden, on another Space
+  or fully covered.
+- `always_on_top` is AppKit's floating level, where other apps' panels can cover a window; the
+  floating bar sets the status item level (still under menus) through objc2.
 - A plain JS `listen()` hears events sent to any window with `emit_to`; listen on the window
   (`getCurrentWebviewWindow().listen`) for the ones meant for it.
 - `show()` orders a window front without activating the app; `set_focus()` activates it.

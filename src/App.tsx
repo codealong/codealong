@@ -7,8 +7,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { showContextMenu } from './contextMenu';
 import { AGENT_BAY, BAYS, buildBays, failingPr, filterByAge, laneInFilter, type BoardRow, type Filter } from './lanes';
-import { approvePr, archiveSession, getBoard, markSeen, onBoard, onReveal, openConfig, openProjectWindow, openTarget, openUrl, refresh, refreshUsage, reviewInCodex, setPinned, setPinnedWorktrees, setTheme, signIn, startSession, type Reveal } from './api';
-import { ago } from './format';
+import { approvePr, archiveSession, barOn, getBoard, markSeen, onBarOn, onBoard, onReveal, openConfig, openProjectWindow, openTarget, openUrl, refresh, refreshUsage, reviewInCodex, setBarOn, setPinned, setPinnedWorktrees, setTheme, signIn, startSession, type Reveal } from './api';
 import { usePins } from './pins';
 import type { Bay, Board, Lane, PrItem, Session, StartSpec, Theme } from './types';
 import { AccountsDialog } from './ui/AccountsDialog';
@@ -647,6 +646,21 @@ export function App() {
     setSelectedKey(onBoardAsAgent ? `${lane.id}::${session.key}` : lane.id);
   };
 
+  // The floating bar is on unless turned off here, from its own menu or from the Window menu.
+  const [floatingBar, setFloatingBar] = useState(true);
+  useEffect(() => {
+    void barOn().then(setFloatingBar);
+    return onBarOn(setFloatingBar);
+  }, []);
+  const toggleFloatingBar = () => {
+    const on = !floatingBar;
+    setFloatingBar(on);
+    setBarOn(on).catch((e: unknown) => {
+      setFloatingBar(!on);
+      setToast(String(e));
+    });
+  };
+
   // The floating bar asks to show a session or PR here: in its project, with no search hiding it.
   const reveal = useRef<(r: Reveal) => void>(() => {});
   reveal.current = (r: Reveal) => {
@@ -911,8 +925,17 @@ export function App() {
           />
           {!query && <Kbd keys={['⌘', 'K']} />}
         </label>
-        <div className="ca-bar-status" data-tauri-drag-region>
-          {board?.githubAt ? `PRs as of ${ago(board.githubAt, now)}` : board && !board.loading ? 'Loading PRs' : ''}
+        <div className="ca-bar-tools" data-tauri-drag-region>
+          <button
+            type="button"
+            className={['ca-btn', 'ca-btn--ghost', 'ca-btn--sm', 'is-icon', 'ca-bartoggle', floatingBar && 'is-on'].filter(Boolean).join(' ')}
+            aria-pressed={floatingBar}
+            aria-label="Floating bar"
+            title={floatingBar ? 'Hide the floating bar' : 'Show the floating bar: the agents that need you, on top of every window'}
+            onClick={toggleFloatingBar}
+          >
+            <Icon name="capsule-horizontal" size={16} />
+          </button>
         </div>
         <Button size="sm" icon="plus" title="Start a session in the selected worktree (⌘N)" onClick={() => setNewSession({ laneId: selectedLane?.id ?? null })}>
           New session

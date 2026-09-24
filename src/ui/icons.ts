@@ -232,5 +232,8 @@ export const ICONS: Record<string, string[]> = {
   "M7 20h10",
   "M9 16v4",
   "M15 16v4"
+ ],
+ "capsule-horizontal": [
+  "M3 12a6 6 0 0 1 6 -6h6a6 6 0 0 1 6 6a6 6 0 0 1 -6 6h-6a6 6 0 0 1 -6 -6"
  ]
 };
