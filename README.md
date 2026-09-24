@@ -66,7 +66,9 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   that lists them. The mark brings Codealong forward; drag the bar by it or by its gaps. The
   capsule button at the top right of the window turns it on and off, as do Window › Floating
   bar and the bar's own right-click menu.
-- Closing the main window hides it; the Dock icon or the bar brings it back, and ⌘Q quits.
+- **New window** (File › New window, ⌘⇧N): one more window on the project you're looking at.
+  Closing the main window hides it; New window, the Dock icon or the bar brings it back, and
+  ⌘Q quits.
 
 Next: the menu bar icon and popover, and notifications (the design system's *Build plan*).
 
