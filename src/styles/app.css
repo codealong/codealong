@@ -456,6 +456,12 @@ button {
   color: var(--ink-3);
   font-variant-numeric: tabular-nums;
 }
+/* Words beside a worktree's name, in the PR panel: prose, not a callsign. */
+.ca-tree-note {
+  flex: none;
+  font: 400 11px/14px var(--font-sans);
+  color: var(--ink-3);
+}
 .ca-tree-more {
   height: 22px;
   padding: 0 6px 0 22px;
@@ -1072,44 +1078,6 @@ button {
 .ca-prinsp-reviews li.is-requested > span:nth-child(2) {
   color: var(--attn);
 }
-.ca-prinsp-lane {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-  padding: 6px 8px;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: var(--surface-sunken);
-  color: var(--ink);
-  font: 500 13px/18px var(--font-sans);
-  text-align: left;
-  cursor: pointer;
-}
-.ca-prinsp-lane:hover {
-  background: var(--surface-hover);
-}
-.ca-prinsp-sessions {
-  display: grid;
-  gap: 6px;
-  margin-top: 8px;
-}
-.ca-prinsp-session {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-.ca-prinsp-session-title {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font: 400 13px/18px var(--font-sans);
-  color: var(--ink-2);
-}
-
 /* GitHub's rendering of the description. */
 .ca-prbody {
   overflow-wrap: anywhere;

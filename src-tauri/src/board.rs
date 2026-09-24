@@ -35,6 +35,9 @@ pub struct Quiet<'a> {
     pub running: Option<&'a str>,
 }
 const MAX_SESSIONS_PER_LANE: usize = 30;
+/// How a session from another lane is labeled in the worktree it made. One that only worked
+/// there is labeled "worked here".
+const MADE_IT: &str = "made this worktree";
 
 #[derive(Debug, Clone)]
 pub struct LaneSeed {
@@ -282,11 +285,19 @@ pub fn find_pr(seed: &LaneSeed, prs: &HashMap<String, Vec<PrRaw>>, now: i64) -> 
     })
 }
 
-/// Every PR in a repo a project covers, each with the worktrees that have its branch checked
-/// out and the sessions that worked on that branch while the PR was open. A PR from the default
-/// branch (a fork's `main`) links no sessions: every session on `main` would match. Long-lived
-/// branches carry one PR after another, so a session counts only if it was active after the PR
-/// opened (give or take an hour) and started before it merged or closed.
+/// Every PR in a repo a project covers, with the worktrees that hold it and the sessions that
+/// worked on it.
+///
+/// A worktree holds the PR the Worktrees view shows on it (`find_pr`), so a long-lived branch
+/// that carries one PR after another holds only the latest.
+///
+/// A session worked on the PR if it was on the PR's branch while the PR was open: active after
+/// the PR opened (give or take an hour) and started before it merged or closed. A session from
+/// another lane records its own folder's branch, so it counts through a worktree on the PR's
+/// branch that it made or worked in: the one that made it whenever it started before the PR
+/// ended, since it wrote the branch even if the PR was opened later, and one that worked there
+/// in the same window as the rest. A PR from the default branch (a fork's `main`) links no
+/// sessions: every session on `main` would match.
 pub fn pr_items(seeds: &[LaneSeed], lanes: &[Lane], prs: &HashMap<String, Vec<PrRaw>>, login: Option<&str>) -> Vec<PrItem> {
     let mut project_of: HashMap<&str, (&str, &str, Option<&str>)> = HashMap::new();
     for s in seeds {
@@ -300,21 +311,30 @@ pub fn pr_items(seeds: &[LaneSeed], lanes: &[Lane], prs: &HashMap<String, Vec<Pr
         let here: Vec<&Lane> = lanes.iter().filter(|l| l.repo_slug.as_deref() == Some(slug.as_str())).collect();
         for p in list {
             let head = p.head_ref.as_str();
-            let ended = p.merged_at.or(p.closed_at);
-            let during = |s: &Session| s.last_activity >= p.created_at - 3_600_000 && ended.map(|end| s.started_at.unwrap_or(s.last_activity) <= end).unwrap_or(true);
-            let sessions = if default_branch == Some(head) {
-                Vec::new()
-            } else {
-                here.iter()
-                    .flat_map(|l| {
-                        l.sessions
-                            .iter()
-                            .filter(move |s| s.visitor.is_none() && !s.archived && (s.branch.as_deref() == Some(head) || (s.branch.is_none() && l.branch.as_deref() == Some(head))))
-                            .filter(|s| during(s))
-                    })
-                    .map(|s| s.key.clone())
-                    .collect()
-            };
+            let (opened, ended) = (p.created_at, p.merged_at.or(p.closed_at));
+            let before_end = move |s: &Session| ended.map_or(true, |end| s.started_at.unwrap_or(s.last_activity) <= end);
+            let during = move |s: &Session| s.last_activity >= opened - 3_600_000 && before_end(s);
+            let mut sessions: Vec<PrSession> = Vec::new();
+            if default_branch != Some(head) {
+                // Sessions in their own lanes first, then ones that came to a worktree on the branch.
+                let own = here.iter().flat_map(|&l| {
+                    let on_branch = move |s: &Session| s.branch.as_deref() == Some(head) || (s.branch.is_none() && l.branch.as_deref() == Some(head));
+                    l.sessions.iter().filter(move |s| s.visitor.is_none() && on_branch(s) && during(s)).map(move |s| (l, s))
+                });
+                let guests = here.iter().filter(|l| l.branch.as_deref() == Some(head)).flat_map(|&l| {
+                    let counts = move |s: &Session| match s.visitor.as_deref() {
+                        None => false,
+                        Some(MADE_IT) => before_end(s),
+                        Some(_) => during(s),
+                    };
+                    l.sessions.iter().filter(move |s| counts(s)).map(move |s| (l, s))
+                });
+                for (l, s) in own.chain(guests) {
+                    if !s.archived && !sessions.iter().any(|x| x.key == s.key) {
+                        sessions.push(PrSession { key: s.key.clone(), lane: l.id.clone() });
+                    }
+                }
+            }
             out.push(PrItem {
                 key: format!("{slug}#{}", p.number),
                 repo_slug: slug.clone(),
@@ -337,7 +357,7 @@ pub fn pr_items(seeds: &[LaneSeed], lanes: &[Lane], prs: &HashMap<String, Vec<Pr
                 updated_at: p.updated_at,
                 merged_at: p.merged_at,
                 closed_at: p.closed_at,
-                lanes: here.iter().filter(|l| l.branch.as_deref() == Some(head)).map(|l| l.id.clone()).collect(),
+                lanes: here.iter().filter(|l| l.pr.as_ref().map(|x| x.number) == Some(p.number)).map(|l| l.id.clone()).collect(),
                 sessions,
             });
         }
@@ -609,7 +629,7 @@ pub fn compose(inp: Inputs) -> Board {
         .map(|(i, seed)| {
             let mut out: Vec<Session> = Vec::new();
             if let Some(owner) = crate::repos::scratchpad_owner(&seed.path).and_then(|id| owners.get(&id)) {
-                out.push(Session { visitor: Some("made this worktree".into()), ..owner.clone() });
+                out.push(Session { visitor: Some(MADE_IT.into()), ..owner.clone() });
             }
             for key in visitors.get(&seed.path).map(|v| v.as_slice()).unwrap_or(&[]) {
                 if let Some(s) = by_key.get(key) {
@@ -639,7 +659,7 @@ pub fn compose(inp: Inputs) -> Board {
         let (bay, glyph) = bay_of(&sessions, pr.as_ref());
         let (mut headline, mut detail) = headline(bay, &sessions, pr.as_ref(), g.as_ref());
         if let (Bay::Idle, true, Some(g)) = (bay, sessions.is_empty(), guests.first()) {
-            let verb = if g.visitor.as_deref() == Some("made this worktree") { "Made by" } else { "Worked on by" };
+            let verb = if g.visitor.as_deref() == Some(MADE_IT) { "Made by" } else { "Worked on by" };
             headline = format!("{verb} {} · {}", code(&g.account), g.title);
             detail = Some(format!("last turn {{ago:{}}}", g.last_activity));
         }
@@ -834,8 +854,106 @@ mod tests {
         assert_eq!(p.key, "northwindai/atlas#1037");
         assert!(p.mine);
         assert_eq!(p.lanes, vec!["/r/atlas-quarry".to_string()]);
-        assert_eq!(p.sessions, vec![on_branch.key]);
+        assert_eq!(p.sessions, vec![PrSession { key: on_branch.key, lane: "/r/atlas-quarry".into() }]);
         assert_eq!(board.github_login.as_deref(), Some("ghempton"));
+    }
+
+    #[test]
+    fn a_long_lived_branch_holds_only_its_latest_pr() {
+        let apps = AppNames::default();
+        let seeds = vec![seed("/r/atlas-quarry", "quarry")];
+        let a = acct("claude2");
+        let mut earlier = claude_session(&a, None, Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
+        earlier.key = "claude:claude2:earlier".into();
+        earlier.branch = Some("quarry".into());
+        earlier.started_at = Some(NOW - 8 * DAY_MS);
+        earlier.last_activity = NOW - 6 * DAY_MS;
+        let mut latest = earlier.clone();
+        latest.key = "claude:claude2:latest".into();
+        latest.started_at = Some(NOW - 7_200_000);
+        latest.last_activity = NOW - 60_000;
+        // The branch's first PR merged five days ago, and the worktree has moved on to the next.
+        let mut first = pr(PrState::Merged, 0);
+        first.number = 1015;
+        first.head_oid = Some("1111111".into());
+        first.created_at = NOW - 10 * DAY_MS;
+        first.merged_at = Some(NOW - 5 * DAY_MS);
+        let prs = HashMap::from([("northwindai/atlas".to_string(), vec![first, pr(PrState::Open, 0)])]);
+        let (git, visitors) = (HashMap::new(), HashMap::new());
+        let order = vec!["Northwind".to_string()];
+        let board = compose(Inputs {
+            now: NOW,
+            apps: &apps,
+            seeds: &seeds,
+            sessions: vec![earlier.clone(), latest.clone()],
+            visitors: &visitors,
+            git: &git,
+            prs: &prs,
+            project_order: &order,
+            warnings: vec![],
+            loading: false,
+            github_at: None,
+            pinned: &[],
+            github_login: None,
+        });
+        let get = |n: u64| board.prs.iter().find(|p| p.number == n).unwrap();
+        let listed = |key: &str| PrSession { key: key.into(), lane: "/r/atlas-quarry".into() };
+        assert_eq!(get(1037).lanes, vec!["/r/atlas-quarry".to_string()]);
+        assert_eq!(get(1037).sessions, vec![listed(&latest.key)]);
+        assert!(get(1015).lanes.is_empty(), "the worktree holds the newer PR, as the Worktrees view shows");
+        assert_eq!(get(1015).sessions, vec![listed(&earlier.key)], "its sessions still show, under the worktree they ran in");
+    }
+
+    #[test]
+    fn prs_link_the_sessions_that_made_or_worked_in_their_worktree() {
+        let apps = AppNames::default();
+        let scratch = "/private/tmp/claude-501/-r-osprey/abc12345-0000-0000-0000-000000000000/scratchpad/atlas-nx-cache";
+        let seeds = vec![seed("/r/osprey", "main"), seed(scratch, "nx-cache")];
+        let a = acct("claude");
+        let mut maker = claude_session(&a, Some(&reg("idle", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
+        maker.id = "abc12345-0000-0000-0000-000000000000".into();
+        maker.key = format!("claude:claude:{}", maker.id);
+        maker.cwd = "/r/osprey".into();
+        // A session records the branch of the folder it runs in, not the one it made.
+        maker.branch = Some("main".into());
+        let mut helper = maker.clone();
+        helper.id = "helper".into();
+        helper.key = "claude:claude:helper".into();
+        let mut earlier = helper.clone();
+        earlier.id = "earlier".into();
+        earlier.key = "claude:claude:earlier".into();
+        earlier.started_at = Some(NOW - 3 * DAY_MS);
+        earlier.last_activity = NOW - 2 * DAY_MS;
+        let visitors = HashMap::from([(PathBuf::from(scratch), vec![helper.key.clone(), earlier.key.clone()])]);
+        let (git, order) = (HashMap::new(), vec!["Northwind".to_string()]);
+        let board_with = |p: PrRaw| {
+            let prs = HashMap::from([("northwindai/atlas".to_string(), vec![PrRaw { head_ref: "nx-cache".into(), ..p }])]);
+            compose(Inputs {
+                now: NOW,
+                apps: &apps,
+                seeds: &seeds,
+                sessions: vec![maker.clone(), helper.clone(), earlier.clone()],
+                visitors: &visitors,
+                git: &git,
+                prs: &prs,
+                project_order: &order,
+                warnings: vec![],
+                loading: false,
+                github_at: None,
+                pinned: &[],
+                github_login: None,
+            })
+        };
+        let listed = |key: &str| PrSession { key: key.into(), lane: scratch.into() };
+        let board = board_with(pr(PrState::Open, 0));
+        assert_eq!(board.prs[0].lanes, vec![scratch.to_string()]);
+        // The maker, and the session that worked there while the PR was open, listed under the
+        // worktree; not the one that worked there two days before the PR opened.
+        assert_eq!(board.prs[0].sessions, vec![listed(&maker.key), listed(&helper.key)]);
+        // Sessions that started after the PR merged didn't work on it, even the maker.
+        let mut merged = pr(PrState::Merged, 0);
+        merged.merged_at = Some(NOW - 2 * 3_600_000);
+        assert!(board_with(merged).prs[0].sessions.is_empty());
     }
 
     #[test]

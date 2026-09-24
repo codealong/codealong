@@ -1,5 +1,6 @@
-// A PR in the right sidebar: where it stands, the worktree and sessions that worked on it, its
-// description as GitHub renders it, and its changed files with their diffs.
+// A PR in the right sidebar: where it stands, where it lives on this Mac (worktrees and the
+// sessions that worked on it, drawn like the sidebar's tree), its description as GitHub renders
+// it, and its changed files with their diffs.
 //
 // The description is GitHub's own rendering (`bodyHTML`), which GitHub sanitizes; the page's
 // content security policy blocks scripts on top of that. Links in it open in the browser.
@@ -8,8 +9,8 @@ import { useEffect, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import { openUrl, prDetail, reviewInCodex } from '../api';
 import { absolute, ago, middleTruncate } from '../format';
 import type { Lane, PrDetail, PrFile, Session } from '../types';
-import { Button, HarnessChip, Icon, PR_WORD } from './primitives';
-import { ChecksSummary, PrGlyph, prIsOpen, reviewWord, type PrRowItem } from './PrsView';
+import { Button, Icon, LaneGlyph, PR_WORD, StatusGlyph } from './primitives';
+import { ChecksSummary, PrGlyph, prIsOpen, reviewWord, syncWords, type PrPlace, type PrRowItem } from './PrsView';
 
 /** Details already fetched, by PR and last update, so going back to a PR is instant. */
 const cache = new Map<string, PrDetail>();
@@ -60,6 +61,83 @@ function FileRow({ file }: { file: PrFile }) {
 
 const REVIEW_WORD: Record<string, string> = { APPROVED: 'Approved', CHANGES_REQUESTED: 'Requested changes', COMMENTED: 'Commented', DISMISSED: 'Dismissed' };
 
+interface PlaceProps {
+  place: PrPlace;
+  prNumber: number;
+  head: string;
+  now: number;
+  onShowLane: (lane: Lane) => void;
+  onLaneMenu: (lane: Lane) => void;
+  onOpenSession: (lane: Lane, session: Session) => void;
+  onSessionMenu: (lane: Lane, session: Session) => void;
+}
+
+/** What the worktree says next to its name: how it stands against GitHub when it holds the PR,
+ *  otherwise what it has moved on to, when that's known. */
+function PlaceNote({ place: { lane, holds }, prNumber, head }: { place: PrPlace; prNumber: number; head: string }) {
+  if (holds) {
+    const words = syncWords(lane.git);
+    return words ? <span className="ca-tree-note">{words}</span> : null;
+  }
+  if (lane.pr && lane.pr.number !== prNumber) return <span className="ca-tree-note">now on #{lane.pr.number}</span>;
+  if (lane.branch && lane.branch !== head) {
+    return (
+      <span className="ca-tree-note">
+        now on <code className="ca-ic">{lane.branch}</code>
+      </span>
+    );
+  }
+  return null;
+}
+
+/** A worktree and the PR's sessions in it, as the sidebar's tree draws them. */
+function Place({ place, prNumber, head, now, onShowLane, onLaneMenu, onOpenSession, onSessionMenu }: PlaceProps) {
+  const { lane, sessions } = place;
+  return (
+    <div role="treeitem" aria-expanded={sessions.length > 0 ? true : undefined}>
+      <div
+        className="ca-tree-node"
+        onContextMenu={(e) => {
+          e.preventDefault();
+          onLaneMenu(lane);
+        }}
+      >
+        <button type="button" className="ca-tree-label" title={`${lane.path}. Click to show it in Worktrees.`} onClick={() => onShowLane(lane)}>
+          <LaneGlyph lane={lane} />
+          <span className="ca-nav-label">{lane.callsign}</span>
+          <PlaceNote place={place} prNumber={prNumber} head={head} />
+        </button>
+      </div>
+      {sessions.length > 0 && (
+        <div className="ca-tree-children" role="group">
+          {sessions.map((s) => (
+            <button
+              key={s.key}
+              type="button"
+              role="treeitem"
+              className="ca-tree-session"
+              title={`${s.account} · ${s.title}${s.visitor ? ` (${s.visitor})` : ''}. Click to open it where it lives.`}
+              onClick={() => onOpenSession(lane, s)}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                onSessionMenu(lane, s);
+              }}
+            >
+              <StatusGlyph status={s.status} size={10} />
+              <span className="ca-tree-acct">{s.account}</span>
+              <span className="ca-tree-title">{s.title}</span>
+              {s.visitor && <span className="ca-tree-age">{s.visitor}</span>}
+              <span className="ca-tree-age" title={absolute(s.lastActivity)}>
+                {ago(s.lastActivity, now)}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface PrInspectorProps {
   item: PrRowItem;
   now: number;
@@ -67,9 +145,13 @@ interface PrInspectorProps {
   onApprove: () => void;
   onOpenSession: (lane: Lane, session: Session) => void;
   onShowLane: (lane: Lane) => void;
+  /** Right-click on a worktree. */
+  onLaneMenu: (lane: Lane) => void;
+  /** Right-click on a session. */
+  onSessionMenu: (lane: Lane, session: Session) => void;
 }
 
-export function PrInspector({ item, now, approving, onApprove, onOpenSession, onShowLane }: PrInspectorProps) {
+export function PrInspector({ item, now, approving, onApprove, onOpenSession, onShowLane, onLaneMenu, onSessionMenu }: PrInspectorProps) {
   const { pr } = item;
   const cacheKey = `${pr.key}@${pr.updatedAt}`;
   const [state, setState] = useState<{ key: string; detail?: PrDetail; error?: string }>({ key: '' });
@@ -187,23 +269,22 @@ export function PrInspector({ item, now, approving, onApprove, onOpenSession, on
         )}
       </section>
 
-      {(item.lane || item.sessions.length > 0) && (
+      {item.places.length > 0 && (
         <section className="ca-insp-sec">
-          <h4 className="ca-label">Worked on here</h4>
-          {item.lane && (
-            <button type="button" className="ca-prinsp-lane" onClick={() => item.lane && onShowLane(item.lane)} title={item.lane.path}>
-              <Icon name="folder" size={14} />
-              <span>{item.lane.callsign}</span>
-              <span className="ca-meta">has {pr.head} checked out</span>
-            </button>
-          )}
-          <div className="ca-prinsp-sessions">
-            {item.sessions.map(({ lane, session }) => (
-              <div key={session.key} className="ca-prinsp-session">
-                <HarnessChip session={session} onOpen={() => onOpenSession(lane, session)} />
-                <span className="ca-prinsp-session-title">{session.title}</span>
-                <span className="ca-meta">{ago(session.lastActivity, now)}</span>
-              </div>
+          <h4 className="ca-label">On this Mac</h4>
+          <div className="ca-tree" role="tree" aria-label="On this Mac">
+            {item.places.map((place) => (
+              <Place
+                key={place.lane.id}
+                place={place}
+                prNumber={pr.number}
+                head={pr.head}
+                now={now}
+                onShowLane={onShowLane}
+                onLaneMenu={onLaneMenu}
+                onOpenSession={onOpenSession}
+                onSessionMenu={onSessionMenu}
+              />
             ))}
           </div>
         </section>

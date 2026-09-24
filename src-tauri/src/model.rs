@@ -344,8 +344,17 @@ pub struct PrItem {
     pub updated_at: i64,
     pub merged_at: Option<i64>,
     pub closed_at: Option<i64>,
-    /// Worktrees with the PR's branch checked out.
+    /// Worktrees that hold the PR: the ones the Worktrees view shows it on.
     pub lanes: Vec<String>,
-    /// Keys of the sessions that worked on the PR's branch.
-    pub sessions: Vec<String>,
+    /// The sessions that worked on the PR, each with the worktree it's listed under.
+    pub sessions: Vec<PrSession>,
+}
+
+/// A session that worked on a PR.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PrSession {
+    pub key: String,
+    /// The lane it's listed under: its own, or the worktree it made or worked in.
+    pub lane: String,
 }
