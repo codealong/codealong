@@ -70,8 +70,10 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   Code in Ghostty gets them as file mentions (attached when they're 256 KB or less, read
   otherwise, with the images folder added so it doesn't ask), and the apps get their paths.
 - **Usage** for every account in a bar across the top: 5-hour and weekly limits, per-model
-  limits such as Fable, and time to reset. OpenCode (bring your own provider) and Antigravity
-  (quotas in the app) have none to show. Add accounts in Settings › Accounts.
+  limits such as Fable, and time to reset. When they don't all fit, each account shows the
+  limit it's closest to running out of and the rest on hover, and the bar scrolls sideways.
+  OpenCode (bring your own provider) and Antigravity (quotas in the app) have none to show.
+  Add accounts in Settings › Accounts.
 - **Settings** (⌘,, the app menu, or the foot of the sidebar): a form for everything in
   config.toml. General has the folders searched for repos, the terminal and editor, and the
   theme; Accounts adds, edits, removes and signs in accounts; Projects groups repos by pattern;

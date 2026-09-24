@@ -1,0 +1,46 @@
+{
+  "usage": [
+    {
+      "account": "claude",
+      "harness": "claude",
+      "plan": "Max 20x",
+      "readAgo": 1,
+      "meters": [
+        { "key": "session", "label": "5h", "window": "5-hour session", "percent": 38, "resetsIn": 170 },
+        { "key": "week", "label": "Week", "window": "Weekly, all models", "percent": 67, "resetsIn": 1500 },
+        { "key": "model:Fable", "label": "Fable", "window": "Weekly, Fable only", "percent": 96, "resetsIn": 1500, "severity": "critical", "model": "Fable" }
+      ]
+    },
+    {
+      "account": "claude-work",
+      "harness": "claude",
+      "plan": "Max 20x",
+      "readAgo": 1,
+      "meters": [
+        { "key": "session", "label": "5h", "window": "5-hour session", "percent": 6, "resetsIn": 230 },
+        { "key": "week", "label": "Week", "window": "Weekly, all models", "percent": 81, "resetsIn": 7000, "severity": "warning" },
+        { "key": "model:Fable", "label": "Fable", "window": "Weekly, Fable only", "percent": 10, "resetsIn": 7000, "model": "Fable" }
+      ]
+    },
+    {
+      "account": "codex",
+      "harness": "codex",
+      "plan": "Pro",
+      "readAgo": 25,
+      "meters": [
+        { "key": "session", "label": "5h", "window": "5-hour window", "percent": 0 },
+        { "key": "week", "label": "Week", "window": "Weekly", "percent": 57, "resetsIn": 1080 }
+      ]
+    },
+    {
+      "account": "opencode",
+      "harness": "opencode",
+      "error": "OpenCode bills the provider you bring, so it has no plan limits to show."
+    },
+    {
+      "account": "antigravity",
+      "harness": "antigravity",
+      "error": "Antigravity keeps its quotas in the app."
+    }
+  ]
+}

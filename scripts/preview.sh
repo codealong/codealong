@@ -22,6 +22,9 @@
 # place of yours; "$lane:N" and "$session:N" in it stand for the project's Nth most recent
 # worktree and session. Images come from $PREVIEW_IMAGES (default: Codealong's own images).
 #
+# PREVIEW_USAGE=<file> shows the plan usage in it (scripts/preview/usage-sample.json has some) in
+# place of the snapshot's, which has no Claude numbers: reading them rate-limits.
+#
 # Needs a release build of the engine (cargo build --release in src-tauri) for the snapshot.
 # PR details come from $PREVIEW_DIR/pr-detail.json if you put one there:
 #   src-tauri/target/release/codealong --snapshot --pr owner/name 123 > .preview/pr-detail.json
@@ -50,6 +53,10 @@ cp scripts/preview/fake-tauri.js "$dir/"
 rm -f "$dir/todos-fixture.json"
 if [ -n "${PREVIEW_TODOS:-}" ]; then
   cp "$PREVIEW_TODOS" "$dir/todos-fixture.json"
+fi
+rm -f "$dir/usage-fixture.json"
+if [ -n "${PREVIEW_USAGE:-}" ]; then
+  cp "$PREVIEW_USAGE" "$dir/usage-fixture.json"
 fi
 images="${PREVIEW_IMAGES:-$HOME/Library/Application Support/Codealong/images}"
 rm -rf "$dir/images"

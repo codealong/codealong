@@ -3,7 +3,8 @@
 // check can click something and assert what the app would have done. Reads come from files
 // next to the page: board.json (get_board), accounts.json (get_accounts), config.json
 // (get_config), start-options.json (start_options) and, when present, pr-detail.json
-// (pr_detail, for any PR) and todos-fixture.json (todos to show in place of the board's).
+// (pr_detail, for any PR), todos-fixture.json (todos to show in place of the board's) and
+// usage-fixture.json (plan usage, likewise).
 //
 // Native menus aren't drawn, but they're made and "shown" as if they were, so a right-click
 // runs to the end. `window.__menu()` lists the last menu's items as [label, pick] pairs;
@@ -37,14 +38,36 @@ function withFixture(board, fixture) {
   });
   return board;
 }
+// Plan usage from usage-fixture.json (PREVIEW_USAGE in preview.sh) in place of the snapshot's,
+// which has no Claude numbers unless it's taken with --usage. Times in it are minutes from now:
+// `readAgo` on an account, `resetsIn` on a limit.
+function withUsage(board, fixture) {
+  var now = Date.now();
+  board.usage = fixture.usage.map(function (u) {
+    return Object.assign({ plan: null, error: null, needsSignIn: false, loading: false }, u, {
+      asOf: u.readAgo == null ? null : now - u.readAgo * 60e3,
+      meters: (u.meters || []).map(function (m) {
+        return Object.assign({ window: m.label, severity: 'normal', model: null }, m, { resetsAt: m.resetsIn == null ? null : now + m.resetsIn * 60e3 });
+      }),
+    });
+  });
+  return board;
+}
+function optionalJson(file) {
+  return fetch(file).then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; });
+}
 window.__TAURI_INTERNALS__ = {
   invoke: function (cmd, args) {
     window.__calls.push([cmd, args]);
     if (cmd === 'get_board') {
       return Promise.all([
         fetch('./board.json').then(function (r) { return r.json(); }),
-        fetch('./todos-fixture.json').then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; }),
-      ]).then(function (both) { return both[1] ? withFixture(both[0], both[1]) : both[0]; });
+        optionalJson('./todos-fixture.json'),
+        optionalJson('./usage-fixture.json'),
+      ]).then(function (all) {
+        var board = all[1] ? withFixture(all[0], all[1]) : all[0];
+        return all[2] ? withUsage(board, all[2]) : board;
+      });
     }
     var file = { get_accounts: './accounts.json', get_config: './config.json', pr_detail: './pr-detail.json', start_options: './start-options.json' }[cmd];
     if (file) return fetch(file).then(function (r) { return r.ok ? r.json() : Promise.reject(new Error(file + ' is missing')); });
