@@ -29,16 +29,29 @@ fn project_window_label(project: &str) -> String {
     format!("project-{}", slug.trim_matches('-'))
 }
 
-/// Opens a project in a window of its own, or brings that window forward. The window reads its
-/// project from `window.__CODEALONG_PROJECT__`, set before the page loads.
+/// A label for one more window on a project: the project's own if no window has it, else
+/// `project-kestrel:2`, `:3`… A slug has no `:`, so these never take another project's label.
+fn another_window_label(project: &str, taken: impl Fn(&str) -> bool) -> String {
+    let own = project_window_label(project);
+    std::iter::once(own.clone()).chain((2..).map(|n| format!("{own}:{n}"))).find(|l| !taken(l)).unwrap_or(own)
+}
+
+/// Opens a project in a window of its own, or brings that window forward; with `another`
+/// (File › New window), always opens one more. The window reads its project from
+/// `window.__CODEALONG_PROJECT__`, set before the page loads.
 #[tauri::command(async)]
-fn open_project_window(app: tauri::AppHandle, project: String) -> Result<(), String> {
-    let label = project_window_label(&project);
-    if let Some(w) = app.get_webview_window(&label) {
-        let _ = w.unminimize();
-        let _ = w.show();
-        return w.set_focus().map_err(|e| e.to_string());
-    }
+fn open_project_window(app: tauri::AppHandle, window: tauri::WebviewWindow, project: String, another: Option<bool>) -> Result<(), String> {
+    let label = if another.unwrap_or(false) {
+        another_window_label(&project, |l| app.get_webview_window(l).is_some())
+    } else {
+        let label = project_window_label(&project);
+        if let Some(w) = app.get_webview_window(&label) {
+            let _ = w.unminimize();
+            let _ = w.show();
+            return w.set_focus().map_err(|e| e.to_string());
+        }
+        label
+    };
     let script = format!("window.__CODEALONG_PROJECT__ = {};", serde_json::to_string(&project).map_err(|e| e.to_string())?);
     let mut builder = tauri::WebviewWindowBuilder::new(&app, &label, tauri::WebviewUrl::App("index.html".into()))
         .title(format!("Codealong · {project}"))
@@ -48,13 +61,12 @@ fn open_project_window(app: tauri::AppHandle, project: String) -> Result<(), Str
         .hidden_title(true)
         .traffic_light_position(tauri::LogicalPosition::new(18.0, 20.0))
         .initialization_script(&script);
-    // Cascade from the main window so the new one doesn't sit exactly on top of it.
-    if let Some(main) = app.get_webview_window("main") {
-        if let (Ok(pos), Ok(scale)) = (main.outer_position(), main.scale_factor()) {
-            let at = pos.to_logical::<f64>(scale);
-            let step = 28.0 * app.webview_windows().len() as f64;
-            builder = builder.position(at.x + step, at.y + step);
-        }
+    // Cascade from the window you asked in so the new one opens on the same screen but doesn't
+    // sit exactly on top of it. The main window can be closed, which only hides it.
+    if let (Ok(pos), Ok(scale)) = (window.outer_position(), window.scale_factor()) {
+        let at = pos.to_logical::<f64>(scale);
+        let step = 28.0 * app.webview_windows().len() as f64;
+        builder = builder.position(at.x + step, at.y + step);
     }
     builder.build().map(|_| ()).map_err(|e| format!("Couldn't open a window for {project}: {e}"))
 }
@@ -173,6 +185,24 @@ fn save_accounts(engine: State<'_, engine::Handle>, accounts: Vec<config::Accoun
     engine.save_accounts(accounts).map_err(|e| format!("{e:#}"))
 }
 
+/// The settings as parsed and config.toml as written, for Settings.
+#[tauri::command(async)]
+fn get_config() -> config::ConfigView {
+    config::view()
+}
+
+/// Saves every setting from the Settings form, in place in config.toml.
+#[tauri::command(async)]
+fn save_config(engine: State<'_, engine::Handle>, config: config::Config) -> Result<(), String> {
+    engine.save_config(&config).map_err(|e| format!("{e:#}"))
+}
+
+/// Saves config.toml as typed in Settings, once it parses.
+#[tauri::command(async)]
+fn save_config_text(engine: State<'_, engine::Handle>, text: String) -> Result<(), String> {
+    engine.save_config_text(&text).map_err(|e| format!("{e:#}"))
+}
+
 #[tauri::command(async)]
 fn sign_in(engine: State<'_, engine::Handle>, name: String) -> Result<(), String> {
     engine.sign_in(&name).map_err(|e| format!("{e:#}"))
@@ -207,6 +237,72 @@ fn native_theme(theme: config::Theme) -> Option<tauri::Theme> {
         config::Theme::Dark => Some(tauri::Theme::Dark),
     }
 }
+
+/// The board window in front, which a menu command is for. The floating bar never is.
+fn front_window(app: &tauri::AppHandle) -> Option<tauri::WebviewWindow> {
+    app.webview_windows().into_values().find(|w| w.label() != bar::LABEL && w.is_focused().unwrap_or(false))
+}
+
+/// Puts Settings… (⌘,) in the app menu, under About. Choosing it tells the front window to
+/// open Settings; without one, the main window comes back and opens it.
+fn add_settings_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
+    use tauri::menu::{MenuItem, MenuItemKind, PredefinedMenuItem};
+    let Some(menu) = app.menu() else { return Ok(()) };
+    let Some(MenuItemKind::Submenu(first)) = menu.items()?.into_iter().next() else { return Ok(()) };
+    let item = MenuItem::with_id(app, SETTINGS_MENU_ID, "Settings…", true, Some("CmdOrCtrl+,"))?;
+    first.insert(&item, 2)?;
+    first.insert(&PredefinedMenuItem::separator(app)?, 3)?;
+    app.on_menu_event(|app, event| {
+        if event.id().as_ref() != SETTINGS_MENU_ID {
+            return;
+        }
+        // `emit_to`, not a window's `emit`: that one reaches every window.
+        match front_window(app) {
+            Some(w) => {
+                let _ = app.emit_to(w.label(), "settings", ());
+            }
+            None => {
+                let _ = bar::show_main(app, None);
+                let _ = app.emit_to("main", "settings", ());
+            }
+        }
+    });
+    Ok(())
+}
+
+const SETTINGS_MENU_ID: &str = "settings";
+
+/// Puts New window (⌘⇧N) at the top of the File menu. Choosing it asks the front window for
+/// another window on the project it shows; without one (closing the main window only hides
+/// it), the main window comes back. The menu's shortcut works with no window open, where a
+/// page's own keys can't.
+fn add_new_window_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
+    use tauri::menu::{MenuItem, MenuItemKind, PredefinedMenuItem};
+    let Some(menu) = app.menu() else { return Ok(()) };
+    let file = menu.items()?.into_iter().find_map(|item| match item {
+        MenuItemKind::Submenu(s) if s.text().is_ok_and(|t| t == "File") => Some(s),
+        _ => None,
+    });
+    let Some(file) = file else { return Ok(()) };
+    let item = MenuItem::with_id(app, NEW_WINDOW_MENU_ID, "New window", true, Some("CmdOrCtrl+Shift+N"))?;
+    file.prepend_items(&[&item, &PredefinedMenuItem::separator(app)?])?;
+    app.on_menu_event(|app, event| {
+        if event.id().as_ref() != NEW_WINDOW_MENU_ID {
+            return;
+        }
+        match front_window(app) {
+            Some(w) => {
+                let _ = app.emit_to(w.label(), "new-window", ());
+            }
+            None => {
+                let _ = bar::show_main(app, None);
+            }
+        }
+    });
+    Ok(())
+}
+
+const NEW_WINDOW_MENU_ID: &str = "new-window";
 
 /// Every second while the perf log is on, posts to the main thread and logs how late it ran:
 /// the main thread carries every click and pointer move to the windows, so its lag is theirs.
@@ -243,11 +339,17 @@ pub fn run() {
             if let Err(e) = bar::setup(app.handle()) {
                 eprintln!("Couldn't make the floating bar: {e:#}");
             }
+            if let Err(e) = add_settings_menu(app.handle()) {
+                eprintln!("Couldn't add Settings to the menu: {e:#}");
+            }
+            if let Err(e) = add_new_window_menu(app.handle()) {
+                eprintln!("Couldn't add New window to the menu: {e:#}");
+            }
             watch_main_thread(app.handle().clone());
             Ok(())
         })
         .on_window_event(bar::on_window_event)
-        .invoke_handler(tauri::generate_handler![get_board, open_target, open_config, mark_seen, refresh, refresh_usage, set_pinned, set_pinned_worktrees, archive_session, pr_detail, approve_pr, review_in_codex, open_url, get_accounts, save_accounts, sign_in, start_options, start_session, set_theme, open_project_window, fit_bar, show_main, bar_on, set_bar_on, perf_mark])
+        .invoke_handler(tauri::generate_handler![get_board, open_target, open_config, mark_seen, refresh, refresh_usage, set_pinned, set_pinned_worktrees, archive_session, pr_detail, approve_pr, review_in_codex, open_url, get_accounts, save_accounts, get_config, save_config, save_config_text, sign_in, start_options, start_session, set_theme, open_project_window, fit_bar, show_main, bar_on, set_bar_on, perf_mark])
         .build(tauri::generate_context!())
         .expect("error while running Codealong")
         .run(|app, event| {
@@ -261,6 +363,7 @@ pub fn run() {
 
 /// `codealong --snapshot [--table] [--no-github] [--usage] [--accounts]`: one pass over everything,
 /// printed. Claude usage is read only with `--usage`.
+/// `codealong --snapshot --config`: the settings and config.toml, as Settings gets them.
 /// `codealong --snapshot --open <lane id> <target id>`: opens a target the way a click does.
 /// `codealong --snapshot --pr <owner/name> <number>`: a PR's detail, as the PR panel gets it.
 /// `codealong --snapshot --start-options`: where each account can start a session.
@@ -293,6 +396,10 @@ pub fn snapshot_cli(args: &[String]) -> i32 {
         let worktree = args.iter().any(|a| a == "--worktree");
         let plan = start::plan(account, place, &util::expand(folder), &prompt, &start::new_session_id(), model.as_deref(), worktree);
         println!("{}", serde_json::to_string_pretty(&plan).unwrap_or_default());
+        return 0;
+    }
+    if args.iter().any(|a| a == "--config") {
+        println!("{}", serde_json::to_string_pretty(&config::view()).unwrap_or_default());
         return 0;
     }
     if args.iter().any(|a| a == "--accounts") {
@@ -369,5 +476,22 @@ fn print_table(board: &model::Board) {
             pr,
             if lane.parked { " (parked)" } else { "" }
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn another_window_takes_the_first_free_label() {
+        assert_eq!(project_window_label("Kestrel"), "project-kestrel");
+        assert_eq!(project_window_label("All projects"), "project-all-projects");
+        assert_eq!(another_window_label("Kestrel", |_| false), "project-kestrel");
+        let open = ["project-kestrel", "project-kestrel:2"];
+        assert_eq!(another_window_label("Kestrel", |l| open.contains(&l)), "project-kestrel:3");
+        // A project whose own label looks like a second window's still gets its own.
+        assert_eq!(project_window_label("Kestrel 2"), "project-kestrel-2");
+        assert_ne!(another_window_label("Kestrel", |l| l == "project-kestrel"), project_window_label("Kestrel 2"));
     }
 }

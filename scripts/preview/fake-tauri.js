@@ -1,8 +1,9 @@
 // A stand-in for Tauri's IPC, for rendering the UI in a plain browser against a snapshot of
 // your real data. Every command the UI sends is recorded in `window.__calls`, so a scripted
 // check can click something and assert what the app would have done. Reads come from files
-// next to the page: board.json (get_board), accounts.json (get_accounts), start-options.json
-// (start_options) and, when present, pr-detail.json (pr_detail, for any PR).
+// next to the page: board.json (get_board), accounts.json (get_accounts), config.json
+// (get_config), start-options.json (start_options) and, when present, pr-detail.json
+// (pr_detail, for any PR).
 //
 // Native menus aren't drawn, but they're made and "shown" as if they were, so a right-click
 // runs to the end. `window.__menu()` lists the last menu's items as [label, pick] pairs;
@@ -11,7 +12,7 @@ window.__calls = [];
 window.__TAURI_INTERNALS__ = {
   invoke: function (cmd, args) {
     window.__calls.push([cmd, args]);
-    var file = { get_board: './board.json', get_accounts: './accounts.json', pr_detail: './pr-detail.json', start_options: './start-options.json' }[cmd];
+    var file = { get_board: './board.json', get_accounts: './accounts.json', get_config: './config.json', pr_detail: './pr-detail.json', start_options: './start-options.json' }[cmd];
     if (file) return fetch(file).then(function (r) { return r.ok ? r.json() : Promise.reject(new Error(file + ' is missing')); });
     if (cmd === 'plugin:menu|new') return Promise.resolve([window.__calls.length, 'menu-' + window.__calls.length]);
     return Promise.resolve(null);

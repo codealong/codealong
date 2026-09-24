@@ -91,7 +91,12 @@ pub struct Session {
     pub live: bool,
     pub pid: Option<u32>,
     pub title: String,
+    /// Where it was started. Resuming and attaching happen here.
     pub cwd: String,
+    /// Where its latest commands ran and edits landed, oldest first. It decides the session's
+    /// lane (`board::session_seed`), so the UI doesn't need it.
+    #[serde(skip)]
+    pub work: Vec<String>,
     /// The registry name, which Claude Code also puts in the terminal title.
     pub name: Option<String>,
     pub started_at: Option<i64>,

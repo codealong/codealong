@@ -1,7 +1,7 @@
-// Accounts: the Claude Code and Codex accounts Codealong reads. Saving rewrites the
+// Settings › Accounts: the Claude Code and Codex accounts Codealong reads. Saving rewrites the
 // [[accounts]] tables in config.toml and leaves the rest of the file as you wrote it.
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { getAccounts, saveAccounts, signIn } from '../api';
 import type { AccountCfg, AccountInfo, Harness, Usage } from '../types';
 import { Button, Icon, Rich } from './primitives';
@@ -42,23 +42,22 @@ function toCfg(a: AccountCfg): AccountCfg {
   return { name: a.name, harness: a.harness, home: a.home, command: a.command };
 }
 
-interface AccountsDialogProps {
+interface AccountsSectionProps {
   /** The account to scroll to, from a click on its chip. */
   focus: string | null;
   usage: Usage[];
   terminal: string;
   now: number;
-  onClose: () => void;
-  onEditConfig: () => void;
+  /** Something was saved: the settings behind the other sections changed too. */
+  onSaved: () => void;
 }
 
-export function AccountsDialog({ focus, usage, terminal, now, onClose, onEditConfig }: AccountsDialogProps) {
+export function AccountsSection({ focus, usage, terminal, now, onSaved }: AccountsSectionProps) {
   const [accounts, setAccounts] = useState<AccountInfo[] | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const dialogRef = useRef<HTMLDivElement>(null);
 
   const load = () =>
     getAccounts()
@@ -74,17 +73,6 @@ export function AccountsDialog({ focus, usage, terminal, now, onClose, onEditCon
     if (loaded && focus) document.getElementById(`ca-acct-${focus}`)?.scrollIntoView({ block: 'nearest' });
   }, [loaded, focus]);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        onClose();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
-
   // Accounts added in another window, or signed in from the terminal, show up on focus.
   useEffect(() => {
     const onFocus = () => void load();
@@ -98,6 +86,7 @@ export function AccountsDialog({ focus, usage, terminal, now, onClose, onEditCon
     try {
       await saveAccounts(next.map(toCfg));
       await load();
+      onSaved();
       return true;
     } catch (e) {
       setError(String(e));
@@ -216,109 +205,93 @@ export function AccountsDialog({ focus, usage, terminal, now, onClose, onEditCon
   );
 
   return (
-    <div
-      className="ca-scrim"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <div className="ca-dialog" role="dialog" aria-modal="true" aria-labelledby="ca-accounts-title" ref={dialogRef}>
-        <header className="ca-dialog-head">
-          <h2 id="ca-accounts-title">Accounts</h2>
-          <Button variant="ghost" size="sm" icon="x" aria-label="Close" onClick={onClose} />
-        </header>
-        <p className="ca-dialog-lede">Each subscription has its own config folder. Codealong reads sessions and usage from every folder listed here.</p>
-        <div className="ca-dialog-body">
-          {accounts === null && !error && <p className="ca-empty">Reading accounts…</p>}
-          {(accounts ?? []).map((a) => {
-            if (draft?.original === a.name) return <div key={a.name}>{form}</div>;
-            const u = usage.find((x) => x.account === a.name);
-            const status = a.signedIn ? (a.email ?? 'Signed in') : a.folderExists ? 'Not signed in' : 'Not set up';
-            return (
-              <div key={a.name} id={`ca-acct-${a.name}`} className={['ca-ucard', 'ca-acct', focus === a.name && 'is-focus'].filter(Boolean).join(' ')}>
-                <div className="ca-ucard-head">
-                  <span className="ca-ucard-name">{a.name}</span>
-                  <span className="ca-ucard-plan">{[HARNESS_WORD[a.harness], u?.plan].filter(Boolean).join(' · ')}</span>
-                  <span className={['ca-tag', a.signedIn ? 'is-ok' : 'is-attn'].join(' ')}>
-                    {a.signedIn && <Icon name="check" size={12} stroke={2} />}
-                    {status}
-                  </span>
-                </div>
-                {u && u.meters.length > 0 && (
-                  <div className="ca-acct-meters">
-                    {u.meters.map((m) => (
-                      <UsageMeter key={m.key} meter={m} now={now} compact={false} />
-                    ))}
-                  </div>
-                )}
-                {u?.error && !u.needsSignIn && (
-                  <p className="ca-acct-note">
-                    <Rich text={u.error} now={now} />
-                  </p>
-                )}
-                <dl className="ca-kv">
-                  <dt>Folder</dt>
-                  <dd className="ca-code">{a.home}</dd>
-                  <dt>Command</dt>
-                  <dd className="ca-code">{a.command ?? a.name}</dd>
-                </dl>
-                {removing === a.name ? (
-                  <div className="ca-acct-confirm" role="alert">
-                    <span>
-                      Stop reading <strong>{a.name}</strong>? Its sessions leave the board. Nothing is deleted from disk.
-                    </span>
-                    <Button size="sm" disabled={busy} onClick={() => void remove(a.name)}>
-                      Remove
-                    </Button>
-                    <Button variant="ghost" size="sm" onClick={() => setRemoving(null)}>
-                      Cancel
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="ca-acct-actions">
-                    {!a.signedIn && (
-                      <Button size="sm" icon="terminal" onClick={() => startSignIn(a.name)}>
-                        Sign in with {terminal}
-                      </Button>
-                    )}
-                    <Button variant="ghost" size="sm" onClick={() => startEdit(a)}>
-                      Edit
-                    </Button>
-                    <Button variant="ghost" size="sm" onClick={() => setRemoving(a.name)}>
-                      Remove
-                    </Button>
-                    {u && asOfPhrase(u, now) && <span className="ca-acct-asof">{asOfPhrase(u, now)}</span>}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-          {draft && !draft.original && form}
-          {!draft && accounts !== null && (
-            <div className="ca-acct-add">
-              <Button icon="plus" onClick={() => startAdd('claude')}>
-                Add Claude Code account
-              </Button>
-              <Button icon="plus" onClick={() => startAdd('codex')}>
-                Add Codex account
-              </Button>
-            </div>
-          )}
-          {error && (
-            <p className="ca-form-error" role="alert">
-              {error.replace(/^Error: /, '')}
-            </p>
-          )}
-        </div>
-        <footer className="ca-dialog-foot">
-          <button type="button" className="ca-linkbtn" onClick={onEditConfig}>
-            Edit config.toml
-          </button>
-          <Button variant="primary" size="sm" onClick={onClose}>
-            Done
-          </Button>
-        </footer>
+    <>
+      <div className="ca-settings-intro">
+        <h3>Accounts</h3>
+        <p>Each subscription has its own config folder. Codealong reads sessions and usage from every folder listed here.</p>
       </div>
-    </div>
+      <div className="ca-settings-cards">
+      {accounts === null && !error && <p className="ca-empty">Reading accounts…</p>}
+      {(accounts ?? []).map((a) => {
+        if (draft?.original === a.name) return <div key={a.name}>{form}</div>;
+        const u = usage.find((x) => x.account === a.name);
+        const status = a.signedIn ? (a.email ?? 'Signed in') : a.folderExists ? 'Not signed in' : 'Not set up';
+        return (
+          <div key={a.name} id={`ca-acct-${a.name}`} className={['ca-ucard', 'ca-acct', focus === a.name && 'is-focus'].filter(Boolean).join(' ')}>
+            <div className="ca-ucard-head">
+              <span className="ca-ucard-name">{a.name}</span>
+              <span className="ca-ucard-plan">{[HARNESS_WORD[a.harness], u?.plan].filter(Boolean).join(' · ')}</span>
+              <span className={['ca-tag', a.signedIn ? 'is-ok' : 'is-attn'].join(' ')}>
+                {a.signedIn && <Icon name="check" size={12} stroke={2} />}
+                {status}
+              </span>
+            </div>
+            {u && u.meters.length > 0 && (
+              <div className="ca-acct-meters">
+                {u.meters.map((m) => (
+                  <UsageMeter key={m.key} meter={m} now={now} compact={false} />
+                ))}
+              </div>
+            )}
+            {u?.error && !u.needsSignIn && (
+              <p className="ca-acct-note">
+                <Rich text={u.error} now={now} />
+              </p>
+            )}
+            <dl className="ca-kv">
+              <dt>Folder</dt>
+              <dd className="ca-code">{a.home}</dd>
+              <dt>Command</dt>
+              <dd className="ca-code">{a.command ?? a.name}</dd>
+            </dl>
+            {removing === a.name ? (
+              <div className="ca-acct-confirm" role="alert">
+                <span>
+                  Stop reading <strong>{a.name}</strong>? Its sessions leave the board. Nothing is deleted from disk.
+                </span>
+                <Button size="sm" disabled={busy} onClick={() => void remove(a.name)}>
+                  Remove
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => setRemoving(null)}>
+                  Cancel
+                </Button>
+              </div>
+            ) : (
+              <div className="ca-acct-actions">
+                {!a.signedIn && (
+                  <Button size="sm" icon="terminal" onClick={() => startSignIn(a.name)}>
+                    Sign in with {terminal}
+                  </Button>
+                )}
+                <Button variant="ghost" size="sm" onClick={() => startEdit(a)}>
+                  Edit
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => setRemoving(a.name)}>
+                  Remove
+                </Button>
+                {u && asOfPhrase(u, now) && <span className="ca-acct-asof">{asOfPhrase(u, now)}</span>}
+              </div>
+            )}
+          </div>
+        );
+      })}
+      {draft && !draft.original && form}
+      {!draft && accounts !== null && (
+        <div className="ca-acct-add">
+          <Button icon="plus" onClick={() => startAdd('claude')}>
+            Add Claude Code account
+          </Button>
+          <Button icon="plus" onClick={() => startAdd('codex')}>
+            Add Codex account
+          </Button>
+        </div>
+      )}
+      {error && (
+        <p className="ca-form-error" role="alert">
+          {error.replace(/^Error: /, '')}
+        </p>
+      )}
+      </div>
+    </>
   );
 }
