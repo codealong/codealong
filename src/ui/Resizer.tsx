@@ -58,7 +58,8 @@ export function Resizer({ panel, cssVar, onResize }: ResizerProps) {
 
   // A pointer drag, as in PinnedSection. It starts after a few pixels, so a double-click stays a
   // double-click. While it runs the width goes straight onto the grid's style, and the app
-  // hears it once, at the end, instead of re-rendering the board on every move.
+  // hears it once, at the end, instead of re-rendering the board on every move. It also ends
+  // if the window loses focus, so a button let go in another app can't leave it running.
   const startDrag = (e: ReactPointerEvent<HTMLDivElement>) => {
     const handle = e.currentTarget;
     const grid = handle.parentElement;
@@ -71,8 +72,6 @@ export function Resizer({ panel, cssVar, onResize }: ResizerProps) {
     const startX = e.clientX;
     let width: number | null = null;
     const move = (ev: PointerEvent) => {
-      // The button came up where the window couldn't see it, such as in another app.
-      if (ev.buttons === 0) return end();
       const delta = (ev.clientX - startX) * (panel === 'before' ? 1 : -1);
       if (width == null) {
         if (Math.abs(delta) < 3) return;
@@ -87,6 +86,7 @@ export function Resizer({ panel, cssVar, onResize }: ResizerProps) {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', end);
       window.removeEventListener('pointercancel', end);
+      window.removeEventListener('blur', end);
       if (width == null) return;
       document.body.classList.remove('is-resizing');
       setActive(false);
@@ -95,6 +95,7 @@ export function Resizer({ panel, cssVar, onResize }: ResizerProps) {
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', end);
     window.addEventListener('pointercancel', end);
+    window.addEventListener('blur', end);
   };
 
   return (
