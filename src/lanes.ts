@@ -56,12 +56,12 @@ function headlineFor(bay: Bay, status: Status, own: Session[], pr: Pr | null, si
 }
 
 /**
- * The lane with only the sessions active since `cutoff` (and pinned ones). When that changes
- * its status, the bay, glyph and headline are worked out again.
+ * The lane with only the sessions active since `cutoff`. When that changes its status, the bay,
+ * glyph and headline are worked out again.
  */
-export function ageFiltered(lane: Lane, cutoff: number, pinned: Set<string>, since: string): Lane {
+export function ageFiltered(lane: Lane, cutoff: number, since: string): Lane {
   if (cutoff <= 0) return lane;
-  const sessions = lane.sessions.filter((s) => s.lastActivity >= cutoff || pinned.has(s.key));
+  const sessions = lane.sessions.filter((s) => s.lastActivity >= cutoff);
   if (sessions.length === lane.sessions.length) return lane;
   const own = sessions.filter((s) => !s.visitor);
   const [bay, glyph] = bayOf(own, lane.pr);
@@ -72,11 +72,12 @@ export function ageFiltered(lane: Lane, cutoff: number, pinned: Set<string>, sin
 
 /**
  * Worktrees active since `cutoff`, and pinned ones however long they've been quiet, each
- * showing only its sessions active since then (and pinned ones). A cutoff of 0 filters nothing.
+ * showing only its sessions active since then. Pinned sessions don't count here: they belong
+ * to the Sessions view. A cutoff of 0 filters nothing.
  */
-export function filterByAge(lanes: Lane[], cutoff: number, pinnedLanes: Set<string>, pinnedSessions: Set<string>, since: string): Lane[] {
+export function filterByAge(lanes: Lane[], cutoff: number, pinnedLanes: Set<string>, since: string): Lane[] {
   if (cutoff <= 0) return lanes;
-  return lanes.filter((l) => l.lastActivity >= cutoff || pinnedLanes.has(l.id)).map((l) => ageFiltered(l, cutoff, pinnedSessions, since));
+  return lanes.filter((l) => l.lastActivity >= cutoff || pinnedLanes.has(l.id)).map((l) => ageFiltered(l, cutoff, since));
 }
 
 /** Agents go in the agent bays, one row each; worktrees go in the rest, one row each. */

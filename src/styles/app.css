@@ -826,13 +826,6 @@ button {
   color: var(--ink-3);
   font-variant-numeric: tabular-nums;
 }
-.ca-board-head-hint {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font: 400 12px/16px var(--font-sans);
-  color: var(--ink-3);
-}
 .ca-bay-hint {
   display: inline-flex;
   align-items: center;
@@ -905,24 +898,12 @@ button {
 .ca-lane.is-drag-source .ca-grip {
   opacity: 1;
 }
-.ca-tree-pin {
-  display: inline-flex;
-  flex: none;
-  color: var(--ink-3);
-}
 
-/* The age filter, right of the view switch. */
+/* The age filter, at the right of the board head. Each option's tooltip says what it filters. */
 .ca-agefilter {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
   margin-left: auto;
 }
-.ca-agefilter-label {
-  font: 500 12px/16px var(--font-sans);
-  color: var(--ink-3);
-}
-.ca-agefilter .ca-segctl button {
+.ca-agefilter button {
   padding: 0 9px;
   font-variant-numeric: tabular-nums;
 }

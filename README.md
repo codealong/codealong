@@ -17,10 +17,12 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   - **Worktrees**: pinned worktrees first in your order, then agents that need you, are
     working or just finished, then worktrees in review, idle and merged. Stuck agents (busy
     but silent for 30 minutes) show in Needs you with the command they're stuck on. Pin a
-    worktree with `p` or its right-click menu, and reorder pins by dragging or with ⌥↑ ⌥↓; a
-    pinned worktree shows as one row with its agents, and stays whatever the age filter says.
+    worktree with `p` or the right-click menu of the worktree or one of its agents, and
+    reorder pins by dragging or with ⌥↑ ⌥↓; a pinned worktree shows as one row with its
+    agents, and stays whatever the age filter says.
   - **Sessions**: every session, pinned ones first in your order (drag or ⌥↑ ⌥↓), then by
-    day. `p` pins a session here. Archive a session with `a` or its right-click menu; Codex threads are archived in
+    day. Sessions are pinned here, with `p` or the right-click menu, and their pins show only
+    here. Archive a session with `a` or its right-click menu; Codex threads are archived in
     Codex itself.
   - **PRs**: every PR in the project's repos, with the worktree and sessions that worked on
     each. Reviews asked of you come first, with one-click Approve. Selecting a PR shows its
