@@ -32,6 +32,8 @@ The engine binary doubles as a CLI for checking behavior without a window:
 - `codealong --snapshot [--table] [--no-github] [--usage]`: the board as JSON (or a table).
   Claude usage is read only with `--usage`; the usage endpoint rate-limits (see below).
 - `codealong --snapshot --accounts`: configured accounts and sign-in state.
+- `codealong --snapshot --config`: the settings and config.toml as Settings gets them (parsed
+  config, the file's text, its parse error if any, the app profiles).
 - `codealong --snapshot --open <lane id> <target id>`: runs a click's open action.
 - `codealong --snapshot --pr <owner/name> <number>`: a PR's detail, as the PR panel gets it.
 - `codealong --snapshot --start-options`: where each account can start a session.
@@ -45,7 +47,10 @@ Tauri's IPC with `scripts/preview/fake-tauri.js`, and renders in headless Chrome
 in `.preview/<view>.png`, or with `check.js`, whatever the script puts in `document.title`.
 The stub records every command in `window.__calls`, so a check can click, double-click or
 right-click and assert what the app would have sent. `PREVIEW_SCHEME=dark` renders as if macOS
-were in dark mode; check UI changes in both. Native menus, window creation and real opens
+were in dark mode; check UI changes in both. `PREVIEW_INIT=<file.js>` runs a script before the
+screenshot, for a state a click gets to (Settings opens on a synthetic ⌘, keydown), and
+`PREVIEW_NAME` names that screenshot. The app rewrites `document.title` as counts change, so a
+check that runs for a while should set its title on an interval. Native menus, window creation and real opens
 can't be seen this way; say so rather than claiming they were checked.
 `scripts/preview.sh bar` renders the floating bar on a stand-in desktop (`PREVIEW_SIZE=1600,64` for
 a wider screen).

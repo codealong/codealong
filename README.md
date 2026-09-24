@@ -45,7 +45,14 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   Codealong only launches: the session shows on the board like any other, and one started in
   Ghostty is selected as soon as it appears.
 - **Usage** for every account in a bar across the top: 5-hour and weekly limits, per-model
-  limits such as Fable, and time to reset. Add accounts in Accounts (⌘,).
+  limits such as Fable, and time to reset. Add accounts in Settings › Accounts.
+- **Settings** (⌘,, the app menu, or the foot of the sidebar): a form for everything in
+  config.toml. General has the folders searched for repos, the terminal and editor, and the
+  theme; Accounts adds, edits, removes and signs in accounts; Projects groups repos by pattern;
+  Advanced turns the performance log on and shows where the files are. Each change is saved in
+  its place in the file, so comments and order stay as you wrote them. The config.toml section
+  edits the file itself, for anything the form doesn't cover, and says what's wrong when it
+  doesn't parse.
 - **Filters**: the Inbox (Needs you, Working, Your turn, In review, Checks failing), search,
   and how recently things were active (24h, 3d, 7d, all).
 - **Light or dark**: follows macOS unless you pick light or dark with the buttons at the foot
@@ -87,7 +94,7 @@ Tauri's IPC stubbed. CLAUDE.md has the rest of the working notes.
 ## Settings
 
 `~/Library/Application Support/Codealong/config.toml`, written on first run from what
-Codealong finds and watched for changes:
+Codealong finds and watched for changes. Settings (⌘,) edits it as a form, or as text:
 
 ```toml
 scan = ["~/projects"]          # where repos are found, three levels deep
@@ -100,7 +107,7 @@ editor = "cursor"
 theme = "system"               # follows macOS; or "light", "dark"
 
 [debug]
-perf_log = false               # true logs timings to ~/Library/Logs/Codealong/perf.log
+perf_log = false               # true logs timings to ~/Library/Logs/Codealong/perf.log (Settings › Advanced)
 
 [[accounts]]
 name = "claude2"               # what the board shows
@@ -143,6 +150,6 @@ are kept in `state.json` next to it; whether the floating bar is on, and where y
 | `src-tauri/src/claudeapp.rs` | The Claude app's session records (its IDs, what you archived there) |
 | `src-tauri/src/config.rs`, `state.rs` | `config.toml` (accounts saved in place) and `state.json` (seen, pinned, archived) |
 | `src-tauri/src/bar.rs` | The floating bar's window: when it shows (AppKit's occlusion state), where it sits, Window › Floating bar |
-| `src/` | The React UI, built from the design system's components and tokens; `lanes.ts` groups the board and mirrors the engine's status rules for the age filter; `pins.ts` keeps the pinned lists; `bar.ts` and `ui/Bar.tsx` are the floating bar |
+| `src/` | The React UI, built from the design system's components and tokens; `lanes.ts` groups the board and mirrors the engine's status rules for the age filter; `pins.ts` keeps the pinned lists; `bar.ts` and `ui/Bar.tsx` are the floating bar; `ui/SettingsDialog.tsx` and `ui/AccountsSection.tsx` are Settings |
 | `scripts/preview.sh` | Headless preview against real data, for screenshots and scripted checks |
 | `design/tokens.json` | Design tokens; `npm run tokens` regenerates `src/styles/tokens.css` |

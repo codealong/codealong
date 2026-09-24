@@ -120,6 +120,23 @@ impl Handle {
         config::save_accounts(&accounts)
     }
 
+    /// Saves every setting to config.toml, in place. The watcher sees the change and reloads;
+    /// the theme is published at once, as the theme buttons do.
+    pub fn save_config(&self, cfg: &config::Config) -> Result<()> {
+        config::save(cfg)?;
+        let _ = self.tx.send(Msg::SetTheme(cfg.appearance.theme));
+        Ok(())
+    }
+
+    /// Saves config.toml as typed in Settings, once it parses.
+    pub fn save_config_text(&self, text: &str) -> Result<()> {
+        config::save_text(text)?;
+        if let Ok(cfg) = config::parse(text) {
+            let _ = self.tx.send(Msg::SetTheme(cfg.appearance.theme));
+        }
+        Ok(())
+    }
+
     /// Saves the theme to config.toml and publishes it at once, rather than when the watcher
     /// notices the file.
     pub fn set_theme(&self, theme: Theme) -> Result<()> {

@@ -166,6 +166,24 @@ fn save_accounts(engine: State<'_, engine::Handle>, accounts: Vec<config::Accoun
     engine.save_accounts(accounts).map_err(|e| format!("{e:#}"))
 }
 
+/// The settings as parsed and config.toml as written, for Settings.
+#[tauri::command(async)]
+fn get_config() -> config::ConfigView {
+    config::view()
+}
+
+/// Saves every setting from the Settings form, in place in config.toml.
+#[tauri::command(async)]
+fn save_config(engine: State<'_, engine::Handle>, config: config::Config) -> Result<(), String> {
+    engine.save_config(&config).map_err(|e| format!("{e:#}"))
+}
+
+/// Saves config.toml as typed in Settings, once it parses.
+#[tauri::command(async)]
+fn save_config_text(engine: State<'_, engine::Handle>, text: String) -> Result<(), String> {
+    engine.save_config_text(&text).map_err(|e| format!("{e:#}"))
+}
+
 #[tauri::command(async)]
 fn sign_in(engine: State<'_, engine::Handle>, name: String) -> Result<(), String> {
     engine.sign_in(&name).map_err(|e| format!("{e:#}"))
@@ -200,6 +218,37 @@ fn native_theme(theme: config::Theme) -> Option<tauri::Theme> {
         config::Theme::Dark => Some(tauri::Theme::Dark),
     }
 }
+
+/// Puts Settings… (⌘,) in the app menu, under About. Choosing it tells the front window to
+/// open Settings; without one, the main window comes back and opens it.
+fn add_settings_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
+    use tauri::menu::{MenuItem, MenuItemKind, PredefinedMenuItem};
+    let Some(menu) = app.menu() else { return Ok(()) };
+    let Some(MenuItemKind::Submenu(first)) = menu.items()?.into_iter().next() else { return Ok(()) };
+    let item = MenuItem::with_id(app, SETTINGS_MENU_ID, "Settings…", true, Some("CmdOrCtrl+,"))?;
+    first.insert(&item, 2)?;
+    first.insert(&PredefinedMenuItem::separator(app)?, 3)?;
+    app.on_menu_event(|app, event| {
+        if event.id().as_ref() != SETTINGS_MENU_ID {
+            return;
+        }
+        let front = app.webview_windows().into_values().find(|w| w.label() != bar::LABEL && w.is_focused().unwrap_or(false));
+        match front {
+            Some(w) => {
+                let _ = w.emit("settings", ());
+            }
+            None => {
+                let _ = bar::show_main(app, None);
+                if let Some(w) = app.get_webview_window("main") {
+                    let _ = w.emit("settings", ());
+                }
+            }
+        }
+    });
+    Ok(())
+}
+
+const SETTINGS_MENU_ID: &str = "settings";
 
 /// Every second while the perf log is on, posts to the main thread and logs how late it ran:
 /// the main thread carries every click and pointer move to the windows, so its lag is theirs.
@@ -236,11 +285,14 @@ pub fn run() {
             if let Err(e) = bar::setup(app.handle()) {
                 eprintln!("Couldn't make the floating bar: {e:#}");
             }
+            if let Err(e) = add_settings_menu(app.handle()) {
+                eprintln!("Couldn't add Settings to the menu: {e:#}");
+            }
             watch_main_thread(app.handle().clone());
             Ok(())
         })
         .on_window_event(bar::on_window_event)
-        .invoke_handler(tauri::generate_handler![get_board, open_target, open_config, mark_seen, refresh, refresh_usage, set_pinned, set_pinned_worktrees, archive_session, pr_detail, approve_pr, review_in_codex, open_url, get_accounts, save_accounts, sign_in, start_options, start_session, set_theme, open_project_window, fit_bar, show_main, set_bar_on, perf_mark])
+        .invoke_handler(tauri::generate_handler![get_board, open_target, open_config, mark_seen, refresh, refresh_usage, set_pinned, set_pinned_worktrees, archive_session, pr_detail, approve_pr, review_in_codex, open_url, get_accounts, save_accounts, get_config, save_config, save_config_text, sign_in, start_options, start_session, set_theme, open_project_window, fit_bar, show_main, set_bar_on, perf_mark])
         .build(tauri::generate_context!())
         .expect("error while running Codealong")
         .run(|app, event| {
@@ -254,6 +306,7 @@ pub fn run() {
 
 /// `codealong --snapshot [--table] [--no-github] [--usage] [--accounts]`: one pass over everything,
 /// printed. Claude usage is read only with `--usage`.
+/// `codealong --snapshot --config`: the settings and config.toml, as Settings gets them.
 /// `codealong --snapshot --open <lane id> <target id>`: opens a target the way a click does.
 /// `codealong --snapshot --pr <owner/name> <number>`: a PR's detail, as the PR panel gets it.
 /// `codealong --snapshot --start-options`: where each account can start a session.
@@ -285,6 +338,10 @@ pub fn snapshot_cli(args: &[String]) -> i32 {
         let prompt = args.get(i + 4).filter(|p| !p.starts_with("--")).cloned().unwrap_or_default();
         let plan = start::plan(account, place, &util::expand(folder), &prompt, &start::new_session_id(), model.as_deref());
         println!("{}", serde_json::to_string_pretty(&plan).unwrap_or_default());
+        return 0;
+    }
+    if args.iter().any(|a| a == "--config") {
+        println!("{}", serde_json::to_string_pretty(&config::view()).unwrap_or_default());
         return 0;
     }
     if args.iter().any(|a| a == "--accounts") {

@@ -8,12 +8,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { showContextMenu } from './contextMenu';
 import { AGENT_BAY, BAYS, buildBays, failingPr, filterByAge, inboxCounts, lanePromptAt, narrowed, rowItems, worktreeRow, type BoardRow, type Filter, type WorktreeRow } from './lanes';
-import { approvePr, archiveSession, getBoard, markSeen, onBoard, onReveal, openConfig, openProjectWindow, openTarget, openUrl, refresh, refreshUsage, reviewInCodex, setPinned, setPinnedWorktrees, setTheme, signIn, startSession, type Reveal } from './api';
+import { approvePr, archiveSession, getBoard, markSeen, onBoard, onReveal, onSettings, openConfig, openProjectWindow, openTarget, openUrl, refresh, refreshUsage, reviewInCodex, setPinned, setPinnedWorktrees, setTheme, signIn, startSession, type Reveal } from './api';
 import { ago } from './format';
 import { usePerf } from './perf';
 import { usePins } from './pins';
 import type { Bay, Board, Lane, PrItem, Session, StartSpec, Theme } from './types';
-import { AccountsDialog } from './ui/AccountsDialog';
+import { SettingsDialog, type SettingsSection } from './ui/SettingsDialog';
 import { Inspector } from './ui/Inspector';
 import { NewSessionSheet, type SheetDraft } from './ui/NewSessionSheet';
 import { LaneRow } from './ui/LaneRow';
@@ -199,9 +199,18 @@ export function App() {
   const [approving, setApproving] = useState<Set<string>>(() => new Set());
   const [showParked, setShowParked] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
-  // The Accounts dialog, open at one account when a usage chip opened it.
-  const [accountsDialog, setAccountsDialog] = useState<{ focus: string | null } | null>(null);
-  const closeAccounts = useCallback(() => setAccountsDialog(null), []);
+  // Settings, open at a section; at one account when a usage chip opened it. ⌘, comes back to
+  // the section you left, as macOS settings do.
+  const [settings, setSettings] = useState<{ section: SettingsSection; focus: string | null } | null>(null);
+  const lastSection = useRef<SettingsSection>('general');
+  const openSettings = useCallback((section?: SettingsSection, focus: string | null = null) => {
+    setSettings({ section: section ?? lastSection.current, focus });
+  }, []);
+  const closeSettings = useCallback(() => setSettings(null), []);
+  useEffect(() => {
+    if (settings) lastSection.current = settings.section;
+  }, [settings]);
+  useEffect(() => onSettings(() => openSettings()), [openSettings]);
   // The new-session sheet, open at a worktree; after a failed start, with what you wrote and why.
   const [newSession, setNewSession] = useState<{ laneId: string | null; draft?: SheetDraft; error?: string } | null>(null);
   const closeNewSession = useCallback(() => setNewSession(null), []);
@@ -662,11 +671,11 @@ export function App() {
       if (newSession) return;
       if (mod && e.key === ',') {
         e.preventDefault();
-        setAccountsDialog({ focus: null });
+        openSettings();
         return;
       }
-      // The Accounts dialog has the keyboard while it's open.
-      if (accountsDialog) return;
+      // Settings has the keyboard while it's open.
+      if (settings) return;
       if (mod && key === 'k') {
         e.preventDefault();
         searchRef.current?.focus();
@@ -790,7 +799,7 @@ export function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [visible, selected, selectedLane, move, open, openRow, copy, accountsDialog, newSession, view, setView, toggleLanePin, sessionPins, lanePins, pinnedRows, pinnedLaneRows, shownBays, movePinnedSession, movePinnedLane, current, setArchived]);
+  }, [visible, selected, selectedLane, move, open, openRow, copy, settings, openSettings, newSession, view, setView, toggleLanePin, sessionPins, lanePins, pinnedRows, pinnedLaneRows, shownBays, movePinnedSession, movePinnedLane, current, setArchived]);
 
   /** The sheet's Start. The sheet closes and a spinner shows while the harness takes the
    *  session; then it says what's next, and selects the session when it shows up if Codealong
@@ -882,7 +891,7 @@ export function App() {
   return (
     <div className="ca-win ca-win--app">
       <div className="ca-win-bar" data-tauri-drag-region>
-        <ProjectSwitcher projects={projects} current={current} total={totalLanes} actions={actions} onPick={pickProject} onOpenWindow={openWindow} onEditConfig={editConfig} />
+        <ProjectSwitcher projects={projects} current={current} total={totalLanes} actions={actions} onPick={pickProject} onOpenWindow={openWindow} onEditProjects={() => openSettings('projects')} />
         <label className="ca-search">
           <Icon name="search" size={14} />
           <input
@@ -906,7 +915,7 @@ export function App() {
         usage={board?.usage ?? []}
         now={now}
         onRefresh={() => void refreshUsage()}
-        onAccounts={(account) => setAccountsDialog({ focus: account ?? null })}
+        onAccounts={(account) => openSettings('accounts', account ?? null)}
         onSignIn={startSignIn}
       />
       <div
@@ -938,20 +947,27 @@ export function App() {
             />
           </div>
           <div className="ca-side-foot">
-            <button type="button" className="ca-linkbtn ca-side-config" title="~/Library/Application Support/Codealong/config.toml" onClick={editConfig}>
+            <button type="button" className="ca-linkbtn ca-side-config" title="Settings (⌘,)" onClick={() => openSettings()}>
               <Icon name="settings" size={14} />
-              <span>Edit config.toml</span>
+              <span>Settings</span>
             </button>
             <ThemeSwitch theme={theme} onPick={pickTheme} />
           </div>
           {board && board.warnings.length > 0 && (
             <div className="ca-side-warnings" role="status">
-              {board.warnings.map((w) => (
-                <div key={w} className="ca-warning">
-                  <Icon name="alert" size={14} />
-                  <span>{w}</span>
-                </div>
-              ))}
+              {board.warnings.map((w) =>
+                w.includes('config.toml') ? (
+                  <button key={w} type="button" className="ca-warning is-link" title="Open config.toml in Settings" onClick={() => openSettings('file')}>
+                    <Icon name="alert" size={14} />
+                    <span>{w}</span>
+                  </button>
+                ) : (
+                  <div key={w} className="ca-warning">
+                    <Icon name="alert" size={14} />
+                    <span>{w}</span>
+                  </div>
+                ),
+              )}
             </div>
           )}
         </nav>
@@ -1129,14 +1145,18 @@ export function App() {
           />
         )}
       </div>
-      {accountsDialog && (
-        <AccountsDialog
-          focus={accountsDialog.focus}
+      {settings && (
+        <SettingsDialog
+          section={settings.section}
+          onSection={(section) => setSettings({ section, focus: null })}
+          focus={settings.focus}
           usage={board?.usage ?? []}
-          terminal={board?.apps.terminal ?? 'Terminal'}
+          apps={board?.apps ?? { terminal: 'Terminal', editor: 'Editor' }}
+          theme={theme}
+          onPickTheme={pickTheme}
           now={now}
-          onClose={closeAccounts}
-          onEditConfig={editConfig}
+          onClose={closeSettings}
+          onOpenConfig={editConfig}
         />
       )}
       {newSession && (
