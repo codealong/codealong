@@ -48,6 +48,15 @@ right-click and assert what the app would have sent. `PREVIEW_SCHEME=dark` rende
 were in dark mode; check UI changes in both. Native menus, window creation and real opens
 can't be seen this way; say so rather than claiming they were checked.
 
+## Checking performance
+
+`[debug] perf_log = true` in config.toml (no restart needed) makes the engine and every window
+append timings to `~/Library/Logs/Codealong/perf.log`, each line stamped with the time and the
+load average: every publish (size, how many lanes, sessions and PRs changed, compose and emit
+time, file-watcher batches and git runs since the last one), git runs, engine and main-thread
+lag, and per window the push-to-paint time, how long pointer events waited in the queue, and
+event-loop stalls. `perf.rs` has the details. Set it back to false when done; the log grows.
+
 Done means: typecheck and tests pass, the engine builds without warnings, UI changes are
 previewed, and the app is rebuilt and relaunched.
 

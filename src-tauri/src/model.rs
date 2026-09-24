@@ -314,6 +314,8 @@ pub struct Board {
     pub github_login: Option<String>,
     /// Light, dark, or following macOS, from config.toml.
     pub theme: Theme,
+    /// True while `[debug] perf_log` is on, so windows report their timings too.
+    pub perf_log: bool,
 }
 
 /// A PR in the PRs view, with the worktrees and sessions that worked on it.

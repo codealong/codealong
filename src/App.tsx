@@ -4,10 +4,10 @@
 // review, Idle and Merged; Sessions lists every session, pinned ones first in your order; PRs
 // lists the project's pull requests. Keyboard map: the design system's Surfaces page.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
 import { showContextMenu } from './contextMenu';
 import { AGENT_BAY, BAYS, buildBays, failingPr, filterByAge, laneInFilter, type BoardRow, type Filter } from './lanes';
-import { approvePr, archiveSession, getBoard, markSeen, onBoard, openConfig, openProjectWindow, openTarget, openUrl, refresh, refreshUsage, reviewInCodex, setPinned, setPinnedWorktrees, setTheme, signIn, startSession } from './api';
+import { approvePr, archiveSession, getBoard, markSeen, onBoard, openConfig, openProjectWindow, openTarget, openUrl, perfMark, refresh, refreshUsage, reviewInCodex, setPinned, setPinnedWorktrees, setTheme, signIn, startSession } from './api';
 import { ago } from './format';
 import { usePins } from './pins';
 import type { Bay, Board, Lane, PrItem, Session, StartSpec, Theme } from './types';
@@ -169,6 +169,50 @@ function useNow(everyMs: number): number {
   return now;
 }
 
+/** While `[debug] perf_log` is on, reports to the perf log what this window costs: each board
+ *  push from arrival to commit and to paint, pointer events that waited in the queue (the
+ *  wait a hover feels), and event-loop stalls, once a second at most. */
+function usePerf(board: Board | null, arrived: MutableRefObject<number | null>) {
+  const on = board?.perfLog ?? false;
+  useLayoutEffect(() => {
+    const at = arrived.current;
+    if (!on || at == null) return;
+    arrived.current = null;
+    const commit = performance.now() - at;
+    requestAnimationFrame(() =>
+      window.setTimeout(() => {
+        const painted = performance.now() - at;
+        const rows = document.querySelectorAll('[role="option"]').length;
+        perfMark(`push: commit ${commit.toFixed(0)} ms, painted ${painted.toFixed(0)} ms, ${rows} rows`);
+      }, 0),
+    );
+  }, [board, on, arrived]);
+  useEffect(() => {
+    if (!on) return;
+    let worst = 0;
+    let moves = 0;
+    const onMove = (e: PointerEvent) => {
+      worst = Math.max(worst, performance.now() - e.timeStamp);
+      moves++;
+    };
+    window.addEventListener('pointermove', onMove, { capture: true, passive: true });
+    let last = performance.now();
+    const id = window.setInterval(() => {
+      const now = performance.now();
+      const late = now - last - 1000;
+      last = now;
+      if (late > 100) perfMark(`stall: a 1 s timer ran ${late.toFixed(0)} ms late`);
+      if (worst > 50) perfMark(`input: pointer moves waited up to ${worst.toFixed(0)} ms (${moves} in 1 s)`);
+      worst = 0;
+      moves = 0;
+    }, 1000);
+    return () => {
+      window.removeEventListener('pointermove', onMove, { capture: true });
+      window.clearInterval(id);
+    };
+  }, [on]);
+}
+
 function storedProject(): string | null {
   try {
     return window.localStorage.getItem(PROJECT_KEY);
@@ -224,11 +268,16 @@ export function App() {
   const searchRef = useRef<HTMLInputElement>(null);
   const gPending = useRef(false);
 
+  const boardArrived = useRef<number | null>(null);
+  usePerf(board, boardArrived);
   useEffect(() => {
     getBoard()
       .then(setBoard)
       .catch((e: unknown) => setLoadError(String(e)));
-    return onBoard(setBoard);
+    return onBoard((b) => {
+      boardArrived.current = performance.now();
+      setBoard(b);
+    });
   }, []);
 
   useEffect(() => {
