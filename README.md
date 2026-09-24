@@ -132,7 +132,7 @@ are kept in `state.json` next to it; whether the floating bar is on, and where y
 
 | Path | What |
 | --- | --- |
-| `src-tauri/src/engine.rs` | Caches, file watching (FSEvents), git workers, GitHub, publishing the board |
+| `src-tauri/src/engine.rs`, `throttle.rs` | Caches, file watching (FSEvents), git workers (spaced per worktree, results published in batches), GitHub, publishing the board |
 | `src-tauri/src/board.rs` | The model's rules: status, bays, headlines, open targets (pure, tested) |
 | `src-tauri/src/claude.rs`, `codex.rs` | Harness adapters: registries, transcripts, rollouts, incremental tailing |
 | `src-tauri/src/repos.rs`, `git.rs`, `github.rs` | Repo discovery, callsigns, worktrees, git status, PRs |

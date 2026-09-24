@@ -17,6 +17,7 @@ mod procs;
 mod repos;
 mod start;
 mod state;
+mod throttle;
 mod usage;
 mod util;
 
