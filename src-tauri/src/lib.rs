@@ -131,6 +131,17 @@ fn show_main(app: tauri::AppHandle, reveal: Option<serde_json::Value>) -> Result
     bar::show_main(&app, reveal).map_err(|e| e.to_string())
 }
 
+/// Opens a session from the floating bar, then asks macOS to bring its app forward: a click in the
+/// bar doesn't make Codealong the active app.
+#[tauri::command(async)]
+fn open_from_bar(app: tauri::AppHandle, engine: State<'_, engine::Handle>, lane_id: String, target_id: String) -> Result<(), String> {
+    engine.open(&lane_id, &target_id).map_err(|e| e.to_string())?;
+    if let Some(bundle) = bar::target_app(&target_id, &engine.board().apps.terminal_id) {
+        bar::bring_forward(&app, bundle);
+    }
+    Ok(())
+}
+
 /// Whether the floating bar is on.
 #[tauri::command]
 fn bar_on(app: tauri::AppHandle) -> bool {
@@ -426,7 +437,7 @@ pub fn run() {
         })
         .on_window_event(bar::on_window_event)
         .register_asynchronous_uri_scheme_protocol("codealong-image", |_ctx, request, responder| serve_image(request, responder))
-        .invoke_handler(tauri::generate_handler![get_board, open_target, open_config, mark_seen, refresh, refresh_usage, set_pinned, set_pinned_worktrees, archive_session, pr_detail, approve_pr, review_in_codex, open_url, get_accounts, save_accounts, get_config, save_config, save_config_text, sign_in, start_options, start_session, todo_op, save_image, import_image, open_image, expand_images, set_theme, open_project_window, fit_bar, show_main, bar_on, set_bar_on, perf_mark])
+        .invoke_handler(tauri::generate_handler![get_board, open_target, open_config, mark_seen, refresh, refresh_usage, set_pinned, set_pinned_worktrees, archive_session, pr_detail, approve_pr, review_in_codex, open_url, get_accounts, save_accounts, get_config, save_config, save_config_text, sign_in, start_options, start_session, todo_op, save_image, import_image, open_image, expand_images, set_theme, open_project_window, fit_bar, show_main, bar_on, set_bar_on, open_from_bar, perf_mark])
         .build(tauri::generate_context!())
         .expect("error while running Codealong")
         .run(|app, event| {
