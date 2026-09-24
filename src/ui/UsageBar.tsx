@@ -102,7 +102,7 @@ interface UsageBarProps {
   usage: Usage[];
   now: number;
   onRefresh: () => void;
-  /** Opens the Accounts dialog, at one account when given. */
+  /** Opens Settings at Accounts, at one account when given. */
   onAccounts: (account?: string) => void;
   onSignIn: (account: string) => void;
 }
@@ -127,7 +127,7 @@ export function UsageBar({ usage, now, onRefresh, onAccounts, onSignIn }: UsageB
           title={lastRead ? `Claude usage read ${agoPhrase(lastRead, now)}; it refreshes every 2 minutes. Refresh now` : 'Refresh usage'}
           onClick={onRefresh}
         />
-        <Button variant="ghost" size="sm" icon="settings" title="Accounts (⌘,)" onClick={() => onAccounts()}>
+        <Button variant="ghost" size="sm" icon="settings" title="Accounts, in Settings (⌘,)" onClick={() => onAccounts()}>
           Accounts
         </Button>
       </div>

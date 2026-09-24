@@ -178,6 +178,16 @@ body.is-resizing * {
   flex: none;
   margin-top: 1px;
 }
+.ca-warning.is-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.ca-warning.is-link:hover span {
+  text-decoration: underline;
+}
 
 /* Board */
 .ca-board-list:focus {
@@ -741,7 +751,7 @@ body.is-resizing * {
   }
 }
 
-/* ---- Accounts dialog ---- */
+/* ---- Dialogs: Settings, and the sheets built like it ---- */
 .ca-scrim {
   position: fixed;
   inset: 0;
@@ -885,6 +895,184 @@ body.is-resizing * {
   margin: 0;
   font: 500 12px/16px var(--font-sans);
   color: var(--alert);
+}
+
+/* ---- Settings: sections down the left, one pane at a time ---- */
+.ca-settings {
+  width: min(880px, 100%);
+  height: min(680px, calc(100vh - 48px));
+}
+.ca-settings-body {
+  display: grid;
+  grid-template-columns: 172px minmax(0, 1fr);
+  flex: 1;
+  min-height: 0;
+  margin-top: var(--space-3);
+  border-top: 1px solid var(--line);
+}
+.ca-settings-nav {
+  display: grid;
+  align-content: start;
+  gap: 2px;
+  padding: var(--space-3) var(--space-2);
+  border-right: 1px solid var(--line);
+  background: var(--ground);
+}
+.ca-settings-pane {
+  display: grid;
+  align-content: start;
+  gap: var(--space-4);
+  min-height: 0;
+  padding: var(--space-4) var(--space-5) var(--space-5);
+  overflow: auto;
+}
+/* The file pane is a column, so the editor takes what the intro and buttons leave. */
+.ca-settings-pane.is-file {
+  display: flex;
+  flex-direction: column;
+}
+.ca-settings-pane.is-file > * {
+  flex: none;
+}
+.ca-settings-pane.is-file > .ca-settings-editor {
+  flex: 1;
+  min-height: 200px;
+}
+.ca-settings-intro {
+  display: grid;
+  gap: 4px;
+}
+.ca-settings-intro h3 {
+  margin: 0;
+  font: 600 15px/20px var(--font-sans);
+  color: var(--ink);
+}
+.ca-settings-intro p {
+  margin: 0;
+  font: 400 13px/18px var(--font-sans);
+  color: var(--ink-2);
+}
+.ca-settings-fields,
+.ca-settings-cards {
+  display: grid;
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.ca-settings-cards {
+  gap: var(--space-3);
+}
+.ca-settings-fields:disabled,
+.ca-settings-cards:disabled {
+  opacity: 0.5;
+}
+.ca-settings-fields .ca-field input,
+.ca-settings-fields .ca-settings-select {
+  max-width: 440px;
+}
+.ca-settings-select select {
+  font-family: var(--font-mono);
+  font-weight: 400;
+}
+.ca-settings-theme {
+  justify-self: start;
+}
+.ca-settings-broken {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--alert-tint);
+  font: 400 12px/16px var(--font-sans);
+  color: var(--alert);
+}
+.ca-settings-broken > span {
+  flex: 1;
+  min-width: 0;
+}
+.ca-settings-broken .ca-ic {
+  display: block;
+  margin-top: 2px;
+  white-space: pre-wrap;
+  color: var(--ink-2);
+}
+.ca-settings-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 400 12px/16px var(--font-mono);
+  color: var(--ink-3);
+}
+.ca-settings-check {
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 8px;
+  align-items: start;
+}
+.ca-settings-check input {
+  margin: 1px 0 0;
+  accent-color: var(--fill-strong);
+}
+.ca-settings-check small {
+  grid-column: 2;
+}
+.ca-settings-files {
+  grid-template-columns: 150px minmax(0, 1fr);
+}
+.ca-settings-files dd {
+  white-space: normal;
+  word-break: break-all;
+}
+.ca-settings-filehead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.ca-settings-filehead .ca-code {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 400 12px/16px var(--font-mono);
+  color: var(--ink-3);
+}
+.ca-settings-editor {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 360px;
+  padding: 8px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font: 400 12px/18px var(--font-mono);
+  resize: vertical;
+  outline: none;
+  tab-size: 2;
+  -webkit-user-select: text;
+  user-select: text;
+}
+.ca-settings-editor:focus {
+  border-color: var(--focus);
+  box-shadow: var(--shadow-focus);
+}
+.ca-list-field {
+  display: grid;
+  gap: 6px;
+}
+.ca-list-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.ca-list-row input {
+  flex: 1;
+  min-width: 0;
 }
 
 /* Failing PR checks: in the Inbox count and on a worktree in the tree. */

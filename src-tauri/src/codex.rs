@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
-use crate::util::{file_name, mtime_ms, one_line, parse_rfc3339_ms, read_first_line, scan_lines_back};
+use crate::util::{command_dir, file_name, mtime_ms, note_work, one_line, parse_rfc3339_ms, read_first_line, resolve, scan_lines_back};
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ThreadInfo {
@@ -27,6 +27,8 @@ pub struct ThreadInfo {
     pub pending_approval: Option<String>,
     /// The latest rate limits each turn reported, by limit id (`codex`, or a per-model one).
     pub rate_limits: BTreeMap<String, RateLimit>,
+    /// Where its latest commands ran and file changes landed, oldest first.
+    pub work: Vec<String>,
 }
 
 /// A rate-limit report from a `token_count` event.
@@ -332,6 +334,48 @@ fn element<'a>(text: &'a str, tag: &str) -> Option<&'a str> {
     Some(&text[start..end])
 }
 
+/// Where a completed item worked: the folder a command ran in, or a file a change touched.
+fn work_of(item: &Value, thread_cwd: &str) -> Option<String> {
+    match item.get("type").and_then(Value::as_str)? {
+        "CommandExecution" => {
+            let cwd = item.get("cwd").and_then(Value::as_str).map(file_path_of).unwrap_or_else(|| thread_cwd.to_string());
+            // Usually `[shell, "-lc", script]`.
+            let script = match item.get("command")? {
+                Value::Array(parts) => parts.last()?.as_str()?.to_string(),
+                Value::String(s) => s.clone(),
+                _ => return None,
+            };
+            command_dir(&script, &cwd)
+        }
+        "FileChange" => item.get("changes")?.as_object()?.keys().next().map(|p| resolve(thread_cwd, p)),
+        _ => None,
+    }
+}
+
+/// A `file://` URL as a path. Codex records command folders that way.
+fn file_path_of(s: &str) -> String {
+    let Some(rest) = s.strip_prefix("file://") else { return s.to_string() };
+    let b = rest.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        let hex = (b[i] == b'%' && i + 2 < b.len())
+            .then(|| std::str::from_utf8(&b[i + 1..i + 3]).ok().and_then(|h| u8::from_str_radix(h, 16).ok()))
+            .flatten();
+        match hex {
+            Some(byte) => {
+                out.push(byte);
+                i += 3;
+            }
+            None => {
+                out.push(b[i]);
+                i += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
 fn apply_event(info: &mut ThreadInfo, v: &Value) {
     let ts = v.get("timestamp").and_then(Value::as_str).and_then(parse_rfc3339_ms);
     if let Some(t) = ts {
@@ -339,6 +383,11 @@ fn apply_event(info: &mut ThreadInfo, v: &Value) {
     }
     let Some(payload) = event_payload(v) else { return };
     let kind = payload.get("type").and_then(Value::as_str).unwrap_or_default();
+    if kind == "item_completed" {
+        if let Some(p) = payload.get("item").and_then(|item| work_of(item, &info.cwd)) {
+            note_work(&mut info.work, p);
+        }
+    }
     match kind {
         "task_started" => {
             info.turn_open = true;
@@ -470,6 +519,27 @@ mod tests {
         apply_events(&mut info, &format!("{PROMPT_ITEM}\n"));
         assert_eq!(info.last_user_message.as_deref(), Some("Find the forwarded Kestrel issue and diagnose it"));
         assert_eq!(info.last_prompt_at, parse_rfc3339_ms("2026-09-24T18:04:01.042Z"));
+    }
+
+    #[test]
+    fn records_where_commands_ran_and_files_changed() {
+        let mut info = parse_meta(META_USER).unwrap();
+        let tail = r#"{"timestamp":"2026-09-24T18:04:02.000Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"CommandExecution","command":["/bin/zsh","-lc","git status"],"cwd":"file:///Users/me/projects/atlasai/atlas-infra"}}}
+{"timestamp":"2026-09-24T18:04:03.000Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"CommandExecution","command":["/bin/zsh","-lc","cd ../atlas-fix && yarn test"],"cwd":"file:///Users/me/projects/atlasai/atlas-infra"}}}
+{"timestamp":"2026-09-24T18:04:04.000Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"CommandExecution","command":["/bin/zsh","-lc","ls"],"cwd":"file:///Users/me/projects/my%20app"}}}
+{"timestamp":"2026-09-24T18:04:05.000Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"FileChange","changes":{"/Users/me/projects/atlasai/atlas-fix/src/a.ts":{"type":"update"}}}}}
+{"timestamp":"2026-09-24T18:04:06.000Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"Reasoning","id":"r"}}}
+"#;
+        apply_events(&mut info, tail);
+        assert_eq!(
+            info.work,
+            [
+                "/Users/me/projects/atlasai/atlas-infra",
+                "/Users/me/projects/atlasai/atlas-fix",
+                "/Users/me/projects/my app",
+                "/Users/me/projects/atlasai/atlas-fix/src/a.ts",
+            ]
+        );
     }
 
     #[test]

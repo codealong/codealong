@@ -46,7 +46,7 @@ pub fn user_path() -> &'static str {
     static PATH: OnceLock<String> = OnceLock::new();
     PATH.get_or_init(|| {
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
-        let from_shell = run_with_path(&shell, &["-lc", "printf %s \"$PATH\""], None, Duration::from_secs(4), "/usr/bin:/bin")
+        let from_shell = run_with_path(&shell, &["-lc", "printf %s \"$PATH\""], None, Duration::from_secs(4), "/usr/bin:/bin", false)
             .ok()
             .filter(|p| p.contains('/'));
         let h = home();
@@ -86,11 +86,43 @@ pub fn eval_command(cmdline: &str) -> Option<String> {
 /// Runs a program with the user's PATH and returns stdout. Fails on a non-zero exit (with
 /// stderr in the message) or when `timeout` passes.
 pub fn run(program: &str, args: &[&str], cwd: Option<&Path>, timeout: Duration) -> Result<String> {
-    run_with_path(program, args, cwd, timeout, user_path())
+    run_with_path(program, args, cwd, timeout, user_path(), false)
 }
 
-fn run_with_path(program: &str, args: &[&str], cwd: Option<&Path>, timeout: Duration, path: &str) -> Result<String> {
+/// `run`, for work nobody is waiting on: the process gets a lower priority (nice 10), so
+/// under load it yields to the agents and to the windows.
+pub fn run_background(program: &str, args: &[&str], cwd: Option<&Path>, timeout: Duration) -> Result<String> {
+    run_with_path(program, args, cwd, timeout, user_path(), true)
+}
+
+/// Puts the calling thread in macOS's utility class, for the same reason.
+pub fn utility_thread() {
+    #[cfg(target_os = "macos")]
+    {
+        extern "C" {
+            fn pthread_set_qos_class_self_np(qos_class: u32, relative_priority: i32) -> i32;
+        }
+        const QOS_CLASS_UTILITY: u32 = 0x11;
+        // SAFETY: affects the calling thread only, with constant arguments.
+        unsafe {
+            pthread_set_qos_class_self_np(QOS_CLASS_UTILITY, 0);
+        }
+    }
+}
+
+fn run_with_path(program: &str, args: &[&str], cwd: Option<&Path>, timeout: Duration, path: &str, background: bool) -> Result<String> {
     let mut cmd = Command::new(program);
+    if background {
+        use std::os::unix::process::CommandExt;
+        // SAFETY: runs in the child between fork and exec; setpriority is async-signal-safe
+        // and touches only the child.
+        unsafe {
+            cmd.pre_exec(|| {
+                libc::setpriority(libc::PRIO_PROCESS, 0, 10);
+                Ok(())
+            });
+        }
+    }
     cmd.args(args)
         .env("PATH", path)
         .env("GIT_OPTIONAL_LOCKS", "0")

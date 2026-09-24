@@ -209,6 +209,117 @@ pub fn file_name(p: &Path) -> String {
     p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
 }
 
+/// `path` against `base`, with `~` expanded and `.` and `..` folded, without touching the disk:
+/// the folder may be gone by the time a log is read.
+pub fn resolve(base: &str, path: &str) -> String {
+    use std::path::Component;
+    let joined = Path::new(base).join(expand(path));
+    let mut out = PathBuf::new();
+    for c in joined.components() {
+        match c {
+            Component::ParentDir => {
+                out.pop();
+            }
+            Component::CurDir => {}
+            other => out.push(other),
+        }
+    }
+    out.to_string_lossy().into_owned()
+}
+
+/// A command's leading `cd` target as written, and what runs there after `&&`, `;` or a newline.
+fn leading_cd(command: &str) -> Option<(String, Option<&str>)> {
+    let rest = command.trim_start().strip_prefix("cd")?;
+    if !rest.is_empty() && !rest.starts_with([' ', '\t']) {
+        return None;
+    }
+    let rest = rest.trim_start_matches([' ', '\t']);
+    let mut dir = String::new();
+    let mut chars = rest.char_indices().peekable();
+    let mut end = rest.len();
+    while let Some((i, c)) = chars.next() {
+        match c {
+            '"' | '\'' => {
+                for (_, q) in chars.by_ref() {
+                    if q == c {
+                        break;
+                    }
+                    dir.push(q);
+                }
+            }
+            '\\' => {
+                if let Some((_, next)) = chars.next() {
+                    dir.push(next);
+                }
+            }
+            c if c.is_whitespace() || matches!(c, ';' | '&' | '|' | ')') => {
+                end = i;
+                break;
+            }
+            c => dir.push(c),
+        }
+    }
+    let after = rest[end..].trim_start_matches([' ', '\t']);
+    let then = ["&&", ";", "\n"].iter().find_map(|sep| after.strip_prefix(sep)).map(str::trim_start);
+    Some((dir, then))
+}
+
+/// The folder a shell command works in: where its leading `cd` goes, else `base`, the folder
+/// it runs in. None when only the shell could say (`cd -`, `cd $DIR`), or when a command
+/// without a `cd` names a path outside `base`: reading a temp file, looking into another
+/// worktree or running a tool by its path says nothing about working in `base`, and agents
+/// whose shell is reset to where they started run a lot of those between real work elsewhere.
+pub fn command_dir(command: &str, base: &str) -> Option<String> {
+    match leading_cd(command) {
+        None if names_path_outside(command, base) => None,
+        None => Some(base.to_string()),
+        Some((dir, _)) if dir.is_empty() => Some(home().to_string_lossy().into_owned()),
+        Some((dir, _)) if dir == "-" || dir.contains(['$', '`']) => None,
+        Some((dir, _)) => Some(resolve(base, &dir)),
+    }
+}
+
+/// Whether a command names a path outside `base`: one that starts a word and is absolute
+/// (`/…`), in the home folder (`~/…`) or above `base` (`../…`). `/dev/null` and the like
+/// don't count, and neither do URLs, whose slashes don't start a word.
+fn names_path_outside(command: &str, base: &str) -> bool {
+    let starts_word = |prev: Option<char>| prev.map_or(true, |c| c.is_whitespace() || matches!(c, '\'' | '"' | '=' | '('));
+    let ends_word = |c: char| c.is_whitespace() || matches!(c, '\'' | '"' | '`' | ';' | '|' | '&' | ')' | '<' | '>');
+    let mut prev = None;
+    for (i, c) in command.char_indices() {
+        let rest = &command[i..];
+        if starts_word(prev) && (rest.starts_with('/') || rest.starts_with("~/") || rest.starts_with("../")) {
+            let word = &rest[..rest.find(ends_word).unwrap_or(rest.len())];
+            let path = resolve(base, word);
+            if !path.starts_with("/dev/") && !Path::new(&path).starts_with(base) {
+                return true;
+            }
+        }
+        prev = Some(c);
+    }
+    false
+}
+
+/// A command without its leading `cd <folder> &&`, which the row's worktree already says.
+pub fn without_cd(command: &str) -> &str {
+    match leading_cd(command) {
+        Some((_, Some(rest))) if !rest.is_empty() => rest,
+        _ => command,
+    }
+}
+
+/// How many recent places of work a parsed log keeps: enough for `board::session_seed` to
+/// skip the ones outside every worktree.
+const WORK_KEPT: usize = 12;
+
+/// Records where a tool call worked, oldest first.
+pub fn note_work(work: &mut Vec<String>, path: String) {
+    work.push(path);
+    if work.len() > WORK_KEPT {
+        work.remove(0);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -228,5 +339,54 @@ mod tests {
         assert_eq!(truncate("abcdefghij", 5), "abcd…");
         assert_eq!(code("a`b"), "`a'b`");
         assert_eq!(one_line("Implemented in [#1017](https://github.com/x/y/pull/1017) and **merged**", 80), "Implemented in #1017 and merged");
+    }
+
+    #[test]
+    fn finds_where_commands_run() {
+        let base = "/Users/me/projects/app";
+        assert_eq!(command_dir("npm test", base).as_deref(), Some(base));
+        assert_eq!(command_dir("cd /Users/me/projects/app-fix && npm test", base).as_deref(), Some("/Users/me/projects/app-fix"));
+        assert_eq!(command_dir("cd ../app-fix; npm test", base).as_deref(), Some("/Users/me/projects/app-fix"));
+        assert_eq!(command_dir("  cd \"../my app\" && ls", base).as_deref(), Some("/Users/me/projects/my app"));
+        assert_eq!(command_dir("cd ../my\\ app && ls", base).as_deref(), Some("/Users/me/projects/my app"));
+        assert_eq!(command_dir("cd src/ui && ls", base).as_deref(), Some("/Users/me/projects/app/src/ui"));
+        assert_eq!(command_dir("cd ~/projects/x", base), Some(format!("{}/projects/x", home().display())));
+        assert_eq!(command_dir("cd $WORKTREE && ls", base), None);
+        assert_eq!(command_dir("cd - && ls", base), None);
+        assert_eq!(command_dir("cdk deploy", base).as_deref(), Some(base));
+        // Without a `cd`, a command that names a path elsewhere isn't work here.
+        assert_eq!(command_dir("cat /private/tmp/claude-501/x/scratchpad/notes.md", base), None);
+        assert_eq!(command_dir("S=/private/tmp/scratch; ls $S", base), None);
+        assert_eq!(command_dir("git -C /Users/me/projects/app-fix log --oneline", base), None);
+        assert_eq!(command_dir("cat ../app-fix/README.md", base), None);
+        assert_eq!(command_dir("ls ~/.claude/projects", base), None);
+        assert_eq!(command_dir("python3 - <<'EOF'\nopen('/Users/me/projects/app-fix/a.ts')\nEOF", base), None);
+        // Paths inside it, /dev/null, URLs and flags that only look like paths are fine.
+        assert_eq!(command_dir("cat /Users/me/projects/app/src/a.ts", base).as_deref(), Some(base));
+        assert_eq!(command_dir("npm test > /dev/null 2>&1", base).as_deref(), Some(base));
+        assert_eq!(command_dir("curl -s https://example.com/api/x | jq .", base).as_deref(), Some(base));
+        assert_eq!(command_dir("gh pr merge 10 --repo northwindai/osprey --squash", base).as_deref(), Some(base));
+        assert_eq!(command_dir("sed -i '' 's/old/new/' src/a.ts", base).as_deref(), Some(base));
+        // A leading `cd` says where it works, whatever else the command names.
+        assert_eq!(command_dir("cd ../app-fix && cargo build > /tmp/build.log", base).as_deref(), Some("/Users/me/projects/app-fix"));
+    }
+
+    #[test]
+    fn drops_a_leading_cd_from_commands() {
+        assert_eq!(without_cd("cd /Users/me/projects/app-fix && scripts/preview.sh worktrees"), "scripts/preview.sh worktrees");
+        assert_eq!(without_cd("cd ../x; git status"), "git status");
+        assert_eq!(without_cd("cd ../x"), "cd ../x");
+        assert_eq!(without_cd("cd ../x || exit 1"), "cd ../x || exit 1");
+        assert_eq!(without_cd("git status && cd .."), "git status && cd ..");
+    }
+
+    #[test]
+    fn keeps_the_latest_places_of_work() {
+        let mut work = Vec::new();
+        for i in 0..20 {
+            note_work(&mut work, format!("/w/{i}"));
+        }
+        assert_eq!(work.len(), WORK_KEPT);
+        assert_eq!(work.last().map(String::as_str), Some("/w/19"));
     }
 }

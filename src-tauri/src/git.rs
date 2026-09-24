@@ -13,7 +13,7 @@ fn git(path: &Path, args: &[&str]) -> Option<String> {
     let dir = path.to_string_lossy();
     let mut full = vec!["-C", dir.as_ref()];
     full.extend_from_slice(args);
-    procs::run("git", &full, None, TIMEOUT).ok()
+    procs::run_background("git", &full, None, TIMEOUT).ok()
 }
 
 /// Status, last commit, and the diff against the merge base with `base` (e.g. `origin/main`).
@@ -33,12 +33,13 @@ pub fn status(path: &Path, base: Option<&str>) -> GitInfo {
         }
     }
     if let Some(base) = base {
-        if let Some(mb) = git(path, &["merge-base", "HEAD", base]) {
-            if let Some(stat) = git(path, &["diff", "--shortstat", mb.trim()]) {
-                let (added, removed) = parse_shortstat(&stat);
-                info.added = Some(added);
-                info.removed = Some(removed);
-            }
+        // One process finds the merge base and diffs (git 2.30+); older gits take two.
+        let stat = git(path, &["diff", "--shortstat", "--merge-base", base])
+            .or_else(|| git(path, &["merge-base", "HEAD", base]).and_then(|mb| git(path, &["diff", "--shortstat", mb.trim()])));
+        if let Some(stat) = stat {
+            let (added, removed) = parse_shortstat(&stat);
+            info.added = Some(added);
+            info.removed = Some(removed);
         }
     }
     info

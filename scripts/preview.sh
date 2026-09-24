@@ -10,6 +10,9 @@
 #            (use it to click things and read window.__calls). Without it, a screenshot is
 #            written to $PREVIEW_DIR/<view>.png.
 #
+# PREVIEW_INIT=<file.js> runs a script in the page before either, for a screenshot of a state
+# a click gets to (a dialog, say); PREVIEW_NAME names that screenshot instead of the view.
+#
 # PREVIEW_SCHEME=dark renders as if macOS were in dark mode (the screenshot is <view>-dark.png).
 # Under theme = "system" the page follows it; "light" and "dark" in config.toml win over it.
 # The bar renders on a stand-in desktop at $PREVIEW_SIZE (default 1100,64, which is also the
@@ -32,7 +35,7 @@ case "${PREVIEW_SCHEME:-}" in
   dark) scheme="--blink-settings=preferredColorScheme=0" ;;
   light) scheme="--blink-settings=preferredColorScheme=1" ;;
 esac
-shot="$dir/$view${PREVIEW_SCHEME:+-$PREVIEW_SCHEME}.png"
+shot="$dir/${PREVIEW_NAME:-$view}${PREVIEW_SCHEME:+-$PREVIEW_SCHEME}.png"
 bin="src-tauri/target/release/codealong"
 
 npm run build >/dev/null
@@ -43,6 +46,7 @@ cp scripts/preview/fake-tauri.js "$dir/"
 "$bin" --snapshot >"$dir/board.json" 2>/dev/null
 "$bin" --snapshot --accounts >"$dir/accounts.json" 2>/dev/null
 "$bin" --snapshot --start-options >"$dir/start-options.json" 2>/dev/null
+"$bin" --snapshot --config >"$dir/config.json" 2>/dev/null
 
 setup="localStorage.setItem('codealong.view','$view');localStorage.setItem('codealong.age','all');"
 [ -n "$project" ] && setup="$setup localStorage.setItem('codealong.project','$project');"
@@ -53,9 +57,13 @@ if [ "$view" = bar ]; then
   setup="$setup window.__CODEALONG_BAR__=true;Object.defineProperty(screen,'availWidth',{value:${size%%,*}});</script><style>html.is-bar{background:linear-gradient(135deg,rgb(93,111,134),rgb(169,182,196))!important}</style><script>"
 fi
 tail=""
+if [ -n "${PREVIEW_INIT:-}" ]; then
+  cp "$PREVIEW_INIT" "$dir/init.js"
+  tail='<script src="./init.js"></script>'
+fi
 if [ -n "$check" ]; then
   cp "$check" "$dir/check.js"
-  tail='<script src="./check.js"></script>'
+  tail="$tail"'<script src="./check.js"></script>'
 fi
 sed -e "s#<head>#<head><script src=\"./fake-tauri.js\"></script><script>$setup</script>#" -e "s#</body>#$tail</body>#" "$dir/index.html" >"$dir/preview.html"
 
