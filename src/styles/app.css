@@ -1430,3 +1430,8 @@ button {
   justify-content: flex-end;
   gap: 8px;
 }
+
+/* A toast for an open or start still waiting on its app: it can't be dismissed. */
+.ca-toast.is-busy {
+  cursor: default;
+}
