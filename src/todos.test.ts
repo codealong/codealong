@@ -25,6 +25,7 @@ function session(key: string, fields: Partial<Session> = {}): Session {
     startedAt: NOW - 1000,
     statusSince: null,
     lastActivity: NOW - 1000,
+    lastPromptAt: NOW - 1000,
     excerpt: null,
     branch: null,
     archived: false,

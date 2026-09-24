@@ -2,11 +2,11 @@ import { describe, expect, it } from 'vitest';
 import type { Lane, Session } from '../types';
 import { timeSections, type SessionItem } from './SessionsView';
 
-const item = (key: string, lastActivity: number): SessionItem => ({
+const item = (key: string, lastActivity: number, status: Session['status'] = 'idle', lastPromptAt = lastActivity): SessionItem => ({
   kind: 'agent',
   key: `lane::${key}`,
   lane: {} as Lane,
-  session: { key, lastActivity } as Session,
+  session: { key, lastActivity, status, lastPromptAt } as Session,
 });
 
 describe('timeSections', () => {
@@ -20,5 +20,19 @@ describe('timeSections', () => {
       ['Last 7 days', ['week']],
       ['Older', ['old']],
     ]);
+  });
+
+  it('puts the most urgent first within a day, then the one you last sent a prompt', () => {
+    const now = new Date(2026, 8, 24, 15, 0).getTime();
+    const at = (h: number, m = 0) => new Date(2026, 8, 24, h, m).getTime();
+    const rows = [
+      item('idle', at(14, 59)),
+      item('busy-old-ask', at(14, 59), 'working', at(9)),
+      item('busy-new-ask', at(14, 30), 'working', at(14)),
+      item('blocked', at(12), 'needs', at(11)),
+      // Stopped ranks with idle, by your last prompt.
+      item('stopped', at(14, 50), 'stopped', at(14, 50)),
+    ];
+    expect(timeSections(rows, now)[0].rows.map((r) => r.session.key)).toEqual(['blocked', 'busy-new-ask', 'busy-old-ask', 'idle', 'stopped']);
   });
 });

@@ -280,25 +280,29 @@ export function todoInFilter(r: TodoItem, f: string | null): boolean {
   }
 }
 
-/** Which todos each session and each worktree is linked to, for their chips. A worktree counts
- *  its own links and its sessions'. */
-export function todoIndex(todos: Todo[], homes: Map<string, Placed>): { bySession: Map<string, Todo[]>; byLane: Map<string, Todo[]> } {
+/** Which todos each session and each worktree is linked to, for their chips: `byLane` counts a
+ *  worktree's own links and its sessions', `byWorktree` only its own. */
+export function todoIndex(todos: Todo[], homes: Map<string, Placed>): { bySession: Map<string, Todo[]>; byLane: Map<string, Todo[]>; byWorktree: Map<string, Todo[]> } {
   const bySession = new Map<string, Todo[]>();
   const byLane = new Map<string, Todo[]>();
+  const byWorktree = new Map<string, Todo[]>();
   const add = (m: Map<string, Todo[]>, k: string, t: Todo) => {
     const list = m.get(k);
     if (!list) m.set(k, [t]);
     else if (!list.includes(t)) list.push(t);
   };
   for (const t of todos) {
-    for (const w of t.worktrees) add(byLane, w, t);
+    for (const w of t.worktrees) {
+      add(byLane, w, t);
+      add(byWorktree, w, t);
+    }
     for (const k of t.sessions) {
       add(bySession, k, t);
       const home = homes.get(k);
       if (home) add(byLane, home.lane.id, t);
     }
   }
-  return { bySession, byLane };
+  return { bySession, byLane, byWorktree };
 }
 
 /** What a session started from a todo is asked: the title, then the description. */

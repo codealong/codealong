@@ -80,6 +80,47 @@ pub fn read_first_line(p: &Path, max: u64) -> Option<String> {
     }
 }
 
+/// Hands the whole lines in `floor..end` (both at line starts) to `visit`, last first, reading
+/// a megabyte at a time, until `visit` returns true.
+pub fn scan_lines_back(path: &Path, floor: u64, end: u64, mut visit: impl FnMut(&str) -> bool) {
+    use std::io::{Seek, SeekFrom};
+    const CHUNK: u64 = 1024 * 1024;
+    let Ok(mut f) = std::fs::File::open(path) else { return };
+    let mut hi = end;
+    // The start of a line the last read cut off, which the next (earlier) read finishes.
+    let mut carry: Vec<u8> = Vec::new();
+    while hi > floor {
+        let lo = hi.saturating_sub(CHUNK).max(floor);
+        let mut buf = Vec::with_capacity((hi - lo) as usize + carry.len());
+        if f.seek(SeekFrom::Start(lo)).is_err() || (&mut f).take(hi - lo).read_to_end(&mut buf).is_err() {
+            return;
+        }
+        buf.extend_from_slice(&carry);
+        // What comes before the first newline belongs to a line that starts in an earlier chunk.
+        let whole_from = if lo == floor {
+            0
+        } else {
+            match buf.iter().position(|&b| b == b'\n') {
+                Some(i) => i + 1,
+                None => {
+                    carry = buf;
+                    hi = lo;
+                    continue;
+                }
+            }
+        };
+        for line in buf[whole_from..].split(|&b| b == b'\n').rev() {
+            if let Ok(line) = std::str::from_utf8(line) {
+                if !line.is_empty() && visit(line) {
+                    return;
+                }
+            }
+        }
+        carry = buf[..whole_from].to_vec();
+        hi = lo;
+    }
+}
+
 /// Parses RFC 3339 timestamps such as `2026-09-23T14:59:54.748Z` or
 /// `2026-09-23T17:32:03.758417+00:00` into epoch milliseconds.
 pub fn parse_rfc3339_ms(s: &str) -> Option<i64> {

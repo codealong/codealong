@@ -1,6 +1,8 @@
 // The Sessions view: every session in the project, pinned ones first in your order, then the
-// rest by when they were last active. Drag a pinned session, or press ⌥↑ ⌥↓, to reorder.
+// rest by the day they were last active, most urgent first and then the one you last sent a
+// prompt. Drag a pinned session, or press ⌥↑ ⌥↓, to reorder.
 
+import { bySession } from '../lanes';
 import type { Lane, Session, Todo } from '../types';
 import { AgentRow } from './LaneRow';
 import { PinnedSection, type PinDrag } from './PinnedSection';
@@ -19,7 +21,10 @@ export interface SessionSection {
   rows: SessionItem[];
 }
 
-/** Today, Yesterday, Last 7 days and Older, by last activity in local time, newest first. */
+/**
+ * Today, Yesterday, Last 7 days and Older, by last activity in local time. Within a day, most
+ * urgent first, then the one you last sent a prompt: a working session holds its place.
+ */
 export function timeSections(rows: SessionItem[], now: number): SessionSection[] {
   const today = new Date(now);
   today.setHours(0, 0, 0, 0);
@@ -35,7 +40,7 @@ export function timeSections(rows: SessionItem[], now: number): SessionSection[]
     { id: 'week', label: 'Last 7 days', rows: [] },
     { id: 'older', label: 'Older', rows: [] },
   ];
-  for (const r of [...rows].sort((a, b) => b.session.lastActivity - a.session.lastActivity)) {
+  for (const r of [...rows].sort((a, b) => bySession(a.session, b.session))) {
     const t = r.session.lastActivity;
     sections[t >= t0 ? 0 : t >= t1 ? 1 : t >= t6 ? 2 : 3].rows.push(r);
   }

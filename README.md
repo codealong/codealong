@@ -14,14 +14,17 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
 ## What it does
 
 - **Four views** of the current project, each in a window of its own if you like (⌘⇧N):
-  - **Worktrees**: pinned worktrees first in your order, then agents that need you, are
-    working or just finished, then worktrees in review, idle and merged. Stuck agents (busy
-    but silent for 30 minutes) show in Needs you with the command they're stuck on. Pin a
-    worktree with `p` or the right-click menu of the worktree or one of its agents, and
-    reorder pins by dragging or with ⌥↑ ⌥↓; a pinned worktree shows as one row with its
-    agents, and stays whatever the age filter says.
+  - **Worktrees**: each worktree once, pinned ones first in your order, then the rest by
+    status: Needs you, Working, Your turn, In review, Idle, Merged. A worktree's row has a
+    line for each agent that needs you, is working or just finished, which you select, open
+    or right-click as you would a row. Within a status, the worktree and the agent you last
+    sent a prompt come first, so rows hold still while agents work. Stuck agents (busy but
+    silent for 30 minutes) show in Needs you with the command they're stuck on. The Inbox
+    filters narrow each worktree to the agents they're about. Pin a worktree with `p` or the
+    right-click menu of the worktree or one of its agents, and reorder pins by dragging or
+    with ⌥↑ ⌥↓; a pinned worktree stays whatever the age filter says.
   - **Sessions**: every session, pinned ones first in your order (drag or ⌥↑ ⌥↓), then by
-    day. Sessions are pinned here, with `p` or the right-click menu, and their pins show only
+    day, most urgent first and then the one you last sent a prompt. Sessions are pinned here, with `p` or the right-click menu, and their pins show only
     here. Archive a session with `a` or its right-click menu; Codex threads are archived in
     Codex itself.
   - **PRs**: every PR in the project's repos, with the worktree and sessions that worked on
@@ -53,20 +56,27 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   Code in Ghostty gets them as file mentions (attached when they're 256 KB or less, read
   otherwise, with the images folder added so it doesn't ask), and the apps get their paths.
 - **Usage** for every account in a bar across the top: 5-hour and weekly limits, per-model
-  limits such as Fable, and time to reset. Add accounts in Accounts (⌘,).
+  limits such as Fable, and time to reset. Add accounts in Settings › Accounts.
+- **Settings** (⌘,, the app menu, or the foot of the sidebar): a form for everything in
+  config.toml. General has the folders searched for repos, the terminal and editor, and the
+  theme; Accounts adds, edits, removes and signs in accounts; Projects groups repos by pattern;
+  Advanced turns the performance log on and shows where the files are. Each change is saved in
+  its place in the file, so comments and order stay as you wrote them. The config.toml section
+  edits the file itself, for anything the form doesn't cover, and says what's wrong when it
+  doesn't parse.
 - **Filters**: the Inbox (Needs you, Working, Your turn, In review, Checks failing), search,
   and how recently things were active (24h, 3d, 7d, all).
 - **Light or dark**: follows macOS unless you pick light or dark with the buttons at the foot
   of the sidebar. The choice is saved in config.toml, and every window follows it.
 - **Resizable panels**: drag the inner edge of the sidebar or the panel on the right, and
   double-click it to go back to the default width. The PR panel keeps a width of its own.
-- **Floating bar**: whenever no Codealong window can be seen (closed, minimized, on another
-  Space or covered), a small bar floats above everything, on every Space. It has a pill for
-  each agent that needs you, whose turn just ended, or that's running, across all projects,
-  and one for PRs waiting on your review. Click a pill to open the session where it lives;
-  right-click it to show it in Codealong or mark it seen. Pills that don't fit fold into one
-  per group that lists them. The mark brings Codealong back; drag the bar by it. Window ›
-  Floating bar, or the bar's own right-click menu, turns it off.
+- **Floating bar**: a small bar on top of every window, on every Space, with a pill for each
+  agent that needs you, whose turn just ended, or that's running, across all projects, and one
+  for PRs waiting on your review. Click a pill to open the session where it lives; right-click
+  it to show it in Codealong or mark it seen. Pills that don't fit fold into one per group
+  that lists them. The mark brings Codealong forward; drag the bar by it or by its gaps. The
+  capsule button at the top right of the window turns it on and off, as do Window › Floating
+  bar and the bar's own right-click menu.
 - Closing the main window hides it; the Dock icon or the bar brings it back, and ⌘Q quits.
 
 Next: the menu bar icon and popover, and notifications (the design system's *Build plan*).
@@ -95,7 +105,7 @@ Tauri's IPC stubbed. CLAUDE.md has the rest of the working notes.
 ## Settings
 
 `~/Library/Application Support/Codealong/config.toml`, written on first run from what
-Codealong finds and watched for changes:
+Codealong finds and watched for changes. Settings (⌘,) edits it as a form, or as text:
 
 ```toml
 scan = ["~/projects"]          # where repos are found, three levels deep
@@ -108,7 +118,7 @@ editor = "cursor"
 theme = "system"               # follows macOS; or "light", "dark"
 
 [debug]
-perf_log = false               # true logs timings to ~/Library/Logs/Codealong/perf.log
+perf_log = false               # true logs timings to ~/Library/Logs/Codealong/perf.log (Settings › Advanced)
 
 [[accounts]]
 name = "claude2"               # what the board shows
@@ -141,7 +151,7 @@ add to it; the images in them are in `images/`, named by their content.
 
 | Path | What |
 | --- | --- |
-| `src-tauri/src/engine.rs` | Caches, file watching (FSEvents), git workers, GitHub, publishing the board |
+| `src-tauri/src/engine.rs`, `throttle.rs` | Caches, file watching (FSEvents), git workers (spaced per worktree, results published in batches), GitHub, publishing the board |
 | `src-tauri/src/board.rs` | The model's rules: status, bays, headlines, open targets (pure, tested) |
 | `src-tauri/src/claude.rs`, `codex.rs` | Harness adapters: registries, transcripts, rollouts, incremental tailing |
 | `src-tauri/src/repos.rs`, `git.rs`, `github.rs` | Repo discovery, callsigns, worktrees, git status, PRs |
@@ -154,6 +164,6 @@ add to it; the images in them are in `images/`, named by their content.
 | `src-tauri/src/claudeapp.rs` | The Claude app's session records (its IDs, what you archived there) |
 | `src-tauri/src/config.rs`, `state.rs` | `config.toml` (accounts saved in place) and `state.json` (seen, pinned, archived) |
 | `src-tauri/src/bar.rs` | The floating bar's window: when it shows (AppKit's occlusion state), where it sits, Window › Floating bar |
-| `src/` | The React UI, built from the design system's components and tokens; `lanes.ts` groups the board and mirrors the engine's status rules for the age filter; `pins.ts` keeps the pinned lists; `bar.ts` and `ui/Bar.tsx` are the floating bar |
+| `src/` | The React UI, built from the design system's components and tokens; `lanes.ts` groups the board and mirrors the engine's status rules for the age filter; `pins.ts` keeps the pinned lists; `bar.ts` and `ui/Bar.tsx` are the floating bar; `ui/SettingsDialog.tsx` and `ui/AccountsSection.tsx` are Settings |
 | `scripts/preview.sh` | Headless preview against real data, for screenshots and scripted checks |
 | `design/tokens.json` | Design tokens; `npm run tokens` regenerates `src/styles/tokens.css` |

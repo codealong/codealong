@@ -4,7 +4,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import type { AccountCfg, AccountInfo, Board, PrDetail, StartOptions, Started, StartSpec, Theme } from './types';
+import type { AccountCfg, AccountInfo, Board, Config, ConfigView, PrDetail, StartOptions, Started, StartSpec, Theme } from './types';
 import type { TodoOp } from './todos';
 
 export const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -120,6 +120,43 @@ export async function getAccounts(): Promise<AccountInfo[]> {
 export async function saveAccounts(accounts: AccountCfg[]): Promise<void> {
   if (!inTauri) throw new Error('Saving accounts needs the app.');
   await invoke('save_accounts', { accounts });
+}
+
+/** The settings as parsed and config.toml as written. */
+export async function getConfig(): Promise<ConfigView> {
+  if (inTauri) return invoke<ConfigView>('get_config');
+  const res = await fetch('./config.json');
+  if (!res.ok) throw new Error('No config.json next to the page.');
+  return (await res.json()) as ConfigView;
+}
+
+/** Saves every setting, in place in config.toml. */
+export async function saveConfig(config: Config): Promise<void> {
+  if (!inTauri) throw new Error('Saving settings needs the app.');
+  await invoke('save_config', { config });
+}
+
+/** Saves config.toml as typed, once it parses. */
+export async function saveConfigText(text: string): Promise<void> {
+  if (!inTauri) throw new Error('Saving settings needs the app.');
+  await invoke('save_config_text', { text });
+}
+
+/** Calls `cb` when the app menu's Settings… asks this window to open Settings. */
+export function onSettings(cb: () => void): () => void {
+  if (!inTauri) return () => {};
+  let cancelled = false;
+  let unlisten: (() => void) | undefined;
+  void getCurrentWebviewWindow()
+    .listen('settings', () => cb())
+    .then((u) => {
+      if (cancelled) u();
+      else unlisten = u;
+    });
+  return () => {
+    cancelled = true;
+    unlisten?.();
+  };
 }
 
 /** Opens a terminal window that signs the account in. */
@@ -241,8 +278,29 @@ export async function fitBar(width: number, height: number): Promise<void> {
   await invoke('fit_bar', { width, height });
 }
 
+/** Whether the floating bar is on. Outside the app it counts as on. */
+export async function barOn(): Promise<boolean> {
+  if (!inTauri) return true;
+  return (await invoke<boolean | null>('bar_on')) ?? true;
+}
+
 /** Turns the floating bar on or off. */
 export async function setBarOn(on: boolean): Promise<void> {
   if (!inTauri) return;
   await invoke('set_bar_on', { on });
+}
+
+/** Calls `cb` whenever the floating bar is turned on or off, from any window or menu. */
+export function onBarOn(cb: (on: boolean) => void): () => void {
+  if (!inTauri) return () => {};
+  let cancelled = false;
+  let unlisten: (() => void) | undefined;
+  void listen<boolean>('floating-bar', (e) => cb(e.payload)).then((u) => {
+    if (cancelled) u();
+    else unlisten = u;
+  });
+  return () => {
+    cancelled = true;
+    unlisten?.();
+  };
 }

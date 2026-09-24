@@ -32,6 +32,8 @@ The engine binary doubles as a CLI for checking behavior without a window:
 - `codealong --snapshot [--table] [--no-github] [--usage]`: the board as JSON (or a table).
   Claude usage is read only with `--usage`; the usage endpoint rate-limits (see below).
 - `codealong --snapshot --accounts`: configured accounts and sign-in state.
+- `codealong --snapshot --config`: the settings and config.toml as Settings gets them (parsed
+  config, the file's text, its parse error if any, the app profiles).
 - `codealong --snapshot --open <lane id> <target id>`: runs a click's open action.
 - `codealong --snapshot --pr <owner/name> <number>`: a PR's detail, as the PR panel gets it.
 - `codealong --snapshot --start-options`: where each account can start a session.
@@ -45,7 +47,10 @@ Tauri's IPC with `scripts/preview/fake-tauri.js`, and renders in headless Chrome
 in `.preview/<view>.png`, or with `check.js`, whatever the script puts in `document.title`.
 The stub records every command in `window.__calls`, so a check can click, double-click or
 right-click and assert what the app would have sent. `PREVIEW_SCHEME=dark` renders as if macOS
-were in dark mode; check UI changes in both. Native menus, window creation and real opens
+were in dark mode; check UI changes in both. `PREVIEW_INIT=<file.js>` runs a script before the
+screenshot, for a state a click gets to (Settings opens on a synthetic ⌘, keydown), and
+`PREVIEW_NAME` names that screenshot. The app rewrites `document.title` as counts change, so a
+check that runs for a while should set its title on an interval. Native menus, window creation and real opens
 can't be seen this way; say so rather than claiming they were checked.
 `scripts/preview.sh bar` renders the floating bar on a stand-in desktop (`PREVIEW_SIZE=1600,64` for
 a wider screen). `PREVIEW_TODOS=scripts/preview/todos-sample.json scripts/preview.sh todo` shows
@@ -59,6 +64,11 @@ load average: every publish (size, how many lanes, sessions and PRs changed, com
 time, file-watcher batches and git runs since the last one), git runs, engine and main-thread
 lag, and per window the push-to-paint time, how long pointer events waited in the queue, and
 event-loop stalls. `perf.rs` has the details. Set it back to false when done; the log grows.
+
+Git is the engine's biggest cost and starts during load by construction, so `throttle.rs`
+spaces runs in one worktree two seconds apart, publishes git-only changes in two-second
+batches (session changes still go out at once), runs git at nice 10, and puts the engine and
+git threads in the utility QoS class. At launch, worktrees with the latest activity go first.
 
 Done means: typecheck and tests pass, the engine builds without warnings, UI changes are
 previewed, and the app is rebuilt and relaunched.
@@ -75,8 +85,9 @@ previewed, and the app is rebuilt and relaunched.
 
 - The frontend never shells out; every side effect is a Tauri command in `src-tauri/src/lib.rs`.
 - `src-tauri/src/board.rs` holds the model's rules as pure functions with tests; the engine
-  gathers inputs and calls them. `src/lanes.ts` mirrors `bay_of` (and the agent bays'
-  headlines) for the age filter; keep them in step.
+  gathers inputs and calls them. `src/lanes.ts` mirrors `bay_of`, the agent bays'
+  headlines and the order of sessions and lanes (`sort_sessions`, `lane_prompt_at`) for the
+  filters; keep them in step.
 - Styles: tokens in `design/tokens.json` (`npm run tokens`), colors only through CSS
   variables. Dark values apply under `prefers-color-scheme` unless `data-theme` on the root
   says otherwise; it comes from `theme` in config.toml, which also sets the app's native
@@ -101,6 +112,12 @@ Claude Code
   `<session>/subagents/agent-*.jsonl`. `ai-title` lines (the terminal tab's title) and
   `gitBranch` fields repeat through the file, so the tail has the current ones. Claude Code
   deletes transcripts after about 30 days.
+- Prompts you typed, pasted or ran as a slash command are `user` lines with `origin: {kind:
+  "human"}`; background tasks' notifications are `task-notification`, other sessions'
+  messages `peer`, compaction summaries `isCompactSummary`. Older transcripts have no
+  `origin`. `last-prompt` lines repeat the prompt's text but carry no time. One turn often
+  writes more than the last 256KB, so the prompt can be far behind the tail. A message sent
+  while a session is busy doesn't change the registry's `statusUpdatedAt`.
 - Background jobs (`kind: bg`) have no terminal; `<account command> attach <jobId>` opens one.
 - `--session-id <uuid>` gives a new session the ID you choose, so Codealong knows it before it
   appears. The prompt argument goes through the same path as typed text: `@"<path>"` mentions
@@ -189,9 +206,11 @@ Ghostty (1.3, AppleScript dictionary in the app bundle)
 
 Tauri and macOS (from the Tauri 2.11 and tao 0.35 sources)
 
-- Tauri doesn't say whether a window can be seen. `bar.rs` reads `NSWindow.occlusionState`
-  through objc2: visible means some part is on screen, so not minimized, hidden, on another
-  Space or fully covered.
+- Tauri doesn't say whether a window can be seen; AppKit's `NSWindow.occlusionState` (through
+  objc2) does: visible means some part is on screen, so not minimized, hidden, on another Space
+  or fully covered.
+- `always_on_top` is AppKit's floating level, where other apps' panels can cover a window; the
+  floating bar sets the status item level (still under menus) through objc2.
 - A plain JS `listen()` hears events sent to any window with `emit_to`; listen on the window
   (`getCurrentWebviewWindow().listen`) for the ones meant for it.
 - `show()` orders a window front without activating the app; `set_focus()` activates it.

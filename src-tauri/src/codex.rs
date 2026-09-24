@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
-use crate::util::{file_name, mtime_ms, one_line, parse_rfc3339_ms, read_first_line};
+use crate::util::{file_name, mtime_ms, one_line, parse_rfc3339_ms, read_first_line, scan_lines_back};
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ThreadInfo {
@@ -21,6 +21,8 @@ pub struct ThreadInfo {
     pub last_complete_at: Option<i64>,
     pub last_agent_message: Option<String>,
     pub last_user_message: Option<String>,
+    /// When you sent that prompt. It doesn't move while the thread works, so lists sort by it.
+    pub last_prompt_at: Option<i64>,
     /// An approval request with nothing after it.
     pub pending_approval: Option<String>,
     /// The latest rate limits each turn reported, by limit id (`codex`, or a per-model one).
@@ -234,47 +236,6 @@ fn earlier_events(path: &Path, floor: u64, end: u64, later: &[Value]) -> Vec<Val
     found
 }
 
-/// Hands the whole lines in `floor..end` (both at line starts) to `visit`, last first, reading
-/// a megabyte at a time, until `visit` returns true.
-fn scan_lines_back(path: &Path, floor: u64, end: u64, mut visit: impl FnMut(&str) -> bool) {
-    use std::io::{Read, Seek, SeekFrom};
-    const CHUNK: u64 = 1024 * 1024;
-    let Ok(mut f) = std::fs::File::open(path) else { return };
-    let mut hi = end;
-    // The start of a line the last read cut off, which the next (earlier) read finishes.
-    let mut carry: Vec<u8> = Vec::new();
-    while hi > floor {
-        let lo = hi.saturating_sub(CHUNK).max(floor);
-        let mut buf = Vec::with_capacity((hi - lo) as usize + carry.len());
-        if f.seek(SeekFrom::Start(lo)).is_err() || (&mut f).take(hi - lo).read_to_end(&mut buf).is_err() {
-            return;
-        }
-        buf.extend_from_slice(&carry);
-        // What comes before the first newline belongs to a line that starts in an earlier chunk.
-        let whole_from = if lo == floor {
-            0
-        } else {
-            match buf.iter().position(|&b| b == b'\n') {
-                Some(i) => i + 1,
-                None => {
-                    carry = buf;
-                    hi = lo;
-                    continue;
-                }
-            }
-        };
-        for line in buf[whole_from..].split(|&b| b == b'\n').rev() {
-            if let Ok(line) = std::str::from_utf8(line) {
-                if !line.is_empty() && visit(line) {
-                    return;
-                }
-            }
-        }
-        carry = buf[..whole_from].to_vec();
-        hi = lo;
-    }
-}
-
 /// A read that starts mid-file begins with a partial line.
 fn starts_mid_line(text: &str, start: u64) -> bool {
     start > 0 && !text.is_empty() && !text.starts_with('{')
@@ -400,6 +361,7 @@ fn apply_event(info: &mut ThreadInfo, v: &Value) {
         "user_message" => {
             if let Some(m) = prompt_of(payload) {
                 info.last_user_message = Some(one_line(&m, 140));
+                info.last_prompt_at = ts.or(info.last_prompt_at);
             }
         }
         "token_count" => {
@@ -426,6 +388,7 @@ fn apply_event(info: &mut ThreadInfo, v: &Value) {
         _ => {
             if let Some(m) = prompt_of(payload) {
                 info.last_user_message = Some(one_line(&m, 140));
+                info.last_prompt_at = ts.or(info.last_prompt_at);
             }
             info.pending_approval = None;
         }
@@ -477,7 +440,13 @@ mod tests {
         assert_eq!(info.turn_started_at, parse_rfc3339_ms("2026-09-21T16:06:00.000Z"));
         assert_eq!(info.last_agent_message.as_deref(), Some("Done. 4 files changed."));
         assert_eq!(info.last_user_message.as_deref(), Some("Tighten the photo tools"));
+        assert_eq!(info.last_prompt_at, parse_rfc3339_ms("2026-09-21T16:00:00.000Z"));
         assert_eq!(info.branch.as_deref(), Some("main"));
+
+        // An answer to the agent's question isn't a new prompt.
+        let reply = r#"{"timestamp":"2026-09-21T16:07:00.000Z","type":"event_msg","payload":{"type":"user_message","message":"<send_user_message_question_reply>\n[{\"answer\":\"Yes\"}]\n</send_user_message_question_reply>"}}"#;
+        apply_events(&mut info, &format!("{reply}\n"));
+        assert_eq!(info.last_prompt_at, parse_rfc3339_ms("2026-09-21T16:00:00.000Z"));
     }
 
     #[test]
@@ -500,6 +469,7 @@ mod tests {
         let mut info = parse_meta(META_USER).unwrap();
         apply_events(&mut info, &format!("{PROMPT_ITEM}\n"));
         assert_eq!(info.last_user_message.as_deref(), Some("Find the forwarded Kestrel issue and diagnose it"));
+        assert_eq!(info.last_prompt_at, parse_rfc3339_ms("2026-09-24T18:04:01.042Z"));
     }
 
     #[test]
@@ -567,6 +537,7 @@ mod tests {
         assert_eq!(info.last_complete_at, parse_rfc3339_ms("2026-09-24T18:30:00.000Z"));
         assert_eq!(info.last_agent_message.as_deref(), Some("Found it: the webhook retries twice."));
         assert_eq!(info.last_user_message.as_deref(), Some("Find the forwarded Kestrel issue and diagnose it"));
+        assert_eq!(info.last_prompt_at, parse_rfc3339_ms("2026-09-24T18:04:01.042Z"));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

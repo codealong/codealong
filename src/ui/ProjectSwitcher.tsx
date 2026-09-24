@@ -20,10 +20,10 @@ interface ProjectSwitcherProps {
   onPick: (name: string) => void;
   /** Opens a project in a window of its own. */
   onOpenWindow: (name: string) => void;
-  onEditConfig: () => void;
+  onEditProjects: () => void;
 }
 
-export function ProjectSwitcher({ projects, current, total, actions, onPick, onOpenWindow, onEditConfig }: ProjectSwitcherProps) {
+export function ProjectSwitcher({ projects, current, total, actions, onPick, onOpenWindow, onEditProjects }: ProjectSwitcherProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -120,12 +120,12 @@ export function ProjectSwitcher({ projects, current, total, actions, onPick, onO
             className="ca-menu-item"
             onClick={() => {
               setOpen(false);
-              onEditConfig();
+              onEditProjects();
             }}
           >
             <Icon name="settings" size={16} />
             <span className="ca-menu-label">
-              <span>Edit projects in config.toml</span>
+              <span>Edit projects…</span>
             </span>
           </button>
         </div>

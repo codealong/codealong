@@ -22,8 +22,10 @@ use crate::github::{self, PrRaw};
 use crate::launch;
 use crate::model::*;
 use crate::perf;
+use crate::procs;
 use crate::repos::{self, Checkout};
 use crate::state::SeenState;
+use crate::throttle::{self, GitQueue, Verdict};
 use crate::todos::{self, TodoOp, TodoStore};
 use crate::images;
 use crate::usage;
@@ -141,6 +143,23 @@ impl Handle {
         config::save_accounts(&accounts)
     }
 
+    /// Saves every setting to config.toml, in place. The watcher sees the change and reloads;
+    /// the theme is published at once, as the theme buttons do.
+    pub fn save_config(&self, cfg: &config::Config) -> Result<()> {
+        config::save(cfg)?;
+        let _ = self.tx.send(Msg::SetTheme(cfg.appearance.theme));
+        Ok(())
+    }
+
+    /// Saves config.toml as typed in Settings, once it parses.
+    pub fn save_config_text(&self, text: &str) -> Result<()> {
+        config::save_text(text)?;
+        if let Ok(cfg) = config::parse(text) {
+            let _ = self.tx.send(Msg::SetTheme(cfg.appearance.theme));
+        }
+        Ok(())
+    }
+
     /// Saves the theme to config.toml and publishes it at once, rather than when the watcher
     /// notices the file.
     pub fn set_theme(&self, theme: Theme) -> Result<()> {
@@ -235,6 +254,7 @@ pub fn start(emit: impl Fn(&Board) + Send + 'static) -> Handle {
     std::thread::Builder::new()
         .name("codealong-engine".into())
         .spawn(move || {
+            procs::utility_thread();
             let mut engine = Engine::new(Box::new(emit), tx, board);
             engine.full_scan();
             engine.run(rx);
@@ -374,8 +394,8 @@ struct Engine {
     needles: Vec<(PathBuf, String)>,
     git: HashMap<PathBuf, GitInfo>,
     git_jobs: Sender<(PathBuf, Option<String>)>,
-    git_inflight: HashSet<PathBuf>,
-    git_again: HashSet<PathBuf>,
+    /// Which worktrees git runs in, and which wait their turn (see throttle.rs).
+    git_queue: GitQueue<PathBuf>,
     /// Checkout root → default branch ref (`origin/main`).
     default_branch: HashMap<PathBuf, Option<String>>,
     lane_base: HashMap<PathBuf, Option<String>>,
@@ -402,6 +422,8 @@ struct Engine {
     usage_last: Option<Instant>,
     usage_backoff: bool,
     dirty: bool,
+    /// Only git results changed since the last publish; they go out in batches.
+    dirty_git: bool,
     loading: bool,
     last_publish: Option<Instant>,
     perf: perf::Counters,
@@ -434,8 +456,7 @@ impl Engine {
             needles: Vec::new(),
             git: HashMap::new(),
             git_jobs,
-            git_inflight: HashSet::new(),
-            git_again: HashSet::new(),
+            git_queue: GitQueue::default(),
             default_branch: HashMap::new(),
             lane_base: HashMap::new(),
             lane_checkout: HashMap::new(),
@@ -457,6 +478,7 @@ impl Engine {
             usage_backoff: false,
             dirty: false,
             loading: true,
+            dirty_git: false,
             last_publish: None,
             perf: perf::Counters::default(),
         }
@@ -532,7 +554,16 @@ impl Engine {
         let mut last_tick = Instant::now();
         let mut last_heartbeat = Instant::now();
         loop {
-            let wait = if !pending.is_empty() || self.dirty { Duration::from_millis(50) } else { Duration::from_secs(2) };
+            let now = Instant::now();
+            let mut wait = if !pending.is_empty() || self.dirty { Duration::from_millis(50) } else { Duration::from_secs(2) };
+            // Wake for a git batch that's due, or a held git run.
+            if self.dirty_git {
+                let due = self.last_publish.map(|t| (t + throttle::GIT_PUBLISH_EVERY).saturating_duration_since(now)).unwrap_or_default();
+                wait = wait.min(due.max(Duration::from_millis(10)));
+            }
+            if let Some(at) = self.git_queue.next_due() {
+                wait = wait.min(at.saturating_duration_since(now).max(Duration::from_millis(10)));
+            }
             match rx.recv_timeout(wait) {
                 Ok(Msg::Fs(paths)) => {
                     let now = Instant::now();
@@ -624,6 +655,9 @@ impl Engine {
                     self.perf.fs(n, t.elapsed());
                 }
             }
+            for path in self.git_queue.due(Instant::now()) {
+                self.send_git(path);
+            }
             if last_tick.elapsed() >= Duration::from_secs(10) {
                 last_tick = Instant::now();
                 self.tick();
@@ -633,8 +667,7 @@ impl Engine {
                 last_heartbeat = Instant::now();
                 self.dirty = true;
             }
-            let due = self.last_publish.map(|t| t.elapsed() >= PUBLISH_EVERY).unwrap_or(true);
-            if self.dirty && due {
+            if throttle::publish_now(self.dirty, self.dirty_git, self.last_publish.map(|t| t.elapsed()), PUBLISH_EVERY) {
                 self.publish();
             }
         }
@@ -847,30 +880,41 @@ impl Engine {
         self.lane_base.get(path).cloned().flatten()
     }
 
+    /// Asks for git in a worktree. Runs at once when it's been quiet, otherwise once the
+    /// current run ends or the spacing allows, whichever is later.
     fn queue_git(&mut self, path: PathBuf) {
-        if self.git_inflight.contains(&path) {
-            self.git_again.insert(path);
-            return;
+        if let Verdict::Run = self.git_queue.request(path.clone(), Instant::now()) {
+            self.send_git(path);
         }
+    }
+
+    fn send_git(&mut self, path: PathBuf) {
         let base = self.base_for(&path);
-        self.git_inflight.insert(path.clone());
         let _ = self.git_jobs.send((path, base));
     }
 
+    /// Every worktree, the ones with the latest activity first: with many worktrees and a busy
+    /// Mac the first results take a while, and those are the ones on screen.
     fn queue_git_all(&mut self) {
-        for p in self.git_targets() {
+        let activity: HashMap<String, (bool, i64)> = self
+            .board
+            .read()
+            .map(|b| b.lanes.iter().map(|l| (l.id.clone(), (l.sessions.iter().any(|s| s.live), l.sessions.iter().map(|s| s.last_activity).max().unwrap_or(0)))).collect())
+            .unwrap_or_default();
+        let mut targets = self.git_targets();
+        targets.sort_by_key(|p| std::cmp::Reverse(activity.get(&p.to_string_lossy().to_string()).copied().unwrap_or((false, 0))));
+        for p in targets {
             self.queue_git(p);
         }
     }
 
     fn on_git(&mut self, path: PathBuf, info: GitInfo) {
-        self.git_inflight.remove(&path);
         self.perf.git_jobs += 1;
         if self.seeds.iter().any(|s| s.path == path) {
             self.git.insert(path.clone(), info);
-            self.dirty = true;
+            self.dirty_git = true;
         }
-        if self.git_again.remove(&path) {
+        if self.git_queue.done(&path, Instant::now()) {
             self.queue_git(path);
         }
     }
@@ -1490,6 +1534,7 @@ impl Engine {
         }
         let composed = t.elapsed();
         self.dirty = false;
+        self.dirty_git = false;
         let since_last = self.last_publish.map(|t| t.elapsed());
         self.last_publish = Some(Instant::now());
         let hash = board_hash(&board);
@@ -1503,7 +1548,7 @@ impl Engine {
         (self.emit)(&board);
         let emitted = t.elapsed();
         if perf::enabled() {
-            let line = self.perf.publish_line(&board, composed, hashed, emitted, since_last);
+            let line = self.perf.publish_line(&board, composed, hashed, emitted, since_last, self.git_queue.running());
             perf::log(&line);
         }
         if let Ok(mut slot) = self.board.write() {
@@ -1666,7 +1711,9 @@ fn spawn_git_workers(back: Sender<Msg>) -> Sender<(PathBuf, Option<String>)> {
     for i in 0..GIT_WORKERS {
         let rx = rx.clone();
         let back = back.clone();
-        let _ = std::thread::Builder::new().name(format!("codealong-git-{i}")).spawn(move || loop {
+        let _ = std::thread::Builder::new().name(format!("codealong-git-{i}")).spawn(move || {
+            procs::utility_thread();
+            loop {
             let job = match rx.lock() {
                 Ok(r) => r.recv(),
                 Err(_) => return,
@@ -1679,6 +1726,7 @@ fn spawn_git_workers(back: Sender<Msg>) -> Sender<(PathBuf, Option<String>)> {
             }
             if back.send(Msg::GitDone(path, info)).is_err() {
                 return;
+            }
             }
         });
     }
