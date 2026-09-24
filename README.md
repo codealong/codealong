@@ -36,10 +36,13 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
 - **Open where it lives**: the session's own Ghostty tab, the Claude app session, the Codex
   thread, a background job attached in a new window, or the folder in Cursor.
 - **New session** (⌘N, the title bar, the inspector, or a worktree's or session's right-click
-  menu): pick the worktree (pinned ones first), the account, and where it runs. Ghostty starts
-  Claude Code on your prompt, on the account's default model or one you pick (Fable, Opus,
-  Sonnet, Haiku, 1M context, Opus Plan Mode); the Claude app and Codex open a new session with
-  the prompt filled in, and you send it there (their own model and worktree choices included). Auto picks between accounts of
+  menu): pick the worktree (it starts at whatever's selected: a worktree, a session's, a PR's,
+  or for a PR with none here its repo's main checkout; pinned ones first), the account, and
+  where it runs. Ghostty starts Claude Code on your prompt, on the account's default model or
+  one you pick (Fable, Opus, Sonnet, Haiku, 1M context, Opus Plan Mode), and with New
+  worktree Claude Code makes a fresh worktree for it (`claude --worktree`: its folder, branch
+  and base are Claude Code's choice). The Claude app and Codex open a new session with the
+  prompt filled in, and you send it there (their own model and worktree choices included). Auto picks between accounts of
   one harness: first the one whose weekly limit resets soonest within 48 hours, so its room
   isn't lost, else the one with the most room; accounts at 90% of a limit are passed over.
   Codealong only launches: the session shows on the board like any other, and one started in

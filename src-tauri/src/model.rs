@@ -49,6 +49,7 @@ pub enum Origin {
     Main,
     Script,
     Codex,
+    /// In a `.claude/worktrees/` folder: made by `claude -w` or the Claude app.
     ClaudeApp,
     /// Inside a Claude session's scratchpad: made by that session.
     Scratchpad,
