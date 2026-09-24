@@ -35,8 +35,8 @@ The engine binary doubles as a CLI for checking behavior without a window:
 - `codealong --snapshot --open <lane id> <target id>`: runs a click's open action.
 - `codealong --snapshot --pr <owner/name> <number>`: a PR's detail, as the PR panel gets it.
 - `codealong --snapshot --start-options`: where each account can start a session.
-- `codealong --snapshot --start-plan <folder> <account> <terminal|claude-app|codex-app> [prompt]`:
-  the command or link starting a session would use, without starting one.
+- `codealong --snapshot --start-plan <folder> <account> <terminal|claude-app|codex-app> [prompt]
+  [--model <model>]`: the command or link starting a session would use, without starting one.
 
 ## Checking UI changes
 
@@ -94,6 +94,11 @@ Claude Code
   appears. The prompt is a positional argument parsed like any other: one that starts with `-`
   reads as an option, and one that is only a subcommand's name (`update`, `doctor`) runs that
   command. `start.rs` pads such prompts with a space.
+- `--model` takes a full name or an alias for the newest model of a family: `sonnet`, `opus`,
+  `haiku`, `fable`, their `[1m]` (1M context) variants, `best` and `opusplan` (2.1.282's list).
+  Quote it when typing it: zsh reads `fable[1m]` as a file pattern ("no matches found"). Without
+  it a session starts on `model` from the account's `settings.json` (a repo's
+  `.claude/settings.json` can override that).
 - Also available, not used yet: `--bg` starts a session in the background and prints the ID
   `attach` takes; `-w/--worktree [name]` makes a worktree under `<repo>/.claude/worktrees/`.
 - Sign-in lives in the login keychain: service `Claude Code-credentials` for `~/.claude`,

@@ -125,7 +125,7 @@ export async function signIn(name: string): Promise<void> {
 export async function startOptions(): Promise<StartOptions> {
   if (inTauri) return invoke<StartOptions>('start_options');
   const res = await fetch('./start-options.json');
-  return res.ok ? ((await res.json()) as StartOptions) : { accounts: [], codexProjects: [] };
+  return res.ok ? ((await res.json()) as StartOptions) : { accounts: [], codexProjects: [], claudeModels: [] };
 }
 
 /** Starts a session in a worktree: in the terminal, or in the Claude or Codex app. */

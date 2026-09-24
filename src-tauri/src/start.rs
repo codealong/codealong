@@ -17,6 +17,21 @@ use crate::util::{home, tilde};
 /// types stays short and needs no quoting, whatever the prompt holds.
 pub const PROMPT_VAR: &str = "CODEALONG_PROMPT";
 
+/// The models a Claude Code start can ask for, as `--model` takes them: aliases for the newest
+/// model of each family, the way Claude Code's own `/model` picker offers them (2.1.282 knows
+/// sonnet, opus, haiku, fable, their `[1m]` variants, best and opusplan). The apps' new-session
+/// links take no model; you pick it in the app.
+const CLAUDE_MODELS: [(&str, &str); 8] = [
+    ("fable", "Fable"),
+    ("fable[1m]", "Fable (1M context)"),
+    ("opus", "Opus"),
+    ("opus[1m]", "Opus (1M context)"),
+    ("sonnet", "Sonnet"),
+    ("sonnet[1m]", "Sonnet (1M context)"),
+    ("haiku", "Haiku"),
+    ("opusplan", "Opus Plan Mode: Opus to plan, Sonnet to build"),
+];
+
 /// Where a new session runs.
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
 #[serde(rename_all = "kebab-case")]
@@ -27,6 +42,14 @@ pub enum Place {
     ClaudeApp,
     /// A new thread in the Codex app, with the folder and prompt filled in.
     CodexApp,
+}
+
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelOption {
+    /// What `--model` gets.
+    pub id: String,
+    pub label: String,
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
@@ -47,6 +70,8 @@ pub struct StartAccount {
     pub places: Vec<PlaceOption>,
     /// Why there's nowhere, when `places` is empty.
     pub unavailable: Option<String>,
+    /// The model a session starts on without `--model`: the account's settings.json `model`.
+    pub default_model: Option<String>,
 }
 
 #[derive(Serialize, Clone, Debug, Default, PartialEq)]
@@ -56,6 +81,8 @@ pub struct StartOptions {
     pub accounts: Vec<StartAccount>,
     /// Folders the Codex app has as projects. A thread started anywhere else adds one.
     pub codex_projects: Vec<String>,
+    /// The models a Claude Code start in the terminal can ask for.
+    pub claude_models: Vec<ModelOption>,
 }
 
 /// What the sheet asks for.
@@ -67,6 +94,9 @@ pub struct StartSpec {
     pub place: Place,
     #[serde(default)]
     pub prompt: String,
+    /// `--model` for a terminal start; None starts on the account's default.
+    #[serde(default)]
+    pub model: Option<String>,
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
@@ -101,8 +131,8 @@ fn harness_of(a: &AccountCfg) -> Harness {
 
 /// Where each account can start a session. The Claude app and the Codex app each run one
 /// account, the one in the default folder (`~/.claude`, `~/.codex`); the terminal runs any
-/// Claude account through its command.
-pub fn options(accounts: &[AccountCfg], terminal: &str, codex_projects: Vec<String>, home: &Path) -> StartOptions {
+/// Claude account through its command. `default_model` reads an account's default model.
+pub fn options(accounts: &[AccountCfg], terminal: &str, codex_projects: Vec<String>, home: &Path, default_model: impl Fn(&AccountCfg) -> Option<String>) -> StartOptions {
     let accounts = accounts
         .iter()
         .map(|a| {
@@ -124,27 +154,46 @@ pub fn options(accounts: &[AccountCfg], terminal: &str, codex_projects: Vec<Stri
                     }
                 }
             }
-            StartAccount { name: a.name.clone(), harness, places, unavailable }
+            let default_model = if harness == Harness::Claude { default_model(a) } else { None };
+            StartAccount { name: a.name.clone(), harness, places, unavailable, default_model }
         })
         .collect();
-    StartOptions { accounts, codex_projects }
+    let claude_models = CLAUDE_MODELS.iter().map(|(id, label)| ModelOption { id: id.to_string(), label: label.to_string() }).collect();
+    StartOptions { accounts, codex_projects, claude_models }
+}
+
+/// The `model` in a Claude account's settings.json, which Claude Code starts on without
+/// `--model`. A repo's own `.claude/settings.json` can still override it.
+fn claude_default_model(a: &AccountCfg) -> Option<String> {
+    let bytes = std::fs::read(a.home_path().join("settings.json")).ok()?;
+    let v: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    v.get("model").and_then(serde_json::Value::as_str).map(str::trim).filter(|m| !m.is_empty()).map(str::to_string)
+}
+
+/// A model name safe to type into the shell inside single quotes: letters, digits and `-._:[]`.
+/// The quotes matter: zsh would read `fable[1m]` as a file pattern.
+pub fn valid_model(m: &str) -> bool {
+    !m.is_empty() && m.len() <= 80 && m.chars().all(|c| c.is_ascii_alphanumeric() || "-._:[]".contains(c))
 }
 
 /// The sheet's options for the accounts in `cfg`.
 pub fn options_for(cfg: &Config) -> StartOptions {
     let codex_projects = cfg.accounts.iter().filter(|a| a.harness == "codex").flat_map(|a| codex::app_project_roots(&a.home_path())).collect();
-    options(&cfg.accounts, &launch::terminal_name(&cfg.apps.terminal), codex_projects, &home())
+    options(&cfg.accounts, &launch::terminal_name(&cfg.apps.terminal), codex_projects, &home(), claude_default_model)
 }
 
 /// The launch for one start. In the terminal Claude Code takes `session_id` as its own
 /// (`--session-id`), so the board knows the session the moment it appears. The apps get a link
 /// that opens their new-session page with the folder and prompt filled in; you send it there.
-pub fn plan(account: &AccountCfg, place: Place, folder: &Path, prompt: &str, session_id: &str) -> Plan {
+pub fn plan(account: &AccountCfg, place: Place, folder: &Path, prompt: &str, session_id: &str, model: Option<&str>) -> Plan {
     let prompt = prompt.trim();
     let dir = folder.to_string_lossy();
     match place {
         Place::Terminal => {
             let mut input = format!("{} --session-id {session_id}", account.command());
+            if let Some(m) = model.filter(|m| valid_model(m)) {
+                input.push_str(&format!(" --model '{m}'"));
+            }
             let mut env = Vec::new();
             if !prompt.is_empty() {
                 input.push_str(&format!(" \"${PROMPT_VAR}\""));
@@ -204,14 +253,19 @@ pub fn start(board: &Board, cfg: &Config, spec: &StartSpec) -> Result<Started> {
     if !folder.is_dir() {
         bail!("{} isn't there any more.", tilde(folder));
     }
-    let mut offered = options(std::slice::from_ref(account), &launch::terminal_name(&cfg.apps.terminal), Vec::new(), &home());
+    let mut offered = options(std::slice::from_ref(account), &launch::terminal_name(&cfg.apps.terminal), Vec::new(), &home(), |_| None);
     let offered = offered.accounts.remove(0);
     if !offered.places.iter().any(|p| p.place == spec.place) {
         bail!(offered.unavailable.unwrap_or_else(|| format!("{} can't start a session there.", account.name)));
     }
+    // The apps pick their model themselves, so a model only goes with a terminal start.
+    let model = spec.model.as_deref().map(str::trim).filter(|m| !m.is_empty() && spec.place == Place::Terminal);
+    if let Some(m) = model.filter(|m| !valid_model(m)) {
+        bail!("{m:?} isn't a model name Codealong can pass to Claude Code.");
+    }
     let id = new_session_id();
     let prompted = !spec.prompt.trim().is_empty();
-    match plan(account, spec.place, folder, &spec.prompt, &id) {
+    match plan(account, spec.place, folder, &spec.prompt, &id, model) {
         Plan::Terminal { cwd, input, env } => {
             launch::terminal_run(&cfg.apps.terminal, &cwd, &input, &env)?;
             Ok(Started { key: Some(format!("claude:{}:{id}", account.name)), message: None })
@@ -257,7 +311,7 @@ mod tests {
             account("codex", "codex", "/Users/me/.codex", None),
             account("codex2", "codex", "/Users/me/.codex2", None),
         ];
-        let o = options(&accounts, "Ghostty", vec!["/r/kestrel".into()], Path::new("/Users/me"));
+        let o = options(&accounts, "Ghostty", vec!["/r/kestrel".into()], Path::new("/Users/me"), |a| (a.name == "claude2").then(|| "claude-fable-5-1".to_string()));
         assert_eq!(places(&o, "claude"), vec![Place::Terminal, Place::ClaudeApp]);
         assert_eq!(places(&o, "claude2"), vec![Place::Terminal]);
         assert_eq!(places(&o, "codex"), vec![Place::CodexApp]);
@@ -265,6 +319,25 @@ mod tests {
         assert!(o.accounts[3].unavailable.as_deref().unwrap_or("").contains("~/.codex"));
         assert_eq!(o.accounts[0].places[0].label, "Ghostty");
         assert_eq!(o.codex_projects, vec!["/r/kestrel".to_string()]);
+        assert_eq!(o.accounts[1].default_model.as_deref(), Some("claude-fable-5-1"));
+        assert_eq!(o.accounts[0].default_model, None);
+        assert!(o.claude_models.iter().any(|m| m.id == "opus[1m]"));
+    }
+
+    #[test]
+    fn asks_claude_code_for_a_model_in_quotes() {
+        let a = account("claude2", "claude", "~/.claude2", Some("claude2"));
+        let id = "0b7c2a4e-1d2f-4e3a-9b8c-7d6e5f4a3b2c";
+        let Plan::Terminal { input, .. } = plan(&a, Place::Terminal, Path::new("/r/x"), "Fix it", id, Some("fable[1m]")) else { panic!() };
+        assert_eq!(input, format!("claude2 --session-id {id} --model 'fable[1m]' \"$CODEALONG_PROMPT\"\n"));
+        // Nothing that could leave the quotes is ever typed.
+        let Plan::Terminal { input, .. } = plan(&a, Place::Terminal, Path::new("/r/x"), "", id, Some("opus'; rm -rf ~ '")) else { panic!() };
+        assert_eq!(input, format!("claude2 --session-id {id}\n"));
+        assert!(valid_model("claude-opus-5-5") && valid_model("sonnet[1m]") && valid_model("opusplan"));
+        assert!(!valid_model("") && !valid_model("opus fable") && !valid_model("$(x)") && !valid_model("a'b"));
+        // The apps take no model.
+        let claude = account("claude", "claude", "~/.claude", Some("claude"));
+        assert_eq!(plan(&claude, Place::ClaudeApp, Path::new("/r/x"), "", id, Some("opus")), Plan::ClaudeApp { url: "claude://code/new?folder=%2Fr%2Fx".into() });
     }
 
     #[test]
@@ -272,15 +345,15 @@ mod tests {
         let a = account("claude2", "claude", "~/.claude2", Some("claude2"));
         let id = "0b7c2a4e-1d2f-4e3a-9b8c-7d6e5f4a3b2c";
         let prompt = "Fix the \"flaky\" test\nthen run `npm test` and $(say done)";
-        let Plan::Terminal { cwd, input, env } = plan(&a, Place::Terminal, Path::new("/r/atlas-app4"), &format!("  {prompt}\n"), id) else { panic!() };
+        let Plan::Terminal { cwd, input, env } = plan(&a, Place::Terminal, Path::new("/r/atlas-app4"), &format!("  {prompt}\n"), id, None) else { panic!() };
         assert_eq!(cwd, PathBuf::from("/r/atlas-app4"));
         assert_eq!(input, format!("claude2 --session-id {id} \"$CODEALONG_PROMPT\"\n"));
         assert_eq!(env, vec![(PROMPT_VAR.to_string(), prompt.to_string())]);
-        let Plan::Terminal { input, env, .. } = plan(&a, Place::Terminal, Path::new("/r/x"), "  ", id) else { panic!() };
+        let Plan::Terminal { input, env, .. } = plan(&a, Place::Terminal, Path::new("/r/x"), "  ", id, None) else { panic!() };
         assert_eq!(input, format!("claude2 --session-id {id}\n"));
         assert!(env.is_empty());
         let custom = account("claude3", "claude", "~/.claude3", Some("CLAUDE_CONFIG_DIR=~/.claude3 claude"));
-        let Plan::Terminal { input, .. } = plan(&custom, Place::Terminal, Path::new("/r/x"), "", id) else { panic!() };
+        let Plan::Terminal { input, .. } = plan(&custom, Place::Terminal, Path::new("/r/x"), "", id, None) else { panic!() };
         assert_eq!(input, format!("CLAUDE_CONFIG_DIR=~/.claude3 claude --session-id {id}\n"));
     }
 
@@ -298,12 +371,12 @@ mod tests {
         let codex = account("codex", "codex", "~/.codex", None);
         let folder = Path::new("/Users/me/My Repo");
         assert_eq!(
-            plan(&claude, Place::ClaudeApp, folder, "Fix it & ship\nnow", "id"),
+            plan(&claude, Place::ClaudeApp, folder, "Fix it & ship\nnow", "id", None),
             Plan::ClaudeApp { url: "claude://code/new?folder=%2FUsers%2Fme%2FMy%20Repo&q=Fix%20it%20%26%20ship%0Anow".into() }
         );
-        assert_eq!(plan(&claude, Place::ClaudeApp, folder, "", "id"), Plan::ClaudeApp { url: "claude://code/new?folder=%2FUsers%2Fme%2FMy%20Repo".into() });
+        assert_eq!(plan(&claude, Place::ClaudeApp, folder, "", "id", None), Plan::ClaudeApp { url: "claude://code/new?folder=%2FUsers%2Fme%2FMy%20Repo".into() });
         assert_eq!(
-            plan(&codex, Place::CodexApp, folder, "Review #12", "id"),
+            plan(&codex, Place::CodexApp, folder, "Review #12", "id", None),
             Plan::CodexApp { url: "codex://threads/new?path=%2FUsers%2Fme%2FMy%20Repo&prompt=Review%20%2312".into() }
         );
     }

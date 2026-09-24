@@ -56,6 +56,7 @@ export interface SheetDraft {
   choice: Choice | null;
   place: StartPlace | null;
   prompt: string;
+  model: string | null;
 }
 
 interface NewSessionSheetProps {
@@ -82,6 +83,9 @@ export function NewSessionSheet({ lanes, laneId: firstLane, draft, error: failed
   const [choice, setChoice] = useState<Choice | null>(null);
   const [place, setPlace] = useState<StartPlace | null>(null);
   const [prompt, setPrompt] = useState(draft?.prompt ?? '');
+  // A model for a terminal start; null is the account's own default. Not remembered: the
+  // default stays the default.
+  const [model, setModel] = useState<string | null>(draft?.model ?? null);
   const [error, setError] = useState<string | null>(failed ?? null);
 
   const accounts = useMemo(() => options?.accounts ?? [], [options]);
@@ -108,17 +112,22 @@ export function NewSessionSheet({ lanes, laneId: firstLane, draft, error: failed
     setPlace(initialPlace(c, accounts, remembered().places?.[c]));
   };
 
+  // The apps' links take no model, so only a terminal start asks for one.
+  const chosenModel = place === 'terminal' ? model : null;
+  const modelLabel = options?.claudeModels.find((m) => m.id === chosenModel)?.label.split(':')[0] ?? null;
+  const defaultModel = accounts.find((a) => a.name === account)?.defaultModel ?? null;
+
   const ready = !!lane && !!account && !!place;
   const submit = () => {
     if (!lane || !account || !place) return;
     if (choice) remember(choice, place);
     const label =
       place === 'terminal'
-        ? `Starting ${account} in ${lane.callsign}…`
+        ? `Starting ${account}${modelLabel ? ` on ${modelLabel}` : ''} in ${lane.callsign}…`
         : place === 'claude-app'
           ? `Opening a new session in the Claude app…`
           : `Opening a new thread in Codex…`;
-    onStart({ laneId: lane.id, account, place, prompt }, { choice, place, prompt }, label);
+    onStart({ laneId: lane.id, account, place, prompt, model: chosenModel }, { choice, place, prompt, model }, label);
   };
 
   // ⌘⏎ starts and Escape closes, wherever the focus is. Re-bound each render so Start sees the
@@ -172,7 +181,7 @@ export function NewSessionSheet({ lanes, laneId: firstLane, draft, error: failed
   const placeLabel = places.find((p) => p.place === place)?.label ?? '';
   const happens =
     place === 'terminal'
-      ? `${placeLabel} opens a new window in ${where} and starts ${account ?? 'the account'}${prompted ? ' on this prompt' : ''}.`
+      ? `${placeLabel} opens a new window in ${where} and starts ${account ?? 'the account'}${modelLabel ? ` on ${modelLabel}` : ''}${prompted ? ' with this prompt' : ''}.`
       : place === 'claude-app'
         ? `The Claude app opens a new session in ${where}${prompted ? ' with this prompt filled in' : ''}. You send it from there.`
         : place === 'codex-app'
@@ -254,16 +263,38 @@ export function NewSessionSheet({ lanes, laneId: firstLane, draft, error: failed
             )}
           </div>
           {places.length > 0 && (
-            <div className="ca-field">
-              <span id="ca-start-place">Opens in</span>
-              <div className="ca-segctl ca-start-places" role="radiogroup" aria-labelledby="ca-start-place">
-                {places.map((p) => (
-                  <button key={p.place} type="button" role="radio" aria-checked={place === p.place} className={place === p.place ? 'is-on' : undefined} onClick={() => setPlace(p.place)}>
-                    <Icon name={p.place === 'terminal' ? 'terminal' : 'app'} size={14} />
-                    {p.label}
-                  </button>
-                ))}
+            <div className="ca-start-row">
+              <div className="ca-field">
+                <span id="ca-start-place">Opens in</span>
+                <div className="ca-segctl ca-start-places" role="radiogroup" aria-labelledby="ca-start-place">
+                  {places.map((p) => (
+                    <button key={p.place} type="button" role="radio" aria-checked={place === p.place} className={place === p.place ? 'is-on' : undefined} onClick={() => setPlace(p.place)}>
+                      <Icon name={p.place === 'terminal' ? 'terminal' : 'app'} size={14} />
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
               </div>
+              <label className="ca-field">
+                <span>Model</span>
+                <span className="ca-start-select">
+                  {place === 'terminal' ? (
+                    <select value={model ?? ''} onChange={(e) => setModel(e.target.value || null)}>
+                      <option value="">{defaultModel ? `Account default (${defaultModel})` : 'Account default'}</option>
+                      {(options?.claudeModels ?? []).map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.label}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <select value="" disabled title="The app's new-session link can't pick a model; choose it there before you send.">
+                      <option value="">{place === 'claude-app' ? 'Chosen in the Claude app' : 'Chosen in Codex'}</option>
+                    </select>
+                  )}
+                  <Icon name="chevron-down" size={14} />
+                </span>
+              </label>
             </div>
           )}
           <label className="ca-field">
