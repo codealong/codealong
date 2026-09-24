@@ -110,11 +110,13 @@ Next: the menu bar icon and popover, and notifications (the design system's *Bui
 ```bash
 npm install
 npm run tauri dev      # the app with hot reload
-npm run tauri build    # src-tauri/target/release/bundle/macos/Codealong.app
+scripts/relaunch.sh    # build the bundle, then quit and reopen the app
 npm run snapshot       # print the board as a table without opening a window
 ```
 
-Tests: `npm test` (vitest), `npm run typecheck`, and `cargo test --release` in `src-tauri`
+Builds go to `../codealong-target`, one directory shared by every checkout and worktree
+(`.cargo/config.toml`); `scripts/target-dir.sh` prints it. Tests: `npm test` (vitest),
+`npm run typecheck`, and `cargo test` in `src-tauri`
 (model rules, parsers, git and GitHub parsing, usage, config writes, deep links, Ghostty
 scripts). `scripts/preview.sh` renders the UI in headless Chrome against your real data with
 Tauri's IPC stubbed. CLAUDE.md has the rest of the working notes.

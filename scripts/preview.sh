@@ -22,9 +22,10 @@
 # place of yours; "$lane:N" and "$session:N" in it stand for the project's Nth most recent
 # worktree and session. Images come from $PREVIEW_IMAGES (default: Codealong's own images).
 #
-# Needs a release build of the engine (cargo build --release in src-tauri) for the snapshot.
+# Needs a release build of the engine (cargo build --release in src-tauri) for the snapshot;
+# it's found through scripts/target-dir.sh.
 # PR details come from $PREVIEW_DIR/pr-detail.json if you put one there:
-#   src-tauri/target/release/codealong --snapshot --pr owner/name 123 > .preview/pr-detail.json
+#   "$(scripts/target-dir.sh)/release/codealong" --snapshot --pr owner/name 123 > .preview/pr-detail.json
 set -euo pipefail
 cd "$(dirname "$0")/.."
 view="${1:-worktrees}"
@@ -40,7 +41,7 @@ case "${PREVIEW_SCHEME:-}" in
   light) scheme="--blink-settings=preferredColorScheme=1" ;;
 esac
 shot="$dir/${PREVIEW_NAME:-$view}${PREVIEW_SCHEME:+-$PREVIEW_SCHEME}.png"
-bin="src-tauri/target/release/codealong"
+bin="$(scripts/target-dir.sh)/release/codealong"
 
 npm run build >/dev/null
 mkdir -p "$dir"
