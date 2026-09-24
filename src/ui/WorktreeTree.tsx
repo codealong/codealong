@@ -26,9 +26,11 @@ interface WorktreeTreeProps {
   pinned: Set<string>;
   onSelectLane: (lane: Lane) => void;
   onOpenSession: (lane: Lane, session: Session) => void;
+  /** Right-click on a session. */
+  onSessionMenu: (lane: Lane, session: Session) => void;
 }
 
-export function WorktreeTree({ groups, now, selectedLaneId, selectedSessionKey, pinned, onSelectLane, onOpenSession }: WorktreeTreeProps) {
+export function WorktreeTree({ groups, now, selectedLaneId, selectedSessionKey, pinned, onSelectLane, onOpenSession, onSessionMenu }: WorktreeTreeProps) {
   // Worktrees with an agent that needs you, is working or just finished start open; the rest
   // start closed. Toggles are remembered.
   const [overrides, setOverrides] = useState<Record<string, boolean>>(loadOverrides);
@@ -93,6 +95,10 @@ export function WorktreeTree({ groups, now, selectedLaneId, selectedSessionKey, 
                         className={['ca-tree-session', s.visitor && 'is-visitor', selectedSessionKey === s.key && selectedLaneId === lane.id && 'is-active'].filter(Boolean).join(' ')}
                         title={`${s.account} · ${s.title}${s.visitor ? ` (${s.visitor})` : ''}. Click to open it where it lives.`}
                         onClick={() => onOpenSession(lane, s)}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          onSessionMenu(lane, s);
+                        }}
                       >
                         <StatusGlyph status={s.status} size={10} />
                         <span className="ca-tree-acct">{s.account}</span>

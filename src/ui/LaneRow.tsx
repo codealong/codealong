@@ -110,10 +110,8 @@ interface AgentRowProps {
   onSelect: () => void;
   onOpen: () => void;
   pinned?: boolean;
-  /** Shows the pin button when given. */
-  onTogglePin?: () => void;
-  /** Shows the archive button when given; on an archived session it unarchives. */
-  onArchive?: () => void;
+  /** Right-click: the session's menu (open, pin, archive…). */
+  onContextMenu?: () => void;
   /** Position among pinned rows, for dragging them into a new order. */
   pinIndex?: number;
   onPointerDown?: (e: ReactPointerEvent<HTMLDivElement>) => void;
@@ -121,7 +119,7 @@ interface AgentRowProps {
 }
 
 /** One agent in the Needs you, Working or Your turn bays, with its worktree as context. */
-export function AgentRow({ lane, session: s, domId, now, selected, onSelect, onOpen, pinned, onTogglePin, onArchive, pinIndex, onPointerDown, extraClass }: AgentRowProps) {
+export function AgentRow({ lane, session: s, domId, now, selected, onSelect, onOpen, pinned, onContextMenu, pinIndex, onPointerDown, extraClass }: AgentRowProps) {
   const branch = lane.branch ?? (lane.detached ? `detached @ ${lane.detached}` : null);
   const sub = branch && branch !== lane.callsign ? `${lane.repo} · ${middleTruncate(branch, 26)}` : lane.repo;
   const g = lane.git;
@@ -138,6 +136,14 @@ export function AgentRow({ lane, session: s, domId, now, selected, onSelect, onO
       onPointerDown={onPointerDown}
       onMouseDown={onSelect}
       onDoubleClick={onOpen}
+      onContextMenu={
+        onContextMenu
+          ? (e) => {
+              e.preventDefault();
+              onContextMenu();
+            }
+          : undefined
+      }
     >
       {pinIndex != null && (
         <span className="ca-grip" aria-hidden="true">
@@ -189,40 +195,6 @@ export function AgentRow({ lane, session: s, domId, now, selected, onSelect, onO
           </span>
         )}
       </div>
-      {(onTogglePin || onArchive) && (
-        <div className="ca-rowactions" onMouseDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
-          {onTogglePin && !s.archived && (
-            <button
-              type="button"
-              className={['ca-rowaction', pinned && 'is-on'].filter(Boolean).join(' ')}
-              aria-pressed={!!pinned}
-              aria-label={pinned ? `Unpin ${s.title}` : `Pin ${s.title}`}
-              title={pinned ? 'Unpin (P)' : 'Pin to the top of Sessions (P)'}
-              onClick={(e) => {
-                e.stopPropagation();
-                onTogglePin();
-              }}
-            >
-              <Icon name={pinned ? 'pinned' : 'pin'} size={14} />
-            </button>
-          )}
-          {onArchive && (
-            <button
-              type="button"
-              className="ca-rowaction"
-              aria-label={s.archived ? `Unarchive ${s.title}` : `Archive ${s.title}`}
-              title={s.archived ? 'Unarchive' : s.harness === 'codex' ? 'Archive in Codex (A)' : 'Archive (A)'}
-              onClick={(e) => {
-                e.stopPropagation();
-                onArchive();
-              }}
-            >
-              <Icon name="archive" size={14} />
-              {s.archived && <span>Unarchive</span>}
-            </button>
-          )}
-        </div>
-      )}
     </div>
   );
 }

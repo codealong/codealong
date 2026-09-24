@@ -76,18 +76,18 @@ interface SessionsViewProps {
   domId: (row: SessionItem) => string;
   onSelect: (row: SessionItem) => void;
   onOpen: (row: SessionItem) => void;
-  onTogglePin: (row: SessionItem) => void;
+  /** Right-click on a row. */
+  onContextMenu: (row: SessionItem) => void;
   /** Moves a pinned session to insertion point `index` among the pinned ones showing. */
   onMovePinned: (key: string, index: number) => void;
   /** Archived sessions, listed under a fold at the end. */
   archived: SessionItem[];
   showArchived: boolean;
   onToggleArchived: () => void;
-  onArchive: (row: SessionItem, archived: boolean) => void;
 }
 
 export function SessionsView(props: SessionsViewProps) {
-  const { pinned, sections, now, selectedKey, domId, onSelect, onOpen, onTogglePin, onMovePinned, archived, showArchived, onToggleArchived, onArchive } = props;
+  const { pinned, sections, now, selectedKey, domId, onSelect, onOpen, onContextMenu, onMovePinned, archived, showArchived, onToggleArchived } = props;
   const pinnedRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ key: string; startY: number; active: boolean; index: number } | null>(null);
   const [drag, setDrag] = useState<{ key: string; index: number } | null>(null);
@@ -143,8 +143,7 @@ export function SessionsView(props: SessionsViewProps) {
         onSelect={() => onSelect(r)}
         onOpen={() => onOpen(r)}
         pinned={extra != null}
-        onTogglePin={() => onTogglePin(r)}
-        onArchive={() => onArchive(r, !r.session.archived)}
+        onContextMenu={() => onContextMenu(r)}
         pinIndex={extra?.index}
         onPointerDown={extra ? (e) => startDrag(e, r.session.key) : undefined}
         extraClass={[dragging && 'is-drag-source', dropBefore && 'is-drop-before', dropAfter && 'is-drop-after'].filter(Boolean).join(' ') || undefined}

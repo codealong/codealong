@@ -4,6 +4,8 @@
 // session, pinned ones first in your order. Keyboard map: the design system's Surfaces page.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { showContextMenu } from './contextMenu';
+import { ageFiltered } from './lanes';
 import { archiveSession, getBoard, markSeen, onBoard, openConfig, openProjectWindow, openTarget, refresh, refreshUsage, setPinned, signIn } from './api';
 import { ago } from './format';
 import type { Bay, Board, Lane, Session, Status } from './types';
@@ -278,7 +280,12 @@ export function App() {
   // The age filter: worktrees and sessions active since the cutoff. Pinned sessions always show.
   const ageMs = AGES.find((a) => a.id === age)?.ms ?? 0;
   const cutoff = ageMs > 0 ? now - ageMs : 0;
-  const recentLanes = useMemo(() => (cutoff > 0 ? projectLanes.filter((l) => l.lastActivity >= cutoff) : projectLanes), [projectLanes, cutoff]);
+  const since = (AGES.find((a) => a.id === age)?.title ?? '').replace(/^Active /, '');
+  // Worktrees active since the cutoff, each showing only its sessions active since then.
+  const recentLanes = useMemo(
+    () => (cutoff > 0 ? projectLanes.filter((l) => l.lastActivity >= cutoff).map((l) => ageFiltered(l, cutoff, pinnedSet, since)) : projectLanes),
+    [projectLanes, cutoff, pinnedSet, since],
+  );
   // The Sessions view: each session once, in the worktree it runs in.
   const sessionItems = useMemo(
     () => projectLanes.flatMap((lane) => lane.sessions.filter((s) => !s.visitor).map((s): SessionItem => ({ kind: 'agent', key: `${lane.id}::${s.key}`, lane, session: s }))),
@@ -328,12 +335,12 @@ export function App() {
   const actions = useMemo(() => {
     const out: Record<string, ActionCounts> = {};
     for (const name of [...projects.map((p) => p.name), ALL_PROJECTS]) {
-      const groups = buildBays(lanes.filter((l) => inProject(l, name)));
+      const groups = buildBays(lanes.filter((l) => inProject(l, name) && l.lastActivity >= cutoff).map((l) => ageFiltered(l, cutoff, pinnedSet, since)));
       const n = (bay: Bay) => groups.find((g) => g.bay === bay)?.rows.length ?? 0;
       out[name] = { needs: n('needs'), unread: n('unread') };
     }
     return out;
-  }, [lanes, projects]);
+  }, [lanes, projects, cutoff, pinnedSet, since]);
 
   useEffect(() => {
     const base = WINDOW_PROJECT ? `Codealong · ${current}` : 'Codealong';
@@ -396,6 +403,24 @@ export function App() {
     const id = window.setTimeout(() => setUndo(null), 8000);
     return () => window.clearTimeout(id);
   }, [undo]);
+
+  /** A session's right-click menu: open it, pin it, archive it, copy its ID. */
+  const sessionMenu = useCallback(
+    (lane: Lane, s: Session) => {
+      const target = lane.targets.find((t) => t.id === s.openTarget);
+      const pinned = pinnedSet.has(s.key);
+      void showContextMenu([
+        { label: target?.label ?? 'Open', run: () => open(lane, s.openTarget) },
+        'separator',
+        ...(s.archived ? [] : [{ label: pinned ? 'Unpin' : 'Pin', run: () => togglePin(s.key) }]),
+        { label: s.archived ? 'Unarchive' : s.harness === 'codex' ? 'Archive in Codex' : 'Archive', run: () => setArchived(s.key, !s.archived, s.title) },
+        'separator',
+        { label: 'Copy session ID', run: () => copy(s.id, 'session ID') },
+        ...(s.resumeCommand ? [{ label: 'Copy resume command', run: () => copy(s.resumeCommand, 'resume command') }] : []),
+      ]).catch((e: unknown) => setToast(String(e)));
+    },
+    [pinnedSet, open, togglePin, setArchived, copy],
+  );
 
   /** Moves a pinned session to insertion point `index` among the pinned ones showing. */
   const movePinned = useCallback(
@@ -611,6 +636,7 @@ export function App() {
               selectedLaneId={selectedLane?.id ?? null}
               selectedSessionKey={selected?.kind === 'agent' ? selected.session.key : null}
               pinned={pinnedSet}
+              onSessionMenu={sessionMenu}
               onSelectLane={focusLane}
               onOpenSession={(lane, session) => {
                 focusSession(lane, session);
@@ -712,12 +738,11 @@ export function App() {
                   setSelectedKey(r.key);
                   openRow(r);
                 }}
-                onTogglePin={(r) => togglePin(r.session.key)}
+                onContextMenu={(r) => sessionMenu(r.lane, r.session)}
                 onMovePinned={movePinned}
                 archived={archivedItems}
                 showArchived={showArchived}
                 onToggleArchived={() => setShowArchived(!showArchived)}
-                onArchive={(r, archived) => setArchived(r.session.key, archived, r.session.title)}
               />
             )}
             {view === 'worktrees' && bays.map((b) => {
@@ -752,8 +777,7 @@ export function App() {
                             openRow(r);
                           }}
                           pinned={pinnedSet.has(r.session.key)}
-                          onTogglePin={() => togglePin(r.session.key)}
-                          onArchive={() => setArchived(r.session.key, true, r.session.title)}
+                          onContextMenu={() => sessionMenu(r.lane, r.session)}
                         />
                       ) : (
                         <LaneRow

@@ -10,3 +10,9 @@ createRoot(document.getElementById('root')!).render(
     <App />
   </StrictMode>,
 );
+
+// Right-click shows Codealong's own menus; the webview's (Reload, Back…) doesn't belong in an
+// app. Text fields keep theirs, for copy and paste.
+document.addEventListener('contextmenu', (e) => {
+  if (!(e.target instanceof Element) || !e.target.closest('input, textarea, [contenteditable="true"]')) e.preventDefault();
+});
