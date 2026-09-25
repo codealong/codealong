@@ -180,7 +180,7 @@ pub fn options(accounts: &[AccountCfg], terminal: &str, codex_projects: Vec<Stri
 
 /// The `model` in a Claude account's settings.json, which Claude Code starts on without
 /// `--model`. A repo's own `.claude/settings.json` can still override it.
-fn claude_default_model(a: &AccountCfg) -> Option<String> {
+pub fn claude_default_model(a: &AccountCfg) -> Option<String> {
     let bytes = std::fs::read(a.home_path().join("settings.json")).ok()?;
     let v: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
     v.get("model").and_then(serde_json::Value::as_str).map(str::trim).filter(|m| !m.is_empty()).map(str::to_string)

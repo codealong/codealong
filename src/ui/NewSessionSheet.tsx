@@ -123,8 +123,14 @@ export function NewSessionSheet({ lanes, laneId: firstLane, draft, error: failed
   const [error, setError] = useState<string | null>(failed ?? null);
 
   const accounts = useMemo(() => options?.accounts ?? [], [options]);
-  // Auto follows usage while the sheet is open, and resolves when you press Start.
-  const picks = useMemo(() => autoPicks(accounts, usage, now), [accounts, usage, now]);
+  // The apps' links take no model or worktree, and only Claude Code takes them on the command
+  // line, so only a terminal start of a Claude Code account asks for them.
+  const harness = choice ? (autoHarness(choice) ?? accounts.find((a) => a.name === choice)?.harness ?? null) : null;
+  const claudeTerminal = place === 'terminal' && harness === 'claude';
+  const picksModel = claudeTerminal;
+  const chosenModel = picksModel ? model : null;
+  // Auto follows usage and the model while the sheet is open, and resolves when you press Start.
+  const picks = useMemo(() => autoPicks(accounts, usage, now, chosenModel), [accounts, usage, now, chosenModel]);
   const lane = lanes.find((l) => l.id === laneId) ?? null;
   const places = placesFor(choice, accounts);
   const account = accountFor(choice, picks);
@@ -146,12 +152,6 @@ export function NewSessionSheet({ lanes, laneId: firstLane, draft, error: failed
     setPlace(initialPlace(c, accounts, remembered().places?.[c]));
   };
 
-  // The apps' links take no model or worktree, and only Claude Code takes them on the command
-  // line, so only a terminal start of a Claude Code account asks for them.
-  const harness = choice ? (autoHarness(choice) ?? accounts.find((a) => a.name === choice)?.harness ?? null) : null;
-  const claudeTerminal = place === 'terminal' && harness === 'claude';
-  const picksModel = claudeTerminal;
-  const chosenModel = picksModel ? model : null;
   const inNewWorktree = claudeTerminal && newWorktree;
   const modelLabel = options?.claudeModels.find((m) => m.id === chosenModel)?.label.split(':')[0] ?? null;
   const defaultModel = accounts.find((a) => a.name === account)?.defaultModel ?? null;
@@ -198,7 +198,8 @@ export function NewSessionSheet({ lanes, laneId: firstLane, draft, error: failed
         disabled: false,
         title:
           `Starts the ${HARNESS_WORD[h]} account whose weekly limit resets soonest within 48 hours, so its room isn't lost, ` +
-          `else the one whose fullest limit is least full. Accounts at 90% of a limit are passed over while another has room. ` +
+          `else the one whose fullest limit is least full. Only the limits the chosen model spends count, so an account out of one model can still start another. ` +
+          `Accounts at 90% of a limit are passed over while another has room. ` +
           `Decided when you press Start; right now it's ${p.account}.`,
       };
     }
