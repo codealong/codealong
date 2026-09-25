@@ -48,7 +48,9 @@ case "${PREVIEW_SCHEME:-}" in
   light) scheme="--blink-settings=preferredColorScheme=1" ;;
 esac
 shot="$dir/${PREVIEW_NAME:-$view}${PREVIEW_SCHEME:+-$PREVIEW_SCHEME}.png"
-bin="$(scripts/target-dir.sh)/release/codealong"
+# Every checkout builds into one directory, so the engine there may be another session's build:
+# PREVIEW_BIN points at a copy of your own.
+bin="${PREVIEW_BIN:-$(scripts/target-dir.sh)/release/codealong}"
 
 npm run build >/dev/null
 mkdir -p "$dir"
@@ -69,6 +71,8 @@ if [ -d "$images" ]; then
   cp -R "$images" "$dir/images"
 fi
 "$bin" --snapshot >"$dir/board.json" 2>/dev/null
+# The floating bar gets its own small feed from the engine, not the board.
+[ "$view" = bar ] && "$bin" --snapshot --bar >"$dir/bar-feed.json" 2>/dev/null
 "$bin" --snapshot --accounts >"$dir/accounts.json" 2>/dev/null
 "$bin" --snapshot --start-options >"$dir/start-options.json" 2>/dev/null
 "$bin" --snapshot --config >"$dir/config.json" 2>/dev/null

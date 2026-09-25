@@ -74,7 +74,9 @@ screenshot, for a state a click gets to (Settings opens on a synthetic ⌘, keyd
 check that runs for a while should set its title on an interval. Native menus, window creation and real opens
 can't be seen this way; say so rather than claiming they were checked.
 `scripts/preview.sh bar` renders the floating bar on a stand-in desktop (`PREVIEW_SIZE=1600,64` for
-a wider screen). `PREVIEW_TODOS=scripts/preview/todos-sample.json scripts/preview.sh todo` shows
+a wider screen), from the feed `--snapshot --bar` prints. The engine the preview runs is whatever
+was last built into the shared directory, possibly another session's: `PREVIEW_BIN=<a copy of
+your build>` uses yours. `PREVIEW_TODOS=scripts/preview/todos-sample.json scripts/preview.sh todo` shows
 sample todos linked to your real worktrees and sessions in place of your own, and
 `PREVIEW_USAGE=scripts/preview/usage-sample.json` sample plan usage in place of the snapshot's,
 which has no Claude numbers, and `PREVIEW_FOUND=scripts/preview/found-sample.json` sample accounts

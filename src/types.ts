@@ -420,3 +420,40 @@ export interface Started {
   /** What to do next, when the app is waiting on you. */
   message: string | null;
 }
+
+/** The floating bar's groups, most urgent first. */
+export type BarGroup = 'needs' | 'unread' | 'working';
+
+/** What the floating bar shows (barfeed.rs): the engine sends it instead of the board. */
+export interface BarFeed {
+  loading: boolean;
+  theme: Theme;
+  perfLog: boolean;
+  /** The terminal app's name, for menu items such as "Show in Ghostty". */
+  terminal: string;
+  /** In bar order: by group, then the newest status first. */
+  items: BarItem[];
+  /** Open PRs that ask for your review, newest first. */
+  reviews: BarReview[];
+}
+
+export interface BarItem {
+  key: string;
+  group: BarGroup;
+  status: Status;
+  title: string;
+  account: string;
+  laneId: string;
+  callsign: string;
+  detail: string | null;
+  openTarget: string;
+  /** The lane's own entry for `openTarget`, when it lists one. */
+  target: { label: string; detail: string | null; disabled: boolean } | null;
+}
+
+export interface BarReview {
+  key: string;
+  number: number;
+  title: string;
+  repo: string;
+}

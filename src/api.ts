@@ -4,7 +4,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import type { AccountCfg, AccountInfo, AgentsStatus, Attachment, Board, Config, ConfigView, FoundAccount, PrDetail, StartOptions, Started, StartSpec, Theme } from './types';
+import type { AccountCfg, AccountInfo, AgentsStatus, Attachment, BarFeed, Board, Config, ConfigView, FoundAccount, PrDetail, StartOptions, StartSpec, Started, Theme } from './types';
 import type { TodoOp } from './todos';
 
 export const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -319,6 +319,29 @@ export async function fitBar(width: number, height: number): Promise<void> {
 export async function openFromBar(laneId: string, targetId: string): Promise<void> {
   if (!inTauri) return;
   await invoke('open_from_bar', { laneId, targetId });
+}
+
+/** What the floating bar shows. Outside the app it comes from ./bar-feed.json. */
+export async function getBarFeed(): Promise<BarFeed> {
+  if (inTauri) return invoke<BarFeed>('bar_feed');
+  const res = await fetch('./bar-feed.json');
+  if (!res.ok) throw new Error('No bar-feed.json next to the page.');
+  return (await res.json()) as BarFeed;
+}
+
+/** Calls `cb` with each new bar feed; the engine sends one only when it changed. */
+export function onBarFeed(cb: (feed: BarFeed) => void): () => void {
+  if (!inTauri) return () => {};
+  let cancelled = false;
+  let unlisten: (() => void) | undefined;
+  void listen<BarFeed>('bar-feed', (e) => cb(e.payload)).then((u) => {
+    if (cancelled) u();
+    else unlisten = u;
+  });
+  return () => {
+    cancelled = true;
+    unlisten?.();
+  };
 }
 
 /** Whether the floating bar is on. Outside the app it counts as on. */

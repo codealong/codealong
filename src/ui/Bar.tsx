@@ -1,16 +1,16 @@
 // The floating bar's page: pills for the sessions that need you, whose turn ended, or that are
-// running, in every project, and one for PRs waiting on your review. The engine shows the window
-// whenever no board window can be seen; the page sizes the window to itself. Pills that don't
+// running, in every project, and one for PRs waiting on your review. The engine keeps the window
+// up and sends it what to show (barfeed.rs); the page sizes the window to itself. Pills that don't
 // fit fold into one per group that lists them. Clicking a pill opens the session where it lives,
 // right-clicking shows its menu, and the mark brings Codealong forward.
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { fitBar, getBoard, markSeen, onBoard, openFromBar, setBarOn, showMain } from '../api';
-import { barItems, fitGroups, GROUPS, plain, reviewRequests, type BarItem, type Group, type GroupFit } from '../bar';
+import { fitBar, getBarFeed, markSeen, onBarFeed, openFromBar, setBarOn, showMain } from '../api';
+import { fitGroups, GROUPS, plain, type Group, type GroupFit } from '../bar';
 import { showContextMenu, type MenuSpec } from '../contextMenu';
 import { usePerf } from '../perf';
-import type { Board, PrItem, Status } from '../types';
+import type { BarFeed, BarItem, BarReview, Status } from '../types';
 import { Icon, Mark, STATUS_WORD, StatusGlyph } from './primitives';
 import { applyTheme } from './ThemeSwitch';
 
@@ -47,8 +47,7 @@ function tone(status: Status): string {
 /** The session menu's open item: its lane's label for it, or one from how the session opens
  *  (lanes list targets for their first few sessions only). */
 function openLabel(i: BarItem, terminal: string): string {
-  const target = i.lane.targets.find((t) => t.id === i.session.openTarget);
-  if (target) return target.label;
+  if (i.target) return i.target.label;
   const how: Record<string, string> = {
     focus: `Show in ${terminal}`,
     attach: `Attach in ${terminal}`,
@@ -57,21 +56,19 @@ function openLabel(i: BarItem, terminal: string): string {
     codex: 'Open in Codex',
     antigravity: 'Open Antigravity',
   };
-  return how[i.session.openTarget.split('|')[2]] ?? 'Open';
+  return how[i.openTarget.split('|')[2]] ?? 'Open';
 }
 
 function sessionTip(i: BarItem, now: number): string {
-  const s = i.session;
-  const where = `${STATUS_WORD[s.status]} · ${i.lane.callsign} · ${s.account}`;
-  return [s.title, where, s.detail ? plain(s.detail, now) : ''].filter(Boolean).join('\n');
+  const where = `${STATUS_WORD[i.status]} · ${i.callsign} · ${i.account}`;
+  return [i.title, where, i.detail ? plain(i.detail, now) : ''].filter(Boolean).join('\n');
 }
 
 function SessionPill({ item, now, onOpen, onMenu, measure }: { item: BarItem; now: number; onOpen?: () => void; onMenu?: () => void; measure?: boolean }) {
-  const s = item.session;
   return (
     <button
       type="button"
-      className={`ca-hud-pill ${tone(s.status)}`}
+      className={`ca-hud-pill ${tone(item.status)}`}
       title={measure ? undefined : sessionTip(item, now)}
       data-pill={measure ? item.group : undefined}
       onClick={onOpen}
@@ -85,8 +82,8 @@ function SessionPill({ item, now, onOpen, onMenu, measure }: { item: BarItem; no
           : undefined
       }
     >
-      <StatusGlyph status={s.status} title="" />
-      <span>{s.title}</span>
+      <StatusGlyph status={item.status} title="" />
+      <span>{item.title}</span>
     </button>
   );
 }
@@ -115,7 +112,7 @@ function FoldPill({ group, label, title, onOpen, measure }: { group: Group; labe
   );
 }
 
-function ReviewsPill({ prs, onOpen, measure }: { prs: PrItem[]; onOpen?: (e: MouseEvent<HTMLButtonElement>) => void; measure?: boolean }) {
+function ReviewsPill({ prs, onOpen, measure }: { prs: BarReview[]; onOpen?: (e: MouseEvent<HTMLButtonElement>) => void; measure?: boolean }) {
   return (
     <button
       type="button"
@@ -146,7 +143,7 @@ function below(e: MouseEvent<HTMLElement>): { x: number; y: number } {
 }
 
 export function Bar() {
-  const [board, setBoard] = useState<Board | null>(null);
+  const [feed, setFeed] = useState<BarFeed | null>(null);
   const [fits, setFits] = useState<GroupFit[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Fonts load after the first layout; pills are measured again once they have.
@@ -156,16 +153,18 @@ export function Bar() {
   const measure = useRef<HTMLDivElement>(null);
   const drag = useRef<{ x: number; y: number; moved: boolean } | null>(null);
 
-  const boardArrived = useRef<number | null>(null);
-  usePerf(board, boardArrived);
+  // The engine sends the bar a small feed, and only when it changes, rather than the board.
+  const feedArrived = useRef<number | null>(null);
+  usePerf(feed, feedArrived);
   useEffect(() => {
-    getBoard()
-      .then(setBoard)
-      .catch(() => {});
-    return onBoard((next) => {
-      boardArrived.current = performance.now();
-      setBoard(next);
+    const stop = onBarFeed((next) => {
+      feedArrived.current = performance.now();
+      setFeed(next);
     });
+    getBarFeed()
+      .then((first) => setFeed((current) => current ?? first))
+      .catch(() => {});
+    return stop;
   }, []);
 
   useEffect(() => {
@@ -173,7 +172,7 @@ export function Bar() {
   }, []);
 
   // The theme from config.toml, as in the board's windows.
-  const theme = board?.theme ?? 'system';
+  const theme = feed?.theme ?? 'system';
   useEffect(() => applyTheme(theme), [theme]);
 
   useEffect(() => {
@@ -182,8 +181,8 @@ export function Bar() {
     return () => window.clearTimeout(id);
   }, [error]);
 
-  const items = useMemo(() => (board ? barItems(board) : []), [board]);
-  const reviews = useMemo(() => (board ? reviewRequests(board) : []), [board]);
+  const items = useMemo(() => feed?.items ?? [], [feed]);
+  const reviews = useMemo(() => feed?.reviews ?? [], [feed]);
   const byGroup = useMemo(() => {
     const out: Record<Group, BarItem[]> = { needs: [], unread: [], working: [] };
     for (const i of items) out[i.group].push(i);
@@ -222,29 +221,27 @@ export function Bar() {
   }, [report]);
 
   const open = (i: BarItem) => {
-    const target = i.lane.targets.find((t) => t.id === i.session.openTarget);
-    if (target?.disabled) {
-      setError(target.detail ?? `${target.label} isn't available right now.`);
+    if (i.target?.disabled) {
+      setError(i.target.detail ?? `${i.target.label} isn't available right now.`);
       return;
     }
-    openFromBar(i.lane.id, i.session.openTarget).catch((e: unknown) => setError(String(e).replace(/^Error: /, '')));
+    openFromBar(i.laneId, i.openTarget).catch((e: unknown) => setError(String(e).replace(/^Error: /, '')));
   };
 
-  const reveal = (i: BarItem) => void showMain({ kind: 'session', laneId: i.lane.id, key: i.session.key });
+  const reveal = (i: BarItem) => void showMain({ kind: 'session', laneId: i.laneId, key: i.key });
 
   const sessionMenu = (i: BarItem) => {
-    const s = i.session;
     void showContextMenu([
-      { label: `${s.title} · ${i.lane.callsign}`, run: () => {}, enabled: false },
+      { label: `${i.title} · ${i.callsign}`, run: () => {}, enabled: false },
       'separator',
-      { label: openLabel(i, board?.apps.terminal ?? 'Terminal'), run: () => open(i) },
+      { label: openLabel(i, feed?.terminal ?? 'Terminal'), run: () => open(i) },
       { label: 'Show in Codealong', run: () => reveal(i) },
-      ...(s.status === 'unread' ? [{ label: 'Mark as seen', run: () => void markSeen([s.key]) }] : []),
+      ...(i.status === 'unread' ? [{ label: 'Mark as seen', run: () => void markSeen([i.key]) }] : []),
     ]);
   };
 
   const foldMenu = (group: Group, folded: BarItem[], e: MouseEvent<HTMLButtonElement>) => {
-    const menu: MenuSpec = folded.map((i) => ({ label: `${i.session.title} · ${i.lane.callsign}`, run: () => open(i) }));
+    const menu: MenuSpec = folded.map((i) => ({ label: `${i.title} · ${i.callsign}`, run: () => open(i) }));
     if (group === 'unread') menu.push('separator', { label: 'Mark these as seen', run: () => void markSeen(folded.map((i) => i.key)) });
     void showContextMenu(menu, below(e));
   };
@@ -279,7 +276,7 @@ export function Bar() {
         <span>{error}</span>
       </button>,
     ]);
-  } else if (!board) {
+  } else if (!feed) {
     sections.push([
       <span key="note" className="ca-hud-note">
         Reading sessions…
@@ -306,7 +303,7 @@ export function Bar() {
                 key={`fold-${group}`}
                 group={group}
                 label={shown.length ? `+${folded.length}` : String(folded.length)}
-                title={`${folded.length} ${shown.length ? 'more ' : ''}${GROUP_WORD[group]}:\n${folded.map((i) => i.session.title).join('\n')}`}
+                title={`${folded.length} ${shown.length ? 'more ' : ''}${GROUP_WORD[group]}:\n${folded.map((i) => i.title).join('\n')}`}
                 onOpen={(e) => foldMenu(group, folded, e)}
               />,
             ]

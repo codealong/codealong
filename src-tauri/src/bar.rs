@@ -135,6 +135,8 @@ impl Saved {
 
 struct Bar {
     saved: Mutex<Saved>,
+    /// The feed last sent to the page, as sent, so an unchanged one isn't sent again.
+    sent: Mutex<String>,
     /// The bar moved since `bar.json` was written.
     moved: AtomicBool,
     /// Window › Floating bar.
@@ -145,7 +147,7 @@ struct Bar {
 pub fn setup(app: &AppHandle) -> Result<()> {
     let saved = Saved::load();
     let (off, frame) = (saved.off, saved.frame);
-    app.manage(Bar { saved: Mutex::new(saved), moved: AtomicBool::new(false), item: Mutex::new(None) });
+    app.manage(Bar { saved: Mutex::new(saved), sent: Mutex::new(String::new()), moved: AtomicBool::new(false), item: Mutex::new(None) });
 
     let window = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("index.html".into()))
         .title("Codealong bar")
@@ -163,6 +165,9 @@ pub fn setup(app: &AppHandle) -> Result<()> {
         .focusable(false)
         .focused(false)
         .accept_first_mouse(true)
+        // WebKit slows a page's timers and drawing while its app isn't frontmost, which for a
+        // bar that's up over other apps is nearly always: updates and hovers came late.
+        .background_throttling(tauri::utils::config::BackgroundThrottlingPolicy::Disabled)
         .visible(false)
         .build()?;
     native::make_panel(&window);
@@ -252,6 +257,22 @@ pub fn fit(app: &AppHandle, width: f64, height: f64) {
             native::set_frame(&bar, next);
         }
     });
+}
+
+/// Sends the bar its feed after the engine publishes, if what it shows changed. The bar doesn't
+/// listen for the board, so Tauri doesn't send it the half megabyte each publish.
+pub fn publish(app: &AppHandle, board: &crate::model::Board) {
+    let Some(state) = app.try_state::<Bar>() else { return };
+    let feed = crate::barfeed::feed(board);
+    let Ok(text) = serde_json::to_string(&feed) else { return };
+    {
+        let Ok(mut sent) = state.sent.lock() else { return };
+        if *sent == text {
+            return;
+        }
+        *sent = text;
+    }
+    let _ = app.emit_to(LABEL, "bar-feed", feed);
 }
 
 /// Whether the bar is on.

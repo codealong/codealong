@@ -1,53 +1,15 @@
-// What the floating bar shows: every session that needs you, whose turn just ended, or is
-// running, across all projects, and the PRs waiting for your review. When they don't all fit,
-// the least urgent group folds its last pills into one that lists them: Working first, then
-// Your turn, then Needs you.
+// How the floating bar lays out what it shows (the engine picks and orders it: barfeed.rs):
+// when the pills don't all fit, the least urgent group folds its last pills into one that lists
+// them: Working first, then Your turn, then Needs you.
 
 import { withTimes } from './format';
-import type { Board, Lane, PrItem, Session, Status } from './types';
+import type { BarGroup } from './types';
 
-export type Group = 'needs' | 'unread' | 'working';
+export type Group = BarGroup;
 /** Bar order, most urgent first. */
 export const GROUPS: Group[] = ['needs', 'unread', 'working'];
 /** The order groups fold in when the bar runs out of room. */
 const FOLD_ORDER: Group[] = ['working', 'unread', 'needs'];
-
-export interface BarItem {
-  key: string;
-  group: Group;
-  lane: Lane;
-  session: Session;
-}
-
-export function groupOf(status: Status): Group | null {
-  if (status === 'needs' || status === 'error') return 'needs';
-  if (status === 'unread' || status === 'working') return status;
-  return null;
-}
-
-/**
- * The sessions the bar shows, most urgent group first and, within a group, the newest status
- * first. Status times don't move while a status lasts, so pills stay put while agents work.
- * Lanes the board keeps out of sight (Elsewhere) stay out of the bar too.
- */
-export function barItems(board: Board): BarItem[] {
-  const items: BarItem[] = [];
-  for (const lane of board.lanes) {
-    if (lane.hidden) continue;
-    for (const session of lane.sessions) {
-      if (session.visitor || session.archived) continue;
-      const group = groupOf(session.status);
-      if (group) items.push({ key: session.key, group, lane, session });
-    }
-  }
-  const since = (i: BarItem) => i.session.statusSince ?? i.session.lastActivity;
-  return items.sort((a, b) => GROUPS.indexOf(a.group) - GROUPS.indexOf(b.group) || since(b) - since(a) || a.key.localeCompare(b.key));
-}
-
-/** Open PRs that ask for your review, newest first. */
-export function reviewRequests(board: Board): PrItem[] {
-  return board.prs.filter((p) => p.reviewRequested && p.state !== 'merged' && p.state !== 'closed').sort((a, b) => b.updatedAt - a.updatedAt);
-}
 
 /** A group on the bar: its first `shown` pills, then one pill holding the other `folded`. */
 export interface GroupFit {

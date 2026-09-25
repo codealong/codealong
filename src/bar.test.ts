@@ -1,59 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { barItems, barWidth, fitGroups, groupOf, plain, reviewRequests, type Metrics } from './bar';
-import type { Board, Lane, PrItem, Session } from './types';
+import { barWidth, fitGroups, plain, type Metrics } from './bar';
+
+// Which sessions and PRs the bar shows, and their order, are the engine's (barfeed.rs, with tests).
 
 const NOW = 1_790_200_000_000;
-
-const session = (key: string, status: Session['status'], statusSince: number, extra: Partial<Session> = {}): Session =>
-  ({ key, status, statusSince, lastActivity: statusSince, visitor: null, archived: false, ...extra }) as Session;
-const lane = (id: string, sessions: Session[], hidden = false): Lane => ({ id, sessions, hidden }) as unknown as Lane;
-const board = (lanes: Lane[], prs: Partial<PrItem>[] = []): Board => ({ lanes, prs }) as unknown as Board;
-
-describe('barItems', () => {
-  it('lists what needs you, then finished turns, then running agents, newest first in each', () => {
-    const b = board([
-      lane('/a', [session('w1', 'working', NOW - 50), session('i1', 'idle', NOW), session('u1', 'unread', NOW - 10)]),
-      lane('/b', [session('n1', 'needs', NOW - 90), session('e1', 'error', NOW - 5), session('w2', 'working', NOW - 20), session('s1', 'stopped', NOW)]),
-    ]);
-    expect(barItems(b).map((i) => [i.key, i.group])).toEqual([
-      ['e1', 'needs'],
-      ['n1', 'needs'],
-      ['u1', 'unread'],
-      ['w2', 'working'],
-      ['w1', 'working'],
-    ]);
-  });
-
-  it("leaves out visitors, archived sessions and lanes the board keeps out of sight", () => {
-    const b = board([
-      lane('/a', [session('v', 'working', NOW, { visitor: 'worked here' }), session('x', 'unread', NOW, { archived: true })]),
-      lane('/elsewhere', [session('h', 'working', NOW)], true),
-      lane('/b', [session('ok', 'working', NOW)]),
-    ]);
-    expect(barItems(b).map((i) => i.key)).toEqual(['ok']);
-  });
-
-  it('keeps pills in place while a status lasts, whatever the latest activity', () => {
-    const a = session('a', 'working', NOW - 100, { lastActivity: NOW });
-    const c = session('c', 'working', NOW - 50, { lastActivity: NOW - 40 });
-    expect(barItems(board([lane('/a', [a, c])])).map((i) => i.key)).toEqual(['c', 'a']);
-  });
-});
-
-describe('reviewRequests', () => {
-  it('keeps open PRs that ask for your review, newest first', () => {
-    const b = board(
-      [],
-      [
-        { key: 'o/r#1', reviewRequested: true, state: 'open', updatedAt: 1 },
-        { key: 'o/r#2', reviewRequested: true, state: 'merged', updatedAt: 3 },
-        { key: 'o/r#3', reviewRequested: false, state: 'open', updatedAt: 4 },
-        { key: 'o/r#4', reviewRequested: true, state: 'draft', updatedAt: 2 },
-      ],
-    );
-    expect(reviewRequests(b).map((p) => p.key)).toEqual(['o/r#4', 'o/r#1']);
-  });
-});
 
 describe('fitGroups', () => {
   const metrics = (needs: number[], unread: number[], working: number[], reviews = 0): Metrics => ({
@@ -110,11 +60,7 @@ describe('fitGroups', () => {
   });
 });
 
-describe('groupOf and plain', () => {
-  it('puts errors with what needs you and leaves idle sessions off', () => {
-    expect(['needs', 'error', 'unread', 'working', 'idle', 'stopped'].map((s) => groupOf(s as Session['status']))).toEqual(['needs', 'needs', 'unread', 'working', null, null]);
-  });
-
+describe('plain', () => {
   it('drops code marks and fills in times', () => {
     expect(plain('Stuck on `gcloud auth login` for {for:' + (NOW - 3 * 3_600_000) + '}', NOW)).toBe('Stuck on gcloud auth login for 3h');
   });
