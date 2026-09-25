@@ -17,6 +17,7 @@ mod engine;
 mod git;
 mod github;
 mod install;
+mod jev;
 mod launch;
 mod logo;
 mod model;
@@ -198,8 +199,8 @@ fn start_from_quick(app: tauri::AppHandle, engine: State<'_, engine::Handle>, sp
 #[tauri::command(async)]
 fn route_quick(engine: State<'_, engine::Handle>, project: String, text: String) -> Result<route::Route, String> {
     let cfg = config::load().map_err(|e| format!("{e:#}"))?.unwrap_or_default();
-    if !cfg.router.enabled {
-        return Err("Routing is off.".into());
+    if !cfg.jev.quick_panel {
+        return Err("Suggestions in the quick panel are off.".into());
     }
     route::route(&engine.board(), &cfg, &project, &text).map_err(|e| format!("{e:#}"))
 }
@@ -213,20 +214,20 @@ fn send_to_session(engine: State<'_, engine::Handle>, key: String, text: String)
 
 /// Whether there's a TypeSafe API key, for Settings. Reads no secret.
 #[tauri::command(async)]
-fn router_key() -> bool {
-    route::has_key()
+fn jev_key() -> bool {
+    jev::has_key()
 }
 
 /// Saves the TypeSafe API key in the keychain, or removes it when it's empty.
 #[tauri::command(async)]
-fn set_router_key(key: String) -> Result<(), String> {
-    if key.trim().is_empty() { route::delete_key() } else { route::save_key(&key) }.map_err(|e| format!("{e:#}"))
+fn set_jev_key(key: String) -> Result<(), String> {
+    if key.trim().is_empty() { jev::delete_key() } else { jev::save_key(&key) }.map_err(|e| format!("{e:#}"))
 }
 
 /// One small call to TypeSafe, for Settings' Test button.
 #[tauri::command(async)]
-fn test_router(model: String) -> Result<String, String> {
-    route::check(model.trim()).map_err(|e| format!("{e:#}"))
+fn test_jev(model: String) -> Result<String, String> {
+    jev::check(model.trim()).map_err(|e| format!("{e:#}"))
 }
 
 /// The quick panel's shortcut and why it isn't working, if it isn't.
@@ -602,7 +603,7 @@ pub fn run() {
             quick::on_window_event(window, event);
         })
         .register_asynchronous_uri_scheme_protocol("codealong-image", |_ctx, request, responder| serve_image(request, responder))
-        .invoke_handler(tauri::generate_handler![get_board, open_target, open_config, mark_seen, refresh, refresh_usage, set_pinned, set_pinned_worktrees, archive_session, pr_detail, approve_pr, review_in_codex, open_url, get_accounts, save_accounts, found_accounts, get_config, save_config, save_config_text, sign_in, agents_status, install_agents, start_options, start_session, todo_op, save_attachment, import_attachment, open_attachment, expand_attachments, set_theme, open_project_window, fit_bar, show_main, bar_feed, bar_on, set_bar_on, open_from_bar, show_quick, hide_quick, quick_ready, fit_quick, start_from_quick, route_quick, send_to_session, router_key, set_router_key, test_router, quick_shortcut, pause_quick_shortcut, perf_mark])
+        .invoke_handler(tauri::generate_handler![get_board, open_target, open_config, mark_seen, refresh, refresh_usage, set_pinned, set_pinned_worktrees, archive_session, pr_detail, approve_pr, review_in_codex, open_url, get_accounts, save_accounts, found_accounts, get_config, save_config, save_config_text, sign_in, agents_status, install_agents, start_options, start_session, todo_op, save_attachment, import_attachment, open_attachment, expand_attachments, set_theme, open_project_window, fit_bar, show_main, bar_feed, bar_on, set_bar_on, open_from_bar, show_quick, hide_quick, quick_ready, fit_quick, start_from_quick, route_quick, send_to_session, jev_key, set_jev_key, test_jev, quick_shortcut, pause_quick_shortcut, perf_mark])
         .build(tauri::generate_context!())
         .expect("error while running Codealong")
         .run(|app, event| {

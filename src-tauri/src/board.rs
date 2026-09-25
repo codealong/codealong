@@ -945,7 +945,7 @@ pub fn compose(inp: Inputs) -> Board {
         todos: Vec::new(),
         labels: Vec::new(),
         quick_shortcut: String::new(),
-        router_on: false,
+        jev: Default::default(),
     }
 }
 

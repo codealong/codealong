@@ -7,15 +7,10 @@
 //! Jev reads questions literally and is weak at dates and numbers, so times go in as words
 //! ("5 minutes ago") and each question asks one plain thing.
 //!
-//! The API key lives in the login keychain (service `Codealong TypeSafe`), never in config.toml
-//! or on a command line: curl gets it and the request on stdin, and saving it goes through
-//! `security -i`, which reads its command from stdin too. `TYPESAFE_API_KEY` works when there's
-//! no key in the keychain, for the command line.
+//! The request goes through jev.rs, which holds the key.
 
 use std::collections::BTreeMap;
-use std::io::Write;
-use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use anyhow::{anyhow, bail, Result};
 use serde::Serialize;
@@ -24,8 +19,6 @@ use serde_json::{json, Map, Value};
 use crate::board::ELSEWHERE;
 use crate::model::{Board, Lane, Origin, Session, Status};
 
-const ENDPOINT: &str = "https://api.typesafe.ai/v1/systemone";
-const KEYCHAIN_SERVICE: &str = "Codealong TypeSafe";
 /// "All projects" in the panel: every lane but the hidden ones.
 pub const ALL_PROJECTS: &str = "All projects";
 
@@ -113,19 +106,6 @@ fn in_project(lane: &Lane, project: &str) -> bool {
     lane.project == project && (project == ELSEWHERE || !lane.hidden)
 }
 
-/// A time as words. Jev reads dates as text and can't compare them; words it can.
-pub fn ago_words(then: i64, now: i64) -> String {
-    let mins = (now - then).max(0) / 60_000;
-    match mins {
-        0..=1 => "just now".into(),
-        2..=59 => format!("{mins} minutes ago"),
-        60..=119 => "an hour ago".into(),
-        120..=1439 => format!("{} hours ago", mins / 60),
-        1440..=2879 => "yesterday".into(),
-        _ => format!("{} days ago", mins / 1440),
-    }
-}
-
 fn status_words(s: &Session) -> &'static str {
     match s.status {
         Status::Needs => "waiting on the user to answer a question or approve something",
@@ -138,13 +118,7 @@ fn status_words(s: &Session) -> &'static str {
 }
 
 fn clip(s: &str) -> String {
-    let s = s.split_whitespace().collect::<Vec<_>>().join(" ");
-    if s.chars().count() <= TEXT_CHARS {
-        return s;
-    }
-    let mut out: String = s.chars().take(TEXT_CHARS - 1).collect();
-    out.push('…');
-    out
+    crate::jev::clip(s, TEXT_CHARS)
 }
 
 /// A lane's own line: `callsign`, or with its repo when the name alone doesn't say.
@@ -175,7 +149,7 @@ fn session_card(lane: &Lane, s: &Session, now: i64) -> Value {
     if !doing.trim().is_empty() {
         card.insert("latest".into(), json!(clip(&doing.replace('`', ""))));
     }
-    card.insert("last prompted".into(), json!(ago_words(s.last_prompt_at, now)));
+    card.insert("last prompted".into(), json!(crate::jev::ago_words(s.last_prompt_at, now)));
     Value::Object(card)
 }
 
@@ -196,7 +170,7 @@ fn lane_card(l: &Lane, now: i64) -> Value {
     if !recent.is_empty() {
         card.insert("recent sessions".into(), json!(recent));
     }
-    card.insert("last active".into(), json!(ago_words(l.last_activity, now)));
+    card.insert("last active".into(), json!(crate::jev::ago_words(l.last_activity, now)));
     Value::Object(card)
 }
 
@@ -355,142 +329,10 @@ pub fn read(req: &Request, response: &Value, ms: u64) -> Result<Route> {
 
 /// Routes what you typed: builds the request, asks Jev, reads the answer.
 pub fn route(board: &Board, cfg: &crate::config::Config, project: &str, text: &str) -> Result<Route> {
-    let key = api_key().ok_or_else(|| anyhow!("There's no TypeSafe API key yet. Add it in Settings › General."))?;
-    let req = request(board, project, text, cfg.router.model.trim(), crate::util::now_ms())?;
+    let req = request(board, project, text, cfg.jev.model.trim(), crate::util::now_ms())?;
     let started = Instant::now();
-    let response = post(&key, &req.body)?;
+    let response = crate::jev::ask(&req.body)?;
     read(&req, &response, started.elapsed().as_millis() as u64)
-}
-
-/// One call with a tiny question, for Settings' Test button: proves the key and says how fast.
-pub fn check(model: &str) -> Result<String> {
-    let key = api_key().ok_or_else(|| anyhow!("There's no TypeSafe API key yet."))?;
-    let started = Instant::now();
-    let v = post(
-        &key,
-        &json!({
-            "model": model,
-            "state": "Fix the flaky login test",
-            "questions": { "task": { "type": "noul", "instructions": "Does this ask for a change to code?" } },
-        }),
-    )?;
-    Ok(format!("{} answered in {} ms.", v["model"].as_str().unwrap_or(model), started.elapsed().as_millis()))
-}
-
-/// Escapes a value for a double-quoted string in a curl config file.
-fn curl_quoted(s: &str) -> String {
-    let mut out = String::with_capacity(s.len() + 2);
-    out.push('"');
-    for c in s.chars() {
-        match c {
-            '\\' => out.push_str("\\\\"),
-            '"' => out.push_str("\\\""),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            c => out.push(c),
-        }
-    }
-    out.push('"');
-    out
-}
-
-/// The curl config for one request: the key and the body both go on curl's stdin.
-fn curl_config(key: &str, body: &Value) -> String {
-    format!(
-        "url = {}\nrequest = \"POST\"\nheader = {}\nheader = \"Content-Type: application/json\"\nheader = \"Accept: application/json\"\nheader = \"User-Agent: codealong/{}\"\ndata-binary = {}\n",
-        curl_quoted(ENDPOINT),
-        curl_quoted(&format!("Authorization: Bearer {key}")),
-        env!("CARGO_PKG_VERSION"),
-        curl_quoted(&body.to_string()),
-    )
-}
-
-fn post(key: &str, body: &Value) -> Result<Value> {
-    if key.chars().any(|c| c.is_control() || c == '"' || c == '\\') {
-        bail!("The TypeSafe API key has characters a key can't have. Paste it again in Settings.");
-    }
-    let mut child = Command::new("/usr/bin/curl")
-        .args(["-sS", "-m", "15", "-w", "\n%{http_code}", "-K", "-"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| anyhow!("curl: {e}"))?;
-    if let Some(mut stdin) = child.stdin.take() {
-        stdin.write_all(curl_config(key, body).as_bytes())?;
-    }
-    let out = child.wait_with_output().map_err(|e| anyhow!("curl: {e}"))?;
-    let text = String::from_utf8_lossy(&out.stdout);
-    let (reply, status) = text.rsplit_once('\n').unwrap_or(("", &text));
-    let detail = || -> String {
-        serde_json::from_str::<Value>(reply)
-            .ok()
-            .and_then(|v| v.get("detail").or_else(|| v.get("error")).or_else(|| v.get("message")).map(|d| d.to_string()))
-            .unwrap_or_default()
-            .chars()
-            .take(200)
-            .collect()
-    };
-    match status.trim() {
-        "200" => serde_json::from_str(reply).map_err(|_| anyhow!("TypeSafe sent an answer Codealong can't read.")),
-        "401" | "403" => bail!("TypeSafe didn't accept the API key. Check it in Settings › General."),
-        "422" => bail!("TypeSafe couldn't take the request: {}", detail()),
-        "429" => bail!("TypeSafe is rate limiting; try again in a moment."),
-        "529" => bail!("TypeSafe is overloaded; try again in a moment."),
-        "000" | "" => {
-            let err = String::from_utf8_lossy(&out.stderr);
-            bail!("Couldn't reach TypeSafe: {}", err.trim().trim_start_matches("curl: ").chars().take(160).collect::<String>())
-        }
-        other => bail!("TypeSafe answered HTTP {other}. {}", detail()),
-    }
-}
-
-/* ---- The key ---- */
-
-const KEYCHAIN_TIMEOUT: Duration = Duration::from_secs(10);
-
-fn keychain_account() -> String {
-    std::env::var("USER").ok().filter(|u| !u.is_empty() && u.chars().all(|c| c.is_ascii_alphanumeric() || "._-".contains(c))).unwrap_or_else(|| "codealong".into())
-}
-
-/// The API key: the keychain's, else `TYPESAFE_API_KEY`.
-pub fn api_key() -> Option<String> {
-    crate::procs::run("/usr/bin/security", &["find-generic-password", "-a", &keychain_account(), "-s", KEYCHAIN_SERVICE, "-w"], None, KEYCHAIN_TIMEOUT)
-        .ok()
-        .map(|k| k.trim().to_string())
-        .filter(|k| !k.is_empty())
-        .or_else(|| std::env::var("TYPESAFE_API_KEY").ok().map(|k| k.trim().to_string()).filter(|k| !k.is_empty()))
-}
-
-/// Whether there's a key, without reading it.
-pub fn has_key() -> bool {
-    crate::procs::run("/usr/bin/security", &["find-generic-password", "-a", &keychain_account(), "-s", KEYCHAIN_SERVICE], None, KEYCHAIN_TIMEOUT).is_ok()
-        || std::env::var("TYPESAFE_API_KEY").is_ok_and(|k| !k.trim().is_empty())
-}
-
-/// Saves the key in the keychain, replacing one that's there. The command goes to `security`
-/// on stdin, so the key never shows in the process list.
-pub fn save_key(key: &str) -> Result<()> {
-    let key = key.trim();
-    if key.is_empty() || key.chars().any(|c| c.is_control() || c.is_whitespace() || c == '"' || c == '\\') {
-        bail!("That doesn't look like an API key.");
-    }
-    let command = format!("add-generic-password -U -a \"{}\" -s \"{}\" -l \"{}\" -w \"{}\"\n", keychain_account(), KEYCHAIN_SERVICE, KEYCHAIN_SERVICE, key);
-    let out = crate::procs::run_stdin("/usr/bin/security", &["-i"], &command, KEYCHAIN_TIMEOUT)?;
-    // `security -i` exits cleanly whatever its command did; errors come back as text.
-    if out.to_lowercase().contains("error") {
-        bail!("The keychain didn't take the key.");
-    }
-    if !has_key() {
-        bail!("The keychain didn't take the key.");
-    }
-    Ok(())
-}
-
-pub fn delete_key() -> Result<()> {
-    let _ = crate::procs::run("/usr/bin/security", &["delete-generic-password", "-a", &keychain_account(), "-s", KEYCHAIN_SERVICE], None, KEYCHAIN_TIMEOUT);
-    Ok(())
 }
 
 #[cfg(test)]
@@ -577,15 +419,6 @@ mod tests {
     }
 
     #[test]
-    fn times_go_in_as_words() {
-        assert_eq!(ago_words(NOW - 30_000, NOW), "just now");
-        assert_eq!(ago_words(NOW - 5 * 60_000, NOW), "5 minutes ago");
-        assert_eq!(ago_words(NOW - 3 * 3_600_000, NOW), "3 hours ago");
-        assert_eq!(ago_words(NOW - 30 * 3_600_000, NOW), "yesterday");
-        assert_eq!(ago_words(NOW - 4 * 86_400_000, NOW), "4 days ago");
-    }
-
-    #[test]
     fn offers_the_projects_live_and_recent_sessions_and_its_worktrees() {
         let b = board();
         let req = request(&b, "Acme", "  make the login button blue ", "jev-latest", NOW).unwrap();
@@ -665,14 +498,5 @@ mod tests {
         assert_eq!(r.lanes[0].id, "/p/web");
         assert_eq!(r.repos[0].id, "Acme/api");
         assert!((r.repos[0].p - 0.6).abs() < 1e-9);
-    }
-
-    #[test]
-    fn the_key_and_body_are_escaped_for_curl() {
-        let body = json!({ "state": "say \"hi\"\nback\\slash" });
-        let cfg = curl_config("tsk_123", &body);
-        assert!(cfg.contains("header = \"Authorization: Bearer tsk_123\"\n"));
-        assert!(cfg.contains(r#"data-binary = "{\"state\":\"say \\\"hi\\\"\\nback\\\\slash\"}""#), "{cfg}");
-        assert!(cfg.starts_with("url = \"https://api.typesafe.ai/v1/systemone\"\n"));
     }
 }

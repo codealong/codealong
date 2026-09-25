@@ -4,20 +4,21 @@
 // in AccountsSection.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { getConfig, onQuickShortcut, openUrl, pauseQuickShortcut, quickShortcut, routerKey, saveConfig, saveConfigText, setRouterKey, testRouter } from '../api';
+import { getConfig, onQuickShortcut, openUrl, pauseQuickShortcut, quickShortcut, jevKey, saveConfig, saveConfigText, setJevKey, testJev } from '../api';
 import { shortcutFromKey, shortcutLabel, TAKEN } from '../quick';
-import type { Config, ConfigView, Profile, ProjectCfg, ShortcutStatus, Theme, Usage } from '../types';
+import type { Config, ConfigView, JevCfg, Profile, ProjectCfg, ShortcutStatus, Theme, Usage } from '../types';
 import { AccountsSection } from './AccountsSection';
 import { AgentsSection } from './AgentsSection';
 import { Button, Icon, NavItem } from './primitives';
 
-export type SettingsSection = 'general' | 'accounts' | 'agents' | 'projects' | 'advanced' | 'file';
+export type SettingsSection = 'general' | 'accounts' | 'agents' | 'projects' | 'jev' | 'advanced' | 'file';
 
 const SECTIONS: { id: SettingsSection; label: string; icon: string }[] = [
   { id: 'general', label: 'General', icon: 'settings' },
   { id: 'accounts', label: 'Accounts', icon: 'user' },
   { id: 'agents', label: 'Agents', icon: 'terminal' },
   { id: 'projects', label: 'Projects', icon: 'folder' },
+  { id: 'jev', label: 'Jev', icon: 'sparkles' },
   { id: 'advanced', label: 'Advanced', icon: 'gauge' },
   { id: 'file', label: 'config.toml', icon: 'file' },
 ];
@@ -120,6 +121,8 @@ export function SettingsDialog({ section, onSection, focus, usage, apps, theme, 
     pane = <GeneralPane cfg={cfg} view={view} theme={theme} onPickTheme={onPickTheme} disabled={!!broken} onSave={save} />;
   } else if (section === 'projects' && cfg) {
     pane = <ProjectsPane cfg={cfg} disabled={!!broken} onSave={save} />;
+  } else if (section === 'jev' && cfg) {
+    pane = <JevPane jev={{ ...JEV_OFF, ...cfg.jev }} disabled={!!broken} onChange={(jev) => void save({ ...cfg, jev })} />;
   } else if (section === 'advanced' && cfg) {
     pane = <AdvancedPane cfg={cfg} view={view} disabled={!!broken} onSave={save} />;
   } else if (section === 'file') {
@@ -193,10 +196,6 @@ function GeneralPane({ cfg, view, theme, onPickTheme, disabled, onSave }: PanePr
           <ShortcutField value={cfg.shortcuts?.quick_panel ?? DEFAULT_QUICK_PANEL} onChange={(quick_panel) => void onSave({ ...cfg, shortcuts: { ...cfg.shortcuts, quick_panel } })} />
           <small>Opens from any app, over full-screen ones too: the sessions that need you, a search, and a new session. ⌘N does the same in Codealong.</small>
         </div>
-        <div className="ca-field">
-          <span>Suggestions in the quick panel</span>
-          <RouterField router={cfg.router ?? { enabled: false, model: 'jev-latest' }} onChange={(router) => void onSave({ ...cfg, router })} />
-        </div>
         <label className="ca-field">
           <span>Terminal</span>
           <ProfileSelect value={cfg.apps.terminal} profiles={view.terminals} onChange={(terminal) => void onSave({ ...cfg, apps: { ...cfg.apps, terminal } })} />
@@ -225,11 +224,43 @@ function GeneralPane({ cfg, view, theme, onPickTheme, disabled, onSave }: PanePr
 
 const DEFAULT_QUICK_PANEL = 'Option+Shift+Space';
 
+const JEV_OFF: JevCfg = { model: 'jev-latest', quick_panel: false, sessions: false, todos: false, pull_requests: false };
+
+type JevFeature = 'quick_panel' | 'sessions' | 'todos' | 'pull_requests';
+
+/** Each switch: what it does, and what it sends to TypeSafe to do it. */
+const JEV_FEATURES: { id: JevFeature; label: string; does: string; sends: string }[] = [
+  {
+    id: 'quick_panel',
+    label: 'Quick panel suggestions',
+    does: 'As you type, suggests the session to send it to or the worktree to start it in; ⏎ does the first. Warns when a session is already on the same work, and suggests a model for how big the change is.',
+    sends: 'What you type, and the project’s session titles and latest lines, branches, pull request titles and worktree names. Once each time you pause typing.',
+  },
+  {
+    id: 'sessions',
+    label: 'Session status',
+    does: 'Reads how each turn ended. A reply that asks you something shows as Needs you. A session quiet for a long time is marked stuck only when its command waits for input, not when it’s a long build. Shows how far the work got (committed, pushed, landed), which sessions and worktrees look finished, and how risky a command waiting for your approval looks.',
+    sends: 'The end of each session’s last reply, its last prompt, and the command it’s running or waiting on. Once per turn.',
+  },
+  {
+    id: 'todos',
+    label: 'Todos',
+    does: 'Links a new session to the todo it’s for, says when a todo looks done, and suggests a new todo’s project, labels and the todos it waits on.',
+    sends: 'Your open todos’ titles and descriptions, new sessions’ first prompts and titles, and the end of linked sessions’ last replies.',
+  },
+  {
+    id: 'pull_requests',
+    label: 'Pull request reviews',
+    does: 'Marks the review comments that ask the author for a change, so you can see what still needs a reply.',
+    sends: 'The review comments of a pull request, when you open it in Codealong.',
+  },
+];
+
 /**
- * Routing with TypeSafe's Jev: on or off (config.toml), and its API key, which goes to the
- * keychain and never comes back to the page. Test makes one small call.
+ * Settings › Jev: the TypeSafe key, which goes to the keychain and never comes back to the page,
+ * and a switch per feature that says what it does and what it sends.
  */
-function RouterField({ router, onChange }: { router: { enabled: boolean; model: string }; onChange: (r: { enabled: boolean; model: string }) => void }) {
+function JevPane({ jev, disabled, onChange }: { jev: JevCfg; disabled: boolean; onChange: (j: JevCfg) => void }) {
   const [hasKey, setHasKey] = useState<boolean | null>(null);
   const [editing, setEditing] = useState(false);
   const [key, setKey] = useState('');
@@ -237,100 +268,119 @@ function RouterField({ router, onChange }: { router: { enabled: boolean; model: 
   const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
 
   useEffect(() => {
-    void routerKey().then(setHasKey);
+    void jevKey().then(setHasKey);
   }, []);
 
-  const saveKey = async () => {
+  const run = async (what: () => Promise<string | null>) => {
     setBusy(true);
     setNote(null);
     try {
-      await setRouterKey(key);
+      const said = await what();
+      if (said) setNote({ ok: true, text: said });
+    } catch (e) {
+      setNote({ ok: false, text: plain(e) });
+    }
+    setHasKey(await jevKey());
+    setBusy(false);
+  };
+
+  const saveKey = () =>
+    run(async () => {
+      await setJevKey(key);
       setKey('');
       setEditing(false);
-      setHasKey(await routerKey());
-      setNote({ ok: true, text: 'Saved in the keychain.' });
-    } catch (e) {
-      setNote({ ok: false, text: plain(e) });
-    }
-    setBusy(false);
-  };
+      return 'Saved in the keychain. Test it, then turn on what you want below.';
+    });
 
-  const removeKey = async () => {
-    setBusy(true);
-    setNote(null);
-    try {
-      await setRouterKey('');
-      setHasKey(await routerKey());
-    } catch (e) {
-      setNote({ ok: false, text: plain(e) });
-    }
-    setBusy(false);
-  };
-
-  const test = async () => {
-    setBusy(true);
-    setNote(null);
-    try {
-      setNote({ ok: true, text: await testRouter(router.model) });
-    } catch (e) {
-      setNote({ ok: false, text: plain(e) });
-    }
-    setBusy(false);
-  };
+  const noKey = hasKey === false;
 
   return (
-    <div className="ca-router-field">
-      <label className="ca-check">
-        <input type="checkbox" checked={router.enabled} onChange={(e) => onChange({ ...router, enabled: e.target.checked })} />
-        <span className="ca-check-box" aria-hidden="true">
-          <Icon name="check" size={11} stroke={2.5} />
-        </span>
-        Suggest where what you type goes, with TypeSafe’s Jev
-      </label>
-      {editing || hasKey === false ? (
-        <form
-          className="ca-shortcut-row"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void saveKey();
-          }}
-        >
-          <input type="password" value={key} placeholder="TypeSafe API key" autoComplete="off" spellCheck={false} aria-label="TypeSafe API key" onChange={(e) => setKey(e.target.value)} />
-          <Button size="sm" type="submit" disabled={busy || !key.trim()}>
-            Save key
-          </Button>
-          {editing && (
-            <Button variant="ghost" size="sm" onClick={() => setEditing(false)}>
-              Cancel
-            </Button>
+    <>
+      <div className="ca-settings-intro">
+        <h3>Jev</h3>
+        <p>
+          TypeSafe’s Jev answers narrow questions in a fraction of a second: which session a prompt is for, whether a reply asks you something, which todo a session is for. Each feature is off until you turn it on,
+          and each says what it sends to TypeSafe. It costs $0.042 per million tokens sent; a question is a few thousand tokens, so a hundredth of a cent or less.
+        </p>
+      </div>
+      <fieldset className="ca-settings-fields" disabled={disabled}>
+        <div className="ca-field">
+          <span>API key</span>
+          {editing || noKey ? (
+            <form
+              className="ca-shortcut-row"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void saveKey();
+              }}
+            >
+              <input type="password" className="ca-jev-key" value={key} placeholder="Paste your TypeSafe API key" autoComplete="off" spellCheck={false} aria-label="TypeSafe API key" onChange={(e) => setKey(e.target.value)} />
+              <Button size="sm" type="submit" disabled={busy || !key.trim()}>
+                Save key
+              </Button>
+              {editing && (
+                <Button variant="ghost" size="sm" onClick={() => setEditing(false)}>
+                  Cancel
+                </Button>
+              )}
+            </form>
+          ) : hasKey ? (
+            <div className="ca-shortcut-row">
+              <span className="ca-jev-saved">
+                <Icon name="lock" size={12} />
+                Saved in the keychain
+              </span>
+              <Button variant="ghost" size="sm" disabled={busy} onClick={() => void run(() => testJev(jev.model))}>
+                Test
+              </Button>
+              <Button variant="ghost" size="sm" disabled={busy} onClick={() => setEditing(true)}>
+                Replace
+              </Button>
+              <Button variant="ghost" size="sm" disabled={busy} onClick={() => void run(async () => (await setJevKey(''), null))}>
+                Remove
+              </Button>
+            </div>
+          ) : (
+            <p className="ca-empty">Reading the keychain…</p>
           )}
-        </form>
-      ) : hasKey ? (
-        <div className="ca-shortcut-row">
-          <span className="ca-router-key">
-            <Icon name="lock" size={12} />
-            API key saved in the keychain
-          </span>
-          <Button variant="ghost" size="sm" disabled={busy} onClick={() => void test()}>
-            Test
-          </Button>
-          <Button variant="ghost" size="sm" disabled={busy} onClick={() => setEditing(true)}>
-            Replace
-          </Button>
-          <Button variant="ghost" size="sm" disabled={busy} onClick={() => void removeKey()}>
-            Remove
-          </Button>
+          {note && <p className={note.ok ? 'ca-jev-ok' : 'ca-form-error'}>{note.text}</p>}
+          <small>
+            Kept in your login keychain, never in config.toml.{' '}
+            <button type="button" className="ca-linkbtn" onClick={() => void openUrl('https://console.typesafe.ai/keys')}>
+              Get a key from TypeSafe
+            </button>
+          </small>
         </div>
-      ) : null}
-      {note && <p className={note.ok ? 'ca-router-ok' : 'ca-form-error'}>{note.text}</p>}
-      <small>
-        As you type, the quick panel suggests the session to send it to or the worktree to start it in; ⏎ does the first suggestion. What you type, repo names and session titles and latest lines go to
-        TypeSafe. Model <code className="ca-ic">{router.model}</code>, set in config.toml.{' '}
-        <button type="button" className="ca-linkbtn" onClick={() => void openUrl('https://console.typesafe.ai/keys')}>
-          Get a key
-        </button>
-      </small>
-    </div>
+        <div className="ca-field">
+          <span>What to use it for</span>
+          <div className="ca-jev-features">
+            {JEV_FEATURES.map((f) => (
+              <label key={f.id} className={['ca-jev-feature', noKey && 'is-disabled'].filter(Boolean).join(' ')}>
+                <span className="ca-check">
+                  <input type="checkbox" checked={jev[f.id]} disabled={noKey} onChange={(e) => onChange({ ...jev, [f.id]: e.target.checked })} />
+                  <span className="ca-check-box" aria-hidden="true">
+                    <Icon name="check" size={11} stroke={2.5} />
+                  </span>
+                  <span className="ca-jev-feature-name">{f.label}</span>
+                </span>
+                <span className="ca-jev-feature-does">{f.does}</span>
+                <span className="ca-jev-feature-sends">
+                  <b>Sends:</b> {f.sends}
+                </span>
+              </label>
+            ))}
+          </div>
+          {noKey && <small>Save a key above to turn these on.</small>}
+        </div>
+        <div className="ca-field">
+          <span>Model</span>
+          <code className="ca-ic ca-jev-model">{jev.model}</code>
+          <small>
+            <code className="ca-ic">jev-latest</code> follows TypeSafe’s newest release. To stay on one version, set <code className="ca-ic">model</code> under <code className="ca-ic">[jev]</code> in config.toml.
+          </small>
+        </div>
+      </fieldset>
+    </>
   );
 }
 

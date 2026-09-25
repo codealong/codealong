@@ -229,21 +229,21 @@ export async function sendToSession(key: string, text: string): Promise<Sent> {
 }
 
 /** Whether there's a TypeSafe API key in the keychain. */
-export async function routerKey(): Promise<boolean> {
+export async function jevKey(): Promise<boolean> {
   if (!inTauri) return false;
-  return invoke<boolean>('router_key');
+  return (await invoke<boolean | null>('jev_key')) ?? false;
 }
 
 /** Saves the TypeSafe API key in the keychain; an empty one removes it. */
-export async function setRouterKey(key: string): Promise<void> {
+export async function setJevKey(key: string): Promise<void> {
   if (!inTauri) return;
-  await invoke('set_router_key', { key });
+  await invoke('set_jev_key', { key });
 }
 
 /** One small call to TypeSafe: which model answered and how fast. */
-export async function testRouter(model: string): Promise<string> {
+export async function testJev(model: string): Promise<string> {
   if (!inTauri) throw new Error('Testing needs the app.');
-  return invoke<string>('test_router', { model });
+  return invoke<string>('test_jev', { model });
 }
 
 export async function todoOp(op: TodoOp): Promise<number> {

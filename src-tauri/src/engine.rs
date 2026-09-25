@@ -22,6 +22,7 @@ use crate::config::{self, AccountCfg, Config, Theme};
 use crate::detect;
 use crate::git;
 use crate::github::{self, PrRaw};
+use crate::jev;
 use crate::launch;
 use crate::model::*;
 use crate::perf;
@@ -73,6 +74,8 @@ pub enum Msg {
     /// A session started from a todo: its worktree (none for a new one), and the session's key
     /// when Codealong chose its ID, or the start to wait for.
     TodoStarted { id: String, lane: Option<String>, session: Option<String>, pending: Option<todos::PendingStart> },
+    /// Jev's answer to a question the engine asked (`ask_jev`), by the id it was asked under.
+    JevDone(String, std::result::Result<serde_json::Value, String>),
 }
 
 /// What the UI talks to. Cheap to clone.
@@ -468,11 +471,19 @@ struct Engine {
     loading: bool,
     last_publish: Option<Instant>,
     perf: perf::Counters,
+    /// Questions for Jev go to its own thread (jev.rs); answers come back as `Msg::JevDone`.
+    jev_jobs: Sender<jev::Job>,
+    /// Ids asked and not answered yet, so nothing is asked twice at once.
+    jev_pending: HashSet<String>,
 }
 
 impl Engine {
     fn new(emit: Box<dyn Fn(&Board) + Send>, tx: Sender<Msg>, board: Arc<RwLock<Board>>) -> Engine {
         let git_jobs = spawn_git_workers(tx.clone());
+        let back = tx.clone();
+        let jev_jobs = jev::worker(move |id, answer| {
+            let _ = back.send(Msg::JevDone(id, answer));
+        });
         Engine {
             emit,
             tx,
@@ -529,7 +540,37 @@ impl Engine {
             dirty_git: false,
             last_publish: None,
             perf: perf::Counters::default(),
+            jev_jobs,
+            jev_pending: HashSet::new(),
         }
+    }
+
+    /// Asks Jev in the background. The answer comes back to `on_jev` under the same id; an id
+    /// already waiting for its answer isn't asked again.
+    fn ask_jev(&mut self, id: String, body: serde_json::Value) {
+        if self.jev_pending.insert(id.clone()) {
+            let _ = self.jev_jobs.send(jev::Job { id, body });
+        }
+    }
+
+    /// An answer from Jev. The id's first part, up to `:`, says which feature asked.
+    fn on_jev(&mut self, id: String, answer: std::result::Result<serde_json::Value, String>) {
+        self.jev_pending.remove(&id);
+        let (feature, _rest) = id.split_once(':').unwrap_or((id.as_str(), ""));
+        match feature {
+            _ => {
+                let _ = answer;
+            }
+        }
+    }
+
+    /// What to ask Jev about the board just composed: each feature that's on looks for what's
+    /// changed since it last asked.
+    fn jev_look(&mut self, board: &Board) {
+        if !self.cfg.jev.any() {
+            return;
+        }
+        let _ = board;
     }
 
     fn full_scan(&mut self) {
@@ -757,6 +798,7 @@ impl Engine {
                     };
                     let _ = reply.send(result);
                 }
+                Ok(Msg::JevDone(id, answer)) => self.on_jev(id, answer),
                 Ok(Msg::TodoStarted { id, lane, session, pending }) => {
                     let lanes = self.lane_index();
                     let _lock = todos::lock().map_err(|e| eprintln!("{e:#}")).ok();
@@ -1754,7 +1796,7 @@ impl Engine {
         board.pinned_worktrees = self.seen.pinned_worktrees.clone();
         board.theme = self.cfg.appearance.theme;
         board.quick_shortcut = self.cfg.shortcuts.quick_panel.clone();
-        board.router_on = self.cfg.router.enabled;
+        board.jev = self.cfg.jev.clone();
         board.perf_log = perf::enabled();
         board.todos = self.todos.todos.clone();
         board.labels = self.todos.labels.clone();
@@ -1783,6 +1825,7 @@ impl Engine {
         if self.link_pending(&board) {
             board.todos = self.todos.todos.clone();
         }
+        self.jev_look(&board);
         let composed = t.elapsed();
         self.dirty = false;
         self.dirty_git = false;

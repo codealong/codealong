@@ -3566,16 +3566,11 @@ html.is-quick body {
   background: var(--line);
 }
 
-/* Settings › General: routing with Jev. */
-.ca-router-field {
-  display: grid;
-  gap: 8px;
-  justify-items: start;
-}
-.ca-router-field input[type='password'] {
+/* Settings › Jev. */
+.ca-jev-key {
   width: 300px;
 }
-.ca-router-key {
+.ca-jev-saved {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -3583,8 +3578,45 @@ html.is-quick body {
   font: 500 12px/16px var(--font-sans);
   color: var(--ink-2);
 }
-.ca-router-ok {
+.ca-jev-ok {
   margin: 0;
   font: 500 12px/16px var(--font-sans);
   color: var(--pr-open);
+}
+.ca-jev-features {
+  display: grid;
+  gap: 8px;
+  max-width: 560px;
+}
+.ca-jev-feature {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  cursor: pointer;
+}
+.ca-jev-feature.is-disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+.ca-jev-feature-name {
+  font: 600 13px/18px var(--font-sans);
+  color: var(--ink);
+}
+.ca-jev-feature-does,
+.ca-jev-feature-sends {
+  padding-left: 21px;
+  font: 400 12px/16px var(--font-sans);
+  color: var(--ink-2);
+}
+.ca-jev-feature-sends {
+  color: var(--ink-3);
+}
+.ca-jev-feature-sends b {
+  font-weight: 600;
+}
+.ca-jev-model {
+  justify-self: start;
 }

@@ -380,7 +380,7 @@ export function Quick() {
 
   // With routing on, what you type goes to Jev once you pause, and its suggestions lead the
   // list, so ⏎ does the likeliest. A word or two is a search and isn't sent.
-  const routeFor = board?.routerOn && !todo && worthRouting(query) ? `${current}\n${query}` : null;
+  const routeFor = board?.jev?.quick_panel && !todo && worthRouting(query) ? `${current}\n${query}` : null;
   const [routed, setRouted] = useState<{ for: string; route: Route } | null>(null);
   const [routeError, setRouteError] = useState<{ for: string; message: string } | null>(null);
   useEffect(() => {

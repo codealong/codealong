@@ -77,7 +77,7 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   so ⏎ goes to what needs you; ↑ brings back what you'd typed before closing. A project picker (⌘P) narrows everything to one project. The shortcut is
   yours to change in Settings › General; Settings names shortcuts macOS and common launchers
   already use.
-- **Suggestions in the quick panel** (optional; Settings › General, `[router]` in config.toml):
+- **Suggestions in the quick panel** (optional; Settings › Jev, `[jev] quick_panel` in config.toml):
   once you pause typing, TypeSafe's Jev reads what you wrote against the project's sessions and
   worktrees and the panel leads with up to three suggestions, each with how likely it is: send
   it to a session that's already going, start new work in a worktree (a new one when it's a
@@ -114,8 +114,9 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   OpenCode (bring your own provider) and Antigravity (quotas in the app) have none to show.
   Add accounts in Settings › Accounts.
 - **Settings** (⌘,, the app menu, or the foot of the sidebar): a form for everything in
-  config.toml. General has the folders searched for repos, the quick panel's shortcut and
-  suggestions (with the TypeSafe key, kept in the keychain), the terminal and editor, and the theme; Accounts adds, edits, removes and signs in accounts, and under Found on this Mac lists
+  config.toml. General has the folders searched for repos, the quick panel's shortcut, the
+  terminal and editor, and the theme; Jev has the TypeSafe key (kept in the keychain) and a
+  switch per feature, each saying what it sends; Accounts adds, edits, removes and signs in accounts, and under Found on this Mac lists
   the ones Codealong could read but doesn't, to add with a click (with the agent skill, unless
   you untick it); Projects groups repos by pattern;
   Advanced turns the performance log on and shows where the files are. Each change is saved in
@@ -211,6 +212,13 @@ theme = "system"               # follows macOS; or "light", "dark"
 
 [shortcuts]
 quick_panel = "Option+Shift+Space"  # works in every app; "" turns it off (Settings › General)
+
+[jev]                          # TypeSafe's Jev, each feature off until turned on (Settings › Jev)
+model = "jev-latest"
+quick_panel = false            # suggestions as you type in the quick panel
+sessions = false               # how each turn ended: asks you, stuck, landed, finished, risk
+todos = false                  # links sessions to todos, done hints, new todos' labels
+pull_requests = false          # review comments that ask for a change
 
 [debug]
 perf_log = false               # true logs timings to ~/Library/Logs/Codealong/perf.log (Settings › Advanced)

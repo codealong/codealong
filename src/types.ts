@@ -172,8 +172,8 @@ export interface Config {
   appearance: { theme: Theme };
   /** Shortcuts that work in any app, as config.toml writes them (`Option+Shift+Space`); empty is off. */
   shortcuts: { quick_panel: string };
-  /** Routing in the quick panel with TypeSafe's Jev. Older files have none: off. */
-  router?: { enabled: boolean; model: string };
+  /** What Codealong asks TypeSafe's Jev, feature by feature. Older files have none: all off. */
+  jev?: JevCfg;
   accounts: AccountCfg[];
   projects: ProjectCfg[];
   debug: { perf_log: boolean };
@@ -267,8 +267,17 @@ export interface Board {
   labels: Label[];
   /** The quick panel's shortcut from config.toml, as it writes it; empty when it's off. Missing on older boards. */
   quickShortcut?: string;
-  /** `[router] enabled`: the quick panel asks Jev where what you type goes. */
-  routerOn?: boolean;
+  /** What Codealong asks Jev, from `[jev]` in config.toml. Missing on older boards. */
+  jev?: JevCfg;
+}
+
+/** `[jev]` in config.toml: the model, and each feature's switch. */
+export interface JevCfg {
+  model: string;
+  quick_panel: boolean;
+  sessions: boolean;
+  todos: boolean;
+  pull_requests: boolean;
 }
 
 export type RouteAction = 'send' | 'start' | 'find' | 'todo';
