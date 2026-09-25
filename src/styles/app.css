@@ -43,6 +43,22 @@ button {
   color: var(--ink);
   white-space: nowrap;
 }
+/* The filter field and the quick panel's button beside it, centered together in the title bar. */
+.ca-search-group {
+  flex: 1;
+  min-width: 160px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+.ca-search-group .ca-search {
+  margin: 0;
+}
+.ca-quickbtn {
+  flex: none;
+  color: var(--ink-3);
+}
 .ca-search input {
   flex: 1;
   min-width: 0;
