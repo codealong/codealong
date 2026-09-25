@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { FoundAccount } from '../types';
-import { foundNote } from './AccountsSection';
+import type { AccountSkill, FoundAccount } from '../types';
+import { foundNote, skillTag } from './AccountsSection';
 
 const NOW = Date.UTC(2026, 8, 25, 12);
 const DAY = 24 * 60 * 60 * 1000;
@@ -29,5 +29,21 @@ describe('foundNote', () => {
     expect(foundNote(found({ state: 'idle', command: 'cw', via: '~/.zshrc' }), NOW)).toBe('Not signed in · starts with cw from ~/.zshrc');
     // A command Codealong made up isn't yours, so it isn't named here.
     expect(foundNote(found({ state: 'idle', command: 'CLAUDE_CONFIG_DIR=~/.claude-work claude' }), NOW)).toBe('Not signed in');
+  });
+});
+
+describe('skillTag', () => {
+  const skill = (over: Partial<AccountSkill>): AccountSkill => ({ name: 'claude', harness: 'claude', path: '/Users/you/.claude/skills/codealong', installed: true, current: true, edited: false, ...over });
+
+  it('shows only once the skill is there', () => {
+    expect(skillTag(undefined)).toBeNull();
+    expect(skillTag(skill({ installed: false, current: false }))).toBeNull();
+    expect(skillTag(skill({}))).toEqual({ label: 'Skill installed', tone: 'ok' });
+  });
+
+  it('says when the copy is edited or behind', () => {
+    expect(skillTag(skill({ edited: true }))?.label).toBe('Skill edited');
+    expect(skillTag(skill({ edited: true, current: false }))?.label).toBe('Skill edited');
+    expect(skillTag(skill({ current: false }))).toEqual({ label: 'Skill out of date', tone: 'attn' });
   });
 });

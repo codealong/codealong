@@ -3,6 +3,7 @@
 export type Harness = 'claude' | 'codex' | 'opencode' | 'antigravity';
 export type Surface = 'cli' | 'app';
 export type Status = 'needs' | 'error' | 'working' | 'unread' | 'idle' | 'stopped';
+export type LogoStatus = 'error' | 'needs' | 'unread' | 'working' | 'idle';
 export type Bay = 'needs' | 'working' | 'unread' | 'review' | 'idle' | 'merged';
 export type Origin = 'main' | 'script' | 'codex' | 'claude-app' | 'scratchpad' | 'temp' | 'folder' | 'other';
 export type PrState = 'draft' | 'open' | 'approved' | 'changes' | 'merged' | 'closed';
@@ -229,10 +230,14 @@ export interface AccountSkill {
   path: string | null;
   installed: boolean;
   current: boolean;
+  /** Someone changed this copy, so updates leave it alone until it's replaced from Settings. */
+  edited: boolean;
 }
 
 export interface Board {
   generatedAt: number;
+  /** App-wide status from the engine; view and project filters do not change the logo. */
+  logoStatus: LogoStatus;
   apps: { terminal: string; terminalId: string; editor: string; editorId: string };
   projects: ProjectSummary[];
   lanes: Lane[];
@@ -428,6 +433,8 @@ export type BarGroup = 'needs' | 'unread' | 'working';
 export interface BarFeed {
   loading: boolean;
   theme: Theme;
+  /** What the mark's colors say, as on the board. */
+  logoStatus: LogoStatus;
   perfLog: boolean;
   /** The terminal app's name, for menu items such as "Show in Ghostty". */
   terminal: string;

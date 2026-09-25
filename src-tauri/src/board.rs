@@ -198,10 +198,19 @@ pub fn claude_session(
     })
 }
 
+/// A tool call in an open Codex turn that has gone unanswered for longer than its tool takes:
+/// the app is almost certainly waiting for you to approve it, and doesn't record that. A day
+/// on, the app has likely quit without closing the turn.
+fn codex_unanswered(th: &ThreadInfo, now: i64) -> Option<String> {
+    let call = th.pending_calls.iter().find(|c| now - c.at > c.limit_ms)?;
+    (th.turn_open && now - th.last_ts < DAY_MS).then(|| format!("Waiting for approval? · {}", call.what))
+}
+
 /// A Codex thread. Threads have no process of their own, so they are never Stopped.
 pub fn codex_session(account: &AccountCfg, th: &ThreadInfo, name: Option<&str>, seen_at: i64, now: i64) -> Session {
     let fresh = now - th.last_ts < CODEX_STALE_MS;
-    let status = if th.pending_approval.is_some() {
+    let unanswered = codex_unanswered(th, now);
+    let status = if th.pending_approval.is_some() || unanswered.is_some() {
         Status::Needs
     } else if th.turn_open && fresh {
         Status::Working
@@ -215,7 +224,7 @@ pub fn codex_session(account: &AccountCfg, th: &ThreadInfo, name: Option<&str>, 
         .or_else(|| th.last_user_message.clone())
         .unwrap_or_else(|| "Codex thread".to_string());
     let excerpt = match status {
-        Status::Needs => th.pending_approval.clone(),
+        Status::Needs => th.pending_approval.clone().or(unanswered),
         Status::Working => th.last_user_message.clone(),
         _ => th.last_agent_message.clone(),
     };
@@ -919,6 +928,7 @@ pub fn compose(inp: Inputs) -> Board {
     }
     Board {
         generated_at: now,
+        logo_status: logo_status(&lanes, &pr_list),
         apps: apps.clone(),
         projects,
         lanes,
@@ -938,6 +948,22 @@ pub fn compose(inp: Inputs) -> Board {
 }
 
 pub const ELSEWHERE: &str = "Elsewhere";
+
+/// Match the floating bar's scope: all visible projects, without archived sessions or
+/// duplicate visitors. An open review request also needs the user's attention.
+pub fn logo_status(lanes: &[Lane], prs: &[PrItem]) -> LogoStatus {
+    let sessions = lanes.iter().filter(|l| !l.hidden).flat_map(|l| &l.sessions)
+        .filter(|s| !s.archived && s.visitor.is_none())
+        .map(|s| match s.status {
+            Status::Error => LogoStatus::Error,
+            Status::Needs => LogoStatus::Needs,
+            Status::Unread => LogoStatus::Unread,
+            Status::Working => LogoStatus::Working,
+            Status::Idle | Status::Stopped => LogoStatus::Idle,
+        });
+    let review = prs.iter().any(|p| p.review_requested && p.state.is_open());
+    sessions.chain(review.then_some(LogoStatus::Needs)).min().unwrap_or_default()
+}
 
 #[cfg(test)]
 mod tests {
@@ -1015,6 +1041,84 @@ mod tests {
             deletions: 8,
             changed_files: 6,
             review_requested: false,
+        }
+    }
+
+    fn logo_board() -> Board {
+        let session = claude_session(&acct("claude2"), Some(&reg("busy", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
+        compose(Inputs {
+            now: NOW,
+            apps: &AppNames::default(),
+            seeds: &[seed("/r/atlas-quarry", "quarry")],
+            sessions: vec![session],
+            visitors: &HashMap::new(),
+            git: &HashMap::new(),
+            prs: &HashMap::from([("northwindai/atlas".to_string(), vec![pr(PrState::Open, 0)])]),
+            project_order: &["Northwind".to_string()],
+            warnings: vec![],
+            loading: false,
+            github_at: None,
+            pinned: &[],
+            github_login: Some("ghempton"),
+        })
+    }
+
+    #[test]
+    fn logo_prioritizes_attention_and_returns_to_idle_as_sessions_clear() {
+        let mut b = logo_board();
+        assert_eq!(b.logo_status, LogoStatus::Working, "composed boards carry the shared status");
+        assert_eq!(serde_json::to_value(&b).unwrap()["logoStatus"], "working");
+        let session = b.lanes[0].sessions[0].clone();
+        b.lanes[0].sessions.clear();
+        assert_eq!(logo_status(&b.lanes, &b.prs), LogoStatus::Idle);
+        for (status, expected) in [
+            (Status::Stopped, LogoStatus::Idle),
+            (Status::Idle, LogoStatus::Idle),
+            (Status::Working, LogoStatus::Working),
+            (Status::Unread, LogoStatus::Unread),
+            (Status::Needs, LogoStatus::Needs),
+            (Status::Error, LogoStatus::Error),
+        ] {
+            b.lanes[0].sessions.push(Session { status, ..session.clone() });
+            assert_eq!(logo_status(&b.lanes, &b.prs), expected);
+        }
+        for expected in [LogoStatus::Needs, LogoStatus::Unread, LogoStatus::Working, LogoStatus::Idle, LogoStatus::Idle, LogoStatus::Idle] {
+            b.lanes[0].sessions.pop();
+            assert_eq!(logo_status(&b.lanes, &b.prs), expected);
+        }
+    }
+
+    #[test]
+    fn logo_ignores_archived_visiting_and_hidden_sessions() {
+        let mut b = logo_board();
+        let mut error = b.lanes[0].sessions[0].clone();
+        error.status = Status::Error;
+        error.archived = true;
+        b.lanes[0].sessions.push(error.clone());
+        error.archived = false;
+        error.visitor = Some("worked here".into());
+        b.lanes[0].sessions.push(error.clone());
+        let mut hidden = b.lanes[0].clone();
+        hidden.hidden = true;
+        error.visitor = None;
+        hidden.sessions = vec![error];
+        b.lanes.push(hidden);
+        assert_eq!(logo_status(&b.lanes, &b.prs), LogoStatus::Working);
+        b.lanes[1].hidden = false;
+        assert_eq!(logo_status(&b.lanes, &b.prs), LogoStatus::Error, "attention in another visible project counts");
+    }
+
+    #[test]
+    fn logo_counts_only_open_review_requests() {
+        let mut b = logo_board();
+        b.prs[0].review_requested = true;
+        assert_eq!(logo_status(&b.lanes, &b.prs), LogoStatus::Needs);
+        b.lanes[0].sessions[0].status = Status::Error;
+        assert_eq!(logo_status(&b.lanes, &b.prs), LogoStatus::Error);
+        b.lanes[0].sessions.clear();
+        for state in [PrState::Closed, PrState::Merged] {
+            b.prs[0].state = state;
+            assert_eq!(logo_status(&b.lanes, &b.prs), LogoStatus::Idle);
         }
     }
 
@@ -1229,6 +1333,16 @@ mod tests {
         assert_eq!(codex_session(&a, &th, None, NOW, NOW).status, Status::Idle);
         th.pending_approval = Some("Run · `yarn install`".into());
         assert_eq!(codex_session(&a, &th, None, 0, NOW).status, Status::Needs);
+        // A computer-use call that hasn't answered in a minute is waiting for approval.
+        th.pending_approval = None;
+        th.turn_open = true;
+        th.last_ts = NOW - 30_000;
+        th.pending_calls = vec![crate::codex::PendingCall { call_id: "c".into(), at: NOW - 30_000, what: "Inspect the Dock".into(), limit_ms: 60_000 }];
+        assert_eq!(codex_session(&a, &th, None, 0, NOW).status, Status::Working);
+        th.pending_calls[0].at = NOW - 61_000;
+        let waiting = codex_session(&a, &th, None, 0, NOW);
+        assert_eq!(waiting.status, Status::Needs);
+        assert_eq!(waiting.excerpt.as_deref(), Some("Waiting for approval? · Inspect the Dock"));
     }
 
     #[test]

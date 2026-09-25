@@ -5,9 +5,9 @@
 
 import { useEffect, useState } from 'react';
 import { agentsStatus, foundAccounts, getAccounts, installAgents, saveAccounts, signIn } from '../api';
-import { agoPhrase } from '../format';
+import { agoPhrase, tildePath } from '../format';
 import { HARNESSES, HARNESS_WORD } from '../harness';
-import type { AccountCfg, AccountInfo, FoundAccount, Harness, Usage } from '../types';
+import type { AccountCfg, AccountInfo, AccountSkill, FoundAccount, Harness, Usage } from '../types';
 import { Button, Icon, Rich } from './primitives';
 import { asOfPhrase, UsageMeter } from './UsageBar';
 
@@ -103,6 +103,14 @@ export function foundNote(f: FoundAccount, now: number): string {
   return [where, runs].filter(Boolean).join(' · ');
 }
 
+/** The tag an account's card shows for the Codealong skill: none until it's installed. */
+export function skillTag(s: AccountSkill | undefined): { label: string; tone: 'ok' | 'attn' | 'none' } | null {
+  if (!s?.installed) return null;
+  if (s.edited) return { label: 'Skill edited', tone: 'none' };
+  if (!s.current) return { label: 'Skill out of date', tone: 'attn' };
+  return { label: 'Skill installed', tone: 'ok' };
+}
+
 function toCfg(a: AccountCfg): AccountCfg {
   return { name: a.name, harness: a.harness, home: a.home, command: a.command };
 }
@@ -120,6 +128,8 @@ interface AccountsSectionProps {
 export function AccountsSection({ focus, usage, terminal, now, onSaved }: AccountsSectionProps) {
   const [accounts, setAccounts] = useState<AccountInfo[] | null>(null);
   const [found, setFound] = useState<FoundAccount[]>([]);
+  // Where the Codealong skill stands in each account's folder, for the tag on its card.
+  const [skills, setSkills] = useState<AccountSkill[]>([]);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -132,6 +142,9 @@ export function AccountsSection({ focus, usage, terminal, now, onSaved }: Accoun
     foundAccounts()
       .then(setFound)
       .catch(() => setFound([]));
+    agentsStatus()
+      .then((s) => setSkills(s.accounts))
+      .catch(() => setSkills([]));
     return getAccounts()
       .then(setAccounts)
       .catch((e: unknown) => setError(String(e)));
@@ -175,6 +188,7 @@ export function AccountsSection({ focus, usage, terminal, now, onSaved }: Accoun
     try {
       const status = await agentsStatus();
       const after = await installAgents(status.command.link === null, [name]);
+      setSkills(after.accounts);
       if (after.errors.length > 0) setError(after.errors.join(' '));
     } catch (e) {
       setError(String(e));
@@ -309,14 +323,24 @@ export function AccountsSection({ focus, usage, terminal, now, onSaved }: Accoun
         if (draft?.original === a.name) return <div key={a.name}>{form}</div>;
         const u = usage.find((x) => x.account === a.name);
         const status = a.signedIn ? (a.email ?? 'Signed in') : a.folderExists ? 'Not signed in' : 'Not set up';
+        const skill = skills.find((s) => s.name === a.name);
+        const tag = skillTag(skill);
         return (
           <div key={a.name} id={`ca-acct-${a.name}`} className={['ca-ucard', 'ca-acct', focus === a.name && 'is-focus'].filter(Boolean).join(' ')}>
             <div className="ca-ucard-head">
               <span className="ca-ucard-name">{a.name}</span>
               <span className="ca-ucard-plan">{[HARNESS_WORD[a.harness], u?.plan].filter(Boolean).join(' · ')}</span>
-              <span className={['ca-tag', a.signedIn ? 'is-ok' : 'is-attn'].join(' ')}>
-                {a.signedIn && <Icon name="check" size={12} stroke={2} />}
-                {status}
+              <span className="ca-acct-tags">
+                {tag && (
+                  <span className={['ca-tag', tag.tone === 'ok' ? 'is-ok' : tag.tone === 'attn' ? 'is-attn' : ''].filter(Boolean).join(' ')} title={skill?.path ? `The Codealong skill, in ${tildePath(skill.path)}` : undefined}>
+                    {tag.tone === 'ok' && <Icon name="check" size={12} stroke={2} />}
+                    {tag.label}
+                  </span>
+                )}
+                <span className={['ca-tag', a.signedIn ? 'is-ok' : 'is-attn'].join(' ')}>
+                  {a.signedIn && <Icon name="check" size={12} stroke={2} />}
+                  {status}
+                </span>
               </span>
             </div>
             {u && u.meters.length > 0 && (

@@ -13,6 +13,7 @@ import { usePerf } from '../perf';
 import type { BarFeed, BarItem, BarReview, Status } from '../types';
 import { Icon, Mark, STATUS_WORD, StatusGlyph } from './primitives';
 import { applyTheme } from './ThemeSwitch';
+import { LOGO_LABEL, useLogo } from '../logo';
 
 /** Room around the bar for its shadow: the window is this much bigger on every side. */
 const MARGIN = 12;
@@ -173,6 +174,7 @@ export function Bar() {
 
   // The theme from config.toml, as in the board's windows.
   const theme = feed?.theme ?? 'system';
+  const logoStatus = useLogo(feed?.logoStatus);
   useEffect(() => applyTheme(theme), [theme]);
 
   useEffect(() => {
@@ -327,7 +329,7 @@ export function Bar() {
         <button
           type="button"
           className="ca-hud-mark"
-          title="Show Codealong"
+          title={`Show Codealong · ${LOGO_LABEL[logoStatus]}`}
           onPointerDown={(e) => {
             if (e.button === 0) drag.current = { x: e.screenX, y: e.screenY, moved: false };
           }}
@@ -344,7 +346,7 @@ export function Bar() {
             if (!moved) void showMain();
           }}
         >
-          <Mark size={16} />
+          <Mark size={16} status={logoStatus} />
         </button>
         {sections.flatMap((section, i) => [<span key={`divider-${i}`} className="ca-hud-divider" aria-hidden="true" />, ...section])}
       </div>

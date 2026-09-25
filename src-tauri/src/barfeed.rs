@@ -6,7 +6,7 @@
 use serde::Serialize;
 
 use crate::config::Theme;
-use crate::model::{Board, Status};
+use crate::model::{Board, LogoStatus, Status};
 
 /// The bar's groups, most urgent first.
 #[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -32,6 +32,8 @@ pub struct BarFeed {
     /// True until the engine's first full scan has finished.
     pub loading: bool,
     pub theme: Theme,
+    /// What the mark's colors say, as on the board.
+    pub logo_status: LogoStatus,
     pub perf_log: bool,
     /// The terminal app's name, for menu items such as "Show in Ghostty".
     pub terminal: String,
@@ -116,6 +118,7 @@ pub fn feed(board: &Board) -> BarFeed {
     BarFeed {
         loading: board.loading,
         theme: board.theme,
+        logo_status: board.logo_status,
         perf_log: board.perf_log,
         terminal: board.apps.terminal.clone(),
         items: items.into_iter().map(|(_, item)| item).collect(),
