@@ -364,6 +364,12 @@ Tauri and macOS (from the Tauri 2.11 and tao 0.35 sources)
 - Transparent windows need `macOSPrivateApi` in tauri.conf.json and the `macos-private-api`
   feature. `data-tauri-drag-region="deep"` drags from anywhere inside except controls.
 - WebKit holds back ResizeObserver and animation frames while a window is hidden.
+- WebKit hands an element's transform animation to the compositor but repaints a rotating path
+  inside an SVG every frame: the working glyph turns its whole `<svg>` instead (app.css). With the
+  bar's small feed, that took the bar's web process from 7.6% of a core to 0.7% (2026-09-25).
+- WebKit also slows a visible page's timers while its app isn't frontmost: the bar's 1 s timer
+  ran a second late around the clock until the bar opted out (`background_throttling`).
+- The bar listens for `bar-feed` (barfeed.rs), never `board`, so Tauri doesn't send it the board.
 
 GitHub
 
