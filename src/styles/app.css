@@ -762,8 +762,8 @@ body.is-resizing * {
   gap: 2px;
   flex: none;
 }
-/* A collapsed chip's card: all of the account's limits, under the chip. */
-.ca-ucard {
+/* Popup styles stay separate from the account and project cards in Settings. */
+.ca-usage-popover {
   position: fixed;
   z-index: 40;
   display: grid;
@@ -779,43 +779,43 @@ body.is-resizing * {
   font: 400 12px/16px var(--font-sans);
   pointer-events: none;
 }
-.ca-ucard-head {
+.ca-usage-popover .ca-ucard-head {
   display: flex;
   align-items: baseline;
   gap: var(--space-2);
 }
-.ca-ucard-plan,
-.ca-ucard-foot {
+.ca-usage-popover .ca-ucard-plan,
+.ca-usage-popover .ca-ucard-foot {
   color: var(--ink-3);
 }
-.ca-ucard-meters {
+.ca-usage-popover .ca-ucard-meters {
   display: grid;
   grid-template-columns: auto 88px auto auto;
   align-items: center;
   gap: var(--space-2) 10px;
 }
-.ca-ucard-meters > .ca-meter {
+.ca-usage-popover .ca-ucard-meters > .ca-meter {
   display: contents;
 }
-.ca-ucard .ca-meter-track {
+.ca-usage-popover .ca-meter-track {
   height: 6px;
 }
-.ca-ucard-reset {
+.ca-usage-popover .ca-ucard-reset {
   color: var(--ink-3);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-.ca-ucard.is-stale .ca-meter > * {
+.ca-usage-popover.is-stale .ca-meter > * {
   opacity: 0.55;
 }
-.ca-ucard-error {
+.ca-usage-popover .ca-ucard-error {
   display: flex;
   align-items: flex-start;
   gap: 6px;
   max-width: 320px;
   color: var(--alert);
 }
-.ca-ucard-error > .ca-icon {
+.ca-usage-popover .ca-ucard-error > .ca-icon {
   flex: none;
   margin-top: 2px;
 }
@@ -921,6 +921,7 @@ body.is-resizing * {
 }
 .ca-acct-add {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 .ca-acct-form {

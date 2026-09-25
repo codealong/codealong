@@ -179,7 +179,7 @@ function UsageCard({ usage: u, now, anchor }: { usage: Usage; now: number; ancho
   const stale = isStale(u);
   const asOf = asOfPhrase(u, now);
   return createPortal(
-    <div ref={ref} className={['ca-ucard', stale && 'is-stale'].filter(Boolean).join(' ')} aria-hidden="true">
+    <div ref={ref} className={['ca-ucard', 'ca-usage-popover', stale && 'is-stale'].filter(Boolean).join(' ')} aria-hidden="true">
       <div className="ca-ucard-head">
         <span className="ca-uchip-name">{u.account}</span>
         {u.plan && <span className="ca-ucard-plan">{u.plan}</span>}
