@@ -1,0 +1,88 @@
+{
+  "tool": "Built-in image_gen",
+  "date": "2026-09-24",
+  "reference": "../2026-09-24-round-3/22-overlap.png",
+  "brief": "Ten controlled variations of #22 Overlap, preserving the layered C with simple flat geometry.",
+  "concepts": [
+    {
+      "number": 91,
+      "name": "Flat original",
+      "idea": "Keep the recognizable silhouette; replace gradients with flat color.",
+      "slug": "flat-original",
+      "filename": "91-flat-original.png",
+      "prompt": "Use case: logo-brand. Edit target: the attached #22 Overlap Codealong logo. Create ONE controlled logo variation from this exact mark, not a new unrelated symbol. Preserve its essential identity: a right-opening capital C assembled from two broad curved pieces, with a single darker intersection on the left. Friendly, confident, compact and readable as a C at 24 pixels. Two principal ink colors plus ONE solid darker intersection color are allowed.\nStyle constraints: strictly flat, clean geometric vector-like artwork. Uniform solid color inside every region, perfectly crisp edges. NO gradients, shading, shadows, 3D, perspective, bevels, glass, highlights, textures, thin details, outlines, extra symbols, dots, arrows, letters other than the C, words, labels or watermark. The original image has gradients: deliberately eliminate them. The overlap is shown by a simple flat third-color shape, not lighting or a folded ribbon.\nComposition: exactly one large centered standalone mark on a pure white square canvas, approximately 68% of canvas size, generous even margins. Do not add a tile or presentation mockup.\n\nSpecific variation 91: Preserve the original silhouette very closely, including its broad rounded ends and slightly organic C proportions. Clean the contour into smooth deliberate arcs. Upper piece solid turquoise #43CEC9, lower piece cobalt #315CF6, overlap dark teal-blue #145B91. Only change the rendering to entirely solid colors and slightly regularize the curves."
+    },
+    {
+      "number": 92,
+      "name": "Circular",
+      "idea": "Equal arcs and round terminals.",
+      "slug": "circular",
+      "filename": "92-circular.png",
+      "prompt": "Use case: logo-brand. Edit target: the attached #22 Overlap Codealong logo. Create ONE controlled logo variation from this exact mark, not a new unrelated symbol. Preserve its essential identity: a right-opening capital C assembled from two broad curved pieces, with a single darker intersection on the left. Friendly, confident, compact and readable as a C at 24 pixels. Two principal ink colors plus ONE solid darker intersection color are allowed.\nStyle constraints: strictly flat, clean geometric vector-like artwork. Uniform solid color inside every region, perfectly crisp edges. NO gradients, shading, shadows, 3D, perspective, bevels, glass, highlights, textures, thin details, outlines, extra symbols, dots, arrows, letters other than the C, words, labels or watermark. The original image has gradients: deliberately eliminate them. The overlap is shown by a simple flat third-color shape, not lighting or a folded ribbon.\nComposition: exactly one large centered standalone mark on a pure white square canvas, approximately 68% of canvas size, generous even margins. Do not add a tile or presentation mockup.\n\nSpecific variation 92: Regularize the original into a perfectly circular C, equal thickness along upper and lower arcs, equal-sized semicircular round end caps, and a large right-facing gap. Upper and lower pieces have equal visual weight. Their only intersection is one simple curved lens at the far left, similar to the source. Solid turquoise, cobalt and dark blue intersection."
+    },
+    {
+      "number": 93,
+      "name": "Open",
+      "idea": "More space through the center and opening.",
+      "slug": "open",
+      "filename": "93-open.png",
+      "prompt": "Use case: logo-brand. Edit target: the attached #22 Overlap Codealong logo. Create ONE controlled logo variation from this exact mark, not a new unrelated symbol. Preserve its essential identity: a right-opening capital C assembled from two broad curved pieces, with a single darker intersection on the left. Friendly, confident, compact and readable as a C at 24 pixels. Two principal ink colors plus ONE solid darker intersection color are allowed.\nStyle constraints: strictly flat, clean geometric vector-like artwork. Uniform solid color inside every region, perfectly crisp edges. NO gradients, shading, shadows, 3D, perspective, bevels, glass, highlights, textures, thin details, outlines, extra symbols, dots, arrows, letters other than the C, words, labels or watermark. The original image has gradients: deliberately eliminate them. The overlap is shown by a simple flat third-color shape, not lighting or a folded ribbon.\nComposition: exactly one large centered standalone mark on a pure white square canvas, approximately 68% of canvas size, generous even margins. Do not add a tile or presentation mockup.\n\nSpecific variation 93: Make the C more open and airy: enlarge its white counter and widen the opening on the right, make the band approximately 20 percent thinner than the source. Keep fully rounded ends. Retain two simple sweeping arcs and one small clean intersection on the left. Solid turquoise, cobalt and dark blue intersection."
+    },
+    {
+      "number": 94,
+      "name": "Compact",
+      "idea": "A denser C with a smaller counter.",
+      "slug": "compact",
+      "filename": "94-compact.png",
+      "prompt": "Use case: logo-brand. Edit target: the attached #22 Overlap Codealong logo. Create ONE controlled logo variation from this exact mark, not a new unrelated symbol. Preserve its essential identity: a right-opening capital C assembled from two broad curved pieces, with a single darker intersection on the left. Friendly, confident, compact and readable as a C at 24 pixels. Two principal ink colors plus ONE solid darker intersection color are allowed.\nStyle constraints: strictly flat, clean geometric vector-like artwork. Uniform solid color inside every region, perfectly crisp edges. NO gradients, shading, shadows, 3D, perspective, bevels, glass, highlights, textures, thin details, outlines, extra symbols, dots, arrows, letters other than the C, words, labels or watermark. The original image has gradients: deliberately eliminate them. The overlap is shown by a simple flat third-color shape, not lighting or a folded ribbon.\nComposition: exactly one large centered standalone mark on a pure white square canvas, approximately 68% of canvas size, generous even margins. Do not add a tile or presentation mockup.\n\nSpecific variation 94: Make a squat bold compact version: the C is slightly wider than tall, with thicker curved bands and a smaller round white counter, while retaining a clearly open right side. Keep broad round ends and a single smooth dark overlap on the left. Solid turquoise, cobalt and dark blue intersection. No unnecessary internal detail."
+    },
+    {
+      "number": 95,
+      "name": "Soft square",
+      "idea": "Rounded-square geometry.",
+      "slug": "soft-square",
+      "filename": "95-soft-square.png",
+      "prompt": "Use case: logo-brand. Edit target: the attached #22 Overlap Codealong logo. Create ONE controlled logo variation from this exact mark, not a new unrelated symbol. Preserve its essential identity: a right-opening capital C assembled from two broad curved pieces, with a single darker intersection on the left. Friendly, confident, compact and readable as a C at 24 pixels. Two principal ink colors plus ONE solid darker intersection color are allowed.\nStyle constraints: strictly flat, clean geometric vector-like artwork. Uniform solid color inside every region, perfectly crisp edges. NO gradients, shading, shadows, 3D, perspective, bevels, glass, highlights, textures, thin details, outlines, extra symbols, dots, arrows, letters other than the C, words, labels or watermark. The original image has gradients: deliberately eliminate them. The overlap is shown by a simple flat third-color shape, not lighting or a folded ribbon.\nComposition: exactly one large centered standalone mark on a pure white square canvas, approximately 68% of canvas size, generous even margins. Do not add a tile or presentation mockup.\n\nSpecific variation 95: Reshape the source into a C based on a rounded square: short horizontal top and bottom, a short vertical left spine joined with generous quarter-circle corners, rounded right-facing terminals. Just two broad components meet in one simple rounded overlap at middle-left. Solid turquoise upper component, cobalt lower component, dark blue overlap. Flat and geometric, no perspective."
+    },
+    {
+      "number": 96,
+      "name": "Cut ends",
+      "idea": "Circular body with precise terminal cuts.",
+      "slug": "cut-ends",
+      "filename": "96-cut-ends.png",
+      "prompt": "Use case: logo-brand. Edit target: the attached #22 Overlap Codealong logo. Create ONE controlled logo variation from this exact mark, not a new unrelated symbol. Preserve its essential identity: a right-opening capital C assembled from two broad curved pieces, with a single darker intersection on the left. Friendly, confident, compact and readable as a C at 24 pixels. Two principal ink colors plus ONE solid darker intersection color are allowed.\nStyle constraints: strictly flat, clean geometric vector-like artwork. Uniform solid color inside every region, perfectly crisp edges. NO gradients, shading, shadows, 3D, perspective, bevels, glass, highlights, textures, thin details, outlines, extra symbols, dots, arrows, letters other than the C, words, labels or watermark. The original image has gradients: deliberately eliminate them. The overlap is shown by a simple flat third-color shape, not lighting or a folded ribbon.\nComposition: exactly one large centered standalone mark on a pure white square canvas, approximately 68% of canvas size, generous even margins. Do not add a tile or presentation mockup.\n\nSpecific variation 96: Use circular inner and outer arcs for the C, but replace the two bulbous rounded terminal tips with straight parallel horizontal cuts facing each other across the right opening. The C remains round overall. Preserve two broad components and a single curved overlap at left. Solid turquoise upper piece, cobalt lower piece, dark blue overlap. Very crisp precise geometry, not a hexagon."
+    },
+    {
+      "number": 97,
+      "name": "Offset",
+      "idea": "Two arcs shifted slightly apart.",
+      "slug": "offset",
+      "filename": "97-offset.png",
+      "prompt": "Use case: logo-brand. Edit target: the attached #22 Overlap Codealong logo. Create ONE controlled logo variation from this exact mark, not a new unrelated symbol. Preserve its essential identity: a right-opening capital C assembled from two broad curved pieces, with a single darker intersection on the left. Friendly, confident, compact and readable as a C at 24 pixels. Two principal ink colors plus ONE solid darker intersection color are allowed.\nStyle constraints: strictly flat, clean geometric vector-like artwork. Uniform solid color inside every region, perfectly crisp edges. NO gradients, shading, shadows, 3D, perspective, bevels, glass, highlights, textures, thin details, outlines, extra symbols, dots, arrows, letters other than the C, words, labels or watermark. The original image has gradients: deliberately eliminate them. The overlap is shown by a simple flat third-color shape, not lighting or a folded ribbon.\nComposition: exactly one large centered standalone mark on a pure white square canvas, approximately 68% of canvas size, generous even margins. Do not add a tile or presentation mockup.\n\nSpecific variation 97: Keep the rounded C construction but shift the turquoise upper arc slightly upward-left and the cobalt lower arc slightly downward-right. The offset must be modest: still one coherent open C, not two separate Cs. One simplified broad lens intersection on the left reveals the two-piece construction. Maintain smooth geometric arcs and exactly three solid color regions."
+    },
+    {
+      "number": 98,
+      "name": "Indigo",
+      "idea": "A cooler violet and blue palette.",
+      "slug": "indigo",
+      "filename": "98-indigo.png",
+      "prompt": "Use case: logo-brand. Edit target: the attached #22 Overlap Codealong logo. Create ONE controlled logo variation from this exact mark, not a new unrelated symbol. Preserve its essential identity: a right-opening capital C assembled from two broad curved pieces, with a single darker intersection on the left. Friendly, confident, compact and readable as a C at 24 pixels. Two principal ink colors plus ONE solid darker intersection color are allowed.\nStyle constraints: strictly flat, clean geometric vector-like artwork. Uniform solid color inside every region, perfectly crisp edges. NO gradients, shading, shadows, 3D, perspective, bevels, glass, highlights, textures, thin details, outlines, extra symbols, dots, arrows, letters other than the C, words, labels or watermark. The original image has gradients: deliberately eliminate them. The overlap is shown by a simple flat third-color shape, not lighting or a folded ribbon.\nComposition: exactly one large centered standalone mark on a pure white square canvas, approximately 68% of canvas size, generous even margins. Do not add a tile or presentation mockup.\n\nSpecific variation 98: Use the balanced circular C construction with broad round terminals and one simple darker overlap on the left. Change the palette only: upper arc solid lavender #A69BFF, lower arc strong indigo #5146D9, overlap deep violet #30266D. The geometric contour should remain close to the source. Pure solid fills, no gradients."
+    },
+    {
+      "number": 99,
+      "name": "Warm contrast",
+      "idea": "Coral and cobalt with a plum overlap.",
+      "slug": "warm-contrast",
+      "filename": "99-warm-contrast.png",
+      "prompt": "Use case: logo-brand. Edit target: the attached #22 Overlap Codealong logo. Create ONE controlled logo variation from this exact mark, not a new unrelated symbol. Preserve its essential identity: a right-opening capital C assembled from two broad curved pieces, with a single darker intersection on the left. Friendly, confident, compact and readable as a C at 24 pixels. Two principal ink colors plus ONE solid darker intersection color are allowed.\nStyle constraints: strictly flat, clean geometric vector-like artwork. Uniform solid color inside every region, perfectly crisp edges. NO gradients, shading, shadows, 3D, perspective, bevels, glass, highlights, textures, thin details, outlines, extra symbols, dots, arrows, letters other than the C, words, labels or watermark. The original image has gradients: deliberately eliminate them. The overlap is shown by a simple flat third-color shape, not lighting or a folded ribbon.\nComposition: exactly one large centered standalone mark on a pure white square canvas, approximately 68% of canvas size, generous even margins. Do not add a tile or presentation mockup.\n\nSpecific variation 99: Keep the original rounded C silhouette nearly intact but regularize its inner counter into a circle. Change the palette: upper arc solid coral #FF765F, lower arc solid cobalt #345CDE, one dark plum #633964 intersection on the left. Use exactly three flat color regions. Bold, simple, clear overlap."
+    },
+    {
+      "number": 100,
+      "name": "Tonal blue",
+      "idea": "One hue in three flat tones.",
+      "slug": "tonal-blue",
+      "filename": "100-tonal-blue.png",
+      "prompt": "Use case: logo-brand. Edit target: the attached #22 Overlap Codealong logo. Create ONE controlled logo variation from this exact mark, not a new unrelated symbol. Preserve its essential identity: a right-opening capital C assembled from two broad curved pieces, with a single darker intersection on the left. Friendly, confident, compact and readable as a C at 24 pixels. Two principal ink colors plus ONE solid darker intersection color are allowed.\nStyle constraints: strictly flat, clean geometric vector-like artwork. Uniform solid color inside every region, perfectly crisp edges. NO gradients, shading, shadows, 3D, perspective, bevels, glass, highlights, textures, thin details, outlines, extra symbols, dots, arrows, letters other than the C, words, labels or watermark. The original image has gradients: deliberately eliminate them. The overlap is shown by a simple flat third-color shape, not lighting or a folded ribbon.\nComposition: exactly one large centered standalone mark on a pure white square canvas, approximately 68% of canvas size, generous even margins. Do not add a tile or presentation mockup.\n\nSpecific variation 100: Use the original rounded C silhouette with slightly more geometric and balanced arcs. Render the two pieces in one blue hue at different solid values: upper piece muted medium blue #6A8EC7, lower piece deep blue #244B82, intersection dark navy #173154. The darker intersection on the left must remain a single uncomplicated lens. No gradients or texture."
+    }
+  ]
+}
