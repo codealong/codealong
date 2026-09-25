@@ -19,11 +19,7 @@ const TIMEOUT: Duration = Duration::from_secs(20);
 /// The Codex CLI the installed app ships, so the protocol matches the app's own; else `codex`
 /// on the PATH.
 fn codex_binary() -> PathBuf {
-    ["/Applications/ChatGPT.app/Contents/Resources/codex", "/Applications/Codex.app/Contents/Resources/codex"]
-        .iter()
-        .map(PathBuf::from)
-        .find(|p| p.is_file())
-        .unwrap_or_else(|| PathBuf::from("codex"))
+    crate::detect::codex_app_cli().unwrap_or_else(|| PathBuf::from("codex"))
 }
 
 /// Sends one request to a fresh app-server for the account at `codex_home` and returns its result.

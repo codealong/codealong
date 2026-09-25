@@ -1647,13 +1647,11 @@ struct ConfigOut {
     #[serde(flatten)]
     view: config::ConfigView,
     /// Accounts found on this Mac that config.toml doesn't have yet.
-    discovered: Vec<AccountCfg>,
+    discovered: Vec<crate::detect::Found>,
 }
 
 fn config_view() -> ConfigOut {
-    let view = config::view();
-    let discovered = config::discover_accounts().into_iter().filter(|d| !view.config.accounts.iter().any(|a| a.name == d.name || expand(&a.home) == expand(&d.home))).collect();
-    ConfigOut { view, discovered }
+    ConfigOut { view: config::view(), discovered: crate::detect::unlisted() }
 }
 
 fn config_cmd(cmd: ConfigCmd, json: bool) -> Result<()> {
@@ -1672,7 +1670,8 @@ fn config_cmd(cmd: ConfigCmd, json: bool) -> Result<()> {
                 println!();
             }
             for d in &out.discovered {
-                println!("# Found but not configured: {} ({} at {})", d.name, d.harness, d.home);
+                let started = d.command.as_deref().map(|c| format!(", started with `{c}`")).unwrap_or_default();
+                println!("# Found but not configured: {} ({} at {}{started})", d.name, d.harness, d.home);
             }
             Ok(())
         }

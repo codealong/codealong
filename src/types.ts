@@ -197,6 +197,21 @@ export interface AccountInfo extends AccountCfg {
   email: string | null;
 }
 
+/** An account on this Mac that config.toml doesn't list (detect.rs). */
+export interface FoundAccount extends AccountCfg {
+  /** The file the command comes from, when it's your own wrapper or alias. */
+  via: string | null;
+  /** active: sessions in the last 30 days; signedIn: signed in but quiet; idle: installed or set
+   * up in your shell, neither signed in nor used lately. */
+  state: 'active' | 'signedIn' | 'idle';
+  signedIn: boolean;
+  folderExists: boolean;
+  email: string | null;
+  lastUsed: number | null;
+  /** Codealong has never read this folder, and nobody took it out or dismissed it. */
+  new: boolean;
+}
+
 /** The `codealong` command link and the agent skill per account (install.rs). */
 export interface AgentsStatus {
   command: { link: string | null; target: string; onPath: boolean };

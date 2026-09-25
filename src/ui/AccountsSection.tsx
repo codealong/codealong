@@ -1,11 +1,13 @@
 // Settings › Accounts: the Claude Code, Codex, OpenCode and Antigravity accounts Codealong
-// reads. Saving rewrites the
-// [[accounts]] tables in config.toml and leaves the rest of the file as you wrote it.
+// reads, and under Found on this Mac the ones it could (detect.rs). Saving rewrites the
+// [[accounts]] tables in config.toml and leaves the rest of the file as you wrote it. Adding an
+// account can put the Codealong skill in its folder too (install.rs), as Settings › Agents does.
 
 import { useEffect, useState } from 'react';
-import { getAccounts, saveAccounts, signIn } from '../api';
+import { agentsStatus, foundAccounts, getAccounts, installAgents, saveAccounts, signIn } from '../api';
+import { agoPhrase } from '../format';
 import { HARNESSES, HARNESS_WORD } from '../harness';
-import type { AccountCfg, AccountInfo, Harness, Usage } from '../types';
+import type { AccountCfg, AccountInfo, FoundAccount, Harness, Usage } from '../types';
 import { Button, Icon, Rich } from './primitives';
 import { asOfPhrase, UsageMeter } from './UsageBar';
 
@@ -88,6 +90,19 @@ export function suggestAccount(harness: Harness, taken: AccountCfg[]): Omit<Draf
   return { harness, name, ...defaultsFor(harness, name) };
 }
 
+/** Where a found account stands, in words: its sign-in, when it was last used, and the
+ * wrapper or alias that runs it. */
+export function foundNote(f: FoundAccount, now: number): string {
+  const who = f.signedIn ? (f.email ? `Signed in as ${f.email}` : 'Signed in') : null;
+  const used = f.lastUsed !== null ? `used ${agoPhrase(f.lastUsed, now)}` : null;
+  let where: string;
+  if (f.state === 'active') where = [who ?? 'Not signed in', used].filter(Boolean).join(', ');
+  else if (f.state === 'signedIn') where = `${who ?? 'Signed in'}, ${used ? `last ${used}` : 'no sessions yet'}`;
+  else where = f.folderExists ? 'Not signed in' : 'Installed, not set up yet';
+  const runs = f.via && f.command ? `starts with ${f.command} from ${f.via}` : null;
+  return [where, runs].filter(Boolean).join(' · ');
+}
+
 function toCfg(a: AccountCfg): AccountCfg {
   return { name: a.name, harness: a.harness, home: a.home, command: a.command };
 }
@@ -104,15 +119,23 @@ interface AccountsSectionProps {
 
 export function AccountsSection({ focus, usage, terminal, now, onSaved }: AccountsSectionProps) {
   const [accounts, setAccounts] = useState<AccountInfo[] | null>(null);
+  const [found, setFound] = useState<FoundAccount[]>([]);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Whether an account you add gets the Codealong skill, so its agents can use the board.
+  const [withSkill, setWithSkill] = useState(true);
 
-  const load = () =>
-    getAccounts()
+  const load = () => {
+    // Looking for accounts reads a few folders and asks the keychain; it can come after the list.
+    foundAccounts()
+      .then(setFound)
+      .catch(() => setFound([]));
+    return getAccounts()
       .then(setAccounts)
       .catch((e: unknown) => setError(String(e)));
+  };
 
   useEffect(() => {
     void load();
@@ -146,6 +169,24 @@ export function AccountsSection({ focus, usage, terminal, now, onSaved }: Accoun
     }
   };
 
+  /** Puts the skill in a new account's folder, and the command on PATH if it isn't yet. */
+  const installSkill = async (name: string) => {
+    if (!withSkill) return;
+    try {
+      const status = await agentsStatus();
+      const after = await installAgents(status.command.link === null, [name]);
+      if (after.errors.length > 0) setError(after.errors.join(' '));
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const addFound = async (f: FoundAccount) => {
+    if (!accounts) return;
+    setRemoving(null);
+    if (await save([...accounts, toCfg(f)])) await installSkill(f.name);
+  };
+
   const startAdd = (harness: Harness) => {
     setError(null);
     setRemoving(null);
@@ -162,8 +203,21 @@ export function AccountsSection({ focus, usage, terminal, now, onSaved }: Accoun
     if (!draft || !accounts) return;
     const entry: AccountCfg = { name: draft.name.trim(), harness: draft.harness, home: draft.home.trim(), command: draft.command.trim() || null };
     const next = draft.original ? accounts.map((a) => (a.name === draft.original ? entry : a)) : [...accounts, entry];
-    if (await save(next)) setDraft(null);
+    if (await save(next)) {
+      setDraft(null);
+      if (!draft.original) await installSkill(entry.name);
+    }
   };
+
+  const skillBox = (label: string) => (
+    <label className="ca-check ca-acct-skill" title="Agents on the account can then use the codealong command: the board, todos, and which account has room.">
+      <input type="checkbox" checked={withSkill} onChange={(e) => setWithSkill(e.target.checked)} />
+      <span className="ca-check-box" aria-hidden="true">
+        <Icon name="check" size={11} stroke={2.5} />
+      </span>
+      {label}
+    </label>
+  );
 
   const remove = async (name: string) => {
     if (!accounts) return;
@@ -231,6 +285,7 @@ export function AccountsSection({ focus, usage, terminal, now, onSaved }: Accoun
         <input value={draft.command} spellCheck={false} autoCapitalize="off" autoCorrect="off" onChange={(e) => setDraft({ ...draft, command: e.target.value, touched: { ...draft.touched, command: true } })} />
         <small>{commandHelp(draft.harness, terminal)}</small>
       </label>
+      {!draft.original && skillBox('Install the Codealong skill')}
       <div className="ca-acct-actions">
         <Button variant="primary" size="sm" type="submit" disabled={busy}>
           {draft.original ? 'Save' : 'Add account'}
@@ -314,6 +369,31 @@ export function AccountsSection({ focus, usage, terminal, now, onSaved }: Accoun
         );
       })}
       {draft && !draft.original && form}
+      {!draft && accounts !== null && found.length > 0 && (
+        <section className="ca-found" aria-labelledby="ca-found-title">
+          <h4 className="ca-label" id="ca-found-title">
+            Found on this Mac
+          </h4>
+          <div className="ca-found-list">
+            {found.map((f) => (
+              <div key={f.home} className="ca-found-row">
+                <div className="ca-found-main">
+                  <div className="ca-found-title">
+                    <span className="ca-ucard-name">{f.name}</span>
+                    <span className="ca-ucard-plan">{HARNESS_WORD[f.harness]}</span>
+                    <span className="ca-code ca-found-home">{f.home}</span>
+                  </div>
+                  <p className="ca-found-note">{foundNote(f, now)}</p>
+                </div>
+                <Button size="sm" icon="plus" disabled={busy} onClick={() => void addFound(f)}>
+                  Add
+                </Button>
+              </div>
+            ))}
+          </div>
+          {skillBox('Install the Codealong skill in accounts you add')}
+        </section>
+      )}
       {!draft && accounts !== null && (
         <div className="ca-acct-add">
           {HARNESSES.map((h) => (

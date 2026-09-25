@@ -1,0 +1,41 @@
+[
+  {
+    "name": "claude-work",
+    "harness": "claude",
+    "home": "~/.claude-work",
+    "command": "claude-work",
+    "via": "~/.zshrc",
+    "state": "active",
+    "signedIn": true,
+    "folderExists": true,
+    "email": "you@work.example",
+    "lastUsed": 1790200000000,
+    "new": true
+  },
+  {
+    "name": "codex2",
+    "harness": "codex",
+    "home": "~/.codex2",
+    "command": "CODEX_HOME=~/.codex2 codex",
+    "via": null,
+    "state": "signedIn",
+    "signedIn": true,
+    "folderExists": true,
+    "email": null,
+    "lastUsed": null,
+    "new": true
+  },
+  {
+    "name": "cp",
+    "harness": "claude",
+    "home": "~/.claude-personal",
+    "command": "cp",
+    "via": "~/.zshrc",
+    "state": "idle",
+    "signedIn": false,
+    "folderExists": false,
+    "email": null,
+    "lastUsed": null,
+    "new": true
+  }
+]

@@ -11,6 +11,7 @@ mod antigravity;
 mod codex;
 mod opencode;
 mod config;
+mod detect;
 mod engine;
 mod git;
 mod github;
@@ -201,6 +202,12 @@ fn get_accounts(engine: State<'_, engine::Handle>) -> Result<Vec<model::AccountI
 #[tauri::command(async)]
 fn save_accounts(engine: State<'_, engine::Handle>, accounts: Vec<config::AccountCfg>) -> Result<(), String> {
     engine.save_accounts(accounts).map_err(|e| format!("{e:#}"))
+}
+
+/// Accounts on this Mac that config.toml doesn't list, for Settings › Accounts.
+#[tauri::command(async)]
+fn found_accounts() -> Vec<detect::Found> {
+    detect::unlisted()
 }
 
 /// The settings as parsed and config.toml as written, for Settings.
@@ -467,7 +474,7 @@ pub fn run() {
         })
         .on_window_event(bar::on_window_event)
         .register_asynchronous_uri_scheme_protocol("codealong-image", |_ctx, request, responder| serve_image(request, responder))
-        .invoke_handler(tauri::generate_handler![get_board, open_target, open_config, mark_seen, refresh, refresh_usage, set_pinned, set_pinned_worktrees, archive_session, pr_detail, approve_pr, review_in_codex, open_url, get_accounts, save_accounts, get_config, save_config, save_config_text, sign_in, agents_status, install_agents, start_options, start_session, todo_op, save_attachment, import_attachment, open_attachment, expand_attachments, set_theme, open_project_window, fit_bar, show_main, bar_on, set_bar_on, open_from_bar, perf_mark])
+        .invoke_handler(tauri::generate_handler![get_board, open_target, open_config, mark_seen, refresh, refresh_usage, set_pinned, set_pinned_worktrees, archive_session, pr_detail, approve_pr, review_in_codex, open_url, get_accounts, save_accounts, found_accounts, get_config, save_config, save_config_text, sign_in, agents_status, install_agents, start_options, start_session, todo_op, save_attachment, import_attachment, open_attachment, expand_attachments, set_theme, open_project_window, fit_bar, show_main, bar_on, set_bar_on, open_from_bar, perf_mark])
         .build(tauri::generate_context!())
         .expect("error while running Codealong")
         .run(|app, event| {
@@ -492,6 +499,7 @@ pub fn is_cli(args: &[String]) -> bool {
 /// `codealong --snapshot [--table] [--no-github] [--usage] [--accounts]`: one pass over everything,
 /// printed. Claude usage is read only with `--usage`.
 /// `codealong --snapshot --config`: the settings and config.toml, as Settings gets them.
+/// `codealong --snapshot --found`: accounts on this Mac that config.toml doesn't list.
 /// `codealong --snapshot --open <lane id> <target id>`: opens a target the way a click does.
 /// `codealong --snapshot --pr <owner/name> <number>`: a PR's detail, as the PR panel gets it.
 /// `codealong --snapshot --start-options`: where each account can start a session.
@@ -528,6 +536,10 @@ pub fn snapshot_cli(args: &[String]) -> i32 {
     }
     if args.iter().any(|a| a == "--config") {
         println!("{}", serde_json::to_string_pretty(&config::view()).unwrap_or_default());
+        return 0;
+    }
+    if args.iter().any(|a| a == "--found") {
+        println!("{}", serde_json::to_string_pretty(&detect::unlisted()).unwrap_or_default());
         return 0;
     }
     if args.iter().any(|a| a == "--accounts") {

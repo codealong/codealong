@@ -50,6 +50,8 @@ The engine binary doubles as a CLI for checking behavior without a window:
 - `codealong --snapshot [--table] [--no-github] [--usage]`: the board as JSON (or a table).
   Claude usage is read only with `--usage`; the usage endpoint rate-limits (see below).
 - `codealong --snapshot --accounts`: configured accounts and sign-in state.
+- `codealong --snapshot --found`: accounts on this Mac that config.toml doesn't list
+  (`detect.rs`); `cargo test this_macs_accounts -- --ignored --nocapture` prints all of them.
 - `codealong --snapshot --config`: the settings and config.toml as Settings gets them (parsed
   config, the file's text, its parse error if any, the app profiles).
 - `codealong --snapshot --open <lane id> <target id>`: runs a click's open action.
@@ -75,7 +77,8 @@ can't be seen this way; say so rather than claiming they were checked.
 a wider screen). `PREVIEW_TODOS=scripts/preview/todos-sample.json scripts/preview.sh todo` shows
 sample todos linked to your real worktrees and sessions in place of your own, and
 `PREVIEW_USAGE=scripts/preview/usage-sample.json` sample plan usage in place of the snapshot's,
-which has no Claude numbers. In check mode Chrome draws no frames, so scroll events never
+which has no Claude numbers, and `PREVIEW_FOUND=scripts/preview/found-sample.json` sample accounts
+under Settings › Accounts › Found on this Mac. In check mode Chrome draws no frames, so scroll events never
 arrive; and it resizes the page just before a screenshot, which closes whatever closes on resize.
 
 ## Checking performance
@@ -226,7 +229,9 @@ Codex
 - Each turn's `token_count` event carries `rate_limits` (`primary`/`secondary` windows with
   `used_percent`, `window_minutes`, `resets_at`; `limit_id` `codex` or per model; `plan_type`).
 - The desktop app is `/Applications/ChatGPT.app` (bundle id `com.openai.codex`; an older
-  `/Applications/Codex.app` copy may exist). `codex://threads/<uuid>` opens a thread (the app
+  `/Applications/Codex.app` copy may exist). Installing it doesn't put `codex` on the PATH; its
+  CLI is `Contents/Resources/codex`. The ChatGPT chat app has the same name, so Codealong knows
+  the Codex app by its bundle id. `codex://threads/<uuid>` opens a thread (the app
   reads it first and ignores ones it can't), `codex://review?pr=<url>` opens a PR review.
 - `codex://threads/new?path=<folder>&prompt=<text>` opens a new thread there with the prompt
   filled in (it also takes `originUrl`, `projectId`, `mode` and `browserUrl`, and no images);

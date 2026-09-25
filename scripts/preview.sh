@@ -25,6 +25,10 @@
 # PREVIEW_USAGE=<file> shows the plan usage in it (scripts/preview/usage-sample.json has some) in
 # place of the snapshot's, which has no Claude numbers: reading them rate-limits.
 #
+# PREVIEW_FOUND=<file> lists the accounts in it under Settings › Accounts › Found on this Mac
+# (scripts/preview/found-sample.json has some) in place of the ones this Mac has but config.toml
+# doesn't list, which are often none.
+#
 # Needs a release build of the engine (cargo build --release in src-tauri) for the snapshot;
 # it's found through scripts/target-dir.sh.
 # PR details come from $PREVIEW_DIR/pr-detail.json if you put one there:
@@ -68,6 +72,11 @@ fi
 "$bin" --snapshot --accounts >"$dir/accounts.json" 2>/dev/null
 "$bin" --snapshot --start-options >"$dir/start-options.json" 2>/dev/null
 "$bin" --snapshot --config >"$dir/config.json" 2>/dev/null
+if [ -n "${PREVIEW_FOUND:-}" ]; then
+  cp "$PREVIEW_FOUND" "$dir/found.json"
+else
+  "$bin" --snapshot --found >"$dir/found.json" 2>/dev/null
+fi
 
 setup="localStorage.setItem('codealong.view','$view');localStorage.setItem('codealong.age','all');"
 [ -n "$project" ] && setup="$setup localStorage.setItem('codealong.project','$project');"

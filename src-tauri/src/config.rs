@@ -434,40 +434,6 @@ fn set_tables(doc: &mut toml_edit::DocumentMut, name: &str, rows: Vec<toml_edit:
     doc[name] = Item::ArrayOfTables(tables);
 }
 
-/// Finds Claude config folders (`~/.claude*` with a `projects` folder), Codex, OpenCode and
-/// Antigravity, each by the files it keeps sessions in.
-pub fn discover_accounts() -> Vec<AccountCfg> {
-    let h = home();
-    let mut claude: Vec<String> = std::fs::read_dir(&h)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter_map(|e| {
-            let name = e.file_name().to_string_lossy().into_owned();
-            let path = e.path();
-            (name.starts_with(".claude") && path.is_dir() && path.join("projects").is_dir()).then_some(name)
-        })
-        .collect();
-    claude.sort();
-    let mut out: Vec<AccountCfg> = claude
-        .into_iter()
-        .map(|dir| {
-            let name = dir.trim_start_matches('.').to_string();
-            AccountCfg { name: name.clone(), harness: "claude".into(), home: format!("~/{dir}"), command: Some(name) }
-        })
-        .collect();
-    if h.join(".codex/sessions").is_dir() {
-        out.push(AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: None });
-    }
-    if h.join(".local/share/opencode/opencode.db").is_file() {
-        out.push(AccountCfg { name: "opencode".into(), harness: "opencode".into(), home: "~/.local/share/opencode".into(), command: Some("opencode".into()) });
-    }
-    if h.join(".gemini/antigravity/conversation_summaries.db").is_file() {
-        out.push(AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: "~/.gemini/antigravity".into(), command: None });
-    }
-    out
-}
-
 /// Suggests one project per GitHub owner your agents worked in, named the way GitHub names
 /// the owner (`display_name`), or by the owner's login when it has no name.
 pub fn suggest_projects(owners: &BTreeMap<String, usize>, display_name: impl Fn(&str) -> Option<String>) -> Vec<ProjectCfg> {
