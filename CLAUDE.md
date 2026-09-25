@@ -316,11 +316,22 @@ Ghostty (1.3, AppleScript dictionary in the app bundle)
 - No TTY or PID property. To focus a session's own tab, Codealong writes an OSC 7 folder report
   with a unique path to the session's TTY (`ps -o tty= -p <pid>`), finds the terminal reporting
   it, selects that tab, then reports the real folder again. Claude Code titles tabs
-  `<glyph> <title>` and animates the glyph while working, so titles are only a fallback.
+  `<glyph> <title>` and animates the glyph while working, so titles are only a fallback, used
+  when they (or the folder) pick out a single tab.
   The mark normally shows within a fraction of a second, but on a busy Mac (load in the
   hundreds) Ghostty takes seconds, so the wait is 8 s, and only for sessions whose process
   descends from Ghostty (claude → zsh → login → ghostty); tmux and other terminals go straight to
-  titles. Once the tab is selected, the other focus steps are best effort.
+  titles. Once the tab is selected, the other focus steps are best effort. Focus requests take
+  turns, and one still waiting when a newer click arrives is dropped.
+- `windows` run front to back (`NSApp.orderedWindows`), and a loop variable over app objects
+  (`repeat with w in windows`) is `item i of every window`, asked afresh on every use: after
+  `select tab` brings a window forward, `w` is another window. Hold windows, tabs and terminals
+  by id (`every window whose id of every terminal contains <id>`, then `every tab of w whose
+  …`); `id of every terminal whose working directory contains <mark>` is one question, where
+  separate `id` and `working directory` lists can fall out of step. Store a query's result
+  before taking an item: `item 1 of (id of every terminal whose …)` is sent to Ghostty whole and
+  fails. `select tab` and `activate window` act at once; `focus` raises the window on Ghostty's
+  next turn. `current date` inside `tell application "Ghostty"` goes to Ghostty first.
 - macOS doesn't let a background process bring an app forward: `activate` from a shell leaves
   Ghostty behind; from a click in Codealong it works.
 - Scripts can take many seconds: while Ghostty launches or is busy, and while macOS asks whether

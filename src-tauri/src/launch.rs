@@ -2,6 +2,8 @@
 //! AppleScript, Cursor through its CLI) and the Claude and Codex deep links. See *Apps*.
 
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
 
 use anyhow::{anyhow, bail, Result};
@@ -45,74 +47,83 @@ on run argv
 end run
 "#;
 
+/// Three questions give three lists, which only line up if no terminal opened or closed in
+/// between, so it asks for the ids again to check, and gives up with nothing rather than pair
+/// a terminal with another's folder.
 const GHOSTTY_LIST: &str = r#"
 on run argv
   set out to ""
   tell application "Ghostty"
-    set ids to id of every terminal
-    set dirs to working directory of every terminal
-    set names to name of every terminal
-    repeat with i from 1 to count of ids
-      set out to out & (item i of ids) & tab & (item i of dirs) & tab & (item i of names) & linefeed
+    repeat 3 times
+      set ids to id of every terminal
+      set dirs to working directory of every terminal
+      set names to name of every terminal
+      set again to id of every terminal
+      if again = ids and (count of dirs) = (count of ids) and (count of names) = (count of ids) then
+        repeat with i from 1 to count of ids
+          set out to out & (item i of ids) & tab & (item i of dirs) & tab & (item i of names) & linefeed
+        end repeat
+        return out
+      end if
     end repeat
   end tell
   return out
 end run
 "#;
 
-/// `tag <marker> <seconds>`: waits up to that long for a terminal whose folder contains the
+/// `tag <marker> <seconds>`: waits up to that long for the terminal whose folder contains the
 /// marker and focuses it. `id <terminal id>`: focuses that terminal. Returns the focused
 /// terminal's id. The wait is timed, not counted: with many terminals open each look takes
 /// longer. Once the tab is selected, the rest is best effort, so a slow or refused step can't
 /// turn a tab that was found into an error.
+///
+/// Windows, tabs and terminals are held by id, never by position. Ghostty lists windows front
+/// to back, and a loop over them (`repeat with w in windows`) makes `w` "window 3", asked
+/// afresh each time it's used: once selecting the tab brought its window forward, "window 3"
+/// was the window that had been in front of it, and that one came forward instead.
 const GHOSTTY_FOCUS: &str = r#"
 on run argv
   set mode to item 1 of argv
   set want to item 2 of argv
-  tell application "Ghostty"
-    if mode is "id" then
-      if my focusTerminal(want) then return want
-      return ""
-    end if
+  if mode is "tag" then
     set waitFor to (item 3 of argv) as integer
     set started to current date
+    -- The clock is read outside `tell`: inside, `current date` goes to Ghostty first.
     repeat
-      set ids to id of every terminal
-      set dirs to working directory of every terminal
-      repeat with i from 1 to count of ids
-        if (item i of dirs) contains want then
-          set found to item i of ids
-          if my focusTerminal(found) then return found
-        end if
-      end repeat
-      if ((current date) - started) > waitFor then exit repeat
+      -- One question, so the id comes with its own folder.
+      tell application "Ghostty" to set found to id of every terminal whose working directory contains want
+      if found is not {} then exit repeat
+      if ((current date) - started) > waitFor then return ""
       delay 0.1
     end repeat
-  end tell
+    set want to item 1 of found
+  end if
+  if focusTerminal(want) then return want
   return ""
 end run
 
 on focusTerminal(want)
   tell application "Ghostty"
-    repeat with w in windows
-      repeat with tb in tabs of w
-        if (id of every terminal of tb) contains want then
-          select tab tb
-          try
-            activate window w
-          end try
-          try
-            focus (first terminal of tb whose id is want)
-          end try
-          try
-            activate
-          end try
-          return true
-        end if
-      end repeat
-    end repeat
+    set ws to every window whose id of every terminal contains want
+    if ws is {} then
+      -- In no window (the quick terminal): Ghostty's own focus still brings it forward.
+      if not (exists terminal id want) then return false
+    else
+      set w to item 1 of ws
+      set tbs to every tab of w whose id of every terminal contains want
+      if tbs is not {} then select tab (item 1 of tbs)
+      try
+        activate window w
+      end try
+    end if
+    try
+      focus terminal id want
+    end try
+    try
+      activate
+    end try
   end tell
-  return false
+  return true
 end focusTerminal
 "#;
 
@@ -194,26 +205,62 @@ fn ghostty_terminals() -> Result<Vec<GhosttyTerminal>> {
         .collect())
 }
 
+/// Focus requests take turns, and one still waiting when a newer one comes in is dropped. On a
+/// busy Mac a click takes seconds to land: without turns, one that landed late brought its tab
+/// forward over the tab clicked after it, and two clicks on one session each put back the
+/// other's mark as the folder.
+struct Turns {
+    lock: Mutex<()>,
+    newest: AtomicU64,
+}
+
+impl Turns {
+    const fn new() -> Self {
+        Turns { lock: Mutex::new(()), newest: AtomicU64::new(0) }
+    }
+
+    /// A place in line, taken when the click arrives.
+    fn ticket(&self) -> u64 {
+        self.newest.fetch_add(1, Ordering::SeqCst) + 1
+    }
+
+    /// Waits for the ticket's turn. None when a newer ticket was taken meanwhile.
+    fn wait(&self, ticket: u64) -> Option<MutexGuard<'_, ()>> {
+        let turn = self.lock.lock().unwrap_or_else(|e| e.into_inner());
+        (self.newest.load(Ordering::SeqCst) == ticket).then_some(turn)
+    }
+}
+
+static FOCUS_TURNS: Turns = Turns::new();
+
+/// Where the unique folders Codealong reports on a session's TTY start.
+const MARK_PREFIX: &str = "/tmp/codealong-";
+
 /// Focuses the terminal tab a live session runs in. `Ok(false)` when there's no such tab.
 ///
 /// The tab is found exactly: Codealong reports a unique folder (OSC 7) on the session's TTY,
 /// finds the Ghostty terminal showing that folder, selects its tab, then reports the real
 /// folder again. Claude Code rewrites tab titles as it works but never the folder, so the mark
-/// holds. Where that can't work (tmux, a session outside Ghostty), tabs are matched by title,
-/// then by folder.
+/// holds. Where that can't work (tmux, a session outside Ghostty), the tab is matched by title,
+/// then by folder, but only when that finds just one.
 pub fn terminal_focus_session(profile: &str, pid: u32, title: &str, cwd: &Path) -> Result<bool> {
     if profile != "ghostty" {
         bail!("There's no terminal profile called {profile:?} yet.");
     }
+    let ticket = FOCUS_TURNS.ticket();
     let Some(tty) = tty_of(pid) else {
         bail!("This session runs in the background, so it has no terminal tab.");
+    };
+    let Some(_turn) = FOCUS_TURNS.wait(ticket) else {
+        // Clicked again while this one waited: the newer click decides what comes forward.
+        return Ok(true);
     };
     let terminals = ghostty_terminals()?;
     // A session Ghostty didn't start (tmux, another terminal) can't show the mark: don't wait.
     let in_ghostty = procs::run("/bin/ps", &["-A", "-o", "pid=,ppid=,comm="], None, Duration::from_secs(3))
         .map(|table| runs_under(&table, pid, "ghostty"))
         .unwrap_or(true);
-    let mark = format!("/tmp/codealong-{pid}-{}", crate::util::now_ms());
+    let mark = format!("{MARK_PREFIX}{pid}-{}", crate::util::now_ms());
     let mut failed = None;
     if in_ghostty && write_osc7(&tty, &mark).is_ok() {
         let found = osascript(GHOSTTY_FOCUS, &["tag", &mark, GHOSTTY_MARK_WAIT_SECS]);
@@ -222,7 +269,8 @@ pub fn terminal_focus_session(profile: &str, pid: u32, title: &str, cwd: &Path) 
             .iter()
             .find(|t| t.id == id)
             .map(|t| t.cwd.clone())
-            .filter(|c| !c.is_empty())
+            // A mark left over (the app quit halfway through) isn't the folder to put back.
+            .filter(|c| !c.is_empty() && !c.starts_with(MARK_PREFIX))
             .unwrap_or_else(|| cwd.to_string_lossy().into_owned());
         let _ = write_osc7(&tty, &real);
         match found {
@@ -297,17 +345,21 @@ fn tab_title(name: &str) -> &str {
     }
 }
 
-/// A tab titled like the session, preferring one in its folder; else any tab in its folder.
+/// The one tab titled like the session (the one in its folder, when several are); else the one
+/// tab in its folder. None when that still leaves more than one: a guess puts another agent's
+/// terminal in front, and what's typed there goes to the wrong session.
 pub fn pick_by_title(terminals: &[GhosttyTerminal], title: &str, cwd: &Path) -> Option<String> {
     let dir = cwd.to_string_lossy();
+    let only = |ts: Vec<&GhosttyTerminal>| match ts.as_slice() {
+        [t] => Some(t.id.clone()),
+        _ => None,
+    };
     let titled: Vec<&GhosttyTerminal> = terminals.iter().filter(|t| !title.is_empty() && tab_title(&t.name) == title).collect();
-    titled
-        .iter()
-        .find(|t| t.cwd == dir)
-        .or_else(|| titled.first())
-        .copied()
-        .or_else(|| terminals.iter().find(|t| t.cwd == dir))
-        .map(|t| t.id.clone())
+    if titled.is_empty() {
+        return only(terminals.iter().filter(|t| t.cwd == dir).collect());
+    }
+    let here: Vec<&GhosttyTerminal> = titled.iter().copied().filter(|t| t.cwd == dir).collect();
+    only(titled).or_else(|| only(here))
 }
 
 pub fn editor_open(profile: &str, path: &Path) -> Result<()> {
@@ -437,6 +489,66 @@ mod tests {
         assert_eq!(got.strip_suffix('\n').unwrap_or(&got), prompt);
     }
 
+    /// Opens three Ghostty windows, focuses the terminal in the one furthest back, checks that
+    /// its window is the one in front, then closes them. Held by position, the focus brought
+    /// forward the window that had been in front of it instead. It moves windows about, so it's
+    /// opt in: `cargo test ghostty_focuses_a_window_behind_others -- --ignored`.
+    #[test]
+    #[ignore]
+    fn ghostty_focuses_a_window_behind_others() {
+        const OPEN: &str = r#"
+on run argv
+  tell application "Ghostty"
+    set seenIds to id of every terminal
+    new window with configuration {initial working directory:(item 1 of argv)}
+    repeat 50 times
+      set nowIds to id of every terminal
+      repeat with t in nowIds
+        if seenIds does not contain (contents of t) then return contents of t
+      end repeat
+      delay 0.1
+    end repeat
+  end tell
+  return ""
+end run
+"#;
+        const FRONT: &str = r#"
+on run argv
+  tell application "Ghostty" to return id of every terminal of front window
+end run
+"#;
+        const CLOSE: &str = r#"
+on run argv
+  tell application "Ghostty"
+    repeat with t in argv
+      try
+        close terminal id (contents of t)
+      end try
+    end repeat
+  end tell
+end run
+"#;
+        struct Opened(Vec<String>);
+        impl Drop for Opened {
+            fn drop(&mut self) {
+                let ids: Vec<&str> = self.0.iter().map(String::as_str).collect();
+                let _ = osascript(CLOSE, &ids);
+            }
+        }
+        let dir = std::env::temp_dir();
+        let mut opened = Opened(Vec::new());
+        for _ in 0..3 {
+            let id = osascript(OPEN, &[&dir.to_string_lossy()]).unwrap().trim().to_string();
+            assert!(!id.is_empty(), "the new window has no terminal");
+            opened.0.push(id);
+        }
+        let back = opened.0[0].clone();
+        assert_eq!(osascript(GHOSTTY_FOCUS, &["id", &back]).unwrap().trim(), back);
+        std::thread::sleep(Duration::from_millis(500));
+        let front = osascript(FRONT, &[]).unwrap();
+        assert!(front.contains(&back), "the front window holds {}, not {back}", front.trim());
+    }
+
     #[test]
     fn finds_the_claude_app_session_for_a_cli_session() {
         let root = std::env::temp_dir().join(format!("codealong-records-{}", std::process::id()));
@@ -480,10 +592,32 @@ mod tests {
             t("b", "/r/app2", "✳ Cloud agent execution regressions"),
             t("c", "/r/app2", "✳ Cloud agent execution regressions ⑂"),
             t("d", "/r/app4", "…/projects/app4"),
+            t("e", "/r/app3", "⠐ Fix the login redirect"),
+            t("f", "/r/app1", "⠂ Fix the login redirect"),
+            t("g", "/r/app5", "✳ Bump dependencies"),
+            t("h", "/r/app6", "✳ Bump dependencies"),
         ];
         assert_eq!(pick_by_title(&tabs, "Cloud agent execution regressions ⑂", Path::new("/r/app2")).as_deref(), Some("c"));
         assert_eq!(pick_by_title(&tabs, "Cloud agent execution regressions", Path::new("/r/app2")).as_deref(), Some("b"));
-        assert_eq!(pick_by_title(&tabs, "Something else", Path::new("/r/app4")).as_deref(), Some("a"));
+        assert_eq!(pick_by_title(&tabs, "RLS work and other tables", Path::new("/r/none")).as_deref(), Some("a"));
+        // Two tabs share the title: the one in the session's folder, and no guess without one.
+        assert_eq!(pick_by_title(&tabs, "Fix the login redirect", Path::new("/r/app3")).as_deref(), Some("e"));
+        assert_eq!(pick_by_title(&tabs, "Bump dependencies", Path::new("/r/app2")), None);
+        // No title matches: the one tab in the folder, and no guess between two.
+        assert_eq!(pick_by_title(&tabs, "Something else", Path::new("/r/app3")).as_deref(), Some("e"));
+        assert_eq!(pick_by_title(&tabs, "Something else", Path::new("/r/app4")), None);
         assert_eq!(pick_by_title(&tabs, "Something else", Path::new("/r/none")), None);
+    }
+
+    #[test]
+    fn a_newer_focus_goes_ahead_of_one_still_waiting() {
+        let turns = Turns::new();
+        let first = turns.ticket();
+        let held = turns.wait(first).expect("first in line");
+        let second = turns.ticket();
+        let third = turns.ticket();
+        drop(held);
+        assert!(turns.wait(second).is_none(), "a click made while another waited is dropped");
+        assert!(turns.wait(third).is_some(), "the newest click goes ahead");
     }
 }
