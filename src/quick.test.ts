@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { ALL_PROJECTS, attentionRows, findSessions, laneGroups, projectCounts, shortcutFromKey, shortcutLabel, TAKEN, titleMarks } from './quick';
-import type { Board, Lane, Session } from './types';
+import { ALL_PROJECTS, attentionRows, findSessions, findTodos, laneGroups, projectCounts, shortcutFromKey, shortcutLabel, TAKEN, titleMarks } from './quick';
+import type { Board, Label, Lane, Session, Todo } from './types';
 
 const NOW = 1_790_200_000_000;
 
@@ -8,7 +8,24 @@ const session = (key: string, status: Session['status'], at: number, extra: Part
   ({ key, status, statusSince: at, lastActivity: at, title: key, account: 'claude', branch: null, visitor: null, archived: false, ...extra }) as Session;
 const lane = (id: string, sessions: Session[], extra: Partial<Lane> = {}): Lane =>
   ({ id, sessions, hidden: false, project: 'Northwind', callsign: id, repo: 'atlas', branch: id, pr: null, origin: 'script', lastActivity: 0, ...extra }) as unknown as Lane;
-const board = (lanes: Lane[]): Board => ({ lanes }) as unknown as Board;
+const board = (lanes: Lane[], todos: Todo[] = [], labels: Label[] = []): Board => ({ lanes, todos, labels }) as unknown as Board;
+const todo = (id: string, title: string, extra: Partial<Todo> = {}): Todo => ({
+  id,
+  project: 'Northwind',
+  title,
+  description: '',
+  status: 'todo',
+  labels: [],
+  worktrees: [],
+  sessions: [],
+  createdAt: NOW - 1000,
+  updatedAt: NOW - 1000,
+  doneAt: null,
+  pending: [],
+  dependsOn: [],
+  waiting: null,
+  ...extra,
+});
 
 describe('attentionRows', () => {
   it('lists what needs you, then finished turns, the newest status first in each', () => {
@@ -78,6 +95,45 @@ describe('findSessions', () => {
       [8, 13],
       [14, 19],
     ]);
+  });
+});
+
+describe('findTodos', () => {
+  const lanes = [lane('app2', [session('s1', 'working', NOW, { title: 'Wire the MFA check', account: 'claude2' })])];
+  const labels: Label[] = [{ id: 'l1', name: 'security', color: 'red' }];
+  const todos = [
+    todo('t1', 'Turn off MFA fallbacks', { updatedAt: NOW - 50 }),
+    todo('t2', 'Rotate keys', { description: 'After the MFA work lands', status: 'in-progress', updatedAt: NOW - 500 }),
+    todo('t3', 'Audit admin roles', { labels: ['l1'] }),
+    todo('t4', 'Old MFA notes', { status: 'done', doneAt: NOW, updatedAt: NOW }),
+    todo('t5', 'MFA for Kestrel', { project: 'Kestrel' }),
+    todo('t6', 'Ship the MFA page', { waiting: { note: 'design review', since: NOW } }),
+    todo('t7', 'Clean up', { sessions: ['s1'] }),
+  ];
+  const b = board(lanes, todos, labels);
+
+  it('needs every word in the title, description, labels, project, or linked worktrees and sessions', () => {
+    expect(findTodos(b, 'Northwind', 'security').map((r) => r.key)).toEqual(['todo:t3']);
+    expect(findTodos(b, 'Northwind', 'claude2 wire').map((r) => r.key)).toEqual(['todo:t7']);
+    expect(findTodos(b, 'Northwind', 'app2').map((r) => r.key)).toEqual(['todo:t7']);
+    expect(findTodos(b, 'Northwind', 'nothing like it')).toEqual([]);
+  });
+
+  it('puts titles with every word first, then in progress, ready, waiting and done, and keeps to the project', () => {
+    // t2 has MFA only in its description and t7 only in its session's title, so they come after
+    // the titles, in progress before ready.
+    expect(findTodos(b, 'Northwind', 'mfa').map((r) => r.key)).toEqual(['todo:t1', 'todo:t6', 'todo:t4', 'todo:t2', 'todo:t7']);
+    expect(findTodos(b, ALL_PROJECTS, 'mfa').map((r) => r.key)).toContain('todo:t5');
+    expect(findTodos(b, 'Kestrel', 'mfa').map((r) => r.key)).toEqual(['todo:t5']);
+  });
+
+  it('says which are waiting and where the words are', () => {
+    const [first, waiting] = findTodos(b, 'Northwind', 'mfa');
+    expect(first.waiting).toBe(false);
+    expect(waiting.waiting).toBe(true);
+    expect(first.marks).toEqual([[9, 12]]);
+    expect(first.item.todo.id).toBe('t1');
+    expect(findTodos(b, 'Northwind', 'clean')[0].item.sessions.map((x) => x.session.key)).toEqual(['s1']);
   });
 });
 

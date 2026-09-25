@@ -68,9 +68,12 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   inspector, or a worktree's or session's right-click menu in Codealong): one input, and below
   it what you can do next. With nothing typed it lists the sessions that need you, then the
   ones whose turn ended (the working ones when nothing waits on you). Typed words find
-  sessions by title, account, worktree, branch, repo, project or PR. The last row starts a new
-  session with what you typed as its prompt. ⏎ does the selected row, ⌘⏎ always starts, ⌥⏎
-  shows the session in Codealong, ⌘1 to ⌘9 open a row, Escape closes. Each open starts empty,
+  sessions by title, account, worktree, branch, repo, project or PR, and under them todos by
+  title, description, label, project, or the worktrees and sessions linked to them. ⏎ on a todo
+  opens its session, or, when it has none, gets a session ready to start for it (its prompt,
+  its worktree, linked to it). The last row starts a new session with what you typed as its
+  prompt. ⏎ does the selected row, ⌘⏎ always starts, ⌥⏎
+  shows the session or todo in Codealong, ⌘1 to ⌘9 open a row, Escape closes. Each open starts empty,
   so ⏎ goes to what needs you; ↑ brings back what you'd typed before closing. A project picker (⌘P) narrows everything to one project. The shortcut is
   yours to change in Settings › General; Settings names shortcuts macOS and common launchers
   already use.

@@ -31,7 +31,7 @@ import { ago, resetsPhrase, tildePath, withTimes } from '../format';
 import { HARNESS_WORD, usageNote } from '../harness';
 import { useLogo } from '../logo';
 import { withoutAccount } from '../lanes';
-import { ALL_PROJECTS, attentionRows, findSessions, inProject, laneBranch, laneGroups, projectCounts, shortcutLabel, type RowGroup, type SessionRow } from '../quick';
+import { ALL_PROJECTS, attentionRows, findSessions, findTodos, FOUND_SESSIONS, inProject, laneBranch, laneGroups, projectCounts, shortcutLabel, type RowGroup, type SessionRow, type TodoRow } from '../quick';
 import {
   accountFor,
   agentId,
@@ -49,11 +49,11 @@ import {
   type AgentOption,
   type AutoPick,
 } from '../start';
-import { attachmentsIn, blockedBy, insertAttachments, withoutAttachment } from '../todos';
-import type { Attachment, Board, Meter, StartOptions, StartPlace, StartSpec } from '../types';
+import { attachmentsIn, blockedBy, insertAttachments, snippet, todoPrompt, withoutAttachment } from '../todos';
+import type { Attachment, Board, Lane, Meter, Session, StartOptions, StartPlace, StartSpec } from '../types';
 import { AttachmentStrip } from './DescriptionEditor';
 import { Picker, type PickerOption, type PickerSection } from './Picker';
-import { Icon, Kbd, Mark, StatusGlyph } from './primitives';
+import { Icon, Kbd, Mark, STATUS_WORD, StatusGlyph } from './primitives';
 import { applyTheme } from './ThemeSwitch';
 import { TodoGlyph } from './TodoBits';
 import { UsageMeter } from './UsageBar';
@@ -69,7 +69,9 @@ const OPTIONS_FOR_MS = 60_000;
 
 type PickerKind = 'project' | 'worktree' | 'agent';
 
-const GROUP_WORD: Record<RowGroup, string> = { needs: 'Needs you', unread: 'Your turn', working: 'Working', found: 'Sessions' };
+const GROUP_WORD: Record<RowGroup, string> = { needs: 'Needs you', unread: 'Your turn', working: 'Working', found: 'Sessions', todos: 'Todos' };
+
+type Row = SessionRow | TodoRow;
 
 function plain(e: unknown): string {
   return String(e).replace(/^Error: /, '');
@@ -104,6 +106,17 @@ function autoWhy(p: AutoPick, spent: Meter | null, now: number): string {
 function rowWhy(detail: string | null, headline: string, now: number): string {
   const text = detail ? detail.replace(/^\{for:-?\d+\}( · )?/, '') : withoutAccount(headline);
   return withTimes(text.replace(/`/g, ''), now);
+}
+
+/** What a found todo's row says under its title: what it waits for, else the start of its
+ *  description, else how many sessions it has. */
+function todoWhy(r: TodoRow): string {
+  const t = r.item.todo;
+  if (t.waiting) return t.waiting.note ? `Waiting for ${t.waiting.note}` : 'Waiting';
+  const live = r.item.sessions.find((x) => x.session.live);
+  if (live) return `${live.session.account} · ${STATUS_WORD[live.session.status]}`;
+  const n = r.item.sessions.length;
+  return snippet(t.description, 120) || (n > 0 ? `${n} session${n === 1 ? '' : 's'}` : 'No session yet');
 }
 
 /** A title with the typed words underlined. */
@@ -149,7 +162,9 @@ export function Quick() {
   const cachedOptions = useRef<{ at: number; options: StartOptions } | null>(null);
   // What you'd typed when you last closed the panel without acting on it. Every open starts empty,
   // so the list is what needs you and ⏎ goes to it; ↑ in the empty input brings the draft back.
-  const [draft, setDraft] = useState<string | null>(null);
+  const [draft, setDraft] = useState<{ text: string; todo: string | null } | null>(null);
+  const todoIdNow = useRef(todoId);
+  todoIdNow.current = todoId;
 
   // Opening: what for, then fresh data, then the height (below), and only then the panel shows.
   useEffect(() => {
@@ -161,8 +176,7 @@ export function Quick() {
         setProject(ctx.project ?? storedProject() ?? ALL_PROJECTS);
         setLaneId(ctx.laneId ?? null);
         setTodoId(ctx.todo ?? null);
-        const left = textNow.current.trim() ? textNow.current : null;
-        if (left) setDraft(left);
+        if (textNow.current.trim()) setDraft({ text: textNow.current, todo: todoIdNow.current });
         setText(ctx.prompt ?? '');
         setAgent(null);
         setPlace(null);
@@ -337,10 +351,14 @@ export function Quick() {
 
   /* ---- The list ---- */
 
-  const query = text.trim();
-  const attention = useMemo(() => (board && !query ? attentionRows(board, current) : null), [board, current, query]);
-  const found = useMemo(() => (board && query ? findSessions(board, current, query) : []), [board, current, query]);
-  const rows: SessionRow[] = query ? found : (attention?.rows ?? []);
+  // With a todo to start, the input holds its prompt, not a search: only the new session is
+  // listed.
+  const prompted = text.trim().length > 0;
+  const query = todo ? '' : text.trim();
+  const attention = useMemo(() => (board && !query && !todo ? attentionRows(board, current) : null), [board, current, query, todo]);
+  const foundSessions = useMemo(() => (board && query ? findSessions(board, current, query, FOUND_SESSIONS) : []), [board, current, query]);
+  const foundTodos = useMemo(() => (board && query ? findTodos(board, current, query) : []), [board, current, query]);
+  const rows: Row[] = query ? [...foundSessions, ...foundTodos] : (attention?.rows ?? []);
   const keys = [...rows.map((r) => r.key), COMPOSE];
   const active = activeKey && keys.includes(activeKey) ? activeKey : keys[0];
 
@@ -354,8 +372,8 @@ export function Quick() {
   };
 
   /** Opens a session where it lives. The search that found it is done with. */
-  const openRow = (r: SessionRow) => {
-    const target = r.lane.targets.find((t) => t.id === r.session.openTarget);
+  const openSession = (lane: Lane, session: Session) => {
+    const target = lane.targets.find((t) => t.id === session.openTarget);
     if (target?.disabled) {
       setError(target.detail ?? `${target.label} isn’t available right now.`);
       return;
@@ -365,22 +383,62 @@ export function Quick() {
     setActiveKey(null);
     setError(null);
     void hideQuick();
-    openFromBar(r.lane.id, r.session.openTarget).catch((e: unknown) => {
+    openFromBar(lane.id, session.openTarget).catch((e: unknown) => {
       setText(kept);
       setError(plain(e));
       void showQuick({ keep: true });
     });
   };
 
-  const revealRow = (r: SessionRow) => {
+  const revealSession = (lane: Lane, session: Session) => {
     void hideQuick();
-    void showMain({ kind: 'session', laneId: r.lane.id, key: r.session.key });
+    void showMain({ kind: 'session', laneId: lane.id, key: session.key });
   };
 
-  const rowMenu = (r: SessionRow) => {
+  /** The session ⏎ opens for a todo, as in the main window: the live one, else the latest. */
+  const todoSession = (r: TodoRow) => r.item.sessions.find((x) => x.session.live) ?? r.item.sessions[0] ?? null;
+
+  /** Makes the new session the todo's: its prompt, its worktree, and linked to it. It starts
+   *  when you say so. */
+  const prepareTodo = (r: TodoRow) => {
+    setTodoId(r.item.todo.id);
+    setText(todoPrompt(r.item.todo));
+    if (r.item.lane) setLaneId(r.item.lane.id);
+    setActiveKey(COMPOSE);
+    setError(null);
+    window.requestAnimationFrame(() => {
+      const el = input.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(el.value.length, el.value.length);
+      el.scrollTop = 0;
+    });
+  };
+
+  const openTodo = (r: TodoRow) => {
+    const s = todoSession(r);
+    if (s) openSession(s.lane, s.session);
+    else prepareTodo(r);
+  };
+
+  const revealTodo = (r: TodoRow) => {
+    void hideQuick();
+    void showMain({ kind: 'todo', id: r.item.todo.id });
+  };
+
+  const rowMenu = (r: Row) => {
+    if (r.kind === 'session') {
+      void showContextMenu([
+        { label: 'Open', run: () => openSession(r.lane, r.session) },
+        { label: 'Show in Codealong', run: () => revealSession(r.lane, r.session) },
+      ]);
+      return;
+    }
+    const s = todoSession(r);
     void showContextMenu([
-      { label: 'Open', run: () => openRow(r) },
-      { label: 'Show in Codealong', run: () => revealRow(r) },
+      ...(s ? [{ label: s.session.live ? 'Open its session' : 'Open its latest session', run: () => openSession(s.lane, s.session) }] : []),
+      { label: 'Start a session for it', run: () => prepareTodo(r) },
+      { label: 'Show in Codealong', run: () => revealTodo(r) },
     ]);
   };
 
@@ -391,7 +449,7 @@ export function Quick() {
   // Claude Code starts on the model asked for, else the account's own.
   const startsOn = claudeTerminal ? (modelNow ?? defaultModel) : null;
   const onModel = startsOn ? ` on ${modelName(startsOn, models)}` : '';
-  const withPrompt = query ? ' with this prompt' : '';
+  const withPrompt = prompted ? ' with this prompt' : '';
   const happens = !lane
     ? 'No worktrees in this project yet.'
     : !account || !placeNow
@@ -401,8 +459,8 @@ export function Quick() {
           ? `${terminalName} opens a new window, and Claude Code makes a new worktree of ${lane.repo} and starts ${account}${onModel} there${withPrompt}.`
           : `${terminalName} opens a new window in ${lane.callsign} and starts ${account}${onModel}${withPrompt}.`
         : placeNow === 'claude-app'
-          ? `The Claude app opens a new session in ${lane.callsign}${query ? ' with this prompt filled in' : ''}. You send it from there.`
-          : `Codex opens a new thread in ${lane.callsign}${query ? ' with this prompt filled in' : ''}. You send it from there.`;
+          ? `The Claude app opens a new session in ${lane.callsign}${prompted ? ' with this prompt filled in' : ''}. You send it from there.`
+          : `Codex opens a new thread in ${lane.callsign}${prompted ? ' with this prompt filled in' : ''}. You send it from there.`;
   const newToCodex = placeNow === 'codex-app' && !!lane && !!options && !options.codexProjects.includes(lane.path);
 
   const start = () => {
@@ -440,12 +498,9 @@ export function Quick() {
 
   const activate = (key: string, alt: boolean) => {
     const row = rows.find((r) => r.key === key);
-    if (!row) {
-      start();
-      return;
-    }
-    if (alt) revealRow(row);
-    else openRow(row);
+    if (!row) start();
+    else if (row.kind === 'todo') (alt ? revealTodo : openTodo)(row);
+    else (alt ? revealSession : openSession)(row.lane, row.session);
   };
 
   /* ---- Keys ---- */
@@ -464,9 +519,10 @@ export function Quick() {
     }
     if (e.key === 'ArrowUp' && !el.value && draft && !e.altKey && !e.metaKey && !e.shiftKey && keys.indexOf(active) <= 0) {
       e.preventDefault();
-      setText(draft);
+      setText(draft.text);
+      setTodoId(draft.todo);
       setDraft(null);
-      window.requestAnimationFrame(() => el.setSelectionRange(draft.length, draft.length));
+      window.requestAnimationFrame(() => el.setSelectionRange(draft.text.length, draft.text.length));
       return;
     }
     if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && !e.altKey && !e.metaKey && !e.shiftKey) {
@@ -503,7 +559,7 @@ export function Quick() {
         const row = rows[Number(e.key) - 1];
         if (row) {
           e.preventDefault();
-          openRow(row);
+          activate(row.key, false);
         }
         return;
       }
@@ -621,7 +677,7 @@ export function Quick() {
 
   /* ---- Render ---- */
 
-  const sections: { group: RowGroup; rows: SessionRow[] }[] = [];
+  const sections: { group: RowGroup; rows: Row[] }[] = [];
   for (const r of rows) {
     const last = sections[sections.length - 1];
     if (last && last.group === r.group) last.rows.push(r);
@@ -694,17 +750,52 @@ export function Quick() {
                   Nothing needs you{attention.counts.working > 0 ? ` · ${attention.counts.working} working` : ''}.
                 </p>
               )}
-              {query && rows.length === 0 && <p className="ca-quick-note">No sessions match. Start one with this prompt below.</p>}
+              {query && rows.length === 0 && <p className="ca-quick-note">No sessions or todos match. Start a session with this prompt below.</p>}
               {sections.map((s) => (
                 <div key={s.group} className="ca-quick-group" role="group" aria-label={GROUP_WORD[s.group]}>
                   <div className={`ca-quick-glabel is-${s.group}`}>
                     {GROUP_WORD[s.group]}
-                    <span>{s.group === 'found' ? s.rows.length : (attention?.counts[s.group as 'needs' | 'unread' | 'working'] ?? s.rows.length)}</span>
+                    <span>{s.group === 'found' || s.group === 'todos' ? s.rows.length : (attention?.counts[s.group] ?? s.rows.length)}</span>
                   </div>
                   {s.rows.map((r) => {
                     const n = rows.indexOf(r) + 1;
+                    // What every row does with the pointer: hovering selects, a click does it, a
+                    // right-click has the rest.
+                    const handlers = {
+                      onMouseMove: () => active !== r.key && setActiveKey(r.key),
+                      onMouseDown: (e: React.MouseEvent) => e.preventDefault(),
+                      onClick: (e: React.MouseEvent) => activate(r.key, e.altKey),
+                      onContextMenu: (e: React.MouseEvent) => {
+                        e.preventDefault();
+                        rowMenu(r);
+                      },
+                    };
+                    if (r.kind === 'todo') {
+                      const t = r.item.todo;
+                      const opens = todoSession(r) ? 'opens its session' : 'gets a session ready to start for it';
+                      return (
+                        <div
+                          key={r.key}
+                          role="option"
+                          aria-selected={active === r.key}
+                          className={['ca-quick-row', 'is-todo', active === r.key && 'is-active'].filter(Boolean).join(' ')}
+                          title={`${t.title || 'Untitled'}\n⏎ ${opens} · ⌥⏎ shows it in Codealong`}
+                          {...handlers}
+                        >
+                          <TodoGlyph status={t.status} waiting={r.waiting} />
+                          <span className="ca-quick-row-main">
+                            <span className="ca-quick-row-title">
+                              <Marked text={t.title || 'Untitled'} marks={r.marks} />
+                            </span>
+                            <span className="ca-quick-row-why">{todoWhy(r)}</span>
+                          </span>
+                          <span className="ca-quick-row-where">{r.item.lane?.callsign ?? (t.project || 'No worktree')}</span>
+                          <span className="ca-quick-row-age">{ago(r.item.lastActivity, now)}</span>
+                          {n <= 9 && <Kbd keys={['⌘', String(n)]} />}
+                        </div>
+                      );
+                    }
                     const s2 = r.session;
-                    const why = rowWhy(s2.detail, s2.headline, now);
                     return (
                       <div
                         key={r.key}
@@ -712,20 +803,14 @@ export function Quick() {
                         aria-selected={active === r.key}
                         className={['ca-quick-row', active === r.key && 'is-active', `is-${s2.status}`].filter(Boolean).join(' ')}
                         title={`${s2.title}\n${s2.account} · ${r.lane.callsign}\n⏎ opens it where it lives · ⌥⏎ shows it in Codealong`}
-                        onMouseMove={() => active !== r.key && setActiveKey(r.key)}
-                        onMouseDown={(e) => e.preventDefault()}
-                        onClick={(e) => activate(r.key, e.altKey)}
-                        onContextMenu={(e) => {
-                          e.preventDefault();
-                          rowMenu(r);
-                        }}
+                        {...handlers}
                       >
                         <StatusGlyph status={s2.status} />
                         <span className="ca-quick-row-main">
                           <span className="ca-quick-row-title">
                             <Marked text={s2.title} marks={r.marks} />
                           </span>
-                          <span className="ca-quick-row-why">{why}</span>
+                          <span className="ca-quick-row-why">{rowWhy(s2.detail, s2.headline, now)}</span>
                         </span>
                         <span className="ca-quick-row-where">
                           {s2.account} · {r.lane.callsign}
@@ -751,7 +836,7 @@ export function Quick() {
               <Icon name="plus" size={14} stroke={2} />
             </span>
             <span className="ca-quick-row-main">
-              <span className="ca-quick-row-title">{query ? 'Start a new session with this prompt' : 'Start a new session'}</span>
+              <span className="ca-quick-row-title">{todo ? 'Start a session for this todo' : prompted ? 'Start a new session with this prompt' : 'Start a new session'}</span>
               <span className="ca-quick-row-why">
                 {happens}
                 {attached.length > 0 && ` ${attached.length === 1 ? 'The attachment goes' : 'Attachments go'} as ${attached.length === 1 ? 'a file path' : 'file paths'} the agent opens.`}

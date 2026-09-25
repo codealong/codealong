@@ -283,9 +283,9 @@ export async function setTheme(theme: Theme): Promise<void> {
 }
 
 /** What the floating bar asks the main window to show. */
-export type Reveal = { kind: 'session'; laneId: string; key: string } | { kind: 'pr'; key: string };
+export type Reveal = { kind: 'session'; laneId: string; key: string } | { kind: 'pr'; key: string } | { kind: 'todo'; id: string };
 
-/** Brings the main window forward, showing a session or PR if given. */
+/** Brings the main window forward, showing a session, PR or todo if given. */
 export async function showMain(reveal: Reveal | null = null): Promise<void> {
   if (!inTauri) return;
   await invoke('show_main', { reveal });

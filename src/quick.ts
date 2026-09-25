@@ -1,9 +1,10 @@
 // What the quick panel lists, and how it names shortcuts. With nothing typed it lists the
 // sessions that need you, then the ones whose turn ended; with nothing waiting, the ones
-// working. Typed words find sessions: every word has to be in the session's title, account,
-// worktree, branch, repo, project or PR. Kept free of React so the rules have tests.
+// working. Typed words find sessions, then todos: every word has to be in what describes them.
+// Kept free of React so the rules have tests.
 
 import { middleTruncate } from './format';
+import { sectionOf, sessionHomes, todoItem, type TodoItem, type TodoSectionId } from './todos';
 import type { Board, Lane, Session, Status } from './types';
 
 export const ALL_PROJECTS = 'All projects';
@@ -16,7 +17,7 @@ export function inProject(lane: Lane, project: string): boolean {
   return lane.project === project && (project === ELSEWHERE || !lane.hidden);
 }
 
-export type RowGroup = 'needs' | 'unread' | 'working' | 'found';
+export type RowGroup = 'needs' | 'unread' | 'working' | 'found' | 'todos';
 
 /** Where a status puts a session in the empty panel's list, as on the floating bar: errors wait
  *  on you like questions do. */
@@ -27,6 +28,7 @@ function groupOf(status: Status): 'needs' | 'unread' | 'working' | null {
 }
 
 export interface SessionRow {
+  kind: 'session';
   key: string;
   group: RowGroup;
   lane: Lane;
@@ -37,6 +39,9 @@ export interface SessionRow {
 
 /** How many rows the panel lists at most: ⌘1 to ⌘9 reach them all. */
 export const MAX_ROWS = 9;
+/** A search lists this many sessions and this many todos at most, so both fit. */
+export const FOUND_SESSIONS = 6;
+export const FOUND_TODOS = 5;
 
 /** Every session once, listed under the worktree it runs in (not as a visitor elsewhere), with
  *  archived ones left out. */
@@ -58,7 +63,7 @@ export function attentionRows(board: Board, project: string, limit = MAX_ROWS): 
   const all = sessionsIn(board, project)
     .flatMap(({ lane, session }) => {
       const group = groupOf(session.status);
-      return group ? [{ key: session.key, group, lane, session, marks: [] }] : [];
+      return group ? [{ kind: 'session' as const, key: session.key, group, lane, session, marks: [] }] : [];
     })
     .sort((a, b) => ORDER.indexOf(a.group) - ORDER.indexOf(b.group) || since(b.session) - since(a.session) || a.key.localeCompare(b.key));
   const counts = { needs: 0, unread: 0, working: 0 };
@@ -106,7 +111,7 @@ export function findSessions(board: Board, project: string, query: string, limit
     const hay = [s.title, s.account, lane.callsign, lane.repo, lane.branch ?? '', s.branch ?? '', lane.project, pr].join('\n').toLowerCase();
     if (!words.every((w) => hay.includes(w))) return [];
     const title = s.title.toLowerCase();
-    return [{ row: { key: s.key, group: 'found' as const, lane, session: s, marks: titleMarks(s.title, words) }, inTitle: words.every((w) => title.includes(w)) }];
+    return [{ row: { kind: 'session' as const, key: s.key, group: 'found' as const, lane, session: s, marks: titleMarks(s.title, words) }, inTitle: words.every((w) => title.includes(w)) }];
   });
   return found
     .sort(
@@ -116,6 +121,57 @@ export function findSessions(board: Board, project: string, query: string, limit
         b.row.session.lastActivity - a.row.session.lastActivity ||
         a.row.key.localeCompare(b.row.key),
     )
+    .slice(0, limit)
+    .map((f) => f.row);
+}
+
+/** A todo a search found. */
+export interface TodoRow {
+  kind: 'todo';
+  key: string;
+  group: 'todos';
+  item: TodoItem;
+  /** Waiting on something, by hand or on another todo that isn't done. */
+  waiting: boolean;
+  marks: [number, number][];
+}
+
+const SECTION_RANK: Record<TodoSectionId, number> = { 'in-progress': 0, ready: 1, waiting: 2, done: 3 };
+
+/**
+ * Todos with every typed word in their title, description, labels or project, or in the
+ * worktrees and sessions linked to them, best first: those whose title has them all, then In
+ * progress, Ready, Waiting and Done, then the latest activity. In a project, only its own todos.
+ */
+export function findTodos(board: Board, project: string, query: string, limit = FOUND_TODOS): TodoRow[] {
+  const words = queryWords(query);
+  if (words.length === 0) return [];
+  const todos = board.todos ?? [];
+  const laneById = new Map(board.lanes.map((l) => [l.id, l]));
+  const homes = sessionHomes(board.lanes);
+  const labelById = new Map((board.labels ?? []).map((l) => [l.id, l]));
+  const found = todos
+    .filter((t) => project === ALL_PROJECTS || t.project === project)
+    .flatMap((t) => {
+      const item = todoItem(t, laneById, homes, labelById);
+      const hay = [
+        t.title,
+        t.description,
+        t.project,
+        ...item.labels.map((l) => l.name),
+        ...item.places.map((p) => `${p.lane.callsign} ${p.lane.branch ?? ''}`),
+        ...item.sessions.map((x) => `${x.session.account} ${x.session.title}`),
+      ]
+        .join('\n')
+        .toLowerCase();
+      if (!words.every((w) => hay.includes(w))) return [];
+      const section = sectionOf(t, todos);
+      const title = t.title.toLowerCase();
+      const row: TodoRow = { kind: 'todo', key: `todo:${t.id}`, group: 'todos', item, waiting: section === 'waiting', marks: titleMarks(t.title, words) };
+      return [{ row, inTitle: words.every((w) => title.includes(w)), rank: SECTION_RANK[section] }];
+    });
+  return found
+    .sort((a, b) => Number(b.inTitle) - Number(a.inTitle) || a.rank - b.rank || b.row.item.lastActivity - a.row.item.lastActivity || a.row.key.localeCompare(b.row.key))
     .slice(0, limit)
     .map((f) => f.row);
 }

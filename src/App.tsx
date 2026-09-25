@@ -965,9 +965,16 @@ export function App() {
     });
   };
 
-  // The floating bar asks to show a session or PR here: in its project, with no search hiding it.
+  // The floating bar or the quick panel asks to show a session, PR or todo here: in its project,
+  // with no search hiding it.
   const reveal = useRef<(r: Reveal) => void>(() => {});
   reveal.current = (r: Reveal) => {
+    // A todo the quick panel found: the Todo view, in its project.
+    if (r.kind === 'todo') {
+      const t = todoStore.todos.find((x) => x.id === r.id);
+      if (t) showTodo(t);
+      return;
+    }
     const lane = r.kind === 'session' ? lanes.find((l) => l.id === r.laneId) : undefined;
     const session = lane?.sessions.find((s) => s.key === (r.kind === 'session' ? r.key : ''));
     const pr = r.kind === 'pr' ? board?.prs.find((p) => p.key === r.key) : undefined;
