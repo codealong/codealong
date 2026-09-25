@@ -109,9 +109,16 @@ impl Handle {
     /// A change to a todo or the labels. Returns once a board that shows it has gone out, with
     /// that board's time, so a window knows when its own copy of the change can go.
     pub fn todo(&self, op: TodoOp) -> std::result::Result<i64, String> {
+        self.todo_within(op, Duration::from_secs(20))
+    }
+
+    /// `todo`, waiting as long as the caller can: the socket (server.rs) waits longer than a
+    /// window, since a command has nothing else to show meanwhile and the engine answers late
+    /// while it scans at launch.
+    pub fn todo_within(&self, op: TodoOp, wait: Duration) -> std::result::Result<i64, String> {
         let (tx, rx) = channel();
         self.tx.send(Msg::Todo(op, tx)).map_err(|_| "Codealong's engine stopped.".to_string())?;
-        rx.recv_timeout(Duration::from_secs(20)).map_err(|_| "Codealong is busy; the change will show when it catches up.".to_string())?
+        rx.recv_timeout(wait).map_err(|_| "Codealong is busy; the change will show when it catches up.".to_string())?
     }
 
     /// Links a session started from a todo, or waits for it to show up.
@@ -320,6 +327,21 @@ pub fn snapshot(with_github: bool, with_usage: bool) -> Board {
         }
         lap("github", &t);
     }
+    e.compose()
+}
+
+/// The board without git, GitHub, visitors or usage: sessions, worktrees and todos as the
+/// files say, in a couple of seconds. For the `codealong` command when the app isn't running.
+pub fn light_snapshot() -> Board {
+    let (tx, _rx) = channel();
+    let mut e = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
+    e.load_config();
+    e.seen = SeenState::load();
+    e.load_todos();
+    e.app_records.refresh(&claudeapp::records_dir());
+    e.scan_sessions();
+    e.load_repos();
+    e.loading = false;
     e.compose()
 }
 
@@ -706,6 +728,10 @@ impl Engine {
                 Ok(Msg::Ping(sent)) => perf::lag("engine", sent.elapsed()),
                 Ok(Msg::Todo(op, reply)) => {
                     let lanes = self.lane_index();
+                    // Under the lock the command takes too, and against the file as it is now, so
+                    // a change the command made a moment ago isn't written over.
+                    let lock = todos::lock().map_err(|e| eprintln!("{e:#}")).ok();
+                    self.reload_todos();
                     let result = match self.todos_unreadable {
                         // A change now would be lost when the file is fixed, so it's turned away.
                         true => Err(self.todos_warning.clone().unwrap_or_default()),
@@ -715,6 +741,7 @@ impl Engine {
                         Ok(changed) => {
                             if changed {
                                 self.save_todos();
+                                drop(lock);
                                 // Now rather than on the next tick: the window waits for it.
                                 self.publish();
                             }
@@ -726,6 +753,8 @@ impl Engine {
                 }
                 Ok(Msg::TodoStarted { id, lane, session, pending }) => {
                     let lanes = self.lane_index();
+                    let _lock = todos::lock().map_err(|e| eprintln!("{e:#}")).ok();
+                    self.reload_todos();
                     if !self.todos_unreadable && self.todos.started(&id, lane.as_deref(), session.as_deref(), pending, &lanes, now_ms()) {
                         self.save_todos();
                     }

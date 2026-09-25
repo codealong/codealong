@@ -17,6 +17,9 @@ use crate::util::{home, tilde};
 /// The environment variable a terminal start hands the prompt over in. The command Codealong
 /// types stays short and needs no quoting, whatever the prompt holds.
 pub const PROMPT_VAR: &str = "CODEALONG_PROMPT";
+/// The session's key (`claude:<account>:<id>`), set in a terminal start's environment so the
+/// `codealong` command can tell which session runs it (`whoami`).
+pub const SESSION_VAR: &str = "CODEALONG_SESSION";
 /// The images folder, for `--add-dir`, when the prompt has images. Its path has a space in it.
 pub const IMAGES_VAR: &str = "CODEALONG_IMAGES";
 /// The attached files' folder, for `--add-dir`, when the prompt has other files.
@@ -91,7 +94,7 @@ pub struct StartOptions {
 }
 
 /// What the sheet asks for.
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct StartSpec {
     pub lane_id: String,
@@ -111,7 +114,7 @@ pub struct StartSpec {
     pub todo: Option<String>,
 }
 
-#[derive(Serialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Started {
     /// The new session's key when Codealong chose its ID, so the board can select it as soon
@@ -236,6 +239,7 @@ fn plan_in(account: &AccountCfg, place: Place, folder: &Path, prompt: &str, sess
             }
             if !opencode {
                 input.push_str(&format!(" --session-id {session_id}"));
+                env.push((SESSION_VAR.to_string(), format!("claude:{}:{session_id}", account.name)));
             }
             if let Some(m) = model.filter(|m| valid_model(m) && !opencode) {
                 input.push_str(&format!(" --model '{m}'"));
@@ -407,10 +411,11 @@ mod tests {
         let Plan::Terminal { cwd, input, env } = plan(&a, Place::Terminal, Path::new("/r/atlas-app4"), &format!("  {prompt}\n"), id, None, false) else { panic!() };
         assert_eq!(cwd, PathBuf::from("/r/atlas-app4"));
         assert_eq!(input, format!("claude2 --session-id {id} \"$CODEALONG_PROMPT\"\n"));
-        assert_eq!(env, vec![(PROMPT_VAR.to_string(), prompt.to_string())]);
+        let session = (SESSION_VAR.to_string(), format!("claude:claude2:{id}"));
+        assert_eq!(env, vec![session.clone(), (PROMPT_VAR.to_string(), prompt.to_string())]);
         let Plan::Terminal { input, env, .. } = plan(&a, Place::Terminal, Path::new("/r/x"), "  ", id, None, false) else { panic!() };
         assert_eq!(input, format!("claude2 --session-id {id}\n"));
-        assert!(env.is_empty());
+        assert_eq!(env, vec![session]);
         let custom = account("claude3", "claude", "~/.claude3", Some("CLAUDE_CONFIG_DIR=~/.claude3 claude"));
         let Plan::Terminal { input, .. } = plan(&custom, Place::Terminal, Path::new("/r/x"), "", id, None, false) else { panic!() };
         assert_eq!(input, format!("CLAUDE_CONFIG_DIR=~/.claude3 claude --session-id {id}\n"));
@@ -440,6 +445,7 @@ mod tests {
             env,
             vec![
                 (IMAGES_VAR.to_string(), dir.to_string_lossy().to_string()),
+                (SESSION_VAR.to_string(), format!("claude:claude2:{id}")),
                 (PROMPT_VAR.to_string(), format!("Match this:\n@\"{}/0123456789abcdef.png\"", dir.display())),
             ]
         );
@@ -467,7 +473,7 @@ mod tests {
         let Plan::Terminal { input, env, .. } = plan_in(&a, Place::Terminal, Path::new("/r/x"), prompt, id, None, false, (images, files)) else { panic!() };
         assert_eq!(input, format!("claude2 --add-dir \"$CODEALONG_FILES\" --session-id {id} \"$CODEALONG_PROMPT\"\n"));
         assert_eq!(env[0], (FILES_VAR.to_string(), files.to_string_lossy().to_string()));
-        assert_eq!(env[1].1, format!("Why does this fail?\n@\"{}/0123456789abcdef/crash.log\"", files.display()));
+        assert_eq!(env[2].1, format!("Why does this fail?\n@\"{}/0123456789abcdef/crash.log\"", files.display()));
         // With an image too, both folders, each its own --add-dir.
         let both = format!("{prompt}\n![image](images/fedcba9876543210.png)");
         let Plan::Terminal { input, .. } = plan_in(&a, Place::Terminal, Path::new("/r/x"), &both, id, None, false, (images, files)) else { panic!() };

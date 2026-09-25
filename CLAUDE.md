@@ -30,6 +30,19 @@ profile is tuned for rebuild speed too (no LTO). Hand a change to the user with
 the running app and opens the new one. Don't `pkill` the app by hand; a pattern that contains
 the app's path also matches other sessions' shells, and kills their builds.
 
+The engine binary is also the `codealong` command for agents and people (`cli.rs`; `main.rs`
+runs it for any first argument that's one of its subcommands, and starts the app otherwise):
+`status`, `accounts [--usage]`, `whoami`, `todo list|show|add|update|start|done|reopen|link|
+unlink|delete|labels`, `sessions [find <words>]`, `session show`, `worktrees`, `start`,
+`install`. JSON when piped, tables in a terminal (`--table` forces them). With the app up it
+asks the app over `codealong.sock` (`server.rs`: JSON lines, `status`, `board`, `todo-apply`,
+`todo-started`, `start`); otherwise `engine::light_snapshot` and `todos::change` (under
+`todos.json.lock`, which the engine takes for its own todo changes too). After changing
+`cli.rs`, run `scripts/skill-reference.sh`: it rewrites
+`skills/codealong/references/reference.md` from `--help`, and a cargo test fails while that
+file is stale. `codealong reference` (hidden) prints the same text. A debug binary run with a
+subcommand `main.rs` doesn't know starts the app headless and takes the socket; kill it by pid.
+
 The engine binary doubles as a CLI for checking behavior without a window:
 
 - `codealong --snapshot [--table] [--no-github] [--usage]`: the board as JSON (or a table).
@@ -164,6 +177,21 @@ Claude Code
   (per model, e.g. Fable) with `percent`, `severity`, `resets_at`. It returns 429 when called
   often: the app polls every 2 minutes, keeps the last numbers on failure and backs off 10
   minutes; don't loop `--usage` snapshots.
+
+Skills (one folder in the Agent Skills layout, `SKILL.md` with `name` and `description`,
+optional `references/`, read by all four harnesses; from their docs, 2026-09-24)
+
+- Personal skills folders: Claude Code `<config dir>/skills` (a second account runs with
+  `CLAUDE_CONFIG_DIR=<home>`, so `~/.claude2/skills`; `CLAUDE_CONFIG_DIR=~/.claude2 claude
+  plugin install …` installs a plugin there), Codex `<CODEX_HOME>/skills`, OpenCode
+  `~/.config/opencode/skills` (it also reads Claude's folders), Antigravity
+  `~/.gemini/config/skills` (workspace ones in `.agents/skills`). `install.rs` copies rather
+  than links: not every harness follows links, and the bundle moves on rebuild.
+- A Claude Code plugin's `bin/` goes on the Bash tool's PATH while it's enabled, so
+  `plugin/bin/codealong` is a shim that finds the app; `${CLAUDE_PLUGIN_ROOT}` resolves in
+  hooks. A `SessionStart` or `UserPromptSubmit` command hook's stdout (exit 0) is added to
+  the model's context, which is how `plugin/hooks/hooks.json` hands a session its todo.
+  `allowed-tools` and `disable-model-invocation` in SKILL.md are Claude Code's own.
 
 Claude app
 

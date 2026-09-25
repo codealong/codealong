@@ -1,0 +1,849 @@
+# codealong command reference
+
+Generated from `codealong --help` by `scripts/skill-reference.sh`. Don't edit by hand.
+
+## codealong
+
+```
+Codealong from the command line: the todo list, every agent session on this Mac, the
+worktrees they run in, and the accounts they run on.
+
+With the Codealong app running, answers come from it and todo changes go through it.
+Without it, the files are read directly and sessions show without git status or PRs.
+
+Output is JSON when stdout isn't a terminal (so always, from an agent) or with --json.
+Times are epoch milliseconds. Ids take a unique prefix. A session is named by its key
+(claude:claude2:<uuid>) or its id; `me` means the session running this command (see
+whoami). A worktree is named by its path; `.` means the one the current folder is in.
+
+Usage: codealong [OPTIONS] <COMMAND>
+
+Commands:
+  status     Whether the app is running, and where the data lives
+  accounts   The configured accounts: harness, sign-in, and with --usage how much of
+             each plan limit is used
+  whoami     Which session runs this command, its worktree, and the todos linked to
+             either. Run it first
+  todo       Todos: work meant for an agent. Each has a title, a description, labels, a
+             status (todo, in-progress, done) and the worktrees and sessions that took
+             it on
+  sessions   Sessions on the board: every agent, live or not, with its status and where
+             it works. Lists by default; `find` searches
+  session    One session in full: status, excerpt, folder, branch, PR, how to resume it,
+             and where its own records are
+  worktrees  Worktrees the board knows: each with its branch, PR, status and the agents
+             in it
+  start      Start a session for a todo or on a prompt, the way the app's New session
+             does, and link it to the todo
+  install    Put the command on PATH and the skill into each account's skills folder
+  help       Print this message or the help of the given subcommand(s)
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+  -V, --version
+          Print version
+```
+
+## codealong status
+
+```
+Whether the app is running, and where the data lives
+
+Usage: codealong status [OPTIONS]
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong accounts
+
+```
+The configured accounts: harness, sign-in, and with --usage how much of each plan limit
+is used
+
+Usage: codealong accounts [OPTIONS]
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --usage
+          Read plan usage: from the app when it runs, else one call per Claude account.
+          Don't loop it; the usage endpoint rate-limits
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong whoami
+
+```
+Which session runs this command, its worktree, and the todos linked to either. Run it
+first
+
+Usage: codealong whoami [OPTIONS]
+
+Options:
+      --context
+          Plain text for a session-start hook: a line or two when a session or todo is
+          found, nothing otherwise
+
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong todo
+
+```
+Todos: work meant for an agent. Each has a title, a description, labels, a status (todo,
+in-progress, done) and the worktrees and sessions that took it on
+
+Usage: codealong todo [OPTIONS] <COMMAND>
+
+Commands:
+  list    Todos that aren't done, in the app's order. --status all for every one
+  show    One todo in full, with attachments as full paths
+  add     A new todo at the top of the list. Prints it
+  update  Change a todo's fields. Only the ones given change
+  start   Mark a todo in progress, and link the session running this command and its
+          worktree to it
+  done    Mark a todo done
+  reopen  Put a done or in-progress todo back to todo
+  link    Link a session or a worktree to a todo
+  unlink  Unlink a session or a worktree from a todo
+  delete  Delete a todo. The app can't undo this once its window's undo is gone, so ask
+          first
+  labels  The labels, or add and remove one
+  help    Print this message or the help of the given subcommand(s)
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong todo list
+
+```
+Todos that aren't done, in the app's order. --status all for every one
+
+Usage: codealong todo list [OPTIONS]
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --status <STATUS>
+          todo, in-progress, done, open (todo and in-progress; the default) or all
+          
+          [default: open]
+
+      --project <PROJECT>
+          Only todos of this project
+
+      --table
+          Tables, even when piped
+
+      --label <LABEL>
+          Only todos with this label (by name)
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+      --worktree <WORKTREE>
+          Only todos linked to this worktree (a path, or `.`)
+
+      --mine
+          Only todos linked to the session running this command, or to its worktree
+
+  -h, --help
+          Print help
+```
+
+## codealong todo show
+
+```
+One todo in full, with attachments as full paths
+
+Usage: codealong todo show [OPTIONS] <ID>
+
+Arguments:
+  <ID>
+          
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong todo add
+
+```
+A new todo at the top of the list. Prints it
+
+Usage: codealong todo add [OPTIONS] <TITLE>
+
+Arguments:
+  <TITLE>
+          One line
+
+Options:
+  -d, --description <DESCRIPTION>
+          Plain text. Markdown reads fine in the app
+
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --description-file <FILE>
+          Read the description from a file, or from stdin with `-`
+
+      --table
+          Tables, even when piped
+
+      --project <PROJECT>
+          The project it belongs to. Set from the worktree when one is linked
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -l, --label <LABEL>
+          A label by name, made if it doesn't exist. Repeatable
+
+      --attach <FILE>
+          A file to attach: copied into Codealong's store and referenced from the
+          description. Repeatable
+
+      --worktree <WORKTREE>
+          Link a worktree: a path, or `.` for the current folder's
+
+      --session <SESSION>
+          Link a session: a key, an id, or `me`
+
+  -h, --help
+          Print help
+```
+
+## codealong todo update
+
+```
+Change a todo's fields. Only the ones given change
+
+Usage: codealong todo update [OPTIONS] <ID>
+
+Arguments:
+  <ID>
+          
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --title <TITLE>
+          
+
+  -d, --description <DESCRIPTION>
+          Replaces the description. Keep any attachment references you want to keep
+
+      --table
+          Tables, even when piped
+
+      --description-file <FILE>
+          Read the new description from a file, or stdin with `-`
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+      --status <STATUS>
+          todo, in-progress or done
+
+      --project <PROJECT>
+          
+
+      --add-label <ADD_LABEL>
+          Add a label by name (made if new). Repeatable
+
+      --remove-label <REMOVE_LABEL>
+          Remove a label by name. Repeatable
+
+  -h, --help
+          Print help
+```
+
+## codealong todo start
+
+```
+Mark a todo in progress, and link the session running this command and its worktree to
+it
+
+Usage: codealong todo start [OPTIONS] <ID>
+
+Arguments:
+  <ID>
+          
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong todo done
+
+```
+Mark a todo done
+
+Usage: codealong todo done [OPTIONS] <ID>
+
+Arguments:
+  <ID>
+          
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong todo reopen
+
+```
+Put a done or in-progress todo back to todo
+
+Usage: codealong todo reopen [OPTIONS] <ID>
+
+Arguments:
+  <ID>
+          
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong todo link
+
+```
+Link a session or a worktree to a todo
+
+Usage: codealong todo link [OPTIONS] <ID>
+
+Arguments:
+  <ID>
+          
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --session <SESSION>
+          A session key, id, or `me`
+
+      --table
+          Tables, even when piped
+
+      --worktree <WORKTREE>
+          A worktree path, or `.`
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong todo unlink
+
+```
+Unlink a session or a worktree from a todo
+
+Usage: codealong todo unlink [OPTIONS] <ID>
+
+Arguments:
+  <ID>
+          
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --session <SESSION>
+          A session key, id, or `me`
+
+      --table
+          Tables, even when piped
+
+      --worktree <WORKTREE>
+          A worktree path, or `.`
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong todo delete
+
+```
+Delete a todo. The app can't undo this once its window's undo is gone, so ask first
+
+Usage: codealong todo delete [OPTIONS] <ID>
+
+Arguments:
+  <ID>
+          
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong todo labels
+
+```
+The labels, or add and remove one
+
+Usage: codealong todo labels [OPTIONS] [COMMAND]
+
+Commands:
+  add     Add a label. Color is one of gray, red, pink, purple, indigo, blue, teal,
+          green; the next unused one when left out
+  remove  Remove a label. Todos keep it until they change, so the app can undo
+  help    Print this message or the help of the given subcommand(s)
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong todo labels add
+
+```
+Add a label. Color is one of gray, red, pink, purple, indigo, blue, teal, green; the
+next unused one when left out
+
+Usage: codealong todo labels add [OPTIONS] <NAME>
+
+Arguments:
+  <NAME>
+          
+
+Options:
+      --color <COLOR>
+          
+
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong todo labels remove
+
+```
+Remove a label. Todos keep it until they change, so the app can undo
+
+Usage: codealong todo labels remove [OPTIONS] <NAME>
+
+Arguments:
+  <NAME>
+          
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong sessions
+
+```
+Sessions on the board: every agent, live or not, with its status and where it works.
+Lists by default; `find` searches
+
+Usage: codealong sessions [OPTIONS] [COMMAND]
+
+Commands:
+  find  Sessions whose title, excerpt, account, worktree, branch or PR contains the
+        words (all of them, any case)
+  help  Print this message or the help of the given subcommand(s)
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --account <ACCOUNT>
+          Only this account (claude, claude2, codex, opencode, antigravity)
+
+      --table
+          Tables, even when piped
+
+      --status <STATUS>
+          Only this status: needs (waiting on you), error, working, unread (its turn
+          ended, not seen), idle, stopped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+      --project <PROJECT>
+          Only this project
+
+      --worktree <WORKTREE>
+          Only sessions in this worktree (a path, or `.`)
+
+      --live
+          Only sessions with a running process
+
+      --since <SINCE>
+          Active within this long: 90m, 24h, 3d, 7d (the default), or all
+          
+          [default: 7d]
+
+      --archived
+          Archived ones too
+
+      --limit <LIMIT>
+          At most this many, most recently prompted first
+          
+          [default: 50]
+
+  -h, --help
+          Print help
+```
+
+## codealong sessions find
+
+```
+Sessions whose title, excerpt, account, worktree, branch or PR contains the words (all
+of them, any case)
+
+Usage: codealong sessions find [OPTIONS] [QUERY]...
+
+Arguments:
+  [QUERY]...
+          
+
+Options:
+      --account <ACCOUNT>
+          Only this account (claude, claude2, codex, opencode, antigravity)
+
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --status <STATUS>
+          Only this status: needs (waiting on you), error, working, unread (its turn
+          ended, not seen), idle, stopped
+
+      --table
+          Tables, even when piped
+
+      --project <PROJECT>
+          Only this project
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+      --worktree <WORKTREE>
+          Only sessions in this worktree (a path, or `.`)
+
+      --live
+          Only sessions with a running process
+
+      --since <SINCE>
+          Active within this long: 90m, 24h, 3d, 7d (the default), or all
+          
+          [default: 7d]
+
+      --archived
+          Archived ones too
+
+      --limit <LIMIT>
+          At most this many, most recently prompted first
+          
+          [default: 50]
+
+  -h, --help
+          Print help
+```
+
+## codealong session
+
+```
+One session in full: status, excerpt, folder, branch, PR, how to resume it, and where
+its own records are
+
+Usage: codealong session [OPTIONS] <COMMAND>
+
+Commands:
+  show  One session in full
+  help  Print this message or the help of the given subcommand(s)
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong session show
+
+```
+One session in full
+
+Usage: codealong session show [OPTIONS] <KEY>
+
+Arguments:
+  <KEY>
+          
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong worktrees
+
+```
+Worktrees the board knows: each with its branch, PR, status and the agents in it
+
+Usage: codealong worktrees [OPTIONS]
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --project <PROJECT>
+          
+
+      --bay <BAY>
+          Only this bay: needs, working, unread, review, idle, merged
+
+      --table
+          Tables, even when piped
+
+      --all
+          Hidden ones too (worktrees outside every project that need nothing)
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong start
+
+```
+Start a session for a todo or on a prompt, the way the app's New session does, and link
+it to the todo
+
+Usage: codealong start [OPTIONS]
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --todo <TODO>
+          The todo to start: its title and description become the prompt, and the
+          session is linked to it
+
+      --prompt <PROMPT>
+          The prompt, when not starting a todo
+
+      --table
+          Tables, even when piped
+
+      --account <ACCOUNT>
+          The account to run it on. `auto` picks as the app does: the Claude account
+          with the most room
+          
+          [default: auto]
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+      --worktree <WORKTREE>
+          The worktree to run in: a path, or `.` (the default)
+          
+          [default: .]
+
+      --new-worktree
+          Have Claude Code make a fresh worktree for it (`claude --worktree`)
+
+      --in <PLACE>
+          Where it runs
+          
+          [default: terminal]
+          [possible values: terminal, claude-app, codex-app]
+
+      --model <MODEL>
+          A model for a terminal start: fable, opus, sonnet, haiku, or a full name
+
+      --dry-run
+          Print what the start would do (the command and environment, or the link)
+          without starting anything
+
+  -h, --help
+          Print help
+```
+
+## codealong install
+
+```
+Put the command on PATH and the skill into each account's skills folder
+
+Usage: codealong install [OPTIONS]
+
+Options:
+      --command
+          Only the command: a symlink on PATH to this binary
+
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --skill
+          Only the skill, into the accounts' skills folders
+
+      --table
+          Tables, even when piped
+
+      --account <ACCOUNT>
+          Only these accounts (by name). Every configured one by default
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+      --bin <DIR>
+          Where the symlink goes. /usr/local/bin when writable, else ~/.local/bin
+
+  -h, --help
+          Print help
+```
+

@@ -197,6 +197,25 @@ export interface AccountInfo extends AccountCfg {
   email: string | null;
 }
 
+/** The `codealong` command link and the agent skill per account (install.rs). */
+export interface AgentsStatus {
+  command: { link: string | null; target: string; onPath: boolean };
+  /** Whether the skill folder ships with this build at all. */
+  skillFound: boolean;
+  accounts: AccountSkill[];
+  /** One line per failure of the last install; empty when only read. */
+  errors: string[];
+}
+
+export interface AccountSkill {
+  name: string;
+  harness: Harness;
+  /** The skill's folder for this account; null when the harness has none Codealong knows. */
+  path: string | null;
+  installed: boolean;
+  current: boolean;
+}
+
 export interface Board {
   generatedAt: number;
   apps: { terminal: string; terminalId: string; editor: string; editorId: string };

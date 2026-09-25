@@ -1,0 +1,11 @@
+{
+  "name": "codealong",
+  "version": "0.1.0",
+  "description": "Codealong todos, sessions and accounts from Claude Code: record and update todo items, find what other agents did, check which account has room. Needs the Codealong Mac app.",
+  "author": {
+    "name": "Codealong"
+  },
+  "homepage": "https://github.com/codealong/codealong",
+  "repository": "https://github.com/codealong/codealong",
+  "keywords": ["todos", "sessions", "worktrees", "agents", "codealong"]
+}

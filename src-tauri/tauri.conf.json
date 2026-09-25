@@ -36,6 +36,9 @@
     "targets": [
       "app"
     ],
+    "resources": {
+      "../skills/codealong": "skills/codealong"
+    },
     "category": "DeveloperTool",
     "icon": [
       "icons/32x32.png",

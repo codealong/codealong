@@ -4,7 +4,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import type { AccountCfg, AccountInfo, Attachment, Board, Config, ConfigView, PrDetail, StartOptions, Started, StartSpec, Theme } from './types';
+import type { AccountCfg, AccountInfo, AgentsStatus, Attachment, Board, Config, ConfigView, PrDetail, StartOptions, Started, StartSpec, Theme } from './types';
 import type { TodoOp } from './todos';
 
 export const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -181,6 +181,18 @@ export function onSettings(cb: () => void): () => void {
 export async function signIn(name: string): Promise<void> {
   if (!inTauri) return;
   await invoke('sign_in', { name });
+}
+
+/** The `codealong` command link and the agent skill per account, for Settings › Agents. */
+export async function agentsStatus(): Promise<AgentsStatus> {
+  if (!inTauri) throw new Error('Reading the agent tools needs the app.');
+  return invoke<AgentsStatus>('agents_status');
+}
+
+/** Links the command and installs the skill for the named accounts; returns the new state. */
+export async function installAgents(command: boolean, accounts: string[]): Promise<AgentsStatus> {
+  if (!inTauri) throw new Error('Installing the agent tools needs the app.');
+  return invoke<AgentsStatus>('install_agents', { command, accounts });
 }
 
 /** Where each account can start a session, for the new-session sheet. */

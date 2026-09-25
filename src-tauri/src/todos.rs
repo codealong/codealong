@@ -113,7 +113,7 @@ pub struct TodoStore {
 }
 
 /// The fields a change sets; the rest stay as they are.
-#[derive(Deserialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct TodoPatch {
     pub title: Option<String>,
@@ -125,7 +125,7 @@ pub struct TodoPatch {
 
 /// A change from the UI. Changes are small and specific, so one made in a window never undoes
 /// another made meanwhile, by another window or by the engine linking a session.
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(tag = "op", rename_all = "kebab-case", rename_all_fields = "camelCase")]
 pub enum TodoOp {
     /// A new todo, at the top. The window picks the id, so it can show the todo at once.
@@ -449,6 +449,33 @@ pub struct SessionRef<'a> {
 
 pub fn path() -> PathBuf {
     support_dir().join("todos.json")
+}
+
+/// An advisory lock on `todos.json.lock`, held through a read-modify-write of the store, so the
+/// app and the `codealong` command never write over each other's change. Released when dropped.
+pub struct Lock(#[allow(dead_code)] std::fs::File);
+
+pub fn lock() -> Result<Lock> {
+    use std::os::unix::io::AsRawFd;
+    std::fs::create_dir_all(support_dir())?;
+    let f = std::fs::OpenOptions::new().create(true).write(true).open(path().with_extension("json.lock"))?;
+    // SAFETY: flock on a descriptor this process owns; LOCK_EX waits for the other holder.
+    if unsafe { libc::flock(f.as_raw_fd(), libc::LOCK_EX) } != 0 {
+        bail!("Couldn't lock todos.json: {}", std::io::Error::last_os_error());
+    }
+    Ok(Lock(f))
+}
+
+/// Reads the store under the lock, lets `f` change it, and saves it when `f` says it changed.
+/// Returns the store as it is afterwards and whether it was saved.
+pub fn change<R>(f: impl FnOnce(&mut TodoStore) -> Result<(bool, R)>) -> Result<(TodoStore, bool, R)> {
+    let _lock = lock()?;
+    let (mut store, _) = load()?;
+    let (changed, out) = f(&mut store)?;
+    if changed {
+        save(&store)?;
+    }
+    Ok((store, changed, out))
 }
 
 /// The store and its text as read, or an empty store when there's no file yet. A file that

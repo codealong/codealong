@@ -1,0 +1,17 @@
+#!/bin/sh
+# The codealong command, found wherever the Codealong app is: the link `codealong install`
+# makes, the app in /Applications or ~/Applications, or the bundle Spotlight knows by its id.
+# Claude Code puts a plugin's bin/ on the Bash tool's PATH, so this shim stands in for the
+# command when the link isn't there.
+for c in /usr/local/bin/codealong "$HOME/.local/bin/codealong" \
+  /Applications/Codealong.app/Contents/MacOS/codealong "$HOME/Applications/Codealong.app/Contents/MacOS/codealong"; do
+  if [ -x "$c" ]; then
+    exec "$c" "$@"
+  fi
+done
+app=$(mdfind "kMDItemCFBundleIdentifier == 'app.codealong.desktop'" 2>/dev/null | head -n 1)
+if [ -n "$app" ] && [ -x "$app/Contents/MacOS/codealong" ]; then
+  exec "$app/Contents/MacOS/codealong" "$@"
+fi
+echo "codealong: the Codealong app isn't installed on this Mac (https://github.com/codealong/codealong)." >&2
+exit 127

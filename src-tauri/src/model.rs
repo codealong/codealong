@@ -1,10 +1,10 @@
 //! The board as the UI sees it. Field names serialize in camelCase to match `src/types.ts`.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::config::Theme;
 
-#[derive(Serialize, Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Hash, Debug)]
 #[serde(rename_all = "lowercase")]
 pub enum Harness {
     Claude,
@@ -27,7 +27,7 @@ impl Harness {
 }
 
 /// Where a session runs: the configured terminal app, or the harness's own app.
-#[derive(Serialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
 #[serde(rename_all = "lowercase")]
 pub enum Surface {
     Cli,
@@ -35,7 +35,7 @@ pub enum Surface {
 }
 
 /// Session states, in priority order.
-#[derive(Serialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 #[serde(rename_all = "lowercase")]
 pub enum Status {
     Needs,
@@ -47,7 +47,7 @@ pub enum Status {
 }
 
 /// Board bays, in board order.
-#[derive(Serialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 #[serde(rename_all = "lowercase")]
 pub enum Bay {
     Needs,
@@ -58,7 +58,7 @@ pub enum Bay {
     Merged,
 }
 
-#[derive(Serialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
 #[serde(rename_all = "kebab-case")]
 pub enum Origin {
     Main,
@@ -73,7 +73,7 @@ pub enum Origin {
     Other,
 }
 
-#[derive(Serialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
 #[serde(rename_all = "lowercase")]
 pub enum PrState {
     Draft,
@@ -91,7 +91,7 @@ impl PrState {
 }
 
 /// Whether GitHub would merge an open PR now, as its merge box says (`mergeStateStatus`).
-#[derive(Serialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum Merge {
     /// Nothing stands in the way: the reviews the repo requires, passing checks, no conflicts.
@@ -109,7 +109,7 @@ pub enum Merge {
     Unknown,
 }
 
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Session {
     /// `claude:claude2:<id>`, `codex:codex:<id>`, `opencode:opencode:<id>` or
@@ -167,7 +167,7 @@ pub struct Session {
     pub stalled_since: Option<i64>,
 }
 
-#[derive(Serialize, Clone, Debug, Default, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Checks {
     pub passed: u32,
@@ -178,7 +178,7 @@ pub struct Checks {
     pub failing: Vec<String>,
 }
 
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Pr {
     pub number: u64,
@@ -192,7 +192,7 @@ pub struct Pr {
     pub closed_at: Option<i64>,
 }
 
-#[derive(Serialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct GitInfo {
     pub upstream: Option<String>,
@@ -207,7 +207,7 @@ pub struct GitInfo {
     pub removed: Option<u32>,
 }
 
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Target {
     pub id: String,
@@ -220,7 +220,7 @@ pub struct Target {
     pub group: String,
 }
 
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Lane {
     /// The worktree path, which is also its identity.
@@ -251,7 +251,7 @@ pub struct Lane {
     pub default_target: Option<String>,
 }
 
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct RepoSummary {
     pub name: String,
@@ -259,7 +259,7 @@ pub struct RepoSummary {
     pub folder: bool,
 }
 
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectSummary {
     pub name: String,
@@ -267,7 +267,7 @@ pub struct ProjectSummary {
     pub repos: Vec<RepoSummary>,
 }
 
-#[derive(Serialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct AppNames {
     pub terminal: String,
@@ -277,7 +277,7 @@ pub struct AppNames {
 }
 
 /// How close a limit is: the usage endpoint's own word, or ours from the percentage.
-#[derive(Serialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
 #[serde(rename_all = "lowercase")]
 pub enum Severity {
     Normal,
@@ -286,7 +286,7 @@ pub enum Severity {
 }
 
 /// One usage limit: the 5-hour session, the week, or a per-model week such as Fable's.
-#[derive(Serialize, Clone, PartialEq, Debug)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Meter {
     /// `session`, `week`, or `model:<name>`.
@@ -303,7 +303,7 @@ pub struct Meter {
 }
 
 /// A configured account and whether it's ready, for the Accounts dialog.
-#[derive(Serialize, Clone, PartialEq, Debug)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct AccountInfo {
     pub name: String,
@@ -316,7 +316,7 @@ pub struct AccountInfo {
 }
 
 /// An account's plan limits, in config order on the board.
-#[derive(Serialize, Clone, PartialEq, Debug)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Usage {
     pub account: String,
@@ -337,7 +337,7 @@ pub struct Usage {
     pub rate_limited: bool,
 }
 
-#[derive(Serialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Board {
     pub generated_at: i64,
@@ -369,7 +369,7 @@ pub struct Board {
 }
 
 /// A PR in the PRs view, with the worktrees and sessions that worked on it.
-#[derive(Serialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct PrItem {
     /// `owner/name#number`.
@@ -404,7 +404,7 @@ pub struct PrItem {
 }
 
 /// A session that worked on a PR.
-#[derive(Serialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct PrSession {
     pub key: String,

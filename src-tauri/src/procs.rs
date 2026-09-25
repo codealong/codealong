@@ -40,17 +40,49 @@ pub fn proc_start_ms(pid: u32) -> Option<i64> {
     }
 }
 
+/// A process's parent, from the kernel; None once it's gone.
+pub fn parent_pid(pid: u32) -> Option<u32> {
+    // SAFETY: proc_pidinfo fills a plain-old-data struct of the size we pass.
+    unsafe {
+        let mut info: libc::proc_bsdinfo = std::mem::zeroed();
+        let size = std::mem::size_of::<libc::proc_bsdinfo>() as libc::c_int;
+        let n = libc::proc_pidinfo(pid as libc::c_int, libc::PROC_PIDTBSDINFO, 0, &mut info as *mut libc::proc_bsdinfo as *mut libc::c_void, size);
+        (n == size && info.pbi_ppid > 0).then_some(info.pbi_ppid)
+    }
+}
+
+/// A process and its ancestors up to launchd, nearest first.
+pub fn ancestors(pid: u32) -> Vec<u32> {
+    let mut out = vec![pid];
+    let mut p = pid;
+    while let Some(parent) = parent_pid(p).filter(|&q| q > 1 && !out.contains(&q)) {
+        out.push(parent);
+        p = parent;
+        if out.len() > 64 {
+            break;
+        }
+    }
+    out
+}
+
+/// The PATH as the login shell sets it, with none of Codealong's own additions: what a
+/// command typed in a terminal can find. None when the shell didn't answer.
+pub fn login_path() -> Option<&'static str> {
+    static PATH: OnceLock<Option<String>> = OnceLock::new();
+    PATH.get_or_init(|| {
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+        run_with_path(&shell, &["-lc", "printf %s \"$PATH\""], None, Duration::from_secs(4), "/usr/bin:/bin", false).ok().filter(|p| p.contains('/'))
+    })
+    .as_deref()
+}
+
 /// The PATH of the user's login shell. Apps launched from Finder get a minimal PATH, so
 /// `git`, `gh` and `cursor` would otherwise not be found.
 pub fn user_path() -> &'static str {
     static PATH: OnceLock<String> = OnceLock::new();
     PATH.get_or_init(|| {
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
-        let from_shell = run_with_path(&shell, &["-lc", "printf %s \"$PATH\""], None, Duration::from_secs(4), "/usr/bin:/bin", false)
-            .ok()
-            .filter(|p| p.contains('/'));
         let h = home();
-        let mut parts: Vec<String> = from_shell.map(|p| p.split(':').map(String::from).collect()).unwrap_or_default();
+        let mut parts: Vec<String> = login_path().map(|p| p.split(':').map(String::from).collect()).unwrap_or_default();
         for extra in [
             h.join(".local/bin").display().to_string(),
             "/opt/homebrew/bin".to_string(),

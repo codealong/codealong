@@ -7,13 +7,15 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { getConfig, saveConfig, saveConfigText } from '../api';
 import type { Config, ConfigView, Profile, ProjectCfg, Theme, Usage } from '../types';
 import { AccountsSection } from './AccountsSection';
+import { AgentsSection } from './AgentsSection';
 import { Button, Icon, NavItem } from './primitives';
 
-export type SettingsSection = 'general' | 'accounts' | 'projects' | 'advanced' | 'file';
+export type SettingsSection = 'general' | 'accounts' | 'agents' | 'projects' | 'advanced' | 'file';
 
 const SECTIONS: { id: SettingsSection; label: string; icon: string }[] = [
   { id: 'general', label: 'General', icon: 'settings' },
   { id: 'accounts', label: 'Accounts', icon: 'user' },
+  { id: 'agents', label: 'Agents', icon: 'terminal' },
   { id: 'projects', label: 'Projects', icon: 'folder' },
   { id: 'advanced', label: 'Advanced', icon: 'gauge' },
   { id: 'file', label: 'config.toml', icon: 'file' },
@@ -109,6 +111,8 @@ export function SettingsDialog({ section, onSection, focus, usage, apps, theme, 
   let pane: React.ReactNode = null;
   if (section === 'accounts') {
     pane = <AccountsSection focus={focus} usage={usage} terminal={apps.terminal} now={now} onSaved={() => void load()} />;
+  } else if (section === 'agents') {
+    pane = <AgentsSection />;
   } else if (view === null) {
     pane = error ? <p className="ca-form-error">{error}</p> : <p className="ca-empty">Reading settings…</p>;
   } else if (section === 'general' && cfg) {
@@ -142,7 +146,7 @@ export function SettingsDialog({ section, onSection, focus, usage, apps, theme, 
           <div className={section === 'file' ? 'ca-settings-pane is-file' : 'ca-settings-pane'}>
             {gate}
             {pane}
-            {error && section !== 'accounts' && view !== null && (
+            {error && section !== 'accounts' && section !== 'agents' && view !== null && (
               <p className="ca-form-error" role="alert">
                 {error}
               </p>

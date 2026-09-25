@@ -1,0 +1,17 @@
+{
+  "name": "codealong",
+  "owner": {
+    "name": "Codealong"
+  },
+  "metadata": {
+    "description": "Codealong's plugin for Claude Code: the codealong command and its skill."
+  },
+  "plugins": [
+    {
+      "name": "codealong",
+      "source": "./plugin",
+      "description": "Codealong todos, sessions and accounts from Claude Code. Needs the Codealong Mac app.",
+      "version": "0.1.0"
+    }
+  ]
+}

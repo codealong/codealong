@@ -100,6 +100,21 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   Closing the main window hides it; New window, the Dock icon or the bar brings it back, and
   ⌘Q quits.
 
+- **For agents**: the `codealong` command and a skill that tells an agent when to use it.
+  `codealong whoami` says which session runs it and which todos are linked to it or its
+  worktree; `codealong todo add|start|done|update|link` work the todo list; `codealong
+  sessions [find <words>]`, `session show`, `worktrees` and `accounts --usage` answer what else
+  is running, what it did, where it lives, and which account has room; `codealong start
+  --todo <id>` starts a session the way New session does. With the app running, answers come
+  from it over a socket and todo changes go through its engine; with it closed, the command
+  reads the files (sessions then show without git or PRs). Output is JSON when piped, tables
+  in a terminal. Settings › Agents installs the command (a symlink on PATH) and the skill
+  into every account's skills folder (`~/.claude/skills`, `~/.claude2/skills`,
+  `~/.codex/skills`, `~/.config/opencode/skills`, `~/.gemini/config/skills`), and keeps the
+  copies current; `codealong install` does the same from a terminal. Claude Code users can
+  instead add the repo as a plugin marketplace: `/plugin marketplace add codealong/codealong`,
+  `/plugin install codealong@codealong`. See *For agents* below.
+
 Next: the menu bar icon and popover, and notifications (the design system's *Build plan*).
 
 ## Requirements
@@ -172,6 +187,24 @@ are kept in `state.json` next to it; whether the floating bar is on, and where y
 add to it. Attachments are kept by their content: images in `images/`, other files in
 `files/<hash>/<name>`; ones no todo uses are cleared after 30 days.
 
+## For agents
+
+`skills/codealong/` is one skill in the Agent Skills layout (`SKILL.md` plus
+`references/reference.md`, generated from `codealong --help` by `scripts/skill-reference.sh`),
+read as-is by Claude Code, Codex, OpenCode and Antigravity. The app ships it in its bundle and
+Settings › Agents (or `codealong install`) copies it into each account's skills folder with a
+`.codealong-version` marker; at launch the app refreshes copies it made when the skill changed,
+and never touches a folder it didn't make. `plugin/` wraps the same skill as a Claude Code plugin
+(`.claude-plugin/plugin.json`, a `bin/codealong` shim that finds the app, and a `SessionStart`
+hook that runs `codealong whoami --context`), and `.claude-plugin/marketplace.json` makes the
+repo a marketplace.
+
+The command talks to the running app over `codealong.sock` next to the config (JSON lines, one
+request and reply per line, mode 0600), and the app answers with the board its windows have and
+applies todo changes through its engine, so nothing writes over anything. Without the app, todo
+changes go to `todos.json` under an advisory lock the app takes too, and sessions come from a
+light scan (no git, PRs or visitors).
+
 ## Permissions and safety
 
 - The first time Codealong opens or focuses a terminal session, macOS asks whether it may
@@ -193,6 +226,7 @@ add to it. Attachments are kept by their content: images in `images/`, other fil
 | `src-tauri/src/repos.rs`, `git.rs`, `github.rs` | Repo discovery, callsigns, worktrees, git status, PRs |
 | `src-tauri/src/launch.rs` | App profiles: Ghostty (AppleScript, exact tab focus), Cursor (CLI), deep links |
 | `src-tauri/src/start.rs`, `src/start.ts` | New sessions: where each account can start one, the launch it makes, Auto's pick |
+| `src-tauri/src/cli.rs`, `server.rs`, `install.rs` | The `codealong` command (clap; JSON or tables; the app over its socket, else the files), the app's socket, and putting the skill and the command where agents find them |
 | `src-tauri/src/todos.rs`, `src/todos.ts` | Todos: the store and its changes, linking sessions started from a todo; the list's sections, filters and prompt |
 | `src-tauri/src/attachments.rs`, `src/attachInput.ts` | Files in descriptions and prompts: pasted, dropped or picked, kept by content, images shown in place, all handed to agents as paths |
 | `src-tauri/src/usage.rs` | Plan usage: Claude through its sign-in and usage endpoint, Codex from its rollouts, none for OpenCode and Antigravity |

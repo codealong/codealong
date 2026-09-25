@@ -6,6 +6,7 @@ mod bar;
 mod board;
 mod claude;
 mod claudeapp;
+mod cli;
 mod antigravity;
 mod codex;
 mod opencode;
@@ -13,11 +14,13 @@ mod config;
 mod engine;
 mod git;
 mod github;
+mod install;
 mod launch;
 mod model;
 mod perf;
 mod procs;
 mod repos;
+mod server;
 mod start;
 mod state;
 mod throttle;
@@ -223,6 +226,18 @@ fn sign_in(engine: State<'_, engine::Handle>, name: String) -> Result<(), String
     engine.sign_in(&name).map_err(|e| format!("{e:#}"))
 }
 
+/// The `codealong` command link and the skill per account, for Settings › Agents.
+#[tauri::command(async)]
+fn agents_status() -> install::AgentsStatus {
+    install::status()
+}
+
+/// Links the command and copies the skill for the named accounts, then reports the new state.
+#[tauri::command(async)]
+fn install_agents(command: bool, accounts: Vec<String>) -> Result<install::AgentsStatus, String> {
+    install::install(command, &accounts).map_err(|e| format!("{e:#}"))
+}
+
 /// Where each account can start a session, for the new-session sheet.
 #[tauri::command(async)]
 fn start_options() -> Result<start::StartOptions, String> {
@@ -235,8 +250,14 @@ fn start_options() -> Result<start::StartOptions, String> {
 /// app picks the session's ID.
 #[tauri::command(async)]
 fn start_session(engine: State<'_, engine::Handle>, spec: start::StartSpec) -> Result<start::Started, String> {
+    start_and_link(&engine, &spec)
+}
+
+/// Starts a session and links it to its todo; the socket (server.rs) does the same for the
+/// `codealong start` command.
+pub(crate) fn start_and_link(engine: &engine::Handle, spec: &start::StartSpec) -> Result<start::Started, String> {
     let cfg = config::load().map_err(|e| format!("{e:#}"))?.unwrap_or_default();
-    let started = start::start(&engine.board(), &cfg, &spec).map_err(|e| format!("{e:#}"))?;
+    let started = start::start(&engine.board(), &cfg, spec).map_err(|e| format!("{e:#}"))?;
     if let Some(id) = spec.todo.clone() {
         let pending = match (&started.key, spec.place) {
             (Some(_), _) => None,
@@ -429,7 +450,9 @@ pub fn run() {
                 }
                 let _ = emitter.emit("board", board);
             });
+            server::serve(engine.clone());
             app.manage(engine);
+            std::thread::spawn(install::refresh_installed);
             if let Err(e) = bar::setup(app.handle()) {
                 eprintln!("Couldn't make the floating bar: {e:#}");
             }
@@ -444,7 +467,7 @@ pub fn run() {
         })
         .on_window_event(bar::on_window_event)
         .register_asynchronous_uri_scheme_protocol("codealong-image", |_ctx, request, responder| serve_image(request, responder))
-        .invoke_handler(tauri::generate_handler![get_board, open_target, open_config, mark_seen, refresh, refresh_usage, set_pinned, set_pinned_worktrees, archive_session, pr_detail, approve_pr, review_in_codex, open_url, get_accounts, save_accounts, get_config, save_config, save_config_text, sign_in, start_options, start_session, todo_op, save_attachment, import_attachment, open_attachment, expand_attachments, set_theme, open_project_window, fit_bar, show_main, bar_on, set_bar_on, open_from_bar, perf_mark])
+        .invoke_handler(tauri::generate_handler![get_board, open_target, open_config, mark_seen, refresh, refresh_usage, set_pinned, set_pinned_worktrees, archive_session, pr_detail, approve_pr, review_in_codex, open_url, get_accounts, save_accounts, get_config, save_config, save_config_text, sign_in, agents_status, install_agents, start_options, start_session, todo_op, save_attachment, import_attachment, open_attachment, expand_attachments, set_theme, open_project_window, fit_bar, show_main, bar_on, set_bar_on, open_from_bar, perf_mark])
         .build(tauri::generate_context!())
         .expect("error while running Codealong")
         .run(|app, event| {
@@ -454,6 +477,16 @@ pub fn run() {
                 let _ = bar::show_main(app, None);
             }
         });
+}
+
+/// `codealong <subcommand>`: the command for agents and people (cli.rs).
+pub fn cli_main(args: &[String]) -> i32 {
+    cli::main(args)
+}
+
+/// Whether a first argument names the command line (a subcommand, help or version).
+pub fn is_cli_arg(arg: &str) -> bool {
+    cli::is_cli_arg(arg)
 }
 
 /// `codealong --snapshot [--table] [--no-github] [--usage] [--accounts]`: one pass over everything,

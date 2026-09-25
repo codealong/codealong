@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/codealong\" whoami --context 2>/dev/null || true",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}

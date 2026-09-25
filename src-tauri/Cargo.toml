@@ -28,6 +28,8 @@ sha2 = "0.10"
 toml_edit = "0.23"
 # OpenCode and Antigravity keep their sessions in SQLite databases.
 rusqlite = { version = "0.37", features = ["bundled"] }
+# The `codealong` command (cli.rs): its --help is the reference the agent skill points at.
+clap = { version = "4", features = ["derive", "wrap_help"] }
 
 # The floating bar: window occlusion, placement and Spaces, which Tauri doesn't expose.
 [target.'cfg(target_os = "macos")'.dependencies]
