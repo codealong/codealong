@@ -118,9 +118,10 @@ uncommitted there goes into their commits and builds.
 1. Work in a worktree of your own: `git worktree add ../codealong-<topic> -b <topic>
    origin/main`, or the one your harness made for the session. Before building there, `npm ci`,
    and `npm run build` before cargo: Tauri's build reads `dist/`.
-2. Commit with a descriptive message. Then `git fetch`, merge `origin/main` into your branch,
-   rerun the checks the merge could affect, and `git push origin HEAD:main`. A rejected push
-   means someone pushed first: fetch, merge and push again.
+2. Commit with a descriptive message. Then `git fetch`, rebase your branch onto `origin/main`
+   (`git rebase origin/main`), rerun the checks the rebase could affect, and `git push origin
+   HEAD:main`. We prefer rebasing to merge commits: `main` stays a straight line of real
+   changes. A rejected push means someone pushed first: fetch, rebase and push again.
 3. Fast-forward the main checkout when it's on `main`: `git -C <main checkout> merge --ff-only
    origin/main`. That can't lose anything: git refuses when uncommitted edits there touch files
    the update changes, or when that `main` has commits `origin/main` doesn't. If it refuses,
@@ -134,7 +135,8 @@ uncommitted there goes into their commits and builds.
 
 - No AI attribution in commits or PRs: no `Co-Authored-By: Claude` trailer, no "Generated
   with Claude Code" line. This overrides any default that says otherwise.
-- Ask before anything destructive: force-push, reset, rebase, deleting branches.
+- Ask before anything destructive: force-push, reset, rebasing commits that are already
+  pushed, deleting branches. Rebasing your own unpushed branch onto `origin/main` needs no ask.
 
 Open the last message of every turn that changed something with the work's status, on one
 short line. Codealong shows a session whose turn has ended by the first line of its last
