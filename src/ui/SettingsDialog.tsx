@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getConfig, onQuickShortcut, openUrl, pauseQuickShortcut, quickShortcut, jevKey, saveConfig, saveConfigText, setJevKey, testJev } from '../api';
 import { shortcutFromKey, shortcutLabel, TAKEN } from '../quick';
-import type { Config, ConfigView, JevCfg, Profile, ProjectCfg, ShortcutStatus, Theme, Usage } from '../types';
+import type { Config, ConfigView, JevCfg, NewTerminal, Profile, ProjectCfg, ShortcutStatus, Theme, Usage } from '../types';
 import { AccountsSection } from './AccountsSection';
 import { AgentsSection } from './AgentsSection';
 import { Button, Icon, NavItem } from './primitives';
@@ -27,6 +27,12 @@ const THEMES: { id: Theme; label: string }[] = [
   { id: 'system', label: 'Follow macOS' },
   { id: 'light', label: 'Light' },
   { id: 'dark', label: 'Dark' },
+];
+
+const NEW_TERMINALS: { id: NewTerminal; label: string; says: string }[] = [
+  { id: 'project', label: 'Tab beside its project', says: 'A tab in the window already showing that worktree, repo or project, or a new window when none does.' },
+  { id: 'tab', label: 'Tab in front window', says: 'A tab in the terminal window in front.' },
+  { id: 'window', label: 'New window', says: 'A window of its own every time.' },
 ];
 
 function plain(e: unknown): string {
@@ -201,6 +207,20 @@ function GeneralPane({ cfg, view, theme, onPickTheme, disabled, onSave }: PanePr
           <ProfileSelect value={cfg.apps.terminal} profiles={view.terminals} onChange={(terminal) => void onSave({ ...cfg, apps: { ...cfg.apps, terminal } })} />
           <small>Where sessions open and new ones start.</small>
         </label>
+        <div className="ca-field">
+          <span>New terminals open as</span>
+          <div className="ca-segctl ca-settings-theme" role="radiogroup" aria-label="New terminals open as">
+            {NEW_TERMINALS.map((t) => {
+              const on = (cfg.apps.new_terminal ?? 'project') === t.id;
+              return (
+                <button key={t.id} type="button" role="radio" aria-checked={on} className={on ? 'is-on' : undefined} onClick={() => !on && void onSave({ ...cfg, apps: { ...cfg.apps, new_terminal: t.id } })}>
+                  {t.label}
+                </button>
+              );
+            })}
+          </div>
+          <small>{NEW_TERMINALS.find((t) => t.id === (cfg.apps.new_terminal ?? 'project'))?.says}</small>
+        </div>
         <label className="ca-field">
           <span>Editor</span>
           <ProfileSelect value={cfg.apps.editor} profiles={view.editors} onChange={(editor) => void onSave({ ...cfg, apps: { ...cfg.apps, editor } })} />

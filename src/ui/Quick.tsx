@@ -524,8 +524,8 @@ export function Quick() {
       ? ''
       : placeNow === 'terminal'
         ? inNewWorktree
-          ? `${terminalName} opens a new window, and Claude Code makes a new worktree of ${lane.repo} and starts ${account}${onModel} there${withPrompt}.`
-          : `${terminalName} opens a new window in ${lane.callsign} and starts ${account}${onModel}${withPrompt}.`
+          ? `Claude Code makes a new worktree of ${lane.repo} and starts ${account}${onModel} there in ${terminalName}${withPrompt}.`
+          : `${terminalName} starts ${account}${onModel} in ${lane.callsign}${withPrompt}.`
         : placeNow === 'claude-app'
           ? `The Claude app opens a new session in ${lane.callsign}${prompted ? ' with this prompt filled in' : ''}. You send it from there.`
           : `Codex opens a new thread in ${lane.callsign}${prompted ? ' with this prompt filled in' : ''}. You send it from there.`;
@@ -807,7 +807,7 @@ export function Quick() {
       }
       const why = !x.live
         ? x.harness === 'claude' && x.surface === 'cli'
-          ? 'It isn’t running: it resumes in a new terminal window with this prompt.'
+          ? 'It isn’t running: it resumes in a new terminal with this prompt.'
           : 'It isn’t running: it opens with this prompt ready to send.'
         : x.status === 'working'
           ? 'It’s working, so this waits for its turn to end.'

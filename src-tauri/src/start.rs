@@ -320,7 +320,8 @@ pub fn start(board: &Board, cfg: &Config, spec: &StartSpec) -> Result<Started> {
     let prompted = !spec.prompt.trim().is_empty();
     match plan(account, spec.place, folder, &spec.prompt, &id, model, worktree) {
         Plan::Terminal { cwd, input, env } => {
-            launch::terminal_run(&cfg.apps.terminal, &cwd, &input, &env)?;
+            let near = crate::board::terminal_neighbours(&board.lanes, folder);
+            launch::terminal_run(&cfg.apps.terminal, launch::Placement { new_terminal: cfg.apps.new_terminal, near: &near }, &cwd, &input, &env)?;
             // OpenCode names its own session; it shows on the board once it's written.
             match harness_of(account) {
                 Harness::Opencode => Ok(Started { key: None, message: Some(format!("OpenCode is starting in {}.", lane.callsign)) }),
