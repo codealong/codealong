@@ -1132,6 +1132,39 @@ impl Engine {
         changed
     }
 
+    /// FSEvents can hold back appends until a writer closes its file. Codex keeps rollouts
+    /// open across turns, so check their lengths too and read only bytes we haven't consumed.
+    fn poll_codex(&mut self) {
+        let mut changed = Vec::new();
+        for a in self.cfg.accounts.iter().filter(|a| a.harness == "codex") {
+            let home = a.home_path();
+            let sessions = home.join("sessions");
+            let mut paths: BTreeSet<PathBuf> = codex::rollout_files(&home, now_ms() - WINDOW_MS, &self.seen.pinned_ids("codex", &a.name))
+                .into_iter().map(|(p, _)| p).collect();
+            // Include known files so a removal or truncation is noticed as well.
+            paths.extend(self.rollouts.iter().filter(|(p, (acct, _))| acct == &a.name && p.starts_with(&sessions)).map(|(p, _)| p.clone()));
+            for p in paths {
+                let unread = match self.rollouts.get(&p) {
+                    Some((_, Some((_, offset)))) => std::fs::metadata(&p).map(|m| m.len() != *offset).unwrap_or(true),
+                    // Guardian reviews and subagents still don't need to be parsed.
+                    Some((_, None)) => false,
+                    None => true,
+                };
+                if unread {
+                    changed.push(p);
+                }
+            }
+            let index = codex::read_index(&home);
+            if self.codex_index.get(&a.name) != Some(&index) {
+                self.codex_index.insert(a.name.clone(), index);
+                self.dirty = true;
+            }
+        }
+        if !changed.is_empty() {
+            self.apply_fs(changed);
+        }
+    }
+
     fn tick(&mut self) {
         let claude_accounts: Vec<String> = self.cfg.accounts.iter().filter(|a| a.harness == "claude").map(|a| a.name.clone()).collect();
         for a in claude_accounts {
@@ -1139,6 +1172,7 @@ impl Engine {
                 self.dirty = true;
             }
         }
+        self.poll_codex();
         if self.refresh_opencode_terminals() {
             self.dirty = true;
         }
@@ -1978,6 +2012,74 @@ fn first_run_config() -> Config {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn polls_codex_turns_while_the_rollout_stays_open() {
+        use std::io::Write;
+        use super::*;
+
+        let home = std::env::temp_dir().join(format!("codealong-codex-poll-{}", std::process::id()));
+        let dir = home.join("sessions/2026/09/24");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("rollout-2026-09-24T18-00-00-01a0d54c-7f02-7623-95b3-a3110c0f9672.jsonl");
+        let mut file = std::fs::File::create(&path).unwrap();
+        writeln!(file, r#"{{"type":"session_meta","payload":{{"id":"thread","cwd":"/codealong-test-missing-repo","thread_source":"user"}}}}"#).unwrap();
+        writeln!(file, r#"{{"timestamp":"2026-09-24T18:00:00.000Z","type":"event_msg","payload":{{"type":"task_complete","last_agent_message":"Earlier result"}}}}"#).unwrap();
+        let (tx, _rx) = channel();
+        let mut engine = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
+        engine.cfg.accounts = vec![AccountCfg { name: "studio".into(), harness: "codex".into(), home: home.to_string_lossy().into_owned(), command: None }];
+        // A startup scan has the previous completed turn. No filesystem events follow.
+        engine.rollouts.insert(path.clone(), ("studio".into(), codex::parse_rollout(&path, 0, None)));
+        engine.codex_index.insert("studio".into(), HashMap::new());
+        let now = crate::util::parse_rfc3339_ms("2026-09-24T18:35:00.000Z").unwrap();
+        assert_eq!(engine.build_sessions(now)[0].status, Status::Unread);
+
+        writeln!(file, r#"{{"timestamp":"2026-09-24T18:34:00.000Z","type":"event_msg","payload":{{"type":"task_started"}}}}"#).unwrap();
+        writeln!(file, r#"{{"timestamp":"2026-09-24T18:34:01.000Z","type":"event_msg","payload":{{"type":"user_message","message":"Continue the work"}}}}"#).unwrap();
+        engine.poll_codex();
+        let session = &engine.build_sessions(now)[0];
+        assert_eq!(session.status, Status::Working);
+        assert!(session.live);
+        assert_eq!(session.excerpt.as_deref(), Some("Continue the work"));
+        assert!(engine.dirty);
+
+        engine.dirty = false;
+        engine.poll_codex();
+        assert!(!engine.dirty, "unchanged files don't need another update");
+
+        // A poll between writes must leave the incomplete line for the next one.
+        write!(file, r#"{{"timestamp":"2026-09-24T18:34:59.000Z","type":"event_msg","payload":{{"type":"task_complete","last_agent_message":"Done"}}}}"#).unwrap();
+        engine.poll_codex();
+        assert_eq!(engine.build_sessions(now)[0].status, Status::Working);
+        writeln!(file).unwrap();
+        engine.poll_codex();
+        let session = &engine.build_sessions(now)[0];
+        assert_eq!(session.status, Status::Unread);
+        assert!(!session.live);
+        assert_eq!(session.excerpt.as_deref(), Some("Done"));
+
+        drop(file);
+        std::fs::remove_file(&path).unwrap();
+        engine.poll_codex();
+        assert!(engine.build_sessions(now).is_empty());
+
+        // Discovery also works without a create event, including files from older day folders.
+        std::fs::write(&path, "{\"type\":\"session_meta\",\"payload\":{\"id\":\"new-thread\",\"cwd\":\"/codealong-test-missing-repo\"}}\n").unwrap();
+        std::fs::write(home.join("session_index.jsonl"), "{\"id\":\"new-thread\",\"thread_name\":\"New work\"}\n").unwrap();
+        engine.poll_codex();
+        assert_eq!(engine.build_sessions(now)[0].title, "New work");
+
+        // Hidden subagent logs stay ignored even if they grow.
+        engine.rollouts.insert(path.clone(), ("studio".into(), None));
+        let mut hidden = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
+        writeln!(hidden, "not a user thread").unwrap();
+        engine.dirty = false;
+        engine.poll_codex();
+        assert!(!engine.dirty);
+        assert!(engine.build_sessions(now).is_empty());
+        drop(hidden);
+        std::fs::remove_dir_all(&home).unwrap();
+    }
+
     fn usage(error: Option<&str>, needs_sign_in: bool, percent: f64) -> Usage {
         Usage {
             account: "claude".into(),
