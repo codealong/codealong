@@ -152,7 +152,7 @@ The [logo master and brand notes](design/brand/README.md) live in `design/brand`
 Run `npm run icons` to regenerate the UI mark, browser icon and native bundle icons.
 The mark's inner node shows the app-wide status: red for session errors, amber when
 you are needed (including PR review requests), blue for unread results, green while
-agents work, and neutral when idle, in that priority order. The project switcher,
+agents work, and light gray when idle, in that priority order. The project switcher,
 floating bar, browser icon and running Dock icon stay in sync across projects.
 
 ## Settings

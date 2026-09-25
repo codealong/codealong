@@ -3,7 +3,7 @@
 // Code, Codex or OpenCode is picking an agent, not just whose limits to spend.
 
 import { HARNESSES } from './harness';
-import type { Harness, StartAccount, StartPlace, Usage } from './types';
+import type { Harness, Meter, StartAccount, StartPlace, Usage } from './types';
 
 /** An account's name, or `auto:<harness>` for Auto. */
 export type Choice = string;
@@ -24,19 +24,38 @@ export function autoHarness(c: Choice): Harness | null {
   return c.startsWith(AUTO) ? (c.slice(AUTO.length) as Harness) : null;
 }
 
-/** How full an account's fullest limit is, 0 to 100, or null when there are no numbers. */
-export function fullest(u: Usage | undefined): number | null {
+/** Families that have their own weekly limits, as the usage report names them. */
+const FAMILIES = ['fable', 'opus', 'sonnet', 'haiku'];
+
+/**
+ * The limits a session on `model` spends: those for every model, and the one for its family.
+ * A model that names no family (none given and no account default, or `best`) could be any of
+ * them, so every limit counts. `opusplan` names Opus, and its Sonnet half has no limit of its own.
+ */
+export function metersFor(u: Usage, model: string | null): Meter[] {
+  const m = model?.toLowerCase() ?? '';
+  if (!FAMILIES.some((f) => m.includes(f))) return u.meters;
+  return u.meters.filter((x) => x.model === null || m.includes(x.model.toLowerCase()));
+}
+
+/** How full an account's fullest limit for a model is, 0 to 100, or null when there are no numbers. */
+export function fullest(u: Usage | undefined, model: string | null = null): number | null {
   if (!u || u.needsSignIn || u.meters.length === 0) return null;
-  return Math.max(...u.meters.map((m) => m.percent));
+  return Math.max(...metersFor(u, model).map((m) => m.percent));
 }
 
-/** When an account's weekly limit resets, if it's been used this week. */
-export function weeklyReset(u: Usage | undefined): number | null {
-  return u?.meters.find((m) => m.key === 'week')?.resetsAt ?? null;
+/** When an account's weekly room for a model resets, if it's been used this week: the soonest
+ *  of its weekly limits, all models' or the model's own. */
+export function weeklyReset(u: Usage | undefined, model: string | null = null): number | null {
+  if (!u) return null;
+  const at = metersFor(u, model)
+    .filter((m) => (m.key === 'week' || m.key.startsWith('model:')) && m.resetsAt !== null)
+    .map((m) => m.resetsAt as number);
+  return at.length > 0 ? Math.min(...at) : null;
 }
 
-function nearLimit(u: Usage): boolean {
-  return u.meters.some((m) => m.severity === 'critical' || m.percent >= NEAR_LIMIT);
+function nearLimit(u: Usage, model: string | null): boolean {
+  return metersFor(u, model).some((m) => m.severity === 'critical' || m.percent >= NEAR_LIMIT);
 }
 
 /** Auto's account for a harness, and why: its weekly limit resets soon (`reset`), it has the
@@ -51,30 +70,33 @@ export interface AutoPick {
 export type Picks = Partial<Record<Harness, AutoPick>>;
 
 /**
- * The account Auto starts for each harness with more than one account that can start sessions.
+ * The account Auto starts for each harness with more than one account that can start sessions,
+ * for a session on `model` (null for each account's default). Only the limits that model spends
+ * count, so an account out of Fable can still start Opus.
  * Room that's about to reset is spent first: among accounts not near a limit, the one whose
  * weekly limit resets soonest within 48 hours. Without one, the account whose fullest limit is
  * least full. Accounts at 90% of any limit are passed over while another has room, and accounts
  * without numbers are picked only when none have them.
  */
-export function autoPicks(accounts: StartAccount[], usage: Usage[], now: number): Picks {
+export function autoPicks(accounts: StartAccount[], usage: Usage[], now: number, model: string | null = null): Picks {
   const out: Picks = {};
   for (const h of HARNESSES) {
     const mine = accounts.filter((a) => a.harness === h && a.places.length > 0);
     if (mine.length < 2) continue;
     const measured = mine.flatMap((a) => {
       const u = usage.find((x) => x.account === a.name);
-      const full = fullest(u);
-      return u && full !== null ? [{ name: a.name, u, full }] : [];
+      const on = model ?? a.defaultModel;
+      const full = fullest(u, on);
+      return u && full !== null ? [{ name: a.name, u, on, full }] : [];
     });
     if (measured.length === 0) {
       out[h] = { account: mine[0].name, reason: 'first', resetsAt: null };
       continue;
     }
-    const roomy = measured.filter((m) => !nearLimit(m.u));
+    const roomy = measured.filter((m) => !nearLimit(m.u, m.on));
     const pool = roomy.length > 0 ? roomy : measured;
     const soon = pool
-      .map((m) => ({ ...m, at: weeklyReset(m.u) }))
+      .map((m) => ({ ...m, at: weeklyReset(m.u, m.on) }))
       .filter((m): m is typeof m & { at: number } => m.at !== null && m.at > now && m.at - now <= RESET_SOON_MS)
       .sort((a, b) => a.at - b.at || a.full - b.full);
     if (soon.length > 0) {

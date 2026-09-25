@@ -319,7 +319,7 @@ struct StartArgs {
     /// The prompt, when not starting a todo.
     #[arg(long)]
     prompt: Option<String>,
-    /// The account to run it on. `auto` picks as the app does: the Claude account with the most room.
+    /// The account to run it on. `auto` picks as the app does: the Claude account with the most room for the model.
     #[arg(long, default_value = "auto")]
     account: String,
     /// The worktree to run in: a path, or `.` (the default).
@@ -1575,6 +1575,13 @@ fn todo_list(c: &mut Client, a: &TodoListArgs, json: bool) -> Result<()> {
 
 // ---- start ----
 
+/// What a session started on a todo is asked: the title, the description, then which todo it
+/// is, so the agent can mark it done. `todoPrompt` in `src/todos.ts` writes the same text.
+fn todo_prompt(t: &Todo) -> String {
+    let footer = format!("This is Codealong todo {id}. When the work is merged or I say it's done, mark it done with `codealong todo done {id}`.", id = t.id);
+    [t.title.trim(), t.description.trim(), &footer].iter().filter(|s| !s.is_empty()).cloned().collect::<Vec<_>>().join("\n\n")
+}
+
 fn start_cmd(c: &mut Client, a: &StartArgs, json: bool) -> Result<()> {
     let lane_id = resolve_worktree(c, &a.worktree)?;
     let (prompt, todo_id) = match (&a.todo, &a.prompt) {
@@ -1583,8 +1590,7 @@ fn start_cmd(c: &mut Client, a: &StartArgs, json: bool) -> Result<()> {
             let id = resolve_todo(&store, id)?;
             let t = store.todos.iter().find(|t| t.id == id).unwrap();
             warn_blocked(&store, &id);
-            let body = t.description.trim();
-            (if body.is_empty() { t.title.trim().to_string() } else { format!("{}\n\n{body}", t.title.trim()) }, Some(id))
+            (todo_prompt(t), Some(id))
         }
         (None, Some(p)) => (p.clone(), None),
         (None, None) => bail!("Give --todo or --prompt."),
@@ -1601,7 +1607,7 @@ fn start_cmd(c: &mut Client, a: &StartArgs, json: bool) -> Result<()> {
                 true => c.board()?.usage.clone(),
                 false => Vec::new(),
             };
-            pick_account(&cfg, &usages, place).ok_or_else(|| anyhow!("No account can start a session there. `codealong accounts` lists them."))?
+            pick_account(&cfg, &usages, place, a.model.as_deref()).ok_or_else(|| anyhow!("No account can start a session there. `codealong accounts` lists them."))?
         }
         name => name.to_string(),
     };
@@ -1629,15 +1635,33 @@ fn start_cmd(c: &mut Client, a: &StartArgs, json: bool) -> Result<()> {
 }
 
 /// Auto's pick, simplified: among Claude accounts (the terminal and the Claude app), the one
-/// with the most room by its tightest limit; without usage numbers, the first. Codex for its app.
-fn pick_account(cfg: &Config, usages: &[crate::model::Usage], place: Place) -> Option<String> {
+/// with the most room by its tightest limit for the model (`model`, else the account's
+/// default); without usage numbers, the first. Codex for its app.
+fn pick_account(cfg: &Config, usages: &[crate::model::Usage], place: Place, model: Option<&str>) -> Option<String> {
     let harness = match place {
         Place::CodexApp => "codex",
         _ => "claude",
     };
     let candidates: Vec<&AccountCfg> = cfg.accounts.iter().filter(|a| a.harness == harness).collect();
-    let room = |a: &AccountCfg| usages.iter().find(|u| u.account == a.name).and_then(|u| u.meters.iter().map(|m| 100.0 - m.percent).fold(None, |acc: Option<f64>, x| Some(acc.map_or(x, |a| a.min(x))))).unwrap_or(50.0);
+    let room = |a: &AccountCfg| {
+        let on = model.map(str::to_string).or_else(|| if harness == "claude" { start::claude_default_model(a) } else { None });
+        let u = usages.iter().find(|u| u.account == a.name)?;
+        u.meters.iter().filter(|m| spends(on.as_deref(), m.model.as_deref())).map(|m| 100.0 - m.percent).fold(None, |acc: Option<f64>, x| Some(acc.map_or(x, |a| a.min(x))))
+    };
+    let room = |a: &AccountCfg| room(a).unwrap_or(50.0);
     candidates.iter().filter(|a| room(a) > 10.0).max_by(|a, b| room(a).partial_cmp(&room(b)).unwrap_or(std::cmp::Ordering::Equal)).or(candidates.first()).map(|a| a.name.clone())
+}
+
+/// Whether a session on `model` spends a limit for `limit_model` (None: every model). A model
+/// that names no family could be any of them, so it spends every limit; `src/start.ts`'s
+/// `metersFor` has the same rule.
+fn spends(model: Option<&str>, limit_model: Option<&str>) -> bool {
+    let m = model.unwrap_or("").to_lowercase();
+    match limit_model {
+        None => true,
+        Some(_) if !["fable", "opus", "sonnet", "haiku"].iter().any(|f| m.contains(f)) => true,
+        Some(l) => m.contains(&l.to_lowercase()),
+    }
 }
 
 // ---- config ----
@@ -1834,6 +1858,16 @@ fn table_text(head: &[&str], rows: Vec<Vec<String>>) -> String {
 mod tests {
     use super::*;
     use clap::CommandFactory;
+
+    #[test]
+    fn auto_counts_only_the_models_limits() {
+        assert!(spends(Some("opus"), None));
+        assert!(!spends(Some("opus[1m]"), Some("Fable")));
+        assert!(spends(Some("claude-opus-5-5"), Some("Opus")));
+        assert!(spends(Some("fable"), Some("Fable")));
+        assert!(spends(Some("best"), Some("Fable")));
+        assert!(spends(None, Some("Fable")));
+    }
 
     #[test]
     fn the_command_line_parses() {

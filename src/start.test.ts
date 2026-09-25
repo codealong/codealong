@@ -69,6 +69,22 @@ describe('Auto', () => {
     expect(pick([])).toEqual({ account: 'claude', reason: 'first', resetsAt: null });
   });
 
+  it('counts only the limits the chosen model spends', () => {
+    const fable = (percent: number, resetsIn: number): Meter => ({ ...meter('model:Fable', percent, NOW + resetsIn * HOUR), model: 'Fable' });
+    // claude is out of Fable but has the most room otherwise, and its week resets in a day.
+    const u = [usage('claude', 10, 40, 24, { meters: [...usage('claude', 10, 40, 24).meters, fable(100, 24)] }), usage('claude2', 20, 50)];
+    expect(autoPicks(ACCOUNTS, u, NOW, 'opus').claude).toEqual({ account: 'claude', reason: 'reset', resetsAt: NOW + 24 * HOUR });
+    expect(autoPicks(ACCOUNTS, u, NOW, 'opus[1m]').claude?.account).toBe('claude');
+    expect(autoPicks(ACCOUNTS, u, NOW, 'opusplan').claude?.account).toBe('claude');
+    // On Fable, or a model that could be Fable, its Fable limit rules it out.
+    expect(autoPicks(ACCOUNTS, u, NOW, 'fable').claude?.account).toBe('claude2');
+    expect(autoPicks(ACCOUNTS, u, NOW, 'best').claude?.account).toBe('claude2');
+    expect(autoPicks(ACCOUNTS, u, NOW).claude?.account).toBe('claude2');
+    // Without a model, each account's own default decides.
+    const opusDefault = ACCOUNTS.map((a) => (a.name === 'claude' ? { ...a, defaultModel: 'claude-opus-5-5' } : a));
+    expect(autoPicks(opusDefault, u, NOW).claude?.account).toBe('claude');
+  });
+
   it('is only offered for a harness with more than one account that can start sessions', () => {
     const lone: StartAccount[] = [ACCOUNTS[0], { ...ACCOUNTS[1], places: [], unavailable: 'no', defaultModel: null }, ACCOUNTS[2]];
     expect(autoPicks(lone, [], NOW)).toEqual({});

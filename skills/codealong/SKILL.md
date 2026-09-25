@@ -27,7 +27,9 @@ todo commands still work; give a session key when you want one linked.
   `--attach <file>` copies a screenshot or log into the todo. Read a long description from a
   file with `--description-file`, or from stdin with `--description-file -`.
 - **When you take on a todo:** `codealong todo start <id>`. It marks the todo in progress and
-  links your session and worktree, so the app shows the todo on both.
+  links your session and worktree, so the app shows the todo on both. A session started from a
+  todo gets a prompt that ends by naming it ("This is Codealong todo <id>"); that session is
+  already linked, and that id is the one to mark done.
 - **When the work is done:** `codealong todo done <id>`, once it's merged or the user says
   it's done. Don't mark a todo done on your own guess that it is; ask.
 - **Look before adding:** `codealong todo list` shows open todos (`--status all` for every
@@ -71,7 +73,7 @@ rate-limits.
 ## Starting sessions
 
 `codealong start --todo <id>` starts a session on the todo (its title and description as the
-prompt) in the current worktree, on the account with the most room, in a new terminal
+prompt, then a line naming the todo) in the current worktree, on the account with the most room, in a new terminal
 window, and links the session to the todo. `--account`, `--worktree`, `--new-worktree`,
 `--in claude-app|codex-app`, `--model` change that. Only do this when the user asks for a
 session to be started.

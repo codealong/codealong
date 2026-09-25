@@ -10,13 +10,13 @@ The [status sheet](preview.html) shows all five states in light, dark, and Dock 
 | Amber | A session needs you, or a PR awaits your review |
 | Blue | An agent finished and you have not looked yet |
 | Green | Agents are working |
-| Neutral | Idle |
+| Light gray | Idle |
 
 Priority is error → needs you → your turn → working → idle. The engine computes
 one status across all visible projects, ignoring archived sessions and duplicate
 visitors. Project, search and age filters do not change it. Every window, the
 floating bar, browser icon and running Dock icon use that same status. The installed
-Finder icon stays neutral. UI and browser marks use the matching light/dark tokens;
+Finder icon uses the light gray idle node. UI and browser marks use the matching light/dark tokens;
 the Dock keeps its dark tile and uses the dark palette.
 
 `mark.svg` is the production vector master. `chosen-reference.png` preserves the

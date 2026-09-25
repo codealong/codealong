@@ -839,7 +839,7 @@ Options:
 
       --account <ACCOUNT>
           The account to run it on. `auto` picks as the app does: the Claude account
-          with the most room
+          with the most room for the model
           
           [default: auto]
 
