@@ -22,6 +22,7 @@ mod launch;
 mod logo;
 mod model;
 mod perf;
+mod prasks;
 mod procs;
 mod quick;
 mod repos;
@@ -258,6 +259,17 @@ fn set_bar_on(app: tauri::AppHandle, on: bool) {
 #[tauri::command(async)]
 fn pr_detail(repo: String, number: u64) -> Result<github::PrDetail, String> {
     github::detail(&repo, number).map_err(|e| format!("{e:#}"))
+}
+
+/// Which of a PR's comments ask for a change, by comment id, from Jev (prasks.rs). Empty while
+/// `[jev] pull_requests` is off or there's no key: the panel just shows no markers.
+#[tauri::command(async)]
+fn pr_comment_asks(title: String, comments: Vec<prasks::CommentIn>) -> Result<std::collections::HashMap<String, f64>, String> {
+    let cfg = config::load().ok().flatten().unwrap_or_default();
+    if !cfg.jev.pull_requests || !jev::has_key() {
+        return Ok(Default::default());
+    }
+    prasks::asks(cfg.jev.model.trim(), &title, &comments).map_err(|e| format!("{e:#}"))
 }
 
 /// Approves a PR as you, then refreshes PRs so the board shows it.
@@ -603,7 +615,7 @@ pub fn run() {
             quick::on_window_event(window, event);
         })
         .register_asynchronous_uri_scheme_protocol("codealong-image", |_ctx, request, responder| serve_image(request, responder))
-        .invoke_handler(tauri::generate_handler![get_board, open_target, open_config, mark_seen, refresh, refresh_usage, set_pinned, set_pinned_worktrees, archive_session, pr_detail, approve_pr, review_in_codex, open_url, get_accounts, save_accounts, found_accounts, get_config, save_config, save_config_text, sign_in, agents_status, install_agents, start_options, start_session, todo_op, save_attachment, import_attachment, open_attachment, expand_attachments, set_theme, open_project_window, fit_bar, show_main, bar_feed, bar_on, set_bar_on, open_from_bar, show_quick, hide_quick, quick_ready, fit_quick, start_from_quick, route_quick, send_to_session, jev_key, set_jev_key, test_jev, quick_shortcut, pause_quick_shortcut, perf_mark])
+        .invoke_handler(tauri::generate_handler![get_board, open_target, open_config, mark_seen, refresh, refresh_usage, set_pinned, set_pinned_worktrees, archive_session, pr_detail, pr_comment_asks, approve_pr, review_in_codex, open_url, get_accounts, save_accounts, found_accounts, get_config, save_config, save_config_text, sign_in, agents_status, install_agents, start_options, start_session, todo_op, save_attachment, import_attachment, open_attachment, expand_attachments, set_theme, open_project_window, fit_bar, show_main, bar_feed, bar_on, set_bar_on, open_from_bar, show_quick, hide_quick, quick_ready, fit_quick, start_from_quick, route_quick, send_to_session, jev_key, set_jev_key, test_jev, quick_shortcut, pause_quick_shortcut, perf_mark])
         .build(tauri::generate_context!())
         .expect("error while running Codealong")
         .run(|app, event| {

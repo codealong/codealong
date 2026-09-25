@@ -59,6 +59,12 @@ function near(m: Meter): boolean {
   return m.severity === 'critical' || m.percent >= NEAR_LIMIT;
 }
 
+/** Whether a model's own limit (Fable's week, say) still has room on an account. */
+export function modelHasRoom(u: Usage | undefined, model: string): boolean {
+  const own = modelMeter(u, model);
+  return !own || !near(own);
+}
+
 function nearLimit(u: Usage, model: string | null): boolean {
   return metersFor(u, model).some(near);
 }

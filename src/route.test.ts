@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { suggestions, sureness, todoTitle, worthRouting } from './route';
-import type { Board, Lane, Route, Session } from './types';
+import { duplicateOf, effortModel, rankedBy, suggestions, sureness, todoTitle, worthRouting } from './route';
+import type { Board, Lane, Route, Session, Usage } from './types';
 
 const session = (key: string, status: Session['status'], extra: Partial<Session> = {}): Session => ({ key, status, title: key, visitor: null, ...extra }) as Session;
-const lane = (id: string, sessions: Session[]): Lane => ({ id, sessions, callsign: id, repo: id }) as unknown as Lane;
+const lane = (id: string, sessions: Session[], repo = id): Lane => ({ id, sessions, callsign: id, repo, project: 'P' }) as unknown as Lane;
 const board = (lanes: Lane[]): Board => ({ lanes }) as unknown as Board;
 
 const b = board([lane('/api', [session('s:fix', 'unread'), session('s:ask', 'needs')]), lane('/web', [session('s:copy', 'working')])]);
@@ -16,6 +16,8 @@ const route = (r: Partial<Route>): Route => ({
   lanes: [],
   repos: [],
   ownWorktree: 0,
+  duplicate: null,
+  effort: 1,
   model: 'jev-1.13.0',
   ms: 200,
   inputTokens: 1000,
@@ -66,8 +68,11 @@ describe('suggestions', () => {
       ownWorktree: 0.8,
     });
     const s = suggestions(r, b);
-    expect(s.map((x) => x.key)).toEqual(['start:/web', 'start:/api']);
+    expect(s.map((x) => x.key)).toEqual(['start:new:P//web', 'start:new:P//api']);
     expect(s[0]).toMatchObject({ kind: 'start', newWorktree: true });
+    // Two worktrees of one repo make one new-worktree row.
+    const two = board([lane('/api', []), lane('/api-wt', [], '/api')]);
+    expect(suggestions({ ...r, lanes: [{ id: '/api', p: 0.6 }, { id: '/api-wt', p: 0.4 }] }, two).map((x) => x.key)).toEqual(['start:new:P//api']);
   });
 
   it('offers the session too when sending is a real possibility', () => {
@@ -128,5 +133,55 @@ describe('todoTitle', () => {
     expect(todoTitle('todo: rotate the API keys\nmore')).toBe('Rotate the API keys');
     expect(todoTitle('later, look at flaky tests')).toBe('Look at flaky tests');
     expect(todoTitle('Remember to email Sam')).toBe('Email Sam');
+  });
+});
+
+describe('duplicates', () => {
+  it('offers sending to the session already on it, right after starting', () => {
+    const r = route({
+      action: 'start',
+      actions: [['start', 0.9]],
+      sessions: [],
+      lanes: [
+        { id: '/web', p: 0.7 },
+        { id: '/api', p: 0.3 },
+      ],
+      duplicate: { id: 's:copy', p: 0.7 },
+    });
+    expect(suggestions(r, b).map((x) => x.key)).toEqual(['start:/web', 'send:s:copy', 'start:/api']);
+    expect(duplicateOf(r, b)?.session.key).toBe('s:copy');
+    expect(duplicateOf(route({ duplicate: { id: 'gone', p: 1 } }), b)).toBeNull();
+  });
+});
+
+describe('rankedBy', () => {
+  it('puts the sessions Jev scored first, in its order, and keeps the rest as found', () => {
+    const found = ['a', 'b', 'c', 'd'].map((k) => ({ session: session(k, 'idle') }));
+    const r = route({ sessions: [{ id: 'c', p: 0.6 }, { id: 'a', p: 0.3 }, { id: 'zz', p: 0.1 }] });
+    expect(rankedBy(found, r).map((x) => x.session.key)).toEqual(['c', 'a', 'b', 'd']);
+    expect(rankedBy(found, null).map((x) => x.session.key)).toEqual(['a', 'b', 'c', 'd']);
+  });
+});
+
+describe('effortModel', () => {
+  const models = [
+    { id: 'haiku', label: 'Haiku' },
+    { id: 'sonnet', label: 'Sonnet' },
+    { id: 'opus', label: 'Opus' },
+  ];
+  const usage = (percent: number) => ({ meters: [{ key: 'model:sonnet', label: 'Sonnet', window: '', percent, resetsAt: null, severity: 'normal', model: 'sonnet' }] }) as unknown as Usage;
+
+  it('picks Haiku for a tiny change and Sonnet for a small one, and Auto’s own for the rest', () => {
+    expect(effortModel(0.2, models, 'opus', undefined)).toEqual({ model: 'haiku', why: 'a tiny change' });
+    expect(effortModel(1.2, models, 'opus', undefined)).toEqual({ model: 'sonnet', why: 'a small change' });
+    expect(effortModel(2.4, models, 'opus', undefined)).toBeNull();
+  });
+
+  it('never goes bigger, never offers what the menu doesn’t, and passes over a model nearly used up', () => {
+    expect(effortModel(1.2, models, 'haiku', undefined)).toBeNull();
+    expect(effortModel(1.2, models, 'sonnet', undefined)).toBeNull();
+    expect(effortModel(0.2, models.slice(1), 'opus', undefined)).toBeNull();
+    expect(effortModel(1.2, models, 'opus', usage(95))).toBeNull();
+    expect(effortModel(1.2, models, 'opus', usage(20))).toEqual({ model: 'sonnet', why: 'a small change' });
   });
 });

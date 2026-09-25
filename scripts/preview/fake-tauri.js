@@ -70,7 +70,7 @@ window.__TAURI_INTERNALS__ = {
         optionalJson('./route-fixture.json'),
       ]).then(function (all) {
         var board = all[1] ? withFixture(all[0], all[1]) : all[0];
-        if (all[3]) board.routerOn = true;
+        if (all[3]) board.jev = Object.assign({ model: 'jev-latest', quick_panel: false, sessions: false, todos: false, pull_requests: false }, board.jev, { quick_panel: true });
         return all[2] ? withUsage(board, all[2]) : board;
       });
     }
@@ -111,6 +111,8 @@ window.__TAURI_INTERNALS__ = {
               lanes: (fx.lanes || []).map(pick(lanes, 'id')).filter(Boolean),
               repos: [],
               ownWorktree: fx.ownWorktree || 0,
+              duplicate: fx.duplicate ? pick(sessions, 'key')(fx.duplicate) : null,
+              effort: fx.effort == null ? 1 : fx.effort,
               model: 'jev-1.13.0',
               ms: 240,
               inputTokens: 9000,
@@ -118,6 +120,12 @@ window.__TAURI_INTERNALS__ = {
           }, fx.delay || 0);
         });
       });
+    }
+    // Jev's word on a PR's comments: every other comment asks for a change, as if Jev said so.
+    if (cmd === 'pr_comment_asks') {
+      var out = {};
+      ((args || {}).comments || []).forEach(function (c, i) { out[c.id] = i % 2 === 0 ? 0.85 : 0.1; });
+      return Promise.resolve(out);
     }
     // A todo change "shows" on a board that never comes, so the page keeps its own copy of it.
     if (cmd === 'todo_op') return Promise.resolve(Number.MAX_SAFE_INTEGER);

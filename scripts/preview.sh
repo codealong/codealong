@@ -29,7 +29,8 @@
 # place of the snapshot's, which has no Claude numbers: reading them rate-limits.
 #
 # PREVIEW_ROUTE=<file> turns routing on and answers the quick panel as Jev might, from the
-# board's own sessions and worktrees (scripts/preview/route-sample.json has one: see there).
+# board's own sessions and worktrees (scripts/preview/route-sample.json sends to a session;
+# route-start-sample.json starts new work, with a session that may already be on it and a small change).
 #
 # PREVIEW_FOUND=<file> lists the accounts in it under Settings › Accounts › Found on this Mac
 # (scripts/preview/found-sample.json has some) in place of the ones this Mac has but config.toml

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { prFlag, prPills, prReady, type PrFacts } from './prStatus';
-import type { Checks, PrItem } from './types';
+import { asksFor, commentPreview, commentsToAsk, prFlag, prPills, prReady, type PrFacts } from './prStatus';
+import type { Checks, PrComment, PrItem } from './types';
 
 const checks = (c: Partial<Checks> = {}): Checks => ({ passed: 0, failed: 0, pending: 0, skipped: 0, failing: [], ...c });
 const facts = (f: Partial<PrFacts> = {}): PrFacts => ({ state: 'open', checks: checks({ passed: 12 }), merge: 'blocked', base: 'main', ...f });
@@ -59,5 +59,20 @@ describe('prFlag', () => {
     expect(prFlag(item({ mine: false, state: 'approved', merge: 'clean' }))).toBeNull();
     expect(prFlag(item({ mine: false, checks: checks({ failed: 3 }) }))).toBeNull();
     expect(prFlag(item({ state: 'merged', merge: 'unknown', reviewRequested: true }))).toBeNull();
+  });
+});
+
+describe('review comments', () => {
+  const c = (id: string, extra: Partial<PrComment> = {}): PrComment => ({ id, author: 'ana', body: 'x', at: null, url: null, path: null, resolved: false, mine: false, ...extra });
+  const all = [c('a'), c('mine', { mine: true }), c('done', { resolved: true }), c('b')];
+
+  it('asks about others’ comments on open threads only, and marks the likely ones', () => {
+    expect(commentsToAsk(all).map((x) => x.id)).toEqual(['a', 'b']);
+    expect([...asksFor(all, { a: 0.9, b: 0.4, mine: 0.99, done: 0.99 })]).toEqual(['a']);
+  });
+
+  it('shows a comment as plain text on one line', () => {
+    expect(commentPreview('**Please** add a [test](http://x)\n\n```ts\ncode\n```')).toBe('Please add a test [code]');
+    expect(commentPreview('a'.repeat(300), 10)).toBe('aaaaaaaaa…');
   });
 });

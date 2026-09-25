@@ -52,7 +52,7 @@ import {
   type AgentOption,
   type AutoPick,
 } from '../start';
-import { suggestions, sureness, todoTitle, worthRouting, type Suggestion } from '../route';
+import { duplicateOf, effortModel, rankedBy, suggestions, sureness, todoTitle, worthRouting, type Suggestion } from '../route';
 import { attachmentsIn, blockedBy, insertAttachments, newTodo, snippet, todoPrompt, withoutAttachment } from '../todos';
 import type { Attachment, Board, Lane, Meter, Route, Session, StartOptions, StartPlace, StartSpec } from '../types';
 import { AttachmentStrip } from './DescriptionEditor';
@@ -410,7 +410,13 @@ export function Quick() {
   const routing = !!routeFor && !route && !routeProblem;
   const suggested = useMemo<SuggestRow[]>(() => (board && route ? suggestions(route, board).map((sg) => ({ kind: 'suggest', key: sg.key, group: 'suggested', s: sg })) : []), [board, route]);
 
-  const rows: Row[] = query ? [...suggested, ...foundSessions, ...foundTodos] : (attention?.rows ?? []);
+  // What Jev said beyond where it goes: a session that may already be on it, and a smaller
+  // model when the work is small (only for Auto starting Claude Code in the terminal).
+  const duplicate = board ? duplicateOf(route, board) : null;
+  const effort = route && autoFor && claudeTerminal ? effortModel(route.effort, models, autoPick?.model ?? defaultModel, usage.find((u) => u.account === account)) : null;
+  const alreadyOn = duplicate ? ` “${duplicate.session.title}” (${duplicate.session.account} · ${duplicate.lane.callsign}) may already be doing this.` : '';
+
+  const rows: Row[] = query ? [...suggested, ...rankedBy(foundSessions, route), ...foundTodos] : (attention?.rows ?? []);
   const keys = [...rows.map((r) => r.key), COMPOSE];
   const active = activeKey && keys.includes(activeKey) ? activeKey : keys[0];
 
@@ -489,7 +495,7 @@ export function Quick() {
         ]);
       } else {
         void showContextMenu([
-          { label: `Start a session in ${sg.lane.callsign}`, run: () => start({ lane: sg.lane, newWorktree: sg.kind === 'start' && sg.newWorktree }) },
+          { label: `Start a session in ${sg.lane.callsign}`, run: () => start({ lane: sg.lane, newWorktree: sg.kind === 'start' && sg.newWorktree, model: effort?.model }) },
           { label: `Save as a todo in ${sg.lane.project}`, run: () => saveTodo(sg.lane) },
         ]);
       }
@@ -532,15 +538,16 @@ export function Quick() {
   const newToCodex = placeNow === 'codex-app' && !!lane && !!options && !options.codexProjects.includes(lane.path);
 
   /** Starts a session: in the worktree chosen below, or where a suggestion says. */
-  const start = (over?: { lane: Lane; newWorktree: boolean }) => {
+  const start = (over?: { lane: Lane; newWorktree: boolean; model?: string | null }) => {
     const where = over?.lane ?? lane;
     const newTree = claudeTerminal && (over ? over.newWorktree : newWorktree);
     if (!where || !account || !placeNow) return;
     if (choice) remember(choice, placeNow);
-    const spec: StartSpec = { laneId: where.id, account, place: placeNow, prompt: text, model: modelNow, worktree: newTree, todo: todo?.id ?? null };
+    const model = over?.model ?? modelNow;
+    const spec: StartSpec = { laneId: where.id, account, place: placeNow, prompt: text, model, worktree: newTree, todo: todo?.id ?? null };
     const label =
       placeNow === 'terminal'
-        ? `Starting ${account}${onModel} in ${newTree ? `a new worktree of ${where.repo}` : where.callsign}…`
+        ? `Starting ${account}${over?.model ? ` on ${modelName(over.model, models)}` : onModel} in ${newTree ? `a new worktree of ${where.repo}` : where.callsign}…`
         : placeNow === 'claude-app'
           ? 'Opening a new session in the Claude app…'
           : 'Opening a new thread in Codex…';
@@ -611,7 +618,7 @@ export function Quick() {
     if ((sg.kind === 'send' || sg.kind === 'open') && alt) revealSession(sg.lane, sg.session);
     else if (sg.kind === 'send') send(sg.session);
     else if (sg.kind === 'open') openSession(sg.lane, sg.session);
-    else if (sg.kind === 'start') start({ lane: sg.lane, newWorktree: sg.newWorktree });
+    else if (sg.kind === 'start') start({ lane: sg.lane, newWorktree: sg.newWorktree, model: effort?.model });
     else saveTodo(sg.lane);
   };
 
@@ -820,16 +827,19 @@ export function Quick() {
       return { icon: 'list-check', title: `Save as a todo: “${todoTitle(text)}”`, why: `In ${sg.lane.project}, linked to ${sg.lane.callsign}. Start it when you’re ready.`, where: sg.lane.callsign };
     }
     const tree = claudeTerminal && sg.newWorktree;
-    const who = account ? `${account}${onModel}` : 'a session';
+    const who = account ? `${account}${effort ? ` on ${modelName(effort.model, models)}` : onModel}` : 'a session';
+    const size = effort ? ` · ${effort.why}` : '';
     const why =
       placeNow === 'claude-app'
         ? `The Claude app opens a new session in ${sg.lane.callsign} with this prompt filled in.`
         : placeNow === 'codex-app'
           ? `Codex opens a new thread in ${sg.lane.callsign} with this prompt filled in.`
           : tree
-            ? `Claude Code makes a new worktree of ${sg.lane.repo} and starts ${who} there.`
-            : `Starts ${who} in ${sg.lane.callsign}.`;
-    return { icon: 'plus', title: tree ? `Start in a new worktree of ${sg.lane.repo}` : `Start in ${sg.lane.origin === 'main' ? `${sg.lane.callsign} (main)` : sg.lane.callsign}`, why, where: `${sg.lane.project} · ${sg.lane.repo}` };
+            ? `Claude Code makes a new worktree of ${sg.lane.repo} and starts ${who} there${size}.`
+            : `Starts ${who} in ${sg.lane.callsign}${size}.`;
+    // The warning leads: the row's line is cut short when it's long.
+    const warned = duplicate ? `“${duplicate.session.title}” may already be on this. ${why}` : why;
+    return { icon: 'plus', title: tree ? `Start in a new worktree of ${sg.lane.repo}` : `Start in ${sg.lane.origin === 'main' ? `${sg.lane.callsign} (main)` : sg.lane.callsign}`, why: warned, where: `${sg.lane.project} · ${sg.lane.repo}` };
   };
 
   /* ---- Render ---- */
@@ -1028,6 +1038,7 @@ export function Quick() {
               <span className="ca-quick-row-title">{todo ? 'Start a session for this todo' : prompted ? 'Start a new session with this prompt' : 'Start a new session'}</span>
               <span className="ca-quick-row-why">
                 {happens}
+                {alreadyOn}
                 {attached.length > 0 && ` ${attached.length === 1 ? 'The attachment goes' : 'Attachments go'} as ${attached.length === 1 ? 'a file path' : 'file paths'} the agent opens.`}
                 {newToCodex && ' Codex adds this folder as a project if it isn’t one yet.'}
               </span>

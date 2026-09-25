@@ -233,7 +233,7 @@ const JEV_FEATURES: { id: JevFeature; label: string; does: string; sends: string
   {
     id: 'quick_panel',
     label: 'Quick panel suggestions',
-    does: 'As you type, suggests the session to send it to or the worktree to start it in; ⏎ does the first. Warns when a session is already on the same work, and suggests a model for how big the change is.',
+    does: 'As you type, suggests the session to send it to or the worktree to start it in; ⏎ does the first. Warns when a running session may already be on the same work, puts the sessions it thinks you mean first in the search, and, when Auto starts Claude Code, a smaller model for a small change.',
     sends: 'What you type, and the project’s session titles and latest lines, branches, pull request titles and worktree names. Once each time you pause typing.',
   },
   {
@@ -251,8 +251,8 @@ const JEV_FEATURES: { id: JevFeature; label: string; does: string; sends: string
   {
     id: 'pull_requests',
     label: 'Pull request reviews',
-    does: 'Marks the review comments that ask the author for a change, so you can see what still needs a reply.',
-    sends: 'The review comments of a pull request, when you open it in Codealong.',
+    does: 'Lists a pull request’s comments in its panel and marks the ones that ask the author for a change or an answer, so you can see what still needs a reply.',
+    sends: 'The pull request’s title and others’ comments on threads still open, when you open it in Codealong. Answers are kept, so only new or edited comments are sent again.',
   },
 ];
 

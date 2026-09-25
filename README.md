@@ -38,7 +38,9 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     green Ready to merge when GitHub would merge it now. Rows that are your move are marked
     at the left edge: amber for a review asked of you or something to fix, red for failing
     checks, green for your PRs that are ready to merge. Selecting a PR shows its
-    description, reviews, checks and changed files with their diffs, and under On this Mac
+    description, reviews, checks, comments (with `[jev] pull_requests`, the ones asking the
+    author for a change or an answer are marked and listed first) and changed files with their
+    diffs, and under On this Mac
     the worktrees and sessions behind it, drawn like the sidebar's tree: whether the worktree
     has anything GitHub doesn't, and the agents that worked on the PR, including one that made
     the worktree from another folder.
@@ -81,7 +83,12 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   once you pause typing, TypeSafe's Jev reads what you wrote against the project's sessions and
   worktrees and the panel leads with up to three suggestions, each with how likely it is: send
   it to a session that's already going, start new work in a worktree (a new one when it's a
-  change of its own), open a session, or keep it as a todo. ⏎ does the first. Sending goes the
+  change of its own), open a session, or keep it as a todo. ⏎ does the first. The same call
+  says whether a running session may already be doing it (start rows say so, and sending to it
+  is offered), puts the sessions it thinks you mean first among the search results, and rates
+  how big the change is: when Auto starts Claude Code in the terminal, a tiny change starts on
+  Haiku and a small one on Sonnet, never bigger than Auto's own pick or on a model whose limit is
+  nearly used. Sending goes the
   way each harness takes a prompt: pasted into the session's Ghostty tab, Claude Code's daemon
   for a background job, OpenCode's service, a turn started by the Codex app itself (else the
   thread opens with the prompt filled in), and Claude Code's cross-session socket for Claude

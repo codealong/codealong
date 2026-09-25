@@ -6,9 +6,10 @@
 // content security policy blocks scripts on top of that. Links in it open in the browser.
 
 import { useEffect, useState, type MouseEvent as ReactMouseEvent } from 'react';
-import { openUrl, prDetail, reviewInCodex } from '../api';
+import { openUrl, prCommentAsks, prDetail, reviewInCodex } from '../api';
 import { absolute, ago, middleTruncate } from '../format';
-import type { Lane, PrDetail, PrFile, Session } from '../types';
+import { asksFor, commentPreview, commentsToAsk } from '../prStatus';
+import type { Lane, PrComment, PrDetail, PrFile, Session } from '../types';
 import { PrPills } from './PrPills';
 import { Button, Icon, LaneGlyph, StatusGlyph } from './primitives';
 import { ChecksSummary, PrGlyph, prIsOpen, syncWords, type PrPlace, type PrRowItem } from './PrsView';
@@ -57,6 +58,45 @@ function FileRow({ file }: { file: PrFile }) {
       </button>
       {open && (file.patch ? <Patch text={file.patch} /> : <p className="ca-empty">GitHub doesn't show a diff for this file here. Open it on GitHub.</p>)}
     </div>
+  );
+}
+
+/** Comments listed before "Show all". */
+const COMMENTS_SHOWN = 6;
+
+/** Jev's word on comments already asked about, by comment id, across PRs. */
+const askCache = new Map<string, Record<string, number>>();
+
+/** A PR's comments, newest first, the ones asking for a change marked. */
+function Comments({ comments, asks, now }: { comments: PrComment[]; asks: Set<string>; now: number }) {
+  const [all, setAll] = useState(false);
+  // What asks for a change comes first, so it's never below the fold.
+  const ordered = [...comments].sort((a, b) => Number(asks.has(b.id)) - Number(asks.has(a.id)));
+  const shown = all ? ordered : ordered.slice(0, COMMENTS_SHOWN);
+  return (
+    <>
+      <ul className="ca-prcomments">
+        {shown.map((c) => (
+          <li key={c.id} className={asks.has(c.id) ? 'is-asks' : undefined}>
+            <button type="button" className="ca-prcomment" title={c.url ? 'Open it on GitHub' : undefined} disabled={!c.url} onClick={() => c.url && void openUrl(c.url)}>
+              <span className="ca-prcomment-head">
+                <span className="ca-prinsp-reviewer">{c.mine ? 'you' : c.author}</span>
+                {c.path && <code className="ca-ic">{middleTruncate(c.path, 36)}</code>}
+                {c.at && <span className="ca-meta">{ago(c.at, now)}</span>}
+                {c.resolved && <span className="ca-tag">Resolved</span>}
+                {asks.has(c.id) && <span className="ca-tag is-attn">Asks for a change</span>}
+              </span>
+              <span className="ca-prcomment-body">{commentPreview(c.body)}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+      {!all && comments.length > COMMENTS_SHOWN && (
+        <button type="button" className="ca-more-btn" onClick={() => setAll(true)}>
+          Show all {comments.length} comments
+        </button>
+      )}
+    </>
   );
 }
 
@@ -179,6 +219,31 @@ export function PrInspector({ item, now, approving, onApprove, onOpenSession, on
   }, [cacheKey, pr.repoSlug, pr.number]);
 
   const detail = state.key === cacheKey ? state.detail : undefined;
+
+  // Once the comments are showing, Jev says which ask for a change (when that's on); the markers
+  // arrive after, so the panel never waits on it.
+  const [asks, setAsks] = useState<{ key: string; asks: Record<string, number> }>({ key: '', asks: {} });
+  useEffect(() => {
+    if (!detail?.comments) return;
+    const hit = askCache.get(cacheKey);
+    if (hit) {
+      setAsks({ key: cacheKey, asks: hit });
+      return;
+    }
+    let live = true;
+    const ask = commentsToAsk(detail.comments).map((c) => ({ id: c.id, author: c.author, body: c.body, path: c.path }));
+    prCommentAsks(pr.title, ask)
+      .then((a) => {
+        askCache.set(cacheKey, a);
+        if (live) setAsks({ key: cacheKey, asks: a });
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [detail, cacheKey, pr.title]);
+  const comments = detail?.comments ?? [];
+  const asking = asksFor(comments, asks.key === cacheKey ? asks.asks : {});
   const error = state.key === cacheKey ? state.error : undefined;
   const requested = pr.reviewRequested && prIsOpen(pr);
 
@@ -271,6 +336,16 @@ export function PrInspector({ item, now, approving, onApprove, onOpenSession, on
           </ul>
         )}
       </section>
+
+      {comments.length > 0 && (
+        <section className="ca-insp-sec">
+          <h4 className="ca-label">
+            Comments · {comments.length}
+            {asking.size > 0 && <span className="ca-prcomments-asks"> · {asking.size} {asking.size === 1 ? 'asks' : 'ask'} for a change</span>}
+          </h4>
+          <Comments comments={comments} asks={asking} now={now} />
+        </section>
+      )}
 
       {item.places.length > 0 && (
         <section className="ca-insp-sec">

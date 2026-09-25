@@ -62,6 +62,12 @@ export async function prDetail(repo: string, number: number): Promise<PrDetail> 
   return invoke<PrDetail>('pr_detail', { repo, number });
 }
 
+/** Which of a PR's comments ask for a change, by comment id, from Jev. Empty while that's off. */
+export async function prCommentAsks(title: string, comments: { id: string; author: string; body: string; path: string | null }[]): Promise<Record<string, number>> {
+  if (!inTauri || comments.length === 0) return {};
+  return (await invoke<Record<string, number> | null>('pr_comment_asks', { title, comments })) ?? {};
+}
+
 /** Approves a PR as you. */
 export async function approvePr(repo: string, number: number): Promise<void> {
   if (!inTauri) throw new Error('Approving needs the app.');

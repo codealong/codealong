@@ -1753,6 +1753,52 @@ body.is-resizing * {
 .ca-prinsp-reviews li.is-requested > span:nth-child(2) {
   color: var(--attn);
 }
+/* A PR's comments; the ones asking for a change are marked (Jev, when it's on). */
+.ca-prcomments {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ca-prcomment {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.ca-prcomment:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+.ca-prcomment:disabled {
+  cursor: default;
+}
+.ca-prcomments li.is-asks .ca-prcomment {
+  box-shadow: inset 2px 0 0 var(--attn-solid);
+}
+.ca-prcomment-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.ca-prcomment-head .ca-tag {
+  height: 18px;
+}
+.ca-prcomment-body {
+  font: 400 12px/16px var(--font-sans);
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+.ca-prcomments-asks {
+  color: var(--attn);
+}
 /* GitHub's rendering of the description. */
 .ca-prbody {
   overflow-wrap: anywhere;

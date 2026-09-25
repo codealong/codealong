@@ -297,6 +297,11 @@ export interface Route {
   lanes: RoutePick[];
   repos: RoutePick[];
   ownWorktree: number;
+  /** A live session that may already be doing this work. */
+  duplicate: RoutePick | null;
+  /** How big the work is: 0 a tiny edit or a question, 1 a small change, 2 a feature across
+   *  files, 3 a large or open-ended change. */
+  effort: number;
   model: string;
   ms: number;
   inputTokens: number;
@@ -434,8 +439,24 @@ export interface PrDetail {
   commits: number;
   reviews: PrReview[];
   requested: string[];
+  /** Comments with something written in them, newest first. Missing from older engines. */
+  comments?: PrComment[];
   files: PrFile[];
   moreFiles: boolean;
+}
+
+/** A comment on a PR: on the conversation, a review's text, or a thread's first comment. */
+export interface PrComment {
+  id: string;
+  author: string;
+  body: string;
+  at: number | null;
+  url: string | null;
+  /** The file a thread on the code is about. */
+  path: string | null;
+  resolved: boolean;
+  /** Written by you. */
+  mine: boolean;
 }
 
 /** Where a new session runs: the terminal, or the Claude or Codex app. */
