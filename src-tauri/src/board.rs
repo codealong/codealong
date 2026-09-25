@@ -928,6 +928,7 @@ pub fn compose(inp: Inputs) -> Board {
     }
     Board {
         generated_at: now,
+        logo_status: logo_status(&lanes, &pr_list),
         apps: apps.clone(),
         projects,
         lanes,
@@ -947,6 +948,22 @@ pub fn compose(inp: Inputs) -> Board {
 }
 
 pub const ELSEWHERE: &str = "Elsewhere";
+
+/// Match the floating bar's scope: all visible projects, without archived sessions or
+/// duplicate visitors. An open review request also needs the user's attention.
+pub fn logo_status(lanes: &[Lane], prs: &[PrItem]) -> LogoStatus {
+    let sessions = lanes.iter().filter(|l| !l.hidden).flat_map(|l| &l.sessions)
+        .filter(|s| !s.archived && s.visitor.is_none())
+        .map(|s| match s.status {
+            Status::Error => LogoStatus::Error,
+            Status::Needs => LogoStatus::Needs,
+            Status::Unread => LogoStatus::Unread,
+            Status::Working => LogoStatus::Working,
+            Status::Idle | Status::Stopped => LogoStatus::Idle,
+        });
+    let review = prs.iter().any(|p| p.review_requested && p.state.is_open());
+    sessions.chain(review.then_some(LogoStatus::Needs)).min().unwrap_or_default()
+}
 
 #[cfg(test)]
 mod tests {
@@ -1024,6 +1041,84 @@ mod tests {
             deletions: 8,
             changed_files: 6,
             review_requested: false,
+        }
+    }
+
+    fn logo_board() -> Board {
+        let session = claude_session(&acct("claude2"), Some(&reg("busy", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
+        compose(Inputs {
+            now: NOW,
+            apps: &AppNames::default(),
+            seeds: &[seed("/r/atlas-quarry", "quarry")],
+            sessions: vec![session],
+            visitors: &HashMap::new(),
+            git: &HashMap::new(),
+            prs: &HashMap::from([("northwindai/atlas".to_string(), vec![pr(PrState::Open, 0)])]),
+            project_order: &["Northwind".to_string()],
+            warnings: vec![],
+            loading: false,
+            github_at: None,
+            pinned: &[],
+            github_login: Some("ghempton"),
+        })
+    }
+
+    #[test]
+    fn logo_prioritizes_attention_and_returns_to_idle_as_sessions_clear() {
+        let mut b = logo_board();
+        assert_eq!(b.logo_status, LogoStatus::Working, "composed boards carry the shared status");
+        assert_eq!(serde_json::to_value(&b).unwrap()["logoStatus"], "working");
+        let session = b.lanes[0].sessions[0].clone();
+        b.lanes[0].sessions.clear();
+        assert_eq!(logo_status(&b.lanes, &b.prs), LogoStatus::Idle);
+        for (status, expected) in [
+            (Status::Stopped, LogoStatus::Idle),
+            (Status::Idle, LogoStatus::Idle),
+            (Status::Working, LogoStatus::Working),
+            (Status::Unread, LogoStatus::Unread),
+            (Status::Needs, LogoStatus::Needs),
+            (Status::Error, LogoStatus::Error),
+        ] {
+            b.lanes[0].sessions.push(Session { status, ..session.clone() });
+            assert_eq!(logo_status(&b.lanes, &b.prs), expected);
+        }
+        for expected in [LogoStatus::Needs, LogoStatus::Unread, LogoStatus::Working, LogoStatus::Idle, LogoStatus::Idle, LogoStatus::Idle] {
+            b.lanes[0].sessions.pop();
+            assert_eq!(logo_status(&b.lanes, &b.prs), expected);
+        }
+    }
+
+    #[test]
+    fn logo_ignores_archived_visiting_and_hidden_sessions() {
+        let mut b = logo_board();
+        let mut error = b.lanes[0].sessions[0].clone();
+        error.status = Status::Error;
+        error.archived = true;
+        b.lanes[0].sessions.push(error.clone());
+        error.archived = false;
+        error.visitor = Some("worked here".into());
+        b.lanes[0].sessions.push(error.clone());
+        let mut hidden = b.lanes[0].clone();
+        hidden.hidden = true;
+        error.visitor = None;
+        hidden.sessions = vec![error];
+        b.lanes.push(hidden);
+        assert_eq!(logo_status(&b.lanes, &b.prs), LogoStatus::Working);
+        b.lanes[1].hidden = false;
+        assert_eq!(logo_status(&b.lanes, &b.prs), LogoStatus::Error, "attention in another visible project counts");
+    }
+
+    #[test]
+    fn logo_counts_only_open_review_requests() {
+        let mut b = logo_board();
+        b.prs[0].review_requested = true;
+        assert_eq!(logo_status(&b.lanes, &b.prs), LogoStatus::Needs);
+        b.lanes[0].sessions[0].status = Status::Error;
+        assert_eq!(logo_status(&b.lanes, &b.prs), LogoStatus::Error);
+        b.lanes[0].sessions.clear();
+        for state in [PrState::Closed, PrState::Merged] {
+            b.prs[0].state = state;
+            assert_eq!(logo_status(&b.lanes, &b.prs), LogoStatus::Idle);
         }
     }
 

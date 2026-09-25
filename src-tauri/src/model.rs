@@ -46,6 +46,18 @@ pub enum Status {
     Stopped,
 }
 
+/// The app-wide mark: attention wins over unread results, then running sessions.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum LogoStatus {
+    Error,
+    Needs,
+    Unread,
+    Working,
+    #[default]
+    Idle,
+}
+
 /// Board bays, in board order.
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 #[serde(rename_all = "lowercase")]
@@ -341,6 +353,9 @@ pub struct Usage {
 #[serde(rename_all = "camelCase")]
 pub struct Board {
     pub generated_at: i64,
+    /// Shared by every window and the Dock, independent of view and project filters.
+    #[serde(default)]
+    pub logo_status: LogoStatus,
     pub apps: AppNames,
     pub projects: Vec<ProjectSummary>,
     pub lanes: Vec<Lane>,

@@ -1,8 +1,9 @@
 // The app-wide project switcher, top left, like an account or org switcher.
 
 import { useEffect, useRef, useState } from 'react';
-import type { ProjectSummary } from '../types';
+import type { LogoStatus, ProjectSummary } from '../types';
 import { Icon, Mark, StatusGlyph } from './primitives';
+import { LOGO_LABEL } from '../logo';
 
 export const ALL_PROJECTS = 'All projects';
 
@@ -13,6 +14,7 @@ export interface ActionCounts {
 }
 
 interface ProjectSwitcherProps {
+  logoStatus: LogoStatus;
   projects: ProjectSummary[];
   current: string;
   total: number;
@@ -23,7 +25,7 @@ interface ProjectSwitcherProps {
   onEditProjects: () => void;
 }
 
-export function ProjectSwitcher({ projects, current, total, actions, onPick, onOpenWindow, onEditProjects }: ProjectSwitcherProps) {
+export function ProjectSwitcher({ logoStatus, projects, current, total, actions, onPick, onOpenWindow, onEditProjects }: ProjectSwitcherProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -99,11 +101,11 @@ export function ProjectSwitcher({ projects, current, total, actions, onPick, onO
         className="ca-projswitch-btn"
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label={`${current}. Switch project${badgeTitle ? `. ${badgeTitle}` : ''}`}
-        title={`Switch project (⌘P)${badgeTitle ? `. ${badgeTitle}.` : ''}`}
+        aria-label={`${current}. Switch project${badgeTitle ? `. ${badgeTitle}` : ''}. Codealong: ${LOGO_LABEL[logoStatus]}`}
+        title={`Switch project (⌘P)${badgeTitle ? `. ${badgeTitle}.` : ''} · Codealong: ${LOGO_LABEL[logoStatus]}`}
         onClick={() => setOpen(!open)}
       >
-        <Mark size={16} />
+        <Mark size={16} status={logoStatus} />
         <span className="ca-projswitch-name">{current}</span>
         {otherNeeds > 0 ? <span className="ca-projswitch-badge">{otherNeeds}</span> : otherUnread > 0 ? <span className="ca-projswitch-dot" /> : null}
         <Icon name="chevron-down" size={12} />
