@@ -30,6 +30,12 @@ function withFixture(board, fixture) {
     return hit ? (m[1] === 'lane' ? hit.id : hit.key) : null;
   };
   var now = Date.now();
+  // `jev` in the fixture turns Jev's todo features on: `hints` are todos that look done, and
+  // `suggest` is what suggest_todo answers.
+  if (fixture.jev) {
+    board.jev = Object.assign({ model: 'jev-latest', quick_panel: false, sessions: false, todos: true, pull_requests: false }, board.jev, { todos: true });
+    board.todoHints = fixture.jev.hints || {};
+  }
   board.labels = fixture.labels || [];
   board.todos = (fixture.todos || []).map(function (t, i) {
     return Object.assign({ project: project, description: '', status: 'todo', labels: [], createdAt: now - (i + 1) * 3600e3, updatedAt: now - i * 1800e3, doneAt: null, pending: [] }, t, {
@@ -56,6 +62,24 @@ function withUsage(board, fixture) {
   });
   return board;
 }
+// Jev's read from insights-fixture.json (PREVIEW_INSIGHTS in preview.sh), merged into the board:
+// "$session:N" and "$lane:N" are the Nth most recent session and worktree on it (hidden ones
+// left out), and each entry's other fields replace the session's or lane's own.
+function withInsights(board, fixture) {
+  var lanes = board.lanes.filter(function (l) { return !l.hidden; }).sort(function (a, b) { return b.lastActivity - a.lastActivity; });
+  var sessions = lanes.flatMap(function (l) { return l.sessions.filter(function (s) { return !s.visitor && !s.archived; }); }).sort(function (a, b) { return b.lastActivity - a.lastActivity; });
+  var at = function (list, ref) { var m = /:(\d+)$/.exec(ref); return m ? list[Number(m[1])] : null; };
+  (fixture.sessions || []).forEach(function (e) {
+    var hit = at(sessions, e.ref);
+    if (!hit) return;
+    board.lanes.forEach(function (l) { l.sessions.forEach(function (s) { if (s.key === hit.key) { var fields = Object.assign({}, e); delete fields.ref; Object.assign(s, fields); } }); });
+  });
+  (fixture.lanes || []).forEach(function (e) {
+    var hit = at(lanes, e.ref);
+    if (hit) { var fields = Object.assign({}, e); delete fields.ref; Object.assign(hit, fields); }
+  });
+  return board;
+}
 function optionalJson(file) {
   return fetch(file).then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; });
 }
@@ -68,9 +92,11 @@ window.__TAURI_INTERNALS__ = {
         optionalJson('./todos-fixture.json'),
         optionalJson('./usage-fixture.json'),
         optionalJson('./route-fixture.json'),
+        optionalJson('./insights-fixture.json'),
       ]).then(function (all) {
         var board = all[1] ? withFixture(all[0], all[1]) : all[0];
-        if (all[3]) board.routerOn = true;
+        if (all[4]) board = withInsights(board, all[4]);
+        if (all[3]) board.jev = Object.assign({ model: 'jev-latest', quick_panel: false, sessions: false, todos: false, pull_requests: false }, board.jev, { quick_panel: true });
         return all[2] ? withUsage(board, all[2]) : board;
       });
     }
@@ -92,6 +118,23 @@ window.__TAURI_INTERNALS__ = {
         errors: cmd === 'install_agents' && (args || {}).accounts && args.accounts.indexOf('codex') >= 0 ? ['codex: /Users/you/.codex/skills/codealong exists and Codealong didn\'t put it there; move it away to install the skill.'] : [],
       });
     }
+    // Text search: the two latest sessions whose titles don't have the words, as if their
+    // conversations did, so the panel's text hits can be seen.
+    if (cmd === 'search_text') {
+      var words = (args || {}).words || [];
+      return fetch('./board.json').then(function (r) { return r.json(); }).then(function (board) {
+        var all = board.lanes.flatMap(function (l) { return l.sessions.filter(function (s) { return !s.visitor && !s.archived; }); });
+        var free = all.filter(function (s) { return !words.every(function (w) { return s.title.toLowerCase().indexOf(w) >= 0; }); });
+        free.sort(function (a, b) { return b.lastActivity - a.lastActivity; });
+        return {
+          hits: free.slice(0, 2).map(function (s, i) {
+            return { key: s.key, snippet: '…so the ' + words.join(' and the ') + ' both go through the same path, which is what the earlier change missed.', you: i === 1, at: s.lastActivity };
+          }),
+          building: false,
+          off: false,
+        };
+      });
+    }
     // Jev's answer, from route-fixture.json (PREVIEW_ROUTE): its action and probabilities, with
     // "$session:N" and "$lane:N" as the board's Nth most recent live session and worktree.
     if (cmd === 'route_quick') {
@@ -111,12 +154,25 @@ window.__TAURI_INTERNALS__ = {
               lanes: (fx.lanes || []).map(pick(lanes, 'id')).filter(Boolean),
               repos: [],
               ownWorktree: fx.ownWorktree || 0,
+              duplicate: fx.duplicate ? pick(sessions, 'key')(fx.duplicate) : null,
+              effort: fx.effort == null ? 1 : fx.effort,
               model: 'jev-1.13.0',
               ms: 240,
               inputTokens: 9000,
             });
           }, fx.delay || 0);
         });
+      });
+    }
+    // Jev's word on a PR's comments: every other comment asks for a change, as if Jev said so.
+    if (cmd === 'pr_comment_asks') {
+      var out = {};
+      ((args || {}).comments || []).forEach(function (c, i) { out[c.id] = i % 2 === 0 ? 0.85 : 0.1; });
+      return Promise.resolve(out);
+    }
+    if (cmd === 'suggest_todo') {
+      return optionalJson('./todos-fixture.json').then(function (fx) {
+        return fx && fx.jev && fx.jev.suggest ? fx.jev.suggest : Promise.reject(new Error('Todo suggestions are off.'));
       });
     }
     // A todo change "shows" on a board that never comes, so the page keeps its own copy of it.

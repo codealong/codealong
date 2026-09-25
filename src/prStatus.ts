@@ -2,7 +2,7 @@
 // its checks, and one for anything else that keeps GitHub from merging it. When nothing does,
 // they fold into a single "Ready to merge". The PRs view also flags the rows that are your move.
 
-import type { Checks, Merge, PrItem, PrState } from './types';
+import type { Checks, Merge, PrComment, PrItem, PrState } from './types';
 
 /** A pill's color: green for approved and passing, amber for what needs you, red for failing. */
 export type PrTone = 'ready' | 'pass' | 'attn' | 'alert' | 'plain' | 'quiet' | 'merged';
@@ -94,4 +94,31 @@ export function prFlag(pr: PrItem): 'ready' | 'attn' | 'alert' | null {
   if (pr.checks.failed > 0) return 'alert';
   if (pr.state === 'changes' || pr.merge === 'conflicts' || pr.merge === 'behind') return 'attn';
   return null;
+}
+
+/* ---- Review comments ---- */
+
+/** A comment "asks for a change" at this probability or more. */
+export const ASKS_AT = 0.6;
+
+/** The comments worth asking Jev about: others' comments on threads that are still open. */
+export function commentsToAsk(comments: PrComment[]): PrComment[] {
+  return comments.filter((c) => !c.mine && !c.resolved);
+}
+
+/** The comments that ask for a change, by what Jev said. */
+export function asksFor(comments: PrComment[], asks: Record<string, number>): Set<string> {
+  return new Set(commentsToAsk(comments).filter((c) => (asks[c.id] ?? 0) >= ASKS_AT).map((c) => c.id));
+}
+
+/** A comment's text for a list: Markdown's marks dropped, on one line, cut short. */
+export function commentPreview(body: string, max = 280): string {
+  const text = body
+    .replace(/```[\s\S]*?```/g, ' [code] ')
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, ' [image] ')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/[*_`>#]+/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }

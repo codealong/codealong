@@ -90,6 +90,18 @@ describe('findSessions', () => {
     expect(findSessions(b, ALL_PROJECTS, 'login').slice(0, 2).map((r) => r.key)).toEqual(['s2', 's1']);
   });
 
+  it('adds sessions found by what was said, after the ones that match otherwise', () => {
+    const said = new Map([
+      ['s3', { key: 's3', snippet: 'The login retries are in auth.ts', you: false, at: NOW }],
+      ['s1', { key: 's1', snippet: 'login again', you: true, at: NOW }],
+    ]);
+    const rows = findSessions(b, ALL_PROJECTS, 'login', 9, said);
+    expect(rows.map((r) => r.key)).toEqual(['s2', 's1', 's4', 's3']);
+    // A session its title already found keeps its usual line.
+    expect(rows[1].said).toBeUndefined();
+    expect(rows[3].said).toEqual({ text: 'The login retries are in auth.ts', you: false, marks: [[4, 9]] });
+  });
+
   it('marks where the words are in the title', () => {
     expect(findSessions(b, ALL_PROJECTS, 'login flake')[0].marks).toEqual([
       [8, 13],

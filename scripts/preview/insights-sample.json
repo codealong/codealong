@@ -1,0 +1,11 @@
+{
+  "sessions": [
+    { "ref": "$session:0", "status": "needs", "headline": "`claude` is waiting for approval", "detail": "Bash · `git push --force origin main`", "excerpt": "Bash · `git push --force origin main`", "insight": { "risk": 2.8 } },
+    { "ref": "$session:1", "status": "needs", "headline": "`claude2` needs you", "detail": "Asks you · Want me to open the PR, or keep it local?", "insight": { "asksYou": 0.93, "landing": "committed", "finished": 0.4 } },
+    { "ref": "$session:2", "insight": { "landing": "pushed", "finished": 0.9 } },
+    { "ref": "$session:3", "insight": { "landing": "landed", "finished": 0.95 } },
+    { "ref": "$session:4", "insight": { "landing": "uncommitted", "finished": 0.3 } },
+    { "ref": "$session:5", "status": "needs", "headline": "`codex` asks for approval", "detail": "Run · `rg -n TODO src`", "insight": { "risk": 0.1 } }
+  ],
+  "lanes": [{ "ref": "$lane:6", "looksFinished": true }, { "ref": "$lane:9", "looksFinished": true }]
+}

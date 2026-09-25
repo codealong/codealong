@@ -165,12 +165,15 @@ fn parse_pr(n: &Value) -> Option<PrRaw> {
 
 const DETAIL_QUERY: &str = r#"
 query($owner: String!, $name: String!, $number: Int!) {
+  viewer { login }
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {
       bodyHTML mergeable
       commits { totalCount }
-      reviews(last: 50) { nodes { author { login } state submittedAt } }
+      reviews(last: 50) { nodes { id author { login } state submittedAt body url } }
       reviewRequests(first: 20) { nodes { requestedReviewer { __typename ... on User { login } ... on Team { name } } } }
+      comments(last: 50) { nodes { id author { login } body createdAt url } }
+      reviewThreads(last: 50) { nodes { isResolved path comments(first: 1) { nodes { id author { login } body createdAt url } } } }
     }
   }
 }
@@ -183,6 +186,25 @@ pub struct PrReview {
     /// `APPROVED`, `CHANGES_REQUESTED`, `COMMENTED` or `DISMISSED`.
     pub state: String,
     pub at: Option<i64>,
+}
+
+/// A comment on a PR: on the conversation, a review's own text, or the first comment of a
+/// thread on the code.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrComment {
+    pub id: String,
+    pub author: String,
+    /// As written, in Markdown.
+    pub body: String,
+    pub at: Option<i64>,
+    pub url: Option<String>,
+    /// The file a thread on the code is about.
+    pub path: Option<String>,
+    /// A thread on the code that's been resolved.
+    pub resolved: bool,
+    /// Written by whoever `gh` is signed in as.
+    pub mine: bool,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -207,6 +229,8 @@ pub struct PrDetail {
     /// Each reviewer's standing review: their last approval or change request, else comment.
     pub reviews: Vec<PrReview>,
     pub requested: Vec<String>,
+    /// Comments with something written in them, newest first.
+    pub comments: Vec<PrComment>,
     pub files: Vec<PrFile>,
     /// More files than the first page holds.
     pub more_files: bool,
@@ -257,6 +281,35 @@ pub fn parse_detail(graph: &str, files: &str) -> Result<PrDetail> {
             r.get("login").or_else(|| r.get("name")).and_then(Value::as_str).map(String::from)
         })
         .collect();
+    let viewer = v.pointer("/data/viewer/login").and_then(Value::as_str);
+    let comment = |n: &Value, path: Option<String>, resolved: bool| -> Option<PrComment> {
+        let body = n.get("body").and_then(Value::as_str)?.trim().to_string();
+        if body.is_empty() {
+            return None;
+        }
+        let author = n.pointer("/author/login").and_then(Value::as_str).unwrap_or("ghost").to_string();
+        Some(PrComment {
+            id: n.get("id").and_then(Value::as_str)?.to_string(),
+            mine: viewer == Some(author.as_str()),
+            author,
+            body,
+            at: n.get("createdAt").or_else(|| n.get("submittedAt")).and_then(Value::as_str).and_then(parse_rfc3339_ms),
+            url: n.get("url").and_then(Value::as_str).map(String::from),
+            path,
+            resolved,
+        })
+    };
+    let nodes = |at: &str| pr.pointer(at).and_then(Value::as_array).cloned().unwrap_or_default();
+    let mut comments: Vec<PrComment> = nodes("/comments/nodes").iter().chain(nodes("/reviews/nodes").iter()).filter_map(|n| comment(n, None, false)).collect();
+    for t in nodes("/reviewThreads/nodes") {
+        let path = t.get("path").and_then(Value::as_str).map(String::from);
+        let resolved = t.get("isResolved").and_then(Value::as_bool).unwrap_or(false);
+        if let Some(first) = t.pointer("/comments/nodes/0") {
+            comments.extend(comment(first, path, resolved));
+        }
+    }
+    comments.sort_by(|a, b| b.at.cmp(&a.at).then(a.id.cmp(&b.id)));
+
     let list: Vec<Value> = serde_json::from_str(files).unwrap_or_default();
     let files: Vec<PrFile> = list
         .iter()
@@ -274,6 +327,7 @@ pub fn parse_detail(graph: &str, files: &str) -> Result<PrDetail> {
         commits: pr.pointer("/commits/totalCount").and_then(Value::as_u64).unwrap_or(0),
         reviews: latest,
         requested,
+        comments,
         more_files: files.len() >= 100,
         files,
     })
@@ -382,5 +436,21 @@ mod tests {
         assert!(d.files[1].patch.is_none());
         assert_eq!(d.commits, 3);
         assert!(!d.more_files);
+        assert!(d.comments.is_empty());
+    }
+
+    #[test]
+    fn reads_comments_reviews_and_threads_newest_first() {
+        let graph = r#"{"data":{"viewer":{"login":"me"},"repository":{"pullRequest":{"bodyHTML":"","mergeable":null,"commits":{"totalCount":1},
+          "reviews":{"nodes":[
+            {"id":"R1","author":{"login":"ana"},"state":"CHANGES_REQUESTED","submittedAt":"2026-09-23T13:00:00Z","body":"Please add a test.","url":"u1"},
+            {"id":"R2","author":{"login":"ken"},"state":"APPROVED","submittedAt":"2026-09-23T14:00:00Z","body":"","url":"u2"}]},
+          "reviewRequests":{"nodes":[]},
+          "comments":{"nodes":[{"id":"C1","author":{"login":"me"},"body":"Done, thanks","createdAt":"2026-09-23T15:00:00Z","url":"u3"}]},
+          "reviewThreads":{"nodes":[{"isResolved":true,"path":"src/a.ts","comments":{"nodes":[{"id":"T1","author":{"login":"ana"},"body":"Why this?","createdAt":"2026-09-23T12:00:00Z","url":"u4"}]}}]}}}}}"#;
+        let d = parse_detail(graph, "[]").unwrap();
+        let got: Vec<(&str, bool, bool, Option<&str>)> = d.comments.iter().map(|c| (c.id.as_str(), c.mine, c.resolved, c.path.as_deref())).collect();
+        // The approval with nothing written is left out.
+        assert_eq!(got, vec![("C1", true, false, None), ("R1", false, false, None), ("T1", false, true, Some("src/a.ts"))]);
     }
 }

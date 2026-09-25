@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { showContextMenu, type MenuSpec } from './contextMenu';
 import { AGENT_BAY, BAYS, buildBays, failingPr, filterByAge, inboxCounts, lanePromptAt, narrowed, rowItems, worktreeRow, type BoardRow, type Filter, type WorktreeRow } from './lanes';
-import { approvePr, archiveSession, barOn, expandAttachments, getBoard, markSeen, onBarOn, onBoard, onNewWindow, onQuickStart, onReveal, onSettings, openConfig, openProjectWindow, openTarget, openUrl, refresh, refreshUsage, reviewInCodex, setBarOn, setPinned, setPinnedWorktrees, setTheme, showQuick, signIn, windowLabel, type Reveal } from './api';
+import { approvePr, archiveSession, barOn, dismissTodoHint, expandAttachments, getBoard, markSeen, onBarOn, onBoard, onNewWindow, onQuickStart, onReveal, onSettings, openConfig, openProjectWindow, openTarget, openUrl, refresh, refreshUsage, reviewInCodex, setBarOn, setPinned, setPinnedWorktrees, setTheme, showQuick, signIn, windowLabel, type Reveal } from './api';
 import { usePerf } from './perf';
 import { reorderPinned, usePins } from './pins';
 import { prFlag } from './prStatus';
@@ -743,6 +743,9 @@ export function App() {
       checked: t.labels.includes(l.id),
       run: () => runTodo({ op: 'update', id: t.id, patch: { labels: t.labels.includes(l.id) ? t.labels.filter((x) => x !== l.id) : [...t.labels, l.id] } }),
     }));
+
+  /** The projects a todo can be in: every one but Elsewhere. */
+  const todoProjects = useMemo(() => projects.filter((p) => p.name !== ELSEWHERE).map((p) => p.name), [projects]);
 
   /** Projects a todo can move to, the one it's in checked. */
   const projectItems = (t: Todo): MenuSpec =>
@@ -1483,6 +1486,7 @@ export function App() {
                 onOpenSession={(lane, session) => open(lane, session.openTarget)}
                 onFilterLabel={(l) => setLabelFilter(labelFilter === l.id ? null : l.id)}
                 onMove={moveTodo}
+                hints={board.jev?.todos ? board.todoHints : undefined}
                 showDone={showDoneTodos}
                 onToggleDone={() => setShowDoneTodos(!showDoneTodos)}
                 composer={
@@ -1598,6 +1602,10 @@ export function App() {
               onMoreMenu={(at) => todoMoreMenu(selected, at)}
               onLabelMenu={labelMenu}
               onError={setToast}
+              hint={board?.jev?.todos ? board.todoHints?.[selected.todo.id] : null}
+              onDismissHint={() => void dismissTodoHint(selected.todo.id)}
+              suggest={!!board?.jev?.todos}
+              projects={todoProjects}
             />
           ) : (
             <aside className="ca-insp ca-insp--empty">

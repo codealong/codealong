@@ -20,6 +20,8 @@ pub struct ThreadInfo {
     pub turn_started_at: Option<i64>,
     pub last_complete_at: Option<i64>,
     pub last_agent_message: Option<String>,
+    /// The end of that message, for Jev.
+    pub last_agent_tail: Option<String>,
     pub last_user_message: Option<String>,
     /// When you sent that prompt. It doesn't move while the thread works, so lists sort by it.
     pub last_prompt_at: Option<i64>,
@@ -322,6 +324,25 @@ fn prompt_of(payload: &Value) -> Option<String> {
     request_of(&text).map(str::trim).filter(|r| !r.is_empty()).map(String::from)
 }
 
+/// A prompt you sent (true) or what the agent said (false), for searching sessions' text
+/// (search.rs): `agent_message` events, or completed `AgentMessage` items in newer versions.
+pub fn prose_of(v: &Value) -> Option<(bool, String)> {
+    let payload = event_payload(v)?;
+    if let Some(prompt) = prompt_of(payload) {
+        return Some((true, prompt));
+    }
+    let text = match payload.get("type").and_then(Value::as_str)? {
+        "agent_message" => payload.get("message").and_then(Value::as_str)?.to_string(),
+        "item_completed" => {
+            let item = payload.get("item").filter(|i| i.get("type").and_then(Value::as_str) == Some("AgentMessage"))?;
+            item.get("content")?.as_array()?.iter().filter_map(|c| c.get("text").and_then(Value::as_str)).collect::<Vec<_>>().join("\n")
+        }
+        _ => return None,
+    };
+    let t = text.trim();
+    (!t.is_empty()).then(|| (false, t.to_string()))
+}
+
 /// A prompt without the context Codex wraps around it: files or browser state before a
 /// `## My request:` heading, an automation's `<heartbeat>`, a voice `<realtime_delegation>`.
 /// An answer to the agent's question isn't a request.
@@ -424,6 +445,7 @@ fn apply_event(info: &mut ThreadInfo, v: &Value) {
             info.pending_approval = None;
             if let Some(m) = payload.get("last_agent_message").and_then(Value::as_str).filter(|m| !m.trim().is_empty()) {
                 info.last_agent_message = Some(one_line(m, 140));
+                info.last_agent_tail = Some(crate::jev::tail(m, 600));
             }
         }
         "turn_aborted" => {

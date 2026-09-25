@@ -3,7 +3,8 @@
 // sounds, and which runners-up are worth a row, is decided here. Kept free of React so the rules
 // have tests.
 
-import type { Board, Lane, Route, RoutePick, Session } from './types';
+import { modelFamily, modelHasRoom, type ModelOption } from './start';
+import type { Board, Lane, Route, RoutePick, Session, Usage } from './types';
 
 /** How likely a suggestion is, as the panel says it. */
 export type Sureness = 'sure' | 'likely' | 'unsure';
@@ -66,7 +67,10 @@ export function suggestions(route: Route, board: Board): Suggestion[] {
   };
   const startIn = (pick: RoutePick | undefined, p: number): Suggestion | null => {
     const lane = laneOf(pick);
-    return lane ? { kind: 'start', key: `start:${lane.id}`, lane, newWorktree: route.ownWorktree >= OWN_WORKTREE, p } : null;
+    if (!lane) return null;
+    const newWorktree = route.ownWorktree >= OWN_WORKTREE;
+    // A new worktree is made from the repo, so two of its worktrees make the same row.
+    return { kind: 'start', key: newWorktree ? `start:new:${lane.project}/${lane.repo}` : `start:${lane.id}`, lane, newWorktree, p };
   };
   const [s1, s2] = route.sessions;
   const [l1, l2] = route.lanes;
@@ -85,6 +89,10 @@ export function suggestions(route: Route, board: Board): Suggestion[] {
     case 'start': {
       const p = prob('start');
       add(startIn(l1, p * sessionP(l1)));
+      // The session that may already be doing it comes next: sending there may be what's meant.
+      // Its likelihood is that of sending at all, times that of this session doing the work, so
+      // it reads on the same scale as the rows around it (the start row carries the warning).
+      if (route.duplicate) add(toSession(route.duplicate, prob('send') * route.duplicate.p, false));
       if (sessionP(l2) >= RUNNER_UP) add(startIn(l2, p * sessionP(l2)));
       if (prob('send') >= RUNNER_UP && sessionP(s1) >= RUNNER_UP) add(toSession(s1, prob('send') * sessionP(s1), false));
       break;
@@ -97,6 +105,48 @@ export function suggestions(route: Route, board: Board): Suggestion[] {
     }
   }
   return out;
+}
+
+/** The session that may already be doing what's typed, when Jev thinks one is. */
+export function duplicateOf(route: Route | null, board: Board): { lane: Lane; session: Session } | null {
+  return route?.duplicate ? findSession(board, route.duplicate.id) : null;
+}
+
+/** Sessions found by the typed words, with the ones Jev scored first, in its order; the rest
+ *  keep theirs. */
+export function rankedBy<T extends { session: Session }>(found: T[], route: Route | null): T[] {
+  if (!route) return found;
+  const rank = new Map(route.sessions.map((s, i) => [s.id, i]));
+  const at = (r: T) => rank.get(r.session.key) ?? Infinity;
+  return found
+    .map((r, i) => ({ r, i }))
+    .sort((a, b) => at(a.r) - at(b.r) || a.i - b.i)
+    .map((x) => x.r);
+}
+
+/** A model for how big the work is, and the words for why. */
+export interface EffortPick {
+  model: string;
+  why: string;
+}
+
+/** Families, smallest first. */
+const SIZES = ['haiku', 'sonnet', 'opus', 'fable'];
+
+/**
+ * A smaller model when the work is small: Haiku for a tiny edit or a question, Sonnet for a
+ * small change. Only ever smaller than what Auto would start on, only a model the start menu
+ * offers, and never one whose own limit is nearly used up. Null keeps Auto's own pick.
+ */
+export function effortModel(effort: number, models: ModelOption[], autoModel: string | null, u: Usage | undefined): EffortPick | null {
+  const pick = effort < 0.75 ? { family: 'haiku', why: 'a tiny change' } : effort < 1.75 ? { family: 'sonnet', why: 'a small change' } : null;
+  if (!pick) return null;
+  const offered = models.find((m) => m.id === pick.family);
+  if (!offered) return null;
+  const current = modelFamily(autoModel);
+  if (current && SIZES.indexOf(current) <= SIZES.indexOf(pick.family)) return null;
+  if (!modelHasRoom(u, pick.family)) return null;
+  return { model: offered.id, why: pick.why };
 }
 
 /** A todo's title from what's typed: its first line, without a "todo:" or "later," lead-in. */

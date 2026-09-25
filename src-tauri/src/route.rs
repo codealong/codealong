@@ -72,7 +72,7 @@ pub struct Route {
     pub action: Action,
     /// How likely each action is, most likely first.
     pub actions: Vec<(Action, f64)>,
-    /// Session keys, most likely first; the top ones only.
+    /// Session keys, most likely first; those Jev gives any real chance, for ranking the search.
     pub sessions: Vec<Pick>,
     /// How likely it is that no listed session is meant.
     pub no_session: f64,
@@ -82,6 +82,11 @@ pub struct Route {
     pub repos: Vec<Pick>,
     /// How likely it is that new work wants a worktree of its own.
     pub own_worktree: f64,
+    /// A live session that may already be doing this work, when Jev thinks one is.
+    pub duplicate: Option<Pick>,
+    /// How big the work is, from 0 (a tiny edit or a question) to 3 (a large or open-ended
+    /// change); it can land between levels.
+    pub effort: f64,
     /// The versioned model that answered, such as `jev-1.13.0`.
     pub model: String,
     pub ms: u64,
@@ -97,6 +102,26 @@ pub struct Request {
     lanes: Vec<String>,
     lane_repos: Vec<String>,
 }
+
+/// Sessions that could already be doing the work: running, and not waiting on you.
+fn could_be_doing(s: &Session) -> bool {
+    s.live && matches!(s.status, Status::Working | Status::Unread | Status::Idle)
+}
+
+/// The levels of the effort question, smallest first.
+pub const EFFORT_LEVELS: [&str; 4] = [
+    "A tiny edit or a question: a line or two, or no code",
+    "A small focused change in one or two files",
+    "A feature or fix across several files",
+    "A large or open-ended change: a new system, a migration, a redesign",
+];
+
+/// A duplicate is only worth a warning when Jev is at least this sure.
+const DUPLICATE_AT: f64 = 0.5;
+/// Sessions Jev gives less than this are left out of the ranking.
+const SCORED_AT: f64 = 0.01;
+/// Scored sessions kept at most.
+const SCORED: usize = 20;
 
 /// Whether a lane is in the panel's project, as the panel decides it (quick.ts `inProject`).
 fn in_project(lane: &Lane, project: &str) -> bool {
@@ -211,6 +236,15 @@ pub fn request(board: &Board, project: &str, text: &str, model: &str, now: i64) 
         lane_cards.insert(format!("w{}", i + 1), lane_card(l, now));
     }
 
+    let mut duplicate_options = Map::new();
+    for (i, (_, s)) in sessions.iter().enumerate() {
+        if could_be_doing(s) {
+            let k = format!("s{}", i + 1);
+            duplicate_options.insert(k.clone(), session_cards[&k].clone());
+        }
+    }
+    duplicate_options.insert("none".into(), json!("None of these sessions is doing it."));
+
     let mut session_options = session_cards.clone();
     session_options.insert(
         "none".into(),
@@ -245,6 +279,16 @@ pub fn request(board: &Board, project: &str, text: &str, model: &str, now: i64) 
                 "type": "choice",
                 "instructions": "Which repository worktree does the work in `message` belong in? Match the product, repo, feature or files it talks about.",
                 "criteria": Value::Object(lane_cards),
+            },
+            "duplicate": {
+                "type": "choice",
+                "instructions": "Which of these sessions is already doing the work `message` asks for?",
+                "criteria": Value::Object(duplicate_options),
+            },
+            "effort": {
+                "type": "score",
+                "instructions": "How big is the change `message` asks for?",
+                "criteria": EFFORT_LEVELS,
             },
             "own_worktree": {
                 "type": "noul",
@@ -307,6 +351,11 @@ pub fn read(req: &Request, response: &Value, ms: u64) -> Result<Route> {
     }
     let repos = ranked(repo_sum.into_iter().map(|(id, p)| Pick { id, p }).collect());
 
+    let duplicate = ranked(probabilities(&answers["duplicate"]).iter().filter_map(|(k, p)| Some(Pick { id: at(k, 's', &req.sessions)?, p: *p })).collect())
+        .into_iter()
+        .next()
+        .filter(|d| d.p >= DUPLICATE_AT);
+
     let top_session = sessions.first().map_or(0.0, |s| s.p);
     let mut action = actions.first().map_or(Action::Start, |a| a.0);
     if matches!(action, Action::Send | Action::Find) && no_session > top_session {
@@ -316,11 +365,13 @@ pub fn read(req: &Request, response: &Value, ms: u64) -> Result<Route> {
     Ok(Route {
         action,
         actions,
-        sessions: sessions.into_iter().take(TOP).collect(),
+        sessions: sessions.into_iter().filter(|s| s.p >= SCORED_AT).take(SCORED).collect(),
         no_session,
         lanes: lanes.into_iter().take(TOP).collect(),
         repos: repos.into_iter().take(TOP).collect(),
         own_worktree: answers["own_worktree"]["noul"].as_f64().unwrap_or(0.0),
+        duplicate,
+        effort: answers["effort"]["score"].as_f64().unwrap_or(1.0),
         model: response["model"].as_str().unwrap_or_default().to_string(),
         ms,
         input_tokens: response["usage"]["input_tokens"].as_u64().unwrap_or(0),
@@ -354,6 +405,8 @@ mod tests {
             title: title.into(),
             cwd: "/r".into(),
             work: vec![],
+            reply_tail: None,
+            first_prompt: None,
             name: None,
             started_at: None,
             status_since: None,
@@ -370,6 +423,8 @@ mod tests {
             archived: false,
             attach_command: None,
             stalled_since: None,
+            background: None,
+            insight: None,
         }
     }
 
@@ -394,6 +449,7 @@ mod tests {
             pr: None,
             git: None,
             last_activity: at,
+            looks_finished: false,
             targets: vec![],
             default_target: None,
         }
@@ -435,6 +491,26 @@ mod tests {
         assert_eq!(req.body["questions"]["worktree"]["criteria"]["w2"]["worktree"], "api (main checkout of api)");
         assert_eq!(req.body["questions"]["worktree"]["criteria"]["w2"]["recent sessions"], json!(["Fix login", "Old stopped"]));
         assert_eq!(req.body["model"], "jev-latest");
+        // Only running sessions that aren't waiting on you could already be doing it.
+        let dup = req.body["questions"]["duplicate"]["criteria"].as_object().unwrap();
+        assert_eq!(dup.keys().collect::<Vec<_>>(), vec!["none", "s1", "s2"]);
+        assert_eq!(req.body["questions"]["effort"]["criteria"].as_array().unwrap().len(), 4);
+    }
+
+    #[test]
+    fn reads_a_duplicate_only_when_jev_is_fairly_sure_and_the_effort() {
+        let b = board();
+        let req = request(&b, "Acme", "fix the login bug", "m", NOW).unwrap();
+        let mut v = answer(&[("start", 1.0)], &[("s1", 0.5), ("s2", 0.005), ("none", 0.495)], &[("w1", 1.0)], 0.0);
+        v["answers"]["duplicate"]["probabilities"] = json!({ "s1": 0.7, "none": 0.3 });
+        v["answers"]["effort"]["score"] = json!(0.4);
+        let r = read(&req, &v, 1).unwrap();
+        assert_eq!(r.duplicate, Some(Pick { id: "c:1".into(), p: 0.7 }));
+        assert_eq!(r.effort, 0.4);
+        // Sessions Jev gives next to no chance aren't ranked.
+        assert_eq!(r.sessions.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(), vec!["c:1"]);
+        v["answers"]["duplicate"]["probabilities"] = json!({ "s1": 0.45, "none": 0.55 });
+        assert_eq!(read(&req, &v, 1).unwrap().duplicate, None);
     }
 
     #[test]
@@ -455,6 +531,8 @@ mod tests {
                 "session": { "type": "choice", "probabilities": map(session) },
                 "worktree": { "type": "choice", "probabilities": map(worktree) },
                 "own_worktree": { "type": "noul", "noul": own },
+                "duplicate": { "type": "choice", "probabilities": map(&[("none", 1.0)]) },
+                "effort": { "type": "score", "score": 1.2 },
             },
             "usage": { "input_tokens": 1234, "output_tokens": 50 },
         })

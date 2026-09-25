@@ -7,6 +7,7 @@ import { absolute, ago, agoPhrase, middleTruncate } from '../format';
 import { AGENT_BAY, withoutAccount, type AgentItem, type WorktreeRow } from '../lanes';
 import type { GitInfo, Lane, Pr, Session, Todo } from '../types';
 import { HarnessChip, Icon, LaneGlyph, PrChip, Rich, StatusGlyph } from './primitives';
+import { InsightChips, LooksFinished } from './InsightBits';
 import { TodoChips } from './TodoBits';
 
 interface LaneRowProps {
@@ -155,6 +156,7 @@ function WorktreeOnlyRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpe
             {extra > 0 && <span className="ca-chip ca-chip--more">+{extra}</span>}
             {chips.length === 0 && <span className="ca-none">{lane.sessions.length ? `No agents today · ${lane.sessions.length} earlier` : 'No agents'}</span>}
             <TodoChips todos={todos} onShow={onShowTodo} />
+            <LooksFinished lane={lane} />
           </span>
           <span className="ca-lane-right">
             {lane.pr && <PrChip pr={lane.pr} compact />}
@@ -313,6 +315,7 @@ function AgentLine({ item, now, domId, selected, pinned, onSelect, onOpen, onCon
           }}
         />
         <TodoChips todos={todos} onShow={onShowTodo} />
+        <InsightChips session={s} />
         <span className="ca-agentline-text">
           <span className="ca-lane-headline">
             <Rich text={withoutAccount(s.headline)} now={now} />
@@ -400,6 +403,7 @@ export function AgentRow({ lane, session: s, domId, now, selected, onSelect, onO
           <span className="ca-lane-agents">
             <HarnessChip session={s} onOpen={onOpen} />
             <TodoChips todos={todos} onShow={onShowTodo} />
+            <InsightChips session={s} />
           </span>
           <span className="ca-lane-right">
             {lane.pr && <PrChip pr={lane.pr} compact />}

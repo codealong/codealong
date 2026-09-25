@@ -3,15 +3,45 @@
 // sessions it's linked to, drawn like the sidebar's tree.
 // Everything saves as you go. Start session opens the new-session sheet with the todo as the
 // prompt, and the session it starts is linked to the todo.
+// With `[jev] todos` on, Jev's suggestions for its project, labels and what it waits on show as
+// chips to click, and a todo whose linked work looks done says so, with Mark done and Not yet.
 
 import { useEffect, useRef, useState } from 'react';
+import { suggestTodo } from '../api';
 import { below } from '../contextMenu';
 import { absolute, ago, middleTruncate } from '../format';
-import { cantWaitOn, dependents, depsOf, newId, nextColor, SECTION_WORD, sectionOf, STATUSES, STATUS_WORD, waitsOnTodos, type TodoItem, type TodoOp, type TodoPlace } from '../todos';
-import type { Label, Lane, Session, Todo } from '../types';
+import { cantWaitOn, dependents, depsOf, newId, nextColor, SECTION_WORD, sectionOf, STATUSES, STATUS_WORD, todoSuggestions, waitsOnTodos, worthSuggesting, type TodoItem, type TodoOp, type TodoPlace } from '../todos';
+import type { Label, Lane, Session, Todo, TodoHint, TodoSuggested } from '../types';
 import { DescriptionEditor } from './DescriptionEditor';
 import { Button, Icon, Kbd, LaneGlyph, StatusGlyph } from './primitives';
 import { LabelDot, TodoGlyph } from './TodoBits';
+
+/** How long the title and description have to rest before Jev is asked about them. */
+const SUGGEST_AFTER_MS = 800;
+
+/** Jev's suggestions for a todo, asked once its title says something and typing has paused, and
+ *  again when the title, description or project change. A failure (no key, off) shows nothing. */
+function useSuggested(todo: Todo, on: boolean): TodoSuggested | null {
+  const [got, setGot] = useState<{ for: string; s: TodoSuggested } | null>(null);
+  const key = on && todo.status !== 'done' && worthSuggesting(todo) ? [todo.id, todo.project, todo.title, todo.description].join('\n') : null;
+  const latest = useRef(todo);
+  latest.current = todo;
+  useEffect(() => {
+    if (!key) return;
+    let live = true;
+    const id = window.setTimeout(() => {
+      const t = latest.current;
+      suggestTodo(t.id, t.title, t.description, t.project)
+        .then((s) => live && setGot({ for: key, s }))
+        .catch(() => {});
+    }, SUGGEST_AFTER_MS);
+    return () => {
+      live = false;
+      window.clearTimeout(id);
+    };
+  }, [key]);
+  return got && got.for === key ? got.s : null;
+}
 
 /** The title, as a heading you can type in. Return or leaving it saves. */
 function TitleField({ value, onSave }: { value: string; onSave: (title: string) => void }) {
@@ -371,9 +401,16 @@ interface TodoPanelProps {
   /** Right-click on a label in the picker. */
   onLabelMenu: (label: Label, rename: () => void) => void;
   onError: (message: string) => void;
+  /** Jev says its work looks done. */
+  hint?: TodoHint | null;
+  onDismissHint?: () => void;
+  /** `[jev] todos` is on: ask Jev for its project, labels and what it waits on. */
+  suggest?: boolean;
+  /** The projects a todo can be in. */
+  projects?: string[];
 }
 
-export function TodoPanel({ item, todos, onShowTodo, labels, lanes, now, onRun, onStart, onOpenSession, onShowLane, onLaneMenu, onSessionMenu, onLinkMenu, onMoreMenu, onLabelMenu, onError }: TodoPanelProps) {
+export function TodoPanel({ item, todos, onShowTodo, labels, lanes, now, onRun, onStart, onOpenSession, onShowLane, onLaneMenu, onSessionMenu, onLinkMenu, onMoreMenu, onLabelMenu, onError, hint, onDismissHint, suggest = false, projects = [] }: TodoPanelProps) {
   const { todo } = item;
   const section = sectionOf(todo, todos);
   const [picking, setPicking] = useState(false);
@@ -385,6 +422,8 @@ export function TodoPanel({ item, todos, onShowTodo, labels, lanes, now, onRun, 
   const toggleLabel = (id: string) => update({ labels: todo.labels.includes(id) ? todo.labels.filter((l) => l !== id) : [...todo.labels, id] });
   const shownLabels = todo.labels.flatMap((id) => labels.find((l) => l.id === id) ?? []);
   const waiting = todo.pending.map((p) => ({ p, lane: lanes.get(p.lane) }));
+  const suggested = useSuggested(todo, suggest);
+  const offer = suggested ? todoSuggestions(suggested, todo, labels, todos, projects) : null;
 
   return (
     <aside className="ca-insp ca-todoinsp" aria-label="Todo details">
@@ -393,6 +432,12 @@ export function TodoPanel({ item, todos, onShowTodo, labels, lanes, now, onRun, 
           <TodoGlyph status={todo.status} waiting={section === 'waiting'} size={14} />
           <span className="ca-tag">{SECTION_WORD[section]}</span>
           {todo.project && <span className="ca-tag">{todo.project}</span>}
+          {offer?.project && (
+            <button type="button" className="ca-tag ca-suggestchip" title="Suggested by Jev. Click to move it there." onClick={() => update({ project: offer.project ?? undefined })}>
+              <Icon name="sparkles" size={11} />
+              {todo.project ? `Move to ${offer.project}?` : `In ${offer.project}?`}
+            </button>
+          )}
           <Button variant="ghost" size="sm" icon="dots" aria-label="More" title="Move, copy or delete" className="ca-todoinsp-more" onClick={(e) => onMoreMenu(below(e.currentTarget))} />
         </div>
         <TitleField value={todo.title} onSave={(title) => update({ title })} />
@@ -414,6 +459,22 @@ export function TodoPanel({ item, todos, onShowTodo, labels, lanes, now, onRun, 
         </div>
       </div>
 
+      {hint && todo.status !== 'done' && (
+        <div className="ca-todohint" role="status">
+          <Icon name="check" size={14} />
+          <span className="ca-todohint-text">
+            <b>Looks done</b>
+            <span title={`Jev is ${Math.round(hint.p * 100)}% sure`}>{hint.why}</span>
+          </span>
+          <Button size="sm" onClick={() => update({ status: 'done' })}>
+            Mark done
+          </Button>
+          <Button variant="ghost" size="sm" title="Asks again once something linked to it moves on" onClick={onDismissHint}>
+            Not yet
+          </Button>
+        </div>
+      )}
+
       <section className="ca-insp-sec">
         <h4 className="ca-label">Labels</h4>
         <div className="ca-todoinsp-labels">
@@ -425,6 +486,13 @@ export function TodoPanel({ item, todos, onShowTodo, labels, lanes, now, onRun, 
                 <Icon name="x" size={10} stroke={2.25} />
               </button>
             </span>
+          ))}
+          {offer?.labels.map((l) => (
+            <button key={l.id} type="button" className="ca-labelchip ca-labelchip--button ca-suggestchip" title={`Suggested by Jev. Click to add “${l.name}”.`} onClick={() => toggleLabel(l.id)}>
+              <Icon name="sparkles" size={11} />
+              <LabelDot label={l} />
+              <span>{l.name}?</span>
+            </button>
           ))}
           <span className="ca-labelpick-anchor">
             <button type="button" className="ca-labelchip ca-labelchip--add" aria-expanded={picking} onClick={() => setPicking(!picking)}>
@@ -468,6 +536,12 @@ export function TodoPanel({ item, todos, onShowTodo, labels, lanes, now, onRun, 
               </button>
             </span>
           )}
+          {offer?.dependsOn.map((t) => (
+            <button key={t.id} type="button" className="ca-labelchip ca-labelchip--button ca-suggestchip" title={`Suggested by Jev: it may need “${t.title || 'Untitled'}” done first. Click to wait on it.`} onClick={() => setDeps([...depsOf(todo), t.id])}>
+              <Icon name="sparkles" size={11} />
+              <span className="ca-waitnote-text">{middleTruncate(t.title || 'Untitled', 40)}?</span>
+            </button>
+          ))}
           <span className="ca-labelpick-anchor ca-waitpick-anchor">
             <button type="button" className="ca-labelchip ca-labelchip--add" aria-expanded={pickingWait} onClick={() => setPickingWait(!pickingWait)}>
               <Icon name="lock" size={12} />

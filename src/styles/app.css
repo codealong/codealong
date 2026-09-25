@@ -1769,6 +1769,52 @@ body.is-resizing * {
 .ca-prinsp-reviews li.is-requested > span:nth-child(2) {
   color: var(--attn);
 }
+/* A PR's comments; the ones asking for a change are marked (Jev, when it's on). */
+.ca-prcomments {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ca-prcomment {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.ca-prcomment:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+.ca-prcomment:disabled {
+  cursor: default;
+}
+.ca-prcomments li.is-asks .ca-prcomment {
+  box-shadow: inset 2px 0 0 var(--attn-solid);
+}
+.ca-prcomment-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.ca-prcomment-head .ca-tag {
+  height: 18px;
+}
+.ca-prcomment-body {
+  font: 400 12px/16px var(--font-sans);
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+.ca-prcomments-asks {
+  color: var(--attn);
+}
 /* GitHub's rendering of the description. */
 .ca-prbody {
   overflow-wrap: anywhere;
@@ -3225,6 +3271,15 @@ html.is-quick body {
   font: 400 12px/16px var(--font-sans);
   color: var(--ink-3);
 }
+/* A line of what was said, for a session found by its conversation. */
+.ca-quick-row-why.is-said mark {
+  background: transparent;
+  color: var(--ink-2);
+  font-weight: 500;
+  text-decoration: underline;
+  text-decoration-color: var(--line-strong);
+  text-underline-offset: 2px;
+}
 .ca-quick-row-where {
   flex: none;
   max-width: 210px;
@@ -3675,4 +3730,80 @@ html.is-quick body {
 }
 .ca-jev-model {
   justify-self: start;
+}
+
+/* Jev on todos: suggestions to click, and a todo whose work looks done. */
+.ca-suggestchip {
+  gap: 4px;
+  border: 1px dashed var(--line-strong);
+  background: transparent;
+  color: var(--ink-2);
+  font-family: var(--font-sans);
+  cursor: pointer;
+}
+.ca-suggestchip:hover {
+  border-style: solid;
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+.ca-tag.ca-suggestchip {
+  display: inline-flex;
+  align-items: center;
+}
+.ca-chip.ca-todorow-done {
+  gap: 3px;
+  font-family: var(--font-sans);
+  color: var(--pr-open);
+  background: var(--pr-open-tint);
+}
+.ca-todohint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 16px 4px;
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  background: var(--pr-open-tint);
+  color: var(--pr-open);
+}
+.ca-todohint .ca-icon {
+  flex: none;
+}
+.ca-todohint-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  font: 400 12px/16px var(--font-sans);
+  color: var(--ink-2);
+}
+.ca-todohint-text b {
+  font-weight: 600;
+  color: var(--pr-open);
+}
+/* Jev's read of a session or worktree (InsightBits.tsx). */
+.ca-chip.ca-insight {
+  padding: 0 7px;
+  font-family: var(--font-sans);
+  font-weight: 600;
+}
+.ca-chip.ca-insight.is-good {
+  background: var(--pr-open-tint);
+  color: var(--pr-open);
+}
+.ca-chip.ca-insight.is-info {
+  background: var(--unread-tint);
+  color: var(--unread);
+}
+.ca-chip.ca-insight.is-warn {
+  background: var(--attn-tint);
+  color: var(--attn);
+}
+.ca-chip.ca-insight.is-bad {
+  background: var(--alert-tint);
+  color: var(--alert);
+}
+.ca-chip.ca-insight.is-quiet {
+  background: var(--neutral-tint);
+  color: var(--ink-3);
 }

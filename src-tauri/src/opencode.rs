@@ -33,6 +33,8 @@ pub struct SessionRow {
     pub last_prompt_at: Option<i64>,
     /// The latest assistant text, first line.
     pub last_text: Option<String>,
+    /// The end of the latest assistant text, for Jev.
+    pub last_text_tail: Option<String>,
     /// The tool the latest assistant message is on, e.g. "bash · `npm test`".
     pub last_tool: Option<String>,
     /// The newest write to the session or its messages.
@@ -140,6 +142,7 @@ fn read_sessions_from(db: &Connection, since_ms: i64, keep: &HashSet<String>) ->
             "assistant" => {
                 let (text, tool) = assistant_summary(&v);
                 row.last_text = text;
+                row.last_text_tail = last_text_part(&v).map(|t| crate::jev::tail(t, 600)).filter(|t| !t.is_empty());
                 row.last_tool = tool;
             }
             _ => {}
@@ -150,7 +153,61 @@ fn read_sessions_from(db: &Connection, since_ms: i64, keep: &HashSet<String>) ->
     Ok(out)
 }
 
+/// A message's words, for searching sessions' text (search.rs).
+pub struct Prose {
+    pub id: String,
+    pub session: String,
+    pub at: i64,
+    pub updated: i64,
+    /// You sent it; otherwise the agent said it.
+    pub you: bool,
+    pub text: String,
+}
+
+/// The text of messages written since `after` (by `time_updated`, since a reply streams into
+/// its row) in top-level sessions updated since `since_ms`.
+pub fn read_prose(home: &Path, since_ms: i64, after: i64) -> Vec<Prose> {
+    let Some(db) = open(&home.join("opencode.db")) else { return Vec::new() };
+    let read = || -> rusqlite::Result<Vec<Prose>> {
+        let mut stmt = db.prepare(
+            "SELECT m.id, m.session_id, m.type, m.time_created, m.time_updated, m.data FROM session_message m \
+             JOIN session_v2 s ON s.id = m.session_id \
+             WHERE s.parent_id IS NULL AND s.time_updated >= ?1 AND m.time_updated > ?2 AND m.type IN ('user', 'assistant')",
+        )?;
+        let rows = stmt.query_map([since_ms, after], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?, r.get::<_, i64>(3)?, r.get::<_, i64>(4)?, r.get::<_, String>(5)?))
+        })?;
+        Ok(rows
+            .flatten()
+            .filter_map(|(id, session, kind, at, updated, data)| {
+                let v: Value = serde_json::from_str(&data).ok()?;
+                let you = kind == "user";
+                let text = if you {
+                    v.get("text").and_then(Value::as_str)?.to_string()
+                } else {
+                    let parts = v.get("content")?.as_array()?;
+                    parts.iter().filter(|p| p.get("type").and_then(Value::as_str) == Some("text")).filter_map(|p| p.get("text").and_then(Value::as_str)).collect::<Vec<_>>().join("\n")
+                };
+                let text = text.trim().to_string();
+                (!text.is_empty()).then_some(Prose { id, session, at, updated, you, text })
+            })
+            .collect())
+    };
+    read().unwrap_or_default()
+}
+
 /// The latest text and the latest tool call in an assistant message's content.
+/// The latest text part of an assistant message, whole.
+fn last_text_part(message: &Value) -> Option<&str> {
+    message
+        .get("content")?
+        .as_array()?
+        .iter()
+        .rev()
+        .filter(|p| p.get("type").and_then(Value::as_str) == Some("text"))
+        .find_map(|p| p.get("text").and_then(Value::as_str))
+}
+
 fn assistant_summary(message: &Value) -> (Option<String>, Option<String>) {
     let parts = message.get("content").and_then(Value::as_array).cloned().unwrap_or_default();
     let text = parts

@@ -21,6 +21,7 @@ use crate::config::{self, AccountCfg, Config};
 use crate::engine;
 use crate::model::{Board, Lane, Session, Status};
 use crate::procs;
+use crate::search;
 use crate::server::{self, Request};
 use crate::start::{self, Place, StartSpec};
 use crate::todos::{self, Label, Todo, TodoOp, TodoPatch, TodoStatus, TodoStore, Waiting, LABEL_COLORS};
@@ -303,7 +304,7 @@ struct SessionsArgs {
 
 #[derive(Subcommand, Debug)]
 enum SessionsCmd {
-    /// Sessions whose title, excerpt, account, worktree, branch or PR contains the words (all of them, any case).
+    /// Sessions whose title, excerpt, account, worktree, branch or PR contains the words (all of them, any case), or whose prompts and replies do, for sessions active in the last `[search] days`.
     Find {
         query: Vec<String>,
         #[command(flatten)]
@@ -484,6 +485,23 @@ impl Client {
             self.board = Some(board);
         }
         Ok(self.board.as_ref().unwrap())
+    }
+
+    /// Session key → a line of what was said, for sessions whose prompts and replies have
+    /// every word: the app's index, or one built from the files now.
+    fn search_text(&mut self, words: &[String]) -> HashMap<String, String> {
+        let from_app = match self.app.is_some() {
+            true => match server::ask(&Request::Search { words: words.to_vec() }) {
+                Some(Ok(v)) => serde_json::from_value::<search::Found>(v).ok(),
+                _ => None,
+            },
+            false => None,
+        };
+        let found = from_app.unwrap_or_else(|| {
+            let cfg = self.cfg().clone();
+            search::find_now(search::Scope { accounts: cfg.accounts, days: cfg.search.days }, words, 1000)
+        });
+        found.hits.into_iter().map(|h| (h.key, h.snippet)).collect()
     }
 
     fn todos(&mut self) -> Result<TodoStore> {
@@ -781,6 +799,9 @@ struct SessionRow {
     attach_command: Option<String>,
     /// Ids of todos linked to it.
     todos: Vec<String>,
+    /// Where a search found the words in what was said, when it did: a line of the message.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    said: Option<String>,
 }
 
 fn session_row(s: &Session, lane: &Lane, todos: &[Todo]) -> SessionRow {
@@ -806,6 +827,7 @@ fn session_row(s: &Session, lane: &Lane, todos: &[Todo]) -> SessionRow {
         resume_command: s.resume_command.clone(),
         attach_command: s.attach_command.clone(),
         todos: todos.iter().filter(|t| t.sessions.contains(&s.key)).map(|t| t.id.clone()).collect(),
+        said: None,
     }
 }
 
@@ -834,9 +856,10 @@ fn sessions(c: &mut Client, f: &SessionFilter, query: &[String], json: bool) -> 
     let since = parse_since(&f.since)?;
     let status = f.status.as_deref().map(parse_status).transpose()?;
     let worktree = f.worktree.as_deref().map(|w| resolve_worktree(c, w)).transpose()?;
-    let board = c.board()?;
     let now = now_ms();
     let words: Vec<String> = query.iter().flat_map(|q| q.split_whitespace()).map(str::to_lowercase).collect();
+    let said = if words.is_empty() { HashMap::new() } else { c.search_text(&words) };
+    let board = c.board()?;
     let mut rows: Vec<SessionRow> = all_sessions(board)
         .into_iter()
         .filter(|(s, lane)| {
@@ -849,10 +872,10 @@ fn sessions(c: &mut Client, f: &SessionFilter, query: &[String], json: bool) -> 
                 && since.map_or(true, |ms| now - s.last_activity <= ms)
                 && (words.is_empty() || {
                     let hay = [s.title.as_str(), s.account.as_str(), s.excerpt.as_deref().unwrap_or(""), lane.callsign.as_str(), lane.repo.as_str(), lane.branch.as_deref().unwrap_or(""), &lane.pr.as_ref().map(|p| format!("#{} {}", p.number, p.title)).unwrap_or_default()].join(" ").to_lowercase();
-                    words.iter().all(|w| hay.contains(w))
+                    words.iter().all(|w| hay.contains(w)) || said.contains_key(&s.key)
                 })
         })
-        .map(|(s, lane)| session_row(s, lane, &board.todos))
+        .map(|(s, lane)| SessionRow { said: said.get(&s.key).cloned(), ..session_row(s, lane, &board.todos) })
         .collect();
     rows.sort_by(|a, b| (b.status == "needs").cmp(&(a.status == "needs")).then(b.last_prompt_at.cmp(&a.last_prompt_at)));
     rows.truncate(f.limit);
@@ -861,7 +884,7 @@ fn sessions(c: &mut Client, f: &SessionFilter, query: &[String], json: bool) -> 
     }
     let table: Vec<Vec<String>> = rows
         .iter()
-        .map(|r| vec![r.status.clone(), r.account.clone(), ago(now - r.last_activity), r.worktree_short(), truncate(&r.title, 50), truncate(r.excerpt.as_deref().unwrap_or(""), 60), r.key.clone()])
+        .map(|r| vec![r.status.clone(), r.account.clone(), ago(now - r.last_activity), r.worktree_short(), truncate(&r.title, 50), truncate(r.said.as_deref().or(r.excerpt.as_deref()).unwrap_or(""), 60), r.key.clone()])
         .collect();
     print!("{}", table_text(&["STATUS", "ACCOUNT", "AGO", "WORKTREE", "TITLE", "EXCERPT", "KEY"], table));
     Ok(())

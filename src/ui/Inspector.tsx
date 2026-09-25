@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { absolute, ago, count, middleTruncate, tildePath } from '../format';
 import { HARNESS_APP } from '../harness';
 import type { Board, Lane, Origin, Session, Target, Todo } from '../types';
+import { InsightChips } from './InsightBits';
 import { BranchLabel, Button, HarnessChip, Icon, Kbd, LaneGlyph, PrChip, Rich, StatusGlyph } from './primitives';
 import { TodoChips, TodoGlyph } from './TodoBits';
 import { STATUS_WORD } from '../todos';
@@ -125,6 +126,7 @@ function SessionRow({ session: s, now, focused, onOpen, todos, onShowTodo }: { s
           {s.live && s.pid ? <span>pid {s.pid}</span> : null}
           {s.visitor ? <span>{s.visitor}</span> : null}
           <TodoChips todos={todos} onShow={onShowTodo} />
+          <InsightChips session={s} />
         </div>
         {s.excerpt && (
           <div className="ca-srow-excerpt">
@@ -193,7 +195,7 @@ export function Inspector({ lane, focusKey, apps, now, onOpen, onNewSession, tod
       <div className="ca-insp-actions">
         <OpenInMenu targets={lane.targets} defaultId={lane.defaultTarget} onOpen={onOpen} />
         <Button icon="plus" title="New session here (⌘N)" aria-label="New session here" onClick={onNewSession} />
-        <Button icon="terminal" title={`New ${apps.terminal} window here`} aria-label={`New ${apps.terminal} window here`} onClick={() => onOpen('l|terminal')} />
+        <Button icon="terminal" title={`New ${apps.terminal} terminal here`} aria-label={`New ${apps.terminal} terminal here`} onClick={() => onOpen('l|terminal')} />
         <Button icon="code" title={`Open in ${apps.editor}`} aria-label={`Open in ${apps.editor}`} onClick={() => onOpen('l|editor')} />
         {pr && <Button icon="external" title={`Open #${pr.number} on GitHub`} aria-label={`Open #${pr.number} on GitHub`} onClick={() => onOpen('p|github')} />}
       </div>

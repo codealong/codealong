@@ -437,6 +437,7 @@ dependencies = [
  "dirs",
  "ignore",
  "libc",
+ "memchr",
  "notify",
  "objc2",
  "objc2-app-kit",
