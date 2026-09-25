@@ -2262,10 +2262,6 @@ html.is-bar body {
   background: var(--unread-tint);
   color: var(--unread);
 }
-/* Todos ready to start wait on no one: a plain pill, its box drawn in the text's color. */
-.ca-hud-pill.is-todos .ca-tg-box {
-  stroke: currentColor;
-}
 .ca-hud-fold {
   padding: 0 9px 0 7px;
   font: 500 11px/14px var(--font-mono);

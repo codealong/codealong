@@ -15,7 +15,6 @@ import { ALL_PROJECTS, inProject } from '../quick';
 import type { BarFeed, BarItem, BarReview, BarTodo, Status } from '../types';
 import { Icon, Mark, STATUS_WORD, StatusGlyph } from './primitives';
 import { applyTheme } from './ThemeSwitch';
-import { TodoGlyph } from './TodoBits';
 import { LOGO_LABEL, useLogo } from '../logo';
 
 /** Room around the bar for its shadow: the window is this much bigger on every side. */
@@ -170,7 +169,7 @@ function TodosPill({ todos, onOpen, onMenu, measure }: { todos: BarTodo[]; onOpe
           : undefined
       }
     >
-      <TodoGlyph status="todo" title="" />
+      <Icon name="list-check" size={12} stroke={1.75} />
       <span>{todos.length} ready</span>
     </button>
   );
