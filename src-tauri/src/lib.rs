@@ -24,6 +24,8 @@ mod perf;
 mod procs;
 mod quick;
 mod repos;
+mod send;
+mod route;
 mod server;
 mod start;
 mod state;
@@ -190,6 +192,41 @@ fn start_from_quick(app: tauri::AppHandle, engine: State<'_, engine::Handle>, sp
         bar::bring_forward(&app, bundle);
     }
     Ok(started)
+}
+
+/// Where what's typed in the quick panel should go, from Jev (route.rs).
+#[tauri::command(async)]
+fn route_quick(engine: State<'_, engine::Handle>, project: String, text: String) -> Result<route::Route, String> {
+    let cfg = config::load().map_err(|e| format!("{e:#}"))?.unwrap_or_default();
+    if !cfg.router.enabled {
+        return Err("Routing is off.".into());
+    }
+    route::route(&engine.board(), &cfg, &project, &text).map_err(|e| format!("{e:#}"))
+}
+
+/// Sends a prompt to a session that's already going, where it runs (send.rs).
+#[tauri::command(async)]
+fn send_to_session(engine: State<'_, engine::Handle>, key: String, text: String) -> Result<send::Sent, String> {
+    let cfg = config::load().map_err(|e| format!("{e:#}"))?.unwrap_or_default();
+    send::send(&engine.board(), &cfg, &key, &text).map_err(|e| format!("{e:#}"))
+}
+
+/// Whether there's a TypeSafe API key, for Settings. Reads no secret.
+#[tauri::command(async)]
+fn router_key() -> bool {
+    route::has_key()
+}
+
+/// Saves the TypeSafe API key in the keychain, or removes it when it's empty.
+#[tauri::command(async)]
+fn set_router_key(key: String) -> Result<(), String> {
+    if key.trim().is_empty() { route::delete_key() } else { route::save_key(&key) }.map_err(|e| format!("{e:#}"))
+}
+
+/// One small call to TypeSafe, for Settings' Test button.
+#[tauri::command(async)]
+fn test_router(model: String) -> Result<String, String> {
+    route::check(model.trim()).map_err(|e| format!("{e:#}"))
 }
 
 /// The quick panel's shortcut and why it isn't working, if it isn't.
@@ -565,7 +602,7 @@ pub fn run() {
             quick::on_window_event(window, event);
         })
         .register_asynchronous_uri_scheme_protocol("codealong-image", |_ctx, request, responder| serve_image(request, responder))
-        .invoke_handler(tauri::generate_handler![get_board, open_target, open_config, mark_seen, refresh, refresh_usage, set_pinned, set_pinned_worktrees, archive_session, pr_detail, approve_pr, review_in_codex, open_url, get_accounts, save_accounts, found_accounts, get_config, save_config, save_config_text, sign_in, agents_status, install_agents, start_options, start_session, todo_op, save_attachment, import_attachment, open_attachment, expand_attachments, set_theme, open_project_window, fit_bar, show_main, bar_feed, bar_on, set_bar_on, open_from_bar, show_quick, hide_quick, quick_ready, fit_quick, start_from_quick, quick_shortcut, pause_quick_shortcut, perf_mark])
+        .invoke_handler(tauri::generate_handler![get_board, open_target, open_config, mark_seen, refresh, refresh_usage, set_pinned, set_pinned_worktrees, archive_session, pr_detail, approve_pr, review_in_codex, open_url, get_accounts, save_accounts, found_accounts, get_config, save_config, save_config_text, sign_in, agents_status, install_agents, start_options, start_session, todo_op, save_attachment, import_attachment, open_attachment, expand_attachments, set_theme, open_project_window, fit_bar, show_main, bar_feed, bar_on, set_bar_on, open_from_bar, show_quick, hide_quick, quick_ready, fit_quick, start_from_quick, route_quick, send_to_session, router_key, set_router_key, test_router, quick_shortcut, pause_quick_shortcut, perf_mark])
         .build(tauri::generate_context!())
         .expect("error while running Codealong")
         .run(|app, event| {
@@ -594,6 +631,8 @@ pub fn is_cli(args: &[String]) -> bool {
 /// `codealong --snapshot --bar`: what the floating bar would show.
 /// `codealong --snapshot --open <lane id> <target id>`: opens a target the way a click does.
 /// `codealong --snapshot --pr <owner/name> <number>`: a PR's detail, as the PR panel gets it.
+/// `codealong --snapshot --route <text> [--project <name>]`: where the quick panel would suggest
+/// sending it (asks TypeSafe; needs the key).
 /// `codealong --snapshot --start-options`: where each account can start a session.
 /// `codealong --snapshot --start-plan <folder> <account> <place> [prompt] [--model <model>]
 /// [--worktree]`: what starting one would do, without doing it.
@@ -625,6 +664,25 @@ pub fn snapshot_cli(args: &[String]) -> i32 {
         let plan = start::plan(account, place, &util::expand(folder), &prompt, &start::new_session_id(), model.as_deref(), worktree);
         println!("{}", serde_json::to_string_pretty(&plan).unwrap_or_default());
         return 0;
+    }
+    if let Some(i) = args.iter().position(|a| a == "--route") {
+        let Some(text) = args.get(i + 1) else {
+            eprintln!("usage: codealong --snapshot --route <text> [--project <name>]");
+            return 2;
+        };
+        let project = args.iter().position(|a| a == "--project").and_then(|j| args.get(j + 1)).cloned().unwrap_or_else(|| route::ALL_PROJECTS.to_string());
+        let cfg = config::load().ok().flatten().unwrap_or_default();
+        let board = engine::snapshot(false, false);
+        return match route::route(&board, &cfg, &project, text) {
+            Ok(r) => {
+                println!("{}", serde_json::to_string_pretty(&r).unwrap_or_default());
+                0
+            }
+            Err(e) => {
+                eprintln!("{e:#}");
+                1
+            }
+        };
     }
     if args.iter().any(|a| a == "--config") {
         println!("{}", serde_json::to_string_pretty(&config::view()).unwrap_or_default());

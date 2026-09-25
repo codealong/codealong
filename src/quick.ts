@@ -17,7 +17,7 @@ export function inProject(lane: Lane, project: string): boolean {
   return lane.project === project && (project === ELSEWHERE || !lane.hidden);
 }
 
-export type RowGroup = 'needs' | 'unread' | 'working' | 'found' | 'todos';
+export type RowGroup = 'suggested' | 'needs' | 'unread' | 'working' | 'found' | 'todos';
 
 /** Where a status puts a session in the empty panel's list, as on the floating bar: errors wait
  *  on you like questions do. */

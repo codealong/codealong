@@ -28,6 +28,9 @@
 # PREVIEW_USAGE=<file> shows the plan usage in it (scripts/preview/usage-sample.json has some) in
 # place of the snapshot's, which has no Claude numbers: reading them rate-limits.
 #
+# PREVIEW_ROUTE=<file> turns routing on and answers the quick panel as Jev might, from the
+# board's own sessions and worktrees (scripts/preview/route-sample.json has one: see there).
+#
 # PREVIEW_FOUND=<file> lists the accounts in it under Settings › Accounts › Found on this Mac
 # (scripts/preview/found-sample.json has some) in place of the ones this Mac has but config.toml
 # doesn't list, which are often none.
@@ -63,6 +66,10 @@ cp scripts/preview/fake-tauri.js "$dir/"
 rm -f "$dir/todos-fixture.json"
 if [ -n "${PREVIEW_TODOS:-}" ]; then
   cp "$PREVIEW_TODOS" "$dir/todos-fixture.json"
+fi
+rm -f "$dir/route-fixture.json"
+if [ -n "${PREVIEW_ROUTE:-}" ]; then
+  cp "$PREVIEW_ROUTE" "$dir/route-fixture.json"
 fi
 rm -f "$dir/usage-fixture.json"
 if [ -n "${PREVIEW_USAGE:-}" ]; then

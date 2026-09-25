@@ -18,11 +18,14 @@ import {
   onQuickOpen,
   openFromBar,
   quickReady,
+  routeQuick,
+  sendToSession,
   showMain,
   showQuick,
   startFromQuick,
   startOptions,
   tellOpener,
+  todoOp,
   type QuickOpen,
 } from '../api';
 import { filesToAttach, keepFiles, useFileDrop } from '../attachInput';
@@ -49,8 +52,9 @@ import {
   type AgentOption,
   type AutoPick,
 } from '../start';
-import { attachmentsIn, blockedBy, insertAttachments, snippet, todoPrompt, withoutAttachment } from '../todos';
-import type { Attachment, Board, Lane, Meter, Session, StartOptions, StartPlace, StartSpec } from '../types';
+import { suggestions, sureness, todoTitle, worthRouting, type Suggestion } from '../route';
+import { attachmentsIn, blockedBy, insertAttachments, newTodo, snippet, todoPrompt, withoutAttachment } from '../todos';
+import type { Attachment, Board, Lane, Meter, Route, Session, StartOptions, StartPlace, StartSpec } from '../types';
 import { AttachmentStrip } from './DescriptionEditor';
 import { Picker, type PickerOption, type PickerSection } from './Picker';
 import { Icon, Kbd, Mark, STATUS_WORD, StatusGlyph } from './primitives';
@@ -69,9 +73,20 @@ const OPTIONS_FOR_MS = 60_000;
 
 type PickerKind = 'project' | 'worktree' | 'agent';
 
-const GROUP_WORD: Record<RowGroup, string> = { needs: 'Needs you', unread: 'Your turn', working: 'Working', found: 'Sessions', todos: 'Todos' };
+const GROUP_WORD: Record<RowGroup, string> = { suggested: 'Suggested', needs: 'Needs you', unread: 'Your turn', working: 'Working', found: 'Sessions', todos: 'Todos' };
 
-type Row = SessionRow | TodoRow;
+/** A suggestion from Jev, as a row. */
+interface SuggestRow {
+  kind: 'suggest';
+  key: string;
+  group: 'suggested';
+  s: Suggestion;
+}
+
+type Row = SessionRow | TodoRow | SuggestRow;
+
+/** How long typing has to pause before what's typed goes to Jev. */
+const ROUTE_AFTER_MS = 350;
 
 function plain(e: unknown): string {
   return String(e).replace(/^Error: /, '');
@@ -160,6 +175,9 @@ export function Quick() {
   const textNow = useRef(text);
   textNow.current = text;
   const cachedOptions = useRef<{ at: number; options: StartOptions } | null>(null);
+  // Jev's answers by project and text, so going back to what you typed doesn't ask again. Each
+  // open starts afresh: sessions come and go.
+  const routes = useRef(new Map<string, Route>());
   // What you'd typed when you last closed the panel without acting on it. Every open starts empty,
   // so the list is what needs you and ⏎ goes to it; ↑ in the empty input brings the draft back.
   const [draft, setDraft] = useState<{ text: string; todo: string | null } | null>(null);
@@ -171,6 +189,7 @@ export function Quick() {
     const open = (ctx: QuickOpen) => {
       setPicker(null);
       if (!ctx.keep) {
+        routes.current.clear();
         setOpener(ctx.opener ?? null);
         setError(null);
         setProject(ctx.project ?? storedProject() ?? ALL_PROJECTS);
@@ -358,7 +377,40 @@ export function Quick() {
   const attention = useMemo(() => (board && !query && !todo ? attentionRows(board, current) : null), [board, current, query, todo]);
   const foundSessions = useMemo(() => (board && query ? findSessions(board, current, query, FOUND_SESSIONS) : []), [board, current, query]);
   const foundTodos = useMemo(() => (board && query ? findTodos(board, current, query) : []), [board, current, query]);
-  const rows: Row[] = query ? [...foundSessions, ...foundTodos] : (attention?.rows ?? []);
+
+  // With routing on, what you type goes to Jev once you pause, and its suggestions lead the
+  // list, so ⏎ does the likeliest. A word or two is a search and isn't sent.
+  const routeFor = board?.routerOn && !todo && worthRouting(query) ? `${current}\n${query}` : null;
+  const [routed, setRouted] = useState<{ for: string; route: Route } | null>(null);
+  const [routeError, setRouteError] = useState<{ for: string; message: string } | null>(null);
+  useEffect(() => {
+    if (!routeFor) return;
+    const cached = routes.current.get(routeFor);
+    if (cached) {
+      setRouted({ for: routeFor, route: cached });
+      return;
+    }
+    let live = true;
+    const at = routeFor.indexOf('\n');
+    const id = window.setTimeout(() => {
+      routeQuick(routeFor.slice(0, at), routeFor.slice(at + 1))
+        .then((r) => {
+          routes.current.set(routeFor, r);
+          if (live) setRouted({ for: routeFor, route: r });
+        })
+        .catch((e: unknown) => live && setRouteError({ for: routeFor, message: plain(e) }));
+    }, ROUTE_AFTER_MS);
+    return () => {
+      live = false;
+      window.clearTimeout(id);
+    };
+  }, [routeFor]);
+  const route = routeFor && routed?.for === routeFor ? routed.route : null;
+  const routeProblem = routeFor && routeError?.for === routeFor ? routeError.message : null;
+  const routing = !!routeFor && !route && !routeProblem;
+  const suggested = useMemo<SuggestRow[]>(() => (board && route ? suggestions(route, board).map((sg) => ({ kind: 'suggest', key: sg.key, group: 'suggested', s: sg })) : []), [board, route]);
+
+  const rows: Row[] = query ? [...suggested, ...foundSessions, ...foundTodos] : (attention?.rows ?? []);
   const keys = [...rows.map((r) => r.key), COMPOSE];
   const active = activeKey && keys.includes(activeKey) ? activeKey : keys[0];
 
@@ -427,6 +479,22 @@ export function Quick() {
   };
 
   const rowMenu = (r: Row) => {
+    if (r.kind === 'suggest') {
+      const sg = r.s;
+      if (sg.kind === 'send' || sg.kind === 'open') {
+        void showContextMenu([
+          ...(sg.kind === 'send' ? [{ label: 'Send this prompt to it', run: () => send(sg.session) }] : []),
+          { label: 'Open', run: () => openSession(sg.lane, sg.session) },
+          { label: 'Show in Codealong', run: () => revealSession(sg.lane, sg.session) },
+        ]);
+      } else {
+        void showContextMenu([
+          { label: `Start a session in ${sg.lane.callsign}`, run: () => start({ lane: sg.lane, newWorktree: sg.kind === 'start' && sg.newWorktree }) },
+          { label: `Save as a todo in ${sg.lane.project}`, run: () => saveTodo(sg.lane) },
+        ]);
+      }
+      return;
+    }
     if (r.kind === 'session') {
       void showContextMenu([
         { label: 'Open', run: () => openSession(r.lane, r.session) },
@@ -463,13 +531,16 @@ export function Quick() {
           : `Codex opens a new thread in ${lane.callsign}${prompted ? ' with this prompt filled in' : ''}. You send it from there.`;
   const newToCodex = placeNow === 'codex-app' && !!lane && !!options && !options.codexProjects.includes(lane.path);
 
-  const start = () => {
-    if (!ready || !lane || !account || !placeNow) return;
+  /** Starts a session: in the worktree chosen below, or where a suggestion says. */
+  const start = (over?: { lane: Lane; newWorktree: boolean }) => {
+    const where = over?.lane ?? lane;
+    const newTree = claudeTerminal && (over ? over.newWorktree : newWorktree);
+    if (!where || !account || !placeNow) return;
     if (choice) remember(choice, placeNow);
-    const spec: StartSpec = { laneId: lane.id, account, place: placeNow, prompt: text, model: modelNow, worktree: inNewWorktree, todo: todo?.id ?? null };
+    const spec: StartSpec = { laneId: where.id, account, place: placeNow, prompt: text, model: modelNow, worktree: newTree, todo: todo?.id ?? null };
     const label =
       placeNow === 'terminal'
-        ? `Starting ${account}${onModel} in ${inNewWorktree ? `a new worktree of ${lane.repo}` : lane.callsign}…`
+        ? `Starting ${account}${onModel} in ${newTree ? `a new worktree of ${where.repo}` : where.callsign}…`
         : placeNow === 'claude-app'
           ? 'Opening a new session in the Claude app…'
           : 'Opening a new thread in Codex…';
@@ -496,9 +567,58 @@ export function Quick() {
       });
   };
 
+  /** Sends what's typed to a session that's already going. The panel closes at once; a failed
+   *  send brings it back with what you wrote and why. */
+  const send = (session: Session) => {
+    const prompt = textNow.current;
+    const id = Date.now();
+    const to = opener ?? 'main';
+    setText('');
+    setActiveKey(null);
+    setError(null);
+    void tellOpener(to, { phase: 'begin', id, label: `Sending to ${session.title}…` });
+    void hideQuick();
+    sendToSession(session.key, prompt)
+      .then((sent) => tellOpener(to, { phase: 'end', id, key: null, message: sent.message }))
+      .catch((e: unknown) => {
+        void tellOpener(to, { phase: 'end', id, key: null, message: null });
+        setText(prompt);
+        setError(plain(e));
+        void showQuick({ keep: true });
+      });
+  };
+
+  /** Keeps what's typed as a todo, linked to the worktree. */
+  const saveTodo = (where: Lane) => {
+    const prompt = textNow.current.trim();
+    const title = todoTitle(prompt);
+    const t = newTodo({ title, description: prompt === title ? '' : prompt, project: where.project, worktrees: [where.id] }, Date.now());
+    const to = opener ?? 'main';
+    setText('');
+    setActiveKey(null);
+    setError(null);
+    void hideQuick();
+    todoOp({ op: 'create', todo: t })
+      .then(() => tellOpener(to, { phase: 'end', id: Date.now(), key: null, message: `Saved “${title}” as a todo in ${where.project}.` }))
+      .catch((e: unknown) => {
+        setText(prompt);
+        setError(plain(e));
+        void showQuick({ keep: true });
+      });
+  };
+
+  const suggest = (sg: Suggestion, alt: boolean) => {
+    if ((sg.kind === 'send' || sg.kind === 'open') && alt) revealSession(sg.lane, sg.session);
+    else if (sg.kind === 'send') send(sg.session);
+    else if (sg.kind === 'open') openSession(sg.lane, sg.session);
+    else if (sg.kind === 'start') start({ lane: sg.lane, newWorktree: sg.newWorktree });
+    else saveTodo(sg.lane);
+  };
+
   const activate = (key: string, alt: boolean) => {
     const row = rows.find((r) => r.key === key);
     if (!row) start();
+    else if (row.kind === 'suggest') suggest(row.s, alt);
     else if (row.kind === 'todo') (alt ? revealTodo : openTodo)(row);
     else (alt ? revealSession : openSession)(row.lane, row.session);
   };
@@ -675,6 +795,43 @@ export function Quick() {
     if (p !== 'terminal' && choice && chosenModel) setAgent(agentId(choice, null));
   };
 
+  /** A suggestion's row: what ⏎ does, and where. */
+  const describe = (sg: Suggestion): { icon: string; title: string; why: string; where: string } => {
+    if (sg.kind === 'send' || sg.kind === 'open') {
+      const x = sg.session;
+      const where = `${x.account} · ${sg.lane.callsign}`;
+      if (sg.kind === 'open') {
+        return x.status === 'needs'
+          ? { icon: 'external', title: `Answer “${x.title}”`, why: 'It’s waiting on you, so it opens where it lives and you answer there.', where }
+          : { icon: 'external', title: `Open “${x.title}”`, why: rowWhy(x.detail, x.headline, now), where };
+      }
+      const why = !x.live
+        ? x.harness === 'claude' && x.surface === 'cli'
+          ? 'It isn’t running: it resumes in a new terminal window with this prompt.'
+          : 'It isn’t running: it opens with this prompt ready to send.'
+        : x.status === 'working'
+          ? 'It’s working, so this waits for its turn to end.'
+          : x.harness === 'claude' && x.surface === 'app'
+            ? 'It gets this as a message from another session, in the Claude app.'
+            : 'It gets this as its next message.';
+      return { icon: 'send', title: `Send to “${x.title}”`, why, where };
+    }
+    if (sg.kind === 'todo') {
+      return { icon: 'list-check', title: `Save as a todo: “${todoTitle(text)}”`, why: `In ${sg.lane.project}, linked to ${sg.lane.callsign}. Start it when you’re ready.`, where: sg.lane.callsign };
+    }
+    const tree = claudeTerminal && sg.newWorktree;
+    const who = account ? `${account}${onModel}` : 'a session';
+    const why =
+      placeNow === 'claude-app'
+        ? `The Claude app opens a new session in ${sg.lane.callsign} with this prompt filled in.`
+        : placeNow === 'codex-app'
+          ? `Codex opens a new thread in ${sg.lane.callsign} with this prompt filled in.`
+          : tree
+            ? `Claude Code makes a new worktree of ${sg.lane.repo} and starts ${who} there.`
+            : `Starts ${who} in ${sg.lane.callsign}.`;
+    return { icon: 'plus', title: tree ? `Start in a new worktree of ${sg.lane.repo}` : `Start in ${sg.lane.origin === 'main' ? `${sg.lane.callsign} (main)` : sg.lane.callsign}`, why, where: `${sg.lane.project} · ${sg.lane.repo}` };
+  };
+
   /* ---- Render ---- */
 
   const sections: { group: RowGroup; rows: Row[] }[] = [];
@@ -750,12 +907,19 @@ export function Quick() {
                   Nothing needs you{attention.counts.working > 0 ? ` · ${attention.counts.working} working` : ''}.
                 </p>
               )}
+              {routing && (
+                <p className="ca-quick-note is-routing">
+                  <Icon name="sparkles" size={12} />
+                  Working out where this goes…
+                </p>
+              )}
+              {routeProblem && <p className="ca-quick-note">Couldn’t suggest where this goes: {routeProblem}</p>}
               {query && rows.length === 0 && <p className="ca-quick-note">No sessions or todos match. Start a session with this prompt below.</p>}
               {sections.map((s) => (
                 <div key={s.group} className="ca-quick-group" role="group" aria-label={GROUP_WORD[s.group]}>
                   <div className={`ca-quick-glabel is-${s.group}`}>
                     {GROUP_WORD[s.group]}
-                    <span>{s.group === 'found' || s.group === 'todos' ? s.rows.length : (attention?.counts[s.group] ?? s.rows.length)}</span>
+                    <span>{s.group === 'found' || s.group === 'todos' || s.group === 'suggested' ? s.rows.length : (attention?.counts[s.group] ?? s.rows.length)}</span>
                   </div>
                   {s.rows.map((r) => {
                     const n = rows.indexOf(r) + 1;
@@ -770,6 +934,31 @@ export function Quick() {
                         rowMenu(r);
                       },
                     };
+                    if (r.kind === 'suggest') {
+                      const said = describe(r.s);
+                      const pct = Math.round(r.s.p * 100);
+                      return (
+                        <div
+                          key={r.key}
+                          role="option"
+                          aria-selected={active === r.key}
+                          className={['ca-quick-row', 'is-suggest', active === r.key && 'is-active'].filter(Boolean).join(' ')}
+                          title={`${said.title}\n${said.why}\n${pct}% likely, from ${route?.model ?? 'Jev'} in ${route?.ms ?? 0} ms · ⏎ does it${r.s.kind === 'send' || r.s.kind === 'open' ? ' · ⌥⏎ shows the session in Codealong' : ''}`}
+                          {...handlers}
+                        >
+                          <span className="ca-quick-plus is-suggest">
+                            <Icon name={said.icon} size={13} stroke={2} />
+                          </span>
+                          <span className="ca-quick-row-main">
+                            <span className="ca-quick-row-title">{said.title}</span>
+                            <span className="ca-quick-row-why">{said.why}</span>
+                          </span>
+                          <span className="ca-quick-row-where">{said.where}</span>
+                          <span className={`ca-quick-sure is-${sureness(r.s.p)}`}>{pct}%</span>
+                          {n <= 9 && <Kbd keys={['⌘', String(n)]} />}
+                        </div>
+                      );
+                    }
                     if (r.kind === 'todo') {
                       const t = r.item.todo;
                       const opens = todoSession(r) ? 'opens its session' : 'gets a session ready to start for it';
@@ -830,7 +1019,7 @@ export function Quick() {
             className={['ca-quick-row', 'ca-quick-compose', active === COMPOSE && 'is-active', !ready && 'is-disabled'].filter(Boolean).join(' ')}
             onMouseMove={() => active !== COMPOSE && setActiveKey(COMPOSE)}
             onMouseDown={(e) => e.preventDefault()}
-            onClick={start}
+            onClick={() => start()}
           >
             <span className="ca-quick-plus">
               <Icon name="plus" size={14} stroke={2} />

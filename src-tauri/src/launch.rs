@@ -127,6 +127,41 @@ on focusTerminal(want)
 end focusTerminal
 "#;
 
+/// `<marker> <seconds>`: waits up to that long for the terminal whose folder contains the
+/// marker and returns its id, or "" when none shows. Unlike GHOSTTY_FOCUS it brings nothing
+/// forward: typing into a session shouldn't take you away from where you are.
+const GHOSTTY_FIND: &str = r#"
+on run argv
+  set want to item 1 of argv
+  set waitFor to (item 2 of argv) as integer
+  set started to current date
+  repeat
+    tell application "Ghostty" to set found to id of every terminal whose working directory contains want
+    if found is not {} then return item 1 of found
+    if ((current date) - started) > waitFor then return ""
+    delay 0.1
+  end repeat
+end run
+"#;
+
+/// `<terminal id> <text>`: pastes the text into that terminal, then presses Return. Ghostty
+/// pastes it bracketed when the program asked for that (Claude Code and Codex do), so a
+/// prompt of several lines arrives whole. Return comes a moment later, so the program has
+/// taken the paste as a paste before it sees the key.
+const GHOSTTY_TYPE: &str = r#"
+on run argv
+  set want to item 1 of argv
+  set theText to item 2 of argv
+  tell application "Ghostty"
+    if not (exists terminal id want) then return ""
+    input text theText to terminal id want
+    delay 0.3
+    send key "enter" to terminal id want
+  end tell
+  return want
+end run
+"#;
+
 /// How long to wait for Ghostty to show a session's marker. It's there within a fraction of a
 /// second normally; on a Mac busy enough to fall seconds behind, a short wait reported tabs as
 /// missing that Ghostty then showed.
@@ -284,6 +319,46 @@ pub fn terminal_focus_session(profile: &str, pid: u32, title: &str, cwd: &Path) 
         Some(id) => Ok(!osascript(GHOSTTY_FOCUS, &["id", &id])?.trim().is_empty()),
         None => failed.map_or(Ok(false), Err),
     }
+}
+
+/// Types `text` into the terminal tab a live session runs in and presses Return, without
+/// bringing the tab forward. `Ok(false)` when the session isn't in a Ghostty tab Codealong can
+/// find exactly.
+///
+/// The tab is found the way focusing finds it, by a unique folder reported on the session's
+/// TTY, and only that way: a tab matched by title or folder could be another agent's, and
+/// typing there sends your words to the wrong session.
+pub fn terminal_type_session(profile: &str, pid: u32, cwd: &Path, text: &str) -> Result<bool> {
+    if profile != "ghostty" {
+        bail!("There's no terminal profile called {profile:?} yet.");
+    }
+    let Some(tty) = tty_of(pid) else { return Ok(false) };
+    let in_ghostty = procs::run("/bin/ps", &["-A", "-o", "pid=,ppid=,comm="], None, Duration::from_secs(3))
+        .map(|table| runs_under(&table, pid, "ghostty"))
+        .unwrap_or(false);
+    if !in_ghostty {
+        return Ok(false);
+    }
+    // A mark takes over the TTY's folder report, as focusing's does, so the two never run at
+    // once. A send takes no ticket: it mustn't make a click waiting before it lose its turn.
+    let _turn = FOCUS_TURNS.lock.lock().unwrap_or_else(|e| e.into_inner());
+    let terminals = ghostty_terminals()?;
+    let mark = format!("{MARK_PREFIX}{pid}-{}", crate::util::now_ms());
+    write_osc7(&tty, &mark)?;
+    let found = osascript(GHOSTTY_FIND, &[&mark, GHOSTTY_MARK_WAIT_SECS]);
+    let id = found.as_deref().map(str::trim).unwrap_or_default().to_string();
+    let real = terminals
+        .iter()
+        .find(|t| t.id == id)
+        .map(|t| t.cwd.clone())
+        .filter(|c| !c.is_empty() && !c.starts_with(MARK_PREFIX))
+        .unwrap_or_else(|| cwd.to_string_lossy().into_owned());
+    let _ = write_osc7(&tty, &real);
+    found?;
+    if id.is_empty() {
+        return Ok(false);
+    }
+    Ok(!osascript(GHOSTTY_TYPE, &[&id, text])?.trim().is_empty())
 }
 
 /// Whether `pid` runs inside the app whose executable is named `exe`, from a `ps -A -o
@@ -460,7 +535,7 @@ mod tests {
         if !Path::new("/Applications/Ghostty.app").exists() {
             return;
         }
-        for (i, script) in [GHOSTTY_NEW_WINDOW, GHOSTTY_LIST, GHOSTTY_FOCUS].iter().enumerate() {
+        for (i, script) in [GHOSTTY_NEW_WINDOW, GHOSTTY_LIST, GHOSTTY_FOCUS, GHOSTTY_FIND, GHOSTTY_TYPE].iter().enumerate() {
             let out = std::env::temp_dir().join(format!("codealong-test-{i}.scpt"));
             let r = procs::run_stdin("/usr/bin/osacompile", &["-o", &out.to_string_lossy()], script, Duration::from_secs(20));
             assert!(r.is_ok(), "script {i} failed to compile: {r:?}");

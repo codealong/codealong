@@ -4,7 +4,7 @@
 // in AccountsSection.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { getConfig, onQuickShortcut, pauseQuickShortcut, quickShortcut, saveConfig, saveConfigText } from '../api';
+import { getConfig, onQuickShortcut, openUrl, pauseQuickShortcut, quickShortcut, routerKey, saveConfig, saveConfigText, setRouterKey, testRouter } from '../api';
 import { shortcutFromKey, shortcutLabel, TAKEN } from '../quick';
 import type { Config, ConfigView, Profile, ProjectCfg, ShortcutStatus, Theme, Usage } from '../types';
 import { AccountsSection } from './AccountsSection';
@@ -193,6 +193,10 @@ function GeneralPane({ cfg, view, theme, onPickTheme, disabled, onSave }: PanePr
           <ShortcutField value={cfg.shortcuts?.quick_panel ?? DEFAULT_QUICK_PANEL} onChange={(quick_panel) => void onSave({ ...cfg, shortcuts: { ...cfg.shortcuts, quick_panel } })} />
           <small>Opens from any app, over full-screen ones too: the sessions that need you, a search, and a new session. ⌘N does the same in Codealong.</small>
         </div>
+        <div className="ca-field">
+          <span>Suggestions in the quick panel</span>
+          <RouterField router={cfg.router ?? { enabled: false, model: 'jev-latest' }} onChange={(router) => void onSave({ ...cfg, router })} />
+        </div>
         <label className="ca-field">
           <span>Terminal</span>
           <ProfileSelect value={cfg.apps.terminal} profiles={view.terminals} onChange={(terminal) => void onSave({ ...cfg, apps: { ...cfg.apps, terminal } })} />
@@ -220,6 +224,115 @@ function GeneralPane({ cfg, view, theme, onPickTheme, disabled, onSave }: PanePr
 }
 
 const DEFAULT_QUICK_PANEL = 'Option+Shift+Space';
+
+/**
+ * Routing with TypeSafe's Jev: on or off (config.toml), and its API key, which goes to the
+ * keychain and never comes back to the page. Test makes one small call.
+ */
+function RouterField({ router, onChange }: { router: { enabled: boolean; model: string }; onChange: (r: { enabled: boolean; model: string }) => void }) {
+  const [hasKey, setHasKey] = useState<boolean | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [key, setKey] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
+
+  useEffect(() => {
+    void routerKey().then(setHasKey);
+  }, []);
+
+  const saveKey = async () => {
+    setBusy(true);
+    setNote(null);
+    try {
+      await setRouterKey(key);
+      setKey('');
+      setEditing(false);
+      setHasKey(await routerKey());
+      setNote({ ok: true, text: 'Saved in the keychain.' });
+    } catch (e) {
+      setNote({ ok: false, text: plain(e) });
+    }
+    setBusy(false);
+  };
+
+  const removeKey = async () => {
+    setBusy(true);
+    setNote(null);
+    try {
+      await setRouterKey('');
+      setHasKey(await routerKey());
+    } catch (e) {
+      setNote({ ok: false, text: plain(e) });
+    }
+    setBusy(false);
+  };
+
+  const test = async () => {
+    setBusy(true);
+    setNote(null);
+    try {
+      setNote({ ok: true, text: await testRouter(router.model) });
+    } catch (e) {
+      setNote({ ok: false, text: plain(e) });
+    }
+    setBusy(false);
+  };
+
+  return (
+    <div className="ca-router-field">
+      <label className="ca-check">
+        <input type="checkbox" checked={router.enabled} onChange={(e) => onChange({ ...router, enabled: e.target.checked })} />
+        <span className="ca-check-box" aria-hidden="true">
+          <Icon name="check" size={11} stroke={2.5} />
+        </span>
+        Suggest where what you type goes, with TypeSafe’s Jev
+      </label>
+      {editing || hasKey === false ? (
+        <form
+          className="ca-shortcut-row"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void saveKey();
+          }}
+        >
+          <input type="password" value={key} placeholder="TypeSafe API key" autoComplete="off" spellCheck={false} aria-label="TypeSafe API key" onChange={(e) => setKey(e.target.value)} />
+          <Button size="sm" type="submit" disabled={busy || !key.trim()}>
+            Save key
+          </Button>
+          {editing && (
+            <Button variant="ghost" size="sm" onClick={() => setEditing(false)}>
+              Cancel
+            </Button>
+          )}
+        </form>
+      ) : hasKey ? (
+        <div className="ca-shortcut-row">
+          <span className="ca-router-key">
+            <Icon name="lock" size={12} />
+            API key saved in the keychain
+          </span>
+          <Button variant="ghost" size="sm" disabled={busy} onClick={() => void test()}>
+            Test
+          </Button>
+          <Button variant="ghost" size="sm" disabled={busy} onClick={() => setEditing(true)}>
+            Replace
+          </Button>
+          <Button variant="ghost" size="sm" disabled={busy} onClick={() => void removeKey()}>
+            Remove
+          </Button>
+        </div>
+      ) : null}
+      {note && <p className={note.ok ? 'ca-router-ok' : 'ca-form-error'}>{note.text}</p>}
+      <small>
+        As you type, the quick panel suggests the session to send it to or the worktree to start it in; ⏎ does the first suggestion. What you type, repo names and session titles and latest lines go to
+        TypeSafe. Model <code className="ca-ic">{router.model}</code>, set in config.toml.{' '}
+        <button type="button" className="ca-linkbtn" onClick={() => void openUrl('https://console.typesafe.ai/keys')}>
+          Get a key
+        </button>
+      </small>
+    </div>
+  );
+}
 
 /**
  * The quick panel's shortcut: shown the way macOS writes shortcuts, and recorded by pressing it.

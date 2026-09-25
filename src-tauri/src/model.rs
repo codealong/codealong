@@ -383,6 +383,8 @@ pub struct Board {
     pub labels: Vec<crate::todos::Label>,
     /// The quick panel's shortcut, from config.toml; empty when it's off.
     pub quick_shortcut: String,
+    /// `[router] enabled`: the quick panel asks Jev where what you type goes.
+    pub router_on: bool,
 }
 
 /// A PR in the PRs view, with the worktrees and sessions that worked on it.

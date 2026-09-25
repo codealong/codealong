@@ -268,7 +268,7 @@ fn with_param(url: String, key: &str, value: &str) -> String {
 /// Claude Code reads an argument that starts with `-` as an option, and one that is only a
 /// command's name (`update`, `doctor`) as that command. A space in front of the one and after
 /// the other keeps each a prompt.
-fn as_argument(prompt: &str) -> String {
+pub fn as_argument(prompt: &str) -> String {
     let mut p = prompt.to_string();
     if p.starts_with('-') {
         p.insert(0, ' ');

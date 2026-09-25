@@ -293,6 +293,25 @@ fn get(svc: &Service, path: &str) -> Option<Value> {
     serde_json::from_str(&out).ok()
 }
 
+/// A POST of JSON on the service. The password and the body both go to curl on stdin: the body
+/// is your prompt, which has no business in a process list either.
+pub fn post(svc: &Service, path: &str, body: &Value) -> anyhow::Result<Value> {
+    let config = format!("user = \"opencode:{}\"\ndata-binary = \"{}\"\n", curl_quote(&svc.password), curl_quote(&body.to_string()));
+    let url = format!("{}{path}", svc.url);
+    let out = procs::run_stdin(
+        "/usr/bin/curl",
+        &["-sS", "--fail-with-body", "-m", "10", "-K", "-", "-X", "POST", "-H", "Content-Type: application/json", "-H", "Accept: application/json", &url],
+        &config,
+        Duration::from_secs(15),
+    )?;
+    Ok(serde_json::from_str(&out).unwrap_or(Value::Null))
+}
+
+/// A value for a double-quoted string in a curl config file, where backslash escapes apply.
+fn curl_quote(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n").replace('\r', "\\r")
+}
+
 // ---- Terminal sessions ----
 
 /// OpenCode's interactive terminals on this Mac: (pid, folder). A `--session` one names the

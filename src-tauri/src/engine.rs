@@ -1754,6 +1754,7 @@ impl Engine {
         board.pinned_worktrees = self.seen.pinned_worktrees.clone();
         board.theme = self.cfg.appearance.theme;
         board.quick_shortcut = self.cfg.shortcuts.quick_panel.clone();
+        board.router_on = self.cfg.router.enabled;
         board.perf_log = perf::enabled();
         board.todos = self.todos.todos.clone();
         board.labels = self.todos.labels.clone();

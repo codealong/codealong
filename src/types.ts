@@ -172,6 +172,8 @@ export interface Config {
   appearance: { theme: Theme };
   /** Shortcuts that work in any app, as config.toml writes them (`Option+Shift+Space`); empty is off. */
   shortcuts: { quick_panel: string };
+  /** Routing in the quick panel with TypeSafe's Jev. Older files have none: off. */
+  router?: { enabled: boolean; model: string };
   accounts: AccountCfg[];
   projects: ProjectCfg[];
   debug: { perf_log: boolean };
@@ -265,6 +267,37 @@ export interface Board {
   labels: Label[];
   /** The quick panel's shortcut from config.toml, as it writes it; empty when it's off. Missing on older boards. */
   quickShortcut?: string;
+  /** `[router] enabled`: the quick panel asks Jev where what you type goes. */
+  routerOn?: boolean;
+}
+
+export type RouteAction = 'send' | 'start' | 'find' | 'todo';
+
+/** One option Jev weighed: a session key, lane id or `project/repo`, and its probability. */
+export interface RoutePick {
+  id: string;
+  p: number;
+}
+
+/** Jev's answer for what's typed in the quick panel (route.rs). */
+export interface Route {
+  action: RouteAction;
+  actions: [RouteAction, number][];
+  sessions: RoutePick[];
+  noSession: number;
+  lanes: RoutePick[];
+  repos: RoutePick[];
+  ownWorktree: number;
+  model: string;
+  ms: number;
+  inputTokens: number;
+}
+
+/** What sending to a session did (send.rs). */
+export interface Sent {
+  message: string;
+  /** The session or its app was opened instead, with the prompt filled in or copied. */
+  opened: boolean;
 }
 
 export type TodoStatus = 'todo' | 'in-progress' | 'done';

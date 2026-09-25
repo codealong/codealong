@@ -1,0 +1,8 @@
+{
+  "action": "send",
+  "actions": [["send", 0.78], ["start", 0.2], ["find", 0.02]],
+  "sessions": [{ "id": "$session:0", "p": 0.86 }, { "id": "$session:1", "p": 0.09 }],
+  "noSession": 0.05,
+  "lanes": [{ "id": "$lane:0", "p": 0.7 }, { "id": "$lane:2", "p": 0.2 }],
+  "ownWorktree": 0.3
+}

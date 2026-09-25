@@ -67,8 +67,10 @@ window.__TAURI_INTERNALS__ = {
         fetch('./board.json').then(function (r) { return r.json(); }),
         optionalJson('./todos-fixture.json'),
         optionalJson('./usage-fixture.json'),
+        optionalJson('./route-fixture.json'),
       ]).then(function (all) {
         var board = all[1] ? withFixture(all[0], all[1]) : all[0];
+        if (all[3]) board.routerOn = true;
         return all[2] ? withUsage(board, all[2]) : board;
       });
     }
@@ -88,6 +90,33 @@ window.__TAURI_INTERNALS__ = {
           { name: 'antigravity', harness: 'antigravity', path: null, installed: false, current: false, edited: false },
         ],
         errors: cmd === 'install_agents' && (args || {}).accounts && args.accounts.indexOf('codex') >= 0 ? ['codex: /Users/you/.codex/skills/codealong exists and Codealong didn\'t put it there; move it away to install the skill.'] : [],
+      });
+    }
+    // Jev's answer, from route-fixture.json (PREVIEW_ROUTE): its action and probabilities, with
+    // "$session:N" and "$lane:N" as the board's Nth most recent live session and worktree.
+    if (cmd === 'route_quick') {
+      return Promise.all([fetch('./board.json').then(function (r) { return r.json(); }), optionalJson('./route-fixture.json')]).then(function (all) {
+        var board = all[0];
+        var fx = all[1] || {};
+        var lanes = board.lanes.filter(function (l) { return !l.hidden; }).sort(function (a, b) { return b.lastActivity - a.lastActivity; });
+        var sessions = lanes.flatMap(function (l) { return l.sessions.filter(function (s) { return !s.visitor && s.live && s.status !== 'needs'; }); }).sort(function (a, b) { return b.lastPromptAt - a.lastPromptAt; });
+        var pick = function (list, id) { return function (x) { var m = /:(\d+)$/.exec(x.id); var hit = list[Number(m ? m[1] : 0)]; return hit ? { id: hit[id], p: x.p } : null; }; };
+        return new Promise(function (done) {
+          setTimeout(function () {
+            done({
+              action: fx.action || 'send',
+              actions: fx.actions || [['send', 0.8], ['start', 0.2]],
+              sessions: (fx.sessions || []).map(pick(sessions, 'key')).filter(Boolean),
+              noSession: fx.noSession || 0,
+              lanes: (fx.lanes || []).map(pick(lanes, 'id')).filter(Boolean),
+              repos: [],
+              ownWorktree: fx.ownWorktree || 0,
+              model: 'jev-1.13.0',
+              ms: 240,
+              inputTokens: 9000,
+            });
+          }, fx.delay || 0);
+        });
       });
     }
     // A todo change "shows" on a board that never comes, so the page keeps its own copy of it.

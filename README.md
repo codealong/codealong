@@ -77,6 +77,18 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   so ⏎ goes to what needs you; ↑ brings back what you'd typed before closing. A project picker (⌘P) narrows everything to one project. The shortcut is
   yours to change in Settings › General; Settings names shortcuts macOS and common launchers
   already use.
+- **Suggestions in the quick panel** (optional; Settings › General, `[router]` in config.toml):
+  once you pause typing, TypeSafe's Jev reads what you wrote against the project's sessions and
+  worktrees and the panel leads with up to three suggestions, each with how likely it is: send
+  it to a session that's already going, start new work in a worktree (a new one when it's a
+  change of its own), open a session, or keep it as a todo. ⏎ does the first. Sending goes the
+  way each harness takes a prompt: pasted into the session's Ghostty tab, Claude Code's daemon
+  for a background job, OpenCode's service, a turn started by the Codex app itself (else the
+  thread opens with the prompt filled in), and Claude Code's cross-session socket for Claude
+  app sessions, which read it as a message from another session. A session that isn't running
+  is resumed with the prompt; one waiting on you is opened instead, so what you typed can't
+  answer its question. The API key stays in the login keychain. What you type, repo names and
+  session titles and latest lines go to TypeSafe.
 - **New session**, the panel's last row: pick the worktree (⌘T; it starts at whatever's
   selected in Codealong: a worktree, a session's, a PR's, or for a PR with none here its repo's
   main checkout; pinned ones first), the account and model in one menu (⌘L, every account on
@@ -102,8 +114,8 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   OpenCode (bring your own provider) and Antigravity (quotas in the app) have none to show.
   Add accounts in Settings › Accounts.
 - **Settings** (⌘,, the app menu, or the foot of the sidebar): a form for everything in
-  config.toml. General has the folders searched for repos, the quick panel's shortcut, the
-  terminal and editor, and the theme; Accounts adds, edits, removes and signs in accounts, and under Found on this Mac lists
+  config.toml. General has the folders searched for repos, the quick panel's shortcut and
+  suggestions (with the TypeSafe key, kept in the keychain), the terminal and editor, and the theme; Accounts adds, edits, removes and signs in accounts, and under Found on this Mac lists
   the ones Codealong could read but doesn't, to add with a click (with the agent skill, unless
   you untick it); Projects groups repos by pattern;
   Advanced turns the performance log on and shows where the files are. Each change is saved in
@@ -274,6 +286,8 @@ light scan (no git, PRs or visitors).
 | `src-tauri/src/launch.rs` | App profiles: Ghostty (AppleScript, exact tab focus), Cursor (CLI), deep links |
 | `src-tauri/src/start.rs`, `src/start.ts` | New sessions: where each account can start one, the launch it makes, the agent menu (every account on every model) and Auto's pick |
 | `src-tauri/src/quick.rs`, `src/quick.ts`, `src/ui/Quick.tsx` | The quick panel: its window (a panel that takes the keyboard over any app), its shortcut, and its page (what needs you, finding sessions, starting one) |
+| `src-tauri/src/route.rs`, `src/route.ts` | Suggestions in the quick panel: the request to Jev and reading its answer back, the key in the keychain, and which suggestions the panel shows |
+| `src-tauri/src/send.rs` | Sending a prompt to a session that's already going, the way its harness takes one |
 | `src-tauri/src/cli.rs`, `server.rs`, `install.rs` | The `codealong` command (clap; JSON or tables; the app over its socket, else the files), the app's socket, and putting the skill and the command where agents find them |
 | `src-tauri/src/todos.rs`, `src/todos.ts` | Todos: the store and its changes, linking sessions started from a todo; the list's sections, filters and prompt |
 | `src-tauri/src/attachments.rs`, `src/attachInput.ts` | Files in descriptions and prompts: pasted, dropped or picked, kept by content, images shown in place, all handed to agents as paths |

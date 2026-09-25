@@ -26,6 +26,8 @@ pub struct Config {
     #[serde(default)]
     pub projects: Vec<ProjectCfg>,
     #[serde(default)]
+    pub router: RouterCfg,
+    #[serde(default)]
     pub debug: DebugCfg,
 }
 
@@ -38,9 +40,32 @@ impl Default for Config {
             shortcuts: ShortcutsCfg::default(),
             accounts: Vec::new(),
             projects: Vec::new(),
+            router: RouterCfg::default(),
             debug: DebugCfg::default(),
         }
     }
+}
+
+/// Routing in the quick panel: TypeSafe's Jev reads what you type and suggests where it goes, a
+/// session to send it to or a worktree to start in. Off until you turn it on; the API key lives
+/// in the login keychain, not here (route.rs).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RouterCfg {
+    #[serde(default)]
+    pub enabled: bool,
+    /// The model the request names: `jev-latest`, or a version such as `jev-1.13.0`.
+    #[serde(default = "default_router_model")]
+    pub model: String,
+}
+
+impl Default for RouterCfg {
+    fn default() -> Self {
+        RouterCfg { enabled: false, model: default_router_model() }
+    }
+}
+
+fn default_router_model() -> String {
+    "jev-latest".to_string()
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
@@ -264,6 +289,7 @@ fn set_accounts(doc: &mut toml_edit::DocumentMut, accounts: &[AccountCfg]) {
 
 const APPS_COMMENT: &str = "# Where Codealong opens things. Built-in profiles: terminal \"ghostty\", editor \"cursor\".\n";
 const APPEARANCE_COMMENT: &str = "# Light or dark. \"system\" follows macOS. The buttons at the foot of the sidebar set this too.\n";
+const ROUTER_COMMENT: &str = "# The quick panel suggests where what you type goes, using TypeSafe's Jev. What you type, repo names and\n# session titles and prompts are sent to TypeSafe. Its API key is kept in the login keychain; set it in Settings.\n";
 const DEBUG_COMMENT: &str = "# Timings for finding what makes the app slow, in ~/Library/Logs/Codealong/perf.log.\n";
 const SHORTCUTS_COMMENT: &str = "# Shortcuts that work in any app, such as \"Option+Shift+Space\" or \"Cmd+Ctrl+K\". \"\" turns one off.\n# quick_panel opens the quick panel: find a session, or start one.\n";
 
@@ -398,6 +424,9 @@ pub fn check(cfg: &Config) -> std::result::Result<(), String> {
     if cfg.scan.iter().any(|s| s.trim().is_empty()) {
         return Err("A scan folder is empty.".into());
     }
+    if cfg.router.model.trim().is_empty() {
+        return Err("[router] model is empty; use \"jev-latest\".".into());
+    }
     if cfg.apps.terminal.trim().is_empty() || cfg.apps.editor.trim().is_empty() {
         return Err("The terminal and editor need a profile name.".into());
     }
@@ -446,6 +475,13 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
     set_theme(&mut doc, cfg.appearance.theme);
     set_shortcuts(&mut doc, &cfg.shortcuts);
 
+    // Only a file that has the table, or turns routing on, gets it: it's opt-in.
+    if cfg.router != RouterCfg::default() || doc.get("router").is_some() {
+        place_router(&mut doc);
+        set_value(&mut doc["router"]["enabled"], Value::from(cfg.router.enabled));
+        set_value(&mut doc["router"]["model"], Value::from(cfg.router.model.trim()));
+    }
+
     ensure_table(&mut doc, "debug", DEBUG_COMMENT);
     set_value(&mut doc["debug"]["perf_log"], Value::from(cfg.debug.perf_log));
 
@@ -464,6 +500,19 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
         .collect();
     set_tables(&mut doc, "projects", projects);
     Ok(doc.to_string())
+}
+
+/// Adds `[router]` with its comment when the file has none, after `[shortcuts]` (both are about
+/// the quick panel).
+fn place_router(doc: &mut toml_edit::DocumentMut) {
+    use toml_edit::{Item, Table};
+    if doc.get("router").is_some_and(Item::is_table_like) {
+        return;
+    }
+    let mut t = Table::new();
+    t.decor_mut().set_prefix(format!("\n{ROUTER_COMMENT}"));
+    doc.insert("router", Item::Table(t));
+    place_after(doc, "router", "shortcuts");
 }
 
 /// Sets a value and keeps the comments and spacing around the old one.
@@ -546,6 +595,13 @@ pub fn render(cfg: &Config) -> String {
     s.push_str(SHORTCUTS_COMMENT);
     s.push_str("[shortcuts]\n");
     s.push_str(&format!("quick_panel = {}\n", q(&cfg.shortcuts.quick_panel)));
+    if cfg.router != RouterCfg::default() {
+        s.push('\n');
+        s.push_str(ROUTER_COMMENT);
+        s.push_str("[router]\n");
+        s.push_str(&format!("enabled = {}\n", cfg.router.enabled));
+        s.push_str(&format!("model = {}\n", q(&cfg.router.model)));
+    }
     s.push_str("\n# Harness accounts. `name` is what you type and what the board shows.\n");
     for a in &cfg.accounts {
         s.push_str("\n[[accounts]]\n");
@@ -590,6 +646,7 @@ mod tests {
                 repos: vec!["github.com/northwindai/*".into()],
                 folders: vec!["~/projects/atlasai/osprey".into()],
             }],
+            router: RouterCfg { enabled: true, model: "jev-1.13.0".into() },
             debug: DebugCfg::default(),
         };
         let parsed: Config = toml::from_str(&render(&cfg)).unwrap();
@@ -699,8 +756,25 @@ mod tests {
                 ProjectCfg { name: "Northwind".into(), repos: vec!["github.com/northwindai/*".into()], folders: vec!["~/projects/atlasai/osprey".into()] },
                 ProjectCfg { name: "Kestrel".into(), repos: vec!["github.com/kestrelhq/*".into()], folders: vec![] },
             ],
+            router: RouterCfg::default(),
             debug: DebugCfg { perf_log: true },
         }
+    }
+
+    #[test]
+    fn routing_is_added_after_the_shortcuts_only_once_turned_on() {
+        let text = render(&full());
+        assert!(!text.contains("[router]"), "{text}");
+        assert!(!with_config(&text, &full()).unwrap().contains("[router]"));
+        let mut on = full();
+        on.router.enabled = true;
+        let out = with_config(&text, &on).unwrap();
+        let shortcuts = out.find("[shortcuts]").unwrap();
+        let router = out.find(&format!("{ROUTER_COMMENT}[router]\nenabled = true\nmodel = \"jev-latest\"\n")).unwrap_or_else(|| panic!("{out}"));
+        assert!(router > shortcuts && router < out.find("[[accounts]]").unwrap(), "{out}");
+        // Turned off again, the table stays and says so.
+        assert!(with_config(&out, &full()).unwrap().contains("[router]\nenabled = false\n"));
+        assert_eq!(parse(&out).unwrap().router, on.router);
     }
 
     #[test]

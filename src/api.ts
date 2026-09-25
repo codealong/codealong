@@ -4,7 +4,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { emitTo, listen } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import type { AccountCfg, AccountInfo, AgentsStatus, Attachment, BarFeed, Board, Config, ConfigView, FoundAccount, PrDetail, ShortcutStatus, StartOptions, StartSpec, Started, Theme } from './types';
+import type { AccountCfg, AccountInfo, AgentsStatus, Attachment, BarFeed, Board, Config, ConfigView, FoundAccount, PrDetail, Route, Sent, ShortcutStatus, StartOptions, StartSpec, Started, Theme } from './types';
 import type { TodoOp } from './todos';
 
 export const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -216,6 +216,36 @@ export async function startSession(spec: StartSpec): Promise<Started | null> {
 }
 
 /** A change to a todo or the labels. Resolves with the time of the first board that shows it. */
+/** Where what's typed in the quick panel should go, from Jev. */
+export async function routeQuick(project: string, text: string): Promise<Route> {
+  if (!inTauri) throw new Error('Routing needs the app.');
+  return invoke<Route>('route_quick', { project, text });
+}
+
+/** Sends a prompt to a session that's already going, where it runs (send.rs). */
+export async function sendToSession(key: string, text: string): Promise<Sent> {
+  if (!inTauri) return { message: 'Sent.', opened: false };
+  return invoke<Sent>('send_to_session', { key, text });
+}
+
+/** Whether there's a TypeSafe API key in the keychain. */
+export async function routerKey(): Promise<boolean> {
+  if (!inTauri) return false;
+  return invoke<boolean>('router_key');
+}
+
+/** Saves the TypeSafe API key in the keychain; an empty one removes it. */
+export async function setRouterKey(key: string): Promise<void> {
+  if (!inTauri) return;
+  await invoke('set_router_key', { key });
+}
+
+/** One small call to TypeSafe: which model answered and how fast. */
+export async function testRouter(model: string): Promise<string> {
+  if (!inTauri) throw new Error('Testing needs the app.');
+  return invoke<string>('test_router', { model });
+}
+
 export async function todoOp(op: TodoOp): Promise<number> {
   if (!inTauri) return 0;
   return invoke<number>('todo_op', { op });

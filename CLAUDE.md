@@ -59,6 +59,8 @@ The engine binary doubles as a CLI for checking behavior without a window:
   config, the file's text, its parse error if any, the app profiles).
 - `codealong --snapshot --open <lane id> <target id>`: runs a click's open action.
 - `codealong --snapshot --pr <owner/name> <number>`: a PR's detail, as the PR panel gets it.
+- `codealong --snapshot --route <text> [--project <name>]`: what Jev suggests for text typed in
+  the quick panel (one TypeSafe call; needs the key).
 - `codealong --snapshot --start-options`: where each account can start a session.
 - `codealong --snapshot --start-plan <folder> <account> <terminal|claude-app|codex-app> [prompt]
   [--model <model>] [--worktree]`: the command or link starting a session would use, without
@@ -218,6 +220,19 @@ Claude Code
   otherwise take as the name: `start.rs` types `--worktree` first.
 - Also available, not used yet: `--bg` starts a session in the background and prints the ID
   `attach` takes.
+- Every live session (terminal, Claude app, background) listens on a Unix socket, the registry's
+  `messagingSocketPath` (`/tmp/cc-socks/<pid>.sock`), for other sessions' messages
+  (`peerProtocol: 1`, from 2.1.282's code). One JSON line per connection, nothing comes back on
+  it: `{"msgV":1,"msg_id":<uuid>,"type":"user","session_id":<registry sessionId>,
+  "message":{"role":"user","content":…},"priority":"next"}`. The auth line is optional on macOS.
+  The receiver starts a turn when idle and folds it into the running one when busy, tells the
+  model it came from another session and isn't the user's approval, and holds it for you when
+  its permission mode differs from the sender's claimed `from-mode` (send none: a
+  bypass-permissions session asks first). `send.rs` uses it for Claude app sessions.
+- Background jobs take input through the account's daemon: `/tmp/cc-daemon-<uid>/<first 8 hex of
+  sha256(config dir)>/control.sock`, one JSON line each way, `{"proto":1,"op":"reply","short":
+  <jobId>,"text":…,"auth":<contents of <home>/daemon/control.key>}`. It's pasted into the job as
+  if typed.
 - Sign-in lives in the login keychain: service `Claude Code-credentials` for `~/.claude`,
   `Claude Code-credentials-<first 8 hex of sha256(config dir)>` for any other folder, account
   `$USER`. Read it with `/usr/bin/security find-generic-password -a $USER -s <service> -w`
@@ -285,6 +300,12 @@ Codex
   CLI is `Contents/Resources/codex`. The ChatGPT chat app has the same name, so Codealong knows
   the Codex app by its bundle id. `codex://threads/<uuid>` opens a thread (the app
   reads it first and ignores ones it can't), `codex://review?pr=<url>` opens a PR review.
+- The app's main process routes between its windows on `<CODEX_HOME>/ipc/ipc.sock` (4-byte
+  little-endian length, then JSON). A client sends `initialize`, then `thread-owner-discovery`
+  (version 1) finds the window that has a thread, and `thread-follower-start-turn` (version 2)
+  starts a turn there, as if typed. Answer `client-discovery-request`s with `canHandle: false`
+  or the router waits 10 s on you. A mismatched version is dropped. Starting a turn from an
+  app-server of your own would make a second copy of the thread the app doesn't see.
 - `codex://threads/new?path=<folder>&prompt=<text>` opens a new thread there with the prompt
   filled in (it also takes `originUrl`, `projectId`, `mode` and `browserUrl`, and no images);
   `codex://threads/<uuid>?prompt=` fills in a reply. `mode` is chat, work or codex, not a
@@ -325,6 +346,8 @@ OpenCode (2.0.16, from its source at that tag and its files here)
   terminals only for `mini`. The TUI titles its tab `OC | <title>` (can be turned off), and two
   terminals can show one session. Codealong pairs a `--session` terminal with its session and
   any other with its folder's latest session.
+- `POST /api/session/<id>/prompt` with `{text, delivery: "queue"|"steer"}` sends a session a
+  prompt; any TUI on that session shows it.
 - Sign-in is `opencode auth login`; credentials live in the database (`credential`, and
   `account` for OpenCode Go) or a legacy `auth.json`. There are no plan limits to read.
 - Creating a session through the API in a folder made OpenCode point its `global` project
@@ -357,6 +380,10 @@ Ghostty (1.3, AppleScript dictionary in the app bundle)
 - Windows, tabs and terminals with `id`, `name`, `working directory`; `focus`, `select tab`,
   `activate window`; `new window with configuration {initial working directory, initial input,
   environment variables}`, the last a list of `KEY=VALUE` set in the window's shell.
+- `input text <text> to terminal id <id>` pastes (bracketed when the program asked for that,
+  as Claude Code and Codex do; otherwise each newline is a Return), and `send key "enter" to
+  terminal id <id>` presses Return. Neither needs the terminal in front. `send.rs` types only
+  into a tab found by its OSC 7 mark, never by title.
 - No TTY or PID property. To focus a session's own tab, Codealong writes an OSC 7 folder report
   with a unique path to the session's TTY (`ps -o tty= -p <pid>`), finds the terminal reporting
   it, selects that tab, then reports the real folder again. Claude Code titles tabs
@@ -430,6 +457,17 @@ Tauri and macOS (from the Tauri 2.11 and tao 0.35 sources)
 - The background computer-use tools click through raw input: the app comes forward for a moment
   and the one before is put back, which takes the keyboard from the quick panel and hides it.
   `screencapture -l <window id>` captures a window of Codealong's alone, even ordered out.
+
+TypeSafe (Jev, from docs.typesafe.ai, 2026-09-25)
+
+- `POST https://api.typesafe.ai/v1/systemone`, `Authorization: Bearer`, body `{model, state,
+  questions}`. Questions are `choice` (up to 255 options, each described by a string or an
+  object), `score` (2 to 10 levels) or `noul` (yes/no); answers carry `probabilities` and a
+  `confidence`. `jev-latest` is `jev-1.13.0`: 64k tokens per request, 32k for the state plus
+  the longest question; 1,200 requests a minute; $0.042 per million input tokens, output free.
+  Errors are 401, 422, 429 and 529.
+- It reads instructions literally and is weak at dates, counting and arithmetic, so `route.rs`
+  hands it times as words and keeps each question to one plain thing.
 
 GitHub
 
