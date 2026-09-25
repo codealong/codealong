@@ -1,0 +1,457 @@
+{
+  "tool": "Built-in image_gen",
+  "date": "2026-09-24",
+  "brief": "Fifty more Codealong logo candidates expanding C/CA construction, movement, material and metaphor.",
+  "concepts": [
+    {
+      "number": 41,
+      "name": "Aperture",
+      "slug": "aperture",
+      "family": "Graphic C",
+      "idea": "A crisp opening reveals a second shape.",
+      "filename": "41-aperture.png",
+      "prompt": "Use case: logo-brand.\nCreate ONE original logo candidate for Codealong, a Mac app that keeps track of multiple coding agents and sessions across projects. Core idea: capable companionship, clear attention, and independent work brought together.\nOutput: one centered finished symbol on a square, fully opaque canvas, with even 15% margins. Large, exceptionally simple silhouette and intentional negative space, recognizable at app-icon size. No words, captions, candidate numbers, watermark, UI, devices, or contact sheet. No imitation of existing company logos. Follow the specific construction and palette below; use clean off-white background unless another background is specified.\n\nSpecific direction: A single bold midnight-blue squared C carved from a solid rounded square. An ivory wedge cuts into its right side and widens into a perfectly circular interior. One tiny orange rectangular inset sits in the lower inside corner. Entirely flat vector-like design, precise geometry, no gradients or shadows."
+    },
+    {
+      "number": 42,
+      "name": "Counterweight",
+      "slug": "counterweight",
+      "family": "Graphic C",
+      "idea": "Two unequal pieces balance one another.",
+      "filename": "42-counterweight.png",
+      "prompt": "Use case: logo-brand.\nCreate ONE original logo candidate for Codealong, a Mac app that keeps track of multiple coding agents and sessions across projects. Core idea: capable companionship, clear attention, and independent work brought together.\nOutput: one centered finished symbol on a square, fully opaque canvas, with even 15% margins. Large, exceptionally simple silhouette and intentional negative space, recognizable at app-icon size. No words, captions, candidate numbers, watermark, UI, devices, or contact sheet. No imitation of existing company logos. Follow the specific construction and palette below; use clean off-white background unless another background is specified.\n\nSpecific direction: A C built from one enormous smooth cobalt semicircular slab on the left and a very short vermilion horizontal bar at the lower right, separated by a generous clean gap. Extreme contrast between the two pieces gives the compact symbol character. Flat Swiss graphic geometry, no outline, no depth, pale cream background."
+    },
+    {
+      "number": 43,
+      "name": "Open door",
+      "slug": "open-door",
+      "family": "Graphic C",
+      "idea": "A C becomes an inviting doorway.",
+      "filename": "43-open-door.png",
+      "prompt": "Use case: logo-brand.\nCreate ONE original logo candidate for Codealong, a Mac app that keeps track of multiple coding agents and sessions across projects. Core idea: capable companionship, clear attention, and independent work brought together.\nOutput: one centered finished symbol on a square, fully opaque canvas, with even 15% margins. Large, exceptionally simple silhouette and intentional negative space, recognizable at app-icon size. No words, captions, candidate numbers, watermark, UI, devices, or contact sheet. No imitation of existing company logos. Follow the specific construction and palette below; use clean off-white background unless another background is specified.\n\nSpecific direction: An upright architectural C in dark aubergine: three broad square-edged sides around an open right side, with the upper arm bending diagonally inward like a door held open. Its exposed interior face is pale coral. Minimal two-color flat graphic, only one small perspective cue, no shadows or tile."
+    },
+    {
+      "number": 44,
+      "name": "Scallop",
+      "slug": "scallop",
+      "family": "Graphic C",
+      "idea": "A lively outline gives the initial personality.",
+      "filename": "44-scallop.png",
+      "prompt": "Use case: logo-brand.\nCreate ONE original logo candidate for Codealong, a Mac app that keeps track of multiple coding agents and sessions across projects. Core idea: capable companionship, clear attention, and independent work brought together.\nOutput: one centered finished symbol on a square, fully opaque canvas, with even 15% margins. Large, exceptionally simple silhouette and intentional negative space, recognizable at app-icon size. No words, captions, candidate numbers, watermark, UI, devices, or contact sheet. No imitation of existing company logos. Follow the specific construction and palette below; use clean off-white background unless another background is specified.\n\nSpecific direction: A single expressive scarlet C whose OUTER left curve has three broad soft scallops while its inner counter remains a smooth oval. Compact shape, simple horizontal right-facing terminals, balanced negative space. Flat solid red on pale pink, no eyes, no face, no floral illustration, no depth."
+    },
+    {
+      "number": 45,
+      "name": "Stepped C",
+      "slug": "stepped-c",
+      "family": "Graphic C",
+      "idea": "A staircase cut suggests work progressing.",
+      "filename": "45-stepped-c.png",
+      "prompt": "Use case: logo-brand.\nCreate ONE original logo candidate for Codealong, a Mac app that keeps track of multiple coding agents and sessions across projects. Core idea: capable companionship, clear attention, and independent work brought together.\nOutput: one centered finished symbol on a square, fully opaque canvas, with even 15% margins. Large, exceptionally simple silhouette and intentional negative space, recognizable at app-icon size. No words, captions, candidate numbers, watermark, UI, devices, or contact sheet. No imitation of existing company logos. Follow the specific construction and palette below; use clean off-white background unless another background is specified.\n\nSpecific direction: A chunky electric-blue square C with a three-step staircase cut into the bottom interior edge; the top and exterior stay clean rounded rectangles. Only one unbroken shape, clearly readable as C, ample right-side opening. Flat geometric logo on ivory; no chart, arrows, gradient or tile."
+    },
+    {
+      "number": 46,
+      "name": "Split plane",
+      "slug": "split-plane",
+      "family": "Graphic C",
+      "idea": "Two planes meet across a single seam.",
+      "filename": "46-split-plane.png",
+      "prompt": "Use case: logo-brand.\nCreate ONE original logo candidate for Codealong, a Mac app that keeps track of multiple coding agents and sessions across projects. Core idea: capable companionship, clear attention, and independent work brought together.\nOutput: one centered finished symbol on a square, fully opaque canvas, with even 15% margins. Large, exceptionally simple silhouette and intentional negative space, recognizable at app-icon size. No words, captions, candidate numbers, watermark, UI, devices, or contact sheet. No imitation of existing company logos. Follow the specific construction and palette below; use clean off-white background unless another background is specified.\n\nSpecific direction: A broad compact C split diagonally into exactly two perfectly fitted planes: upper ink-purple and lower vivid orange. The overall contour is a squircle with a large right-side opening, the seam a crisp narrow ivory diagonal. Asymmetrical inner counter. Bold flat shape, no 3D, no gradients, off-white ground."
+    },
+    {
+      "number": 47,
+      "name": "Soft serif",
+      "slug": "soft-serif",
+      "family": "Graphic C",
+      "idea": "A typographic C with a welcoming gesture.",
+      "filename": "47-soft-serif.png",
+      "prompt": "Use case: logo-brand.\nCreate ONE original logo candidate for Codealong, a Mac app that keeps track of multiple coding agents and sessions across projects. Core idea: capable companionship, clear attention, and independent work brought together.\nOutput: one centered finished symbol on a square, fully opaque canvas, with even 15% margins. Large, exceptionally simple silhouette and intentional negative space, recognizable at app-icon size. No words, captions, candidate numbers, watermark, UI, devices, or contact sheet. No imitation of existing company logos. Follow the specific construction and palette below; use clean off-white background unless another background is specified.\n\nSpecific direction: A custom lowercase c with two unusual oversized wedge serifs, like open hands at the right-facing endpoints. Rich dark cherry-red ink on warm ivory. Characterful contemporary editorial typography, thick-thin contrast kept modest for icon legibility, one glyph only. Flat, sharp and original, no text, ornament or tile."
+    },
+    {
+      "number": 48,
+      "name": "Offset stamp",
+      "slug": "offset-stamp",
+      "family": "Graphic C",
+      "idea": "A small offset adds energy to a compact C.",
+      "filename": "48-offset-stamp.png",
+      "prompt": "Use case: logo-brand.\nCreate ONE original logo candidate for Codealong, a Mac app that keeps track of multiple coding agents and sessions across projects. Core idea: capable companionship, clear attention, and independent work brought together.\nOutput: one centered finished symbol on a square, fully opaque canvas, with even 15% margins. Large, exceptionally simple silhouette and intentional negative space, recognizable at app-icon size. No words, captions, candidate numbers, watermark, UI, devices, or contact sheet. No imitation of existing company logos. Follow the specific construction and palette below; use clean off-white background unless another background is specified.\n\nSpecific direction: One large compact block C in royal blue, with a small coral offset duplicate visible ONLY as a narrow ledge along the lower and right edges. Heavy rounded square geometry, extra-wide opening, print-register character, crisp flat two-color mark. No shadow simulation, no texture, no tile."
+    },
+    {
+      "number": 49,
+      "name": "Crescent square",
+      "slug": "crescent-square",
+      "family": "Graphic C",
+      "idea": "A curved counter cuts through a square form.",
+      "filename": "49-crescent-square.png",
+      "prompt": "Use case: logo-brand.\nCreate ONE original logo candidate for Codealong, a Mac app that keeps track of multiple coding agents and sessions across projects. Core idea: capable companionship, clear attention, and independent work brought together.\nOutput: one centered finished symbol on a square, fully opaque canvas, with even 15% margins. Large, exceptionally simple silhouette and intentional negative space, recognizable at app-icon size. No words, captions, candidate numbers, watermark, UI, devices, or contact sheet. No imitation of existing company logos. Follow the specific construction and palette below; use clean off-white background unless another background is specified.\n\nSpecific direction: A dark teal compact rounded square with a large cream circular counter and a clean diagonal channel opening to the upper right, making a C. The outer geometry is deliberately square and the inner geometry circular. Place a tiny mint triangle beside the opening as one companion. Entirely flat and extremely reduced."
+    },
+    {
+      "number": 50,
+      "name": "Chamfer",
+      "slug": "chamfer",
+      "family": "Graphic C",
+      "idea": "Architectural cuts give the initial precision.",
+      "filename": "50-chamfer.png",
+      "prompt": "Use case: logo-brand.\nCreate ONE original logo candidate for Codealong, a Mac app that keeps track of multiple coding agents and sessions across projects. Core idea: capable companionship, clear attention, and independent work brought together.\nOutput: one centered finished symbol on a square, fully opaque canvas, with even 15% margins. Large, exceptionally simple silhouette and intentional negative space, recognizable at app-icon size. No words, captions, candidate numbers, watermark, UI, devices, or contact sheet. No imitation of existing company logos. Follow the specific construction and palette below; use clean off-white background unless another background is specified.\n\nSpecific direction: A solid graphite C made of a thick octagonal band open on the right, with bold chamfered exterior corners and a softened square interior. Two short turquoise terminal faces point right and add one vivid accent. Flat vector-like mark, crisp bevel cuts without realistic shading, ivory background."
+    },
+    {
+      "number": 51,
+      "name": "Shared arch",
+      "slug": "shared-arch",
+      "family": "CA monograms",
+      "idea": "One arch connects both initials.",
+      "filename": "51-shared-arch.png",
+      "prompt": "Use case: logo-brand.\nCreate ONE original logo candidate for Codealong, a Mac app that keeps track of multiple coding agents and sessions across projects. Core idea: capable companionship, clear attention, and independent work brought together.\nOutput: one centered finished symbol on a square, fully opaque canvas, with even 15% margins. Large, exceptionally simple silhouette and intentional negative space, recognizable at app-icon size. No words, captions, candidate numbers, watermark, UI, devices, or contact sheet. No imitation of existing company logos. Follow the specific construction and palette below; use clean off-white background unless another background is specified.\n\nSpecific direction: A sophisticated CA ligature where the left open C and right lowercase a share one sweeping top arch. One continuous flat dark indigo shape with a single coral crossbar defining the a. Wide but compact silhouette, custom geometric letterform, clear two counters, no infinity sign, no loops or ribbon depth."
+    },
+    {
+      "number": 52,
+      "name": "Stencil CA",
+      "slug": "stencil-ca",
+      "family": "CA monograms",
+      "idea": "Negative space makes a compact monogram.",
+      "filename": "52-stencil-ca.png",
+      "prompt": "Use case: logo-brand.\nCreate ONE original logo candidate for Codealong, a Mac app that keeps track of multiple coding agents and sessions across projects. Core idea: capable companionship, clear attention, and independent work brought together.\nOutput: one centered finished symbol on a square, fully opaque canvas, with even 15% margins. Large, exceptionally simple silhouette and intentional negative space, recognizable at app-icon size. No words, captions, candidate numbers, watermark, UI, devices, or contact sheet. No imitation of existing company logos. Follow the specific construction and palette below; use clean off-white background unless another background is specified.\n\nSpecific direction: A single vermilion rounded-square block contains a boldly cut ivory C on the left and a simple triangular A counter on the right; the two letters share one clean diagonal cut. Confident stencil construction, generous counters, geometric and compact. Flat two-color logo, no outer app tile, no shadows."
+    },
+    {
+      "number": 53,
+      "name": "Sidecar",
+      "slug": "sidecar",
+      "family": "CA monograms",
+      "idea": "A small A travels beside a larger C.",
+      "filename": "53-sidecar.png",
+      "prompt": "Use case: logo-brand.\nCreate ONE original logo candidate for Codealong, a Mac app that keeps track of multiple coding agents and sessions across projects. Core idea: capable companionship, clear attention, and independent work brought together.\nOutput: one centered finished symbol on a square, fully opaque canvas, with even 15% margins. Large, exceptionally simple silhouette and intentional negative space, recognizable at app-icon size. No words, captions, candidate numbers, watermark, UI, devices, or contact sheet. No imitation of existing company logos. Follow the specific construction and palette below; use clean off-white background unless another background is specified.\n\nSpecific direction: A large thick periwinkle lowercase c beside a smaller peach lowercase a that nestles into the c opening, sharing its baseline. Both are custom soft geometric glyphs, enough separation to read clearly, one gentle touching point. Entirely flat lettermark on pale cream, no 3D, no loops or extra symbols."
+    },
+    {
+      "number": 54,
+      "name": "Continuous CA",
+      "slug": "continuous-ca",
+      "family": "CA monograms",
+      "idea": "A single path writes both letters.",
+      "filename": "54-continuous-ca.png",
+      "prompt": "Use case: logo-brand.\nCreate ONE original logo candidate for Codealong, a Mac app that keeps track of multiple coding agents and sessions across projects. Core idea: capable companionship, clear attention, and independent work brought together.\nOutput: one centered finished symbol on a square, fully opaque canvas, with even 15% margins. Large, exceptionally simple silhouette and intentional negative space, recognizable at app-icon size. No words, captions, candidate numbers, watermark, UI, devices, or contact sheet. No imitation of existing company logos. Follow the specific construction and palette below; use clean off-white background unless another background is specified.\n\nSpecific direction: A single monoline dark-forest-green stroke forms an open uppercase C then continues along the baseline into a triangular uppercase A. Uniform generously thick line, rounded corners, one small deliberate gap for readability, two neighboring letters arranged compactly. Flat on pale mint, no gradients, no knot or infinity shape."
+    },
+    {
+      "number": 55,
+      "name": "Folded ligature",
+      "slug": "folded-ligature",
+      "family": "CA monograms",
+      "idea": "One folded corner links C to A.",
+      "filename": "55-folded-ligature.png",
+      "prompt": "Use case: logo-brand.\nCreate ONE original logo candidate for Codealong, a Mac app that keeps track of multiple coding agents and sessions across projects. Core idea: capable companionship, clear attention, and independent work brought together.\nOutput: one centered finished symbol on a square, fully opaque canvas, with even 15% margins. Large, exceptionally simple silhouette and intentional negative space, recognizable at app-icon size. No words, captions, candidate numbers, watermark, UI, devices, or contact sheet. No imitation of existing company logos. Follow the specific construction and palette below; use clean off-white background unless another background is specified.\n\nSpecific direction: A compact CA monogram constructed from three broad folded-paper planes in cobalt, sky blue and apricot. A squared open C wraps the left edge; a simple triangular A is revealed by a fold on the right. Almost-flat origami abstraction with only one tiny contact shadow. Readable geometry, not decorative ribbon curls."
+    },
+    {
+      "number": 56,
+      "name": "Keystone",
+      "slug": "keystone",
+      "family": "CA monograms",
+      "idea": "An A-shaped opening anchors the C.",
+      "filename": "56-keystone.png",
+      "prompt": "Use case: logo-brand.\nCreate ONE original logo candidate for Codealong, a Mac app that keeps track of multiple coding agents and sessions across projects. Core idea: capable companionship, clear attention, and independent work brought together.\nOutput: one centered finished symbol on a square, fully opaque canvas, with even 15% margins. Large, exceptionally simple silhouette and intentional negative space, recognizable at app-icon size. No words, captions, candidate numbers, watermark, UI, devices, or contact sheet. No imitation of existing company logos. Follow the specific construction and palette below; use clean off-white background unless another background is specified.\n\nSpecific direction: A single chunky plum C-shaped arch whose inner counter is an upright triangular A with a short horizontal ivory notch. C reads first, A is a subtle negative-space discovery. Two squared arms face right, softly rounded outer corners, one flat silhouette. Pale peach background, no gradients or depth."
+    },
+    {
+      "number": 57,
+      "name": "Modular ca",
+      "slug": "modular-ca",
+      "family": "CA monograms",
+      "idea": "Two initials made from the same few parts.",
+      "filename": "57-modular-ca.png",
+      "prompt": "Use case: logo-brand.\nCreate ONE original logo candidate for Codealong, a Mac app that keeps track of multiple coding agents and sessions across projects. Core idea: capable companionship, clear attention, and independent work brought together.\nOutput: one centered finished symbol on a square, fully opaque canvas, with even 15% margins. Large, exceptionally simple silhouette and intentional negative space, recognizable at app-icon size. No words, captions, candidate numbers, watermark, UI, devices, or contact sheet. No imitation of existing company logos. Follow the specific construction and palette below; use clean off-white background unless another background is specified.\n\nSpecific direction: A custom lowercase ca monogram built from identical thick quarter-circle and short rectangle modules. The c is open and the a has a compact enclosed counter; one pale-lilac connector joins the baseline. Dark navy and lavender on off-white, flat graphic, disciplined proportions, no generic font rendering."
+    },
+    {
+      "number": 58,
+      "name": "Forward CA",
+      "slug": "forward-ca",
+      "family": "CA monograms",
+      "idea": "An angular ligature points toward the next step.",
+      "filename": "58-forward-ca.png",
+      "prompt": "Use case: logo-brand.\nCreate ONE original logo candidate for Codealong, a Mac app that keeps track of multiple coding agents and sessions across projects. Core idea: capable companionship, clear attention, and independent work brought together.\nOutput: one centered finished symbol on a square, fully opaque canvas, with even 15% margins. Large, exceptionally simple silhouette and intentional negative space, recognizable at app-icon size. No words, captions, candidate numbers, watermark, UI, devices, or contact sheet. No imitation of existing company logos. Follow the specific construction and palette below; use clean off-white background unless another background is specified.\n\nSpecific direction: A compact italic CA ligature where C is a cut octagonal arc and A is a forward-slanted triangular arch sharing its lower-right stroke. Vivid red-orange on warm white, sharp racing-like precision softened by rounded joins. One clean solid graphic, no speed lines, badges, shields or 3D."
+    },
+    {
+      "number": 59,
+      "name": "Handwritten ca",
+      "slug": "handwritten-ca",
+      "family": "CA monograms",
+      "idea": "A human gesture for a coding companion.",
+      "filename": "59-handwritten-ca.png",
+      "prompt": "Use case: logo-brand.\nCreate ONE original logo candidate for Codealong, a Mac app that keeps track of multiple coding agents and sessions across projects. Core idea: capable companionship, clear attention, and independent work brought together.\nOutput: one centered finished symbol on a square, fully opaque canvas, with even 15% margins. Large, exceptionally simple silhouette and intentional negative space, recognizable at app-icon size. No words, captions, candidate numbers, watermark, UI, devices, or contact sheet. No imitation of existing company logos. Follow the specific construction and palette below; use clean off-white background unless another background is specified.\n\nSpecific direction: One highly simplified custom handwritten lowercase ca in ultramarine blue, broad even brushless strokes, a playful upward exit on the a and an unusually open c. Smooth fluid gesture, no texture, no calligraphic hairlines, no underlining. Refined friendly icon-ready monogram on pale butter yellow."
+    },
+    {
+      "number": 60,
+      "name": "Nested arch",
+      "slug": "nested-arch",
+      "family": "CA monograms",
+      "idea": "Two initials share a quiet architectural shape.",
+      "filename": "60-nested-arch.png",
+      "prompt": "Use case: logo-brand.\nCreate ONE original logo candidate for Codealong, a Mac app that keeps track of multiple coding agents and sessions across projects. Core idea: capable companionship, clear attention, and independent work brought together.\nOutput: one centered finished symbol on a square, fully opaque canvas, with even 15% margins. Large, exceptionally simple silhouette and intentional negative space, recognizable at app-icon size. No words, captions, candidate numbers, watermark, UI, devices, or contact sheet. No imitation of existing company logos. Follow the specific construction and palette below; use clean off-white background unless another background is specified.\n\nSpecific direction: A wide rounded dark-green C frame open to the right holds a smaller terracotta A shaped like a simple doorway. The A sits slightly below center and joins the C's lower arm, producing one unified compact silhouette. Flat architectural geometry, big ivory gaps, no tiny counters, shadows or tile."
+    },
+    {
+      "number": 61,
+      "name": "Passing loop",
+      "slug": "passing-loop",
+      "family": "Connected motion",
+      "idea": "Two paths exchange the lead.",
+      "filename": "61-passing-loop.png",
+      "prompt": "Use case: logo-brand.\nCreate ONE original logo candidate for Codealong, a Mac app that keeps track of multiple coding agents and sessions across projects. Core idea: capable companionship, clear attention, and independent work brought together.\nOutput: one centered finished symbol on a square, fully opaque canvas, with even 15% margins. Large, exceptionally simple silhouette and intentional negative space, recognizable at app-icon size. No words, captions, candidate numbers, watermark, UI, devices, or contact sheet. No imitation of existing company logos. Follow the specific construction and palette below; use clean off-white background unless another background is specified.\n\nSpecific direction: Two broad flat bands, electric blue and tangerine, pass each other around a leftward U-turn to create a compact C. They swap inside/outside positions at one clear crossing near upper left. Squared ends, mostly rectilinear curves, dramatic central negative space. No knot, infinity sign or shadows."
+    },
+    {
+      "number": 62,
+      "name": "Relay baton",
+      "slug": "relay-baton",
+      "family": "Connected motion",
+      "idea": "Separate pieces continue one gesture.",
+      "filename": "62-relay-baton.png",
+      "prompt": "Use case: logo-brand.\nCreate ONE original logo candidate for Codealong, a Mac app that keeps track of multiple coding agents and sessions across projects. Core idea: capable companionship, clear attention, and independent work brought together.\nOutput: one centered finished symbol on a square, fully opaque canvas, with even 15% margins. Large, exceptionally simple silhouette and intentional negative space, recognizable at app-icon size. No words, captions, candidate numbers, watermark, UI, devices, or contact sheet. No imitation of existing company logos. Follow the specific construction and palette below; use clean off-white background unless another background is specified.\n\nSpecific direction: Three thick simple rounded bars sit end-to-end around two corners, forming an open square C. First bar indigo, second coral, third apricot. Each end is offset a little, making the path feel passed from one piece to the next. Entirely flat, generous clean gaps, no arrows, dots, gradients or tile."
+    },
+    {
+      "number": 63,
+      "name": "Convoy",
+      "slug": "convoy",
+      "family": "Connected motion",
+      "idea": "Three independent forms move as one.",
+      "filename": "63-convoy.png",
+      "prompt": "Use case: logo-brand.\nCreate ONE original logo candidate for Codealong, a Mac app that keeps track of multiple coding agents and sessions across projects. Core idea: capable companionship, clear attention, and independent work brought together.\nOutput: one centered finished symbol on a square, fully opaque canvas, with even 15% margins. Large, exceptionally simple silhouette and intentional negative space, recognizable at app-icon size. No words, captions, candidate numbers, watermark, UI, devices, or contact sheet. No imitation of existing company logos. Follow the specific construction and palette below; use clean off-white background unless another background is specified.\n\nSpecific direction: Three flattened rounded diamond shapes in close staggered formation, pointing diagonally upward to the right. A large cobalt leader and two smaller turquoise and lilac companions create a subtle C-shaped negative space between them. Original flat abstract symbol, balanced and compact; not birds, feathers, arrows or a generic swirl."
+    },
+    {
+      "number": 64,
+      "name": "Merge lane",
+      "slug": "merge-lane",
+      "family": "Connected motion",
+      "idea": "Several paths resolve into one route.",
+      "filename": "64-merge-lane.png",
+      "prompt": "Use case: logo-brand.\nCreate ONE original logo candidate for Codealong, a Mac app that keeps track of multiple coding agents and sessions across projects. Core idea: capable companionship, clear attention, and independent work brought together.\nOutput: one centered finished symbol on a square, fully opaque canvas, with even 15% margins. Large, exceptionally simple silhouette and intentional negative space, recognizable at app-icon size. No words, captions, candidate numbers, watermark, UI, devices, or contact sheet. No imitation of existing company logos. Follow the specific construction and palette below; use clean off-white background unless another background is specified.\n\nSpecific direction: Three bold colored short horizontal lanes at right curve around a left-side bend and merge into ONE broad returning lower stroke, producing an open C silhouette. Colors navy, sky blue and coral have clearly bounded areas. Flat route-like graphic, no roads, dashed lines, arrows, gradients or tiny details."
+    },
+    {
+      "number": 65,
+      "name": "Shared orbit",
+      "slug": "shared-orbit",
+      "family": "Connected motion",
+      "idea": "Two participants share one open path.",
+      "filename": "65-shared-orbit.png",
+      "prompt": "Use case: logo-brand.\nCreate ONE original logo candidate for Codealong, a Mac app that keeps track of multiple coding agents and sessions across projects. Core idea: capable companionship, clear attention, and independent work brought together.\nOutput: one centered finished symbol on a square, fully opaque canvas, with even 15% margins. Large, exceptionally simple silhouette and intentional negative space, recognizable at app-icon size. No words, captions, candidate numbers, watermark, UI, devices, or contact sheet. No imitation of existing company logos. Follow the specific construction and palette below; use clean off-white background unless another background is specified.\n\nSpecific direction: An oblique open C-shaped elliptical band in deep plum, with two broad rounded-square interruptions in peach and violet integrated into the band. Almost-flat view; original asymmetric orbital silhouette, no standalone dots or satellite illustration. Three clearly separated pieces, broad simple negative space on warm white."
+    },
+    {
+      "number": 66,
+      "name": "Switch point",
+      "slug": "switch-point",
+      "family": "Connected motion",
+      "idea": "A branch becomes part of the letter.",
+      "filename": "66-switch-point.png",
+      "prompt": "Use case: logo-brand.\nCreate ONE original logo candidate for Codealong, a Mac app that keeps track of multiple coding agents and sessions across projects. Core idea: capable companionship, clear attention, and independent work brought together.\nOutput: one centered finished symbol on a square, fully opaque canvas, with even 15% margins. Large, exceptionally simple silhouette and intentional negative space, recognizable at app-icon size. No words, captions, candidate numbers, watermark, UI, devices, or contact sheet. No imitation of existing company logos. Follow the specific construction and palette below; use clean off-white background unless another background is specified.\n\nSpecific direction: A chunky navy C-shaped path with one short inner diagonal branch ending in a coral rounded rectangle. The branch grows organically from the lower-left bend, so the overall symbol feels like two sessions connected to one route. Flat and bold, no conventional git node diagram, no circles, no tile."
+    },
+    {
+      "number": 67,
+      "name": "Ribbon turn",
+      "slug": "ribbon-turn",
+      "family": "Connected motion",
+      "idea": "A crisp fold suggests momentum.",
+      "filename": "67-ribbon-turn.png",
+      "prompt": "Use case: logo-brand.\nCreate ONE original logo candidate for Codealong, a Mac app that keeps track of multiple coding agents and sessions across projects. Core idea: capable companionship, clear attention, and independent work brought together.\nOutput: one centered finished symbol on a square, fully opaque canvas, with even 15% margins. Large, exceptionally simple silhouette and intentional negative space, recognizable at app-icon size. No words, captions, candidate numbers, watermark, UI, devices, or contact sheet. No imitation of existing company logos. Follow the specific construction and palette below; use clean off-white background unless another background is specified.\n\nSpecific direction: One wide vermilion strip makes a single decisive hairpin turn into an open C, with a folded indigo reverse visible at the left bend. Two parallel horizontal terminals face right at different lengths. Geometric, very low-relief, simple ribbon engineering, no flowing circular swirls, ivory background."
+    },
+    {
+      "number": 68,
+      "name": "Cadence",
+      "slug": "cadence",
+      "family": "Connected motion",
+      "idea": "Three beats make a recognizable initial.",
+      "filename": "68-cadence.png",
+      "prompt": "Use case: logo-brand.\nCreate ONE original logo candidate for Codealong, a Mac app that keeps track of multiple coding agents and sessions across projects. Core idea: capable companionship, clear attention, and independent work brought together.\nOutput: one centered finished symbol on a square, fully opaque canvas, with even 15% margins. Large, exceptionally simple silhouette and intentional negative space, recognizable at app-icon size. No words, captions, candidate numbers, watermark, UI, devices, or contact sheet. No imitation of existing company logos. Follow the specific construction and palette below; use clean off-white background unless another background is specified.\n\nSpecific direction: Three soft quadrilateral blocks of decreasing size follow an open C arc, with the largest at upper left, medium at lower left, smallest at lower right. Colors aubergine, coral and pink. Highly abstract rhythm with a square-ish overall contour; flat vector-like symbol, no round dots, petals, shadows or tile."
+    },
+    {
+      "number": 69,
+      "name": "Synchronized",
+      "slug": "synchronized",
+      "family": "Connected motion",
+      "idea": "Two synchronized strokes follow one bend.",
+      "filename": "69-synchronized.png",
+      "prompt": "Use case: logo-brand.\nCreate ONE original logo candidate for Codealong, a Mac app that keeps track of multiple coding agents and sessions across projects. Core idea: capable companionship, clear attention, and independent work brought together.\nOutput: one centered finished symbol on a square, fully opaque canvas, with even 15% margins. Large, exceptionally simple silhouette and intentional negative space, recognizable at app-icon size. No words, captions, candidate numbers, watermark, UI, devices, or contact sheet. No imitation of existing company logos. Follow the specific construction and palette below; use clean off-white background unless another background is specified.\n\nSpecific direction: Two equal-weight cobalt and jade bracket-like C strokes are shifted diagonally and interlocked with one precise ivory separation. Compact almost-square silhouette, slightly asymmetric endpoints, broad straight middle sections and tightly rounded corners. Flat crisp two-color symbol, no circles, chains, knots or shadows."
+    },
+    {
+      "number": 70,
+      "name": "Return path",
+      "slug": "return-path",
+      "family": "Connected motion",
+      "idea": "A loop brings attention back to the right place.",
+      "filename": "70-return-path.png",
+      "prompt": "Use case: logo-brand.\nCreate ONE original logo candidate for Codealong, a Mac app that keeps track of multiple coding agents and sessions across projects. Core idea: capable companionship, clear attention, and independent work brought together.\nOutput: one centered finished symbol on a square, fully opaque canvas, with even 15% margins. Large, exceptionally simple silhouette and intentional negative space, recognizable at app-icon size. No words, captions, candidate numbers, watermark, UI, devices, or contact sheet. No imitation of existing company logos. Follow the specific construction and palette below; use clean off-white background unless another background is specified.\n\nSpecific direction: One broad ultramarine path wraps three sides of a rounded square, then makes a tiny inward right-angle turn at the lower-right terminal. A small coral square rests in that terminal's notch. C-like route, clever intentional negative space, entirely flat, no arrows, app tile or 3D."
+    },
+    {
+      "number": 71,
+      "name": "Enamel clip",
+      "slug": "enamel-clip",
+      "family": "Tactile icons",
+      "idea": "A simple clip holds two active sessions.",
+      "filename": "71-enamel-clip.png",
+      "prompt": "Use case: logo-brand.\nCreate ONE original logo candidate for Codealong, a Mac app that keeps track of multiple coding agents and sessions across projects. Core idea: capable companionship, clear attention, and independent work brought together.\nOutput: one centered finished symbol on a square, fully opaque canvas, with even 15% margins. Large, exceptionally simple silhouette and intentional negative space, recognizable at app-icon size. No words, captions, candidate numbers, watermark, UI, devices, or contact sheet. No imitation of existing company logos. Follow the specific construction and palette below; use clean off-white background unless another background is specified.\n\nSpecific direction: A single sky-blue enamel C-shaped spring clip viewed frontally, holding exactly two flat thin blank cards, one ivory and one orange, offset to the right. Compact friendly manufactured object, subtle edge shine and very soft shadow. No elaborate mechanism, no text, no enclosing tile. Strong C silhouette dominates."
+    },
+    {
+      "number": 72,
+      "name": "Ceramic cradle",
+      "slug": "ceramic-cradle",
+      "family": "Tactile icons",
+      "idea": "A calm home for independent pieces.",
+      "filename": "72-ceramic-cradle.png",
+      "prompt": "Use case: logo-brand.\nCreate ONE original logo candidate for Codealong, a Mac app that keeps track of multiple coding agents and sessions across projects. Core idea: capable companionship, clear attention, and independent work brought together.\nOutput: one centered finished symbol on a square, fully opaque canvas, with even 15% margins. Large, exceptionally simple silhouette and intentional negative space, recognizable at app-icon size. No words, captions, candidate numbers, watermark, UI, devices, or contact sheet. No imitation of existing company logos. Follow the specific construction and palette below; use clean off-white background unless another background is specified.\n\nSpecific direction: A deep-violet matte ceramic C-shaped cradle contains three little ivory rounded rectangular blocks neatly arranged horizontally, with one coral top surface. Smooth simple low-relief object, frontal view, satisfying rounded geometry. Place on pale lilac rounded-square app tile; soft diffuse light, no clutter or glossy plastic."
+    },
+    {
+      "number": 73,
+      "name": "Paper tab",
+      "slug": "paper-tab",
+      "family": "Tactile icons",
+      "idea": "A single folded tab makes a C.",
+      "filename": "73-paper-tab.png",
+      "prompt": "Use case: logo-brand.\nCreate ONE original logo candidate for Codealong, a Mac app that keeps track of multiple coding agents and sessions across projects. Core idea: capable companionship, clear attention, and independent work brought together.\nOutput: one centered finished symbol on a square, fully opaque canvas, with even 15% margins. Large, exceptionally simple silhouette and intentional negative space, recognizable at app-icon size. No words, captions, candidate numbers, watermark, UI, devices, or contact sheet. No imitation of existing company logos. Follow the specific construction and palette below; use clean off-white background unless another background is specified.\n\nSpecific direction: A broad butter-yellow folded paper tab makes a compact angular C with a terracotta reverse visible inside. Exactly two folds, heavy clean planes, soft paper texture, a very small blue companion square peeks out of the opening. Three-quarter frontal view, off-white background, no enclosing tile or text."
+    },
+    {
+      "number": 74,
+      "name": "Desk token",
+      "slug": "desk-token",
+      "family": "Tactile icons",
+      "idea": "A pocket-size emblem for the agent board.",
+      "filename": "74-desk-token.png",
+      "prompt": "Use case: logo-brand.\nCreate ONE original logo candidate for Codealong, a Mac app that keeps track of multiple coding agents and sessions across projects. Core idea: capable companionship, clear attention, and independent work brought together.\nOutput: one centered finished symbol on a square, fully opaque canvas, with even 15% margins. Large, exceptionally simple silhouette and intentional negative space, recognizable at app-icon size. No words, captions, candidate numbers, watermark, UI, devices, or contact sheet. No imitation of existing company logos. Follow the specific construction and palette below; use clean off-white background unless another background is specified.\n\nSpecific direction: A beautiful solid pale-blue rounded-square ceramic token with a bold C deeply debossed into the face; the inner groove is cobalt and contains one small orange square at its lower end. Front view with subtle thickness, material depth kept restrained, isolated on warm white. No text or extra symbols."
+    },
+    {
+      "number": 75,
+      "name": "Thread spool",
+      "slug": "thread-spool",
+      "family": "Tactile icons",
+      "idea": "Several threads stay neatly gathered.",
+      "filename": "75-thread-spool.png",
+      "prompt": "Use case: logo-brand.\nCreate ONE original logo candidate for Codealong, a Mac app that keeps track of multiple coding agents and sessions across projects. Core idea: capable companionship, clear attention, and independent work brought together.\nOutput: one centered finished symbol on a square, fully opaque canvas, with even 15% margins. Large, exceptionally simple silhouette and intentional negative space, recognizable at app-icon size. No words, captions, candidate numbers, watermark, UI, devices, or contact sheet. No imitation of existing company logos. Follow the specific construction and palette below; use clean off-white background unless another background is specified.\n\nSpecific direction: A very simplified sculptural spool shaped like an open C: two short coral end flanges joined by a broad curved navy central band, with two mint flat strands visible inside its opening. Abstract manufactured desktop object, readable silhouette, no realistic yarn, no fine lines, warm white background, no tile."
+    },
+    {
+      "number": 76,
+      "name": "Accordion",
+      "slug": "accordion",
+      "family": "Tactile icons",
+      "idea": "Independent panels fold into one compact mark.",
+      "filename": "76-accordion.png",
+      "prompt": "Use case: logo-brand.\nCreate ONE original logo candidate for Codealong, a Mac app that keeps track of multiple coding agents and sessions across projects. Core idea: capable companionship, clear attention, and independent work brought together.\nOutput: one centered finished symbol on a square, fully opaque canvas, with even 15% margins. Large, exceptionally simple silhouette and intentional negative space, recognizable at app-icon size. No words, captions, candidate numbers, watermark, UI, devices, or contact sheet. No imitation of existing company logos. Follow the specific construction and palette below; use clean off-white background unless another background is specified.\n\nSpecific direction: Three broad folded accordion-paper panels form an open angular C, with navy outside, lavender middle and peach inside. Clean blunt edges, one large open counter, understated shadows at two folds. A charming Mac app icon object, not an E or book illustration; no tile, text or tiny details."
+    },
+    {
+      "number": 77,
+      "name": "Glass bracket",
+      "slug": "glass-bracket",
+      "family": "Tactile icons",
+      "idea": "A translucent bracket holds one point of attention.",
+      "filename": "77-glass-bracket.png",
+      "prompt": "Use case: logo-brand.\nCreate ONE original logo candidate for Codealong, a Mac app that keeps track of multiple coding agents and sessions across projects. Core idea: capable companionship, clear attention, and independent work brought together.\nOutput: one centered finished symbol on a square, fully opaque canvas, with even 15% margins. Large, exceptionally simple silhouette and intentional negative space, recognizable at app-icon size. No words, captions, candidate numbers, watermark, UI, devices, or contact sheet. No imitation of existing company logos. Follow the specific construction and palette below; use clean off-white background unless another background is specified.\n\nSpecific direction: A thick frosted-sea-glass square C bracket in turquoise, framing a small opaque coral cube near its lower-right end. Matte milky translucent material with subtle refraction, no chrome, no bright flares. Frontal low-relief icon on pale blue rounded-square tile, carefully simple silhouette."
+    },
+    {
+      "number": 78,
+      "name": "Magnetic tiles",
+      "slug": "magnetic-tiles",
+      "family": "Tactile icons",
+      "idea": "Four tactile pieces form a flexible C.",
+      "filename": "78-magnetic-tiles.png",
+      "prompt": "Use case: logo-brand.\nCreate ONE original logo candidate for Codealong, a Mac app that keeps track of multiple coding agents and sessions across projects. Core idea: capable companionship, clear attention, and independent work brought together.\nOutput: one centered finished symbol on a square, fully opaque canvas, with even 15% margins. Large, exceptionally simple silhouette and intentional negative space, recognizable at app-icon size. No words, captions, candidate numbers, watermark, UI, devices, or contact sheet. No imitation of existing company logos. Follow the specific construction and palette below; use clean off-white background unless another background is specified.\n\nSpecific direction: Exactly four large rounded matte magnetic tiles fit into a compact C open on the right: cobalt top, sky-blue upper-left, lilac lower-left, coral bottom. Each piece has a different simple block shape, narrow intentional gaps, soft shallow bevels, no decorative texture. Off-white canvas, no app tile."
+    },
+    {
+      "number": 79,
+      "name": "Control knob",
+      "slug": "control-knob",
+      "family": "Tactile icons",
+      "idea": "A tiny control surface with a clear initial.",
+      "filename": "79-control-knob.png",
+      "prompt": "Use case: logo-brand.\nCreate ONE original logo candidate for Codealong, a Mac app that keeps track of multiple coding agents and sessions across projects. Core idea: capable companionship, clear attention, and independent work brought together.\nOutput: one centered finished symbol on a square, fully opaque canvas, with even 15% margins. Large, exceptionally simple silhouette and intentional negative space, recognizable at app-icon size. No words, captions, candidate numbers, watermark, UI, devices, or contact sheet. No imitation of existing company logos. Follow the specific construction and palette below; use clean off-white background unless another background is specified.\n\nSpecific direction: A flat circular ivory ceramic control knob with a wide dark-indigo C-shaped groove cut into its top, and one small coral square indicator at the groove's upper endpoint. Almost front-on with slight depth, clearly an abstract C emblem rather than a clock. Pale peach rounded-square tile, no text, tick marks or extra buttons."
+    },
+    {
+      "number": 80,
+      "name": "Bookmarks",
+      "slug": "bookmarks",
+      "family": "Tactile icons",
+      "idea": "Three sessions held by one curved spine.",
+      "filename": "80-bookmarks.png",
+      "prompt": "Use case: logo-brand.\nCreate ONE original logo candidate for Codealong, a Mac app that keeps track of multiple coding agents and sessions across projects. Core idea: capable companionship, clear attention, and independent work brought together.\nOutput: one centered finished symbol on a square, fully opaque canvas, with even 15% margins. Large, exceptionally simple silhouette and intentional negative space, recognizable at app-icon size. No words, captions, candidate numbers, watermark, UI, devices, or contact sheet. No imitation of existing company logos. Follow the specific construction and palette below; use clean off-white background unless another background is specified.\n\nSpecific direction: A deep-teal sculptural C-shaped spine gathers three short thick bookmark tabs pointing right, in mint, ivory and coral. Tabs occupy distinct vertical positions with generous gaps. Simple almost-flat soft-touch plastic forms, strong compact silhouette and gentle shadow, warm off-white background, no enclosing app tile."
+    },
+    {
+      "number": 81,
+      "name": "Open canopy",
+      "slug": "open-canopy",
+      "family": "Unexpected symbols",
+      "idea": "A shared shelter hints at C and A.",
+      "filename": "81-open-canopy.png",
+      "prompt": "Use case: logo-brand.\nCreate ONE original logo candidate for Codealong, a Mac app that keeps track of multiple coding agents and sessions across projects. Core idea: capable companionship, clear attention, and independent work brought together.\nOutput: one centered finished symbol on a square, fully opaque canvas, with even 15% margins. Large, exceptionally simple silhouette and intentional negative space, recognizable at app-icon size. No words, captions, candidate numbers, watermark, UI, devices, or contact sheet. No imitation of existing company logos. Follow the specific construction and palette below; use clean off-white background unless another background is specified.\n\nSpecific direction: A minimal abstract canopy: two broad asymmetric navy arches meet above a small coral doorway-shaped cutout. Viewed as one compact mark it suggests a C enclosing an A, with an open right edge. Flat architectural geometry, soft squared corners, warm white canvas, no house roof icon or literal building."
+    },
+    {
+      "number": 82,
+      "name": "Counterform",
+      "slug": "counterform",
+      "family": "Unexpected symbols",
+      "idea": "The C lives in the space between two pieces.",
+      "filename": "82-counterform.png",
+      "prompt": "Use case: logo-brand.\nCreate ONE original logo candidate for Codealong, a Mac app that keeps track of multiple coding agents and sessions across projects. Core idea: capable companionship, clear attention, and independent work brought together.\nOutput: one centered finished symbol on a square, fully opaque canvas, with even 15% margins. Large, exceptionally simple silhouette and intentional negative space, recognizable at app-icon size. No words, captions, candidate numbers, watermark, UI, devices, or contact sheet. No imitation of existing company logos. Follow the specific construction and palette below; use clean off-white background unless another background is specified.\n\nSpecific direction: Two flat chunky complementary pieces, one coral and one violet, fit like an original puzzle. Their generous negative space creates a clear white C, while their outer silhouette forms a rounded triangle. Only two pieces; broad gaps, strong graphic originality, no jigsaw tabs, gradients or tile."
+    },
+    {
+      "number": 83,
+      "name": "Companion wing",
+      "slug": "companion-wing",
+      "family": "Unexpected symbols",
+      "idea": "Two unequal shapes suggest looking ahead together.",
+      "filename": "83-companion-wing.png",
+      "prompt": "Use case: logo-brand.\nCreate ONE original logo candidate for Codealong, a Mac app that keeps track of multiple coding agents and sessions across projects. Core idea: capable companionship, clear attention, and independent work brought together.\nOutput: one centered finished symbol on a square, fully opaque canvas, with even 15% margins. Large, exceptionally simple silhouette and intentional negative space, recognizable at app-icon size. No words, captions, candidate numbers, watermark, UI, devices, or contact sheet. No imitation of existing company logos. Follow the specific construction and palette below; use clean off-white background unless another background is specified.\n\nSpecific direction: An abstract large cobalt folded-wing shape and one small peach companion wedge nest beside each other, with a C-like open curve between them. Flat broad geometry, gentle upward direction, no literal bird anatomy, feathers, eyes or gradients. Minimal friendly tech identity on pale ivory."
+    },
+    {
+      "number": 84,
+      "name": "Common ground",
+      "slug": "common-ground",
+      "family": "Unexpected symbols",
+      "idea": "A shared base brings three forms together.",
+      "filename": "84-common-ground.png",
+      "prompt": "Use case: logo-brand.\nCreate ONE original logo candidate for Codealong, a Mac app that keeps track of multiple coding agents and sessions across projects. Core idea: capable companionship, clear attention, and independent work brought together.\nOutput: one centered finished symbol on a square, fully opaque canvas, with even 15% margins. Large, exceptionally simple silhouette and intentional negative space, recognizable at app-icon size. No words, captions, candidate numbers, watermark, UI, devices, or contact sheet. No imitation of existing company logos. Follow the specific construction and palette below; use clean off-white background unless another background is specified.\n\nSpecific direction: Three simple upright arch-like shapes in cobalt, lilac and coral stand on one shared dark-indigo curved baseline. Their heights differ slightly and the baseline turns upward at left, subtly suggesting C. Compact abstract architectural symbol, flat and crisp; avoid bar-chart rectangles, people icons, gradients and tile."
+    },
+    {
+      "number": 85,
+      "name": "Open knot",
+      "slug": "open-knot",
+      "family": "Unexpected symbols",
+      "idea": "A simple connection stays open and welcoming.",
+      "filename": "85-open-knot.png",
+      "prompt": "Use case: logo-brand.\nCreate ONE original logo candidate for Codealong, a Mac app that keeps track of multiple coding agents and sessions across projects. Core idea: capable companionship, clear attention, and independent work brought together.\nOutput: one centered finished symbol on a square, fully opaque canvas, with even 15% margins. Large, exceptionally simple silhouette and intentional negative space, recognizable at app-icon size. No words, captions, candidate numbers, watermark, UI, devices, or contact sheet. No imitation of existing company logos. Follow the specific construction and palette below; use clean off-white background unless another background is specified.\n\nSpecific direction: Two short broad strips, navy and warm orange, interlock once like an open square knot with three visible right-angle turns and a large C-shaped central gap. Extremely reduced flat vector form with one overlap cue. No infinity sign, chain links, Celtic complexity, shadows or tile."
+    },
+    {
+      "number": 86,
+      "name": "Window pair",
+      "slug": "window-pair",
+      "family": "Unexpected symbols",
+      "idea": "Two windows become one compact symbol.",
+      "filename": "86-window-pair.png",
+      "prompt": "Use case: logo-brand.\nCreate ONE original logo candidate for Codealong, a Mac app that keeps track of multiple coding agents and sessions across projects. Core idea: capable companionship, clear attention, and independent work brought together.\nOutput: one centered finished symbol on a square, fully opaque canvas, with even 15% margins. Large, exceptionally simple silhouette and intentional negative space, recognizable at app-icon size. No words, captions, candidate numbers, watermark, UI, devices, or contact sheet. No imitation of existing company logos. Follow the specific construction and palette below; use clean off-white background unless another background is specified.\n\nSpecific direction: Two offset rounded-square outlines share a thick left edge; both are open along the right, creating a clever double-C symbol. One outline cobalt, the other coral; broad strokes and generous negative space. Flat minimalist logo, no title bars, close buttons, interface details or gradients."
+    },
+    {
+      "number": 87,
+      "name": "Conversation fold",
+      "slug": "conversation-fold",
+      "family": "Unexpected symbols",
+      "idea": "A folded corner hints at a shared conversation.",
+      "filename": "87-conversation-fold.png",
+      "prompt": "Use case: logo-brand.\nCreate ONE original logo candidate for Codealong, a Mac app that keeps track of multiple coding agents and sessions across projects. Core idea: capable companionship, clear attention, and independent work brought together.\nOutput: one centered finished symbol on a square, fully opaque canvas, with even 15% margins. Large, exceptionally simple silhouette and intentional negative space, recognizable at app-icon size. No words, captions, candidate numbers, watermark, UI, devices, or contact sheet. No imitation of existing company logos. Follow the specific construction and palette below; use clean off-white background unless another background is specified.\n\nSpecific direction: A single broad dark-purple C-shaped rounded-square enclosure with a short folded coral corner at lower right, suggesting a speech gesture without becoming a standard chat bubble. Flat paper geometry, unusually large open counter, one subtle overlap, no dots, quote marks, text or enclosing tile."
+    },
+    {
+      "number": 88,
+      "name": "Little harbor",
+      "slug": "little-harbor",
+      "family": "Unexpected symbols",
+      "idea": "A calm enclosure holds a small active shape.",
+      "filename": "88-little-harbor.png",
+      "prompt": "Use case: logo-brand.\nCreate ONE original logo candidate for Codealong, a Mac app that keeps track of multiple coding agents and sessions across projects. Core idea: capable companionship, clear attention, and independent work brought together.\nOutput: one centered finished symbol on a square, fully opaque canvas, with even 15% margins. Large, exceptionally simple silhouette and intentional negative space, recognizable at app-icon size. No words, captions, candidate numbers, watermark, UI, devices, or contact sheet. No imitation of existing company logos. Follow the specific construction and palette below; use clean off-white background unless another background is specified.\n\nSpecific direction: A deep navy open circular harbor shape, broad and almost C-like, cradles a single coral rounded diamond at its lower center. Its upper terminal is squared and lower terminal softly curves upward. Quiet refined flat mark with lots of ivory negative space, no boat, water, sun, map or shadows."
+    },
+    {
+      "number": 89,
+      "name": "Together mark",
+      "slug": "together-mark",
+      "family": "Unexpected symbols",
+      "idea": "Two simple forms support one another.",
+      "filename": "89-together-mark.png",
+      "prompt": "Use case: logo-brand.\nCreate ONE original logo candidate for Codealong, a Mac app that keeps track of multiple coding agents and sessions across projects. Core idea: capable companionship, clear attention, and independent work brought together.\nOutput: one centered finished symbol on a square, fully opaque canvas, with even 15% margins. Large, exceptionally simple silhouette and intentional negative space, recognizable at app-icon size. No words, captions, candidate numbers, watermark, UI, devices, or contact sheet. No imitation of existing company logos. Follow the specific construction and palette below; use clean off-white background unless another background is specified.\n\nSpecific direction: Two bold arch-shaped strokes, one blue and one orange, lean toward each other and share a short horizontal foot, creating a compact asymmetric monogram with a hidden C-shaped white gap and a subtle A silhouette. Flat friendly geometry, thick strokes, no human heads, gradients or tile."
+    },
+    {
+      "number": 90,
+      "name": "Open signal",
+      "slug": "open-signal",
+      "family": "Unexpected symbols",
+      "idea": "One opening turns a compact object into a C.",
+      "filename": "90-open-signal.png",
+      "prompt": "Use case: logo-brand.\nCreate ONE original logo candidate for Codealong, a Mac app that keeps track of multiple coding agents and sessions across projects. Core idea: capable companionship, clear attention, and independent work brought together.\nOutput: one centered finished symbol on a square, fully opaque canvas, with even 15% margins. Large, exceptionally simple silhouette and intentional negative space, recognizable at app-icon size. No words, captions, candidate numbers, watermark, UI, devices, or contact sheet. No imitation of existing company logos. Follow the specific construction and palette below; use clean off-white background unless another background is specified.\n\nSpecific direction: A flat dark-indigo rounded triangular shape with a large circular counter, opened by a broad coral channel through its right side. The opening creates an unmistakable C while the outer triangular contour hints at A. Bold unusual negative-space monogram, crisp vector-like edges, pale peach background, no 3D or tiny details."
+    }
+  ]
+}
