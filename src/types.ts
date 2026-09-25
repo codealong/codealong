@@ -501,10 +501,14 @@ export interface BarFeed {
   perfLog: boolean;
   /** The terminal app's name, for menu items such as "Show in Ghostty". */
   terminal: string;
+  /** The projects, in your order, for the bar's project menu. */
+  projects: string[];
   /** In bar order: by group, then the newest status first. */
   items: BarItem[];
   /** Open PRs that ask for your review, newest first. */
   reviews: BarReview[];
+  /** Todos ready to start (not started, and waiting on nothing), in your order. */
+  todos: BarTodo[];
 }
 
 export interface BarItem {
@@ -515,6 +519,9 @@ export interface BarItem {
   account: string;
   laneId: string;
   callsign: string;
+  project: string;
+  /** In a worktree the board keeps out of sight (Elsewhere's, while nothing there needs you). */
+  hidden: boolean;
   detail: string | null;
   openTarget: string;
   /** The lane's own entry for `openTarget`, when it lists one. */
@@ -526,4 +533,14 @@ export interface BarReview {
   number: number;
   title: string;
   repo: string;
+  project: string;
+}
+
+export interface BarTodo {
+  id: string;
+  title: string;
+  /** Empty until you pick one or link a worktree. */
+  project: string;
+  /** The worktree a session for it starts in, when it has one. */
+  callsign: string | null;
 }

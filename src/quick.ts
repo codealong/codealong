@@ -1,7 +1,7 @@
 // What the quick panel lists, and how it names shortcuts. With nothing typed it lists the
 // sessions that need you, then the ones whose turn ended; with nothing waiting, the ones
-// working. Typed words find sessions, then todos: every word has to be in what describes them.
-// Kept free of React so the rules have tests.
+// working. Under them go the first few todos ready to start. Typed words find sessions, then
+// todos: every word has to be in what describes them. Kept free of React so the rules have tests.
 
 import { middleTruncate } from './format';
 import { sectionOf, sessionHomes, todoItem, type TodoItem, type TodoSectionId } from './todos';
@@ -10,14 +10,15 @@ import type { Board, Lane, Session, Status } from './types';
 export const ALL_PROJECTS = 'All projects';
 const ELSEWHERE = 'Elsewhere';
 
-/** Whether a worktree is in the project the panel shows. Elsewhere's worktrees stay out of All
+/** Whether a worktree (or a floating bar pill, which carries its worktree's project and whether
+ *  it's hidden) is in the project the panel shows. Elsewhere's worktrees stay out of All
  *  projects, as they do in the main window. */
-export function inProject(lane: Lane, project: string): boolean {
+export function inProject(lane: Pick<Lane, 'project' | 'hidden'>, project: string): boolean {
   if (project === ALL_PROJECTS) return !lane.hidden;
   return lane.project === project && (project === ELSEWHERE || !lane.hidden);
 }
 
-export type RowGroup = 'suggested' | 'needs' | 'unread' | 'working' | 'found' | 'todos';
+export type RowGroup = 'suggested' | 'needs' | 'unread' | 'working' | 'found' | 'todos' | 'ready';
 
 /** Where a status puts a session in the empty panel's list, as on the floating bar: errors wait
  *  on you like questions do. */
@@ -39,6 +40,8 @@ export interface SessionRow {
 
 /** How many rows the panel lists at most: ⌘1 to ⌘9 reach them all. */
 export const MAX_ROWS = 9;
+/** How many todos ready to start the empty panel lists under the sessions. */
+export const READY_TODOS = 3;
 /** A search lists this many sessions and this many todos at most, so both fit. */
 export const FOUND_SESSIONS = 6;
 export const FOUND_TODOS = 5;
@@ -125,11 +128,11 @@ export function findSessions(board: Board, project: string, query: string, limit
     .map((f) => f.row);
 }
 
-/** A todo a search found. */
+/** A todo a search found, or one ready to start under the empty panel's sessions. */
 export interface TodoRow {
   kind: 'todo';
   key: string;
-  group: 'todos';
+  group: 'todos' | 'ready';
   item: TodoItem;
   /** Waiting on something, by hand or on another todo that isn't done. */
   waiting: boolean;
@@ -174,6 +177,21 @@ export function findTodos(board: Board, project: string, query: string, limit = 
     .sort((a, b) => Number(b.inTitle) - Number(a.inTitle) || a.rank - b.rank || b.row.item.lastActivity - a.row.item.lastActivity || a.row.key.localeCompare(b.row.key))
     .slice(0, limit)
     .map((f) => f.row);
+}
+
+/**
+ * The empty panel's todos: the first few ready to start (not started, and waiting on nothing), in
+ * your order, as the Todo view lists them under Ready. In a project, only its own. `count` is how
+ * many are ready in all, for the heading.
+ */
+export function readyTodos(board: Board, project: string, limit = READY_TODOS): { rows: TodoRow[]; count: number } {
+  const todos = board.todos ?? [];
+  const ready = todos.filter((t) => (project === ALL_PROJECTS || t.project === project) && sectionOf(t, todos) === 'ready');
+  const laneById = new Map(board.lanes.map((l) => [l.id, l]));
+  const homes = sessionHomes(board.lanes);
+  const labelById = new Map((board.labels ?? []).map((l) => [l.id, l]));
+  const rows = ready.slice(0, limit).map((t): TodoRow => ({ kind: 'todo', key: `todo:${t.id}`, group: 'ready', item: todoItem(t, laneById, homes, labelById), waiting: false, marks: [] }));
+  return { rows, count: ready.length };
 }
 
 /** Where a new session can start, for the worktree menu: pinned worktrees first, in your order,

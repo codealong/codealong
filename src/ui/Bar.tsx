@@ -1,18 +1,21 @@
 // The floating bar's page: pills for the sessions that need you, whose turn ended, or that are
-// running, in every project, and one for PRs waiting on your review. The engine keeps the window
-// up and sends it what to show (barfeed.rs); the page sizes the window to itself. Pills that don't
-// fit fold into one per group that lists them. Clicking a pill opens the session where it lives,
-// right-clicking shows its menu, and the mark brings Codealong forward.
+// running, one for PRs waiting on your review, and one for todos ready to start, in the project
+// picked beside the mark or in all of them. The engine keeps the window up and sends it what to
+// show (barfeed.rs); the page sizes the window to itself. Pills that don't fit fold into one per
+// group that lists them. Clicking a pill opens the session where it lives, right-clicking shows
+// its menu, and the mark brings Codealong forward.
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { fitBar, getBarFeed, markSeen, onBarFeed, openFromBar, setBarOn, showMain } from '../api';
-import { fitGroups, GROUPS, plain, type Group, type GroupFit } from '../bar';
-import { showContextMenu, type MenuSpec } from '../contextMenu';
+import { fitBar, getBarFeed, markSeen, onBarFeed, openFromBar, setBarOn, showMain, showQuick } from '../api';
+import { elsewhereWaits, fitGroups, GROUPS, plain, projectWaits, type Group, type GroupFit, type WaitCounts } from '../bar';
+import { showContextMenu, type MenuAction, type MenuSpec } from '../contextMenu';
 import { usePerf } from '../perf';
-import type { BarFeed, BarItem, BarReview, Status } from '../types';
+import { ALL_PROJECTS, inProject } from '../quick';
+import type { BarFeed, BarItem, BarReview, BarTodo, Status } from '../types';
 import { Icon, Mark, STATUS_WORD, StatusGlyph } from './primitives';
 import { applyTheme } from './ThemeSwitch';
+import { TodoGlyph } from './TodoBits';
 import { LOGO_LABEL, useLogo } from '../logo';
 
 /** Room around the bar for its shadow: the window is this much bigger on every side. */
@@ -27,9 +30,19 @@ const PADDING = 5;
 const MARK = 24;
 /** A folded pill is measured holding this, so a real count never outgrows it. */
 const FOLD_SAMPLE = '+88';
+/** Where the project picked in the bar's menu is kept. */
+const PROJECT_KEY = 'codealong.bar.project';
 
 const GROUP_GLYPH: Record<Group, Status> = { needs: 'needs', unread: 'unread', working: 'working' };
 const GROUP_WORD: Record<Group, string> = { needs: 'need you', unread: 'your turn', working: 'working' };
+
+function storedProject(): string {
+  try {
+    return window.localStorage.getItem(PROJECT_KEY) ?? ALL_PROJECTS;
+  } catch {
+    return ALL_PROJECTS;
+  }
+}
 
 function useNow(everyMs: number): number {
   const [now, setNow] = useState(() => Date.now());
@@ -137,6 +150,68 @@ function ReviewsPill({ prs, onOpen, measure }: { prs: BarReview[]; onOpen?: (e: 
   );
 }
 
+/** The todos ready to start, as one pill beside the reviews: a click opens the quick panel ready
+ *  to start one (the only one, or the one picked from its menu). */
+function TodosPill({ todos, onOpen, onMenu, measure }: { todos: BarTodo[]; onOpen?: (e: MouseEvent<HTMLButtonElement>) => void; onMenu?: (e: MouseEvent<HTMLButtonElement>) => void; measure?: boolean }) {
+  return (
+    <button
+      type="button"
+      className="ca-hud-pill is-todos"
+      title={measure ? undefined : `${todos.length === 1 ? '1 todo' : `${todos.length} todos`} ready to start:\n${todos.map(todoLabel).join('\n')}`}
+      data-todos={measure ? '' : undefined}
+      onClick={onOpen}
+      onContextMenu={
+        onMenu
+          ? (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onMenu(e);
+            }
+          : undefined
+      }
+    >
+      <TodoGlyph status="todo" title="" />
+      <span>{todos.length} ready</span>
+    </button>
+  );
+}
+
+/** A todo as its menu item and tooltip line say it: its title, then where it starts. */
+function todoLabel(t: BarTodo): string {
+  const where = t.callsign ?? t.project;
+  return `${t.title || 'Untitled'}${where ? ` · ${where}` : ''}`;
+}
+
+/** The project the bar shows, beside the mark. Other projects' sessions that need you badge it,
+ *  and their finished turns put a dot on it, so nothing waits unseen behind it. */
+function ProjectButton({ name, others, open, onOpen, measure }: { name: string; others: WaitCounts; open?: boolean; onOpen?: (e: MouseEvent<HTMLButtonElement>) => void; measure?: boolean }) {
+  const note = others.needs > 0 ? `${others.needs} in other projects ${others.needs === 1 ? 'needs' : 'need'} you` : others.unread > 0 ? `${others.unread} finished in other projects` : '';
+  return (
+    <button
+      type="button"
+      className="ca-hud-project"
+      title={measure ? undefined : `Project the bar shows${note ? `. ${note}.` : ''}`}
+      aria-haspopup="menu"
+      aria-expanded={open}
+      data-project={measure ? '' : undefined}
+      onClick={onOpen}
+      onContextMenu={
+        onOpen
+          ? (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onOpen(e);
+            }
+          : undefined
+      }
+    >
+      <span>{name}</span>
+      {others.needs > 0 ? <span className="ca-projswitch-badge">{others.needs}</span> : others.unread > 0 ? <span className="ca-projswitch-dot" /> : null}
+      <Icon name="chevron-down" size={12} />
+    </button>
+  );
+}
+
 /** What went wrong opening something, in the place of the pill it came from. A click clears it. */
 function FailedPill({ message, onDismiss }: { message: string; onDismiss: () => void }) {
   return (
@@ -161,6 +236,8 @@ export function Bar() {
   const [failed, setFailed] = useState<{ anchor: string; message: string } | null>(null);
   // Fonts load after the first layout; pills are measured again once they have.
   const [fontsReady, setFontsReady] = useState(false);
+  const [project, setProject] = useState(storedProject);
+  const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   const now = useNow(30_000);
   const hud = useRef<HTMLDivElement>(null);
   const measure = useRef<HTMLDivElement>(null);
@@ -195,8 +272,16 @@ export function Bar() {
     return () => window.clearTimeout(id);
   }, [failed]);
 
-  const items = useMemo(() => feed?.items ?? [], [feed]);
-  const reviews = useMemo(() => feed?.reviews ?? [], [feed]);
+  // The project picked in the menu, while it's still one; the menu needs two to choose from.
+  const projects = useMemo(() => feed?.projects ?? [], [feed]);
+  const picking = projects.length > 1;
+  const current = picking && projects.includes(project) ? project : ALL_PROJECTS;
+  const allItems = useMemo(() => feed?.items ?? [], [feed]);
+  const items = useMemo(() => allItems.filter((i) => inProject(i, current)), [allItems, current]);
+  const reviews = useMemo(() => (feed?.reviews ?? []).filter((r) => current === ALL_PROJECTS || r.project === current), [feed, current]);
+  const todos = useMemo(() => (feed?.todos ?? []).filter((t) => current === ALL_PROJECTS || t.project === current), [feed, current]);
+  const waits = useMemo(() => projectWaits(allItems, projects), [allItems, projects]);
+  const others = useMemo(() => elsewhereWaits(waits, projects, current), [waits, projects, current]);
   const byGroup = useMemo(() => {
     const out: Record<Group, BarItem[]> = { needs: [], unread: [], working: [] };
     for (const i of items) out[i.group].push(i);
@@ -212,8 +297,23 @@ export function Bar() {
     el.querySelectorAll<HTMLElement>('[data-pill]').forEach((p) => pills[p.dataset.pill as Group].push(p.getBoundingClientRect().width));
     const fold = { needs: width('[data-fold="needs"]'), unread: width('[data-fold="unread"]'), working: width('[data-fold="working"]') };
     const room = Math.min(MAX_WIDTH, window.screen.availWidth - SCREEN_ROOM);
-    setFits(fitGroups({ pills, fold, mark: MARK, reviews: reviews.length ? width('[data-reviews]') : 0, gap: GAP, divider: DIVIDER, padding: PADDING }, room));
-  }, [items, reviews, fontsReady]);
+    setFits(
+      fitGroups(
+        {
+          pills,
+          fold,
+          mark: MARK,
+          project: picking ? width('[data-project]') : 0,
+          reviews: reviews.length ? width('[data-reviews]') : 0,
+          todos: todos.length ? width('[data-todos]') : 0,
+          gap: GAP,
+          divider: DIVIDER,
+          padding: PADDING,
+        },
+        room,
+      ),
+    );
+  }, [items, reviews, todos, picking, current, others, fontsReady]);
 
   // The window follows the bar's size: after every render, since WebKit holds back resize
   // notifications while the window is hidden, and on resizes renders don't cause (fonts).
@@ -271,6 +371,44 @@ export function Bar() {
     );
   };
 
+  /** Opens the quick panel ready to start a session for a todo: its prompt, in its worktree. */
+  const startTodo = (t: BarTodo) => void showQuick({ todo: t.id, project: t.project || null });
+
+  const todosMenu = (e: MouseEvent<HTMLButtonElement>) => {
+    void showContextMenu(
+      [
+        ...todos.map((t) => ({ label: todoLabel(t), run: () => startTodo(t) })),
+        'separator',
+        { label: 'Show todos in Codealong', run: () => void showMain({ kind: 'todo', id: todos[0].id }) },
+      ],
+      below(e),
+    );
+  };
+
+  const openTodos = (e: MouseEvent<HTMLButtonElement>) => {
+    if (todos.length === 1) startTodo(todos[0]);
+    else todosMenu(e);
+  };
+
+  const pickProject = (name: string) => {
+    setProject(name);
+    try {
+      window.localStorage.setItem(PROJECT_KEY, name);
+    } catch {
+      // Storage can be unavailable; the choice just won't be remembered.
+    }
+  };
+
+  const projectMenu = (e: MouseEvent<HTMLButtonElement>) => {
+    const item = (name: string): MenuAction => {
+      const w = waits[name];
+      const said = [w?.needs ? `${w.needs} ${w.needs === 1 ? 'needs' : 'need'} you` : '', w?.unread ? `${w.unread} finished` : ''].filter(Boolean);
+      return { label: [name, ...said].join(' · '), checked: name === current, run: () => pickProject(name) };
+    };
+    setProjectMenuOpen(true);
+    void showContextMenu([...projects.map(item), 'separator', item(ALL_PROJECTS)], below(e)).finally(() => setProjectMenuOpen(false));
+  };
+
   const barMenu = () => {
     const unread = byGroup.unread;
     void showContextMenu([
@@ -295,10 +433,10 @@ export function Bar() {
         Reading sessions…
       </span>,
     ]);
-  } else if (items.length === 0 && reviews.length === 0) {
+  } else if (items.length === 0 && reviews.length === 0 && todos.length === 0) {
     sections.push([
       <span key="note" className="ca-hud-note">
-        No agents running
+        {current === ALL_PROJECTS ? 'No agents running' : `No agents running in ${current}`}
       </span>,
     ]);
   } else {
@@ -329,7 +467,11 @@ export function Bar() {
           : []),
       ]);
     }
-    if (reviews.length) sections.push([<ReviewsPill key="reviews" prs={reviews} onOpen={reviewsMenu} />]);
+    const last = [
+      ...(reviews.length ? [<ReviewsPill key="reviews" prs={reviews} onOpen={reviewsMenu} />] : []),
+      ...(todos.length ? [<TodosPill key="todos" todos={todos} onOpen={openTodos} onMenu={todosMenu} />] : []),
+    ];
+    if (last.length) sections.push(last);
   }
   if (failed && !failedShown) sections.push([failedPill()]);
 
@@ -366,6 +508,7 @@ export function Bar() {
         >
           <Mark size={16} status={logoStatus} />
         </button>
+        {picking && <ProjectButton name={current} others={others} open={projectMenuOpen} onOpen={projectMenu} />}
         {sections.flatMap((section, i) => [<span key={`divider-${i}`} className="ca-hud-divider" aria-hidden="true" />, ...section])}
       </div>
       <div ref={measure} className="ca-hud-measure" aria-hidden="true">
@@ -376,6 +519,8 @@ export function Bar() {
           <FoldPill key={g} group={g} label={FOLD_SAMPLE} measure />
         ))}
         {reviews.length > 0 && <ReviewsPill prs={reviews} measure />}
+        {todos.length > 0 && <TodosPill todos={todos} measure />}
+        {picking && <ProjectButton name={current} others={others} measure />}
       </div>
     </>
   );

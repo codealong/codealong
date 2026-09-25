@@ -67,7 +67,8 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
 - **Quick panel** (⌥⇧Space from any app, over full-screen ones too; ⌘N, the title bar, the
   inspector, or a worktree's or session's right-click menu in Codealong): one input, and below
   it what you can do next. With nothing typed it lists the sessions that need you, then the
-  ones whose turn ended (the working ones when nothing waits on you). Typed words find
+  ones whose turn ended (the working ones when nothing waits on you), and under them the first
+  three todos ready to start, in your order. Typed words find
   sessions by title, account, worktree, branch, repo, project or PR, and under them todos by
   title, description, label, project, or the worktrees and sessions linked to them. ⏎ on a todo
   opens its session, or, when it has none, gets a session ready to start for it (its prompt,
@@ -131,8 +132,11 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   double-click it to go back to the default width. The PR panel keeps a width of its own.
 - **Floating bar**: a small bar on top of every window, on every Space and over full-screen
   apps, with a pill for each agent that needs you, whose turn just ended, or that's running,
-  across all projects, and one for PRs waiting on your review. Click a pill to open the
-  session where it lives; right-click it to show it in Codealong or mark it seen. Pills that
+  one for PRs waiting on your review, and one for todos ready to start. The project button
+  beside the mark shows one project or all of them; a badge on it counts what needs you in the
+  others. Click a pill to open the session where it lives; right-click it to show it in
+  Codealong or mark it seen. The todos pill opens the quick panel ready to start a session for
+  a todo (its menu picks which). Pills that
   don't fit fold into one per group that lists them. The mark brings Codealong forward; drag
   the bar by it or by its gaps. The capsule button at the top right of the window turns it on
   and off, as do Window › Floating bar and the bar's own right-click menu.

@@ -1,7 +1,8 @@
 // The quick panel's page (quick.rs has its window): one input, and below it what you can do
-// next. With nothing typed it lists the sessions that need you, then the ones whose turn ended;
-// typed words find sessions; the last row starts a new session with what you typed as its
-// prompt, in the worktree, on the agent and in the app chosen at the bottom.
+// next. With nothing typed it lists the sessions that need you, then the ones whose turn ended,
+// then a few todos ready to start; typed words find sessions and todos; the last row starts a
+// new session with what you typed as its prompt, in the worktree, on the agent and in the app
+// chosen at the bottom.
 //
 // ⏎ does the selected row and ⌘⏎ always starts. ⌥⏎ shows the session in Codealong, ⌘1 to ⌘9
 // open a row, ⌘P picks the project, ⌘T the worktree and ⌘L the agent, and Escape closes. (⌘M is
@@ -34,7 +35,7 @@ import { ago, resetsPhrase, tildePath, withTimes } from '../format';
 import { HARNESS_WORD, usageNote } from '../harness';
 import { useLogo } from '../logo';
 import { withoutAccount } from '../lanes';
-import { ALL_PROJECTS, attentionRows, findSessions, findTodos, FOUND_SESSIONS, inProject, laneBranch, laneGroups, projectCounts, shortcutLabel, type RowGroup, type SessionRow, type TodoRow } from '../quick';
+import { ALL_PROJECTS, attentionRows, findSessions, findTodos, FOUND_SESSIONS, inProject, laneBranch, laneGroups, MAX_ROWS, projectCounts, readyTodos, shortcutLabel, type RowGroup, type SessionRow, type TodoRow } from '../quick';
 import {
   accountFor,
   agentId,
@@ -53,7 +54,7 @@ import {
   type AutoPick,
 } from '../start';
 import { suggestions, sureness, todoTitle, worthRouting, type Suggestion } from '../route';
-import { attachmentsIn, blockedBy, insertAttachments, newTodo, snippet, todoPrompt, withoutAttachment } from '../todos';
+import { attachmentsIn, blockedBy, insertAttachments, newTodo, sessionHomes, snippet, todoItem, todoPrompt, withoutAttachment } from '../todos';
 import type { Attachment, Board, Lane, Meter, Route, Session, StartOptions, StartPlace, StartSpec } from '../types';
 import { AttachmentStrip } from './DescriptionEditor';
 import { Picker, type PickerOption, type PickerSection } from './Picker';
@@ -73,7 +74,7 @@ const OPTIONS_FOR_MS = 60_000;
 
 type PickerKind = 'project' | 'worktree' | 'agent';
 
-const GROUP_WORD: Record<RowGroup, string> = { suggested: 'Suggested', needs: 'Needs you', unread: 'Your turn', working: 'Working', found: 'Sessions', todos: 'Todos' };
+const GROUP_WORD: Record<RowGroup, string> = { suggested: 'Suggested', needs: 'Needs you', unread: 'Your turn', working: 'Working', found: 'Sessions', todos: 'Todos', ready: 'Ready todos' };
 
 /** A suggestion from Jev, as a row. */
 interface SuggestRow {
@@ -216,6 +217,13 @@ export function Quick() {
         .then(([b, o]) => {
           setBoard(b);
           setOptions(o);
+          // A todo asked for without its prompt (by the floating bar, which doesn't have it)
+          // starts the way the Todo view starts it: as its prompt, in its worktree.
+          const t = !ctx.keep && ctx.todo && ctx.prompt === undefined ? b.todos.find((x) => x.id === ctx.todo) : undefined;
+          if (t) {
+            setText(todoPrompt(t));
+            if (!ctx.laneId) setLaneId(todoItem(t, new Map(b.lanes.map((l) => [l.id, l])), sessionHomes(b.lanes), new Map()).lane?.id ?? null);
+          }
         })
         .catch((e: unknown) => setError(plain(e)))
         .finally(() => {
@@ -374,7 +382,9 @@ export function Quick() {
   // listed.
   const prompted = text.trim().length > 0;
   const query = todo ? '' : text.trim();
-  const attention = useMemo(() => (board && !query && !todo ? attentionRows(board, current) : null), [board, current, query, todo]);
+  // With nothing typed, a few todos ready to start go under the sessions, which leave them room.
+  const readyList = useMemo(() => (board && !query && !todo ? readyTodos(board, current) : null), [board, current, query, todo]);
+  const attention = useMemo(() => (board && !query && !todo ? attentionRows(board, current, MAX_ROWS - (readyList?.rows.length ?? 0)) : null), [board, current, query, todo, readyList]);
   const foundSessions = useMemo(() => (board && query ? findSessions(board, current, query, FOUND_SESSIONS) : []), [board, current, query]);
   const foundTodos = useMemo(() => (board && query ? findTodos(board, current, query) : []), [board, current, query]);
 
@@ -410,7 +420,7 @@ export function Quick() {
   const routing = !!routeFor && !route && !routeProblem;
   const suggested = useMemo<SuggestRow[]>(() => (board && route ? suggestions(route, board).map((sg) => ({ kind: 'suggest', key: sg.key, group: 'suggested', s: sg })) : []), [board, route]);
 
-  const rows: Row[] = query ? [...suggested, ...foundSessions, ...foundTodos] : (attention?.rows ?? []);
+  const rows: Row[] = query ? [...suggested, ...foundSessions, ...foundTodos] : [...(attention?.rows ?? []), ...(readyList?.rows ?? [])];
   const keys = [...rows.map((r) => r.key), COMPOSE];
   const active = activeKey && keys.includes(activeKey) ? activeKey : keys[0];
 
@@ -841,6 +851,12 @@ export function Quick() {
     else sections.push({ group: r.group, rows: [r] });
   }
   const nothingWaits = !query && !!attention && attention.counts.needs + attention.counts.unread === 0;
+  /** A group's heading count: all there are of it, when the list shows only some. */
+  const groupCount = (g: RowGroup, shown: number): number => {
+    if (g === 'ready') return readyList?.count ?? shown;
+    if (g === 'needs' || g === 'unread' || g === 'working') return attention?.counts[g] ?? shown;
+    return shown;
+  };
   const agentLabel = autoFor ? 'Auto' : (account ?? 'No account');
   const agentDetail = [autoFor ? account : null, modelShown].filter(Boolean).join(' · ');
   const shortcut = shortcutLabel(board?.quickShortcut);
@@ -919,7 +935,7 @@ export function Quick() {
                 <div key={s.group} className="ca-quick-group" role="group" aria-label={GROUP_WORD[s.group]}>
                   <div className={`ca-quick-glabel is-${s.group}`}>
                     {GROUP_WORD[s.group]}
-                    <span>{s.group === 'found' || s.group === 'todos' || s.group === 'suggested' ? s.rows.length : (attention?.counts[s.group] ?? s.rows.length)}</span>
+                    <span>{groupCount(s.group, s.rows.length)}</span>
                   </div>
                   {s.rows.map((r) => {
                     const n = rows.indexOf(r) + 1;

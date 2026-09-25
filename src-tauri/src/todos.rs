@@ -407,19 +407,15 @@ impl TodoStore {
 
     /// The todos `t` waits on that aren't done yet, in its order. Deleted ones don't count.
     pub fn blocked_by<'a>(&'a self, t: &Todo) -> Vec<&'a Todo> {
-        t.depends_on.iter().filter_map(|d| self.todos.iter().find(|x| &x.id == d)).filter(|x| x.status != TodoStatus::Done).collect()
+        blocked_by(t, &self.todos)
     }
 
-    /// Whether `t` is under Waiting: marked as waiting, or not started and waiting on a todo
-    /// that isn't done. One an agent is already on stays In progress while its todos finish.
-    /// `sectionOf` in src/todos.ts has the same rule.
     pub fn is_waiting(&self, t: &Todo) -> bool {
-        t.status != TodoStatus::Done && (t.waiting.is_some() || (t.status == TodoStatus::Todo && !self.blocked_by(t).is_empty()))
+        is_waiting(t, &self.todos)
     }
 
-    /// Whether `t` is under Ready: not started, and waiting on nothing.
     pub fn is_ready(&self, t: &Todo) -> bool {
-        t.status == TodoStatus::Todo && !self.is_waiting(t)
+        is_ready(t, &self.todos)
     }
 
     /// Applies a change. Returns whether anything changed; an error says why it couldn't.
@@ -602,6 +598,24 @@ impl TodoStore {
         }
         changed
     }
+}
+
+/// The todos `t` waits on that aren't done yet, in its order, among `todos`. Deleted ones don't
+/// count.
+pub fn blocked_by<'a>(t: &Todo, todos: &'a [Todo]) -> Vec<&'a Todo> {
+    t.depends_on.iter().filter_map(|d| todos.iter().find(|x| &x.id == d)).filter(|x| x.status != TodoStatus::Done).collect()
+}
+
+/// Whether `t` is under Waiting: marked as waiting, or not started and waiting on a todo that
+/// isn't done. One an agent is already on stays In progress while its todos finish.
+/// `sectionOf` in src/todos.ts has the same rule.
+pub fn is_waiting(t: &Todo, todos: &[Todo]) -> bool {
+    t.status != TodoStatus::Done && (t.waiting.is_some() || (t.status == TodoStatus::Todo && !blocked_by(t, todos).is_empty()))
+}
+
+/// Whether `t` is under Ready: not started, and waiting on nothing.
+pub fn is_ready(t: &Todo, todos: &[Todo]) -> bool {
+    t.status == TodoStatus::Todo && !is_waiting(t, todos)
 }
 
 /// A session on the board, as pending starts are matched against it.

@@ -1,6 +1,7 @@
 //! The floating bar: a small window, on top of every other and on every Space, that shows the
-//! agents that need you and the ones running. It's up unless you turn it off, from the toggle at
-//! the top right of the board, the bar's own menu, or Window › Floating bar.
+//! agents that need you and the ones running, PRs to review and todos ready to start. It's up
+//! unless you turn it off, from the toggle at the top right of the board, the bar's own menu, or
+//! Window › Floating bar.
 //!
 //! It's a non-activating panel: macOS lets only those onto another app's full-screen Space. So a
 //! click in the bar doesn't make Codealong the active app, and it never takes the keyboard. After

@@ -1,12 +1,15 @@
 //! What the floating bar shows, cut from the board: the sessions that need you, whose turn ended,
-//! or that are running, in bar order, and the PRs waiting on your review. The bar gets this
-//! instead of the board, and only when it changes: the board is about half a megabyte and is
-//! published many times a minute, while this is a few kilobytes and changes far less often.
+//! or that are running, in bar order, the PRs waiting on your review, and the todos ready to
+//! start. Each names its project, and the bar narrows them to the one picked in its project menu.
+//! The bar gets this instead of the board, and only when it changes: the board is about half a
+//! megabyte and is published many times a minute, while this is a few kilobytes and changes far
+//! less often.
 
 use serde::Serialize;
 
 use crate::config::Theme;
 use crate::model::{Board, LogoStatus, Status};
+use crate::todos;
 
 /// The bar's groups, most urgent first.
 #[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -37,10 +40,14 @@ pub struct BarFeed {
     pub perf_log: bool,
     /// The terminal app's name, for menu items such as "Show in Ghostty".
     pub terminal: String,
+    /// The projects, in your order, for the bar's project menu.
+    pub projects: Vec<String>,
     /// In bar order: by group, then the newest status first.
     pub items: Vec<BarItem>,
     /// Open PRs that ask for your review, newest first.
     pub reviews: Vec<BarReview>,
+    /// Todos ready to start (not started, and waiting on nothing), in your order.
+    pub todos: Vec<BarTodo>,
 }
 
 /// One session on the bar, with what its pill, tooltip and menu need.
@@ -54,6 +61,10 @@ pub struct BarItem {
     pub account: String,
     pub lane_id: String,
     pub callsign: String,
+    pub project: String,
+    /// In a worktree the board keeps out of sight (Elsewhere's, while nothing there needs you):
+    /// the bar shows it only with Elsewhere picked, as the quick panel does.
+    pub hidden: bool,
     pub detail: Option<String>,
     pub open_target: String,
     /// The lane's own entry for `open_target`, when it lists one: lanes list their first few
@@ -76,14 +87,26 @@ pub struct BarReview {
     pub number: u64,
     pub title: String,
     pub repo: String,
+    pub project: String,
+}
+
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct BarTodo {
+    pub id: String,
+    pub title: String,
+    /// Empty until you pick one or link a worktree.
+    pub project: String,
+    /// The worktree a session for it starts in, as the Todo view picks it: the first one linked
+    /// to it, else its latest session's.
+    pub callsign: Option<String>,
 }
 
 /// The bar's feed. Status times don't move while a status lasts, so ordering by them keeps pills
-/// in place while agents work. Visitors, archived sessions and the lanes the board keeps out of
-/// sight (Elsewhere) are left out, as on the board.
+/// in place while agents work. Visitors and archived sessions are left out, as on the board.
 pub fn feed(board: &Board) -> BarFeed {
     let mut items: Vec<(i64, BarItem)> = Vec::new();
-    for lane in board.lanes.iter().filter(|l| !l.hidden) {
+    for lane in &board.lanes {
         for s in &lane.sessions {
             if s.visitor.is_some() || s.archived {
                 continue;
@@ -102,6 +125,8 @@ pub fn feed(board: &Board) -> BarFeed {
                 account: s.account.clone(),
                 lane_id: lane.id.clone(),
                 callsign: lane.callsign.clone(),
+                project: lane.project.clone(),
+                hidden: lane.hidden,
                 detail: s.detail.clone(),
                 open_target: s.open_target.clone(),
                 target,
@@ -113,7 +138,12 @@ pub fn feed(board: &Board) -> BarFeed {
 
     let mut prs: Vec<_> = board.prs.iter().filter(|p| p.review_requested && p.state.is_open()).collect();
     prs.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
-    let reviews = prs.into_iter().map(|p| BarReview { key: p.key.clone(), number: p.number, title: p.title.clone(), repo: p.repo.clone() }).collect();
+    let reviews = prs
+        .into_iter()
+        .map(|p| BarReview { key: p.key.clone(), number: p.number, title: p.title.clone(), repo: p.repo.clone(), project: p.project.clone() })
+        .collect();
+
+    let ready = board.todos.iter().filter(|t| todos::is_ready(t, &board.todos)).map(|t| bar_todo(board, t)).collect();
 
     BarFeed {
         loading: board.loading,
@@ -121,9 +151,26 @@ pub fn feed(board: &Board) -> BarFeed {
         logo_status: board.logo_status,
         perf_log: board.perf_log,
         terminal: board.apps.terminal.clone(),
+        projects: board.projects.iter().map(|p| p.name.clone()).collect(),
         items: items.into_iter().map(|(_, item)| item).collect(),
         reviews,
+        todos: ready,
     }
+}
+
+/// A ready todo on the bar. Where it starts is `todoItem`'s rule in src/todos.ts: the first
+/// linked worktree that's on the board, else the worktree of its latest session.
+fn bar_todo(board: &Board, t: &todos::Todo) -> BarTodo {
+    let linked = t.worktrees.iter().find_map(|w| board.lanes.iter().find(|l| &l.id == w));
+    let latest = || {
+        board
+            .lanes
+            .iter()
+            .flat_map(|l| l.sessions.iter().filter(|s| s.visitor.is_none() && t.sessions.contains(&s.key)).map(move |s| (s.last_activity, l)))
+            .min_by_key(|(at, _)| std::cmp::Reverse(*at))
+            .map(|(_, l)| l)
+    };
+    BarTodo { id: t.id.clone(), title: t.title.clone(), project: t.project.clone(), callsign: linked.or_else(latest).map(|l| l.callsign.clone()) }
 }
 
 #[cfg(test)]
@@ -175,21 +222,63 @@ mod tests {
     }
 
     #[test]
-    fn leaves_out_visitors_archived_sessions_and_lanes_kept_out_of_sight() {
+    fn leaves_out_visitors_and_archived_sessions_and_marks_lanes_kept_out_of_sight() {
         let mut visitor = session("v", Status::Working, NOW);
         visitor.visitor = Some("worked here".into());
         let mut archived = session("x", Status::Unread, NOW);
         archived.archived = true;
-        let b = board(
-            vec![
-                lane("/a", vec![visitor, archived], false),
-                lane("/elsewhere", vec![session("h", Status::Working, NOW)], true),
-                lane("/b", vec![session("ok", Status::Working, NOW)], false),
-            ],
+        let mut elsewhere = lane("/elsewhere", vec![session("h", Status::Working, NOW - 1)], true);
+        elsewhere.project = "Elsewhere".into();
+        let b = board(vec![lane("/a", vec![visitor, archived], false), elsewhere, lane("/b", vec![session("ok", Status::Working, NOW)], false)], vec![]);
+        let got: Vec<(String, String, bool)> = feed(&b).items.into_iter().map(|i| (i.key, i.project, i.hidden)).collect();
+        assert_eq!(got, vec![("ok".to_string(), "P".to_string(), false), ("h".to_string(), "Elsewhere".to_string(), true)]);
+    }
+
+    #[test]
+    fn names_the_projects_in_your_order_for_the_bars_menu() {
+        let b = Board {
+            projects: serde_json::from_value(serde_json::json!([
+                { "name": "Northwind", "lanes": 3, "repos": [] },
+                { "name": "Kestrel", "lanes": 1, "repos": [] },
+                { "name": "Elsewhere", "lanes": 2, "repos": [] }
+            ]))
+            .expect("projects"),
+            ..Board::default()
+        };
+        assert_eq!(feed(&b).projects, vec!["Northwind", "Kestrel", "Elsewhere"]);
+    }
+
+    #[test]
+    fn lists_todos_ready_to_start_in_your_order_with_where_they_start() {
+        let todo = |id: &str, extra: serde_json::Value| -> todos::Todo {
+            let mut v = serde_json::json!({ "id": id, "project": "P", "title": format!("Todo {id}") });
+            v.as_object_mut().expect("an object").extend(extra.as_object().expect("an object").clone());
+            serde_json::from_value(v).expect("a todo")
+        };
+        let mut b = board(
+            vec![lane("/a", vec![session("s1", Status::Idle, NOW - 10), session("s2", Status::Idle, NOW)], false), lane("/b", vec![session("s3", Status::Idle, NOW - 5)], false)],
             vec![],
         );
-        let got: Vec<String> = feed(&b).items.into_iter().map(|i| i.key).collect();
-        assert_eq!(got, vec!["ok".to_string()]);
+        b.todos = vec![
+            todo("linked", serde_json::json!({ "worktrees": ["/gone", "/b"], "sessions": ["s2"] })),
+            todo("started", serde_json::json!({ "status": "in-progress", "sessions": ["s1"] })),
+            todo("waiting", serde_json::json!({ "waiting": { "note": "design", "since": NOW } })),
+            todo("blocked", serde_json::json!({ "dependsOn": ["open"] })),
+            todo("open", serde_json::json!({ "project": "" })),
+            todo("finished", serde_json::json!({ "status": "done" })),
+            todo("unblocked", serde_json::json!({ "dependsOn": ["finished"], "sessions": ["s3", "s2"] })),
+        ];
+        let got: Vec<(String, String, Option<String>)> = feed(&b).todos.into_iter().map(|t| (t.id, t.project, t.callsign)).collect();
+        assert_eq!(
+            got,
+            vec![
+                // The first linked worktree that's on the board wins over its sessions'.
+                ("linked".to_string(), "P".to_string(), Some("b".to_string())),
+                ("open".to_string(), String::new(), None),
+                // Without one, the worktree of its latest session.
+                ("unblocked".to_string(), "P".to_string(), Some("a".to_string())),
+            ]
+        );
     }
 
     #[test]
@@ -227,7 +316,7 @@ mod tests {
             .expect("a PR")
         };
         let b = board(vec![], vec![pr(1, true, PrState::Open, 1), pr(2, true, PrState::Merged, 3), pr(3, false, PrState::Open, 4), pr(4, true, PrState::Draft, 2)]);
-        let got: Vec<u64> = feed(&b).reviews.into_iter().map(|r| r.number).collect();
-        assert_eq!(got, vec![4, 1]);
+        let got: Vec<(u64, String)> = feed(&b).reviews.into_iter().map(|r| (r.number, r.project)).collect();
+        assert_eq!(got, vec![(4, "P".to_string()), (1, "P".to_string())]);
     }
 }

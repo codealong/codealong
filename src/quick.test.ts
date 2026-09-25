@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ALL_PROJECTS, attentionRows, findSessions, findTodos, laneGroups, projectCounts, shortcutFromKey, shortcutLabel, TAKEN, titleMarks } from './quick';
+import { ALL_PROJECTS, attentionRows, findSessions, findTodos, laneGroups, projectCounts, readyTodos, shortcutFromKey, shortcutLabel, TAKEN, titleMarks } from './quick';
 import type { Board, Label, Lane, Session, Todo } from './types';
 
 const NOW = 1_790_200_000_000;
@@ -134,6 +134,37 @@ describe('findTodos', () => {
     expect(first.marks).toEqual([[9, 12]]);
     expect(first.item.todo.id).toBe('t1');
     expect(findTodos(b, 'Northwind', 'clean')[0].item.sessions.map((x) => x.session.key)).toEqual(['s1']);
+  });
+});
+
+describe('readyTodos', () => {
+  const lanes = [lane('app2', [session('s1', 'idle', NOW)]), lane('app3', [])];
+  const todos = [
+    todo('t1', 'Started', { status: 'in-progress', sessions: ['s1'] }),
+    todo('t2', 'First ready', { worktrees: ['app3'] }),
+    todo('t3', 'Marked waiting', { waiting: { note: 'a reply', since: NOW } }),
+    todo('t4', 'Blocked', { dependsOn: ['t2'] }),
+    todo('t5', 'Second ready', { dependsOn: ['t6'] }),
+    todo('t6', 'Finished', { status: 'done', doneAt: NOW }),
+    todo('t7', 'Kestrel’s', { project: 'Kestrel' }),
+    todo('t8', 'Third ready'),
+    todo('t9', 'Fourth ready'),
+  ];
+  const b = board(lanes, todos);
+
+  it('lists the first few todos ready to start, in your order, and counts them all', () => {
+    const { rows, count } = readyTodos(b, 'Northwind');
+    expect(rows.map((r) => r.key)).toEqual(['todo:t2', 'todo:t5', 'todo:t8']);
+    expect(rows.every((r) => r.group === 'ready' && !r.waiting)).toBe(true);
+    expect(count).toBe(4);
+    // Where each would start, for its row and for ⏎.
+    expect(rows[0].item.lane?.id).toBe('app3');
+  });
+
+  it('keeps to the project, and takes a limit', () => {
+    expect(readyTodos(b, 'Kestrel').rows.map((r) => r.key)).toEqual(['todo:t7']);
+    expect(readyTodos(b, ALL_PROJECTS, 2)).toMatchObject({ count: 5, rows: [{ key: 'todo:t2' }, { key: 'todo:t5' }] });
+    expect(readyTodos(board(lanes), ALL_PROJECTS)).toEqual({ rows: [], count: 0 });
   });
 });
 
