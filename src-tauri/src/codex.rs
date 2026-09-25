@@ -25,10 +25,25 @@ pub struct ThreadInfo {
     pub last_prompt_at: Option<i64>,
     /// An approval request with nothing after it.
     pub pending_approval: Option<String>,
+    /// Tool calls the model made that have no result yet, oldest first. The app doesn't record
+    /// its approval requests (a computer-use app to allow, a command to run), so a call that
+    /// stays unanswered well past how long its tool takes is the only sign one is waiting.
+    pub pending_calls: Vec<PendingCall>,
     /// The latest rate limits each turn reported, by limit id (`codex`, or a per-model one).
     pub rate_limits: BTreeMap<String, RateLimit>,
     /// Where its latest commands ran and file changes landed, oldest first.
     pub work: Vec<String>,
+}
+
+/// A tool call without its output yet.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PendingCall {
+    pub call_id: String,
+    pub at: i64,
+    /// What it does, for the excerpt: its title, command or tool name.
+    pub what: String,
+    /// How long it can go unanswered before it's likely waiting for approval.
+    pub limit_ms: i64,
 }
 
 /// A rate-limit report from a `token_count` event.
@@ -381,8 +396,17 @@ fn apply_event(info: &mut ThreadInfo, v: &Value) {
     if let Some(t) = ts {
         info.last_ts = info.last_ts.max(t);
     }
+    if v.get("type").and_then(Value::as_str) == Some("response_item") {
+        if let Some(p) = v.get("payload") {
+            note_call(info, p, ts.unwrap_or(info.last_ts));
+        }
+        return;
+    }
     let Some(payload) = event_payload(v) else { return };
     let kind = payload.get("type").and_then(Value::as_str).unwrap_or_default();
+    if matches!(kind, "task_started" | "task_complete" | "turn_aborted") {
+        info.pending_calls.clear();
+    }
     if kind == "item_completed" {
         if let Some(p) = payload.get("item").and_then(|item| work_of(item, &info.cwd)) {
             note_work(&mut info.work, p);
@@ -441,6 +465,50 @@ fn apply_event(info: &mut ThreadInfo, v: &Value) {
             }
             info.pending_approval = None;
         }
+    }
+}
+
+/// Tracks a `response_item` tool call until its output arrives.
+fn note_call(info: &mut ThreadInfo, p: &Value, at: i64) {
+    let Some(call_id) = p.get("call_id").and_then(Value::as_str) else { return };
+    match p.get("type").and_then(Value::as_str) {
+        Some("function_call" | "custom_tool_call") => {
+            let name = p.get("name").and_then(Value::as_str).unwrap_or_default();
+            let Some(limit_ms) = call_limit_ms(name) else { return };
+            info.pending_calls.retain(|c| c.call_id != call_id);
+            info.pending_calls.push(PendingCall { call_id: call_id.to_string(), at, what: call_what(p, name), limit_ms });
+        }
+        Some("function_call_output" | "custom_tool_call_output") => info.pending_calls.retain(|c| c.call_id != call_id),
+        _ => {}
+    }
+}
+
+/// How long a call to this tool can take before it's likely waiting on you, from 22,000
+/// calls in September 2026's rollouts. Commands return what they have by their yield time and
+/// took at most 168 s; everything else nearly always answered within 30 s. None for tools that
+/// wait by design.
+fn call_limit_ms(name: &str) -> Option<i64> {
+    match name {
+        "sleep" | "wait" | "wait_agent" => None,
+        "exec" | "exec_command" | "shell" | "local_shell" | "write_stdin" => Some(4 * 60 * 1000),
+        _ => Some(60 * 1000),
+    }
+}
+
+/// A call's own title if it gave one (computer-use calls do), else its command, else the tool.
+fn call_what(p: &Value, name: &str) -> String {
+    let args: Option<Value> = p.get("arguments").and_then(Value::as_str).and_then(|a| serde_json::from_str(a).ok());
+    let field = |k: &str| args.as_ref().and_then(|a| a.get(k)).and_then(Value::as_str).map(str::trim).filter(|t| !t.is_empty()).map(String::from);
+    if let Some(t) = field("title") {
+        return one_line(&t, 80);
+    }
+    if let Some(c) = field("cmd") {
+        return format!("`{}`", one_line(&c, 80));
+    }
+    let server = p.get("namespace").and_then(Value::as_str).map(|n| n.trim_start_matches("mcp__")).filter(|n| !n.is_empty());
+    match server {
+        Some(s) => format!("{s} · {name}"),
+        None => name.to_string(),
     }
 }
 
@@ -512,6 +580,21 @@ mod tests {
     const PROMPT_ITEM: &str = r#"{"timestamp":"2026-09-24T18:04:01.042Z","ordinal":9,"type":"event_msg","payload":{"type":"item_completed","thread_id":"t","turn_id":"u","item":{"type":"UserMessage","id":"i","content":[{"type":"text","text":"Find the forwarded Kestrel issue and diagnose it\n","text_elements":[]}]}}}"#;
     const TURN_COMPLETE: &str = r#"{"timestamp":"2026-09-24T18:30:00.000Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"u","last_agent_message":"Found it: the webhook retries twice."}}"#;
     const TOKEN_COUNT: &str = r#"{"timestamp":"2026-09-24T18:31:00.000Z","type":"event_msg","payload":{"type":"token_count","info":null}}"#;
+
+    #[test]
+    fn tracks_tool_calls_until_they_answer() {
+        let mut info = ThreadInfo::default();
+        apply_events(&mut info, r#"{"timestamp":"2026-09-25T17:33:00.000Z","type":"event_msg","payload":{"type":"task_started"}}
+{"timestamp":"2026-09-25T17:33:25.000Z","type":"response_item","payload":{"type":"function_call","name":"js","namespace":"mcp__cua_repl","arguments":"{\"code\":\"await x()\",\"title\":\"Inspect the running app\"}","call_id":"call_a"}}
+{"timestamp":"2026-09-25T17:33:26.000Z","type":"response_item","payload":{"type":"function_call_output","call_id":"call_a","output":[]}}
+{"timestamp":"2026-09-25T17:33:50.000Z","type":"response_item","payload":{"type":"function_call","name":"js","namespace":"mcp__cua_repl","arguments":"{\"code\":\"await y()\"}","call_id":"call_b"}}
+{"timestamp":"2026-09-25T17:33:51.000Z","type":"response_item","payload":{"type":"custom_tool_call","name":"exec","input":"text(1)","call_id":"call_c"}}
+{"timestamp":"2026-09-25T17:33:52.000Z","type":"response_item","payload":{"type":"function_call","name":"wait_agent","arguments":"{}","call_id":"call_d"}}"#);
+        let calls: Vec<_> = info.pending_calls.iter().map(|c| (c.call_id.as_str(), c.what.as_str(), c.limit_ms)).collect();
+        assert_eq!(calls, vec![("call_b", "cua_repl · js", 60_000), ("call_c", "exec", 240_000)]);
+        apply_events(&mut info, r#"{"timestamp":"2026-09-25T17:34:00.000Z","type":"event_msg","payload":{"type":"turn_aborted"}}"#);
+        assert!(info.pending_calls.is_empty());
+    }
 
     #[test]
     fn reads_prompts_from_items() {

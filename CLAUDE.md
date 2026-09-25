@@ -221,7 +221,13 @@ Codex
   be far behind the tail: `parse_rollout` reads back for it. Newer versions record prompts as
   `item_completed` with a `UserMessage` item, not `user_message`, and wrap context around them
   (`## My request:`, `<heartbeat>`, `<realtime_delegation>`; answers to the agent's questions
-  are `<send_user_message_question_reply>`). No approval events have been seen in them yet.
+  are `<send_user_message_question_reply>`).
+- Approvals aren't recorded anywhere on disk: not in the rollout, `logs_2.sqlite` or the app's
+  logs. While the app shows "Awaiting approval" (e.g. a computer-use app to allow) the rollout
+  just ends at a `response_item` `function_call`/`custom_tool_call` with no `*_output` for its
+  `call_id`. Of 22,000 calls in a month, commands answered within 168 s and other tools nearly
+  always within 30 s, so `board::codex_unanswered` takes a call silent past its tool's limit
+  (4 min for commands, 1 min otherwise; none for sleep and wait tools) as Needs you.
 - Commands are `item_completed` `CommandExecution` items with the folder the agent chose
   (`cwd`, a `file://` URL) and `[shell, "-lc", script]`. Scripts don't `cd` (none of 3,096
   recent ones did), and 45% ran outside the thread's own folder. File edits are `FileChange`

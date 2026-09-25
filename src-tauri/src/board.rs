@@ -198,10 +198,19 @@ pub fn claude_session(
     })
 }
 
+/// A tool call in an open Codex turn that has gone unanswered for longer than its tool takes:
+/// the app is almost certainly waiting for you to approve it, and doesn't record that. A day
+/// on, the app has likely quit without closing the turn.
+fn codex_unanswered(th: &ThreadInfo, now: i64) -> Option<String> {
+    let call = th.pending_calls.iter().find(|c| now - c.at > c.limit_ms)?;
+    (th.turn_open && now - th.last_ts < DAY_MS).then(|| format!("Waiting for approval? · {}", call.what))
+}
+
 /// A Codex thread. Threads have no process of their own, so they are never Stopped.
 pub fn codex_session(account: &AccountCfg, th: &ThreadInfo, name: Option<&str>, seen_at: i64, now: i64) -> Session {
     let fresh = now - th.last_ts < CODEX_STALE_MS;
-    let status = if th.pending_approval.is_some() {
+    let unanswered = codex_unanswered(th, now);
+    let status = if th.pending_approval.is_some() || unanswered.is_some() {
         Status::Needs
     } else if th.turn_open && fresh {
         Status::Working
@@ -215,7 +224,7 @@ pub fn codex_session(account: &AccountCfg, th: &ThreadInfo, name: Option<&str>, 
         .or_else(|| th.last_user_message.clone())
         .unwrap_or_else(|| "Codex thread".to_string());
     let excerpt = match status {
-        Status::Needs => th.pending_approval.clone(),
+        Status::Needs => th.pending_approval.clone().or(unanswered),
         Status::Working => th.last_user_message.clone(),
         _ => th.last_agent_message.clone(),
     };
@@ -1229,6 +1238,16 @@ mod tests {
         assert_eq!(codex_session(&a, &th, None, NOW, NOW).status, Status::Idle);
         th.pending_approval = Some("Run · `yarn install`".into());
         assert_eq!(codex_session(&a, &th, None, 0, NOW).status, Status::Needs);
+        // A computer-use call that hasn't answered in a minute is waiting for approval.
+        th.pending_approval = None;
+        th.turn_open = true;
+        th.last_ts = NOW - 30_000;
+        th.pending_calls = vec![crate::codex::PendingCall { call_id: "c".into(), at: NOW - 30_000, what: "Inspect the Dock".into(), limit_ms: 60_000 }];
+        assert_eq!(codex_session(&a, &th, None, 0, NOW).status, Status::Working);
+        th.pending_calls[0].at = NOW - 61_000;
+        let waiting = codex_session(&a, &th, None, 0, NOW);
+        assert_eq!(waiting.status, Status::Needs);
+        assert_eq!(waiting.excerpt.as_deref(), Some("Waiting for approval? · Inspect the Dock"));
     }
 
     #[test]
