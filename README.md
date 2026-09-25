@@ -203,9 +203,11 @@ add to it. Attachments are kept by their content: images in `images/`, other fil
 `skills/codealong/` is one skill in the Agent Skills layout (`SKILL.md` plus
 `references/reference.md`, generated from `codealong --help` by `scripts/skill-reference.sh`),
 read as-is by Claude Code, Codex, OpenCode and Antigravity. The app ships it in its bundle and
-Settings › Agents (or `codealong install`) copies it into each account's skills folder with a
-`.codealong-version` marker; at launch the app refreshes copies it made when the skill changed,
-and never touches a folder it didn't make. `plugin/` wraps the same skill as a Claude Code plugin
+Settings › Agents (or `codealong install`, or adding an account in Settings) copies it into each
+account's skills folder with a `.codealong-version` marker; at launch the app refreshes copies it
+made when the skill changed, including ones in folders of accounts you've since removed, and
+never touches a folder it didn't make. A copy someone edited is left alone: Settings › Agents
+marks it Edited, and replaces it only when asked (so does `codealong install --account <name>`). `plugin/` wraps the same skill as a Claude Code plugin
 (`.claude-plugin/plugin.json`, a `bin/codealong` shim that finds the app, and a `SessionStart`
 hook that runs `codealong whoami --context`), and `.claude-plugin/marketplace.json` makes the
 repo a marketplace.

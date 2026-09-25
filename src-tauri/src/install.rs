@@ -2,8 +2,9 @@
 //! config.toml. The skill (`skills/codealong` in the repo, `Contents/Resources/skills/codealong`
 //! in the bundle) is copied, not linked: not every harness follows links, and the bundle moves
 //! when the app is rebuilt. A copy carries `.codealong-version`, the hash of what was copied;
-//! the app refreshes copies it made when the hash changes, and never touches a folder it
-//! didn't make.
+//! at launch the app refreshes copies it made when the skill changes, and never touches a
+//! folder it didn't make. A copy whose files no longer hash to its marker was edited by
+//! someone, and is left alone until they ask for it to be replaced.
 
 use std::path::{Path, PathBuf};
 
@@ -119,26 +120,60 @@ fn copy_dir(src: &Path, dst: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Whether a copy Codealong made is at `dst`, and whether it's current.
-pub fn installed(src: &Path, dst: &Path) -> (bool, bool) {
-    let Ok(marker) = std::fs::read_to_string(dst.join(MARKER)) else { return (false, false) };
-    let current = skill_hash(src).map(|h| h == marker.trim()).unwrap_or(false);
-    (true, current)
+/// A copy of the skill, as it stands.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct CopyState {
+    /// Codealong made the folder: it has the marker.
+    pub installed: bool,
+    /// It's a copy of the skill in this build.
+    pub current: bool,
+    /// Its files changed since Codealong copied them, so updates leave it alone.
+    pub edited: bool,
 }
 
-/// At launch: every copy Codealong made before is brought up to date with the skill shipped
-/// in this build. Accounts without a copy are left as they are.
+impl CopyState {
+    /// A copy Codealong made, of an older skill, that nobody changed: safe to replace.
+    pub fn stale(self) -> bool {
+        self.installed && !self.current && !self.edited
+    }
+}
+
+/// Whether a copy Codealong made is at `dst`, whether it's current, and whether it was edited.
+pub fn copy_state(src: &Path, dst: &Path) -> CopyState {
+    let Ok(marker) = std::fs::read_to_string(dst.join(MARKER)) else { return CopyState::default() };
+    let marker = marker.trim();
+    let current = skill_hash(src).is_ok_and(|h| h == marker);
+    let edited = skill_hash(dst).is_ok_and(|h| h != marker);
+    CopyState { installed: true, current, edited }
+}
+
+/// At launch: every copy Codealong made is brought up to date with the skill shipped in this
+/// build, unless someone edited it. Folders without a copy are left as they are.
 pub fn refresh_installed() {
     let Some(src) = skill_source() else { return };
     let cfg = config::load().ok().flatten().unwrap_or_default();
-    for a in &cfg.accounts {
-        let Some(dst) = skill_dir(a) else { continue };
-        if let (true, false) = installed(&src, &dst) {
+    let known = crate::state::SeenState::load().known_accounts;
+    for dst in refresh_targets(&cfg.accounts, &known) {
+        if copy_state(&src, &dst).stale() {
             if let Err(e) = copy_skill(&src, &dst) {
-                eprintln!("Couldn't refresh the skill for {}: {e:#}", a.name);
+                eprintln!("Couldn't refresh the skill in {}: {e:#}", dst.display());
             }
         }
     }
+}
+
+/// Where copies Codealong made can be: each account's skills folder, and the `skills` folder
+/// of every account folder config.toml listed before (Claude Code and Codex keep skills in
+/// their own folder), so an account taken out of config.toml still gets updates.
+fn refresh_targets(accounts: &[AccountCfg], known: &[String]) -> Vec<PathBuf> {
+    let mut out: Vec<PathBuf> = accounts.iter().filter_map(skill_dir).collect();
+    for k in known {
+        let dir = Path::new(k).join("skills/codealong");
+        if !out.contains(&dir) {
+            out.push(dir);
+        }
+    }
+    out
 }
 
 /// A symlink to this binary in a folder on PATH: the one asked for, else /usr/local/bin when
@@ -223,6 +258,8 @@ pub struct AccountSkill {
     pub path: Option<String>,
     pub installed: bool,
     pub current: bool,
+    /// Someone changed the copy; updates leave it alone until it's replaced from here.
+    pub edited: bool,
 }
 
 /// Whether a folder is on a PATH string, by exact entry.
@@ -238,11 +275,11 @@ fn command_status() -> CommandStatus {
 
 fn account_skill(source: Option<&Path>, a: &AccountCfg) -> AccountSkill {
     let dir = skill_dir(a);
-    let (installed, current) = match (source, &dir) {
-        (Some(s), Some(d)) => installed(s, d),
-        _ => (false, false),
+    let state = match (source, &dir) {
+        (Some(s), Some(d)) => copy_state(s, d),
+        _ => CopyState::default(),
     };
-    AccountSkill { name: a.name.clone(), harness: a.harness.clone(), path: dir.map(|d| d.to_string_lossy().into_owned()), installed, current }
+    AccountSkill { name: a.name.clone(), harness: a.harness.clone(), path: dir.map(|d| d.to_string_lossy().into_owned()), installed: state.installed, current: state.current, edited: state.edited }
 }
 
 /// The command link and every account's skill, as things stand.
@@ -253,7 +290,8 @@ pub fn status() -> AgentsStatus {
 }
 
 /// Links the command when asked and copies the skill for the named accounts, then reports
-/// the new state. A failure for one account doesn't stop the others; each is in `errors`.
+/// the new state. Naming an account is asking for its copy, so an edited one is replaced too.
+/// A failure for one account doesn't stop the others; each is in `errors`.
 pub fn install(command: bool, accounts: &[String]) -> Result<AgentsStatus> {
     let mut errors = Vec::new();
     if command {
@@ -315,12 +353,19 @@ mod tests {
         assert!(row.path.as_deref().unwrap().ends_with("claude9/skills/codealong"));
         copy_skill(&src, &skill_dir(&a).unwrap()).unwrap();
         let row = account_skill(Some(&src), &a);
-        assert_eq!((row.installed, row.current), (true, true));
+        assert_eq!((row.installed, row.current, row.edited), (true, true, false));
         // Without a source nothing counts as installed, and an unknown harness has no path.
         assert_eq!(account_skill(None, &a).installed, false);
         let other = AccountCfg { name: "x".into(), harness: "other".into(), home: "~/x".into(), command: None };
         assert!(account_skill(Some(&src), &other).path.is_none());
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn refreshes_copies_in_folders_config_toml_listed_before() {
+        let claude = AccountCfg { name: "claude".into(), harness: "claude".into(), home: "/Users/me/.claude".into(), command: None };
+        let targets = refresh_targets(&[claude], &["/Users/me/.claude".to_string(), "/Users/me/.claude-old".to_string()]);
+        assert_eq!(targets, vec![PathBuf::from("/Users/me/.claude/skills/codealong"), PathBuf::from("/Users/me/.claude-old/skills/codealong")]);
     }
 
     fn account(harness: &str, home: &str) -> AccountCfg {
@@ -347,11 +392,22 @@ mod tests {
         let dst = root.join("skills/codealong");
         copy_skill(&src, &dst).unwrap();
         assert!(dst.join("SKILL.md").is_file() && dst.join("references/reference.md").is_file());
-        assert_eq!(installed(&src, &dst), (true, true));
+        let fresh = CopyState { installed: true, current: true, edited: false };
+        assert_eq!(copy_state(&src, &dst), fresh);
+        // Finder's .DS_Store isn't an edit.
+        std::fs::write(dst.join(".DS_Store"), "x").unwrap();
+        assert_eq!(copy_state(&src, &dst), fresh);
         std::fs::write(src.join("SKILL.md"), "---\nname: codealong\ndescription: more\n---\n").unwrap();
-        assert_eq!(installed(&src, &dst), (true, false));
+        assert!(copy_state(&src, &dst).stale());
         copy_skill(&src, &dst).unwrap();
-        assert_eq!(installed(&src, &dst), (true, true));
+        assert_eq!(copy_state(&src, &dst), fresh);
+        // An edited copy isn't stale, even once the skill changes: updates leave it alone.
+        std::fs::write(dst.join("SKILL.md"), "---\nname: codealong\ndescription: mine\n---\n").unwrap();
+        assert_eq!(copy_state(&src, &dst), CopyState { installed: true, current: true, edited: true });
+        std::fs::write(src.join("SKILL.md"), "---\nname: codealong\ndescription: newer\n---\n").unwrap();
+        let edited = copy_state(&src, &dst);
+        assert!(edited.edited && !edited.current && !edited.stale());
+        assert!(std::fs::read_to_string(dst.join("SKILL.md")).unwrap().contains("mine"));
         // Someone's own folder of the same name stays.
         let theirs = root.join("theirs/codealong");
         std::fs::create_dir_all(&theirs).unwrap();

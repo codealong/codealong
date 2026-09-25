@@ -229,6 +229,8 @@ export interface AccountSkill {
   path: string | null;
   installed: boolean;
   current: boolean;
+  /** Someone changed this copy, so updates leave it alone until it's replaced from Settings. */
+  edited: boolean;
 }
 
 export interface Board {

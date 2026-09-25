@@ -72,16 +72,17 @@ window.__TAURI_INTERNALS__ = {
     var file = { get_accounts: './accounts.json', found_accounts: './found.json', get_config: './config.json', pr_detail: './pr-detail.json', start_options: './start-options.json' }[cmd];
     if (file) return fetch(file).then(function (r) { return r.ok ? r.json() : Promise.reject(new Error(file + ' is missing')); });
     if (cmd === 'plugin:menu|new') return Promise.resolve([window.__calls.length, 'menu-' + window.__calls.length]);
-    // Settings › Agents: one account installed, one out of date, one not installed, one with no folder.
+    // Settings › Agents: one account installed, one out of date, one edited, one not installed, one with no folder.
     if (cmd === 'agents_status' || cmd === 'install_agents') {
       return Promise.resolve({
         command: { link: '/usr/local/bin/codealong', target: '/Applications/Codealong.app/Contents/MacOS/codealong', onPath: true },
         skillFound: true,
         accounts: [
-          { name: 'claude', harness: 'claude', path: '/Users/you/.claude/skills/codealong', installed: true, current: true },
-          { name: 'claude2', harness: 'claude', path: '/Users/you/.claude2/skills/codealong', installed: true, current: false },
-          { name: 'codex', harness: 'codex', path: '/Users/you/.codex/skills/codealong', installed: false, current: false },
-          { name: 'antigravity', harness: 'antigravity', path: null, installed: false, current: false },
+          { name: 'claude', harness: 'claude', path: '/Users/you/.claude/skills/codealong', installed: true, current: true, edited: false },
+          { name: 'claude2', harness: 'claude', path: '/Users/you/.claude2/skills/codealong', installed: true, current: false, edited: false },
+          { name: 'claude-work', harness: 'claude', path: '/Users/you/.claude-work/skills/codealong', installed: true, current: false, edited: true },
+          { name: 'codex', harness: 'codex', path: '/Users/you/.codex/skills/codealong', installed: false, current: false, edited: false },
+          { name: 'antigravity', harness: 'antigravity', path: null, installed: false, current: false, edited: false },
         ],
         errors: cmd === 'install_agents' && (args || {}).accounts && args.accounts.indexOf('codex') >= 0 ? ['codex: /Users/you/.codex/skills/codealong exists and Codealong didn\'t put it there; move it away to install the skill.'] : [],
       });
