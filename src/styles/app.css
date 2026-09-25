@@ -878,6 +878,16 @@ body.is-resizing * {
 .ca-acct .ca-tag.is-ok {
   color: var(--ink-2);
 }
+/* An account card's tags at its right: the skill, then the sign-in. */
+.ca-acct-tags {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+.ca-ucard-head .ca-acct-tags .ca-tag {
+  margin-left: 0;
+}
 .ca-acct .ca-tag.is-attn {
   background: var(--attn-tint);
   color: var(--attn);
