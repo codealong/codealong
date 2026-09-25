@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use anyhow::{anyhow, bail, Result};
 
+use crate::config::NewTerminal;
 use crate::procs;
 use crate::util::home;
 
@@ -25,13 +26,18 @@ pub fn editor_name(id: &str) -> String {
     }
 }
 
-/// Arguments: the folder, the input to type (or ""), then any `KEY=VALUE` environment entries.
-const GHOSTTY_NEW_WINDOW: &str = r#"
+/// Arguments: where it goes (`window`, `front` for a tab in the front window, or `beside` for a
+/// tab in the frontmost window holding any of the terminals listed next), those terminal ids one
+/// per line (or ""), the folder, the input to type (or ""), then any `KEY=VALUE` environment
+/// entries. A tab with no window to go in becomes a window.
+const GHOSTTY_NEW: &str = r#"
 on run argv
-  set thePath to item 1 of argv
-  set theInput to item 2 of argv
+  set placeAt to item 1 of argv
+  set nearIds to paragraphs of (item 2 of argv)
+  set thePath to item 3 of argv
+  set theInput to item 4 of argv
   set theEnv to {}
-  if (count of argv) > 2 then set theEnv to items 3 thru -1 of argv
+  if (count of argv) > 4 then set theEnv to items 5 thru -1 of argv
   tell application "Ghostty"
     if theInput is "" then
       set cfg to {initial working directory:thePath}
@@ -40,7 +46,31 @@ on run argv
     else
       set cfg to {initial working directory:thePath, initial input:theInput, environment variables:theEnv}
     end if
-    new window with configuration cfg
+    set dest to missing value
+    if placeAt is "front" then
+      if (count of windows) > 0 then set dest to id of front window
+    else if placeAt is "beside" then
+      -- Windows come front to back, so the one nearest the front wins. Held by id: see GHOSTTY_FOCUS.
+      set wids to id of every window
+      repeat with wid in wids
+        set tids to id of every terminal of window id (contents of wid)
+        repeat with t in nearIds
+          if tids contains (contents of t) then
+            set dest to contents of wid
+            exit repeat
+          end if
+        end repeat
+        if dest is not missing value then exit repeat
+      end repeat
+    end if
+    if dest is missing value then
+      new window with configuration cfg
+    else
+      new tab in window id dest with configuration cfg
+      try
+        activate window window id dest
+      end try
+    end if
     activate
   end tell
   return "ok"
@@ -188,12 +218,21 @@ fn osascript(script: &str, args: &[&str]) -> Result<String> {
     })
 }
 
-/// Opens a new terminal window at `path`, optionally typing `input` (a command plus return).
-pub fn terminal_open(profile: &str, path: &Path, input: Option<&str>) -> Result<()> {
+/// Where a new terminal goes: `[apps] new_terminal`, and the folders it belongs beside, nearest
+/// first (`board::terminal_neighbours`).
+#[derive(Debug, Clone, Copy)]
+pub struct Placement<'a> {
+    pub new_terminal: NewTerminal,
+    pub near: &'a [Vec<String>],
+}
+
+/// Opens a new terminal at `path`, optionally typing `input` (a command plus return).
+pub fn terminal_open(profile: &str, place: Placement, path: &Path, input: Option<&str>) -> Result<()> {
     match profile {
         "ghostty" => {
             let dir = path.to_string_lossy();
-            match osascript(GHOSTTY_NEW_WINDOW, &[&dir, input.unwrap_or("")]) {
+            let (at, beside) = ghostty_placement(place);
+            match osascript(GHOSTTY_NEW, &[at, &beside, &dir, input.unwrap_or("")]) {
                 Ok(_) => Ok(()),
                 Err(e) if input.is_none() => {
                     // Without Automation permission a plain window still works.
@@ -207,19 +246,47 @@ pub fn terminal_open(profile: &str, path: &Path, input: Option<&str>) -> Result<
     }
 }
 
-/// Opens a new terminal window at `path` with `env` set in its shell, and types `input` (a
-/// command plus return). The shell expands variables in `input` from `env`.
-pub fn terminal_run(profile: &str, path: &Path, input: &str, env: &[(String, String)]) -> Result<()> {
+/// Opens a new terminal at `path` with `env` set in its shell, and types `input` (a command
+/// plus return). The shell expands variables in `input` from `env`.
+pub fn terminal_run(profile: &str, place: Placement, path: &Path, input: &str, env: &[(String, String)]) -> Result<()> {
     match profile {
         "ghostty" => {
             let dir = path.to_string_lossy();
+            let (at, beside) = ghostty_placement(place);
             let entries: Vec<String> = env.iter().map(|(k, v)| format!("{k}={v}")).collect();
-            let mut args: Vec<&str> = vec![&dir, input];
+            let mut args: Vec<&str> = vec![at, &beside, &dir, input];
             args.extend(entries.iter().map(String::as_str));
-            osascript(GHOSTTY_NEW_WINDOW, &args).map(|_| ())
+            osascript(GHOSTTY_NEW, &args).map(|_| ())
         }
         other => bail!("There's no terminal profile called {other:?} yet. Use \"ghostty\" in config.toml."),
     }
+}
+
+/// GHOSTTY_NEW's first two arguments. For `project`, the terminals already in the nearest
+/// folders that have any; with none, or Ghostty not answering the question, a window.
+fn ghostty_placement(place: Placement) -> (&'static str, String) {
+    match place.new_terminal {
+        NewTerminal::Window => ("window", String::new()),
+        NewTerminal::Tab => ("front", String::new()),
+        NewTerminal::Project => {
+            let beside = ghostty_terminals().map(|ts| terminals_beside(&ts, place.near)).unwrap_or_default();
+            if beside.is_empty() {
+                ("window", String::new())
+            } else {
+                ("beside", beside.join("\n"))
+            }
+        }
+    }
+}
+
+/// The ids of the terminals working in the nearest group of folders that has any.
+fn terminals_beside(terminals: &[GhosttyTerminal], near: &[Vec<String>]) -> Vec<String> {
+    near.iter()
+        .map(|group| {
+            terminals.iter().filter(|t| group.iter().any(|f| Path::new(&t.cwd).starts_with(f))).map(|t| t.id.clone()).collect::<Vec<_>>()
+        })
+        .find(|ids| !ids.is_empty())
+        .unwrap_or_default()
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -535,7 +602,7 @@ mod tests {
         if !Path::new("/Applications/Ghostty.app").exists() {
             return;
         }
-        for (i, script) in [GHOSTTY_NEW_WINDOW, GHOSTTY_LIST, GHOSTTY_FOCUS, GHOSTTY_FIND, GHOSTTY_TYPE].iter().enumerate() {
+        for (i, script) in [GHOSTTY_NEW, GHOSTTY_LIST, GHOSTTY_FOCUS, GHOSTTY_FIND, GHOSTTY_TYPE].iter().enumerate() {
             let out = std::env::temp_dir().join(format!("codealong-test-{i}.scpt"));
             let r = procs::run_stdin("/usr/bin/osacompile", &["-o", &out.to_string_lossy()], script, Duration::from_secs(20));
             assert!(r.is_ok(), "script {i} failed to compile: {r:?}");
@@ -551,7 +618,7 @@ mod tests {
         let _ = std::fs::remove_file(&out);
         let prompt = "Fix the \"flaky\" test\n\tthen run `npm test` and $(say nope) 'quoted' -v";
         let input = format!("printenv CODEALONG_PROMPT > '{}'; exit\n", out.display());
-        terminal_run("ghostty", &std::env::temp_dir(), &input, &[("CODEALONG_PROMPT".to_string(), prompt.to_string())]).unwrap();
+        terminal_run("ghostty", Placement { new_terminal: NewTerminal::Window, near: &[] }, &std::env::temp_dir(), &input, &[("CODEALONG_PROMPT".to_string(), prompt.to_string())]).unwrap();
         for _ in 0..100 {
             if std::fs::metadata(&out).map(|m| m.len() > 0).unwrap_or(false) {
                 break;
@@ -657,6 +724,18 @@ end run
         assert!(!runs_under(table, 4102, "ghostty"));
         assert!(!runs_under(table, 5000, "ghostty"));
         assert!(!runs_under(table, 999_999, "ghostty"));
+    }
+
+    #[test]
+    fn puts_a_new_tab_beside_the_nearest_folder_with_terminals() {
+        let t = |id: &str, cwd: &str| GhosttyTerminal { id: id.into(), cwd: cwd.into(), name: String::new() };
+        let tabs = vec![t("a", "/r/app"), t("b", "/r/app-pins/src"), t("c", "/r/kestrel"), t("d", ""), t("e", "/r/app-pins")];
+        let groups = |g: &[&[&str]]| g.iter().map(|g| g.iter().map(|f| f.to_string()).collect()).collect::<Vec<Vec<String>>>();
+        assert_eq!(terminals_beside(&tabs, &groups(&[&["/r/app-pins"], &["/r/app"]])), vec!["b", "e"]);
+        // Not a folder that merely starts the same way.
+        assert_eq!(terminals_beside(&tabs, &groups(&[&["/r/app-p"], &["/r/app"]])), vec!["a"]);
+        assert_eq!(terminals_beside(&tabs, &groups(&[&["/r/none"], &["/r/kestrel", "/r/x"]])), vec!["c"]);
+        assert!(terminals_beside(&tabs, &groups(&[&["/r/none"]])).is_empty());
     }
 
     #[test]

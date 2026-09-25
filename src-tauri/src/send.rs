@@ -74,9 +74,11 @@ pub fn send(board: &Board, cfg: &Config, session_key: &str, text: &str) -> Resul
     let registry = session.pid.and_then(|pid| read_registry(&home, pid)).filter(|r| r.get("sessionId").and_then(Value::as_str) == Some(session.id.as_str()));
     let daemon = daemon_socket(&home);
     let routes = route_for(session, registry.as_ref(), &home, daemon.as_deref())?;
+    let near = crate::board::terminal_neighbours(&board.lanes, Path::new(&session.cwd));
+    let place = launch::Placement { new_terminal: cfg.apps.new_terminal, near: &near };
     let mut last_err = None;
     for route in routes {
-        match attempt(&route, session, account, cfg, text) {
+        match attempt(&route, session, account, cfg, place, text) {
             Ok(Some(sent)) => return Ok(sent),
             // This way doesn't reach the session; the next one may.
             Ok(None) => {}
@@ -124,7 +126,7 @@ pub fn route_for(session: &Session, registry: Option<&Value>, home: &Path, daemo
 }
 
 /// One way in. `Ok(None)` when it doesn't reach this session, so the next way is tried.
-fn attempt(route: &Route, session: &Session, account: &AccountCfg, cfg: &Config, text: &str) -> Result<Option<Sent>> {
+fn attempt(route: &Route, session: &Session, account: &AccountCfg, cfg: &Config, place: launch::Placement, text: &str) -> Result<Option<Sent>> {
     let busy = session.status == Status::Working;
     let title = quoted(&session.title);
     let sent = |message: String| Ok(Some(Sent { message, opened: false }));
@@ -148,8 +150,8 @@ fn attempt(route: &Route, session: &Session, account: &AccountCfg, cfg: &Config,
         }
         Route::Resume => {
             let (input, env) = resume_input(account, &session.id, text);
-            launch::terminal_run(&cfg.apps.terminal, Path::new(&session.cwd), &input, &env)?;
-            sent(format!("Resumed {title} in a new {} window with this prompt.", launch::terminal_name(&cfg.apps.terminal)))
+            launch::terminal_run(&cfg.apps.terminal, place, Path::new(&session.cwd), &input, &env)?;
+            sent(format!("Resumed {title} in {} with this prompt.", launch::terminal_name(&cfg.apps.terminal)))
         }
         Route::ClaudeApp => {
             copy(&attachments::expand(text, Style::Path))?;
