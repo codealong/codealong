@@ -4,6 +4,8 @@ Updated September 24, 2026 after the fourth exploration round.
 
 The user wants simple, geometric marks. No 3D or overly detailed marks. The selected favorite is candidate 22, Overlap; continue with controlled variations of its layered C.
 
+The next exploration should make the geometry visibly more precise: constant-width circular bands, straight overlap boundaries, square corners, and polygonal constructions. Keep the teal/blue palette consistent to compare the structures.
+
 Continue exploring C and CA letterforms that suit Codealong: a Mac app that gathers coding agents and sessions across projects.
 
 Working design criteria:
