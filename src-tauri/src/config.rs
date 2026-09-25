@@ -32,6 +32,8 @@ pub struct Config {
     #[serde(default, skip_serializing)]
     pub router: Option<LegacyRouter>,
     #[serde(default)]
+    pub search: SearchCfg,
+    #[serde(default)]
     pub debug: DebugCfg,
 }
 
@@ -46,6 +48,7 @@ impl Default for Config {
             projects: Vec::new(),
             jev: JevCfg::default(),
             router: None,
+            search: SearchCfg::default(),
             debug: DebugCfg::default(),
         }
     }
@@ -114,6 +117,27 @@ fn from_text(text: &str) -> std::result::Result<Config, toml::de::Error> {
     Ok(cfg)
 }
 
+/// Searching what was said in sessions (search.rs), not just their titles.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SearchCfg {
+    /// Sessions active in this many days have their prompts and replies searched; 0 turns it
+    /// off. The board goes back 14 days, so that's the most.
+    #[serde(default = "default_search_days")]
+    pub days: u32,
+}
+
+impl Default for SearchCfg {
+    fn default() -> Self {
+        SearchCfg { days: default_search_days() }
+    }
+}
+
+pub const MAX_SEARCH_DAYS: u32 = 14;
+
+fn default_search_days() -> u32 {
+    MAX_SEARCH_DAYS
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct DebugCfg {
     /// Appends timings to ~/Library/Logs/Codealong/perf.log (see perf.rs).
@@ -176,11 +200,35 @@ pub struct AppsCfg {
     pub terminal: String,
     #[serde(default = "default_editor")]
     pub editor: String,
+    #[serde(default)]
+    pub new_terminal: NewTerminal,
 }
 
 impl Default for AppsCfg {
     fn default() -> Self {
-        AppsCfg { terminal: default_terminal(), editor: default_editor() }
+        AppsCfg { terminal: default_terminal(), editor: default_editor(), new_terminal: NewTerminal::default() }
+    }
+}
+
+/// Where a terminal Codealong opens goes: a window of its own, a tab in the front window, or a
+/// tab in a window already showing the same worktree, repo or project (a window of its own when
+/// none does).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum NewTerminal {
+    Window,
+    Tab,
+    #[default]
+    Project,
+}
+
+impl NewTerminal {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            NewTerminal::Window => "window",
+            NewTerminal::Tab => "tab",
+            NewTerminal::Project => "project",
+        }
     }
 }
 
@@ -333,9 +381,10 @@ fn set_accounts(doc: &mut toml_edit::DocumentMut, accounts: &[AccountCfg]) {
     set_tables(doc, "accounts", rows);
 }
 
-const APPS_COMMENT: &str = "# Where Codealong opens things. Built-in profiles: terminal \"ghostty\", editor \"cursor\".\n";
+const APPS_COMMENT: &str = "# Where Codealong opens things. Built-in profiles: terminal \"ghostty\", editor \"cursor\".\n# new_terminal: \"window\", \"tab\" (in the front window), or \"project\" (a tab beside the same repo or project).\n";
 const APPEARANCE_COMMENT: &str = "# Light or dark. \"system\" follows macOS. The buttons at the foot of the sidebar set this too.\n";
 const JEV_COMMENT: &str = "# What Codealong asks TypeSafe's Jev, feature by feature (Settings › Jev says what each one sends).\n# The API key is kept in the login keychain; set it in Settings.\n";
+const SEARCH_COMMENT: &str = "# The quick panel and `codealong sessions find` search what was said in sessions active in the\n# last `days` days, not just their titles. 0 turns it off; 14, the board's reach, is the most.\n";
 const DEBUG_COMMENT: &str = "# Timings for finding what makes the app slow, in ~/Library/Logs/Codealong/perf.log.\n";
 const SHORTCUTS_COMMENT: &str = "# Shortcuts that work in any app, such as \"Option+Shift+Space\" or \"Cmd+Ctrl+K\". \"\" turns one off.\n# quick_panel opens the quick panel: find a session, or start one.\n";
 
@@ -470,6 +519,9 @@ pub fn check(cfg: &Config) -> std::result::Result<(), String> {
     if cfg.scan.iter().any(|s| s.trim().is_empty()) {
         return Err("A scan folder is empty.".into());
     }
+    if cfg.search.days > MAX_SEARCH_DAYS {
+        return Err(format!("[search] days is {}; the board goes back {MAX_SEARCH_DAYS} days, so that's the most.", cfg.search.days));
+    }
     if cfg.jev.model.trim().is_empty() {
         return Err("[jev] model is empty; use \"jev-latest\".".into());
     }
@@ -517,6 +569,7 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
     ensure_table(&mut doc, "apps", APPS_COMMENT);
     set_value(&mut doc["apps"]["terminal"], Value::from(cfg.apps.terminal.trim()));
     set_value(&mut doc["apps"]["editor"], Value::from(cfg.apps.editor.trim()));
+    set_value(&mut doc["apps"]["new_terminal"], Value::from(cfg.apps.new_terminal.as_str()));
 
     set_theme(&mut doc, cfg.appearance.theme);
     set_shortcuts(&mut doc, &cfg.shortcuts);
@@ -531,6 +584,18 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
         set_value(&mut doc["jev"]["sessions"], Value::from(cfg.jev.sessions));
         set_value(&mut doc["jev"]["todos"], Value::from(cfg.jev.todos));
         set_value(&mut doc["jev"]["pull_requests"], Value::from(cfg.jev.pull_requests));
+    }
+
+    // Like [jev], only a file that has the table or changes the default gets it.
+    if cfg.search != SearchCfg::default() || doc.get("search").is_some() {
+        if !doc.get("search").is_some_and(toml_edit::Item::is_table_like) {
+            let mut t = Table::new();
+            t.decor_mut().set_prefix(format!("\n{SEARCH_COMMENT}"));
+            doc.insert("search", Item::Table(t));
+            let after = if doc.get("jev").is_some() { "jev" } else { "shortcuts" };
+            place_after(&mut doc, "search", after);
+        }
+        set_value(&mut doc["search"]["days"], Value::from(cfg.search.days as i64));
     }
 
     ensure_table(&mut doc, "debug", DEBUG_COMMENT);
@@ -637,6 +702,7 @@ pub fn render(cfg: &Config) -> String {
     s.push_str("[apps]\n");
     s.push_str(&format!("terminal = {}\n", q(&cfg.apps.terminal)));
     s.push_str(&format!("editor = {}\n", q(&cfg.apps.editor)));
+    s.push_str(&format!("new_terminal = {}\n", q(cfg.apps.new_terminal.as_str())));
     s.push('\n');
     s.push_str(APPEARANCE_COMMENT);
     s.push_str("[appearance]\n");
@@ -655,6 +721,10 @@ pub fn render(cfg: &Config) -> String {
         s.push_str(&format!("todos = {}\n", cfg.jev.todos));
         s.push_str(&format!("pull_requests = {}\n", cfg.jev.pull_requests));
     }
+    s.push('\n');
+    s.push_str(SEARCH_COMMENT);
+    s.push_str("[search]\n");
+    s.push_str(&format!("days = {}\n", cfg.search.days));
     s.push_str("\n# Harness accounts. `name` is what you type and what the board shows.\n");
     for a in &cfg.accounts {
         s.push_str("\n[[accounts]]\n");
@@ -701,6 +771,7 @@ mod tests {
             }],
             jev: JevCfg { model: "jev-1.13.0".into(), quick_panel: true, sessions: false, todos: true, pull_requests: false },
             router: None,
+            search: SearchCfg { days: 7 },
             debug: DebugCfg::default(),
         };
         let parsed: Config = toml::from_str(&render(&cfg)).unwrap();
@@ -742,6 +813,7 @@ mod tests {
         let cfg: Config = toml::from_str("").unwrap();
         assert_eq!(cfg.apps.terminal, "ghostty");
         assert_eq!(cfg.apps.editor, "cursor");
+        assert_eq!(cfg.apps.new_terminal, NewTerminal::Project);
         assert_eq!(cfg.scan, vec!["~/projects".to_string()]);
         assert_eq!(cfg.appearance.theme, Theme::System);
     }
@@ -812,8 +884,25 @@ mod tests {
             ],
             jev: JevCfg::default(),
             router: None,
+            search: SearchCfg::default(),
             debug: DebugCfg { perf_log: true },
         }
+    }
+
+    #[test]
+    fn search_days_are_added_when_changed_and_capped() {
+        let old = render(&full()).replace(&format!("\n{SEARCH_COMMENT}[search]\ndays = 14\n"), "");
+        assert!(!old.contains("[search]"), "{old}");
+        assert!(!with_config(&old, &full()).unwrap().contains("[search]"));
+        let mut week = full();
+        week.search.days = 7;
+        let out = with_config(&old, &week).unwrap();
+        assert!(out.contains("[search]\ndays = 7"), "{out}");
+        assert!(out.find("[search]").unwrap() > out.find("[shortcuts]").unwrap() && out.find("[search]").unwrap() < out.find("[[accounts]]").unwrap(), "{out}");
+        assert_eq!(toml::from_str::<Config>(&out).unwrap().search.days, 7);
+        assert_eq!(toml::from_str::<Config>("").unwrap().search.days, 14);
+        week.search.days = 30;
+        assert!(check(&week).unwrap_err().contains("[search] days"));
     }
 
     #[test]

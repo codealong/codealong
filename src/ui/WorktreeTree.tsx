@@ -77,7 +77,7 @@ export function WorktreeTree({ groups, now, selectedLaneId, selectedSessionKey, 
             const older = lane.sessions.length - recent.length;
             const active = lane.sessions.filter((s) => !s.visitor && ACTIVE.has(s.status)).length;
             const failing = failingPr(lane);
-            const opens = lane.defaultTarget?.startsWith('s|') ? 'its most recent session' : 'a new terminal window here';
+            const opens = lane.defaultTarget?.startsWith('s|') ? 'its most recent session' : 'a new terminal here';
             return (
               <div key={lane.id} role="treeitem" aria-expanded={lane.sessions.length ? open : undefined} aria-selected={selectedLaneId === lane.id}>
                 <div

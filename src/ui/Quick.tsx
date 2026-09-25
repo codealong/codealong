@@ -19,6 +19,7 @@ import {
   openFromBar,
   quickReady,
   routeQuick,
+  searchText,
   sendToSession,
   showMain,
   showQuick,
@@ -34,7 +35,7 @@ import { ago, resetsPhrase, tildePath, withTimes } from '../format';
 import { HARNESS_WORD, usageNote } from '../harness';
 import { useLogo } from '../logo';
 import { withoutAccount } from '../lanes';
-import { ALL_PROJECTS, attentionRows, findSessions, findTodos, FOUND_SESSIONS, inProject, laneBranch, laneGroups, projectCounts, shortcutLabel, type RowGroup, type SessionRow, type TodoRow } from '../quick';
+import { ALL_PROJECTS, attentionRows, findSessions, findTodos, FOUND_SESSIONS, inProject, laneBranch, laneGroups, projectCounts, queryWords, shortcutLabel, TEXT_SEARCH_MIN, type RowGroup, type SessionRow, type TodoRow } from '../quick';
 import {
   accountFor,
   agentId,
@@ -54,7 +55,7 @@ import {
 } from '../start';
 import { duplicateOf, effortModel, rankedBy, suggestions, sureness, todoTitle, worthRouting, type Suggestion } from '../route';
 import { attachmentsIn, blockedBy, insertAttachments, newTodo, snippet, todoPrompt, withoutAttachment } from '../todos';
-import type { Attachment, Board, Lane, Meter, Route, Session, StartOptions, StartPlace, StartSpec } from '../types';
+import type { Attachment, Board, Lane, Meter, Route, Session, StartOptions, StartPlace, StartSpec, TextFound } from '../types';
 import { AttachmentStrip } from './DescriptionEditor';
 import { Picker, type PickerOption, type PickerSection } from './Picker';
 import { Icon, Kbd, Mark, STATUS_WORD, StatusGlyph } from './primitives';
@@ -87,6 +88,8 @@ type Row = SessionRow | TodoRow | SuggestRow;
 
 /** How long typing has to pause before what's typed goes to Jev. */
 const ROUTE_AFTER_MS = 350;
+/** How long typing has to pause before what's typed is looked for in what sessions said. */
+const TEXT_AFTER_MS = 150;
 
 function plain(e: unknown): string {
   return String(e).replace(/^Error: /, '');
@@ -375,7 +378,26 @@ export function Quick() {
   const prompted = text.trim().length > 0;
   const query = todo ? '' : text.trim();
   const attention = useMemo(() => (board && !query && !todo ? attentionRows(board, current) : null), [board, current, query, todo]);
-  const foundSessions = useMemo(() => (board && query ? findSessions(board, current, query, FOUND_SESSIONS) : []), [board, current, query]);
+  // What was said in sessions is searched in the engine, once typing pauses; its hits join the
+  // list below the sessions whose titles and the like match.
+  const textFor = !!board && query.replace(/\s+/g, '').length >= TEXT_SEARCH_MIN ? queryWords(query).join(' ') : null;
+  const [textSearch, setTextSearch] = useState<{ for: string; found: TextFound } | null>(null);
+  useEffect(() => {
+    if (!textFor) return;
+    let live = true;
+    const id = window.setTimeout(() => {
+      searchText(textFor.split(' '))
+        .then((found) => live && setTextSearch({ for: textFor, found }))
+        .catch(() => undefined);
+    }, TEXT_AFTER_MS);
+    return () => {
+      live = false;
+      window.clearTimeout(id);
+    };
+  }, [textFor]);
+  const textFound = textFor && textSearch?.for === textFor ? textSearch.found : null;
+  const said = useMemo(() => new Map((textFound?.hits ?? []).map((h) => [h.key, h] as const)), [textFound]);
+  const foundSessions = useMemo(() => (board && query ? findSessions(board, current, query, FOUND_SESSIONS, said) : []), [board, current, query, said]);
   const foundTodos = useMemo(() => (board && query ? findTodos(board, current, query) : []), [board, current, query]);
 
   // With routing on, what you type goes to Jev once you pause, and its suggestions lead the
@@ -530,8 +552,8 @@ export function Quick() {
       ? ''
       : placeNow === 'terminal'
         ? inNewWorktree
-          ? `${terminalName} opens a new window, and Claude Code makes a new worktree of ${lane.repo} and starts ${account}${onModel} there${withPrompt}.`
-          : `${terminalName} opens a new window in ${lane.callsign} and starts ${account}${onModel}${withPrompt}.`
+          ? `Claude Code makes a new worktree of ${lane.repo} and starts ${account}${onModel} there in ${terminalName}${withPrompt}.`
+          : `${terminalName} starts ${account}${onModel} in ${lane.callsign}${withPrompt}.`
         : placeNow === 'claude-app'
           ? `The Claude app opens a new session in ${lane.callsign}${prompted ? ' with this prompt filled in' : ''}. You send it from there.`
           : `Codex opens a new thread in ${lane.callsign}${prompted ? ' with this prompt filled in' : ''}. You send it from there.`;
@@ -814,7 +836,7 @@ export function Quick() {
       }
       const why = !x.live
         ? x.harness === 'claude' && x.surface === 'cli'
-          ? 'It isn’t running: it resumes in a new terminal window with this prompt.'
+          ? 'It isn’t running: it resumes in a new terminal with this prompt.'
           : 'It isn’t running: it opens with this prompt ready to send.'
         : x.status === 'working'
           ? 'It’s working, so this waits for its turn to end.'
@@ -925,6 +947,7 @@ export function Quick() {
               )}
               {routeProblem && <p className="ca-quick-note">Couldn’t suggest where this goes: {routeProblem}</p>}
               {query && rows.length === 0 && <p className="ca-quick-note">No sessions or todos match. Start a session with this prompt below.</p>}
+              {query && textFound?.building && <p className="ca-quick-note">Still reading what recent sessions said, so more may match in a moment.</p>}
               {sections.map((s) => (
                 <div key={s.group} className="ca-quick-group" role="group" aria-label={GROUP_WORD[s.group]}>
                   <div className={`ca-quick-glabel is-${s.group}`}>
@@ -1009,7 +1032,14 @@ export function Quick() {
                           <span className="ca-quick-row-title">
                             <Marked text={s2.title} marks={r.marks} />
                           </span>
-                          <span className="ca-quick-row-why">{rowWhy(s2.detail, s2.headline, now)}</span>
+                          {r.said ? (
+                            <span className="ca-quick-row-why is-said">
+                              {r.said.you ? 'You: ' : ''}
+                              <Marked text={r.said.text} marks={r.said.marks} />
+                            </span>
+                          ) : (
+                            <span className="ca-quick-row-why">{rowWhy(s2.detail, s2.headline, now)}</span>
+                          )}
                         </span>
                         <span className="ca-quick-row-where">
                           {s2.account} · {r.lane.callsign}

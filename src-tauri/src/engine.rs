@@ -23,11 +23,13 @@ use crate::detect;
 use crate::git;
 use crate::github::{self, PrRaw};
 use crate::jev;
+use crate::todojev;
 use crate::launch;
 use crate::model::*;
 use crate::perf;
 use crate::procs;
 use crate::repos::{self, Checkout};
+use crate::search;
 use crate::state::SeenState;
 use crate::throttle::{self, GitQueue, Verdict};
 use crate::todos::{self, TodoOp, TodoStore};
@@ -42,6 +44,8 @@ const PUBLISH_EVERY: Duration = Duration::from_millis(300);
 const GITHUB_EVERY: Duration = Duration::from_secs(60);
 /// Claude usage is read this often; Codex usage updates with every Codex turn.
 const USAGE_EVERY: Duration = Duration::from_secs(2 * 60);
+/// After a question to Jev fails (no key, TypeSafe down), how long before more are asked.
+const JEV_RETRY: Duration = Duration::from_secs(5 * 60);
 /// After the usage endpoint says to slow down.
 const USAGE_BACKOFF: Duration = Duration::from_secs(10 * 60);
 
@@ -76,6 +80,8 @@ pub enum Msg {
     TodoStarted { id: String, lane: Option<String>, session: Option<String>, pending: Option<todos::PendingStart> },
     /// Jev's answer to a question the engine asked (`ask_jev`), by the id it was asked under.
     JevDone(String, std::result::Result<serde_json::Value, String>),
+    /// "Looks done" was wrong for this todo, for now.
+    DismissTodoHint(String),
 }
 
 /// What the UI talks to. Cheap to clone.
@@ -126,6 +132,10 @@ impl Handle {
     }
 
     /// Links a session started from a todo, or waits for it to show up.
+    pub fn dismiss_todo_hint(&self, id: String) {
+        let _ = self.tx.send(Msg::DismissTodoHint(id));
+    }
+
     pub fn todo_started(&self, id: String, lane: Option<String>, session: Option<String>, pending: Option<todos::PendingStart>) {
         let _ = self.tx.send(Msg::TodoStarted { id, lane, session, pending });
     }
@@ -187,7 +197,8 @@ impl Handle {
     pub fn sign_in(&self, name: &str) -> Result<()> {
         let cfg = config::load()?.unwrap_or_default();
         let a = cfg.accounts.iter().find(|a| a.name == name).ok_or_else(|| anyhow!("There's no account named {name}."))?;
-        launch::terminal_open(&cfg.apps.terminal, &home(), Some(&format!("{}\n", usage::sign_in_command(a))))
+        let place = launch::Placement { new_terminal: cfg.apps.new_terminal, near: &[] };
+        launch::terminal_open(&cfg.apps.terminal, place, &home(), Some(&format!("{}\n", usage::sign_in_command(a))))
     }
 
     /// Opens config.toml in the configured editor.
@@ -212,6 +223,8 @@ pub fn open_on(board: &Board, lane_id: &str, target_id: &str) -> Result<Option<S
     let lane = board.lanes.iter().find(|l| l.id == lane_id).cloned().ok_or_else(|| anyhow!("That lane just changed. Try again."))?;
     let apps = board.apps.clone();
     let path = PathBuf::from(&lane.path);
+    let near = board::terminal_neighbours(&board.lanes, &path);
+    let place = launch::Placement { new_terminal: apps.new_terminal, near: &near };
     let parts: Vec<&str> = target_id.splitn(3, '|').collect();
     match parts.as_slice() {
         ["s", key, action] => {
@@ -226,11 +239,11 @@ pub fn open_on(board: &Board, lane_id: &str, target_id: &str) -> Result<Option<S
                 }
                 "attach" => {
                     let cmd = s.attach_command.clone().ok_or_else(|| anyhow!("This session isn't a background job."))?;
-                    launch::terminal_open(&apps.terminal_id, &cwd, Some(&format!("{cmd}\n")))?;
+                    launch::terminal_open(&apps.terminal_id, place, &cwd, Some(&format!("{cmd}\n")))?;
                 }
                 "resume" => {
                     let cmd = s.resume_command.clone().ok_or_else(|| anyhow!("This session can't be resumed in a terminal."))?;
-                    launch::terminal_open(&apps.terminal_id, &cwd, Some(&format!("{cmd}\n")))?;
+                    launch::terminal_open(&apps.terminal_id, place, &cwd, Some(&format!("{cmd}\n")))?;
                 }
                 "claude-app" => launch::open_url(&launch::claude_app_url(&s.id))?,
                 "codex" => launch::open_codex(&launch::codex_thread_url(&s.id))?,
@@ -239,7 +252,7 @@ pub fn open_on(board: &Board, lane_id: &str, target_id: &str) -> Result<Option<S
             }
             return Ok(Some(s.key.clone()));
         }
-        ["l", "terminal"] => launch::terminal_open(&apps.terminal_id, &path, None)?,
+        ["l", "terminal"] => launch::terminal_open(&apps.terminal_id, place, &path, None)?,
         ["l", "editor"] => launch::editor_open(&apps.editor_id, &path)?,
         ["l", "finder"] => launch::reveal(&path)?,
         ["p", which] => {
@@ -475,6 +488,19 @@ struct Engine {
     jev_jobs: Sender<jev::Job>,
     /// Ids asked and not answered yet, so nothing is asked twice at once.
     jev_pending: HashSet<String>,
+    /// What Jev was asked about todos and said (todojev.rs), kept in jev-todos.json.
+    jev_todos: todojev::Memory,
+    /// Todo id → the signature its "looks done" question was asked at and what it's based on,
+    /// while it's out.
+    jev_done_asking: HashMap<String, (String, String)>,
+    /// Session key → the todo ids its link question's options stand for, while it's out.
+    jev_link_asking: HashMap<String, Vec<String>>,
+    /// jev-todos.json has been read: the first look reads it.
+    jev_todos_loaded: bool,
+    /// When a todo question last failed (no key, TypeSafe down): nothing more is asked for a while.
+    jev_todos_failed: Option<Instant>,
+    /// Jev's reads of sessions, by the moment each was asked about (insights.rs).
+    insights: crate::insights::Store,
 }
 
 impl Engine {
@@ -542,6 +568,12 @@ impl Engine {
             perf: perf::Counters::default(),
             jev_jobs,
             jev_pending: HashSet::new(),
+            jev_todos: todojev::Memory::default(),
+            jev_done_asking: HashMap::new(),
+            jev_link_asking: HashMap::new(),
+            jev_todos_loaded: false,
+            jev_todos_failed: None,
+            insights: crate::insights::Store::load(),
         }
     }
 
@@ -556,11 +588,99 @@ impl Engine {
     /// An answer from Jev. The id's first part, up to `:`, says which feature asked.
     fn on_jev(&mut self, id: String, answer: std::result::Result<serde_json::Value, String>) {
         self.jev_pending.remove(&id);
-        let (feature, _rest) = id.split_once(':').unwrap_or((id.as_str(), ""));
+        let (feature, rest) = id.split_once(':').unwrap_or((id.as_str(), ""));
         match feature {
+            "todolink" => self.on_todo_link(rest.to_string(), answer),
+            "tododone" => self.on_todo_done(rest.to_string(), answer),
+            "insight" => self.on_insight(rest.to_string(), answer),
             _ => {
                 let _ = answer;
             }
+        }
+    }
+
+    /// Jev's answer on which todo a new session is for: linked when it's sure.
+    fn on_todo_link(&mut self, key: String, answer: std::result::Result<serde_json::Value, String>) {
+        let Some(ids) = self.jev_link_asking.remove(&key) else { return };
+        let Ok(response) = answer else {
+            // Asked again on a later look, unless it's too old by then.
+            self.jev_todos.asked.remove(&key);
+            self.jev_todos_failed = Some(Instant::now());
+            return;
+        };
+        self.jev_todos.save();
+        let Some(id) = todojev::link_pick(&response, &ids) else { return };
+        let lanes = self.lane_index();
+        let _lock = todos::lock().map_err(|e| eprintln!("{e:#}")).ok();
+        self.reload_todos();
+        if self.todos_unreadable || self.todos.todos.iter().any(|t| t.sessions.contains(&key)) {
+            return;
+        }
+        if !self.todos.todos.iter().any(|t| t.id == id && t.status != todos::TodoStatus::Done) {
+            return;
+        }
+        let op = TodoOp::Link { id, worktree: None, session: Some(key), linked: true };
+        if self.todos.apply(op, &lanes, now_ms()).unwrap_or(false) {
+            self.save_todos();
+        }
+    }
+
+    /// Jev's answer on whether a todo's work looks done.
+    fn on_todo_done(&mut self, id: String, answer: std::result::Result<serde_json::Value, String>) {
+        let Some((sig, why)) = self.jev_done_asking.remove(&id) else { return };
+        let Ok(response) = answer else {
+            self.jev_todos_failed = Some(Instant::now());
+            return;
+        };
+        let Some(p) = jev::noul(&response, "done") else { return };
+        self.jev_todos.done.insert(id, todojev::DoneAnswer { sig, p, why });
+        self.jev_todos.save();
+        self.dirty = true;
+    }
+
+    /// Says a todo doesn't look done after all, until something linked to it moves on.
+    fn dismiss_todo_hint(&mut self, id: String) {
+        if let Some(a) = self.jev_todos.done.get(&id) {
+            self.jev_todos.dismissed.insert(id, a.sig.clone());
+            self.jev_todos.save();
+            self.dirty = true;
+        }
+    }
+
+    /// New sessions to link, and todos whose linked work moved on, go to Jev.
+    fn jev_look_todos(&mut self, board: &Board) {
+        if !self.jev_todos_loaded {
+            self.jev_todos = todojev::Memory::load();
+            self.jev_todos_loaded = true;
+        }
+        if self.jev_todos_failed.is_some_and(|t| t.elapsed() < JEV_RETRY) {
+            return;
+        }
+        let model = self.cfg.jev.model.trim().to_string();
+        let now = now_ms();
+        let asks: Vec<(String, serde_json::Value, Vec<String>)> = todojev::link_candidates(board, &self.todos.todos, &self.jev_todos.asked, now)
+            .into_iter()
+            .map(|(lane, s)| {
+                let (body, ids) = todojev::link_request(&model, board, lane, s, &self.todos.todos);
+                (s.key.clone(), body, ids)
+            })
+            .collect();
+        for (key, body, ids) in asks {
+            self.jev_todos.asked.insert(key.clone());
+            self.jev_link_asking.insert(key.clone(), ids);
+            self.ask_jev(format!("todolink:{key}"), body);
+        }
+        let done: Vec<(String, todojev::DoneInput)> = self
+            .todos
+            .todos
+            .iter()
+            .filter_map(|t| todojev::done_input(board, t).map(|i| (t.id.clone(), i)))
+            // One question per todo at a time; a newer state is asked about once it's answered.
+            .filter(|(id, i)| self.jev_todos.done.get(id).is_none_or(|a| a.sig != i.sig) && !self.jev_done_asking.contains_key(id))
+            .collect();
+        for (id, input) in done {
+            self.jev_done_asking.insert(id.clone(), (input.sig.clone(), input.why.clone()));
+            self.ask_jev(format!("tododone:{id}"), todojev::done_request(&model, &input));
         }
     }
 
@@ -570,7 +690,65 @@ impl Engine {
         if !self.cfg.jev.any() {
             return;
         }
-        let _ = board;
+        if self.cfg.jev.todos {
+            self.jev_look_todos(board);
+        }
+        if self.cfg.jev.sessions {
+            self.look_insights(board);
+        }
+    }
+
+    /// Asks Jev about sessions whose moment it hasn't read yet (insights.rs). A session that
+    /// shows an answer already has one for its moment. At most a few new questions per board,
+    /// so the first run after turning it on doesn't ask about every session at once.
+    fn look_insights(&mut self, board: &Board) {
+        const PER_BOARD: usize = 20;
+        let now = now_ms();
+        let mut asks = Vec::new();
+        for s in board.lanes.iter().flat_map(|l| &l.sessions).filter(|s| s.visitor.is_none()) {
+            self.insights.seen(&s.key, now);
+            if s.insight.is_some() {
+                continue;
+            }
+            let Some((kind, signature)) = crate::insights::ask(s, now) else { continue };
+            let id = format!("insight:{signature}|{}", s.key);
+            if asks.len() < PER_BOARD && self.insights.wants(&s.key, &signature, now) && !self.jev_pending.contains(&id) {
+                asks.push((id, crate::insights::request(s, kind, &self.cfg.jev.model)));
+            }
+        }
+        for (id, body) in asks {
+            self.ask_jev(id, body);
+        }
+        self.insights.save(now);
+    }
+
+    /// Jev's read of a session, kept under the moment it was asked about.
+    fn on_insight(&mut self, rest: String, answer: std::result::Result<serde_json::Value, String>) {
+        let Some((signature, key)) = rest.split_once('|') else { return };
+        let now = now_ms();
+        match (answer, crate::insights::kind_of(signature)) {
+            (Ok(v), Some(kind)) => {
+                self.insights.answered(key.to_string(), signature.to_string(), crate::insights::read(kind, &v), now);
+                self.insights.save(now);
+                self.dirty = true;
+            }
+            _ => self.insights.failed(signature.to_string(), now),
+        }
+    }
+
+    /// Sessions with Jev's read of their moment applied, when it has one and `[jev] sessions` is
+    /// on (board::apply_insight).
+    fn with_insights(&self, mut sessions: Vec<Session>, now: i64) -> Vec<Session> {
+        if !self.cfg.jev.sessions {
+            return sessions;
+        }
+        for s in &mut sessions {
+            let Some((_, signature)) = crate::insights::ask(s, now) else { continue };
+            if let Some(i) = self.insights.for_session(&s.key, &signature) {
+                board::apply_insight(s, &i.clone());
+            }
+        }
+        sessions
     }
 
     fn full_scan(&mut self) {
@@ -799,6 +977,7 @@ impl Engine {
                     let _ = reply.send(result);
                 }
                 Ok(Msg::JevDone(id, answer)) => self.on_jev(id, answer),
+                Ok(Msg::DismissTodoHint(id)) => self.dismiss_todo_hint(id),
                 Ok(Msg::TodoStarted { id, lane, session, pending }) => {
                     let lanes = self.lane_index();
                     let _lock = todos::lock().map_err(|e| eprintln!("{e:#}")).ok();
@@ -877,6 +1056,7 @@ impl Engine {
             }
         }
         perf::set_enabled(self.cfg.debug.perf_log);
+        search::configure(search::Scope { accounts: self.cfg.accounts.clone(), days: self.cfg.search.days });
     }
 
     /// Every folder config.toml lists is known from then on, so an account you take out isn't
@@ -1630,8 +1810,12 @@ impl Engine {
                     for (id, (reg, tr)) in by_id {
                         let key = format!("claude:{}:{}", a.name, id);
                         let info = tr.map(|(_, t)| t);
-                        // Only a busy session that's gone quiet costs a look outside its transcript.
+                        // Only a busy session that's gone quiet costs a look outside its transcript,
+                        // and one whose turn left a command running in the background (read once
+                        // per status change).
+                        let background = reg.filter(|r| r.status == "shell");
                         let (subagent_at, running) = match board::claude_busy_since(reg, info) {
+                            _ if background.is_some() => (None, background.and_then(|r| self.stuck_command(r))),
                             Some(since) if now - since > board::CLAUDE_STALL_MS => {
                                 let sub = tr.and_then(|(p, _)| subagent_activity(p, id));
                                 let quiet = now - since.max(sub.unwrap_or(0)) > board::CLAUDE_STALL_MS;
@@ -1774,6 +1958,7 @@ impl Engine {
             terminal_id: self.cfg.apps.terminal.clone(),
             editor: launch::editor_name(&self.cfg.apps.editor),
             editor_id: self.cfg.apps.editor.clone(),
+            new_terminal: self.cfg.apps.new_terminal,
         };
         let order: Vec<String> = self.cfg.projects.iter().map(|p| p.name.clone()).collect();
         let warnings = [&self.config_warning, &self.gh_warning, &self.watch_warning, &self.todos_warning].into_iter().flatten().cloned().collect();
@@ -1781,7 +1966,7 @@ impl Engine {
             now,
             apps: &apps,
             seeds: &self.seeds,
-            sessions: self.build_sessions(now),
+            sessions: self.with_insights(self.build_sessions(now), now),
             git: &self.git,
             prs: &self.prs,
             project_order: &order,
@@ -1800,6 +1985,9 @@ impl Engine {
         board.perf_log = perf::enabled();
         board.todos = self.todos.todos.clone();
         board.labels = self.todos.labels.clone();
+        if self.cfg.jev.todos {
+            board.todo_hints = self.jev_todos.hints(&board, &self.todos.todos);
+        }
         board
     }
 

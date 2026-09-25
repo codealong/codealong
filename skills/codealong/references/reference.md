@@ -702,7 +702,8 @@ Usage: codealong sessions [OPTIONS] [COMMAND]
 
 Commands:
   find  Sessions whose title, excerpt, account, worktree, branch or PR contains the
-        words (all of them, any case)
+        words (all of them, any case), or whose prompts and replies do, for sessions
+        active in the last `[search] days`
   help  Print this message or the help of the given subcommand(s)
 
 Options:
@@ -752,7 +753,8 @@ Options:
 
 ```
 Sessions whose title, excerpt, account, worktree, branch or PR contains the words (all
-of them, any case)
+of them, any case), or whose prompts and replies do, for sessions active in the last
+`[search] days`
 
 Usage: codealong sessions find [OPTIONS] [QUERY]...
 

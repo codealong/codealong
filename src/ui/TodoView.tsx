@@ -7,7 +7,7 @@
 import { forwardRef, type ReactNode } from 'react';
 import { absolute, ago, middleTruncate } from '../format';
 import { attachmentsIn, blockedBy, SECTION_WORD, snippet, todoPr, type TodoItem, type TodoSection, type TodoSectionId } from '../todos';
-import type { Label, Lane, Session, Todo, TodoStatus } from '../types';
+import type { Label, Lane, Session, Todo, TodoHint, TodoStatus } from '../types';
 import { HarnessChip, Icon, Kbd, PrChip } from './primitives';
 import { LabelChip, TodoGlyph } from './TodoBits';
 import { useDragOrder, type DragProps } from './useDragOrder';
@@ -89,12 +89,14 @@ interface TodoRowProps {
   onFilterLabel: (label: Label) => void;
   /** The open todos it waits on. */
   blocked: Todo[];
+  /** Jev says its work looks done. */
+  hint?: TodoHint;
   drag?: DragProps;
 }
 
 const CHIPS_SHOWN = 3;
 
-function TodoRow({ item, section, domId, now, selected, showProject, onSelect, onOpen, onContextMenu, onOpenSession, onFilterLabel, blocked, drag }: TodoRowProps) {
+function TodoRow({ item, section, domId, now, selected, showProject, onSelect, onOpen, onContextMenu, onOpenSession, onFilterLabel, blocked, hint, drag }: TodoRowProps) {
   const { todo } = item;
   const pr = todoPr(item);
   const detail = snippet(todo.description);
@@ -147,6 +149,12 @@ function TodoRow({ item, section, domId, now, selected, showProject, onSelect, o
               <span className="ca-chip ca-todorow-blocked" title={`Waits on ${blocked.map((t) => `“${t.title || 'Untitled'}”`).join(', ')}, not done yet.`}>
                 <Icon name="lock" size={12} />
                 <span className="ca-todorow-blocked-text">{blocked.length === 1 ? `Waiting on ${blocked[0].title || 'Untitled'}` : `Waiting on ${blocked.length} todos`}</span>
+              </span>
+            )}
+            {hint && todo.status !== 'done' && (
+              <span className="ca-chip ca-todorow-done" title={`Looks done: ${hint.why}. Mark it done, or say not yet, in the panel.`}>
+                <Icon name="check" size={12} />
+                Looks done
               </span>
             )}
             {attached.length > 0 && (
@@ -207,6 +215,8 @@ interface TodoViewProps {
   composer: ReactNode;
   /** What to say when there's nothing to show. */
   empty: ReactNode;
+  /** Todos Jev says look done, by id. */
+  hints?: Record<string, TodoHint>;
 }
 
 /** Each section's box: its todos' status, dashed for Waiting. */
@@ -256,6 +266,7 @@ function Section({ section, props }: { section: TodoSection; props: TodoViewProp
             onOpenSession={onOpenSession}
             onFilterLabel={onFilterLabel}
             blocked={blockedBy(r.todo, todos)}
+            hint={props.hints?.[r.todo.id]}
             drag={draggable ? rowProps(r.todo.id, i, section.rows.length) : undefined}
           />
         ))}

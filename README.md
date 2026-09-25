@@ -62,15 +62,24 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     Link worktrees and sessions you already have from the todo, or from a session's or
     worktree's right-click menu (Add to todo). A session or worktree on a todo shows the
     todo's chip; click it to go to the todo.
+    With Jev on for todos (Settings › Jev, `[jev] todos`), a session that starts outside a todo
+    is linked to the open todo it's for when Jev is sure; a todo whose linked sessions ended
+    their turns, or whose PR merged, shows Looks done when Jev reads it as finished (Mark done,
+    or Not yet until something moves on); and a todo's panel suggests its project, labels and
+    the todos it waits on as chips you click. Nothing is asked twice: what was asked is kept in
+    `jev-todos.json`.
 - **Open where it lives**: the session's own Ghostty tab, the Claude app session, the Codex
   thread, an OpenCode session in its terminal (or resumed in a new one with `--session`),
   Antigravity brought forward (it has no link to a conversation), a background job attached
-  in a new window, or the folder in Cursor.
+  in a new terminal, or the folder in Cursor. A new terminal opens as a tab in the Ghostty
+  window already showing that worktree, repo or project (`new_terminal` in config.toml).
 - **Quick panel** (⌥⇧Space from any app, over full-screen ones too; ⌘N, the title bar, the
   inspector, or a worktree's or session's right-click menu in Codealong): one input, and below
   it what you can do next. With nothing typed it lists the sessions that need you, then the
   ones whose turn ended (the working ones when nothing waits on you). Typed words find
-  sessions by title, account, worktree, branch, repo, project or PR, and under them todos by
+  sessions by title, account, worktree, branch, repo, project or PR, then by what was said in
+  them (your prompts and the agents' replies, for sessions active in the last `[search] days`,
+  with the matching line shown), and under them todos by
   title, description, label, project, or the worktrees and sessions linked to them. ⏎ on a todo
   opens its session, or, when it has none, gets a session ready to start for it (its prompt,
   its worktree, linked to it). The last row starts a new session with what you typed as its
@@ -79,6 +88,15 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   so ⏎ goes to what needs you; ↑ brings back what you'd typed before closing. A project picker (⌘P) narrows everything to one project. The shortcut is
   yours to change in Settings › General; Settings names shortcuts macOS and common launchers
   already use.
+- **Session status from Jev** (optional; Settings › Jev, `[jev] sessions`): once per turn,
+  Jev reads the end of the last reply and the command a session runs or waits on. A reply
+  that asks you something turns *Your turn* into *Needs you*, with the question; a busy session
+  quiet on a long build stays *Working* instead of *stuck*; a command left running in the
+  background says whether it polls for something or runs a job. Rows show how far the work
+  got (Landed, Pushed, Committed, Not committed, Blocked) and how risky a command waiting for
+  approval looks; a worktree whose sessions all read as done says *Looks finished*. Answers are
+  kept in insights.json, so a turn is asked about once. Without Jev, a Claude session whose turn
+  left a command running in the background (registry status `shell`) is always *Working*.
 - **Suggestions in the quick panel** (optional; Settings › Jev, `[jev] quick_panel` in config.toml):
   once you pause typing, TypeSafe's Jev reads what you wrote against the project's sessions and
   worktrees and the panel leads with up to three suggestions, each with how likely it is: send
@@ -213,6 +231,7 @@ scan = ["~/projects"]          # where repos are found, three levels deep
 [apps]
 terminal = "ghostty"
 editor = "cursor"
+new_terminal = "project"       # a tab beside the same worktree, repo or project; or "tab", "window"
 
 [appearance]
 theme = "system"               # follows macOS; or "light", "dark"
@@ -226,6 +245,9 @@ quick_panel = false            # suggestions as you type in the quick panel
 sessions = false               # how each turn ended: asks you, stuck, landed, finished, risk
 todos = false                  # links sessions to todos, done hints, new todos' labels
 pull_requests = false          # review comments that ask for a change
+
+[search]
+days = 14                      # prompts and replies searched this far back; 0 is titles only (Settings › General)
 
 [debug]
 perf_log = false               # true logs timings to ~/Library/Logs/Codealong/perf.log (Settings › Advanced)
@@ -301,7 +323,9 @@ light scan (no git, PRs or visitors).
 | `src-tauri/src/launch.rs` | App profiles: Ghostty (AppleScript, exact tab focus), Cursor (CLI), deep links |
 | `src-tauri/src/start.rs`, `src/start.ts` | New sessions: where each account can start one, the launch it makes, the agent menu (every account on every model) and Auto's pick |
 | `src-tauri/src/quick.rs`, `src/quick.ts`, `src/ui/Quick.tsx` | The quick panel: its window (a panel that takes the keyboard over any app), its shortcut, and its page (what needs you, finding sessions, starting one) |
+| `src-tauri/src/search.rs` | Searching what was said in sessions: an in-memory index of prompts and replies, read once per file and then from where it stopped |
 | `src-tauri/src/route.rs`, `src/route.ts` | Suggestions in the quick panel: the request to Jev and reading its answer back, the key in the keychain, and which suggestions the panel shows |
+| `src-tauri/src/todojev.rs` | Jev on todos: which todo a new session is for, whether a todo's work looks done, and a todo's suggested project, labels and dependencies |
 | `src-tauri/src/send.rs` | Sending a prompt to a session that's already going, the way its harness takes one |
 | `src-tauri/src/cli.rs`, `server.rs`, `install.rs` | The `codealong` command (clap; JSON or tables; the app over its socket, else the files), the app's socket, and putting the skill and the command where agents find them |
 | `src-tauri/src/todos.rs`, `src/todos.ts` | Todos: the store and its changes, linking sessions started from a todo; the list's sections, filters and prompt |

@@ -6,7 +6,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { todoOp } from './api';
-import type { Attachment, Board, Label, LabelColor, Lane, Pr, Session, Todo, TodoStatus, Waiting } from './types';
+import type { Attachment, Board, Label, LabelColor, Lane, Pr, Session, Todo, TodoStatus, TodoSuggested, Waiting } from './types';
 import { LABEL_COLORS } from './types';
 
 /** `dependsOn` replaces the whole list. `waiting: null` says it's ready. */
@@ -161,6 +161,22 @@ export function cantWaitOn(todo: Todo, other: Todo, todos: Todo[]): string | nul
   if (other.status === 'done') return 'Done';
   if (waitsOn(other.id, todo.id, todos)) return 'Waits on this one';
   return null;
+}
+
+/** Jev's suggestions worth a chip: labels it isn't wearing yet, a project it isn't in, and
+ *  todos it could wait on, each only when Jev is sure enough. Nothing is applied until you
+ *  click. */
+export function todoSuggestions(s: TodoSuggested, todo: Todo, labels: Label[], todos: Todo[], projects: string[]): { project: string | null; labels: Label[]; dependsOn: Todo[] } {
+  const [top] = s.projects;
+  const project = top && top[1] >= 0.7 && top[0] !== todo.project && projects.includes(top[0]) ? top[0] : null;
+  const chosenLabels = s.labels.filter(([id, p]) => p >= 0.6 && !todo.labels.includes(id)).flatMap(([id]) => labels.find((l) => l.id === id) ?? []);
+  const deps = s.dependsOn.filter(([, p]) => p >= 0.7).flatMap(([id]) => todos.find((t) => t.id === id) ?? []).filter((t) => cantWaitOn(todo, t, todos) === null);
+  return { project, labels: chosenLabels, dependsOn: deps };
+}
+
+/** Whether a todo says enough to ask about: a few words in its title. */
+export function worthSuggesting(todo: Todo): boolean {
+  return todo.title.trim().split(/\s+/).length >= 3;
 }
 
 /** A change applied the way the engine applies it, so a window can show it at once. */

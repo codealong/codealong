@@ -43,6 +43,22 @@ button {
   color: var(--ink);
   white-space: nowrap;
 }
+/* The filter field and the quick panel's button beside it, centered together in the title bar. */
+.ca-search-group {
+  flex: 1;
+  min-width: 160px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+.ca-search-group .ca-search {
+  margin: 0;
+}
+.ca-quickbtn {
+  flex: none;
+  color: var(--ink-3);
+}
 .ca-search input {
   flex: 1;
   min-width: 0;
@@ -3215,6 +3231,15 @@ html.is-quick body {
   font: 400 12px/16px var(--font-sans);
   color: var(--ink-3);
 }
+/* A line of what was said, for a session found by its conversation. */
+.ca-quick-row-why.is-said mark {
+  background: transparent;
+  color: var(--ink-2);
+  font-weight: 500;
+  text-decoration: underline;
+  text-decoration-color: var(--line-strong);
+  text-underline-offset: 2px;
+}
 .ca-quick-row-where {
   flex: none;
   max-width: 210px;
@@ -3665,4 +3690,80 @@ html.is-quick body {
 }
 .ca-jev-model {
   justify-self: start;
+}
+
+/* Jev on todos: suggestions to click, and a todo whose work looks done. */
+.ca-suggestchip {
+  gap: 4px;
+  border: 1px dashed var(--line-strong);
+  background: transparent;
+  color: var(--ink-2);
+  font-family: var(--font-sans);
+  cursor: pointer;
+}
+.ca-suggestchip:hover {
+  border-style: solid;
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+.ca-tag.ca-suggestchip {
+  display: inline-flex;
+  align-items: center;
+}
+.ca-chip.ca-todorow-done {
+  gap: 3px;
+  font-family: var(--font-sans);
+  color: var(--pr-open);
+  background: var(--pr-open-tint);
+}
+.ca-todohint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 16px 4px;
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  background: var(--pr-open-tint);
+  color: var(--pr-open);
+}
+.ca-todohint .ca-icon {
+  flex: none;
+}
+.ca-todohint-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  font: 400 12px/16px var(--font-sans);
+  color: var(--ink-2);
+}
+.ca-todohint-text b {
+  font-weight: 600;
+  color: var(--pr-open);
+}
+/* Jev's read of a session or worktree (InsightBits.tsx). */
+.ca-chip.ca-insight {
+  padding: 0 7px;
+  font-family: var(--font-sans);
+  font-weight: 600;
+}
+.ca-chip.ca-insight.is-good {
+  background: var(--pr-open-tint);
+  color: var(--pr-open);
+}
+.ca-chip.ca-insight.is-info {
+  background: var(--unread-tint);
+  color: var(--unread);
+}
+.ca-chip.ca-insight.is-warn {
+  background: var(--attn-tint);
+  color: var(--attn);
+}
+.ca-chip.ca-insight.is-bad {
+  background: var(--alert-tint);
+  color: var(--alert);
+}
+.ca-chip.ca-insight.is-quiet {
+  background: var(--neutral-tint);
+  color: var(--ink-3);
 }

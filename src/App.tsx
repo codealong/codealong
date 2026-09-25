@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { showContextMenu, type MenuSpec } from './contextMenu';
 import { AGENT_BAY, BAYS, buildBays, failingPr, filterByAge, inboxCounts, lanePromptAt, narrowed, rowItems, worktreeRow, type BoardRow, type Filter, type WorktreeRow } from './lanes';
-import { approvePr, archiveSession, barOn, expandAttachments, getBoard, markSeen, onBarOn, onBoard, onNewWindow, onQuickStart, onReveal, onSettings, openConfig, openProjectWindow, openTarget, openUrl, refresh, refreshUsage, reviewInCodex, setBarOn, setPinned, setPinnedWorktrees, setTheme, showQuick, signIn, windowLabel, type Reveal } from './api';
+import { approvePr, archiveSession, barOn, dismissTodoHint, expandAttachments, getBoard, markSeen, onBarOn, onBoard, onNewWindow, onQuickStart, onReveal, onSettings, openConfig, openProjectWindow, openTarget, openUrl, refresh, refreshUsage, reviewInCodex, setBarOn, setPinned, setPinnedWorktrees, setTheme, showQuick, signIn, windowLabel, type Reveal } from './api';
 import { usePerf } from './perf';
 import { reorderPinned, usePins } from './pins';
 import { prFlag } from './prStatus';
@@ -23,6 +23,7 @@ import { PinnedSection, type PinDrag } from './ui/PinnedSection';
 import { BayHeader, Button, Icon, Kbd, NavItem, StatusGlyph } from './ui/primitives';
 import { ALL_PROJECTS, openSwitcher, ProjectSwitcher, type ActionCounts } from './ui/ProjectSwitcher';
 import { useLogo } from './logo';
+import { shortcutLabel } from './quick';
 import { PrInspector } from './ui/PrInspector';
 import { prIsOpen, prPlaces, prSections, PrsView, type PrRowItem } from './ui/PrsView';
 import { Resizer, usePanelWidth } from './ui/Resizer';
@@ -234,6 +235,7 @@ export function App() {
   const newSession = useCallback((at: { laneId: string | null; todo?: string | null; prompt?: string }) => {
     void showQuick({ ...at, project: projectNow.current, opener: windowLabel() });
   }, []);
+  const quickKeys = shortcutLabel(board?.quickShortcut);
   // Opens and starts still waiting on their app: a spinner shows once one takes a moment.
   const [busy, setBusy] = useState<{ id: number; label: string }[]>([]);
   const busySeq = useRef(0);
@@ -741,6 +743,9 @@ export function App() {
       checked: t.labels.includes(l.id),
       run: () => runTodo({ op: 'update', id: t.id, patch: { labels: t.labels.includes(l.id) ? t.labels.filter((x) => x !== l.id) : [...t.labels, l.id] } }),
     }));
+
+  /** The projects a todo can be in: every one but Elsewhere. */
+  const todoProjects = useMemo(() => projects.filter((p) => p.name !== ELSEWHERE).map((p) => p.name), [projects]);
 
   /** Projects a todo can move to, the one it's in checked. */
   const projectItems = (t: Todo): MenuSpec =>
@@ -1270,6 +1275,7 @@ export function App() {
     <div className="ca-win ca-win--app">
       <div className="ca-win-bar" data-tauri-drag-region>
         <ProjectSwitcher logoStatus={logoStatus} projects={projects} current={current} total={totalLanes} actions={actions} onPick={pickProject} onOpenWindow={switcherWindow} onEditProjects={() => openSettings('projects')} />
+        <div className="ca-search-group">
         <label className="ca-search">
           <Icon name="search" size={14} />
           <input
@@ -1282,6 +1288,16 @@ export function App() {
           />
           {!query && <Kbd keys={['⌘', 'K']} />}
         </label>
+        <button
+          type="button"
+          className="ca-btn ca-btn--ghost ca-btn--sm is-icon ca-quickbtn"
+          aria-label="Quick panel"
+          title={`Open the quick panel: find any session or todo, or start new work${quickKeys ? ` (${quickKeys})` : ''}`}
+          onClick={() => newSession({ laneId: null })}
+        >
+          <Icon name="bolt" size={16} />
+        </button>
+        </div>
         <div className="ca-bar-tools" data-tauri-drag-region>
           <button
             type="button"
@@ -1470,6 +1486,7 @@ export function App() {
                 onOpenSession={(lane, session) => open(lane, session.openTarget)}
                 onFilterLabel={(l) => setLabelFilter(labelFilter === l.id ? null : l.id)}
                 onMove={moveTodo}
+                hints={board.jev?.todos ? board.todoHints : undefined}
                 showDone={showDoneTodos}
                 onToggleDone={() => setShowDoneTodos(!showDoneTodos)}
                 composer={
@@ -1585,6 +1602,10 @@ export function App() {
               onMoreMenu={(at) => todoMoreMenu(selected, at)}
               onLabelMenu={labelMenu}
               onError={setToast}
+              hint={board?.jev?.todos ? board.todoHints?.[selected.todo.id] : null}
+              onDismissHint={() => void dismissTodoHint(selected.todo.id)}
+              suggest={!!board?.jev?.todos}
+              projects={todoProjects}
             />
           ) : (
             <aside className="ca-insp ca-insp--empty">

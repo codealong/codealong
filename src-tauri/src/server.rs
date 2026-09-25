@@ -36,6 +36,8 @@ pub enum Request {
     TodoStarted { id: String, lane: Option<String>, session: Option<String>, pending: Option<PendingStart> },
     /// Starts a session, and links it to its todo.
     Start { spec: StartSpec },
+    /// Sessions whose prompts and replies have every word (search.rs).
+    Search { words: Vec<String> },
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -139,6 +141,7 @@ pub fn handle(engine: &Handle, line: &str) -> Reply {
             engine.todo_started(id, lane, session, pending);
             Reply::ok(true)
         }
+        Request::Search { words } => Reply::ok(crate::search::find(&words, 1000)),
         Request::Start { spec } => match crate::start_and_link(engine, &spec) {
             Ok(started) => Reply::ok(started),
             Err(e) => Reply::err(e),
