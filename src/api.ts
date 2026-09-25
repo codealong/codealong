@@ -4,7 +4,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import type { AccountCfg, AccountInfo, AgentsStatus, Attachment, Board, Config, ConfigView, PrDetail, StartOptions, Started, StartSpec, Theme } from './types';
+import type { AccountCfg, AccountInfo, AgentsStatus, Attachment, Board, Config, ConfigView, FoundAccount, PrDetail, StartOptions, Started, StartSpec, Theme } from './types';
 import type { TodoOp } from './todos';
 
 export const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -138,6 +138,13 @@ export async function getAccounts(): Promise<AccountInfo[]> {
 export async function saveAccounts(accounts: AccountCfg[]): Promise<void> {
   if (!inTauri) throw new Error('Saving accounts needs the app.');
   await invoke('save_accounts', { accounts });
+}
+
+/** Accounts on this Mac that config.toml doesn't list. */
+export async function foundAccounts(): Promise<FoundAccount[]> {
+  if (inTauri) return invoke<FoundAccount[]>('found_accounts');
+  const res = await fetch('./found.json');
+  return res.ok ? ((await res.json()) as FoundAccount[]) : [];
 }
 
 /** The settings as parsed and config.toml as written. */

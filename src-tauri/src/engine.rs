@@ -19,6 +19,7 @@ use crate::claudeapp;
 use crate::codex::{self, ThreadInfo};
 use crate::opencode;
 use crate::config::{self, AccountCfg, Config, Theme};
+use crate::detect;
 use crate::git;
 use crate::github::{self, PrRaw};
 use crate::launch;
@@ -534,6 +535,7 @@ impl Engine {
     fn full_scan(&mut self) {
         self.load_config();
         self.seen = SeenState::load();
+        self.remember_accounts();
         self.seen.save();
         self.load_todos();
         // Only with every todo read: a list that didn't read would make every attachment look unused.
@@ -638,6 +640,9 @@ impl Engine {
     fn reload(&mut self) {
         let before = self.cfg.clone();
         self.load_config();
+        if self.remember_accounts() {
+            self.seen.save();
+        }
         let mut rest = self.cfg.clone();
         rest.appearance = before.appearance.clone();
         rest.debug = before.debug.clone();
@@ -824,11 +829,18 @@ impl Engine {
             Err(e) => {
                 self.config_warning = Some(format!("{e:#}. Codealong is using the last good settings."));
                 if self.cfg.accounts.is_empty() {
-                    self.cfg.accounts = config::discover_accounts();
+                    self.cfg.accounts = detect::first_run_accounts();
                 }
             }
         }
         perf::set_enabled(self.cfg.debug.perf_log);
+    }
+
+    /// Every folder config.toml lists is known from then on, so an account you take out isn't
+    /// suggested again, whether Settings or an editor took it out. True when one was new.
+    fn remember_accounts(&mut self) -> bool {
+        let keys: Vec<String> = self.cfg.accounts.iter().map(|a| detect::folder_key(&a.home)).collect();
+        self.seen.know_accounts(keys)
     }
 
     fn account(&self, name: &str) -> Option<&AccountCfg> {
@@ -1969,9 +1981,10 @@ fn spawn_git_workers(back: Sender<Msg>) -> Sender<(PathBuf, Option<String>)> {
     jobs
 }
 
-/// First run: find accounts, then suggest a project per GitHub owner your agents worked in.
+/// First run: the accounts in use or signed in, then a project per GitHub owner your agents
+/// worked in.
 fn first_run_config() -> Config {
-    let accounts = config::discover_accounts();
+    let accounts = detect::first_run_accounts();
     let since = now_ms() - 30 * DAY_MS;
     let mut cwds: Vec<String> = Vec::new();
     for a in &accounts {

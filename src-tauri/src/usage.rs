@@ -371,12 +371,34 @@ pub fn describe(a: &AccountCfg) -> AccountInfo {
 pub fn sign_in_command(a: &AccountCfg) -> String {
     match a.harness.as_str() {
         // Codex wants its folder to exist before it will use it.
-        "codex" => format!("mkdir -p {} && {} login", a.home, a.command()),
+        "codex" => format!("mkdir -p {} && {} login", a.home, codex_cli(a.command())),
         "opencode" => format!("{} auth login", a.command()),
         // Antigravity signs in from its own window.
         "antigravity" => "open -a Antigravity".to_string(),
         _ => a.command().to_string(),
     }
+}
+
+/// A Codex command as a terminal can run it. Installing the Codex app doesn't put `codex` on the
+/// PATH, so a plain `codex` becomes the CLI inside the app when the PATH has none; a wrapper or
+/// alias of your own is left as you wrote it.
+fn codex_cli(command: &str) -> String {
+    if with_program(command, "codex", "").is_none() || crate::detect::on_user_path("codex") {
+        return command.to_string();
+    }
+    let Some(cli) = crate::detect::codex_app_cli() else { return command.to_string() };
+    let quoted = format!("'{}'", cli.to_string_lossy().replace('\'', "'\\''"));
+    with_program(command, "codex", &quoted).unwrap_or_else(|| command.to_string())
+}
+
+/// `command` with its program replaced, when the program (the first word past any `VAR=value`)
+/// is `program`.
+fn with_program(command: &str, program: &str, replacement: &str) -> Option<String> {
+    let mut words: Vec<&str> = command.split_whitespace().collect();
+    let assignment = |w: &str| w.split_once('=').is_some_and(|(k, _)| !k.is_empty() && k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'));
+    let at = words.iter().position(|w| !assignment(w)).filter(|&i| words[i] == program)?;
+    words[at] = replacement;
+    Some(words.join(" "))
 }
 
 /// Reads every Claude account's usage, one after another. For the snapshot and the engine's
@@ -390,6 +412,14 @@ pub fn claude_all(accounts: &[AccountCfg]) -> Vec<Usage> {
 mod tests {
     use super::*;
     use crate::codex::RateWindow;
+
+    #[test]
+    fn swaps_only_the_program() {
+        assert_eq!(with_program("codex", "codex", "'/A/codex'").as_deref(), Some("'/A/codex'"));
+        assert_eq!(with_program("CODEX_HOME=~/.codex2 codex", "codex", "'/A/codex'").as_deref(), Some("CODEX_HOME=~/.codex2 '/A/codex'"));
+        assert_eq!(with_program("codex2", "codex", "x"), None);
+        assert_eq!(with_program("CODEX_HOME=codex other", "codex", "x"), None);
+    }
 
     #[test]
     fn keychain_service_for_a_second_config_folder() {

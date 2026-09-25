@@ -615,6 +615,7 @@ struct SkillStatus {
     path: Option<String>,
     installed: bool,
     current: bool,
+    edited: bool,
 }
 
 fn status(c: &mut Client, json: bool) -> Result<()> {
@@ -635,11 +636,11 @@ fn status(c: &mut Client, json: bool) -> Result<()> {
                 .iter()
                 .map(|a| {
                     let dir = crate::install::skill_dir(a);
-                    let (installed, current) = match (&source, &dir) {
-                        (Some(s), Some(d)) => crate::install::installed(s, d),
-                        _ => (false, false),
+                    let state = match (&source, &dir) {
+                        (Some(s), Some(d)) => crate::install::copy_state(s, d),
+                        _ => crate::install::CopyState::default(),
                     };
-                    SkillStatus { account: a.name.clone(), path: dir.map(|d| d.to_string_lossy().into_owned()), installed, current }
+                    SkillStatus { account: a.name.clone(), path: dir.map(|d| d.to_string_lossy().into_owned()), installed: state.installed, current: state.current, edited: state.edited }
                 })
                 .collect()
         },
@@ -658,7 +659,7 @@ fn status(c: &mut Client, json: bool) -> Result<()> {
         None => println!("Command: not on PATH (codealong install --command)"),
     }
     for s in &out.skills {
-        println!("Skill for {}: {}", s.account, match (s.installed, s.current, &s.path) { (true, true, Some(p)) => format!("installed at {}", tilde(Path::new(p))), (true, false, Some(p)) => format!("out of date at {}", tilde(Path::new(p))), (_, _, Some(_)) => "not installed".into(), _ => "no skills folder known".into() });
+        println!("Skill for {}: {}", s.account, match (s.installed, s.current, s.edited, &s.path) { (true, _, true, Some(p)) => format!("edited at {}, so updates leave it alone", tilde(Path::new(p))), (true, true, _, Some(p)) => format!("installed at {}", tilde(Path::new(p))), (true, false, _, Some(p)) => format!("out of date at {}", tilde(Path::new(p))), (_, _, _, Some(_)) => "not installed".into(), _ => "no skills folder known".into() });
     }
     Ok(())
 }
@@ -1647,13 +1648,11 @@ struct ConfigOut {
     #[serde(flatten)]
     view: config::ConfigView,
     /// Accounts found on this Mac that config.toml doesn't have yet.
-    discovered: Vec<AccountCfg>,
+    discovered: Vec<crate::detect::Found>,
 }
 
 fn config_view() -> ConfigOut {
-    let view = config::view();
-    let discovered = config::discover_accounts().into_iter().filter(|d| !view.config.accounts.iter().any(|a| a.name == d.name || expand(&a.home) == expand(&d.home))).collect();
-    ConfigOut { view, discovered }
+    ConfigOut { view: config::view(), discovered: crate::detect::unlisted() }
 }
 
 fn config_cmd(cmd: ConfigCmd, json: bool) -> Result<()> {
@@ -1672,7 +1671,8 @@ fn config_cmd(cmd: ConfigCmd, json: bool) -> Result<()> {
                 println!();
             }
             for d in &out.discovered {
-                println!("# Found but not configured: {} ({} at {})", d.name, d.harness, d.home);
+                let started = d.command.as_deref().map(|c| format!(", started with `{c}`")).unwrap_or_default();
+                println!("# Found but not configured: {} ({} at {}{started})", d.name, d.harness, d.home);
             }
             Ok(())
         }
@@ -1729,6 +1729,10 @@ fn install(c: &mut Client, a: &InstallArgs, json: bool) -> Result<()> {
         let source = crate::install::skill_source().ok_or_else(|| anyhow!("The skill folder isn't next to this binary. Run from the app bundle, or from the repo."))?;
         for acct in accounts {
             match crate::install::skill_dir(acct) {
+                // Installing for every account leaves an edited copy alone; naming the account replaces it.
+                Some(dir) if a.account.is_empty() && crate::install::copy_state(&source, &dir).edited => {
+                    out.warnings.push(format!("{}: {} was edited, so it was left alone; `codealong install --skill --account {}` replaces it.", acct.name, tilde(&dir), acct.name));
+                }
                 Some(dir) => match crate::install::copy_skill(&source, &dir) {
                     Ok(()) => out.skills.push(SkillInstall { account: acct.name.clone(), path: dir.to_string_lossy().into_owned() }),
                     Err(e) => out.warnings.push(format!("{}: {e:#}", acct.name)),

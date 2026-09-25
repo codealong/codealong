@@ -928,6 +928,60 @@ body.is-resizing * {
   gap: var(--space-3);
   border-color: var(--line-strong);
 }
+/* The skill box in the new-account form and under Found on this Mac: as wide as its words. */
+.ca-acct-skill {
+  justify-self: start;
+}
+/* Settings › Accounts › Found on this Mac: accounts Codealong could read but doesn't. Dashed,
+   like something not read yet. */
+.ca-found {
+  display: grid;
+  gap: 8px;
+  margin-top: var(--space-2);
+}
+.ca-found-list {
+  display: grid;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+.ca-found-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px var(--space-4);
+}
+.ca-found-row + .ca-found-row {
+  border-top: 1px solid var(--line);
+}
+.ca-found-main {
+  display: grid;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+.ca-found-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.ca-found-home {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+.ca-found-note {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 400 12px/16px var(--font-sans);
+  color: var(--ink-3);
+}
 .ca-acct-form-head {
   display: flex;
   align-items: center;

@@ -10,11 +10,18 @@ import type { AccountSkill, AgentsStatus } from '../types';
 import { Button, Icon } from './primitives';
 
 /** The state word for an account's skill row, and whether it needs attention. */
-function skillState(a: AccountSkill): { label: string; tone: 'ok' | 'attn' | 'none' } {
+export function skillState(a: AccountSkill): { label: string; tone: 'ok' | 'attn' | 'none' } {
   if (a.path === null) return { label: 'No skills folder known', tone: 'none' };
+  if (a.installed && a.edited) return { label: a.current ? 'Edited' : 'Edited, update available', tone: 'none' };
   if (a.installed && a.current) return { label: 'Installed', tone: 'ok' };
   if (a.installed) return { label: 'Update available', tone: 'attn' };
   return { label: 'Not installed', tone: 'attn' };
+}
+
+/** What the install button on a skill row says. */
+export function skillAction(a: AccountSkill): string {
+  if (a.installed && a.edited) return a.current ? 'Restore' : 'Update anyway';
+  return a.installed && a.current ? 'Install again' : a.installed ? 'Update' : 'Install';
 }
 
 export function AgentsSection() {
@@ -55,7 +62,8 @@ export function AgentsSection() {
   };
 
   const cmd = status?.command;
-  const installable = (status?.accounts ?? []).filter((a) => a.path !== null && !(a.installed && a.current));
+  // Installing for all leaves edited copies alone; each has its own button.
+  const installable = (status?.accounts ?? []).filter((a) => a.path !== null && !(a.installed && a.current) && !(a.installed && a.edited));
   const errors = [...(error ? [error.replace(/^Error: /, '')] : []), ...(status?.errors ?? [])];
 
   return (
@@ -123,10 +131,15 @@ export function AgentsSection() {
                 </dd>
               </dl>
               {a.path === null && <p className="ca-acct-note">Codealong doesn't know where {HARNESS_WORD[a.harness] ?? a.harness} reads personal skills, so there's nothing to install here yet.</p>}
+              {a.installed && a.edited && (
+                <p className="ca-acct-note">
+                  This copy was changed after Codealong put it here, so updates leave it alone. {a.current ? 'Restore puts back' : 'Update anyway replaces it with'} the skill that came with this build.
+                </p>
+              )}
               {canInstall && (
                 <div className="ca-acct-actions">
                   <Button size="sm" disabled={busy !== null} onClick={() => void install(a.name, false, [a.name])}>
-                    {a.installed && a.current ? 'Install again' : a.installed ? 'Update' : 'Install'}
+                    {skillAction(a)}
                   </Button>
                 </div>
               )}

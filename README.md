@@ -82,7 +82,9 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   Add accounts in Settings › Accounts.
 - **Settings** (⌘,, the app menu, or the foot of the sidebar): a form for everything in
   config.toml. General has the folders searched for repos, the terminal and editor, and the
-  theme; Accounts adds, edits, removes and signs in accounts; Projects groups repos by pattern;
+  theme; Accounts adds, edits, removes and signs in accounts, and under Found on this Mac lists
+  the ones Codealong could read but doesn't, to add with a click (with the agent skill, unless
+  you untick it); Projects groups repos by pattern;
   Advanced turns the performance log on and shows where the files are. Each change is saved in
   its place in the file, so comments and order stay as you wrote them. The config.toml section
   edits the file itself, for anything the form doesn't cover, and says what's wrong when it
@@ -156,7 +158,12 @@ floating bar, browser icon and running Dock icon stay in sync across projects.
 ## Settings
 
 `~/Library/Application Support/Codealong/config.toml`, written on first run from what
-Codealong finds and watched for changes. Settings (⌘,) edits it as a form, or as text:
+Codealong finds and watched for changes. It finds each harness by the files it keeps: Claude
+Code's `~/.claude` and sibling folders like `~/.claude2`, `~/.codex`, OpenCode's and
+Antigravity's databases, and folders your shell's wrappers and aliases point
+`CLAUDE_CONFIG_DIR`, `CODEX_HOME` or `XDG_DATA_HOME` at, which also name the account and start
+it. The ones in use or signed in go into config.toml; the rest wait under Settings › Accounts ›
+Found on this Mac. Settings (⌘,) edits it as a form, or as text:
 
 ```toml
 scan = ["~/projects"]          # where repos are found, three levels deep
@@ -205,9 +212,11 @@ add to it. Attachments are kept by their content: images in `images/`, other fil
 `skills/codealong/` is one skill in the Agent Skills layout (`SKILL.md` plus
 `references/reference.md`, generated from `codealong --help` by `scripts/skill-reference.sh`),
 read as-is by Claude Code, Codex, OpenCode and Antigravity. The app ships it in its bundle and
-Settings › Agents (or `codealong install`) copies it into each account's skills folder with a
-`.codealong-version` marker; at launch the app refreshes copies it made when the skill changed,
-and never touches a folder it didn't make. `plugin/` wraps the same skill as a Claude Code plugin
+Settings › Agents (or `codealong install`, or adding an account in Settings) copies it into each
+account's skills folder with a `.codealong-version` marker; at launch the app refreshes copies it
+made when the skill changed, including ones in folders of accounts you've since removed, and
+never touches a folder it didn't make. A copy someone edited is left alone: Settings › Agents
+marks it Edited, and replaces it only when asked (so does `codealong install --account <name>`). `plugin/` wraps the same skill as a Claude Code plugin
 (`.claude-plugin/plugin.json`, a `bin/codealong` shim that finds the app, and a `SessionStart`
 hook that runs `codealong whoami --context`), and `.claude-plugin/marketplace.json` makes the
 repo a marketplace.
@@ -245,7 +254,8 @@ light scan (no git, PRs or visitors).
 | `src-tauri/src/usage.rs` | Plan usage: Claude through its sign-in and usage endpoint, Codex from its rollouts, none for OpenCode and Antigravity |
 | `src-tauri/src/appserver.rs` | Codex actions through its app-server (archiving) |
 | `src-tauri/src/claudeapp.rs` | The Claude app's session records (its IDs, what you archived there) |
-| `src-tauri/src/config.rs`, `state.rs` | `config.toml` (accounts saved in place) and `state.json` (seen, pinned, archived) |
+| `src-tauri/src/config.rs`, `state.rs` | `config.toml` (accounts saved in place) and `state.json` (seen, pinned, archived, account folders already read) |
+| `src-tauri/src/detect.rs` | The harness accounts on this Mac: folders, sign-ins, and the wrappers and aliases that run them |
 | `src-tauri/src/bar.rs` | The floating bar's window: when it shows (AppKit's occlusion state), where it sits, Window › Floating bar |
 | `src/` | The React UI, built from the design system's components and tokens; `lanes.ts` groups the board and mirrors the engine's status rules for the age filter; `pins.ts` keeps the pinned lists; `prStatus.ts` and `ui/PrPills.tsx` say where a PR stands and which PRs are your move; `bar.ts` and `ui/Bar.tsx` are the floating bar; `ui/SettingsDialog.tsx` and `ui/AccountsSection.tsx` are Settings |
 | `scripts/preview.sh` | Headless preview against real data, for screenshots and scripted checks |

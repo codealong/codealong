@@ -29,6 +29,10 @@ pub struct SeenState {
     /// Sessions archived from Codealong, and when.
     #[serde(default)]
     pub archived: Vec<ArchivedSession>,
+    /// Account folders Codealong has read (every one config.toml has listed) or been told to
+    /// leave, as `detect::folder_key` writes them. Only others are suggested as new.
+    #[serde(default)]
+    pub known_accounts: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -52,7 +56,11 @@ impl SeenState {
         self.seen.retain(|_, at| *at >= cutoff);
         if std::fs::create_dir_all(support_dir()).is_ok() {
             if let Ok(text) = serde_json::to_string_pretty(self) {
-                let _ = std::fs::write(path(), text);
+                // Through a temporary file: Settings reads this while the engine writes it.
+                let tmp = path().with_extension("json.tmp");
+                if std::fs::write(&tmp, text).is_ok() {
+                    let _ = std::fs::rename(&tmp, path());
+                }
             }
         }
     }
@@ -90,6 +98,18 @@ impl SeenState {
         self.archived.iter().find(|a| a.key == key).map(|a| a.at)
     }
 
+    /// Adds account folders to the known ones. True when one wasn't known before.
+    pub fn know_accounts(&mut self, keys: impl IntoIterator<Item = String>) -> bool {
+        let mut added = false;
+        for k in keys {
+            if !k.is_empty() && !self.known_accounts.contains(&k) {
+                self.known_accounts.push(k);
+                added = true;
+            }
+        }
+        added
+    }
+
     /// Session ids archived from Codealong for one account.
     pub fn archived_ids(&self, harness: &str, account: &str) -> std::collections::HashSet<String> {
         let prefix = format!("{harness}:{account}:");
@@ -116,6 +136,15 @@ fn unique(keys: Vec<String>) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn knows_account_folders_once() {
+        let mut s = SeenState::default();
+        assert!(s.know_accounts(["/Users/me/.claude".to_string(), "/Users/me/.codex".to_string()]));
+        assert!(!s.know_accounts(["/Users/me/.claude".to_string(), String::new()]));
+        assert!(s.know_accounts(["/Users/me/.claude2".to_string()]));
+        assert_eq!(s.known_accounts, vec!["/Users/me/.claude", "/Users/me/.codex", "/Users/me/.claude2"]);
+    }
 
     #[test]
     fn first_run_counts_as_seen() {
