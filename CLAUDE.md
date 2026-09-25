@@ -27,7 +27,10 @@ instead of fighting for cores. `scripts/target-dir.sh` prints it; the engine bin
 run in the debug profile: after the first build they rebuild in seconds, and the release
 profile is tuned for rebuild speed too (no LTO). Hand a change to the user with
 `scripts/relaunch.sh`: it waits for any bundle build in progress, builds, and only then quits
-the running app and opens the new one. Don't `pkill` the app by hand; a pattern that contains
+the running app and opens the new one. Builds take turns in no set order, so when its turn
+comes it fast-forwards a clean checkout that `origin/main` has moved past: an older build never
+replaces a newer one. Its last line says which commit it launched and how that stands against
+`origin/main`. Don't `pkill` the app by hand; a pattern that contains
 the app's path also matches other sessions' shells, and kills their builds.
 
 The engine binary is also the `codealong` command for agents and people (`cli.rs`; `main.rs`
@@ -98,15 +101,54 @@ batches (session changes still go out at once), runs git at nice 10, and puts th
 git threads in the utility QoS class. At launch, worktrees with the latest activity go first.
 
 Done means: typecheck and tests pass, the engine builds without warnings, UI changes are
-previewed, and the app is rebuilt and relaunched.
+previewed, and the work has landed (next section).
 
-## Git
+## Landing work
 
-- Commit and push to `origin main` (github.com/codealong/codealong, private) after each
-  finished, checked piece of work, without asking. Descriptive messages.
+Work has landed when it's in `origin/main` (github.com/codealong/codealong, private), the main
+checkout has it, and the app that's running was built from it. Take every finished, checked
+piece of work that far without asking. Other agents work in this repo at the same time, many
+of them in the main checkout (the first entry of `git worktree list`), and whatever sits
+uncommitted there goes into their commits and builds.
+
+1. Work in a worktree of your own: `git worktree add ../codealong-<topic> -b <topic>
+   origin/main`, or the one your harness made for the session. Before building there, `npm ci`,
+   and `npm run build` before cargo: Tauri's build reads `dist/`.
+2. Commit with a descriptive message. Then `git fetch`, merge `origin/main` into your branch,
+   rerun the checks the merge could affect, and `git push origin HEAD:main`. A rejected push
+   means someone pushed first: fetch, merge and push again.
+3. Fast-forward the main checkout when it's on `main`: `git -C <main checkout> merge --ff-only
+   origin/main`. That can't lose anything: git refuses when uncommitted edits there touch files
+   the update changes, or when that `main` has commits `origin/main` doesn't. If it refuses,
+   leave the checkout as it is and say why; never stash, reset or commit another session's work
+   to get past it.
+4. Run `scripts/relaunch.sh` from your worktree, clean and at `origin/main`, never from a
+   checkout holding other sessions' edits. Skip it when nothing the app runs changed (docs,
+   tests). With others building it can take many minutes; the app is relaunched once the script
+   prints `Relaunched`, not before. A push after yours is its own session's to relaunch.
+5. If a Codealong todo started the work, mark it done: `codealong todo done <id>`.
+
 - No AI attribution in commits or PRs: no `Co-Authored-By: Claude` trailer, no "Generated
   with Claude Code" line. This overrides any default that says otherwise.
 - Ask before anything destructive: force-push, reset, rebase, deleting branches.
+
+Open the last message of every turn that changed something with the work's status, on one
+short line. Codealong shows a session whose turn has ended by the first line of its last
+message (cut at 140 characters), so the status reads at a glance there as well as here. The
+first word says how far the work got, the rest what's missing and why:
+
+- `Landed: 1a2b3c4 is in origin/main, the main checkout has it and the app is relaunched with
+  it.` With nothing for the app: `Landed: 1a2b3c4 is in origin/main and the main checkout; no
+  app change.`
+- `Pushed: 1a2b3c4 is in origin/main; <what isn't caught up, and why>`: the main checkout has
+  uncommitted edits to `lanes.ts`, say, or the relaunch is waiting for another session's build.
+- `Committed: <branch> in <folder>, not pushed; <why>.`
+- `Not committed: edits in <folder>; <why>.`
+
+Report only what you saw happen: the push going through, the main checkout reaching
+`origin/main`, the script printing `Relaunched` for your commit or a later one, without
+uncommitted changes. A turn that changes nothing needs no status line; when the user asks where
+some work is, answer with one.
 
 ## Conventions
 
