@@ -6,6 +6,10 @@ The user requested fifty more after the twenty-candidate round informed by Arc, 
 
 Five sets of ten explore graphic C marks, CA monograms, connected motion, tactile app icons and unexpected symbols. The references inform principles; their artwork was not supplied as generation input. These are original raster concept studies for selection, not an installed app icon.
 
+## Updated direction
+
+The current brief is simple, geometric, flat marks. See the [design brief](../BRIEF.md). The [simple geometry view](index.html?style=geometric) selects ten existing concepts as starting points: 41, 42, 45, 49, 51, 52, 54, 56, 57 and 58. These retain their original candidate numbers and images; final artwork should use clean, solid fills.
+
 ## Files
 
 - [Gallery](index.html): all fifty, five sets, light/dark display, and a local shortlist.
@@ -71,6 +75,8 @@ Five sets of ten explore graphic C marks, CA monograms, connected motion, tactil
 
 
 ## Comparison sheets
+
+- [Simple geometry selection](contact-sheet-geometric.jpg)
 
 - [41–50](contact-sheet-41-50.jpg)
 - [51–60](contact-sheet-51-60.jpg)
