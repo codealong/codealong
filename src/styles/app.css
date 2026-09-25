@@ -2154,6 +2154,12 @@ html.is-bar body {
   background: var(--alert-tint);
   color: var(--alert);
 }
+/* A failed open, in the place of the pill it came from: room for most of the message. */
+.ca-hud-pill.is-failed {
+  max-width: 380px;
+  background: var(--alert-tint);
+  color: var(--alert);
+}
 .ca-hud-pill.is-unread {
   background: var(--unread-tint);
   color: var(--unread);
@@ -2180,9 +2186,6 @@ html.is-bar body {
 .ca-hud-note > span {
   overflow: hidden;
   text-overflow: ellipsis;
-}
-.ca-hud-note.is-error {
-  color: var(--alert);
 }
 .ca-hud-measure {
   position: fixed;
