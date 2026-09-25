@@ -269,6 +269,21 @@ export interface Board {
   quickShortcut?: string;
   /** What Codealong asks Jev, from `[jev]` in config.toml. Missing on older boards. */
   jev?: JevCfg;
+  /** Open todos whose work Jev says looks done, by todo id. Missing on older boards. */
+  todoHints?: Record<string, TodoHint>;
+}
+
+/** Why a todo looks done: how sure Jev is, and what showed it. */
+export interface TodoHint {
+  p: number;
+  why: string;
+}
+
+/** What Jev suggests for a todo, each with how likely it is, the likeliest first. */
+export interface TodoSuggested {
+  projects: [string, number][];
+  labels: [string, number][];
+  dependsOn: [string, number][];
 }
 
 /** `[jev]` in config.toml: the model, and each feature's switch. */

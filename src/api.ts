@@ -4,7 +4,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { emitTo, listen } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import type { AccountCfg, AccountInfo, AgentsStatus, Attachment, BarFeed, Board, Config, ConfigView, FoundAccount, PrDetail, Route, Sent, ShortcutStatus, StartOptions, StartSpec, Started, Theme } from './types';
+import type { AccountCfg, AccountInfo, AgentsStatus, Attachment, BarFeed, Board, Config, ConfigView, FoundAccount, PrDetail, Route, Sent, ShortcutStatus, StartOptions, StartSpec, Started, Theme, TodoSuggested } from './types';
 import type { TodoOp } from './todos';
 
 export const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -244,6 +244,18 @@ export async function setJevKey(key: string): Promise<void> {
 export async function testJev(model: string): Promise<string> {
   if (!inTauri) throw new Error('Testing needs the app.');
   return invoke<string>('test_jev', { model });
+}
+
+/** What Jev suggests for a todo being written: its project, labels and what it waits on. */
+export async function suggestTodo(id: string | null, title: string, description: string, project: string): Promise<TodoSuggested> {
+  if (!inTauri) throw new Error('Suggestions need the app.');
+  return invoke<TodoSuggested>('suggest_todo', { id, title, description, project });
+}
+
+/** Says a todo doesn't look done after all, until something linked to it moves on. */
+export async function dismissTodoHint(id: string): Promise<void> {
+  if (!inTauri) return;
+  await invoke('dismiss_todo_hint', { id });
 }
 
 export async function todoOp(op: TodoOp): Promise<number> {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { filesToAttach } from './attachInput';
-import { applyOp, attachmentsIn, blockedBy, cantWaitOn, dependents, inlines, insertAttachments, newTodo, nextColor, pieces, sectionOf, sessionHomes, snippet, todoIndex, todoInFilter, todoInQuery, todoItem, todoPrompt, todoSections, waitsOn, withoutAttachment, type TodoPatch, type TodoStore } from './todos';
+import { applyOp, attachmentsIn, blockedBy, cantWaitOn, dependents, inlines, insertAttachments, newTodo, nextColor, pieces, sectionOf, sessionHomes, snippet, todoIndex, todoInFilter, todoInQuery, todoItem, todoPrompt, todoSections, todoSuggestions, waitsOn, worthSuggesting, withoutAttachment, type TodoPatch, type TodoStore } from './todos';
 import type { Label, Lane, Session, Todo } from './types';
 
 const NOW = 1_790_000_000_000;
@@ -330,5 +330,61 @@ describe('dependencies', () => {
     expect(next.todos.find((t) => t.id === 'd')?.dependsOn).toEqual(['e']);
     const made = applyOp(store, { op: 'create', todo: todo('f', { dependsOn: ['a', 'f', 'a'] }) }, NOW + 1);
     expect(made.todos[0].dependsOn).toEqual(['a']);
+  });
+});
+
+describe('suggestions from Jev', () => {
+  const labels: Label[] = [
+    { id: 'l1', name: 'bug', color: 'red' },
+    { id: 'l2', name: 'infra', color: 'blue' },
+    { id: 'l3', name: 'ui', color: 'green' },
+  ];
+
+  it('offers what it is sure of and the todo lacks, and never a loop', () => {
+    const me = todo('me', { project: '', labels: ['l1'], dependsOn: ['a'] });
+    const a = todo('a');
+    const b = todo('b');
+    const loop = todo('loop', { dependsOn: ['me'] });
+    const done = todo('done', { status: 'done' });
+    const all = [me, a, b, loop, done];
+    const s = todoSuggestions(
+      {
+        projects: [
+          ['Northwind', 0.9],
+          ['Blog', 0.1],
+        ],
+        labels: [
+          ['l1', 0.95],
+          ['l2', 0.8],
+          ['l3', 0.4],
+        ],
+        dependsOn: [
+          ['a', 0.9],
+          ['b', 0.8],
+          ['loop', 0.9],
+          ['done', 0.9],
+          ['gone', 0.9],
+        ],
+      },
+      me,
+      labels,
+      all,
+      ['Northwind', 'Blog'],
+    );
+    expect(s.project).toBe('Northwind');
+    expect(s.labels.map((l) => l.id)).toEqual(['l2']);
+    expect(s.dependsOn.map((t) => t.id)).toEqual(['b']);
+  });
+
+  it('leaves the project alone when it is already there or Jev is unsure', () => {
+    const me = todo('me', { project: 'Northwind' });
+    const none = { labels: [], dependsOn: [] };
+    expect(todoSuggestions({ ...none, projects: [['Northwind', 0.9]] }, me, labels, [me], ['Northwind', 'Blog']).project).toBeNull();
+    expect(todoSuggestions({ ...none, projects: [['Blog', 0.6]] }, me, labels, [me], ['Northwind', 'Blog']).project).toBeNull();
+  });
+
+  it('asks once the title says something', () => {
+    expect(worthSuggesting(todo('x', { title: 'Fix it' }))).toBe(false);
+    expect(worthSuggesting(todo('x', { title: 'Retry failed export jobs' }))).toBe(true);
   });
 });

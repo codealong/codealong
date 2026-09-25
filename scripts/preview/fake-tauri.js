@@ -30,6 +30,12 @@ function withFixture(board, fixture) {
     return hit ? (m[1] === 'lane' ? hit.id : hit.key) : null;
   };
   var now = Date.now();
+  // `jev` in the fixture turns Jev's todo features on: `hints` are todos that look done, and
+  // `suggest` is what suggest_todo answers.
+  if (fixture.jev) {
+    board.jev = Object.assign({ model: 'jev-latest', quick_panel: false, sessions: false, todos: true, pull_requests: false }, board.jev, { todos: true });
+    board.todoHints = fixture.jev.hints || {};
+  }
   board.labels = fixture.labels || [];
   board.todos = (fixture.todos || []).map(function (t, i) {
     return Object.assign({ project: project, description: '', status: 'todo', labels: [], createdAt: now - (i + 1) * 3600e3, updatedAt: now - i * 1800e3, doneAt: null, pending: [] }, t, {
@@ -117,6 +123,11 @@ window.__TAURI_INTERNALS__ = {
             });
           }, fx.delay || 0);
         });
+      });
+    }
+    if (cmd === 'suggest_todo') {
+      return optionalJson('./todos-fixture.json').then(function (fx) {
+        return fx && fx.jev && fx.jev.suggest ? fx.jev.suggest : Promise.reject(new Error('Todo suggestions are off.'));
       });
     }
     // A todo change "shows" on a board that never comes, so the page keeps its own copy of it.

@@ -3620,3 +3620,53 @@ html.is-quick body {
 .ca-jev-model {
   justify-self: start;
 }
+
+/* Jev on todos: suggestions to click, and a todo whose work looks done. */
+.ca-suggestchip {
+  gap: 4px;
+  border: 1px dashed var(--line-strong);
+  background: transparent;
+  color: var(--ink-2);
+  font-family: var(--font-sans);
+  cursor: pointer;
+}
+.ca-suggestchip:hover {
+  border-style: solid;
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+.ca-tag.ca-suggestchip {
+  display: inline-flex;
+  align-items: center;
+}
+.ca-chip.ca-todorow-done {
+  gap: 3px;
+  font-family: var(--font-sans);
+  color: var(--pr-open);
+  background: var(--pr-open-tint);
+}
+.ca-todohint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 16px 4px;
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  background: var(--pr-open-tint);
+  color: var(--pr-open);
+}
+.ca-todohint .ca-icon {
+  flex: none;
+}
+.ca-todohint-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  font: 400 12px/16px var(--font-sans);
+  color: var(--ink-2);
+}
+.ca-todohint-text b {
+  font-weight: 600;
+  color: var(--pr-open);
+}

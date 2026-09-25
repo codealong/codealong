@@ -144,6 +144,12 @@ pub struct Session {
     /// lane (`board::session_seed`), so the UI doesn't need it.
     #[serde(skip)]
     pub work: Vec<String>,
+    /// The end of its last reply, for Jev (jev.rs): where a question for you or a summary is.
+    #[serde(skip)]
+    pub reply_tail: Option<String>,
+    /// The first prompt you gave it, for Jev.
+    #[serde(skip)]
+    pub first_prompt: Option<String>,
     /// The registry name, which Claude Code also puts in the terminal title.
     pub name: Option<String>,
     pub started_at: Option<i64>,
@@ -385,6 +391,16 @@ pub struct Board {
     pub quick_shortcut: String,
     /// What Codealong asks Jev, from `[jev]` in config.toml.
     pub jev: crate::config::JevCfg,
+    /// Open todos whose work Jev says looks done, by todo id (todojev.rs).
+    pub todo_hints: std::collections::BTreeMap<String, TodoHint>,
+}
+
+/// Why a todo looks done: how sure Jev is, and what showed it.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TodoHint {
+    pub p: f64,
+    pub why: String,
 }
 
 /// A PR in the PRs view, with the worktrees and sessions that worked on it.

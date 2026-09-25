@@ -245,8 +245,8 @@ const JEV_FEATURES: { id: JevFeature; label: string; does: string; sends: string
   {
     id: 'todos',
     label: 'Todos',
-    does: 'Links a new session to the todo it’s for, says when a todo looks done, and suggests a new todo’s project, labels and the todos it waits on.',
-    sends: 'Your open todos’ titles and descriptions, new sessions’ first prompts and titles, and the end of linked sessions’ last replies.',
+    does: 'Links a new session to the todo it’s for when that’s clear. Says when a todo’s linked work looks done, with Mark done and Not yet. Suggests a todo’s project, labels and the todos it waits on as chips you click; nothing changes until you do.',
+    sends: 'Your open todos’ titles and descriptions, your label and project names, new sessions’ titles and first prompts, and linked sessions’ latest replies with their pull requests’ titles and states.',
   },
   {
     id: 'pull_requests',

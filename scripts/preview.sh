@@ -24,6 +24,8 @@
 # PREVIEW_TODOS=<file> shows the todos in it (scripts/preview/todos-sample.json has some) in
 # place of yours; "$lane:N" and "$session:N" in it stand for the project's Nth most recent
 # worktree and session. Images come from $PREVIEW_IMAGES (default: Codealong's own images).
+# scripts/preview/todos-jev-sample.json has the same todos with Jev's todo features on: one
+# looks done, and the panel gets suggestions.
 #
 # PREVIEW_USAGE=<file> shows the plan usage in it (scripts/preview/usage-sample.json has some) in
 # place of the snapshot's, which has no Claude numbers: reading them rate-limits.

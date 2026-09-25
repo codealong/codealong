@@ -23,6 +23,7 @@ use crate::detect;
 use crate::git;
 use crate::github::{self, PrRaw};
 use crate::jev;
+use crate::todojev;
 use crate::launch;
 use crate::model::*;
 use crate::perf;
@@ -42,6 +43,8 @@ const PUBLISH_EVERY: Duration = Duration::from_millis(300);
 const GITHUB_EVERY: Duration = Duration::from_secs(60);
 /// Claude usage is read this often; Codex usage updates with every Codex turn.
 const USAGE_EVERY: Duration = Duration::from_secs(2 * 60);
+/// After a question to Jev fails (no key, TypeSafe down), how long before more are asked.
+const JEV_RETRY: Duration = Duration::from_secs(5 * 60);
 /// After the usage endpoint says to slow down.
 const USAGE_BACKOFF: Duration = Duration::from_secs(10 * 60);
 
@@ -76,6 +79,8 @@ pub enum Msg {
     TodoStarted { id: String, lane: Option<String>, session: Option<String>, pending: Option<todos::PendingStart> },
     /// Jev's answer to a question the engine asked (`ask_jev`), by the id it was asked under.
     JevDone(String, std::result::Result<serde_json::Value, String>),
+    /// "Looks done" was wrong for this todo, for now.
+    DismissTodoHint(String),
 }
 
 /// What the UI talks to. Cheap to clone.
@@ -126,6 +131,10 @@ impl Handle {
     }
 
     /// Links a session started from a todo, or waits for it to show up.
+    pub fn dismiss_todo_hint(&self, id: String) {
+        let _ = self.tx.send(Msg::DismissTodoHint(id));
+    }
+
     pub fn todo_started(&self, id: String, lane: Option<String>, session: Option<String>, pending: Option<todos::PendingStart>) {
         let _ = self.tx.send(Msg::TodoStarted { id, lane, session, pending });
     }
@@ -475,6 +484,17 @@ struct Engine {
     jev_jobs: Sender<jev::Job>,
     /// Ids asked and not answered yet, so nothing is asked twice at once.
     jev_pending: HashSet<String>,
+    /// What Jev was asked about todos and said (todojev.rs), kept in jev-todos.json.
+    jev_todos: todojev::Memory,
+    /// Todo id → the signature its "looks done" question was asked at and what it's based on,
+    /// while it's out.
+    jev_done_asking: HashMap<String, (String, String)>,
+    /// Session key → the todo ids its link question's options stand for, while it's out.
+    jev_link_asking: HashMap<String, Vec<String>>,
+    /// jev-todos.json has been read: the first look reads it.
+    jev_todos_loaded: bool,
+    /// When a todo question last failed (no key, TypeSafe down): nothing more is asked for a while.
+    jev_todos_failed: Option<Instant>,
 }
 
 impl Engine {
@@ -542,6 +562,11 @@ impl Engine {
             perf: perf::Counters::default(),
             jev_jobs,
             jev_pending: HashSet::new(),
+            jev_todos: todojev::Memory::default(),
+            jev_done_asking: HashMap::new(),
+            jev_link_asking: HashMap::new(),
+            jev_todos_loaded: false,
+            jev_todos_failed: None,
         }
     }
 
@@ -556,11 +581,98 @@ impl Engine {
     /// An answer from Jev. The id's first part, up to `:`, says which feature asked.
     fn on_jev(&mut self, id: String, answer: std::result::Result<serde_json::Value, String>) {
         self.jev_pending.remove(&id);
-        let (feature, _rest) = id.split_once(':').unwrap_or((id.as_str(), ""));
+        let (feature, rest) = id.split_once(':').unwrap_or((id.as_str(), ""));
         match feature {
+            "todolink" => self.on_todo_link(rest.to_string(), answer),
+            "tododone" => self.on_todo_done(rest.to_string(), answer),
             _ => {
                 let _ = answer;
             }
+        }
+    }
+
+    /// Jev's answer on which todo a new session is for: linked when it's sure.
+    fn on_todo_link(&mut self, key: String, answer: std::result::Result<serde_json::Value, String>) {
+        let Some(ids) = self.jev_link_asking.remove(&key) else { return };
+        let Ok(response) = answer else {
+            // Asked again on a later look, unless it's too old by then.
+            self.jev_todos.asked.remove(&key);
+            self.jev_todos_failed = Some(Instant::now());
+            return;
+        };
+        self.jev_todos.save();
+        let Some(id) = todojev::link_pick(&response, &ids) else { return };
+        let lanes = self.lane_index();
+        let _lock = todos::lock().map_err(|e| eprintln!("{e:#}")).ok();
+        self.reload_todos();
+        if self.todos_unreadable || self.todos.todos.iter().any(|t| t.sessions.contains(&key)) {
+            return;
+        }
+        if !self.todos.todos.iter().any(|t| t.id == id && t.status != todos::TodoStatus::Done) {
+            return;
+        }
+        let op = TodoOp::Link { id, worktree: None, session: Some(key), linked: true };
+        if self.todos.apply(op, &lanes, now_ms()).unwrap_or(false) {
+            self.save_todos();
+        }
+    }
+
+    /// Jev's answer on whether a todo's work looks done.
+    fn on_todo_done(&mut self, id: String, answer: std::result::Result<serde_json::Value, String>) {
+        let Some((sig, why)) = self.jev_done_asking.remove(&id) else { return };
+        let Ok(response) = answer else {
+            self.jev_todos_failed = Some(Instant::now());
+            return;
+        };
+        let Some(p) = jev::noul(&response, "done") else { return };
+        self.jev_todos.done.insert(id, todojev::DoneAnswer { sig, p, why });
+        self.jev_todos.save();
+        self.dirty = true;
+    }
+
+    /// Says a todo doesn't look done after all, until something linked to it moves on.
+    fn dismiss_todo_hint(&mut self, id: String) {
+        if let Some(a) = self.jev_todos.done.get(&id) {
+            self.jev_todos.dismissed.insert(id, a.sig.clone());
+            self.jev_todos.save();
+            self.dirty = true;
+        }
+    }
+
+    /// New sessions to link, and todos whose linked work moved on, go to Jev.
+    fn jev_look_todos(&mut self, board: &Board) {
+        if !self.jev_todos_loaded {
+            self.jev_todos = todojev::Memory::load();
+            self.jev_todos_loaded = true;
+        }
+        if self.jev_todos_failed.is_some_and(|t| t.elapsed() < JEV_RETRY) {
+            return;
+        }
+        let model = self.cfg.jev.model.trim().to_string();
+        let now = now_ms();
+        let asks: Vec<(String, serde_json::Value, Vec<String>)> = todojev::link_candidates(board, &self.todos.todos, &self.jev_todos.asked, now)
+            .into_iter()
+            .map(|(lane, s)| {
+                let (body, ids) = todojev::link_request(&model, board, lane, s, &self.todos.todos);
+                (s.key.clone(), body, ids)
+            })
+            .collect();
+        for (key, body, ids) in asks {
+            self.jev_todos.asked.insert(key.clone());
+            self.jev_link_asking.insert(key.clone(), ids);
+            self.ask_jev(format!("todolink:{key}"), body);
+        }
+        let done: Vec<(String, todojev::DoneInput)> = self
+            .todos
+            .todos
+            .iter()
+            .filter_map(|t| todojev::done_input(board, t).map(|i| (t.id.clone(), i)))
+            // One question per todo at a time; a newer state is asked about once it's answered.
+            .filter(|(id, i)| self.jev_todos.done.get(id).is_none_or(|a| a.sig != i.sig) && !self.jev_done_asking.contains_key(id))
+            .collect();
+        for (id, input) in done {
+            self.jev_done_asking.insert(id.clone(), (input.sig.clone(), input.why.clone()));
+            self.ask_jev(format!("tododone:{id}"), todojev::done_request(&model, &input));
         }
     }
 
@@ -570,7 +682,9 @@ impl Engine {
         if !self.cfg.jev.any() {
             return;
         }
-        let _ = board;
+        if self.cfg.jev.todos {
+            self.jev_look_todos(board);
+        }
     }
 
     fn full_scan(&mut self) {
@@ -799,6 +913,7 @@ impl Engine {
                     let _ = reply.send(result);
                 }
                 Ok(Msg::JevDone(id, answer)) => self.on_jev(id, answer),
+                Ok(Msg::DismissTodoHint(id)) => self.dismiss_todo_hint(id),
                 Ok(Msg::TodoStarted { id, lane, session, pending }) => {
                     let lanes = self.lane_index();
                     let _lock = todos::lock().map_err(|e| eprintln!("{e:#}")).ok();
@@ -1800,6 +1915,9 @@ impl Engine {
         board.perf_log = perf::enabled();
         board.todos = self.todos.todos.clone();
         board.labels = self.todos.labels.clone();
+        if self.cfg.jev.todos {
+            board.todo_hints = self.jev_todos.hints(&board, &self.todos.todos);
+        }
         board
     }
 

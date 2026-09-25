@@ -354,6 +354,8 @@ mod tests {
             title: title.into(),
             cwd: "/r".into(),
             work: vec![],
+            reply_tail: None,
+            first_prompt: None,
             name: None,
             started_at: None,
             status_since: None,

@@ -60,6 +60,12 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     Link worktrees and sessions you already have from the todo, or from a session's or
     worktree's right-click menu (Add to todo). A session or worktree on a todo shows the
     todo's chip; click it to go to the todo.
+    With Jev on for todos (Settings › Jev, `[jev] todos`), a session that starts outside a todo
+    is linked to the open todo it's for when Jev is sure; a todo whose linked sessions ended
+    their turns, or whose PR merged, shows Looks done when Jev reads it as finished (Mark done,
+    or Not yet until something moves on); and a todo's panel suggests its project, labels and
+    the todos it waits on as chips you click. Nothing is asked twice: what was asked is kept in
+    `jev-todos.json`.
 - **Open where it lives**: the session's own Ghostty tab, the Claude app session, the Codex
   thread, an OpenCode session in its terminal (or resumed in a new one with `--session`),
   Antigravity brought forward (it has no link to a conversation), a background job attached
@@ -295,6 +301,7 @@ light scan (no git, PRs or visitors).
 | `src-tauri/src/start.rs`, `src/start.ts` | New sessions: where each account can start one, the launch it makes, the agent menu (every account on every model) and Auto's pick |
 | `src-tauri/src/quick.rs`, `src/quick.ts`, `src/ui/Quick.tsx` | The quick panel: its window (a panel that takes the keyboard over any app), its shortcut, and its page (what needs you, finding sessions, starting one) |
 | `src-tauri/src/route.rs`, `src/route.ts` | Suggestions in the quick panel: the request to Jev and reading its answer back, the key in the keychain, and which suggestions the panel shows |
+| `src-tauri/src/todojev.rs` | Jev on todos: which todo a new session is for, whether a todo's work looks done, and a todo's suggested project, labels and dependencies |
 | `src-tauri/src/send.rs` | Sending a prompt to a session that's already going, the way its harness takes one |
 | `src-tauri/src/cli.rs`, `server.rs`, `install.rs` | The `codealong` command (clap; JSON or tables; the app over its socket, else the files), the app's socket, and putting the skill and the command where agents find them |
 | `src-tauri/src/todos.rs`, `src/todos.ts` | Todos: the store and its changes, linking sessions started from a todo; the list's sections, filters and prompt |

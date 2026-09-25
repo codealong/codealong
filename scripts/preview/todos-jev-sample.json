@@ -1,0 +1,156 @@
+{
+  "labels": [
+    {
+      "id": "l-bug",
+      "name": "Bug",
+      "color": "red"
+    },
+    {
+      "id": "l-ui",
+      "name": "UI",
+      "color": "purple"
+    },
+    {
+      "id": "l-perf",
+      "name": "Performance",
+      "color": "teal"
+    },
+    {
+      "id": "l-docs",
+      "name": "Docs",
+      "color": "blue"
+    }
+  ],
+  "todos": [
+    {
+      "id": "t-sample1",
+      "title": "Keep the sidebar's scroll position when switching projects",
+      "description": "Switching projects jumps the worktree list back to the top.\n\n![image](images/0123456789abcdef.png)\n\nIt should stay where it was, per project. The last time it happened:\n[scroll-trace.log](files/fedcba9876543210/scroll-trace.log)",
+      "status": "in-progress",
+      "labels": [
+        "l-bug",
+        "l-ui"
+      ],
+      "worktrees": [
+        "$lane:0"
+      ],
+      "sessions": [
+        "$session:0"
+      ]
+    },
+    {
+      "id": "t-sample2",
+      "title": "Show how long each check has been running",
+      "description": "Pending checks on a PR should say how long they've run, like GitHub does.",
+      "status": "in-progress",
+      "labels": [
+        "l-ui"
+      ],
+      "sessions": [
+        "$session:3"
+      ]
+    },
+    {
+      "id": "t-sample8",
+      "title": "Move PR checks to the new GitHub API",
+      "status": "in-progress",
+      "labels": [
+        "l-perf"
+      ],
+      "sessions": [
+        "$session:4"
+      ],
+      "waiting": {
+        "note": "an answer from GitHub support",
+        "sinceAgo": 240
+      }
+    },
+    {
+      "id": "t-sample3",
+      "title": "Cut the board push size in half",
+      "description": "Every publish is the whole board. Send only what changed.",
+      "labels": [
+        "l-perf"
+      ],
+      "dependsOn": [
+        "t-sample2"
+      ]
+    },
+    {
+      "id": "t-sample4",
+      "title": "Write up the config.toml settings",
+      "labels": [
+        "l-docs"
+      ],
+      "worktrees": [
+        "$lane:2"
+      ],
+      "dependsOn": [
+        "t-sample6"
+      ]
+    },
+    {
+      "id": "t-sample7",
+      "title": "Publish the release notes for 0.3",
+      "description": "The draft is in the repo; it goes out once the copy is signed off.",
+      "labels": [
+        "l-docs"
+      ],
+      "waiting": {
+        "note": "Sam's review of the copy",
+        "sinceAgo": 2880
+      }
+    },
+    {
+      "id": "t-sample5",
+      "title": "Try the floating bar on a second display",
+      "description": "",
+      "dependsOn": [
+        "t-sample1",
+        "t-sample3"
+      ]
+    },
+    {
+      "id": "t-sample6",
+      "title": "Fix the flicker when a session starts",
+      "status": "done",
+      "labels": [
+        "l-bug"
+      ],
+      "sessions": [
+        "$session:5"
+      ]
+    }
+  ],
+  "jev": {
+    "hints": {
+      "t-sample2": {
+        "p": 0.86,
+        "why": "#1047 merged"
+      }
+    },
+    "suggest": {
+      "projects": [],
+      "labels": [
+        [
+          "l-perf",
+          0.82
+        ],
+        [
+          "l-ui",
+          0.9
+        ],
+        [
+          "l-docs",
+          0.3
+        ]
+      ],
+      "dependsOn": [
+        [
+          "t-sample3",
+          0.8
+        ]
+      ]
+    }
+  }
+}
