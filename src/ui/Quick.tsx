@@ -1,0 +1,864 @@
+// The quick panel's page (quick.rs has its window): one input, and below it what you can do
+// next. With nothing typed it lists the sessions that need you, then the ones whose turn ended;
+// typed words find sessions; the last row starts a new session with what you typed as its
+// prompt, in the worktree, on the agent and in the app chosen at the bottom.
+//
+// ⏎ does the selected row and ⌘⏎ always starts. ⌥⏎ shows the session in Codealong, ⌘1 to ⌘9
+// open a row, ⌘P picks the project, ⌘T the worktree and ⌘L the agent, and Escape closes. (⌘M is
+// the Window menu's Minimize, which may take the key before the page sees it.)
+
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  fitQuick,
+  getBoard,
+  hideQuick,
+  inPreview,
+  onBoard,
+  onQuickHidden,
+  onQuickOpen,
+  openFromBar,
+  quickReady,
+  showMain,
+  showQuick,
+  startFromQuick,
+  startOptions,
+  tellOpener,
+  type QuickOpen,
+} from '../api';
+import { filesToAttach, keepFiles, useFileDrop } from '../attachInput';
+import { showContextMenu } from '../contextMenu';
+import { ago, resetsPhrase, tildePath, withTimes } from '../format';
+import { HARNESS_WORD, usageNote } from '../harness';
+import { useLogo } from '../logo';
+import { withoutAccount } from '../lanes';
+import { ALL_PROJECTS, attentionRows, findSessions, inProject, laneBranch, laneGroups, projectCounts, shortcutLabel, type RowGroup, type SessionRow } from '../quick';
+import {
+  accountFor,
+  agentId,
+  agentOptions,
+  autoHarness,
+  autoModel,
+  autoPicks,
+  initialChoice,
+  modelName,
+  parseAgent,
+  placesFor,
+  remember,
+  remembered,
+  takesModel,
+  type AgentOption,
+  type AutoPick,
+} from '../start';
+import { attachmentsIn, blockedBy, insertAttachments, withoutAttachment } from '../todos';
+import type { Attachment, Board, Meter, StartOptions, StartPlace, StartSpec } from '../types';
+import { AttachmentStrip } from './DescriptionEditor';
+import { Picker, type PickerOption, type PickerSection } from './Picker';
+import { Icon, Kbd, Mark, StatusGlyph } from './primitives';
+import { applyTheme } from './ThemeSwitch';
+import { TodoGlyph } from './TodoBits';
+import { UsageMeter } from './UsageBar';
+
+/** Room around the card for its shadow. The window (quick.rs) is the card and this on each side. */
+const MARGIN = 20;
+const PROJECT_KEY = 'codealong.quick.project';
+/** The input grows to this many lines, then scrolls. */
+const INPUT_LINES = 8;
+const COMPOSE = 'compose';
+/** How long a read of where accounts can start is used without waiting for a new one. */
+const OPTIONS_FOR_MS = 60_000;
+
+type PickerKind = 'project' | 'worktree' | 'agent';
+
+const GROUP_WORD: Record<RowGroup, string> = { needs: 'Needs you', unread: 'Your turn', working: 'Working', found: 'Sessions' };
+
+function plain(e: unknown): string {
+  return String(e).replace(/^Error: /, '');
+}
+
+function storedProject(): string | null {
+  try {
+    return window.localStorage.getItem(PROJECT_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function useNow(everyMs: number): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), everyMs);
+    return () => window.clearInterval(id);
+  }, [everyMs]);
+  return now;
+}
+
+/** Why Auto starts the account and model it does. */
+function autoWhy(p: AutoPick, spent: Meter | null, now: number): string {
+  if (spent) return `${spent.label}’s week is ${Math.round(spent.percent)}% used`;
+  if (p.reason === 'reset' && p.resetsAt) return `week resets ${resetsPhrase(p.resetsAt, now)}`;
+  return p.reason === 'room' ? 'most room' : '';
+}
+
+/** What a session is doing or said last, for its row. Its time is in the row's own column, so
+ *  the detail's running time is left out. */
+function rowWhy(detail: string | null, headline: string, now: number): string {
+  const text = detail ? detail.replace(/^\{for:-?\d+\}( · )?/, '') : withoutAccount(headline);
+  return withTimes(text.replace(/`/g, ''), now);
+}
+
+/** A title with the typed words underlined. */
+function Marked({ text, marks }: { text: string; marks: [number, number][] }) {
+  if (marks.length === 0) return <>{text}</>;
+  const out: ReactNode[] = [];
+  let at = 0;
+  marks.forEach(([a, b], i) => {
+    if (a > at) out.push(text.slice(at, a));
+    out.push(<mark key={i}>{text.slice(a, b)}</mark>);
+    at = b;
+  });
+  if (at < text.length) out.push(text.slice(at));
+  return <>{out}</>;
+}
+
+export function Quick() {
+  const [board, setBoard] = useState<Board | null>(null);
+  const [options, setOptions] = useState<StartOptions | null>(null);
+  // Up (or about to be): the page follows the board only then.
+  const [shown, setShown] = useState(false);
+  // Counts opens; each one is answered with the page's height once it's laid out.
+  const [opens, setOpens] = useState(0);
+  const [opener, setOpener] = useState<string | null>(null);
+  const [project, setProject] = useState<string>(() => storedProject() ?? ALL_PROJECTS);
+  const [text, setText] = useState('');
+  const [laneId, setLaneId] = useState<string | null>(null);
+  // The agent menu's choice; null is the first it offers, Auto where there's one.
+  const [agent, setAgent] = useState<string | null>(null);
+  const [place, setPlace] = useState<StartPlace | null>(null);
+  const [newWorktree, setNewWorktree] = useState(false);
+  const [todoId, setTodoId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [activeKey, setActiveKey] = useState<string | null>(null);
+  const [picker, setPicker] = useState<PickerKind | null>(null);
+  const now = useNow(30_000);
+  const input = useRef<HTMLTextAreaElement>(null);
+  const inputBox = useRef<HTMLDivElement>(null);
+  const card = useRef<HTMLDivElement>(null);
+  const list = useRef<HTMLDivElement>(null);
+  const textNow = useRef(text);
+  textNow.current = text;
+  const cachedOptions = useRef<{ at: number; options: StartOptions } | null>(null);
+  // What you'd typed when you last closed the panel without acting on it. Every open starts empty,
+  // so the list is what needs you and ⏎ goes to it; ↑ in the empty input brings the draft back.
+  const [draft, setDraft] = useState<string | null>(null);
+
+  // Opening: what for, then fresh data, then the height (below), and only then the panel shows.
+  useEffect(() => {
+    const open = (ctx: QuickOpen) => {
+      setPicker(null);
+      if (!ctx.keep) {
+        setOpener(ctx.opener ?? null);
+        setError(null);
+        setProject(ctx.project ?? storedProject() ?? ALL_PROJECTS);
+        setLaneId(ctx.laneId ?? null);
+        setTodoId(ctx.todo ?? null);
+        const left = textNow.current.trim() ? textNow.current : null;
+        if (left) setDraft(left);
+        setText(ctx.prompt ?? '');
+        setAgent(null);
+        setPlace(null);
+        setNewWorktree(false);
+        setActiveKey(null);
+      }
+      // Where accounts can start rarely changes, and reading it means reading Codex's state
+      // file, so a recent copy does while a fresh one is read.
+      const fresh = startOptions().then((o) => {
+        cachedOptions.current = { at: Date.now(), options: o };
+        setOptions(o);
+        return o;
+      });
+      const recent = cachedOptions.current && Date.now() - cachedOptions.current.at < OPTIONS_FOR_MS ? cachedOptions.current.options : null;
+      // Not waited on, a failed read just leaves the recent copy.
+      if (recent) fresh.catch(() => {});
+      Promise.all([getBoard(), recent ?? fresh])
+        .then(([b, o]) => {
+          setBoard(b);
+          setOptions(o);
+        })
+        .catch((e: unknown) => setError(plain(e)))
+        .finally(() => {
+          setShown(true);
+          setOpens((n) => n + 1);
+        });
+    };
+    const offOpen = onQuickOpen(open);
+    const offHidden = onQuickHidden(() => {
+      setShown(false);
+      setPicker(null);
+    });
+    // A browser preview has no engine to open it.
+    if (inPreview) open({});
+    return () => {
+      offOpen();
+      offHidden();
+    };
+  }, []);
+
+  useEffect(() => (shown ? onBoard(setBoard) : undefined), [shown]);
+
+  const theme = board?.theme ?? 'system';
+  useEffect(() => applyTheme(theme), [theme]);
+  const logoStatus = useLogo(board?.logoStatus);
+
+  // The input grows with what you write.
+  useLayoutEffect(() => {
+    const el = input.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    const line = parseFloat(getComputedStyle(el).lineHeight) || 22;
+    el.style.height = `${Math.min(el.scrollHeight, Math.ceil(line * INPUT_LINES))}px`;
+  }, [text, opens]);
+
+  // The window is as tall as the card, or an open menu where it reaches below the card.
+  const measure = useCallback(() => {
+    const c = card.current?.getBoundingClientRect();
+    const pop = document.querySelector('.ca-picker')?.getBoundingClientRect();
+    return Math.ceil(Math.max(c?.bottom ?? 0, pop?.bottom ?? 0) + MARGIN);
+  }, []);
+  const reported = useRef(0);
+  useLayoutEffect(() => {
+    if (opens === 0) return;
+    const h = measure();
+    reported.current = h;
+    // The cursor goes at the end of whatever the panel opens with: nothing, a todo's prompt, or
+    // what a failed start left.
+    const el = input.current;
+    if (el) {
+      el.focus();
+      el.setSelectionRange(el.value.length, el.value.length);
+    }
+    void quickReady(h);
+  }, [opens, measure]);
+  useLayoutEffect(() => {
+    if (!shown || opens === 0) return;
+    const h = measure();
+    if (h === reported.current) return;
+    reported.current = h;
+    void fitQuick(h);
+  });
+
+  const refocus = () => window.requestAnimationFrame(() => input.current?.focus());
+
+  /* ---- Where ---- */
+
+  const projects = useMemo(() => board?.projects ?? [], [board?.projects]);
+  const current = project === ALL_PROJECTS || projects.some((p) => p.name === project) ? project : ALL_PROJECTS;
+  const pickProject = (name: string) => {
+    setProject(name);
+    setActiveKey(null);
+    setPicker(null);
+    try {
+      window.localStorage.setItem(PROJECT_KEY, name);
+    } catch {
+      // Storage can be unavailable; the choice just won't be remembered.
+    }
+    refocus();
+  };
+  const counts = useMemo(() => (board ? projectCounts(board, [...projects.map((p) => p.name), ALL_PROJECTS]) : {}), [board, projects]);
+
+  // Where a session can start: the project's worktrees, and the one a window asked for.
+  const lanes = useMemo(() => {
+    const all = board?.lanes ?? [];
+    const mine = all.filter((l) => inProject(l, current));
+    const extra = laneId && !mine.some((l) => l.id === laneId) ? all.filter((l) => l.id === laneId) : [];
+    return [...mine, ...extra];
+  }, [board?.lanes, current, laneId]);
+  const groups = useMemo(() => laneGroups(lanes, board?.pinnedWorktrees ?? []), [lanes, board?.pinnedWorktrees]);
+  // Without one asked for, the first on the list: a pinned one, else the latest.
+  const lane = lanes.find((l) => l.id === laneId) ?? groups[0]?.lanes[0] ?? null;
+
+  /* ---- Who ---- */
+
+  const accounts = useMemo(() => options?.accounts ?? [], [options]);
+  const models = useMemo(() => options?.claudeModels ?? [], [options]);
+  const usage = useMemo(() => board?.usage ?? [], [board?.usage]);
+  // Auto follows usage while the panel is up, and resolves when you start.
+  const picks = useMemo(() => autoPicks(accounts, usage, now), [accounts, usage, now]);
+  const agents = useMemo(() => agentOptions(accounts, models, picks), [accounts, models, picks]);
+  const first = useMemo(() => initialChoice(accounts, picks, undefined), [accounts, picks]);
+  const agentNow = agent && agents.some((o) => o.id === agent) ? agent : first ? agentId(first, null) : null;
+  const { choice, model: chosenModel } = agentNow ? parseAgent(agentNow) : { choice: null, model: null };
+  const autoFor = choice ? autoHarness(choice) : null;
+  const harness = autoFor ?? accounts.find((a) => a.name === choice)?.harness ?? null;
+  const account = accountFor(choice, picks);
+  const accountInfo = accounts.find((a) => a.name === account);
+  const autoPick = autoFor ? autoModel(accountInfo?.defaultModel ?? null, usage.find((u) => u.account === account)) : null;
+
+  // A model is asked for on the command line, so choosing one leaves only the terminal; the apps
+  // pick their own.
+  const allPlaces = placesFor(choice, accounts);
+  const places = chosenModel ? allPlaces.filter((p) => p.place === 'terminal') : allPlaces;
+  const placeNow = [place, choice ? remembered().places?.[choice] : undefined].map((p) => places.find((x) => x.place === p)?.place).find(Boolean) ?? places[0]?.place ?? null;
+  const claudeTerminal = placeNow === 'terminal' && harness === 'claude';
+  const modelNow = claudeTerminal ? (autoFor ? (autoPick?.model ?? null) : chosenModel) : null;
+  const inNewWorktree = claudeTerminal && newWorktree;
+  const defaultModel = accountInfo?.defaultModel ?? null;
+  const modelShown = !claudeTerminal
+    ? placeNow === 'claude-app'
+      ? 'model chosen in the Claude app'
+      : placeNow === 'codex-app'
+        ? 'model chosen in Codex'
+        : harness === 'opencode'
+          ? 'OpenCode’s model'
+          : null
+    : modelNow
+      ? modelName(modelNow, models)
+      : defaultModel
+        ? modelName(defaultModel, models)
+        : 'default model';
+
+  /* ---- What for ---- */
+
+  const todo = todoId ? (board?.todos.find((t) => t.id === todoId) ?? null) : null;
+  const waitsOn = todo && board ? blockedBy(todo, board.todos) : [];
+  const attached = attachmentsIn(text);
+
+  // Attachments go in at the cursor, each on a line of its own.
+  const addAttachments = (kept: Attachment[]) => {
+    const el = input.current;
+    const t = textNow.current;
+    const r = insertAttachments(t, el && document.activeElement === el ? el.selectionStart : t.length, kept);
+    setText(r.text);
+    window.requestAnimationFrame(() => {
+      input.current?.focus();
+      input.current?.setSelectionRange(r.cursor, r.cursor);
+    });
+  };
+  useFileDrop(inputBox, addAttachments, setError);
+
+  /* ---- The list ---- */
+
+  const query = text.trim();
+  const attention = useMemo(() => (board && !query ? attentionRows(board, current) : null), [board, current, query]);
+  const found = useMemo(() => (board && query ? findSessions(board, current, query) : []), [board, current, query]);
+  const rows: SessionRow[] = query ? found : (attention?.rows ?? []);
+  const keys = [...rows.map((r) => r.key), COMPOSE];
+  const active = activeKey && keys.includes(activeKey) ? activeKey : keys[0];
+
+  useEffect(() => {
+    list.current?.querySelector('.is-active')?.scrollIntoView({ block: 'nearest' });
+  }, [active]);
+
+  const move = (delta: number) => {
+    const i = keys.indexOf(active);
+    setActiveKey(keys[Math.max(0, Math.min(keys.length - 1, i + delta))]);
+  };
+
+  /** Opens a session where it lives. The search that found it is done with. */
+  const openRow = (r: SessionRow) => {
+    const target = r.lane.targets.find((t) => t.id === r.session.openTarget);
+    if (target?.disabled) {
+      setError(target.detail ?? `${target.label} isn’t available right now.`);
+      return;
+    }
+    const kept = textNow.current;
+    setText('');
+    setActiveKey(null);
+    setError(null);
+    void hideQuick();
+    openFromBar(r.lane.id, r.session.openTarget).catch((e: unknown) => {
+      setText(kept);
+      setError(plain(e));
+      void showQuick({ keep: true });
+    });
+  };
+
+  const revealRow = (r: SessionRow) => {
+    void hideQuick();
+    void showMain({ kind: 'session', laneId: r.lane.id, key: r.session.key });
+  };
+
+  const rowMenu = (r: SessionRow) => {
+    void showContextMenu([
+      { label: 'Open', run: () => openRow(r) },
+      { label: 'Show in Codealong', run: () => revealRow(r) },
+    ]);
+  };
+
+  /* ---- Starting ---- */
+
+  const ready = !!lane && !!account && !!placeNow;
+  const terminalName = places.find((p) => p.place === 'terminal')?.label ?? 'The terminal';
+  // Claude Code starts on the model asked for, else the account's own.
+  const startsOn = claudeTerminal ? (modelNow ?? defaultModel) : null;
+  const onModel = startsOn ? ` on ${modelName(startsOn, models)}` : '';
+  const withPrompt = query ? ' with this prompt' : '';
+  const happens = !lane
+    ? 'No worktrees in this project yet.'
+    : !account || !placeNow
+      ? ''
+      : placeNow === 'terminal'
+        ? inNewWorktree
+          ? `${terminalName} opens a new window, and Claude Code makes a new worktree of ${lane.repo} and starts ${account}${onModel} there${withPrompt}.`
+          : `${terminalName} opens a new window in ${lane.callsign} and starts ${account}${onModel}${withPrompt}.`
+        : placeNow === 'claude-app'
+          ? `The Claude app opens a new session in ${lane.callsign}${query ? ' with this prompt filled in' : ''}. You send it from there.`
+          : `Codex opens a new thread in ${lane.callsign}${query ? ' with this prompt filled in' : ''}. You send it from there.`;
+  const newToCodex = placeNow === 'codex-app' && !!lane && !!options && !options.codexProjects.includes(lane.path);
+
+  const start = () => {
+    if (!ready || !lane || !account || !placeNow) return;
+    if (choice) remember(choice, placeNow);
+    const spec: StartSpec = { laneId: lane.id, account, place: placeNow, prompt: text, model: modelNow, worktree: inNewWorktree, todo: todo?.id ?? null };
+    const label =
+      placeNow === 'terminal'
+        ? `Starting ${account}${onModel} in ${inNewWorktree ? `a new worktree of ${lane.repo}` : lane.callsign}…`
+        : placeNow === 'claude-app'
+          ? 'Opening a new session in the Claude app…'
+          : 'Opening a new thread in Codex…';
+    const id = Date.now();
+    const to = opener ?? 'main';
+    // The panel is fresh for next time; a failed start brings back what you had.
+    const kept = { text, todoId, newWorktree };
+    setText('');
+    setTodoId(null);
+    setNewWorktree(false);
+    setError(null);
+    setActiveKey(null);
+    void tellOpener(to, { phase: 'begin', id, label });
+    void hideQuick();
+    startFromQuick(spec)
+      .then((started) => tellOpener(to, { phase: 'end', id, key: started?.key ?? null, message: started?.message ?? null }))
+      .catch((e: unknown) => {
+        void tellOpener(to, { phase: 'end', id, key: null, message: null });
+        setText(kept.text);
+        setTodoId(kept.todoId);
+        setNewWorktree(kept.newWorktree);
+        setError(plain(e));
+        void showQuick({ keep: true });
+      });
+  };
+
+  const activate = (key: string, alt: boolean) => {
+    const row = rows.find((r) => r.key === key);
+    if (!row) {
+      start();
+      return;
+    }
+    if (alt) revealRow(row);
+    else openRow(row);
+  };
+
+  /* ---- Keys ---- */
+
+  const togglePicker = (k: PickerKind) => setPicker((p) => (p === k ? null : k));
+
+  const onInputKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.nativeEvent.isComposing) return;
+    const el = e.currentTarget;
+    if (e.key === 'Enter') {
+      if (e.shiftKey) return;
+      e.preventDefault();
+      if (e.metaKey) start();
+      else activate(active, e.altKey);
+      return;
+    }
+    if (e.key === 'ArrowUp' && !el.value && draft && !e.altKey && !e.metaKey && !e.shiftKey && keys.indexOf(active) <= 0) {
+      e.preventDefault();
+      setText(draft);
+      setDraft(null);
+      window.requestAnimationFrame(() => el.setSelectionRange(draft.length, draft.length));
+      return;
+    }
+    if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && !e.altKey && !e.metaKey && !e.shiftKey) {
+      // In a prompt of several lines the arrows move the cursor, and the selection only from
+      // its first or last line.
+      const before = el.value.slice(0, el.selectionStart);
+      const after = el.value.slice(el.selectionEnd);
+      if (e.key === 'ArrowUp' && before.includes('\n')) return;
+      if (e.key === 'ArrowDown' && after.includes('\n')) return;
+      e.preventDefault();
+      move(e.key === 'ArrowDown' ? 1 : -1);
+      return;
+    }
+    if (e.ctrlKey && !e.metaKey && (e.key === 'n' || e.key === 'p')) {
+      e.preventDefault();
+      move(e.key === 'n' ? 1 : -1);
+    }
+  };
+
+  // The panel's own keys, wherever the focus is in it. A menu's filter handles its own first.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.isComposing) return;
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        if (picker) {
+          setPicker(null);
+          refocus();
+        } else void hideQuick();
+        return;
+      }
+      if (!e.metaKey || e.ctrlKey || e.altKey) return;
+      if (/^[1-9]$/.test(e.key)) {
+        const row = rows[Number(e.key) - 1];
+        if (row) {
+          e.preventDefault();
+          openRow(row);
+        }
+        return;
+      }
+      const k = e.key.toLowerCase();
+      if (k === 'p' || k === 't' || k === 'l') {
+        e.preventDefault();
+        togglePicker(k === 'p' ? 'project' : k === 't' ? 'worktree' : 'agent');
+      } else if (k === 'q' || k === 'h') {
+        // The menu bar is the other app's while the panel is up, so ⌘Q and ⌘H mean that app,
+        // not Codealong: they close the panel instead of quitting or hiding Codealong.
+        e.preventDefault();
+        void hideQuick();
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        start();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
+
+  /* ---- Menus ---- */
+
+  const projectOption = (name: string): PickerOption => ({
+    id: name,
+    text: name,
+    label: name,
+    lead: <Icon name={name === ALL_PROJECTS ? 'stack' : 'folder'} size={14} />,
+    trail: <ProjectCounts needs={counts[name]?.needs ?? 0} unread={counts[name]?.unread ?? 0} />,
+  });
+  // As in the main window's switcher: the projects, then All projects set apart.
+  const projectSections: PickerSection[] = [
+    { key: 'projects', options: projects.map((p) => projectOption(p.name)) },
+    { key: 'all', head: <span className="ca-picker-sep" />, options: [projectOption(ALL_PROJECTS)] },
+  ];
+
+  const worktreeSections: PickerSection[] = groups.map((g) => ({
+    key: g.label,
+    head: g.label,
+    options: g.lanes.map((l) => {
+      const branch = laneBranch(l);
+      return {
+        id: l.id,
+        text: [l.callsign, l.branch ?? '', l.repo, l.project, l.origin === 'main' ? 'main checkout' : ''].join(' '),
+        label: l.origin === 'main' ? `${l.callsign} (main checkout)` : l.callsign,
+        detail: branch,
+        lead: <StatusGlyph status={l.glyph} size={10} title="" />,
+      };
+    }),
+  }));
+
+  const agentSections: PickerSection[] = useMemo(() => {
+    const out: PickerSection[] = [];
+    const autos = agents.filter((o) => autoHarness(o.choice));
+    if (autos.length > 0) {
+      out.push({
+        key: 'auto',
+        options: autos.map((o) => {
+          const h = autoHarness(o.choice)!;
+          const p = picks[h]!;
+          const a = accounts.find((x) => x.name === p.account);
+          const m = autoModel(a?.defaultModel ?? null, usage.find((u) => u.account === p.account));
+          const model = m.model ?? a?.defaultModel ?? null;
+          const why = autoWhy(p, m.spent, now);
+          return {
+            id: o.id,
+            text: `auto ${HARNESS_WORD[h]} ${p.account} ${model ?? ''}`,
+            label: autos.length > 1 ? `Auto · ${HARNESS_WORD[h]}` : 'Auto',
+            detail: [p.account, model ? modelName(model, models) : null, why].filter(Boolean).join(' · '),
+            lead: <Icon name="sparkles" size={14} />,
+            title:
+              `Starts the ${HARNESS_WORD[h]} account whose weekly limit resets soonest within 48 hours, so its room isn't lost, ` +
+              `else the one whose fullest limit is least full, on its own default model; when that model's own limit is nearly used, on the next best. ` +
+              `Accounts at 90% of a limit are passed over while another has room. Decided when you start.`,
+          };
+        }),
+      });
+    }
+    for (const a of accounts) {
+      const u = usage.find((x) => x.account === a.name);
+      const mine = agents.filter((o) => !autoHarness(o.choice) && o.choice === a.name);
+      const cant = a.places.length === 0;
+      out.push({
+        key: a.name,
+        head: <AccountHead name={a.name} detail={[HARNESS_WORD[a.harness], u?.plan].filter(Boolean).join(' · ')} meters={cant ? null : (u?.meters ?? [])} note={cant ? 'Can’t start from here' : usageNote(u)} now={now} />,
+        options: mine.map((o: AgentOption) => ({
+          id: o.id,
+          lead: <span className="ca-picker-check">{o.id === agentNow ? <Icon name="check" size={14} /> : null}</span>,
+          text: `${a.name} ${HARNESS_WORD[a.harness]} ${o.model ? `${o.model} ${modelName(o.model, models)}` : 'default'}`,
+          label: o.model ? modelName(o.model, models) : takesModel(a) ? `Default${a.defaultModel ? ` · ${modelName(a.defaultModel, models)}` : ''}` : a.name,
+          detail: o.model ? (models.find((m) => m.id === o.model)?.label.split(': ')[1] ?? null) : takesModel(a) ? 'From its settings.json' : cant ? a.unavailable : a.harness === 'codex' ? 'The model is chosen in Codex' : a.harness === 'opencode' ? 'The model comes from OpenCode’s settings' : null,
+          disabled: cant,
+          title: cant ? (a.unavailable ?? undefined) : undefined,
+        })),
+      });
+    }
+    return out;
+  }, [agents, accounts, picks, usage, models, now, agentNow]);
+
+  const pickAgent = (id: string) => {
+    const { choice: c, model } = parseAgent(id);
+    setAgent(id);
+    // A model is asked for on the command line; an app picks its own.
+    if (model) setPlace('terminal');
+    else setPlace(c ? (remembered().places?.[c] ?? null) : null);
+    setPicker(null);
+    refocus();
+  };
+
+  const pickPlace = (p: StartPlace) => {
+    setPlace(p);
+    // The apps choose their model: an account on a model becomes the account on its default.
+    if (p !== 'terminal' && choice && chosenModel) setAgent(agentId(choice, null));
+  };
+
+  /* ---- Render ---- */
+
+  const sections: { group: RowGroup; rows: SessionRow[] }[] = [];
+  for (const r of rows) {
+    const last = sections[sections.length - 1];
+    if (last && last.group === r.group) last.rows.push(r);
+    else sections.push({ group: r.group, rows: [r] });
+  }
+  const nothingWaits = !query && !!attention && attention.counts.needs + attention.counts.unread === 0;
+  const agentLabel = autoFor ? 'Auto' : (account ?? 'No account');
+  const agentDetail = [autoFor ? account : null, modelShown].filter(Boolean).join(' · ');
+  const shortcut = shortcutLabel(board?.quickShortcut);
+
+  return (
+    <div
+      className="ca-quick-root"
+      onMouseDown={(e) => {
+        // The shadow around the card is part of the window; a click there is a click outside.
+        if (e.target === e.currentTarget) void hideQuick();
+      }}
+    >
+      <div ref={card} className="ca-quick" role="dialog" aria-label="Codealong">
+        <div ref={inputBox} className="ca-quick-head">
+        <div className="ca-quick-input">
+          <div className="ca-quick-pick">
+            <button type="button" data-picker-trigger className="ca-quick-project" title="Project (⌘P)" aria-haspopup="dialog" aria-expanded={picker === 'project'} onClick={() => togglePicker('project')}>
+              <Mark size={16} status={logoStatus} />
+              <span>{current}</span>
+              <Icon name="chevron-down" size={12} />
+            </button>
+            {picker === 'project' && <Picker sections={projectSections} value={current} placeholder="Project" onPick={pickProject} onClose={() => { setPicker(null); refocus(); }} />}
+          </div>
+          <textarea
+            ref={input}
+            value={text}
+            rows={1}
+            spellCheck
+            aria-label="Find a session, or describe new work"
+            placeholder={draft ? 'Find a session, or describe new work… ↑ brings back your draft' : 'Find a session, or describe new work…'}
+            onChange={(e) => {
+              setText(e.target.value);
+              setActiveKey(null);
+            }}
+            onKeyDown={onInputKey}
+            onPaste={(e) => {
+              const files = filesToAttach(e);
+              if (files.length === 0) return;
+              e.preventDefault();
+              keepFiles(files)
+                .then(addAttachments)
+                .catch((err: unknown) => setError(plain(err)));
+            }}
+          />
+          {shortcut && !text && (
+            <span className="ca-quick-hotkey" title="Opens this panel from any app. Change it in Settings.">
+              {shortcut}
+            </span>
+          )}
+        </div>
+        {attached.length > 0 && (
+          <div className="ca-quick-attached">
+            <AttachmentStrip items={attached} onRemove={(a) => setText(withoutAttachment(text, a.path))} />
+          </div>
+        )}
+        </div>
+        <div ref={list} className="ca-quick-list" role="listbox" aria-label="What to do next">
+          {!board ? (
+            <p className="ca-quick-note">{error ? '' : 'Reading sessions…'}</p>
+          ) : (
+            <>
+              {nothingWaits && (
+                <p className="ca-quick-note">
+                  Nothing needs you{attention.counts.working > 0 ? ` · ${attention.counts.working} working` : ''}.
+                </p>
+              )}
+              {query && rows.length === 0 && <p className="ca-quick-note">No sessions match. Start one with this prompt below.</p>}
+              {sections.map((s) => (
+                <div key={s.group} className="ca-quick-group" role="group" aria-label={GROUP_WORD[s.group]}>
+                  <div className={`ca-quick-glabel is-${s.group}`}>
+                    {GROUP_WORD[s.group]}
+                    <span>{s.group === 'found' ? s.rows.length : (attention?.counts[s.group as 'needs' | 'unread' | 'working'] ?? s.rows.length)}</span>
+                  </div>
+                  {s.rows.map((r) => {
+                    const n = rows.indexOf(r) + 1;
+                    const s2 = r.session;
+                    const why = rowWhy(s2.detail, s2.headline, now);
+                    return (
+                      <div
+                        key={r.key}
+                        role="option"
+                        aria-selected={active === r.key}
+                        className={['ca-quick-row', active === r.key && 'is-active', `is-${s2.status}`].filter(Boolean).join(' ')}
+                        title={`${s2.title}\n${s2.account} · ${r.lane.callsign}\n⏎ opens it where it lives · ⌥⏎ shows it in Codealong`}
+                        onMouseMove={() => active !== r.key && setActiveKey(r.key)}
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={(e) => activate(r.key, e.altKey)}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          rowMenu(r);
+                        }}
+                      >
+                        <StatusGlyph status={s2.status} />
+                        <span className="ca-quick-row-main">
+                          <span className="ca-quick-row-title">
+                            <Marked text={s2.title} marks={r.marks} />
+                          </span>
+                          <span className="ca-quick-row-why">{why}</span>
+                        </span>
+                        <span className="ca-quick-row-where">
+                          {s2.account} · {r.lane.callsign}
+                        </span>
+                        <span className="ca-quick-row-age">{ago(s2.statusSince ?? s2.lastActivity, now)}</span>
+                        {n <= 9 && <Kbd keys={['⌘', String(n)]} />}
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+            </>
+          )}
+          <div
+            role="option"
+            aria-selected={active === COMPOSE}
+            className={['ca-quick-row', 'ca-quick-compose', active === COMPOSE && 'is-active', !ready && 'is-disabled'].filter(Boolean).join(' ')}
+            onMouseMove={() => active !== COMPOSE && setActiveKey(COMPOSE)}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={start}
+          >
+            <span className="ca-quick-plus">
+              <Icon name="plus" size={14} stroke={2} />
+            </span>
+            <span className="ca-quick-row-main">
+              <span className="ca-quick-row-title">{query ? 'Start a new session with this prompt' : 'Start a new session'}</span>
+              <span className="ca-quick-row-why">
+                {happens}
+                {attached.length > 0 && ` ${attached.length === 1 ? 'The attachment goes' : 'Attachments go'} as ${attached.length === 1 ? 'a file path' : 'file paths'} the agent opens.`}
+                {newToCodex && ' Codex adds this folder as a project if it isn’t one yet.'}
+              </span>
+            </span>
+            <Kbd keys={['⌘', '⏎']} />
+          </div>
+        </div>
+        {todo && (
+          <div className="ca-quick-todo">
+            <TodoGlyph status={todo.status} />
+            <span className="ca-quick-todo-title">For “{todo.title || 'Untitled'}”</span>
+            {waitsOn.length > 0 && (
+              <span className="ca-quick-todo-wait" title={waitsOn.map((t) => `Waits on “${t.title || 'Untitled'}”`).join('\n')}>
+                <Icon name="lock" size={12} />
+                {waitsOn.length === 1 ? 'waits on a todo that isn’t done' : `waits on ${waitsOn.length} todos that aren’t done`}
+              </span>
+            )}
+            {todo.waiting && (
+              <span className="ca-quick-todo-wait" title="Starting a session on it ends the wait.">
+                <Icon name="hourglass" size={12} />
+                {todo.waiting.note ? `waiting for ${todo.waiting.note}` : 'marked as waiting'}
+              </span>
+            )}
+            <button type="button" className="ca-linkbtn" title="Start a session that isn't linked to this todo" onClick={() => setTodoId(null)}>
+              Don’t link
+            </button>
+          </div>
+        )}
+        {error && (
+          <p className="ca-quick-error" role="alert">
+            <Icon name="alert" size={14} />
+            <span>{error}</span>
+          </p>
+        )}
+        <div className="ca-quick-bar">
+          <div className="ca-quick-pick">
+            <button type="button" data-picker-trigger className="ca-quick-chip" title={lane ? `${tildePath(lane.path)}\nWorktree (⌘T)` : 'Worktree (⌘T)'} disabled={lanes.length === 0} aria-haspopup="dialog" aria-expanded={picker === 'worktree'} onClick={() => togglePicker('worktree')}>
+              <Icon name="branch" size={14} />
+              <span>{lane ? (lane.origin === 'main' ? `${lane.callsign} (main)` : lane.callsign) : 'No worktree'}</span>
+              <Icon name="chevron-down" size={12} />
+            </button>
+            {picker === 'worktree' && <Picker sections={worktreeSections} value={lane?.id ?? null} placeholder="Worktree, branch or repo" onPick={(id) => { setLaneId(id); setPicker(null); refocus(); }} onClose={() => { setPicker(null); refocus(); }} />}
+          </div>
+          <label className={['ca-check', 'ca-quick-newtree', !claudeTerminal && 'is-disabled'].filter(Boolean).join(' ')} title={claudeTerminal ? 'Claude Code makes the worktree: its folder, branch and base.' : placeNow === 'terminal' ? 'Only Claude Code can start in a new worktree from here.' : 'The app has its own worktree choice; pick it there before you send.'}>
+            <input type="checkbox" checked={inNewWorktree} disabled={!claudeTerminal} onChange={(e) => setNewWorktree(e.target.checked)} />
+            <span className="ca-check-box" aria-hidden="true">
+              <Icon name="check" size={11} stroke={2.5} />
+            </span>
+            New worktree
+          </label>
+          <div className="ca-quick-pick ca-quick-agent">
+            <button type="button" data-picker-trigger className="ca-quick-chip" title="Account and model (⌘L)" disabled={accounts.length === 0} aria-haspopup="dialog" aria-expanded={picker === 'agent'} onClick={() => togglePicker('agent')}>
+              <Icon name={autoFor ? 'sparkles' : 'user'} size={14} />
+              <span>{accounts.length === 0 ? 'No accounts' : agentLabel}</span>
+              {agentDetail && <span className="ca-quick-chip-detail">{agentDetail}</span>}
+              <Icon name="chevron-down" size={12} />
+            </button>
+            {picker === 'agent' && <Picker className="is-wide" sections={agentSections} value={agentNow} placeholder="Account or model" onPick={pickAgent} onClose={() => { setPicker(null); refocus(); }} />}
+          </div>
+          {places.length > 1 ? (
+            <div className="ca-segctl ca-quick-places" role="radiogroup" aria-label="Opens in">
+              {places.map((p) => (
+                <button key={p.place} type="button" role="radio" aria-checked={placeNow === p.place} className={placeNow === p.place ? 'is-on' : undefined} onClick={() => pickPlace(p.place)}>
+                  <Icon name={p.place === 'terminal' ? 'terminal' : 'app'} size={13} />
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          ) : places.length === 1 ? (
+            <span className="ca-quick-place">
+              <Icon name={places[0].place === 'terminal' ? 'terminal' : 'app'} size={13} />
+              {places[0].label}
+            </span>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ProjectCounts({ needs, unread }: { needs: number; unread: number }) {
+  return (
+    <span className="ca-quick-counts">
+      {needs > 0 && (
+        <span className="ca-projswitch-action is-needs" title={`${needs} need you`}>
+          <StatusGlyph status="needs" size={10} title="" />
+          {needs}
+        </span>
+      )}
+      {unread > 0 && (
+        <span className="ca-projswitch-action is-unread" title={`${unread} finished`}>
+          <StatusGlyph status="unread" size={10} title="" />
+          {unread}
+        </span>
+      )}
+    </span>
+  );
+}
+
+function AccountHead({ name, detail, meters, note, now }: { name: string; detail: string; meters: Meter[] | null; note: string; now: number }) {
+  return (
+    <span className="ca-quick-acct">
+      <span className="ca-quick-acct-name">{name}</span>
+      <span className="ca-quick-acct-detail">{detail}</span>
+      <span className="ca-quick-acct-meters">{meters && meters.length > 0 ? meters.map((m) => <UsageMeter key={m.key} meter={m} now={now} />) : <span className="ca-pick-note">{note}</span>}</span>
+    </span>
+  );
+}

@@ -100,6 +100,9 @@ editor = "cursor"
 [appearance]
 theme = "system"                   # system, light or dark
 
+[shortcuts]
+quick_panel = "Option+Shift+Space" # opens the quick panel from any app; "" turns it off
+
 [debug]
 perf_log = false                   # true logs timings to ~/Library/Logs/Codealong/perf.log
 
@@ -125,7 +128,7 @@ grows.
   and editor profiles, and `discovered`: accounts found on this Mac that aren't configured.
 - **After editing:** run `codealong config check`. It applies the app's own checks, which
   catch what TOML alone won't: duplicate names, a shared `home`, an unknown harness, empty
-  entries. `codealong config check <file>` checks a draft before you put it in place.
+  entries, a shortcut that isn't one (it needs Control, Option or Command). `codealong config check <file>` checks a draft before you put it in place.
 
 ## Don'ts
 

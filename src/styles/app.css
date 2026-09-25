@@ -3009,3 +3009,521 @@ html.is-bar body {
     will-change: auto;
   }
 }
+
+/* ---- Quick panel: its own window (quick.rs), transparent. The card fills it but for 20px on
+   each side for its shadow; the page sizes the window to the card, or to a menu reaching below
+   it. ---- */
+html.is-quick,
+html.is-quick body {
+  background: transparent;
+}
+.ca-quick-root {
+  box-sizing: border-box;
+  min-height: 100%;
+  padding: 20px;
+}
+.ca-quick {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-raised);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-popover);
+  color: var(--ink);
+}
+.ca-quick-head {
+  border-bottom: 1px solid var(--line);
+}
+.ca-quick-input {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 14px 10px 10px;
+}
+.ca-quick-project {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  max-width: 190px;
+  height: 30px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--neutral-tint);
+  color: var(--ink);
+  font: 600 13px/18px var(--font-sans);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ca-quick-project > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ca-quick-project > .ca-icon {
+  color: var(--ink-3);
+}
+.ca-quick-project:hover,
+.ca-quick-project[aria-expanded='true'] {
+  background: var(--surface-selected);
+}
+.ca-quick-project:focus-visible,
+.ca-quick-chip:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+.ca-quick-input textarea {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding: 4px 0;
+  border: 0;
+  outline: none;
+  resize: none;
+  background: transparent;
+  color: var(--ink);
+  font: 400 17px/22px var(--font-sans);
+  overflow-y: auto;
+  -webkit-user-select: text;
+  user-select: text;
+}
+.ca-quick-input textarea::placeholder {
+  color: var(--ink-3);
+}
+.ca-quick-hotkey {
+  flex: none;
+  margin-top: 7px;
+  font: 500 11px/16px var(--font-sans);
+  letter-spacing: 0.04em;
+  color: var(--ink-3);
+}
+.ca-quick-attached {
+  padding: 0 14px 10px 14px;
+}
+.ca-quick-list {
+  max-height: 460px;
+  padding: 2px 6px 6px;
+  overflow-y: auto;
+}
+.ca-quick-note {
+  margin: 0;
+  padding: 10px 10px 2px;
+  font: 400 12px/16px var(--font-sans);
+  color: var(--ink-3);
+}
+.ca-quick-glabel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 10px 4px;
+  font: 600 11px/14px var(--font-display);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.ca-quick-glabel.is-needs {
+  color: var(--attn);
+}
+.ca-quick-glabel > span {
+  font: 500 11px/14px var(--font-mono);
+  letter-spacing: 0;
+}
+.ca-quick-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 42px;
+  padding: 4px 10px;
+  box-sizing: border-box;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.ca-quick-row.is-active {
+  background: var(--surface-selected);
+}
+.ca-quick-row-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+.ca-quick-row-title,
+.ca-quick-row-why {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ca-quick-row-title {
+  font: 500 13px/18px var(--font-sans);
+  color: var(--ink);
+}
+.ca-quick-row-title mark {
+  background: transparent;
+  color: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-color: var(--line-strong);
+  text-underline-offset: 3px;
+}
+.ca-quick-row-why {
+  font: 400 12px/16px var(--font-sans);
+  color: var(--ink-3);
+}
+.ca-quick-row-where {
+  flex: none;
+  max-width: 210px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 500 11px/14px var(--font-mono);
+  color: var(--ink-2);
+}
+.ca-quick-row-age {
+  flex: none;
+  width: 26px;
+  font: 500 11px/14px var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: var(--ink-3);
+}
+.ca-quick-row .ca-kbds {
+  opacity: 0.55;
+}
+.ca-quick-row.is-active .ca-kbds {
+  opacity: 1;
+}
+/* The last row: a new session. A line sets it apart from the sessions above. */
+.ca-quick-group + .ca-quick-compose,
+.ca-quick-note + .ca-quick-compose {
+  margin-top: 6px;
+  box-shadow: 0 -7px 0 -6px var(--line);
+}
+.ca-quick-compose .ca-quick-row-why {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.ca-quick-compose.is-disabled {
+  cursor: default;
+}
+.ca-quick-compose.is-disabled .ca-quick-plus {
+  opacity: 0.45;
+}
+.ca-quick-plus {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--brand);
+  color: var(--on-brand);
+}
+.ca-quick-todo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-top: 1px solid var(--line);
+  font: 400 12px/16px var(--font-sans);
+  color: var(--ink-2);
+}
+.ca-quick-todo-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+  color: var(--ink);
+}
+.ca-quick-todo-wait {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  color: var(--attn);
+}
+.ca-quick-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  padding: 8px 14px;
+  border-top: 1px solid var(--line);
+  font: 400 12px/16px var(--font-sans);
+  color: var(--alert);
+}
+.ca-quick-error .ca-icon {
+  flex: none;
+  margin-top: 1px;
+}
+.ca-quick-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--line);
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+  background: var(--surface-sunken);
+}
+.ca-quick-pick {
+  position: relative;
+  min-width: 0;
+}
+.ca-quick-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 280px;
+  height: 28px;
+  padding: 0 8px;
+  box-sizing: border-box;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font: 500 12px/16px var(--font-sans);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ca-quick-chip > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ca-quick-chip > .ca-icon {
+  flex: none;
+  color: var(--ink-3);
+}
+.ca-quick-chip-detail {
+  font-weight: 400;
+  color: var(--ink-3);
+}
+.ca-quick-chip:hover,
+.ca-quick-chip[aria-expanded='true'] {
+  background: var(--surface-hover);
+}
+.ca-quick-chip:disabled {
+  color: var(--ink-3);
+  cursor: default;
+}
+.ca-quick-agent {
+  margin-left: auto;
+}
+.ca-quick-places button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 10px;
+}
+.ca-quick-place {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font: 500 12px/16px var(--font-sans);
+  color: var(--ink-2);
+}
+.ca-quick-place .ca-icon {
+  color: var(--ink-3);
+}
+.ca-quick-counts {
+  display: inline-flex;
+  gap: 6px;
+}
+
+/* A menu dropped from a button in the quick panel (Picker.tsx): a filter, then the options. */
+.ca-picker {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  width: 340px;
+  max-height: 360px;
+  box-sizing: border-box;
+  background: var(--surface-raised);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-popover);
+  overflow: hidden;
+}
+.ca-picker.is-wide {
+  width: 440px;
+}
+.ca-quick-agent .ca-picker {
+  right: 0;
+  left: auto;
+}
+.ca-picker-filter {
+  flex: none;
+  height: 30px;
+  margin: 6px;
+  padding: 0 9px;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: var(--radius-sm);
+  outline: none;
+  background: var(--surface-sunken);
+  color: var(--ink);
+  font: 400 13px/18px var(--font-sans);
+}
+.ca-picker-filter::placeholder {
+  color: var(--ink-3);
+}
+.ca-picker-list {
+  padding: 0 4px 4px;
+  overflow-y: auto;
+}
+.ca-picker-head {
+  padding: 8px 8px 4px;
+  font: 600 11px/14px var(--font-display);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.ca-picker-opt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 30px;
+  padding: 4px 8px;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink);
+  font: 400 13px/18px var(--font-sans);
+  text-align: left;
+  cursor: pointer;
+}
+.ca-picker-opt.is-on {
+  background: var(--surface-selected);
+}
+.ca-picker-opt.is-chosen .ca-picker-title {
+  font-weight: 600;
+}
+.ca-picker-opt:disabled {
+  color: var(--ink-3);
+  cursor: default;
+}
+.ca-picker-opt > .ca-icon {
+  flex: none;
+  color: var(--ink-3);
+}
+.ca-picker-label {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+.ca-picker-title,
+.ca-picker-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ca-picker-detail {
+  font: 400 11px/14px var(--font-sans);
+  color: var(--ink-3);
+}
+.ca-picker-empty {
+  margin: 0;
+  padding: 6px 10px 10px;
+  font: 400 12px/16px var(--font-sans);
+  color: var(--ink-3);
+}
+/* An account's heading in the agent menu: its name, harness and plan, and its limits. */
+.ca-quick-acct {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.ca-quick-acct-name {
+  font: 600 12px/16px var(--font-mono);
+  color: var(--ink);
+}
+.ca-quick-acct-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 400 11px/14px var(--font-sans);
+  color: var(--ink-3);
+}
+.ca-quick-acct-meters {
+  display: flex;
+  flex: none;
+  gap: 10px;
+  margin-left: auto;
+}
+.ca-quick-acct .ca-meter.is-compact {
+  grid-template-columns: auto 30px auto;
+  gap: 5px;
+}
+.ca-quick-acct .ca-meter-reset {
+  display: none;
+}
+
+/* Settings › General: the quick panel's shortcut, recorded by pressing it. */
+.ca-shortcut-field {
+  display: grid;
+  gap: 6px;
+}
+.ca-shortcut-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.ca-shortcut {
+  min-width: 128px;
+  height: 30px;
+  margin-right: 4px;
+  padding: 0 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font: 500 14px/18px var(--font-sans);
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+.ca-shortcut:focus-visible,
+.ca-shortcut.is-recording {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+.ca-shortcut.is-recording,
+.ca-shortcut.is-off {
+  color: var(--ink-3);
+}
+.ca-shortcut-taken {
+  display: flex;
+  gap: 6px;
+  margin: 0;
+  font: 400 12px/16px var(--font-sans);
+  color: var(--attn);
+}
+.ca-shortcut-taken .ca-icon {
+  flex: none;
+  margin-top: 2px;
+}
+.ca-picker-check {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 14px;
+  color: var(--ink-2);
+}
+.ca-picker-head:has(> .ca-picker-sep) {
+  padding: 4px 8px;
+}
+.ca-picker-sep {
+  display: block;
+  height: 1px;
+  background: var(--line);
+}

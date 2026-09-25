@@ -170,6 +170,8 @@ export interface Config {
   scan: string[];
   apps: { terminal: string; editor: string };
   appearance: { theme: Theme };
+  /** Shortcuts that work in any app, as config.toml writes them (`Option+Shift+Space`); empty is off. */
+  shortcuts: { quick_panel: string };
   accounts: AccountCfg[];
   projects: ProjectCfg[];
   debug: { perf_log: boolean };
@@ -261,6 +263,8 @@ export interface Board {
   todos: Todo[];
   /** Todo labels, in your order. */
   labels: Label[];
+  /** The quick panel's shortcut from config.toml, as it writes it; empty when it's off. Missing on older boards. */
+  quickShortcut?: string;
 }
 
 export type TodoStatus = 'todo' | 'in-progress' | 'done';
@@ -427,6 +431,13 @@ export interface StartSpec {
   worktree: boolean;
   /** The todo the session is for: it's linked once it starts. */
   todo: string | null;
+}
+
+/** The quick panel's shortcut, and why it isn't working when it isn't (src-tauri/src/quick.rs). */
+export interface ShortcutStatus {
+  /** As config.toml writes it; empty when it's off. */
+  shortcut: string;
+  error: string | null;
 }
 
 export interface Started {

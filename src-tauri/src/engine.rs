@@ -255,7 +255,7 @@ pub fn open_on(board: &Board, lane_id: &str, target_id: &str) -> Result<Option<S
 pub fn start(emit: impl Fn(&Board) + Send + 'static) -> Handle {
     let (tx, rx) = channel();
     // The theme is on the board before the first scan finishes, so windows open in it.
-    let board = Arc::new(RwLock::new(Board { loading: true, theme: config::theme(), ..Default::default() }));
+    let board = Arc::new(RwLock::new(Board { loading: true, theme: config::theme(), quick_shortcut: config::quick_shortcut(), ..Default::default() }));
     let handle = Handle { tx: tx.clone(), board: board.clone() };
     let ping = tx.clone();
     std::thread::spawn(move || loop {
@@ -634,8 +634,8 @@ impl Engine {
         });
     }
 
-    /// Everything that depends on config.toml, read again. When nothing but the theme changed,
-    /// a new board is enough: reading everything again also asks for Claude usage, and the usage
+    /// Everything that depends on config.toml, read again. When nothing but the theme or the
+    /// shortcuts changed, a new board is enough: reading everything again also asks for Claude usage, and the usage
     /// endpoint turns away calls that come often.
     fn reload(&mut self) {
         let before = self.cfg.clone();
@@ -645,6 +645,7 @@ impl Engine {
         }
         let mut rest = self.cfg.clone();
         rest.appearance = before.appearance.clone();
+        rest.shortcuts = before.shortcuts.clone();
         rest.debug = before.debug.clone();
         if rest == before {
             self.dirty = true;
@@ -1752,6 +1753,7 @@ impl Engine {
         board.usage = self.compose_usage(now);
         board.pinned_worktrees = self.seen.pinned_worktrees.clone();
         board.theme = self.cfg.appearance.theme;
+        board.quick_shortcut = self.cfg.shortcuts.quick_panel.clone();
         board.perf_log = perf::enabled();
         board.todos = self.todos.todos.clone();
         board.labels = self.todos.labels.clone();

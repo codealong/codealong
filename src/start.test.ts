@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { accountFor, autoPicks, choices, initialChoice, initialPlace, placesFor } from './start';
+import { accountFor, agentId, agentOptions, autoModel, autoPicks, choices, initialChoice, initialPlace, modelFamily, modelMeter, modelName, parseAgent, placesFor, takesModel } from './start';
 import type { Meter, StartAccount, Usage } from './types';
 
 const ghostty = { place: 'terminal' as const, label: 'Ghostty' };
@@ -122,5 +122,86 @@ describe('the sheet opens with', () => {
     expect(initialPlace('claude2', ACCOUNTS, 'claude-app')).toBe('terminal');
     expect(initialPlace('codex', ACCOUNTS, undefined)).toBe('codex-app');
     expect(initialPlace(null, ACCOUNTS, undefined)).toBeNull();
+  });
+});
+
+const MODELS = [
+  { id: 'fable', label: 'Fable' },
+  { id: 'fable[1m]', label: 'Fable (1M context)' },
+  { id: 'opus', label: 'Opus' },
+  { id: 'opusplan', label: 'Opus Plan Mode: Opus to plan, Sonnet to build' },
+];
+
+describe('the agent menu', () => {
+  it('lists Auto, then each account on its default and, for Claude Code in the terminal, on each model', () => {
+    const picks = autoPicks(ACCOUNTS, [], NOW);
+    expect(agentOptions(ACCOUNTS, MODELS, picks).map((o) => o.id)).toEqual([
+      'auto:claude',
+      'claude|',
+      'claude|fable',
+      'claude|fable[1m]',
+      'claude|opus',
+      'claude|opusplan',
+      'claude2|',
+      'claude2|fable',
+      'claude2|fable[1m]',
+      'claude2|opus',
+      'claude2|opusplan',
+      'codex|',
+    ]);
+    expect(takesModel(ACCOUNTS[2])).toBe(false);
+    expect(takesModel({ ...ACCOUNTS[0], places: [claudeApp] })).toBe(false);
+  });
+
+  it('reads an id back as the choice and model it stands for', () => {
+    for (const [choice, model] of [
+      ['auto:claude', null],
+      ['claude2', null],
+      ['claude2', 'fable[1m]'],
+      ['my.acct-2', 'claude-opus-5-5'],
+    ] as const) {
+      expect(parseAgent(agentId(choice, model))).toEqual({ choice, model });
+    }
+  });
+
+  it('names models the way you’d say them', () => {
+    expect(modelName('fable[1m]', MODELS)).toBe('Fable 1M');
+    expect(modelName('opusplan', MODELS)).toBe('Opus Plan Mode');
+    expect(modelName('claude-fable-5-1', MODELS)).toBe('Fable 5.1');
+    expect(modelName('claude-fable-5-1[1m]', MODELS)).toBe('Fable 5.1 1M');
+    expect(modelName('claude-haiku-4-5-20251001', MODELS)).toBe('Haiku 4.5');
+    expect(modelName('claude-sonnet-5', MODELS)).toBe('Sonnet 5');
+    expect(modelName('sonnet[1m]', MODELS)).toBe('sonnet 1M');
+    expect(modelName('gpt-5.5', MODELS)).toBe('gpt-5.5');
+  });
+
+  it('knows which per-model limit a model counts against', () => {
+    expect(modelFamily('claude-fable-5-1[1m]')).toBe('fable');
+    expect(modelFamily('opusplan')).toBe('opus');
+    expect(modelFamily(null)).toBeNull();
+    const u = usage('claude', 10, 20, 100, { meters: [meter('week', 20), { ...meter('model:Fable', 95), model: 'Fable' }] });
+    expect(modelMeter(u, 'fable[1m]')?.key).toBe('model:Fable');
+    expect(modelMeter(u, 'opus')).toBeNull();
+  });
+});
+
+describe('Auto’s model', () => {
+  const fable = (percent: number, opus?: number) =>
+    usage('claude', 10, 20, 100, {
+      meters: [meter('week', 20), { ...meter('model:Fable', percent), model: 'Fable' }, ...(opus === undefined ? [] : [{ ...meter('model:Opus', opus), model: 'Opus' }])],
+    });
+
+  it('is the account’s default while that model has room', () => {
+    expect(autoModel('claude-fable-5-1', fable(40))).toEqual({ model: null, spent: null });
+    expect(autoModel('opus[1m]', fable(99))).toEqual({ model: null, spent: null });
+    expect(autoModel(null, fable(99))).toEqual({ model: null, spent: null });
+  });
+
+  it('moves to the best other model once the default’s own limit is nearly used, keeping its context size', () => {
+    expect(autoModel('claude-fable-5-1', fable(95)).model).toBe('opus');
+    expect(autoModel('claude-fable-5-1[1m]', fable(92)).model).toBe('opus[1m]');
+    expect(autoModel('fable', fable(95)).spent?.key).toBe('model:Fable');
+    // Opus nearly used too: Sonnet.
+    expect(autoModel('fable', fable(95, 96)).model).toBe('sonnet');
   });
 });

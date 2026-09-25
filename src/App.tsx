@@ -9,16 +9,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { showContextMenu, type MenuSpec } from './contextMenu';
 import { AGENT_BAY, BAYS, buildBays, failingPr, filterByAge, inboxCounts, lanePromptAt, narrowed, rowItems, worktreeRow, type BoardRow, type Filter, type WorktreeRow } from './lanes';
-import { approvePr, archiveSession, barOn, expandAttachments, getBoard, markSeen, onBarOn, onBoard, onNewWindow, onReveal, onSettings, openConfig, openProjectWindow, openTarget, openUrl, refresh, refreshUsage, reviewInCodex, setBarOn, setPinned, setPinnedWorktrees, setTheme, signIn, startSession, type Reveal } from './api';
+import { approvePr, archiveSession, barOn, expandAttachments, getBoard, markSeen, onBarOn, onBoard, onNewWindow, onQuickStart, onReveal, onSettings, openConfig, openProjectWindow, openTarget, openUrl, refresh, refreshUsage, reviewInCodex, setBarOn, setPinned, setPinnedWorktrees, setTheme, showQuick, signIn, windowLabel, type Reveal } from './api';
 import { usePerf } from './perf';
 import { reorderPinned, usePins } from './pins';
 import { prFlag } from './prStatus';
 import { blockedBy, COLOR_WORD, depsOf, newTodo, sectionOf, sessionHomes, snippet, STATUSES, STATUS_WORD, todoIndex, todoInFilter, todoInQuery, todoItem, todoPrompt, todoSections, useTodoStore, type TodoItem, type TodoSectionId } from './todos';
-import type { Bay, Board, Label, Lane, PrItem, Session, StartSpec, Theme, Todo, TodoStatus } from './types';
+import type { Bay, Board, Label, Lane, PrItem, Session, Theme, Todo, TodoStatus } from './types';
 import { LABEL_COLORS } from './types';
 import { SettingsDialog, type SettingsSection } from './ui/SettingsDialog';
 import { Inspector } from './ui/Inspector';
-import { NewSessionSheet, type SheetDraft } from './ui/NewSessionSheet';
 import { LaneRow } from './ui/LaneRow';
 import { PinnedSection, type PinDrag } from './ui/PinnedSection';
 import { BayHeader, Button, Icon, Kbd, NavItem, StatusGlyph } from './ui/primitives';
@@ -229,14 +228,12 @@ export function App() {
     if (settings) lastSection.current = settings.section;
   }, [settings]);
   useEffect(() => onSettings(() => openSettings()), [openSettings]);
-  // The new-session sheet, open at a worktree, maybe for a todo; after a failed start, with what
-  // you wrote and why.
-  const [newSession, setNewSession] = useState<{ laneId: string | null; todo?: string | null; prompt?: string; draft?: SheetDraft; error?: string } | null>(null);
-  const closeNewSession = useCallback(() => setNewSession(null), []);
-  const sheetOpen = useRef(false);
-  useEffect(() => {
-    sheetOpen.current = !!newSession;
-  }, [newSession]);
+  // New session opens the quick panel (ui/Quick.tsx) at a worktree, maybe for a todo, in the
+  // project this window shows. The panel tells this window how the start goes.
+  const projectNow = useRef<string>(ALL_PROJECTS);
+  const newSession = useCallback((at: { laneId: string | null; todo?: string | null; prompt?: string }) => {
+    void showQuick({ ...at, project: projectNow.current, opener: windowLabel() });
+  }, []);
   // Opens and starts still waiting on their app: a spinner shows once one takes a moment.
   const [busy, setBusy] = useState<{ id: number; label: string }[]>([]);
   const busySeq = useRef(0);
@@ -299,6 +296,7 @@ export function App() {
   const projects = board?.projects ?? [];
   const known = project === ALL_PROJECTS || projects.some((p) => p.name === project);
   const current = known && project ? project : (projects.find((p) => p.name !== ELSEWHERE)?.name ?? ALL_PROJECTS);
+  projectNow.current = current;
 
   const pickProject = (name: string) => {
     setProject(name);
@@ -554,7 +552,7 @@ export function App() {
         // it's time to start one.
         const s = row.sessions.find((x) => x.session.live) ?? row.sessions[0];
         if (s) open(s.lane, s.session.openTarget);
-        else setNewSession({ laneId: row.lane?.id ?? null, todo: row.todo.id, prompt: todoPrompt(row.todo) });
+        else newSession({ laneId: row.lane?.id ?? null, todo: row.todo.id, prompt: todoPrompt(row.todo) });
         return;
       }
       open(row.lane, row.kind === 'agent' ? row.session.openTarget : row.lane.defaultTarget);
@@ -612,8 +610,8 @@ export function App() {
     return () => window.clearTimeout(id);
   }, [undo]);
 
-  /** Opens the new-session sheet for a todo: in its worktree, with the todo as the prompt. */
-  const startForTodo = (r: TodoItem) => setNewSession({ laneId: r.lane?.id ?? selectedLane?.id ?? null, todo: r.todo.id, prompt: todoPrompt(r.todo) });
+  /** Opens the quick panel for a todo: in its worktree, with the todo as the prompt. */
+  const startForTodo = (r: TodoItem) => newSession({ laneId: r.lane?.id ?? selectedLane?.id ?? null, todo: r.todo.id, prompt: todoPrompt(r.todo) });
 
   /** Shows a todo in the Todo view, in its project, with nothing hiding it. */
   const showTodo = (t: Todo) => {
@@ -879,7 +877,7 @@ export function App() {
           : { label: lanePins.set.has(lane.id) ? 'Unpin worktree' : 'Pin worktree', run: () => toggleLanePin(lane) };
       void showContextMenu([
         { label: target?.label ?? 'Open', run: () => open(lane, s.openTarget) },
-        { label: 'New session here…', run: () => setNewSession({ laneId: lane.id }) },
+        { label: 'New session here…', run: () => newSession({ laneId: lane.id }) },
         'separator',
         ...todoItemsRef.current(lane.project, { session: s.key }, { session: s.key, worktree: lane.id, label: `${s.account} in ${lane.callsign}` }, s.title),
         'separator',
@@ -904,7 +902,7 @@ export function App() {
       void showContextMenu([
         { label: main?.label ?? 'Open', run: () => open(lane, lane.defaultTarget) },
         ...more,
-        { label: 'New session here…', run: () => setNewSession({ laneId: lane.id }) },
+        { label: 'New session here…', run: () => newSession({ laneId: lane.id }) },
         'separator',
         ...todoItemsRef.current(lane.project, { worktree: lane.id }, { worktree: lane.id, label: lane.callsign }),
         'separator',
@@ -1034,8 +1032,6 @@ export function App() {
       const typing = document.activeElement === searchRef.current;
       const mod = e.metaKey;
       const key = e.key.toLowerCase();
-      // The new-session sheet has the keyboard while it's open.
-      if (newSession) return;
       // So does a text field, a todo's title or description say, but for the window's own ⌘ keys.
       if (inField(document.activeElement, searchRef.current) && !(mod && (key === 'k' || key === 'p' || e.key === ','))) return;
       if (mod && e.key === ',') {
@@ -1061,7 +1057,7 @@ export function App() {
         e.preventDefault();
         // On a todo, the session is for the todo.
         if (selected?.kind === 'todo') startForTodo(selected);
-        else setNewSession({ laneId: startLaneId });
+        else newSession({ laneId: startLaneId });
         return;
       }
       if (typing) {
@@ -1169,26 +1165,27 @@ export function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, [visible, selected, selectedLane, startLaneId, move, open, openRow, copy, settings, openSettings, newSession, view, setView, toggleLanePin, sessionPins, lanePins, pinnedRows, pinnedLaneRows, shownBays, movePinnedSession, movePinnedLane, current, setArchived]);
 
-  /** The sheet's Start. The sheet closes and a spinner shows while the harness takes the
-   *  session; then it says what's next, and selects the session when it shows up if Codealong
-   *  chose its ID. A failed start brings the sheet back with what you wrote and why. */
-  const startFromSheet = useCallback(
-    (spec: StartSpec, draft: SheetDraft, label: string) => {
-      setNewSession(null);
-      track(label, startSession(spec))
-        .then((started) => {
-          if (started?.message) setToast(started.message);
-          if (started?.key) setPendingSession({ key: started.key, until: Date.now() + 60_000 });
-        })
-        .catch((e: unknown) => {
-          const error = String(e).replace(/^Error: /, '');
-          // A sheet opened meanwhile keeps its place; the failure shows as a toast.
-          if (sheetOpen.current) setToast(error);
-          else setNewSession({ laneId: spec.laneId, todo: draft.todo, draft, error });
-        });
-    },
-    [track],
-  );
+  // Starts this window asked the quick panel for. A spinner shows while the harness takes the
+  // session; then what's next, and the session is selected when it shows up if Codealong chose
+  // its ID. A failed start brings the panel back with what you wrote and why.
+  useEffect(() => {
+    const timers = new Map<number, number>();
+    const off = onQuickStart((e) => {
+      if (e.phase === 'begin') {
+        timers.set(e.id, window.setTimeout(() => setBusy((b) => [...b, { id: e.id, label: e.label }]), 300));
+        return;
+      }
+      window.clearTimeout(timers.get(e.id));
+      timers.delete(e.id);
+      setBusy((b) => b.filter((x) => x.id !== e.id));
+      if (e.message) setToast(e.message);
+      if (e.key) setPendingSession({ key: e.key, until: Date.now() + 60_000 });
+    });
+    return () => {
+      off();
+      timers.forEach((t) => window.clearTimeout(t));
+    };
+  }, []);
 
   useEffect(() => {
     if (!pendingSession) return;
@@ -1207,13 +1204,6 @@ export function App() {
       return;
     }
   }, [lanes, pendingSession]);
-
-  // Where the sheet can start a session: this project's worktrees, and the one it opened at.
-  const startLanes = useMemo(() => {
-    const at = newSession?.laneId;
-    const extra = at && !projectLanes.some((l) => l.id === at) ? lanes.filter((l) => l.id === at) : [];
-    return [...projectLanes, ...extra];
-  }, [projectLanes, lanes, newSession?.laneId]);
 
   const toggleBay = (f: Filter) => setBayFilter(bayFilter === f ? null : f);
   const openWindow = (name: string, another = false) => {
@@ -1301,7 +1291,7 @@ export function App() {
           size="sm"
           icon="plus"
           title={selected?.kind === 'todo' ? 'Start a session for the selected todo (⌘N)' : 'Start a session in the selected worktree (⌘N)'}
-          onClick={() => (selected?.kind === 'todo' ? startForTodo(selected) : setNewSession({ laneId: startLaneId }))}
+          onClick={() => (selected?.kind === 'todo' ? startForTodo(selected) : newSession({ laneId: startLaneId }))}
         >
           New session
         </Button>
@@ -1619,7 +1609,7 @@ export function App() {
             apps={board?.apps ?? { terminal: 'Terminal', terminalId: '', editor: 'Editor', editorId: '' }}
             now={now}
             onOpen={(id) => open(selectedLane, id)}
-            onNewSession={() => selectedLane && setNewSession({ laneId: selectedLane.id })}
+            onNewSession={() => selectedLane && newSession({ laneId: selectedLane.id })}
             todos={selectedLane ? todoLinks.byLane.get(selectedLane.id) : undefined}
             todosFor={(k) => todoLinks.bySession.get(k)}
             onShowTodo={showTodo}
@@ -1638,23 +1628,6 @@ export function App() {
           now={now}
           onClose={closeSettings}
           onOpenConfig={editConfig}
-        />
-      )}
-      {newSession && (
-        <NewSessionSheet
-          lanes={startLanes}
-          laneId={newSession.laneId}
-          draft={newSession.draft}
-          error={newSession.error}
-          pinned={lanePins.keys}
-          usage={board?.usage ?? []}
-          now={now}
-          todo={newSession.todo ? (todoStore.todos.find((t) => t.id === newSession.todo) ?? null) : null}
-          blockedBy={todoStore.todos.filter((t) => t.id === newSession.todo).flatMap((t) => blockedBy(t, todoStore.todos))}
-          prompt={newSession.prompt}
-          onError={setToast}
-          onClose={closeNewSession}
-          onStart={startFromSheet}
         />
       )}
       {busy.length > 0 && !toast && (

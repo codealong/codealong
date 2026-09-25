@@ -30,11 +30,14 @@ toml_edit = "0.23"
 rusqlite = { version = "0.37", features = ["bundled"] }
 # The `codealong` command (cli.rs): its --help is the reference the agent skill points at.
 clap = { version = "4", features = ["derive", "wrap_help"] }
+# The quick panel's shortcut, which works in every app (Carbon hot keys: no permission needed).
+tauri-plugin-global-shortcut = "2"
 
-# The floating bar: window occlusion, placement and Spaces, which Tauri doesn't expose.
+# The floating bar and the quick panel: panels, window occlusion, placement and Spaces, which
+# Tauri doesn't expose.
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "objc2-core-foundation", "NSApplication", "NSGraphics", "NSImage", "NSPanel", "NSResponder", "NSRunningApplication", "NSScreen", "NSWindow"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "objc2-core-foundation", "NSApplication", "NSEvent", "NSGraphics", "NSImage", "NSPanel", "NSResponder", "NSRunningApplication", "NSScreen", "NSWindow"] }
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSData", "NSGeometry", "NSString"] }
 
 # Built for rebuild speed, not the last few percent of engine speed: no LTO (thin LTO relinks

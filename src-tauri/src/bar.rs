@@ -52,7 +52,7 @@ impl Rect {
     fn center(&self) -> (f64, f64) {
         (self.x + self.w / 2.0, self.y + self.h / 2.0)
     }
-    fn contains(&self, (x, y): (f64, f64)) -> bool {
+    pub(crate) fn contains(&self, (x, y): (f64, f64)) -> bool {
         x >= self.x && x <= self.right() && y >= self.y && y <= self.top()
     }
 }

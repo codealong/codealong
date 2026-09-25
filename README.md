@@ -54,7 +54,7 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     something outside the list, like a person's answer or a release; it stays there until
     you stop it waiting, start it or finish it. Stop waiting (`w` again) also drops what it
     waits on that isn't done, so it's Ready at once; the toast can undo it. Start session
-    (⌘N) opens the new-session sheet with the todo as the prompt, and the session it starts
+    (⌘N) opens the quick panel with the todo as the prompt, and the session it starts
     is linked to the todo, which moves to In progress; one started in the Claude or Codex
     app is linked when it shows up.
     Link worktrees and sessions you already have from the todo, or from a session's or
@@ -64,31 +64,43 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   thread, an OpenCode session in its terminal (or resumed in a new one with `--session`),
   Antigravity brought forward (it has no link to a conversation), a background job attached
   in a new window, or the folder in Cursor.
-- **New session** (⌘N, the title bar, the inspector, or a worktree's or session's right-click
-  menu): pick the worktree (it starts at whatever's selected: a worktree, a session's, a PR's,
-  or for a PR with none here its repo's main checkout; pinned ones first), the account, and
-  where it runs. Ghostty starts Claude Code on your prompt, on the account's default model or
-  one you pick (Fable, Opus, Sonnet, Haiku, 1M context, Opus Plan Mode), and with New
-  worktree Claude Code makes a fresh worktree for it (`claude --worktree`: its folder, branch
-  and base are Claude Code's choice). The Claude app and Codex open a new session with the
-  prompt filled in, and you send it there (their own model and worktree choices included).
-  OpenCode starts in Ghostty on your prompt (`--prompt`); Antigravity starts conversations
-  only in its own window. Auto picks between accounts of
-  one harness: first the one whose weekly limit resets soonest within 48 hours, so its room
-  isn't lost, else the one with the most room; accounts at 90% of a limit are passed over.
-  Codealong only launches: the session shows on the board like any other, and one started in
-  Ghostty is selected as soon as it appears. Paste or drop screenshots and other files into
-  the prompt: Claude Code in Ghostty gets them as file mentions (attached when they're 256 KB
-  or less, read otherwise, with their folders added so it doesn't ask), and the apps and
-  OpenCode get their paths.
+- **Quick panel** (⌥⇧Space from any app, over full-screen ones too; ⌘N, the title bar, the
+  inspector, or a worktree's or session's right-click menu in Codealong): one input, and below
+  it what you can do next. With nothing typed it lists the sessions that need you, then the
+  ones whose turn ended (the working ones when nothing waits on you). Typed words find
+  sessions by title, account, worktree, branch, repo, project or PR. The last row starts a new
+  session with what you typed as its prompt. ⏎ does the selected row, ⌘⏎ always starts, ⌥⏎
+  shows the session in Codealong, ⌘1 to ⌘9 open a row, Escape closes. Each open starts empty,
+  so ⏎ goes to what needs you; ↑ brings back what you'd typed before closing. A project picker (⌘P) narrows everything to one project. The shortcut is
+  yours to change in Settings › General; Settings names shortcuts macOS and common launchers
+  already use.
+- **New session**, the panel's last row: pick the worktree (⌘T; it starts at whatever's
+  selected in Codealong: a worktree, a session's, a PR's, or for a PR with none here its repo's
+  main checkout; pinned ones first), the account and model in one menu (⌘L, every account on
+  every model it can start on, with its limits), and where it runs. Ghostty starts Claude Code
+  on your prompt, on the account's default model or the one you picked (Fable, Opus, Sonnet,
+  Haiku, 1M context, Opus Plan Mode), and with New worktree Claude Code makes a fresh worktree
+  for it (`claude --worktree`: its folder, branch and base are Claude Code's choice). The
+  Claude app and Codex open a new session with the prompt filled in, and you send it there
+  (their own model and worktree choices included). OpenCode starts in Ghostty on your prompt
+  (`--prompt`); Antigravity starts conversations only in its own window. Auto, the default,
+  picks between accounts of one harness: first the one whose weekly limit resets soonest
+  within 48 hours, so its room isn't lost, else the one with the most room, judged by the
+  limits its default model spends; accounts at 90% of a limit are passed over. It starts on
+  that default model, or the next best (Opus, then Sonnet) when the default's own weekly limit
+  is nearly used up. Codealong only launches: the session shows on the board like any other,
+  and one started in Ghostty is selected as soon as it appears. Paste or drop screenshots and
+  other files into the prompt: Claude Code in Ghostty gets them as file mentions (attached
+  when they're 256 KB or less, read otherwise, with their folders added so it doesn't ask),
+  and the apps and OpenCode get their paths.
 - **Usage** for every account in a bar across the top: 5-hour and weekly limits, per-model
   limits such as Fable, and time to reset. When they don't all fit, each account shows the
   limit it's closest to running out of and the rest on hover, and the bar scrolls sideways.
   OpenCode (bring your own provider) and Antigravity (quotas in the app) have none to show.
   Add accounts in Settings › Accounts.
 - **Settings** (⌘,, the app menu, or the foot of the sidebar): a form for everything in
-  config.toml. General has the folders searched for repos, the terminal and editor, and the
-  theme; Accounts adds, edits, removes and signs in accounts, and under Found on this Mac lists
+  config.toml. General has the folders searched for repos, the quick panel's shortcut, the
+  terminal and editor, and the theme; Accounts adds, edits, removes and signs in accounts, and under Found on this Mac lists
   the ones Codealong could read but doesn't, to add with a click (with the agent skill, unless
   you untick it); Projects groups repos by pattern;
   Advanced turns the performance log on and shows where the files are. Each change is saved in
@@ -182,6 +194,9 @@ editor = "cursor"
 [appearance]
 theme = "system"               # follows macOS; or "light", "dark"
 
+[shortcuts]
+quick_panel = "Option+Shift+Space"  # works in every app; "" turns it off (Settings › General)
+
 [debug]
 perf_log = false               # true logs timings to ~/Library/Logs/Codealong/perf.log (Settings › Advanced)
 
@@ -254,7 +269,8 @@ light scan (no git, PRs or visitors).
 | `src-tauri/src/opencode.rs`, `antigravity.rs` | Harness adapters: OpenCode's database and background service, Antigravity's conversation summaries |
 | `src-tauri/src/repos.rs`, `git.rs`, `github.rs` | Repo discovery, callsigns, worktrees, git status, PRs |
 | `src-tauri/src/launch.rs` | App profiles: Ghostty (AppleScript, exact tab focus), Cursor (CLI), deep links |
-| `src-tauri/src/start.rs`, `src/start.ts` | New sessions: where each account can start one, the launch it makes, Auto's pick |
+| `src-tauri/src/start.rs`, `src/start.ts` | New sessions: where each account can start one, the launch it makes, the agent menu (every account on every model) and Auto's pick |
+| `src-tauri/src/quick.rs`, `src/quick.ts`, `src/ui/Quick.tsx` | The quick panel: its window (a panel that takes the keyboard over any app), its shortcut, and its page (what needs you, finding sessions, starting one) |
 | `src-tauri/src/cli.rs`, `server.rs`, `install.rs` | The `codealong` command (clap; JSON or tables; the app over its socket, else the files), the app's socket, and putting the skill and the command where agents find them |
 | `src-tauri/src/todos.rs`, `src/todos.ts` | Todos: the store and its changes, linking sessions started from a todo; the list's sections, filters and prompt |
 | `src-tauri/src/attachments.rs`, `src/attachInput.ts` | Files in descriptions and prompts: pasted, dropped or picked, kept by content, images shown in place, all handed to agents as paths |
@@ -264,6 +280,6 @@ light scan (no git, PRs or visitors).
 | `src-tauri/src/config.rs`, `state.rs` | `config.toml` (accounts saved in place) and `state.json` (seen, pinned, archived, account folders already read) |
 | `src-tauri/src/detect.rs` | The harness accounts on this Mac: folders, sign-ins, and the wrappers and aliases that run them |
 | `src-tauri/src/bar.rs`, `barfeed.rs` | The floating bar's window (a panel over every app, where it sits, Window › Floating bar) and the small feed of what it shows, sent only when that changes |
-| `src/` | The React UI, built from the design system's components and tokens; `lanes.ts` groups the board and mirrors the engine's status rules for the age filter; `pins.ts` keeps the pinned lists; `prStatus.ts` and `ui/PrPills.tsx` say where a PR stands and which PRs are your move; `bar.ts` and `ui/Bar.tsx` lay out the floating bar; `ui/SettingsDialog.tsx` and `ui/AccountsSection.tsx` are Settings |
+| `src/` | The React UI, built from the design system's components and tokens; `lanes.ts` groups the board and mirrors the engine's status rules for the age filter; `pins.ts` keeps the pinned lists; `prStatus.ts` and `ui/PrPills.tsx` say where a PR stands and which PRs are your move; `bar.ts` and `ui/Bar.tsx` lay out the floating bar; `ui/Picker.tsx` is the quick panel's filterable menus; `ui/SettingsDialog.tsx` and `ui/AccountsSection.tsx` are Settings |
 | `scripts/preview.sh` | Headless preview against real data, for screenshots and scripted checks |
 | `design/tokens.json` | Design tokens; `npm run tokens` regenerates `src/styles/tokens.css` |
