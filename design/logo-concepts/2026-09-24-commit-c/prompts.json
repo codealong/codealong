@@ -1,0 +1,32 @@
+{
+  "tool": "Built-in image_gen",
+  "date": "2026-09-24",
+  "reference": "reference.png",
+  "brief": "Circular negative space and circular commit-node interpretations of the user's C reference, in monochrome.",
+  "concepts": [
+    {
+      "number": 109,
+      "name": "Circular counter",
+      "idea": "The reference C with a circular center.",
+      "slug": "circular-counter",
+      "prompt": "Use case: logo-brand. Input image is the user's reference C. Make ONE simple change to the shape: replace the diamond-shaped inner empty counter with a perfectly circular empty counter. Render the whole mark as SOLID BLACK on a WHITE square canvas. The outer shape is a bold circular C with two opposing diagonal cuts at its right terminals, as in the reference. The inner WHITE circle opens to the right through a narrow WHITE horizontal neck that broadens through the diagonal mouth of the C. Outer diameter 100 units, inner white counter diameter 42 units, narrowest white neck height 10 units. The white center and white neck are background cutouts. There must be EXACTLY ONE connected black shape: the C itself. NO black dot, black circle, black stem, or any separate symbol inside the counter. Flat uniform black ink with white background. No shading, no gradients, no texture, no beveled edges or outlines, no halos, no mockup. Crisp vector-like 2D geometry, symmetric top to bottom. Center on the canvas at 64% canvas height. Ignore the clipped fragment at the bottom of the reference. No text, labels, or other elements.",
+      "filename": "109-circular-counter.png"
+    },
+    {
+      "number": 110,
+      "name": "Inline node",
+      "idea": "A circular node extends to the right edge.",
+      "slug": "commit-cut",
+      "prompt": "Use case: logo-brand. Input image is a REFERENCE for the Codealong app logo silhouette. Create one carefully redrawn variation. Preserve the bold right-opening circular C, its balanced weight and plain monochrome treatment. The user's request is to replace the rounded-diamond inner counter with a true circle, evoking a Git commit circle and horizontal commit line. Use only perfect circle arcs, straight lines and minimal joins. Ignore the clipped fragment at the bottom of the reference; reproduce only the main C. Pure uniform BLACK silhouette on a pure opaque WHITE canvas. Exactly black ink, no other shades. Do not output a transparent cutout. Do not simulate an object, a metal badge or a printed material. Redraw the artwork from scratch as filled vector shapes. No gradients, shading, texture, 3D, shadows, bevels, extra colors, text, labels, frames, presentation mockups, or decorative details. One centered standalone logo occupies 64% of a square canvas. Precise clean flat vector-like edges.\n\nRedraw the C as a perfect white outer circle, minus a smaller perfectly circular black center and a straight black horizontal slot from the center circle's right edge all the way through the outer circle's right edge. The black circle is the commit node, and the black slot is its line. Outer diameter 100 units, inner circular diameter 42 units, slot thickness 12 units. The slot is centered precisely on the circle's horizontal axis. No black slot on the left half. No diagonal or wedge-shaped opening in this variant. The white shape stays connected at left and reads as a heavy geometric C with a very narrow horizontal right opening. Everything perfectly flat, symmetric top to bottom, precise circles and straight parallel lines.\nCritical cleanup: render like a 1-bit black logo. No outlines around the silhouette, no double edges, no halos, no border, no roughness or light effects. Every black shape is solid black. This is flat graphic design, not a photograph.",
+      "filename": "110-inline-node.png"
+    },
+    {
+      "number": 111,
+      "name": "Connected node",
+      "idea": "A commit node and line join the C at left.",
+      "slug": "through-line",
+      "prompt": "Use case: logo-brand. Input image is a REFERENCE for the Codealong app logo silhouette. Create one carefully redrawn variation. Preserve the bold right-opening circular C, its balanced weight and plain monochrome treatment. The user's request is to replace the rounded-diamond inner counter with a true circle, evoking a Git commit circle and horizontal commit line. Use only perfect circle arcs, straight lines and minimal joins. Ignore the clipped fragment at the bottom of the reference; reproduce only the main C. Pure uniform BLACK silhouette on a pure opaque WHITE canvas. Exactly black ink, no other shades. Do not output a transparent cutout. Do not simulate an object, a metal badge or a printed material. Redraw the artwork from scratch as filled vector shapes. No gradients, shading, texture, 3D, shadows, bevels, extra colors, text, labels, frames, presentation mockups, or decorative details. One centered standalone logo occupies 64% of a square canvas. Precise clean flat vector-like edges.\n\nKeep the source's bold circular C exterior with opposing diagonal terminal cuts on the right. Replace the inner black diamond with a perfectly circular black counter, diameter 42% of the outer diameter. Run a thin straight black horizontal line completely through the mark at the center, from the canvas black on the left through the circular center to the right opening. The line is 6% of outer diameter. This creates a negative-space Git commit circle on a through-line, separating the white C into exactly two matching upper and lower parts. Keep the right opening modest, with broad diagonal terminal shoulders like the reference. No extra nodes or branches, no outlined circles, no color, no detail beyond circle and one horizontal line.\nCritical cleanup: render like a 1-bit black logo. No outlines around the silhouette, no double edges, no halos, no border, no roughness or light effects. Every black shape is solid black. This is flat graphic design, not a photograph.",
+      "filename": "111-connected-node.png"
+    }
+  ]
+}

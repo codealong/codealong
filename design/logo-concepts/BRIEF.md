@@ -6,6 +6,8 @@ The user wants simple, geometric marks. No 3D or overly detailed marks. The sele
 
 The next exploration should make the geometry visibly more precise: constant-width circular bands, straight overlap boundaries, square corners, and polygonal constructions. Keep the teal/blue palette consistent to compare the structures.
 
+The user then supplied a monochrome circular C with a rounded diamond counter, asking for a circular interior like a commit line. Explore a circular counter connected to a horizontal opening, including a through-line variant, while keeping the mark simple and geometric.
+
 Continue exploring C and CA letterforms that suit Codealong: a Mac app that gathers coding agents and sessions across projects.
 
 Working design criteria:
