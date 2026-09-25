@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { absolute, ago, count, middleTruncate, tildePath } from '../format';
 import { HARNESS_APP } from '../harness';
 import type { Board, Lane, Origin, Session, Target, Todo } from '../types';
+import { InsightChips } from './InsightBits';
 import { BranchLabel, Button, HarnessChip, Icon, Kbd, LaneGlyph, PrChip, Rich, StatusGlyph } from './primitives';
 import { TodoChips, TodoGlyph } from './TodoBits';
 import { STATUS_WORD } from '../todos';
@@ -125,6 +126,7 @@ function SessionRow({ session: s, now, focused, onOpen, todos, onShowTodo }: { s
           {s.live && s.pid ? <span>pid {s.pid}</span> : null}
           {s.visitor ? <span>{s.visitor}</span> : null}
           <TodoChips todos={todos} onShow={onShowTodo} />
+          <InsightChips session={s} />
         </div>
         {s.excerpt && (
           <div className="ca-srow-excerpt">

@@ -28,6 +28,9 @@
 # PREVIEW_USAGE=<file> shows the plan usage in it (scripts/preview/usage-sample.json has some) in
 # place of the snapshot's, which has no Claude numbers: reading them rate-limits.
 #
+# PREVIEW_INSIGHTS=<file> merges Jev's read of sessions and worktrees into the board
+# (scripts/preview/insights-sample.json has some: landing chips, a risk label, a question).
+#
 # PREVIEW_ROUTE=<file> turns routing on and answers the quick panel as Jev might, from the
 # board's own sessions and worktrees (scripts/preview/route-sample.json has one: see there).
 #
@@ -66,6 +69,10 @@ cp scripts/preview/fake-tauri.js "$dir/"
 rm -f "$dir/todos-fixture.json"
 if [ -n "${PREVIEW_TODOS:-}" ]; then
   cp "$PREVIEW_TODOS" "$dir/todos-fixture.json"
+fi
+rm -f "$dir/insights-fixture.json"
+if [ -n "${PREVIEW_INSIGHTS:-}" ]; then
+  cp "$PREVIEW_INSIGHTS" "$dir/insights-fixture.json"
 fi
 rm -f "$dir/route-fixture.json"
 if [ -n "${PREVIEW_ROUTE:-}" ]; then

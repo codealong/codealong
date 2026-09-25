@@ -130,6 +130,8 @@ pub struct TranscriptInfo {
     pub last_tool: Option<String>,
     /// First line of the latest assistant text.
     pub last_text: Option<String>,
+    /// The end of the latest assistant text, for Jev.
+    pub last_text_tail: Option<String>,
     /// Where its latest commands ran and edits landed, oldest first.
     pub work: Vec<String>,
 }
@@ -365,6 +367,7 @@ pub fn apply_tail(info: &mut TranscriptInfo, state: &mut TailState, tail: &str) 
                         Some("text") => {
                             if let Some(t) = str_of(item, "text").filter(|t| !t.trim().is_empty()) {
                                 info.last_text = Some(one_line(&t, 140));
+                                info.last_text_tail = Some(crate::jev::tail(&t, 600));
                             }
                         }
                         _ => {}
@@ -513,6 +516,7 @@ mod tests {
         assert_eq!(info.pending_tool.as_deref(), Some("Bash · `yarn mikro-orm migration:up`"));
         assert_eq!(info.last_tool.as_deref(), Some("running `yarn mikro-orm migration:up`"));
         assert_eq!(info.last_text.as_deref(), Some("Running the migration now."));
+        assert_eq!(info.last_text_tail.as_deref(), Some("Running the migration now."));
         assert_eq!(info.last_ts, parse_rfc3339_ms("2026-09-23T15:00:00.000Z").unwrap());
     }
 

@@ -56,6 +56,24 @@ function withUsage(board, fixture) {
   });
   return board;
 }
+// Jev's read from insights-fixture.json (PREVIEW_INSIGHTS in preview.sh), merged into the board:
+// "$session:N" and "$lane:N" are the Nth most recent session and worktree on it (hidden ones
+// left out), and each entry's other fields replace the session's or lane's own.
+function withInsights(board, fixture) {
+  var lanes = board.lanes.filter(function (l) { return !l.hidden; }).sort(function (a, b) { return b.lastActivity - a.lastActivity; });
+  var sessions = lanes.flatMap(function (l) { return l.sessions.filter(function (s) { return !s.visitor && !s.archived; }); }).sort(function (a, b) { return b.lastActivity - a.lastActivity; });
+  var at = function (list, ref) { var m = /:(\d+)$/.exec(ref); return m ? list[Number(m[1])] : null; };
+  (fixture.sessions || []).forEach(function (e) {
+    var hit = at(sessions, e.ref);
+    if (!hit) return;
+    board.lanes.forEach(function (l) { l.sessions.forEach(function (s) { if (s.key === hit.key) { var fields = Object.assign({}, e); delete fields.ref; Object.assign(s, fields); } }); });
+  });
+  (fixture.lanes || []).forEach(function (e) {
+    var hit = at(lanes, e.ref);
+    if (hit) { var fields = Object.assign({}, e); delete fields.ref; Object.assign(hit, fields); }
+  });
+  return board;
+}
 function optionalJson(file) {
   return fetch(file).then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; });
 }
@@ -68,8 +86,10 @@ window.__TAURI_INTERNALS__ = {
         optionalJson('./todos-fixture.json'),
         optionalJson('./usage-fixture.json'),
         optionalJson('./route-fixture.json'),
+        optionalJson('./insights-fixture.json'),
       ]).then(function (all) {
         var board = all[1] ? withFixture(all[0], all[1]) : all[0];
+        if (all[4]) board = withInsights(board, all[4]);
         if (all[3]) board.routerOn = true;
         return all[2] ? withUsage(board, all[2]) : board;
       });

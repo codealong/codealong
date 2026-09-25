@@ -354,6 +354,8 @@ mod tests {
             title: title.into(),
             cwd: "/r".into(),
             work: vec![],
+            reply_tail: None,
+            first_prompt: None,
             name: None,
             started_at: None,
             status_since: None,
@@ -370,6 +372,8 @@ mod tests {
             archived: false,
             attach_command: None,
             stalled_since: None,
+            background: None,
+            insight: None,
         }
     }
 
@@ -394,6 +398,7 @@ mod tests {
             pr: None,
             git: None,
             last_activity: at,
+            looks_finished: false,
             targets: vec![],
             default_target: None,
         }

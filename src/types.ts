@@ -40,6 +40,8 @@ export interface Session {
   attachCommand: string | null;
   /** Busy but silent for a long while: stuck mid-turn. When it went quiet. */
   stalledSince: number | null;
+  /** Jev's read of how its turn ended, when `[jev] sessions` is on (insights.rs). */
+  insight?: SessionInsight;
   resumeCommand: string | null;
   /** The Claude app is signed into this session's account. */
   appAccount: boolean;
@@ -114,6 +116,8 @@ export interface Lane {
   pr: Pr | null;
   git: GitInfo | null;
   lastActivity: number;
+  /** Jev reads every session here as finished and nothing runs: maybe ready to clean up. */
+  looksFinished?: boolean;
   targets: Target[];
   defaultTarget: string | null;
 }
@@ -278,6 +282,18 @@ export interface JevCfg {
   sessions: boolean;
   todos: boolean;
   pull_requests: boolean;
+}
+
+/** Jev's read of a session (insights.rs). Each part is there only when it was asked. */
+export interface SessionInsight {
+  asksYou?: number;
+  landing?: 'landed' | 'pushed' | 'committed' | 'uncommitted' | 'blocked' | 'none';
+  finished?: number;
+  /** 0 reads only … 3 destructive. */
+  risk?: number;
+  waitsForInput?: number;
+  background?: 'polling' | 'job' | 'stalled';
+  backgroundP?: number;
 }
 
 export type RouteAction = 'send' | 'start' | 'find' | 'todo';

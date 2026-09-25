@@ -447,6 +447,8 @@ mod tests {
             title: "Fix the build".into(),
             cwd: "/tmp".into(),
             work: Vec::new(),
+            reply_tail: None,
+            first_prompt: None,
             name: None,
             started_at: None,
             status_since: None,
@@ -463,6 +465,8 @@ mod tests {
             archived: false,
             attach_command: None,
             stalled_since: None,
+            background: None,
+            insight: None,
         }
     }
 

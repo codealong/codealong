@@ -144,6 +144,12 @@ pub struct Session {
     /// lane (`board::session_seed`), so the UI doesn't need it.
     #[serde(skip)]
     pub work: Vec<String>,
+    /// The end of its last reply, for Jev (jev.rs): where a question for you or a summary is.
+    #[serde(skip)]
+    pub reply_tail: Option<String>,
+    /// The first prompt you gave it, for Jev.
+    #[serde(skip)]
+    pub first_prompt: Option<String>,
     /// The registry name, which Claude Code also puts in the terminal title.
     pub name: Option<String>,
     pub started_at: Option<i64>,
@@ -177,6 +183,40 @@ pub struct Session {
     /// Set when the session says it's busy but nothing has happened for a long while: it's stuck
     /// mid-turn, usually on a command waiting for input. When it went quiet.
     pub stalled_since: Option<i64>,
+    /// Set on a Claude session whose turn ended with a command left running in the background
+    /// (registry status `shell`): the command, or empty when it couldn't be read.
+    #[serde(skip)]
+    pub background: Option<String>,
+    /// Jev's read of how its turn ended (insights.rs), when `[jev] sessions` is on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub insight: Option<SessionInsight>,
+}
+
+/// Jev's read of a session (insights.rs). Each part is there only when it was asked: how a turn
+/// ended when one has, the command's risk while it waits on you.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionInsight {
+    /// How likely it is that the reply ends asking you something.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub asks_you: Option<f64>,
+    /// How far the work got: landed, pushed, committed, uncommitted, blocked, none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub landing: Option<String>,
+    /// How likely it is that what you asked for is done.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub finished: Option<f64>,
+    /// How risky the command waiting on you looks, 0 (reads only) to 3 (destructive).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub risk: Option<f64>,
+    /// How likely it is that the command a quiet session runs waits for typing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub waits_for_input: Option<f64>,
+    /// What a command left running in the background does: polling, job or stalled.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub background: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub background_p: Option<f64>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
@@ -259,6 +299,10 @@ pub struct Lane {
     pub pr: Option<Pr>,
     pub git: Option<GitInfo>,
     pub last_activity: i64,
+    /// Jev reads every session here as finished, and nothing is running (`[jev] sessions`): a
+    /// worktree that may be ready to clean up.
+    #[serde(default)]
+    pub looks_finished: bool,
     pub targets: Vec<Target>,
     pub default_target: Option<String>,
 }

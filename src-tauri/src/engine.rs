@@ -475,6 +475,8 @@ struct Engine {
     jev_jobs: Sender<jev::Job>,
     /// Ids asked and not answered yet, so nothing is asked twice at once.
     jev_pending: HashSet<String>,
+    /// Jev's reads of sessions, by the moment each was asked about (insights.rs).
+    insights: crate::insights::Store,
 }
 
 impl Engine {
@@ -542,6 +544,7 @@ impl Engine {
             perf: perf::Counters::default(),
             jev_jobs,
             jev_pending: HashSet::new(),
+            insights: crate::insights::Store::load(),
         }
     }
 
@@ -556,8 +559,9 @@ impl Engine {
     /// An answer from Jev. The id's first part, up to `:`, says which feature asked.
     fn on_jev(&mut self, id: String, answer: std::result::Result<serde_json::Value, String>) {
         self.jev_pending.remove(&id);
-        let (feature, _rest) = id.split_once(':').unwrap_or((id.as_str(), ""));
+        let (feature, rest) = id.split_once(':').unwrap_or((id.as_str(), ""));
         match feature {
+            "insight" => self.on_insight(rest.to_string(), answer),
             _ => {
                 let _ = answer;
             }
@@ -570,7 +574,62 @@ impl Engine {
         if !self.cfg.jev.any() {
             return;
         }
-        let _ = board;
+        if self.cfg.jev.sessions {
+            self.look_insights(board);
+        }
+    }
+
+    /// Asks Jev about sessions whose moment it hasn't read yet (insights.rs). A session that
+    /// shows an answer already has one for its moment. At most a few new questions per board,
+    /// so the first run after turning it on doesn't ask about every session at once.
+    fn look_insights(&mut self, board: &Board) {
+        const PER_BOARD: usize = 20;
+        let now = now_ms();
+        let mut asks = Vec::new();
+        for s in board.lanes.iter().flat_map(|l| &l.sessions).filter(|s| s.visitor.is_none()) {
+            self.insights.seen(&s.key, now);
+            if s.insight.is_some() {
+                continue;
+            }
+            let Some((kind, signature)) = crate::insights::ask(s, now) else { continue };
+            let id = format!("insight:{signature}|{}", s.key);
+            if asks.len() < PER_BOARD && self.insights.wants(&s.key, &signature, now) && !self.jev_pending.contains(&id) {
+                asks.push((id, crate::insights::request(s, kind, &self.cfg.jev.model)));
+            }
+        }
+        for (id, body) in asks {
+            self.ask_jev(id, body);
+        }
+        self.insights.save(now);
+    }
+
+    /// Jev's read of a session, kept under the moment it was asked about.
+    fn on_insight(&mut self, rest: String, answer: std::result::Result<serde_json::Value, String>) {
+        let Some((signature, key)) = rest.split_once('|') else { return };
+        let now = now_ms();
+        match (answer, crate::insights::kind_of(signature)) {
+            (Ok(v), Some(kind)) => {
+                self.insights.answered(key.to_string(), signature.to_string(), crate::insights::read(kind, &v), now);
+                self.insights.save(now);
+                self.dirty = true;
+            }
+            _ => self.insights.failed(signature.to_string(), now),
+        }
+    }
+
+    /// Sessions with Jev's read of their moment applied, when it has one and `[jev] sessions` is
+    /// on (board::apply_insight).
+    fn with_insights(&self, mut sessions: Vec<Session>, now: i64) -> Vec<Session> {
+        if !self.cfg.jev.sessions {
+            return sessions;
+        }
+        for s in &mut sessions {
+            let Some((_, signature)) = crate::insights::ask(s, now) else { continue };
+            if let Some(i) = self.insights.for_session(&s.key, &signature) {
+                board::apply_insight(s, &i.clone());
+            }
+        }
+        sessions
     }
 
     fn full_scan(&mut self) {
@@ -1630,8 +1689,12 @@ impl Engine {
                     for (id, (reg, tr)) in by_id {
                         let key = format!("claude:{}:{}", a.name, id);
                         let info = tr.map(|(_, t)| t);
-                        // Only a busy session that's gone quiet costs a look outside its transcript.
+                        // Only a busy session that's gone quiet costs a look outside its transcript,
+                        // and one whose turn left a command running in the background (read once
+                        // per status change).
+                        let background = reg.filter(|r| r.status == "shell");
                         let (subagent_at, running) = match board::claude_busy_since(reg, info) {
+                            _ if background.is_some() => (None, background.and_then(|r| self.stuck_command(r))),
                             Some(since) if now - since > board::CLAUDE_STALL_MS => {
                                 let sub = tr.and_then(|(p, _)| subagent_activity(p, id));
                                 let quiet = now - since.max(sub.unwrap_or(0)) > board::CLAUDE_STALL_MS;
@@ -1781,7 +1844,7 @@ impl Engine {
             now,
             apps: &apps,
             seeds: &self.seeds,
-            sessions: self.build_sessions(now),
+            sessions: self.with_insights(self.build_sessions(now), now),
             git: &self.git,
             prs: &self.prs,
             project_order: &order,

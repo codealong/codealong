@@ -3620,3 +3620,30 @@ html.is-quick body {
 .ca-jev-model {
   justify-self: start;
 }
+
+/* Jev's read of a session or worktree (InsightBits.tsx). */
+.ca-chip.ca-insight {
+  padding: 0 7px;
+  font-family: var(--font-sans);
+  font-weight: 600;
+}
+.ca-chip.ca-insight.is-good {
+  background: var(--pr-open-tint);
+  color: var(--pr-open);
+}
+.ca-chip.ca-insight.is-info {
+  background: var(--unread-tint);
+  color: var(--unread);
+}
+.ca-chip.ca-insight.is-warn {
+  background: var(--attn-tint);
+  color: var(--attn);
+}
+.ca-chip.ca-insight.is-bad {
+  background: var(--alert-tint);
+  color: var(--alert);
+}
+.ca-chip.ca-insight.is-quiet {
+  background: var(--neutral-tint);
+  color: var(--ink-3);
+}
