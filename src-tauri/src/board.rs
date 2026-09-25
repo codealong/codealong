@@ -28,8 +28,12 @@ pub const CLAUDE_STALL_MS: i64 = 30 * 60 * 1000;
 
 /// When a busy Claude session last showed signs of life in its transcript or status; None when
 /// it isn't busy.
+///
+/// Only `busy` counts. `shell` is a turn that ended with a command left running in the
+/// background: it runs detached from the terminal, so it can't be waiting for your typing, and
+/// Claude Code wakes the session when it finishes. Polls for a review or CI run for hours.
 pub fn claude_busy_since(reg: Option<&RegistryEntry>, tr: Option<&TranscriptInfo>) -> Option<i64> {
-    let r = reg.filter(|r| matches!(r.status.as_str(), "busy" | "shell"))?;
+    let r = reg.filter(|r| r.status == "busy")?;
     Some([tr.map(|t| t.last_ts), r.status_updated_at].into_iter().flatten().max().unwrap_or(0))
 }
 
@@ -38,7 +42,8 @@ pub fn claude_busy_since(reg: Option<&RegistryEntry>, tr: Option<&TranscriptInfo
 pub struct Quiet<'a> {
     /// The newest write to the session's subagent logs.
     pub subagent_at: Option<i64>,
-    /// The command its shell is running, from the process table.
+    /// The command its shell is running, from the process table: for a quiet busy session, and
+    /// for one whose turn left a command running in the background.
     pub running: Option<&'a str>,
 }
 const MAX_SESSIONS_PER_LANE: usize = 30;
@@ -107,6 +112,7 @@ pub fn claude_session(
     let stalled_since = claude_busy_since(reg, tr)
         .map(|t| t.max(quiet.subagent_at.unwrap_or(0)))
         .filter(|t| now - t > CLAUDE_STALL_MS);
+    let background = reg.is_some_and(|r| r.status == "shell");
     let status = match reg {
         None => Status::Stopped,
         Some(_) if stalled_since.is_some() => Status::Needs,
@@ -148,6 +154,10 @@ pub fn claude_session(
             })
         }
         Status::Needs => tr.and_then(|t| t.pending_tool.clone()),
+        Status::Working if background => Some(match quiet.running {
+            Some(cmd) => format!("Working in the background · {}", code(&truncate(&one_line(cmd, 200), 80))),
+            None => "Working in the background".to_string(),
+        }),
         Status::Working => tr.and_then(|t| t.last_tool.clone()),
         _ => tr.and_then(|t| t.last_text.clone().or_else(|| t.last_prompt.clone())),
     };
@@ -180,6 +190,8 @@ pub fn claude_session(
         title: truncate(&plain(&title), 90),
         cwd,
         work: tr.map(|t| t.work.clone()).unwrap_or_default(),
+        reply_tail: tr.and_then(|t| t.last_text_tail.clone()),
+        first_prompt: tr.and_then(|t| t.first_prompt.clone()),
         name: reg.and_then(|r| r.name.clone()),
         started_at: reg.and_then(|r| r.started_at).or_else(|| tr.and_then(|t| t.started_at)),
         status_since: reg.and_then(|r| r.status_updated_at),
@@ -194,7 +206,9 @@ pub fn claude_session(
         archived: false,
         attach_command,
         stalled_since,
+        background: background.then(|| quiet.running.unwrap_or_default().to_string()),
         app_account: account.home_path() == crate::util::home().join(".claude"),
+        insight: None,
     })
 }
 
@@ -246,6 +260,8 @@ pub fn codex_session(account: &AccountCfg, th: &ThreadInfo, name: Option<&str>, 
         title: truncate(&plain(&title), 90),
         cwd: th.cwd.clone(),
         work: th.work.clone(),
+        reply_tail: th.last_agent_tail.clone(),
+        first_prompt: None,
         name: None,
         started_at: th.started_at,
         status_since: if status == Status::Working { th.turn_started_at } else { th.last_complete_at },
@@ -258,6 +274,8 @@ pub fn codex_session(account: &AccountCfg, th: &ThreadInfo, name: Option<&str>, 
         archived: false,
         attach_command: None,
         stalled_since: None,
+        background: None,
+        insight: None,
     }
 }
 
@@ -308,6 +326,8 @@ pub fn opencode_session(account: &AccountCfg, row: &SessionRow, live: Option<&Li
         title: truncate(&plain(&title), 90),
         cwd: row.directory.clone(),
         work: Vec::new(),
+        reply_tail: row.last_text_tail.clone(),
+        first_prompt: None,
         name: None,
         started_at: Some(row.created_at),
         status_since: if running { row.last_prompt_at } else { row.idle_at },
@@ -320,6 +340,8 @@ pub fn opencode_session(account: &AccountCfg, row: &SessionRow, live: Option<&Li
         archived: row.archived_at.is_some(),
         attach_command: None,
         stalled_since: None,
+        background: None,
+        insight: None,
     }
 }
 
@@ -366,6 +388,9 @@ pub fn antigravity_session(account: &AccountCfg, c: &Conversation, seen_at: i64,
         title: truncate(&plain(&title), 90),
         cwd: c.cwd.clone().unwrap_or_default(),
         work: Vec::new(),
+        // The preview is the conversation's opening, as the app lists it.
+        reply_tail: None,
+        first_prompt: c.preview.clone(),
         name: None,
         started_at: None,
         status_since: if status == Status::Working { c.last_input } else { Some(c.last_modified) },
@@ -378,6 +403,8 @@ pub fn antigravity_session(account: &AccountCfg, c: &Conversation, seen_at: i64,
         archived: false,
         attach_command: None,
         stalled_since: None,
+        background: None,
+        insight: None,
     }
 }
 
@@ -599,6 +626,81 @@ pub fn checks_summary(c: &Checks) -> String {
     parts.join(" · ")
 }
 
+/* ---- Jev's read (insights.rs) ---- */
+
+/// How sure Jev has to be that a finished turn asks you something before it's Needs you.
+pub const ASKS_YOU: f64 = 0.7;
+/// A quiet command is stuck only when Jev gives it at least this chance of waiting for typing.
+pub const WAITS_FOR_INPUT: f64 = 0.3;
+/// A background command is stuck when Jev is this sure.
+pub const BACKGROUND_STALLED: f64 = 0.7;
+/// A session counts as finished for its worktree from this sure.
+pub const FINISHED: f64 = 0.8;
+
+/// The last sentence of a reply, for a row: where its question is.
+pub fn last_sentence(text: &str) -> String {
+    let t = text.trim().trim_start_matches('…').trim();
+    // A sentence ends at a stop followed by a space, so `App.tsx` and `e.g.` don't split one.
+    let chars: Vec<(usize, char)> = t.char_indices().collect();
+    let cut = chars.windows(2).filter(|w| matches!(w[0].1, '.' | '!' | '?') && w[1].1.is_whitespace()).map(|w| w[1].0).last().unwrap_or(0);
+    truncate(t[cut..].trim(), 140)
+}
+
+/// Applies Jev's read of a session to what the board shows, before bays and headlines are
+/// worked out, so they follow it:
+/// - a finished turn whose reply asks you something is Needs you, with the question;
+/// - a busy session gone quiet on a command that isn't waiting for typing is working on it,
+///   not stuck;
+/// - a command left running in the background says whether it polls or runs a job, and is
+///   stuck when it looks stuck.
+pub fn apply_insight(s: &mut Session, i: &SessionInsight) {
+    s.insight = Some(i.clone());
+    if s.status == Status::Unread && i.asks_you.unwrap_or(0.0) >= ASKS_YOU {
+        s.status = Status::Needs;
+        let question = s.reply_tail.as_deref().map(last_sentence).filter(|q| !q.is_empty());
+        s.excerpt = Some(match question {
+            Some(q) => format!("Asks you · {q}"),
+            None => "Asks you something".to_string(),
+        });
+    }
+    if let (Some(since), Some(p)) = (s.stalled_since, i.waits_for_input) {
+        if p < WAITS_FOR_INPUT {
+            s.status = Status::Working;
+            s.stalled_since = None;
+            s.status_since = Some(s.status_since.unwrap_or(since).min(since));
+            s.excerpt = s.excerpt.as_deref().map(|e| e.replacen("Stuck on", "Running", 1));
+        }
+    }
+    if let (Some(cmd), Some(kind)) = (s.background.clone(), i.background.as_deref()) {
+        let shown = code(&truncate(&one_line(&cmd, 200), 80));
+        match kind {
+            "polling" => {
+                let waits = s.reply_tail.as_deref().map(last_sentence).filter(|q| !q.is_empty());
+                s.excerpt = Some(format!("Polling in the background · {}", waits.unwrap_or(shown)));
+            }
+            "job" => s.excerpt = Some(format!("Running in the background · {shown}")),
+            "stalled" if i.background_p.unwrap_or(0.0) >= BACKGROUND_STALLED => {
+                s.status = Status::Needs;
+                s.stalled_since = Some(s.status_since.unwrap_or(s.last_activity));
+                s.excerpt = Some(format!("Stuck on {shown}"));
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Whether a worktree looks finished: not the main checkout, no PR that says where it stands
+/// already (a merged or closed one has its own bay), nothing running or waiting, and every
+/// session of its own read by Jev as finished.
+pub fn looks_finished(origin: Origin, pr: Option<&Pr>, sessions: &[Session]) -> bool {
+    if origin == Origin::Main || pr.is_some_and(|p| !p.state.is_open()) {
+        return false;
+    }
+    let own: Vec<&Session> = sessions.iter().filter(|s| s.visitor.is_none() && !s.archived).collect();
+    !own.is_empty()
+        && own.iter().all(|s| !matches!(s.status, Status::Working | Status::Needs) && s.insight.as_ref().and_then(|i| i.finished).is_some_and(|f| f >= FINISHED))
+}
+
 /// A session's own sentence. See *The model*, Headlines.
 pub fn session_headline(s: &Session) -> (String, Option<String>) {
     let acct = code(&s.account);
@@ -789,7 +891,7 @@ pub fn targets(seed: &LaneSeed, sessions: &[Session], pr: Option<&Pr>, apps: &Ap
         }
     }
     let here = tilde(&seed.path);
-    t.push(target("l|terminal".into(), "terminal", format!("New {term} window here"), Some(here), Some(&["⌘", "1"]), false, "lane"));
+    t.push(target("l|terminal".into(), "terminal", format!("New {term} terminal here"), Some(here), Some(&["⌘", "1"]), false, "lane"));
     t.push(target("l|editor".into(), "code", format!("Open in {editor}"), None, Some(&["⌘", "2"]), false, "lane"));
     t.push(target("l|finder".into(), "folder", "Reveal in Finder".into(), None, None, false, "lane"));
     if let Some(pr) = pr {
@@ -878,6 +980,7 @@ pub fn compose(inp: Inputs) -> Board {
         sessions.extend(archived);
         let dirty = g.as_ref().map(|g| g.dirty > 0).unwrap_or(false);
         let parked = bay == Bay::Idle && !dirty && now - last_activity > 14 * DAY_MS;
+        let looks_finished = looks_finished(seed.origin, pr.as_ref(), &sessions);
         lanes.push(Lane {
             id: seed.path.to_string_lossy().into_owned(),
             project: seed.project.clone(),
@@ -897,6 +1000,7 @@ pub fn compose(inp: Inputs) -> Board {
             sessions,
             pr,
             git: g,
+            looks_finished,
             last_activity,
             targets,
             default_target,
@@ -965,6 +1069,28 @@ pub fn logo_status(lanes: &[Lane], prs: &[PrItem]) -> LogoStatus {
         });
     let review = prs.iter().any(|p| p.review_requested && p.state.is_open());
     sessions.chain(review.then_some(LogoStatus::Needs)).min().unwrap_or_default()
+}
+
+/// The folders a new terminal at `path` belongs beside, nearest first: its worktree, the other
+/// worktrees of its repo, then the rest of its project. `[apps] new_terminal = "project"` opens
+/// it as a tab in a window already showing the nearest of them. A folder elsewhere (a project of
+/// its own that isn't one) has only itself for company.
+pub fn terminal_neighbours(lanes: &[Lane], path: &Path) -> Vec<Vec<String>> {
+    let within = |l: &&Lane| path.starts_with(&l.path);
+    let Some(home) = lanes.iter().filter(within).max_by_key(|l| l.path.len()) else {
+        return vec![vec![path.to_string_lossy().into_owned()]];
+    };
+    let mut groups = vec![vec![home.path.clone()]];
+    if home.origin == Origin::Other {
+        return groups;
+    }
+    let others = |same: &dyn Fn(&Lane) -> bool| -> Vec<String> {
+        lanes.iter().filter(|l| l.path != home.path && l.origin != Origin::Other && same(l)).map(|l| l.path.clone()).collect()
+    };
+    let repo = others(&|l| l.project == home.project && l.repo == home.repo);
+    let project = others(&|l| l.project == home.project && l.repo != home.repo);
+    groups.extend([repo, project].into_iter().filter(|g| !g.is_empty()));
+    groups
 }
 
 #[cfg(test)]
@@ -1294,7 +1420,7 @@ mod tests {
         let a = acct("claude2");
         let mut t = tr();
         t.last_ts = NOW - 3 * DAY_MS;
-        let r = reg("shell", NOW - 3 * DAY_MS);
+        let r = reg("busy", NOW - 3 * DAY_MS);
         let stuck = claude_session(&a, Some(&r), Some(&t), 0, NOW, &Quiet { subagent_at: None, running: Some("gcloud auth login") }).unwrap();
         assert_eq!(stuck.status, Status::Needs);
         assert_eq!(stuck.stalled_since, Some(NOW - 3 * DAY_MS));
@@ -1310,6 +1436,110 @@ mod tests {
         let busy = claude_session(&a, Some(&reg("busy", NOW - 3 * DAY_MS)), Some(&t), 0, NOW, &Quiet::default()).unwrap();
         assert_eq!(busy.status, Status::Working);
         assert_eq!(busy.stalled_since, None);
+    }
+
+    fn insight(f: impl FnOnce(&mut SessionInsight)) -> SessionInsight {
+        let mut i = SessionInsight::default();
+        f(&mut i);
+        i
+    }
+
+    #[test]
+    fn finds_the_last_sentence() {
+        assert_eq!(last_sentence("…tests pass in App.tsx. Should I also migrate the old table?"), "Should I also migrate the old table?");
+        assert_eq!(last_sentence("One line only"), "One line only");
+        assert_eq!(last_sentence("Done! Next up: the docs."), "Next up: the docs.");
+    }
+
+    #[test]
+    fn a_finished_turn_that_asks_you_something_needs_you() {
+        let a = acct("claude2");
+        let mut s = claude_session(&a, Some(&reg("idle", NOW - 10)), Some(&tr()), NOW - 100, NOW, &Quiet::default()).unwrap();
+        s.reply_tail = Some("…all green. Want me to open the PR, or keep it local?".into());
+        assert_eq!(s.status, Status::Unread);
+        let mut unsure = s.clone();
+        apply_insight(&mut unsure, &insight(|i| i.asks_you = Some(0.5)));
+        assert_eq!(unsure.status, Status::Unread);
+        assert!(unsure.insight.is_some());
+        apply_insight(&mut s, &insight(|i| i.asks_you = Some(0.9)));
+        assert_eq!(s.status, Status::Needs);
+        assert_eq!(s.excerpt.as_deref(), Some("Asks you · Want me to open the PR, or keep it local?"));
+        // Seen already, it's yours to answer when you like: no change.
+        let mut idle = claude_session(&a, Some(&reg("idle", NOW - 100)), Some(&tr()), NOW - 10, NOW, &Quiet::default()).unwrap();
+        apply_insight(&mut idle, &insight(|i| i.asks_you = Some(0.9)));
+        assert_eq!(idle.status, Status::Idle);
+    }
+
+    #[test]
+    fn a_quiet_command_that_isnt_waiting_for_typing_is_working() {
+        let a = acct("claude2");
+        let mut t = tr();
+        t.last_ts = NOW - 3 * DAY_MS;
+        let quiet = Quiet { subagent_at: None, running: Some("cargo build --release") };
+        let mut s = claude_session(&a, Some(&reg("busy", NOW - 3 * DAY_MS)), Some(&t), 0, NOW, &quiet).unwrap();
+        let mut login = s.clone();
+        apply_insight(&mut login, &insight(|i| i.waits_for_input = Some(0.8)));
+        assert_eq!(login.status, Status::Needs);
+        apply_insight(&mut s, &insight(|i| i.waits_for_input = Some(0.1)));
+        assert_eq!((s.status, s.stalled_since), (Status::Working, None));
+        assert!(s.excerpt.as_deref().unwrap().starts_with("Running `cargo build --release` for {for:"));
+    }
+
+    #[test]
+    fn a_background_command_polls_runs_or_is_stuck() {
+        let a = acct("claude2");
+        let quiet = Quiet { subagent_at: None, running: Some("while true; do sleep 60; gh pr view 1054; done") };
+        let mut s = claude_session(&a, Some(&reg("shell", NOW - DAY_MS)), Some(&tr()), 0, NOW, &quiet).unwrap();
+        s.reply_tail = Some("I'll keep checking. Waiting for the reviewer to approve #1054.".into());
+        let mut poll = s.clone();
+        apply_insight(&mut poll, &insight(|i| (i.background, i.background_p) = (Some("polling".into()), Some(0.9))));
+        assert_eq!((poll.status, poll.excerpt.as_deref()), (Status::Working, Some("Polling in the background · Waiting for the reviewer to approve #1054.")));
+        let mut job = s.clone();
+        apply_insight(&mut job, &insight(|i| (i.background, i.background_p) = (Some("job".into()), Some(0.9))));
+        assert!(job.excerpt.as_deref().unwrap().starts_with("Running in the background · `while true"));
+        let mut maybe = s.clone();
+        apply_insight(&mut maybe, &insight(|i| (i.background, i.background_p) = (Some("stalled".into()), Some(0.5))));
+        assert_eq!(maybe.status, Status::Working);
+        apply_insight(&mut s, &insight(|i| (i.background, i.background_p) = (Some("stalled".into()), Some(0.8))));
+        assert_eq!(s.status, Status::Needs);
+        assert!(s.stalled_since.is_some());
+        assert_eq!(session_headline(&s).0, "`claude2` is stuck · Quarry daily log + photo sync");
+    }
+
+    #[test]
+    fn a_worktree_looks_finished_when_every_session_in_it_is() {
+        let a = acct("claude2");
+        let done = |f: f64| {
+            let mut s = claude_session(&a, None, Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
+            apply_insight(&mut s, &insight(|i| i.finished = Some(f)));
+            s
+        };
+        assert!(looks_finished(Origin::Script, None, &[done(0.9)]));
+        assert!(!looks_finished(Origin::Script, None, &[done(0.9), done(0.5)]));
+        assert!(!looks_finished(Origin::Main, None, &[done(0.9)]));
+        assert!(!looks_finished(Origin::Script, None, &[]));
+        let mut visitor = done(0.1);
+        visitor.visitor = Some("worked here".into());
+        assert!(looks_finished(Origin::Script, None, &[done(0.9), visitor]));
+        let mut working = done(0.9);
+        working.status = Status::Working;
+        assert!(!looks_finished(Origin::Script, None, &[working]));
+    }
+
+    #[test]
+    fn a_command_left_running_in_the_background_is_never_stuck() {
+        let a = acct("claude2");
+        let mut t = tr();
+        t.last_ts = NOW - 3 * DAY_MS;
+        let r = reg("shell", NOW - 3 * DAY_MS);
+        let poll = "while true; do sleep 60; gh pr view 1054 --json reviewDecision; done";
+        let s = claude_session(&a, Some(&r), Some(&t), 0, NOW, &Quiet { subagent_at: None, running: Some(poll) }).unwrap();
+        assert_eq!((s.status, s.stalled_since), (Status::Working, None));
+        assert!(s.excerpt.as_deref().unwrap().starts_with("Working in the background · `while true; do sleep 60;"), "{:?}", s.excerpt);
+        assert_eq!(s.background.as_deref(), Some(poll));
+        let unknown = claude_session(&a, Some(&r), Some(&t), 0, NOW, &Quiet::default()).unwrap();
+        assert_eq!((unknown.status, unknown.excerpt.as_deref()), (Status::Working, Some("Working in the background")));
+        assert_eq!(claude_busy_since(Some(&r), Some(&t)), None);
     }
 
     #[test]
@@ -1553,7 +1783,7 @@ mod tests {
 
     #[test]
     fn builds_targets_with_app_names() {
-        let apps = AppNames { terminal: "Ghostty".into(), terminal_id: "ghostty".into(), editor: "Cursor".into(), editor_id: "cursor".into() };
+        let apps = AppNames { terminal: "Ghostty".into(), terminal_id: "ghostty".into(), editor: "Cursor".into(), editor_id: "cursor".into(), new_terminal: Default::default() };
         let a = acct("claude2");
         let live = claude_session(&a, Some(&reg("waiting", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
         let (t, default) = targets(&seed("/r/atlas-quarry", "quarry"), &[live], None, &apps);
@@ -1756,5 +1986,22 @@ mod tests {
         assert_eq!(board.lanes[1].headline, "Worked on by `claude2` · Quarry daily log + photo sync");
         assert_eq!(board.lanes[0].sessions[0].headline, "`claude2` is waiting for approval");
         assert_eq!(board.projects[0].lanes, 2);
+    }
+
+    #[test]
+    fn a_new_terminal_goes_beside_its_worktree_then_its_repo_then_its_project() {
+        let apps = AppNames::default();
+        let mut other_repo = seed("/r/kestrel", "main");
+        other_repo.repo = "kestrel".into();
+        let mut elsewhere = seed("/tmp/scratch", "main");
+        (elsewhere.project, elsewhere.origin) = ("Elsewhere".into(), Origin::Other);
+        let seeds = vec![seed("/r/atlas", "main"), seed("/r/atlas-pins", "pins"), other_repo, elsewhere];
+        let (git, prs, visitors) = (HashMap::new(), HashMap::new(), HashMap::new());
+        let order = vec!["Northwind".to_string()];
+        let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![], visitors: &visitors, git: &git, prs: &prs, project_order: &order, warnings: vec![], loading: false, github_at: None, pinned: &[], github_login: None });
+        let near = |p: &str| terminal_neighbours(&board.lanes, Path::new(p));
+        assert_eq!(near("/r/atlas-pins/src"), vec![vec!["/r/atlas-pins".to_string()], vec!["/r/atlas".to_string()], vec!["/r/kestrel".to_string()]]);
+        assert_eq!(near("/tmp/scratch"), vec![vec!["/tmp/scratch".to_string()]]);
+        assert_eq!(near("/Users/me"), vec![vec!["/Users/me".to_string()]]);
     }
 }

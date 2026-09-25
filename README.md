@@ -63,7 +63,8 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
 - **Open where it lives**: the session's own Ghostty tab, the Claude app session, the Codex
   thread, an OpenCode session in its terminal (or resumed in a new one with `--session`),
   Antigravity brought forward (it has no link to a conversation), a background job attached
-  in a new window, or the folder in Cursor.
+  in a new terminal, or the folder in Cursor. A new terminal opens as a tab in the Ghostty
+  window already showing that worktree, repo or project (`new_terminal` in config.toml).
 - **Quick panel** (⌥⇧Space from any app, over full-screen ones too; ⌘N, the title bar, the
   inspector, or a worktree's or session's right-click menu in Codealong): one input, and below
   it what you can do next. With nothing typed it lists the sessions that need you, then the
@@ -79,6 +80,15 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   so ⏎ goes to what needs you; ↑ brings back what you'd typed before closing. A project picker (⌘P) narrows everything to one project. The shortcut is
   yours to change in Settings › General; Settings names shortcuts macOS and common launchers
   already use.
+- **Session status from Jev** (optional; Settings › Jev, `[jev] sessions`): once per turn,
+  Jev reads the end of the last reply and the command a session runs or waits on. A reply
+  that asks you something turns *Your turn* into *Needs you*, with the question; a busy session
+  quiet on a long build stays *Working* instead of *stuck*; a command left running in the
+  background says whether it polls for something or runs a job. Rows show how far the work
+  got (Landed, Pushed, Committed, Not committed, Blocked) and how risky a command waiting for
+  approval looks; a worktree whose sessions all read as done says *Looks finished*. Answers are
+  kept in insights.json, so a turn is asked about once. Without Jev, a Claude session whose turn
+  left a command running in the background (registry status `shell`) is always *Working*.
 - **Suggestions in the quick panel** (optional; Settings › Jev, `[jev] quick_panel` in config.toml):
   once you pause typing, TypeSafe's Jev reads what you wrote against the project's sessions and
   worktrees and the panel leads with up to three suggestions, each with how likely it is: send
@@ -208,6 +218,7 @@ scan = ["~/projects"]          # where repos are found, three levels deep
 [apps]
 terminal = "ghostty"
 editor = "cursor"
+new_terminal = "project"       # a tab beside the same worktree, repo or project; or "tab", "window"
 
 [appearance]
 theme = "system"               # follows macOS; or "light", "dark"

@@ -40,6 +40,8 @@ export interface Session {
   attachCommand: string | null;
   /** Busy but silent for a long while: stuck mid-turn. When it went quiet. */
   stalledSince: number | null;
+  /** Jev's read of how its turn ended, when `[jev] sessions` is on (insights.rs). */
+  insight?: SessionInsight;
   resumeCommand: string | null;
   /** The Claude app is signed into this session's account. */
   appAccount: boolean;
@@ -114,6 +116,8 @@ export interface Lane {
   pr: Pr | null;
   git: GitInfo | null;
   lastActivity: number;
+  /** Jev reads every session here as finished and nothing runs: maybe ready to clean up. */
+  looksFinished?: boolean;
   targets: Target[];
   defaultTarget: string | null;
 }
@@ -168,7 +172,7 @@ export interface ProjectCfg {
 /** config.toml, as the engine parses it (src-tauri/src/config.rs). Keys are the file's own. */
 export interface Config {
   scan: string[];
-  apps: { terminal: string; editor: string };
+  apps: { terminal: string; editor: string; new_terminal?: NewTerminal };
   appearance: { theme: Theme };
   /** Shortcuts that work in any app, as config.toml writes them (`Option+Shift+Space`); empty is off. */
   shortcuts: { quick_panel: string };
@@ -180,6 +184,10 @@ export interface Config {
   search?: { days: number };
   debug: { perf_log: boolean };
 }
+
+/** Where a terminal Codealong opens goes: its own window, a tab in the front window, or a tab
+ *  beside the same worktree, repo or project. */
+export type NewTerminal = 'window' | 'tab' | 'project';
 
 /** A terminal or editor profile `[apps]` can name. */
 export interface Profile {
@@ -244,7 +252,7 @@ export interface Board {
   generatedAt: number;
   /** App-wide status from the engine; view and project filters do not change the logo. */
   logoStatus: LogoStatus;
-  apps: { terminal: string; terminalId: string; editor: string; editorId: string };
+  apps: { terminal: string; terminalId: string; editor: string; editorId: string; newTerminal?: NewTerminal };
   projects: ProjectSummary[];
   lanes: Lane[];
   warnings: string[];
@@ -280,6 +288,18 @@ export interface JevCfg {
   sessions: boolean;
   todos: boolean;
   pull_requests: boolean;
+}
+
+/** Jev's read of a session (insights.rs). Each part is there only when it was asked. */
+export interface SessionInsight {
+  asksYou?: number;
+  landing?: 'landed' | 'pushed' | 'committed' | 'uncommitted' | 'blocked' | 'none';
+  finished?: number;
+  /** 0 reads only … 3 destructive. */
+  risk?: number;
+  waitsForInput?: number;
+  background?: 'polling' | 'job' | 'stalled';
+  backgroundP?: number;
 }
 
 export type RouteAction = 'send' | 'start' | 'find' | 'todo';

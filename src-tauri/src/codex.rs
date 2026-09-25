@@ -20,6 +20,8 @@ pub struct ThreadInfo {
     pub turn_started_at: Option<i64>,
     pub last_complete_at: Option<i64>,
     pub last_agent_message: Option<String>,
+    /// The end of that message, for Jev.
+    pub last_agent_tail: Option<String>,
     pub last_user_message: Option<String>,
     /// When you sent that prompt. It doesn't move while the thread works, so lists sort by it.
     pub last_prompt_at: Option<i64>,
@@ -443,6 +445,7 @@ fn apply_event(info: &mut ThreadInfo, v: &Value) {
             info.pending_approval = None;
             if let Some(m) = payload.get("last_agent_message").and_then(Value::as_str).filter(|m| !m.trim().is_empty()) {
                 info.last_agent_message = Some(one_line(m, 140));
+                info.last_agent_tail = Some(crate::jev::tail(m, 600));
             }
         }
         "turn_aborted" => {

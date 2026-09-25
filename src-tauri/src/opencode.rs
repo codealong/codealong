@@ -33,6 +33,8 @@ pub struct SessionRow {
     pub last_prompt_at: Option<i64>,
     /// The latest assistant text, first line.
     pub last_text: Option<String>,
+    /// The end of the latest assistant text, for Jev.
+    pub last_text_tail: Option<String>,
     /// The tool the latest assistant message is on, e.g. "bash · `npm test`".
     pub last_tool: Option<String>,
     /// The newest write to the session or its messages.
@@ -140,6 +142,7 @@ fn read_sessions_from(db: &Connection, since_ms: i64, keep: &HashSet<String>) ->
             "assistant" => {
                 let (text, tool) = assistant_summary(&v);
                 row.last_text = text;
+                row.last_text_tail = last_text_part(&v).map(|t| crate::jev::tail(t, 600)).filter(|t| !t.is_empty());
                 row.last_tool = tool;
             }
             _ => {}
@@ -194,6 +197,17 @@ pub fn read_prose(home: &Path, since_ms: i64, after: i64) -> Vec<Prose> {
 }
 
 /// The latest text and the latest tool call in an assistant message's content.
+/// The latest text part of an assistant message, whole.
+fn last_text_part(message: &Value) -> Option<&str> {
+    message
+        .get("content")?
+        .as_array()?
+        .iter()
+        .rev()
+        .filter(|p| p.get("type").and_then(Value::as_str) == Some("text"))
+        .find_map(|p| p.get("text").and_then(Value::as_str))
+}
+
 fn assistant_summary(message: &Value) -> (Option<String>, Option<String>) {
     let parts = message.get("content").and_then(Value::as_array).cloned().unwrap_or_default();
     let text = parts
