@@ -29,6 +29,7 @@ use crate::model::*;
 use crate::perf;
 use crate::procs;
 use crate::repos::{self, Checkout};
+use crate::search;
 use crate::state::SeenState;
 use crate::throttle::{self, GitQueue, Verdict};
 use crate::todos::{self, TodoOp, TodoStore};
@@ -1055,6 +1056,7 @@ impl Engine {
             }
         }
         perf::set_enabled(self.cfg.debug.perf_log);
+        search::configure(search::Scope { accounts: self.cfg.accounts.clone(), days: self.cfg.search.days });
     }
 
     /// Every folder config.toml lists is known from then on, so an account you take out isn't

@@ -185,6 +185,7 @@ interface PaneProps {
 }
 
 function GeneralPane({ cfg, view, theme, onPickTheme, disabled, onSave }: PaneProps & { view: ConfigView; theme: Theme; onPickTheme: (t: Theme) => void }) {
+  const searchDays = cfg.search?.days ?? MAX_SEARCH_DAYS;
   return (
     <>
       <div className="ca-settings-intro">
@@ -202,6 +203,11 @@ function GeneralPane({ cfg, view, theme, onPickTheme, disabled, onSave }: PanePr
           <ShortcutField value={cfg.shortcuts?.quick_panel ?? DEFAULT_QUICK_PANEL} onChange={(quick_panel) => void onSave({ ...cfg, shortcuts: { ...cfg.shortcuts, quick_panel } })} />
           <small>Opens from any app, over full-screen ones too: the sessions that need you, a search, and a new session. ⌘N does the same in Codealong.</small>
         </div>
+        <label className="ca-field">
+          <span>Search what sessions said</span>
+          <ProfileSelect value={String(searchDays)} profiles={dayOptions(searchDays)} onChange={(d) => void onSave({ ...cfg, search: { days: Number(d) } })} />
+          <small>The quick panel and <code>codealong sessions find</code> look for your words in the prompts and replies of sessions active this recently, not just in their titles. Tool output is left out. Codealong keeps this text in memory, a few megabytes a week.</small>
+        </label>
         <label className="ca-field">
           <span>Terminal</span>
           <ProfileSelect value={cfg.apps.terminal} profiles={view.terminals} onChange={(terminal) => void onSave({ ...cfg, apps: { ...cfg.apps, terminal } })} />
@@ -243,6 +249,15 @@ function GeneralPane({ cfg, view, theme, onPickTheme, disabled, onSave }: PanePr
 }
 
 const DEFAULT_QUICK_PANEL = 'Option+Shift+Space';
+
+/** The board goes back this far, so searching further finds nothing more (config.rs). */
+const MAX_SEARCH_DAYS = 14;
+
+/** The choices for how far back text search reaches, with a value typed in config.toml too. */
+function dayOptions(current: number): Profile[] {
+  const days = [...new Set([0, 1, 3, 7, MAX_SEARCH_DAYS, current])].sort((a, b) => a - b);
+  return days.map((d) => ({ id: String(d), name: d === 0 ? 'Off: titles only' : d === 1 ? 'The last day' : `The last ${d} days` }));
+}
 
 const JEV_OFF: JevCfg = { model: 'jev-latest', quick_panel: false, sessions: false, todos: false, pull_requests: false };
 

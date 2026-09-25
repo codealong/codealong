@@ -118,6 +118,23 @@ window.__TAURI_INTERNALS__ = {
         errors: cmd === 'install_agents' && (args || {}).accounts && args.accounts.indexOf('codex') >= 0 ? ['codex: /Users/you/.codex/skills/codealong exists and Codealong didn\'t put it there; move it away to install the skill.'] : [],
       });
     }
+    // Text search: the two latest sessions whose titles don't have the words, as if their
+    // conversations did, so the panel's text hits can be seen.
+    if (cmd === 'search_text') {
+      var words = (args || {}).words || [];
+      return fetch('./board.json').then(function (r) { return r.json(); }).then(function (board) {
+        var all = board.lanes.flatMap(function (l) { return l.sessions.filter(function (s) { return !s.visitor && !s.archived; }); });
+        var free = all.filter(function (s) { return !words.every(function (w) { return s.title.toLowerCase().indexOf(w) >= 0; }); });
+        free.sort(function (a, b) { return b.lastActivity - a.lastActivity; });
+        return {
+          hits: free.slice(0, 2).map(function (s, i) {
+            return { key: s.key, snippet: '…so the ' + words.join(' and the ') + ' both go through the same path, which is what the earlier change missed.', you: i === 1, at: s.lastActivity };
+          }),
+          building: false,
+          off: false,
+        };
+      });
+    }
     // Jev's answer, from route-fixture.json (PREVIEW_ROUTE): its action and probabilities, with
     // "$session:N" and "$lane:N" as the board's Nth most recent live session and worktree.
     if (cmd === 'route_quick') {

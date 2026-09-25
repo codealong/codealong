@@ -180,6 +180,8 @@ export interface Config {
   jev?: JevCfg;
   accounts: AccountCfg[];
   projects: ProjectCfg[];
+  /** How many days of sessions have what was said in them searched; 0 is off. */
+  search?: { days: number };
   debug: { perf_log: boolean };
 }
 
@@ -561,4 +563,22 @@ export interface BarReview {
   number: number;
   title: string;
   repo: string;
+}
+
+/** A session whose prompts and replies have every word typed (search.rs). */
+export interface TextHit {
+  key: string;
+  /** A line of the message that matched best, around the first match. */
+  snippet: string;
+  /** You wrote it; otherwise the agent did. */
+  you: boolean;
+  at: number;
+}
+
+export interface TextFound {
+  hits: TextHit[];
+  /** Still reading sessions for the first time, so more may match soon. */
+  building: boolean;
+  /** `[search] days` is 0. */
+  off: boolean;
 }

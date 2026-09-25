@@ -324,6 +324,25 @@ fn prompt_of(payload: &Value) -> Option<String> {
     request_of(&text).map(str::trim).filter(|r| !r.is_empty()).map(String::from)
 }
 
+/// A prompt you sent (true) or what the agent said (false), for searching sessions' text
+/// (search.rs): `agent_message` events, or completed `AgentMessage` items in newer versions.
+pub fn prose_of(v: &Value) -> Option<(bool, String)> {
+    let payload = event_payload(v)?;
+    if let Some(prompt) = prompt_of(payload) {
+        return Some((true, prompt));
+    }
+    let text = match payload.get("type").and_then(Value::as_str)? {
+        "agent_message" => payload.get("message").and_then(Value::as_str)?.to_string(),
+        "item_completed" => {
+            let item = payload.get("item").filter(|i| i.get("type").and_then(Value::as_str) == Some("AgentMessage"))?;
+            item.get("content")?.as_array()?.iter().filter_map(|c| c.get("text").and_then(Value::as_str)).collect::<Vec<_>>().join("\n")
+        }
+        _ => return None,
+    };
+    let t = text.trim();
+    (!t.is_empty()).then(|| (false, t.to_string()))
+}
+
 /// A prompt without the context Codex wraps around it: files or browser state before a
 /// `## My request:` heading, an automation's `<heartbeat>`, a voice `<realtime_delegation>`.
 /// An answer to the agent's question isn't a request.
