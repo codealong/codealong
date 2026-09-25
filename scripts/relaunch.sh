@@ -26,5 +26,11 @@ trap 'rm -rf "$lock"' EXIT
 
 npx tauri build
 pkill -f 'Codealong\.app/Contents/MacOS/codeal[o]ng$' || true
-open "$app"
+# macOS won't open an app while its last copy is still quitting (error -600), so wait for it to
+# go, then open, trying once more if the first open is turned away.
+for _ in $(seq 1 50); do
+  pgrep -f 'Codealong\.app/Contents/MacOS/codeal[o]ng$' >/dev/null || break
+  sleep 0.2
+done
+open "$app" || { sleep 2; open "$app"; }
 echo "Relaunched $app"
