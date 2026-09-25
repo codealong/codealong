@@ -484,9 +484,9 @@ pub fn cli_main(args: &[String]) -> i32 {
     cli::main(args)
 }
 
-/// Whether a first argument names the command line (a subcommand, help or version).
-pub fn is_cli_arg(arg: &str) -> bool {
-    cli::is_cli_arg(arg)
+/// Whether a command line is for the `codealong` command rather than the app.
+pub fn is_cli(args: &[String]) -> bool {
+    cli::is_cli(args)
 }
 
 /// `codealong --snapshot [--table] [--no-github] [--usage] [--accounts]`: one pass over everything,

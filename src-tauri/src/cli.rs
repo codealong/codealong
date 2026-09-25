@@ -377,6 +377,20 @@ pub fn is_cli_arg(arg: &str) -> bool {
     matches!(arg, "help" | "--help" | "-h" | "--version" | "-V") || Cli::command().get_subcommands().any(|c| c.get_name() == arg || c.get_all_aliases().any(|a| a == arg))
 }
 
+/// Whether a whole command line (program name first) is for the command rather than the app:
+/// its first argument is a subcommand, help or the version, or one of the global flags, which
+/// may come before the subcommand (`codealong --verbose todo add …`). A line that starts with
+/// a global flag and names no subcommand still goes to the command, so clap says what's
+/// missing instead of a second app starting.
+pub fn is_cli(args: &[String]) -> bool {
+    use clap::CommandFactory;
+    let globals: Vec<String> = Cli::command().get_arguments().filter(|a| a.is_global_set()).filter_map(|a| a.get_long().map(|l| format!("--{l}"))).collect();
+    match args.get(1) {
+        Some(first) => is_cli_arg(first) || globals.contains(first),
+        None => false,
+    }
+}
+
 /// Runs the command line and returns the exit code: 0, 1 for an error, 2 for usage.
 pub fn main(args: &[String]) -> i32 {
     let cli = match Cli::try_parse_from(args) {
@@ -1845,6 +1859,19 @@ mod tests {
         for a in ["-psn_0_12345", "/Users/me/file.txt", "--snapshot", ""] {
             assert!(!is_cli_arg(a), "{a}");
         }
+    }
+
+    #[test]
+    fn global_flags_before_the_subcommand_still_mean_the_command() {
+        let line = |a: &[&str]| std::iter::once("codealong").chain(a.iter().copied()).map(String::from).collect::<Vec<_>>();
+        assert!(is_cli(&line(&["--verbose", "todo", "add", "x"])));
+        assert!(is_cli(&line(&["--json", "sessions"])));
+        assert!(is_cli(&line(&["--table"])));
+        assert!(is_cli(&line(&["todo", "list"])));
+        assert!(!is_cli(&line(&[])));
+        assert!(!is_cli(&line(&["-psn_0_12345"])));
+        assert!(!is_cli(&line(&["/Users/me/file.txt"])));
+        assert!(Cli::try_parse_from(line(&["--verbose", "todo", "list"])).is_ok());
     }
 
     #[test]
