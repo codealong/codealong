@@ -2,13 +2,12 @@
 
 import { useEffect, useLayoutEffect, type MutableRefObject } from 'react';
 import { perfMark } from './api';
-import type { Board } from './types';
 
 /** While `[debug] perf_log` is on, reports to the perf log what this window costs: each board
- *  push from arrival to commit and to paint, pointer events that waited in the queue (the
+ *  push (board or bar feed) from arrival to commit and to paint, pointer events that waited in the queue (the
  *  wait a hover feels), and event-loop stalls, once a second at most. */
-export function usePerf(board: Board | null, arrived: MutableRefObject<number | null>) {
-  const on = board?.perfLog ?? false;
+export function usePerf(source: { perfLog?: boolean } | null, arrived: MutableRefObject<number | null>) {
+  const on = source?.perfLog ?? false;
   useLayoutEffect(() => {
     const at = arrived.current;
     if (!on || at == null) return;
@@ -21,7 +20,7 @@ export function usePerf(board: Board | null, arrived: MutableRefObject<number | 
         perfMark(`push: commit ${commit.toFixed(0)} ms, painted ${painted.toFixed(0)} ms, ${rows} rows`);
       }, 0),
     );
-  }, [board, on, arrived]);
+  }, [source, on, arrived]);
   useEffect(() => {
     if (!on) return;
     let worst = 0;

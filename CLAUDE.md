@@ -74,7 +74,9 @@ screenshot, for a state a click gets to (Settings opens on a synthetic ⌘, keyd
 check that runs for a while should set its title on an interval. Native menus, window creation and real opens
 can't be seen this way; say so rather than claiming they were checked.
 `scripts/preview.sh bar` renders the floating bar on a stand-in desktop (`PREVIEW_SIZE=1600,64` for
-a wider screen). `PREVIEW_TODOS=scripts/preview/todos-sample.json scripts/preview.sh todo` shows
+a wider screen), from the feed `--snapshot --bar` prints. The engine the preview runs is whatever
+was last built into the shared directory, possibly another session's: `PREVIEW_BIN=<a copy of
+your build>` uses yours. `PREVIEW_TODOS=scripts/preview/todos-sample.json scripts/preview.sh todo` shows
 sample todos linked to your real worktrees and sessions in place of your own, and
 `PREVIEW_USAGE=scripts/preview/usage-sample.json` sample plan usage in place of the snapshot's,
 which has no Claude numbers, and `PREVIEW_FOUND=scripts/preview/found-sample.json` sample accounts
@@ -314,11 +316,22 @@ Ghostty (1.3, AppleScript dictionary in the app bundle)
 - No TTY or PID property. To focus a session's own tab, Codealong writes an OSC 7 folder report
   with a unique path to the session's TTY (`ps -o tty= -p <pid>`), finds the terminal reporting
   it, selects that tab, then reports the real folder again. Claude Code titles tabs
-  `<glyph> <title>` and animates the glyph while working, so titles are only a fallback.
+  `<glyph> <title>` and animates the glyph while working, so titles are only a fallback, used
+  when they (or the folder) pick out a single tab.
   The mark normally shows within a fraction of a second, but on a busy Mac (load in the
   hundreds) Ghostty takes seconds, so the wait is 8 s, and only for sessions whose process
   descends from Ghostty (claude → zsh → login → ghostty); tmux and other terminals go straight to
-  titles. Once the tab is selected, the other focus steps are best effort.
+  titles. Once the tab is selected, the other focus steps are best effort. Focus requests take
+  turns, and one still waiting when a newer click arrives is dropped.
+- `windows` run front to back (`NSApp.orderedWindows`), and a loop variable over app objects
+  (`repeat with w in windows`) is `item i of every window`, asked afresh on every use: after
+  `select tab` brings a window forward, `w` is another window. Hold windows, tabs and terminals
+  by id (`every window whose id of every terminal contains <id>`, then `every tab of w whose
+  …`); `id of every terminal whose working directory contains <mark>` is one question, where
+  separate `id` and `working directory` lists can fall out of step. Store a query's result
+  before taking an item: `item 1 of (id of every terminal whose …)` is sent to Ghostty whole and
+  fails. `select tab` and `activate window` act at once; `focus` raises the window on Ghostty's
+  next turn. `current date` inside `tell application "Ghostty"` goes to Ghostty first.
 - macOS doesn't let a background process bring an app forward: `activate` from a shell leaves
   Ghostty behind; from a click in Codealong it works.
 - Scripts can take many seconds: while Ghostty launches or is busy, and while macOS asks whether
@@ -351,6 +364,12 @@ Tauri and macOS (from the Tauri 2.11 and tao 0.35 sources)
 - Transparent windows need `macOSPrivateApi` in tauri.conf.json and the `macos-private-api`
   feature. `data-tauri-drag-region="deep"` drags from anywhere inside except controls.
 - WebKit holds back ResizeObserver and animation frames while a window is hidden.
+- WebKit hands an element's transform animation to the compositor but repaints a rotating path
+  inside an SVG every frame: the working glyph turns its whole `<svg>` instead (app.css). With the
+  bar's small feed, that took the bar's web process from 7.6% of a core to 0.7% (2026-09-25).
+- WebKit also slows a visible page's timers while its app isn't frontmost: the bar's 1 s timer
+  ran a second late around the clock until the bar opted out (`background_throttling`).
+- The bar listens for `bar-feed` (barfeed.rs), never `board`, so Tauri doesn't send it the board.
 
 GitHub
 

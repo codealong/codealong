@@ -3,6 +3,7 @@
 mod appserver;
 mod attachments;
 mod bar;
+mod barfeed;
 mod board;
 mod claude;
 mod claudeapp;
@@ -147,6 +148,12 @@ fn open_from_bar(app: tauri::AppHandle, engine: State<'_, engine::Handle>, lane_
         bar::bring_forward(&app, bundle);
     }
     Ok(())
+}
+
+/// What the floating bar shows, for its first render; after that it gets `bar-feed` events.
+#[tauri::command]
+fn bar_feed(engine: State<'_, engine::Handle>) -> barfeed::BarFeed {
+    barfeed::feed(&engine.board())
 }
 
 /// Whether the floating bar is on.
@@ -466,6 +473,7 @@ pub fn run() {
                     }
                 }
                 let _ = emitter.emit("board", board);
+                bar::publish(&emitter, board);
             });
             server::serve(engine.clone());
             app.manage(engine);
@@ -484,7 +492,7 @@ pub fn run() {
         })
         .on_window_event(bar::on_window_event)
         .register_asynchronous_uri_scheme_protocol("codealong-image", |_ctx, request, responder| serve_image(request, responder))
-        .invoke_handler(tauri::generate_handler![get_board, open_target, open_config, mark_seen, refresh, refresh_usage, set_pinned, set_pinned_worktrees, archive_session, pr_detail, approve_pr, review_in_codex, open_url, get_accounts, save_accounts, found_accounts, get_config, save_config, save_config_text, sign_in, agents_status, install_agents, start_options, start_session, todo_op, save_attachment, import_attachment, open_attachment, expand_attachments, set_theme, open_project_window, fit_bar, show_main, bar_on, set_bar_on, open_from_bar, perf_mark])
+        .invoke_handler(tauri::generate_handler![get_board, open_target, open_config, mark_seen, refresh, refresh_usage, set_pinned, set_pinned_worktrees, archive_session, pr_detail, approve_pr, review_in_codex, open_url, get_accounts, save_accounts, found_accounts, get_config, save_config, save_config_text, sign_in, agents_status, install_agents, start_options, start_session, todo_op, save_attachment, import_attachment, open_attachment, expand_attachments, set_theme, open_project_window, fit_bar, show_main, bar_feed, bar_on, set_bar_on, open_from_bar, perf_mark])
         .build(tauri::generate_context!())
         .expect("error while running Codealong")
         .run(|app, event| {
@@ -510,6 +518,7 @@ pub fn is_cli(args: &[String]) -> bool {
 /// printed. Claude usage is read only with `--usage`.
 /// `codealong --snapshot --config`: the settings and config.toml, as Settings gets them.
 /// `codealong --snapshot --found`: accounts on this Mac that config.toml doesn't list.
+/// `codealong --snapshot --bar`: what the floating bar would show.
 /// `codealong --snapshot --open <lane id> <target id>`: opens a target the way a click does.
 /// `codealong --snapshot --pr <owner/name> <number>`: a PR's detail, as the PR panel gets it.
 /// `codealong --snapshot --start-options`: where each account can start a session.
@@ -589,6 +598,10 @@ pub fn snapshot_cli(args: &[String]) -> i32 {
         };
     }
     let board = engine::snapshot(!args.iter().any(|a| a == "--no-github"), args.iter().any(|a| a == "--usage"));
+    if args.iter().any(|a| a == "--bar") {
+        println!("{}", serde_json::to_string_pretty(&barfeed::feed(&board)).unwrap_or_default());
+        return 0;
+    }
     if args.iter().any(|a| a == "--table") {
         print_table(&board);
     } else {

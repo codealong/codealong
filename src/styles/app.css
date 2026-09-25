@@ -2154,6 +2154,12 @@ html.is-bar body {
   background: var(--alert-tint);
   color: var(--alert);
 }
+/* A failed open, in the place of the pill it came from: room for most of the message. */
+.ca-hud-pill.is-failed {
+  max-width: 380px;
+  background: var(--alert-tint);
+  color: var(--alert);
+}
 .ca-hud-pill.is-unread {
   background: var(--unread-tint);
   color: var(--unread);
@@ -2180,9 +2186,6 @@ html.is-bar body {
 .ca-hud-note > span {
   overflow: hidden;
   text-overflow: ellipsis;
-}
-.ca-hud-note.is-error {
-  color: var(--alert);
 }
 .ca-hud-measure {
   position: fixed;
@@ -2987,4 +2990,22 @@ html.is-bar body {
   gap: 3px;
   font-family: var(--font-sans);
   color: var(--ink-3);
+}
+
+/* The working glyph turns as a whole: WebKit gives an element's transform animation to the
+   compositor, but redraws a path inside an SVG on every frame, which kept the floating bar
+   drawing all the time. The track is a plain circle, so turning it with the arc looks the same. */
+.ca-g-arc {
+  animation: none;
+}
+.ca-glyph--working {
+  transform-origin: 50% 50%;
+  animation: ca-sweep var(--dur-sweep) linear infinite;
+  will-change: transform;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ca-glyph--working {
+    animation: none;
+    will-change: auto;
+  }
 }
