@@ -34,7 +34,9 @@ The engine binary is also the `codealong` command for agents and people (`cli.rs
 runs it for any first argument that's one of its subcommands, and starts the app otherwise):
 `status`, `accounts [--usage]`, `whoami`, `todo list|show|add|update|start|done|reopen|link|
 unlink|delete|labels`, `sessions [find <words>]`, `session show`, `worktrees`, `start`,
-`install`. JSON when piped, tables in a terminal (`--table` forces them). With the app up it
+`config show|check`, `install`. Settings are changed by editing config.toml, not through the
+command: agents edit the file well and keep its comments, and `config check` runs
+`config::parse`'s checks on the result. JSON when piped, tables in a terminal (`--table` forces them). With the app up it
 asks the app over `codealong.sock` (`server.rs`: JSON lines, `status`, `board`, `todo-apply`,
 `todo-started`, `start`); otherwise `engine::light_snapshot` and `todos::change` (under
 `todos.json.lock`, which the engine takes for its own todo changes too). After changing

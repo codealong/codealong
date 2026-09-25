@@ -105,7 +105,8 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   worktree; `codealong todo add|start|done|update|link` work the todo list; `codealong
   sessions [find <words>]`, `session show`, `worktrees` and `accounts --usage` answer what else
   is running, what it did, where it lives, and which account has room; `codealong start
-  --todo <id>` starts a session the way New session does. With the app running, answers come
+  --todo <id>` starts a session the way New session does; `codealong config show|check`
+  prints the settings and checks an edited config.toml. With the app running, answers come
   from it over a socket and todo changes go through its engine; with it closed, the command
   reads the files (sessions then show without git or PRs). Output is JSON when piped, tables
   in a terminal. Settings › Agents installs the command (a symlink on PATH) and the skill

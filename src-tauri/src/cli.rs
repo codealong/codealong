@@ -82,7 +82,7 @@ enum Cmd {
     Worktrees(WorktreesArgs),
     /// Start a session for a todo or on a prompt, the way the app's New session does, and link it to the todo.
     Start(StartArgs),
-    /// Codealong's own settings (config.toml): show, check, and change them the way Settings does, keeping the file's comments and order.
+    /// Codealong's own settings (config.toml): show them as the app reads them, and check a file before or after editing it. Change settings by editing the file; the app watches it.
     Config {
         #[command(subcommand)]
         cmd: ConfigCmd,
@@ -322,66 +322,6 @@ enum ConfigCmd {
     Show,
     /// Whether a config.toml parses and passes the app's checks: the live one, or FILE.
     Check { file: Option<String> },
-    /// Set one setting: apps.terminal, apps.editor (a profile id from `config show`), appearance.theme (system, light, dark), debug.perf_log (true, false).
-    Set { key: String, value: String },
-    /// The folders searched for repos, three levels deep.
-    Scan {
-        #[command(subcommand)]
-        cmd: ListCmd,
-    },
-    /// The accounts: one per harness config folder.
-    Account {
-        #[command(subcommand)]
-        cmd: AccountCmd,
-    },
-    /// Projects group repos by pattern (github.com/owner/*) and folders that aren't repos.
-    Project {
-        #[command(subcommand)]
-        cmd: ProjectCmd,
-    },
-}
-
-#[derive(Subcommand, Debug)]
-enum ListCmd {
-    /// Add a folder (`~` is fine).
-    Add { folder: String },
-    /// Remove a folder.
-    Remove { folder: String },
-}
-
-#[derive(Subcommand, Debug)]
-enum AccountCmd {
-    /// Add an account. The home is its config folder: ~/.claude2 for a second Claude Code account, ~/.codex, ~/.local/share/opencode, ~/.gemini/antigravity.
-    Add {
-        /// What the board shows and what you type: claude2, codex…
-        name: String,
-        /// claude, codex, opencode or antigravity.
-        #[arg(long)]
-        harness: String,
-        #[arg(long)]
-        home: String,
-        /// The command that starts it, for `<command> --resume`; the name when left out. A second Claude Code account needs one like `CLAUDE_CONFIG_DIR=~/.claude2 claude`, or a `claude2` wrapper script.
-        #[arg(long)]
-        command: Option<String>,
-    },
-    /// Remove an account by name.
-    Remove { name: String },
-}
-
-#[derive(Subcommand, Debug)]
-enum ProjectCmd {
-    /// Add a project, or replace one of the same name.
-    Add {
-        name: String,
-        /// A repo pattern: github.com/owner/* or github.com/owner/name. Repeatable.
-        #[arg(long)]
-        repo: Vec<String>,
-        /// A folder that belongs to the project without being a repo. Repeatable.
-        #[arg(long)]
-        folder: Vec<String>,
-    },
-    /// Remove a project by name. Its repos fall back to the Elsewhere group.
-    Remove { name: String },
 }
 
 #[derive(Args, Debug)]
@@ -1593,16 +1533,6 @@ fn config_view() -> ConfigOut {
     ConfigOut { view, discovered }
 }
 
-/// The live settings, or an error while the file doesn't parse: a change written then would
-/// be lost when the file is fixed.
-fn live_config() -> Result<Config> {
-    let view = config::view();
-    match view.error {
-        Some(e) => bail!("config.toml doesn't read as settings ({e}). Fix it first; `codealong config check` says when it's right."),
-        None => Ok(view.config),
-    }
-}
-
 fn config_cmd(cmd: ConfigCmd, json: bool) -> Result<()> {
     match cmd {
         ConfigCmd::Show => {
@@ -1621,7 +1551,7 @@ fn config_cmd(cmd: ConfigCmd, json: bool) -> Result<()> {
             for d in &out.discovered {
                 println!("# Found but not configured: {} ({} at {})", d.name, d.harness, d.home);
             }
-            return Ok(());
+            Ok(())
         }
         ConfigCmd::Check { file } => {
             let (path, text) = match file {
@@ -1636,93 +1566,8 @@ fn config_cmd(cmd: ConfigCmd, json: bool) -> Result<()> {
                 Ok(()) => println!("{} reads as settings.", tilde(&path)),
                 Err(e) => bail!("{}: {e}", tilde(&path)),
             }
-            return Ok(());
+            Ok(())
         }
-        ConfigCmd::Set { key, value } => {
-            let mut cfg = live_config()?;
-            let v = value.trim();
-            match key.as_str() {
-                "apps.terminal" => cfg.apps.terminal = v.to_string(),
-                "apps.editor" => cfg.apps.editor = v.to_string(),
-                "appearance.theme" => cfg.appearance.theme = serde_json::from_value(Value::String(v.to_lowercase())).map_err(|_| anyhow!("appearance.theme is system, light or dark, not {v}."))?,
-                "debug.perf_log" => cfg.debug.perf_log = v.parse().map_err(|_| anyhow!("debug.perf_log is true or false, not {v}."))?,
-                other => bail!("Settings you can set here: apps.terminal, apps.editor, appearance.theme, debug.perf_log; not {other}. Accounts, projects and scan folders have subcommands of their own."),
-            }
-            config::save(&cfg)?;
-        }
-        ConfigCmd::Scan { cmd } => {
-            let mut cfg = live_config()?;
-            match cmd {
-                ListCmd::Add { folder } => {
-                    let folder = folder.trim().to_string();
-                    if folder.is_empty() {
-                        bail!("Give a folder.");
-                    }
-                    if !expand(&folder).is_dir() {
-                        bail!("{} isn't a folder on this Mac.", folder);
-                    }
-                    if !cfg.scan.iter().any(|s| expand(s) == expand(&folder)) {
-                        cfg.scan.push(folder);
-                    }
-                }
-                ListCmd::Remove { folder } => {
-                    let before = cfg.scan.len();
-                    cfg.scan.retain(|s| expand(s) != expand(&folder));
-                    if cfg.scan.len() == before {
-                        bail!("{folder} isn't a scan folder.");
-                    }
-                }
-            }
-            config::save(&cfg)?;
-        }
-        ConfigCmd::Account { cmd } => {
-            let cfg = live_config()?;
-            let mut accounts = cfg.accounts.clone();
-            match cmd {
-                AccountCmd::Add { name, harness, home, command } => {
-                    if accounts.iter().any(|a| a.name == name) {
-                        bail!("There's an account named {name} already; remove it first to change it.");
-                    }
-                    accounts.push(AccountCfg { name, harness, home, command });
-                }
-                AccountCmd::Remove { name } => {
-                    let before = accounts.len();
-                    accounts.retain(|a| a.name != name);
-                    if accounts.len() == before {
-                        bail!("There's no account named {name}.");
-                    }
-                }
-            }
-            config::save_accounts(&accounts)?;
-        }
-        ConfigCmd::Project { cmd } => {
-            let mut cfg = live_config()?;
-            match cmd {
-                ProjectCmd::Add { name, repo, folder } => {
-                    let project = config::ProjectCfg { name: name.trim().to_string(), repos: repo, folders: folder };
-                    match cfg.projects.iter_mut().find(|p| p.name == project.name) {
-                        Some(p) => *p = project,
-                        None => cfg.projects.push(project),
-                    }
-                }
-                ProjectCmd::Remove { name } => {
-                    let before = cfg.projects.len();
-                    cfg.projects.retain(|p| p.name != name);
-                    if cfg.projects.len() == before {
-                        bail!("There's no project named {name}.");
-                    }
-                }
-            }
-            config::save(&cfg)?;
-        }
-    }
-    // Every change ends with the settings as saved, so the caller sees what the app will read.
-    let out = config_view();
-    if json {
-        print_json(&out.view.config)
-    } else {
-        println!("Saved {}.", tilde(Path::new(&out.view.path)));
-        Ok(())
     }
 }
 

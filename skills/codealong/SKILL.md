@@ -70,34 +70,47 @@ session to be started.
 
 ## Configuring Codealong
 
-Codealong's settings are `config.toml` next to its data (`codealong status` prints the path).
-The app watches the file, so a change shows at once, and every change the command makes
-keeps the file's comments and order. The settings:
+Codealong's settings are one TOML file, `config.toml`, whose path `codealong status` prints.
+Change settings by editing it. The app watches the file and applies a change as soon as it's
+saved; while a save doesn't parse, the app keeps its last good settings. Keep the file's
+comments and order, and change only what you were asked to.
 
-- `scan`: folders searched for repos, three levels deep. `codealong config scan add|remove
-  <folder>`.
-- `[apps]`: `terminal` and `editor` profile ids (`ghostty`, `cursor`; `config show` lists
-  them). `codealong config set apps.terminal <id>`.
-- `[appearance] theme`: `system`, `light` or `dark`. `codealong config set appearance.theme
-  dark`.
-- `[debug] perf_log`: `true` writes timings to `~/Library/Logs/Codealong/perf.log`. Set it
-  back to `false` when done.
-- `[[accounts]]`: one per harness config folder, with `name`, `harness` (`claude`, `codex`,
-  `opencode`, `antigravity`), `home` (`~/.claude2`, `~/.codex`, `~/.local/share/opencode`,
-  `~/.gemini/antigravity`) and `command` (what starts it; a second Claude Code account
-  needs `CLAUDE_CONFIG_DIR=~/.claude2 claude` or a `claude2` wrapper). `codealong config
-  account add <name> --harness <h> --home <dir> [--command <c>]` and `account remove
-  <name>`. `config show` lists accounts found on this Mac that aren't configured yet.
-- `[[projects]]`: groups of repos by pattern (`github.com/owner/*` or
-  `github.com/owner/name`) plus `folders` that aren't repos; anything unmatched shows under
-  Elsewhere. `codealong config project add <name> --repo <pattern>... [--folder <dir>...]`
-  replaces a project of the same name; `project remove <name>`.
+```toml
+scan = ["~/projects"]              # folders searched for repos, three levels deep
 
-`codealong config show` prints the file (with `--json`, the parsed settings, path, text,
-parse error and profiles); `codealong config check [file]` says whether a file parses and
-passes the app's checks. Prefer the subcommands to editing the file, and run `check` after
-any edit you make by hand; while the file doesn't parse the app keeps its last good
-settings and the command refuses to write over it.
+[apps]
+terminal = "ghostty"               # profile ids; `codealong config show --json` lists them
+editor = "cursor"
+
+[appearance]
+theme = "system"                   # system, light or dark
+
+[debug]
+perf_log = false                   # true logs timings to ~/Library/Logs/Codealong/perf.log
+
+[[accounts]]                       # one per harness config folder
+name = "claude2"                   # what the board shows; letters, digits, . _ -
+harness = "claude"                 # claude, codex, opencode or antigravity
+home = "~/.claude2"                # ~/.claude*, ~/.codex, ~/.local/share/opencode, ~/.gemini/antigravity
+command = "claude2"                # what starts it, for `<command> --resume <id>`; the name when left out
+
+[[projects]]                       # repos grouped by pattern; unmatched ones show under Elsewhere
+name = "Acme"
+repos = ["github.com/acme/*"]      # or an exact github.com/owner/name
+folders = []                       # folders that belong to it without being repos
+```
+
+A second Claude Code account runs with its own config folder, so its `command` is a wrapper
+such as `claude2`, or `CLAUDE_CONFIG_DIR=~/.claude2 claude`. Account names must be unique,
+and no two accounts may share a `home`. Set `perf_log` back to `false` when done; the log
+grows.
+
+- **Before editing:** `codealong config show` prints the file. With `--json` it also gives
+  the settings as the app reads them, the parse error if there is one, the valid terminal
+  and editor profiles, and `discovered`: accounts found on this Mac that aren't configured.
+- **After editing:** run `codealong config check`. It applies the app's own checks, which
+  catch what TOML alone won't: duplicate names, a shared `home`, an unknown harness, empty
+  entries. `codealong config check <file>` checks a draft before you put it in place.
 
 ## Don'ts
 
