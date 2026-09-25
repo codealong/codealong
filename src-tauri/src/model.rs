@@ -381,6 +381,8 @@ pub struct Board {
     pub todos: Vec<crate::todos::Todo>,
     /// Todo labels, in your order.
     pub labels: Vec<crate::todos::Label>,
+    /// The quick panel's shortcut, from config.toml; empty when it's off.
+    pub quick_shortcut: String,
 }
 
 /// A PR in the PRs view, with the worktrees and sessions that worked on it.

@@ -1,6 +1,7 @@
-// The new-session sheet's rules: the account Auto starts, where each choice can open, and the
-// choice the sheet opens with. Auto only chooses between accounts of one harness: picking Claude
-// Code, Codex or OpenCode is picking an agent, not just whose limits to spend.
+// The rules for starting a session from the quick panel: the account and model Auto starts,
+// what the agent menu offers (every account on every model it can start on), and where each
+// choice can open. Auto only chooses between accounts of one harness: picking Claude Code, Codex
+// or OpenCode is picking an agent, not just whose limits to spend.
 
 import { HARNESSES } from './harness';
 import type { Harness, Meter, StartAccount, StartPlace, Usage } from './types';
@@ -54,8 +55,12 @@ export function weeklyReset(u: Usage | undefined, model: string | null = null): 
   return at.length > 0 ? Math.min(...at) : null;
 }
 
+function near(m: Meter): boolean {
+  return m.severity === 'critical' || m.percent >= NEAR_LIMIT;
+}
+
 function nearLimit(u: Usage, model: string | null): boolean {
-  return metersFor(u, model).some((m) => m.severity === 'critical' || m.percent >= NEAR_LIMIT);
+  return metersFor(u, model).some(near);
 }
 
 /** Auto's account for a harness, and why: its weekly limit resets soon (`reset`), it has the
@@ -132,11 +137,105 @@ export function accountFor(choice: Choice | null, picks: Picks): string | null {
   return h ? (picks[h]?.account ?? null) : choice;
 }
 
-/** The choice the sheet opens with: the last one you started with while it's still offered,
- *  else the first on the list that can start a session. */
-export function initialChoice(accounts: StartAccount[], picks: Picks, last: Choice | undefined): Choice | null {
+/** The choice the panel opens with: `wanted` (what a failed start had) while it's still
+ *  offered, else the first on the list that can start a session, which is Auto where there's one. */
+export function initialChoice(accounts: StartAccount[], picks: Picks, wanted: Choice | undefined): Choice | null {
   const offered = choices(accounts, picks).filter((c) => placesFor(c, accounts).length > 0);
-  return last && offered.includes(last) ? last : (offered[0] ?? null);
+  return wanted && offered.includes(wanted) ? wanted : (offered[0] ?? null);
+}
+
+/** A model as `--model` takes it, and what menus call it (start.rs's CLAUDE_MODELS). */
+export interface ModelOption {
+  id: string;
+  label: string;
+}
+
+/** One line of the agent menu: Auto for a harness, or an account on a model. */
+export interface AgentOption {
+  /** `auto:<harness>`, or `<account>|<model>` with no model for the account's own default. */
+  id: string;
+  choice: Choice;
+  /** Null for the account's default model (or the one its app picks). */
+  model: string | null;
+}
+
+export function agentId(choice: Choice, model: string | null): string {
+  return autoHarness(choice) ? choice : `${choice}|${model ?? ''}`;
+}
+
+/** The choice and model an agent menu id stands for. Account names and models have no `|`. */
+export function parseAgent(id: string): { choice: Choice; model: string | null } {
+  if (autoHarness(id)) return { choice: id, model: null };
+  const at = id.indexOf('|');
+  return at < 0 ? { choice: id, model: null } : { choice: id.slice(0, at), model: id.slice(at + 1) || null };
+}
+
+/** Whether Codealong can ask an account for a model: only Claude Code takes one, and only on the
+ *  command line. The apps and OpenCode pick their own. */
+export function takesModel(a: StartAccount | undefined): boolean {
+  return !!a && a.harness === 'claude' && a.places.some((p) => p.place === 'terminal');
+}
+
+/** What the agent menu lists: Auto for each harness that has it, then every account, on its own
+ *  default and, where Codealong can ask for one, on each model. */
+export function agentOptions(accounts: StartAccount[], models: ModelOption[], picks: Picks): AgentOption[] {
+  const out: AgentOption[] = HARNESSES.filter((h) => picks[h]).map((h) => ({ id: autoChoice(h), choice: autoChoice(h), model: null }));
+  for (const a of accounts) {
+    out.push({ id: agentId(a.name, null), choice: a.name, model: null });
+    if (takesModel(a)) for (const m of models) out.push({ id: agentId(a.name, m.id), choice: a.name, model: m.id });
+  }
+  return out;
+}
+
+/** The family a model or alias belongs to, which per-model limits are named after. */
+export function modelFamily(model: string | null): string | null {
+  if (!model) return null;
+  const m = model.toLowerCase();
+  return FAMILIES.find((f) => m.includes(f)) ?? null;
+}
+
+/**
+ * A model the way you'd say it: an alias by its label, shortened (`opus[1m]` is Opus 1M), a
+ * full name by family and version (`claude-fable-5-1[1m]` is Fable 5.1 1M), anything else as
+ * written.
+ */
+export function modelName(model: string, models: ModelOption[]): string {
+  const known = models.find((m) => m.id === model);
+  if (known) return known.label.split(':')[0].replace(/ \(1M context\)$/, ' 1M');
+  const long = /\[1m\]$/i.test(model);
+  const base = model.replace(/\[1m\]$/i, '');
+  const m = /^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?$/i.exec(base);
+  const name = m ? `${m[1][0].toUpperCase()}${m[1].slice(1)} ${m[2]}${m[3] ? `.${m[3]}` : ''}` : base;
+  return long ? `${name} 1M` : name;
+}
+
+/** The limit a model counts against beyond the account's own, like Fable's week. */
+export function modelMeter(u: Usage | undefined, model: string | null): Meter | null {
+  const family = modelFamily(model);
+  if (!u || !family) return null;
+  return u.meters.find((m) => m.model?.toLowerCase() === family) ?? null;
+}
+
+/** What Auto falls back to, best first, when an account's own model is nearly used up. */
+const FALLBACK = ['opus', 'sonnet'];
+
+/**
+ * The model Auto starts an account on: its default (settings.json's `model`), unless that model's
+ * own limit is nearly used up, as Fable's week can be while the account has room; then the best
+ * other model with room, with the default's context size. `model` is null for the default, and
+ * `spent` is the limit that ruled the default out.
+ */
+export function autoModel(defaultModel: string | null, u: Usage | undefined): { model: string | null; spent: Meter | null } {
+  const own = modelMeter(u, defaultModel);
+  if (!own || !near(own)) return { model: null, spent: null };
+  const long = /\[1m\]$/i.test(defaultModel ?? '');
+  const family = modelFamily(defaultModel);
+  for (const f of FALLBACK) {
+    if (f === family) continue;
+    const m = modelMeter(u, f);
+    if (!m || !near(m)) return { model: long ? `${f}[1m]` : f, spent: own };
+  }
+  return { model: null, spent: own };
 }
 
 /** Where a choice opens at first: where it last opened, while that's still offered. */

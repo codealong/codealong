@@ -73,6 +73,8 @@ screenshot, for a state a click gets to (Settings opens on a synthetic ⌘, keyd
 `PREVIEW_NAME` names that screenshot. The app rewrites `document.title` as counts change, so a
 check that runs for a while should set its title on an interval. Native menus, window creation and real opens
 can't be seen this way; say so rather than claiming they were checked.
+`scripts/preview.sh quick` renders the quick panel as its shortcut opens it (a `PREVIEW_INIT`
+can type into it or click its menus open).
 `scripts/preview.sh bar` renders the floating bar on a stand-in desktop (`PREVIEW_SIZE=1600,64` for
 a wider screen), from the feed `--snapshot --bar` prints. The engine the preview runs is whatever
 was last built into the shared directory, possibly another session's: `PREVIEW_BIN=<a copy of
@@ -370,6 +372,22 @@ Tauri and macOS (from the Tauri 2.11 and tao 0.35 sources)
 - WebKit also slows a visible page's timers while its app isn't frontmost: the bar's 1 s timer
   ran a second late around the clock until the bar opted out (`background_throttling`).
 - The bar listens for `bar-feed` (barfeed.rs), never `board`, so Tauri doesn't send it the board.
+- The quick panel (quick.rs) is a non-activating panel that takes the keyboard: its NSPanel
+  subclass says yes to `canBecomeKeyWindow`, and showing it is `orderFrontRegardless`,
+  `makeKeyWindow`, then making the WKWebView first responder, which a window made with
+  `focused(false)` doesn't do by itself. Codealong stays inactive, so the app you were in keeps
+  the menu bar. The panel listens for `board` only while it's up.
+- tauri-plugin-global-shortcut's `register` and `unregister` hand the work to the main thread and
+  wait for it, so calling them on the main thread (in `setup`, or a command without `async`)
+  deadlocks. Carbon's `RegisterEventHotKey` succeeds for keys another app already holds
+  (⌘Space and ChatGPT's ⌥Space registered fine from a test program), so clashes can't be found
+  by registering. Apps keep theirs in their preferences: the KeyboardShortcuts library as
+  `KeyboardShortcuts_<name>` = `{carbonKeyCode, carbonModifiers}` (ChatGPT in `com.openai.chat`,
+  Maccy in its sandbox container), macOS in `com.apple.symbolichotkeys`, which lists only the
+  ones changed from their defaults.
+- The background computer-use tools click through raw input: the app comes forward for a moment
+  and the one before is put back, which takes the keyboard from the quick panel and hides it.
+  `screencapture -l <window id>` captures a window of Codealong's alone, even ordered out.
 
 GitHub
 

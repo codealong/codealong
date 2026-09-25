@@ -2,9 +2,9 @@
 // browser preview of a snapshot), the board comes from ./board.json and actions do nothing.
 
 import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
+import { emitTo, listen } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import type { AccountCfg, AccountInfo, AgentsStatus, Attachment, BarFeed, Board, Config, ConfigView, FoundAccount, PrDetail, StartOptions, StartSpec, Started, Theme } from './types';
+import type { AccountCfg, AccountInfo, AgentsStatus, Attachment, BarFeed, Board, Config, ConfigView, FoundAccount, PrDetail, ShortcutStatus, StartOptions, StartSpec, Started, Theme } from './types';
 import type { TodoOp } from './todos';
 
 export const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -247,7 +247,7 @@ export async function openAttachment(path: string): Promise<void> {
 }
 
 /** A browser preview of the UI (scripts/preview.sh), where Tauri's IPC is a stand-in. */
-const inPreview = typeof window !== 'undefined' && '__CODEALONG_PREVIEW__' in window;
+export const inPreview = typeof window !== 'undefined' && '__CODEALONG_PREVIEW__' in window;
 
 /** Where a window loads a kept image from. A preview serves them from ./images. */
 export function imageUrl(name: string): string {
@@ -362,6 +362,125 @@ export function onBarOn(cb: (on: boolean) => void): () => void {
   let cancelled = false;
   let unlisten: (() => void) | undefined;
   void listen<boolean>('floating-bar', (e) => cb(e.payload)).then((u) => {
+    if (cancelled) u();
+    else unlisten = u;
+  });
+  return () => {
+    cancelled = true;
+    unlisten?.();
+  };
+}
+
+/** Listens for an event sent to this window only (`emit_to` or `emitTo`); a plain `listen`
+ *  would hear ones sent to any window. Returns an unsubscribe function. */
+function onWindowEvent<T>(name: string, cb: (payload: T) => void): () => void {
+  if (!inTauri) return () => {};
+  let cancelled = false;
+  let unlisten: (() => void) | undefined;
+  void getCurrentWebviewWindow()
+    .listen<T>(name, (e) => cb(e.payload))
+    .then((u) => {
+      if (cancelled) u();
+      else unlisten = u;
+    });
+  return () => {
+    cancelled = true;
+    unlisten?.();
+  };
+}
+
+/** What the quick panel opens for. Everything is optional: the shortcut opens it with nothing. */
+export interface QuickOpen {
+  /** The worktree a new session starts in. */
+  laneId?: string | null;
+  /** The project to show; the panel's own choice when left out. */
+  project?: string | null;
+  /** The todo a new session is for, and the prompt it starts as. */
+  todo?: string | null;
+  prompt?: string;
+  /** The board window that asked, which hears how a start went. */
+  opener?: string | null;
+  /** Brings the panel back as you left it (after a failed start). */
+  keep?: boolean;
+}
+
+/** Opens the quick panel. */
+export async function showQuick(context: QuickOpen = {}): Promise<void> {
+  if (!inTauri) return;
+  await invoke('show_quick', { context });
+}
+
+export async function hideQuick(): Promise<void> {
+  if (!inTauri) return;
+  await invoke('hide_quick');
+}
+
+/** The quick panel's page is laid out for the latest open, at this height: time to show it. */
+export async function quickReady(height: number): Promise<void> {
+  if (!inTauri) return;
+  await invoke('quick_ready', { height });
+}
+
+/** The quick panel's page changed size while up. */
+export async function fitQuick(height: number): Promise<void> {
+  if (!inTauri) return;
+  await invoke('fit_quick', { height });
+}
+
+/** Calls `cb` when the quick panel is asked to open, with what for. */
+export function onQuickOpen(cb: (context: QuickOpen) => void): () => void {
+  return onWindowEvent<QuickOpen | null>('quick-open', (c) => cb(c ?? {}));
+}
+
+/** Calls `cb` when the quick panel has hidden, by Escape, a click elsewhere or its shortcut. */
+export function onQuickHidden(cb: () => void): () => void {
+  return onWindowEvent<null>('quick-hidden', () => cb());
+}
+
+/** Starts a session from the quick panel and brings the app it started in forward. */
+export async function startFromQuick(spec: StartSpec): Promise<Started | null> {
+  if (!inTauri) throw new Error('Starting a session needs the app.');
+  return invoke<Started | null>('start_from_quick', { spec });
+}
+
+/** A start from the quick panel, as the window that asked for it hears about it: when it
+ *  begins, and when it's done, with the new session's key or what to tell you. */
+export type QuickStart = { phase: 'begin'; id: number; label: string } | { phase: 'end'; id: number; key: string | null; message: string | null };
+
+/** Tells a board window how a start it asked for is going. */
+export async function tellOpener(label: string, event: QuickStart): Promise<void> {
+  if (!inTauri) return;
+  await emitTo(label, 'quick-start', event);
+}
+
+/** Calls `cb` as starts this window asked the quick panel for go. */
+export function onQuickStart(cb: (event: QuickStart) => void): () => void {
+  return onWindowEvent<QuickStart>('quick-start', cb);
+}
+
+/** This window's label, which the quick panel reports back to. */
+export function windowLabel(): string | null {
+  return inTauri ? getCurrentWebviewWindow().label : null;
+}
+
+/** The quick panel's shortcut and whether it works. */
+export async function quickShortcut(): Promise<ShortcutStatus> {
+  if (!inTauri) return { shortcut: 'Option+Shift+Space', error: null };
+  return (await invoke<ShortcutStatus | null>('quick_shortcut')) ?? { shortcut: 'Option+Shift+Space', error: null };
+}
+
+/** Turns the quick panel's shortcut off while Settings records a new one, and back on. */
+export async function pauseQuickShortcut(paused: boolean): Promise<void> {
+  if (!inTauri) return;
+  await invoke('pause_quick_shortcut', { paused });
+}
+
+/** Calls `cb` when the quick panel's shortcut changes or stops working. */
+export function onQuickShortcut(cb: (status: ShortcutStatus) => void): () => void {
+  if (!inTauri) return () => {};
+  let cancelled = false;
+  let unlisten: (() => void) | undefined;
+  void listen<ShortcutStatus>('quick-shortcut', (e) => cb(e.payload)).then((u) => {
     if (cancelled) u();
     else unlisten = u;
   });

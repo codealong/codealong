@@ -20,6 +20,8 @@ pub struct Config {
     #[serde(default)]
     pub appearance: AppearanceCfg,
     #[serde(default)]
+    pub shortcuts: ShortcutsCfg,
+    #[serde(default)]
     pub accounts: Vec<AccountCfg>,
     #[serde(default)]
     pub projects: Vec<ProjectCfg>,
@@ -29,7 +31,15 @@ pub struct Config {
 
 impl Default for Config {
     fn default() -> Self {
-        Config { scan: default_scan(), apps: AppsCfg::default(), appearance: AppearanceCfg::default(), accounts: Vec::new(), projects: Vec::new(), debug: DebugCfg::default() }
+        Config {
+            scan: default_scan(),
+            apps: AppsCfg::default(),
+            appearance: AppearanceCfg::default(),
+            shortcuts: ShortcutsCfg::default(),
+            accounts: Vec::new(),
+            projects: Vec::new(),
+            debug: DebugCfg::default(),
+        }
     }
 }
 
@@ -44,6 +54,29 @@ pub struct DebugCfg {
 pub struct AppearanceCfg {
     #[serde(default)]
     pub theme: Theme,
+}
+
+/// Keyboard shortcuts that work whichever app is in front. An empty one is off.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ShortcutsCfg {
+    /// Opens the quick panel: find a session, or start one.
+    #[serde(default = "default_quick_panel")]
+    pub quick_panel: String,
+}
+
+impl Default for ShortcutsCfg {
+    fn default() -> Self {
+        ShortcutsCfg { quick_panel: default_quick_panel() }
+    }
+}
+
+/// ⌥⇧Space. Neither macOS nor the usual launchers take it: Spotlight has ⌘Space, the Finder
+/// ⌥⌘Space, input sources ⌃Space and ⌃⌥Space, emoji ⌃⌘Space, and ChatGPT, Raycast and Alfred
+/// ship on ⌥Space.
+pub const DEFAULT_QUICK_PANEL: &str = "Option+Shift+Space";
+
+fn default_quick_panel() -> String {
+    DEFAULT_QUICK_PANEL.to_string()
 }
 
 /// Light or dark. `System` follows macOS, and changes when macOS does.
@@ -146,6 +179,12 @@ pub fn theme() -> Theme {
     load().ok().flatten().map(|c| c.appearance.theme).unwrap_or_default()
 }
 
+/// The quick panel's shortcut config.toml asks for: the default when there's no file yet or it
+/// has an error.
+pub fn quick_shortcut() -> String {
+    load().ok().flatten().map(|c| c.shortcuts.quick_panel).unwrap_or_else(default_quick_panel)
+}
+
 pub fn write(cfg: &Config) -> Result<()> {
     std::fs::create_dir_all(support_dir())?;
     write_atomic(&render(cfg))
@@ -226,6 +265,7 @@ fn set_accounts(doc: &mut toml_edit::DocumentMut, accounts: &[AccountCfg]) {
 const APPS_COMMENT: &str = "# Where Codealong opens things. Built-in profiles: terminal \"ghostty\", editor \"cursor\".\n";
 const APPEARANCE_COMMENT: &str = "# Light or dark. \"system\" follows macOS. The buttons at the foot of the sidebar set this too.\n";
 const DEBUG_COMMENT: &str = "# Timings for finding what makes the app slow, in ~/Library/Logs/Codealong/perf.log.\n";
+const SHORTCUTS_COMMENT: &str = "# Shortcuts that work in any app, such as \"Option+Shift+Space\" or \"Cmd+Ctrl+K\". \"\" turns one off.\n# quick_panel opens the quick panel: find a session, or start one.\n";
 
 /// Sets `[appearance] theme` in config.toml and keeps everything else as written.
 pub fn save_theme(theme: Theme) -> Result<()> {
@@ -256,8 +296,39 @@ fn set_theme(doc: &mut toml_edit::DocumentMut, theme: Theme) {
             t.set_position(at);
         }
         doc.insert("appearance", Item::Table(t));
+        place_after(doc, "appearance", "apps");
     }
     set_value(&mut doc["appearance"]["theme"], Value::from(theme.as_str()));
+}
+
+/// Sets `[shortcuts] quick_panel`. A file from before there were shortcuts gets the table after
+/// `[appearance]`, commented as a new file would be.
+fn set_shortcuts(doc: &mut toml_edit::DocumentMut, shortcuts: &ShortcutsCfg) {
+    use toml_edit::{Item, Table, Value};
+    if !doc.get("shortcuts").is_some_and(Item::is_table_like) {
+        let mut t = Table::new();
+        t.decor_mut().set_prefix(format!("\n{SHORTCUTS_COMMENT}"));
+        // Like [appearance], it goes with the settings at the top rather than at the end.
+        let after = ["appearance", "apps"].into_iter().find_map(|name| Some((name, doc.get(name).and_then(Item::as_table).and_then(|t| t.position())?)));
+        if let Some((_, at)) = after {
+            t.set_position(at);
+        }
+        doc.insert("shortcuts", Item::Table(t));
+        if let Some((name, _)) = after {
+            place_after(doc, "shortcuts", name);
+        }
+    }
+    set_value(&mut doc["shortcuts"]["quick_panel"], Value::from(shortcuts.quick_panel.trim()));
+}
+
+/// Moves a table just added (it goes at the end of the file's map) to right after `after`, so
+/// it's written there. The tables Settings rewrites whole, accounts and projects, have no place
+/// in the file of their own and follow whatever comes before them in the map.
+fn place_after(doc: &mut toml_edit::DocumentMut, name: &str, after: &str) {
+    let order: Vec<String> = doc.as_table().iter().map(|(k, _)| k.to_string()).collect();
+    let Some(anchor) = order.iter().position(|k| k == after) else { return };
+    let rank = |k: &str| if k == name { (anchor, 1) } else { (order.iter().position(|x| x == k).unwrap_or(usize::MAX), 0) };
+    doc.as_table_mut().sort_values_by(|a, _, b, _| rank(a.get()).cmp(&rank(b.get())));
 }
 
 /// A terminal or editor profile the `[apps]` table can name.
@@ -330,6 +401,7 @@ pub fn check(cfg: &Config) -> std::result::Result<(), String> {
     if cfg.apps.terminal.trim().is_empty() || cfg.apps.editor.trim().is_empty() {
         return Err("The terminal and editor need a profile name.".into());
     }
+    crate::quick::parse_shortcut(&cfg.shortcuts.quick_panel).map_err(|e| format!("[shortcuts] quick_panel: {e}"))?;
     Ok(())
 }
 
@@ -372,6 +444,7 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
     set_value(&mut doc["apps"]["editor"], Value::from(cfg.apps.editor.trim()));
 
     set_theme(&mut doc, cfg.appearance.theme);
+    set_shortcuts(&mut doc, &cfg.shortcuts);
 
     ensure_table(&mut doc, "debug", DEBUG_COMMENT);
     set_value(&mut doc["debug"]["perf_log"], Value::from(cfg.debug.perf_log));
@@ -469,6 +542,10 @@ pub fn render(cfg: &Config) -> String {
     s.push_str(APPEARANCE_COMMENT);
     s.push_str("[appearance]\n");
     s.push_str(&format!("theme = {}\n", q(cfg.appearance.theme.as_str())));
+    s.push('\n');
+    s.push_str(SHORTCUTS_COMMENT);
+    s.push_str("[shortcuts]\n");
+    s.push_str(&format!("quick_panel = {}\n", q(&cfg.shortcuts.quick_panel)));
     s.push_str("\n# Harness accounts. `name` is what you type and what the board shows.\n");
     for a in &cfg.accounts {
         s.push_str("\n[[accounts]]\n");
@@ -503,6 +580,7 @@ mod tests {
             scan: vec!["~/projects".into()],
             apps: AppsCfg::default(),
             appearance: AppearanceCfg { theme: Theme::Dark },
+            shortcuts: ShortcutsCfg { quick_panel: "Cmd+Ctrl+K".into() },
             accounts: vec![
                 AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: Some("claude".into()) },
                 AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: None },
@@ -612,6 +690,7 @@ mod tests {
             scan: vec!["~/projects".into(), "~/work".into()],
             apps: AppsCfg::default(),
             appearance: AppearanceCfg { theme: Theme::Dark },
+            shortcuts: ShortcutsCfg::default(),
             accounts: vec![
                 AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: Some("claude".into()) },
                 AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: None },
@@ -631,6 +710,7 @@ mod tests {
         next.scan = vec!["~/code".into()];
         next.apps.editor = "zed".into();
         next.appearance.theme = Theme::Light;
+        next.shortcuts.quick_panel = "Cmd+Ctrl+K".into();
         next.debug.perf_log = false;
         next.accounts.pop();
         next.projects[1].folders.push("~/extra".into());
@@ -640,9 +720,9 @@ mod tests {
         for kept in ["# my editor of choice", "# roots", "# Harness accounts.", "# Projects group repos", APPS_COMMENT, DEBUG_COMMENT] {
             assert!(out.contains(kept), "lost {kept:?} in:\n{out}");
         }
-        // The file keeps its order: scan, apps, appearance, accounts, projects, debug.
+        // The file keeps its order: scan, apps, appearance, shortcuts, accounts, projects, debug.
         let at = |s: &str| out.find(s).unwrap_or_else(|| panic!("no {s:?} in:\n{out}"));
-        assert!(at("scan =") < at("[apps]") && at("[apps]") < at("[appearance]") && at("[appearance]") < at("[[accounts]]"));
+        assert!(at("scan =") < at("[apps]") && at("[apps]") < at("[appearance]") && at("[appearance]") < at("[shortcuts]") && at("[shortcuts]") < at("[[accounts]]"));
         assert!(at("[[accounts]]") < at("[[projects]]") && at("[[projects]]") < at("[debug]"));
         // Saving the same settings again changes nothing.
         assert_eq!(with_config(&out, &next).unwrap(), out);
@@ -672,6 +752,44 @@ mod tests {
         assert!(parse("scan = [").unwrap_err().to_string().contains("expected"));
         assert!(parse("[[accounts]]\nname = \"a b\"\nharness = \"claude\"\nhome = \"~/.claude\"\n").is_err());
         assert_eq!(parse(&render(&full())).unwrap(), full());
+    }
+
+    #[test]
+    fn a_file_without_shortcuts_gets_them_after_appearance() {
+        // A file written before there were shortcuts.
+        let text = render(&full());
+        let start = text.find(SHORTCUTS_COMMENT).unwrap();
+        let end = text.find("\n# Harness accounts.").unwrap();
+        let old = format!("{}{}", &text[..start], &text[end + 1..]);
+        assert!(!old.contains("[shortcuts]"));
+        assert_eq!(toml::from_str::<Config>(&old).unwrap().shortcuts.quick_panel, DEFAULT_QUICK_PANEL);
+
+        let mut next = full();
+        next.shortcuts.quick_panel = "Ctrl+Alt+Space".into();
+        let out = with_config(&old, &next).unwrap();
+        assert_eq!(toml::from_str::<Config>(&out).unwrap(), next);
+        assert!(out.contains(&format!("{SHORTCUTS_COMMENT}[shortcuts]\nquick_panel = \"Ctrl+Alt+Space\"\n")), "{out}");
+        assert!(out.find("[appearance]").unwrap() < out.find("[shortcuts]").unwrap());
+        assert!(out.find("[shortcuts]").unwrap() < out.find("[[accounts]]").unwrap());
+        // Turned off, it stays in the file as an empty string.
+        next.shortcuts.quick_panel = String::new();
+        let off = with_config(&out, &next).unwrap();
+        assert!(off.contains("quick_panel = \"\"\n"), "{off}");
+        assert_eq!(toml::from_str::<Config>(&off).unwrap().shortcuts.quick_panel, "");
+    }
+
+    #[test]
+    fn checks_the_shortcut() {
+        let mut cfg = full();
+        for ok in ["Option+Shift+Space", "Cmd+Ctrl+K", "ctrl+alt+space", "F18", ""] {
+            cfg.shortcuts.quick_panel = ok.into();
+            assert!(check(&cfg).is_ok(), "{ok:?}: {:?}", check(&cfg));
+        }
+        for bad in ["Space", "Shift+K", "Cmd+Shift", "Option+Shift+Spacebar", "Cmd+Tab"] {
+            cfg.shortcuts.quick_panel = bad.into();
+            let err = check(&cfg).unwrap_err();
+            assert!(err.starts_with("[shortcuts] quick_panel: "), "{bad:?}: {err}");
+        }
     }
 
     #[test]

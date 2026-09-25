@@ -4,8 +4,9 @@
 // in AccountsSection.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { getConfig, saveConfig, saveConfigText } from '../api';
-import type { Config, ConfigView, Profile, ProjectCfg, Theme, Usage } from '../types';
+import { getConfig, onQuickShortcut, pauseQuickShortcut, quickShortcut, saveConfig, saveConfigText } from '../api';
+import { shortcutFromKey, shortcutLabel, TAKEN } from '../quick';
+import type { Config, ConfigView, Profile, ProjectCfg, ShortcutStatus, Theme, Usage } from '../types';
 import { AccountsSection } from './AccountsSection';
 import { AgentsSection } from './AgentsSection';
 import { Button, Icon, NavItem } from './primitives';
@@ -187,6 +188,11 @@ function GeneralPane({ cfg, view, theme, onPickTheme, disabled, onSave }: PanePr
           <ListField items={cfg.scan} placeholder="~/projects" addLabel="Add folder" onChange={(scan) => void onSave({ ...cfg, scan })} />
           <small>Three levels deep. Every repo and worktree found here is on the board; projects group them below.</small>
         </div>
+        <div className="ca-field">
+          <span>Quick panel</span>
+          <ShortcutField value={cfg.shortcuts?.quick_panel ?? DEFAULT_QUICK_PANEL} onChange={(quick_panel) => void onSave({ ...cfg, shortcuts: { ...cfg.shortcuts, quick_panel } })} />
+          <small>Opens from any app, over full-screen ones too: the sessions that need you, a search, and a new session. ⌘N does the same in Codealong.</small>
+        </div>
         <label className="ca-field">
           <span>Terminal</span>
           <ProfileSelect value={cfg.apps.terminal} profiles={view.terminals} onChange={(terminal) => void onSave({ ...cfg, apps: { ...cfg.apps, terminal } })} />
@@ -210,6 +216,110 @@ function GeneralPane({ cfg, view, theme, onPickTheme, disabled, onSave }: PanePr
         </div>
       </fieldset>
     </>
+  );
+}
+
+const DEFAULT_QUICK_PANEL = 'Option+Shift+Space';
+
+/**
+ * The quick panel's shortcut: shown the way macOS writes shortcuts, and recorded by pressing it.
+ * While it records, the current shortcut is off, so pressing that records it instead of opening
+ * the panel. Engine-side problems (a shortcut macOS won't take) show under it, and so does
+ * what else on a Mac is known to use the same keys.
+ */
+function ShortcutField({ value, onChange }: { value: string; onChange: (shortcut: string) => void }) {
+  const [recording, setRecording] = useState(false);
+  const [held, setHeld] = useState('');
+  const [problem, setProblem] = useState<string | null>(null);
+  const [status, setStatus] = useState<ShortcutStatus | null>(null);
+  const button = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    void quickShortcut().then(setStatus);
+    return onQuickShortcut(setStatus);
+  }, []);
+
+  const record = (on: boolean) => {
+    setRecording(on);
+    setHeld('');
+    setProblem(null);
+    void pauseQuickShortcut(on);
+  };
+  // Leaving Settings mid-recording turns the shortcut back on.
+  useEffect(() => () => void pauseQuickShortcut(false), []);
+
+  const label = shortcutLabel(value);
+  const taken = label ? TAKEN[label] : undefined;
+  // The engine's word on the shortcut it has, once that's the one saved here.
+  const engineError = status && status.shortcut === value.trim() ? status.error : null;
+
+  return (
+    <div className="ca-shortcut-field">
+      <div className="ca-shortcut-row">
+        <button
+          ref={button}
+          type="button"
+          className={['ca-shortcut', recording && 'is-recording', !label && 'is-off'].filter(Boolean).join(' ')}
+          aria-label={recording ? 'Press the new shortcut' : `Quick panel shortcut: ${label ?? 'off'}. Press to change.`}
+          onClick={() => record(!recording)}
+          onBlur={() => recording && record(false)}
+          onKeyDown={(e) => {
+            if (!recording) return;
+            e.preventDefault();
+            e.stopPropagation();
+            if (e.key === 'Escape' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+              record(false);
+              return;
+            }
+            const made = shortcutFromKey(e);
+            if (!made) {
+              setHeld([e.ctrlKey && '⌃', e.altKey && '⌥', e.shiftKey && '⇧', e.metaKey && '⌘'].filter(Boolean).join(''));
+              return;
+            }
+            if ('error' in made) {
+              setProblem(made.error);
+              return;
+            }
+            record(false);
+            onChange(made.shortcut);
+          }}
+          onKeyUp={(e) => recording && setHeld([e.ctrlKey && '⌃', e.altKey && '⌥', e.shiftKey && '⇧', e.metaKey && '⌘'].filter(Boolean).join(''))}
+        >
+          {recording ? held || 'Press a shortcut…' : (label ?? 'Off')}
+        </button>
+        {recording ? (
+          <Button variant="ghost" size="sm" onMouseDown={(e) => e.preventDefault()} onClick={() => record(false)}>
+            Cancel
+          </Button>
+        ) : (
+          <>
+            <Button variant="ghost" size="sm" onClick={() => button.current?.click()}>
+              Change
+            </Button>
+            {label && (
+              <Button variant="ghost" size="sm" onClick={() => onChange('')}>
+                Turn off
+              </Button>
+            )}
+            {value !== DEFAULT_QUICK_PANEL && (
+              <Button variant="ghost" size="sm" onClick={() => onChange(DEFAULT_QUICK_PANEL)}>
+                Use {shortcutLabel(DEFAULT_QUICK_PANEL)}
+              </Button>
+            )}
+          </>
+        )}
+      </div>
+      {problem && <p className="ca-form-error">{problem}</p>}
+      {!problem && engineError && <p className="ca-form-error">{engineError}</p>}
+      {!problem && !engineError && taken && (
+        <p className="ca-shortcut-taken">
+          <Icon name="alert" size={12} />
+          <span>
+            {label} is also {taken}, so only one of them will get it. Pick another, or change that one.
+          </span>
+        </p>
+      )}
+    </div>
   );
 }
 

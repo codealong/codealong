@@ -22,6 +22,7 @@ mod logo;
 mod model;
 mod perf;
 mod procs;
+mod quick;
 mod repos;
 mod server;
 mod start;
@@ -154,6 +155,53 @@ fn open_from_bar(app: tauri::AppHandle, engine: State<'_, engine::Handle>, lane_
 #[tauri::command]
 fn bar_feed(engine: State<'_, engine::Handle>) -> barfeed::BarFeed {
     barfeed::feed(&engine.board())
+}
+
+/// Opens the quick panel for what a window asks (a worktree, a todo, a prompt), or brings it
+/// back after a failed start.
+#[tauri::command]
+fn show_quick(app: tauri::AppHandle, context: Option<serde_json::Value>) {
+    quick::open(&app, context.unwrap_or(serde_json::Value::Null));
+}
+
+#[tauri::command]
+fn hide_quick(app: tauri::AppHandle) {
+    quick::hide(&app);
+}
+
+/// The quick panel's page is laid out for the open it was asked for, at this height.
+#[tauri::command]
+fn quick_ready(app: tauri::AppHandle, height: f64) {
+    quick::ready(&app, Some(height));
+}
+
+/// The quick panel's page changed size.
+#[tauri::command]
+fn fit_quick(app: tauri::AppHandle, height: f64) {
+    quick::fit(&app, height);
+}
+
+/// Starts a session from the quick panel, which has already hidden itself, then asks macOS to
+/// bring the app it started in forward: the panel never makes Codealong the active app.
+#[tauri::command(async)]
+fn start_from_quick(app: tauri::AppHandle, engine: State<'_, engine::Handle>, spec: start::StartSpec) -> Result<start::Started, String> {
+    let started = start_and_link(&engine, &spec)?;
+    if let Some(bundle) = quick::start_app(spec.place, &engine.board().apps.terminal_id) {
+        bar::bring_forward(&app, bundle);
+    }
+    Ok(started)
+}
+
+/// The quick panel's shortcut and why it isn't working, if it isn't.
+#[tauri::command(async)]
+fn quick_shortcut(app: tauri::AppHandle) -> quick::ShortcutStatus {
+    quick::status(&app)
+}
+
+/// Turns the quick panel's shortcut off while Settings records a new one, and back on.
+#[tauri::command(async)]
+fn pause_quick_shortcut(app: tauri::AppHandle, paused: bool) -> quick::ShortcutStatus {
+    quick::pause_shortcut(&app, paused)
 }
 
 /// Whether the floating bar is on.
@@ -368,9 +416,10 @@ fn native_theme(theme: config::Theme) -> Option<tauri::Theme> {
     }
 }
 
-/// The board window in front, which a menu command is for. The floating bar never is.
+/// The board window in front, which a menu command is for. The floating bar and the quick panel
+/// never are.
 fn front_window(app: &tauri::AppHandle) -> Option<tauri::WebviewWindow> {
-    app.webview_windows().into_values().find(|w| w.label() != bar::LABEL && w.is_focused().unwrap_or(false))
+    app.webview_windows().into_values().find(|w| w.label() != bar::LABEL && w.label() != quick::LABEL && w.is_focused().unwrap_or(false))
 }
 
 /// Puts Settings… (⌘,) in the app menu, under About. Choosing it tells the front window to
@@ -456,6 +505,7 @@ pub fn run() {
             app.set_theme(native_theme(theme));
             let shown = std::sync::Mutex::new(theme);
             let shown_logo = std::sync::Mutex::new(model::LogoStatus::Idle);
+            let shortcut = std::sync::Mutex::new(config::quick_shortcut());
             let emitter = app.handle().clone();
             let engine = engine::start(move |board| {
                 if let Ok(mut shown) = shown_logo.lock() {
@@ -472,6 +522,15 @@ pub fn run() {
                         emitter.set_theme(native_theme(board.theme));
                     }
                 }
+                // Registering waits on the main thread, so it gets a thread of its own: this one
+                // may hold what a command on the main thread is waiting for.
+                if let Ok(mut shortcut) = shortcut.lock() {
+                    if *shortcut != board.quick_shortcut {
+                        *shortcut = board.quick_shortcut.clone();
+                        let (app, wanted) = (emitter.clone(), board.quick_shortcut.clone());
+                        std::thread::spawn(move || quick::apply_shortcut(&app, &wanted));
+                    }
+                }
                 let _ = emitter.emit("board", board);
                 bar::publish(&emitter, board);
             });
@@ -481,6 +540,12 @@ pub fn run() {
             if let Err(e) = bar::setup(app.handle()) {
                 eprintln!("Couldn't make the floating bar: {e:#}");
             }
+            if let Err(e) = quick::setup(app.handle()) {
+                eprintln!("Couldn't make the quick panel: {e:#}");
+            }
+            // Registering waits on the main thread, which this is.
+            let handle = app.handle().clone();
+            std::thread::spawn(move || quick::apply_shortcut(&handle, &config::quick_shortcut()));
             if let Err(e) = add_settings_menu(app.handle()) {
                 eprintln!("Couldn't add Settings to the menu: {e:#}");
             }
@@ -490,9 +555,17 @@ pub fn run() {
             watch_main_thread(app.handle().clone());
             Ok(())
         })
-        .on_window_event(bar::on_window_event)
+        .plugin(tauri_plugin_global_shortcut::Builder::new().with_handler(|app, _, event| {
+            if event.state == tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                quick::toggle(app);
+            }
+        }).build())
+        .on_window_event(|window, event| {
+            bar::on_window_event(window, event);
+            quick::on_window_event(window, event);
+        })
         .register_asynchronous_uri_scheme_protocol("codealong-image", |_ctx, request, responder| serve_image(request, responder))
-        .invoke_handler(tauri::generate_handler![get_board, open_target, open_config, mark_seen, refresh, refresh_usage, set_pinned, set_pinned_worktrees, archive_session, pr_detail, approve_pr, review_in_codex, open_url, get_accounts, save_accounts, found_accounts, get_config, save_config, save_config_text, sign_in, agents_status, install_agents, start_options, start_session, todo_op, save_attachment, import_attachment, open_attachment, expand_attachments, set_theme, open_project_window, fit_bar, show_main, bar_feed, bar_on, set_bar_on, open_from_bar, perf_mark])
+        .invoke_handler(tauri::generate_handler![get_board, open_target, open_config, mark_seen, refresh, refresh_usage, set_pinned, set_pinned_worktrees, archive_session, pr_detail, approve_pr, review_in_codex, open_url, get_accounts, save_accounts, found_accounts, get_config, save_config, save_config_text, sign_in, agents_status, install_agents, start_options, start_session, todo_op, save_attachment, import_attachment, open_attachment, expand_attachments, set_theme, open_project_window, fit_bar, show_main, bar_feed, bar_on, set_bar_on, open_from_bar, show_quick, hide_quick, quick_ready, fit_quick, start_from_quick, quick_shortcut, pause_quick_shortcut, perf_mark])
         .build(tauri::generate_context!())
         .expect("error while running Codealong")
         .run(|app, event| {

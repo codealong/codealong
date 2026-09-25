@@ -4,7 +4,8 @@
 #
 #   scripts/preview.sh [view] [project] [check.js]
 #
-#   view     worktrees | sessions | prs | todo, or bar for the floating bar (default worktrees)
+#   view     worktrees | sessions | prs | todo, bar for the floating bar, or quick for the quick
+#            panel (default worktrees)
 #   project  the project to show (default: the first one)
 #   check.js optional script run in the page; whatever it puts in document.title is printed
 #            (use it to click things and read window.__calls). Without it, a screenshot is
@@ -16,7 +17,9 @@
 # PREVIEW_SCHEME=dark renders as if macOS were in dark mode (the screenshot is <view>-dark.png).
 # Under theme = "system" the page follows it; "light" and "dark" in config.toml win over it.
 # PREVIEW_SIZE sets the window size (default 1440,900). The bar renders on a stand-in desktop
-# of that size (default 1100,64, which is also the screen width it fits itself to).
+# of that size (default 1100,64, which is also the screen width it fits itself to), and so does
+# the quick panel (default 760,640: its window's width). The panel opens as the shortcut opens
+# it, with nothing typed; PREVIEW_INIT can type or click from there.
 #
 # PREVIEW_TODOS=<file> shows the todos in it (scripts/preview/todos-sample.json has some) in
 # place of yours; "$lane:N" and "$session:N" in it stand for the project's Nth most recent
@@ -89,6 +92,10 @@ if [ "$view" = bar ]; then
   size="${PREVIEW_SIZE:-1100,64}"
   # Headless Chrome's screen is 800 wide whatever the window; the bar fits itself to the screen.
   setup="$setup window.__CODEALONG_BAR__=true;Object.defineProperty(screen,'availWidth',{value:${size%%,*}});</script><style>html.is-bar{background:linear-gradient(135deg,rgb(93,111,134),rgb(169,182,196))!important}</style><script>"
+fi
+if [ "$view" = quick ]; then
+  size="${PREVIEW_SIZE:-760,640}"
+  setup="$setup window.__CODEALONG_QUICK__=true;</script><style>html.is-quick{background:linear-gradient(135deg,rgb(93,111,134),rgb(169,182,196))!important}</style><script>"
 fi
 tail=""
 if [ -n "${PREVIEW_INIT:-}" ]; then
