@@ -47,6 +47,7 @@
   --label-teal: #0f8484;
   --label-green: #23884a;
   --neutral-tint: #eceeeb;
+  --logo-idle: #b8bcb9;
   --logo-working: #11875a;
   --brand: #f0a000;
   --on-brand: #1f1300;
@@ -127,6 +128,7 @@
     --label-teal: #3cc4c0;
     --label-green: #5cc97a;
     --neutral-tint: #22272a;
+    --logo-idle: #b8bcb9;
     --logo-working: #34b27c;
     --brand: #f5a524;
     --on-brand: #1f1300;
@@ -179,6 +181,7 @@
   --label-teal: #3cc4c0;
   --label-green: #5cc97a;
   --neutral-tint: #22272a;
+  --logo-idle: #b8bcb9;
   --logo-working: #34b27c;
   --brand: #f5a524;
   --on-brand: #1f1300;

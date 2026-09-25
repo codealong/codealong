@@ -11,6 +11,7 @@
 
 /* ---- Mark and tray ---- */
 .ca-mark { flex: none; display: inline-block; vertical-align: middle; fill: var(--ink); }
+.ca-mark[data-status="idle"] .ca-mark-node { fill: var(--logo-idle); }
 .ca-mark[data-status="needs"] .ca-mark-node { fill: var(--attn-solid); }
 .ca-mark[data-status="error"] .ca-mark-node { fill: var(--alert-solid); }
 .ca-mark[data-status="unread"] .ca-mark-node { fill: var(--unread-solid); }

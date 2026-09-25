@@ -13,7 +13,7 @@ if (paths.length !== 2) throw new Error('The master mark must contain the C and 
 const tokens = JSON.parse(readFileSync(join(root, 'design/tokens.json'), 'utf8')).color.tokens;
 const color = (name, theme) => tokens.find((token) => token.name === name).value[theme];
 const states = {
-  idle: { label: 'Idle', token: 'ink' },
+  idle: { label: 'Idle', token: 'logo-idle' },
   working: { label: 'Working', token: 'logo-working' },
   unread: { label: 'Your turn', token: 'unread-solid' },
   needs: { label: 'Needs you', token: 'attn-solid' },
