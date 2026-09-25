@@ -16,10 +16,17 @@ use crate::util::home;
 
 const MARKER: &str = ".codealong-version";
 
+/// This binary's real path. `current_exe` gives the path the command was run by, which is the
+/// symlink `link_command` made when it's run as `codealong`; resolved, so a link is never made
+/// to point at itself and the bundle's Resources are found through it.
+fn this_binary() -> std::io::Result<PathBuf> {
+    std::env::current_exe().and_then(std::fs::canonicalize)
+}
+
 /// The skill folder shipped with this binary, when it can be found.
 pub fn skill_source() -> Option<PathBuf> {
     let mut candidates = Vec::new();
-    if let Ok(exe) = std::env::current_exe() {
+    if let Ok(exe) = this_binary() {
         // Codealong.app/Contents/MacOS/codealong → Codealong.app/Contents/Resources/skills/codealong
         if let Some(contents) = exe.parent().and_then(Path::parent) {
             candidates.push(contents.join("Resources/skills/codealong"));
@@ -137,7 +144,7 @@ pub fn refresh_installed() {
 /// A symlink to this binary in a folder on PATH: the one asked for, else /usr/local/bin when
 /// it's writable, else ~/.local/bin (made if needed).
 pub fn link_command(dir: Option<PathBuf>) -> Result<PathBuf> {
-    let exe = std::env::current_exe()?;
+    let exe = this_binary()?;
     let dir = match dir {
         Some(d) => d,
         None => {
@@ -180,7 +187,7 @@ fn writable(dir: &Path) -> bool {
 
 /// The link `link_command` made, when one is in place and points at this binary.
 pub fn command_link() -> Option<PathBuf> {
-    let exe = std::env::current_exe().ok()?;
+    let exe = this_binary().ok()?;
     [PathBuf::from("/usr/local/bin"), home().join(".local/bin")].into_iter().map(|d| d.join("codealong")).find(|l| std::fs::read_link(l).is_ok_and(|t| t == exe))
 }
 
@@ -226,7 +233,7 @@ fn dir_on_path(dir: &Path, path: Option<&str>) -> bool {
 fn command_status() -> CommandStatus {
     let link = command_link();
     let on_path = link.as_ref().and_then(|l| l.parent()).is_some_and(|d| dir_on_path(d, crate::procs::login_path()));
-    CommandStatus { link: link.map(|p| p.to_string_lossy().into_owned()), target: std::env::current_exe().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default(), on_path }
+    CommandStatus { link: link.map(|p| p.to_string_lossy().into_owned()), target: this_binary().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default(), on_path }
 }
 
 fn account_skill(source: Option<&Path>, a: &AccountCfg) -> AccountSkill {
