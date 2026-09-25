@@ -424,6 +424,8 @@ mod tests {
             archived: false,
             attach_command: None,
             stalled_since: None,
+            background: None,
+            insight: None,
         }
     }
 
@@ -450,6 +452,7 @@ mod tests {
             last_activity: NOW,
             targets: vec![],
             default_target: None,
+            looks_finished: false,
         }
     }
 
