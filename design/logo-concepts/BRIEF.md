@@ -1,10 +1,10 @@
 # Codealong logo direction
 
-Updated September 24, 2026 after the commit C corner refinements.
+Updated September 24, 2026 for the commit C playground.
 
-The user wants simple, geometric marks. No 3D or overly detailed marks. The current selected directions are a circular C split by a horizontal commit line and a solid C surrounding a separate circular commit node. The user wants the corners on the right by the opening softened. Preserve the circular centers and commit structures while comparing subtle and more generous rounding.
+The user wants simple, geometric marks. No 3D or overly detailed marks. The current favorite is #115, the solid circular C with rounded opening tips surrounding a separate circular commit node with a rounded rightward stem. Preserve that lead direction. The user also requested the other outlined split C filled in and twenty more playful variations on this theme.
 
-The selected references are saved in `2026-09-24-soft-c/reference-split.png` and `2026-09-24-soft-c/reference-node.png`. The first is outlined; the second is solid black. Keep the current comparisons monochrome so the corner changes are easy to judge.
+The clean favorite is `2026-09-24-soft-c/115-node-soft.png`; the other outline is `2026-09-24-soft-c/113-split-soft.png`. Keep current comparisons monochrome. The filled comparison and twenty new variants are in `2026-09-24-commit-play/`.
 
 Earlier explorations started with candidate 22, Overlap, then made its geometry more precise with circles, right angles and polygons. The user subsequently supplied a monochrome circular C with a rounded diamond counter and asked for a circular interior like a commit line.
 
