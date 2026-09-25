@@ -35,6 +35,8 @@ Commands:
              in it
   start      Start a session for a todo or on a prompt, the way the app's New session
              does, and link it to the todo
+  config     Codealong's own settings (config.toml): show, check, and change them the
+             way Settings does, keeping the file's comments and order
   install    Put the command on PATH and the skill into each account's skills folder
   help       Print this message or the help of the given subcommand(s)
 
@@ -809,6 +811,366 @@ Options:
       --dry-run
           Print what the start would do (the command and environment, or the link)
           without starting anything
+
+  -h, --help
+          Print help
+```
+
+## codealong config
+
+```
+Codealong's own settings (config.toml): show, check, and change them the way Settings
+does, keeping the file's comments and order
+
+Usage: codealong config [OPTIONS] <COMMAND>
+
+Commands:
+  show     The settings as the app reads them, the file's path and text, its error if it
+           doesn't parse, the terminal and editor profiles, and accounts found on this
+           Mac that aren't configured
+  check    Whether a config.toml parses and passes the app's checks: the live one, or
+           FILE
+  set      Set one setting: apps.terminal, apps.editor (a profile id from `config
+           show`), appearance.theme (system, light, dark), debug.perf_log (true, false)
+  scan     The folders searched for repos, three levels deep
+  account  The accounts: one per harness config folder
+  project  Projects group repos by pattern (github.com/owner/*) and folders that aren't
+           repos
+  help     Print this message or the help of the given subcommand(s)
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong config show
+
+```
+The settings as the app reads them, the file's path and text, its error if it doesn't
+parse, the terminal and editor profiles, and accounts found on this Mac that aren't
+configured
+
+Usage: codealong config show [OPTIONS]
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong config check
+
+```
+Whether a config.toml parses and passes the app's checks: the live one, or FILE
+
+Usage: codealong config check [OPTIONS] [FILE]
+
+Arguments:
+  [FILE]
+          
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong config set
+
+```
+Set one setting: apps.terminal, apps.editor (a profile id from `config show`),
+appearance.theme (system, light, dark), debug.perf_log (true, false)
+
+Usage: codealong config set [OPTIONS] <KEY> <VALUE>
+
+Arguments:
+  <KEY>
+          
+
+  <VALUE>
+          
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong config scan
+
+```
+The folders searched for repos, three levels deep
+
+Usage: codealong config scan [OPTIONS] <COMMAND>
+
+Commands:
+  add     Add a folder (`~` is fine)
+  remove  Remove a folder
+  help    Print this message or the help of the given subcommand(s)
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong config scan add
+
+```
+Add a folder (`~` is fine)
+
+Usage: codealong config scan add [OPTIONS] <FOLDER>
+
+Arguments:
+  <FOLDER>
+          
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong config scan remove
+
+```
+Remove a folder
+
+Usage: codealong config scan remove [OPTIONS] <FOLDER>
+
+Arguments:
+  <FOLDER>
+          
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong config account
+
+```
+The accounts: one per harness config folder
+
+Usage: codealong config account [OPTIONS] <COMMAND>
+
+Commands:
+  add     Add an account. The home is its config folder: ~/.claude2 for a second Claude
+          Code account, ~/.codex, ~/.local/share/opencode, ~/.gemini/antigravity
+  remove  Remove an account by name
+  help    Print this message or the help of the given subcommand(s)
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong config account add
+
+```
+Add an account. The home is its config folder: ~/.claude2 for a second Claude Code
+account, ~/.codex, ~/.local/share/opencode, ~/.gemini/antigravity
+
+Usage: codealong config account add [OPTIONS] --harness <HARNESS> --home <HOME> <NAME>
+
+Arguments:
+  <NAME>
+          What the board shows and what you type: claude2, codex…
+
+Options:
+      --harness <HARNESS>
+          claude, codex, opencode or antigravity
+
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --home <HOME>
+          
+
+      --table
+          Tables, even when piped
+
+      --command <COMMAND>
+          The command that starts it, for `<command> --resume`; the name when left out.
+          A second Claude Code account needs one like `CLAUDE_CONFIG_DIR=~/.claude2
+          claude`, or a `claude2` wrapper script
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong config account remove
+
+```
+Remove an account by name
+
+Usage: codealong config account remove [OPTIONS] <NAME>
+
+Arguments:
+  <NAME>
+          
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong config project
+
+```
+Projects group repos by pattern (github.com/owner/*) and folders that aren't repos
+
+Usage: codealong config project [OPTIONS] <COMMAND>
+
+Commands:
+  add     Add a project, or replace one of the same name
+  remove  Remove a project by name. Its repos fall back to the Elsewhere group
+  help    Print this message or the help of the given subcommand(s)
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong config project add
+
+```
+Add a project, or replace one of the same name
+
+Usage: codealong config project add [OPTIONS] <NAME>
+
+Arguments:
+  <NAME>
+          
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --repo <REPO>
+          A repo pattern: github.com/owner/* or github.com/owner/name. Repeatable
+
+      --folder <FOLDER>
+          A folder that belongs to the project without being a repo. Repeatable
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong config project remove
+
+```
+Remove a project by name. Its repos fall back to the Elsewhere group
+
+Usage: codealong config project remove [OPTIONS] <NAME>
+
+Arguments:
+  <NAME>
+          
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
 
   -h, --help
           Print help

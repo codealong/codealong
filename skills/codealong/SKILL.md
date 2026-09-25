@@ -68,6 +68,37 @@ window, and links the session to the todo. `--account`, `--worktree`, `--new-wor
 `--in claude-app|codex-app`, `--model` change that. Only do this when the user asks for a
 session to be started.
 
+## Configuring Codealong
+
+Codealong's settings are `config.toml` next to its data (`codealong status` prints the path).
+The app watches the file, so a change shows at once, and every change the command makes
+keeps the file's comments and order. The settings:
+
+- `scan`: folders searched for repos, three levels deep. `codealong config scan add|remove
+  <folder>`.
+- `[apps]`: `terminal` and `editor` profile ids (`ghostty`, `cursor`; `config show` lists
+  them). `codealong config set apps.terminal <id>`.
+- `[appearance] theme`: `system`, `light` or `dark`. `codealong config set appearance.theme
+  dark`.
+- `[debug] perf_log`: `true` writes timings to `~/Library/Logs/Codealong/perf.log`. Set it
+  back to `false` when done.
+- `[[accounts]]`: one per harness config folder, with `name`, `harness` (`claude`, `codex`,
+  `opencode`, `antigravity`), `home` (`~/.claude2`, `~/.codex`, `~/.local/share/opencode`,
+  `~/.gemini/antigravity`) and `command` (what starts it; a second Claude Code account
+  needs `CLAUDE_CONFIG_DIR=~/.claude2 claude` or a `claude2` wrapper). `codealong config
+  account add <name> --harness <h> --home <dir> [--command <c>]` and `account remove
+  <name>`. `config show` lists accounts found on this Mac that aren't configured yet.
+- `[[projects]]`: groups of repos by pattern (`github.com/owner/*` or
+  `github.com/owner/name`) plus `folders` that aren't repos; anything unmatched shows under
+  Elsewhere. `codealong config project add <name> --repo <pattern>... [--folder <dir>...]`
+  replaces a project of the same name; `project remove <name>`.
+
+`codealong config show` prints the file (with `--json`, the parsed settings, path, text,
+parse error and profiles); `codealong config check [file]` says whether a file parses and
+passes the app's checks. Prefer the subcommands to editing the file, and run `check` after
+any edit you make by hand; while the file doesn't parse the app keeps its last good
+settings and the command refuses to write over it.
+
 ## Don'ts
 
 - Don't edit `todos.json` by hand; the command exists so the app and you never write over
