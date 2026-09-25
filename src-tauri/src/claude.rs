@@ -440,6 +440,32 @@ fn you_typed(v: &Value) -> bool {
     }
 }
 
+/// The whole of a prompt you typed, for searching sessions' text (search.rs).
+pub fn typed_text(v: &Value) -> Option<String> {
+    if !you_typed(v) {
+        return None;
+    }
+    let text = match v.pointer("/message/content")? {
+        Value::String(s) => s.clone(),
+        Value::Array(items) => items.iter().filter(|i| i.get("type").and_then(Value::as_str) == Some("text")).filter_map(|i| i.get("text").and_then(Value::as_str)).collect::<Vec<_>>().join("\n"),
+        _ => return None,
+    };
+    let t = text.trim();
+    (!t.is_empty() && !t.starts_with('<') && !t.starts_with("[Request interrupted")).then(|| t.to_string())
+}
+
+/// What an agent said in an assistant line, its text parts joined; tool calls and thinking
+/// aren't text. Subagents' lines are left out.
+pub fn reply_text(v: &Value) -> Option<String> {
+    if v.get("type").and_then(Value::as_str) != Some("assistant") || v.get("isSidechain").and_then(Value::as_bool) == Some(true) {
+        return None;
+    }
+    let parts = v.pointer("/message/content")?.as_array()?;
+    let text = parts.iter().filter(|p| p.get("type").and_then(Value::as_str) == Some("text")).filter_map(|p| p.get("text").and_then(Value::as_str)).collect::<Vec<_>>().join("\n");
+    let t = text.trim();
+    (!t.is_empty()).then(|| t.to_string())
+}
+
 fn short_path(p: &str) -> String {
     Path::new(p).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| p.to_string())
 }

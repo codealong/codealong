@@ -4,7 +4,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { emitTo, listen } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import type { AccountCfg, AccountInfo, AgentsStatus, Attachment, BarFeed, Board, Config, ConfigView, FoundAccount, PrDetail, Route, Sent, ShortcutStatus, StartOptions, StartSpec, Started, Theme } from './types';
+import type { AccountCfg, AccountInfo, AgentsStatus, Attachment, BarFeed, Board, Config, ConfigView, FoundAccount, PrDetail, Route, Sent, TextFound, ShortcutStatus, StartOptions, StartSpec, Started, Theme } from './types';
 import type { TodoOp } from './todos';
 
 export const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -220,6 +220,12 @@ export async function startSession(spec: StartSpec): Promise<Started | null> {
 export async function routeQuick(project: string, text: string): Promise<Route> {
   if (!inTauri) throw new Error('Routing needs the app.');
   return invoke<Route>('route_quick', { project, text });
+}
+
+/** Sessions whose prompts and replies have every word (search.rs). */
+export async function searchText(words: string[]): Promise<TextFound> {
+  if (!inTauri) return { hits: [], building: false, off: true };
+  return invoke<TextFound>('search_text', { words });
 }
 
 /** Sends a prompt to a session that's already going, where it runs (send.rs). */

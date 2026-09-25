@@ -68,7 +68,9 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   inspector, or a worktree's or session's right-click menu in Codealong): one input, and below
   it what you can do next. With nothing typed it lists the sessions that need you, then the
   ones whose turn ended (the working ones when nothing waits on you). Typed words find
-  sessions by title, account, worktree, branch, repo, project or PR, and under them todos by
+  sessions by title, account, worktree, branch, repo, project or PR, then by what was said in
+  them (your prompts and the agents' replies, for sessions active in the last `[search] days`,
+  with the matching line shown), and under them todos by
   title, description, label, project, or the worktrees and sessions linked to them. ⏎ on a todo
   opens its session, or, when it has none, gets a session ready to start for it (its prompt,
   its worktree, linked to it). The last row starts a new session with what you typed as its
@@ -220,6 +222,9 @@ sessions = false               # how each turn ended: asks you, stuck, landed, f
 todos = false                  # links sessions to todos, done hints, new todos' labels
 pull_requests = false          # review comments that ask for a change
 
+[search]
+days = 14                      # prompts and replies searched this far back; 0 is titles only (Settings › General)
+
 [debug]
 perf_log = false               # true logs timings to ~/Library/Logs/Codealong/perf.log (Settings › Advanced)
 
@@ -294,6 +299,7 @@ light scan (no git, PRs or visitors).
 | `src-tauri/src/launch.rs` | App profiles: Ghostty (AppleScript, exact tab focus), Cursor (CLI), deep links |
 | `src-tauri/src/start.rs`, `src/start.ts` | New sessions: where each account can start one, the launch it makes, the agent menu (every account on every model) and Auto's pick |
 | `src-tauri/src/quick.rs`, `src/quick.ts`, `src/ui/Quick.tsx` | The quick panel: its window (a panel that takes the keyboard over any app), its shortcut, and its page (what needs you, finding sessions, starting one) |
+| `src-tauri/src/search.rs` | Searching what was said in sessions: an in-memory index of prompts and replies, read once per file and then from where it stopped |
 | `src-tauri/src/route.rs`, `src/route.ts` | Suggestions in the quick panel: the request to Jev and reading its answer back, the key in the keychain, and which suggestions the panel shows |
 | `src-tauri/src/send.rs` | Sending a prompt to a session that's already going, the way its harness takes one |
 | `src-tauri/src/cli.rs`, `server.rs`, `install.rs` | The `codealong` command (clap; JSON or tables; the app over its socket, else the files), the app's socket, and putting the skill and the command where agents find them |

@@ -1,11 +1,12 @@
 // What the quick panel lists, and how it names shortcuts. With nothing typed it lists the
 // sessions that need you, then the ones whose turn ended; with nothing waiting, the ones
-// working. Typed words find sessions, then todos: every word has to be in what describes them.
+// working. Typed words find sessions, then todos: every word has to be in what describes them,
+// or, for a session, in what was said in it (the engine's text search, search.rs).
 // Kept free of React so the rules have tests.
 
 import { middleTruncate } from './format';
 import { sectionOf, sessionHomes, todoItem, type TodoItem, type TodoSectionId } from './todos';
-import type { Board, Lane, Session, Status } from './types';
+import type { Board, Lane, Session, Status, TextHit } from './types';
 
 export const ALL_PROJECTS = 'All projects';
 const ELSEWHERE = 'Elsewhere';
@@ -35,6 +36,9 @@ export interface SessionRow {
   session: Session;
   /** Where the typed words are in the title, as [start, end) pairs, for underlining. */
   marks: [number, number][];
+  /** Found by what was said rather than what describes it: a line of that, and where the
+   *  words are in it. */
+  said?: { text: string; you: boolean; marks: [number, number][] };
 }
 
 /** How many rows the panel lists at most: ⌘1 to ⌘9 reach them all. */
@@ -98,25 +102,33 @@ export function titleMarks(title: string, words: string[]): [number, number][] {
 
 const STATUS_RANK: Record<Status, number> = { needs: 0, error: 0, unread: 1, working: 2, idle: 3, stopped: 4 };
 
+/** The shortest search that's sent to the text search: fewer letters match nearly everything. */
+export const TEXT_SEARCH_MIN = 3;
+
 /**
- * Sessions with every typed word somewhere in what describes them, best first: those whose
- * title has them all, then by status (needs you, your turn, working, the rest), then the most
- * recently active. Archived sessions are left out.
+ * Sessions with every typed word somewhere in what describes them, or in what was said in them
+ * (`said`, the text search's hits by session key), best first: those whose title has them all,
+ * then the rest of what describes them, then what was said; within each by status (needs you,
+ * your turn, working, the rest), then the most recently active. Archived sessions are left out.
  */
-export function findSessions(board: Board, project: string, query: string, limit = MAX_ROWS): SessionRow[] {
+export function findSessions(board: Board, project: string, query: string, limit = MAX_ROWS, said: Map<string, TextHit> = new Map()): SessionRow[] {
   const words = queryWords(query);
   if (words.length === 0) return [];
   const found = sessionsIn(board, project).flatMap(({ lane, session: s }) => {
     const pr = lane.pr ? `#${lane.pr.number} ${lane.pr.title}` : '';
     const hay = [s.title, s.account, lane.callsign, lane.repo, lane.branch ?? '', s.branch ?? '', lane.project, pr].join('\n').toLowerCase();
-    if (!words.every((w) => hay.includes(w))) return [];
     const title = s.title.toLowerCase();
-    return [{ row: { kind: 'session' as const, key: s.key, group: 'found' as const, lane, session: s, marks: titleMarks(s.title, words) }, inTitle: words.every((w) => title.includes(w)) }];
+    const row: SessionRow = { kind: 'session', key: s.key, group: 'found', lane, session: s, marks: titleMarks(s.title, words) };
+    if (words.every((w) => title.includes(w))) return [{ row, tier: 0 }];
+    if (words.every((w) => hay.includes(w))) return [{ row, tier: 1 }];
+    const hit = said.get(s.key);
+    if (!hit) return [];
+    return [{ row: { ...row, said: { text: hit.snippet, you: hit.you, marks: titleMarks(hit.snippet, words) } }, tier: 2 }];
   });
   return found
     .sort(
       (a, b) =>
-        Number(b.inTitle) - Number(a.inTitle) ||
+        a.tier - b.tier ||
         STATUS_RANK[a.row.session.status] - STATUS_RANK[b.row.session.status] ||
         b.row.session.lastActivity - a.row.session.lastActivity ||
         a.row.key.localeCompare(b.row.key),
