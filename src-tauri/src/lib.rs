@@ -17,6 +17,7 @@ mod engine;
 mod git;
 mod github;
 mod install;
+mod insights;
 mod jev;
 mod launch;
 mod logo;

@@ -467,6 +467,8 @@ mod tests {
             archived: false,
             attach_command: None,
             stalled_since: None,
+            background: None,
+            insight: None,
         }
     }
 

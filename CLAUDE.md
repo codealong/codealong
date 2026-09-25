@@ -180,7 +180,10 @@ Claude Code
 - Live sessions: `<home>/sessions/<pid>.json` with `status` (busy, shell, idle, waiting,
   blocked), `kind` (interactive, bg), `jobId`, `name`/`nameSource`, `statusUpdatedAt`. The
   timestamp isn't refreshed while busy: a session that says busy with nothing new in its
-  transcript or subagent logs for 30 minutes is stuck, not working.
+  transcript or subagent logs for 30 minutes is stuck, not working. `shell` is a turn that
+  ended with a command left running in the background (a poll for a review, say, for hours): it
+  runs detached, can't wait for typing, and wakes the session when it finishes, so it's never
+  stuck.
 - Transcripts: `<home>/projects/<encoded cwd>/<session>.jsonl`; subagents log to
   `<session>/subagents/agent-*.jsonl`. `ai-title` lines (the terminal tab's title) and
   `gitBranch` fields repeat through the file, so the tail has the current ones. Claude Code
