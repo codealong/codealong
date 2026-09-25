@@ -90,7 +90,9 @@ export function suggestions(route: Route, board: Board): Suggestion[] {
       const p = prob('start');
       add(startIn(l1, p * sessionP(l1)));
       // The session that may already be doing it comes next: sending there may be what's meant.
-      if (route.duplicate) add(toSession(route.duplicate, route.duplicate.p, false));
+      // Its likelihood is that of sending at all, times that of this session doing the work, so
+      // it reads on the same scale as the rows around it (the start row carries the warning).
+      if (route.duplicate) add(toSession(route.duplicate, prob('send') * route.duplicate.p, false));
       if (sessionP(l2) >= RUNNER_UP) add(startIn(l2, p * sessionP(l2)));
       if (prob('send') >= RUNNER_UP && sessionP(s1) >= RUNNER_UP) add(toSession(s1, prob('send') * sessionP(s1), false));
       break;
