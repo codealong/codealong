@@ -6,8 +6,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { below } from '../contextMenu';
 import { absolute, ago, middleTruncate } from '../format';
-import { newId, nextColor, STATUSES, STATUS_WORD, type TodoItem, type TodoOp, type TodoPlace } from '../todos';
-import type { Label, Lane, Session } from '../types';
+import { cantWaitOn, dependents, depsOf, newId, nextColor, STATUSES, STATUS_WORD, waitsOnTodos, type TodoItem, type TodoOp, type TodoPlace } from '../todos';
+import type { Label, Lane, Session, Todo } from '../types';
 import { DescriptionEditor } from './DescriptionEditor';
 import { Button, Icon, Kbd, LaneGlyph, StatusGlyph } from './primitives';
 import { LabelDot, TodoGlyph } from './TodoBits';
@@ -193,6 +193,90 @@ function LabelPicker({ labels, chosen, onToggle, onCreate, onRename, onMenu, onC
   );
 }
 
+/** Pick a todo for this one to wait on. Done ones and this one aren't offered; ones that
+ *  already wait on this one are shown greyed, since waiting on them would make a loop. */
+function WaitPicker({ todo, todos, onPick, onClose }: { todo: Todo; todos: Todo[]; onPick: (id: string) => void; onClose: () => void }) {
+  const [query, setQuery] = useState('');
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      if (!ref.current?.parentElement?.contains(e.target as Node)) onClose();
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [onClose]);
+  const q = query.trim().toLowerCase();
+  const offered = todos
+    .filter((t) => t.id !== todo.id && t.status !== 'done' && !depsOf(todo).includes(t.id))
+    .map((t) => ({ t, why: cantWaitOn(todo, t, todos) }))
+    .filter(({ t }) => (t.title || 'Untitled').toLowerCase().includes(q))
+    // The todo's own project first; the rest keep your order.
+    .sort((a, b) => Number(a.t.project !== todo.project) - Number(b.t.project !== todo.project));
+  const first = offered.find((o) => !o.why);
+  return (
+    <div className="ca-menu ca-labelpick ca-waitpick" ref={ref} role="dialog" aria-label="Waits on">
+      <input
+        className="ca-labelpick-input"
+        value={query}
+        autoFocus
+        placeholder="Find a todo"
+        onChange={(e) => setQuery(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') {
+            e.preventDefault();
+            e.stopPropagation();
+            onClose();
+          } else if (e.key === 'Enter') {
+            e.preventDefault();
+            if (first) {
+              onPick(first.t.id);
+              setQuery('');
+            }
+          }
+        }}
+      />
+      <div className="ca-labelpick-list">
+        {offered.map(({ t, why }) => (
+          <button
+            key={t.id}
+            type="button"
+            className="ca-menu-item"
+            disabled={!!why}
+            title={why ? `${why}: waiting on it would make a loop.` : undefined}
+            onClick={() => {
+              onPick(t.id);
+              setQuery('');
+            }}
+          >
+            <TodoGlyph status={t.status} />
+            <span className="ca-menu-label">{t.title || 'Untitled'}</span>
+            {why ? <span className="ca-waitpick-note">{why}</span> : t.project !== todo.project && t.project ? <span className="ca-waitpick-note">{t.project}</span> : null}
+          </button>
+        ))}
+        {offered.length === 0 && <p className="ca-labelpick-note">{q ? 'No open todo matches.' : 'No other open todos.'}</p>}
+      </div>
+    </div>
+  );
+}
+
+/** Another todo, as the Waits on and Needed by lines show it. Click it to show it. */
+function TodoRef({ todo, onShow, onRemove }: { todo: Todo; onShow: (t: Todo) => void; onRemove?: () => void }) {
+  const title = todo.title || 'Untitled';
+  return (
+    <span className={`ca-labelchip ca-todoref is-${todo.status}`}>
+      <button type="button" className="ca-todoref-show" title={`${STATUS_WORD[todo.status]}: ${title}. Click to show it.`} onClick={() => onShow(todo)}>
+        <TodoGlyph status={todo.status} size={11} />
+        <span className="ca-todoref-title">{title}</span>
+      </button>
+      {onRemove && (
+        <button type="button" aria-label={`Stop waiting on ${title}`} title="Stop waiting on it" onClick={onRemove}>
+          <Icon name="x" size={10} stroke={2.25} />
+        </button>
+      )}
+    </span>
+  );
+}
+
 /** A worktree the todo is linked to, and its sessions, as the sidebar's tree draws them. */
 function Place({ place, now, onShowLane, onLaneMenu, onOpenSession, onSessionMenu }: { place: TodoPlace; now: number } & Pick<TodoPanelProps, 'onShowLane' | 'onLaneMenu' | 'onOpenSession' | 'onSessionMenu'>) {
   const { lane, sessions } = place;
@@ -243,6 +327,10 @@ function Place({ place, now, onShowLane, onLaneMenu, onOpenSession, onSessionMen
 
 interface TodoPanelProps {
   item: TodoItem;
+  /** Every todo, in any project, for what this one waits on and what waits on it. */
+  todos: Todo[];
+  /** Shows another todo, from Waits on or Needed by. */
+  onShowTodo: (todo: Todo) => void;
   /** Every label, in your order. */
   labels: Label[];
   lanes: Map<string, Lane>;
@@ -264,9 +352,13 @@ interface TodoPanelProps {
   onError: (message: string) => void;
 }
 
-export function TodoPanel({ item, labels, lanes, now, onRun, onStart, onOpenSession, onShowLane, onLaneMenu, onSessionMenu, onLinkMenu, onMoreMenu, onLabelMenu, onError }: TodoPanelProps) {
+export function TodoPanel({ item, todos, onShowTodo, labels, lanes, now, onRun, onStart, onOpenSession, onShowLane, onLaneMenu, onSessionMenu, onLinkMenu, onMoreMenu, onLabelMenu, onError }: TodoPanelProps) {
   const { todo } = item;
   const [picking, setPicking] = useState(false);
+  const [pickingWait, setPickingWait] = useState(false);
+  const waitsOn = waitsOnTodos(todo, todos);
+  const neededBy = dependents(todo, todos);
+  const setDeps = (dependsOn: string[]) => update({ dependsOn });
   const update = (patch: Extract<TodoOp, { op: 'update' }>['patch']) => onRun({ op: 'update', id: todo.id, patch });
   const toggleLabel = (id: string) => update({ labels: todo.labels.includes(id) ? todo.labels.filter((l) => l !== id) : [...todo.labels, id] });
   const shownLabels = todo.labels.flatMap((id) => labels.find((l) => l.id === id) ?? []);
@@ -334,6 +426,30 @@ export function TodoPanel({ item, labels, lanes, now, onRun, onStart, onOpenSess
             )}
           </span>
         </div>
+      </section>
+
+      <section className="ca-insp-sec">
+        <h4 className="ca-label">Waits on</h4>
+        <div className="ca-todoinsp-labels ca-todoinsp-waits">
+          {waitsOn.map((t) => (
+            <TodoRef key={t.id} todo={t} onShow={onShowTodo} onRemove={() => setDeps(depsOf(todo).filter((d) => d !== t.id))} />
+          ))}
+          <span className="ca-labelpick-anchor ca-waitpick-anchor">
+            <button type="button" className="ca-labelchip ca-labelchip--add" aria-expanded={pickingWait} onClick={() => setPickingWait(!pickingWait)}>
+              <Icon name="lock" size={12} />
+              <span>{waitsOn.length ? 'Add' : 'Add a todo it waits on'}</span>
+            </button>
+            {pickingWait && <WaitPicker todo={todo} todos={todos} onPick={(id) => setDeps([...depsOf(todo), id])} onClose={() => setPickingWait(false)} />}
+          </span>
+        </div>
+        {neededBy.length > 0 && (
+          <div className="ca-todoinsp-neededby">
+            <span className="ca-todoinsp-neededby-head">Needed by</span>
+            {neededBy.map((t) => (
+              <TodoRef key={t.id} todo={t} onShow={onShowTodo} />
+            ))}
+          </div>
+        )}
       </section>
 
       <section className="ca-insp-sec">

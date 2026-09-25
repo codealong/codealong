@@ -56,6 +56,9 @@
       "description": "Every publish is the whole board. Send only what changed.",
       "labels": [
         "l-perf"
+      ],
+      "dependsOn": [
+        "t-sample2"
       ]
     },
     {
@@ -66,12 +69,19 @@
       ],
       "worktrees": [
         "$lane:2"
+      ],
+      "dependsOn": [
+        "t-sample6"
       ]
     },
     {
       "id": "t-sample5",
       "title": "Try the floating bar on a second display",
-      "description": ""
+      "description": "",
+      "dependsOn": [
+        "t-sample1",
+        "t-sample3"
+      ]
     },
     {
       "id": "t-sample6",

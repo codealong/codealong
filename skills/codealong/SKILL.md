@@ -36,6 +36,14 @@ todo commands still work; give a session key when you want one linked.
 - `codealong todo update <id>` changes fields (`--title`, `--description`, `--status`,
   `--project`, `--add-label`, `--remove-label`); `link` and `unlink` change what a todo is
   attached to; `delete` removes one, which the app can't undo later, so ask first.
+- **Order and dependencies.** The list's order is the user's priority, top first. `codealong
+  todo move <id> --top|--bottom|--before <id>|--after <id>` changes it; don't reorder
+  without being asked. A todo can wait on others: `todo add … --depends-on <id>`, `todo
+  update <id> --add-dependency <id>` or `--remove-dependency <id>`. It's blocked until
+  every todo it waits on is done; `blockedBy` in the JSON lists the ones still open, and a
+  dependency that would make a loop is refused. When splitting work into steps, add a todo
+  per step with each waiting on the one before. `todo list --ready` shows open todos that
+  wait on nothing still open: pick the next piece of work from there, top first.
 - Ids look like `t-mug4eym1sir0an`; a unique prefix is enough.
 
 ## Sessions and worktrees

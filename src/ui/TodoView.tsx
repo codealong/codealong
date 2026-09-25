@@ -5,8 +5,8 @@
 
 import { forwardRef, type ReactNode } from 'react';
 import { absolute, ago, middleTruncate } from '../format';
-import { attachmentsIn, snippet, STATUS_WORD, todoPr, type TodoItem, type TodoSection } from '../todos';
-import type { Label, Lane, Session, TodoStatus } from '../types';
+import { attachmentsIn, blockedBy, snippet, STATUS_WORD, todoPr, type TodoItem, type TodoSection } from '../todos';
+import type { Label, Lane, Session, Todo, TodoStatus } from '../types';
 import { HarnessChip, Icon, Kbd, PrChip } from './primitives';
 import { LabelChip, TodoGlyph } from './TodoBits';
 import { useDragOrder, type DragProps } from './useDragOrder';
@@ -84,12 +84,14 @@ interface TodoRowProps {
   onContextMenu: () => void;
   onOpenSession: (lane: Lane, session: Session) => void;
   onFilterLabel: (label: Label) => void;
+  /** The open todos it waits on. */
+  blocked: Todo[];
   drag?: DragProps;
 }
 
 const CHIPS_SHOWN = 3;
 
-function TodoRow({ item, domId, now, selected, showProject, onSelect, onOpen, onContextMenu, onOpenSession, onFilterLabel, drag }: TodoRowProps) {
+function TodoRow({ item, domId, now, selected, showProject, onSelect, onOpen, onContextMenu, onOpenSession, onFilterLabel, blocked, drag }: TodoRowProps) {
   const { todo } = item;
   const pr = todoPr(item);
   const detail = snippet(todo.description);
@@ -132,6 +134,12 @@ function TodoRow({ item, domId, now, selected, showProject, onSelect, onOpen, on
             {item.labels.map((l) => (
               <LabelChip key={l.id} label={l} title={`Show only “${l.name}”`} onClick={() => onFilterLabel(l)} />
             ))}
+            {blocked.length > 0 && todo.status !== 'done' && (
+              <span className="ca-chip ca-todorow-blocked" title={`Waits on ${blocked.map((t) => `“${t.title || 'Untitled'}”`).join(', ')}, not done yet.`}>
+                <Icon name="lock" size={12} />
+                <span className="ca-todorow-blocked-text">{blocked.length === 1 ? `Waiting on ${blocked[0].title || 'Untitled'}` : `Waiting on ${blocked.length} todos`}</span>
+              </span>
+            )}
             {attached.length > 0 && (
               <span className="ca-chip ca-todorow-attached" title={attached.map((a) => (a.kind === 'image' ? 'Image' : a.name)).join('\n')}>
                 <Icon name="paperclip" size={12} />
@@ -170,6 +178,8 @@ function TodoRow({ item, domId, now, selected, showProject, onSelect, onOpen, on
 
 interface TodoViewProps {
   sections: TodoSection[];
+  /** Every todo, in any project: what a row waits on can be anywhere. */
+  todos: Todo[];
   now: number;
   selectedKey: string | null;
   domId: (row: TodoItem) => string;
@@ -202,7 +212,7 @@ function SectionHead({ status, count, hint }: { status: TodoStatus; count: numbe
 }
 
 function Section({ section, props }: { section: TodoSection; props: TodoViewProps }) {
-  const { now, selectedKey, domId, showProject, canReorder, onSelect, onOpen, onContextMenu, onOpenSession, onFilterLabel, onMove } = props;
+  const { todos, now, selectedKey, domId, showProject, canReorder, onSelect, onOpen, onContextMenu, onOpenSession, onFilterLabel, onMove } = props;
   const { listRef, dragging, rowProps } = useDragOrder((id, index) => onMove(section.id, id, index));
   const draggable = canReorder && section.rows.length > 1;
   return (
@@ -232,6 +242,7 @@ function Section({ section, props }: { section: TodoSection; props: TodoViewProp
             onContextMenu={() => onContextMenu(r)}
             onOpenSession={onOpenSession}
             onFilterLabel={onFilterLabel}
+            blocked={blockedBy(r.todo, todos)}
             drag={draggable ? rowProps(r.todo.id, i, section.rows.length) : undefined}
           />
         ))}
@@ -241,7 +252,7 @@ function Section({ section, props }: { section: TodoSection; props: TodoViewProp
 }
 
 export function TodoView(props: TodoViewProps) {
-  const { sections, now, selectedKey, domId, showProject, onSelect, onOpen, onContextMenu, onOpenSession, onFilterLabel, showDone, onToggleDone, composer, empty } = props;
+  const { sections, todos, now, selectedKey, domId, showProject, onSelect, onOpen, onContextMenu, onOpenSession, onFilterLabel, showDone, onToggleDone, composer, empty } = props;
   const open = sections.filter((s) => s.id !== 'done');
   const done = sections.find((s) => s.id === 'done');
   return (
@@ -277,6 +288,7 @@ export function TodoView(props: TodoViewProps) {
                   onContextMenu={() => onContextMenu(r)}
                   onOpenSession={onOpenSession}
                   onFilterLabel={onFilterLabel}
+                  blocked={blockedBy(r.todo, todos)}
                 />
               ))}
             </div>

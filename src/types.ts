@@ -291,6 +291,9 @@ export interface Todo {
   updatedAt: number;
   doneAt: number | null;
   pending: PendingStart[];
+  /** Ids of the todos this one waits on, in the order added. Missing on older boards. An id
+   *  whose todo was deleted stays (so the delete can be undone) and is ignored. */
+  dependsOn: string[];
 }
 
 /** Light, dark, or following macOS. */

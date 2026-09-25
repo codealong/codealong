@@ -44,7 +44,9 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     hold screenshots and any other files (paste, drop or attach them; files copied in the
     Finder paste too), colored labels, and a status: Todo, In
     progress (an agent is on it) or Done. Add one in the box at the top (`n`), reorder by
-    dragging or with ⌥↑ ⌥↓, mark one done with `x`. Start session (⌘N) opens the new-session
+    dragging or with ⌥↑ ⌥↓, mark one done with `x`. A todo can wait on other todos (Waits
+    on, in its panel): it shows what it's waiting on until they're done, and a dependency
+    that would make a loop is refused. Start session (⌘N) opens the new-session
     sheet with the todo as the prompt, and the session it starts is linked to the todo, which
     moves to In progress; one started in the Claude or Codex app is linked when it shows up.
     Link worktrees and sessions you already have from the todo, or from a session's or
@@ -102,7 +104,8 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
 
 - **For agents**: the `codealong` command and a skill that tells an agent when to use it.
   `codealong whoami` says which session runs it and which todos are linked to it or its
-  worktree; `codealong todo add|start|done|update|link` work the todo list; `codealong
+  worktree; `codealong todo add|start|done|update|move|link` work the todo list,
+  dependencies and order included (`todo list --ready` is what can start now); `codealong
   sessions [find <words>]`, `session show`, `worktrees` and `accounts --usage` answer what else
   is running, what it did, where it lives, and which account has room; `codealong start
   --todo <id>` starts a session the way New session does; `codealong config show|check`

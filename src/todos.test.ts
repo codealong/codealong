@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { filesToAttach } from './attachInput';
-import { applyOp, attachmentsIn, inlines, insertAttachments, newTodo, nextColor, pieces, sessionHomes, snippet, todoIndex, todoInFilter, todoInQuery, todoItem, todoPrompt, todoSections, withoutAttachment, type TodoStore } from './todos';
+import { applyOp, attachmentsIn, blockedBy, cantWaitOn, dependents, inlines, insertAttachments, newTodo, nextColor, pieces, sessionHomes, snippet, todoIndex, todoInFilter, todoInQuery, todoItem, todoPrompt, todoSections, waitsOn, withoutAttachment, type TodoStore } from './todos';
 import type { Label, Lane, Session, Todo } from './types';
 
 const NOW = 1_790_000_000_000;
@@ -227,5 +227,59 @@ describe('prompts and images', () => {
   it('gives new labels a color no label has yet', () => {
     expect(nextColor([])).toBe('red');
     expect(nextColor([{ id: 'a', name: 'A', color: 'red' }])).toBe('pink');
+  });
+});
+
+describe('dependencies', () => {
+  // a waits on b and c; b waits on d; c is done; e waits on a deleted todo.
+  const todos = [
+    todo('a', { dependsOn: ['b', 'c'] }),
+    todo('b', { dependsOn: ['d'] }),
+    todo('c', { status: 'done' }),
+    todo('d'),
+    todo('e', { dependsOn: ['gone'] }),
+  ];
+  const [a, b, c, d, e] = todos;
+
+  it('is blocked by the open todos it waits on, in its order', () => {
+    expect(blockedBy(a, todos).map((t) => t.id)).toEqual(['b']);
+    expect(blockedBy(b, todos).map((t) => t.id)).toEqual(['d']);
+    expect(blockedBy(d, todos)).toEqual([]);
+    expect(blockedBy(e, todos)).toEqual([]);
+  });
+
+  it('treats a board without dependencies as none', () => {
+    const old = { ...todo('x') } as Partial<Todo>;
+    delete old.dependsOn;
+    expect(blockedBy(old as Todo, todos)).toEqual([]);
+    expect(dependents(old as Todo, [...todos, old as Todo])).toEqual([]);
+  });
+
+  it('follows waits through other todos', () => {
+    expect(waitsOn('a', 'd', todos)).toBe(true);
+    expect(waitsOn('d', 'a', todos)).toBe(false);
+    expect(waitsOn('e', 'a', todos)).toBe(false);
+  });
+
+  it('lists the todos waiting on one', () => {
+    expect(dependents(b, todos).map((t) => t.id)).toEqual(['a']);
+    expect(dependents(d, todos).map((t) => t.id)).toEqual(['b']);
+    expect(dependents(a, todos)).toEqual([]);
+  });
+
+  it('refuses itself, done ones, repeats and loops', () => {
+    expect(cantWaitOn(d, d, todos)).not.toBeNull();
+    expect(cantWaitOn(d, c, todos)).not.toBeNull();
+    expect(cantWaitOn(a, b, todos)).not.toBeNull();
+    expect(cantWaitOn(d, a, todos)).not.toBeNull();
+    expect(cantWaitOn(d, e, todos)).toBeNull();
+  });
+
+  it('keeps each id once and never the todo itself', () => {
+    const store: TodoStore = { todos, labels: [] };
+    const next = applyOp(store, { op: 'update', id: 'd', patch: { dependsOn: ['e', 'd', 'e'] } }, NOW + 1);
+    expect(next.todos.find((t) => t.id === 'd')?.dependsOn).toEqual(['e']);
+    const made = applyOp(store, { op: 'create', todo: todo('f', { dependsOn: ['a', 'f', 'a'] }) }, NOW + 1);
+    expect(made.todos[0].dependsOn).toEqual(['a']);
   });
 });

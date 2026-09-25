@@ -73,6 +73,8 @@ interface NewSessionSheetProps {
   now: number;
   /** The todo it opened for: the prompt starts as the todo, and the session is linked to it. */
   todo?: Todo | null;
+  /** The open todos that todo waits on. Starting anyway is allowed; the sheet says so. */
+  blockedBy?: Todo[];
   /** The prompt it opens with, when there's no draft. */
   prompt?: string;
   onError: (message: string) => void;
@@ -81,7 +83,7 @@ interface NewSessionSheetProps {
   onStart: (spec: StartSpec, draft: SheetDraft, label: string) => void;
 }
 
-export function NewSessionSheet({ lanes, laneId: firstLane, draft, error: failed, pinned, usage, now, todo, prompt: firstPrompt, onError, onClose, onStart }: NewSessionSheetProps) {
+export function NewSessionSheet({ lanes, laneId: firstLane, draft, error: failed, pinned, usage, now, todo, blockedBy = [], prompt: firstPrompt, onError, onClose, onStart }: NewSessionSheetProps) {
   const groups = useMemo(() => laneGroups(lanes, pinned), [lanes, pinned]);
   const [options, setOptions] = useState<StartOptions | null>(null);
   // Without a selected worktree, the first on the list: a pinned one, else the latest.
@@ -269,6 +271,16 @@ export function NewSessionSheet({ lanes, laneId: firstLane, draft, error: failed
                 </button>
               </div>
               <small>The session is linked to this todo{place === 'terminal' ? ' as it starts' : ' once it shows up'}, and the todo moves to In progress.</small>
+              {blockedBy.length > 0 && (
+                <p className="ca-start-blocked">
+                  <Icon name="lock" size={12} />
+                  <span>
+                    {blockedBy.length === 1
+                      ? `This todo waits on “${blockedBy[0].title || 'Untitled'}”, which isn’t done.`
+                      : `This todo waits on ${blockedBy.length} todos that aren’t done: ${blockedBy.map((t) => `“${t.title || 'Untitled'}”`).join(', ')}.`}
+                  </span>
+                </p>
+              )}
             </div>
           )}
           <div className="ca-field">

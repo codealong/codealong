@@ -32,8 +32,8 @@ the app's path also matches other sessions' shells, and kills their builds.
 
 The engine binary is also the `codealong` command for agents and people (`cli.rs`; `main.rs`
 runs it for any first argument that's one of its subcommands, and starts the app otherwise):
-`status`, `accounts [--usage]`, `whoami`, `todo list|show|add|update|start|done|reopen|link|
-unlink|delete|labels`, `sessions [find <words>]`, `session show`, `worktrees`, `start`,
+`status`, `accounts [--usage]`, `whoami`, `todo list|show|add|update|move|start|done|reopen|
+link|unlink|delete|labels`, `sessions [find <words>]`, `session show`, `worktrees`, `start`,
 `config show|check`, `install`. Settings are changed by editing config.toml, not through the
 command: agents edit the file well and keep its comments, and `config check` runs
 `config::parse`'s checks on the result. JSON when piped, tables in a terminal (`--table` forces them). With the app up it

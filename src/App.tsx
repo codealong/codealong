@@ -13,7 +13,7 @@ import { approvePr, archiveSession, barOn, expandAttachments, getBoard, markSeen
 import { usePerf } from './perf';
 import { reorderPinned, usePins } from './pins';
 import { prFlag } from './prStatus';
-import { COLOR_WORD, newTodo, sessionHomes, STATUSES, STATUS_WORD, todoIndex, todoInFilter, todoInQuery, todoItem, todoPrompt, todoSections, useTodoStore, type TodoItem } from './todos';
+import { blockedBy, COLOR_WORD, newTodo, sessionHomes, STATUSES, STATUS_WORD, todoIndex, todoInFilter, todoInQuery, todoItem, todoPrompt, todoSections, useTodoStore, type TodoItem } from './todos';
 import type { Bay, Board, Label, Lane, PrItem, Session, StartSpec, Theme, Todo, TodoStatus } from './types';
 import { LABEL_COLORS } from './types';
 import { SettingsDialog, type SettingsSection } from './ui/SettingsDialog';
@@ -1419,6 +1419,7 @@ export function App() {
             {view === 'todo' && board && (
               <TodoView
                 sections={todoSecs}
+                todos={todoStore.todos}
                 now={now}
                 selectedKey={selected?.key ?? null}
                 domId={domId}
@@ -1536,6 +1537,8 @@ export function App() {
             <TodoPanel
               key={selected.todo.id}
               item={selected}
+              todos={todoStore.todos}
+              onShowTodo={showTodo}
               labels={todoStore.labels}
               lanes={laneById}
               now={now}
@@ -1611,6 +1614,7 @@ export function App() {
           usage={board?.usage ?? []}
           now={now}
           todo={newSession.todo ? (todoStore.todos.find((t) => t.id === newSession.todo) ?? null) : null}
+          blockedBy={todoStore.todos.filter((t) => t.id === newSession.todo).flatMap((t) => blockedBy(t, todoStore.todos))}
           prompt={newSession.prompt}
           onError={setToast}
           onClose={closeNewSession}

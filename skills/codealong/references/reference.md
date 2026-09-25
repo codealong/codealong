@@ -148,6 +148,8 @@ Commands:
           worktree to it
   done    Mark a todo done
   reopen  Put a done or in-progress todo back to todo
+  move    Move a todo in the list: to the top or bottom, or before or after another. The
+          app shows todos in this order within each status
   link    Link a session or a worktree to a todo
   unlink  Unlink a session or a worktree from a todo
   delete  Delete a todo. The app can't undo this once its window's undo is gone, so ask
@@ -202,6 +204,10 @@ Options:
 
       --mine
           Only todos linked to the session running this command, or to its worktree
+
+      --ready
+          Only open todos that wait on nothing still open: the ones that can be started
+          now
 
   -h, --help
           Print help
@@ -275,6 +281,9 @@ Options:
       --session <SESSION>
           Link a session: a key, an id, or `me`
 
+      --depends-on <ID>
+          A todo this one waits on: it's blocked until that one is done. Repeatable
+
   -h, --help
           Print help
 ```
@@ -320,6 +329,13 @@ Options:
 
       --remove-label <REMOVE_LABEL>
           Remove a label by name. Repeatable
+
+      --add-dependency <ID>
+          Wait on another todo too. Repeatable. Refused if that one already waits on
+          this one
+
+      --remove-dependency <ID>
+          Stop waiting on a todo. Repeatable
 
   -h, --help
           Print help
@@ -396,6 +412,44 @@ Options:
 
       --verbose
           Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong todo move
+
+```
+Move a todo in the list: to the top or bottom, or before or after another. The app shows
+todos in this order within each status
+
+Usage: codealong todo move [OPTIONS] <--top|--bottom|--before <ID>|--after <ID>> <ID>
+
+Arguments:
+  <ID>
+          
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --top
+          
+
+      --bottom
+          
+
+      --table
+          Tables, even when piped
+
+      --before <ID>
+          Just before this todo
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+      --after <ID>
+          Just after this todo
 
   -h, --help
           Print help

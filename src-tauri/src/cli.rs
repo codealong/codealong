@@ -110,6 +110,8 @@ enum TodoCmd {
     Done { id: String },
     /// Put a done or in-progress todo back to todo.
     Reopen { id: String },
+    /// Move a todo in the list: to the top or bottom, or before or after another. The app shows todos in this order within each status.
+    Move(MoveArgs),
     /// Link a session or a worktree to a todo.
     Link(LinkArgs),
     /// Unlink a session or a worktree from a todo.
@@ -152,6 +154,9 @@ struct TodoListArgs {
     /// Only todos linked to the session running this command, or to its worktree.
     #[arg(long)]
     mine: bool,
+    /// Only open todos that wait on nothing still open: the ones that can be started now.
+    #[arg(long)]
+    ready: bool,
 }
 
 #[derive(Args, Debug)]
@@ -179,6 +184,9 @@ struct TodoAddArgs {
     /// Link a session: a key, an id, or `me`.
     #[arg(long)]
     session: Option<String>,
+    /// A todo this one waits on: it's blocked until that one is done. Repeatable.
+    #[arg(long, value_name = "ID")]
+    depends_on: Vec<String>,
 }
 
 #[derive(Args, Debug)]
@@ -203,6 +211,28 @@ struct TodoUpdateArgs {
     /// Remove a label by name. Repeatable.
     #[arg(long)]
     remove_label: Vec<String>,
+    /// Wait on another todo too. Repeatable. Refused if that one already waits on this one.
+    #[arg(long, value_name = "ID")]
+    add_dependency: Vec<String>,
+    /// Stop waiting on a todo. Repeatable.
+    #[arg(long, value_name = "ID")]
+    remove_dependency: Vec<String>,
+}
+
+#[derive(Args, Debug)]
+#[command(group(clap::ArgGroup::new("to").required(true).multiple(false)))]
+struct MoveArgs {
+    id: String,
+    #[arg(long, group = "to")]
+    top: bool,
+    #[arg(long, group = "to")]
+    bottom: bool,
+    /// Just before this todo.
+    #[arg(long, value_name = "ID", group = "to")]
+    before: Option<String>,
+    /// Just after this todo.
+    #[arg(long, value_name = "ID", group = "to")]
+    after: Option<String>,
 }
 
 #[derive(Args, Debug)]
@@ -837,7 +867,6 @@ fn session_show(c: &mut Client, key: &str, json: bool) -> Result<()> {
     let (s, lane) = all_sessions(board).into_iter().find(|(s, _)| s.key == key).ok_or_else(|| anyhow!("There's no session {key}."))?;
     let row = session_row(s, lane, &board.todos);
     let account = cfg.accounts.iter().find(|a| a.name == s.account);
-    let labels = &board.labels;
     let out = SessionDetail {
         detail: s.detail.clone(),
         name: s.name.clone(),
@@ -849,7 +878,7 @@ fn session_show(c: &mut Client, key: &str, json: bool) -> Result<()> {
         pr_title: lane.pr.as_ref().map(|p| p.title.clone()),
         pr_state: lane.pr.as_ref().map(|p| lower_debug(&p.state)),
         records: account.map(|a| records_for(a, s)).unwrap_or_default(),
-        linked_todos: board.todos.iter().filter(|t| t.sessions.contains(&s.key)).map(|t| todo_row(t, labels, false)).collect(),
+        linked_todos: board.todos.iter().filter(|t| t.sessions.contains(&s.key)).map(|t| todo_row(t, &store_of(board), false)).collect(),
         row,
     };
     if json {
@@ -1034,7 +1063,7 @@ fn whoami(c: &mut Client, context: bool, json: bool) -> Result<()> {
         how: session.and(how).map(str::to_string),
         session: session.map(|(s, l)| session_row(s, l, &board.todos)),
         worktree: lane.map(|l| lane_row(l, board)),
-        todos: todos.iter().map(|t| todo_row(t, &board.labels, false)).collect(),
+        todos: todos.iter().map(|t| todo_row(t, &store_of(board), false)).collect(),
     };
     if json {
         return print_json(&out);
@@ -1109,14 +1138,35 @@ struct TodoRow {
     labels: Vec<String>,
     worktrees: Vec<String>,
     sessions: Vec<String>,
+    /// Ids of the todos it waits on.
+    depends_on: Vec<String>,
+    /// The ones of those not done yet: while any are, it's blocked.
+    blocked_by: Vec<String>,
     created_at: i64,
     updated_at: i64,
     done_at: Option<i64>,
+    /// Titles of the todos it waits on, and ids and titles of the todos waiting on it. Only on `show`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    waits_on: Option<Vec<TodoRef>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    needed_by: Option<Vec<TodoRef>>,
     /// The description, with attachments as full paths. Only on `show`.
     #[serde(skip_serializing_if = "Option::is_none")]
     description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     attachments: Option<Vec<String>>,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct TodoRef {
+    id: String,
+    title: String,
+    status: String,
+}
+
+fn todo_ref(t: &Todo) -> TodoRef {
+    TodoRef { id: t.id.clone(), title: t.title.clone(), status: status_name(t.status).into() }
 }
 
 fn status_name(s: TodoStatus) -> &'static str {
@@ -1127,21 +1177,29 @@ fn status_name(s: TodoStatus) -> &'static str {
     }
 }
 
-fn todo_row(t: &Todo, labels: &[Label], full: bool) -> TodoRow {
+fn todo_row(t: &Todo, store: &TodoStore, full: bool) -> TodoRow {
     TodoRow {
         id: t.id.clone(),
         title: t.title.clone(),
         status: status_name(t.status).into(),
         project: t.project.clone(),
-        labels: t.labels.iter().map(|id| labels.iter().find(|l| &l.id == id).map(|l| l.name.clone()).unwrap_or_else(|| id.clone())).collect(),
+        labels: t.labels.iter().map(|id| store.labels.iter().find(|l| &l.id == id).map(|l| l.name.clone()).unwrap_or_else(|| id.clone())).collect(),
         worktrees: t.worktrees.clone(),
         sessions: t.sessions.clone(),
+        depends_on: t.depends_on.iter().filter(|d| store.todos.iter().any(|x| &x.id == *d)).cloned().collect(),
+        blocked_by: store.blocked_by(t).iter().map(|x| x.id.clone()).collect(),
         created_at: t.created_at,
         updated_at: t.updated_at,
         done_at: t.done_at,
+        waits_on: full.then(|| t.depends_on.iter().filter_map(|d| store.todos.iter().find(|x| &x.id == d)).map(todo_ref).collect()),
+        needed_by: full.then(|| store.todos.iter().filter(|x| x.depends_on.contains(&t.id)).map(todo_ref).collect()),
         description: full.then(|| attachments::expand(&t.description, attachments::Style::Path)),
         attachments: full.then(|| attachments::referenced(&t.description).iter().filter_map(|p| attachments::locate(p)).map(|p| p.to_string_lossy().into_owned()).collect()),
     }
+}
+
+fn store_of(board: &Board) -> TodoStore {
+    TodoStore { todos: board.todos.clone(), labels: board.labels.clone() }
 }
 
 fn resolve_todo(store: &TodoStore, id: &str) -> Result<String> {
@@ -1230,7 +1288,7 @@ fn todo(cmd: TodoCmd, c: &mut Client, json: bool) -> Result<()> {
             let store = c.todos()?;
             let id = resolve_todo(&store, &id)?;
             let t = store.todos.iter().find(|t| t.id == id).unwrap();
-            let row = todo_row(t, &store.labels, true);
+            let row = todo_row(t, &store, true);
             if json {
                 return print_json(&row);
             }
@@ -1242,6 +1300,7 @@ fn todo(cmd: TodoCmd, c: &mut Client, json: bool) -> Result<()> {
             let worktree = a.worktree.as_deref().map(|w| resolve_worktree(c, w)).transpose()?;
             let session = a.session.as_deref().map(|s| resolve_session(c, s)).transpose()?;
             let mut store = c.todos()?;
+            let depends_on = a.depends_on.iter().map(|d| resolve_todo(&store, d)).collect::<Result<Vec<_>>>()?;
             let labels = label_ids(c, &mut store, &a.label)?;
             let mut description = read_description(a.description, a.description_file)?.unwrap_or_default();
             for f in &a.attach {
@@ -1258,7 +1317,7 @@ fn todo(cmd: TodoCmd, c: &mut Client, json: bool) -> Result<()> {
             }
             let id = new_todo_id();
             let now = now_ms();
-            let todo = Todo { id: id.clone(), project: a.project.unwrap_or_default(), title: a.title, description, status: TodoStatus::Todo, labels, worktrees: vec![], sessions: vec![], created_at: now, updated_at: now, done_at: None, pending: vec![] };
+            let todo = Todo { id: id.clone(), project: a.project.unwrap_or_default(), title: a.title, description, status: TodoStatus::Todo, labels, worktrees: vec![], sessions: vec![], created_at: now, updated_at: now, done_at: None, pending: vec![], depends_on };
             c.apply(TodoOp::Create { todo })?;
             link(c, &id, worktree.as_deref(), session.as_deref(), true)?;
             show_after(c, &id, json)
@@ -1279,18 +1338,49 @@ fn todo(cmd: TodoCmd, c: &mut Client, json: bool) -> Result<()> {
                 }
                 labels = Some(list);
             }
-            let patch = TodoPatch { title: a.title, description: read_description(a.description, a.description_file)?, status: a.status.as_deref().map(parse_todo_status).transpose()?, labels, project: a.project };
+            let mut depends_on = None;
+            if !a.add_dependency.is_empty() || !a.remove_dependency.is_empty() {
+                let add = a.add_dependency.iter().map(|d| resolve_todo(&store, d)).collect::<Result<Vec<_>>>()?;
+                let remove: Vec<String> = a.remove_dependency.iter().map(|d| resolve_todo(&store, d).unwrap_or_else(|_| d.clone())).collect();
+                let mut list: Vec<String> = current.depends_on.iter().filter(|d| !remove.contains(d)).cloned().collect();
+                for d in add {
+                    if !list.contains(&d) {
+                        list.push(d);
+                    }
+                }
+                depends_on = Some(list);
+            }
+            let patch = TodoPatch { depends_on, title: a.title, description: read_description(a.description, a.description_file)?, status: a.status.as_deref().map(parse_todo_status).transpose()?, labels, project: a.project };
             c.apply(TodoOp::Update { id: id.clone(), patch })?;
             show_after(c, &id, json)
         }
         TodoCmd::Start { id } => {
             let store = c.todos()?;
             let id = resolve_todo(&store, &id)?;
+            warn_blocked(&store, &id);
             c.apply(TodoOp::Update { id: id.clone(), patch: TodoPatch { status: Some(TodoStatus::InProgress), ..Default::default() } })?;
             // Linking `me` and `.` is best effort: a shell outside any session still starts the todo.
             let me = find_me(c)?.0;
             let here = std::env::current_dir().ok().and_then(|d| lane_for_path(c.board().ok()?, &d).map(|l| l.id.clone()));
             link(c, &id, here.as_deref(), me.as_deref(), true)?;
+            show_after(c, &id, json)
+        }
+        TodoCmd::Move(a) => {
+            let store = c.todos()?;
+            let id = resolve_todo(&store, &a.id)?;
+            let mut ids: Vec<String> = store.todos.iter().map(|t| t.id.clone()).filter(|x| x != &id).collect();
+            let at = match (a.top, a.bottom, &a.before, &a.after) {
+                (true, ..) => 0,
+                (_, true, ..) => ids.len(),
+                (_, _, Some(other), _) | (_, _, _, Some(other)) => {
+                    let other = resolve_todo(&store, other)?;
+                    let i = ids.iter().position(|x| x == &other).ok_or_else(|| anyhow!("A todo can't move next to itself."))?;
+                    if a.after.is_some() { i + 1 } else { i }
+                }
+                _ => bail!("Give --top, --bottom, --before or --after."),
+            };
+            ids.insert(at, id.clone());
+            c.apply(TodoOp::Order { ids })?;
             show_after(c, &id, json)
         }
         TodoCmd::Done { id } => set_status(c, &id, TodoStatus::Done, json),
@@ -1365,6 +1455,17 @@ fn todo(cmd: TodoCmd, c: &mut Client, json: bool) -> Result<()> {
     }
 }
 
+/// A note on stderr, so JSON on stdout stays clean: starting a blocked todo is allowed, but
+/// whoever starts it should know.
+fn warn_blocked(store: &TodoStore, id: &str) {
+    let Some(t) = store.todos.iter().find(|t| t.id == id) else { return };
+    let open = store.blocked_by(t);
+    if !open.is_empty() {
+        let names: Vec<String> = open.iter().map(|x| format!("{} \"{}\" ({})", x.id, x.title, status_name(x.status))).collect();
+        eprintln!("note: {} waits on {}, not done yet.", t.id, names.join(", "));
+    }
+}
+
 fn set_status(c: &mut Client, id: &str, status: TodoStatus, json: bool) -> Result<()> {
     let store = c.todos()?;
     let id = resolve_todo(&store, id)?;
@@ -1388,7 +1489,7 @@ fn link(c: &mut Client, id: &str, worktree: Option<&str>, session: Option<&str>,
 fn show_after(c: &mut Client, id: &str, json: bool) -> Result<()> {
     let store = c.todos()?;
     let Some(t) = store.todos.iter().find(|t| t.id == id) else { bail!("The todo {id} isn't in the list any more.") };
-    let row = todo_row(t, &store.labels, true);
+    let row = todo_row(t, &store, true);
     if json {
         return print_json(&row);
     }
@@ -1406,6 +1507,12 @@ fn print_todo(r: &TodoRow) {
     }
     for s in &r.sessions {
         println!("Session: {s}");
+    }
+    for w in r.waits_on.iter().flatten() {
+        println!("Waits on: {} {} ({})", w.id, w.title, w.status);
+    }
+    for n in r.needed_by.iter().flatten() {
+        println!("Needed by: {} {} ({})", n.id, n.title, n.status);
     }
     if let Some(d) = r.description.as_deref().filter(|d| !d.trim().is_empty()) {
         println!();
@@ -1437,7 +1544,8 @@ fn todo_list(c: &mut Client, a: &TodoListArgs, json: bool) -> Result<()> {
         .filter(|t| label.as_deref().map_or(true, |l| t.labels.iter().any(|x| x == l)))
         .filter(|t| worktree.as_deref().map_or(true, |w| t.worktrees.iter().any(|x| x == w)))
         .filter(|t| !a.mine || me.as_deref().is_some_and(|k| t.sessions.iter().any(|s| s == k)) || here.as_deref().is_some_and(|w| t.worktrees.iter().any(|x| x == w)))
-        .map(|t| todo_row(t, &store.labels, false))
+        .filter(|t| !a.ready || (t.status != TodoStatus::Done && store.blocked_by(t).is_empty()))
+        .map(|t| todo_row(t, &store, false))
         .collect();
     if !["all", "open", "todo", "in-progress", "done"].contains(&a.status.as_str()) {
         bail!("--status is todo, in-progress, done, open or all.");
@@ -1445,8 +1553,8 @@ fn todo_list(c: &mut Client, a: &TodoListArgs, json: bool) -> Result<()> {
     if json {
         return print_json(&rows);
     }
-    let table: Vec<Vec<String>> = rows.iter().map(|r| vec![r.id.clone(), r.status.clone(), r.project.clone(), truncate(&r.title, 60), r.labels.join(", "), r.worktrees.iter().map(|w| tilde(Path::new(w))).collect::<Vec<_>>().join(", ")]).collect();
-    print!("{}", table_text(&["ID", "STATUS", "PROJECT", "TITLE", "LABELS", "WORKTREES"], table));
+    let table: Vec<Vec<String>> = rows.iter().map(|r| vec![r.id.clone(), r.status.clone(), r.project.clone(), truncate(&r.title, 60), r.labels.join(", "), r.blocked_by.join(", "), r.worktrees.iter().map(|w| tilde(Path::new(w))).collect::<Vec<_>>().join(", ")]).collect();
+    print!("{}", table_text(&["ID", "STATUS", "PROJECT", "TITLE", "LABELS", "WAITS ON", "WORKTREES"], table));
     Ok(())
 }
 
@@ -1459,6 +1567,7 @@ fn start_cmd(c: &mut Client, a: &StartArgs, json: bool) -> Result<()> {
             let store = c.todos()?;
             let id = resolve_todo(&store, id)?;
             let t = store.todos.iter().find(|t| t.id == id).unwrap();
+            warn_blocked(&store, &id);
             let body = t.description.trim();
             (if body.is_empty() { t.title.trim().to_string() } else { format!("{}\n\n{body}", t.title.trim()) }, Some(id))
         }
@@ -1721,6 +1830,11 @@ mod tests {
         let cli = Cli::try_parse_from(["codealong", "sessions", "--live", "--json"]).unwrap();
         assert!(cli.json && matches!(cli.cmd, Cmd::Sessions(SessionsArgs { cmd: None, .. })));
         assert!(Cli::try_parse_from(["codealong", "todo", "add"]).is_err());
+        let cli = Cli::try_parse_from(["codealong", "todo", "move", "t-1", "--after", "t-2"]).unwrap();
+        let Cmd::Todo { cmd: TodoCmd::Move(m) } = cli.cmd else { panic!() };
+        assert_eq!((m.id.as_str(), m.after.as_deref(), m.top), ("t-1", Some("t-2"), false));
+        assert!(Cli::try_parse_from(["codealong", "todo", "move", "t-1"]).is_err());
+        assert!(Cli::try_parse_from(["codealong", "todo", "move", "t-1", "--top", "--bottom"]).is_err());
     }
 
     #[test]
@@ -1750,7 +1864,7 @@ mod tests {
     fn ids_are_usable_and_prefixes_resolve() {
         let id = new_todo_id();
         assert!(id.starts_with("t-") && id.len() > 8 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'));
-        let t = |id: &str| Todo { id: id.into(), project: String::new(), title: String::new(), description: String::new(), status: TodoStatus::Todo, labels: vec![], worktrees: vec![], sessions: vec![], created_at: 0, updated_at: 0, done_at: None, pending: vec![] };
+        let t = |id: &str| Todo { id: id.into(), project: String::new(), title: String::new(), description: String::new(), status: TodoStatus::Todo, labels: vec![], worktrees: vec![], sessions: vec![], created_at: 0, updated_at: 0, done_at: None, pending: vec![], depends_on: vec![] };
         let store = TodoStore { todos: vec![t("t-abc1"), t("t-abd2")], labels: vec![] };
         assert_eq!(resolve_todo(&store, "t-abc").unwrap(), "t-abc1");
         assert!(resolve_todo(&store, "t-ab").unwrap_err().to_string().contains("2 todos"));

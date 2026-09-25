@@ -9,7 +9,8 @@ import { todoOp } from './api';
 import type { Attachment, Board, Label, LabelColor, Lane, Pr, Session, Todo, TodoStatus } from './types';
 import { LABEL_COLORS } from './types';
 
-export type TodoPatch = Partial<Pick<Todo, 'title' | 'description' | 'status' | 'labels' | 'project'>>;
+/** `dependsOn` replaces the whole list. */
+export type TodoPatch = Partial<Pick<Todo, 'title' | 'description' | 'status' | 'labels' | 'project' | 'dependsOn'>>;
 
 /** A change, as the engine takes it (`TodoOp` in todos.rs). */
 export type TodoOp =
@@ -58,6 +59,7 @@ export function newTodo(fields: Partial<Todo>, now: number): Todo {
     updatedAt: now,
     doneAt: null,
     pending: [],
+    dependsOn: [],
     ...fields,
   };
 }
@@ -77,13 +79,68 @@ function uniq(list: string[]): string[] {
   return [...new Set(list.filter(Boolean))];
 }
 
+/** The ids a todo waits on. Boards from before dependencies have none. */
+export function depsOf(t: Todo): string[] {
+  return t.dependsOn ?? [];
+}
+
+/** A dependency list as the engine keeps it: each id once, not the todo itself. (The engine also
+ *  refuses missing todos and loops; the refusal then takes this copy back.) */
+function cleanDeps(id: string, list: string[]): string[] {
+  return uniq(list).filter((d) => d !== id);
+}
+
+/** Whether `from` waits on `target`, directly or through the todos it waits on. */
+export function waitsOn(from: string, target: string, todos: Todo[]): boolean {
+  const byId = new Map(todos.map((t) => [t.id, t]));
+  const stack = [from];
+  const seen = new Set<string>();
+  while (stack.length > 0) {
+    const id = stack.pop()!;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const t = byId.get(id);
+    if (!t) continue;
+    for (const d of depsOf(t)) {
+      if (d === target) return true;
+      stack.push(d);
+    }
+  }
+  return false;
+}
+
+/** The todos `todo` waits on that aren't done, in its order. Deleted ones don't count. */
+export function blockedBy(todo: Todo, todos: Todo[]): Todo[] {
+  return depsOf(todo).flatMap((d) => todos.find((t) => t.id === d && t.status !== 'done') ?? []);
+}
+
+/** The todos `todo` waits on that still exist, done or not, in its order. */
+export function waitsOnTodos(todo: Todo, todos: Todo[]): Todo[] {
+  return depsOf(todo).flatMap((d) => todos.find((t) => t.id === d) ?? []);
+}
+
+/** The todos that wait on `todo`, in list order. */
+export function dependents(todo: Todo, todos: Todo[]): Todo[] {
+  return todos.filter((t) => t.id !== todo.id && depsOf(t).includes(todo.id));
+}
+
+/** Why `todo` can't wait on `other`, or null when it can: not itself, not a done one, not one
+ *  already on its list, and not one that already waits on it (that would be a loop). */
+export function cantWaitOn(todo: Todo, other: Todo, todos: Todo[]): string | null {
+  if (other.id === todo.id) return 'This todo';
+  if (depsOf(todo).includes(other.id)) return 'Already waits on it';
+  if (other.status === 'done') return 'Done';
+  if (waitsOn(other.id, todo.id, todos)) return 'Waits on this one';
+  return null;
+}
+
 /** A change applied the way the engine applies it, so a window can show it at once. */
 export function applyOp(store: TodoStore, op: TodoOp, now: number): TodoStore {
   const map = (id: string, f: (t: Todo) => Todo) => ({ ...store, todos: store.todos.map((t) => (t.id === id ? f(t) : t)) });
   switch (op.op) {
     case 'create': {
       if (store.todos.some((t) => t.id === op.todo.id)) return store;
-      let t: Todo = { ...op.todo, worktrees: uniq(op.todo.worktrees), sessions: uniq(op.todo.sessions), pending: [] };
+      let t: Todo = { ...op.todo, worktrees: uniq(op.todo.worktrees), sessions: uniq(op.todo.sessions), pending: [], dependsOn: cleanDeps(op.todo.id, depsOf(op.todo)) };
       if (t.sessions.length > 0 && t.status === 'todo') t = withStatus(t, 'in-progress', now);
       return { ...store, todos: [t, ...store.todos] };
     }
@@ -91,6 +148,7 @@ export function applyOp(store: TodoStore, op: TodoOp, now: number): TodoStore {
       return map(op.id, (t) => {
         const { status, ...rest } = op.patch;
         const next = { ...t, ...rest, updatedAt: now };
+        if (rest.dependsOn) next.dependsOn = cleanDeps(t.id, rest.dependsOn);
         return status ? withStatus(next, status, now) : next;
       });
     case 'link':

@@ -87,6 +87,11 @@ pub struct Todo {
     pub done_at: Option<i64>,
     #[serde(default)]
     pub pending: Vec<PendingStart>,
+    /// Todos this one waits on, by id, in the order you added them. It's blocked until each
+    /// is done. An id whose todo was deleted stays, so the delete can be undone, and is
+    /// otherwise ignored.
+    #[serde(default)]
+    pub depends_on: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
@@ -121,6 +126,8 @@ pub struct TodoPatch {
     pub status: Option<TodoStatus>,
     pub labels: Option<Vec<String>>,
     pub project: Option<String>,
+    /// The whole list of todos this one waits on.
+    pub depends_on: Option<Vec<String>>,
 }
 
 /// A change from the UI. Changes are small and specific, so one made in a window never undoes
@@ -189,6 +196,9 @@ fn repaired(mut s: TodoStore) -> TodoStore {
             id.push('_');
         }
         t.id = id;
+        let mut deps = HashSet::new();
+        let own = t.id.clone();
+        t.depends_on.retain(|d| d != &own && valid_id(d) && deps.insert(d.clone()));
         for l in &mut t.labels {
             if let Some(new) = renamed.get(l) {
                 *l = new.clone();
@@ -273,6 +283,49 @@ fn clean_labels(labels: Vec<Label>) -> Vec<Label> {
 }
 
 impl TodoStore {
+    /// A dependency list made usable: each id once, of a todo in the list, not the todo itself.
+    /// One that would close a loop (this todo waits on B, and B already waits on this one,
+    /// directly or through others) is refused, since neither could ever be started.
+    fn checked_dependencies(&self, id: &str, deps: &[String]) -> Result<Vec<String>> {
+        let mut seen = HashSet::new();
+        let mut out = Vec::new();
+        for d in deps {
+            if d == id || !seen.insert(d.clone()) {
+                continue;
+            }
+            let Some(dep) = self.todos.iter().find(|t| &t.id == d) else { bail!("There's no todo {d} to wait on.") };
+            if self.waits_on(d, id) {
+                bail!("\"{}\" already waits on this one, so this one can't wait on it.", dep.title);
+            }
+            out.push(d.clone());
+        }
+        Ok(out)
+    }
+
+    /// Whether `from` waits on `target`, directly or through the todos it waits on.
+    pub fn waits_on(&self, from: &str, target: &str) -> bool {
+        let mut stack = vec![from.to_string()];
+        let mut seen = HashSet::new();
+        while let Some(id) = stack.pop() {
+            if !seen.insert(id.clone()) {
+                continue;
+            }
+            let Some(t) = self.todos.iter().find(|t| t.id == id) else { continue };
+            for d in &t.depends_on {
+                if d == target {
+                    return true;
+                }
+                stack.push(d.clone());
+            }
+        }
+        false
+    }
+
+    /// The todos `t` waits on that aren't done yet, in its order. Deleted ones don't count.
+    pub fn blocked_by<'a>(&'a self, t: &Todo) -> Vec<&'a Todo> {
+        t.depends_on.iter().filter_map(|d| self.todos.iter().find(|x| &x.id == d)).filter(|x| x.status != TodoStatus::Done).collect()
+    }
+
     /// Applies a change. Returns whether anything changed; an error says why it couldn't.
     pub fn apply(&mut self, op: TodoOp, lanes: &dyn Lanes, now: i64) -> Result<bool> {
         match op {
@@ -283,6 +336,7 @@ impl TodoStore {
                 if self.todos.iter().any(|t| t.id == todo.id) {
                     return Ok(false);
                 }
+                let depends_on = self.checked_dependencies(&todo.id, &todo.depends_on)?;
                 let mut seen = HashSet::new();
                 let mut t = Todo {
                     id: todo.id.clone(),
@@ -297,6 +351,7 @@ impl TodoStore {
                     updated_at: now,
                     done_at: None,
                     pending: Vec::new(),
+                    depends_on,
                 };
                 set_status(&mut t, todo.status, now);
                 for w in &todo.worktrees {
@@ -309,8 +364,15 @@ impl TodoStore {
                 Ok(true)
             }
             TodoOp::Update { id, patch } => {
+                let depends_on = match &patch.depends_on {
+                    Some(d) => Some(self.checked_dependencies(&id, d)?),
+                    None => None,
+                };
                 let Some(t) = self.todos.iter_mut().find(|t| t.id == id) else { bail!("That todo is gone.") };
                 let before = t.clone();
+                if let Some(d) = depends_on {
+                    t.depends_on = d;
+                }
                 if let Some(title) = patch.title {
                     t.title = one_line(&title, MAX_TITLE);
                 }
@@ -544,7 +606,39 @@ mod tests {
             updated_at: 0,
             done_at: None,
             pending: vec![],
+            depends_on: vec![],
         }
+    }
+
+    #[test]
+    fn dependencies_wait_on_real_todos_and_never_loop() {
+        let mut s = store(&["a", "b", "c"]);
+        let deps = |ids: &[&str]| TodoPatch { depends_on: Some(ids.iter().map(|x| x.to_string()).collect()), ..Default::default() };
+        // Repeats and the todo itself drop out.
+        assert!(s.apply(TodoOp::Update { id: "a".into(), patch: deps(&["b", "b", "a"]) }, &lanes(), 20).unwrap());
+        assert_eq!(s.todos[0].depends_on, vec!["b"]);
+        assert!(s.apply(TodoOp::Update { id: "b".into(), patch: deps(&["c"]) }, &lanes(), 20).unwrap());
+        assert!(s.waits_on("a", "c") && !s.waits_on("c", "a"));
+        // c → a would close a → b → c → a.
+        let err = s.apply(TodoOp::Update { id: "c".into(), patch: deps(&["a"]) }, &lanes(), 30).unwrap_err();
+        assert!(err.to_string().contains("already waits on this one"), "{err}");
+        assert!(s.apply(TodoOp::Update { id: "a".into(), patch: deps(&["zz"]) }, &lanes(), 30).is_err());
+        // Blocked until what it waits on is done.
+        let a = s.todos[0].clone();
+        assert_eq!(s.blocked_by(&a).iter().map(|t| t.id.as_str()).collect::<Vec<_>>(), vec!["b"]);
+        let done = TodoPatch { status: Some(TodoStatus::Done), ..Default::default() };
+        s.apply(TodoOp::Update { id: "b".into(), patch: done }, &lanes(), 40).unwrap();
+        assert!(s.blocked_by(&a).is_empty());
+        // A deleted dependency stays on the todo, for undo, and doesn't block.
+        s.apply(TodoOp::Delete { id: "b".into() }, &lanes(), 50).unwrap();
+        let a = s.todos.iter().find(|t| t.id == "a").unwrap().clone();
+        assert_eq!(a.depends_on, vec!["b"]);
+        assert!(s.blocked_by(&a).is_empty());
+        // A new todo can wait on others from the start.
+        let mut d = todo("d");
+        d.depends_on = vec!["c".into(), "d".into()];
+        s.apply(TodoOp::Create { todo: d }, &lanes(), 60).unwrap();
+        assert_eq!(s.todos[0].depends_on, vec!["c"]);
     }
 
     fn store(ids: &[&str]) -> TodoStore {
