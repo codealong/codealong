@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { filesToAttach } from './attachInput';
-import { applyOp, attachmentsIn, blockedBy, cantWaitOn, dependents, inlines, insertAttachments, newTodo, nextColor, pieces, sessionHomes, snippet, todoIndex, todoInFilter, todoInQuery, todoItem, todoPrompt, todoSections, waitsOn, withoutAttachment, type TodoStore } from './todos';
+import { applyOp, attachmentsIn, blockedBy, cantWaitOn, dependents, inlines, insertAttachments, newTodo, nextColor, pieces, sectionOf, sessionHomes, snippet, todoIndex, todoInFilter, todoInQuery, todoItem, todoPrompt, todoSections, waitsOn, withoutAttachment, type TodoPatch, type TodoStore } from './todos';
 import type { Label, Lane, Session, Todo } from './types';
 
 const NOW = 1_790_000_000_000;
@@ -134,19 +134,33 @@ describe('the list', () => {
     expect(todoInQuery(item, 'nothing like it')).toBe(false);
   });
 
-  it('shows In progress and Todo in your order, then Done, latest first', () => {
-    const items = [
+  it('shows In progress, Ready and Waiting in your order, then Done, latest first', () => {
+    const todos = [
       todo('a', { status: 'done', doneAt: NOW - 10 }),
       todo('b'),
       todo('c', { status: 'in-progress' }),
       todo('d', { status: 'done', doneAt: NOW }),
-      todo('e'),
-    ].map((t) => todoItem(t, byId, homes, labels));
-    expect(todoSections(items).map((s) => [s.id, s.rows.map((r) => r.todo.id)])).toEqual([
-      ['in-progress', ['c']],
-      ['todo', ['b', 'e']],
-      ['done', ['d', 'a']],
+      // Waits on a todo that isn't done.
+      todo('e', { dependsOn: ['c'] }),
+      // Waits only on a done todo and a deleted one.
+      todo('f', { dependsOn: ['a', 'gone'] }),
+      todo('g', { waiting: { note: 'Graham', since: NOW } }),
+      // An agent is on it: In progress, whatever it waits on, unless it's marked.
+      todo('h', { status: 'in-progress', dependsOn: ['b'] }),
+      todo('i', { status: 'in-progress', waiting: { note: '', since: NOW } }),
+      // Marked, but done.
+      todo('j', { status: 'done', doneAt: NOW - 20, waiting: { note: 'x', since: NOW } }),
+    ];
+    const items = todos.map((t) => todoItem(t, byId, homes, labels));
+    expect(todoSections(items, todos).map((s) => [s.id, s.label, s.rows.map((r) => r.todo.id)])).toEqual([
+      ['in-progress', 'In progress', ['c', 'h']],
+      ['ready', 'Ready', ['b', 'f']],
+      ['waiting', 'Waiting', ['e', 'g', 'i']],
+      ['done', 'Done', ['d', 'a', 'j']],
     ]);
+    // What a todo waits on can be in another project, outside the rows shown.
+    expect(todoSections([items[4]], todos).map((s) => s.id)).toEqual(['waiting']);
+    expect(sectionOf(todo('k', { dependsOn: ['c'] }), [])).toBe('ready');
   });
 
   it('finds the todos on each session and worktree', () => {
@@ -228,6 +242,40 @@ describe('prompts and images', () => {
   it('gives new labels a color no label has yet', () => {
     expect(nextColor([])).toBe('red');
     expect(nextColor([{ id: 'a', name: 'A', color: 'red' }])).toBe('pink');
+  });
+});
+
+describe('waiting', () => {
+  const store = (t: Todo): TodoStore => ({ todos: [t], labels: [] });
+  const update = (s: TodoStore, patch: TodoPatch, at: number) => applyOp(s, { op: 'update', id: s.todos[0].id, patch }, at);
+
+  it('marks a todo, keeps when it began, and says it’s ready', () => {
+    let s = update(store(todo('a')), { waiting: { note: ' Graham’s\n letter ', since: 0 } }, NOW + 5);
+    expect(s.todos[0].waiting).toEqual({ note: 'Graham’s letter', since: NOW + 5 });
+    s = update(s, { waiting: { note: 'the letter', since: 0 } }, NOW + 9);
+    expect(s.todos[0].waiting).toEqual({ note: 'the letter', since: NOW + 5 });
+    s = update(s, { waiting: null }, NOW + 10);
+    expect(s.todos[0].waiting).toBeNull();
+    // An undo puts a wait back with its own time.
+    s = update(s, { waiting: { note: 'back', since: NOW + 2 } }, NOW + 11);
+    expect(s.todos[0].waiting).toEqual({ note: 'back', since: NOW + 2 });
+  });
+
+  it('ends when it’s marked in progress or done, not when a session is linked', () => {
+    const marked = update(store(todo('a')), { waiting: { note: '', since: 0 } }, NOW + 1);
+    const linked = applyOp(marked, { op: 'link', id: 'a', session: 'claude:claude:s', linked: true }, NOW + 2);
+    expect([linked.todos[0].status, linked.todos[0].waiting?.note]).toEqual(['in-progress', '']);
+    expect(update(linked, { status: 'in-progress' }, NOW + 3).todos[0].waiting).toBeNull();
+    const done = update(marked, { status: 'done' }, NOW + 3);
+    expect(done.todos[0].waiting).toBeNull();
+    expect(update(done, { waiting: { note: 'x', since: 0 } }, NOW + 4).todos[0].waiting).toBeNull();
+    // The same change can say both.
+    expect(update(marked, { status: 'in-progress', waiting: { note: 'y', since: 0 } }, NOW + 5).todos[0].waiting?.note).toBe('y');
+  });
+
+  it('starts a new todo’s wait when it’s made', () => {
+    const made = applyOp({ todos: [], labels: [] }, { op: 'create', todo: todo('a', { waiting: { note: 'vendor', since: 3 } }) }, NOW + 7);
+    expect(made.todos[0].waiting).toEqual({ note: 'vendor', since: NOW + 7 });
   });
 });
 

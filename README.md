@@ -45,12 +45,18 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   - **Todo**: work you mean to hand an agent. Each todo has a title, a description that can
     hold screenshots and any other files (paste, drop or attach them; files copied in the
     Finder paste too), colored labels, and a status: Todo, In
-    progress (an agent is on it) or Done. Add one in the box at the top (`n`), reorder by
-    dragging or with ⌥↑ ⌥↓, mark one done with `x`. A todo can wait on other todos (Waits
-    on, in its panel): it shows what it's waiting on until they're done, and a dependency
-    that would make a loop is refused. Start session (⌘N) opens the new-session
-    sheet with the todo as the prompt, and the session it starts is linked to the todo, which
-    moves to In progress; one started in the Claude or Codex app is linked when it shows up.
+    progress (an agent is on it) or Done. The list has In progress, Ready, Waiting and Done.
+    Add one in the box at the top (`n`), reorder by dragging or with ⌥↑ ⌥↓, mark one done
+    with `x`. A todo can wait on other todos (Waits on, in its panel): until they're done it's
+    under Waiting and shows what it's waiting on, and a dependency that would make a loop is
+    refused. One an agent is already on stays In progress. Mark a todo as waiting by hand
+    (`w`, the right-click menu, or type what it waits for in Waits on) when it waits on
+    something outside the list, like a person's answer or a release; it stays there until
+    you stop it waiting, start it or finish it. Stop waiting (`w` again) also drops what it
+    waits on that isn't done, so it's Ready at once; the toast can undo it. Start session
+    (⌘N) opens the new-session sheet with the todo as the prompt, and the session it starts
+    is linked to the todo, which moves to In progress; one started in the Claude or Codex
+    app is linked when it shows up.
     Link worktrees and sessions you already have from the todo, or from a session's or
     worktree's right-click menu (Add to todo). A session or worktree on a todo shows the
     todo's chip; click it to go to the todo.
@@ -108,8 +114,9 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
 
 - **For agents**: the `codealong` command and a skill that tells an agent when to use it.
   `codealong whoami` says which session runs it and which todos are linked to it or its
-  worktree; `codealong todo add|start|done|update|move|link` work the todo list,
-  dependencies and order included (`todo list --ready` is what can start now); `codealong
+  worktree; `codealong todo add|start|done|update|move|wait|ready|link` work the todo list,
+  dependencies, waits and order included (`todo list --ready` is what can start now,
+  `--waiting` what's under Waiting); `codealong
   sessions [find <words>]`, `session show`, `worktrees` and `accounts --usage` answer what else
   is running, what it did, where it lives, and which account has room; `codealong start
   --todo <id>` starts a session the way New session does; `codealong config show|check`

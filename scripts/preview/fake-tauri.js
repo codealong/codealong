@@ -12,7 +12,8 @@
 window.__CODEALONG_PREVIEW__ = true;
 window.__calls = [];
 // Todos from todos-fixture.json (PREVIEW_TODOS in preview.sh) in place of the board's own, with
-// "$lane:N" and "$session:N" as the project's Nth most recent worktree and session.
+// "$lane:N" and "$session:N" as the project's Nth most recent worktree and session, and a
+// wait's `sinceAgo` in minutes.
 function withFixture(board, fixture) {
   var shown = null;
   try {
@@ -34,6 +35,7 @@ function withFixture(board, fixture) {
       worktrees: (t.worktrees || []).map(at).filter(Boolean),
       sessions: (t.sessions || []).map(at).filter(Boolean),
       doneAt: t.status === 'done' ? now - 7200e3 : null,
+      waiting: t.waiting ? { note: t.waiting.note || '', since: now - (t.waiting.sinceAgo || 0) * 60e3 } : null,
     });
   });
   return board;

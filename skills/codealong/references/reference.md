@@ -26,7 +26,7 @@ Commands:
              either. Run it first
   todo       Todos: work meant for an agent. Each has a title, a description, labels, a
              status (todo, in-progress, done) and the worktrees and sessions that took
-             it on
+             it on. The app lists open ones under In progress, Ready and Waiting
   sessions   Sessions on the board: every agent, live or not, with its status and where
              it works. Lists by default; `find` searches
   session    One session in full: status, excerpt, folder, branch, PR, how to resume it,
@@ -135,7 +135,8 @@ Options:
 
 ```
 Todos: work meant for an agent. Each has a title, a description, labels, a status (todo,
-in-progress, done) and the worktrees and sessions that took it on
+in-progress, done) and the worktrees and sessions that took it on. The app lists open
+ones under In progress, Ready and Waiting
 
 Usage: codealong todo [OPTIONS] <COMMAND>
 
@@ -148,8 +149,13 @@ Commands:
           worktree to it
   done    Mark a todo done
   reopen  Put a done or in-progress todo back to todo
+  wait    Mark a todo as waiting, on something outside the list: a person's answer, a
+          release, a date. It stays under Waiting until `todo ready`, until it's
+          started, or until it's done
+  ready   Say a todo marked as waiting is ready. One that waits on todos that aren't
+          done stays under Waiting until they are
   move    Move a todo in the list: to the top or bottom, or before or after another. The
-          app shows todos in this order within each status
+          app shows todos in this order within each section
   link    Link a session or a worktree to a todo
   unlink  Unlink a session or a worktree from a todo
   delete  Delete a todo. The app can't undo this once its window's undo is gone, so ask
@@ -206,8 +212,12 @@ Options:
           Only todos linked to the session running this command, or to its worktree
 
       --ready
-          Only open todos that wait on nothing still open: the ones that can be started
-          now
+          Only todos under Ready: not started, not marked as waiting, and waiting on no
+          todo that isn't done. Pick work from these
+
+      --waiting
+          Only todos under Waiting: marked as waiting, or not started and waiting on a
+          todo that isn't done
 
   -h, --help
           Print help
@@ -283,6 +293,10 @@ Options:
 
       --depends-on <ID>
           A todo this one waits on: it's blocked until that one is done. Repeatable
+
+      --wait-for <WHAT>
+          Mark it as waiting from the start, on this: a person's answer, a release, a
+          date
 
   -h, --help
           Print help
@@ -417,11 +431,66 @@ Options:
           Print help
 ```
 
+## codealong todo wait
+
+```
+Mark a todo as waiting, on something outside the list: a person's answer, a release, a
+date. It stays under Waiting until `todo ready`, until it's started, or until it's done
+
+Usage: codealong todo wait [OPTIONS] <ID>
+
+Arguments:
+  <ID>
+          
+
+Options:
+      --for <WHAT>
+          What it waits for, in a few words. Keeps the note it has when left out
+
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong todo ready
+
+```
+Say a todo marked as waiting is ready. One that waits on todos that aren't done stays
+under Waiting until they are
+
+Usage: codealong todo ready [OPTIONS] <ID>
+
+Arguments:
+  <ID>
+          
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
 ## codealong todo move
 
 ```
 Move a todo in the list: to the top or bottom, or before or after another. The app shows
-todos in this order within each status
+todos in this order within each section
 
 Usage: codealong todo move [OPTIONS] <--top|--bottom|--before <ID>|--after <ID>> <ID>
 

@@ -1,11 +1,12 @@
-// The Todo view: work you mean to hand an agent. In progress and Todo come in your order (drag,
-// or ⌥↑ ⌥↓, to reorder), then Done under a fold. A row shows the todo's labels, the sessions
-// on it with their status, and the worktree it's in. Type in the box at the top and press
-// Return to add one.
+// The Todo view: work you mean to hand an agent. In progress, Ready and Waiting come in your
+// order (drag, or ⌥↑ ⌥↓, to reorder), then Done under a fold. Waiting holds the todos marked as
+// waiting and the ones not started that wait on a todo that isn't done. A row shows the todo's
+// labels, what it waits on, the sessions on it with their status, and the worktree it's in.
+// Type in the box at the top and press Return to add one.
 
 import { forwardRef, type ReactNode } from 'react';
 import { absolute, ago, middleTruncate } from '../format';
-import { attachmentsIn, blockedBy, snippet, STATUS_WORD, todoPr, type TodoItem, type TodoSection } from '../todos';
+import { attachmentsIn, blockedBy, SECTION_WORD, snippet, todoPr, type TodoItem, type TodoSection, type TodoSectionId } from '../todos';
 import type { Label, Lane, Session, Todo, TodoStatus } from '../types';
 import { HarnessChip, Icon, Kbd, PrChip } from './primitives';
 import { LabelChip, TodoGlyph } from './TodoBits';
@@ -74,6 +75,8 @@ export const TodoComposer = forwardRef<HTMLInputElement, ComposerProps>(function
 
 interface TodoRowProps {
   item: TodoItem;
+  /** The section it's listed in. */
+  section: TodoSectionId;
   domId: string;
   now: number;
   selected: boolean;
@@ -91,7 +94,7 @@ interface TodoRowProps {
 
 const CHIPS_SHOWN = 3;
 
-function TodoRow({ item, domId, now, selected, showProject, onSelect, onOpen, onContextMenu, onOpenSession, onFilterLabel, blocked, drag }: TodoRowProps) {
+function TodoRow({ item, section, domId, now, selected, showProject, onSelect, onOpen, onContextMenu, onOpenSession, onFilterLabel, blocked, drag }: TodoRowProps) {
   const { todo } = item;
   const pr = todoPr(item);
   const detail = snippet(todo.description);
@@ -121,7 +124,7 @@ function TodoRow({ item, domId, now, selected, showProject, onSelect, onOpen, on
         </span>
       )}
       <div className="ca-seg ca-seg-glyph">
-        <TodoGlyph status={todo.status} />
+        <TodoGlyph status={todo.status} waiting={section === 'waiting'} />
       </div>
       <div className="ca-seg ca-seg-main">
         <div className="ca-lane-line1">
@@ -134,6 +137,12 @@ function TodoRow({ item, domId, now, selected, showProject, onSelect, onOpen, on
             {item.labels.map((l) => (
               <LabelChip key={l.id} label={l} title={`Show only “${l.name}”`} onClick={() => onFilterLabel(l)} />
             ))}
+            {todo.waiting && todo.status !== 'done' && (
+              <span className="ca-chip ca-todorow-blocked" title={`Marked as waiting${todo.waiting.since > 0 ? ` ${ago(todo.waiting.since, now)} ago` : ''}${todo.waiting.note ? `: ${todo.waiting.note}` : '.'}`}>
+                <Icon name="hourglass" size={12} />
+                <span className="ca-todorow-blocked-text">{todo.waiting.note ? `Waiting for ${todo.waiting.note}` : 'Marked as waiting'}</span>
+              </span>
+            )}
             {blocked.length > 0 && todo.status !== 'done' && (
               <span className="ca-chip ca-todorow-blocked" title={`Waits on ${blocked.map((t) => `“${t.title || 'Untitled'}”`).join(', ')}, not done yet.`}>
                 <Icon name="lock" size={12} />
@@ -192,7 +201,7 @@ interface TodoViewProps {
   onOpenSession: (lane: Lane, session: Session) => void;
   onFilterLabel: (label: Label) => void;
   /** Moves a todo to insertion point `index` among the section's rows. */
-  onMove: (section: TodoStatus, id: string, index: number) => void;
+  onMove: (section: TodoSectionId, id: string, index: number) => void;
   showDone: boolean;
   onToggleDone: () => void;
   composer: ReactNode;
@@ -200,11 +209,14 @@ interface TodoViewProps {
   empty: ReactNode;
 }
 
-function SectionHead({ status, count, hint }: { status: TodoStatus; count: number; hint?: ReactNode }) {
+/** Each section's box: its todos' status, dashed for Waiting. */
+const SECTION_STATUS: Record<TodoSectionId, TodoStatus> = { 'in-progress': 'in-progress', ready: 'todo', waiting: 'todo', done: 'done' };
+
+function SectionHead({ id, count, hint }: { id: TodoSectionId; count: number; hint?: ReactNode }) {
   return (
     <div className="ca-bay ca-bay--section" role="heading" aria-level={3}>
-      <TodoGlyph status={status} size={11} title="" />
-      <span>{STATUS_WORD[status]}</span>
+      <TodoGlyph status={SECTION_STATUS[id]} waiting={id === 'waiting'} size={11} title="" />
+      <span>{SECTION_WORD[id]}</span>
       <span className="ca-bay-count">{count}</span>
       {hint && <span className="ca-bay-action ca-bay-hint">{hint}</span>}
     </div>
@@ -218,7 +230,7 @@ function Section({ section, props }: { section: TodoSection; props: TodoViewProp
   return (
     <section className="ca-bayblock">
       <SectionHead
-        status={section.id}
+        id={section.id}
         count={section.rows.length}
         hint={
           draggable && selectedKey && section.rows.some((r) => r.key === selectedKey) ? (
@@ -233,6 +245,7 @@ function Section({ section, props }: { section: TodoSection; props: TodoViewProp
           <TodoRow
             key={r.key}
             item={r}
+            section={section.id}
             domId={domId(r)}
             now={now}
             selected={r.key === selectedKey}
@@ -265,7 +278,7 @@ export function TodoView(props: TodoViewProps) {
       {done && (
         <section className="ca-bayblock ca-todo-done">
           <SectionHead
-            status="done"
+            id="done"
             count={done.rows.length}
             hint={
               <button type="button" className="ca-linkbtn" aria-expanded={showDone} onClick={onToggleDone}>
@@ -279,6 +292,7 @@ export function TodoView(props: TodoViewProps) {
                 <TodoRow
                   key={r.key}
                   item={r}
+                  section="done"
                   domId={domId(r)}
                   now={now}
                   selected={r.key === selectedKey}

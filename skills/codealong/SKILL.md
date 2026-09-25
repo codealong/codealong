@@ -44,8 +44,13 @@ todo commands still work; give a session key when you want one linked.
   update <id> --add-dependency <id>` or `--remove-dependency <id>`. It's blocked until
   every todo it waits on is done; `blockedBy` in the JSON lists the ones still open, and a
   dependency that would make a loop is refused. When splitting work into steps, add a todo
-  per step with each waiting on the one before. `todo list --ready` shows open todos that
-  wait on nothing still open: pick the next piece of work from there, top first.
+  per step with each waiting on the one before. `todo list --ready` shows the todos under
+  Ready (not started, waiting on nothing): pick the next piece of work from there, top first.
+- **Waiting on something outside the list.** When a todo can't go on until something
+  Codealong can't see happens (a person's answer, a release, a date), mark it: `codealong
+  todo wait <id> --for "<what>"` (or `todo add … --wait-for "<what>"`). It shows under
+  Waiting, with `waiting` in the JSON, until `codealong todo ready <id>`, a start, or done.
+  Say it's ready only when the thing it waited for has happened or the user says so.
 - Ids look like `t-mug4eym1sir0an`; a unique prefix is enough.
 
 ## Sessions and worktrees

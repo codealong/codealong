@@ -292,6 +292,14 @@ export interface PendingStart {
   at: number;
 }
 
+/** A todo marked as waiting, on something outside the list. */
+export interface Waiting {
+  /** What it waits for, in a few words; can be empty. */
+  note: string;
+  /** When it was marked; 0 when written by hand without a time. */
+  since: number;
+}
+
 /** Work you mean to hand an agent. */
 export interface Todo {
   id: string;
@@ -314,6 +322,8 @@ export interface Todo {
   /** Ids of the todos this one waits on, in the order added. Missing on older boards. An id
    *  whose todo was deleted stays (so the delete can be undone) and is ignored. */
   dependsOn: string[];
+  /** Marked as waiting, on something outside the list. Missing or null when it isn't. */
+  waiting?: Waiting | null;
 }
 
 /** Light, dark, or following macOS. */

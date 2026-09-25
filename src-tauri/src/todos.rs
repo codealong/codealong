@@ -8,12 +8,16 @@
 //! terminal), otherwise when a new session of that account shows up in the same repo within
 //! half an hour (the Claude and Codex apps, which pick their own IDs and sometimes their own
 //! worktree).
+//!
+//! An open todo is Ready or Waiting. It waits on the todos it depends on until they're done,
+//! and on anything else once you mark it as waiting (a person's answer, a release), until you
+//! say it's ready, start a session from it, or finish it.
 
 use std::collections::HashSet;
 use std::path::PathBuf;
 
 use anyhow::{bail, Result};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::config::support_dir;
 
@@ -25,6 +29,7 @@ const PENDING_SLACK_MS: i64 = 60 * 1000;
 const MAX_TITLE: usize = 300;
 const MAX_DESCRIPTION: usize = 100_000;
 const MAX_LABEL: usize = 40;
+const MAX_WAITING_NOTE: usize = 200;
 
 /// The label colors, as `--label-<color>` tokens in design/tokens.json.
 pub const LABEL_COLORS: [&str; 8] = ["gray", "red", "pink", "purple", "indigo", "blue", "teal", "green"];
@@ -39,6 +44,53 @@ pub enum TodoStatus {
     InProgress,
     #[serde(alias = "complete", alias = "completed")]
     Done,
+}
+
+/// A todo marked as waiting, on something outside the list.
+#[derive(Serialize, Clone, PartialEq, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct Waiting {
+    /// What it waits for, in a few words. Can be empty.
+    pub note: String,
+    /// When it was marked; 0 when written by hand without a time.
+    pub since: i64,
+}
+
+/// A wait as it's written: `{"note": …, "since": …}`, or by hand just the note, or `true`;
+/// `false` is none.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum WaitingIn {
+    Flag(bool),
+    Note(String),
+    Full {
+        #[serde(default)]
+        note: String,
+        #[serde(default)]
+        since: i64,
+    },
+}
+
+impl WaitingIn {
+    fn into_waiting(self) -> Option<Waiting> {
+        match self {
+            WaitingIn::Flag(false) => None,
+            WaitingIn::Flag(true) => Some(Waiting::default()),
+            WaitingIn::Note(note) => Some(Waiting { note, since: 0 }),
+            WaitingIn::Full { note, since } => Some(Waiting { note, since }),
+        }
+    }
+}
+
+/// A todo's `waiting`: none when it's missing, null or false.
+fn waiting_field<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Waiting>, D::Error> {
+    Ok(Option::<WaitingIn>::deserialize(d)?.and_then(WaitingIn::into_waiting))
+}
+
+/// A change's `waiting`: missing leaves it as it is, null or false ends it, anything else marks
+/// the todo as waiting.
+fn waiting_change<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Option<Waiting>>, D::Error> {
+    waiting_field(d).map(Some)
 }
 
 /// A start in the Claude or Codex app, waiting for its session to show up.
@@ -92,6 +144,9 @@ pub struct Todo {
     /// otherwise ignored.
     #[serde(default)]
     pub depends_on: Vec<String>,
+    /// Marked as waiting, on something outside the list. Left out when it isn't.
+    #[serde(default, deserialize_with = "waiting_field", skip_serializing_if = "Option::is_none")]
+    pub waiting: Option<Waiting>,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
@@ -128,6 +183,10 @@ pub struct TodoPatch {
     pub project: Option<String>,
     /// The whole list of todos this one waits on.
     pub depends_on: Option<Vec<String>>,
+    /// `Some(None)` (null) says it's ready; `Some(Some(_))` marks it as waiting, keeping the
+    /// time it began if it already was. Left out when it doesn't change, since null means ready.
+    #[serde(default, deserialize_with = "waiting_change", skip_serializing_if = "Option::is_none")]
+    pub waiting: Option<Option<Waiting>>,
 }
 
 /// A change from the UI. Changes are small and specific, so one made in a window never undoes
@@ -199,6 +258,12 @@ fn repaired(mut s: TodoStore) -> TodoStore {
         let mut deps = HashSet::new();
         let own = t.id.clone();
         t.depends_on.retain(|d| d != &own && valid_id(d) && deps.insert(d.clone()));
+        if t.status == TodoStatus::Done {
+            t.waiting = None;
+        }
+        if let Some(w) = &mut t.waiting {
+            w.note = one_line(&w.note, MAX_WAITING_NOTE);
+        }
         for l in &mut t.labels {
             if let Some(new) = renamed.get(l) {
                 *l = new.clone();
@@ -228,13 +293,32 @@ fn push_unique(list: &mut Vec<String>, item: &str) -> bool {
     true
 }
 
-/// Sets a status, keeping `done_at` in step.
+/// Sets a status, keeping `done_at` in step. A done todo isn't waiting on anything.
 fn set_status(t: &mut Todo, status: TodoStatus, now: i64) {
+    if status == TodoStatus::Done {
+        t.waiting = None;
+    }
     if t.status == status {
         return;
     }
     t.status = status;
     t.done_at = (status == TodoStatus::Done).then_some(now);
+}
+
+/// Marks a todo as waiting, or says it's ready. A new note keeps the time the wait began; a
+/// wait put back by an undo keeps its own. A done todo can't be marked.
+fn set_waiting(t: &mut Todo, waiting: Option<Waiting>, now: i64) {
+    t.waiting = match waiting {
+        Some(w) if t.status != TodoStatus::Done => {
+            let since = match &t.waiting {
+                Some(old) if old.since > 0 => old.since,
+                _ if w.since > 0 && w.since <= now => w.since,
+                _ => now,
+            };
+            Some(Waiting { note: one_line(&w.note, MAX_WAITING_NOTE), since })
+        }
+        _ => None,
+    };
 }
 
 /// A linked session means an agent is on it.
@@ -326,6 +410,18 @@ impl TodoStore {
         t.depends_on.iter().filter_map(|d| self.todos.iter().find(|x| &x.id == d)).filter(|x| x.status != TodoStatus::Done).collect()
     }
 
+    /// Whether `t` is under Waiting: marked as waiting, or not started and waiting on a todo
+    /// that isn't done. One an agent is already on stays In progress while its todos finish.
+    /// `sectionOf` in src/todos.ts has the same rule.
+    pub fn is_waiting(&self, t: &Todo) -> bool {
+        t.status != TodoStatus::Done && (t.waiting.is_some() || (t.status == TodoStatus::Todo && !self.blocked_by(t).is_empty()))
+    }
+
+    /// Whether `t` is under Ready: not started, and waiting on nothing.
+    pub fn is_ready(&self, t: &Todo) -> bool {
+        t.status == TodoStatus::Todo && !self.is_waiting(t)
+    }
+
     /// Applies a change. Returns whether anything changed; an error says why it couldn't.
     pub fn apply(&mut self, op: TodoOp, lanes: &dyn Lanes, now: i64) -> Result<bool> {
         match op {
@@ -352,8 +448,11 @@ impl TodoStore {
                     done_at: None,
                     pending: Vec::new(),
                     depends_on,
+                    waiting: None,
                 };
                 set_status(&mut t, todo.status, now);
+                // The engine keeps the clock: a new todo's wait begins now.
+                set_waiting(&mut t, todo.waiting.map(|w| Waiting { since: 0, ..w }), now);
                 for w in &todo.worktrees {
                     link(&mut t, Some(w), None, lanes, now);
                 }
@@ -388,6 +487,13 @@ impl TodoStore {
                 }
                 if let Some(s) = patch.status {
                     set_status(t, s, now);
+                    // Saying an agent is on it says it's no longer waiting.
+                    if s == TodoStatus::InProgress {
+                        t.waiting = None;
+                    }
+                }
+                if let Some(w) = patch.waiting {
+                    set_waiting(t, w, now);
                 }
                 let changed = *t != before;
                 if changed {
@@ -443,7 +549,7 @@ impl TodoStore {
 
     /// A session started from a todo: links its worktree (unless it runs in a new one), and the
     /// session when Codealong chose its ID, or waits for it to show up. Starting one reopens a
-    /// todo that was done.
+    /// todo that was done, and ends a wait it was marked with.
     pub fn started(&mut self, id: &str, lane: Option<&str>, session: Option<&str>, pending: Option<PendingStart>, lanes: &dyn Lanes, now: i64) -> bool {
         let Some(t) = self.todos.iter_mut().find(|t| t.id == id) else { return false };
         link(t, lane, session, lanes, now);
@@ -451,6 +557,7 @@ impl TodoStore {
             t.pending.push(p);
         }
         set_status(t, TodoStatus::InProgress, now);
+        t.waiting = None;
         t.updated_at = now;
         true
     }
@@ -607,6 +714,104 @@ mod tests {
             done_at: None,
             pending: vec![],
             depends_on: vec![],
+            waiting: None,
+        }
+    }
+
+    fn wait(note: &str) -> TodoPatch {
+        TodoPatch { waiting: Some(Some(Waiting { note: note.into(), since: 0 })), ..Default::default() }
+    }
+
+    fn update(s: &mut TodoStore, id: &str, patch: TodoPatch, now: i64) -> bool {
+        s.apply(TodoOp::Update { id: id.into(), patch }, &lanes(), now).unwrap()
+    }
+
+    #[test]
+    fn waiting_on_open_todos_until_they_are_done() {
+        let mut s = store(&["a", "b"]);
+        update(&mut s, "a", TodoPatch { depends_on: Some(vec!["b".into()]), ..Default::default() }, 20);
+        let a = |s: &TodoStore| s.todos[0].clone();
+        assert!(s.is_waiting(&a(&s)) && !s.is_ready(&a(&s)));
+        assert!(s.is_ready(&s.todos[1]));
+        // Once an agent is on it, it's in progress, whatever it waits on.
+        update(&mut s, "a", TodoPatch { status: Some(TodoStatus::InProgress), ..Default::default() }, 30);
+        assert!(!s.is_waiting(&a(&s)) && !s.is_ready(&a(&s)));
+        update(&mut s, "a", TodoPatch { status: Some(TodoStatus::Todo), ..Default::default() }, 40);
+        update(&mut s, "b", TodoPatch { status: Some(TodoStatus::Done), ..Default::default() }, 50);
+        assert!(s.is_ready(&a(&s)));
+        // Done is neither.
+        assert!(!s.is_waiting(&s.todos[1]) && !s.is_ready(&s.todos[1]));
+    }
+
+    #[test]
+    fn marked_as_waiting_until_ready_started_or_done() {
+        let mut s = store(&["a"]);
+        assert!(update(&mut s, "a", wait("  Graham's\n retest letter "), 20));
+        assert_eq!(s.todos[0].waiting, Some(Waiting { note: "Graham's retest letter".into(), since: 20 }));
+        assert!(s.is_waiting(&s.todos[0]) && !s.is_ready(&s.todos[0]));
+        // A new note keeps the time it began.
+        update(&mut s, "a", wait("Graham's letter"), 30);
+        assert_eq!(s.todos[0].waiting, Some(Waiting { note: "Graham's letter".into(), since: 20 }));
+        // Ready ends it.
+        assert!(update(&mut s, "a", TodoPatch { waiting: Some(None), ..Default::default() }, 40));
+        assert!(s.todos[0].waiting.is_none() && s.is_ready(&s.todos[0]));
+        // Linking a session starts the todo but doesn't say the wait is over; marking it in
+        // progress does.
+        update(&mut s, "a", wait(""), 50);
+        s.apply(TodoOp::Link { id: "a".into(), worktree: None, session: Some("claude:claude:s1".into()), linked: true }, &lanes(), 60).unwrap();
+        assert_eq!(s.todos[0].status, TodoStatus::InProgress);
+        assert!(s.is_waiting(&s.todos[0]));
+        update(&mut s, "a", TodoPatch { status: Some(TodoStatus::InProgress), ..Default::default() }, 70);
+        assert!(s.todos[0].waiting.is_none() && !s.is_waiting(&s.todos[0]));
+        // Unless the same change marks it again.
+        let both = TodoPatch { status: Some(TodoStatus::InProgress), ..wait("the release") };
+        update(&mut s, "a", both, 80);
+        assert_eq!(s.todos[0].waiting.as_ref().map(|w| (w.note.as_str(), w.since)), Some(("the release", 80)));
+        // Starting a session from it ends the wait.
+        s.started("a", Some("/r/app"), Some("claude:claude:s2"), None, &lanes(), 90);
+        assert!(s.todos[0].waiting.is_none());
+        // Done ends it, and a done todo can't be marked.
+        update(&mut s, "a", wait("x"), 100);
+        update(&mut s, "a", TodoPatch { status: Some(TodoStatus::Done), ..Default::default() }, 110);
+        assert!(s.todos[0].waiting.is_none());
+        assert!(!update(&mut s, "a", wait("x"), 120));
+        // An undo puts a wait back with its own time.
+        update(&mut s, "a", TodoPatch { status: Some(TodoStatus::Todo), ..Default::default() }, 130);
+        update(&mut s, "a", TodoPatch { waiting: Some(Some(Waiting { note: "back".into(), since: 25 })), ..Default::default() }, 140);
+        assert_eq!(s.todos[0].waiting, Some(Waiting { note: "back".into(), since: 25 }));
+        // A new todo can wait from the start; its wait begins when the engine makes it.
+        let mut t = todo("b");
+        t.waiting = Some(Waiting { note: "the vendor".into(), since: 1 });
+        s.apply(TodoOp::Create { todo: t }, &lanes(), 150).unwrap();
+        assert_eq!(s.todos[0].waiting, Some(Waiting { note: "the vendor".into(), since: 150 }));
+    }
+
+    #[test]
+    fn waiting_reads_as_written_by_hand_and_changes_travel_intact() {
+        let hand: TodoStore = serde_json::from_str(
+            r#"{"todos":[{"id":"a","waiting":true},{"id":"b","waiting":"Graham"},{"id":"c","waiting":false},{"id":"d","waiting":{"note":"x"}},{"id":"e"},{"id":"f","waiting":null},{"id":"g","status":"done","waiting":"late"}]}"#,
+        )
+        .unwrap();
+        let s = repaired(hand);
+        let notes: Vec<Option<&str>> = s.todos.iter().map(|t| t.waiting.as_ref().map(|w| w.note.as_str())).collect();
+        assert_eq!(notes, vec![Some(""), Some("Graham"), None, Some("x"), None, None, None]);
+        // Only a waiting todo carries the field.
+        let text = serde_json::to_string(&s).unwrap();
+        assert_eq!(text.matches("\"waiting\"").count(), 3, "{text}");
+        assert_eq!(serde_json::from_str::<TodoStore>(&text).unwrap(), s);
+        // A change without `waiting` leaves it; null says it's ready.
+        let op = |json: &str| match serde_json::from_str::<TodoOp>(json).unwrap() {
+            TodoOp::Update { patch, .. } => patch.waiting,
+            _ => panic!("not an update"),
+        };
+        assert_eq!(op(r#"{"op":"update","id":"a","patch":{"title":"T"}}"#), None);
+        assert_eq!(op(r#"{"op":"update","id":"a","patch":{"waiting":null}}"#), Some(None));
+        assert_eq!(op(r#"{"op":"update","id":"a","patch":{"waiting":{"note":"n","since":5}}}"#), Some(Some(Waiting { note: "n".into(), since: 5 })));
+        // And each survives the trip from the command to the app.
+        for patch in [TodoPatch::default(), TodoPatch { waiting: Some(None), ..Default::default() }, wait("n")] {
+            let text = serde_json::to_string(&TodoOp::Update { id: "a".into(), patch: patch.clone() }).unwrap();
+            let TodoOp::Update { patch: back, .. } = serde_json::from_str(&text).unwrap() else { panic!() };
+            assert_eq!(back.waiting, patch.waiting, "{text}");
         }
     }
 

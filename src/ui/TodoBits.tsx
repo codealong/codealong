@@ -1,14 +1,18 @@
 // Small pieces for todos: the status box, the chip a session or worktree shows for its todo,
-// and label chips. A todo's box is square, so it never reads as a session's round status glyph.
+// and label chips. A todo's box is square, so it never reads as a session's round status glyph;
+// a waiting todo's box is dashed.
 
 import type { Label, Todo, TodoStatus } from '../types';
 import { STATUS_WORD } from '../todos';
 
-export function TodoGlyph({ status, size = 12, title }: { status: TodoStatus; size?: number; title?: string }) {
+export function TodoGlyph({ status, waiting = false, size = 12, title }: { status: TodoStatus; waiting?: boolean; size?: number; title?: string }) {
+  const word = waiting ? (status === 'in-progress' ? 'In progress, waiting' : 'Waiting') : STATUS_WORD[status];
   return (
-    <svg className={`ca-todoglyph is-${status}`} width={size} height={size} viewBox="0 0 12 12" role="img" aria-label={title ?? STATUS_WORD[status]}>
+    <svg className={['ca-todoglyph', `is-${status}`, waiting && 'is-waiting'].filter(Boolean).join(' ')} width={size} height={size} viewBox="0 0 12 12" role="img" aria-label={title ?? word}>
       <rect className="ca-tg-box" x="1.5" y="1.5" width="9" height="9" rx="2.25" />
-      {status === 'in-progress' && <path className="ca-tg-fill" d="M1.5 6h9v2.25a2.25 2.25 0 0 1 -2.25 2.25h-4.5a2.25 2.25 0 0 1 -2.25 -2.25z" />}
+      {status === 'in-progress' &&
+        // Inside a dashed box the fill keeps clear of the dashes, so they still read as dashes.
+        (waiting ? <rect className="ca-tg-fill" x="3.6" y="6" width="4.8" height="2.4" rx="0.6" /> : <path className="ca-tg-fill" d="M1.5 6h9v2.25a2.25 2.25 0 0 1 -2.25 2.25h-4.5a2.25 2.25 0 0 1 -2.25 -2.25z" />)}
       {status === 'done' && <path className="ca-tg-check" d="M3.75 6.1l1.55 1.55l2.95 -3.1" />}
     </svg>
   );

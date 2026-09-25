@@ -13,7 +13,7 @@ import { approvePr, archiveSession, barOn, expandAttachments, getBoard, markSeen
 import { usePerf } from './perf';
 import { reorderPinned, usePins } from './pins';
 import { prFlag } from './prStatus';
-import { blockedBy, COLOR_WORD, newTodo, sessionHomes, STATUSES, STATUS_WORD, todoIndex, todoInFilter, todoInQuery, todoItem, todoPrompt, todoSections, useTodoStore, type TodoItem } from './todos';
+import { blockedBy, COLOR_WORD, depsOf, newTodo, sectionOf, sessionHomes, snippet, STATUSES, STATUS_WORD, todoIndex, todoInFilter, todoInQuery, todoItem, todoPrompt, todoSections, useTodoStore, type TodoItem, type TodoSectionId } from './todos';
 import type { Bay, Board, Label, Lane, PrItem, Session, StartSpec, Theme, Todo, TodoStatus } from './types';
 import { LABEL_COLORS } from './types';
 import { SettingsDialog, type SettingsSection } from './ui/SettingsDialog';
@@ -456,7 +456,7 @@ export function App() {
   const [composer, setComposer] = useState<{ text: string; context: ComposerContext | null }>({ text: '', context: null });
   const composerRef = useRef<HTMLInputElement>(null);
   const [composerFocus, setComposerFocus] = useState(0);
-  const [todoUndo, setTodoUndo] = useState<{ message: string; undo: () => void } | null>(null);
+  const [todoUndo, setTodoUndo] = useState<{ message: string; icon?: string; undo: () => void } | null>(null);
   const homes = useMemo(() => sessionHomes(lanes), [lanes]);
   const labelById = useMemo(() => new Map(todoStore.labels.map((l) => [l.id, l])), [todoStore.labels]);
   const projectTodos = useMemo(() => todoStore.todos.filter((t) => current === ALL_PROJECTS || t.project === current), [todoStore.todos, current]);
@@ -465,7 +465,7 @@ export function App() {
     () => todoItems.filter((r) => todoInQuery(r, query) && todoInFilter(r, bayFilter) && (!labelFilter || r.todo.labels.includes(labelFilter))),
     [todoItems, query, bayFilter, labelFilter],
   );
-  const todoSecs = useMemo(() => todoSections(todoRows), [todoRows]);
+  const todoSecs = useMemo(() => todoSections(todoRows, todoStore.todos), [todoRows, todoStore.todos]);
   const todoVisible = useMemo<Row[]>(() => todoSecs.flatMap((s) => (s.id === 'done' && !showDoneTodos ? [] : s.rows)), [todoSecs, showDoneTodos]);
   const openTodoCount = useMemo(() => projectTodos.filter((t) => t.status !== 'done').length, [projectTodos]);
   // Which todos each session and worktree is on, for their chips.
@@ -657,6 +657,34 @@ export function App() {
 
   const setTodoStatus = (t: Todo, status: TodoStatus) => runTodo({ op: 'update', id: t.id, patch: { status } });
 
+  /** Moves a todo to Waiting by hand, or back out: stopping ends the mark and the waits on
+   *  todos that aren't done, so it's ready at once. The toast can put both back. */
+  const toggleWaiting = (t: Todo) => {
+    if (t.status === 'done') return;
+    if (sectionOf(t, todoStore.todos) !== 'waiting') {
+      runTodo({ op: 'update', id: t.id, patch: { waiting: { note: '', since: 0 } } });
+      return;
+    }
+    // One an agent is on leaves Waiting with its mark; one not started, only once it waits on
+    // nothing.
+    const open = t.status === 'todo' ? blockedBy(t, todoStore.todos) : [];
+    const before = { waiting: t.waiting ?? null, dependsOn: depsOf(t) };
+    const dependsOn = depsOf(t).filter((d) => !open.some((o) => o.id === d));
+    runTodo({ op: 'update', id: t.id, patch: { waiting: null, ...(open.length > 0 ? { dependsOn } : {}) } });
+    const title = t.title || 'Untitled';
+    const on = open.length === 0 ? '' : open.length === 1 ? ` on “${open[0].title || 'Untitled'}”` : ` on ${open.length} todos`;
+    setTodoUndo({ message: `“${title}” no longer waits${on}.`, icon: 'hourglass', undo: () => runTodo({ op: 'update', id: t.id, patch: before }) });
+  };
+
+  /** The right-click item that moves a todo into Waiting or out of it, named for what it ends. */
+  const waitingItem = (t: Todo): MenuSpec => {
+    if (t.status === 'done') return [];
+    if (sectionOf(t, todoStore.todos) !== 'waiting') return [{ label: 'Mark as waiting', run: () => toggleWaiting(t) }];
+    const open = t.status === 'todo' ? blockedBy(t, todoStore.todos) : [];
+    const label = t.waiting || open.length === 0 ? 'Stop waiting' : open.length === 1 ? `Stop waiting on “${snippet(open[0].title || 'Untitled', 44)}”` : `Stop waiting on ${open.length} todos`;
+    return [{ label, run: () => toggleWaiting(t) }];
+  };
+
   /** Deletes a todo; the toast can put it back where it was. */
   const deleteTodo = (t: Todo) => {
     const index = todoStore.todos.findIndex((x) => x.id === t.id);
@@ -667,7 +695,7 @@ export function App() {
   };
 
   /** Moves a todo to insertion point `index` among the rows its section shows. */
-  const moveTodo = (section: TodoStatus, id: string, index: number) => {
+  const moveTodo = (section: TodoSectionId, id: string, index: number) => {
     const shown = todoSecs.find((s) => s.id === section)?.rows.map((r) => r.todo.id) ?? [];
     const all = todoStore.todos.map((t) => t.id);
     const next = reorderPinned(all, shown, id, index);
@@ -738,6 +766,7 @@ export function App() {
       ...(agent ? [{ label: `Open ${agent.session.account}: ${agent.session.title.slice(0, 48)}`, run: () => open(agent.lane, agent.session.openTarget) }] : []),
       'separator',
       ...STATUSES.map((st) => ({ label: STATUS_WORD[st], checked: t.status === st, run: () => setTodoStatus(t, st) })),
+      ...waitingItem(t),
       'separator',
       { label: 'Labels', items: labelItems(t) },
       { label: 'Move to project', items: projectItems(t) },
@@ -962,7 +991,8 @@ export function App() {
   useEffect(() => onReveal((r) => reveal.current(r)), []);
 
   // The Todo view's own keys, bound fresh each render so they see the rows as they are. N adds a
-  // todo, X marks one done (or reopens it), Delete deletes it, ⌥↑ ⌥↓ move it.
+  // todo, X marks one done (or reopens it), W moves it to Waiting or out, Delete deletes it,
+  // ⌥↑ ⌥↓ move it.
   const todoKeys = useRef<(e: KeyboardEvent, key: string) => boolean>(() => false);
   todoKeys.current = (e, key) => {
     if (view !== 'todo' || e.metaKey || e.ctrlKey) return false;
@@ -977,6 +1007,10 @@ export function App() {
       setTodoStatus(t, t.status !== 'done' ? 'done' : t.sessions.length > 0 ? 'in-progress' : 'todo');
       return true;
     }
+    if (key === 'w' && !e.altKey) {
+      toggleWaiting(t);
+      return true;
+    }
     // Only from the list: a button in the panel keeps the keyboard's other uses.
     const onList = !document.activeElement || document.activeElement === document.body || !!document.activeElement.closest('.ca-board-list');
     if ((e.key === 'Backspace' || e.key === 'Delete') && onList) {
@@ -986,10 +1020,10 @@ export function App() {
     }
     if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown') && t.status !== 'done') {
       e.preventDefault();
-      const rows = todoSecs.find((s) => s.id === t.status)?.rows ?? [];
-      const i = rows.findIndex((r) => r.key === selected.key);
+      const section = todoSecs.find((s) => s.rows.some((r) => r.key === selected.key));
+      const i = section?.rows.findIndex((r) => r.key === selected.key) ?? -1;
       // Insertion points: one up is the row's own index less one; one down is two past it.
-      if (i >= 0) moveTodo(t.status, t.id, e.key === 'ArrowUp' ? i - 1 : i + 2);
+      if (section && i >= 0) moveTodo(section.id, t.id, e.key === 'ArrowUp' ? i - 1 : i + 2);
       return true;
     }
     return false;
@@ -1647,7 +1681,7 @@ export function App() {
       )}
       {todoUndo && !toast && !undo && busy.length === 0 && (
         <div className="ca-toast" role="status">
-          <Icon name="trash" size={16} />
+          <Icon name={todoUndo.icon ?? 'trash'} size={16} />
           <span>{todoUndo.message}</span>
           <button
             type="button"

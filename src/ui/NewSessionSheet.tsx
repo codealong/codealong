@@ -282,6 +282,12 @@ export function NewSessionSheet({ lanes, laneId: firstLane, draft, error: failed
                   </span>
                 </p>
               )}
+              {forTodo.waiting && (
+                <p className="ca-start-blocked">
+                  <Icon name="hourglass" size={12} />
+                  <span>{forTodo.waiting.note ? `It’s marked as waiting for ${forTodo.waiting.note}.` : 'It’s marked as waiting.'} Starting it ends that.</span>
+                </p>
+              )}
             </div>
           )}
           <div className="ca-field">

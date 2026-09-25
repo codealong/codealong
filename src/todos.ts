@@ -1,16 +1,16 @@
 // Todos: work you mean to hand an agent. The engine keeps them in todos.json
 // (src-tauri/src/todos.rs) and publishes them with the board. This file has the list's rules:
-// its sections, search and the Inbox filters, the worktrees and sessions each todo is linked
+// its sections (In progress, Ready, Waiting, Done), search and the Inbox filters, the worktrees and sessions each todo is linked
 // to, the prompt a todo starts a session with, and the copy of each change a window shows
 // until the engine's board has it.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { todoOp } from './api';
-import type { Attachment, Board, Label, LabelColor, Lane, Pr, Session, Todo, TodoStatus } from './types';
+import type { Attachment, Board, Label, LabelColor, Lane, Pr, Session, Todo, TodoStatus, Waiting } from './types';
 import { LABEL_COLORS } from './types';
 
-/** `dependsOn` replaces the whole list. */
-export type TodoPatch = Partial<Pick<Todo, 'title' | 'description' | 'status' | 'labels' | 'project' | 'dependsOn'>>;
+/** `dependsOn` replaces the whole list. `waiting: null` says it's ready. */
+export type TodoPatch = Partial<Pick<Todo, 'title' | 'description' | 'status' | 'labels' | 'project' | 'dependsOn' | 'waiting'>>;
 
 /** A change, as the engine takes it (`TodoOp` in todos.rs). */
 export type TodoOp =
@@ -60,6 +60,7 @@ export function newTodo(fields: Partial<Todo>, now: number): Todo {
     doneAt: null,
     pending: [],
     dependsOn: [],
+    waiting: null,
     ...fields,
   };
 }
@@ -70,9 +71,20 @@ export function nextColor(labels: Label[]): LabelColor {
   return free ?? LABEL_COLORS[labels.length % LABEL_COLORS.length];
 }
 
+/** A status set the way the engine sets it: a done todo isn't waiting on anything. */
 function withStatus(t: Todo, status: TodoStatus, now: number): Todo {
-  if (t.status === status) return t;
-  return { ...t, status, doneAt: status === 'done' ? now : null };
+  const waiting = status === 'done' ? null : t.waiting;
+  if (t.status === status) return waiting === t.waiting ? t : { ...t, waiting };
+  return { ...t, status, doneAt: status === 'done' ? now : null, waiting };
+}
+
+/** Marks a todo as waiting, or says it's ready, the way the engine does: a new note keeps the
+ *  time the wait began, a wait put back by an undo keeps its own, and a done todo can't be
+ *  marked. */
+function withWaiting(t: Todo, w: Waiting | null, now: number): Todo {
+  if (!w || t.status === 'done') return t.waiting ? { ...t, waiting: null } : t;
+  const since = t.waiting && t.waiting.since > 0 ? t.waiting.since : w.since > 0 && w.since <= now ? w.since : now;
+  return { ...t, waiting: { note: w.note.replace(/\s+/g, ' ').trim().slice(0, 200), since } };
 }
 
 function uniq(list: string[]): string[] {
@@ -114,6 +126,23 @@ export function blockedBy(todo: Todo, todos: Todo[]): Todo[] {
   return depsOf(todo).flatMap((d) => todos.find((t) => t.id === d && t.status !== 'done') ?? []);
 }
 
+/** Where the Todo view lists a todo. */
+export type TodoSectionId = 'in-progress' | 'ready' | 'waiting' | 'done';
+
+export const SECTION_WORD: Record<TodoSectionId, string> = { 'in-progress': 'In progress', ready: 'Ready', waiting: 'Waiting', done: 'Done' };
+
+/**
+ * A todo's section: Waiting when it's marked as waiting, or when it isn't started and waits on
+ * a todo that isn't done; else by its status. One an agent is already on stays In progress
+ * while the todos it waits on finish. `is_waiting` in todos.rs has the same rule.
+ */
+export function sectionOf(todo: Todo, todos: Todo[]): TodoSectionId {
+  if (todo.status === 'done') return 'done';
+  if (todo.waiting) return 'waiting';
+  if (todo.status === 'in-progress') return 'in-progress';
+  return blockedBy(todo, todos).length > 0 ? 'waiting' : 'ready';
+}
+
 /** The todos `todo` waits on that still exist, done or not, in its order. */
 export function waitsOnTodos(todo: Todo, todos: Todo[]): Todo[] {
   return depsOf(todo).flatMap((d) => todos.find((t) => t.id === d) ?? []);
@@ -140,16 +169,23 @@ export function applyOp(store: TodoStore, op: TodoOp, now: number): TodoStore {
   switch (op.op) {
     case 'create': {
       if (store.todos.some((t) => t.id === op.todo.id)) return store;
-      let t: Todo = { ...op.todo, worktrees: uniq(op.todo.worktrees), sessions: uniq(op.todo.sessions), pending: [], dependsOn: cleanDeps(op.todo.id, depsOf(op.todo)) };
+      let t: Todo = { ...op.todo, worktrees: uniq(op.todo.worktrees), sessions: uniq(op.todo.sessions), pending: [], dependsOn: cleanDeps(op.todo.id, depsOf(op.todo)), waiting: null };
+      // The engine keeps the clock: a new todo's wait begins now.
+      if (op.todo.waiting) t = withWaiting(t, { ...op.todo.waiting, since: 0 }, now);
       if (t.sessions.length > 0 && t.status === 'todo') t = withStatus(t, 'in-progress', now);
       return { ...store, todos: [t, ...store.todos] };
     }
     case 'update':
       return map(op.id, (t) => {
-        const { status, ...rest } = op.patch;
-        const next = { ...t, ...rest, updatedAt: now };
+        const { status, waiting, ...rest } = op.patch;
+        let next: Todo = { ...t, ...rest, updatedAt: now };
         if (rest.dependsOn) next.dependsOn = cleanDeps(t.id, rest.dependsOn);
-        return status ? withStatus(next, status, now) : next;
+        if (status) {
+          next = withStatus(next, status, now);
+          // Saying an agent is on it says it's no longer waiting.
+          if (status === 'in-progress' && next.waiting) next = { ...next, waiting: null };
+        }
+        return waiting === undefined ? next : withWaiting(next, waiting, now);
       });
     case 'link':
       return map(op.id, (t) => {
@@ -286,20 +322,23 @@ export function todoPr(item: TodoItem): Pr | null {
 }
 
 export interface TodoSection {
-  id: TodoStatus;
+  id: TodoSectionId;
   label: string;
   rows: TodoItem[];
 }
 
-/** In progress and Todo in your order, then Done, the latest first. */
-export function todoSections(items: TodoItem[]): TodoSection[] {
-  const done = items.filter((r) => r.todo.status === 'done').sort((a, b) => (b.todo.doneAt ?? b.todo.updatedAt) - (a.todo.doneAt ?? a.todo.updatedAt));
-  const sections: TodoSection[] = [
-    { id: 'in-progress', label: 'In progress', rows: items.filter((r) => r.todo.status === 'in-progress') },
-    { id: 'todo', label: 'Todo', rows: items.filter((r) => r.todo.status === 'todo') },
-    { id: 'done', label: 'Done', rows: done },
-  ];
-  return sections.filter((s) => s.rows.length > 0);
+/** In progress, Ready and Waiting in your order, then Done, the latest first. `todos` is every
+ *  todo, in any project: what a todo waits on can be anywhere. */
+export function todoSections(items: TodoItem[], todos: Todo[]): TodoSection[] {
+  const rows = new Map<TodoSectionId, TodoItem[]>([
+    ['in-progress', []],
+    ['ready', []],
+    ['waiting', []],
+    ['done', []],
+  ]);
+  for (const r of items) rows.get(sectionOf(r.todo, todos))?.push(r);
+  rows.get('done')?.sort((a, b) => (b.todo.doneAt ?? b.todo.updatedAt) - (a.todo.doneAt ?? a.todo.updatedAt));
+  return [...rows].filter(([, list]) => list.length > 0).map(([id, list]) => ({ id, label: SECTION_WORD[id], rows: list }));
 }
 
 /** Search: the title, the description, labels, and the worktrees and sessions it's linked to. */

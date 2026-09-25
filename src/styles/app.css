@@ -2216,6 +2216,11 @@ html.is-bar body {
 .ca-todoglyph.is-done .ca-tg-box {
   fill: var(--ink-3);
 }
+/* Waiting: the box drawn dashed, as not yet free to start. */
+.ca-todoglyph.is-waiting .ca-tg-box {
+  stroke-dasharray: 2.2 1.8;
+  stroke-dashoffset: 1.1;
+}
 .ca-tg-check {
   fill: none;
   stroke: var(--surface);
@@ -2344,7 +2349,8 @@ html.is-bar body {
   font-family: var(--font-sans);
   color: var(--ink-3);
 }
-/* A todo that waits on others that aren't done: muted, so the row still reads as open. */
+/* What a todo waits on, other todos that aren't done or what it's marked as waiting for:
+   muted, so the row still reads as open. */
 .ca-chip.ca-todorow-blocked {
   flex: 0 1 auto;
   gap: 3px;
@@ -2580,6 +2586,22 @@ html.is-bar body {
 }
 .ca-todoref.is-done .ca-todoref-title {
   color: var(--ink-3);
+}
+/* What a todo is marked as waiting for, among the todos it waits on. */
+.ca-labelchip.ca-waitnote {
+  max-width: 100%;
+  min-width: 0;
+}
+.ca-waitnote > .ca-icon {
+  flex: none;
+  color: var(--ink-3);
+}
+.ca-waitnote-text {
+  min-width: 0;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .ca-todoinsp-neededby {
   display: flex;

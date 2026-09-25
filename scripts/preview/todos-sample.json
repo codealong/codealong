@@ -51,6 +51,21 @@
       ]
     },
     {
+      "id": "t-sample8",
+      "title": "Move PR checks to the new GitHub API",
+      "status": "in-progress",
+      "labels": [
+        "l-perf"
+      ],
+      "sessions": [
+        "$session:4"
+      ],
+      "waiting": {
+        "note": "an answer from GitHub support",
+        "sinceAgo": 240
+      }
+    },
+    {
       "id": "t-sample3",
       "title": "Cut the board push size in half",
       "description": "Every publish is the whole board. Send only what changed.",
@@ -73,6 +88,18 @@
       "dependsOn": [
         "t-sample6"
       ]
+    },
+    {
+      "id": "t-sample7",
+      "title": "Publish the release notes for 0.3",
+      "description": "The draft is in the repo; it goes out once the copy is signed off.",
+      "labels": [
+        "l-docs"
+      ],
+      "waiting": {
+        "note": "Sam's review of the copy",
+        "sinceAgo": 2880
+      }
     },
     {
       "id": "t-sample5",

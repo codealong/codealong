@@ -1,12 +1,13 @@
-// A todo in the right panel: its title, status and labels, the description with its
-// screenshots, and the worktrees and sessions it's linked to, drawn like the sidebar's tree.
+// A todo in the right panel: its title, status and labels, what it waits on (other todos, and
+// what it's marked as waiting for), the description with its screenshots, and the worktrees and
+// sessions it's linked to, drawn like the sidebar's tree.
 // Everything saves as you go. Start session opens the new-session sheet with the todo as the
 // prompt, and the session it starts is linked to the todo.
 
 import { useEffect, useRef, useState } from 'react';
 import { below } from '../contextMenu';
 import { absolute, ago, middleTruncate } from '../format';
-import { cantWaitOn, dependents, depsOf, newId, nextColor, STATUSES, STATUS_WORD, waitsOnTodos, type TodoItem, type TodoOp, type TodoPlace } from '../todos';
+import { cantWaitOn, dependents, depsOf, newId, nextColor, SECTION_WORD, sectionOf, STATUSES, STATUS_WORD, waitsOnTodos, type TodoItem, type TodoOp, type TodoPlace } from '../todos';
 import type { Label, Lane, Session, Todo } from '../types';
 import { DescriptionEditor } from './DescriptionEditor';
 import { Button, Icon, Kbd, LaneGlyph, StatusGlyph } from './primitives';
@@ -193,9 +194,10 @@ function LabelPicker({ labels, chosen, onToggle, onCreate, onRename, onMenu, onC
   );
 }
 
-/** Pick a todo for this one to wait on. Done ones and this one aren't offered; ones that
- *  already wait on this one are shown greyed, since waiting on them would make a loop. */
-function WaitPicker({ todo, todos, onPick, onClose }: { todo: Todo; todos: Todo[]; onPick: (id: string) => void; onClose: () => void }) {
+/** Pick a todo for this one to wait on, or type what else it waits for: a person, a release.
+ *  Done ones and this one aren't offered; ones that already wait on this one are shown greyed,
+ *  since waiting on them would make a loop. */
+function WaitPicker({ todo, todos, onPick, onWaitFor, onClose }: { todo: Todo; todos: Todo[]; onPick: (id: string) => void; onWaitFor: (note: string) => void; onClose: () => void }) {
   const [query, setQuery] = useState('');
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -213,13 +215,15 @@ function WaitPicker({ todo, todos, onPick, onClose }: { todo: Todo; todos: Todo[
     // The todo's own project first; the rest keep your order.
     .sort((a, b) => Number(a.t.project !== todo.project) - Number(b.t.project !== todo.project));
   const first = offered.find((o) => !o.why);
+  // A done todo can't be marked as waiting.
+  const note = todo.status !== 'done' ? query.replace(/\s+/g, ' ').trim() : '';
   return (
     <div className="ca-menu ca-labelpick ca-waitpick" ref={ref} role="dialog" aria-label="Waits on">
       <input
         className="ca-labelpick-input"
         value={query}
         autoFocus
-        placeholder="Find a todo"
+        placeholder={todo.status !== 'done' ? 'Find a todo, or say what else' : 'Find a todo'}
         onChange={(e) => setQuery(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === 'Escape') {
@@ -231,6 +235,9 @@ function WaitPicker({ todo, todos, onPick, onClose }: { todo: Todo; todos: Todo[
             if (first) {
               onPick(first.t.id);
               setQuery('');
+            } else if (note) {
+              onWaitFor(note);
+              onClose();
             }
           }
         }}
@@ -254,7 +261,21 @@ function WaitPicker({ todo, todos, onPick, onClose }: { todo: Todo; todos: Todo[
           </button>
         ))}
         {offered.length === 0 && <p className="ca-labelpick-note">{q ? 'No open todo matches.' : 'No other open todos.'}</p>}
+        {note && (
+          <button
+            type="button"
+            className="ca-menu-item"
+            onClick={() => {
+              onWaitFor(note);
+              onClose();
+            }}
+          >
+            <Icon name="hourglass" size={14} />
+            <span className="ca-menu-label">Wait for “{note}”</span>
+          </button>
+        )}
       </div>
+      {todo.status !== 'done' && !note && <p className="ca-labelpick-note">Or type what else it waits for: a person’s answer, a release, a date.</p>}
     </div>
   );
 }
@@ -354,6 +375,7 @@ interface TodoPanelProps {
 
 export function TodoPanel({ item, todos, onShowTodo, labels, lanes, now, onRun, onStart, onOpenSession, onShowLane, onLaneMenu, onSessionMenu, onLinkMenu, onMoreMenu, onLabelMenu, onError }: TodoPanelProps) {
   const { todo } = item;
+  const section = sectionOf(todo, todos);
   const [picking, setPicking] = useState(false);
   const [pickingWait, setPickingWait] = useState(false);
   const waitsOn = waitsOnTodos(todo, todos);
@@ -368,8 +390,8 @@ export function TodoPanel({ item, todos, onShowTodo, labels, lanes, now, onRun, 
     <aside className="ca-insp ca-todoinsp" aria-label="Todo details">
       <header>
         <div className="ca-insp-title">
-          <TodoGlyph status={todo.status} size={14} />
-          <span className="ca-tag">{STATUS_WORD[todo.status]}</span>
+          <TodoGlyph status={todo.status} waiting={section === 'waiting'} size={14} />
+          <span className="ca-tag">{SECTION_WORD[section]}</span>
           {todo.project && <span className="ca-tag">{todo.project}</span>}
           <Button variant="ghost" size="sm" icon="dots" aria-label="More" title="Move, copy or delete" className="ca-todoinsp-more" onClick={(e) => onMoreMenu(below(e.currentTarget))} />
         </div>
@@ -434,12 +456,32 @@ export function TodoPanel({ item, todos, onShowTodo, labels, lanes, now, onRun, 
           {waitsOn.map((t) => (
             <TodoRef key={t.id} todo={t} onShow={onShowTodo} onRemove={() => setDeps(depsOf(todo).filter((d) => d !== t.id))} />
           ))}
+          {todo.waiting && (
+            <span
+              className="ca-labelchip ca-waitnote"
+              title={`Marked as waiting${todo.waiting.since > 0 ? ` ${ago(todo.waiting.since, now)} ago` : ''}. It stays under Waiting until you say it’s ready, start it, or finish it.`}
+            >
+              <Icon name="hourglass" size={12} />
+              <span className="ca-waitnote-text">{todo.waiting.note || 'Marked as waiting'}</span>
+              <button type="button" aria-label="Stop waiting" title="Stop waiting" onClick={() => update({ waiting: null })}>
+                <Icon name="x" size={10} stroke={2.25} />
+              </button>
+            </span>
+          )}
           <span className="ca-labelpick-anchor ca-waitpick-anchor">
             <button type="button" className="ca-labelchip ca-labelchip--add" aria-expanded={pickingWait} onClick={() => setPickingWait(!pickingWait)}>
               <Icon name="lock" size={12} />
-              <span>{waitsOn.length ? 'Add' : 'Add a todo it waits on'}</span>
+              <span>{waitsOn.length || todo.waiting ? 'Add' : 'Add what it waits on'}</span>
             </button>
-            {pickingWait && <WaitPicker todo={todo} todos={todos} onPick={(id) => setDeps([...depsOf(todo), id])} onClose={() => setPickingWait(false)} />}
+            {pickingWait && (
+              <WaitPicker
+                todo={todo}
+                todos={todos}
+                onPick={(id) => setDeps([...depsOf(todo), id])}
+                onWaitFor={(note) => update({ waiting: { note, since: 0 } })}
+                onClose={() => setPickingWait(false)}
+              />
+            )}
           </span>
         </div>
         {neededBy.length > 0 && (
