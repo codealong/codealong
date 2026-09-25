@@ -187,7 +187,8 @@ impl Handle {
     pub fn sign_in(&self, name: &str) -> Result<()> {
         let cfg = config::load()?.unwrap_or_default();
         let a = cfg.accounts.iter().find(|a| a.name == name).ok_or_else(|| anyhow!("There's no account named {name}."))?;
-        launch::terminal_open(&cfg.apps.terminal, &home(), Some(&format!("{}\n", usage::sign_in_command(a))))
+        let place = launch::Placement { new_terminal: cfg.apps.new_terminal, near: &[] };
+        launch::terminal_open(&cfg.apps.terminal, place, &home(), Some(&format!("{}\n", usage::sign_in_command(a))))
     }
 
     /// Opens config.toml in the configured editor.
@@ -212,6 +213,8 @@ pub fn open_on(board: &Board, lane_id: &str, target_id: &str) -> Result<Option<S
     let lane = board.lanes.iter().find(|l| l.id == lane_id).cloned().ok_or_else(|| anyhow!("That lane just changed. Try again."))?;
     let apps = board.apps.clone();
     let path = PathBuf::from(&lane.path);
+    let near = board::terminal_neighbours(&board.lanes, &path);
+    let place = launch::Placement { new_terminal: apps.new_terminal, near: &near };
     let parts: Vec<&str> = target_id.splitn(3, '|').collect();
     match parts.as_slice() {
         ["s", key, action] => {
@@ -226,11 +229,11 @@ pub fn open_on(board: &Board, lane_id: &str, target_id: &str) -> Result<Option<S
                 }
                 "attach" => {
                     let cmd = s.attach_command.clone().ok_or_else(|| anyhow!("This session isn't a background job."))?;
-                    launch::terminal_open(&apps.terminal_id, &cwd, Some(&format!("{cmd}\n")))?;
+                    launch::terminal_open(&apps.terminal_id, place, &cwd, Some(&format!("{cmd}\n")))?;
                 }
                 "resume" => {
                     let cmd = s.resume_command.clone().ok_or_else(|| anyhow!("This session can't be resumed in a terminal."))?;
-                    launch::terminal_open(&apps.terminal_id, &cwd, Some(&format!("{cmd}\n")))?;
+                    launch::terminal_open(&apps.terminal_id, place, &cwd, Some(&format!("{cmd}\n")))?;
                 }
                 "claude-app" => launch::open_url(&launch::claude_app_url(&s.id))?,
                 "codex" => launch::open_codex(&launch::codex_thread_url(&s.id))?,
@@ -239,7 +242,7 @@ pub fn open_on(board: &Board, lane_id: &str, target_id: &str) -> Result<Option<S
             }
             return Ok(Some(s.key.clone()));
         }
-        ["l", "terminal"] => launch::terminal_open(&apps.terminal_id, &path, None)?,
+        ["l", "terminal"] => launch::terminal_open(&apps.terminal_id, place, &path, None)?,
         ["l", "editor"] => launch::editor_open(&apps.editor_id, &path)?,
         ["l", "finder"] => launch::reveal(&path)?,
         ["p", which] => {
@@ -1837,6 +1840,7 @@ impl Engine {
             terminal_id: self.cfg.apps.terminal.clone(),
             editor: launch::editor_name(&self.cfg.apps.editor),
             editor_id: self.cfg.apps.editor.clone(),
+            new_terminal: self.cfg.apps.new_terminal,
         };
         let order: Vec<String> = self.cfg.projects.iter().map(|p| p.name.clone()).collect();
         let warnings = [&self.config_warning, &self.gh_warning, &self.watch_warning, &self.todos_warning].into_iter().flatten().cloned().collect();

@@ -176,11 +176,35 @@ pub struct AppsCfg {
     pub terminal: String,
     #[serde(default = "default_editor")]
     pub editor: String,
+    #[serde(default)]
+    pub new_terminal: NewTerminal,
 }
 
 impl Default for AppsCfg {
     fn default() -> Self {
-        AppsCfg { terminal: default_terminal(), editor: default_editor() }
+        AppsCfg { terminal: default_terminal(), editor: default_editor(), new_terminal: NewTerminal::default() }
+    }
+}
+
+/// Where a terminal Codealong opens goes: a window of its own, a tab in the front window, or a
+/// tab in a window already showing the same worktree, repo or project (a window of its own when
+/// none does).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum NewTerminal {
+    Window,
+    Tab,
+    #[default]
+    Project,
+}
+
+impl NewTerminal {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            NewTerminal::Window => "window",
+            NewTerminal::Tab => "tab",
+            NewTerminal::Project => "project",
+        }
     }
 }
 
@@ -333,7 +357,7 @@ fn set_accounts(doc: &mut toml_edit::DocumentMut, accounts: &[AccountCfg]) {
     set_tables(doc, "accounts", rows);
 }
 
-const APPS_COMMENT: &str = "# Where Codealong opens things. Built-in profiles: terminal \"ghostty\", editor \"cursor\".\n";
+const APPS_COMMENT: &str = "# Where Codealong opens things. Built-in profiles: terminal \"ghostty\", editor \"cursor\".\n# new_terminal: \"window\", \"tab\" (in the front window), or \"project\" (a tab beside the same repo or project).\n";
 const APPEARANCE_COMMENT: &str = "# Light or dark. \"system\" follows macOS. The buttons at the foot of the sidebar set this too.\n";
 const JEV_COMMENT: &str = "# What Codealong asks TypeSafe's Jev, feature by feature (Settings › Jev says what each one sends).\n# The API key is kept in the login keychain; set it in Settings.\n";
 const DEBUG_COMMENT: &str = "# Timings for finding what makes the app slow, in ~/Library/Logs/Codealong/perf.log.\n";
@@ -517,6 +541,7 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
     ensure_table(&mut doc, "apps", APPS_COMMENT);
     set_value(&mut doc["apps"]["terminal"], Value::from(cfg.apps.terminal.trim()));
     set_value(&mut doc["apps"]["editor"], Value::from(cfg.apps.editor.trim()));
+    set_value(&mut doc["apps"]["new_terminal"], Value::from(cfg.apps.new_terminal.as_str()));
 
     set_theme(&mut doc, cfg.appearance.theme);
     set_shortcuts(&mut doc, &cfg.shortcuts);
@@ -637,6 +662,7 @@ pub fn render(cfg: &Config) -> String {
     s.push_str("[apps]\n");
     s.push_str(&format!("terminal = {}\n", q(&cfg.apps.terminal)));
     s.push_str(&format!("editor = {}\n", q(&cfg.apps.editor)));
+    s.push_str(&format!("new_terminal = {}\n", q(cfg.apps.new_terminal.as_str())));
     s.push('\n');
     s.push_str(APPEARANCE_COMMENT);
     s.push_str("[appearance]\n");
@@ -742,6 +768,7 @@ mod tests {
         let cfg: Config = toml::from_str("").unwrap();
         assert_eq!(cfg.apps.terminal, "ghostty");
         assert_eq!(cfg.apps.editor, "cursor");
+        assert_eq!(cfg.apps.new_terminal, NewTerminal::Project);
         assert_eq!(cfg.scan, vec!["~/projects".to_string()]);
         assert_eq!(cfg.appearance.theme, Theme::System);
     }

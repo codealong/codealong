@@ -195,7 +195,7 @@ export function Inspector({ lane, focusKey, apps, now, onOpen, onNewSession, tod
       <div className="ca-insp-actions">
         <OpenInMenu targets={lane.targets} defaultId={lane.defaultTarget} onOpen={onOpen} />
         <Button icon="plus" title="New session here (⌘N)" aria-label="New session here" onClick={onNewSession} />
-        <Button icon="terminal" title={`New ${apps.terminal} window here`} aria-label={`New ${apps.terminal} window here`} onClick={() => onOpen('l|terminal')} />
+        <Button icon="terminal" title={`New ${apps.terminal} terminal here`} aria-label={`New ${apps.terminal} terminal here`} onClick={() => onOpen('l|terminal')} />
         <Button icon="code" title={`Open in ${apps.editor}`} aria-label={`Open in ${apps.editor}`} onClick={() => onOpen('l|editor')} />
         {pr && <Button icon="external" title={`Open #${pr.number} on GitHub`} aria-label={`Open #${pr.number} on GitHub`} onClick={() => onOpen('p|github')} />}
       </div>

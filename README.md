@@ -63,7 +63,8 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
 - **Open where it lives**: the session's own Ghostty tab, the Claude app session, the Codex
   thread, an OpenCode session in its terminal (or resumed in a new one with `--session`),
   Antigravity brought forward (it has no link to a conversation), a background job attached
-  in a new window, or the folder in Cursor.
+  in a new terminal, or the folder in Cursor. A new terminal opens as a tab in the Ghostty
+  window already showing that worktree, repo or project (`new_terminal` in config.toml).
 - **Quick panel** (⌥⇧Space from any app, over full-screen ones too; ⌘N, the title bar, the
   inspector, or a worktree's or session's right-click menu in Codealong): one input, and below
   it what you can do next. With nothing typed it lists the sessions that need you, then the
@@ -215,6 +216,7 @@ scan = ["~/projects"]          # where repos are found, three levels deep
 [apps]
 terminal = "ghostty"
 editor = "cursor"
+new_terminal = "project"       # a tab beside the same worktree, repo or project; or "tab", "window"
 
 [appearance]
 theme = "system"               # follows macOS; or "light", "dark"

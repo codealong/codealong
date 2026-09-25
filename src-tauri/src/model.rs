@@ -330,6 +330,8 @@ pub struct AppNames {
     pub terminal_id: String,
     pub editor: String,
     pub editor_id: String,
+    /// `[apps] new_terminal`: where a terminal Codealong opens goes.
+    pub new_terminal: crate::config::NewTerminal,
 }
 
 /// How close a limit is: the usage endpoint's own word, or ours from the percentage.

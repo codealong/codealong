@@ -891,7 +891,7 @@ pub fn targets(seed: &LaneSeed, sessions: &[Session], pr: Option<&Pr>, apps: &Ap
         }
     }
     let here = tilde(&seed.path);
-    t.push(target("l|terminal".into(), "terminal", format!("New {term} window here"), Some(here), Some(&["⌘", "1"]), false, "lane"));
+    t.push(target("l|terminal".into(), "terminal", format!("New {term} terminal here"), Some(here), Some(&["⌘", "1"]), false, "lane"));
     t.push(target("l|editor".into(), "code", format!("Open in {editor}"), None, Some(&["⌘", "2"]), false, "lane"));
     t.push(target("l|finder".into(), "folder", "Reveal in Finder".into(), None, None, false, "lane"));
     if let Some(pr) = pr {
@@ -1069,6 +1069,28 @@ pub fn logo_status(lanes: &[Lane], prs: &[PrItem]) -> LogoStatus {
         });
     let review = prs.iter().any(|p| p.review_requested && p.state.is_open());
     sessions.chain(review.then_some(LogoStatus::Needs)).min().unwrap_or_default()
+}
+
+/// The folders a new terminal at `path` belongs beside, nearest first: its worktree, the other
+/// worktrees of its repo, then the rest of its project. `[apps] new_terminal = "project"` opens
+/// it as a tab in a window already showing the nearest of them. A folder elsewhere (a project of
+/// its own that isn't one) has only itself for company.
+pub fn terminal_neighbours(lanes: &[Lane], path: &Path) -> Vec<Vec<String>> {
+    let within = |l: &&Lane| path.starts_with(&l.path);
+    let Some(home) = lanes.iter().filter(within).max_by_key(|l| l.path.len()) else {
+        return vec![vec![path.to_string_lossy().into_owned()]];
+    };
+    let mut groups = vec![vec![home.path.clone()]];
+    if home.origin == Origin::Other {
+        return groups;
+    }
+    let others = |same: &dyn Fn(&Lane) -> bool| -> Vec<String> {
+        lanes.iter().filter(|l| l.path != home.path && l.origin != Origin::Other && same(l)).map(|l| l.path.clone()).collect()
+    };
+    let repo = others(&|l| l.project == home.project && l.repo == home.repo);
+    let project = others(&|l| l.project == home.project && l.repo != home.repo);
+    groups.extend([repo, project].into_iter().filter(|g| !g.is_empty()));
+    groups
 }
 
 #[cfg(test)]
@@ -1761,7 +1783,7 @@ mod tests {
 
     #[test]
     fn builds_targets_with_app_names() {
-        let apps = AppNames { terminal: "Ghostty".into(), terminal_id: "ghostty".into(), editor: "Cursor".into(), editor_id: "cursor".into() };
+        let apps = AppNames { terminal: "Ghostty".into(), terminal_id: "ghostty".into(), editor: "Cursor".into(), editor_id: "cursor".into(), new_terminal: Default::default() };
         let a = acct("claude2");
         let live = claude_session(&a, Some(&reg("waiting", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
         let (t, default) = targets(&seed("/r/atlas-quarry", "quarry"), &[live], None, &apps);
@@ -1964,5 +1986,22 @@ mod tests {
         assert_eq!(board.lanes[1].headline, "Worked on by `claude2` · Quarry daily log + photo sync");
         assert_eq!(board.lanes[0].sessions[0].headline, "`claude2` is waiting for approval");
         assert_eq!(board.projects[0].lanes, 2);
+    }
+
+    #[test]
+    fn a_new_terminal_goes_beside_its_worktree_then_its_repo_then_its_project() {
+        let apps = AppNames::default();
+        let mut other_repo = seed("/r/kestrel", "main");
+        other_repo.repo = "kestrel".into();
+        let mut elsewhere = seed("/tmp/scratch", "main");
+        (elsewhere.project, elsewhere.origin) = ("Elsewhere".into(), Origin::Other);
+        let seeds = vec![seed("/r/atlas", "main"), seed("/r/atlas-pins", "pins"), other_repo, elsewhere];
+        let (git, prs, visitors) = (HashMap::new(), HashMap::new(), HashMap::new());
+        let order = vec!["Northwind".to_string()];
+        let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![], visitors: &visitors, git: &git, prs: &prs, project_order: &order, warnings: vec![], loading: false, github_at: None, pinned: &[], github_login: None });
+        let near = |p: &str| terminal_neighbours(&board.lanes, Path::new(p));
+        assert_eq!(near("/r/atlas-pins/src"), vec![vec!["/r/atlas-pins".to_string()], vec!["/r/atlas".to_string()], vec!["/r/kestrel".to_string()]]);
+        assert_eq!(near("/tmp/scratch"), vec![vec!["/tmp/scratch".to_string()]]);
+        assert_eq!(near("/Users/me"), vec![vec!["/Users/me".to_string()]]);
     }
 }

@@ -172,7 +172,7 @@ export interface ProjectCfg {
 /** config.toml, as the engine parses it (src-tauri/src/config.rs). Keys are the file's own. */
 export interface Config {
   scan: string[];
-  apps: { terminal: string; editor: string };
+  apps: { terminal: string; editor: string; new_terminal?: NewTerminal };
   appearance: { theme: Theme };
   /** Shortcuts that work in any app, as config.toml writes them (`Option+Shift+Space`); empty is off. */
   shortcuts: { quick_panel: string };
@@ -182,6 +182,10 @@ export interface Config {
   projects: ProjectCfg[];
   debug: { perf_log: boolean };
 }
+
+/** Where a terminal Codealong opens goes: its own window, a tab in the front window, or a tab
+ *  beside the same worktree, repo or project. */
+export type NewTerminal = 'window' | 'tab' | 'project';
 
 /** A terminal or editor profile `[apps]` can name. */
 export interface Profile {
@@ -246,7 +250,7 @@ export interface Board {
   generatedAt: number;
   /** App-wide status from the engine; view and project filters do not change the logo. */
   logoStatus: LogoStatus;
-  apps: { terminal: string; terminalId: string; editor: string; editorId: string };
+  apps: { terminal: string; terminalId: string; editor: string; editorId: string; newTerminal?: NewTerminal };
   projects: ProjectSummary[];
   lanes: Lane[];
   warnings: string[];

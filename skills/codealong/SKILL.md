@@ -79,7 +79,7 @@ rate-limits.
 
 `codealong start --todo <id>` starts a session on the todo (its title and description as the
 prompt, then a line naming the todo) in the current worktree, on the account with the most room, in a new terminal
-window, and links the session to the todo. `--account`, `--worktree`, `--new-worktree`,
+(a tab or window, as config.toml's `new_terminal` says), and links the session to the todo. `--account`, `--worktree`, `--new-worktree`,
 `--in claude-app|codex-app`, `--model` change that. Only do this when the user asks for a
 session to be started.
 
@@ -96,6 +96,7 @@ scan = ["~/projects"]              # folders searched for repos, three levels de
 [apps]
 terminal = "ghostty"               # profile ids; `codealong config show --json` lists them
 editor = "cursor"
+new_terminal = "project"           # project (a tab beside the same repo or project), tab or window
 
 [appearance]
 theme = "system"                   # system, light or dark
