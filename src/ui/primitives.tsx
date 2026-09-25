@@ -4,8 +4,10 @@ import type { ButtonHTMLAttributes, ReactNode } from 'react';
 import { Fragment } from 'react';
 import { middleTruncate, withTimes } from '../format';
 import { sessionPlace } from '../harness';
-import type { Bay, Lane, Pr, PrState, Session, Status, Surface } from '../types';
+import type { Bay, Lane, LogoStatus, Pr, PrState, Session, Status, Surface } from '../types';
+import { LOGO_LABEL } from '../logo';
 import { ICONS } from './icons';
+import { MARK_PATHS, MARK_VIEW_BOX } from './brand';
 
 const cx = (...parts: (string | false | null | undefined)[]) => parts.filter(Boolean).join(' ');
 
@@ -91,14 +93,12 @@ export function Icon({ name, size = 16, stroke = 1.5, title }: { name: string; s
   );
 }
 
-/** Three staggered lanes and the dot riding along the last one. */
-export function Mark({ size = 16 }: { size?: number }) {
+/** The rounded C surrounding a commit node, shared with the native app icon. */
+export function Mark({ size = 16, status = 'idle' }: { size?: number; status?: LogoStatus }) {
   return (
-    <svg className="ca-mark" width={size} height={size} viewBox="0 0 24 24" role="img" aria-label="Codealong">
-      <rect className="ca-mark-lane" x="2" y="4.5" width="15" height="3.5" rx="1.75" />
-      <rect className="ca-mark-lane" x="6.5" y="10.25" width="15.5" height="3.5" rx="1.75" />
-      <rect className="ca-mark-lane" x="2" y="16" width="10" height="3.5" rx="1.75" />
-      <circle className="ca-mark-dot" cx="17.75" cy="17.75" r="3" />
+    <svg className="ca-mark" data-status={status} width={size} height={size} viewBox={MARK_VIEW_BOX} role="img" aria-label={`Codealong · ${LOGO_LABEL[status]}`} focusable="false">
+      <path d={MARK_PATHS[0]} />
+      <path className="ca-mark-node" d={MARK_PATHS[1]} />
     </svg>
   );
 }

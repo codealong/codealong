@@ -47,6 +47,7 @@
   --label-teal: #0f8484;
   --label-green: #23884a;
   --neutral-tint: #eceeeb;
+  --logo-working: #11875a;
   --brand: #f0a000;
   --on-brand: #1f1300;
   --focus: var(--ink);
@@ -126,6 +127,7 @@
     --label-teal: #3cc4c0;
     --label-green: #5cc97a;
     --neutral-tint: #22272a;
+    --logo-working: #34b27c;
     --brand: #f5a524;
     --on-brand: #1f1300;
     --focus: var(--ink);
@@ -177,6 +179,7 @@
   --label-teal: #3cc4c0;
   --label-green: #5cc97a;
   --neutral-tint: #22272a;
+  --logo-working: #34b27c;
   --brand: #f5a524;
   --on-brand: #1f1300;
   --focus: var(--ink);

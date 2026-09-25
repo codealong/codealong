@@ -1,5 +1,7 @@
 # Codealong
 
+<img src="design/app-icon.svg" alt="Codealong" width="96" height="96" />
+
 A Mac app that keeps track of every coding agent you have running: Claude Code on two
 accounts (`claude`, `claude2`), the Codex app, OpenCode and Antigravity. It sorts them by
 project, worktree, branch and PR, shows what each one is doing, and opens any session where
@@ -143,6 +145,13 @@ Builds go to `../codealong-target`, one directory shared by every checkout and w
 (model rules, parsers, git and GitHub parsing, usage, config writes, deep links, Ghostty
 scripts). `scripts/preview.sh` renders the UI in headless Chrome against your real data with
 Tauri's IPC stubbed. CLAUDE.md has the rest of the working notes.
+
+The [logo master and brand notes](design/brand/README.md) live in `design/brand`.
+Run `npm run icons` to regenerate the UI mark, browser icon and native bundle icons.
+The mark's inner node shows the app-wide status: red for session errors, amber when
+you are needed (including PR review requests), blue for unread results, green while
+agents work, and neutral when idle, in that priority order. The project switcher,
+floating bar, browser icon and running Dock icon stay in sync across projects.
 
 ## Settings
 

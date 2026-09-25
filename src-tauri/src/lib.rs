@@ -16,6 +16,7 @@ mod git;
 mod github;
 mod install;
 mod launch;
+mod logo;
 mod model;
 mod perf;
 mod procs;
@@ -440,8 +441,17 @@ pub fn run() {
             let theme = config::theme();
             app.set_theme(native_theme(theme));
             let shown = std::sync::Mutex::new(theme);
+            let shown_logo = std::sync::Mutex::new(model::LogoStatus::Idle);
             let emitter = app.handle().clone();
             let engine = engine::start(move |board| {
+                if let Ok(mut shown) = shown_logo.lock() {
+                    if *shown != board.logo_status {
+                        match logo::update(&emitter, board.logo_status) {
+                            Ok(()) => *shown = board.logo_status,
+                            Err(e) => eprintln!("Couldn't update the Codealong icon: {e}"),
+                        }
+                    }
+                }
                 if let Ok(mut shown) = shown.lock() {
                     if *shown != board.theme {
                         *shown = board.theme;

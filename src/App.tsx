@@ -23,6 +23,7 @@ import { LaneRow } from './ui/LaneRow';
 import { PinnedSection, type PinDrag } from './ui/PinnedSection';
 import { BayHeader, Button, Icon, Kbd, NavItem, StatusGlyph } from './ui/primitives';
 import { ALL_PROJECTS, openSwitcher, ProjectSwitcher, type ActionCounts } from './ui/ProjectSwitcher';
+import { useLogo } from './logo';
 import { PrInspector } from './ui/PrInspector';
 import { prIsOpen, prPlaces, prSections, PrsView, type PrRowItem } from './ui/PrsView';
 import { Resizer, usePanelWidth } from './ui/Resizer';
@@ -282,6 +283,7 @@ export function App() {
   // The theme from config.toml, or the one just picked here until the board has it.
   const [pickedTheme, setPickedTheme] = useState<Theme | null>(null);
   const theme = pickedTheme ?? board?.theme ?? 'system';
+  const logoStatus = useLogo(board?.logoStatus);
   useEffect(() => applyTheme(theme), [theme]);
   useEffect(() => {
     if (pickedTheme && board?.theme === pickedTheme) setPickedTheme(null);
@@ -1236,7 +1238,7 @@ export function App() {
   return (
     <div className="ca-win ca-win--app">
       <div className="ca-win-bar" data-tauri-drag-region>
-        <ProjectSwitcher projects={projects} current={current} total={totalLanes} actions={actions} onPick={pickProject} onOpenWindow={switcherWindow} onEditProjects={() => openSettings('projects')} />
+        <ProjectSwitcher logoStatus={logoStatus} projects={projects} current={current} total={totalLanes} actions={actions} onPick={pickProject} onOpenWindow={switcherWindow} onEditProjects={() => openSettings('projects')} />
         <label className="ca-search">
           <Icon name="search" size={14} />
           <input

@@ -10,11 +10,11 @@
 .ca-none { font: 400 12px/16px var(--font-sans); color: var(--ink-3); }
 
 /* ---- Mark and tray ---- */
-.ca-mark { flex: none; display: inline-block; vertical-align: middle; }
-.ca-mark-lane { fill: var(--ink); }
-.ca-mark-dot { fill: var(--brand); }
-.ca-mark.is-mono .ca-mark-dot { fill: var(--ink); }
-.ca-mark-dot.is-ring { fill: none; stroke: var(--ink); stroke-width: 1.5; }
+.ca-mark { flex: none; display: inline-block; vertical-align: middle; fill: var(--ink); }
+.ca-mark[data-status="needs"] .ca-mark-node { fill: var(--attn-solid); }
+.ca-mark[data-status="error"] .ca-mark-node { fill: var(--alert-solid); }
+.ca-mark[data-status="unread"] .ca-mark-node { fill: var(--unread-solid); }
+.ca-mark[data-status="working"] .ca-mark-node { fill: var(--logo-working); }
 .ca-tray { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 6px; border-radius: 5px; color: var(--ink); }
 .ca-tray-badge { min-width: 16px; height: 16px; padding: 0 4px; box-sizing: border-box; border-radius: var(--radius-pill); background: var(--brand); color: var(--on-brand); font: 600 11px/16px var(--font-mono); text-align: center; font-variant-numeric: tabular-nums; }
 .ca-tray-usage { font: 500 12px/16px var(--font-mono); color: var(--ink-2); font-variant-numeric: tabular-nums; }

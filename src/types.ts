@@ -3,6 +3,7 @@
 export type Harness = 'claude' | 'codex' | 'opencode' | 'antigravity';
 export type Surface = 'cli' | 'app';
 export type Status = 'needs' | 'error' | 'working' | 'unread' | 'idle' | 'stopped';
+export type LogoStatus = 'error' | 'needs' | 'unread' | 'working' | 'idle';
 export type Bay = 'needs' | 'working' | 'unread' | 'review' | 'idle' | 'merged';
 export type Origin = 'main' | 'script' | 'codex' | 'claude-app' | 'scratchpad' | 'temp' | 'folder' | 'other';
 export type PrState = 'draft' | 'open' | 'approved' | 'changes' | 'merged' | 'closed';
@@ -218,6 +219,8 @@ export interface AccountSkill {
 
 export interface Board {
   generatedAt: number;
+  /** App-wide status from the engine; view and project filters do not change the logo. */
+  logoStatus: LogoStatus;
   apps: { terminal: string; terminalId: string; editor: string; editorId: string };
   projects: ProjectSummary[];
   lanes: Lane[];
