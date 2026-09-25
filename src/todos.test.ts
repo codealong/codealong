@@ -164,8 +164,9 @@ describe('prompts and images', () => {
   const shot = '0123456789abcdef.png';
 
   it('asks with the title, then the description', () => {
-    expect(todoPrompt(todo('a', { title: ' Fix the header ', description: '\nIt wraps.\n' }))).toBe('Fix the header\n\nIt wraps.');
-    expect(todoPrompt(todo('a', { title: 'Fix it' }))).toBe('Fix it');
+    const footer = "This is Codealong todo a. When the work is merged or I say it's done, mark it done with `codealong todo done a`.";
+    expect(todoPrompt(todo('a', { title: ' Fix the header ', description: '\nIt wraps.\n' }))).toBe(`Fix the header\n\nIt wraps.\n\n${footer}`);
+    expect(todoPrompt(todo('a', { title: 'Fix it' }))).toBe(`Fix it\n\n${footer}`);
   });
 
   it('splits a description into text and its images', () => {

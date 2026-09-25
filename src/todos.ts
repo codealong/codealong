@@ -363,11 +363,14 @@ export function todoIndex(todos: Todo[], homes: Map<string, Placed>): { bySessio
   return { bySession, byLane, byWorktree };
 }
 
-/** What a session started from a todo is asked: the title, then the description. */
+/** What a session started from a todo is asked: the title, the description, then which todo
+ *  it is, so the agent can mark it done through the codealong skill. `todo_prompt` in cli.rs
+ *  writes the same text. */
 export function todoPrompt(t: Todo): string {
   const title = t.title.trim();
   const body = t.description.trim();
-  return body ? `${title}\n\n${body}` : title;
+  const footer = `This is Codealong todo ${t.id}. When the work is merged or I say it's done, mark it done with \`codealong todo done ${t.id}\`.`;
+  return [title, body, footer].filter(Boolean).join('\n\n');
 }
 
 /** The first line of a description, for a row. Images drop out; a file leaves its name. */
