@@ -117,7 +117,7 @@ pub fn open(app: &AppHandle, context: Value) {
     if let Ok(mut w) = state.waiting.lock() {
         *w = Some(id);
     }
-    let _ = app.emit_to(LABEL, "quick-open", context);
+    let _ = app.emit_to(LABEL, "quick-open", with_room(context, room(&state)));
     // A page that doesn't answer (still loading, say) doesn't keep the panel from showing.
     let handle = app.clone();
     std::thread::spawn(move || {
@@ -161,14 +161,30 @@ pub fn ready(app: &AppHandle, height: Option<f64>) {
     native::present(&window);
 }
 
+/// How tall the panel can be where it's anchored: from its top edge down to the bottom of the
+/// screen's usable part.
+fn room(state: &Quick) -> Option<f64> {
+    let (x, top) = (*state.anchor.lock().ok()?)?;
+    let screen = native::screens().into_iter().find(|s| s.frame.contains((x + WIDTH / 2.0, top - 1.0)))?;
+    Some(top - screen.visible.y)
+}
+
+/// What an open tells the page, with the room it has. The page keeps its card within it and
+/// scrolls its list, so the panel's bottom, where a new session starts, stays on a short screen.
+fn with_room(context: Value, room: Option<f64>) -> Value {
+    let Some(room) = room else { return context };
+    let mut fields = match context {
+        Value::Object(fields) => fields,
+        _ => serde_json::Map::new(),
+    };
+    fields.insert("room".into(), room.into());
+    Value::Object(fields)
+}
+
 /// The panel's frame at a height, from its anchor, kept on the screen.
 fn frame_for(state: &Quick, height: f64) -> Option<Rect> {
     let (x, top) = (*state.anchor.lock().ok()?)?;
-    let screen = native::screens().into_iter().find(|s| s.frame.contains((x + WIDTH / 2.0, top - 1.0))).map(|s| s.visible);
-    let height = match screen {
-        Some(v) => height.min(top - v.y).max(1.0),
-        None => height.max(1.0),
-    };
+    let height = room(state).map_or(height, |r| height.min(r)).max(1.0);
     Some(Rect { x, y: top - height, w: WIDTH, h: height })
 }
 
@@ -515,6 +531,16 @@ mod tests {
         // A screen to the left of the main one, in AppKit's coordinates.
         let left = Rect { x: -1920.0, y: 25.0, w: 1920.0, h: 1055.0 };
         assert_eq!(anchor_on(left), (-1340.0, 25.0 + 1055.0 - 190.0));
+    }
+
+    #[test]
+    fn opens_tell_the_page_its_room() {
+        let asked = serde_json::json!({ "laneId": "l1", "prompt": "fix it" });
+        assert_eq!(with_room(asked.clone(), Some(620.0)), serde_json::json!({ "laneId": "l1", "prompt": "fix it", "room": 620.0 }));
+        // The shortcut asks for nothing in particular.
+        assert_eq!(with_room(Value::Null, Some(620.0)), serde_json::json!({ "room": 620.0 }));
+        // Off any screen there's no room to tell.
+        assert_eq!(with_room(asked.clone(), None), asked);
     }
 
     #[test]

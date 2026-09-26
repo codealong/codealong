@@ -3198,10 +3198,22 @@ html.is-quick body {
 .ca-quick-attached {
   padding: 0 14px 10px 14px;
 }
+/* What was found scrolls, and the last row, a new session, stays in view below it. When the card
+   meets the bottom of the screen (its max-height, from Quick.tsx) it's the list that gives way. */
 .ca-quick-list {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.ca-quick-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
   max-height: 460px;
-  padding: 2px 6px 6px;
+  padding: 2px 6px 5px;
   overflow-y: auto;
+}
+.ca-quick-scroll:empty {
+  padding-bottom: 0;
 }
 .ca-quick-note {
   margin: 0;
@@ -3300,10 +3312,14 @@ html.is-quick body {
   opacity: 1;
 }
 /* The last row: a new session. A line sets it apart from the sessions above. */
-.ca-quick-group + .ca-quick-compose,
-.ca-quick-note + .ca-quick-compose {
-  margin-top: 6px;
+.ca-quick-compose {
+  flex: none;
+  margin: 1px calc(6px + var(--quick-gutter, 0px)) 6px 6px;
   box-shadow: 0 -7px 0 -6px var(--line);
+}
+.ca-quick-scroll:empty + .ca-quick-compose {
+  margin-top: 0;
+  box-shadow: none;
 }
 .ca-quick-compose .ca-quick-row-why {
   white-space: normal;

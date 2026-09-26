@@ -172,6 +172,8 @@ export function Quick() {
   const [shown, setShown] = useState(false);
   // Counts opens; each one is answered with the page's height once it's laid out.
   const [opens, setOpens] = useState(0);
+  // How tall the window can be on its screen; the card keeps within it and the list scrolls.
+  const [room, setRoom] = useState<number | null>(null);
   const [opener, setOpener] = useState<string | null>(null);
   const [project, setProject] = useState<string>(() => storedProject() ?? ALL_PROJECTS);
   const [text, setText] = useState('');
@@ -189,6 +191,7 @@ export function Quick() {
   const inputBox = useRef<HTMLDivElement>(null);
   const card = useRef<HTMLDivElement>(null);
   const list = useRef<HTMLDivElement>(null);
+  const scroller = useRef<HTMLDivElement>(null);
   const textNow = useRef(text);
   textNow.current = text;
   const cachedOptions = useRef<{ at: number; options: StartOptions } | null>(null);
@@ -221,6 +224,7 @@ export function Quick() {
   useEffect(() => {
     const open = (ctx: QuickOpen) => {
       setPicker(null);
+      setRoom(ctx.room ?? null);
       if (!ctx.keep) {
         routes.current.clear();
         setOpener(ctx.opener ?? null);
@@ -474,7 +478,15 @@ export function Quick() {
     if (!text.trim() || settled || held.current.open !== opens) held.current = { open: opens, height: 0 };
     if (!text.trim() || settled) return;
     held.current.height = Math.max(held.current.height, el.offsetHeight);
-    el.style.minHeight = `${held.current.height}px`;
+    // Only as far as the screen has room: past that the list scrolls, as it does once settled.
+    const spare = room && card.current ? room - 2 * MARGIN - card.current.offsetHeight : Infinity;
+    el.style.minHeight = `${Math.min(held.current.height, el.offsetHeight + spare)}px`;
+  });
+  // A scrollbar, where macOS shows one, narrows the rows while the list scrolls; the new-session
+  // row below it keeps in line with them.
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    list.current?.style.setProperty('--quick-gutter', `${el ? el.offsetWidth - el.clientWidth : 0}px`);
   });
 
   const reported = useRef(0);
@@ -965,7 +977,7 @@ export function Quick() {
         if (e.target === e.currentTarget) void hideQuick();
       }}
     >
-      <div ref={card} className="ca-quick" role="dialog" aria-label="Codealong">
+      <div ref={card} className="ca-quick" role="dialog" aria-label="Codealong" style={room ? { maxHeight: room - 2 * MARGIN } : undefined}>
         <div ref={inputBox} className="ca-quick-head">
         <div className="ca-quick-input">
           <div className="ca-quick-pick">
@@ -1011,129 +1023,131 @@ export function Quick() {
         )}
         </div>
         <div ref={list} className="ca-quick-list" role="listbox" aria-label="What to do next">
-          {!board ? (
-            <p className="ca-quick-note">{error ? '' : 'Reading sessions…'}</p>
-          ) : (
-            <>
-              {nothingWaits && (
-                <p className="ca-quick-note">
-                  Nothing needs you{attention.counts.working > 0 ? ` · ${attention.counts.working} working` : ''}.
-                </p>
-              )}
-              {routing && (
-                <p className="ca-quick-note is-routing">
-                  <Icon name="sparkles" size={12} />
-                  Working out where this goes…
-                </p>
-              )}
-              {routeProblem && <p className="ca-quick-note">Couldn’t suggest where this goes: {routeProblem}</p>}
-              {query && rows.length === 0 && <p className="ca-quick-note">No sessions or todos match. Start a session with this prompt below.</p>}
-              {query && textFound?.building && <p className="ca-quick-note">Still reading what recent sessions said, so more may match in a moment.</p>}
-              {sections.map((s) => (
-                <div key={s.group} className="ca-quick-group" role="group" aria-label={GROUP_WORD[s.group]}>
-                  <div className={`ca-quick-glabel is-${s.group}`}>
-                    {GROUP_WORD[s.group]}
-                    <span>{groupCount(s.group, s.rows.length)}</span>
-                  </div>
-                  {s.rows.map((r) => {
-                    const n = rows.indexOf(r) + 1;
-                    // What every row does with the pointer: hovering selects, a click does it, a
-                    // right-click has the rest.
-                    const handlers = {
-                      onMouseMove: () => active !== r.key && setActiveKey(r.key),
-                      onMouseDown: (e: React.MouseEvent) => e.preventDefault(),
-                      onClick: (e: React.MouseEvent) => activate(r.key, e.altKey),
-                      onContextMenu: (e: React.MouseEvent) => {
-                        e.preventDefault();
-                        rowMenu(r);
-                      },
-                    };
-                    if (r.kind === 'suggest') {
-                      const said = describe(r.s);
-                      const pct = Math.round(r.s.p * 100);
+          <div ref={scroller} className="ca-quick-scroll">
+            {!board ? (
+              <p className="ca-quick-note">{error ? '' : 'Reading sessions…'}</p>
+            ) : (
+              <>
+                {nothingWaits && (
+                  <p className="ca-quick-note">
+                    Nothing needs you{attention.counts.working > 0 ? ` · ${attention.counts.working} working` : ''}.
+                  </p>
+                )}
+                {routing && (
+                  <p className="ca-quick-note is-routing">
+                    <Icon name="sparkles" size={12} />
+                    Working out where this goes…
+                  </p>
+                )}
+                {routeProblem && <p className="ca-quick-note">Couldn’t suggest where this goes: {routeProblem}</p>}
+                {query && rows.length === 0 && <p className="ca-quick-note">No sessions or todos match. Start a session with this prompt below.</p>}
+                {query && textFound?.building && <p className="ca-quick-note">Still reading what recent sessions said, so more may match in a moment.</p>}
+                {sections.map((s) => (
+                  <div key={s.group} className="ca-quick-group" role="group" aria-label={GROUP_WORD[s.group]}>
+                    <div className={`ca-quick-glabel is-${s.group}`}>
+                      {GROUP_WORD[s.group]}
+                      <span>{groupCount(s.group, s.rows.length)}</span>
+                    </div>
+                    {s.rows.map((r) => {
+                      const n = rows.indexOf(r) + 1;
+                      // What every row does with the pointer: hovering selects, a click does it, a
+                      // right-click has the rest.
+                      const handlers = {
+                        onMouseMove: () => active !== r.key && setActiveKey(r.key),
+                        onMouseDown: (e: React.MouseEvent) => e.preventDefault(),
+                        onClick: (e: React.MouseEvent) => activate(r.key, e.altKey),
+                        onContextMenu: (e: React.MouseEvent) => {
+                          e.preventDefault();
+                          rowMenu(r);
+                        },
+                      };
+                      if (r.kind === 'suggest') {
+                        const said = describe(r.s);
+                        const pct = Math.round(r.s.p * 100);
+                        return (
+                          <div
+                            key={r.key}
+                            role="option"
+                            aria-selected={active === r.key}
+                            className={['ca-quick-row', 'is-suggest', active === r.key && 'is-active'].filter(Boolean).join(' ')}
+                            title={`${said.title}\n${said.why}\n${pct}% likely, from ${route?.model ?? 'Jev'} in ${route?.ms ?? 0} ms · ⏎ does it${r.s.kind === 'send' || r.s.kind === 'open' ? ' · ⌥⏎ shows the session in Codealong' : ''}`}
+                            {...handlers}
+                          >
+                            <span className="ca-quick-plus is-suggest">
+                              <Icon name={said.icon} size={13} stroke={2} />
+                            </span>
+                            <span className="ca-quick-row-main">
+                              <span className="ca-quick-row-title">{said.title}</span>
+                              <span className="ca-quick-row-why">{said.why}</span>
+                            </span>
+                            <span className="ca-quick-row-where">{said.where}</span>
+                            <span className={`ca-quick-sure is-${sureness(r.s.p)}`}>{pct}%</span>
+                            {n <= 9 && <Kbd keys={['⌘', String(n)]} />}
+                          </div>
+                        );
+                      }
+                      if (r.kind === 'todo') {
+                        const t = r.item.todo;
+                        const opens = todoSession(r) ? 'opens its session' : 'gets a session ready to start for it';
+                        return (
+                          <div
+                            key={r.key}
+                            role="option"
+                            aria-selected={active === r.key}
+                            className={['ca-quick-row', 'is-todo', active === r.key && 'is-active'].filter(Boolean).join(' ')}
+                            title={`${t.title || 'Untitled'}\n⏎ ${opens} · ⌥⏎ shows it in Codealong`}
+                            {...handlers}
+                          >
+                            <TodoGlyph status={t.status} waiting={r.waiting} />
+                            <span className="ca-quick-row-main">
+                              <span className="ca-quick-row-title">
+                                <Marked text={t.title || 'Untitled'} marks={r.marks} />
+                              </span>
+                              <span className="ca-quick-row-why">{todoWhy(r)}</span>
+                            </span>
+                            <span className="ca-quick-row-where">{r.item.lane?.callsign ?? (t.project || 'No worktree')}</span>
+                            <span className="ca-quick-row-age">{ago(r.item.lastActivity, now)}</span>
+                            {n <= 9 && <Kbd keys={['⌘', String(n)]} />}
+                          </div>
+                        );
+                      }
+                      const s2 = r.session;
                       return (
                         <div
                           key={r.key}
                           role="option"
                           aria-selected={active === r.key}
-                          className={['ca-quick-row', 'is-suggest', active === r.key && 'is-active'].filter(Boolean).join(' ')}
-                          title={`${said.title}\n${said.why}\n${pct}% likely, from ${route?.model ?? 'Jev'} in ${route?.ms ?? 0} ms · ⏎ does it${r.s.kind === 'send' || r.s.kind === 'open' ? ' · ⌥⏎ shows the session in Codealong' : ''}`}
+                          className={['ca-quick-row', active === r.key && 'is-active', `is-${s2.status}`].filter(Boolean).join(' ')}
+                          title={`${s2.title}\n${s2.account} · ${r.lane.callsign}\n⏎ opens it where it lives · ⌥⏎ shows it in Codealong`}
                           {...handlers}
                         >
-                          <span className="ca-quick-plus is-suggest">
-                            <Icon name={said.icon} size={13} stroke={2} />
-                          </span>
-                          <span className="ca-quick-row-main">
-                            <span className="ca-quick-row-title">{said.title}</span>
-                            <span className="ca-quick-row-why">{said.why}</span>
-                          </span>
-                          <span className="ca-quick-row-where">{said.where}</span>
-                          <span className={`ca-quick-sure is-${sureness(r.s.p)}`}>{pct}%</span>
-                          {n <= 9 && <Kbd keys={['⌘', String(n)]} />}
-                        </div>
-                      );
-                    }
-                    if (r.kind === 'todo') {
-                      const t = r.item.todo;
-                      const opens = todoSession(r) ? 'opens its session' : 'gets a session ready to start for it';
-                      return (
-                        <div
-                          key={r.key}
-                          role="option"
-                          aria-selected={active === r.key}
-                          className={['ca-quick-row', 'is-todo', active === r.key && 'is-active'].filter(Boolean).join(' ')}
-                          title={`${t.title || 'Untitled'}\n⏎ ${opens} · ⌥⏎ shows it in Codealong`}
-                          {...handlers}
-                        >
-                          <TodoGlyph status={t.status} waiting={r.waiting} />
+                          <StatusGlyph status={s2.status} />
                           <span className="ca-quick-row-main">
                             <span className="ca-quick-row-title">
-                              <Marked text={t.title || 'Untitled'} marks={r.marks} />
+                              <Marked text={s2.title} marks={r.marks} />
                             </span>
-                            <span className="ca-quick-row-why">{todoWhy(r)}</span>
+                            {r.said ? (
+                              <span className="ca-quick-row-why is-said">
+                                {r.said.you ? 'You: ' : ''}
+                                <Marked text={r.said.text} marks={r.said.marks} />
+                              </span>
+                            ) : (
+                              <span className="ca-quick-row-why">{rowWhy(s2.detail, s2.headline, now)}</span>
+                            )}
                           </span>
-                          <span className="ca-quick-row-where">{r.item.lane?.callsign ?? (t.project || 'No worktree')}</span>
-                          <span className="ca-quick-row-age">{ago(r.item.lastActivity, now)}</span>
+                          <span className="ca-quick-row-where">
+                            {s2.account} · {r.lane.callsign}
+                          </span>
+                          <span className="ca-quick-row-age">{ago(s2.statusSince ?? s2.lastActivity, now)}</span>
                           {n <= 9 && <Kbd keys={['⌘', String(n)]} />}
                         </div>
                       );
-                    }
-                    const s2 = r.session;
-                    return (
-                      <div
-                        key={r.key}
-                        role="option"
-                        aria-selected={active === r.key}
-                        className={['ca-quick-row', active === r.key && 'is-active', `is-${s2.status}`].filter(Boolean).join(' ')}
-                        title={`${s2.title}\n${s2.account} · ${r.lane.callsign}\n⏎ opens it where it lives · ⌥⏎ shows it in Codealong`}
-                        {...handlers}
-                      >
-                        <StatusGlyph status={s2.status} />
-                        <span className="ca-quick-row-main">
-                          <span className="ca-quick-row-title">
-                            <Marked text={s2.title} marks={r.marks} />
-                          </span>
-                          {r.said ? (
-                            <span className="ca-quick-row-why is-said">
-                              {r.said.you ? 'You: ' : ''}
-                              <Marked text={r.said.text} marks={r.said.marks} />
-                            </span>
-                          ) : (
-                            <span className="ca-quick-row-why">{rowWhy(s2.detail, s2.headline, now)}</span>
-                          )}
-                        </span>
-                        <span className="ca-quick-row-where">
-                          {s2.account} · {r.lane.callsign}
-                        </span>
-                        <span className="ca-quick-row-age">{ago(s2.statusSince ?? s2.lastActivity, now)}</span>
-                        {n <= 9 && <Kbd keys={['⌘', String(n)]} />}
-                      </div>
-                    );
-                  })}
-                </div>
-              ))}
-            </>
-          )}
+                    })}
+                  </div>
+                ))}
+              </>
+            )}
+          </div>
           <div
             role="option"
             aria-selected={active === COMPOSE}

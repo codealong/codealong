@@ -456,6 +456,9 @@ export interface QuickOpen {
   opener?: string | null;
   /** Brings the panel back as you left it (after a failed start). */
   keep?: boolean;
+  /** How tall the panel's window can be: from its top edge to the bottom of the screen's usable
+   *  part. quick.rs adds it to every open. */
+  room?: number;
 }
 
 /** Opens the quick panel. */
