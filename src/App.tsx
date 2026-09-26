@@ -3,7 +3,8 @@
 // worktrees in your order, then every other worktree once, in Needs you, Working, Your turn, In
 // review, Idle or Merged, with a line for each agent that needs you, is working or just
 // finished; Sessions lists every session, pinned ones first in your order; PRs lists the
-// project's pull requests; Todo lists work you mean to hand an agent, and the sessions on it.
+// project's pull requests; Todo lists work you mean to hand an agent, and the sessions on it;
+// Canvas lays the project's work out in space, to be remembered by where it is (CanvasView.tsx).
 // Keyboard map: the design system's Surfaces page.
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
@@ -31,6 +32,9 @@ import { SessionsView, timeSections, type SessionItem } from './ui/SessionsView'
 import { LabelDot } from './ui/TodoBits';
 import { TodoPanel } from './ui/TodoPanel';
 import { TodoComposer, TodoView, type ComposerContext } from './ui/TodoView';
+import { CanvasView } from './ui/CanvasView';
+import { entitiesOf, type RefItem, type RefKind } from './canvas/model';
+import { useCanvas } from './canvas/useCanvas';
 import { applyTheme, ThemeSwitch } from './ui/ThemeSwitch';
 import { UsageBar } from './ui/UsageBar';
 import { WorktreeTree, type TreeGroup } from './ui/WorktreeTree';
@@ -55,12 +59,13 @@ const PR_PANEL_WIDTH_KEY = 'codealong.prPanelWidth';
 const TODO_PANEL_WIDTH_KEY = 'codealong.todoPanelWidth';
 const DAY = 24 * 60 * 60 * 1000;
 
-type View = 'worktrees' | 'sessions' | 'prs' | 'todo';
+type View = 'worktrees' | 'sessions' | 'prs' | 'todo' | 'canvas';
 const VIEWS: { id: View; label: string }[] = [
   { id: 'worktrees', label: 'Worktrees' },
   { id: 'sessions', label: 'Sessions' },
   { id: 'prs', label: 'PRs' },
   { id: 'todo', label: 'Todo' },
+  { id: 'canvas', label: 'Canvas' },
 ];
 /** How recently a worktree or session must have been active to show. */
 type Age = '1d' | '3d' | '7d' | 'all';
@@ -470,6 +475,26 @@ export function App() {
   const openTodoCount = useMemo(() => projectTodos.filter((t) => t.status !== 'done').length, [projectTodos]);
   // Which todos each session and worktree is on, for their chips.
   const todoLinks = useMemo(() => todoIndex(todoStore.todos, homes), [todoStore.todos, homes]);
+
+  // The Canvas view: the project's document, kept up to date with the board once it's been shown.
+  const canvasEntities = useMemo(
+    () => entitiesOf(board, projectLanes, todoStore.todos, (p) => current === ALL_PROJECTS || p === current),
+    [board, projectLanes, todoStore.todos, current],
+  );
+  const canvas = useCanvas(current, view === 'canvas', canvasEntities, now, lanePins.set);
+  const [canvasFocus, setCanvasFocus] = useState<{ id: string; n: number } | null>(null);
+  const canvasKeys = useRef<(e: KeyboardEvent) => boolean>(() => false);
+  // The worktree of the card selected on the canvas, where ⌘N starts.
+  const [canvasLane, setCanvasLane] = useState<string | null>(null);
+  /** Puts a thing on the canvas if it isn't there, keeps it, and shows it there. */
+  const showOnCanvas = (ref: RefKind, key: string) => {
+    const id = canvas.keep(ref, key);
+    setView('canvas');
+    setCanvasFocus((f) => ({ id, n: (f?.n ?? 0) + 1 }));
+  };
+  /** The menu item that does that, in the other views' menus. */
+  const canvasItem = (ref: RefKind, key: string): MenuSpec =>
+    view === 'canvas' ? [] : [{ label: canvas.has(ref, key) ? 'Show on canvas' : 'Add to canvas', run: () => showOnCanvas(ref, key) }];
   useEffect(() => {
     if (composerFocus === 0) return;
     composerRef.current?.focus();
@@ -485,7 +510,7 @@ export function App() {
     () => [...pinnedRows, ...sessionSections.flatMap((s) => s.rows), ...(showArchived ? archivedItems : [])],
     [pinnedRows, sessionSections, showArchived, archivedItems],
   );
-  const visible = view === 'sessions' ? sessionRows : view === 'prs' ? prVisible : view === 'todo' ? todoVisible : worktreeItems;
+  const visible = view === 'sessions' ? sessionRows : view === 'prs' ? prVisible : view === 'todo' ? todoVisible : view === 'canvas' ? [] : worktreeItems;
   // When the selected agent's line goes (you marked it seen, it stopped), the selection stays
   // on its worktree rather than jumping to the top. A todo that leaves the list (marked done
   // while Done is folded, or no longer matching the search or a filter) stays in the panel: the
@@ -500,11 +525,12 @@ export function App() {
   // Where a new session starts: the selected worktree, session or PR's worktree; for a PR with
   // no worktree on this Mac, its repo's main checkout.
   const startLaneId = useMemo(() => {
+    if (view === 'canvas') return canvasLane;
     if (!selected) return null;
     if (selected.lane) return selected.lane.id;
     if (selected.kind !== 'pr') return null;
     return lanes.find((l) => l.repoSlug === selected.pr.repoSlug && l.origin === 'main')?.id ?? null;
-  }, [selected, lanes]);
+  }, [selected, lanes, view, canvasLane]);
   const indexByKey = useMemo(() => new Map(visible.map((r, i) => [r.key, i])), [visible]);
   const domIdOf = (key: string) => `row-${indexByKey.get(key) ?? -1}`;
   const domId = (r: Row) => domIdOf(r.key);
@@ -761,10 +787,11 @@ export function App() {
   };
 
   /** A todo's right-click menu. */
-  const todoMenu = (r: TodoItem) => {
+  const todoMenu = (r: TodoItem) => void showContextMenu(todoMenuSpec(r)).catch((e: unknown) => setToast(String(e)));
+  const todoMenuSpec = (r: TodoItem): MenuSpec => {
     const t = r.todo;
     const agent = r.sessions.find((x) => x.session.live) ?? r.sessions[0];
-    void showContextMenu([
+    return [
       { label: 'Start session…', run: () => startForTodo(r) },
       ...(agent ? [{ label: `Open ${agent.session.account}: ${agent.session.title.slice(0, 48)}`, run: () => open(agent.lane, agent.session.openTarget) }] : []),
       'separator',
@@ -775,9 +802,10 @@ export function App() {
       { label: 'Move to project', items: projectItems(t) },
       'separator',
       { label: 'Copy as prompt', run: () => copyPrompt(t) },
+      ...canvasItem('todo', t.id),
       'separator',
       { label: 'Delete todo', run: () => deleteTodo(t) },
-    ]).catch((e: unknown) => setToast(String(e)));
+    ];
   };
 
   /** The panel's ⋯ menu. */
@@ -847,10 +875,9 @@ export function App() {
   };
 
   /** A PR's right-click menu. */
-  const prMenu = useCallback(
-    (r: PrRowItem) => {
-      const p = r.pr;
-      void showContextMenu([
+  const prMenuSpec = (r: PrRowItem): MenuSpec => {
+    const p = r.pr;
+    return [
         { label: 'Open on GitHub', run: () => void openUrl(p.url) },
         { label: 'Review in Codex', run: () => void reviewInCodex(p.url) },
         ...(p.reviewRequested && prIsOpen(p) ? ['separator' as const, { label: `Approve #${p.number}`, run: () => approve(p) }] : []),
@@ -858,10 +885,10 @@ export function App() {
         ...(r.lane ? [{ label: `Show worktree ${r.lane.callsign}`, run: () => r.lane && focusLane(r.lane) }] : []),
         { label: 'Copy link', run: () => copy(p.url, 'PR link') },
         { label: 'Copy branch name', run: () => copy(p.head, 'branch name') },
-      ]).catch((e: unknown) => setToast(String(e)));
-    },
-    [approve, copy],
-  );
+        ...canvasItem('pr', p.key),
+    ];
+  };
+  const prMenu = (r: PrRowItem) => void showContextMenu(prMenuSpec(r)).catch((e: unknown) => setToast(String(e)));
 
   /** Pins or unpins a worktree. Its lines keep their keys as the row moves, so what was selected stays selected. */
   const toggleLanePin = useCallback((lane: Lane) => lanePins.toggle(lane.id), [lanePins]);
@@ -873,14 +900,13 @@ export function App() {
    */
   const todoItemsRef = useRef(todoMenuItems);
   todoItemsRef.current = todoMenuItems;
-  const sessionMenu = useCallback(
-    (lane: Lane, s: Session, pin: 'session' | 'worktree') => {
+  const sessionMenuSpec = (lane: Lane, s: Session, pin: 'session' | 'worktree'): MenuSpec => {
       const target = lane.targets.find((t) => t.id === s.openTarget);
       const pinItem =
         pin === 'session'
           ? { label: sessionPins.set.has(s.key) ? 'Unpin session' : 'Pin session', run: () => sessionPins.toggle(s.key) }
           : { label: lanePins.set.has(lane.id) ? 'Unpin worktree' : 'Pin worktree', run: () => toggleLanePin(lane) };
-      void showContextMenu([
+      return [
         { label: target?.label ?? 'Open', run: () => open(lane, s.openTarget) },
         { label: 'New session here…', run: () => newSession({ laneId: lane.id }) },
         'separator',
@@ -891,20 +917,19 @@ export function App() {
         'separator',
         { label: 'Copy session ID', run: () => copy(s.id, 'session ID') },
         ...(s.resumeCommand ? [{ label: 'Copy resume command', run: () => copy(s.resumeCommand, 'resume command') }] : []),
-      ]).catch((e: unknown) => setToast(String(e)));
-    },
-    [sessionPins, lanePins, toggleLanePin, open, setArchived, copy],
-  );
+        ...(s.visitor ? [] : canvasItem('session', s.key)),
+      ];
+  };
+  const sessionMenu = (lane: Lane, s: Session, pin: 'session' | 'worktree') => void showContextMenu(sessionMenuSpec(lane, s, pin)).catch((e: unknown) => setToast(String(e)));
 
   /** A worktree's right-click menu: open it, pin it, copy its path or branch. */
-  const laneMenu = useCallback(
-    (lane: Lane) => {
+  const laneMenuSpec = (lane: Lane): MenuSpec => {
       const main = lane.targets.find((t) => t.id === lane.defaultTarget);
       const more = ['l|editor', 'l|finder'].flatMap((id) => {
         const t = lane.targets.find((x) => x.id === id);
         return t && id !== lane.defaultTarget ? [{ label: t.label, run: () => open(lane, id) }] : [];
       });
-      void showContextMenu([
+      return [
         { label: main?.label ?? 'Open', run: () => open(lane, lane.defaultTarget) },
         ...more,
         { label: 'New session here…', run: () => newSession({ laneId: lane.id }) },
@@ -915,10 +940,10 @@ export function App() {
         'separator',
         { label: 'Copy path', run: () => copy(lane.path, 'worktree path') },
         ...(lane.branch ? [{ label: 'Copy branch name', run: () => copy(lane.branch, 'branch name') }] : []),
-      ]).catch((e: unknown) => setToast(String(e)));
-    },
-    [lanePins, toggleLanePin, open, copy],
-  );
+        ...canvasItem('worktree', lane.id),
+      ];
+  };
+  const laneMenu = (lane: Lane) => void showContextMenu(laneMenuSpec(lane)).catch((e: unknown) => setToast(String(e)));
 
   /** Moves a pinned session to insertion point `index` among the pinned ones showing. */
   const movePinnedSession = useCallback(
@@ -1083,6 +1108,7 @@ export function App() {
         }
         return;
       }
+      if (view === 'canvas' && canvasKeys.current(e)) return;
       if (gPending.current) {
         gPending.current = false;
         const bay = ({ n: 'needs', w: 'working', t: 'unread', r: 'review' } as Record<string, Bay | undefined>)[key];
@@ -1249,6 +1275,45 @@ export function App() {
     return pinned.length > 0 ? [{ repo: '', lanes: pinned, pinned: true }, ...repos] : repos;
   }, [recentLanes, lanePins]);
 
+  /** Opens a card on the canvas where it lives, as a double-click on its row would. */
+  const openCard = (it: RefItem) => {
+    const e = canvasEntities;
+    if (it.ref === 'worktree') {
+      const lane = e.lanes.get(it.key);
+      if (lane) open(lane, lane.defaultTarget);
+    } else if (it.ref === 'session') {
+      const p = e.sessions.get(it.key);
+      if (p) open(p.lane, p.session.openTarget);
+    } else if (it.ref === 'todo') {
+      openRow(todoItems.find((r) => r.todo.id === it.key) ?? null);
+    } else {
+      const pr = e.prs.get(it.key);
+      if (pr) openUrl(pr.url).catch((err: unknown) => setToast(String(err)));
+    }
+  };
+
+  /** A card's right-click menu: the one its row has in the other views. */
+  const cardMenu = (it: RefItem): MenuSpec => {
+    const e = canvasEntities;
+    if (it.ref === 'worktree') {
+      const lane = e.lanes.get(it.key);
+      return lane ? laneMenuSpec(lane) : [];
+    }
+    if (it.ref === 'session') {
+      const p = e.sessions.get(it.key);
+      return p ? sessionMenuSpec(p.lane, p.session, 'session') : [];
+    }
+    if (it.ref === 'todo') {
+      const r = todoItems.find((x) => x.todo.id === it.key);
+      return r ? [...todoMenuSpec(r), 'separator', { label: 'Show in Todo', run: () => showTodo(r.todo) }] : [];
+    }
+    const pr = e.prs.get(it.key);
+    if (!pr) return [];
+    const holding = pr.lanes.flatMap((id) => laneById.get(id) ?? []);
+    const sessions = pr.sessions.flatMap((x) => sessionIndex.get(`${x.lane}::${x.key}`) ?? []);
+    return prMenuSpec({ kind: 'pr', key: `pr:${pr.key}`, pr, lane: holding[0] ?? null, sessions, places: prPlaces(holding, sessions) });
+  };
+
   /** A worktree's row on the board; `drag` when it's pinned. */
   const laneRow = (r: WorktreeRow, drag?: PinDrag) => (
     <LaneRow
@@ -1327,7 +1392,7 @@ export function App() {
         onSignIn={startSignIn}
       />
       <div
-        className={['ca-win-body', view === 'prs' && 'is-prs', view === 'todo' && 'is-todo'].filter(Boolean).join(' ')}
+        className={['ca-win-body', view === 'prs' && 'is-prs', view === 'todo' && 'is-todo', view === 'canvas' && 'is-canvas'].filter(Boolean).join(' ')}
         style={{ '--sidebar-w': widthVar(sidebarWidth), '--panel-w': widthVar(view === 'prs' ? prPanelWidth : view === 'todo' ? todoPanelWidth : inspectorWidth) } as CSSProperties}
       >
         <nav className="ca-side" aria-label="Sidebar">
@@ -1380,7 +1445,7 @@ export function App() {
           )}
         </nav>
         <Resizer panel="before" cssVar="--sidebar-w" onResize={setSidebarWidth} />
-        <main className="ca-board" aria-label={VIEWS.find((v) => v.id === view)?.label}>
+        <main className={view === 'canvas' ? 'ca-board is-canvas' : 'ca-board'} aria-label={VIEWS.find((v) => v.id === view)?.label}>
           <div className="ca-board-head">
             <div className="ca-segctl" role="tablist" aria-label="View">
               {VIEWS.map((v) => (
@@ -1394,7 +1459,7 @@ export function App() {
                   onClick={() => setView(v.id)}
                 >
                   {v.label}
-                  <span className="ca-segctl-count">{v.id === 'worktrees' ? recentLanes.length : v.id === 'sessions' ? shownSessionCount : v.id === 'todo' ? openTodoCount : openPrCount}</span>
+                  <span className="ca-segctl-count">{v.id === 'worktrees' ? recentLanes.length : v.id === 'sessions' ? shownSessionCount : v.id === 'todo' ? openTodoCount : v.id === 'canvas' ? (canvas.doc?.items.filter((it) => it.kind === 'ref').length ?? '') : openPrCount}</span>
                   {v.id === 'prs' && requestedCount > 0 && <span className="ca-segctl-badge">{requestedCount}</span>}
                 </button>
               ))}
@@ -1409,7 +1474,7 @@ export function App() {
                   </button>
                 )}
               </div>
-            ) : (
+            ) : view === 'canvas' ? null : (
               <div className="ca-segctl ca-agefilter" role="radiogroup" aria-label="Active in">
                 {AGES.map((a) => (
                   <button key={a.id} type="button" role="radio" aria-checked={age === a.id} className={age === a.id ? 'is-on' : undefined} title={a.title} onClick={() => setAge(a.id)}>
@@ -1419,7 +1484,7 @@ export function App() {
               </div>
             )}
           </div>
-          {view !== 'prs' && view !== 'todo' && (
+          {view !== 'prs' && view !== 'todo' && view !== 'canvas' && (
             <div className="ca-board-cols ca-label" aria-hidden="true">
               <span />
               <span>Worktree</span>
@@ -1458,6 +1523,27 @@ export function App() {
                     : 'No worktrees yet. Codealong looks for repos under the folders in config.toml and for the agents working in them.'}
             </div>
           )}
+          {view === 'canvas' && board && canvas.doc && (
+            <CanvasView
+              doc={canvas.doc}
+              update={canvas.update}
+              entities={canvasEntities}
+              labels={labelById}
+              todos={todoStore.todos}
+              now={now}
+              terminal={board.apps.terminal}
+              theme={theme}
+              project={current}
+              focus={canvasFocus}
+              onOpen={openCard}
+              menuFor={cardMenu}
+              onToast={setToast}
+              onUndo={(message, undo, icon) => setTodoUndo({ message, undo, icon })}
+              keys={canvasKeys}
+              onSelectLane={setCanvasLane}
+            />
+          )}
+          {view !== 'canvas' && (
           <div
             role="listbox"
             aria-label={view === 'sessions' ? 'Sessions' : view === 'prs' ? 'Pull requests' : view === 'todo' ? 'Todos' : 'Agents and worktrees'}
@@ -1580,9 +1666,10 @@ export function App() {
               );
             })}
           </div>
+          )}
         </main>
-        <Resizer panel="after" cssVar="--panel-w" onResize={view === 'prs' ? setPrPanelWidth : view === 'todo' ? setTodoPanelWidth : setInspectorWidth} />
-        {view === 'todo' ? (
+        {view !== 'canvas' && <Resizer panel="after" cssVar="--panel-w" onResize={view === 'prs' ? setPrPanelWidth : view === 'todo' ? setTodoPanelWidth : setInspectorWidth} />}
+        {view === 'canvas' ? null : view === 'todo' ? (
           selected?.kind === 'todo' ? (
             <TodoPanel
               key={selected.todo.id}

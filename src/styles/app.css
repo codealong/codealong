@@ -3803,3 +3803,522 @@ html.is-quick body {
   background: var(--neutral-tint);
   color: var(--ink-3);
 }
+
+/* ---- Canvas (CanvasView.tsx) ---- */
+/* The canvas takes the board and the panel's place; cards show their detail on hover instead. */
+.ca-win--app .ca-win-body.is-canvas {
+  grid-template-columns:
+    max(var(--side-min), min(var(--sidebar-w), 100% - var(--board-min)))
+    0 minmax(0, 1fr);
+}
+.ca-win--app .ca-board.is-canvas {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding-bottom: 0;
+}
+.ca-win-body.is-canvas ~ .ca-toast {
+  bottom: 72px;
+}
+.ca-cv {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--ground);
+  border-top: 1px solid var(--line);
+  outline: none;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: default;
+}
+.ca-cv.is-panning,
+.ca-cv.is-panning * {
+  cursor: grab;
+}
+.ca-cv.is-tool-note,
+.ca-cv.is-tool-frame {
+  cursor: crosshair;
+}
+.ca-cv-gl {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.ca-cv-world {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  transform-origin: 0 0;
+}
+/* While the camera moves, the layer is one GPU texture; after, it's drawn crisply at the new scale. */
+.ca-cv.is-moving .ca-cv-world {
+  will-change: transform;
+}
+.ca-cv-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  color: var(--ink-3);
+}
+.ca-cv-glerror {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--attn-tint);
+  color: var(--attn);
+  font: 400 12px/16px var(--font-sans);
+}
+
+/* Cards. Picked by position, not by the pointer, so a card never swallows a drag. */
+.ca-cv-card {
+  position: absolute;
+  left: 0;
+  top: 0;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-lift);
+  pointer-events: none;
+  color: var(--ink);
+  overflow: hidden;
+}
+.ca-cv-card.is-worktree {
+  background: var(--surface-raised);
+  border-color: color-mix(in srgb, var(--line-strong) 40%, var(--line));
+}
+.ca-cv-l1,
+.ca-cv-l2 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  white-space: nowrap;
+}
+.ca-cv-l1 {
+  height: 18px;
+}
+.ca-cv-l2 {
+  height: 16px;
+  font: 400 12px/16px var(--font-sans);
+  color: var(--ink-3);
+  overflow: hidden;
+}
+.ca-cv-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font: 500 13px/18px var(--font-sans);
+}
+.ca-cv-callsign {
+  font: 600 15px/18px var(--font-display);
+  letter-spacing: 0.01em;
+}
+.ca-cv-num {
+  font: 500 12px/18px var(--font-mono);
+  color: var(--ink-3);
+}
+.ca-cv-headline {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ca-cv-l2 .ca-branch {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 11px;
+}
+.ca-cv-l2 .ca-branch-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ca-cv-repo {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ca-cv-age {
+  margin-left: auto;
+  flex: none;
+  font: 500 11px/16px var(--font-mono);
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+.ca-cv-account {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: none;
+  font: 500 11px/16px var(--font-mono);
+  color: var(--ink-2);
+}
+.ca-cv-account .ca-icon {
+  color: var(--ink-3);
+}
+.ca-cv-bad {
+  color: var(--alert);
+}
+.ca-cv-l2 .ca-labeldot {
+  flex: none;
+}
+/* A stripe down the left edge in the status's color, as the Inbox colors them. */
+.ca-cv-card.st-needs,
+.ca-cv-card.bay-needs {
+  box-shadow: inset 3px 0 0 var(--attn-solid), var(--shadow-lift);
+  background: color-mix(in srgb, var(--attn-tint) 55%, var(--surface));
+}
+.ca-cv-card.st-error {
+  box-shadow: inset 3px 0 0 var(--alert-solid), var(--shadow-lift);
+  background: color-mix(in srgb, var(--alert-tint) 55%, var(--surface));
+}
+.ca-cv-card.st-working,
+.ca-cv-card.bay-working {
+  box-shadow: inset 3px 0 0 var(--logo-working), var(--shadow-lift);
+}
+.ca-cv-card.st-unread,
+.ca-cv-card.bay-unread {
+  box-shadow: inset 3px 0 0 var(--unread-solid), var(--shadow-lift);
+}
+.ca-cv-card.st-idle .ca-cv-title,
+.ca-cv-card.st-stopped .ca-cv-title,
+.ca-cv-card.td-done .ca-cv-title {
+  color: var(--ink-2);
+}
+.ca-cv-card.td-done {
+  opacity: 0.7;
+}
+.ca-cv-card.is-gone {
+  border-style: dashed;
+  background: transparent;
+  box-shadow: none;
+  color: var(--ink-3);
+}
+.ca-cv-card.is-gone .ca-cv-title {
+  font-weight: 400;
+}
+.ca-cv-card.is-related {
+  outline: 1.5px solid color-mix(in srgb, var(--unread-solid) 45%, transparent);
+  outline-offset: 1px;
+}
+.ca-cv-card.is-selected {
+  outline: 2px solid var(--unread-solid);
+  outline-offset: 1px;
+}
+
+/* Worktree names zoomed out, at a size you can read whatever the zoom. */
+.ca-cv-farlabel {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  padding: 1px 5px;
+  border-radius: var(--radius-xs);
+  background: color-mix(in srgb, var(--ground) 80%, transparent);
+  color: var(--ink);
+  font: 600 12px/16px var(--font-display);
+  white-space: nowrap;
+  max-width: calc(248px * var(--z, 1));
+  box-sizing: border-box;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+
+/* Frames: a tinted area with its name above it, kept at one size on screen. */
+.ca-cv-frame {
+  --c: var(--label-gray);
+  position: absolute;
+  left: 0;
+  top: 0;
+  box-sizing: border-box;
+  border: calc(1px / var(--z, 1)) solid color-mix(in srgb, var(--c) 50%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--c) 6%, transparent);
+  pointer-events: none;
+}
+.ca-cv-frame.is-selected {
+  border: calc(1.5px / var(--z, 1)) solid var(--unread-solid);
+}
+.ca-cv-frame-title {
+  position: absolute;
+  left: 0;
+  bottom: 100%;
+  transform-origin: 0 100%;
+  transform: scale(calc(1 / var(--z, 1)));
+  padding: 0 2px 5px;
+  color: color-mix(in srgb, var(--c) 70%, var(--ink));
+  font: 600 13px/18px var(--font-sans);
+  white-space: nowrap;
+  pointer-events: auto;
+}
+.ca-cv-frame-title input {
+  width: 220px;
+  padding: 0 4px;
+  border: 1px solid var(--unread-solid);
+  border-radius: var(--radius-xs);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  outline: none;
+}
+.ca-cv-frame.is-red, .ca-cv-note.is-red { --c: var(--label-red); }
+.ca-cv-frame.is-pink, .ca-cv-note.is-pink { --c: var(--label-pink); }
+.ca-cv-frame.is-purple, .ca-cv-note.is-purple { --c: var(--label-purple); }
+.ca-cv-frame.is-indigo, .ca-cv-note.is-indigo { --c: var(--label-indigo); }
+.ca-cv-frame.is-blue, .ca-cv-note.is-blue { --c: var(--label-blue); }
+.ca-cv-frame.is-teal, .ca-cv-note.is-teal { --c: var(--label-teal); }
+.ca-cv-frame.is-green, .ca-cv-note.is-green { --c: var(--label-green); }
+
+/* Notes: stickies, yellow unless colored. */
+.ca-cv-note {
+  --c: var(--brand);
+  position: absolute;
+  left: 0;
+  top: 0;
+  box-sizing: border-box;
+  padding: 12px 14px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--c) 20%, var(--surface));
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08), 0 6px 16px rgba(0, 0, 0, 0.07);
+  color: var(--ink);
+  font: 400 14px/20px var(--font-sans);
+  pointer-events: none;
+}
+.ca-cv-note.is-selected {
+  outline: 2px solid var(--unread-solid);
+  outline-offset: 1px;
+}
+.ca-cv-note-text {
+  height: 100%;
+  overflow: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.ca-cv-note-text.is-empty {
+  color: var(--ink-3);
+}
+.ca-cv-note textarea {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  resize: none;
+  outline: none;
+  pointer-events: auto;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.ca-cv-resize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 10px;
+  height: 10px;
+  box-sizing: border-box;
+  transform: translate(50%, 50%) scale(calc(1 / var(--z, 1)));
+  border: 1.5px solid var(--unread-solid);
+  border-radius: 2px;
+  background: var(--surface);
+  pointer-events: auto;
+  cursor: nwse-resize;
+}
+.ca-cv-marquee {
+  position: absolute;
+  left: 0;
+  top: 0;
+  box-sizing: border-box;
+  border: calc(1px / var(--z, 1)) solid var(--unread-solid);
+  background: color-mix(in srgb, var(--unread-solid) 8%, transparent);
+  pointer-events: none;
+}
+.ca-cv-marquee.is-frame {
+  border-radius: 10px;
+  border-color: var(--line-strong);
+  background: color-mix(in srgb, var(--label-gray) 6%, transparent);
+}
+
+/* The popover a card opens on hover. */
+.ca-cv-popover {
+  position: absolute;
+  z-index: 5;
+  display: grid;
+  gap: 8px;
+  width: 340px;
+  box-sizing: border-box;
+  padding: 12px 14px;
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-popover);
+  color: var(--ink);
+  font: 400 13px/18px var(--font-sans);
+  pointer-events: none;
+  animation: ca-cv-pop var(--dur-fast) ease-out;
+}
+@keyframes ca-cv-pop {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+}
+.ca-cv-popover p {
+  margin: 0;
+}
+.ca-cvp-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.ca-cvp-title {
+  font: 600 14px/19px var(--font-sans);
+  overflow-wrap: anywhere;
+}
+.ca-cvp-status,
+.ca-cvp-dim {
+  color: var(--ink-3);
+  font: 400 12px/16px var(--font-sans);
+}
+.ca-cvp-headline {
+  color: var(--ink-2);
+}
+.ca-cvp-excerpt {
+  display: -webkit-box;
+  -webkit-line-clamp: 6;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  color: var(--ink-3);
+  font: 400 12px/17px var(--font-sans);
+  overflow-wrap: anywhere;
+}
+.ca-cvp-meta {
+  display: grid;
+  gap: 5px;
+}
+.ca-cvp-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--ink-2);
+  font: 400 12px/16px var(--font-sans);
+}
+.ca-cvp-row > .ca-icon {
+  color: var(--ink-3);
+}
+.ca-cvp-row > span:last-child,
+.ca-cvp-clip {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ca-cvp-labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.ca-cvp-list {
+  display: grid;
+  gap: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+.ca-cvp-session {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font: 400 12px/16px var(--font-sans);
+}
+.ca-cvp-session-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ca-cvp-hint {
+  padding-top: 7px;
+  border-top: 1px solid var(--line);
+  color: var(--ink-3);
+  font: 400 11px/14px var(--font-sans);
+}
+
+/* The toolbar floating at the bottom, as in Figma. */
+.ca-cv-toolbar {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  transform: translateX(-50%);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-hud);
+}
+.ca-cv-tool,
+.ca-cv-zoom {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 28px;
+  min-width: 28px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-2);
+  font: 500 12px/16px var(--font-sans);
+  cursor: pointer;
+}
+.ca-cv-tool.is-wide {
+  padding: 0 9px 0 7px;
+}
+.ca-cv-tool:hover,
+.ca-cv-zoom:hover {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+.ca-cv-tool.is-on {
+  background: var(--fill-strong);
+  color: var(--on-fill-strong);
+}
+.ca-cv-zoom {
+  min-width: 50px;
+  font: 500 11px/16px var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.ca-cv-sep {
+  width: 1px;
+  height: 18px;
+  margin: 0 4px;
+  background: var(--line);
+}

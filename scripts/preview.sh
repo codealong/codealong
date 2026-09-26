@@ -4,7 +4,7 @@
 #
 #   scripts/preview.sh [view] [project] [check.js]
 #
-#   view     worktrees | sessions | prs | todo, bar for the floating bar, or quick for the quick
+#   view     worktrees | sessions | prs | todo | canvas, bar for the floating bar, or quick for the quick
 #            panel (default worktrees)
 #   project  the project to show (default: the first one)
 #   check.js optional script run in the page; whatever it puts in document.title is printed
@@ -131,8 +131,8 @@ trap 'kill $server 2>/dev/null || true' EXIT
 sleep 1
 url="http://127.0.0.1:$port/preview.html"
 if [ -n "$check" ]; then
-  "$chrome" --headless=new --disable-gpu ${scheme:+"$scheme"} --window-size="$size" --virtual-time-budget=8000 --dump-dom "$url" 2>/dev/null | sed -n 's#.*<title>\(.*\)</title>.*#\1#p'
+  "$chrome" --headless=new --disable-gpu --enable-unsafe-swiftshader ${scheme:+"$scheme"} --window-size="$size" --virtual-time-budget=8000 --dump-dom "$url" 2>/dev/null | sed -n 's#.*<title>\(.*\)</title>.*#\1#p'
 else
-  "$chrome" --headless=new --disable-gpu ${scheme:+"$scheme"} --hide-scrollbars --force-device-scale-factor=1 --window-size="$size" --virtual-time-budget=6000 --screenshot="$shot" "$url" 2>/dev/null
+  "$chrome" --headless=new --disable-gpu --enable-unsafe-swiftshader ${scheme:+"$scheme"} --hide-scrollbars --force-device-scale-factor=1 --window-size="$size" --virtual-time-budget=6000 --screenshot="$shot" "$url" 2>/dev/null
   echo "$shot"
 fi

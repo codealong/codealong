@@ -543,3 +543,15 @@ export function onQuickShortcut(cb: (status: ShortcutStatus) => void): () => voi
     unlisten?.();
   };
 }
+
+/** A project's canvas as last saved (src/canvas/model.ts), or null when it has none yet. */
+export async function canvasLoad(project: string): Promise<unknown> {
+  if (!inTauri) return null;
+  return invoke<unknown>('canvas_load', { project });
+}
+
+/** Saves a project's canvas. */
+export async function canvasSave(project: string, doc: unknown): Promise<void> {
+  if (!inTauri) return;
+  await invoke('canvas_save', { project, doc });
+}

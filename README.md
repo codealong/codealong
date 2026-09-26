@@ -68,6 +68,18 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     or Not yet until something moves on); and a todo's panel suggests its project, labels and
     the todos it waits on as chips you click. Nothing is asked twice: what was asked is kept in
     `jev-todos.json`.
+  - **Canvas**: the project's work laid out in space, to remember by where it is. Worktrees,
+    sessions, todos and PRs are compact cards (status, title, where it stands); hover one for
+    the rest, double-click to open it where it lives, right-click for its usual menu. Recent
+    work comes on by itself: worktrees active in the last 3 days, sessions running or active
+    in the last day, open todos. A new one lands beside what it belongs to and nothing else
+    moves; what you move or add stays, and what you take off doesn't come back by itself. Add
+    older things from Add in the toolbar, a right-click on the canvas, or Add to canvas in any
+    row's menu. Notes (`n`) and frames (`f`) organize it; a frame carries what's in it. Tidy
+    lays the rest out in columns, one per worktree, in a frame per repo or per day, and keeps
+    the frames you drew or renamed. Controls follow Figma: scroll or Space-drag to pan, pinch
+    or ⌘-scroll to zoom, ⇧1 fit all, ⇧2 the selection, ⇧0 100%. Zoomed out, cards become
+    blocks in their status color drawn by the GPU (WebGL2).
 - **Open where it lives**: the session's own Ghostty tab, the Claude app session, the Codex
   thread, an OpenCode session in its terminal (or resumed in a new one with `--session`),
   Antigravity brought forward (it has no link to a conversation), a background job attached
@@ -286,7 +298,7 @@ folders = []
 
 What you've seen (for Your turn), what you've pinned and what you've archived in Codealong
 are kept in `state.json` next to it; whether the floating bar is on, and where you left it, in
-`bar.json`. Todos and labels are in `todos.json`, which is watched, so an agent or an editor can
+`bar.json`; each project's canvas in `canvas.json`. Todos and labels are in `todos.json`, which is watched, so an agent or an editor can
 add to it. Attachments are kept by their content: images in `images/`, other files in
 `files/<hash>/<name>`; ones no todo uses are cleared after 30 days.
 
@@ -338,6 +350,7 @@ light scan (no git, PRs or visitors).
 | `src-tauri/src/send.rs` | Sending a prompt to a session that's already going, the way its harness takes one |
 | `src-tauri/src/cli.rs`, `server.rs`, `install.rs` | The `codealong` command (clap; JSON or tables; the app over its socket, else the files), the app's socket, and putting the skill and the command where agents find them |
 | `src-tauri/src/todos.rs`, `src/todos.ts` | Todos: the store and its changes, linking sessions started from a todo; the list's sections, filters and prompt |
+| `src-tauri/src/canvas.rs`, `src/canvas/`, `src/ui/CanvasView.tsx`, `src/ui/CanvasCard.tsx` | The Canvas view: its documents (what's on it, where; kept in sync with the board; Tidy's layouts), the WebGL layer (grid, links, zoomed-out blocks) and the HTML cards, notes and frames on top |
 | `src-tauri/src/attachments.rs`, `src/attachInput.ts` | Files in descriptions and prompts: pasted, dropped or picked, kept by content, images shown in place, all handed to agents as paths |
 | `src-tauri/src/usage.rs` | Plan usage: Claude through its sign-in and usage endpoint, Codex from its rollouts, none for OpenCode and Antigravity |
 | `src-tauri/src/appserver.rs` | Codex actions through its app-server (archiving) |
