@@ -71,7 +71,7 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   - **Canvas**: the project's work laid out in space, to remember by where it is. Worktrees,
     sessions, todos and PRs are compact cards (status, title, where it stands); hover one for
     the rest, select one for its panel on the right (the one its own view shows), double-click to open it where it lives, right-click for its usual menu. Recent
-    work comes on by itself: sessions active in the last day (24h, 3d, 7d or all, chosen in
+    work comes on by itself: sessions active in the last day (1h, 3h, 6h, 24h, 3d, 7d or all, chosen in
     Tidy) and any that's working or needs you, open todos (changed or worked on in the last
     7 or 30 days, every open one, or none), and the worktrees they're in. A new one lands
     beside what it belongs to and nothing else moves; what you move or add stays, and what you

@@ -4331,7 +4331,7 @@ html.is-quick body {
   z-index: 6;
   display: grid;
   gap: 10px;
-  width: 400px;
+  width: 440px;
   box-sizing: border-box;
   padding: 14px 16px 12px;
   transform: translateX(-50%);

@@ -68,7 +68,7 @@ export interface CanvasDoc {
 }
 
 /** How far back finished sessions go on the canvas. Busy ones are always on it. */
-export type SessionAge = '1d' | '3d' | '7d' | 'all';
+export type SessionAge = '1h' | '3h' | '6h' | '1d' | '3d' | '7d' | 'all';
 /** Which todos are on the canvas: open ones changed in the last week or month, every open one, or none. */
 export type TodoAge = '7d' | '30d' | 'open' | 'none';
 
@@ -83,6 +83,9 @@ export interface Scope {
 export const DEFAULT_SCOPE: Scope = { sessions: '1d', todos: 'open', layout: 'worktree' };
 
 export const SESSION_AGES: { id: SessionAge; label: string; title: string }[] = [
+  { id: '1h', label: '1h', title: 'Active in the last hour' },
+  { id: '3h', label: '3h', title: 'Active in the last 3 hours' },
+  { id: '6h', label: '6h', title: 'Active in the last 6 hours' },
   { id: '1d', label: '24h', title: 'Active in the last 24 hours' },
   { id: '3d', label: '3d', title: 'Active in the last 3 days' },
   { id: '7d', label: '7d', title: 'Active in the last 7 days' },
@@ -97,7 +100,8 @@ export const TODO_AGES: { id: TodoAge; label: string; title: string }[] = [
 ];
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const SESSION_MS: Record<SessionAge, number> = { '1d': DAY_MS, '3d': 3 * DAY_MS, '7d': 7 * DAY_MS, all: Infinity };
+const HOUR_MS = 60 * 60 * 1000;
+const SESSION_MS: Record<SessionAge, number> = { '1h': HOUR_MS, '3h': 3 * HOUR_MS, '6h': 6 * HOUR_MS, '1d': DAY_MS, '3d': 3 * DAY_MS, '7d': 7 * DAY_MS, all: Infinity };
 const TODO_MS: Record<TodoAge, number> = { '7d': 7 * DAY_MS, '30d': 30 * DAY_MS, open: Infinity, none: -1 };
 
 export interface Rect {
@@ -275,7 +279,7 @@ export function recentRefs(e: Entities, now: number, pinned: Set<string> = new S
     if (home) homes.add(home);
   }
   const lanes = [...e.lanes.values()].filter(
-    (l) => homes.has(l.id) || ((pinned.has(l.id) || l.lastActivity >= since || l.sessions.some((s) => s.live && !s.visitor)) && l.lastActivity > cleared),
+    (l) => homes.has(l.id) || ((pinned.has(l.id) || l.lastActivity >= since) && l.lastActivity > cleared),
   );
   lanes.sort((a, b) => a.repo.localeCompare(b.repo) || b.lastActivity - a.lastActivity);
   return [
@@ -285,9 +289,10 @@ export function recentRefs(e: Entities, now: number, pinned: Set<string> = new S
   ];
 }
 
-/** A finished session that was never archived is still "unread" or idle; only busy ones outlast the age. */
+/** A finished session that was never archived is still "unread" or idle, often still open in a
+ *  terminal tab, so being open doesn't count: only busy ones (working, or waiting on you) outlast the age. */
 function sessionIn(s: Session, since: number): boolean {
-  return s.live || s.status === 'working' || s.status === 'needs' || s.status === 'error' || s.lastActivity >= since;
+  return s.status === 'working' || s.status === 'needs' || s.status === 'error' || s.lastActivity >= since;
 }
 
 /** Whether a session did something after the canvas was cleared: a new prompt, or a turn that

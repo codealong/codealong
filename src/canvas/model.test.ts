@@ -211,6 +211,19 @@ describe('tidy with ages', () => {
     expect(plan.dropped.map(itemId)).toEqual([]);
   });
 
+  it('goes back as little as an hour', () => {
+    const e2 = ents([lane('a', [session('now'), session('twoh', { lastActivity: NOW - 2 * 3600_000, lastPromptAt: NOW - 2 * 3600_000 })])]);
+    const ids = (sessions: '1h' | '3h') => refs(tidy(emptyDoc(), e2, NOW, new Set(), { ...DEFAULT_SCOPE, sessions })).filter((it) => it.ref === 'session').map(itemId).sort();
+    expect(ids('1h')).toEqual(['session:now']);
+    expect(ids('3h')).toEqual(['session:now', 'session:twoh']);
+  });
+
+  it('takes off an old session still open in a terminal tab', () => {
+    const open = session('open', { live: true, status: 'unread', lastActivity: NOW - 5 * DAY, lastPromptAt: NOW - 5 * DAY });
+    const e2 = ents([lane('a', [open], { lastActivity: NOW - 5 * DAY })]);
+    expect(refs(tidy(emptyDoc(), e2, NOW))).toEqual([]);
+  });
+
   it('shows no todos when asked for none', () => {
     const d = tidy(emptyDoc(), e, NOW, new Set(), { ...DEFAULT_SCOPE, todos: 'none' });
     expect(refs(d).filter((it) => it.ref === 'todo')).toEqual([]);
