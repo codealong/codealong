@@ -23,7 +23,7 @@ import { SessionPanel } from './ui/SessionPanel';
 import { LaneRow } from './ui/LaneRow';
 import { PinnedSection, type PinDrag } from './ui/PinnedSection';
 import { BayHeader, Button, Icon, Kbd, NavItem, StatusGlyph } from './ui/primitives';
-import { ALL_PROJECTS, openSwitcher, ProjectSwitcher, type ActionCounts } from './ui/ProjectSwitcher';
+import { ALL_PROJECTS, openSwitcher, projectForDigit, ProjectSwitcher, type ActionCounts } from './ui/ProjectSwitcher';
 import { useLogo } from './logo';
 import { shortcutLabel } from './quick';
 import { PrInspector } from './ui/PrInspector';
@@ -1079,7 +1079,7 @@ export function App() {
       const mod = e.metaKey;
       const key = e.key.toLowerCase();
       // So does a text field, a todo's title or description say, but for the window's own ⌘ keys.
-      if (inField(document.activeElement, searchRef.current) && !(mod && (key === 'k' || key === 'p' || e.key === ','))) return;
+      if (inField(document.activeElement, searchRef.current) && !(mod && (key === 'k' || key === 'p' || e.key === ',' || (e.altKey && /^Digit\d$/.test(e.code))))) return;
       if (mod && e.key === ',') {
         e.preventDefault();
         openSettings();
@@ -1096,6 +1096,14 @@ export function App() {
       if (mod && key === 'p') {
         e.preventDefault();
         openSwitcher();
+        return;
+      }
+      // ⌥⌘ digits switch projects. ⌥ changes the character, so they go by the key's code.
+      const digit = /^Digit(\d)$/.exec(e.code);
+      if (mod && e.altKey && !e.shiftKey && digit) {
+        e.preventDefault();
+        const name = projectForDigit(Number(digit[1]), projects);
+        if (name) pickProject(name);
         return;
       }
       // ⌘⇧N is File › New window's, so it works with no window open too.
@@ -1214,7 +1222,7 @@ export function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [visible, selected, selectedLane, startLaneId, move, open, openRow, copy, settings, openSettings, newSession, view, setView, toggleLanePin, sessionPins, lanePins, pinnedRows, pinnedLaneRows, shownBays, movePinnedSession, movePinnedLane, current, setArchived]);
+  }, [visible, selected, selectedLane, startLaneId, move, open, openRow, copy, settings, openSettings, newSession, view, setView, toggleLanePin, sessionPins, lanePins, pinnedRows, pinnedLaneRows, shownBays, movePinnedSession, movePinnedLane, current, setArchived, projects]);
 
   // Starts this window asked the quick panel for. A spinner shows while the harness takes the
   // session; then what's next, and the session is selected when it shows up if Codealong chose

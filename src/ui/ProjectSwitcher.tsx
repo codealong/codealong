@@ -7,6 +7,19 @@ import { LOGO_LABEL } from '../logo';
 
 export const ALL_PROJECTS = 'All projects';
 
+/** ⌥⌘1 to ⌥⌘9 pick the menu's first nine projects and ⌥⌘0 all of them. Plain ⌘ digits open the
+ * selected worktree, and ⌘⇧3 to ⌘⇧5 are macOS's screenshots. */
+export function projectForDigit(digit: number, projects: ProjectSummary[]): string | undefined {
+  if (digit === 0) return ALL_PROJECTS;
+  return projects[digit - 1]?.name;
+}
+
+function projectKey(name: string, projects: ProjectSummary[]): string | null {
+  if (name === ALL_PROJECTS) return '⌥⌘0';
+  const i = projects.findIndex((p) => p.name === name);
+  return i >= 0 && i < 9 ? `⌥⌘${i + 1}` : null;
+}
+
 /** What waits for you in a project: agents and PRs that need you, agents that finished. */
 export interface ActionCounts {
   needs: number;
@@ -54,6 +67,7 @@ export function ProjectSwitcher({ logoStatus, projects, current, total, actions,
   const badgeTitle = otherNeeds > 0 ? `${otherNeeds} in other projects need you` : otherUnread > 0 ? `${otherUnread} finished in other projects` : '';
   const item = (name: string, count: number) => {
     const a = actions[name];
+    const key = projectKey(name, projects);
     return (
       <div key={name} className="ca-projswitch-row" role="none">
         <button type="button" role="menuitemradio" aria-checked={name === current} className={['ca-menu-item', name === current && 'is-on'].filter(Boolean).join(' ')} onClick={() => pick(name)}>
@@ -76,6 +90,7 @@ export function ProjectSwitcher({ logoStatus, projects, current, total, actions,
           <span className="ca-nav-count" title={`${count} worktrees`}>
             {count}
           </span>
+          <span className="ca-projswitch-key">{key}</span>
           <span className="ca-projswitch-check">{name === current ? <Icon name="check" size={14} /> : null}</span>
         </button>
         <button

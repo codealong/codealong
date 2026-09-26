@@ -415,7 +415,15 @@ body.is-resizing * {
   box-shadow: var(--shadow-focus);
 }
 .ca-projswitch-menu {
-  min-width: 280px;
+  min-width: 320px;
+}
+/* Each project's ⌥⌘ digit, like a native menu's shortcut column. */
+.ca-projswitch-key {
+  min-width: 30px;
+  color: var(--ink-3);
+  font-size: 12px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 .ca-projswitch-check {
   display: inline-flex;

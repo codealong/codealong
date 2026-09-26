@@ -16,7 +16,8 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
 
 ## What it does
 
-- **Four views** of the current project, each in a window of its own if you like (⌘⇧N):
+- **Four views** of the current project, each in a window of its own if you like (⌘⇧N). The
+  project switcher (⌘P) lists each project with its key: ⌥⌘1 to ⌥⌘9 switch to one, ⌥⌘0 to all:
   - **Worktrees**: each worktree once, pinned ones first in your order, then the rest by
     status: Needs you, Working, Your turn, In review, Idle, Merged. A worktree's row has a
     line for each agent that needs you, is working or just finished, which you select, open
