@@ -4033,9 +4033,9 @@ html.is-quick body {
   outline: 1.5px solid color-mix(in srgb, var(--unread-solid) 45%, transparent);
   outline-offset: 1px;
 }
+/* Hover colors the card's own border rather than drawing a ring around it. */
 .ca-cv-card.is-hovered {
-  outline: 2px solid color-mix(in srgb, var(--unread-solid) 60%, transparent);
-  outline-offset: 1px;
+  border-color: var(--unread-solid);
 }
 .ca-cv-card.is-selected {
   outline: 2px solid var(--unread-solid);
