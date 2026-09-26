@@ -27,6 +27,8 @@
 # scripts/preview/todos-jev-sample.json has the same todos with Jev's todo features on: one
 # looks done, and the panel gets suggestions.
 #
+# PREVIEW_CANVAS=<file> opens the Canvas view on the document in it (one project's, as
+# canvas.json keeps it under canvases.<project>) in place of a fresh tidy.
 # PREVIEW_USAGE=<file> shows the plan usage in it (scripts/preview/usage-sample.json has some) in
 # place of the snapshot's, which has no Claude numbers: reading them rate-limits.
 #
@@ -83,6 +85,10 @@ fi
 rm -f "$dir/route-fixture.json"
 if [ -n "${PREVIEW_ROUTE:-}" ]; then
   cp "$PREVIEW_ROUTE" "$dir/route-fixture.json"
+fi
+rm -f "$dir/canvas-fixture.json"
+if [ -n "${PREVIEW_CANVAS:-}" ]; then
+  cp "$PREVIEW_CANVAS" "$dir/canvas-fixture.json"
 fi
 rm -f "$dir/usage-fixture.json"
 if [ -n "${PREVIEW_USAGE:-}" ]; then

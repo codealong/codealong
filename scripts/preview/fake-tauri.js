@@ -169,6 +169,8 @@ window.__TAURI_INTERNALS__ = {
       ((args || {}).comments || []).forEach(function (c, i) { out[c.id] = i % 2 === 0 ? 0.85 : 0.1; });
       return Promise.resolve(out);
     }
+    // PREVIEW_CANVAS's document for any project, else none: the view tidies a fresh one.
+    if (cmd === 'canvas_load') return optionalJson('./canvas-fixture.json');
     if (cmd === 'suggest_todo') {
       return optionalJson('./todos-fixture.json').then(function (fx) {
         return fx && fx.jev && fx.jev.suggest ? fx.jev.suggest : Promise.reject(new Error('Todo suggestions are off.'));

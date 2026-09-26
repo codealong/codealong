@@ -2,8 +2,9 @@
 // and frames. One per project, kept by the engine in canvas.json (canvas.rs).
 //
 // The canvas is for remembering where work is, so positions hold still: nothing moves unless you
-// move it or ask for a tidy. New work lands in free space beside what it belongs to (a session
-// under its worktree, a todo beside its worktree) without pushing anything aside. What shows by
+// move it or ask for a tidy. New work lands in the frame it belongs in, beside what it belongs to
+// (a session under its worktree, a new worktree in the next free column); the frame grows to hold
+// it, and what's below or beside the frame moves along whole to keep its gap. What shows by
 // default is recent work; the rest comes in when you add it, and what you've moved or added
 // stays, drawn as gone once the board no longer has it.
 
@@ -393,19 +394,18 @@ export function sync(doc: CanvasDoc, e: Entities, now: number, pinned: Set<strin
 }
 
 /**
- * Puts a thing on the canvas: at `at` when given (a drop, a right-click), else in free space
- * beside what it belongs with, else to the right of everything. Taking it off the hidden list
- * too, and keeping it when `kept`.
+ * Puts a thing on the canvas: at `at` when given (a drop, a right-click), else in the frame it
+ * belongs in, beside what it belongs with. Taking it off the hidden list too, and keeping it when
+ * `kept`. A frame grows to hold what lands in it, and what's below or beside it moves along.
  */
 export function addRef(doc: CanvasDoc, e: Entities, ref: RefKind, key: string, at: { x: number; y: number } | null, kept: boolean): CanvasDoc {
   const id = refId(ref, key);
   const existing = doc.items.find((it) => itemId(it) === id);
   if (existing) return doc;
-  const size = { w: CARD_W, h: CARD_H[ref] };
-  const spot = at ? freeSpot(doc.items, { ...size, x: at.x, y: at.y }) : placeNear(doc, e, ref, key, size);
   const title = titleOf(e, ref, key) ?? undefined;
-  const item: RefItem = { kind: 'ref', ref, key, x: spot.x, y: spot.y, ...(kept ? { kept: true } : {}), ...(title ? { title } : {}) };
-  return { ...doc, items: [...doc.items, item], hidden: doc.hidden.filter((h) => h !== id) };
+  const item: RefItem = { kind: 'ref', ref, key, x: 0, y: 0, ...(kept ? { kept: true } : {}), ...(title ? { title } : {}) };
+  const items = at ? dropAt(doc.items, item, at) : placeNear(doc, e, item);
+  return { ...doc, items, hidden: doc.hidden.filter((h) => h !== id) };
 }
 
 /** The rects things can't be put on top of: cards and notes, not frames, which hold things. */
@@ -427,31 +427,221 @@ export function freeSpot(items: CanvasItem[], want: Rect): { x: number; y: numbe
   return { x: want.x, y: want.y };
 }
 
-function placeNear(doc: CanvasDoc, e: Entities, ref: RefKind, key: string, size: { w: number; h: number }): { x: number; y: number } {
-  const byId = new Map(doc.items.map((it) => [itemId(it), it]));
+/* ---- Frames that hold what lands in them ---- */
+
+/** The frame a thing sits in: the smallest one holding its middle (and bigger than it, for a frame). */
+export function parentOf(items: CanvasItem[], it: CanvasItem): FrameItem | null {
+  const r = rectOf(it);
+  let best: FrameItem | null = null;
+  for (const f of items) {
+    if (f.kind !== 'frame' || f === it || !contains(f, r)) continue;
+    if (it.kind === 'frame' && f.w * f.h <= it.w * it.h) continue;
+    if (!best || f.w * f.h < best.w * best.h) best = f;
+  }
+  return best;
+}
+
+/** What sits directly in a frame, or on the canvas outside every frame for null. */
+function childrenOf(items: CanvasItem[], frame: string | null): CanvasItem[] {
+  return items.filter((it) => (parentOf(items, it)?.id ?? null) === frame);
+}
+
+/** A thing and, for a frame, everything in it: what moves when it moves. */
+function withContents(items: CanvasItem[], it: CanvasItem): Set<string> {
+  const out = new Set([itemId(it)]);
+  if (it.kind === 'frame') for (const o of items) if (o !== it && contains(it, rectOf(o))) out.add(itemId(o));
+  return out;
+}
+
+type Axis = 'x' | 'y';
+const lo = (r: Rect, a: Axis) => r[a];
+const hi = (r: Rect, a: Axis) => r[a] + (a === 'x' ? r.w : r.h);
+/** Whether two rects share some of the other axis: one is straight below (or beside) the other. */
+const inLine = (r: Rect, s: Rect, a: Axis) => (a === 'x' ? r.y < s.y + s.h && s.y < r.y + r.h : r.x < s.x + s.w && s.x < r.x + r.w);
+
+/**
+ * Makes room for something that grew from `old` to `grown`, when a sibling is in the way past an
+ * edge it grew across: what's past that edge moves away by one amount, each with what it holds,
+ * so they keep their places relative to each other. The gap to the nearest keeps its size, up to
+ * `gap`; one already wider takes up the growth first.
+ */
+function pushAside(items: CanvasItem[], siblings: Set<string>, old: Rect, grown: Rect, gap: number): CanvasItem[] {
+  for (const a of ['y', 'x'] as Axis[]) {
+    for (const sign of [1, -1]) {
+      const grew = sign > 0 ? hi(grown, a) - hi(old, a) : lo(old, a) - lo(grown, a);
+      if (grew <= 0) continue;
+      const sibs = items.filter((it) => siblings.has(itemId(it)));
+      const past = (r: Rect, from: Rect) => (sign > 0 ? lo(r, a) >= hi(from, a) - 0.5 : hi(r, a) <= lo(from, a) + 0.5);
+      const first = sibs.filter((it) => past(rectOf(it), old) && inLine(rectOf(it), grown, a));
+      if (first.length === 0) continue;
+      const near = sign > 0 ? Math.min(...first.map((it) => lo(rectOf(it), a))) : Math.max(...first.map((it) => hi(rectOf(it), a)));
+      const had = sign > 0 ? near - hi(old, a) : lo(old, a) - near;
+      const by = sign > 0 ? hi(grown, a) + Math.min(had, gap) - near : near - (lo(grown, a) - Math.min(had, gap));
+      if (by <= 0) continue;
+      // Down (or up), everything past the edge moves, so rows stay level; across, only what's in
+      // line, so the rows above and below stay where they are.
+      const movers = new Set(a === 'y' ? sibs.filter((it) => past(rectOf(it), old)) : first);
+      for (let more = a === 'x'; more; ) {
+        more = false;
+        for (const s of sibs) {
+          if (movers.has(s)) continue;
+          if ([...movers].some((m) => past(rectOf(s), rectOf(m)) && inLine(rectOf(s), rectOf(m), a))) {
+            movers.add(s);
+            more = true;
+          }
+        }
+      }
+      const moving = new Set([...movers].flatMap((m) => [...withContents(items, m)]));
+      const d = sign * Math.round(by);
+      items = items.map((it) => (moving.has(itemId(it)) ? { ...it, [a]: it[a] + d } : it));
+    }
+  }
+  return items;
+}
+
+/** Grows a frame to hold `need` with its padding, making room around it, and its own frame to hold it.
+ *  What's being put in the frame goes in after, or it would be pushed aside as something outside. */
+export function fitFrame(items: CanvasItem[], id: string, need: Rect): CanvasItem[] {
+  const f = items.find((it): it is FrameItem => it.kind === 'frame' && it.id === id);
+  if (!f) return items;
+  const old = rectOf(f);
+  const want = bounds([old, { x: need.x - FRAME_PAD, y: need.y - FRAME_PAD, w: need.w + FRAME_PAD * 2, h: need.h + FRAME_PAD * 2 }]) as Rect;
+  if (want.x === old.x && want.y === old.y && want.w === old.w && want.h === old.h) return items;
+  const parent = parentOf(items, f);
+  const siblings = new Set(childrenOf(items, parent?.id ?? null).filter((it) => it !== f).map(itemId));
+  items = items.map((it) => (it === f ? { ...f, ...want } : it));
+  items = pushAside(items, siblings, old, want, parent ? COL_GAP * 2 : FRAME_GAP);
+  return parent ? fitFrame(items, parent.id, want) : items;
+}
+
+/**
+ * After a drag: a card or note dropped with its middle in a frame but hanging over its edge makes
+ * the frame grow to hold it.
+ */
+export function settleDrop(doc: CanvasDoc, moved: Set<string>): CanvasDoc {
+  let items = doc.items;
+  for (const id of moved) {
+    const it = items.find((o) => itemId(o) === id);
+    if (!it || it.kind === 'frame') continue;
+    const f = parentOf(items, it);
+    if (f) items = fitFrame(items, f.id, rectOf(it));
+  }
+  return items === doc.items ? doc : { ...doc, items };
+}
+
+/** How many columns a frame of `n` worktrees lays out across before it starts another row. */
+const perRow = (n: number) => Math.max(1, Math.min(8, Math.ceil(Math.sqrt(n * 2.5))));
+
+function dropAt(items: CanvasItem[], item: RefItem, at: { x: number; y: number }): CanvasItem[] {
+  const spot = freeSpot(items, { w: CARD_W, h: CARD_H[item.ref], ...at });
+  const placed = { ...item, ...spot };
+  const f = parentOf(items, placed);
+  return [...(f ? fitFrame(items, f.id, rectOf(placed)) : items), placed];
+}
+
+/**
+ * Puts a card under the last card of a column (`head` and what's under it), moving what's below
+ * in its frame down to make room, and growing the frame.
+ */
+function underColumn(items: CanvasItem[], item: RefItem, column: CanvasItem[]): CanvasItem[] {
+  const head = column[0];
+  const frame = parentOf(items, head);
+  const siblings = childrenOf(items, frame?.id ?? null);
+  const bottom = Math.max(...column.map((it) => rectOf(it).y + rectOf(it).h));
+  const placed: RefItem = { ...item, x: head.x, y: bottom + GAP };
+  const r = rectOf(placed);
+  const next = pushAside(items, new Set(siblings.map(itemId)), { x: r.x, y: bottom, w: r.w, h: 0 }, { x: r.x, y: bottom, w: r.w, h: r.y + r.h - bottom }, COL_GAP * 2);
+  if (!frame) return [...next, placed];
+  // Held to what was in the frame before anything moved: what moved down may hang out of it now.
+  const ids = new Set(siblings.map(itemId));
+  return [...fitFrame(next, frame.id, bounds([r, ...next.filter((it) => ids.has(itemId(it))).map(rectOf)]) as Rect), placed];
+}
+
+/**
+ * A new column in a frame: the first free place in its rows of columns, as many across as a tidy
+ * would make for one more worktree, or else a new row under the rest.
+ */
+function newColumn(items: CanvasItem[], item: RefItem, frame: FrameItem): CanvasItem[] {
+  const inside = childrenOf(items, frame.id).map(rectOf);
+  const heads = items.filter((it) => it.kind === 'ref' && it.ref === 'worktree' && parentOf(items, it) === frame);
+  const x0 = frame.x + FRAME_PAD;
+  const step = CARD_W + COL_GAP;
+  const rows = [...new Set((heads.length > 0 ? heads : inside).map((r) => r.y))].sort((a, b) => a - b);
+  if (rows.length === 0) rows.push(frame.y + FRAME_PAD);
+  // A frame of one row widens as a tidy would for one more worktree; once it has more rows, the
+  // first sets how many go across, so the rows stay even.
+  const fits = Math.floor((frame.w - FRAME_PAD * 2 + COL_GAP) / step);
+  const across = rows.length > 1 ? Math.max(1, new Set(heads.filter((h) => h.y === rows[0]).map((h) => h.x)).size) : Math.max(fits, perRow(heads.length + 1));
+  let spot: { x: number; y: number } | null = null;
+  for (let i = 0; i < rows.length && !spot; i++) {
+    const band = { y: rows[i], h: (rows[i + 1] ?? Infinity) - rows[i] - 1 };
+    for (let j = 0; j < across; j++) {
+      const slot = { x: x0 + j * step, w: CARD_W, ...band };
+      if (!inside.some((r) => overlaps(r, slot, GAP - 1))) {
+        spot = { x: slot.x, y: slot.y };
+        break;
+      }
+    }
+  }
+  spot ??= { x: x0, y: Math.max(...inside.map((r) => r.y + r.h)) + COL_GAP * 2 };
+  const placed = { ...item, ...spot };
+  return [...fitFrame(items, frame.id, rectOf(placed)), placed];
+}
+
+/** The date in a tidy's day frame id (`auto:day:2026-8-26`), to find the latest. */
+function frameDay(f: FrameItem): number | null {
+  const m = /^auto:day:(\d+)-(\d+)-(\d+)$/.exec(f.id);
+  return m ? new Date(+m[1], +m[2], +m[3]).getTime() : null;
+}
+
+/** The frame something with no worktree card to go under belongs in, by how the canvas was tidied. */
+function frameFor(doc: CanvasDoc, e: Entities, item: RefItem): FrameItem | null {
+  const frames = doc.items.filter((it): it is FrameItem => it.kind === 'frame');
+  if (doc.scope.layout === 'time') {
+    const days = frames.filter((f) => frameDay(f) !== null).sort((a, b) => (frameDay(b) ?? 0) - (frameDay(a) ?? 0));
+    if (days[0]) return days[0];
+  }
+  if (item.ref !== 'worktree') return frames.find((f) => f.id === 'auto:loose') ?? null;
+  const repo = e.lanes.get(item.key)?.repo;
+  const own = frames.find((f) => f.id === `auto:repo:${repo}`);
+  if (own) return own;
+  // Else the frame holding most of its repo's worktrees.
+  const count = new Map<FrameItem, number>();
+  for (const it of doc.items) {
+    if (it.kind !== 'ref' || it.ref !== 'worktree' || e.lanes.get(it.key)?.repo !== repo) continue;
+    const f = parentOf(doc.items, it);
+    if (f) count.set(f, (count.get(f) ?? 0) + 1);
+  }
+  return [...count].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+}
+
+function placeNear(doc: CanvasDoc, e: Entities, item: RefItem): CanvasItem[] {
+  const { ref, key } = item;
+  const items = doc.items;
+  const byId = new Map(items.map((it) => [itemId(it), it]));
   const lane = homeLane(e, ref, key);
-  // A session or todo goes under its worktree's card, or under the lowest card of its column.
-  if (ref !== 'worktree' && lane) {
-    const home = byId.get(refId('worktree', lane));
-    if (home) {
-      const column = doc.items.filter((it) => it.kind === 'ref' && Math.abs(it.x - home.x) < CARD_W / 2 && it.y >= home.y && homeLane(e, it.ref, it.key) === lane);
-      const bottom = Math.max(...column.map((it) => rectOf(it).y + rectOf(it).h));
-      return freeSpot(doc.items, { ...size, x: home.x, y: bottom + GAP });
-    }
+  // A session, todo or PR goes under its worktree's card, below the lowest card of its column.
+  const home = ref !== 'worktree' && lane ? byId.get(refId('worktree', lane)) : undefined;
+  if (home) {
+    const column = items.filter((it) => it.kind === 'ref' && Math.abs(it.x - home.x) < CARD_W / 2 && it.y >= home.y && homeLane(e, it.ref, it.key) === lane);
+    return underColumn(items, item, [home, ...column.filter((it) => it !== home)]);
   }
-  // A worktree goes to the right of the other worktrees of its repo.
-  if (ref === 'worktree') {
-    const repo = e.lanes.get(key)?.repo;
-    const kin = doc.items.filter((it): it is RefItem => it.kind === 'ref' && it.ref === 'worktree' && e.lanes.get(it.key)?.repo === repo);
-    if (kin.length > 0) {
-      const top = Math.min(...kin.map((k) => k.y));
-      const right = Math.max(...kin.map((k) => k.x + CARD_W));
-      return freeSpot(doc.items, { ...size, x: right + COL_GAP, y: top });
+  const frame = frameFor(doc, e, item);
+  if (frame) {
+    // Things with no worktree share a column per kind, as a tidy lays them out.
+    if (ref !== 'worktree') {
+      const kin = items.filter((it): it is RefItem => it.kind === 'ref' && it.ref === ref && parentOf(items, it) === frame && !byId.has(refId('worktree', homeLane(e, it.ref, it.key) ?? '')));
+      const top = kin.sort((a, b) => a.y - b.y)[0];
+      if (top) return underColumn(items, item, kin.filter((it) => Math.abs(it.x - top.x) < CARD_W / 2));
     }
+    return newColumn(items, item, frame);
   }
-  const all = bounds(doc.items.map(rectOf));
-  if (!all) return { x: 0, y: 0 };
-  return freeSpot(doc.items, { ...size, x: all.x + all.w + FRAME_GAP, y: all.y });
+  // Nowhere to belong: one column beside the top row of frames, or right of everything.
+  const tops = items.filter((it) => it.kind === 'frame' && !parentOf(items, it)).map(rectOf);
+  const all = bounds(tops.length > 0 ? tops : items.map(rectOf));
+  const size = { w: CARD_W, h: CARD_H[ref] };
+  const spot = all ? freeSpot(items, { ...size, x: all.x + all.w + FRAME_GAP, y: all.y }) : { x: 0, y: 0 };
+  return [...items, { ...item, ...spot }];
 }
 
 /* ---- Tidy ---- */
@@ -603,7 +793,6 @@ export function tidy(doc: CanvasDoc, e: Entities, now: number, pinned: Set<strin
   }
 
   // Each band's columns wrap after a few, so a repo with many worktrees makes a block, not a line.
-  const perRow = (n: number) => Math.max(1, Math.min(8, Math.ceil(Math.sqrt(n * 2.5))));
   const laid: { band: Band; w: number; h: number; place: { it: RefItem; dx: number; dy: number }[] }[] = [];
   for (const band of sortedBands) {
     const across = perRow(band.columns.length);

@@ -92,10 +92,12 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     needs you; open todos changed or worked on in the last 7 or 30 days, or all of them;
     recent worktrees even with nothing on them (off, a worktree comes on only to head what's
     there); and PRs, yours and ones waiting on your review, or every open one. A new one
-    lands beside what it belongs to and nothing else moves; what you move or add stays, and
-    what you take off doesn't come back by itself. Add older things from Add in the toolbar,
+    lands in its frame beside what it belongs to (a session under its worktree, a worktree in
+    the next free column of its repo's or the latest day's frame, else in one column beside the
+    frames); the frame grows to hold it, and what's below or beside moves along whole. What
+    you move or add stays, and what you take off doesn't come back by itself. Add older things from Add in the toolbar,
     a right-click on the canvas, or Add to canvas in any row's menu. Notes (`n`) and frames
-    (`f`) organize it; a frame carries what's in it. Tidy lays the cards out in columns, one
+    (`f`) organize it; a frame carries what's in it, and grows to hold a card dropped over its edge. Tidy lays the cards out in columns, one
     per worktree, in a frame per repo or per day, and takes off cards Bring in no longer
     covers, kept or not, which is how the sessions you never archived leave; its panel says
     what would come off and on first. Frames you drew or renamed stay, with what's in them.

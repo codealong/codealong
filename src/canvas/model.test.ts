@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { newTodo } from '../todos';
 import type { Lane, Session, Todo } from '../types';
-import { addRef, CARD_H, clearDoc, unclear, CARD_W, COLUMN_MAX, emptyDoc, entitiesOf, freeSpot, itemId, links, overlaps, readDoc, rectOf, DEFAULT_SCOPE, refId, sync, tidy, tidyPlan, type CanvasDoc, type FrameItem, type RefItem } from './model';
+import { addRef, FRAME_GAP, settleDrop, CARD_H, clearDoc, unclear, CARD_W, COLUMN_MAX, emptyDoc, entitiesOf, freeSpot, itemId, links, overlaps, readDoc, rectOf, DEFAULT_SCOPE, refId, sync, tidy, tidyPlan, type CanvasDoc, type FrameItem, type RefItem } from './model';
 
 const NOW = 1_790_000_000_000;
 const DAY = 24 * 60 * 60 * 1000;
@@ -179,6 +179,133 @@ describe('tidy', () => {
     expect(autos.map((f) => (f as FrameItem).title)).toEqual(['Today']);
     // Laid out below what stayed.
     for (const c of refs(again)) if (itemId(c) !== 'session:s1') expect(c.y).toBeGreaterThan(mine.y + mine.h);
+  });
+});
+
+describe('new work in frames', () => {
+  const frames = (d: CanvasDoc) => d.items.filter((it): it is FrameItem => it.kind === 'frame');
+  const frame = (d: CanvasDoc, id: string) => at(d, id) as FrameItem;
+  const within = (f: FrameItem, c: RefItem) => {
+    const r = rectOf(c);
+    return r.x >= f.x && r.y >= f.y && r.x + r.w <= f.x + f.w && r.y + r.h <= f.y + f.h;
+  };
+  /** Every card fully in a frame, no two cards on each other, no two frames on each other. */
+  const neat = (d: CanvasDoc) => {
+    const cards = refs(d);
+    for (const c of cards) expect(frames(d).some((f) => within(f, c)), itemId(c)).toBe(true);
+    for (let i = 0; i < cards.length; i++) for (let j = i + 1; j < cards.length; j++) expect(overlaps(rectOf(cards[i]), rectOf(cards[j])), `${itemId(cards[i])} ${itemId(cards[j])}`).toBe(false);
+    const fs = frames(d);
+    for (let i = 0; i < fs.length; i++) for (let j = i + 1; j < fs.length; j++) expect(overlaps(fs[i], fs[j])).toBe(false);
+  };
+  const app = (n: number) => Array.from({ length: n }, (_, i) => lane(`a${i}`, [session(`s${i}`)]));
+  const base = [...app(3), lane('site1', [session('x1')], { repo: 'site' }), lane('lib1', [session('y1')], { repo: 'lib' })];
+  const tidied = (lanes: Lane[], layout: 'worktree' | 'time' = 'worktree') => {
+    const e = ents(lanes);
+    return tidy(sync(emptyDoc(), e, NOW), e, NOW, new Set(), { ...DEFAULT_SCOPE, layout });
+  };
+
+  it('puts a new worktree of a repo in the next free column of its frame, and the frame grows', () => {
+    const d = tidied(base);
+    const before = frame(d, 'auto:repo:app');
+    const d2 = sync(d, ents([...base, lane('a9', [session('s9')])]), NOW);
+    const f = frame(d2, 'auto:repo:app');
+    expect(within(f, at(d2, 'worktree:a9') as RefItem)).toBe(true);
+    expect(at(d2, 'session:s9')).toMatchObject({ x: (at(d2, 'worktree:a9') as RefItem).x });
+    expect(f.w * f.h).toBeGreaterThan(before.w * before.h);
+    neat(d2);
+    // Everything inside the frame stayed put.
+    for (const c of refs(d)) if (within(before, c)) expect(at(d2, itemId(c))).toMatchObject({ x: c.x, y: c.y });
+  });
+
+  it('starts a new row in the frame once the row is as wide as a tidy makes it', () => {
+    const lanes = app(4);
+    const d = tidied(lanes);
+    const heads = refs(d).filter((c) => c.ref === 'worktree');
+    let next = d;
+    for (let i = 4; i < 12; i++) next = sync(next, ents([...lanes, ...app(i + 1).slice(4)]), NOW);
+    neat(next);
+    const ys = new Set(refs(next).filter((c) => c.ref === 'worktree').map((c) => c.y));
+    expect(ys.size).toBeGreaterThan(1);
+    const xs = refs(next).filter((c) => c.ref === 'worktree').map((c) => c.x);
+    expect(Math.max(...xs) - Math.min(...xs)).toBeLessThan(8 * CARD_W + 8 * 28);
+    for (const h of heads) expect(at(next, itemId(h))).toMatchObject({ x: h.x, y: h.y });
+    // A session under a worktree of the first row moves the rows below down whole, level.
+    const all = [...lanes, ...app(12).slice(4)];
+    const more = sync(next, ents(all.map((l) => (l.id === 'a0' ? lane('a0', [...l.sessions, session('more')]) : l))), NOW);
+    neat(more);
+    const rows = (d: CanvasDoc) => [...new Set(refs(d).filter((c) => c.ref === 'worktree').map((c) => c.y))].length;
+    expect(rows(more)).toBe(rows(next));
+  });
+
+  it('grows the frame for a new session, and moves what is below it down by as much', () => {
+    // Enough repos that frames wrap into a second row.
+    const repos = ['r1', 'r2', 'r3', 'r4', 'r5', 'r6'].map((r) => lane(`w-${r}`, Array.from({ length: 6 }, (_, i) => session(`${r}-${i}`)), { repo: r }));
+    const d = tidied(repos);
+    const fs = frames(d);
+    const top = fs.reduce((a, b) => (b.y < a.y ? b : a));
+    const below = fs.filter((f) => f.y > top.y + top.h && f.x < top.x + top.w && top.x < f.x + f.w);
+    expect(below.length).toBeGreaterThan(0);
+    const lane0 = repos.find((l) => `auto:repo:${l.repo}` === top.id)!;
+    const grown = lane(lane0.id, [...lane0.sessions, session('new')], { repo: lane0.repo });
+    const d2 = sync(d, ents(repos.map((l) => (l.id === lane0.id ? grown : l))), NOW);
+    neat(d2);
+    const dy = frame(d2, top.id).h - top.h;
+    expect(dy).toBe(CARD_H.session + 10);
+    for (const f of below) expect(frame(d2, f.id).y).toBe(f.y + dy);
+    // The gap under the frame is what it was.
+    const gapBefore = Math.min(...below.map((f) => f.y)) - (top.y + top.h);
+    expect(Math.min(...below.map((f) => frame(d2, f.id).y)) - (top.y + top.h + dy)).toBe(gapBefore);
+  });
+
+  it('pushes a frame to the right over when a new column widens the one before it', () => {
+    const d = tidied(base);
+    const app0 = frame(d, 'auto:repo:app');
+    const right = frames(d).filter((f) => f.x >= app0.x + app0.w && f.y < app0.y + app0.h && app0.y < f.y + f.h);
+    let next = d;
+    const lanes = [...base];
+    for (let i = 3; i < 8; i++) {
+      lanes.push(lane(`a${i}`, [session(`s${i}`)]));
+      next = sync(next, ents(lanes), NOW);
+    }
+    neat(next);
+    const f = frame(next, 'auto:repo:app');
+    for (const r of right) expect(frame(next, r.id).x - (f.x + f.w)).toBeGreaterThanOrEqual(Math.min(r.x - (app0.x + app0.w), FRAME_GAP));
+  });
+
+  it('by day, puts new work in the latest day', () => {
+    const d = tidied(base, 'time');
+    const d2 = sync(d, ents([...base, lane('b1', [session('z1')], { repo: 'other' })]), NOW);
+    neat(d2);
+    expect(frames(d2).filter((f) => within(f, at(d2, 'worktree:b1') as RefItem)).map((f) => f.title)).toEqual(['Today']);
+  });
+
+  it('puts what has no frame in one column beside the frames, not in a line', () => {
+    const d = tidied(base);
+    let next = d;
+    const lanes = [...base];
+    for (const r of ['n1', 'n2', 'n3']) {
+      lanes.push(lane(r, [], { repo: r }));
+      next = sync(next, ents(lanes), NOW);
+    }
+    const loose = ['n1', 'n2', 'n3'].map((r) => at(next, `worktree:${r}`) as RefItem);
+    expect(new Set(loose.map((c) => c.x)).size).toBe(1);
+    const right = Math.max(...frames(d).map((f) => f.x + f.w));
+    expect(loose[0].x).toBe(right + FRAME_GAP);
+  });
+
+  it('grows a frame to hold a card dropped over its edge', () => {
+    const d = tidied(base);
+    const f = frame(d, 'auto:repo:app');
+    const card = refs(d).find((c) => within(f, c) && c.ref === 'session')!;
+    const moved = { ...d, items: d.items.map((it) => (it === card ? { ...card, y: f.y + f.h - CARD_H.session / 2 - 4 } : it)) };
+    const d2 = settleDrop(moved, new Set([itemId(card)]));
+    expect(within(frame(d2, f.id), at(d2, itemId(card)) as RefItem)).toBe(true);
+    expect(settleDrop(d2, new Set([itemId(card)]))).toBe(d2);
+  });
+
+  it('changes nothing when synced again', () => {
+    const d = sync(tidied(base), ents([...base, lane('a9', [session('s9')])]), NOW);
+    expect(sync(d, ents([...base, lane('a9', [session('s9')])]), NOW)).toBe(d);
   });
 });
 

@@ -91,7 +91,8 @@ sample todos linked to your real worktrees and sessions in place of your own, an
 `PREVIEW_USAGE=scripts/preview/usage-sample.json` sample plan usage in place of the snapshot's,
 which has no Claude numbers, and `PREVIEW_TRANSCRIPT=<session key>` that
 session's real conversation in its panel (others get placeholders), and `PREVIEW_FOUND=scripts/preview/found-sample.json` sample accounts
-under Settings › Accounts › Found on this Mac. In check mode Chrome draws no frames, so scroll events never
+under Settings › Accounts › Found on this Mac, and `PREVIEW_CANVAS=<file>` opens the Canvas view on a saved
+document (one project's from canvas.json) in place of a fresh tidy. In check mode Chrome draws no frames, so scroll events never
 arrive; and it resizes the page just before a screenshot, which closes whatever closes on resize.
 
 ## Checking performance

@@ -16,6 +16,7 @@ import { showContextMenu, type MenuSpec } from '../contextMenu';
 import { CanvasGl, parseColor, type Block, type Line, type Rgba } from '../canvas/gl';
 import {
   addRef,
+  settleDrop,
   bounds,
   CARD_W,
   contains,
@@ -651,7 +652,8 @@ export function CanvasView(props: CanvasViewProps) {
         setSelection(next);
       }
       // Moved cards are yours: they stay when they're no longer recent.
-      if (d.moved) update((doc) => ({ ...doc, items: doc.items.map((it) => (it.kind === 'ref' && d.start.has(itemId(it)) && !it.kept ? { ...it, kept: true } : it)) }));
+      // A card dropped hanging over a frame's edge makes the frame grow to hold it.
+      if (d.moved) update((doc) => settleDrop({ ...doc, items: doc.items.map((it) => (it.kind === 'ref' && d.start.has(itemId(it)) && !it.kept ? { ...it, kept: true } : it)) }, new Set(d.start.keys())));
     }
     if (d.mode === 'marquee') setMarquee(null);
     if (d.mode === 'frame') {
