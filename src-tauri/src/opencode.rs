@@ -557,6 +557,11 @@ impl crate::harness::Adapter for OpenCode {
         vec![account.home_path().join("opencode.db")]
     }
 
+    /// Its service takes prompts for any session, whichever terminal shows it.
+    fn routes(&self, _account: &crate::config::AccountCfg, _s: &crate::model::Session) -> Vec<crate::send::Route> {
+        vec![crate::send::Route::Opencode]
+    }
+
     fn conversation(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, before: Option<u64>, limit: usize) -> anyhow::Result<Page> {
         Ok(transcript_page(&ctx.account.home_path().join("opencode.db"), &s.id, before, limit, conversation_items))
     }

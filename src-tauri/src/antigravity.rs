@@ -142,6 +142,11 @@ impl crate::harness::Adapter for Antigravity {
     fn records(&self, account: &crate::config::AccountCfg, _s: &crate::model::Session) -> Vec<std::path::PathBuf> {
         vec![account.home_path().join("conversation_summaries.db")]
     }
+
+    /// Nothing takes a prompt from outside: the app comes forward with it on the clipboard.
+    fn routes(&self, _account: &crate::config::AccountCfg, _s: &crate::model::Session) -> Vec<crate::send::Route> {
+        vec![crate::send::Route::Antigravity]
+    }
 }
 
 #[cfg(test)]

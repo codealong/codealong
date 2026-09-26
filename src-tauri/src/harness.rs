@@ -64,6 +64,12 @@ pub trait Adapter: Sync {
         bail!("Codealong can't read {} conversations yet.", self.harness().word())
     }
 
+    /// The ways a prompt can reach the session, best first (`send.rs` tries them in order).
+    /// None: Codealong can't send it anything, and says to open it.
+    fn routes(&self, _account: &AccountCfg, _session: &Session) -> Vec<crate::send::Route> {
+        Vec::new()
+    }
+
     /// What the session waits on you to allow, if anything. Only asked of sessions that need you.
     fn pending(&self, _ctx: &Ctx, _session: &Session) -> Option<Pending> {
         None

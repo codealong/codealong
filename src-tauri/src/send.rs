@@ -70,10 +70,9 @@ pub fn send(board: &Board, cfg: &Config, session_key: &str, text: &str) -> Resul
         bail!("There's nothing to send.");
     }
     let account = cfg.accounts.iter().find(|a| a.name == session.account).ok_or_else(|| anyhow!("There's no account named {} in config.toml.", session.account))?;
-    let home = account.home_path();
-    let registry = session.pid.and_then(|pid| read_registry(&home, pid)).filter(|r| r.get("sessionId").and_then(Value::as_str) == Some(session.id.as_str()));
-    let daemon = daemon_socket(&home);
-    let routes = route_for(session, registry.as_ref(), &home, daemon.as_deref())?;
+    ensure_not_waiting(session)?;
+    // Each harness says which ways reach the session, best first (`harness::Adapter::routes`).
+    let routes = crate::harness::adapter(session.harness).routes(account, session);
     let near = crate::board::terminal_neighbours(&board.lanes, Path::new(&session.cwd));
     let place = launch::Placement { new_terminal: cfg.apps.new_terminal, near: &near };
     let mut last_err = None;
@@ -88,41 +87,45 @@ pub fn send(board: &Board, cfg: &Config, session_key: &str, text: &str) -> Resul
     Err(last_err.unwrap_or_else(|| anyhow!("Codealong can't reach {} to send it this. Open it and send it there.", quoted(&session.title))))
 }
 
-/// The ways to try for a session, best first, from what the board and Claude Code's registry
-/// say about it. Pure, so the choice has tests.
-pub fn route_for(session: &Session, registry: Option<&Value>, home: &Path, daemon: Option<&Path>) -> Result<Vec<Route>> {
+/// A session waiting on you is never typed into: what's typed would answer its question.
+fn ensure_not_waiting(session: &Session) -> Result<()> {
     if session.status == Status::Needs {
         bail!("{} is waiting on you; open it to answer.", quoted(&session.title));
     }
-    Ok(match session.harness {
-        Harness::Claude if session.live => {
-            let mut out = Vec::new();
-            let reg = registry;
-            let kind = reg.and_then(|r| r.get("kind")).and_then(Value::as_str);
-            let job = reg.and_then(|r| r.get("jobId")).and_then(Value::as_str);
-            if let (Some("bg"), Some(job), Some(socket)) = (kind, job, daemon) {
-                out.push(Route::Daemon { socket: socket.to_path_buf(), key_file: home.join("daemon/control.key"), job: job.to_string() });
-            }
-            if session.surface == Surface::Cli && kind != Some("bg") {
-                if let Some(pid) = session.pid {
-                    out.push(Route::Type { pid });
-                }
-            }
-            let peer = reg
-                .filter(|r| r.get("peerProtocol").and_then(Value::as_u64) == Some(1))
-                .and_then(|r| Some((r.get("messagingSocketPath")?.as_str()?, r.get("sessionId")?.as_str()?)));
-            if let Some((socket, id)) = peer {
-                out.push(Route::Peer { socket: socket.to_string(), session_id: id.to_string() });
-            }
-            out
+    Ok(())
+}
+
+/// Claude Code's ways in, best first, from its registry entry and whether its daemon runs.
+/// Pure, so the choice has tests. A live session: its daemon for a background job, its
+/// terminal, then its cross-session socket; one that isn't running: the Claude app for an app
+/// session, else a terminal that resumes it.
+pub fn claude_routes(session: &Session, registry: Option<&Value>, home: &Path, daemon: Option<&Path>) -> Vec<Route> {
+    if !session.live {
+        return vec![if session.surface == Surface::App { Route::ClaudeApp } else { Route::Resume }];
+    }
+    let mut out = Vec::new();
+    let kind = registry.and_then(|r| r.get("kind")).and_then(Value::as_str);
+    let job = registry.and_then(|r| r.get("jobId")).and_then(Value::as_str);
+    if let (Some("bg"), Some(job), Some(socket)) = (kind, job, daemon) {
+        out.push(Route::Daemon { socket: socket.to_path_buf(), key_file: home.join("daemon/control.key"), job: job.to_string() });
+    }
+    if session.surface == Surface::Cli && kind != Some("bg") {
+        if let Some(pid) = session.pid {
+            out.push(Route::Type { pid });
         }
-        Harness::Claude if session.surface == Surface::App => vec![Route::ClaudeApp],
-        Harness::Claude => vec![Route::Resume],
-        Harness::Codex if session.surface == Surface::Cli && session.live => session.pid.map(|pid| vec![Route::Type { pid }]).unwrap_or_default(),
-        Harness::Codex => vec![Route::CodexApp],
-        Harness::Opencode => vec![Route::Opencode],
-        Harness::Antigravity => vec![Route::Antigravity],
-    })
+    }
+    let peer = registry
+        .filter(|r| r.get("peerProtocol").and_then(Value::as_u64) == Some(1))
+        .and_then(|r| Some((r.get("messagingSocketPath")?.as_str()?, r.get("sessionId")?.as_str()?)));
+    if let Some((socket, id)) = peer {
+        out.push(Route::Peer { socket: socket.to_string(), session_id: id.to_string() });
+    }
+    out
+}
+
+/// A live Claude Code session's registry entry, if it's this session's.
+pub fn claude_registry(home: &Path, session: &Session) -> Option<Value> {
+    session.pid.and_then(|pid| read_registry(home, pid)).filter(|r| r.get("sessionId").and_then(Value::as_str) == Some(session.id.as_str()))
 }
 
 /// One way in. `Ok(None)` when it doesn't reach this session, so the next way is tried.
@@ -199,7 +202,7 @@ fn read_registry(home: &Path, pid: u32) -> Option<Value> {
 }
 
 /// Claude Code's daemon socket for an account, when its daemon is running.
-fn daemon_socket(home: &Path) -> Option<PathBuf> {
+pub fn daemon_socket(home: &Path) -> Option<PathBuf> {
     let path = daemon_socket_path(home, unsafe { libc::getuid() });
     path.exists().then_some(path)
 }
@@ -469,6 +472,17 @@ mod tests {
             background: None,
             insight: None,
         }
+    }
+
+    /// The ways `send` would try, with the registry and daemon given rather than read.
+    fn route_for(s: &Session, registry: Option<&Value>, home: &Path, daemon: Option<&Path>) -> Result<Vec<Route>> {
+        ensure_not_waiting(s)?;
+        Ok(if s.harness == Harness::Claude {
+            claude_routes(s, registry, home, daemon)
+        } else {
+            let account: AccountCfg = serde_json::from_value(json!({ "name": "a", "harness": "codex", "home": "/h" })).unwrap();
+            crate::harness::adapter(s.harness).routes(&account, s)
+        })
     }
 
     fn registry(extra: Value) -> Value {

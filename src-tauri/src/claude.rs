@@ -401,6 +401,11 @@ impl crate::harness::Adapter for ClaudeCode {
         crate::transcript::file_page(&record(self, ctx, s)?, conversation_items, before, limit)
     }
 
+    fn routes(&self, account: &crate::config::AccountCfg, s: &crate::model::Session) -> Vec<crate::send::Route> {
+        let home = account.home_path();
+        crate::send::claude_routes(s, crate::send::claude_registry(&home, s).as_ref(), &home, crate::send::daemon_socket(&home).as_deref())
+    }
+
     fn conversation_after(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, after: u64) -> anyhow::Result<Page> {
         crate::transcript::file_newer(&record(self, ctx, s)?, conversation_items, after)
     }

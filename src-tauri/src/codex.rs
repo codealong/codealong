@@ -626,6 +626,15 @@ impl crate::harness::Adapter for Codex {
         crate::transcript::file_page(&record(self, ctx, s)?, conversation_items, before, limit)
     }
 
+    /// A thread in a terminal is typed into; any other goes through the app.
+    fn routes(&self, _account: &crate::config::AccountCfg, s: &crate::model::Session) -> Vec<crate::send::Route> {
+        if s.surface == crate::model::Surface::Cli && s.live {
+            s.pid.map(|pid| vec![crate::send::Route::Type { pid }]).unwrap_or_default()
+        } else {
+            vec![crate::send::Route::CodexApp]
+        }
+    }
+
     fn conversation_after(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, after: u64) -> anyhow::Result<Page> {
         crate::transcript::file_newer(&record(self, ctx, s)?, conversation_items, after)
     }

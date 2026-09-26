@@ -181,7 +181,8 @@ some work is, answer with one.
 A harness is a module (`claude.rs`, `codex.rs`, `opencode.rs`, `antigravity.rs`) that knows its
 files, and an `Adapter` in it (`harness.rs`) that the rest of the app asks about a session:
 where its record is, its conversation (`transcript.rs` pages a file of JSON lines given a line
-parser), and what it waits on you to allow and how to answer. Adding one:
+parser), the ways a prompt reaches it (`send::Route`s, tried in order by `send.rs`), and what
+it waits on you to allow and how to answer. Adding one:
 
 1. A variant of `model::Harness` (and `src/types.ts`), its name in `Harness::word` and
    `src/harness.ts`, and its string in `config::HARNESSES`.
@@ -190,8 +191,8 @@ parser), and what it waits on you to allow and how to answer. Adding one:
 3. Reading its sessions for the board, which still lives outside the adapter: the engine's
    fields and `scan_sessions`, `watch`, `apply_fs`, `build_sessions`, `session_cwds`; a
    `board::*_session` constructor for its status rules; `board::targets` and
-   `engine::open_on` for opening; `start.rs` for starting; `send::route_for` for sending;
-   `usage.rs` and `detect.rs` for limits, sign-in and finding it on the Mac; `install.rs` for its
+   `engine::open_on` for opening; `start.rs` for starting; a new `send::Route` if it takes
+   prompts some new way; `usage.rs` and `detect.rs` for limits, sign-in and finding it on the Mac; `install.rs` for its
    skills folder; `search.rs` for text search. Most of these match on the harness's config
    string with a fallback, so the compiler won't list them: search for an existing harness's
    name. They move into the adapter as they're next changed.
@@ -372,8 +373,8 @@ OpenCode (2.0.16, from its source at that tag and its files here)
   `time_updated`, `time_idle` and `idle_outcome` written when a run ends, `time_viewed`,
   `time_archived`) and `session_message` (`type` user, assistant…; `seq`; `data` JSON: a user
   message's `text`, an assistant's `content` parts of type text, reasoning or tool with `name`
-  and `state.input`). A run streams writes many times a second; Codealong watches the folder
-  and re-reads both tables. The `event` table stayed empty when a session was made through
+  and `state.input`). A run streams writes many times a second, all into the WAL; Codealong
+  rereads both tables when the database or its WAL changes (see below). The `event` table stayed empty when a session was made through
   the API, so a run in progress is a user message newer than `time_idle`.
 - Permission and question requests never reach the database. The background service
   (`opencode serve --service`, started by the TUI) knows them: `~/.local/state/opencode/service.json`
