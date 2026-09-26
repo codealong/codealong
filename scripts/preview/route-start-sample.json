@@ -5,6 +5,5 @@
   "noSession": 0.4,
   "lanes": [{ "id": "$lane:0", "p": 0.7 }, { "id": "$lane:2", "p": 0.2 }],
   "ownWorktree": 0.7,
-  "duplicate": { "id": "$session:0", "p": 0.72 },
-  "effort": 1.2
+  "duplicate": { "id": "$session:0", "p": 0.72 }
 }

@@ -3,8 +3,7 @@
 // sounds, and which runners-up are worth a row, is decided here. Kept free of React so the rules
 // have tests.
 
-import { modelFamily, modelHasRoom, type ModelOption } from './start';
-import type { Board, Lane, Route, RoutePick, Session, Usage } from './types';
+import type { Board, Lane, Route, RoutePick, Session } from './types';
 
 /** How likely a suggestion is, as the panel says it. */
 export type Sureness = 'sure' | 'likely' | 'unsure';
@@ -122,31 +121,6 @@ export function rankedBy<T extends { session: Session }>(found: T[], route: Rout
     .map((r, i) => ({ r, i }))
     .sort((a, b) => at(a.r) - at(b.r) || a.i - b.i)
     .map((x) => x.r);
-}
-
-/** A model for how big the work is, and the words for why. */
-export interface EffortPick {
-  model: string;
-  why: string;
-}
-
-/** Families, smallest first. */
-const SIZES = ['haiku', 'sonnet', 'opus', 'fable'];
-
-/**
- * A smaller model when the work is small: Haiku for a tiny edit or a question, Sonnet for a
- * small change. Only ever smaller than what Auto would start on, only a model the start menu
- * offers, and never one whose own limit is nearly used up. Null keeps Auto's own pick.
- */
-export function effortModel(effort: number, models: ModelOption[], autoModel: string | null, u: Usage | undefined): EffortPick | null {
-  const pick = effort < 0.75 ? { family: 'haiku', why: 'a tiny change' } : effort < 1.75 ? { family: 'sonnet', why: 'a small change' } : null;
-  if (!pick) return null;
-  const offered = models.find((m) => m.id === pick.family);
-  if (!offered) return null;
-  const current = modelFamily(autoModel);
-  if (current && SIZES.indexOf(current) <= SIZES.indexOf(pick.family)) return null;
-  if (!modelHasRoom(u, pick.family)) return null;
-  return { model: offered.id, why: pick.why };
 }
 
 /** A todo's title from what's typed: its first line, without a "todo:" or "later," lead-in. */

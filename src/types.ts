@@ -336,9 +336,6 @@ export interface Route {
   ownWorktree: number;
   /** A live session that may already be doing this work. */
   duplicate: RoutePick | null;
-  /** How big the work is: 0 a tiny edit or a question, 1 a small change, 2 a feature across
-   *  files, 3 a large or open-ended change. */
-  effort: number;
   model: string;
   ms: number;
   inputTokens: number;

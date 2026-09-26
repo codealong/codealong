@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { duplicateOf, effortModel, rankedBy, suggestions, sureness, todoTitle, worthRouting } from './route';
-import type { Board, Lane, Route, Session, Usage } from './types';
+import { duplicateOf, rankedBy, suggestions, sureness, todoTitle, worthRouting } from './route';
+import type { Board, Lane, Route, Session } from './types';
 
 const session = (key: string, status: Session['status'], extra: Partial<Session> = {}): Session => ({ key, status, title: key, visitor: null, ...extra }) as Session;
 const lane = (id: string, sessions: Session[], repo = id): Lane => ({ id, sessions, callsign: id, repo, project: 'P' }) as unknown as Lane;
@@ -17,7 +17,6 @@ const route = (r: Partial<Route>): Route => ({
   repos: [],
   ownWorktree: 0,
   duplicate: null,
-  effort: 1,
   model: 'jev-1.13.0',
   ms: 200,
   inputTokens: 1000,
@@ -163,25 +162,3 @@ describe('rankedBy', () => {
   });
 });
 
-describe('effortModel', () => {
-  const models = [
-    { id: 'haiku', label: 'Haiku' },
-    { id: 'sonnet', label: 'Sonnet' },
-    { id: 'opus', label: 'Opus' },
-  ];
-  const usage = (percent: number) => ({ meters: [{ key: 'model:sonnet', label: 'Sonnet', window: '', percent, resetsAt: null, severity: 'normal', model: 'sonnet' }] }) as unknown as Usage;
-
-  it('picks Haiku for a tiny change and Sonnet for a small one, and Auto’s own for the rest', () => {
-    expect(effortModel(0.2, models, 'opus', undefined)).toEqual({ model: 'haiku', why: 'a tiny change' });
-    expect(effortModel(1.2, models, 'opus', undefined)).toEqual({ model: 'sonnet', why: 'a small change' });
-    expect(effortModel(2.4, models, 'opus', undefined)).toBeNull();
-  });
-
-  it('never goes bigger, never offers what the menu doesn’t, and passes over a model nearly used up', () => {
-    expect(effortModel(1.2, models, 'haiku', undefined)).toBeNull();
-    expect(effortModel(1.2, models, 'sonnet', undefined)).toBeNull();
-    expect(effortModel(0.2, models.slice(1), 'opus', undefined)).toBeNull();
-    expect(effortModel(1.2, models, 'opus', usage(95))).toBeNull();
-    expect(effortModel(1.2, models, 'opus', usage(20))).toEqual({ model: 'sonnet', why: 'a small change' });
-  });
-});

@@ -84,9 +84,6 @@ pub struct Route {
     pub own_worktree: f64,
     /// A live session that may already be doing this work, when Jev thinks one is.
     pub duplicate: Option<Pick>,
-    /// How big the work is, from 0 (a tiny edit or a question) to 3 (a large or open-ended
-    /// change); it can land between levels.
-    pub effort: f64,
     /// The versioned model that answered, such as `jev-1.13.0`.
     pub model: String,
     pub ms: u64,
@@ -107,14 +104,6 @@ pub struct Request {
 fn could_be_doing(s: &Session) -> bool {
     s.live && matches!(s.status, Status::Working | Status::Unread | Status::Idle)
 }
-
-/// The levels of the effort question, smallest first.
-pub const EFFORT_LEVELS: [&str; 4] = [
-    "A tiny edit or a question: a line or two, or no code",
-    "A small focused change in one or two files",
-    "A feature or fix across several files",
-    "A large or open-ended change: a new system, a migration, a redesign",
-];
 
 /// A duplicate is only worth a warning when Jev is at least this sure.
 const DUPLICATE_AT: f64 = 0.5;
@@ -285,11 +274,6 @@ pub fn request(board: &Board, project: &str, text: &str, model: &str, now: i64) 
                 "instructions": "Which of these sessions is already doing the work `message` asks for?",
                 "criteria": Value::Object(duplicate_options),
             },
-            "effort": {
-                "type": "score",
-                "instructions": "How big is the change `message` asks for?",
-                "criteria": EFFORT_LEVELS,
-            },
             "own_worktree": {
                 "type": "noul",
                 "instructions": "Does `message` ask for a self-contained code change, such as a feature, a fix or a refactor, that should get a new branch of its own?",
@@ -371,7 +355,6 @@ pub fn read(req: &Request, response: &Value, ms: u64) -> Result<Route> {
         repos: repos.into_iter().take(TOP).collect(),
         own_worktree: answers["own_worktree"]["noul"].as_f64().unwrap_or(0.0),
         duplicate,
-        effort: answers["effort"]["score"].as_f64().unwrap_or(1.0),
         model: response["model"].as_str().unwrap_or_default().to_string(),
         ms,
         input_tokens: response["usage"]["input_tokens"].as_u64().unwrap_or(0),
@@ -494,19 +477,16 @@ mod tests {
         // Only running sessions that aren't waiting on you could already be doing it.
         let dup = req.body["questions"]["duplicate"]["criteria"].as_object().unwrap();
         assert_eq!(dup.keys().collect::<Vec<_>>(), vec!["none", "s1", "s2"]);
-        assert_eq!(req.body["questions"]["effort"]["criteria"].as_array().unwrap().len(), 4);
     }
 
     #[test]
-    fn reads_a_duplicate_only_when_jev_is_fairly_sure_and_the_effort() {
+    fn reads_a_duplicate_only_when_jev_is_fairly_sure() {
         let b = board();
         let req = request(&b, "Acme", "fix the login bug", "m", NOW).unwrap();
         let mut v = answer(&[("start", 1.0)], &[("s1", 0.5), ("s2", 0.005), ("none", 0.495)], &[("w1", 1.0)], 0.0);
         v["answers"]["duplicate"]["probabilities"] = json!({ "s1": 0.7, "none": 0.3 });
-        v["answers"]["effort"]["score"] = json!(0.4);
         let r = read(&req, &v, 1).unwrap();
         assert_eq!(r.duplicate, Some(Pick { id: "c:1".into(), p: 0.7 }));
-        assert_eq!(r.effort, 0.4);
         // Sessions Jev gives next to no chance aren't ranked.
         assert_eq!(r.sessions.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(), vec!["c:1"]);
         v["answers"]["duplicate"]["probabilities"] = json!({ "s1": 0.45, "none": 0.55 });
@@ -532,7 +512,6 @@ mod tests {
                 "worktree": { "type": "choice", "probabilities": map(worktree) },
                 "own_worktree": { "type": "noul", "noul": own },
                 "duplicate": { "type": "choice", "probabilities": map(&[("none", 1.0)]) },
-                "effort": { "type": "score", "score": 1.2 },
             },
             "usage": { "input_tokens": 1234, "output_tokens": 50 },
         })

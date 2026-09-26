@@ -155,7 +155,6 @@ window.__TAURI_INTERNALS__ = {
               repos: [],
               ownWorktree: fx.ownWorktree || 0,
               duplicate: fx.duplicate ? pick(sessions, 'key')(fx.duplicate) : null,
-              effort: fx.effort == null ? 1 : fx.effort,
               model: 'jev-1.13.0',
               ms: 240,
               inputTokens: 9000,
