@@ -3805,8 +3805,8 @@ html.is-quick body {
 }
 
 /* ---- Canvas (CanvasView.tsx) ---- */
-/* The canvas takes the board and the panel's place; cards show their detail on hover instead. */
-.ca-win--app .ca-win-body.is-canvas {
+/* The canvas takes the panel's place too until a card is selected; then that card's panel shows. */
+.ca-win--app .ca-win-body.is-canvas:not(.has-panel) {
   grid-template-columns:
     max(var(--side-min), min(var(--sidebar-w), 100% - var(--board-min)))
     0 minmax(0, 1fr);

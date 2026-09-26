@@ -33,7 +33,7 @@ import { LabelDot } from './ui/TodoBits';
 import { TodoPanel } from './ui/TodoPanel';
 import { TodoComposer, TodoView, type ComposerContext } from './ui/TodoView';
 import { CanvasView } from './ui/CanvasView';
-import { entitiesOf, type RefItem, type RefKind } from './canvas/model';
+import { entitiesOf, homeLane, refId, type RefItem, type RefKind } from './canvas/model';
 import { useCanvas } from './canvas/useCanvas';
 import { applyTheme, ThemeSwitch } from './ui/ThemeSwitch';
 import { UsageBar } from './ui/UsageBar';
@@ -484,8 +484,9 @@ export function App() {
   const canvas = useCanvas(current, view === 'canvas', canvasEntities, now, lanePins.set);
   const [canvasFocus, setCanvasFocus] = useState<{ id: string; n: number } | null>(null);
   const canvasKeys = useRef<(e: KeyboardEvent) => boolean>(() => false);
-  // The worktree of the card selected on the canvas, where ⌘N starts.
-  const [canvasLane, setCanvasLane] = useState<string | null>(null);
+  // The one card selected on the canvas: its panel shows on the right, and ⌘N starts in its worktree.
+  const [canvasSel, setCanvasSel] = useState<RefItem | null>(null);
+  const canvasLane = view === 'canvas' && canvasSel ? homeLane(canvasEntities, canvasSel.ref, canvasSel.key) : null;
   /** Puts a thing on the canvas if it isn't there, keeps it, and shows it there. */
   const showOnCanvas = (ref: RefKind, key: string) => {
     const id = canvas.keep(ref, key);
@@ -1108,7 +1109,8 @@ export function App() {
         }
         return;
       }
-      if (view === 'canvas' && canvasKeys.current(e)) return;
+      // The canvas's keys, unless the keyboard is in the panel beside it.
+      if (view === 'canvas' && !document.activeElement?.closest('.ca-insp') && canvasKeys.current(e)) return;
       if (gPending.current) {
         gPending.current = false;
         const bay = ({ n: 'needs', w: 'working', t: 'unread', r: 'review' } as Record<string, Bay | undefined>)[key];
@@ -1308,11 +1310,102 @@ export function App() {
       return r ? [...todoMenuSpec(r), 'separator', { label: 'Show in Todo', run: () => showTodo(r.todo) }] : [];
     }
     const pr = e.prs.get(it.key);
-    if (!pr) return [];
+    return pr ? prMenuSpec(prRowOf(pr)) : [];
+  };
+
+  /** A PR as the PRs view lists it: with the worktrees that hold it and the sessions that worked on it. */
+  const prRowOf = (pr: PrItem): PrRowItem => {
     const holding = pr.lanes.flatMap((id) => laneById.get(id) ?? []);
     const sessions = pr.sessions.flatMap((x) => sessionIndex.get(`${x.lane}::${x.key}`) ?? []);
-    return prMenuSpec({ kind: 'pr', key: `pr:${pr.key}`, pr, lane: holding[0] ?? null, sessions, places: prPlaces(holding, sessions) });
+    return { kind: 'pr', key: `pr:${pr.key}`, pr, lane: holding[0] ?? null, sessions, places: prPlaces(holding, sessions) };
   };
+
+  // In the canvas's panel, a worktree or todo it links to is shown on the canvas when it's there.
+  const showLaneFromPanel = (lane: Lane) => {
+    if (view === 'canvas' && canvas.has('worktree', lane.id)) setCanvasFocus((f) => ({ id: refId('worktree', lane.id), n: (f?.n ?? 0) + 1 }));
+    else focusLane(lane);
+  };
+  const showTodoFromPanel = (t: Todo) => {
+    if (view === 'canvas' && canvas.has('todo', t.id)) setCanvasFocus((f) => ({ id: refId('todo', t.id), n: (f?.n ?? 0) + 1 }));
+    else showTodo(t);
+  };
+
+  /** The panels on the right, as each view shows them. */
+  const todoPanel = (item: TodoItem) => (
+    <TodoPanel
+      key={item.todo.id}
+      item={item}
+      todos={todoStore.todos}
+      onShowTodo={showTodoFromPanel}
+      labels={todoStore.labels}
+      lanes={laneById}
+      now={now}
+      onRun={runTodo}
+      onStart={() => startForTodo(item)}
+      onOpenSession={(lane, session) => open(lane, session.openTarget)}
+      onShowLane={showLaneFromPanel}
+      onLaneMenu={(lane) => laneMenu(lane)}
+      onSessionMenu={(lane, s) => sessionMenu(lane, s, 'worktree')}
+      onLinkMenu={(at) => todoLinkMenu(item, at)}
+      onMoreMenu={(at) => todoMoreMenu(item, at)}
+      onLabelMenu={labelMenu}
+      onError={setToast}
+      hint={board?.jev?.todos ? board.todoHints?.[item.todo.id] : null}
+      onDismissHint={() => void dismissTodoHint(item.todo.id)}
+      suggest={!!board?.jev?.todos}
+      projects={todoProjects}
+    />
+  );
+  const prPanel = (item: PrRowItem) => (
+    <PrInspector
+      key={item.pr.key}
+      item={item}
+      now={now}
+      approving={approving.has(item.pr.key)}
+      onApprove={() => approve(item.pr)}
+      onOpenSession={(lane, session) => open(lane, session.openTarget)}
+      onShowLane={showLaneFromPanel}
+      onLaneMenu={laneMenu}
+      onSessionMenu={(lane, s) => sessionMenu(lane, s, 'worktree')}
+    />
+  );
+  const inspector = (lane: Lane | null, focusKey: string | null) => (
+    <Inspector
+      lane={lane}
+      focusKey={focusKey}
+      apps={board?.apps ?? { terminal: 'Terminal', terminalId: '', editor: 'Editor', editorId: '' }}
+      now={now}
+      onOpen={(id) => open(lane, id)}
+      onNewSession={() => lane && newSession({ laneId: lane.id })}
+      todos={lane ? todoLinks.byLane.get(lane.id) : undefined}
+      todosFor={(k) => todoLinks.bySession.get(k)}
+      onShowTodo={showTodoFromPanel}
+    />
+  );
+
+  /** The canvas's selected card as its view's panel shows it; null when nothing (or a gone card) is selected. */
+  const canvasPanel = (() => {
+    if (view !== 'canvas' || !canvasSel) return null;
+    const e = canvasEntities;
+    switch (canvasSel.ref) {
+      case 'worktree': {
+        const lane = e.lanes.get(canvasSel.key);
+        return lane ? { kind: 'lane' as const, node: inspector(lane, null) } : null;
+      }
+      case 'session': {
+        const p = e.sessions.get(canvasSel.key);
+        return p ? { kind: 'lane' as const, node: inspector(p.lane, p.session.key) } : null;
+      }
+      case 'todo': {
+        const item = todoItems.find((r) => r.todo.id === canvasSel.key);
+        return item ? { kind: 'todo' as const, node: todoPanel(item) } : null;
+      }
+      case 'pr': {
+        const pr = e.prs.get(canvasSel.key);
+        return pr ? { kind: 'pr' as const, node: prPanel(prRowOf(pr)) } : null;
+      }
+    }
+  })();
 
   /** A worktree's row on the board; `drag` when it's pinned. */
   const laneRow = (r: WorktreeRow, drag?: PinDrag) => (
@@ -1335,6 +1428,9 @@ export function App() {
       {...drag}
     />
   );
+
+  // Which panel is on the right, for its width: the view's own, or on the canvas the selected card's.
+  const panelKind = view === 'canvas' ? (canvasPanel?.kind ?? null) : view === 'prs' ? 'pr' : view === 'todo' ? 'todo' : 'lane';
 
   return (
     <div className="ca-win ca-win--app">
@@ -1392,8 +1488,8 @@ export function App() {
         onSignIn={startSignIn}
       />
       <div
-        className={['ca-win-body', view === 'prs' && 'is-prs', view === 'todo' && 'is-todo', view === 'canvas' && 'is-canvas'].filter(Boolean).join(' ')}
-        style={{ '--sidebar-w': widthVar(sidebarWidth), '--panel-w': widthVar(view === 'prs' ? prPanelWidth : view === 'todo' ? todoPanelWidth : inspectorWidth) } as CSSProperties}
+        className={['ca-win-body', panelKind === 'pr' && 'is-prs', panelKind === 'todo' && 'is-todo', view === 'canvas' && 'is-canvas', view === 'canvas' && canvasPanel && 'has-panel'].filter(Boolean).join(' ')}
+        style={{ '--sidebar-w': widthVar(sidebarWidth), '--panel-w': widthVar(panelKind === 'pr' ? prPanelWidth : panelKind === 'todo' ? todoPanelWidth : inspectorWidth) } as CSSProperties}
       >
         <nav className="ca-side" aria-label="Sidebar">
           <div className="ca-label ca-side-label">Inbox</div>
@@ -1541,7 +1637,7 @@ export function App() {
               onToast={setToast}
               onUndo={(message, undo, icon) => setTodoUndo({ message, undo, icon })}
               keys={canvasKeys}
-              onSelectLane={setCanvasLane}
+              onSelectItem={setCanvasSel}
             />
           )}
           {view !== 'canvas' && (
@@ -1669,32 +1765,12 @@ export function App() {
           </div>
           )}
         </main>
-        {view !== 'canvas' && <Resizer panel="after" cssVar="--panel-w" onResize={view === 'prs' ? setPrPanelWidth : view === 'todo' ? setTodoPanelWidth : setInspectorWidth} />}
-        {view === 'canvas' ? null : view === 'todo' ? (
+        {panelKind && <Resizer panel="after" cssVar="--panel-w" onResize={panelKind === 'pr' ? setPrPanelWidth : panelKind === 'todo' ? setTodoPanelWidth : setInspectorWidth} />}
+        {view === 'canvas' ? (
+          canvasPanel?.node ?? null
+        ) : view === 'todo' ? (
           selected?.kind === 'todo' ? (
-            <TodoPanel
-              key={selected.todo.id}
-              item={selected}
-              todos={todoStore.todos}
-              onShowTodo={showTodo}
-              labels={todoStore.labels}
-              lanes={laneById}
-              now={now}
-              onRun={runTodo}
-              onStart={() => startForTodo(selected)}
-              onOpenSession={(lane, session) => open(lane, session.openTarget)}
-              onShowLane={focusLane}
-              onLaneMenu={(lane) => laneMenu(lane)}
-              onSessionMenu={(lane, s) => sessionMenu(lane, s, 'worktree')}
-              onLinkMenu={(at) => todoLinkMenu(selected, at)}
-              onMoreMenu={(at) => todoMoreMenu(selected, at)}
-              onLabelMenu={labelMenu}
-              onError={setToast}
-              hint={board?.jev?.todos ? board.todoHints?.[selected.todo.id] : null}
-              onDismissHint={() => void dismissTodoHint(selected.todo.id)}
-              suggest={!!board?.jev?.todos}
-              projects={todoProjects}
-            />
+            todoPanel(selected)
           ) : (
             <aside className="ca-insp ca-insp--empty">
               <p>{projectTodos.length ? 'Select a todo to see its description, labels and the sessions on it.' : 'Todos are work you mean to hand an agent. Add one on the left.'}</p>
@@ -1702,34 +1778,14 @@ export function App() {
           )
         ) : view === 'prs' ? (
           selected?.kind === 'pr' ? (
-            <PrInspector
-              key={selected.pr.key}
-              item={selected}
-              now={now}
-              approving={approving.has(selected.pr.key)}
-              onApprove={() => approve(selected.pr)}
-              onOpenSession={(lane, session) => open(lane, session.openTarget)}
-              onShowLane={focusLane}
-              onLaneMenu={laneMenu}
-              onSessionMenu={(lane, s) => sessionMenu(lane, s, 'worktree')}
-            />
+            prPanel(selected)
           ) : (
             <aside className="ca-insp ca-insp--empty">
               <p>Select a PR to see its description, reviews and changes.</p>
             </aside>
           )
         ) : (
-          <Inspector
-            lane={selectedLane}
-            focusKey={selected?.kind === 'agent' ? selected.session.key : null}
-            apps={board?.apps ?? { terminal: 'Terminal', terminalId: '', editor: 'Editor', editorId: '' }}
-            now={now}
-            onOpen={(id) => open(selectedLane, id)}
-            onNewSession={() => selectedLane && newSession({ laneId: selectedLane.id })}
-            todos={selectedLane ? todoLinks.byLane.get(selectedLane.id) : undefined}
-            todosFor={(k) => todoLinks.bySession.get(k)}
-            onShowTodo={showTodo}
-          />
+          inspector(selectedLane, selected?.kind === 'agent' ? selected.session.key : null)
         )}
       </div>
       {settings && (

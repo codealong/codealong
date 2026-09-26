@@ -19,7 +19,6 @@ import {
   bounds,
   CARD_W,
   contains,
-  homeLane,
   itemId,
   links,
   overlaps,
@@ -84,8 +83,8 @@ export interface CanvasViewProps {
   onUndo: (message: string, undo: () => void, icon?: string) => void;
   /** The canvas's keys; true when it took the key. The window calls this before its own. */
   keys: MutableRefObject<(e: KeyboardEvent) => boolean>;
-  /** The worktree of the one card selected, for ⌘N. */
-  onSelectLane: (laneId: string | null) => void;
+  /** The one card selected, for the panel beside the canvas and ⌘N; null for none, several, or a note or frame. */
+  onSelectItem: (it: RefItem | null) => void;
 }
 
 function readColors() {
@@ -113,7 +112,7 @@ const cx = (...parts: (string | false | null | undefined)[]) => parts.filter(Boo
 const clamp = (z: number) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z));
 
 export function CanvasView(props: CanvasViewProps) {
-  const { doc, update, entities, pinned, labels, todos, now, terminal, theme, project, focus, onOpen, menuFor, onToast, onUndo, keys, onSelectLane } = props;
+  const { doc, update, entities, pinned, labels, todos, now, terminal, theme, project, focus, onOpen, menuFor, onToast, onUndo, keys, onSelectItem } = props;
   const rootRef = useRef<HTMLDivElement>(null);
   const worldRef = useRef<HTMLDivElement>(null);
   const glCanvas = useRef<HTMLCanvasElement>(null);
@@ -854,11 +853,14 @@ export function CanvasView(props: CanvasViewProps) {
     };
   }, []);
 
-  // ⌘N starts in the selected card's worktree.
+  // The window shows the selected card's panel. Only a change of card counts, not its moving.
+  const selectedRef = selection.size === 1 ? byId.get([...selection][0]) : undefined;
+  const selectedId = selectedRef?.kind === 'ref' ? itemId(selectedRef) : null;
   useEffect(() => {
-    const only = selection.size === 1 ? byId.get([...selection][0]) : undefined;
-    onSelectLane(only?.kind === 'ref' ? homeLane(entities, only.ref, only.key) : null);
-  }, [selection, byId, entities, onSelectLane]);
+    onSelectItem(selectedRef?.kind === 'ref' ? selectedRef : null);
+    // selectedRef changes as the card moves; the id is what matters.
+  }, [selectedId, onSelectItem]);
+  useEffect(() => () => onSelectItem(null), [onSelectItem]);
 
   /* ---- Drawing ---- */
 
