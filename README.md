@@ -71,13 +71,16 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   - **Canvas**: the project's work laid out in space, to remember by where it is. Worktrees,
     sessions, todos and PRs are compact cards (status, title, where it stands); hover one for
     the rest, double-click to open it where it lives, right-click for its usual menu. Recent
-    work comes on by itself: worktrees active in the last 3 days, sessions running or active
-    in the last day, open todos. A new one lands beside what it belongs to and nothing else
-    moves; what you move or add stays, and what you take off doesn't come back by itself. Add
-    older things from Add in the toolbar, a right-click on the canvas, or Add to canvas in any
-    row's menu. Notes (`n`) and frames (`f`) organize it; a frame carries what's in it. Tidy
-    lays the rest out in columns, one per worktree, in a frame per repo or per day, and keeps
-    the frames you drew or renamed. Controls follow Figma: scroll or Space-drag to pan, pinch
+    work comes on by itself: sessions active in the last day (24h, 3d, 7d or all, chosen in
+    Tidy) and any that's working or needs you, open todos (changed or worked on in the last
+    7 or 30 days, every open one, or none), and the worktrees they're in. A new one lands
+    beside what it belongs to and nothing else moves; what you move or add stays, and what you
+    take off doesn't come back by itself. Add older things from Add in the toolbar, a
+    right-click on the canvas, or Add to canvas in any row's menu. Notes (`n`) and frames
+    (`f`) organize it; a frame carries what's in it. Tidy lays the cards out in columns, one
+    per worktree, in a frame per repo or per day, and takes off cards older than its ages,
+    kept or not, which is how the sessions you never archived leave; its panel says what
+    would come off and on first. Frames you drew or renamed stay, with what's in them. Controls follow Figma: scroll or Space-drag to pan, pinch
     or ⌘-scroll to zoom, ⇧1 fit all, ⇧2 the selection, ⇧0 100%. Zoomed out, cards become
     blocks in their status color drawn by the GPU (WebGL2).
 - **Open where it lives**: the session's own Ghostty tab, the Claude app session, the Codex

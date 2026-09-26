@@ -1528,6 +1528,7 @@ export function App() {
               doc={canvas.doc}
               update={canvas.update}
               entities={canvasEntities}
+              pinned={lanePins.set}
               labels={labelById}
               todos={todoStore.todos}
               now={now}

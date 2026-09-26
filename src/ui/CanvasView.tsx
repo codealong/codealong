@@ -25,8 +25,8 @@ import {
   overlaps,
   rectOf,
   refId,
-  TIDY_WORD,
   tidy,
+  tidyPlan,
   titleOf,
   type Camera,
   type CanvasDoc,
@@ -37,11 +37,13 @@ import {
   type Rect,
   type RefItem,
   type RefKind,
-  type TidyMode,
+  type Scope,
+  type TidyPlan,
 } from '../canvas/model';
 import { COLOR_WORD, newId } from '../todos';
 import { LABEL_COLORS, type Label, type LabelColor, type Theme, type Todo } from '../types';
 import { CanvasCard, CardDetail, cardData, cardSig } from './CanvasCard';
+import { TidyPanel, tidySummary } from './CanvasTidy';
 import { Icon } from './primitives';
 
 /** At or above this zoom, cards are HTML you can read; below it, blocks on the GPU. */
@@ -63,6 +65,8 @@ export interface CanvasViewProps {
   doc: CanvasDoc;
   update: (fn: (doc: CanvasDoc) => CanvasDoc) => void;
   entities: Entities;
+  /** Pinned worktrees, which stay on the canvas whatever their age. */
+  pinned: Set<string>;
   labels: Map<string, Label>;
   todos: Todo[];
   now: number;
@@ -108,7 +112,7 @@ const cx = (...parts: (string | false | null | undefined)[]) => parts.filter(Boo
 const clamp = (z: number) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z));
 
 export function CanvasView(props: CanvasViewProps) {
-  const { doc, update, entities, labels, todos, now, terminal, theme, project, focus, onOpen, menuFor, onToast, onUndo, keys, onSelectLane } = props;
+  const { doc, update, entities, pinned, labels, todos, now, terminal, theme, project, focus, onOpen, menuFor, onToast, onUndo, keys, onSelectLane } = props;
   const rootRef = useRef<HTMLDivElement>(null);
   const worldRef = useRef<HTMLDivElement>(null);
   const glCanvas = useRef<HTMLCanvasElement>(null);
@@ -401,14 +405,16 @@ export function CanvasView(props: CanvasViewProps) {
     onUndo(message, () => update(() => before));
   }, [selection, doc, byId, update, entities, onUndo]);
 
+  const [tidyOpen, setTidyOpen] = useState(false);
   const runTidy = useCallback(
-    (mode: TidyMode) => {
+    (scope: Scope, plan: TidyPlan) => {
       const before = doc;
-      update((d) => tidy(d, entities, mode, Date.now()));
-      onUndo(`${TIDY_WORD[mode]}: done.`, () => update(() => before), 'layout-grid');
+      update((d) => tidy(d, entities, Date.now(), pinned, scope));
+      onUndo(`Tidied. ${tidySummary(plan).replace(/^Nothing.*$/, '')}`.trim(), () => update(() => before), 'layout-grid');
+      setTidyOpen(false);
       fitted.current = false;
     },
-    [doc, update, entities, onUndo],
+    [doc, update, entities, pinned, onUndo],
   );
   // After a tidy, the whole canvas comes into view.
   useEffect(() => {
@@ -478,7 +484,8 @@ export function CanvasView(props: CanvasViewProps) {
 
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     const target = e.target as HTMLElement;
-    if (target.closest('.ca-cv-toolbar, .ca-cv-popover, textarea, input')) return;
+    if (target.closest('.ca-cv-toolbar, .ca-cv-popover, .ca-cv-tidy, textarea, input')) return;
+    setTidyOpen(false);
     if (e.button === 2) return;
     rootRef.current?.focus({ preventScroll: true });
     const p = toWorld(e.clientX, e.clientY);
@@ -618,7 +625,7 @@ export function CanvasView(props: CanvasViewProps) {
 
   const onDoubleClick = (e: ReactMouseEvent) => {
     const target = e.target as HTMLElement;
-    if (target.closest('.ca-cv-toolbar, textarea, input')) return;
+    if (target.closest('.ca-cv-toolbar, .ca-cv-tidy, textarea, input')) return;
     const frameTitle = target.closest<HTMLElement>('[data-frame]');
     if (frameTitle) {
       setEditing(frameTitle.dataset.frame ?? null);
@@ -633,7 +640,7 @@ export function CanvasView(props: CanvasViewProps) {
   const onContextMenu = (e: ReactMouseEvent) => {
     e.preventDefault();
     const target = e.target as HTMLElement;
-    if (target.closest('.ca-cv-toolbar, textarea, input')) return;
+    if (target.closest('.ca-cv-toolbar, .ca-cv-tidy, textarea, input')) return;
     const p = toWorld(e.clientX, e.clientY);
     const frameTitle = target.closest<HTMLElement>('[data-frame]');
     const hit = frameTitle ? (byId.get(frameTitle.dataset.frame ?? '') ?? null) : pick(p.x, p.y);
@@ -654,8 +661,8 @@ export function CanvasView(props: CanvasViewProps) {
       { label: 'Add frame here', run: () => addFrame({ x: p.x, y: p.y, w: 560, h: 360 }) },
       { label: 'Add to canvas', items: addItems({ x: p.x, y: p.y }) },
       'separator',
-      { label: TIDY_WORD.worktree, run: () => runTidy('worktree') },
-      { label: TIDY_WORD.time, run: () => runTidy('time') },
+      { label: 'Tidy up', run: () => runTidy(doc.scope, tidyPlan(doc, entities, now, pinned, doc.scope)) },
+      { label: 'Tidy…', run: () => setTidyOpen(true) },
       'separator',
       { label: 'Zoom to fit', run: fitAll },
     ]);
@@ -748,6 +755,12 @@ export function CanvasView(props: CanvasViewProps) {
       if (!e.repeat) setSpaceHeld(true);
       return true;
     }
+    if (tidyOpen && e.key === 'Escape') {
+      setTidyOpen(false);
+      return true;
+    }
+    // Return presses the panel's focused button.
+    if (tidyOpen && e.key === 'Enter') return false;
     if (e.key === 'Escape') {
       if (tool !== 'select') setTool('select');
       else setSelection(new Set());
@@ -953,6 +966,7 @@ export function CanvasView(props: CanvasViewProps) {
           <CardDetail item={popItem} data={data.get(itemId(popItem)) ?? null} now={now} terminal={terminal} todos={todos} />
         </div>
       )}
+      {tidyOpen && <TidyPanel doc={doc} entities={entities} now={now} pinned={pinned} onTidy={runTidy} onClose={() => setTidyOpen(false)} />}
       <div className="ca-cv-toolbar" role="toolbar" aria-label="Canvas tools" onDoubleClick={(e) => e.stopPropagation()}>
         <button type="button" className={cx('ca-cv-tool', tool === 'note' && 'is-on')} title="Note (N): click where it goes" aria-pressed={tool === 'note'} onClick={() => setTool(tool === 'note' ? 'select' : 'note')}>
           <Icon name="note" size={16} />
@@ -964,20 +978,13 @@ export function CanvasView(props: CanvasViewProps) {
         <button
           type="button"
           className="ca-cv-tool is-wide"
-          title="Lay the canvas out again. Frames you drew or renamed stay where they are, with what's in them."
-          onClick={(e) => {
-            const r = e.currentTarget.getBoundingClientRect();
-            void showContextMenu(
-              [
-                { label: TIDY_WORD.worktree, run: () => runTidy('worktree') },
-                { label: TIDY_WORD.time, run: () => runTidy('time') },
-              ],
-              { x: r.left, y: r.top - 64 },
-            ).catch((err: unknown) => onToast(String(err)));
-          }}
+          title="Lay the canvas out again, and choose how far back its sessions and todos go"
+          aria-expanded={tidyOpen}
+          onClick={() => setTidyOpen(!tidyOpen)}
         >
           <Icon name="layout-grid" size={15} />
           <span>Tidy</span>
+          <Icon name="chevron-down" size={12} />
         </button>
         <button
           type="button"

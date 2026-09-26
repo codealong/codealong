@@ -26,7 +26,7 @@ export interface CanvasHandle {
 
 /** The first document for a project: what's recent, tidied by worktree. */
 function seed(e: Entities, now: number, pinned: Set<string>): CanvasDoc {
-  return tidy(sync(emptyDoc(), e, now, pinned), e, 'worktree', now);
+  return tidy(sync(emptyDoc(), e, now, pinned), e, now, pinned);
 }
 
 export function useCanvas(project: string, shown: boolean, e: Entities, now: number, pinned: Set<string>): CanvasHandle {

@@ -63,7 +63,40 @@ export interface CanvasDoc {
   /** Ids of recent things you took off the canvas, so they don't come back by themselves. */
   hidden: string[];
   camera: Camera | null;
+  /** What the canvas holds by itself, and how the last tidy laid it out. */
+  scope: Scope;
 }
+
+/** How far back finished sessions go on the canvas. Busy ones are always on it. */
+export type SessionAge = '1d' | '3d' | '7d' | 'all';
+/** Which todos are on the canvas: open ones changed in the last week or month, every open one, or none. */
+export type TodoAge = '7d' | '30d' | 'open' | 'none';
+
+export interface Scope {
+  sessions: SessionAge;
+  todos: TodoAge;
+  layout: TidyMode;
+}
+
+export const DEFAULT_SCOPE: Scope = { sessions: '1d', todos: 'open', layout: 'worktree' };
+
+export const SESSION_AGES: { id: SessionAge; label: string; title: string }[] = [
+  { id: '1d', label: '24h', title: 'Active in the last 24 hours' },
+  { id: '3d', label: '3d', title: 'Active in the last 3 days' },
+  { id: '7d', label: '7d', title: 'Active in the last 7 days' },
+  { id: 'all', label: 'All', title: 'Every session on the board: the last 14 days' },
+];
+
+export const TODO_AGES: { id: TodoAge; label: string; title: string }[] = [
+  { id: '7d', label: '7d', title: 'Open todos changed or worked on in the last 7 days' },
+  { id: '30d', label: '30d', title: 'Open todos changed or worked on in the last 30 days' },
+  { id: 'open', label: 'Open', title: 'Every open todo' },
+  { id: 'none', label: 'None', title: 'No todos' },
+];
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const SESSION_MS: Record<SessionAge, number> = { '1d': DAY_MS, '3d': 3 * DAY_MS, '7d': 7 * DAY_MS, all: Infinity };
+const TODO_MS: Record<TodoAge, number> = { '7d': 7 * DAY_MS, '30d': 30 * DAY_MS, open: Infinity, none: -1 };
 
 export interface Rect {
   x: number;
@@ -81,15 +114,11 @@ export const COL_GAP = 28;
 export const FRAME_PAD = 24;
 /** Between frames when a tidy packs them: room for a frame's name, which sits above it. */
 export const FRAME_GAP = 160;
-/** How recently a worktree must have been active to come onto the canvas by itself. */
-export const RECENT_MS = 3 * 24 * 60 * 60 * 1000;
-/** A session that's finished comes on by itself only for a day; a main checkout gathers dozens. */
-export const RECENT_SESSION_MS = 24 * 60 * 60 * 1000;
 /** Cards in a column under a worktree before it continues in the next column. */
 export const COLUMN_MAX = 8;
 
 export function emptyDoc(): CanvasDoc {
-  return { version: 1, items: [], hidden: [], camera: null };
+  return { version: 1, items: [], hidden: [], camera: null, scope: DEFAULT_SCOPE };
 }
 
 /** A saved document as read back, with anything missing or malformed dropped. */
@@ -107,6 +136,14 @@ export function readDoc(raw: unknown): CanvasDoc {
     });
   }
   if (Array.isArray(r.hidden)) doc.hidden = r.hidden.filter((h): h is string => typeof h === 'string');
+  const sc = r.scope as Partial<Scope> | undefined;
+  if (sc && typeof sc === 'object') {
+    doc.scope = {
+      sessions: SESSION_AGES.some((a) => a.id === sc.sessions) ? (sc.sessions as SessionAge) : DEFAULT_SCOPE.sessions,
+      todos: TODO_AGES.some((a) => a.id === sc.todos) ? (sc.todos as TodoAge) : DEFAULT_SCOPE.todos,
+      layout: sc.layout === 'time' ? 'time' : 'worktree',
+    };
+  }
   if (r.camera && num(r.camera.x) && num(r.camera.y) && num(r.camera.zoom) && r.camera.zoom > 0) doc.camera = r.camera;
   return doc;
 }
@@ -216,47 +253,42 @@ export function lastActivityOf(e: Entities, ref: RefKind, key: string): number {
 }
 
 /**
- * What comes onto the canvas by itself: worktrees and sessions active in the last few days or
- * running now, pinned worktrees, and open todos. PRs show on their worktree's card, so they come
- * on only when you add them. In the order they're placed: worktrees first, so the rest can land
- * beside them.
+ * What the canvas holds by itself, in the order it's placed (worktrees first, so the rest can
+ * land beside them): sessions active within the scope's age, and any busy one (working, or
+ * waiting on you); open todos within theirs, counting their sessions' activity; worktrees that
+ * are pinned, running something, active within the sessions' age, or home to a session or todo
+ * on the canvas. PRs show on their worktree's card, so they come on only when you add them.
  */
-export function recentRefs(e: Entities, now: number, pinned: Set<string> = new Set()): { ref: RefKind; key: string }[] {
-  const since = now - RECENT_MS;
-  const out: { ref: RefKind; key: string }[] = [];
-  const lanes = [...e.lanes.values()].filter((l) => pinned.has(l.id) || l.lastActivity >= since || l.sessions.some((s) => s.live && !s.visitor));
-  lanes.sort((a, b) => a.repo.localeCompare(b.repo) || b.lastActivity - a.lastActivity);
-  for (const l of lanes) out.push({ ref: 'worktree', key: l.id });
-  const sessions = [...e.sessions.values()].filter(({ session: s }) => sessionRecent(s, now));
+export function recentRefs(e: Entities, now: number, pinned: Set<string> = new Set(), scope: Scope = DEFAULT_SCOPE): { ref: RefKind; key: string }[] {
+  const since = now - SESSION_MS[scope.sessions];
+  const sessions = [...e.sessions.values()].filter(({ session: s }) => sessionIn(s, since));
   sessions.sort((a, b) => b.session.lastPromptAt - a.session.lastPromptAt);
-  for (const s of sessions) out.push({ ref: 'session', key: s.session.key });
-  for (const t of e.todos.values()) if (t.status !== 'done') out.push({ ref: 'todo', key: t.id });
-  return out;
-}
-
-function sessionRecent(s: Session, now: number): boolean {
-  return s.live || s.status === 'needs' || s.status === 'unread' || s.status === 'working' || s.lastActivity >= now - RECENT_SESSION_MS;
-}
-
-/** Whether a thing is still recent enough to stay on the canvas without your having kept it. */
-function stillRecent(e: Entities, ref: RefKind, key: string, now: number, pinned: Set<string>): boolean {
-  const since = now - RECENT_MS;
-  switch (ref) {
-    case 'worktree': {
-      const l = e.lanes.get(key);
-      return !!l && (pinned.has(l.id) || l.lastActivity >= since || l.sessions.some((s) => s.live && !s.visitor));
-    }
-    case 'session': {
-      const s = e.sessions.get(key)?.session;
-      return !!s && sessionRecent(s, now);
-    }
-    case 'todo': {
-      const t = e.todos.get(key);
-      return !!t && t.status !== 'done';
-    }
-    case 'pr':
-      return false;
+  const todos = [...e.todos.values()].filter((t) => todoIn(e, t, now, scope.todos));
+  const homes = new Set<string>();
+  for (const s of sessions) homes.add(s.lane.id);
+  for (const t of todos) {
+    const home = homeLane(e, 'todo', t.id);
+    if (home) homes.add(home);
   }
+  const lanes = [...e.lanes.values()].filter((l) => pinned.has(l.id) || homes.has(l.id) || l.lastActivity >= since || l.sessions.some((s) => s.live && !s.visitor));
+  lanes.sort((a, b) => a.repo.localeCompare(b.repo) || b.lastActivity - a.lastActivity);
+  return [
+    ...lanes.map((l) => ({ ref: 'worktree' as const, key: l.id })),
+    ...sessions.map((s) => ({ ref: 'session' as const, key: s.session.key })),
+    ...todos.map((t) => ({ ref: 'todo' as const, key: t.id })),
+  ];
+}
+
+/** A finished session that was never archived is still "unread" or idle; only busy ones outlast the age. */
+function sessionIn(s: Session, since: number): boolean {
+  return s.live || s.status === 'working' || s.status === 'needs' || s.status === 'error' || s.lastActivity >= since;
+}
+
+function todoIn(e: Entities, t: Todo, now: number, age: TodoAge): boolean {
+  if (t.status === 'done' || age === 'none') return false;
+  if (age === 'open') return true;
+  const worked = Math.max(t.updatedAt, ...t.sessions.map((k) => e.sessions.get(k)?.session.lastActivity ?? 0));
+  return worked >= now - TODO_MS[age];
 }
 
 /**
@@ -266,8 +298,10 @@ function stillRecent(e: Entities, ref: RefKind, key: string, now: number, pinned
  */
 export function sync(doc: CanvasDoc, e: Entities, now: number, pinned: Set<string> = new Set()): CanvasDoc {
   let changed = false;
+  const recent = recentRefs(e, now, pinned, doc.scope);
+  const wanted = new Set(recent.map((r) => refId(r.ref, r.key)));
   const items = doc.items.filter((it) => {
-    if (it.kind !== 'ref' || it.kept || stillRecent(e, it.ref, it.key, now, pinned)) return true;
+    if (it.kind !== 'ref' || it.kept || wanted.has(itemId(it))) return true;
     changed = true;
     return false;
   });
@@ -283,7 +317,7 @@ export function sync(doc: CanvasDoc, e: Entities, now: number, pinned: Set<strin
   const have = new Set(items.map(itemId));
   const hidden = new Set(doc.hidden);
   let next: CanvasDoc = changed ? { ...doc, items } : doc;
-  for (const r of recentRefs(e, now, pinned)) {
+  for (const r of recent) {
     const id = refId(r.ref, r.key);
     if (have.has(id) || hidden.has(id)) continue;
     next = addRef(next, e, r.ref, r.key, null, false);
@@ -402,24 +436,57 @@ function dayKey(ts: number): string {
   return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
 }
 
-/**
- * Lays the canvas out again. Frames you drew stay where they are with everything in them, and so
- * do notes outside them; the frames the last tidy made are replaced. Every other card goes into
- * a column with its worktree, and the columns into frames: one per repo, or one per day of last
- * activity. Frames are packed in rows, most recent first, below what stayed.
- */
-export function tidy(doc: CanvasDoc, e: Entities, mode: TidyMode, now: number): CanvasDoc {
+export interface TidyPlan {
+  /** Notes, frames you drew, and everything in those frames: left where they are. */
+  stay: CanvasItem[];
+  /** Cards to lay out. */
+  move: RefItem[];
+  /** Cards outside your frames older than the scope: they come off (and come back if they're active again). */
+  dropped: RefItem[];
+  /** Things within the scope that aren't on the canvas yet (and weren't taken off by hand). */
+  added: RefItem[];
+}
+
+/** What a tidy with `scope` keeps, takes off and brings on, before it lays anything out. */
+export function tidyPlan(doc: CanvasDoc, e: Entities, now: number, pinned: Set<string>, scope: Scope): TidyPlan {
   const mine = doc.items.filter((it): it is FrameItem => it.kind === 'frame' && !it.auto);
   const inMine = (it: CanvasItem) => mine.some((f) => f !== it && contains(rectOf(f), rectOf(it)));
-  const stay: CanvasItem[] = [];
-  const move: RefItem[] = [];
+  const recent = recentRefs(e, now, pinned, scope);
+  const wanted = new Set(recent.map((r) => refId(r.ref, r.key)));
+  const plan: TidyPlan = { stay: [], move: [], dropped: [], added: [] };
   for (const it of doc.items) {
     if (it.kind === 'frame') {
-      if (!it.auto) stay.push(it);
-    } else if (it.kind === 'note' || inMine(it)) stay.push(it);
-    else move.push(it);
+      if (!it.auto) plan.stay.push(it);
+    } else if (it.kind === 'note' || inMine(it)) plan.stay.push(it);
+    // A PR is on the canvas only because you put it there.
+    else if (wanted.has(itemId(it)) || (it.ref === 'pr' && e.prs.has(it.key))) plan.move.push(it);
+    else plan.dropped.push(it);
   }
-  if (move.length === 0) return { ...doc, items: stay };
+  const have = new Set(doc.items.map(itemId));
+  const hidden = new Set(doc.hidden);
+  for (const r of recent) {
+    const id = refId(r.ref, r.key);
+    if (have.has(id) || hidden.has(id)) continue;
+    const title = titleOf(e, r.ref, r.key) ?? undefined;
+    plan.added.push({ kind: 'ref', ref: r.ref, key: r.key, x: 0, y: 0, ...(title ? { title } : {}) });
+  }
+  return plan;
+}
+
+/**
+ * Lays the canvas out again, holding what `scope` says. Frames you drew stay where they are with
+ * everything in them, and so do notes outside them; the frames the last tidy made are replaced.
+ * Cards older than the scope come off, whether or not you kept them, and cards within it come
+ * on. Every card goes into a column with its worktree, and the columns into frames: one per
+ * repo, or one per day of last activity. Frames are packed in rows, most recent first, below
+ * what stayed.
+ */
+export function tidy(doc: CanvasDoc, e: Entities, now: number, pinned: Set<string> = new Set(), scope: Scope = doc.scope): CanvasDoc {
+  const mode = scope.layout;
+  const plan = tidyPlan(doc, e, now, pinned, scope);
+  const stay = plan.stay;
+  const move = [...plan.move, ...plan.added];
+  if (move.length === 0) return { ...doc, items: stay, scope };
 
   // Columns, one per worktree; things with none share a column per kind.
   const columns = new Map<string, Column>();
@@ -516,7 +583,7 @@ export function tidy(doc: CanvasDoc, e: Entities, mode: TidyMode, now: number): 
     x += l.w + FRAME_GAP;
     rowH = Math.max(rowH, l.h);
   }
-  return { ...doc, items: [...frames, ...stay, ...cards] };
+  return { ...doc, items: [...frames, ...stay, ...cards], scope };
 }
 
 /* ---- Links between cards ---- */

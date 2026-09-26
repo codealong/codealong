@@ -4322,3 +4322,47 @@ html.is-quick body {
   margin: 0 4px;
   background: var(--line);
 }
+
+/* Tidy's panel, above the toolbar. */
+.ca-cv-tidy {
+  position: absolute;
+  left: 50%;
+  bottom: 64px;
+  z-index: 6;
+  display: grid;
+  gap: 10px;
+  width: 400px;
+  box-sizing: border-box;
+  padding: 14px 16px 12px;
+  transform: translateX(-50%);
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-popover);
+  color: var(--ink);
+  font: 400 13px/18px var(--font-sans);
+}
+.ca-cv-tidy-grid {
+  display: grid;
+  grid-template-columns: 72px auto;
+  align-items: center;
+  justify-items: start;
+  gap: 8px 12px;
+}
+.ca-cv-tidy p {
+  margin: 0;
+}
+.ca-cv-tidy-sum {
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  color: var(--ink);
+}
+.ca-cv-tidy-hint {
+  color: var(--ink-3);
+  font-size: 12px;
+  line-height: 16px;
+}
+.ca-cv-tidy-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { newTodo } from '../todos';
 import type { Lane, Session, Todo } from '../types';
-import { addRef, CARD_H, CARD_W, COLUMN_MAX, emptyDoc, entitiesOf, freeSpot, itemId, links, overlaps, readDoc, rectOf, RECENT_MS, refId, sync, tidy, type CanvasDoc, type FrameItem, type RefItem } from './model';
+import { addRef, CARD_H, CARD_W, COLUMN_MAX, emptyDoc, entitiesOf, freeSpot, itemId, links, overlaps, readDoc, rectOf, DEFAULT_SCOPE, refId, sync, tidy, tidyPlan, type CanvasDoc, type FrameItem, type RefItem } from './model';
 
 const NOW = 1_790_000_000_000;
 const DAY = 24 * 60 * 60 * 1000;
@@ -114,9 +114,10 @@ describe('sync', () => {
     let d = sync(emptyDoc(), e, NOW);
     d = { ...d, items: d.items.map((it) => (itemId(it) === 'session:s3' ? { ...it, kept: true } : it)), hidden: ['worktree:b'] };
     d = { ...d, items: d.items.filter((it) => itemId(it) !== 'worktree:b') };
-    const later = NOW + RECENT_MS + DAY;
+    const later = NOW + 2 * DAY;
     const d2 = sync(d, e, later);
-    expect(refs(d2).map(itemId)).toEqual(['session:s3', 'todo:t1']);
+    // Worktree a stays: its open todo is still on the canvas.
+    expect(refs(d2).map(itemId)).toEqual(['worktree:a', 'session:s3', 'todo:t1']);
   });
 });
 
@@ -141,7 +142,7 @@ describe('tidy', () => {
   const e = ents(lanes, [todo('t1', { worktrees: ['b'] }), todo('loose')]);
 
   it('makes a frame per repo with each worktree in a column, and nothing overlapping', () => {
-    const d = tidy(sync(emptyDoc(), e, NOW), e, 'worktree', NOW);
+    const d = tidy(sync(emptyDoc(), e, NOW), e, NOW);
     const frames = d.items.filter((it): it is FrameItem => it.kind === 'frame');
     expect(frames.map((f) => f.title).sort()).toEqual(['Not in a worktree', 'app', 'site']);
     const cards = refs(d);
@@ -156,7 +157,7 @@ describe('tidy', () => {
   it('continues a long column beside its worktree rather than down the canvas', () => {
     const many = lane('main', Array.from({ length: 20 }, (_, i) => session(`m${i}`, { lastActivity: NOW - i * 1000, lastPromptAt: NOW - i * 1000 })));
     const e2 = ents([many]);
-    const d = tidy(sync(emptyDoc(), e2, NOW), e2, 'worktree', NOW);
+    const d = tidy(sync(emptyDoc(), e2, NOW), e2, NOW);
     const xs = new Map<number, number>();
     for (const c of refs(d)) if (c.ref === 'session') xs.set(c.x, (xs.get(c.x) ?? 0) + 1);
     expect([...xs.values()]).toEqual([COLUMN_MAX, COLUMN_MAX, 20 - 2 * COLUMN_MAX]);
@@ -167,17 +168,52 @@ describe('tidy', () => {
   });
 
   it('keeps your frames and what is in them, and replaces its own', () => {
-    let d = tidy(sync(emptyDoc(), e, NOW), e, 'worktree', NOW);
+    let d = tidy(sync(emptyDoc(), e, NOW), e, NOW);
     const s1 = at(d, 'session:s1') as RefItem;
     const mine: FrameItem = { kind: 'frame', id: 'frame-mine', title: 'Billing', x: s1.x - 20, y: s1.y - 20, w: CARD_W + 40, h: CARD_H.session + 40, color: 'green' };
     d = { ...d, items: [mine, ...d.items] };
-    const again = tidy(d, e, 'time', NOW);
+    const again = tidy(d, e, NOW, new Set(), { ...DEFAULT_SCOPE, layout: 'time' });
     expect(at(again, 'frame-mine')).toEqual(mine);
     expect(at(again, 'session:s1')).toMatchObject({ x: s1.x, y: s1.y });
     const autos = again.items.filter((it) => it.kind === 'frame' && it.auto);
     expect(autos.map((f) => (f as FrameItem).title)).toEqual(['Today']);
     // Laid out below what stayed.
     for (const c of refs(again)) if (itemId(c) !== 'session:s1') expect(c.y).toBeGreaterThan(mine.y + mine.h);
+  });
+});
+
+describe('tidy with ages', () => {
+  const fresh = session('fresh');
+  const week = session('week', { lastActivity: NOW - 5 * DAY, lastPromptAt: NOW - 5 * DAY, status: 'unread' });
+  const busy = session('busy', { lastActivity: NOW - 9 * DAY, status: 'working' });
+  const lanes = [lane('a', [fresh, busy]), lane('b', [week], { lastActivity: NOW - 5 * DAY })];
+  const todos = [todo('new'), todo('stale', { updatedAt: NOW - 20 * DAY }), todo('worked', { updatedAt: NOW - 20 * DAY, sessions: ['fresh'] })];
+  const e = ents(lanes, todos);
+
+  it('takes older sessions off, kept or not, but never busy ones', () => {
+    let d = tidy(emptyDoc(), e, NOW, new Set(), { ...DEFAULT_SCOPE, sessions: '7d' });
+    expect(refs(d).map(itemId).sort()).toEqual(['session:busy', 'session:fresh', 'session:week', 'todo:new', 'todo:stale', 'todo:worked', 'worktree:a', 'worktree:b']);
+    d = { ...d, items: d.items.map((it) => (it.kind === 'ref' ? { ...it, kept: true } : it)) };
+    const plan = tidyPlan(d, e, NOW, new Set(), { ...DEFAULT_SCOPE, sessions: '1d', todos: '7d' });
+    expect(plan.dropped.map(itemId).sort()).toEqual(['session:week', 'todo:stale', 'worktree:b']);
+    const after = tidy(d, e, NOW, new Set(), { ...DEFAULT_SCOPE, sessions: '1d', todos: '7d' });
+    expect(refs(after).map(itemId).sort()).toEqual(['session:busy', 'session:fresh', 'todo:new', 'todo:worked', 'worktree:a']);
+    // The ages stick: the next sync doesn't bring the old ones back.
+    expect(after.scope).toMatchObject({ sessions: '1d', todos: '7d' });
+    expect(sync(after, e, NOW)).toBe(after);
+  });
+
+  it('keeps a pinned worktree, and what sits in a frame you drew', () => {
+    const d = tidy(emptyDoc(), e, NOW, new Set(), { ...DEFAULT_SCOPE, sessions: '7d' });
+    const w = at(d, 'session:week') as RefItem;
+    const mine: FrameItem = { kind: 'frame', id: 'frame-mine', title: 'Later', x: w.x - 10, y: w.y - 10, w: CARD_W + 20, h: CARD_H.session + 20, color: 'blue' };
+    const plan = tidyPlan({ ...d, items: [mine, ...d.items] }, e, NOW, new Set(['b']), DEFAULT_SCOPE);
+    expect(plan.dropped.map(itemId)).toEqual([]);
+  });
+
+  it('shows no todos when asked for none', () => {
+    const d = tidy(emptyDoc(), e, NOW, new Set(), { ...DEFAULT_SCOPE, todos: 'none' });
+    expect(refs(d).filter((it) => it.ref === 'todo')).toEqual([]);
   });
 });
 
