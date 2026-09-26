@@ -80,7 +80,10 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     (`f`) organize it; a frame carries what's in it. Tidy lays the cards out in columns, one
     per worktree, in a frame per repo or per day, and takes off cards older than its ages,
     kept or not, which is how the sessions you never archived leave; its panel says what
-    would come off and on first. Frames you drew or renamed stay, with what's in them. Controls follow Figma: scroll or Space-drag to pan, pinch
+    would come off and on first. Frames you drew or renamed stay, with what's in them. Clear
+    canvas (in Tidy, or a right-click on the canvas) takes everything off; from then on a
+    session comes back when it moves on (a new prompt, a finished turn, a question for you) and
+    a todo when it changes, until Include older work in Tidy lifts that. Controls follow Figma: scroll or Space-drag to pan, pinch
     or ⌘-scroll to zoom, ⇧1 fit all, ⇧2 the selection, ⇧0 100%. Zoomed out, cards become
     blocks in their status color drawn by the GPU (WebGL2).
 - **Open where it lives**: the session's own Ghostty tab, the Claude app session, the Codex

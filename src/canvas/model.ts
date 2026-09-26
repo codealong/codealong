@@ -76,6 +76,8 @@ export interface Scope {
   sessions: SessionAge;
   todos: TodoAge;
   layout: TidyMode;
+  /** When you cleared the canvas: from then on only what moves on after it comes on by itself. */
+  clearedAt?: number;
 }
 
 export const DEFAULT_SCOPE: Scope = { sessions: '1d', todos: 'open', layout: 'worktree' };
@@ -142,6 +144,7 @@ export function readDoc(raw: unknown): CanvasDoc {
       sessions: SESSION_AGES.some((a) => a.id === sc.sessions) ? (sc.sessions as SessionAge) : DEFAULT_SCOPE.sessions,
       todos: TODO_AGES.some((a) => a.id === sc.todos) ? (sc.todos as TodoAge) : DEFAULT_SCOPE.todos,
       layout: sc.layout === 'time' ? 'time' : 'worktree',
+      ...(typeof sc.clearedAt === 'number' && Number.isFinite(sc.clearedAt) ? { clearedAt: sc.clearedAt } : {}),
     };
   }
   if (r.camera && num(r.camera.x) && num(r.camera.y) && num(r.camera.zoom) && r.camera.zoom > 0) doc.camera = r.camera;
@@ -261,16 +264,19 @@ export function lastActivityOf(e: Entities, ref: RefKind, key: string): number {
  */
 export function recentRefs(e: Entities, now: number, pinned: Set<string> = new Set(), scope: Scope = DEFAULT_SCOPE): { ref: RefKind; key: string }[] {
   const since = now - SESSION_MS[scope.sessions];
-  const sessions = [...e.sessions.values()].filter(({ session: s }) => sessionIn(s, since));
+  const cleared = scope.clearedAt ?? 0;
+  const sessions = [...e.sessions.values()].filter(({ session: s }) => sessionIn(s, since) && movedSince(s, cleared));
   sessions.sort((a, b) => b.session.lastPromptAt - a.session.lastPromptAt);
-  const todos = [...e.todos.values()].filter((t) => todoIn(e, t, now, scope.todos));
+  const todos = [...e.todos.values()].filter((t) => todoIn(e, t, now, scope.todos) && Math.max(t.createdAt, t.updatedAt) > cleared);
   const homes = new Set<string>();
   for (const s of sessions) homes.add(s.lane.id);
   for (const t of todos) {
     const home = homeLane(e, 'todo', t.id);
     if (home) homes.add(home);
   }
-  const lanes = [...e.lanes.values()].filter((l) => pinned.has(l.id) || homes.has(l.id) || l.lastActivity >= since || l.sessions.some((s) => s.live && !s.visitor));
+  const lanes = [...e.lanes.values()].filter(
+    (l) => homes.has(l.id) || ((pinned.has(l.id) || l.lastActivity >= since || l.sessions.some((s) => s.live && !s.visitor)) && l.lastActivity > cleared),
+  );
   lanes.sort((a, b) => a.repo.localeCompare(b.repo) || b.lastActivity - a.lastActivity);
   return [
     ...lanes.map((l) => ({ ref: 'worktree' as const, key: l.id })),
@@ -282,6 +288,23 @@ export function recentRefs(e: Entities, now: number, pinned: Set<string> = new S
 /** A finished session that was never archived is still "unread" or idle; only busy ones outlast the age. */
 function sessionIn(s: Session, since: number): boolean {
   return s.live || s.status === 'working' || s.status === 'needs' || s.status === 'error' || s.lastActivity >= since;
+}
+
+/** Whether a session did something after the canvas was cleared: a new prompt, or a turn that
+ *  ended or started waiting on you. A turn still running when you cleared isn't new. */
+function movedSince(s: Session, cleared: number): boolean {
+  return cleared === 0 || s.lastPromptAt > cleared || (s.statusSince ?? 0) > cleared;
+}
+
+/** Takes everything off the canvas; only what moves on from now comes back by itself. */
+export function clearDoc(doc: CanvasDoc, now: number): CanvasDoc {
+  return { ...doc, items: [], hidden: [], scope: { ...doc.scope, clearedAt: now } };
+}
+
+/** Lets what came before a clear come back within the ages again. */
+export function unclear(scope: Scope): Scope {
+  const { clearedAt: _, ...rest } = scope;
+  return rest;
 }
 
 function todoIn(e: Entities, t: Todo, now: number, age: TodoAge): boolean {

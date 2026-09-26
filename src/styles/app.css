@@ -4366,3 +4366,16 @@ html.is-quick body {
   justify-content: flex-end;
   gap: 6px;
 }
+.ca-cv-tidy-cleared {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  color: var(--ink-2);
+  font-size: 12px;
+  line-height: 16px;
+}
+.ca-cv-tidy-actions .ca-cv-tidy-clear {
+  margin-right: auto;
+  color: var(--alert);
+}

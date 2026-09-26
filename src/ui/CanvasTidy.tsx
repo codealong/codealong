@@ -3,7 +3,8 @@
 // Before you tidy, it says what would come off and what would come on.
 
 import { useMemo, useState } from 'react';
-import { SESSION_AGES, TODO_AGES, tidyPlan, type CanvasDoc, type Entities, type RefItem, type RefKind, type Scope, type TidyMode, type TidyPlan } from '../canvas/model';
+import { agoPhrase } from '../format';
+import { SESSION_AGES, TODO_AGES, tidyPlan, unclear, type CanvasDoc, type Entities, type RefItem, type RefKind, type Scope, type TidyMode, type TidyPlan } from '../canvas/model';
 
 const LAYOUTS: { id: TidyMode; label: string; title: string }[] = [
   { id: 'worktree', label: 'By worktree', title: 'A frame per repo, a column per worktree' },
@@ -45,10 +46,12 @@ interface TidyPanelProps {
   now: number;
   pinned: Set<string>;
   onTidy: (scope: Scope, plan: TidyPlan) => void;
+  /** Takes everything off; only what moves on afterwards comes back. */
+  onClear: () => void;
   onClose: () => void;
 }
 
-export function TidyPanel({ doc, entities, now, pinned, onTidy, onClose }: TidyPanelProps) {
+export function TidyPanel({ doc, entities, now, pinned, onTidy, onClear, onClose }: TidyPanelProps) {
   const [scope, setScope] = useState<Scope>(doc.scope);
   const plan = useMemo(() => tidyPlan(doc, entities, now, pinned, scope), [doc, entities, now, pinned, scope]);
   return (
@@ -65,9 +68,25 @@ export function TidyPanel({ doc, entities, now, pinned, onTidy, onClose }: TidyP
         <span className="ca-label">Todos</span>
         <Seg label="Todos" options={TODO_AGES} value={scope.todos} onPick={(todos) => setScope((s) => ({ ...s, todos }))} />
       </div>
+      {scope.clearedAt != null && (
+        <p className="ca-cv-tidy-cleared">
+          <span>Cleared {agoPhrase(scope.clearedAt, now)}: only what’s moved on since comes on.</span>
+          <button type="button" className="ca-linkbtn" onClick={() => setScope(unclear)}>
+            Include older work
+          </button>
+        </p>
+      )}
       <p className="ca-cv-tidy-sum">{tidySummary(plan)}</p>
       <p className="ca-cv-tidy-hint">Working sessions and ones that need you stay, whatever their age. Frames you drew keep what’s in them. New work comes on within these ages too.</p>
       <div className="ca-cv-tidy-actions">
+        <button
+          type="button"
+          className="ca-btn ca-btn--ghost ca-btn--sm ca-cv-tidy-clear"
+          title="Take everything off the canvas, notes and frames too. Sessions and todos come back as they move on: a new prompt, a finished turn, a change."
+          onClick={onClear}
+        >
+          Clear canvas
+        </button>
         <button type="button" className="ca-btn ca-btn--ghost ca-btn--sm" onClick={onClose}>
           Cancel
         </button>

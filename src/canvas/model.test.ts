@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { newTodo } from '../todos';
 import type { Lane, Session, Todo } from '../types';
-import { addRef, CARD_H, CARD_W, COLUMN_MAX, emptyDoc, entitiesOf, freeSpot, itemId, links, overlaps, readDoc, rectOf, DEFAULT_SCOPE, refId, sync, tidy, tidyPlan, type CanvasDoc, type FrameItem, type RefItem } from './model';
+import { addRef, CARD_H, clearDoc, unclear, CARD_W, COLUMN_MAX, emptyDoc, entitiesOf, freeSpot, itemId, links, overlaps, readDoc, rectOf, DEFAULT_SCOPE, refId, sync, tidy, tidyPlan, type CanvasDoc, type FrameItem, type RefItem } from './model';
 
 const NOW = 1_790_000_000_000;
 const DAY = 24 * 60 * 60 * 1000;
@@ -214,6 +214,31 @@ describe('tidy with ages', () => {
   it('shows no todos when asked for none', () => {
     const d = tidy(emptyDoc(), e, NOW, new Set(), { ...DEFAULT_SCOPE, todos: 'none' });
     expect(refs(d).filter((it) => it.ref === 'todo')).toEqual([]);
+  });
+});
+
+describe('clearing', () => {
+  const idle = session('idle', { lastPromptAt: NOW - 3000, statusSince: NOW - 2000 });
+  const running = session('running', { status: 'working', live: true, lastPromptAt: NOW - 3000, statusSince: NOW - 3000 });
+  const e = ents([lane('a', [idle]), lane('b', [running])], [todo('t', { worktrees: ['a'], createdAt: NOW - 5000, updatedAt: NOW - 5000 })]);
+
+  it('brings nothing straight back, not even what is running', () => {
+    const d = clearDoc(sync(emptyDoc(), e, NOW), NOW);
+    expect(d.items).toEqual([]);
+    expect(sync(d, e, NOW + 1000)).toBe(d);
+  });
+
+  it('brings back what moves on afterwards, with its worktree', () => {
+    const d = clearDoc(sync(emptyDoc(), e, NOW), NOW);
+    const later = NOW + 60_000;
+    const e2 = ents(
+      [lane('a', [session('idle', { lastPromptAt: later, lastActivity: later })]), lane('b', [session('running', { status: 'unread', live: true, lastPromptAt: NOW - 3000, statusSince: later, lastActivity: later })])],
+      [todo('t', { worktrees: ['a'], createdAt: NOW - 5000, updatedAt: NOW - 5000 })],
+    );
+    expect(refs(sync(d, e2, later)).map(itemId).sort()).toEqual(['session:idle', 'session:running', 'worktree:a', 'worktree:b']);
+    // Including older work again brings the todo back too.
+    const all = { ...d, scope: unclear(d.scope) };
+    expect(refs(sync(all, e2, later)).map(itemId)).toContain('todo:t');
   });
 });
 

@@ -27,6 +27,7 @@ import {
   refId,
   tidy,
   tidyPlan,
+  clearDoc,
   titleOf,
   type Camera,
   type CanvasDoc,
@@ -416,6 +417,14 @@ export function CanvasView(props: CanvasViewProps) {
     },
     [doc, update, entities, pinned, onUndo],
   );
+  const clearCanvas = useCallback(() => {
+    const before = doc;
+    update((d) => clearDoc(d, Date.now()));
+    setSelection(new Set());
+    setTidyOpen(false);
+    onUndo('Cleared the canvas. Work comes back as it moves on.', () => update(() => before), 'trash');
+  }, [doc, update, onUndo]);
+
   // After a tidy, the whole canvas comes into view.
   useEffect(() => {
     if (!fitted.current && fitAll()) fitted.current = true;
@@ -663,6 +672,7 @@ export function CanvasView(props: CanvasViewProps) {
       'separator',
       { label: 'Tidy up', run: () => runTidy(doc.scope, tidyPlan(doc, entities, now, pinned, doc.scope)) },
       { label: 'Tidy…', run: () => setTidyOpen(true) },
+      { label: 'Clear canvas', run: clearCanvas },
       'separator',
       { label: 'Zoom to fit', run: fitAll },
     ]);
@@ -958,7 +968,11 @@ export function CanvasView(props: CanvasViewProps) {
       </div>
       {items.length === 0 && (
         <div className="ca-cv-empty">
-          <p>Nothing recent in {project}. Right-click to add a worktree, a session or a note.</p>
+          <p>
+            {doc.scope.clearedAt != null
+              ? 'Cleared. Sessions and todos come on here as they move on; right-click to add one now.'
+              : `Nothing recent in ${project}. Right-click to add a worktree, a session or a note.`}
+          </p>
         </div>
       )}
       {popItem?.kind === 'ref' && popRect && (
@@ -966,7 +980,7 @@ export function CanvasView(props: CanvasViewProps) {
           <CardDetail item={popItem} data={data.get(itemId(popItem)) ?? null} now={now} terminal={terminal} todos={todos} />
         </div>
       )}
-      {tidyOpen && <TidyPanel doc={doc} entities={entities} now={now} pinned={pinned} onTidy={runTidy} onClose={() => setTidyOpen(false)} />}
+      {tidyOpen && <TidyPanel doc={doc} entities={entities} now={now} pinned={pinned} onTidy={runTidy} onClear={clearCanvas} onClose={() => setTidyOpen(false)} />}
       <div className="ca-cv-toolbar" role="toolbar" aria-label="Canvas tools" onDoubleClick={(e) => e.stopPropagation()}>
         <button type="button" className={cx('ca-cv-tool', tool === 'note' && 'is-on')} title="Note (N): click where it goes" aria-pressed={tool === 'note'} onClick={() => setTool(tool === 'note' ? 'select' : 'note')}>
           <Icon name="note" size={16} />
