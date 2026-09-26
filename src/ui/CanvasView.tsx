@@ -38,7 +38,7 @@ import {
   type Rect,
   type RefItem,
   type RefKind,
-  type Scope,
+  type TidyOptions,
   type TidyPlan,
 } from '../canvas/model';
 import { COLOR_WORD, newId } from '../todos';
@@ -440,9 +440,9 @@ export function CanvasView(props: CanvasViewProps) {
   const tidyOpen = panel !== null;
   const setTidyOpen = (on: boolean) => setPanel(on ? 'tidy' : null);
   const runTidy = useCallback(
-    (scope: Scope, plan: TidyPlan) => {
+    (opts: TidyOptions, plan: TidyPlan) => {
       const before = doc;
-      update((d) => tidy(d, entities, Date.now(), pinned, scope));
+      update((d) => tidy(d, entities, Date.now(), pinned, opts));
       onUndo(`Tidied. ${tidySummary(plan).replace(/^Nothing.*$/, '')}`.trim(), () => update(() => before), 'layout-grid');
       setTidyOpen(false);
       fitted.current = false;
@@ -703,7 +703,7 @@ export function CanvasView(props: CanvasViewProps) {
       { label: 'Add frame here', run: () => addFrame({ x: p.x, y: p.y, w: 560, h: 360 }) },
       { label: 'Add to canvas', items: addItems({ x: p.x, y: p.y }) },
       'separator',
-      { label: 'Tidy up', run: () => runTidy(doc.scope, tidyPlan(doc, entities, now, pinned, doc.scope)) },
+      { label: 'Tidy up', run: () => runTidy(doc.tidy, tidyPlan(doc, entities, now, pinned, doc.tidy)) },
       { label: 'Tidy…', run: () => setTidyOpen(true) },
       { label: 'Clear canvas', run: clearCanvas },
       'separator',
@@ -1005,7 +1005,7 @@ export function CanvasView(props: CanvasViewProps) {
       {items.length === 0 && (
         <div className="ca-cv-empty">
           <p>
-            {doc.scope.clearedAt != null
+            {doc.scope.cleared
               ? 'Cleared. Sessions and todos come on here as they move on; right-click to add one now.'
               : `Nothing recent in ${project}. Right-click to add a worktree, a session or a note.`}
           </p>
@@ -1016,7 +1016,7 @@ export function CanvasView(props: CanvasViewProps) {
           <CardDetail item={popItem} data={data.get(itemId(popItem)) ?? null} now={now} terminal={terminal} todos={todos} />
         </div>
       )}
-      {panel === 'bring' && <BringInPanel doc={doc} entities={entities} now={now} pinned={pinned} onChange={(scope) => update((d) => ({ ...d, scope }))} />}
+      {panel === 'bring' && <BringInPanel doc={doc} onChange={(scope) => update((d) => ({ ...d, scope }))} />}
       {panel === 'tidy' && <TidyPanel doc={doc} entities={entities} now={now} pinned={pinned} onTidy={runTidy} onClear={clearCanvas} onClose={() => setTidyOpen(false)} />}
       <div className="ca-cv-toolbar" role="toolbar" aria-label="Canvas tools" onDoubleClick={(e) => e.stopPropagation()}>
         <button type="button" className={cx('ca-cv-tool', tool === 'note' && 'is-on')} title="Note (N): click where it goes" aria-pressed={tool === 'note'} onClick={() => setTool(tool === 'note' ? 'select' : 'note')}>
@@ -1029,7 +1029,7 @@ export function CanvasView(props: CanvasViewProps) {
         <button
           type="button"
           className="ca-cv-tool is-wide"
-          title="Lay the canvas out again, taking off what Bring in no longer covers"
+          title="Lay the canvas out once, choosing what it keeps"
           aria-expanded={panel === 'tidy'}
           onClick={() => setPanel(panel === 'tidy' ? null : 'tidy')}
         >
@@ -1053,7 +1053,7 @@ export function CanvasView(props: CanvasViewProps) {
         <button
           type="button"
           className={cx('ca-cv-tool', panel === 'bring' && 'is-open')}
-          title="Bring in: what comes onto the canvas by itself"
+          title="Bring in: which new work comes onto the canvas by itself"
           aria-label="Bring in"
           aria-expanded={panel === 'bring'}
           onClick={() => setPanel(panel === 'bring' ? null : 'bring')}

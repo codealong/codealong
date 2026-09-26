@@ -86,24 +86,26 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     conversation and takes messages; the rest are the ones their own views show), type in the
     filter at the top or pick an Inbox row to fade what doesn't match (an Inbox row, or
     Return in the filter, also zooms to what does; a worktree in the sidebar selects its
-    card), double-click to open it where it lives, right-click for its usual menu. What
-    comes on by itself is set in Bring in (the gear in the toolbar), each kind on or off:
-    sessions active in the last 1h to 7d or all (24h at first) and any that's working or
-    needs you; open todos changed or worked on in the last 7 or 30 days, or all of them;
-    recent worktrees even with nothing on them (off, a worktree comes on only to head what's
-    there); and PRs, yours and ones waiting on your review, or every open one. A new one
-    lands in its frame beside what it belongs to (a session under its worktree, a worktree in
-    the next free column of its repo's or the latest day's frame, else in one column beside the
-    frames); the frame grows to hold it, and what's below or beside moves along whole. What
-    you move or add stays, and what you take off doesn't come back by itself. Add older things from Add in the toolbar,
-    a right-click on the canvas, or Add to canvas in any row's menu. Notes (`n`) and frames
-    (`f`) organize it; a frame carries what's in it, and grows to hold a card dropped over its edge. Tidy lays the cards out in columns, one
-    per worktree, in a frame per repo or per day, and takes off cards Bring in no longer
-    covers, kept or not, which is how the sessions you never archived leave; its panel says
-    what would come off and on first. Frames you drew or renamed stay, with what's in them.
-    Clear canvas (in Tidy, or a right-click on the canvas) takes everything off; from then
-    on a session comes back when it moves on (a new prompt, a finished turn, a question for
-    you) and a todo when it changes, until Include older work in Tidy lifts that. Controls
+    card), double-click to open it where it lives, right-click for its usual menu. What's on
+    it is set in two places. Tidy (its panel, or Tidy up in a right-click) lays the canvas out
+    once, holding what its own settings say, each kind on or off: sessions active in the last
+    1h to 7d or all (24h at first) and any that's working or needs you; open todos changed or
+    worked on in the last 7 or 30 days, or all of them; recent worktrees even with nothing on
+    them (off, a worktree comes on only to head what's there); and PRs, yours and ones waiting
+    on your review, or every open one. It lays the cards out in columns, one per worktree, in
+    a frame per repo or per day, takes off cards older than that, kept or not, which is how the
+    sessions you never archived leave, and says first what would come off and on. Frames you
+    drew or renamed stay, with what's in them. Bring in (the gear in the toolbar) has the same
+    choices for new work: what moves on after the last tidy (a new prompt, a finished turn, a
+    question for you, a changed todo) comes on by itself and lands in its frame beside what it
+    belongs to (a session under its worktree, a worktree in the next free column of its repo's
+    or the latest day's frame, else in one column beside the frames); the frame grows to hold
+    it, and what's below or beside moves along whole. Nothing comes off by itself, and what you
+    take off doesn't come back by itself. Add older things from Add in the toolbar, a
+    right-click on the canvas, or Add to canvas in any row's menu. Notes (`n`) and frames (`f`)
+    organize it; a frame carries what's in it, and grows to hold a card dropped over its edge.
+    Clear canvas (in Tidy, or a right-click on the canvas) takes everything off; Bring in adds
+    work back as it moves on, and a tidy brings back what its settings hold. Controls
     follow Figma: scroll or Space-drag to pan, pinch or ⌘-scroll to zoom, ⇧1 fit all, ⇧2 the
     selection, ⇧0 100%. Zoomed out, cards become blocks in their status color drawn by the
     GPU (WebGL2).
