@@ -69,10 +69,23 @@ export interface CanvasDoc {
 
 /** How far back finished sessions go on the canvas. Busy ones are always on it. */
 export type SessionAge = '1h' | '3h' | '6h' | '1d' | '3d' | '7d' | 'all';
-/** Which todos are on the canvas: open ones changed in the last week or month, every open one, or none. */
-export type TodoAge = '7d' | '30d' | 'open' | 'none';
+/** Which open todos are on the canvas: ones changed or worked on in the last week or month, or every one. */
+export type TodoAge = '7d' | '30d' | 'open';
+/** Which PRs come on by themselves: none, yours and ones waiting on your review, or every open one. */
+export type PrScope = 'off' | 'mine' | 'open';
+
+/** What kinds of things come onto the canvas by themselves. */
+export interface Include {
+  sessions: boolean;
+  todos: boolean;
+  /** Recent worktrees even with nothing of theirs on the canvas. Off, a worktree comes on only
+   *  to head a session, todo or PR that's there. */
+  worktrees: boolean;
+  prs: PrScope;
+}
 
 export interface Scope {
+  include: Include;
   sessions: SessionAge;
   todos: TodoAge;
   layout: TidyMode;
@@ -80,7 +93,14 @@ export interface Scope {
   clearedAt?: number;
 }
 
-export const DEFAULT_SCOPE: Scope = { sessions: '1d', todos: 'open', layout: 'worktree' };
+export const DEFAULT_INCLUDE: Include = { sessions: true, todos: true, worktrees: true, prs: 'off' };
+export const DEFAULT_SCOPE: Scope = { include: DEFAULT_INCLUDE, sessions: '1d', todos: 'open', layout: 'worktree' };
+
+export const PR_SCOPES: { id: PrScope; label: string; title: string }[] = [
+  { id: 'off', label: 'Off', title: 'Only PRs you add' },
+  { id: 'mine', label: 'Mine', title: 'Your open PRs and ones waiting on your review' },
+  { id: 'open', label: 'All open', title: 'Every open PR in the project' },
+];
 
 export const SESSION_AGES: { id: SessionAge; label: string; title: string }[] = [
   { id: '1h', label: '1h', title: 'Active in the last hour' },
@@ -95,14 +115,13 @@ export const SESSION_AGES: { id: SessionAge; label: string; title: string }[] = 
 export const TODO_AGES: { id: TodoAge; label: string; title: string }[] = [
   { id: '7d', label: '7d', title: 'Open todos changed or worked on in the last 7 days' },
   { id: '30d', label: '30d', title: 'Open todos changed or worked on in the last 30 days' },
-  { id: 'open', label: 'Open', title: 'Every open todo' },
-  { id: 'none', label: 'None', title: 'No todos' },
+  { id: 'open', label: 'All open', title: 'Every open todo' },
 ];
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
 const SESSION_MS: Record<SessionAge, number> = { '1h': HOUR_MS, '3h': 3 * HOUR_MS, '6h': 6 * HOUR_MS, '1d': DAY_MS, '3d': 3 * DAY_MS, '7d': 7 * DAY_MS, all: Infinity };
-const TODO_MS: Record<TodoAge, number> = { '7d': 7 * DAY_MS, '30d': 30 * DAY_MS, open: Infinity, none: -1 };
+const TODO_MS: Record<TodoAge, number> = { '7d': 7 * DAY_MS, '30d': 30 * DAY_MS, open: Infinity };
 
 export interface Rect {
   x: number;
@@ -144,7 +163,16 @@ export function readDoc(raw: unknown): CanvasDoc {
   if (Array.isArray(r.hidden)) doc.hidden = r.hidden.filter((h): h is string => typeof h === 'string');
   const sc = r.scope as Partial<Scope> | undefined;
   if (sc && typeof sc === 'object') {
+    const inc = (sc.include ?? {}) as Partial<Include>;
+    const flag = (v: unknown, d: boolean) => (typeof v === 'boolean' ? v : d);
     doc.scope = {
+      include: {
+        sessions: flag(inc.sessions, true),
+        // A canvas saved when "None" was a todo age has todos off.
+        todos: flag(inc.todos, (sc.todos as string) !== 'none'),
+        worktrees: flag(inc.worktrees, true),
+        prs: PR_SCOPES.some((x) => x.id === inc.prs) ? (inc.prs as PrScope) : 'off',
+      },
       sessions: SESSION_AGES.some((a) => a.id === sc.sessions) ? (sc.sessions as SessionAge) : DEFAULT_SCOPE.sessions,
       todos: TODO_AGES.some((a) => a.id === sc.todos) ? (sc.todos as TodoAge) : DEFAULT_SCOPE.todos,
       layout: sc.layout === 'time' ? 'time' : 'worktree',
@@ -261,31 +289,41 @@ export function lastActivityOf(e: Entities, ref: RefKind, key: string): number {
 
 /**
  * What the canvas holds by itself, in the order it's placed (worktrees first, so the rest can
- * land beside them): sessions active within the scope's age, and any busy one (working, or
- * waiting on you); open todos within theirs, counting their sessions' activity; worktrees that
- * are pinned, running something, active within the sessions' age, or home to a session or todo
- * on the canvas. PRs show on their worktree's card, so they come on only when you add them.
+ * land beside them), as the scope's Include says: sessions active within its age, and any busy
+ * one (working, or waiting on you); open todos within theirs, counting their sessions' activity;
+ * open PRs, yours or all of them; and worktrees active within the sessions' age (or pinned), or
+ * home to any of the rest.
  */
 export function recentRefs(e: Entities, now: number, pinned: Set<string> = new Set(), scope: Scope = DEFAULT_SCOPE): { ref: RefKind; key: string }[] {
+  const inc = scope.include;
   const since = now - SESSION_MS[scope.sessions];
   const cleared = scope.clearedAt ?? 0;
-  const sessions = [...e.sessions.values()].filter(({ session: s }) => sessionIn(s, since) && movedSince(s, cleared));
+  const sessions = inc.sessions ? [...e.sessions.values()].filter(({ session: s }) => sessionIn(s, since) && movedSince(s, cleared)) : [];
   sessions.sort((a, b) => b.session.lastPromptAt - a.session.lastPromptAt);
-  const todos = [...e.todos.values()].filter((t) => todoIn(e, t, now, scope.todos) && Math.max(t.createdAt, t.updatedAt) > cleared);
+  const todos = inc.todos ? [...e.todos.values()].filter((t) => todoIn(e, t, now, scope.todos) && Math.max(t.createdAt, t.updatedAt) > cleared) : [];
+  const prs = [...e.prs.values()].filter(
+    (p) => inc.prs !== 'off' && p.state !== 'merged' && p.state !== 'closed' && (inc.prs === 'open' || p.mine || p.reviewRequested) && p.updatedAt > cleared,
+  );
+  prs.sort((a, b) => b.updatedAt - a.updatedAt);
   const homes = new Set<string>();
   for (const s of sessions) homes.add(s.lane.id);
   for (const t of todos) {
     const home = homeLane(e, 'todo', t.id);
     if (home) homes.add(home);
   }
+  for (const p of prs) {
+    const home = homeLane(e, 'pr', p.key);
+    if (home) homes.add(home);
+  }
   const lanes = [...e.lanes.values()].filter(
-    (l) => homes.has(l.id) || ((pinned.has(l.id) || l.lastActivity >= since) && l.lastActivity > cleared),
+    (l) => homes.has(l.id) || (inc.worktrees && (pinned.has(l.id) || l.lastActivity >= since) && l.lastActivity > cleared),
   );
   lanes.sort((a, b) => a.repo.localeCompare(b.repo) || b.lastActivity - a.lastActivity);
   return [
     ...lanes.map((l) => ({ ref: 'worktree' as const, key: l.id })),
     ...sessions.map((s) => ({ ref: 'session' as const, key: s.session.key })),
     ...todos.map((t) => ({ ref: 'todo' as const, key: t.id })),
+    ...prs.map((p) => ({ ref: 'pr' as const, key: p.key })),
   ];
 }
 
@@ -313,7 +351,7 @@ export function unclear(scope: Scope): Scope {
 }
 
 function todoIn(e: Entities, t: Todo, now: number, age: TodoAge): boolean {
-  if (t.status === 'done' || age === 'none') return false;
+  if (t.status === 'done') return false;
   if (age === 'open') return true;
   const worked = Math.max(t.updatedAt, ...t.sessions.map((k) => e.sessions.get(k)?.session.lastActivity ?? 0));
   return worked >= now - TODO_MS[age];
@@ -486,8 +524,8 @@ export function tidyPlan(doc: CanvasDoc, e: Entities, now: number, pinned: Set<s
     if (it.kind === 'frame') {
       if (!it.auto) plan.stay.push(it);
     } else if (it.kind === 'note' || inMine(it)) plan.stay.push(it);
-    // A PR is on the canvas only because you put it there.
-    else if (wanted.has(itemId(it)) || (it.ref === 'pr' && e.prs.has(it.key))) plan.move.push(it);
+    // A PR you added stays as long as the board has it.
+    else if (wanted.has(itemId(it)) || (it.ref === 'pr' && it.kept && e.prs.has(it.key))) plan.move.push(it);
     else plan.dropped.push(it);
   }
   const have = new Set(doc.items.map(itemId));

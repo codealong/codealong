@@ -3915,12 +3915,7 @@ html.is-quick body {
   color: var(--ink);
   overflow: hidden;
 }
-/* A worktree reads as the header of the column under it, not as another card. */
-.ca-cv-card.is-worktree {
-  background: var(--surface-sunken);
-  border-color: transparent;
-  box-shadow: none;
-}
+/* A worktree is told apart by its folder and its name's type, not by a fill: it has no status stripe. */
 .ca-cv-card.is-worktree .ca-cv-l1 > .ca-icon {
   color: var(--ink-3);
 }
@@ -4036,6 +4031,10 @@ html.is-quick body {
 }
 .ca-cv-card.is-related {
   outline: 1.5px solid color-mix(in srgb, var(--unread-solid) 45%, transparent);
+  outline-offset: 1px;
+}
+.ca-cv-card.is-hovered {
+  outline: 2px solid color-mix(in srgb, var(--unread-solid) 60%, transparent);
   outline-offset: 1px;
 }
 .ca-cv-card.is-selected {
@@ -4402,4 +4401,25 @@ html.is-quick body {
 .ca-cv-note.is-faded,
 .ca-cv-farlabel.is-faded {
   opacity: 0.2;
+}
+.ca-cv-tidy-head {
+  font: 600 13px/18px var(--font-sans);
+}
+.ca-cv-tidy-note,
+.ca-cv-tidy-rowlabel {
+  color: var(--ink-3);
+  font-size: 12px;
+  line-height: 16px;
+}
+.ca-cv-tidy-rowlabel {
+  padding-left: 22px;
+  color: var(--ink);
+  font-size: 13px;
+}
+.ca-cv-bring .ca-cv-tidy-grid {
+  grid-template-columns: 104px auto;
+}
+.ca-cv-tool.is-open {
+  background: var(--surface-selected);
+  color: var(--ink);
 }

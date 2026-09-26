@@ -43,7 +43,7 @@ import {
 import { COLOR_WORD, newId } from '../todos';
 import { LABEL_COLORS, type Label, type LabelColor, type Theme, type Todo } from '../types';
 import { CanvasCard, CardDetail, cardData, cardSig } from './CanvasCard';
-import { TidyPanel, tidySummary } from './CanvasTidy';
+import { BringInPanel, TidyPanel, tidySummary } from './CanvasTidy';
 import { Icon } from './primitives';
 
 /** At or above this zoom, cards are HTML you can read; below it, blocks on the GPU. */
@@ -434,7 +434,10 @@ export function CanvasView(props: CanvasViewProps) {
     onUndo(message, () => update(() => before));
   }, [selection, doc, byId, update, entities, onUndo]);
 
-  const [tidyOpen, setTidyOpen] = useState(false);
+  // One of the panels above the toolbar at a time.
+  const [panel, setPanel] = useState<'tidy' | 'bring' | null>(null);
+  const tidyOpen = panel !== null;
+  const setTidyOpen = (on: boolean) => setPanel(on ? 'tidy' : null);
   const runTidy = useCallback(
     (scope: Scope, plan: TidyPlan) => {
       const before = doc;
@@ -970,7 +973,7 @@ export function CanvasView(props: CanvasViewProps) {
         {shownCards.map((it) => {
           const id = itemId(it);
           const d = data.get(id) ?? null;
-          return <CanvasCard key={id} item={it} data={d} sig={cardSig(d, now)} now={now} selected={selection.has(id)} related={related.has(id)} faded={!!faded?.has(id)} />;
+          return <CanvasCard key={id} item={it} data={d} sig={cardSig(d, now)} now={now} selected={selection.has(id)} related={related.has(id)} hovered={hover === id} faded={!!faded?.has(id)} />;
         })}
         {notes.map((n) => (
           <div key={n.id} className={cx('ca-cv-note', `is-${n.color}`, selection.has(n.id) && 'is-selected', faded?.has(n.id) && 'is-faded')} style={{ transform: `translate(${n.x}px, ${n.y}px)`, width: n.w, height: n.h }}>
@@ -1011,7 +1014,8 @@ export function CanvasView(props: CanvasViewProps) {
           <CardDetail item={popItem} data={data.get(itemId(popItem)) ?? null} now={now} terminal={terminal} todos={todos} />
         </div>
       )}
-      {tidyOpen && <TidyPanel doc={doc} entities={entities} now={now} pinned={pinned} onTidy={runTidy} onClear={clearCanvas} onClose={() => setTidyOpen(false)} />}
+      {panel === 'bring' && <BringInPanel doc={doc} entities={entities} now={now} pinned={pinned} onChange={(scope) => update((d) => ({ ...d, scope }))} />}
+      {panel === 'tidy' && <TidyPanel doc={doc} entities={entities} now={now} pinned={pinned} onTidy={runTidy} onClear={clearCanvas} onClose={() => setTidyOpen(false)} />}
       <div className="ca-cv-toolbar" role="toolbar" aria-label="Canvas tools" onDoubleClick={(e) => e.stopPropagation()}>
         <button type="button" className={cx('ca-cv-tool', tool === 'note' && 'is-on')} title="Note (N): click where it goes" aria-pressed={tool === 'note'} onClick={() => setTool(tool === 'note' ? 'select' : 'note')}>
           <Icon name="note" size={16} />
@@ -1023,9 +1027,9 @@ export function CanvasView(props: CanvasViewProps) {
         <button
           type="button"
           className="ca-cv-tool is-wide"
-          title="Lay the canvas out again, and choose how far back its sessions and todos go"
-          aria-expanded={tidyOpen}
-          onClick={() => setTidyOpen(!tidyOpen)}
+          title="Lay the canvas out again, taking off what Bring in no longer covers"
+          aria-expanded={panel === 'tidy'}
+          onClick={() => setPanel(panel === 'tidy' ? null : 'tidy')}
         >
           <Icon name="layout-grid" size={15} />
           <span>Tidy</span>
@@ -1043,6 +1047,16 @@ export function CanvasView(props: CanvasViewProps) {
         >
           <Icon name="plus" size={15} />
           <span>Add</span>
+        </button>
+        <button
+          type="button"
+          className={cx('ca-cv-tool', panel === 'bring' && 'is-open')}
+          title="Bring in: what comes onto the canvas by itself"
+          aria-label="Bring in"
+          aria-expanded={panel === 'bring'}
+          onClick={() => setPanel(panel === 'bring' ? null : 'bring')}
+        >
+          <Icon name="settings" size={16} />
         </button>
         <span className="ca-cv-sep" />
         <button type="button" className="ca-cv-tool" title="Zoom out (−)" onClick={() => zoomBy(0.8)}>

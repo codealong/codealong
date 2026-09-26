@@ -68,26 +68,30 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     or Not yet until something moves on); and a todo's panel suggests its project, labels and
     the todos it waits on as chips you click. Nothing is asked twice: what was asked is kept in
     `jev-todos.json`.
-  - **Canvas**: the project's work laid out in space, to remember by where it is. Worktrees,
-    sessions, todos and PRs are compact cards (status, title, where it stands); hover one for
-    the rest, select one for its panel on the right (the one its own view shows), type in the filter
-    at the top or pick an Inbox row to fade what doesn't match (an Inbox row, or Return in the
-    filter, also zooms to what does; a worktree in the sidebar selects its card), double-click to open it where it lives, right-click for its usual menu. Recent
-    work comes on by itself: sessions active in the last day (1h, 3h, 6h, 24h, 3d, 7d or all, chosen in
-    Tidy) and any that's working or needs you, open todos (changed or worked on in the last
-    7 or 30 days, every open one, or none), and the worktrees they're in. A new one lands
-    beside what it belongs to and nothing else moves; what you move or add stays, and what you
-    take off doesn't come back by itself. Add older things from Add in the toolbar, a
-    right-click on the canvas, or Add to canvas in any row's menu. Notes (`n`) and frames
+  **Canvas**: the project's work laid out in space, to remember by where it is. Worktrees,
+    sessions, todos and PRs are compact cards (status, title, where it stands); hover one
+    for the rest, select one for its panel on the right (the one its own view shows), type
+    in the filter at the top or pick an Inbox row to fade what doesn't match (an Inbox row,
+    or Return in the filter, also zooms to what does; a worktree in the sidebar selects its
+    card), double-click to open it where it lives, right-click for its usual menu. What
+    comes on by itself is set in Bring in (the gear in the toolbar), each kind on or off:
+    sessions active in the last 1h to 7d or all (24h at first) and any that's working or
+    needs you; open todos changed or worked on in the last 7 or 30 days, or all of them;
+    recent worktrees even with nothing on them (off, a worktree comes on only to head what's
+    there); and PRs, yours and ones waiting on your review, or every open one. A new one
+    lands beside what it belongs to and nothing else moves; what you move or add stays, and
+    what you take off doesn't come back by itself. Add older things from Add in the toolbar,
+    a right-click on the canvas, or Add to canvas in any row's menu. Notes (`n`) and frames
     (`f`) organize it; a frame carries what's in it. Tidy lays the cards out in columns, one
-    per worktree, in a frame per repo or per day, and takes off cards older than its ages,
-    kept or not, which is how the sessions you never archived leave; its panel says what
-    would come off and on first. Frames you drew or renamed stay, with what's in them. Clear
-    canvas (in Tidy, or a right-click on the canvas) takes everything off; from then on a
-    session comes back when it moves on (a new prompt, a finished turn, a question for you) and
-    a todo when it changes, until Include older work in Tidy lifts that. Controls follow Figma: scroll or Space-drag to pan, pinch
-    or ⌘-scroll to zoom, ⇧1 fit all, ⇧2 the selection, ⇧0 100%. Zoomed out, cards become
-    blocks in their status color drawn by the GPU (WebGL2).
+    per worktree, in a frame per repo or per day, and takes off cards Bring in no longer
+    covers, kept or not, which is how the sessions you never archived leave; its panel says
+    what would come off and on first. Frames you drew or renamed stay, with what's in them.
+    Clear canvas (in Tidy, or a right-click on the canvas) takes everything off; from then
+    on a session comes back when it moves on (a new prompt, a finished turn, a question for
+    you) and a todo when it changes, until Include older work in Tidy lifts that. Controls
+    follow Figma: scroll or Space-drag to pan, pinch or ⌘-scroll to zoom, ⇧1 fit all, ⇧2 the
+    selection, ⇧0 100%. Zoomed out, cards become blocks in their status color drawn by the
+    GPU (WebGL2).
 - **Open where it lives**: the session's own Ghostty tab, the Claude app session, the Codex
   thread, an OpenCode session in its terminal (or resumed in a new one with `--session`),
   Antigravity brought forward (it has no link to a conversation), a background job attached

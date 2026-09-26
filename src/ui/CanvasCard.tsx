@@ -88,11 +88,13 @@ interface CardProps {
   related: boolean;
   /** Doesn't match the window's filter. */
   faded: boolean;
+  /** Under the pointer. */
+  hovered: boolean;
 }
 
-function Card({ item, data, now, selected, related, faded }: CardProps) {
+function Card({ item, data, now, selected, related, faded, hovered }: CardProps) {
   const style = { transform: `translate(${item.x}px, ${item.y}px)`, width: CARD_W, height: CARD_H[item.ref] };
-  const cls = (kind: string, extra?: string | false) => cx('ca-cv-card', `is-${kind}`, selected && 'is-selected', related && 'is-related', faded && 'is-faded', extra);
+  const cls = (kind: string, extra?: string | false) => cx('ca-cv-card', `is-${kind}`, selected && 'is-selected', related && 'is-related', hovered && 'is-hovered', faded && 'is-faded', extra);
   const id = `${item.ref}:${item.key}`;
   if (!data) {
     return (
@@ -198,7 +200,7 @@ function Card({ item, data, now, selected, related, faded }: CardProps) {
 
 export const CanvasCard = memo(
   Card,
-  (a, b) => a.sig === b.sig && a.item.x === b.item.x && a.item.y === b.item.y && a.selected === b.selected && a.related === b.related && a.faded === b.faded && a.item.title === b.item.title,
+  (a, b) => a.sig === b.sig && a.item.x === b.item.x && a.item.y === b.item.y && a.selected === b.selected && a.related === b.related && a.faded === b.faded && a.hovered === b.hovered && a.item.title === b.item.title,
 );
 
 /* ---- The popover ---- */

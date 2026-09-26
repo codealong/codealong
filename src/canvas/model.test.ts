@@ -225,8 +225,34 @@ describe('tidy with ages', () => {
   });
 
   it('shows no todos when asked for none', () => {
-    const d = tidy(emptyDoc(), e, NOW, new Set(), { ...DEFAULT_SCOPE, todos: 'none' });
+    const d = tidy(emptyDoc(), e, NOW, new Set(), { ...DEFAULT_SCOPE, include: { ...DEFAULT_SCOPE.include, todos: false } });
     expect(refs(d).filter((it) => it.ref === 'todo')).toEqual([]);
+  });
+});
+
+describe('bring in', () => {
+  const lanes = [lane('a', [session('s1')]), lane('b', []), lane('c', [])];
+  const pr = (key: string, fields: object) => ({ key, repoSlug: 'o/app', repo: 'app', project: 'Northwind', number: 1, title: key, url: '', state: 'open', author: null, mine: false, reviewRequested: false, head: key, base: 'main', checks: { passed: 0, failed: 0, pending: 0, skipped: 0, failing: [] }, merge: 'clean', additions: 0, deletions: 0, changedFiles: 0, createdAt: NOW, updatedAt: NOW, mergedAt: null, closedAt: null, lanes: [], sessions: [], ...fields });
+  const board = { prs: [pr('mine', { mine: true, lanes: ['c'] }), pr('theirs', {}), pr('shut', { mine: true, state: 'merged' })] } as never;
+  const e = entitiesOf(board, lanes, [todo('t', { worktrees: ['b'] })], () => true);
+  const ids = (include: Partial<typeof DEFAULT_SCOPE.include>) => refs(sync({ ...emptyDoc(), scope: { ...DEFAULT_SCOPE, include: { ...DEFAULT_SCOPE.include, ...include } } }, e, NOW)).map(itemId).sort();
+
+  it('brings each kind in only when it is on', () => {
+    expect(ids({})).toEqual(['session:s1', 'todo:t', 'worktree:a', 'worktree:b', 'worktree:c']);
+    expect(ids({ sessions: false, todos: false })).toEqual(['worktree:a', 'worktree:b', 'worktree:c']);
+  });
+
+  it('without worktrees, brings a worktree only to head what is there', () => {
+    expect(ids({ worktrees: false, todos: false })).toEqual(['session:s1', 'worktree:a']);
+  });
+
+  it('brings in your open PRs, or every open one, with the worktree that holds them', () => {
+    expect(ids({ worktrees: false, sessions: false, todos: false, prs: 'mine' })).toEqual(['pr:mine', 'worktree:c']);
+    expect(ids({ worktrees: false, sessions: false, todos: false, prs: 'open' })).toEqual(['pr:mine', 'pr:theirs', 'worktree:c']);
+  });
+
+  it('reads an old canvas whose todos were None as todos off', () => {
+    expect(readDoc({ items: [], scope: { sessions: '3d', todos: 'none', layout: 'time' } }).scope).toEqual({ ...DEFAULT_SCOPE, include: { ...DEFAULT_SCOPE.include, todos: false }, sessions: '3d', todos: 'open', layout: 'time' });
   });
 });
 
