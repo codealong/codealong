@@ -16,6 +16,7 @@ use crate::antigravity;
 use crate::appserver;
 use crate::claude::{self, RegistryEntry, TranscriptInfo};
 use crate::claudeapp;
+use crate::prlinks;
 use crate::codex::{self, ThreadInfo};
 use crate::opencode;
 use crate::config::{self, AccountCfg, Config, Theme};
@@ -58,6 +59,8 @@ pub enum Msg {
     MarkSeen(Vec<String>),
     /// Lane path → session keys whose logs mention it.
     Visitors(HashMap<PathBuf, Vec<String>>),
+    /// Session key → the PRs its records show it made or changed (prlinks.rs).
+    PrMarks(HashMap<String, Vec<String>>),
     RefreshUsage,
     UsageDone(Vec<Usage>),
     /// What each OpenCode account's background service said, or None where it isn't running.
@@ -310,6 +313,9 @@ pub fn snapshot(with_github: bool, with_usage: bool) -> Board {
     lap("repos", &t);
     e.refresh_visitors(true);
     lap("visitors", &t);
+    e.load_pr_links();
+    e.scan_pr_marks(true);
+    lap("pr marks", &t);
     e.loading = false;
     let _ = e.compose();
     lap("1st paint", &t);
@@ -458,8 +464,13 @@ struct Engine {
     visitors: HashMap<PathBuf, Vec<String>>,
     /// What to look for in logs: (lane path, text that identifies it, when it was made).
     needles: Vec<(PathBuf, String, i64)>,
-    /// How far each subagent log has been checked for orphan worktrees.
+    /// How far each subagent log has been checked for orphan worktrees and PR marks.
     subagent_offsets: HashMap<PathBuf, u64>,
+    /// Session key → the PRs its records show it made or changed.
+    pr_marks: HashMap<String, Vec<String>>,
+    /// Links to PRs made or taken away by hand (`pr-links.json`).
+    pr_store: prlinks::LinkStore,
+    pr_links_warning: Option<String>,
     git: HashMap<PathBuf, GitInfo>,
     git_jobs: Sender<(PathBuf, Option<String>)>,
     /// Which worktrees git runs in, and which wait their turn (see throttle.rs).
@@ -552,6 +563,9 @@ impl Engine {
             visitors: HashMap::new(),
             needles: Vec::new(),
             subagent_offsets: HashMap::new(),
+            pr_marks: HashMap::new(),
+            pr_store: prlinks::LinkStore::default(),
+            pr_links_warning: None,
             git: HashMap::new(),
             git_jobs,
             git_queue: GitQueue::default(),
@@ -789,6 +803,8 @@ impl Engine {
         self.poll_opencode();
         self.watch();
         self.refresh_visitors(false);
+        self.load_pr_links();
+        self.scan_pr_marks(false);
     }
 
     /// Asks each OpenCode account's background service what's running and what it's waiting
@@ -943,6 +959,18 @@ impl Engine {
                 Ok(Msg::RefreshGithub) => self.fetch_github(false),
                 Ok(Msg::Visitors(found)) => {
                     self.visitors = found;
+                    self.dirty = true;
+                }
+                Ok(Msg::PrMarks(found)) => {
+                    // Marks read from new lines while the scan ran are kept.
+                    for (key, prs) in found {
+                        let have = self.pr_marks.entry(key).or_default();
+                        for pr in prs {
+                            if !have.contains(&pr) {
+                                have.push(pr);
+                            }
+                        }
+                    }
                     self.dirty = true;
                 }
                 Ok(Msg::RefreshUsage) => self.fetch_usage(),
@@ -1526,6 +1554,11 @@ impl Engine {
                 self.reload_todos();
                 continue;
             }
+            if p == prlinks::path() {
+                self.load_pr_links();
+                self.dirty = true;
+                continue;
+            }
             for a in &accounts {
                 let home = a.home_path();
                 let jsonl = p.extension().and_then(|x| x.to_str()) == Some("jsonl");
@@ -1759,12 +1792,68 @@ impl Engine {
         }
     }
 
-    /// Checks lines a session just wrote for orphan worktrees.
+    /// Reads the PRs each session's records show it made or changed, subagents' logs included,
+    /// in the background unless `sync`. New lines are read as they come (`check_new_lines`).
+    fn scan_pr_marks(&mut self, sync: bool) {
+        let mut files: Vec<(PathBuf, String)> = Vec::new();
+        for (p, (a, (_, info, _))) in &self.transcripts {
+            let key = format!("claude:{}:{}", a, info.session_id);
+            files.extend(subagent_logs(p, &info.session_id).into_iter().map(|s| (s, key.clone())));
+            files.push((p.clone(), key));
+        }
+        for (p, (a, parsed)) in &self.rollouts {
+            if let Some((th, _)) = parsed {
+                files.push((p.clone(), format!("codex:{}:{}", a, th.id)));
+            }
+        }
+        let scan = move || -> HashMap<String, Vec<String>> {
+            let mut out: HashMap<String, Vec<String>> = HashMap::new();
+            for (key, marks) in parallel_map(files, |(path, key)| {
+                let marks = prlinks::file_marks(&path);
+                (!marks.is_empty()).then(|| (key, marks))
+            }) {
+                let have = out.entry(key).or_default();
+                for (pr, _) in marks {
+                    if !have.contains(&pr) {
+                        have.push(pr);
+                    }
+                }
+            }
+            out
+        };
+        if sync {
+            self.pr_marks = scan();
+        } else {
+            let tx = self.tx.clone();
+            std::thread::spawn(move || {
+                let _ = tx.send(Msg::PrMarks(scan()));
+            });
+        }
+    }
+
+    fn load_pr_links(&mut self) {
+        match prlinks::load() {
+            Ok(store) => {
+                self.pr_store = store;
+                self.pr_links_warning = None;
+            }
+            Err(e) => self.pr_links_warning = Some(format!("{e:#}")),
+        }
+    }
+
+    /// Checks lines a session just wrote for orphan worktrees and PRs it made or changed.
     fn check_new_lines(&mut self, path: &Path, from: u64, to: u64, key: &str) {
-        if self.needles.is_empty() || to <= from {
+        if to <= from {
             return;
         }
         let Some(text) = read_range_lossy(path, from, to) else { return };
+        for (pr, _) in prlinks::pr_marks(&text) {
+            let have = self.pr_marks.entry(key.to_string()).or_default();
+            if !have.contains(&pr) {
+                have.push(pr);
+                self.dirty = true;
+            }
+        }
         for (lane, needle, _) in &self.needles {
             if worked_in(&text, needle) {
                 let keys = self.visitors.entry(lane.clone()).or_default();
@@ -2013,7 +2102,9 @@ impl Engine {
             new_terminal: self.cfg.apps.new_terminal,
         };
         let order: Vec<String> = self.cfg.projects.iter().map(|p| p.name.clone()).collect();
-        let warnings = [&self.config_warning, &self.gh_warning, &self.watch_warning, &self.todos_warning].into_iter().flatten().cloned().collect();
+        let warnings = [&self.config_warning, &self.gh_warning, &self.watch_warning, &self.todos_warning, &self.pr_links_warning].into_iter().flatten().cloned().collect();
+        let (worked, unlinked) = prlinks::resolve(&self.pr_marks, &self.pr_store);
+        let pr_links = board::PrLinks { worked, unlinked };
         let mut board = board::compose(board::Inputs {
             now,
             apps: &apps,
@@ -2028,6 +2119,7 @@ impl Engine {
             visitors: &self.visitors,
             pinned: &self.seen.pinned,
             github_login: self.gh_login.as_deref(),
+            pr_links: &pr_links,
         });
         board.usage = self.compose_usage(now);
         board.pinned_worktrees = self.seen.pinned_worktrees.clone();

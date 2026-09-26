@@ -33,6 +33,10 @@ Commands:
              and where its own records are
   worktrees  Worktrees the board knows: each with its branch, PR, status and the agents
              in it
+  pr         A PR and the sessions that worked on it, and linking a session to a PR by
+             hand. A session is linked by itself when its records show it made, edited
+             or commented on the PR (`gh pr create` and the like), or when it worked in
+             a worktree on the PR's branch while the PR was open
   start      Start a session for a todo or on a prompt, the way the app's New session
              does, and link it to the todo
   config     Codealong's own settings (config.toml): show them as the app reads them,
@@ -878,6 +882,132 @@ Options:
 
       --all
           Hidden ones too (worktrees outside every project that need nothing)
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong pr
+
+```
+A PR and the sessions that worked on it, and linking a session to a PR by hand. A
+session is linked by itself when its records show it made, edited or commented on the PR
+(`gh pr create` and the like), or when it worked in a worktree on the PR's branch while
+the PR was open
+
+Usage: codealong pr [OPTIONS] <COMMAND>
+
+Commands:
+  show    One PR: its state, branches, the worktrees on its branch and the sessions that
+          worked on it. Needs the app, which reads GitHub
+  link    Link a session to a PR it worked on that Codealong can't see by itself: a PR
+          opened another way (the website, an API tool), or one worked on from a
+          worktree that isn't on its branch
+  unlink  Take a session off a PR it's listed on but didn't work on. It stays off,
+          however it matched, until linked again
+  help    Print this message or the help of the given subcommand(s)
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong pr show
+
+```
+One PR: its state, branches, the worktrees on its branch and the sessions that worked on
+it. Needs the app, which reads GitHub
+
+Usage: codealong pr show [OPTIONS] <PR>
+
+Arguments:
+  <PR>
+          The PR: its URL, owner/name#number, or a number (#123) in the repo of the
+          current folder's worktree
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong pr link
+
+```
+Link a session to a PR it worked on that Codealong can't see by itself: a PR opened
+another way (the website, an API tool), or one worked on from a worktree that isn't on
+its branch
+
+Usage: codealong pr link [OPTIONS] <PR>
+
+Arguments:
+  <PR>
+          The PR: its URL, owner/name#number, or a number (#123) in the repo of the
+          current folder's worktree
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --session <SESSION>
+          A session key, id, or `me`
+          
+          [default: me]
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong pr unlink
+
+```
+Take a session off a PR it's listed on but didn't work on. It stays off, however it
+matched, until linked again
+
+Usage: codealong pr unlink [OPTIONS] <PR>
+
+Arguments:
+  <PR>
+          The PR: its URL, owner/name#number, or a number (#123) in the repo of the
+          current folder's worktree
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --session <SESSION>
+          A session key, id, or `me`
+          
+          [default: me]
+
+      --table
+          Tables, even when piped
 
       --verbose
           Say on stderr whether the app or the files answered

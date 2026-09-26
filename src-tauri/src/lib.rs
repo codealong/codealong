@@ -26,6 +26,7 @@ mod logo;
 mod model;
 mod perf;
 mod prasks;
+mod prlinks;
 mod procs;
 mod quick;
 mod repos;

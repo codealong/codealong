@@ -81,6 +81,11 @@ enum Cmd {
     },
     /// Worktrees the board knows: each with its branch, PR, status and the agents in it.
     Worktrees(WorktreesArgs),
+    /// A PR and the sessions that worked on it, and linking a session to a PR by hand. A session is linked by itself when its records show it made, edited or commented on the PR (`gh pr create` and the like), or when it worked in a worktree on the PR's branch while the PR was open.
+    Pr {
+        #[command(subcommand)]
+        cmd: PrCmd,
+    },
     /// Start a session for a todo or on a prompt, the way the app's New session does, and link it to the todo.
     Start(StartArgs),
     /// Codealong's own settings (config.toml): show them as the app reads them, and check a file before or after editing it. Change settings by editing the file; the app watches it.
@@ -316,6 +321,28 @@ enum SessionsCmd {
 enum SessionCmd {
     /// One session in full.
     Show { key: String },
+}
+
+#[derive(Subcommand, Debug)]
+enum PrCmd {
+    /// One PR: its state, branches, the worktrees on its branch and the sessions that worked on it. Needs the app, which reads GitHub.
+    Show {
+        /// The PR: its URL, owner/name#number, or a number (#123) in the repo of the current folder's worktree.
+        pr: String,
+    },
+    /// Link a session to a PR it worked on that Codealong can't see by itself: a PR opened another way (the website, an API tool), or one worked on from a worktree that isn't on its branch.
+    Link(PrLinkArgs),
+    /// Take a session off a PR it's listed on but didn't work on. It stays off, however it matched, until linked again.
+    Unlink(PrLinkArgs),
+}
+
+#[derive(Args, Debug)]
+struct PrLinkArgs {
+    /// The PR: its URL, owner/name#number, or a number (#123) in the repo of the current folder's worktree.
+    pr: String,
+    /// A session key, id, or `me`.
+    #[arg(long, default_value = "me")]
+    session: String,
 }
 
 #[derive(Args, Debug)]
@@ -592,6 +619,9 @@ fn run(cmd: Cmd, c: &mut Client, json: bool) -> Result<()> {
         },
         Cmd::Session { cmd: SessionCmd::Show { key } } => session_show(c, &key, json),
         Cmd::Worktrees(args) => worktrees(c, &args, json),
+        Cmd::Pr { cmd: PrCmd::Show { pr } } => pr_show(c, &pr, json),
+        Cmd::Pr { cmd: PrCmd::Link(a) } => pr_link(c, &a, true, json),
+        Cmd::Pr { cmd: PrCmd::Unlink(a) } => pr_link(c, &a, false, json),
         Cmd::Start(args) => start_cmd(c, &args, json),
         Cmd::Config { cmd } => config_cmd(cmd, json),
         Cmd::Install(args) => install(c, &args, json),
@@ -916,6 +946,8 @@ struct SessionDetail {
     /// database for OpenCode and Antigravity.
     records: Vec<String>,
     linked_todos: Vec<TodoRow>,
+    /// PRs it worked on (`owner/name#number`), as `pr show` lists their sessions.
+    prs: Vec<String>,
 }
 
 fn session_show(c: &mut Client, key: &str, json: bool) -> Result<()> {
@@ -937,6 +969,7 @@ fn session_show(c: &mut Client, key: &str, json: bool) -> Result<()> {
         pr_state: lane.pr.as_ref().map(|p| lower_debug(&p.state)),
         records: account.map(|a| records_for(a, s)).unwrap_or_default(),
         linked_todos: board.todos.iter().filter(|t| t.sessions.contains(&s.key)).map(|t| todo_row(t, &store_of(board), false)).collect(),
+        prs: board.prs.iter().filter(|p| p.sessions.iter().any(|x| x.key == s.key)).map(|p| p.key.clone()).collect(),
         row,
     };
     if json {
@@ -961,6 +994,102 @@ fn session_show(c: &mut Client, key: &str, json: bool) -> Result<()> {
     for t in &out.linked_todos {
         println!("Todo: {} {} ({})", t.id, t.title, t.status);
     }
+    for p in &out.prs {
+        println!("Worked on: {p}");
+    }
+    Ok(())
+}
+
+// ---- PRs ----
+
+/// `owner/name#number` for a PR given as its URL, that, or a number in the repo of the current
+/// folder's worktree.
+fn resolve_pr(c: &mut Client, pr: &str) -> Result<String> {
+    let pr = pr.trim();
+    if let Some(key) = crate::prlinks::from_url(pr) {
+        return Ok(key);
+    }
+    if let Some((slug, n)) = pr.split_once('#') {
+        if slug.contains('/') && !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()) {
+            return Ok(pr.to_string());
+        }
+    }
+    let n = pr.trim_start_matches('#');
+    if n.is_empty() || !n.chars().all(|c| c.is_ascii_digit()) {
+        bail!("{pr} isn't a PR. Give its URL, owner/name#number, or a number in this folder's repo.");
+    }
+    let cwd = std::env::current_dir()?;
+    let board = c.board()?;
+    let slug = lane_for_path(board, &cwd).and_then(|l| l.repo_slug.clone());
+    slug.map(|s| format!("{s}#{n}")).ok_or_else(|| anyhow!("This folder isn't in a GitHub repo the board knows, so #{n} names no PR. Give owner/name#{n}."))
+}
+
+fn find_pr<'a>(board: &'a Board, key: &str) -> Option<&'a crate::model::PrItem> {
+    board.prs.iter().find(|p| p.key.eq_ignore_ascii_case(key))
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PrDetail<'a> {
+    #[serde(flatten)]
+    pr: &'a crate::model::PrItem,
+    /// The sessions in `sessions`, in full.
+    session_rows: Vec<SessionRow>,
+}
+
+fn pr_show(c: &mut Client, pr: &str, json: bool) -> Result<()> {
+    let key = resolve_pr(c, pr)?;
+    if c.app.is_none() {
+        bail!("Codealong isn't running, and PRs come through it.");
+    }
+    let board = c.board()?;
+    let p = find_pr(board, &key).ok_or_else(|| anyhow!("Codealong doesn't read {key}: its repo isn't in a project, or it's closed and older than GitHub's recent list."))?;
+    let all = all_sessions(board);
+    let rows: Vec<SessionRow> = p.sessions.iter().filter_map(|ps| all.iter().find(|(s, _)| s.key == ps.key)).map(|(s, l)| session_row(s, l, &board.todos)).collect();
+    if json {
+        return print_json(&PrDetail { pr: p, session_rows: rows });
+    }
+    println!("{} {} ({})", p.key, p.title, lower_debug(&p.state));
+    println!("{} → {}  {}", p.head, p.base.as_deref().unwrap_or("?"), p.url);
+    for l in &p.lanes {
+        println!("Worktree: {}", tilde(Path::new(l)));
+    }
+    for r in &rows {
+        println!("Session: {} {} ({}, {})", r.key, r.title, r.status, tilde(Path::new(&r.worktree)));
+    }
+    if rows.is_empty() {
+        println!("No session is linked. `codealong pr link {} --session <key>` links one.", p.key);
+    }
+    Ok(())
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PrLinkOut {
+    pr: String,
+    session: String,
+    linked: bool,
+    /// False when it was already so.
+    changed: bool,
+}
+
+fn pr_link(c: &mut Client, a: &PrLinkArgs, linked: bool, json: bool) -> Result<()> {
+    let key = resolve_pr(c, &a.pr)?;
+    let session = resolve_session(c, &a.session)?;
+    if c.app.is_some() && find_pr(c.board()?, &key).is_none() {
+        eprintln!("Note: Codealong doesn't read {key} (its repo isn't in a project, or it's old), so the link won't show until it does.");
+    }
+    let mut changed = false;
+    crate::prlinks::change(|store| {
+        changed = store.set(&key, &session, linked, now_ms());
+        changed
+    })?;
+    let out = PrLinkOut { pr: crate::prlinks::pr_key(&key), session, linked, changed };
+    if json {
+        return print_json(&out);
+    }
+    let what = if linked { "Linked" } else { "Unlinked" };
+    println!("{what} {} {} {}{}", out.session, if linked { "to" } else { "from" }, key, if changed { "" } else { " (it already was)" });
     Ok(())
 }
 

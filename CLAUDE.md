@@ -227,6 +227,10 @@ Claude Code
   where it started. `board::session_seed` lists an agent where most of its last five
   commands and edits worked; `util::command_dir` has the rule for commands.
 - Background jobs (`kind: bg`) have no terminal; `<account command> attach <jobId>` opens one.
+- A command that acted on git or GitHub gets a `toolUseResult.gitOperation` on its result line:
+  `pr` (`number`, `url`, `action` created, edited, commented or closed; closed has no url),
+  `push`, `commit`, `branch`. `prlinks.rs` links a session to each PR its `pr` names, subagents'
+  logs (`<session>/subagents/agent-*.jsonl`, same format) included.
 - `--session-id <uuid>` gives a new session the ID you choose, so Codealong knows it before it
   appears. The prompt argument goes through the same path as typed text: `@"<path>"` mentions
   attach files of up to 256 KB (262,144 bytes), an image as an image and a PDF whatever its
@@ -341,7 +345,9 @@ Codex
 - Commands are `item_completed` `CommandExecution` items with the folder the agent chose
   (`cwd`, a `file://` URL) and `[shell, "-lc", script]`. Scripts don't `cd` (none of 3,096
   recent ones did), and 45% ran outside the thread's own folder. File edits are `FileChange`
-  items, `changes` keyed by path.
+  items, `changes` keyed by path. The item carries the command's `stdout` too, so a `gh pr
+  create` is followed by the URL it printed; the app's `attach_artifact` tool (`McpToolCall`,
+  `artifact_type: pull_request`) shows a PR on the thread.
 - Each turn's `token_count` event carries `rate_limits` (`primary`/`secondary` windows with
   `used_percent`, `window_minutes`, `resets_at`; `limit_id` `codex` or per model; `plan_type`).
 - The desktop app is `/Applications/ChatGPT.app` (bundle id `com.openai.codex`; an older

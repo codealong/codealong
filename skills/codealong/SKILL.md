@@ -68,6 +68,25 @@ todo commands still work; give a session key when you want one linked.
 - `codealong worktrees` lists worktrees with branch, PR state, bay (`needs`, `working`,
   `unread`, `review`, `idle`, `merged`) and how many agents are in each.
 
+## PRs
+
+The app lists each PR with the sessions that worked on it. A session gets there by itself when
+its records show it made, edited or commented on the PR (`gh pr create`, `gh pr edit`,
+`gh pr comment`; in Codex, a `gh pr create` or attaching the PR to the thread), or when it
+worked in a worktree on the PR's branch while the PR was open. So there's usually nothing to do.
+
+- `codealong pr show <pr>` has a PR's branches, the worktrees on its branch and its sessions,
+  in full. `<pr>` is its URL, `owner/name#number`, or a number in this folder's repo. Use it to
+  find the sessions to read before picking up someone else's PR.
+- **Link by hand only what Codealong can't see:** a PR you opened some other way (GitHub's
+  website, an API or MCP tool), or one you worked on without being on its branch or touching it
+  through `gh` (reviewing it, fixing its checks from another worktree):
+  `codealong pr link <pr>` links this session (`--session <key>` another).
+- `codealong pr unlink <pr>` takes a session off a PR it's listed on but didn't work on (it
+  only mentioned the PR's folder, say). It stays off until linked again. Unlink others'
+  sessions only when the user asks.
+- `codealong session show <key>` lists the PRs a session worked on (`prs`).
+
 ## Accounts
 
 `codealong accounts` lists the configured accounts and whether each is signed in;

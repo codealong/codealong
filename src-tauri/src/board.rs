@@ -2,7 +2,7 @@
 //! Pure functions over already-read data, so every rule is unit-tested here.
 
 use std::cmp::Reverse;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use crate::antigravity::Conversation;
@@ -86,6 +86,18 @@ pub struct Inputs<'a> {
     pub pinned: &'a [String],
     /// Who `gh` is signed in as, to tell your PRs from others'.
     pub github_login: Option<&'a str>,
+    /// Sessions tied to PRs other than by branch.
+    pub pr_links: &'a PrLinks,
+}
+
+/// Sessions tied to PRs other than by branch (prlinks.rs), by PR key (`owner/name#number`, in
+/// lowercase).
+#[derive(Default, Debug)]
+pub struct PrLinks {
+    /// Sessions whose records show they made or changed the PR, and ones linked by hand.
+    pub worked: HashMap<String, Vec<String>>,
+    /// (PR, session) pairs unlinked by hand: never listed, however they matched.
+    pub unlinked: HashSet<(String, String)>,
 }
 
 fn plain(s: &str) -> String {
@@ -504,8 +516,12 @@ pub fn find_pr(seed: &LaneSeed, prs: &HashMap<String, Vec<PrRaw>>, now: i64) -> 
 /// branch that it made or worked in: the one that made it whenever it started before the PR
 /// ended, since it wrote the branch even if the PR was opened later, and one that worked there
 /// in the same window as the rest. A PR from the default branch (a fork's `main`) links no
-/// sessions: every session on `main` would match.
-pub fn pr_items(seeds: &[LaneSeed], lanes: &[Lane], prs: &HashMap<String, Vec<PrRaw>>, login: Option<&str>) -> Vec<PrItem> {
+/// sessions by branch: every session on `main` would match.
+///
+/// Then come the sessions whose records show they made or changed the PR, or that were linked
+/// to it by hand (`links.worked`), whatever their branch or time, each under the lane it's in.
+/// A session unlinked by hand is left off.
+pub fn pr_items(seeds: &[LaneSeed], lanes: &[Lane], prs: &HashMap<String, Vec<PrRaw>>, login: Option<&str>, links: &PrLinks) -> Vec<PrItem> {
     let mut project_of: HashMap<&str, (&str, &str, Option<&str>)> = HashMap::new();
     for s in seeds {
         if let Some(slug) = s.repo_slug.as_deref() {
@@ -545,6 +561,19 @@ pub fn pr_items(seeds: &[LaneSeed], lanes: &[Lane], prs: &HashMap<String, Vec<Pr
                     }
                 }
             }
+            let key = crate::prlinks::pr_key(&format!("{slug}#{}", p.number));
+            for k in links.worked.get(&key).into_iter().flatten() {
+                if sessions.iter().any(|x| &x.key == k) {
+                    continue;
+                }
+                // The lane it's in, else one it visited.
+                let found = lanes.iter().find_map(|l| l.sessions.iter().find(|s| &s.key == k && s.visitor.is_none()).map(|s| (l, s)))
+                    .or_else(|| lanes.iter().find_map(|l| l.sessions.iter().find(|s| &s.key == k).map(|s| (l, s))));
+                if let Some((l, s)) = found.filter(|(_, s)| !s.archived) {
+                    sessions.push(PrSession { key: s.key.clone(), lane: l.id.clone() });
+                }
+            }
+            sessions.retain(|x| !links.unlinked.contains(&(key.clone(), x.key.clone())));
             out.push(PrItem {
                 key: format!("{slug}#{}", p.number),
                 repo_slug: slug.clone(),
@@ -913,7 +942,7 @@ pub fn targets(seed: &LaneSeed, sessions: &[Session], pr: Option<&Pr>, apps: &Ap
 }
 
 pub fn compose(inp: Inputs) -> Board {
-    let Inputs { now, apps, seeds, mut sessions, visitors, git, prs, project_order, warnings, loading, github_at, pinned, github_login } = inp;
+    let Inputs { now, apps, seeds, mut sessions, visitors, git, prs, project_order, warnings, loading, github_at, pinned, github_login, pr_links } = inp;
     for s in &mut sessions {
         let (h, d) = session_headline(s);
         s.headline = h;
@@ -1011,7 +1040,7 @@ pub fn compose(inp: Inputs) -> Board {
         });
     }
     lanes.sort_by_key(|l| (l.bay, Reverse(lane_prompt_at(&l.sessions, l.last_activity)), Reverse(l.last_activity)));
-    let pr_list = pr_items(seeds, &lanes, prs, github_login);
+    let pr_list = pr_items(seeds, &lanes, prs, github_login, pr_links);
 
     let mut projects = Vec::new();
     let mut names: Vec<String> = project_order.to_vec();
@@ -1193,6 +1222,7 @@ mod tests {
             github_at: None,
             pinned: &[],
             github_login: Some("ghempton"),
+            pr_links: &PrLinks::default(),
         })
     }
 
@@ -1284,6 +1314,7 @@ mod tests {
             github_at: None,
             pinned: &[],
             github_login: Some("ghempton"),
+            pr_links: &PrLinks::default(),
         });
         assert_eq!(board.prs.len(), 1);
         let p = &board.prs[0];
@@ -1326,6 +1357,7 @@ mod tests {
             github_at: None,
             pinned: &[],
             github_login: None,
+            pr_links: &PrLinks::default(),
         });
         assert_eq!(board.prs[0].sessions, vec![PrSession { key: s.key, lane: "/r/atlas-quarry".into() }]);
     }
@@ -1367,6 +1399,7 @@ mod tests {
             github_at: None,
             pinned: &[],
             github_login: None,
+            pr_links: &PrLinks::default(),
         });
         let get = |n: u64| board.prs.iter().find(|p| p.number == n).unwrap();
         let listed = |key: &str| PrSession { key: key.into(), lane: "/r/atlas-quarry".into() };
@@ -1414,6 +1447,7 @@ mod tests {
                 github_at: None,
                 pinned: &[],
                 github_login: None,
+                pr_links: &PrLinks::default(),
             })
         };
         let listed = |key: &str| PrSession { key: key.into(), lane: scratch.into() };
@@ -1739,7 +1773,7 @@ mod tests {
         s.work = vec!["/r/codealong-pins".into(); 3];
         let (git, prs, visitors) = (HashMap::new(), HashMap::new(), HashMap::new());
         let order = vec!["Northwind".to_string()];
-        let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![s], visitors: &visitors, git: &git, prs: &prs, project_order: &order, warnings: vec![], loading: false, github_at: None, pinned: &[], github_login: None });
+        let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![s], visitors: &visitors, git: &git, prs: &prs, project_order: &order, warnings: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default() });
         let lane = |p: &str| board.lanes.iter().find(|l| l.path == p).unwrap();
         assert_eq!(lane("/r/codealong-pins").bay, Bay::Working);
         assert_eq!(lane("/r/codealong-pins").sessions.len(), 1);
@@ -1915,7 +1949,7 @@ mod tests {
         maker.cwd = "/r/osprey".into();
         let (git, prs, order) = (HashMap::new(), HashMap::new(), vec!["Northwind".to_string()]);
         let visitors = HashMap::new();
-        let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![maker], visitors: &visitors, git: &git, prs: &prs, project_order: &order, warnings: vec![], loading: false, github_at: None, pinned: &[], github_login: None });
+        let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![maker], visitors: &visitors, git: &git, prs: &prs, project_order: &order, warnings: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default() });
         let lane = board.lanes.iter().find(|l| l.path == scratch).unwrap();
         assert_eq!(lane.sessions.len(), 1);
         assert_eq!(lane.sessions[0].visitor.as_deref(), Some("made this worktree"));
@@ -1948,6 +1982,7 @@ mod tests {
             github_at: None,
             pinned: &[],
             github_login: None,
+            pr_links: &PrLinks::default(),
         });
         let lane = &board.lanes[0];
         assert_eq!(lane.bay, Bay::Idle);
@@ -1987,6 +2022,7 @@ mod tests {
             github_at: None,
             pinned: &pinned,
             github_login: None,
+            pr_links: &PrLinks::default(),
         });
         let lane = &board.lanes[0];
         assert_eq!(lane.sessions.len(), MAX_SESSIONS_PER_LANE + 1);
@@ -2018,6 +2054,7 @@ mod tests {
             github_at: None,
             pinned: &[],
             github_login: None,
+            pr_links: &PrLinks::default(),
         });
         assert_eq!(board.lanes.len(), 2);
         assert_eq!(board.lanes[0].bay, Bay::Needs);
@@ -2039,7 +2076,7 @@ mod tests {
         let seeds = vec![seed("/r/atlas", "main"), seed("/r/atlas-pins", "pins"), other_repo, elsewhere];
         let (git, prs, visitors) = (HashMap::new(), HashMap::new(), HashMap::new());
         let order = vec!["Northwind".to_string()];
-        let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![], visitors: &visitors, git: &git, prs: &prs, project_order: &order, warnings: vec![], loading: false, github_at: None, pinned: &[], github_login: None });
+        let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![], visitors: &visitors, git: &git, prs: &prs, project_order: &order, warnings: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default() });
         let near = |p: &str| terminal_neighbours(&board.lanes, Path::new(p));
         assert_eq!(near("/r/atlas-pins/src"), vec![vec!["/r/atlas-pins".to_string()], vec!["/r/atlas".to_string()], vec!["/r/kestrel".to_string()]]);
         assert_eq!(near("/tmp/scratch"), vec![vec!["/tmp/scratch".to_string()]]);

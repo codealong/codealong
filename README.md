@@ -44,7 +44,8 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     Code's by a keypress in its Ghostty or tmux tab, only while its own record says the prompt
     is up for that call. Others open where they run to be answered.
   - **PRs**: every PR in the project's repos, with the worktree and sessions that worked on
-    each. Reviews asked of you come first, with one-click Approve. Colored pills say where
+    each: the ones that made, edited or commented on it (from their own records), the ones on
+    its branch while it was open, and any linked by hand (`codealong pr link|unlink`). Reviews asked of you come first, with one-click Approve. Colored pills say where
     each PR stands: its review, its checks, and conflicts or an out-of-date branch, or one
     green Ready to merge when GitHub would merge it now. Rows that are your move are marked
     at the left edge: amber for a review asked of you or something to fix, red for failing
@@ -323,7 +324,8 @@ folders = []
 
 What you've seen (for Your turn), what you've pinned and what you've archived in Codealong
 are kept in `state.json` next to it; whether the floating bar is on, and where you left it, in
-`bar.json`; each project's canvas in `canvas.json`. Todos and labels are in `todos.json`, which is watched, so an agent or an editor can
+`bar.json`; each project's canvas in `canvas.json`; sessions linked to PRs or unlinked from them
+by hand in `pr-links.json`. Todos and labels are in `todos.json`, which is watched, so an agent or an editor can
 add to it. Attachments are kept by their content: images in `images/`, other files in
 `files/<hash>/<name>`; ones no todo uses are cleared after 30 days.
 
@@ -383,6 +385,7 @@ light scan (no git, PRs or visitors).
 | `src-tauri/src/appserver.rs` | Codex actions through its app-server (archiving) |
 | `src-tauri/src/claudeapp.rs` | The Claude app's session records (its IDs, what you archived there) |
 | `src-tauri/src/config.rs`, `state.rs` | `config.toml` (accounts saved in place) and `state.json` (seen, pinned, archived, account folders already read) |
+| `src-tauri/src/prlinks.rs` | Sessions tied to PRs other than by branch: what their records show they did to a PR, and links made by hand (`pr-links.json`) |
 | `src-tauri/src/detect.rs` | The harness accounts on this Mac: folders, sign-ins, and the wrappers and aliases that run them |
 | `src-tauri/src/bar.rs`, `barfeed.rs` | The floating bar's window (a panel over every app, where it sits, Window › Floating bar) and the small feed of what it shows, sent only when that changes |
 | `src/` | The React UI, built from the design system's components and tokens; `lanes.ts` groups the board and mirrors the engine's status rules for the age filter; `pins.ts` keeps the pinned lists; `prStatus.ts` and `ui/PrPills.tsx` say where a PR stands and which PRs are your move; `bar.ts` and `ui/Bar.tsx` lay out the floating bar; `ui/Picker.tsx` is the quick panel's filterable menus; `ui/SettingsDialog.tsx` and `ui/AccountsSection.tsx` are Settings |
