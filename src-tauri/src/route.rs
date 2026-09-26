@@ -150,6 +150,7 @@ fn session_card(lane: &Lane, s: &Session, now: i64) -> Value {
     let mut card = Map::new();
     card.insert("title".into(), json!(clip(&s.title)));
     card.insert("agent".into(), json!(s.account));
+    card.insert("project".into(), json!(lane.project));
     card.insert("repo".into(), json!(lane.repo));
     card.insert("worktree".into(), json!(lane_name(lane)));
     if let Some(b) = s.branch.as_deref().or(lane.branch.as_deref()) {
@@ -162,6 +163,9 @@ fn session_card(lane: &Lane, s: &Session, now: i64) -> Value {
     let doing = s.excerpt.as_deref().filter(|e| !e.trim().is_empty()).unwrap_or(&s.headline);
     if !doing.trim().is_empty() {
         card.insert("latest".into(), json!(clip(&doing.replace('`', ""))));
+    }
+    if let Some(at) = s.started_at {
+        card.insert("started".into(), json!(crate::jev::ago_words(at, now)));
     }
     card.insert("last prompted".into(), json!(crate::jev::ago_words(s.last_prompt_at, now)));
     Value::Object(card)
@@ -266,7 +270,7 @@ pub fn request(board: &Board, project: &str, text: &str, model: &str, now: i64) 
             },
             "worktree": {
                 "type": "choice",
-                "instructions": "Which repository worktree does the work in `message` belong in? Match the product, repo, feature or files it talks about.",
+                "instructions": "Which repository worktree does the work in `message` belong in? Match the project, product, repo, feature or files it talks about.",
                 "criteria": Value::Object(lane_cards),
             },
             "duplicate": {

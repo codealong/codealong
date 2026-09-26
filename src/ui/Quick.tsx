@@ -33,7 +33,7 @@ import {
 } from '../api';
 import { filesToAttach, keepFiles, useFileDrop } from '../attachInput';
 import { showContextMenu } from '../contextMenu';
-import { ago, resetsPhrase, tildePath, withTimes } from '../format';
+import { ago, agoPhrase, resetsPhrase, tildePath, withTimes } from '../format';
 import { HARNESS_WORD, usageNote } from '../harness';
 import { useLogo } from '../logo';
 import { withoutAccount } from '../lanes';
@@ -917,10 +917,12 @@ export function Quick() {
     if (sg.kind === 'send' || sg.kind === 'open') {
       const x = sg.session;
       const where = `${x.account} · ${sg.lane.callsign}`;
+      // How old it is leads, so an old session isn't mistaken for the one you started this morning.
+      const age = x.startedAt != null ? `Started ${agoPhrase(x.startedAt, now)}. ` : '';
       if (sg.kind === 'open') {
         return x.status === 'needs'
-          ? { icon: 'external', title: `Answer “${x.title}”`, why: 'It’s waiting on you, so it opens where it lives and you answer there.', where }
-          : { icon: 'external', title: `Open “${x.title}”`, why: rowWhy(x.detail, x.headline, now), where };
+          ? { icon: 'external', title: `Answer “${x.title}”`, why: `${age}It’s waiting on you, so it opens where it lives and you answer there.`, where }
+          : { icon: 'external', title: `Open “${x.title}”`, why: `${age}${rowWhy(x.detail, x.headline, now)}`, where };
       }
       const why = !x.live
         ? x.harness === 'claude' && x.surface === 'cli'
@@ -931,7 +933,7 @@ export function Quick() {
           : x.harness === 'claude' && x.surface === 'app'
             ? 'It gets this as a message from another session, in the Claude app.'
             : 'It gets this as its next message.';
-      return { icon: 'send', title: `Send to “${x.title}”`, why, where };
+      return { icon: 'send', title: `Send to “${x.title}”`, why: `${age}${why}`, where };
     }
     if (sg.kind === 'todo') {
       return { icon: 'list-check', title: `Save as a todo: “${todoTitle(text)}”`, why: `In ${sg.lane.project}, linked to ${sg.lane.callsign}. Start it when you’re ready.`, where: sg.lane.callsign };
