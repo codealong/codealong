@@ -18,6 +18,7 @@ import { InsightChips } from './InsightBits';
 import { OpenInMenu } from './Inspector';
 import { BranchLabel, Button, HarnessChip, Icon, Rich, STATUS_WORD, StatusGlyph } from './primitives';
 import { SessionThread } from './SessionThread';
+import { CodeBlock } from './CopyButton';
 import { TodoGlyph } from './TodoBits';
 
 function Composer({ session: s, terminal, onOpen }: { session: Session; terminal: string; onOpen: () => void }) {
@@ -129,7 +130,7 @@ function Approval({ session: s, terminal, onOpen }: { session: Session; terminal
       <div className="ca-approval-label">
         <Rich text={pending.label} now={0} />
       </div>
-      {pending.input && pending.input !== pending.label && <pre className="ca-approval-input">{pending.input}</pre>}
+      {pending.input && pending.input !== pending.label && <CodeBlock text={pending.input} className="ca-approval-input" />}
       <div className="ca-composer-foot">
         <span className={['ca-composer-note', note?.error && 'is-error'].filter(Boolean).join(' ')}>{busy ? 'Answering…' : (note?.text ?? 'Allows this call once. Deny stops the turn.')}</span>
         <Button size="sm" disabled={busy} onClick={() => answer('deny')}>

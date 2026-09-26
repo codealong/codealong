@@ -9,6 +9,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { sessionNewer, sessionPage } from '../api';
 import { absolute, agoPhrase } from '../format';
 import type { Session, Status, TranscriptItem } from '../types';
+import { CodeBlock, CopyButton } from './CopyButton';
 import { Markdown } from './Markdown';
 import { Icon, Rich, StatusGlyph } from './primitives';
 
@@ -92,8 +93,8 @@ function ToolLine({ item, result, state, onOpen }: { item: TranscriptItem; resul
       )}
       {open && (
         <div className="ca-thread-tooldetail">
-          {item.input && <pre className="ca-thread-in">{item.input}</pre>}
-          {output && <pre className={['ca-thread-out', failed && 'is-failed'].filter(Boolean).join(' ')}>{output}</pre>}
+          {item.input && <CodeBlock text={item.input} className="ca-thread-in" />}
+          {output && <CodeBlock text={output} className={['ca-thread-out', failed && 'is-failed'].filter(Boolean).join(' ')} />}
         </div>
       )}
     </div>
@@ -126,6 +127,7 @@ function Said({ item, now, label }: { item: TranscriptItem; now: number; label: 
     <div className={`ca-thread-said is-${item.kind}`}>
       <div className="ca-thread-meta">
         <span>{label}</span>
+        <CopyButton text={item.text} title={item.kind === 'you' ? 'Copy your prompt' : 'Copy the reply'} className="ca-thread-copy" />
         <span className="ca-meta" title={absolute(item.at)}>
           {agoPhrase(item.at, now)}
         </span>

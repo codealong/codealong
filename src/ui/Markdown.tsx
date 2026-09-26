@@ -3,6 +3,7 @@
 // HTML, so nothing in a transcript can put markup on the page. Links show as their text.
 
 import { Fragment, type ReactNode } from 'react';
+import { CodeBlock } from './CopyButton';
 
 type Block =
   | { kind: 'heading'; level: number; text: string }
@@ -116,7 +117,7 @@ export function Markdown({ text, className }: { text: string; className?: string
           case 'quote':
             return <blockquote key={i}>{inline(b.text)}</blockquote>;
           case 'code':
-            return <pre key={i}>{b.text}</pre>;
+            return <CodeBlock key={i} text={b.text} />;
           case 'rule':
             return <hr key={i} />;
         }
