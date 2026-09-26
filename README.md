@@ -37,8 +37,10 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     agent's replies as Markdown, and every tool call, which opens to its input and output; runs
     of calls fold into one line. It opens at the newest and loads older pages as you scroll up,
     and follows the session as it goes. The box at the bottom sends it a message where it runs,
-    as the quick panel does. When a session is waiting on you, the panel shows what it asks and
-    opens it to answer: approvals are given where the session runs.
+    as the quick panel does. When a session waits on you to allow a tool call, the bottom of the panel
+    shows the call with Allow and Deny: OpenCode's are answered through its service, Claude
+    Code's by a keypress in its Ghostty or tmux tab, only while its own record says the prompt
+    is up for that call. Others open where they run to be answered.
   - **PRs**: every PR in the project's repos, with the worktree and sessions that worked on
     each. Reviews asked of you come first, with one-click Approve. Colored pills say where
     each PR stands: its review, its checks, and conflicts or an out-of-date branch, or one
@@ -364,6 +366,7 @@ light scan (no git, PRs or visitors).
 | `src-tauri/src/launch.rs` | App profiles: Ghostty (AppleScript, exact tab focus), Cursor (CLI), deep links |
 | `src-tauri/src/start.rs`, `src/start.ts` | New sessions: where each account can start one, the launch it makes, the agent menu (every account on every model) and Auto's pick |
 | `src-tauri/src/quick.rs`, `src/quick.ts`, `src/ui/Quick.tsx` | The quick panel: its window (a panel that takes the keyboard over any app), its shortcut, and its page (what needs you, finding sessions, starting one) |
+| `src-tauri/src/harness.rs` | The interface each harness implements (`Adapter`): a session's record, its conversation, what it waits on you to allow and answering it; CLAUDE.md's "Adding a harness" says what else a new one needs |
 | `src-tauri/src/transcript.rs`, `src/ui/SessionPanel.tsx`, `src/ui/SessionThread.tsx` | A session's conversation, read a page at a time from its own record, and the panel that shows it and sends it messages |
 | `src-tauri/src/search.rs` | Searching what was said in sessions: an in-memory index of prompts and replies, read once per file and then from where it stopped |
 | `src-tauri/src/route.rs`, `src/route.ts` | Suggestions in the quick panel: the request to Jev and reading its answer back, the key in the keychain, and which suggestions the panel shows |

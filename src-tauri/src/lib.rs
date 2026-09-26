@@ -16,6 +16,7 @@ mod config;
 mod detect;
 mod engine;
 mod git;
+mod harness;
 mod github;
 mod install;
 mod insights;
@@ -224,6 +225,26 @@ fn search_text(words: Vec<String>) -> search::Found {
 fn session_page(engine: State<'_, engine::Handle>, key: String, before: Option<u64>) -> Result<transcript::Page, String> {
     let cfg = config::load().map_err(|e| format!("{e:#}"))?.unwrap_or_default();
     transcript::page(&engine.board(), &cfg, &key, before, 60).map_err(|e| format!("{e:#}"))
+}
+
+/// What a session waiting on you wants to do, when it's a tool call Codealong can answer for it
+/// (`harness::Adapter::pending`).
+#[tauri::command(async)]
+fn session_pending(engine: State<'_, engine::Handle>, key: String) -> Result<Option<harness::Pending>, String> {
+    let cfg = config::load().map_err(|e| format!("{e:#}"))?.unwrap_or_default();
+    let board = engine.board();
+    let (s, account) = harness::find(&board, &cfg, &key).map_err(|e| format!("{e:#}"))?;
+    Ok(harness::adapter(s.harness).pending(&harness::Ctx { account }, s))
+}
+
+/// Allows or denies the tool call `id` a session waits on, if it's still the one waiting.
+#[tauri::command(async)]
+fn session_answer(engine: State<'_, engine::Handle>, key: String, id: String, answer: harness::Answer) -> Result<String, String> {
+    let cfg = config::load().map_err(|e| format!("{e:#}"))?.unwrap_or_default();
+    let board = engine.board();
+    let (s, account) = harness::find(&board, &cfg, &key).map_err(|e| format!("{e:#}"))?;
+    let said = harness::adapter(s.harness).answer(&harness::Ctx { account }, s, &id, answer).map_err(|e| format!("{e:#}"))?;
+    Ok(said)
 }
 
 /// What a session said and did after `after`, as it goes on.
@@ -678,7 +699,7 @@ pub fn run() {
             quick::on_window_event(window, event);
         })
         .register_asynchronous_uri_scheme_protocol("codealong-image", |_ctx, request, responder| serve_image(request, responder))
-        .invoke_handler(tauri::generate_handler![get_board, open_target, open_config, mark_seen, refresh, refresh_usage, set_pinned, set_pinned_worktrees, archive_session, pr_detail, pr_comment_asks, approve_pr, review_in_codex, open_url, get_accounts, save_accounts, found_accounts, get_config, save_config, save_config_text, sign_in, agents_status, install_agents, start_options, start_session, todo_op, canvas_load, canvas_save, save_attachment, import_attachment, open_attachment, expand_attachments, set_theme, open_project_window, fit_bar, show_main, bar_feed, bar_on, set_bar_on, open_from_bar, show_quick, hide_quick, quick_ready, fit_quick, start_from_quick, route_quick, search_text, session_page, session_newer, send_to_session, suggest_todo, dismiss_todo_hint, jev_key, set_jev_key, test_jev, quick_shortcut, pause_quick_shortcut, perf_mark])
+        .invoke_handler(tauri::generate_handler![get_board, open_target, open_config, mark_seen, refresh, refresh_usage, set_pinned, set_pinned_worktrees, archive_session, pr_detail, pr_comment_asks, approve_pr, review_in_codex, open_url, get_accounts, save_accounts, found_accounts, get_config, save_config, save_config_text, sign_in, agents_status, install_agents, start_options, start_session, todo_op, canvas_load, canvas_save, save_attachment, import_attachment, open_attachment, expand_attachments, set_theme, open_project_window, fit_bar, show_main, bar_feed, bar_on, set_bar_on, open_from_bar, show_quick, hide_quick, quick_ready, fit_quick, start_from_quick, route_quick, search_text, session_page, session_newer, session_pending, session_answer, send_to_session, suggest_todo, dismiss_todo_hint, jev_key, set_jev_key, test_jev, quick_shortcut, pause_quick_shortcut, perf_mark])
         .build(tauri::generate_context!())
         .expect("error while running Codealong")
         .run(|app, event| {
@@ -709,6 +730,9 @@ pub fn is_cli(args: &[String]) -> bool {
 /// `codealong --snapshot --pr <owner/name> <number>`: a PR's detail, as the PR panel gets it.
 /// `codealong --snapshot --route <text> [--project <name>]`: where the quick panel would suggest
 /// sending it (asks TypeSafe; needs the key).
+/// `codealong --snapshot --pending <session key>`: what a session waits on you to allow, as its panel shows it.
+/// `codealong --snapshot --answer <session key> <id> <allow|deny>`: answers it, as the panel's buttons do.
+/// `codealong --snapshot --send <session key> <text>`: sends a session a message, as its panel does.
 /// `codealong --snapshot --transcript <session key> [--before <cursor>]`: a page of a session's
 /// conversation, as its panel gets it.
 /// `codealong --snapshot --start-options`: where each account can start a session.
@@ -716,6 +740,60 @@ pub fn is_cli(args: &[String]) -> bool {
 /// [--worktree]`: what starting one would do, without doing it.
 pub fn snapshot_cli(args: &[String]) -> i32 {
     let started = std::time::Instant::now();
+    if let Some(i) = args.iter().position(|a| a == "--pending" || a == "--answer") {
+        let answering = args[i] == "--answer";
+        let usage = "usage: codealong --snapshot --pending <session key> | --answer <session key> <id> <allow|deny>";
+        let Some(key) = args.get(i + 1) else {
+            eprintln!("{usage}");
+            return 2;
+        };
+        let cfg = config::load().ok().flatten().unwrap_or_default();
+        let board = engine::snapshot(false, false);
+        let (s, account) = match harness::find(&board, &cfg, key) {
+            Ok(found) => found,
+            Err(e) => {
+                eprintln!("{e:#}");
+                return 1;
+            }
+        };
+        let ctx = harness::Ctx { account };
+        if !answering {
+            println!("{}", serde_json::to_string_pretty(&harness::adapter(s.harness).pending(&ctx, s)).unwrap_or_default());
+            return 0;
+        }
+        let (Some(id), Some(Ok(answer))) = (args.get(i + 2), args.get(i + 3).map(|a| serde_json::from_value::<harness::Answer>(serde_json::Value::String(a.clone())))) else {
+            eprintln!("{usage}");
+            return 2;
+        };
+        return match harness::adapter(s.harness).answer(&ctx, s, id, answer) {
+            Ok(said) => {
+                println!("{said}");
+                0
+            }
+            Err(e) => {
+                eprintln!("{e:#}");
+                1
+            }
+        };
+    }
+    if let Some(i) = args.iter().position(|a| a == "--send") {
+        let (Some(key), Some(text)) = (args.get(i + 1), args.get(i + 2)) else {
+            eprintln!("usage: codealong --snapshot --send <session key> <text>");
+            return 2;
+        };
+        let cfg = config::load().ok().flatten().unwrap_or_default();
+        let board = engine::snapshot(false, false);
+        return match send::send(&board, &cfg, key, text) {
+            Ok(sent) => {
+                println!("{}", sent.message);
+                0
+            }
+            Err(e) => {
+                eprintln!("{e:#}");
+                1
+            }
+        };
+    }
     if let Some(i) = args.iter().position(|a| a == "--transcript") {
         let Some(key) = args.get(i + 1) else {
             eprintln!("usage: codealong --snapshot --transcript <session key> [--before <cursor>]");

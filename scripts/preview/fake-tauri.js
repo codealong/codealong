@@ -193,6 +193,13 @@ window.__TAURI_INTERNALS__ = {
         ] };
       });
     }
+    // What PREVIEW_TRANSCRIPT's session waits on you to allow, as the engine read it; nothing else waits.
+    if (cmd === 'session_pending') {
+      return Promise.all([optionalJson('./transcript-key.json'), optionalJson('./pending.json')]).then(function (all) {
+        return all[0] && all[0].key === (args || {}).key ? all[1] : null;
+      });
+    }
+    if (cmd === 'session_answer') return Promise.resolve((args || {}).answer === 'allow' ? 'Allowed it (in the preview nothing is pressed anywhere).' : 'Denied it (in the preview nothing is pressed anywhere).');
     if (cmd === 'session_newer') return Promise.resolve({ items: [], before: null, after: (args || {}).after || 0 });
     if (cmd === 'send_to_session') return Promise.resolve({ message: 'Sent (in the preview nothing is typed anywhere).', opened: false });
     // A todo change "shows" on a board that never comes, so the page keeps its own copy of it.

@@ -138,10 +138,9 @@ fn attempt(route: &Route, session: &Session, account: &AccountCfg, cfg: &Config,
         }
         Route::Type { pid } => {
             let style = if session.harness == Harness::Claude { Style::Mention } else { Style::Path };
-            if !launch::terminal_type_session(&cfg.apps.terminal, *pid, Path::new(&session.cwd), &attachments::expand(text, style))? {
+            let Some(app) = launch::terminal_type_session(&cfg.apps.terminal, *pid, Path::new(&session.cwd), &attachments::expand(text, style))? else {
                 return Ok(None);
-            }
-            let app = launch::terminal_name(&cfg.apps.terminal);
+            };
             sent(if busy { format!("Typed into {title} in {app}; it takes it after its current step.") } else { format!("Typed into {title} in {app}.") })
         }
         Route::Peer { socket, session_id } => {
@@ -252,7 +251,7 @@ fn daemon_reply(socket: &Path, key: &str, job: &str, text: &str) -> Result<()> {
 /// session shows who it's from. It asserts no permission mode: a session that skips prompts
 /// then holds it for you to allow, rather than taking Codealong's word for it.
 pub fn peer_content(text: &str) -> String {
-    let body = format!("Your user typed this in Codealong's quick panel and sent it to this session:\n\n{}", text.trim()).replace("</cross-session-message", "<\\/cross-session-message");
+    let body = format!("Your user sent this to this session from Codealong:\n\n{}", text.trim()).replace("</cross-session-message", "<\\/cross-session-message");
     format!("<cross-session-message from-name=\"Codealong\">\n{body}\n</cross-session-message>")
 }
 

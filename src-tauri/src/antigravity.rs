@@ -130,6 +130,20 @@ pub fn uri_path(uri: &str) -> Option<String> {
     Some(decoded.trim_end_matches('/').to_string()).filter(|p| !p.is_empty())
 }
 
+/// Antigravity (`harness::Adapter`): its conversations are protobufs Codealong doesn't read yet,
+/// so its panel shows the summary line and opens the app.
+pub struct Antigravity;
+
+impl crate::harness::Adapter for Antigravity {
+    fn harness(&self) -> crate::model::Harness {
+        crate::model::Harness::Antigravity
+    }
+
+    fn records(&self, account: &crate::config::AccountCfg, _s: &crate::model::Session) -> Vec<std::path::PathBuf> {
+        vec![account.home_path().join("conversation_summaries.db")]
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

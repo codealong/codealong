@@ -12,6 +12,7 @@ use rusqlite::{Connection, OpenFlags};
 use serde_json::Value;
 
 use crate::procs;
+use crate::transcript::{clip_input, clip_output, item, Item, Page};
 use crate::util::{code, home, one_line, truncate};
 
 /// A session as the database has it, with the latest message each way.
@@ -493,6 +494,119 @@ pub fn terminal_for<'a>(terminals: &'a [Terminal], row: &SessionRow, latest_in_d
         .iter()
         .find(|t| t.session.as_deref() == Some(row.id.as_str()))
         .or_else(|| (latest_in_dir).then(|| terminals.iter().find(|t| t.session.is_none() && t.cwd == Path::new(&row.directory))).flatten())
+}
+
+/* ---- The session panel's conversation, and answering permission requests ---- */
+
+/// An OpenCode message's items (transcript.rs): a user's text, or an assistant's text and tool parts.
+pub fn conversation_items(v: &Value, seq: u64, at: i64) -> Vec<Item> {
+    let mut out = Vec::new();
+    if let Some(t) = v.get("text").and_then(Value::as_str) {
+        if !t.trim().is_empty() {
+            out.push(item(at, "you", t.trim()));
+        }
+    }
+    for p in v.get("content").and_then(Value::as_array).into_iter().flatten() {
+        match p.get("type").and_then(Value::as_str) {
+            Some("text") => {
+                let t = p.get("text").and_then(Value::as_str).unwrap_or("").trim();
+                if !t.is_empty() {
+                    out.push(item(at, "agent", t));
+                }
+            }
+            Some("tool") => {
+                let name = p.get("name").and_then(Value::as_str).unwrap_or("tool");
+                let state = p.get("state");
+                let input = state.and_then(|s| s.get("input"));
+                let output = state.and_then(|s| s.get("output")).map(|o| match o {
+                    Value::String(s) => s.clone(),
+                    other => serde_json::to_string_pretty(other).unwrap_or_default(),
+                });
+                let failed = state.and_then(|s| s.get("status")).and_then(Value::as_str) == Some("error");
+                let command = input.and_then(|i| i.get("command")).and_then(Value::as_str);
+                // OpenCode names its tools in lower case; the panel names them as the others do.
+                let name = title_case(name);
+                let label = match command {
+                    Some(c) => format!("{name} · {}", code(&one_line(c, 80))),
+                    None => name,
+                };
+                out.push(Item {
+                    input: input.map(|i| clip_input(&command.map(String::from).unwrap_or_else(|| serde_json::to_string_pretty(i).unwrap_or_default()))),
+                    output: output.map(|o| clip_output(&o)),
+                    failed,
+                    ..item(at, "tool", label)
+                });
+            }
+            _ => {}
+        }
+    }
+    crate::transcript::placed(out, seq)
+}
+
+
+/// OpenCode (`harness::Adapter`): its database for the conversation, and its service's
+/// permission requests, answered through the service as its own TUI answers them.
+pub struct OpenCode;
+
+impl crate::harness::Adapter for OpenCode {
+    fn harness(&self) -> crate::model::Harness {
+        crate::model::Harness::Opencode
+    }
+
+    fn records(&self, account: &crate::config::AccountCfg, _s: &crate::model::Session) -> Vec<PathBuf> {
+        vec![account.home_path().join("opencode.db")]
+    }
+
+    fn conversation(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, before: Option<u64>, limit: usize) -> anyhow::Result<Page> {
+        Ok(transcript_page(&ctx.account.home_path().join("opencode.db"), &s.id, before, limit, conversation_items))
+    }
+
+    fn conversation_after(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, after: u64) -> anyhow::Result<Page> {
+        Ok(transcript_newer(&ctx.account.home_path().join("opencode.db"), &s.id, after, conversation_items))
+    }
+
+    fn pending(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> Option<crate::harness::Pending> {
+        let svc = service(&ctx.account.home_path())?;
+        permission_request(&svc, &s.id).map(|r| crate::harness::Pending { id: r.id, label: r.label, input: r.input, cannot: None })
+    }
+
+    fn answer(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, id: &str, answer: crate::harness::Answer) -> anyhow::Result<String> {
+        let svc = service(&ctx.account.home_path()).ok_or_else(|| anyhow::anyhow!("OpenCode's service isn't running; answer it in OpenCode."))?;
+        let Some(r) = permission_request(&svc, &s.id) else { anyhow::bail!("It isn't waiting on a permission any more.") };
+        if r.id != id {
+            anyhow::bail!("It's waiting on a different request now: {}. Look again before answering.", r.label);
+        }
+        let decision = match answer {
+            crate::harness::Answer::Allow => "once",
+            crate::harness::Answer::Deny => "reject",
+        };
+        post(&svc, &format!("/api/session/{}/permission/{}/reply", urlencoding::encode(&s.id), urlencoding::encode(id)), &serde_json::json!({ "decision": decision }))?;
+        Ok(match answer {
+            crate::harness::Answer::Allow => format!("Allowed {}.", r.label),
+            crate::harness::Answer::Deny => format!("Denied {}.", r.label),
+        })
+    }
+}
+
+struct PermissionRequest {
+    id: String,
+    label: String,
+    input: Option<String>,
+}
+
+/// The oldest permission request a session's waiting on, from the service: what it wants to do
+/// (`action`) and to what (`resources`, such as a command or a file).
+fn permission_request(svc: &Service, session: &str) -> Option<PermissionRequest> {
+    let v = get(svc, &format!("/api/session/{}/permission", urlencoding::encode(session)))?;
+    let r = v.get("data")?.as_array()?.first()?;
+    let action = r.get("action").and_then(Value::as_str).unwrap_or("permission");
+    let resources: Vec<&str> = r.get("resources").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
+    let first = resources.first().map(|x| format!(" · {}", code(&one_line(x, 80)))).unwrap_or_default();
+    Some(PermissionRequest {
+        id: r.get("id")?.as_str()?.to_string(),
+        label: format!("{}{first}", title_case(action)),
+        input: (!resources.is_empty()).then(|| clip_input(&resources.join("\n"))).or_else(|| r.get("message").and_then(Value::as_str).map(String::from)),
+    })
 }
 
 #[cfg(test)]

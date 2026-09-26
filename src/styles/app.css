@@ -4720,3 +4720,39 @@ html.is-quick body {
   white-space: normal;
   overflow-wrap: anywhere;
 }
+/* A session waiting on you to allow a tool call, at the bottom of its panel. */
+.ca-composer.is-approval {
+  background: var(--attn-tint);
+}
+.ca-approval-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--attn);
+  font: 600 12px/16px var(--font-sans);
+}
+.ca-approval-head .ca-linkbtn {
+  margin-left: auto;
+  font-weight: 400;
+}
+.ca-approval-label {
+  color: var(--ink);
+  font: 500 13px/18px var(--font-sans);
+  overflow-wrap: anywhere;
+}
+.ca-approval-label .ca-ic {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.ca-approval-input {
+  margin: 0;
+  max-height: 140px;
+  overflow: auto;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font: 400 11px/16px var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

@@ -11,6 +11,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 
 use crate::procs;
+use crate::transcript::{clip_input, clip_output, item, text_of, Item, Page};
 use crate::util::{code, command_dir, file_name, mtime_ms, note_work, one_line, parse_rfc3339_ms, read_head, resolve, scan_lines_back, without_cd};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -305,6 +306,158 @@ fn from_head(head: &HeadInfo) -> TranscriptInfo {
 }
 
 /// Parses head and tail text; used by tests.
+/* ---- The session panel's conversation, and answering permission prompts ---- */
+
+/// One transcript line as conversation items (transcript.rs): a prompt you typed, the agent's
+/// text and tool calls, a tool's result by the call's id, and notes.
+pub fn conversation_items(v: &Value, at: i64) -> Vec<Item> {
+    let flag = |k: &str| v.get(k).and_then(Value::as_bool) == Some(true);
+    if flag("isSidechain") {
+        return Vec::new();
+    }
+    match v.get("type").and_then(Value::as_str) {
+        Some("user") => {
+            if flag("isCompactSummary") {
+                return vec![item(at, "note", "The conversation was compacted here")];
+            }
+            if let Some(t) = typed_text(v) {
+                return vec![item(at, "you", t)];
+            }
+            if flag("isMeta") {
+                return Vec::new();
+            }
+            if v.pointer("/origin/kind").and_then(Value::as_str) == Some("peer") {
+                let t = text_of(v.pointer("/message/content").unwrap_or(&Value::Null));
+                return vec![item(at, "note", format!("From another session: {}", one_line(&t, 200)))];
+            }
+            let Some(parts) = v.pointer("/message/content").and_then(Value::as_array) else { return Vec::new() };
+            parts
+                .iter()
+                .filter(|p| p.get("type").and_then(Value::as_str) == Some("tool_result"))
+                .map(|p| Item {
+                    id: p.get("tool_use_id").and_then(Value::as_str).map(String::from),
+                    output: Some(clip_output(&text_of(p.get("content").unwrap_or(&Value::Null)))),
+                    failed: p.get("is_error").and_then(Value::as_bool) == Some(true),
+                    ..item(at, "result", "")
+                })
+                .collect()
+        }
+        Some("assistant") => {
+            let Some(parts) = v.pointer("/message/content").and_then(Value::as_array) else { return Vec::new() };
+            let mut out = Vec::new();
+            for p in parts {
+                match p.get("type").and_then(Value::as_str) {
+                    Some("text") => {
+                        let t = p.get("text").and_then(Value::as_str).unwrap_or("").trim();
+                        if !t.is_empty() {
+                            out.push(item(at, "agent", t));
+                        }
+                    }
+                    Some("tool_use") => {
+                        let name = p.get("name").and_then(Value::as_str).unwrap_or("Tool");
+                        let input = p.get("input").cloned().unwrap_or(Value::Null);
+                        out.push(Item { id: p.get("id").and_then(Value::as_str).map(String::from), input: Some(clip_input(&claude_input(name, &input))), ..item(at, "tool", tool_request(name, &input)) });
+                    }
+                    _ => {}
+                }
+            }
+            out
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// A Claude Code tool's input as you'd want to read it: the command, the file and the change,
+/// else its arguments.
+fn claude_input(name: &str, input: &Value) -> String {
+    let s = |k: &str| input.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+    match name {
+        "Bash" => s("command"),
+        "Read" | "Write" => s("file_path"),
+        "Edit" => format!("{}\n- {}\n+ {}", s("file_path"), s("old_string").replace('\n', "\n- "), s("new_string").replace('\n', "\n+ ")),
+        "Grep" | "Glob" => [s("pattern"), s("path")].into_iter().filter(|x| !x.is_empty()).collect::<Vec<_>>().join(" in "),
+        _ => serde_json::to_string_pretty(input).unwrap_or_default(),
+    }
+}
+
+
+/// Claude Code (`harness::Adapter`): its transcript for the conversation, and its permission
+/// prompt answered by a keypress in the terminal it runs in, once its own record says it's
+/// waiting on that prompt and its transcript that the call is the one you saw.
+pub struct ClaudeCode;
+
+impl crate::harness::Adapter for ClaudeCode {
+    fn harness(&self) -> crate::model::Harness {
+        crate::model::Harness::Claude
+    }
+
+    /// Its transcript, looked up by id under every project folder.
+    fn records(&self, account: &crate::config::AccountCfg, s: &crate::model::Session) -> Vec<PathBuf> {
+        let Ok(dirs) = std::fs::read_dir(account.home_path().join("projects")) else { return Vec::new() };
+        dirs.flatten().map(|d| d.path().join(format!("{}.jsonl", s.id))).filter(|p| p.is_file()).collect()
+    }
+
+    fn conversation(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, before: Option<u64>, limit: usize) -> anyhow::Result<Page> {
+        crate::transcript::file_page(&record(self, ctx, s)?, conversation_items, before, limit)
+    }
+
+    fn conversation_after(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, after: u64) -> anyhow::Result<Page> {
+        crate::transcript::file_newer(&record(self, ctx, s)?, conversation_items, after)
+    }
+
+    fn pending(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> Option<crate::harness::Pending> {
+        let (call, _) = waiting_call(self, ctx, s)?;
+        let cannot = match crate::launch::terminal_kind(s.pid?) {
+            Some(_) => None,
+            None => Some("It isn't in a terminal Codealong can press keys in (Ghostty or tmux).".to_string()),
+        };
+        Some(crate::harness::Pending { id: call.id.clone().unwrap_or_default(), label: call.text, input: call.input, cannot })
+    }
+
+    fn answer(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, id: &str, answer: crate::harness::Answer) -> anyhow::Result<String> {
+        let Some((call, pid)) = waiting_call(self, ctx, s) else {
+            anyhow::bail!("It isn't waiting on a permission prompt any more.");
+        };
+        if call.id.as_deref() != Some(id) {
+            anyhow::bail!("It's waiting on a different call now: {}. Look again before answering.", call.text);
+        }
+        // 1 is "Yes" in every prompt; Escape cancels it, which denies the call and ends the turn.
+        let key = match answer {
+            crate::harness::Answer::Allow => crate::launch::Key::Digit1,
+            crate::harness::Answer::Deny => crate::launch::Key::Escape,
+        };
+        let Some(host) = crate::launch::terminal_host(pid, Path::new(&s.cwd))? else {
+            anyhow::bail!("It isn't in a terminal Codealong can press keys in (Ghostty or tmux). Open it to answer.");
+        };
+        crate::launch::press_key(&host, key)?;
+        Ok(match answer {
+            crate::harness::Answer::Allow => format!("Allowed {}.", call.text),
+            crate::harness::Answer::Deny => format!("Denied {}; it stops and waits for you.", call.text),
+        })
+    }
+}
+
+fn record(a: &ClaudeCode, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> anyhow::Result<PathBuf> {
+    use crate::harness::Adapter;
+    a.records(ctx.account, s).into_iter().next().ok_or_else(|| anyhow::anyhow!("Its transcript isn't on this Mac any more."))
+}
+
+/// The tool call a session's permission prompt is about, with its process: only while Claude
+/// Code's own record of the session says it's waiting on a permission prompt, and the call is
+/// the last one in its transcript with no result yet.
+fn waiting_call(a: &ClaudeCode, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> Option<(Item, u32)> {
+    let pid = s.pid?;
+    let reg: Value = serde_json::from_str(&std::fs::read_to_string(ctx.account.home_path().join("sessions").join(format!("{pid}.json"))).ok()?).ok()?;
+    let field = |k: &str| reg.get(k).and_then(Value::as_str);
+    if field("sessionId") != Some(s.id.as_str()) || field("status") != Some("waiting") || field("waitingFor") != Some("permission prompt") {
+        return None;
+    }
+    let page = crate::transcript::file_page(&record(a, ctx, s).ok()?, conversation_items, None, 40).ok()?;
+    let answered: HashSet<&str> = page.items.iter().filter(|i| i.kind == "result").filter_map(|i| i.id.as_deref()).collect();
+    let call = page.items.iter().rev().find(|i| i.kind == "tool" && i.id.as_deref().is_some_and(|id| !answered.contains(id)))?;
+    Some((call.clone(), pid))
+}
+
 #[cfg(test)]
 pub fn parse_lines(head: &str, tail: &str) -> TranscriptInfo {
     let mut h = HeadInfo::default();

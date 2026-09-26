@@ -643,3 +643,12 @@ export interface TranscriptPage {
   /** Where reading on starts. */
   after: number;
 }
+
+/** A tool call a session waits on you to allow (harness.rs). */
+export interface Pending {
+  id: string;
+  label: string;
+  input: string | null;
+  /** Why Codealong can't answer it here; the panel offers to open it instead. */
+  cannot: string | null;
+}

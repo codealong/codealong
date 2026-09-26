@@ -2,16 +2,17 @@
 // the top, its whole conversation in the middle (SessionThread.tsx), and a box at the bottom
 // that sends it a message where it runs (send.rs), as the quick panel does.
 //
-// Approvals are answered where the session runs: the panel shows what it's asking and opens it.
-// A harness's own prompt can't be read from outside, so typing into it blind could answer
-// something else.
+// When it waits on you to allow a tool call, the bottom of the panel says what and answers it,
+// if its harness can be answered from here (harness.rs: OpenCode through its service, Claude
+// Code by a keypress in its Ghostty or tmux tab, once its own record says the prompt is up).
+// Otherwise it opens the session to answer there.
 
-import { useRef, useState } from 'react';
-import { sendToSession } from '../api';
+import { useEffect, useRef, useState } from 'react';
+import { sendToSession, sessionAnswer, sessionPending } from '../api';
 import { below } from '../contextMenu';
 import { absolute, agoPhrase, duration, middleTruncate, tildePath } from '../format';
 import { HARNESS_WORD, sessionPlace } from '../harness';
-import type { Board, Lane, Session, Todo } from '../types';
+import type { Board, Lane, Pending, Session, Todo } from '../types';
 import { STATUS_WORD as TODO_WORD } from '../todos';
 import { InsightChips } from './InsightBits';
 import { OpenInMenu } from './Inspector';
@@ -43,16 +44,7 @@ function Composer({ session: s, terminal, onOpen }: { session: Session; terminal
       });
   };
 
-  if (waiting) {
-    return (
-      <div className="ca-composer is-waiting">
-        <span>It’s waiting on you. Answer it in {sessionPlace(s, terminal)}.</span>
-        <Button size="sm" icon="arrow-up-right" onClick={onOpen}>
-          Open
-        </Button>
-      </div>
-    );
-  }
+  if (waiting) return <Approval session={s} terminal={terminal} onOpen={onOpen} />;
   return (
     <div className="ca-composer">
       <textarea
@@ -77,6 +69,74 @@ function Composer({ session: s, terminal, onOpen }: { session: Session; terminal
         <span className={['ca-composer-note', note?.error && 'is-error'].filter(Boolean).join(' ')}>{sending ? 'Sending…' : (note?.text ?? '⏎ sends · ⇧⏎ new line')}</span>
         <Button variant="primary" size="sm" icon="send" disabled={!text.trim() || sending} onClick={send}>
           Send
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/** A session waiting on you: what it wants to do, with Allow and Deny when it can be answered here. */
+function Approval({ session: s, terminal, onOpen }: { session: Session; terminal: string; onOpen: () => void }) {
+  const [pending, setPending] = useState<Pending | null | undefined>(undefined);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<{ text: string; error: boolean } | null>(null);
+  useEffect(() => {
+    let live = true;
+    sessionPending(s.key)
+      .then((p) => live && setPending(p))
+      .catch(() => live && setPending(null));
+    return () => {
+      live = false;
+    };
+  }, [s.key, s.statusSince]);
+
+  const answer = (a: 'allow' | 'deny') => {
+    if (!pending) return;
+    setBusy(true);
+    setNote(null);
+    sessionAnswer(s.key, pending.id, a)
+      .then((said) => {
+        setNote({ text: said, error: false });
+        setPending(null);
+      })
+      .catch((e: unknown) => setNote({ text: String(e).replace(/^Error: /, ''), error: true }))
+      .finally(() => setBusy(false));
+  };
+
+  const where = sessionPlace(s, terminal);
+  if (!pending || pending.cannot) {
+    return (
+      <div className="ca-composer is-waiting">
+        <span>
+          {note?.text ?? `It’s waiting on you. Answer it in ${where}.`}
+          {pending?.cannot ? ` ${pending.cannot}` : ''}
+        </span>
+        <Button size="sm" icon="arrow-up-right" onClick={onOpen}>
+          Open
+        </Button>
+      </div>
+    );
+  }
+  return (
+    <div className="ca-composer is-approval">
+      <div className="ca-approval-head">
+        <Icon name="alert" size={14} />
+        <span>Wants to run</span>
+        <button type="button" className="ca-linkbtn" onClick={onOpen}>
+          Open in {where}
+        </button>
+      </div>
+      <div className="ca-approval-label">
+        <Rich text={pending.label} now={0} />
+      </div>
+      {pending.input && pending.input !== pending.label && <pre className="ca-approval-input">{pending.input}</pre>}
+      <div className="ca-composer-foot">
+        <span className={['ca-composer-note', note?.error && 'is-error'].filter(Boolean).join(' ')}>{busy ? 'Answering…' : (note?.text ?? 'Allows this call once. Deny stops the turn.')}</span>
+        <Button size="sm" disabled={busy} onClick={() => answer('deny')}>
+          Deny
+        </Button>
+        <Button variant="primary" size="sm" icon="check" disabled={busy} onClick={() => answer('allow')}>
+          Allow
         </Button>
       </div>
     </div>

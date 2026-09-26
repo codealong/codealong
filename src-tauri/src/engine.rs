@@ -2151,10 +2151,17 @@ fn board_hash(board: &Board) -> u64 {
     h.finish()
 }
 
+/// Databases harnesses keep their sessions in. They run in WAL mode, so while a session runs
+/// only their `-wal` file changes: that change is how Codealong hears of it.
+const HARNESS_DATABASES: [&str; 2] = ["opencode.db", "conversation_summaries.db"];
+
 /// Paths that never matter, dropped before they reach the engine: databases and logs that
 /// apps write constantly, dependency folders, git's object store.
 fn is_noise(p: &Path) -> bool {
     let name = p.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+    if HARNESS_DATABASES.iter().any(|db| name.strip_suffix("-wal") == Some(*db)) {
+        return false;
+    }
     if name.ends_with("-wal") || name.ends_with("-shm") || name.ends_with("-journal") || name.ends_with(".sqlite") || name.ends_with(".log") || name.ends_with(".lock") || name == ".DS_Store" {
         return true;
     }
@@ -2259,6 +2266,14 @@ fn first_run_config() -> Config {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_harness_database_log_is_heard_and_other_logs_are_not() {
+        use super::*;
+        assert!(!is_noise(Path::new("/Users/me/.local/share/opencode/opencode.db-wal")));
+        assert!(is_noise(Path::new("/Users/me/.local/share/opencode/opencode.db-shm")));
+        assert!(is_noise(Path::new("/Users/me/projects/app/data/cache.db-wal")));
+    }
+
     #[test]
     fn polls_codex_turns_while_the_rollout_stays_open() {
         use std::io::Write;

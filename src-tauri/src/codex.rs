@@ -6,7 +6,8 @@ use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
-use crate::util::{command_dir, file_name, mtime_ms, note_work, one_line, parse_rfc3339_ms, read_first_line, resolve, scan_lines_back};
+use crate::transcript::{clip_input, clip_output, item, text_of, Item, Page};
+use crate::util::{code, command_dir, file_name, mtime_ms, note_work, one_line, parse_rfc3339_ms, read_first_line, resolve, scan_lines_back, without_cd};
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ThreadInfo {
@@ -531,6 +532,121 @@ fn call_what(p: &Value, name: &str) -> String {
     match server {
         Some(s) => format!("{s} · {name}"),
         None => name.to_string(),
+    }
+}
+
+/* ---- The session panel's conversation ---- */
+
+/// One rollout line as conversation items (transcript.rs): prompts and replies, and completed
+/// commands, file changes, MCP calls and searches with what they gave back.
+pub fn conversation_items(v: &Value, at: i64) -> Vec<Item> {
+    if let Some((you, t)) = prose_of(v) {
+        return vec![item(at, if you { "you" } else { "agent" }, t)];
+    }
+    let Some(p) = (v.get("type").and_then(Value::as_str) == Some("event_msg")).then(|| v.get("payload")).flatten() else { return Vec::new() };
+    match p.get("type").and_then(Value::as_str) {
+        Some("turn_aborted") => vec![item(at, "note", "The turn was stopped")],
+        Some("item_completed") => {
+            let Some(it) = p.get("item") else { return Vec::new() };
+            let at = p.get("completed_at_ms").and_then(Value::as_i64).unwrap_or(at);
+            let s = |k: &str| it.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+            match it.get("type").and_then(Value::as_str) {
+                Some("CommandExecution") => {
+                    // Usually `[shell, "-lc", script]`.
+                    let script = match it.get("command") {
+                        Some(Value::Array(a)) if a.len() >= 3 => a[2].as_str().unwrap_or("").to_string(),
+                        Some(Value::Array(a)) => a.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(" "),
+                        Some(Value::String(c)) => c.clone(),
+                        _ => String::new(),
+                    };
+                    let exit = it.get("exit_code").and_then(Value::as_i64);
+                    vec![Item {
+                        input: Some(clip_input(&script)),
+                        output: Some(clip_output(&s("aggregated_output"))),
+                        failed: exit.is_some_and(|c| c != 0),
+                        ..item(at, "tool", format!("Shell · {}", code(&one_line(without_cd(&script), 80))))
+                    }]
+                }
+                Some("FileChange") => {
+                    let paths: Vec<String> = it.get("changes").and_then(Value::as_object).map(|m| m.keys().cloned().collect()).unwrap_or_default();
+                    let label = match paths.as_slice() {
+                        [one] => format!("Edit · {}", code(&crate::util::file_name(Path::new(one)))),
+                        many => format!("Edit · {} files", many.len()),
+                    };
+                    vec![Item { input: Some(paths.join("\n")), failed: s("status") == "failed", ..item(at, "tool", label) }]
+                }
+                Some("McpToolCall") => {
+                    let result = it.get("result");
+                    vec![Item {
+                        input: it.get("arguments").map(|a| clip_input(&serde_json::to_string_pretty(a).unwrap_or_default())),
+                        output: result.and_then(|r| r.get("content")).map(|c| clip_output(&text_of(c))),
+                        failed: result.and_then(|r| r.get("isError")).and_then(Value::as_bool) == Some(true),
+                        ..item(at, "tool", format!("{} · {}", s("server"), s("tool")))
+                    }]
+                }
+                Some("Extension") => {
+                    let kind = s("kind");
+                    let label = if kind == "web.search" { format!("Web search · {}", one_line(&s("query"), 80)) } else { kind };
+                    vec![item(at, "tool", label)]
+                }
+                Some("ImageView") => vec![item(at, "tool", format!("Viewed an image{}", it.get("path").and_then(Value::as_str).map(|p| format!(" · {}", code(&crate::util::file_name(Path::new(p))))).unwrap_or_default()))],
+                Some("ContextCompaction") => vec![item(at, "note", "The conversation was compacted here")],
+                _ => Vec::new(),
+            }
+        }
+        _ => Vec::new(),
+    }
+}
+
+
+/// Codex (`harness::Adapter`): its rollout for the conversation. Approvals aren't recorded
+/// anywhere Codealong can read, so they're answered in Codex.
+pub struct Codex;
+
+impl crate::harness::Adapter for Codex {
+    fn harness(&self) -> crate::model::Harness {
+        crate::model::Harness::Codex
+    }
+
+    /// Its rollout, by the id in the file name, archived or not.
+    fn records(&self, account: &crate::config::AccountCfg, s: &crate::model::Session) -> Vec<PathBuf> {
+        let suffix = format!("-{}.jsonl", s.id);
+        let mut out = Vec::new();
+        for root in ["sessions", "archived_sessions"] {
+            walk_files(&account.home_path().join(root), 4, &mut |p| {
+                if p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("rollout-") && n.ends_with(&suffix)) {
+                    out.push(p.to_path_buf());
+                }
+            });
+        }
+        out
+    }
+
+    fn conversation(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, before: Option<u64>, limit: usize) -> anyhow::Result<Page> {
+        crate::transcript::file_page(&record(self, ctx, s)?, conversation_items, before, limit)
+    }
+
+    fn conversation_after(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, after: u64) -> anyhow::Result<Page> {
+        crate::transcript::file_newer(&record(self, ctx, s)?, conversation_items, after)
+    }
+}
+
+fn record(a: &Codex, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> anyhow::Result<PathBuf> {
+    use crate::harness::Adapter;
+    a.records(ctx.account, s).into_iter().next().ok_or_else(|| anyhow::anyhow!("Its rollout isn't on this Mac any more."))
+}
+
+fn walk_files(dir: &Path, depth: usize, visit: &mut dyn FnMut(&Path)) {
+    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    for e in rd.flatten() {
+        let p = e.path();
+        if p.is_dir() {
+            if depth > 0 {
+                walk_files(&p, depth - 1, visit);
+            }
+        } else {
+            visit(&p);
+        }
     }
 }
 

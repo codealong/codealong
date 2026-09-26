@@ -4,7 +4,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { emitTo, listen } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import type { AccountCfg, AccountInfo, AgentsStatus, Attachment, BarFeed, TranscriptPage, Board, Config, ConfigView, FoundAccount, PrDetail, Route, Sent, ShortcutStatus, TextFound, StartOptions, StartSpec, Started, Theme, TodoSuggested } from './types';
+import type { AccountCfg, AccountInfo, AgentsStatus, Attachment, BarFeed, Pending, TranscriptPage, Board, Config, ConfigView, FoundAccount, PrDetail, Route, Sent, ShortcutStatus, TextFound, StartOptions, StartSpec, Started, Theme, TodoSuggested } from './types';
 import type { TodoOp } from './todos';
 
 export const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -569,4 +569,16 @@ export async function sessionPage(key: string, before: number | null): Promise<T
 export async function sessionNewer(key: string, after: number): Promise<TranscriptPage> {
   if (!inTauri) return { items: [], before: null, after };
   return invoke<TranscriptPage>('session_newer', { key, after });
+}
+
+/** What a session waiting on you wants to do, when Codealong can answer it for you. */
+export async function sessionPending(key: string): Promise<Pending | null> {
+  if (!inTauri) return null;
+  return invoke<Pending | null>('session_pending', { key });
+}
+
+/** Allows or denies the call `id` a session waits on; says what happened. */
+export async function sessionAnswer(key: string, id: string, answer: 'allow' | 'deny'): Promise<string> {
+  if (!inTauri) throw new Error('Answering needs the app.');
+  return invoke<string>('session_answer', { key, id, answer });
 }

@@ -962,51 +962,9 @@ fn session_show(c: &mut Client, key: &str, json: bool) -> Result<()> {
     Ok(())
 }
 
-/// Where a session's own harness keeps it. Claude Code's transcript is looked up by id
-/// under every project folder; Codex's rollout by its id in the file name.
-pub(crate) fn records_for(account: &AccountCfg, s: &Session) -> Vec<String> {
-    let home = account.home_path();
-    let mut out = Vec::new();
-    match account.harness.as_str() {
-        "claude" => {
-            if let Ok(dirs) = std::fs::read_dir(home.join("projects")) {
-                for d in dirs.flatten() {
-                    let p = d.path().join(format!("{}.jsonl", s.id));
-                    if p.is_file() {
-                        out.push(p.to_string_lossy().into_owned());
-                    }
-                }
-            }
-        }
-        "codex" => {
-            let suffix = format!("-{}.jsonl", s.id);
-            for root in ["sessions", "archived_sessions"] {
-                walk(&home.join(root), 4, &mut |p| {
-                    if p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("rollout-") && n.ends_with(&suffix)) {
-                        out.push(p.to_string_lossy().into_owned());
-                    }
-                });
-            }
-        }
-        "opencode" => out.push(home.join("opencode.db").to_string_lossy().into_owned()),
-        "antigravity" => out.push(home.join("conversation_summaries.db").to_string_lossy().into_owned()),
-        _ => {}
-    }
-    out
-}
-
-fn walk(dir: &Path, depth: usize, visit: &mut dyn FnMut(&Path)) {
-    let Ok(rd) = std::fs::read_dir(dir) else { return };
-    for e in rd.flatten() {
-        let p = e.path();
-        if p.is_dir() {
-            if depth > 0 {
-                walk(&p, depth - 1, visit);
-            }
-        } else {
-            visit(&p);
-        }
-    }
+/// Where a session's own harness keeps it (`harness::Adapter::records`).
+fn records_for(account: &AccountCfg, s: &Session) -> Vec<String> {
+    crate::harness::adapter(s.harness).records(account, s).into_iter().map(|p| p.to_string_lossy().into_owned()).collect()
 }
 
 // ---- worktrees ----

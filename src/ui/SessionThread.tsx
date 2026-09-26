@@ -83,7 +83,7 @@ function ToolLine({ item, result, state, onOpen }: { item: TranscriptItem; resul
       </button>
       {state === 'asks' && onOpen && (
         <div className="ca-thread-askrow">
-          <span>It needs your approval. Answer it where it runs.</span>
+          <span>It’s waiting for your approval.</span>
           <button type="button" className="ca-btn ca-btn--secondary ca-btn--sm" onClick={onOpen}>
             <Icon name="arrow-up-right" size={13} />
             <span>Open to answer</span>

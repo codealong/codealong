@@ -388,24 +388,26 @@ pub fn terminal_focus_session(profile: &str, pid: u32, title: &str, cwd: &Path) 
     }
 }
 
-/// Types `text` into the terminal tab a live session runs in and presses Return, without
-/// bringing the tab forward. `Ok(false)` when the session isn't in a Ghostty tab Codealong can
-/// find exactly.
-///
-/// The tab is found the way focusing finds it, by a unique folder reported on the session's
-/// TTY, and only that way: a tab matched by title or folder could be another agent's, and
-/// typing there sends your words to the wrong session.
-pub fn terminal_type_session(profile: &str, pid: u32, cwd: &Path, text: &str) -> Result<bool> {
-    if profile != "ghostty" {
-        bail!("There's no terminal profile called {profile:?} yet.");
+/// Types `text` into the terminal a session's process runs in and presses Return: Ghostty
+/// (found by an OSC 7 mark, since it has no TTY or PID property) or tmux (by the pane's TTY).
+/// Returns the terminal's name, or none when it isn't in one of those, so the caller tries
+/// another way.
+pub fn terminal_type_session(profile: &str, pid: u32, cwd: &Path, text: &str) -> Result<Option<&'static str>> {
+    match terminal_kind(pid) {
+        Some(HostKind::Tmux) => Ok(tmux_type(pid, text)?.then_some("tmux")),
+        Some(HostKind::Ghostty) if profile == "ghostty" => {
+            let Some(id) = ghostty_terminal_of(pid, cwd)? else { return Ok(None) };
+            Ok((!osascript(GHOSTTY_TYPE, &[&id, text])?.trim().is_empty()).then_some("Ghostty"))
+        }
+        Some(HostKind::Ghostty) => bail!("There's no terminal profile called {profile:?} yet."),
+        None => Ok(None),
     }
-    let Some(tty) = tty_of(pid) else { return Ok(false) };
-    let in_ghostty = procs::run("/bin/ps", &["-A", "-o", "pid=,ppid=,comm="], None, Duration::from_secs(3))
-        .map(|table| runs_under(&table, pid, "ghostty"))
-        .unwrap_or(false);
-    if !in_ghostty {
-        return Ok(false);
-    }
+}
+
+/// The Ghostty terminal a process runs in, found by writing a unique folder report to its TTY
+/// and asking Ghostty which terminal shows it; then the real folder is reported again.
+fn ghostty_terminal_of(pid: u32, cwd: &Path) -> Result<Option<String>> {
+    let Some(tty) = tty_of(pid) else { return Ok(None) };
     // A mark takes over the TTY's folder report, as focusing's does, so the two never run at
     // once. A send takes no ticket: it mustn't make a click waiting before it lose its turn.
     let _turn = FOCUS_TURNS.lock.lock().unwrap_or_else(|e| e.into_inner());
@@ -422,10 +424,118 @@ pub fn terminal_type_session(profile: &str, pid: u32, cwd: &Path, text: &str) ->
         .unwrap_or_else(|| cwd.to_string_lossy().into_owned());
     let _ = write_osc7(&tty, &real);
     found?;
-    if id.is_empty() {
-        return Ok(false);
+    Ok((!id.is_empty()).then_some(id))
+}
+
+/// Which terminal a process runs in, by its parents: cheap enough to ask on every look.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HostKind {
+    Ghostty,
+    Tmux,
+}
+
+pub fn terminal_kind(pid: u32) -> Option<HostKind> {
+    let table = procs::run("/bin/ps", &["-A", "-o", "pid=,ppid=,comm="], None, Duration::from_secs(3)).ok()?;
+    if runs_under(&table, pid, "ghostty") {
+        Some(HostKind::Ghostty)
+    } else if runs_under(&table, pid, "tmux") && tmux_bin().is_some() {
+        Some(HostKind::Tmux)
+    } else {
+        None
     }
-    Ok(!osascript(GHOSTTY_TYPE, &[&id, text])?.trim().is_empty())
+}
+
+/// A terminal to press keys in: a Ghostty terminal by id, or a tmux pane.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TerminalHost {
+    Ghostty(String),
+    Tmux(String),
+}
+
+/// The terminal a session's process runs in, found (for Ghostty, marked) now.
+pub fn terminal_host(pid: u32, cwd: &Path) -> Result<Option<TerminalHost>> {
+    Ok(match terminal_kind(pid) {
+        Some(HostKind::Ghostty) => ghostty_terminal_of(pid, cwd)?.map(TerminalHost::Ghostty),
+        Some(HostKind::Tmux) => tmux_pane_of(pid).map(TerminalHost::Tmux),
+        None => None,
+    })
+}
+
+/// A key a harness's own prompt answers to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Key {
+    Digit1,
+    Escape,
+}
+
+/// Presses one key in a terminal, as if typed: no paste, no Return.
+pub fn press_key(host: &TerminalHost, key: Key) -> Result<()> {
+    match host {
+        TerminalHost::Ghostty(id) => {
+            // Ghostty's own names, then the plain character, which older versions take.
+            let names: &[&str] = match key {
+                Key::Digit1 => &["digit_1", "1"],
+                Key::Escape => &["escape"],
+            };
+            let mut last = None;
+            for name in names {
+                match osascript(GHOSTTY_KEY, &[id, name]) {
+                    Ok(_) => return Ok(()),
+                    Err(e) => last = Some(e),
+                }
+            }
+            Err(last.unwrap_or_else(|| anyhow!("Ghostty didn't take the key.")))
+        }
+        TerminalHost::Tmux(pane) => {
+            let name = match key {
+                Key::Digit1 => "1",
+                Key::Escape => "Escape",
+            };
+            let bin = tmux_bin().ok_or_else(|| anyhow!("tmux isn't installed where Codealong looks for it."))?;
+            procs::run(&bin.to_string_lossy(), &["send-keys", "-t", pane, name], None, Duration::from_secs(5))?;
+            Ok(())
+        }
+    }
+}
+
+/// `<terminal id> <key name>`: presses one key in that terminal.
+const GHOSTTY_KEY: &str = r#"
+on run argv
+  tell application "Ghostty"
+    if not (exists terminal id (item 1 of argv)) then error "That terminal is gone."
+    send key (item 2 of argv) to terminal id (item 1 of argv)
+  end tell
+  return "ok"
+end run
+"#;
+
+fn tmux_bin() -> Option<std::path::PathBuf> {
+    ["/opt/homebrew/bin/tmux", "/usr/local/bin/tmux", "/usr/bin/tmux"].iter().map(std::path::PathBuf::from).find(|p| p.is_file())
+}
+
+/// The tmux pane whose TTY is the process's.
+fn tmux_pane_of(pid: u32) -> Option<String> {
+    let tty = tty_of(pid)?;
+    let bin = tmux_bin()?;
+    let out = procs::run(&bin.to_string_lossy(), &["list-panes", "-a", "-F", "#{pane_tty} #{pane_id}"], None, Duration::from_secs(5)).ok()?;
+    tmux_pane_for(&out, &tty.to_string_lossy())
+}
+
+/// From `list-panes -F '#{pane_tty} #{pane_id}'`, the pane on `tty`.
+fn tmux_pane_for(list: &str, tty: &str) -> Option<String> {
+    list.lines().find_map(|l| l.split_once(' ').filter(|(t, _)| *t == tty).map(|(_, id)| id.trim().to_string()))
+}
+
+/// Pastes `text` into the pane (bracketed, so a prompt of several lines arrives whole), then
+/// presses Return a moment later, as `GHOSTTY_TYPE` does.
+fn tmux_type(pid: u32, text: &str) -> Result<bool> {
+    let (Some(pane), Some(bin)) = (tmux_pane_of(pid), tmux_bin()) else { return Ok(false) };
+    let bin = bin.to_string_lossy().into_owned();
+    procs::run_stdin(&bin, &["load-buffer", "-b", "codealong", "-"], text, Duration::from_secs(5))?;
+    procs::run(&bin, &["paste-buffer", "-p", "-d", "-b", "codealong", "-t", &pane], None, Duration::from_secs(5))?;
+    std::thread::sleep(Duration::from_millis(300));
+    procs::run(&bin, &["send-keys", "-t", &pane, "Enter"], None, Duration::from_secs(5))?;
+    Ok(true)
 }
 
 /// Whether `pid` runs inside the app whose executable is named `exe`, from a `ps -A -o
@@ -773,5 +883,12 @@ end run
         drop(held);
         assert!(turns.wait(second).is_none(), "a click made while another waited is dropped");
         assert!(turns.wait(third).is_some(), "the newest click goes ahead");
+    }
+
+    #[test]
+    fn a_tmux_pane_is_found_by_its_tty() {
+        let list = "/dev/ttys003 %0\n/dev/ttys012 %4\n";
+        assert_eq!(tmux_pane_for(list, "/dev/ttys012").as_deref(), Some("%4"));
+        assert_eq!(tmux_pane_for(list, "/dev/ttys01"), None);
     }
 }

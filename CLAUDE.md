@@ -176,6 +176,26 @@ some work is, answer with one.
 - UI copy is sentence case and plain words. Comments explain why, in plain sentences.
 - `rustfmt` isn't installed here, so Rust formatting is unchecked; match the surrounding code.
 
+## Adding a harness
+
+A harness is a module (`claude.rs`, `codex.rs`, `opencode.rs`, `antigravity.rs`) that knows its
+files, and an `Adapter` in it (`harness.rs`) that the rest of the app asks about a session:
+where its record is, its conversation (`transcript.rs` pages a file of JSON lines given a line
+parser), and what it waits on you to allow and how to answer. Adding one:
+
+1. A variant of `model::Harness` (and `src/types.ts`), its name in `Harness::word` and
+   `src/harness.ts`, and its string in `config::HARNESSES`.
+2. A module with a struct implementing `harness::Adapter`, listed in `harness::ADAPTERS`. Only
+   `harness` and `records` are required; the rest default to saying it can't.
+3. Reading its sessions for the board, which still lives outside the adapter: the engine's
+   fields and `scan_sessions`, `watch`, `apply_fs`, `build_sessions`, `session_cwds`; a
+   `board::*_session` constructor for its status rules; `board::targets` and
+   `engine::open_on` for opening; `start.rs` for starting; `send::route_for` for sending;
+   `usage.rs` and `detect.rs` for limits, sign-in and finding it on the Mac; `install.rs` for its
+   skills folder; `search.rs` for text search. Most of these match on the harness's config
+   string with a fallback, so the compiler won't list them: search for an existing harness's
+   name. They move into the adapter as they're next changed.
+
 ## Harness facts
 
 What each harness records and accepts, checked on this Mac. Read these before changing an
@@ -242,6 +262,17 @@ Claude Code
   sha256(config dir)>/control.sock`, one JSON line each way, `{"proto":1,"op":"reply","short":
   <jobId>,"text":…,"auth":<contents of <home>/daemon/control.key>}`. It's pasted into the job as
   if typed.
+- A permission prompt (checked on 2.1.283, in tmux): the registry says `"status": "waiting"`,
+  `"waitingFor": "permission prompt"`, and the transcript's last `tool_use` has no result yet.
+  The prompt lists `1. Yes`, `2. Yes, and always allow…`, `3. No`; the digit alone answers it
+  (no Return), and Escape cancels it, which denies the call and ends the turn ("Interrupted ·
+  What should Claude do instead?"). A stray digit with no prompt up lands in the input box, so
+  `claude.rs`'s adapter presses a key only while the registry and the transcript both agree the
+  prompt is up for the call you saw. Read-only commands (`git status`, `ls`) aren't asked about.
+- The folder-trust prompt a new folder gets has "No, exit" as its default: Return quits.
+- A peer message to a session that bypasses permissions is held ("Held message from another
+  session", Deny first) unless its settings say `"crossSessionInbound": "accept"`; typing into
+  its terminal isn't held.
 - Sign-in lives in the login keychain: service `Claude Code-credentials` for `~/.claude`,
   `Claude Code-credentials-<first 8 hex of sha256(config dir)>` for any other folder, account
   `$USER`. Read it with `/usr/bin/security find-generic-password -a $USER -s <service> -w`
@@ -315,6 +346,10 @@ Codex
   starts a turn there, as if typed. Answer `client-discovery-request`s with `canHandle: false`
   or the router waits 10 s on you. A mismatched version is dropped. Starting a turn from an
   app-server of your own would make a second copy of the thread the app doesn't see.
+- The CLI inside the app bundle (`Contents/Resources/codex`, v0.152.1 on 2026-09-26) can be older
+  than the account's default model, which the API then refuses ("requires a newer version of
+  Codex"); `-m` picks another. A new folder asks to be trusted, then about new or changed hooks.
+  Codealong doesn't detect Codex CLI processes: every Codex thread counts as the app's.
 - `codex://threads/new?path=<folder>&prompt=<text>` opens a new thread there with the prompt
   filled in (it also takes `originUrl`, `projectId`, `mode` and `browserUrl`, and no images);
   `codex://threads/<uuid>?prompt=` fills in a reply. `mode` is chat, work or codex, not a
@@ -357,6 +392,15 @@ OpenCode (2.0.16, from its source at that tag and its files here)
   any other with its folder's latest session.
 - `POST /api/session/<id>/prompt` with `{text, delivery: "queue"|"steer"}` sends a session a
   prompt; any TUI on that session shows it.
+- Permission requests: `GET /api/session/<id>/permission` lists them (`id` `per_…`, `action`
+  such as `shell`, `resources` such as the command, `source.id` the tool call);
+  `POST /api/session/<id>/permission/<request>/reply` with `{"decision": "once"|"always"|"reject"}`
+  answers one, and the TUI moves on as if you'd answered there. Shell commands in the project
+  aren't asked about unless a config says so (`opencode.json`: `"permission": {"bash": "ask"}`);
+  `--auto` approves everything not denied. `opencode --prompt` fills the prompt in without
+  sending it. The free models (`opencode/…`) need no sign-in.
+- `opencode.db` runs in WAL mode: while a session runs only `opencode.db-wal` changes, so the
+  engine hears it through that file (`engine::HARNESS_DATABASES`), not the database's.
 - Sign-in is `opencode auth login`; credentials live in the database (`credential`, and
   `account` for OpenCode Go) or a legacy `auth.json`. There are no plan limits to read.
 - Creating a session through the API in a folder made OpenCode point its `global` project
@@ -414,6 +458,10 @@ Ghostty (1.3, AppleScript dictionary in the app bundle)
   next turn. `current date` inside `tell application "Ghostty"` goes to Ghostty first.
 - macOS doesn't let a background process bring an app forward: `activate` from a shell leaves
   Ghostty behind; from a click in Codealong it works.
+- `send key "<name>" to terminal id <id>` takes Ghostty's key names (`digit_1`, `escape`, `enter`)
+  and errors with "Unknown key name" for others. While the screen is locked Ghostty doesn't
+  start new terminals ("Terminal surface model is not available"), so nothing can be typed
+  into one opened then.
 - Scripts can take many seconds: while Ghostty launches or is busy, and while macOS asks whether
   Codealong may control it. The bundle is ad-hoc signed with a per-build identifier
   (`codealong-<hash>`), so macOS treats each rebuild as a new app and asks again. Ghostty still
