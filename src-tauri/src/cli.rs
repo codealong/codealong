@@ -964,7 +964,7 @@ fn session_show(c: &mut Client, key: &str, json: bool) -> Result<()> {
 
 /// Where a session's own harness keeps it. Claude Code's transcript is looked up by id
 /// under every project folder; Codex's rollout by its id in the file name.
-fn records_for(account: &AccountCfg, s: &Session) -> Vec<String> {
+pub(crate) fn records_for(account: &AccountCfg, s: &Session) -> Vec<String> {
     let home = account.home_path();
     let mut out = Vec::new();
     match account.harness.as_str() {

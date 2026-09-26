@@ -37,6 +37,7 @@ mod state;
 mod throttle;
 mod todojev;
 mod todos;
+mod transcript;
 mod usage;
 mod util;
 
@@ -217,10 +218,19 @@ fn search_text(words: Vec<String>) -> search::Found {
     search::find(&words, 200)
 }
 
-/// A session's last few messages, yours and the agent's, for its panel on the canvas.
+/// A page of a session's conversation, from its own record (transcript.rs): the newest when
+/// `before` is none, else what came before it.
 #[tauri::command(async)]
-fn session_messages(key: String) -> Vec<search::Said> {
-    search::recent(&key, 6)
+fn session_page(engine: State<'_, engine::Handle>, key: String, before: Option<u64>) -> Result<transcript::Page, String> {
+    let cfg = config::load().map_err(|e| format!("{e:#}"))?.unwrap_or_default();
+    transcript::page(&engine.board(), &cfg, &key, before, 60).map_err(|e| format!("{e:#}"))
+}
+
+/// What a session said and did after `after`, as it goes on.
+#[tauri::command(async)]
+fn session_newer(engine: State<'_, engine::Handle>, key: String, after: u64) -> Result<transcript::Page, String> {
+    let cfg = config::load().map_err(|e| format!("{e:#}"))?.unwrap_or_default();
+    transcript::newer(&engine.board(), &cfg, &key, after).map_err(|e| format!("{e:#}"))
 }
 
 /// Sends a prompt to a session that's already going, where it runs (send.rs).
@@ -668,7 +678,7 @@ pub fn run() {
             quick::on_window_event(window, event);
         })
         .register_asynchronous_uri_scheme_protocol("codealong-image", |_ctx, request, responder| serve_image(request, responder))
-        .invoke_handler(tauri::generate_handler![get_board, open_target, open_config, mark_seen, refresh, refresh_usage, set_pinned, set_pinned_worktrees, archive_session, pr_detail, pr_comment_asks, approve_pr, review_in_codex, open_url, get_accounts, save_accounts, found_accounts, get_config, save_config, save_config_text, sign_in, agents_status, install_agents, start_options, start_session, todo_op, canvas_load, canvas_save, save_attachment, import_attachment, open_attachment, expand_attachments, set_theme, open_project_window, fit_bar, show_main, bar_feed, bar_on, set_bar_on, open_from_bar, show_quick, hide_quick, quick_ready, fit_quick, start_from_quick, route_quick, search_text, session_messages, send_to_session, suggest_todo, dismiss_todo_hint, jev_key, set_jev_key, test_jev, quick_shortcut, pause_quick_shortcut, perf_mark])
+        .invoke_handler(tauri::generate_handler![get_board, open_target, open_config, mark_seen, refresh, refresh_usage, set_pinned, set_pinned_worktrees, archive_session, pr_detail, pr_comment_asks, approve_pr, review_in_codex, open_url, get_accounts, save_accounts, found_accounts, get_config, save_config, save_config_text, sign_in, agents_status, install_agents, start_options, start_session, todo_op, canvas_load, canvas_save, save_attachment, import_attachment, open_attachment, expand_attachments, set_theme, open_project_window, fit_bar, show_main, bar_feed, bar_on, set_bar_on, open_from_bar, show_quick, hide_quick, quick_ready, fit_quick, start_from_quick, route_quick, search_text, session_page, session_newer, send_to_session, suggest_todo, dismiss_todo_hint, jev_key, set_jev_key, test_jev, quick_shortcut, pause_quick_shortcut, perf_mark])
         .build(tauri::generate_context!())
         .expect("error while running Codealong")
         .run(|app, event| {
@@ -699,21 +709,31 @@ pub fn is_cli(args: &[String]) -> bool {
 /// `codealong --snapshot --pr <owner/name> <number>`: a PR's detail, as the PR panel gets it.
 /// `codealong --snapshot --route <text> [--project <name>]`: where the quick panel would suggest
 /// sending it (asks TypeSafe; needs the key).
-/// `codealong --snapshot --messages <session key>`: a session's last exchange, as its panel gets it.
+/// `codealong --snapshot --transcript <session key> [--before <cursor>]`: a page of a session's
+/// conversation, as its panel gets it.
 /// `codealong --snapshot --start-options`: where each account can start a session.
 /// `codealong --snapshot --start-plan <folder> <account> <place> [prompt] [--model <model>]
 /// [--worktree]`: what starting one would do, without doing it.
 pub fn snapshot_cli(args: &[String]) -> i32 {
     let started = std::time::Instant::now();
-    if let Some(i) = args.iter().position(|a| a == "--messages") {
+    if let Some(i) = args.iter().position(|a| a == "--transcript") {
         let Some(key) = args.get(i + 1) else {
-            eprintln!("usage: codealong --snapshot --messages <session key>");
+            eprintln!("usage: codealong --snapshot --transcript <session key> [--before <cursor>]");
             return 2;
         };
+        let before = args.iter().position(|a| a == "--before").and_then(|j| args.get(j + 1)).and_then(|b| b.parse().ok());
         let cfg = config::load().ok().flatten().unwrap_or_default();
-        search::configure(search::Scope { accounts: cfg.accounts, days: cfg.search.days });
-        println!("{}", serde_json::to_string_pretty(&search::recent(key, 6)).unwrap_or_default());
-        return 0;
+        let board = engine::snapshot(false, false);
+        return match transcript::page(&board, &cfg, key, before, 60) {
+            Ok(page) => {
+                println!("{}", serde_json::to_string_pretty(&page).unwrap_or_default());
+                0
+            }
+            Err(e) => {
+                eprintln!("{e:#}");
+                1
+            }
+        };
     }
     if args.iter().any(|a| a == "--start-options") {
         let cfg = config::load().ok().flatten().unwrap_or_default();

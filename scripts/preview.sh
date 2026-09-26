@@ -37,8 +37,8 @@
 # board's own sessions and worktrees (scripts/preview/route-sample.json sends to a session;
 # route-start-sample.json starts new work, with a session that may already be on it and a small change).
 #
-# PREVIEW_MESSAGES=<session key> shows that session's real last prompt and response in its
-# panel (from --snapshot --messages); other sessions show their title and excerpt there.
+# PREVIEW_TRANSCRIPT=<session key> shows that session's real conversation in its panel (its
+# newest page, from --snapshot --transcript); other sessions show their title and excerpt there.
 # PREVIEW_FOUND=<file> lists the accounts in it under Settings › Accounts › Found on this Mac
 # (scripts/preview/found-sample.json has some) in place of the ones this Mac has but config.toml
 # doesn't list, which are often none.
@@ -98,12 +98,10 @@ fi
 "$bin" --snapshot --accounts >"$dir/accounts.json" 2>/dev/null
 "$bin" --snapshot --start-options >"$dir/start-options.json" 2>/dev/null
 "$bin" --snapshot --config >"$dir/config.json" 2>/dev/null
-# PREVIEW_MESSAGES=<session key> gives that session its real last exchange in the session
-# panel; every other session gets its title and excerpt.
-rm -f "$dir/session-messages.json" "$dir/session-messages-key.json"
-if [ -n "${PREVIEW_MESSAGES:-}" ]; then
-  "$bin" --snapshot --messages "$PREVIEW_MESSAGES" >"$dir/session-messages.json" 2>/dev/null
-  echo "{\"key\": \"$PREVIEW_MESSAGES\"}" >"$dir/session-messages-key.json"
+rm -f "$dir/transcript.json" "$dir/transcript-key.json"
+if [ -n "${PREVIEW_TRANSCRIPT:-}" ]; then
+  "$bin" --snapshot --transcript "$PREVIEW_TRANSCRIPT" >"$dir/transcript.json" 2>/dev/null
+  echo "{\"key\": \"$PREVIEW_TRANSCRIPT\"}" >"$dir/transcript-key.json"
 fi
 if [ -n "${PREVIEW_FOUND:-}" ]; then
   cp "$PREVIEW_FOUND" "$dir/found.json"

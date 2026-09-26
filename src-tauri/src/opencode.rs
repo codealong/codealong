@@ -196,6 +196,63 @@ pub fn read_prose(home: &Path, since_ms: i64, after: i64) -> Vec<Prose> {
     read().unwrap_or_default()
 }
 
+/// A session's messages before `before` (by `seq`; from the newest when none), up to about
+/// `limit` items, for its panel (transcript.rs). `items` turns a message's `data` into items.
+pub fn transcript_page<T>(db: &Path, session: &str, before: Option<u64>, limit: usize, items: impl Fn(&Value, u64, i64) -> Vec<T>) -> crate::transcript::PageOf<T> {
+    let Some(db) = open(db) else { return crate::transcript::PageOf { items: Vec::new(), before: None, after: 0 } };
+    let newest: i64 = db.query_row("SELECT COALESCE(MAX(seq), 0) FROM session_message WHERE session_id = ?1", [session], |r| r.get(0)).unwrap_or(0);
+    let mut out: Vec<Vec<T>> = Vec::new();
+    let mut count = 0;
+    let mut first_seq: Option<i64> = None;
+    let read = |from: i64, out: &mut Vec<Vec<T>>, count: &mut usize, first: &mut Option<i64>| -> rusqlite::Result<bool> {
+        let mut stmt = db.prepare("SELECT seq, time_created, data FROM session_message WHERE session_id = ?1 AND seq < ?2 AND type IN ('user', 'assistant') ORDER BY seq DESC LIMIT 50")?;
+        let rows: Vec<(i64, i64, String)> = stmt.query_map(rusqlite::params![session, from], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.flatten().collect();
+        let more = rows.len() == 50;
+        for (seq, at, data) in rows {
+            let v: Value = serde_json::from_str(&data).unwrap_or(Value::Null);
+            let its = items(&v, seq as u64, at);
+            *count += its.len();
+            out.push(its);
+            *first = Some(seq);
+            if *count >= limit {
+                return Ok(true);
+            }
+        }
+        Ok(!more)
+    };
+    let mut from = before.map(|b| b as i64).unwrap_or(newest + 1);
+    loop {
+        match read(from, &mut out, &mut count, &mut first_seq) {
+            Ok(true) | Err(_) => break,
+            Ok(false) => from = first_seq.unwrap_or(0),
+        }
+    }
+    let oldest = first_seq.unwrap_or(0);
+    let has_older: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM session_message WHERE session_id = ?1 AND seq < ?2)", rusqlite::params![session, oldest], |r| r.get(0)).unwrap_or(false);
+    crate::transcript::PageOf { items: out.into_iter().rev().flatten().collect(), before: (first_seq.is_some() && has_older).then_some(oldest as u64), after: newest as u64 }
+}
+
+/// A session's messages after `after` (by `seq`), oldest first. A message still streaming is
+/// read again as it grows, from its own `seq`, so the panel replaces it by its place.
+pub fn transcript_newer<T>(db: &Path, session: &str, after: u64, items: impl Fn(&Value, u64, i64) -> Vec<T>) -> crate::transcript::PageOf<T> {
+    let Some(db) = open(db) else { return crate::transcript::PageOf { items: Vec::new(), before: None, after } };
+    let read = || -> rusqlite::Result<(Vec<T>, u64)> {
+        let mut stmt = db.prepare("SELECT seq, time_created, data FROM session_message WHERE session_id = ?1 AND seq > ?2 AND type IN ('user', 'assistant') ORDER BY seq")?;
+        let mut last = after;
+        let mut out = Vec::new();
+        for (seq, at, data) in stmt.query_map(rusqlite::params![session, after as i64], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, String>(2)?)))?.flatten() {
+            let v: Value = serde_json::from_str(&data).unwrap_or(Value::Null);
+            out.extend(items(&v, seq as u64, at));
+            last = seq as u64;
+        }
+        Ok((out, last))
+    };
+    match read() {
+        Ok((items, last)) => crate::transcript::PageOf { items, before: None, after: last },
+        Err(_) => crate::transcript::PageOf { items: Vec::new(), before: None, after },
+    }
+}
+
 /// The latest text and the latest tool call in an assistant message's content.
 /// The latest text part of an assistant message, whole.
 fn last_text_part(message: &Value) -> Option<&str> {

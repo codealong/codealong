@@ -32,8 +32,13 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     day, most urgent first and then the one you last sent a prompt. Sessions are pinned
     here, with `p` or the right-click menu, and their pins show only here. Archive a session
     with `a` or its right-click menu; Codex threads are archived in Codex itself. The
-    selected session's panel shows where it stands, your last prompt and its last response
-    in full (Markdown, from the text search's index), its todos and its details.
+    selected session's panel shows its whole conversation, read from the session's own
+    record (Claude Code's transcript, Codex's rollout, OpenCode's database): your prompts, the
+    agent's replies as Markdown, and every tool call, which opens to its input and output; runs
+    of calls fold into one line. It opens at the newest and loads older pages as you scroll up,
+    and follows the session as it goes. The box at the bottom sends it a message where it runs,
+    as the quick panel does. When a session is waiting on you, the panel shows what it asks and
+    opens it to answer: approvals are given where the session runs.
   - **PRs**: every PR in the project's repos, with the worktree and sessions that worked on
     each. Reviews asked of you come first, with one-click Approve. Colored pills say where
     each PR stands: its review, its checks, and conflicts or an out-of-date branch, or one
@@ -72,8 +77,8 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     `jev-todos.json`.
   - **Canvas**: the project's work laid out in space, to remember by where it is. Worktrees,
     sessions, todos and PRs are compact cards (status, title, where it stands); hover one
-    for the rest, select one for its panel on the right (a session's shows your last prompt
-    and its last response in full; the rest are the ones their own views show), type in the
+    for the rest, select one for its panel on the right (a session's shows its whole
+    conversation and takes messages; the rest are the ones their own views show), type in the
     filter at the top or pick an Inbox row to fade what doesn't match (an Inbox row, or
     Return in the filter, also zooms to what does; a worktree in the sidebar selects its
     card), double-click to open it where it lives, right-click for its usual menu. What
@@ -359,6 +364,7 @@ light scan (no git, PRs or visitors).
 | `src-tauri/src/launch.rs` | App profiles: Ghostty (AppleScript, exact tab focus), Cursor (CLI), deep links |
 | `src-tauri/src/start.rs`, `src/start.ts` | New sessions: where each account can start one, the launch it makes, the agent menu (every account on every model) and Auto's pick |
 | `src-tauri/src/quick.rs`, `src/quick.ts`, `src/ui/Quick.tsx` | The quick panel: its window (a panel that takes the keyboard over any app), its shortcut, and its page (what needs you, finding sessions, starting one) |
+| `src-tauri/src/transcript.rs`, `src/ui/SessionPanel.tsx`, `src/ui/SessionThread.tsx` | A session's conversation, read a page at a time from its own record, and the panel that shows it and sends it messages |
 | `src-tauri/src/search.rs` | Searching what was said in sessions: an in-memory index of prompts and replies, read once per file and then from where it stopped |
 | `src-tauri/src/route.rs`, `src/route.ts` | Suggestions in the quick panel: the request to Jev and reading its answer back, the key in the keychain, and which suggestions the panel shows |
 | `src-tauri/src/todojev.rs` | Jev on todos: which todo a new session is for, whether a todo's work looks done, and a todo's suggested project, labels and dependencies |

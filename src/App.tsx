@@ -58,6 +58,7 @@ const SIDEBAR_WIDTH_KEY = 'codealong.sidebarWidth';
 const INSPECTOR_WIDTH_KEY = 'codealong.inspectorWidth';
 const PR_PANEL_WIDTH_KEY = 'codealong.prPanelWidth';
 const TODO_PANEL_WIDTH_KEY = 'codealong.todoPanelWidth';
+const SESSION_PANEL_WIDTH_KEY = 'codealong.sessionPanelWidth';
 const DAY = 24 * 60 * 60 * 1000;
 
 type View = 'worktrees' | 'sessions' | 'prs' | 'todo' | 'canvas';
@@ -214,6 +215,7 @@ export function App() {
   const [inspectorWidth, setInspectorWidth] = usePanelWidth(INSPECTOR_WIDTH_KEY);
   const [prPanelWidth, setPrPanelWidth] = usePanelWidth(PR_PANEL_WIDTH_KEY);
   const [todoPanelWidth, setTodoPanelWidth] = usePanelWidth(TODO_PANEL_WIDTH_KEY);
+  const [sessionPanelWidth, setSessionPanelWidth] = usePanelWidth(SESSION_PANEL_WIDTH_KEY);
   // Archives made here (key → archived), shown until the board catches up: Codex takes a moment.
   const [archiveOverride, setArchiveOverride] = useState<Record<string, boolean>>({});
   const [undo, setUndo] = useState<{ key: string; title: string } | null>(null);
@@ -1452,7 +1454,7 @@ export function App() {
       }
       case 'session': {
         const p = e.sessions.get(canvasSel.key);
-        return p ? { kind: 'lane' as const, node: sessionPanel(p.lane, p.session) } : null;
+        return p ? { kind: 'session' as const, node: sessionPanel(p.lane, p.session) } : null;
       }
       case 'todo': {
         const item = todoItems.find((r) => r.todo.id === canvasSel.key);
@@ -1488,7 +1490,9 @@ export function App() {
   );
 
   // Which panel is on the right, for its width: the view's own, or on the canvas the selected card's.
-  const panelKind = view === 'canvas' ? (canvasPanel?.kind ?? null) : view === 'prs' ? 'pr' : view === 'todo' ? 'todo' : 'lane';
+  const panelKind = view === 'canvas' ? (canvasPanel?.kind ?? null) : view === 'prs' ? 'pr' : view === 'todo' ? 'todo' : view === 'sessions' && selected?.kind === 'agent' ? 'session' : 'lane';
+  const panelWidth = { pr: prPanelWidth, todo: todoPanelWidth, session: sessionPanelWidth, lane: inspectorWidth };
+  const setPanelWidth = { pr: setPrPanelWidth, todo: setTodoPanelWidth, session: setSessionPanelWidth, lane: setInspectorWidth };
 
   return (
     <div className="ca-win ca-win--app">
@@ -1546,8 +1550,8 @@ export function App() {
         onSignIn={startSignIn}
       />
       <div
-        className={['ca-win-body', panelKind === 'pr' && 'is-prs', panelKind === 'todo' && 'is-todo', view === 'canvas' && 'is-canvas', view === 'canvas' && canvasPanel && 'has-panel'].filter(Boolean).join(' ')}
-        style={{ '--sidebar-w': widthVar(sidebarWidth), '--panel-w': widthVar(panelKind === 'pr' ? prPanelWidth : panelKind === 'todo' ? todoPanelWidth : inspectorWidth) } as CSSProperties}
+        className={['ca-win-body', panelKind === 'pr' && 'is-prs', panelKind === 'todo' && 'is-todo', panelKind === 'session' && 'is-session', view === 'canvas' && 'is-canvas', view === 'canvas' && canvasPanel && 'has-panel'].filter(Boolean).join(' ')}
+        style={{ '--sidebar-w': widthVar(sidebarWidth), '--panel-w': widthVar(panelKind ? panelWidth[panelKind] : null) } as CSSProperties}
       >
         <nav className="ca-side" aria-label="Sidebar">
           <div className="ca-label ca-side-label">Inbox</div>
@@ -1827,7 +1831,7 @@ export function App() {
           </div>
           )}
         </main>
-        {panelKind && <Resizer panel="after" cssVar="--panel-w" onResize={panelKind === 'pr' ? setPrPanelWidth : panelKind === 'todo' ? setTodoPanelWidth : setInspectorWidth} />}
+        {panelKind && <Resizer panel="after" cssVar="--panel-w" onResize={setPanelWidth[panelKind]} />}
         {view === 'canvas' ? (
           canvasPanel?.node ?? null
         ) : view === 'todo' ? (

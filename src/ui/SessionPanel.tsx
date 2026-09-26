@@ -1,45 +1,84 @@
-// A session's own panel, on the canvas: where it stands, how to open it, your last prompt and
-// its last response in full (from the text search's index), the todos it's on, and the rest of
-// what's known about it. The worktree inspector lists a worktree's sessions; this is one of them.
+// A session's own panel, on the canvas and in Sessions: where it stands and how to open it at
+// the top, its whole conversation in the middle (SessionThread.tsx), and a box at the bottom
+// that sends it a message where it runs (send.rs), as the quick panel does.
+//
+// Approvals are answered where the session runs: the panel shows what it's asking and opens it.
+// A harness's own prompt can't be read from outside, so typing into it blind could answer
+// something else.
 
-import { useEffect, useState } from 'react';
-import { sessionMessages } from '../api';
+import { useRef, useState } from 'react';
+import { sendToSession } from '../api';
 import { below } from '../contextMenu';
 import { absolute, agoPhrase, duration, middleTruncate, tildePath } from '../format';
 import { HARNESS_WORD, sessionPlace } from '../harness';
-import type { Board, Lane, Said, Session, Todo } from '../types';
+import type { Board, Lane, Session, Todo } from '../types';
 import { STATUS_WORD as TODO_WORD } from '../todos';
 import { InsightChips } from './InsightBits';
-import { Markdown } from './Markdown';
 import { OpenInMenu } from './Inspector';
 import { BranchLabel, Button, HarnessChip, Icon, Rich, STATUS_WORD, StatusGlyph } from './primitives';
+import { SessionThread } from './SessionThread';
 import { TodoGlyph } from './TodoBits';
 
-/** Lines a message shows before "Show all". */
-const CLAMP = 14;
+function Composer({ session: s, terminal, onOpen }: { session: Session; terminal: string; onOpen: () => void }) {
+  const [text, setText] = useState('');
+  const [sending, setSending] = useState(false);
+  const [note, setNote] = useState<{ text: string; error: boolean } | null>(null);
+  const box = useRef<HTMLTextAreaElement>(null);
+  const waiting = s.status === 'needs';
 
-function Message({ said, label, now }: { said: Said; label: string; now: number }) {
-  const [all, setAll] = useState(false);
-  const long = said.text.split('\n').length > CLAMP || said.text.length > 1200;
-  return (
-    <div className={['ca-sessinsp-msg', said.you ? 'is-you' : 'is-agent'].join(' ')}>
-      <div className="ca-sessinsp-msghead">
-        <span>{label}</span>
-        <span className="ca-meta" title={absolute(said.at)}>
-          {agoPhrase(said.at, now)}
-        </span>
+  const send = () => {
+    const t = text.trim();
+    if (!t || sending || waiting) return;
+    setSending(true);
+    setNote(null);
+    sendToSession(s.key, t)
+      .then((sent) => {
+        setText('');
+        setNote({ text: sent?.message ?? 'Sent.', error: false });
+      })
+      .catch((e: unknown) => setNote({ text: String(e).replace(/^Error: /, ''), error: true }))
+      .finally(() => {
+        setSending(false);
+        box.current?.focus();
+      });
+  };
+
+  if (waiting) {
+    return (
+      <div className="ca-composer is-waiting">
+        <span>It’s waiting on you. Answer it in {sessionPlace(s, terminal)}.</span>
+        <Button size="sm" icon="arrow-up-right" onClick={onOpen}>
+          Open
+        </Button>
       </div>
-      {/* Yours shows as you typed it; the agent's as the Markdown it writes. */}
-      {said.you ? (
-        <div className={['ca-sessinsp-text', long && !all && 'is-clamped'].filter(Boolean).join(' ')}>{said.text}</div>
-      ) : (
-        <Markdown text={said.text} className={['ca-sessinsp-text', 'ca-sessinsp-reply', long && !all && 'is-clamped'].filter(Boolean).join(' ')} />
-      )}
-      {long && (
-        <button type="button" className="ca-linkbtn" onClick={() => setAll(!all)}>
-          {all ? 'Show less' : 'Show all'}
-        </button>
-      )}
+    );
+  }
+  return (
+    <div className="ca-composer">
+      <textarea
+        ref={box}
+        value={text}
+        rows={Math.min(8, Math.max(2, text.split('\n').length))}
+        placeholder={s.status === 'working' ? `Send to ${s.account}: it takes this in as it works` : `Send to ${s.account}`}
+        onChange={(e) => {
+          setText(e.target.value);
+          if (note && !note.error) setNote(null);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+            e.preventDefault();
+            send();
+          }
+        }}
+        aria-label={`Message to ${s.title}`}
+        disabled={sending}
+      />
+      <div className="ca-composer-foot">
+        <span className={['ca-composer-note', note?.error && 'is-error'].filter(Boolean).join(' ')}>{sending ? 'Sending…' : (note?.text ?? '⏎ sends · ⇧⏎ new line')}</span>
+        <Button variant="primary" size="sm" icon="send" disabled={!text.trim() || sending} onClick={send}>
+          Send
+        </Button>
+      </div>
     </div>
   );
 }
@@ -60,41 +99,20 @@ interface SessionPanelProps {
 }
 
 export function SessionPanel({ lane, session: s, apps, now, onOpen, onNewSession, onShowLane, todos, onShowTodo, onMoreMenu }: SessionPanelProps) {
-  // Its last messages, read again when it does something.
-  const [said, setSaid] = useState<Said[] | null>(null);
-  useEffect(() => {
-    let live = true;
-    sessionMessages(s.key)
-      .then((m) => live && setSaid(m))
-      .catch(() => live && setSaid([]));
-    return () => {
-      live = false;
-    };
-  }, [s.key, s.lastActivity]);
-
+  const [details, setDetails] = useState(false);
   const targets = lane.targets.filter((t) => t.id.startsWith(`s|${s.key}|`));
-  // The engine sends the last exchange: your prompt, then the agent's messages since.
-  const prompt = said?.find((m) => m.you);
-  const turn = said?.filter((m) => !m.you) ?? [];
-  const reply = turn[turn.length - 1];
-  const earlier = turn.slice(0, -1);
-  const [showEarlier, setShowEarlier] = useState(false);
-  const busy = s.status === 'working' || s.status === 'needs' || s.status === 'error';
   const since = s.statusSince ? (s.status === 'working' ? `for ${duration(s.statusSince, now)}` : agoPhrase(s.statusSince, now)) : agoPhrase(s.lastActivity, now);
-  const agent = s.account;
 
   return (
     <aside className="ca-insp ca-sessinsp" aria-label={`${s.title} details`}>
-      <header>
+      <header className="ca-sessinsp-head">
         <div className="ca-insp-title">
           <StatusGlyph status={s.status} size={14} />
           <span className="ca-tag">{HARNESS_WORD[s.harness]}</span>
           <Button variant="ghost" size="sm" icon="dots" aria-label="More" title="Pin, archive, copy and more" className="ca-todoinsp-more" onClick={(e) => onMoreMenu(below(e.currentTarget))} />
         </div>
         <h3 className="ca-sessinsp-title">{s.title}</h3>
-        <div className="ca-sessinsp-status">
-          {s.stalledSince ? `Quiet since ${agoPhrase(s.stalledSince, now)}` : `${STATUS_WORD[s.status]} · ${since}`}
-        </div>
+        <div className="ca-sessinsp-status">{s.stalledSince ? `Quiet since ${agoPhrase(s.stalledSince, now)}` : `${STATUS_WORD[s.status]} · ${since}`}</div>
         <button type="button" className="ca-insp-path" title={`Show ${lane.callsign}`} onClick={() => onShowLane(lane)}>
           <Icon name="folder" size={12} />
           <span>
@@ -106,58 +124,22 @@ export function SessionPanel({ lane, session: s, apps, now, onOpen, onNewSession
             <BranchLabel branch={(s.branch ?? lane.branch) as string} />
           </div>
         )}
-      </header>
-      <div className="ca-insp-actions">
-        {targets.length > 0 ? (
-          <OpenInMenu targets={targets} defaultId={s.openTarget} onOpen={onOpen} />
-        ) : (
-          <Button variant="primary" icon="arrow-up-right" onClick={() => onOpen(s.openTarget)}>
-            Open in {sessionPlace(s, apps.terminal)}
-          </Button>
-        )}
-        <Button icon="plus" title={`New session in ${lane.callsign} (⌘N)`} aria-label={`New session in ${lane.callsign}`} onClick={onNewSession} />
-      </div>
-      <InsightChips session={s} />
-      {busy && s.excerpt && (
-        <section className="ca-insp-sec">
-          <h4 className="ca-label">{s.status === 'needs' ? 'Asks you' : s.status === 'error' ? 'Error' : 'Now'}</h4>
-          <p className="ca-sessinsp-now">
-            <Rich text={s.excerpt} now={now} />
-          </p>
-        </section>
-      )}
-      {prompt && (
-        <section className="ca-insp-sec">
-          <Message said={prompt} label="Your last prompt" now={now} />
-        </section>
-      )}
-      {earlier.length > 0 && (
-        <section className="ca-insp-sec ca-sessinsp-earlier">
-          <button type="button" className="ca-linkbtn" onClick={() => setShowEarlier(!showEarlier)}>
-            {showEarlier ? 'Hide' : 'Show'} {earlier.length} earlier {earlier.length === 1 ? 'message' : 'messages'} from this turn
+        <div className="ca-insp-actions">
+          {targets.length > 0 ? (
+            <OpenInMenu targets={targets} defaultId={s.openTarget} onOpen={onOpen} />
+          ) : (
+            <Button variant="primary" icon="arrow-up-right" onClick={() => onOpen(s.openTarget)}>
+              Open in {sessionPlace(s, apps.terminal)}
+            </Button>
+          )}
+          <Button icon="plus" title={`New session in ${lane.callsign} (⌘N)`} aria-label={`New session in ${lane.callsign}`} onClick={onNewSession} />
+          <button type="button" className="ca-linkbtn ca-sessinsp-detailsbtn" aria-expanded={details} onClick={() => setDetails(!details)}>
+            <Icon name={details ? 'chevron-down' : 'chevron-right'} size={12} />
+            Details
           </button>
-          {showEarlier && earlier.map((m) => <Message key={m.at} said={m} label={agent} now={now} />)}
-        </section>
-      )}
-      <section className="ca-insp-sec">
-        {reply ? (
-          <Message said={reply} label={busy ? `Latest · ${agent}` : `Last response · ${agent}`} now={now} />
-        ) : said === null ? (
-          <p className="ca-empty">Reading…</p>
-        ) : s.excerpt && !busy ? (
-          <>
-            <h4 className="ca-label">Last response</h4>
-            <p className="ca-sessinsp-now">
-              <Rich text={s.excerpt} now={now} />
-            </p>
-          </>
-        ) : (
-          !prompt && <p className="ca-empty">No messages to show. Text search may be off, or the session is older than it reaches.</p>
-        )}
-      </section>
-      {todos && todos.length > 0 && (
-        <section className="ca-insp-sec">
-          <h4 className="ca-label">Todos · {todos.length}</h4>
+        </div>
+        <InsightChips session={s} />
+        {todos && todos.length > 0 && (
           <div className="ca-insp-todos">
             {todos.map((t) => (
               <button key={t.id} type="button" className="ca-insp-todo" title="Show the todo" onClick={() => onShowTodo?.(t)}>
@@ -167,43 +149,56 @@ export function SessionPanel({ lane, session: s, apps, now, onOpen, onNewSession
               </button>
             ))}
           </div>
-        </section>
-      )}
-      <section className="ca-insp-sec">
-        <h4 className="ca-label">Session</h4>
-        <dl className="ca-kv">
-          <dt>Account</dt>
-          <dd>
-            <HarnessChip session={s} withStatus={false} />
-          </dd>
-          <dt>ID</dt>
-          <dd className="ca-code" title={s.id}>
-            {s.id}
-          </dd>
-          {s.startedAt != null && (
-            <>
-              <dt>Started</dt>
-              <dd title={absolute(s.startedAt)}>{agoPhrase(s.startedAt, now)}</dd>
-            </>
-          )}
-          <dt>Last prompt</dt>
-          <dd title={absolute(s.lastPromptAt)}>{agoPhrase(s.lastPromptAt, now)}</dd>
-          {s.live && s.pid ? (
-            <>
-              <dt>Process</dt>
-              <dd>pid {s.pid}</dd>
-            </>
-          ) : null}
-          {s.resumeCommand && (
-            <>
-              <dt>Resume</dt>
-              <dd className="ca-code" title={s.resumeCommand}>
-                {s.resumeCommand}
-              </dd>
-            </>
-          )}
-        </dl>
-      </section>
+        )}
+        {details && (
+          <dl className="ca-kv">
+            <dt>Account</dt>
+            <dd>
+              <HarnessChip session={s} withStatus={false} />
+            </dd>
+            <dt>ID</dt>
+            <dd className="ca-code" title={s.id}>
+              {s.id}
+            </dd>
+            {s.startedAt != null && (
+              <>
+                <dt>Started</dt>
+                <dd title={absolute(s.startedAt)}>{agoPhrase(s.startedAt, now)}</dd>
+              </>
+            )}
+            <dt>Last prompt</dt>
+            <dd title={absolute(s.lastPromptAt)}>{agoPhrase(s.lastPromptAt, now)}</dd>
+            {s.live && s.pid ? (
+              <>
+                <dt>Process</dt>
+                <dd>pid {s.pid}</dd>
+              </>
+            ) : null}
+            {s.resumeCommand && (
+              <>
+                <dt>Resume</dt>
+                <dd className="ca-code" title={s.resumeCommand}>
+                  {s.resumeCommand}
+                </dd>
+              </>
+            )}
+          </dl>
+        )}
+      </header>
+      <SessionThread
+        key={s.key}
+        session={s}
+        now={now}
+        onOpen={() => onOpen(s.openTarget)}
+        fallback={
+          s.excerpt ? (
+            <p className="ca-sessinsp-now">
+              <Rich text={s.excerpt} now={now} />
+            </p>
+          ) : null
+        }
+      />
+      <Composer session={s} terminal={apps.terminal} onOpen={() => onOpen(s.openTarget)} />
     </aside>
   );
 }

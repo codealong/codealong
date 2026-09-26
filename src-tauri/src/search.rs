@@ -210,51 +210,6 @@ pub fn find_now(scope: Scope, words: &[String], limit: usize) -> Found {
     find(words, limit)
 }
 
-/// A message in a session: yours or the agent's.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct Said {
-    pub at: i64,
-    pub you: bool,
-    pub text: String,
-}
-
-/// A session's last exchange, oldest first, for its panel: your latest prompt and at most
-/// `limit` of the agent's messages after it (a turn narrates between tool calls, so a long one
-/// writes dozens; the last is its answer). Read now if the index hasn't read the file yet.
-/// Empty when searching is off or the session is older than the index goes.
-pub fn recent(key: &str, limit: usize) -> Vec<Said> {
-    let mut ix = index().lock().unwrap_or_else(|e| e.into_inner());
-    if ix.scope.days == 0 {
-        return Vec::new();
-    }
-    let said = |e: &Entry| Said { at: e.at, you: e.you, text: e.text.clone() };
-    if key.starts_with("opencode:") {
-        ix.catch_up_opencode();
-        let mut all: Vec<Said> = ix.opencode.values().filter_map(|oc| oc.sessions.get(key)).flat_map(|m| m.values().map(said)).collect();
-        all.sort_by_key(|m| m.at);
-        return last_exchange(all, limit);
-    }
-    ix.relist(false);
-    let Some((path, _, kind)) = ix.listed.iter().find(|(_, k, _)| k == key).cloned() else {
-        return Vec::new();
-    };
-    let file = ix.files.entry(path.clone()).or_insert_with(|| FileText { key: key.to_string(), kind, offset: 0, entries: Vec::new() });
-    catch_up(&path, file);
-    let from = file.entries.iter().rposition(|e| e.you).unwrap_or(0);
-    last_exchange(file.entries[from..].iter().map(said).collect(), limit)
-}
-
-/// From messages oldest first: the last prompt of yours and up to `limit` messages after it.
-fn last_exchange(mut all: Vec<Said>, limit: usize) -> Vec<Said> {
-    let from = all.iter().rposition(|m| m.you).unwrap_or(0);
-    let mut out = all.split_off(from);
-    let prompt = out.first().filter(|m| m.you).cloned();
-    let replies: Vec<Said> = out.drain(..).skip(usize::from(prompt.is_some())).collect();
-    let skip = replies.len().saturating_sub(limit);
-    prompt.into_iter().chain(replies.into_iter().skip(skip)).collect()
-}
-
 impl Index {
     /// Lists the transcripts and rollouts in scope, unless the list is fresh. Files that fell
     /// out of scope are dropped.
@@ -436,28 +391,6 @@ fn entry_of(line: &[u8], kind: Kind) -> Option<Entry> {
 #[cfg(test)]
 mod tests {
 
-    #[test]
-    fn last_exchange_keeps_the_prompt_and_the_turns_end() {
-        let m = |at: i64, you: bool| Said { at, you, text: at.to_string() };
-        let all = vec![m(1, true), m(2, false), m(3, true), m(4, false), m(5, false), m(6, false)];
-        assert_eq!(last_exchange(all.clone(), 2), vec![m(3, true), m(5, false), m(6, false)]);
-        assert_eq!(last_exchange(vec![m(1, false), m(2, false)], 1), vec![m(2, false)]);
-        assert_eq!(last_exchange(vec![m(1, true)], 3), vec![m(1, true)]);
-    }
-
-    /// Prints the last messages of this Mac's newest Claude Code session:
-    /// `cargo test recent_messages -- --ignored --nocapture`.
-    #[test]
-    #[ignore]
-    fn recent_messages() {
-        let cfg = crate::config::load().ok().flatten().unwrap_or_default();
-        configure(Scope { accounts: cfg.accounts.clone(), days: 3 });
-        let key = { let mut ix = index().lock().unwrap(); ix.relist(true); ix.listed.first().map(|(_, k, _)| k.clone()) };
-        let key = key.expect("a session");
-        for m in recent(&key, 4) {
-            println!("{key} {} {}: {}", m.at, if m.you { "you" } else { "agent" }, m.text.chars().take(160).collect::<String>());
-        }
-    }
 
     use super::*;
 

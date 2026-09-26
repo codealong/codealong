@@ -621,10 +621,25 @@ export interface TextFound {
   off: boolean;
 }
 
-/** A message in a session, from the text search's index. */
-export interface Said {
+/** A step of a session's conversation, from its own record (transcript.rs). */
+export interface TranscriptItem {
   at: number;
-  /** You wrote it; otherwise the agent did. */
-  you: boolean;
+  /** `result` is a Claude Code tool's output, matched to its call by `id`. */
+  kind: 'you' | 'agent' | 'tool' | 'result' | 'note';
   text: string;
+  id?: string;
+  input?: string;
+  output?: string;
+  failed: boolean;
+  /** Where its line starts (or its message number in OpenCode); with `n`, unique in the session. */
+  cursor: number;
+  n: number;
+}
+
+export interface TranscriptPage {
+  items: TranscriptItem[];
+  /** Where the next page back ends; null at the session's start. */
+  before: number | null;
+  /** Where reading on starts. */
+  after: number;
 }

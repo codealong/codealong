@@ -175,21 +175,26 @@ window.__TAURI_INTERNALS__ = {
         return fx && fx.jev && fx.jev.suggest ? fx.jev.suggest : Promise.reject(new Error('Todo suggestions are off.'));
       });
     }
-    // A session's last messages: the real ones for PREVIEW_MESSAGES's session, else its title as
-    // your prompt and its excerpt as the response.
-    if (cmd === 'session_messages') {
-      return Promise.all([optionalJson('./session-messages-key.json'), optionalJson('./session-messages.json'), fetch('./board.json').then(function (r) { return r.json(); })]).then(function (all) {
-        if (all[0] && all[1] && all[0].key === (args || {}).key) return all[1];
-        var b = all[2];
+    // A session's conversation: the real newest page for PREVIEW_TRANSCRIPT's session (older
+    // pages end there), else its title as your prompt, a tool call and its excerpt as the reply.
+    if (cmd === 'session_page') {
+      return Promise.all([optionalJson('./transcript-key.json'), optionalJson('./transcript.json'), fetch('./board.json').then(function (r) { return r.json(); })]).then(function (all) {
+        var key = (args || {}).key;
+        if (all[0] && all[1] && all[0].key === key) return (args || {}).before == null ? all[1] : { items: [], before: null, after: all[1].after };
         var s = null;
-        b.lanes.forEach(function (l) { l.sessions.forEach(function (x) { if (x.key === (args || {}).key) s = x; }); });
-        if (!s) return [];
-        return [
-          { at: s.lastPromptAt, you: true, text: s.title },
-          { at: s.lastActivity, you: false, text: (s.excerpt || '') + '\n\nIn the app this is the whole response, read from the session\'s transcript.' },
-        ];
+        all[2].lanes.forEach(function (l) { l.sessions.forEach(function (x) { if (x.key === key) s = x; }); });
+        if (!s) return Promise.reject(new Error("That session isn't on the board any more."));
+        var item = function (kind, text, n, extra) { return Object.assign({ at: s.lastActivity - (3 - n) * 60e3, kind: kind, text: text, failed: false, cursor: n, n: 0 }, extra || {}); };
+        return { before: null, after: 4, items: [
+          item('you', s.title, 0),
+          item('tool', 'Bash · `npm test`', 1, { id: 't1', input: 'npm test' }),
+          item('result', '', 2, { id: 't1', output: 'Tests  12 passed (12)' }),
+          item('agent', s.excerpt || 'Done.', 3),
+        ] };
       });
     }
+    if (cmd === 'session_newer') return Promise.resolve({ items: [], before: null, after: (args || {}).after || 0 });
+    if (cmd === 'send_to_session') return Promise.resolve({ message: 'Sent (in the preview nothing is typed anywhere).', opened: false });
     // A todo change "shows" on a board that never comes, so the page keeps its own copy of it.
     if (cmd === 'todo_op') return Promise.resolve(Number.MAX_SAFE_INTEGER);
     // A PNG is kept as an image to show; anything else as a file, by the name it came with.
