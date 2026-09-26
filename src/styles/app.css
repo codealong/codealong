@@ -4033,13 +4033,13 @@ html.is-quick body {
   outline: 1.5px solid color-mix(in srgb, var(--unread-solid) 45%, transparent);
   outline-offset: 1px;
 }
-/* Hover colors the card's own border rather than drawing a ring around it. */
+/* Hover and selection color the card's own border rather than drawing a ring around it;
+   hover in a softer tint, so a hovered card reads apart from the selected one. */
 .ca-cv-card.is-hovered {
-  border-color: var(--unread-solid);
+  border-color: color-mix(in srgb, var(--unread-solid) 55%, var(--line));
 }
 .ca-cv-card.is-selected {
-  outline: 2px solid var(--unread-solid);
-  outline-offset: 1px;
+  border-color: var(--unread-solid);
 }
 
 /* Worktree names zoomed out, at a size you can read whatever the zoom. */
