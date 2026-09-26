@@ -4806,19 +4806,6 @@ html.is-quick body {
 .ca-codeblock > .ca-copybtn.is-copied {
   opacity: 1;
 }
-/* On a message, the button sits beside its author and shows while you hover the message. */
-.ca-thread-copy {
-  height: 18px;
-  padding: 0 4px;
-  border-color: transparent;
-  background: transparent;
-  opacity: 0;
-}
 .ca-thread-meta > .ca-meta {
   margin-left: auto;
-}
-.ca-thread-said:hover .ca-thread-copy,
-.ca-thread-copy:focus-visible,
-.ca-thread-copy.is-copied {
-  opacity: 1;
 }
