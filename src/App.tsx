@@ -1294,6 +1294,32 @@ export function App() {
     }
   };
 
+  /** Whether a card matches the filter at the top, as its row would in its own view. */
+  const canvasMatches = useCallback(
+    (it: RefItem) => {
+      const e = canvasEntities;
+      switch (it.ref) {
+        case 'worktree': {
+          const lane = e.lanes.get(it.key);
+          return lane ? inQuery(lane, query) : (it.title ?? '').toLowerCase().includes(query.toLowerCase());
+        }
+        case 'session': {
+          const p = e.sessions.get(it.key);
+          return p ? sessionInQuery({ kind: 'agent', key: it.key, lane: p.lane, session: p.session }, query) : (it.title ?? '').toLowerCase().includes(query.toLowerCase());
+        }
+        case 'todo': {
+          const r = todoItems.find((x) => x.todo.id === it.key);
+          return r ? todoInQuery(r, query) : (it.title ?? '').toLowerCase().includes(query.toLowerCase());
+        }
+        case 'pr': {
+          const pr = e.prs.get(it.key);
+          return pr ? prInQuery(pr, query) : (it.title ?? '').toLowerCase().includes(query.toLowerCase());
+        }
+      }
+    },
+    [canvasEntities, todoItems, query],
+  );
+
   /** A card's right-click menu: the one its row has in the other views. */
   const cardMenu = (it: RefItem): MenuSpec => {
     const e = canvasEntities;
@@ -1638,6 +1664,8 @@ export function App() {
               onUndo={(message, undo, icon) => setTodoUndo({ message, undo, icon })}
               keys={canvasKeys}
               onSelectItem={setCanvasSel}
+              query={query}
+              matches={canvasMatches}
             />
           )}
           {view !== 'canvas' && (

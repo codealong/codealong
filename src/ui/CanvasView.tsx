@@ -83,6 +83,10 @@ export interface CanvasViewProps {
   onUndo: (message: string, undo: () => void, icon?: string) => void;
   /** The canvas's keys; true when it took the key. The window calls this before its own. */
   keys: MutableRefObject<(e: KeyboardEvent) => boolean>;
+  /** The filter at the top of the window: cards and notes that don't match it fade. Empty for none. */
+  query: string;
+  /** Whether a card matches the filter, as its row would in its own view. */
+  matches: (it: RefItem) => boolean;
   /** The one card selected, for the panel beside the canvas and ⌘N; null for none, several, or a note or frame. */
   onSelectItem: (it: RefItem | null) => void;
 }
@@ -112,7 +116,7 @@ const cx = (...parts: (string | false | null | undefined)[]) => parts.filter(Boo
 const clamp = (z: number) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z));
 
 export function CanvasView(props: CanvasViewProps) {
-  const { doc, update, entities, pinned, labels, todos, now, terminal, theme, project, focus, onOpen, menuFor, onToast, onUndo, keys, onSelectItem } = props;
+  const { doc, update, entities, pinned, labels, todos, now, terminal, theme, project, focus, onOpen, menuFor, onToast, onUndo, keys, onSelectItem, query, matches } = props;
   const rootRef = useRef<HTMLDivElement>(null);
   const worldRef = useRef<HTMLDivElement>(null);
   const glCanvas = useRef<HTMLCanvasElement>(null);
@@ -159,6 +163,16 @@ export function CanvasView(props: CanvasViewProps) {
     for (const id of from) out.delete(id);
     return out;
   }, [pairs, selection, hover]);
+
+  // What the filter fades: cards that don't match, and notes whose text doesn't have it.
+  const faded = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return null;
+    const out = new Set<string>();
+    for (const it of refs) if (!matches(it)) out.add(itemId(it));
+    for (const n of notes) if (!n.text.toLowerCase().includes(q)) out.add(n.id);
+    return out;
+  }, [query, refs, notes, matches]);
 
   /* ---- Camera ---- */
 
@@ -309,11 +323,11 @@ export function CanvasView(props: CanvasViewProps) {
       else if (d?.ref === 'worktree') color = d.lane.glyph === 'idle' || d.lane.glyph === 'stopped' ? liveColors.lane : liveColors[d.lane.glyph];
       else if (d?.ref === 'todo') color = d.todo.status === 'done' ? liveColors.done : d.todo.status === 'in-progress' ? liveColors.progress : liveColors.todo;
       else if (d?.ref === 'pr') color = d.pr.state === 'merged' ? liveColors.merged : d.pr.state === 'closed' ? liveColors.gone : liveColors.open;
-      return { ...r, color };
+      return { ...r, color: faded?.has(itemId(it)) ? ([color[0], color[1], color[2], color[3] * 0.18] as Rgba) : color };
     });
     g.setBlocks(blocks);
     g.request(() => cam.current, () => cam.current.zoom < NEAR);
-  }, [refs, data, liveColors]);
+  }, [refs, data, liveColors, faded]);
 
   useEffect(() => {
     const g = gl.current;
@@ -934,17 +948,17 @@ export function CanvasView(props: CanvasViewProps) {
           </div>
         ))}
         {farLabels.map((it) => (
-          <div key={itemId(it)} className="ca-cv-farlabel" style={{ transform: `translate(${it.x}px, ${it.y}px) scale(calc(1 / var(--z, 1)))` }}>
+          <div key={itemId(it)} className={cx('ca-cv-farlabel', faded?.has(itemId(it)) && 'is-faded')} style={{ transform: `translate(${it.x}px, ${it.y}px) scale(calc(1 / var(--z, 1)))` }}>
             {titleOf(entities, it.ref, it.key) ?? it.title}
           </div>
         ))}
         {shownCards.map((it) => {
           const id = itemId(it);
           const d = data.get(id) ?? null;
-          return <CanvasCard key={id} item={it} data={d} sig={cardSig(d, now)} now={now} selected={selection.has(id)} related={related.has(id)} />;
+          return <CanvasCard key={id} item={it} data={d} sig={cardSig(d, now)} now={now} selected={selection.has(id)} related={related.has(id)} faded={!!faded?.has(id)} />;
         })}
         {notes.map((n) => (
-          <div key={n.id} className={cx('ca-cv-note', `is-${n.color}`, selection.has(n.id) && 'is-selected')} style={{ transform: `translate(${n.x}px, ${n.y}px)`, width: n.w, height: n.h }}>
+          <div key={n.id} className={cx('ca-cv-note', `is-${n.color}`, selection.has(n.id) && 'is-selected', faded?.has(n.id) && 'is-faded')} style={{ transform: `translate(${n.x}px, ${n.y}px)`, width: n.w, height: n.h }}>
             {editing === n.id ? (
               <textarea
                 autoFocus

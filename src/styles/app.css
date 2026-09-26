@@ -4379,3 +4379,9 @@ html.is-quick body {
   margin-right: auto;
   color: var(--alert);
 }
+/* Cards and notes that don't match the filter at the top fade back. */
+.ca-cv-card.is-faded,
+.ca-cv-note.is-faded,
+.ca-cv-farlabel.is-faded {
+  opacity: 0.2;
+}
