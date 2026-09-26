@@ -68,12 +68,12 @@ pub struct Outcome {
 pub fn verdict(s: &Session, now: i64, after_ms: i64) -> Result<String, String> {
     match s.status {
         Status::Needs => return Err("needs you".into()),
-        Status::Error => return Err("its last turn failed".into()),
+        Status::Error => return Err("last turn failed".into()),
         Status::Working => return Err("working".into()),
         Status::Idle | Status::Unread | Status::Stopped => {}
     }
     if s.background.is_some() {
-        return Err("left a command running in the background".into());
+        return Err("running a command in the background".into());
     }
     if s.stalled_since.is_some() {
         return Err("stuck mid-turn".into());
@@ -87,13 +87,13 @@ pub fn verdict(s: &Session, now: i64, after_ms: i64) -> Result<String, String> {
         why.push("last reply unread".into());
     }
     match s.insight.as_ref().and_then(|i| i.asks_you.map(|p| (p, i.landing.as_deref()))) {
-        Some((p, _)) if p >= ASKS_YOU_KEEP => return Err("its last reply may ask you something".into()),
-        Some((_, Some("blocked"))) => return Err("it says it's blocked".into()),
+        Some((p, _)) if p >= ASKS_YOU_KEEP => return Err("last reply may ask you something".into()),
+        Some((_, Some("blocked"))) => return Err("says it's blocked".into()),
         Some((_, landing)) => why.push(match landing.filter(|l| *l != "none") {
             Some(l) => format!("Jev: asks nothing, work {l}"),
             None => "Jev: asks nothing".into(),
         }),
-        None if s.reply_tail.as_deref().is_some_and(|t| t.trim_end().ends_with('?')) => return Err("its last reply ends with a question".into()),
+        None if s.reply_tail.as_deref().is_some_and(|t| t.trim_end().ends_with('?')) => return Err("last reply asks a question".into()),
         None => why.push("last reply asks nothing".into()),
     }
     Ok(why.join(" · "))
@@ -283,7 +283,7 @@ mod tests {
 
         let mut asks = session("a", 1, Status::Unread, 2 * day);
         asks.reply_tail = Some("Want me to push it?".into());
-        assert_eq!(verdict(&asks, NOW, day), Err("its last reply ends with a question".into()));
+        assert_eq!(verdict(&asks, NOW, day), Err("last reply asks a question".into()));
         // Jev's read wins over the question mark, both ways.
         asks.insight = Some(SessionInsight { asks_you: Some(0.1), landing: Some("landed".into()), ..Default::default() });
         assert_eq!(verdict(&asks, NOW, day).unwrap(), "idle 2 days · last reply unread · Jev: asks nothing, work landed");
