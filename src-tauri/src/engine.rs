@@ -368,6 +368,13 @@ fn subagent_activity(transcript: &Path, session_id: &str) -> Option<i64> {
     std::fs::read_dir(dir).ok()?.flatten().filter_map(|e| mtime_ms(&e.path())).max()
 }
 
+/// A Claude session's subagent logs.
+fn subagent_logs(transcript: &Path, session_id: &str) -> Vec<PathBuf> {
+    let Some(dir) = transcript.parent().map(|d| d.join(session_id).join("subagents")) else { return vec![] };
+    let Ok(entries) = std::fs::read_dir(dir) else { return vec![] };
+    entries.flatten().map(|e| e.path()).filter(|p| p.extension().and_then(|x| x.to_str()) == Some("jsonl")).collect()
+}
+
 /// A read that failed for a reason other than sign-in keeps the last good numbers; its error
 /// says why they aren't fresh and `as_of` says how old they are.
 fn keep_last_good(prev: Option<&Usage>, mut fresh: Usage) -> Usage {
@@ -449,8 +456,10 @@ struct Engine {
     last_hash: u64,
     /// Lane path → sessions from other lanes whose logs show they worked there.
     visitors: HashMap<PathBuf, Vec<String>>,
-    /// What to look for in logs: (lane path, text that identifies it).
-    needles: Vec<(PathBuf, String)>,
+    /// What to look for in logs: (lane path, text that identifies it, when it was made).
+    needles: Vec<(PathBuf, String, i64)>,
+    /// How far each subagent log has been checked for orphan worktrees.
+    subagent_offsets: HashMap<PathBuf, u64>,
     git: HashMap<PathBuf, GitInfo>,
     git_jobs: Sender<(PathBuf, Option<String>)>,
     /// Which worktrees git runs in, and which wait their turn (see throttle.rs).
@@ -542,6 +551,7 @@ impl Engine {
             last_hash: 0,
             visitors: HashMap::new(),
             needles: Vec::new(),
+            subagent_offsets: HashMap::new(),
             git: HashMap::new(),
             git_jobs,
             git_queue: GitQueue::default(),
@@ -1501,6 +1511,7 @@ impl Engine {
         let mut registries = BTreeSet::new();
         let mut indexes = BTreeSet::new();
         let mut transcripts = Vec::new();
+        let mut subagents = Vec::new();
         let mut rollouts = Vec::new();
         let mut databases = BTreeSet::new();
         let mut lanes = BTreeSet::new();
@@ -1528,6 +1539,11 @@ impl Engine {
                         if p.starts_with(&projects) {
                             if jsonl && p.parent().and_then(Path::parent) == Some(projects.as_path()) {
                                 transcripts.push((a.name.clone(), p));
+                            } else if jsonl && p.parent().map(file_name).as_deref() == Some("subagents") {
+                                // `<session>/subagents/agent-*.jsonl`
+                                if let Some(id) = p.parent().and_then(Path::parent).map(file_name) {
+                                    subagents.push((format!("claude:{}:{}", a.name, id), p));
+                                }
                             }
                             continue 'paths;
                         }
@@ -1596,6 +1612,13 @@ impl Engine {
             sessions_changed |= is_new;
             self.dirty = true;
         }
+        for (key, p) in subagents {
+            let Ok(len) = std::fs::metadata(&p).map(|m| m.len()) else { continue };
+            // A log first seen now is new, or its earlier lines were read by the last full search.
+            let from = self.subagent_offsets.get(&p).copied().unwrap_or(len.saturating_sub(1 << 20));
+            self.check_new_lines(&p, from, len, &key);
+            self.subagent_offsets.insert(p, len);
+        }
         for a in indexes {
             if let Some(acct) = self.account(&a) {
                 let index = codex::read_index(&acct.home_path());
@@ -1654,28 +1677,31 @@ impl Engine {
         }
     }
 
-    /// Worktrees an agent made from somewhere else (temporary folders, Codex worktrees) that
-    /// no session runs in, and the text that identifies each in a log: its folder name, or
-    /// its path under `~/.codex/worktrees`.
-    fn orphan_needles(&self) -> Vec<(PathBuf, String)> {
+    /// Worktrees an agent made from somewhere else (temporary folders, Codex worktrees, a
+    /// `git worktree add` next to the checkout) that no session runs in, the text that
+    /// identifies each in a log (its folder name, or its path under `~/.codex/worktrees`), and
+    /// when it was made.
+    fn orphan_needles(&self) -> Vec<(PathBuf, String, i64)> {
         let cwds: Vec<String> = self.session_cwds().into_iter().collect();
         let h = home();
         self.seeds
             .iter()
-            .filter(|s| matches!(s.origin, Origin::Temp | Origin::Codex | Origin::Other))
+            .filter(|s| matches!(s.origin, Origin::Temp | Origin::Codex | Origin::Script | Origin::Other))
             .filter(|s| !cwds.iter().any(|c| board::best_seed(&self.seeds, Path::new(c)).map(|i| self.seeds[i].path == s.path).unwrap_or(false)))
             .filter_map(|s| {
                 let needle = match s.path.strip_prefix(&h) {
                     Ok(rel) if s.origin == Origin::Codex => rel.to_string_lossy().into_owned(),
                     _ => file_name(&s.path),
                 };
-                (needle.len() >= 12).then(|| (s.path.clone(), needle))
+                let made = std::fs::metadata(&s.path).and_then(|m| m.created()).ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_millis() as i64).unwrap_or(0);
+                (needle.len() >= 12).then(|| (s.path.clone(), needle, made))
             })
             .collect()
     }
 
-    /// Searches session logs for orphan worktrees. Only files written since the oldest orphan
-    /// was made are read, in the background unless `sync`.
+    /// Searches session logs, subagents' included, for orphan worktrees. A file is read only
+    /// for the orphans made before its last write (give or take an hour), in the background
+    /// unless `sync`.
     fn refresh_visitors(&mut self, sync: bool) {
         let needles = self.orphan_needles();
         if needles == self.needles && !sync {
@@ -1686,27 +1712,26 @@ impl Engine {
             self.visitors.clear();
             return;
         }
-        let since = needles
-            .iter()
-            .filter_map(|(p, _)| std::fs::metadata(p).and_then(|m| m.created()).ok())
-            .filter_map(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-            .map(|d| d.as_millis() as i64)
-            .min()
-            .unwrap_or(0)
-            - 3_600_000;
         let mut files: Vec<(PathBuf, String)> = Vec::new();
         for (p, (a, (_, info, _))) in &self.transcripts {
-            files.push((p.clone(), format!("claude:{}:{}", a, info.session_id)));
+            let key = format!("claude:{}:{}", a, info.session_id);
+            // A subagent works where its session sent it, so its log counts for the session.
+            files.extend(subagent_logs(p, &info.session_id).into_iter().map(|s| (s, key.clone())));
+            files.push((p.clone(), key));
         }
         for (p, (a, parsed)) in &self.rollouts {
             if let Some((th, _)) = parsed {
                 files.push((p.clone(), format!("codex:{}:{}", a, th.id)));
             }
         }
-        files.retain(|(p, _)| mtime_ms(p).map(|m| m >= since).unwrap_or(false));
         let scan = move || -> HashMap<PathBuf, Vec<String>> {
             let found = parallel_map(files, |(path, key)| {
-                let hits = file_mentions(&path, &needles);
+                let written = mtime_ms(&path)?;
+                let could: Vec<(PathBuf, String)> = needles.iter().filter(|(_, _, made)| written >= made - 3_600_000).map(|(l, n, _)| (l.clone(), n.clone())).collect();
+                if could.is_empty() {
+                    return None;
+                }
+                let hits = file_mentions(&path, &could);
                 (!hits.is_empty()).then(|| (key, hits))
             });
             // Earliest work first: usually the session that made the worktree.
@@ -1740,7 +1765,7 @@ impl Engine {
             return;
         }
         let Some(text) = read_range_lossy(path, from, to) else { return };
-        for (lane, needle) in &self.needles {
+        for (lane, needle, _) in &self.needles {
             if worked_in(&text, needle) {
                 let keys = self.visitors.entry(lane.clone()).or_default();
                 if !keys.iter().any(|k| k == key) {
@@ -2122,6 +2147,9 @@ pub(crate) fn worked_in(text: &str, needle: &str) -> bool {
     work_line(text, needle).is_some()
 }
 
+/// What marks a log line as a tool's output: Claude's `tool_result`, Codex's call outputs.
+const TOOL_OUTPUT: [&str; 3] = ["\"type\":\"tool_result\"", "\"type\":\"function_call_output\"", "\"type\":\"custom_tool_call_output\""];
+
 /// The first line in `text` that shows work in the folder `needle` names.
 fn work_line<'a>(text: &'a str, needle: &str) -> Option<&'a str> {
     const MARKERS: [&str; 6] = ["\"workdir\":\"", "\\\"workdir\\\":\\\"", "\"cwd\":\"", "\\\"cwd\\\":\\\"", "cd ", "worktree add "];
@@ -2131,17 +2159,23 @@ fn work_line<'a>(text: &'a str, needle: &str) -> Option<&'a str> {
         let line_start = text[..at].rfind('\n').map(|j| j + 1).unwrap_or(0);
         let line_end = text[at..].find('\n').map(|j| at + j).unwrap_or(text.len());
         let line = &text[line_start..line_end];
+        // A command's output can name any folder: a listing, another session's log.
+        if TOOL_OUTPUT.iter().any(|t| line.contains(t)) {
+            from = at + needle.len();
+            continue;
+        }
         for marker in MARKERS {
             let mut m = 0;
             while let Some(k) = line[m..].find(marker) {
                 let path_start = m + k + marker.len();
-                let path: String = line[path_start..].chars().take_while(|c| !matches!(c, '"' | ' ' | '\\' | '&' | ';' | '\'' | '|')).collect();
+                let path_end = |c: &char| !matches!(c, '"' | ' ' | '\\' | '&' | ';' | '\'' | '|');
+                let path: String = line[path_start..].chars().take_while(path_end).collect();
                 let path = path.trim_start_matches("-b ").to_string();
-                if path.contains(needle) {
+                if names_folder(&path, needle) {
                     return Some(line);
                 }
                 // `git worktree add -b <branch> <path>`: the path comes after the branch.
-                if marker == "worktree add " && line[path_start..].split_whitespace().take(4).any(|w| w.contains(needle)) {
+                if marker == "worktree add " && line[path_start..].split_whitespace().take(4).any(|w| names_folder(&w.chars().take_while(path_end).collect::<String>(), needle)) {
                     return Some(line);
                 }
                 m = path_start;
@@ -2150,6 +2184,16 @@ fn work_line<'a>(text: &'a str, needle: &str) -> Option<&'a str> {
         from = at + needle.len();
     }
     None
+}
+
+/// True when `path` is the folder `needle` names or a path inside it, so `codealong-jev`
+/// doesn't match `codealong-jevtodos`.
+fn names_folder(path: &str, needle: &str) -> bool {
+    path.match_indices(needle).any(|(i, _)| {
+        let before = path[..i].chars().next_back();
+        let after = path[i + needle.len()..].chars().next();
+        matches!(before, None | Some('/')) && matches!(after, None | Some('/'))
+    })
 }
 
 /// The `timestamp` of a log line, if it has one.
@@ -2415,5 +2459,15 @@ mod tests {
         assert!(!worked_in(r#"{"command":"cd ~/projects/codealong && grep -F atlas-validate-ghostscript-20260923 logs"}"#, n));
         assert!(!worked_in(r#"{"content":"/private/tmp/atlas-validate-ghostscript-20260923  aad4df0 [codex/x]"}"#, n));
         assert_eq!(super::line_time(r#"{"timestamp":"1970-01-01T00:00:01.000Z","cmd":"x"}"#), Some(1000));
+    }
+
+    #[test]
+    fn a_worktree_next_to_the_checkout_counts_only_by_its_whole_name() {
+        let n = "atlas-org-redis-keys";
+        assert!(worked_in(r#"{"command":"cd /Users/me/projects/atlas && git worktree add -q -b me/org-redis-keys ../atlas-org-redis-keys origin/main"}"#, n));
+        assert!(worked_in(r#"{"command":"cd /Users/me/projects/atlas-org-redis-keys/apps/server && npx vitest run"}"#, n));
+        assert!(!worked_in(r#"{"command":"cd /Users/me/projects/atlas-org-redis-keys-v2 && git status"}"#, n));
+        assert!(!worked_in(r#"{"command":"cd /Users/me/projects/old-atlas-org-redis-keys && git status"}"#, n));
+        assert!(!worked_in(r#"{"type":"user","message":{"content":[{"type":"tool_result","content":"Bash cd /Users/me/projects/atlas-org-redis-keys && ls"}]}}"#, n));
     }
 }

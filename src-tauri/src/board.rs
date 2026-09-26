@@ -498,7 +498,8 @@ pub fn find_pr(seed: &LaneSeed, prs: &HashMap<String, Vec<PrRaw>>, now: i64) -> 
 /// that carries one PR after another holds only the latest.
 ///
 /// A session worked on the PR if it was on the PR's branch while the PR was open: active after
-/// the PR opened (give or take an hour) and started before it merged or closed. A session from
+/// the PR opened (give or take an hour) and started before it merged or closed. A session
+/// placed in a worktree it doesn't run in (`session_seed`) goes by that worktree's branch. A session from
 /// another lane records its own folder's branch, so it counts through a worktree on the PR's
 /// branch that it made or worked in: the one that made it whenever it started before the PR
 /// ended, since it wrote the branch even if the PR was opened later, and one that worked there
@@ -524,7 +525,10 @@ pub fn pr_items(seeds: &[LaneSeed], lanes: &[Lane], prs: &HashMap<String, Vec<Pr
             if default_branch != Some(head) {
                 // Sessions in their own lanes first, then ones that came to a worktree on the branch.
                 let own = here.iter().flat_map(|&l| {
-                    let on_branch = move |s: &Session| s.branch.as_deref() == Some(head) || (s.branch.is_none() && l.branch.as_deref() == Some(head));
+                    // A session that works here from another folder records that folder's branch,
+                    // so it goes by this worktree's.
+                    let here_branch = move |s: &Session| s.branch.is_none() || !Path::new(&s.cwd).starts_with(&l.id);
+                    let on_branch = move |s: &Session| s.branch.as_deref() == Some(head) || (here_branch(s) && l.branch.as_deref() == Some(head));
                     l.sessions.iter().filter(move |s| s.visitor.is_none() && on_branch(s) && during(s)).map(move |s| (l, s))
                 });
                 let guests = here.iter().filter(|l| l.branch.as_deref() == Some(head)).flat_map(|&l| {
@@ -1288,6 +1292,42 @@ mod tests {
         assert_eq!(p.lanes, vec!["/r/atlas-quarry".to_string()]);
         assert_eq!(p.sessions, vec![PrSession { key: on_branch.key, lane: "/r/atlas-quarry".into() }]);
         assert_eq!(board.github_login.as_deref(), Some("ghempton"));
+    }
+
+    #[test]
+    fn a_session_working_in_a_worktree_from_the_checkout_goes_by_the_worktrees_branch() {
+        let apps = AppNames::default();
+        let mut wt = seed("/r/atlas-quarry", "quarry");
+        wt.repo_slug = Some("northwindai/atlas".into());
+        let mut main = seed("/r/atlas", "main");
+        main.repo_slug = Some("northwindai/atlas".into());
+        main.default_branch = Some("main".into());
+        let seeds = vec![main, wt];
+        let a = acct("claude2");
+        // Started in the checkout on main, then made the worktree and did all its work there.
+        let mut s = claude_session(&a, Some(&reg("idle", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
+        s.cwd = "/r/atlas".into();
+        s.branch = Some("main".into());
+        s.work = vec!["/r/atlas-quarry".into(); 5];
+        let prs = HashMap::from([("northwindai/atlas".to_string(), vec![pr(PrState::Open, 0)])]);
+        let (git, visitors) = (HashMap::new(), HashMap::new());
+        let order = vec!["Northwind".to_string()];
+        let board = compose(Inputs {
+            now: NOW,
+            apps: &apps,
+            seeds: &seeds,
+            sessions: vec![s.clone()],
+            visitors: &visitors,
+            git: &git,
+            prs: &prs,
+            project_order: &order,
+            warnings: vec![],
+            loading: false,
+            github_at: None,
+            pinned: &[],
+            github_login: None,
+        });
+        assert_eq!(board.prs[0].sessions, vec![PrSession { key: s.key, lane: "/r/atlas-quarry".into() }]);
     }
 
     #[test]
