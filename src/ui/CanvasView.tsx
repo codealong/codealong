@@ -85,8 +85,12 @@ export interface CanvasViewProps {
   keys: MutableRefObject<(e: KeyboardEvent) => boolean>;
   /** The filter at the top of the window: cards and notes that don't match it fade. Empty for none. */
   query: string;
-  /** Whether a card matches the filter, as its row would in its own view. */
+  /** Whether the text filter or an Inbox filter is on. */
+  filtering: boolean;
+  /** Whether a card matches them, as its row would in its own view. */
   matches: (it: RefItem) => boolean;
+  /** Zooms to fit what matches each time it changes. */
+  fitMatches: number;
   /** The one card selected, for the panel beside the canvas and ⌘N; null for none, several, or a note or frame. */
   onSelectItem: (it: RefItem | null) => void;
 }
@@ -116,7 +120,7 @@ const cx = (...parts: (string | false | null | undefined)[]) => parts.filter(Boo
 const clamp = (z: number) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z));
 
 export function CanvasView(props: CanvasViewProps) {
-  const { doc, update, entities, pinned, labels, todos, now, terminal, theme, project, focus, onOpen, menuFor, onToast, onUndo, keys, onSelectItem, query, matches } = props;
+  const { doc, update, entities, pinned, labels, todos, now, terminal, theme, project, focus, onOpen, menuFor, onToast, onUndo, keys, onSelectItem, query, filtering, matches, fitMatches } = props;
   const rootRef = useRef<HTMLDivElement>(null);
   const worldRef = useRef<HTMLDivElement>(null);
   const glCanvas = useRef<HTMLCanvasElement>(null);
@@ -164,15 +168,15 @@ export function CanvasView(props: CanvasViewProps) {
     return out;
   }, [pairs, selection, hover]);
 
-  // What the filter fades: cards that don't match, and notes whose text doesn't have it.
+  // What the filters fade: cards that don't match, and notes unless their text has what's typed.
   const faded = useMemo(() => {
+    if (!filtering) return null;
     const q = query.trim().toLowerCase();
-    if (!q) return null;
     const out = new Set<string>();
     for (const it of refs) if (!matches(it)) out.add(itemId(it));
-    for (const n of notes) if (!n.text.toLowerCase().includes(q)) out.add(n.id);
+    for (const n of notes) if (!q || !n.text.toLowerCase().includes(q)) out.add(n.id);
     return out;
-  }, [query, refs, notes, matches]);
+  }, [filtering, query, refs, notes, matches]);
 
   /* ---- Camera ---- */
 
@@ -297,6 +301,16 @@ export function CanvasView(props: CanvasViewProps) {
     fit(rectOf(it), Math.max(1, cam.current.zoom));
     // Only when asked again, not as the canvas changes.
   }, [focus?.n]);
+
+  // Asked to show what matches: fit it, or say there's none on the canvas.
+  const lastFit = useRef(fitMatches);
+  useEffect(() => {
+    if (fitMatches === lastFit.current) return;
+    lastFit.current = fitMatches;
+    const hits = refs.filter((it) => !faded?.has(itemId(it)));
+    if (hits.length === 0) onToast('Nothing on the canvas matches.');
+    else fit(bounds(hits.map(rectOf)));
+  }, [fitMatches, refs, faded, fit, onToast]);
 
   /* ---- The GPU layer's content ---- */
 

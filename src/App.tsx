@@ -960,6 +960,11 @@ export function App() {
 
   /** Selects a worktree from the sidebar, in the Worktrees view: its first agent's line, else the worktree. */
   const focusLane = (lane: Lane) => {
+    // On the canvas, the worktree's card: selected, in view, with its panel.
+    if (view === 'canvas') {
+      showOnCanvas('worktree', lane.id);
+      return;
+    }
     setView('worktrees');
     setBayFilter(null);
     if (lane.parked) setShowParked(true);
@@ -1105,7 +1110,10 @@ export function App() {
         } else if (e.key === 'ArrowDown' || e.key === 'Enter') {
           e.preventDefault();
           searchRef.current?.blur();
-          if (e.key === 'Enter') openRow(selected);
+          if (e.key === 'Enter') {
+            if (view === 'canvas') setCanvasFit((n) => n + 1);
+            else openRow(selected);
+          }
         }
         return;
       }
@@ -1245,7 +1253,10 @@ export function App() {
     }
   }, [lanes, pendingSession]);
 
-  const toggleBay = (f: Filter) => setBayFilter(bayFilter === f ? null : f);
+  const toggleBay = (f: Filter) => {
+    setBayFilter(bayFilter === f ? null : f);
+    if (view === 'canvas' && bayFilter !== f) setCanvasFit((n) => n + 1);
+  };
   const openWindow = (name: string, another = false) => {
     openProjectWindow(name, another).catch((e: unknown) => setToast(String(e)));
   };
@@ -1294,31 +1305,34 @@ export function App() {
     }
   };
 
-  /** Whether a card matches the filter at the top, as its row would in its own view. */
+  /** Whether a card matches the filter at the top and the Inbox filter, as its row would in its own view. */
   const canvasMatches = useCallback(
     (it: RefItem) => {
       const e = canvasEntities;
       switch (it.ref) {
         case 'worktree': {
           const lane = e.lanes.get(it.key);
-          return lane ? inQuery(lane, query) : (it.title ?? '').toLowerCase().includes(query.toLowerCase());
+          return !!lane && inQuery(lane, query) && !!narrowed(lane, bayFilter, since);
         }
         case 'session': {
           const p = e.sessions.get(it.key);
-          return p ? sessionInQuery({ kind: 'agent', key: it.key, lane: p.lane, session: p.session }, query) : (it.title ?? '').toLowerCase().includes(query.toLowerCase());
+          const row: SessionItem | null = p ? { kind: 'agent', key: it.key, lane: p.lane, session: p.session } : null;
+          return !!row && sessionInQuery(row, query) && sessionInFilter(row, bayFilter);
         }
         case 'todo': {
           const r = todoItems.find((x) => x.todo.id === it.key);
-          return r ? todoInQuery(r, query) : (it.title ?? '').toLowerCase().includes(query.toLowerCase());
+          return !!r && todoInQuery(r, query) && todoInFilter(r, bayFilter);
         }
         case 'pr': {
           const pr = e.prs.get(it.key);
-          return pr ? prInQuery(pr, query) : (it.title ?? '').toLowerCase().includes(query.toLowerCase());
+          return !!pr && prInQuery(pr, query) && prInFilter(prRowOf(pr), bayFilter);
         }
       }
     },
-    [canvasEntities, todoItems, query],
+    [canvasEntities, todoItems, query, bayFilter, since],
   );
+  // Picking an Inbox filter, or pressing Return in the filter, brings what matches into view.
+  const [canvasFit, setCanvasFit] = useState(0);
 
   /** A card's right-click menu: the one its row has in the other views. */
   const cardMenu = (it: RefItem): MenuSpec => {
@@ -1529,8 +1543,8 @@ export function App() {
             <WorktreeTree
               groups={worktrees}
               now={now}
-              selectedLaneId={selectedLane?.id ?? null}
-              selectedSessionKey={selected?.kind === 'agent' ? selected.session.key : null}
+              selectedLaneId={view === 'canvas' ? canvasLane : (selectedLane?.id ?? null)}
+              selectedSessionKey={view === 'canvas' ? (canvasSel?.ref === 'session' ? canvasSel.key : null) : selected?.kind === 'agent' ? selected.session.key : null}
               onLaneMenu={laneMenu}
               onSessionMenu={(lane, s) => sessionMenu(lane, s, 'worktree')}
               onSelectLane={focusLane}
@@ -1665,7 +1679,9 @@ export function App() {
               keys={canvasKeys}
               onSelectItem={setCanvasSel}
               query={query}
+              filtering={!!query.trim() || bayFilter != null}
               matches={canvasMatches}
+              fitMatches={canvasFit}
             />
           )}
           {view !== 'canvas' && (
