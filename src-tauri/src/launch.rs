@@ -427,61 +427,143 @@ fn ghostty_terminal_of(pid: u32, cwd: &Path) -> Result<Option<String>> {
     Ok((!id.is_empty()).then_some(id))
 }
 
-/// `<terminal id>`: "yes" when Ghostty is the app in front and that terminal is the one you're
-/// in, so closing it would pull it from under you.
+/// The terminal you're in: Ghostty's focused one in its front window while Ghostty is the app
+/// in front, else "". Closing it would pull it from under you.
 const GHOSTTY_IN_FRONT: &str = r#"
 on run argv
   tell application "Ghostty"
-    if not frontmost then return "no"
+    if not frontmost then return ""
     try
-      if (id of focused terminal of selected tab of front window) is (item 1 of argv) then return "yes"
+      return id of focused terminal of selected tab of front window
     end try
   end tell
-  return "no"
+  return ""
 end run
 "#;
 
-/// `<terminal id>`: closes that terminal. "gone" when it closed by itself already.
+/// `<terminal id>...`: closes those terminals, skipping any that closed by themselves already.
 const GHOSTTY_CLOSE: &str = r#"
 on run argv
   tell application "Ghostty"
-    if not (exists terminal id (item 1 of argv)) then return "gone"
-    close terminal id (item 1 of argv)
+    repeat with t in argv
+      try
+        if exists terminal id (contents of t) then close terminal id (contents of t)
+      end try
+    end repeat
   end tell
-  return "closed"
+  return "ok"
 end run
 "#;
 
-/// Ends a session's process and closes the Ghostty terminal it ran in (idle.rs). The process
-/// gets a hangup first, as it would from the tab closing, and the terminal closes once it has
-/// exited: Ghostty asks before closing a terminal with a program still running, and doesn't
-/// once only the shell is left at its prompt.
-pub fn close_session_terminal(profile: &str, pid: u32, cwd: &Path) -> Result<()> {
+/// Ends sessions' processes and closes the Ghostty terminals they ran in (idle.rs), all at once:
+/// with dozens of tabs on a busy Mac, one tab at a time took minutes. Every process's TTY gets
+/// its own mark, one look at Ghostty finds them all, the processes get a hangup (as they would
+/// from the tab closing), and the terminals whose process exited close in one script: Ghostty
+/// asks before closing a terminal with a program still running, and doesn't once only the
+/// shell is left at its prompt. One result per `(pid, folder)`, in order.
+pub fn close_session_terminals(profile: &str, sessions: &[(u32, &Path)]) -> Vec<Result<()>> {
     if profile != "ghostty" {
-        bail!("Closing terminals works in Ghostty only.");
+        return sessions.iter().map(|_| Err(anyhow!("Closing terminals works in Ghostty only."))).collect();
     }
-    if terminal_kind(pid) != Some(HostKind::Ghostty) {
-        bail!("It isn't running in a Ghostty tab.");
+    match close_ghostty_terminals(sessions) {
+        Ok(out) => out,
+        Err(e) => sessions.iter().map(|_| Err(anyhow!("{e}"))).collect(),
     }
-    let Some(id) = ghostty_terminal_of(pid, cwd)? else {
-        bail!("Couldn't find its Ghostty tab.");
-    };
-    if osascript(GHOSTTY_IN_FRONT, &[&id])?.trim() == "yes" {
-        bail!("It's the tab you're in.");
-    }
-    let alive = || unsafe { libc::kill(pid as libc::pid_t, 0) } == 0;
-    unsafe { libc::kill(pid as libc::pid_t, libc::SIGHUP) };
-    let started = std::time::Instant::now();
-    while alive() {
-        if started.elapsed() > Duration::from_secs(10) {
-            bail!("Its process (pid {pid}) didn't exit, so the tab stays.");
+}
+
+fn close_ghostty_terminals(sessions: &[(u32, &Path)]) -> Result<Vec<Result<()>>> {
+    // Marks take over TTYs' folder reports, as focusing's do, so the two never run at once.
+    let _turn = FOCUS_TURNS.lock.lock().unwrap_or_else(|e| e.into_inner());
+    let before = ghostty_terminals()?;
+    let stamp = crate::util::now_ms();
+    let mut out: Vec<Result<()>> = Vec::new();
+    // (index, tty, mark) for each process that has a terminal.
+    let mut marked = Vec::new();
+    // Every process's TTY from one `ps`, not one per process.
+    let table = procs::run("/bin/ps", &["-A", "-o", "pid=,tty="], None, Duration::from_secs(5)).unwrap_or_default();
+    let ttys: std::collections::HashMap<u32, std::path::PathBuf> = table
+        .lines()
+        .filter_map(|l| {
+            let (pid, tty) = l.trim().split_once(char::is_whitespace)?;
+            let tty = tty.trim();
+            Some((pid.parse().ok()?, tty)).filter(|(_, t)| t.starts_with("tty")).map(|(p, t)| (p, Path::new("/dev").join(t)))
+        })
+        .collect();
+    for (i, (pid, _)) in sessions.iter().enumerate() {
+        let mark = format!("{MARK_PREFIX}{pid}-{stamp}");
+        match ttys.get(pid).cloned() {
+            Some(tty) if write_osc7(&tty, &mark).is_ok() => {
+                marked.push((i, tty, mark));
+                out.push(Ok(()));
+            }
+            Some(_) => out.push(Err(anyhow!("Couldn't reach its terminal."))),
+            None => out.push(Err(anyhow!("It has no terminal tab."))),
         }
+    }
+    // Wait for Ghostty to show the marks, looking at every terminal at once.
+    let mut ids: Vec<Option<String>> = vec![None; marked.len()];
+    let started = std::time::Instant::now();
+    loop {
+        let now = ghostty_terminals().unwrap_or_default();
+        for (j, (_, _, mark)) in marked.iter().enumerate() {
+            if ids[j].is_none() {
+                ids[j] = now.iter().find(|t| t.cwd.contains(mark.as_str())).map(|t| t.id.clone());
+            }
+        }
+        if ids.iter().all(Option::is_some) || started.elapsed() > Duration::from_secs(8) {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    // Put each terminal's real folder back.
+    for (j, (i, tty, _)) in marked.iter().enumerate() {
+        let real = ids[j]
+            .as_ref()
+            .and_then(|id| before.iter().find(|t| &t.id == id))
+            .map(|t| t.cwd.clone())
+            .filter(|c| !c.is_empty() && !c.starts_with(MARK_PREFIX))
+            .unwrap_or_else(|| sessions[*i].1.to_string_lossy().into_owned());
+        let _ = write_osc7(tty, &real);
+    }
+    let front = osascript(GHOSTTY_IN_FRONT, &[]).map(|s| s.trim().to_string()).unwrap_or_default();
+    // (index, terminal id) of the ones to end.
+    let mut ending = Vec::new();
+    for (j, (i, _, _)) in marked.iter().enumerate() {
+        match &ids[j] {
+            None => out[*i] = Err(anyhow!("Couldn't find its Ghostty tab.")),
+            Some(id) if !front.is_empty() && *id == front => out[*i] = Err(anyhow!("It's the tab you're in.")),
+            Some(id) => ending.push((*i, id.clone())),
+        }
+    }
+    let alive = |pid: u32| unsafe { libc::kill(pid as libc::pid_t, 0) } == 0;
+    for (i, _) in &ending {
+        unsafe { libc::kill(sessions[*i].0 as libc::pid_t, libc::SIGHUP) };
+    }
+    let started = std::time::Instant::now();
+    while ending.iter().any(|(i, _)| alive(sessions[*i].0)) && started.elapsed() < Duration::from_secs(10) {
         std::thread::sleep(Duration::from_millis(100));
     }
-    // A moment for the shell to draw its prompt, which tells Ghostty it's safe to close.
-    std::thread::sleep(Duration::from_millis(500));
-    osascript(GHOSTTY_CLOSE, &[&id])?;
-    Ok(())
+    let mut closing = Vec::new();
+    for (i, id) in &ending {
+        let pid = sessions[*i].0;
+        if alive(pid) {
+            out[*i] = Err(anyhow!("Its process (pid {pid}) didn't exit, so the tab stays."));
+        } else {
+            closing.push(id.as_str());
+        }
+    }
+    if !closing.is_empty() {
+        // A moment for the shells to draw their prompts, which tells Ghostty it's safe to close.
+        std::thread::sleep(Duration::from_millis(500));
+        if let Err(e) = osascript(GHOSTTY_CLOSE, &closing) {
+            for (i, id) in &ending {
+                if closing.contains(&id.as_str()) {
+                    out[*i] = Err(anyhow!("Its process ended, but the tab didn't close: {e}"));
+                }
+            }
+        }
+    }
+    Ok(out)
 }
 
 /// Which terminal a process runs in, by its parents: cheap enough to ask on every look.
@@ -847,7 +929,7 @@ end run
             }
             std::thread::sleep(Duration::from_millis(100));
         }
-        let result = pid.ok_or_else(|| anyhow!("the sleep never started")).and_then(|pid| close_session_terminal("ghostty", pid, &dir));
+        let result = pid.ok_or_else(|| anyhow!("the sleep never started")).and_then(|pid| close_session_terminals("ghostty", &[(pid, dir.as_path())]).remove(0));
         let still = osascript(EXISTS, &[&sleeper]).unwrap_or_default();
         let _ = osascript(CLOSE, &[&front]);
         let _ = osascript(CLOSE, &[&sleeper]);

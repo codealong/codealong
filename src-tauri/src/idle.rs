@@ -155,17 +155,21 @@ pub fn plan_now(board: &Board, after_ms: i64) -> Plan {
 /// Closes the terminals of `keys` that the board, looked at again now, still says can close.
 pub fn close(board: &Board, keys: &[String], after_ms: i64) -> Vec<Outcome> {
     let fresh = plan_now(board, after_ms);
+    let chosen: Vec<&Idle> = keys.iter().filter_map(|k| fresh.close.iter().find(|c| &c.key == k)).collect();
+    let targets: Vec<(u32, &std::path::Path)> = chosen.iter().map(|c| (c.pid, std::path::Path::new(c.cwd.as_str()))).collect();
+    let results = crate::launch::close_session_terminals(&board.apps.terminal_id, &targets);
     keys.iter()
         .map(|key| {
-            let title = || board.lanes.iter().flat_map(|l| &l.sessions).find(|s| &s.key == key).map(|s| s.title.clone()).unwrap_or_default();
-            let Some(c) = fresh.close.iter().find(|c| &c.key == key) else {
-                let why = fresh.kept.iter().find(|k| &k.key == key).map(|k| format!("Kept open: {}.", k.why)).unwrap_or_else(|| "Its terminal is already closed.".into());
-                return Outcome { key: key.clone(), title: title(), closed: false, message: why };
-            };
-            match crate::launch::close_session_terminal(&board.apps.terminal_id, c.pid, std::path::Path::new(&c.cwd)) {
-                Ok(()) => Outcome { key: key.clone(), title: c.title.clone(), closed: true, message: "Closed.".into() },
-                Err(e) => Outcome { key: key.clone(), title: c.title.clone(), closed: false, message: e.to_string() },
+            if let Some(n) = chosen.iter().position(|c| &c.key == key) {
+                let title = chosen[n].title.clone();
+                return match &results[n] {
+                    Ok(()) => Outcome { key: key.clone(), title, closed: true, message: "Closed.".into() },
+                    Err(e) => Outcome { key: key.clone(), title, closed: false, message: e.to_string() },
+                };
             }
+            let title = board.lanes.iter().flat_map(|l| &l.sessions).find(|s| &s.key == key).map(|s| s.title.clone()).unwrap_or_default();
+            let why = fresh.kept.iter().find(|k| &k.key == key).map(|k| format!("Kept open: {}.", k.why)).unwrap_or_else(|| "Its terminal is already closed.".into());
+            Outcome { key: key.clone(), title, closed: false, message: why }
         })
         .collect()
 }
