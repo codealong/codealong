@@ -31,7 +31,9 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   - **Sessions**: every session, pinned ones first in your order (drag or ⌥↑ ⌥↓), then by
     day, most urgent first and then the one you last sent a prompt. Sessions are pinned
     here, with `p` or the right-click menu, and their pins show only here. Archive a session
-    with `a` or its right-click menu; Codex threads are archived in Codex itself.
+    with `a` or its right-click menu; Codex threads are archived in Codex itself. The
+    selected session's panel shows where it stands, your last prompt and its last response
+    in full (Markdown, from the text search's index), its todos and its details.
   - **PRs**: every PR in the project's repos, with the worktree and sessions that worked on
     each. Reviews asked of you come first, with one-click Approve. Colored pills say where
     each PR stands: its review, its checks, and conflicts or an out-of-date branch, or one

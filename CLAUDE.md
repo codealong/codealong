@@ -61,6 +61,8 @@ The engine binary doubles as a CLI for checking behavior without a window:
 - `codealong --snapshot --pr <owner/name> <number>`: a PR's detail, as the PR panel gets it.
 - `codealong --snapshot --route <text> [--project <name>]`: what Jev suggests for text typed in
   the quick panel (one TypeSafe call; needs the key).
+- `codealong --snapshot --messages <session key>`: a session's last exchange (your last prompt and
+  the agent's messages since), as the session panel gets it from the text search's index.
 - `codealong --snapshot --start-options`: where each account can start a session.
 - `codealong --snapshot --start-plan <folder> <account> <terminal|claude-app|codex-app> [prompt]
   [--model <model>] [--worktree]`: the command or link starting a session would use, without
@@ -86,7 +88,8 @@ was last built into the shared directory, possibly another session's: `PREVIEW_B
 your build>` uses yours. `PREVIEW_TODOS=scripts/preview/todos-sample.json scripts/preview.sh todo` shows
 sample todos linked to your real worktrees and sessions in place of your own, and
 `PREVIEW_USAGE=scripts/preview/usage-sample.json` sample plan usage in place of the snapshot's,
-which has no Claude numbers, and `PREVIEW_FOUND=scripts/preview/found-sample.json` sample accounts
+which has no Claude numbers, and `PREVIEW_MESSAGES=<session key>` that
+session's real last prompt and response in its panel (others get placeholders), and `PREVIEW_FOUND=scripts/preview/found-sample.json` sample accounts
 under Settings › Accounts › Found on this Mac. In check mode Chrome draws no frames, so scroll events never
 arrive; and it resizes the page just before a screenshot, which closes whatever closes on resize.
 

@@ -175,9 +175,12 @@ window.__TAURI_INTERNALS__ = {
         return fx && fx.jev && fx.jev.suggest ? fx.jev.suggest : Promise.reject(new Error('Todo suggestions are off.'));
       });
     }
-    // A session's last messages: its title as your prompt and its excerpt as the response.
+    // A session's last messages: the real ones for PREVIEW_MESSAGES's session, else its title as
+    // your prompt and its excerpt as the response.
     if (cmd === 'session_messages') {
-      return fetch('./board.json').then(function (r) { return r.json(); }).then(function (b) {
+      return Promise.all([optionalJson('./session-messages-key.json'), optionalJson('./session-messages.json'), fetch('./board.json').then(function (r) { return r.json(); })]).then(function (all) {
+        if (all[0] && all[1] && all[0].key === (args || {}).key) return all[1];
+        var b = all[2];
         var s = null;
         b.lanes.forEach(function (l) { l.sessions.forEach(function (x) { if (x.key === (args || {}).key) s = x; }); });
         if (!s) return [];

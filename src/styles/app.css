@@ -4497,3 +4497,60 @@ html.is-quick body {
   white-space: normal;
   overflow-wrap: anywhere;
 }
+
+/* Markdown from agents (Markdown.tsx). */
+.ca-md > * {
+  margin: 0 0 8px;
+}
+.ca-md > :last-child {
+  margin-bottom: 0;
+}
+.ca-md .ca-md-h {
+  margin-top: 12px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.ca-md .ca-md-h:first-child {
+  margin-top: 0;
+}
+.ca-md .ca-md-h1 {
+  font-size: 15px;
+}
+.ca-md ul,
+.ca-md ol {
+  padding-left: 18px;
+}
+.ca-md li + li {
+  margin-top: 3px;
+}
+.ca-md blockquote {
+  padding-left: 10px;
+  border-left: 2px solid var(--line-strong);
+  color: var(--ink-2);
+}
+.ca-md pre {
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--neutral-tint);
+  font: 400 12px/17px var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.ca-md hr {
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+.ca-md .ca-ic {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+/* A reply is blocks, not one run of text: wrap as prose, and clamp by height instead of lines. */
+.ca-sessinsp-reply.ca-sessinsp-text {
+  white-space: normal;
+}
+.ca-sessinsp-reply.is-clamped {
+  display: block;
+  max-height: 300px;
+  -webkit-mask-image: linear-gradient(to bottom, #000 80%, transparent);
+  mask-image: linear-gradient(to bottom, #000 80%, transparent);
+}

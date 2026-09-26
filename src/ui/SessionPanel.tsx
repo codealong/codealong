@@ -10,6 +10,7 @@ import { HARNESS_WORD, sessionPlace } from '../harness';
 import type { Board, Lane, Said, Session, Todo } from '../types';
 import { STATUS_WORD as TODO_WORD } from '../todos';
 import { InsightChips } from './InsightBits';
+import { Markdown } from './Markdown';
 import { OpenInMenu } from './Inspector';
 import { BranchLabel, Button, HarnessChip, Icon, Rich, STATUS_WORD, StatusGlyph } from './primitives';
 import { TodoGlyph } from './TodoBits';
@@ -28,7 +29,12 @@ function Message({ said, label, now }: { said: Said; label: string; now: number 
           {agoPhrase(said.at, now)}
         </span>
       </div>
-      <div className={['ca-sessinsp-text', long && !all && 'is-clamped'].filter(Boolean).join(' ')}>{said.text}</div>
+      {/* Yours shows as you typed it; the agent's as the Markdown it writes. */}
+      {said.you ? (
+        <div className={['ca-sessinsp-text', long && !all && 'is-clamped'].filter(Boolean).join(' ')}>{said.text}</div>
+      ) : (
+        <Markdown text={said.text} className={['ca-sessinsp-text', 'ca-sessinsp-reply', long && !all && 'is-clamped'].filter(Boolean).join(' ')} />
+      )}
       {long && (
         <button type="button" className="ca-linkbtn" onClick={() => setAll(!all)}>
           {all ? 'Show less' : 'Show all'}

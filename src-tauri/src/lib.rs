@@ -699,11 +699,22 @@ pub fn is_cli(args: &[String]) -> bool {
 /// `codealong --snapshot --pr <owner/name> <number>`: a PR's detail, as the PR panel gets it.
 /// `codealong --snapshot --route <text> [--project <name>]`: where the quick panel would suggest
 /// sending it (asks TypeSafe; needs the key).
+/// `codealong --snapshot --messages <session key>`: a session's last exchange, as its panel gets it.
 /// `codealong --snapshot --start-options`: where each account can start a session.
 /// `codealong --snapshot --start-plan <folder> <account> <place> [prompt] [--model <model>]
 /// [--worktree]`: what starting one would do, without doing it.
 pub fn snapshot_cli(args: &[String]) -> i32 {
     let started = std::time::Instant::now();
+    if let Some(i) = args.iter().position(|a| a == "--messages") {
+        let Some(key) = args.get(i + 1) else {
+            eprintln!("usage: codealong --snapshot --messages <session key>");
+            return 2;
+        };
+        let cfg = config::load().ok().flatten().unwrap_or_default();
+        search::configure(search::Scope { accounts: cfg.accounts, days: cfg.search.days });
+        println!("{}", serde_json::to_string_pretty(&search::recent(key, 6)).unwrap_or_default());
+        return 0;
+    }
     if args.iter().any(|a| a == "--start-options") {
         let cfg = config::load().ok().flatten().unwrap_or_default();
         println!("{}", serde_json::to_string_pretty(&start::options_for(&cfg)).unwrap_or_default());
