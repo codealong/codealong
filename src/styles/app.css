@@ -4817,3 +4817,72 @@ html.is-quick body {
 .ca-thread-meta > .ca-meta {
   margin-left: auto;
 }
+
+/* ---- Close idle terminals (File menu): a dialog listing what would close ---- */
+.ca-idle {
+  width: min(640px, 100%);
+}
+.ca-idle-wait {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0 var(--space-5) var(--space-4);
+  font: 500 12px/16px var(--font-sans);
+  color: var(--ink-2);
+}
+.ca-idle-list {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ca-idle-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.ca-idle-row:hover {
+  background: var(--neutral-tint);
+}
+.ca-idle-row.is-static {
+  cursor: default;
+  color: var(--alert);
+}
+.ca-idle-row.is-static:hover {
+  background: none;
+}
+.ca-idle-row .ca-check {
+  margin-top: 2px;
+}
+.ca-idle-text {
+  display: grid;
+  min-width: 0;
+}
+.ca-idle-title {
+  overflow: hidden;
+  font: 500 13px/18px var(--font-sans);
+  color: var(--ink);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.ca-idle-why {
+  font: 400 12px/16px var(--font-sans);
+  color: var(--ink-3);
+}
+.ca-idle-note {
+  margin: 0;
+  font: 400 12px/16px var(--font-sans);
+  color: var(--ink-2);
+}
+.ca-idle-count {
+  font: 400 12px/16px var(--font-sans);
+  color: var(--ink-3);
+}
+.ca-idle-actions {
+  display: inline-flex;
+  gap: var(--space-2);
+}

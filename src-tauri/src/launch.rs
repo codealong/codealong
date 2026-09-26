@@ -427,6 +427,63 @@ fn ghostty_terminal_of(pid: u32, cwd: &Path) -> Result<Option<String>> {
     Ok((!id.is_empty()).then_some(id))
 }
 
+/// `<terminal id>`: "yes" when Ghostty is the app in front and that terminal is the one you're
+/// in, so closing it would pull it from under you.
+const GHOSTTY_IN_FRONT: &str = r#"
+on run argv
+  tell application "Ghostty"
+    if not frontmost then return "no"
+    try
+      if (id of focused terminal of selected tab of front window) is (item 1 of argv) then return "yes"
+    end try
+  end tell
+  return "no"
+end run
+"#;
+
+/// `<terminal id>`: closes that terminal. "gone" when it closed by itself already.
+const GHOSTTY_CLOSE: &str = r#"
+on run argv
+  tell application "Ghostty"
+    if not (exists terminal id (item 1 of argv)) then return "gone"
+    close terminal id (item 1 of argv)
+  end tell
+  return "closed"
+end run
+"#;
+
+/// Ends a session's process and closes the Ghostty terminal it ran in (idle.rs). The process
+/// gets a hangup first, as it would from the tab closing, and the terminal closes once it has
+/// exited: Ghostty asks before closing a terminal with a program still running, and doesn't
+/// once only the shell is left at its prompt.
+pub fn close_session_terminal(profile: &str, pid: u32, cwd: &Path) -> Result<()> {
+    if profile != "ghostty" {
+        bail!("Closing terminals works in Ghostty only.");
+    }
+    if terminal_kind(pid) != Some(HostKind::Ghostty) {
+        bail!("It isn't running in a Ghostty tab.");
+    }
+    let Some(id) = ghostty_terminal_of(pid, cwd)? else {
+        bail!("Couldn't find its Ghostty tab.");
+    };
+    if osascript(GHOSTTY_IN_FRONT, &[&id])?.trim() == "yes" {
+        bail!("It's the tab you're in.");
+    }
+    let alive = || unsafe { libc::kill(pid as libc::pid_t, 0) } == 0;
+    unsafe { libc::kill(pid as libc::pid_t, libc::SIGHUP) };
+    let started = std::time::Instant::now();
+    while alive() {
+        if started.elapsed() > Duration::from_secs(10) {
+            bail!("Its process (pid {pid}) didn't exit, so the tab stays.");
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    // A moment for the shell to draw its prompt, which tells Ghostty it's safe to close.
+    std::thread::sleep(Duration::from_millis(500));
+    osascript(GHOSTTY_CLOSE, &[&id])?;
+    Ok(())
+}
+
 /// Which terminal a process runs in, by its parents: cheap enough to ask on every look.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HostKind {
@@ -712,7 +769,7 @@ mod tests {
         if !Path::new("/Applications/Ghostty.app").exists() {
             return;
         }
-        for (i, script) in [GHOSTTY_NEW, GHOSTTY_LIST, GHOSTTY_FOCUS, GHOSTTY_FIND, GHOSTTY_TYPE].iter().enumerate() {
+        for (i, script) in [GHOSTTY_NEW, GHOSTTY_LIST, GHOSTTY_FOCUS, GHOSTTY_FIND, GHOSTTY_TYPE, GHOSTTY_IN_FRONT, GHOSTTY_CLOSE].iter().enumerate() {
             let out = std::env::temp_dir().join(format!("codealong-test-{i}.scpt"));
             let r = procs::run_stdin("/usr/bin/osacompile", &["-o", &out.to_string_lossy()], script, Duration::from_secs(20));
             assert!(r.is_ok(), "script {i} failed to compile: {r:?}");
@@ -739,6 +796,63 @@ mod tests {
         let got = std::fs::read_to_string(&out).expect("the shell wrote nothing");
         let _ = std::fs::remove_file(&out);
         assert_eq!(got.strip_suffix('\n').unwrap_or(&got), prompt);
+    }
+
+    /// Opens a Ghostty window running a long `sleep` and a plain window in front of it, closes the
+    /// first as Close idle terminals would (hangup, then close), and checks it's gone. It opens
+    /// windows, so it's opt in: `cargo test ghostty_closes_a_session_terminal -- --ignored`.
+    #[test]
+    #[ignore]
+    fn ghostty_closes_a_session_terminal() {
+        const OPEN: &str = r#"
+on run argv
+  tell application "Ghostty"
+    set seenIds to id of every terminal
+    new window with configuration {initial working directory:(item 1 of argv), initial input:(item 2 of argv)}
+    repeat 50 times
+      set nowIds to id of every terminal
+      repeat with t in nowIds
+        if seenIds does not contain (contents of t) then return contents of t
+      end repeat
+      delay 0.1
+    end repeat
+  end tell
+  return ""
+end run
+"#;
+        const EXISTS: &str = r#"
+on run argv
+  tell application "Ghostty" to return exists terminal id (item 1 of argv)
+end run
+"#;
+        const CLOSE: &str = r#"
+on run argv
+  tell application "Ghostty"
+    try
+      close terminal id (item 1 of argv)
+    end try
+  end tell
+end run
+"#;
+        let dir = std::env::temp_dir();
+        let secs = 7000 + std::process::id() % 1000;
+        let sleeper = osascript(OPEN, &[&dir.to_string_lossy(), &format!("sleep {secs}\n")]).unwrap().trim().to_string();
+        let front = osascript(OPEN, &[&dir.to_string_lossy(), ""]).unwrap().trim().to_string();
+        let mut pid = None;
+        for _ in 0..50 {
+            let out = procs::run("/usr/bin/pgrep", &["-f", &format!("^sleep {secs}$")], None, Duration::from_secs(3)).unwrap_or_default();
+            pid = out.trim().lines().next().and_then(|p| p.parse::<u32>().ok());
+            if pid.is_some() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        let result = pid.ok_or_else(|| anyhow!("the sleep never started")).and_then(|pid| close_session_terminal("ghostty", pid, &dir));
+        let still = osascript(EXISTS, &[&sleeper]).unwrap_or_default();
+        let _ = osascript(CLOSE, &[&front]);
+        let _ = osascript(CLOSE, &[&sleeper]);
+        result.unwrap();
+        assert_eq!(still.trim(), "false", "the terminal is still open");
     }
 
     /// Opens three Ghostty windows, focuses the terminal in the one furthest back, checks that

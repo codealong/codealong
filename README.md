@@ -215,6 +215,12 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
 - **New window** (File › New window, ⌘⇧N): one more window on the project you're looking at.
   Closing the main window hides it; New window, the Dock icon or the bar brings it back, and
   ⌘Q quits.
+- **Close idle terminals** (File › Close idle terminals…): lists the Ghostty tabs of sessions
+  that sat idle for a day or more (12 hours to a week, you choose) and asked you nothing in
+  their last reply, by Jev's read where it has one, else by it not ending in a question. It
+  says why for each, and closes the ones you leave ticked. Nothing closes by itself. Closing
+  ends the agent's process; the conversation stays and resumes. `codealong sessions close-idle
+  --dry-run` lists the same from the command line.
 
 - **For agents**: the `codealong` command and a skill that tells an agent when to use it.
   `codealong whoami` says which session runs it and which todos are linked to it or its
@@ -358,7 +364,8 @@ light scan (no git, PRs or visitors).
 - The first time Codealong opens or focuses a terminal session, macOS asks whether it may
   control Ghostty (Automation). Without it, Codealong can still open plain Ghostty windows.
 - Codealong only reads: it never creates, resets or removes worktrees, never changes
-  branches, and never types into a live session. Git runs with `GIT_OPTIONAL_LOCKS=0`.
+  branches, and never types into a live session. Close idle terminals ends idle sessions'
+  processes and closes their tabs, but only the ones you tick. Git runs with `GIT_OPTIONAL_LOCKS=0`.
 - Starting a session types the account's command into a new Ghostty window; the prompt goes in
   the window's environment (`CODEALONG_PROMPT`), so nothing in it is typed or needs quoting.
 - Transcripts stay on the Mac; only titles, statuses and short excerpts are kept in memory.
@@ -373,6 +380,7 @@ light scan (no git, PRs or visitors).
 | `src-tauri/src/opencode.rs`, `antigravity.rs` | Harness adapters: OpenCode's database and background service, Antigravity's conversation summaries |
 | `src-tauri/src/repos.rs`, `git.rs`, `github.rs` | Repo discovery, callsigns, worktrees, git status, PRs |
 | `src-tauri/src/launch.rs` | App profiles: Ghostty (AppleScript, exact tab focus), Cursor (CLI), deep links |
+| `src-tauri/src/idle.rs`, `src/ui/CloseIdleDialog.tsx` | Close idle terminals: which sessions' tabs can close and why (pure, tested), and closing them |
 | `src-tauri/src/start.rs`, `src/start.ts` | New sessions: where each account can start one, the launch it makes, the agent menu (every account on every model) and Auto's pick |
 | `src-tauri/src/quick.rs`, `src/quick.ts`, `src/ui/Quick.tsx` | The quick panel: its window (a panel that takes the keyboard over any app), its shortcut, and its page (what needs you, finding sessions, starting one) |
 | `src-tauri/src/harness.rs` | The interface each harness implements (`Adapter`): a session's record, its conversation, what it waits on you to allow and answering it; CLAUDE.md's "Adding a harness" says what else a new one needs |

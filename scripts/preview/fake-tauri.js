@@ -204,6 +204,39 @@ window.__TAURI_INTERNALS__ = {
     if (cmd === 'session_newer') return Promise.resolve({ items: [], before: null, after: (args || {}).after || 0 });
     if (cmd === 'send_to_session') return Promise.resolve({ message: 'Sent (in the preview nothing is typed anywhere).', opened: false });
     // A todo change "shows" on a board that never comes, so the page keeps its own copy of it.
+    // Close idle terminals: the board's live terminal sessions quiet that long, without the
+    // engine's checks for Ghostty, Jev or questions; nothing is closed.
+    if (cmd === 'idle_terminals' || cmd === 'close_idle_terminals') {
+      return fetch('./board.json').then(function (r) { return r.json(); }).then(function (board) {
+        var after = (args || {}).afterMs || 864e5;
+        var seen = {};
+        var rows = [];
+        board.lanes.forEach(function (l) {
+          l.sessions.forEach(function (s) {
+            if (s.visitor || seen[s.key] || !s.live || s.surface !== 'cli' || s.attachCommand) return;
+            seen[s.key] = true;
+            rows.push({ s: s, l: l });
+          });
+        });
+        var now = Date.now();
+        var quiet = function (r) { return (r.s.status === 'idle' || r.s.status === 'unread') && now - r.s.lastActivity >= after; };
+        if (cmd === 'close_idle_terminals') {
+          return (args.keys || []).map(function (k, i) {
+            return { key: k, title: k, closed: i > 0, message: i > 0 ? 'Closed.' : 'It\u2019s the tab you\u2019re in.' };
+          });
+        }
+        return {
+          afterMs: after,
+          close: rows.filter(quiet).map(function (r) {
+            var days = Math.floor((now - r.s.lastActivity) / 864e5);
+            return { key: r.s.key, title: r.s.title, account: r.s.account, harness: r.s.harness, pid: r.s.pid || 0, cwd: r.s.cwd, worktree: r.l.id, callsign: r.l.callsign, lastActivity: r.s.lastActivity, why: (days >= 2 ? 'idle ' + days + ' days' : 'idle ' + Math.floor((now - r.s.lastActivity) / 36e5) + ' hours') + ' \u00b7 last reply asks nothing' };
+          }),
+          kept: rows.filter(function (r) { return !quiet(r); }).map(function (r) {
+            return { key: r.s.key, title: r.s.title, account: r.s.account, why: r.s.status === 'working' ? 'working' : r.s.status === 'needs' ? 'needs you' : 'active 3 hours ago' };
+          }),
+        };
+      });
+    }
     if (cmd === 'todo_op') return Promise.resolve(Number.MAX_SAFE_INTEGER);
     // A PNG is kept as an image to show; anything else as a file, by the name it came with.
     if (cmd === 'save_attachment' || cmd === 'import_attachment') {

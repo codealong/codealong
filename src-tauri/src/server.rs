@@ -38,6 +38,10 @@ pub enum Request {
     Start { spec: StartSpec },
     /// Sessions whose prompts and replies have every word (search.rs).
     Search { words: Vec<String> },
+    /// What closing idle terminals would close (idle.rs).
+    IdleTerminals { after_ms: i64 },
+    /// Closes the terminals of these sessions, each checked again first.
+    CloseIdle { keys: Vec<String>, after_ms: i64 },
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -142,6 +146,8 @@ pub fn handle(engine: &Handle, line: &str) -> Reply {
             Reply::ok(true)
         }
         Request::Search { words } => Reply::ok(crate::search::find(&words, 1000)),
+        Request::IdleTerminals { after_ms } => Reply::ok(crate::idle::plan_now(&engine.board(), after_ms)),
+        Request::CloseIdle { keys, after_ms } => Reply::ok(crate::idle::close(&engine.board(), &keys, after_ms)),
         Request::Start { spec } => match crate::start_and_link(engine, &spec) {
             Ok(started) => Reply::ok(started),
             Err(e) => Reply::err(e),

@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { showContextMenu, type MenuSpec } from './contextMenu';
 import { AGENT_BAY, BAYS, buildBays, failingPr, filterByAge, inboxCounts, lanePromptAt, narrowed, rowItems, worktreeRow, type BoardRow, type Filter, type WorktreeRow } from './lanes';
-import { approvePr, archiveSession, barOn, dismissTodoHint, expandAttachments, getBoard, markSeen, onBarOn, onBoard, onNewWindow, onQuickStart, onReveal, onSettings, openConfig, openProjectWindow, openTarget, openUrl, refresh, refreshUsage, reviewInCodex, setBarOn, setPinned, setPinnedWorktrees, setTheme, showQuick, signIn, windowLabel, type Reveal } from './api';
+import { approvePr, archiveSession, barOn, dismissTodoHint, expandAttachments, getBoard, markSeen, onBarOn, onBoard, onCloseIdle, onNewWindow, onQuickStart, onReveal, onSettings, openConfig, openProjectWindow, openTarget, openUrl, refresh, refreshUsage, reviewInCodex, setBarOn, setPinned, setPinnedWorktrees, setTheme, showQuick, signIn, windowLabel, type Reveal } from './api';
 import { usePerf } from './perf';
 import { reorderPinned, usePins } from './pins';
 import { prFlag } from './prStatus';
@@ -18,6 +18,7 @@ import { blockedBy, COLOR_WORD, depsOf, newTodo, sectionOf, sessionHomes, snippe
 import type { Bay, Board, Label, Lane, PrItem, Session, Theme, Todo, TodoStatus } from './types';
 import { LABEL_COLORS } from './types';
 import { SettingsDialog, type SettingsSection } from './ui/SettingsDialog';
+import { CloseIdleDialog } from './ui/CloseIdleDialog';
 import { Inspector } from './ui/Inspector';
 import { SessionPanel } from './ui/SessionPanel';
 import { LaneRow } from './ui/LaneRow';
@@ -237,6 +238,9 @@ export function App() {
     if (settings) lastSection.current = settings.section;
   }, [settings]);
   useEffect(() => onSettings(() => openSettings()), [openSettings]);
+  // File › Close idle terminals… (ui/CloseIdleDialog.tsx).
+  const [closeIdle, setCloseIdle] = useState(false);
+  useEffect(() => onCloseIdle(() => setCloseIdle(true)), []);
   // New session opens the quick panel (ui/Quick.tsx) at a worktree, maybe for a todo, in the
   // project this window shows. The panel tells this window how the start goes.
   const projectNow = useRef<string>(ALL_PROJECTS);
@@ -1878,6 +1882,7 @@ export function App() {
           onOpenConfig={editConfig}
         />
       )}
+      {closeIdle && <CloseIdleDialog onClose={() => setCloseIdle(false)} onDone={setToast} />}
       {busy.length > 0 && !toast && (
         <div className="ca-toast is-busy" role="status" aria-live="polite">
           <StatusGlyph status="working" size={14} title="In progress" />

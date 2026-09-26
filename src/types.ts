@@ -649,3 +649,40 @@ export interface Pending {
   /** Why Codealong can't answer it here; the panel offers to open it instead. */
   cannot: string | null;
 }
+
+/** A terminal that Close idle terminals would close, named by its session (idle.rs). */
+export interface IdleTerminal {
+  key: string;
+  title: string;
+  account: string;
+  harness: Harness;
+  pid: number;
+  cwd: string;
+  worktree: string;
+  callsign: string;
+  lastActivity: number;
+  /** Why it can close, in words. */
+  why: string;
+}
+
+/** A live terminal session that stays open, and why. */
+export interface KeptTerminal {
+  key: string;
+  title: string;
+  account: string;
+  why: string;
+}
+
+export interface IdlePlan {
+  afterMs: number;
+  close: IdleTerminal[];
+  kept: KeptTerminal[];
+}
+
+/** What closing one terminal did. */
+export interface CloseOutcome {
+  key: string;
+  title: string;
+  closed: boolean;
+  message: string;
+}

@@ -705,27 +705,34 @@ Lists by default; `find` searches
 Usage: codealong sessions [OPTIONS] [COMMAND]
 
 Commands:
-  find  Sessions whose title, excerpt, account, worktree, branch or PR contains the
-        words (all of them, any case), or whose prompts and replies do, for sessions
-        active in the last `[search] days`
-  help  Print this message or the help of the given subcommand(s)
+  find        Sessions whose title, excerpt, account, worktree, branch or PR contains
+              the words (all of them, any case), or whose prompts and replies do, for
+              sessions active in the last `[search] days`
+  close-idle  Close the Ghostty tabs of sessions that sat idle and want nothing from
+              you: idle or unread, quiet for --after, nothing left running in the
+              background, and a last reply that asks nothing (Jev's read with `[jev]
+              sessions` on, else no question mark at its end). A tab closes only when
+              every session in it qualifies. Its agent's process ends; the conversation
+              stays and resumes as usual. Lists what it would close with --dry-run; run
+              that first
+  help        Print this message or the help of the given subcommand(s)
 
 Options:
       --json
           JSON output. The default when stdout isn't a terminal
 
+      --table
+          Tables, even when piped
+
       --account <ACCOUNT>
           Only this account (claude, claude2, codex, opencode, antigravity)
 
-      --table
-          Tables, even when piped
+      --verbose
+          Say on stderr whether the app or the files answered
 
       --status <STATUS>
           Only this status: needs (waiting on you), error, working, unread (its turn
           ended, not seen), idle, stopped
-
-      --verbose
-          Say on stderr whether the app or the files answered
 
       --project <PROJECT>
           Only this project
@@ -804,6 +811,40 @@ Options:
           At most this many, most recently prompted first
           
           [default: 50]
+
+  -h, --help
+          Print help
+```
+
+## codealong sessions close-idle
+
+```
+Close the Ghostty tabs of sessions that sat idle and want nothing from you: idle or
+unread, quiet for --after, nothing left running in the background, and a last reply that
+asks nothing (Jev's read with `[jev] sessions` on, else no question mark at its end). A
+tab closes only when every session in it qualifies. Its agent's process ends; the
+conversation stays and resumes as usual. Lists what it would close with --dry-run; run
+that first
+
+Usage: codealong sessions close-idle [OPTIONS]
+
+Options:
+      --after <AFTER>
+          How long a session has been quiet: 90m, 24h, 3d, 1w
+          
+          [default: 24h]
+
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --dry-run
+          Only say what would close and what stays open, and why
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
 
   -h, --help
           Print help

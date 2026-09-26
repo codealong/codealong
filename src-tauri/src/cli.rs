@@ -315,6 +315,15 @@ enum SessionsCmd {
         #[command(flatten)]
         filter: SessionFilter,
     },
+    /// Close the Ghostty tabs of sessions that sat idle and want nothing from you: idle or unread, quiet for --after, nothing left running in the background, and a last reply that asks nothing (Jev's read with `[jev] sessions` on, else no question mark at its end). A tab closes only when every session in it qualifies. Its agent's process ends; the conversation stays and resumes as usual. Lists what it would close with --dry-run; run that first.
+    CloseIdle {
+        /// How long a session has been quiet: 90m, 24h, 3d, 1w.
+        #[arg(long, default_value = "24h")]
+        after: String,
+        /// Only say what would close and what stays open, and why.
+        #[arg(long)]
+        dry_run: bool,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -615,6 +624,7 @@ fn run(cmd: Cmd, c: &mut Client, json: bool) -> Result<()> {
         Cmd::Todo { cmd } => todo(cmd, c, json),
         Cmd::Sessions(args) => match args.cmd {
             Some(SessionsCmd::Find { query, filter }) => sessions(c, &filter, &query, json),
+            Some(SessionsCmd::CloseIdle { after, dry_run }) => close_idle(c, &after, dry_run, json),
             None => sessions(c, &args.filter, &[], json),
         },
         Cmd::Session { cmd: SessionCmd::Show { key } } => session_show(c, &key, json),
@@ -920,6 +930,81 @@ fn sessions(c: &mut Client, f: &SessionFilter, query: &[String], json: bool) -> 
         .collect();
     print!("{}", table_text(&["STATUS", "ACCOUNT", "AGO", "WORKTREE", "TITLE", "EXCERPT", "KEY"], table));
     Ok(())
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CloseIdleOut {
+    closed: Vec<crate::idle::Outcome>,
+    kept: Vec<crate::idle::Kept>,
+}
+
+fn close_idle(c: &mut Client, after: &str, dry_run: bool, json: bool) -> Result<()> {
+    use crate::idle;
+    let after_ms = idle::parse_after(after).ok_or_else(|| anyhow!("--after is like 90m, 24h, 3d or 1w, not {after}."))?;
+    c.note();
+    let via_app = c.app.is_some();
+    let plan: idle::Plan = match via_app {
+        true => match server::ask(&Request::IdleTerminals { after_ms }) {
+            Some(Ok(v)) => serde_json::from_value(v).context("reading the app's reply")?,
+            Some(Err(e)) => bail!("{e}"),
+            None => bail!("The app stopped answering."),
+        },
+        false => idle::plan_now(c.board()?, after_ms),
+    };
+    let now = now_ms();
+    if dry_run {
+        if json {
+            return print_json(&plan);
+        }
+        if plan.close.is_empty() {
+            println!("No terminal has sat idle for {after} with nothing asked of you.");
+        } else {
+            let rows = plan.close.iter().map(|i| vec![i.account.clone(), ago(now - i.last_activity), i.callsign.clone(), truncate(&i.title, 50), i.why.clone(), i.key.clone()]).collect();
+            print!("{}", table_text(&["ACCOUNT", "IDLE", "WORKTREE", "TITLE", "WHY", "KEY"], rows));
+        }
+        print_kept(&plan.kept);
+        return Ok(());
+    }
+    let keys: Vec<String> = plan.close.iter().map(|i| i.key.clone()).collect();
+    let closed = match (keys.is_empty(), via_app) {
+        (true, _) => Vec::new(),
+        (false, true) => match server::ask(&Request::CloseIdle { keys, after_ms }) {
+            Some(Ok(v)) => serde_json::from_value(v).context("reading the app's reply")?,
+            Some(Err(e)) => bail!("{e}"),
+            None => bail!("The app stopped answering."),
+        },
+        (false, false) => idle::close(c.board()?, &keys, after_ms),
+    };
+    if json {
+        return print_json(&CloseIdleOut { closed, kept: plan.kept });
+    }
+    if closed.is_empty() {
+        println!("No terminal has sat idle for {after} with nothing asked of you.");
+    } else {
+        let rows = closed.iter().map(|o| vec![if o.closed { "closed" } else { "kept" }.to_string(), truncate(&o.title, 50), o.message.clone(), o.key.clone()]).collect();
+        print!("{}", table_text(&["RESULT", "TITLE", "MESSAGE", "KEY"], rows));
+    }
+    print_kept(&plan.kept);
+    Ok(())
+}
+
+/// One line on the terminals that stay open, by reason.
+fn print_kept(kept: &[crate::idle::Kept]) {
+    if kept.is_empty() {
+        return;
+    }
+    let mut why: Vec<(String, usize)> = Vec::new();
+    for k in kept {
+        // "active 3 hours ago" differs per session; count those together.
+        let reason = if k.why.starts_with("active ") { "active recently".to_string() } else { k.why.clone() };
+        match why.iter_mut().find(|(r, _)| *r == reason) {
+            Some((_, n)) => *n += 1,
+            None => why.push((reason, 1)),
+        }
+    }
+    let parts: Vec<String> = why.iter().map(|(r, n)| format!("{n} {r}")).collect();
+    println!("Stay open: {}.", parts.join(", "));
 }
 
 impl SessionRow {

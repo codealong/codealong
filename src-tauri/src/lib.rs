@@ -17,6 +17,7 @@ mod detect;
 mod engine;
 mod git;
 mod harness;
+mod idle;
 mod github;
 mod install;
 mod insights;
@@ -106,6 +107,18 @@ fn open_target(engine: State<'_, engine::Handle>, lane_id: String, target_id: St
 #[tauri::command(async)]
 fn open_config(engine: State<'_, engine::Handle>) -> Result<(), String> {
     engine.open_config().map_err(|e| e.to_string())
+}
+
+/// What "Close idle terminals" would close, sessions quiet for `after_ms` or longer (idle.rs).
+#[tauri::command]
+async fn idle_terminals(engine: State<'_, engine::Handle>, after_ms: i64) -> Result<idle::Plan, String> {
+    Ok(idle::plan_now(&engine.board(), after_ms))
+}
+
+/// Closes the terminals of these sessions, each checked again first.
+#[tauri::command]
+async fn close_idle_terminals(engine: State<'_, engine::Handle>, keys: Vec<String>, after_ms: i64) -> Result<Vec<idle::Outcome>, String> {
+    Ok(idle::close(&engine.board(), &keys, after_ms))
 }
 
 #[tauri::command]
@@ -584,7 +597,7 @@ fn add_settings_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
 
 const SETTINGS_MENU_ID: &str = "settings";
 
-/// Puts New window (⌘⇧N) at the top of the File menu. Choosing it asks the front window for
+/// Puts New window (⌘⇧N) at the top of the File menu, and Close idle terminals… under it. Choosing it asks the front window for
 /// another window on the project it shows; without one (closing the main window only hides
 /// it), the main window comes back. The menu's shortcut works with no window open, where a
 /// page's own keys can't.
@@ -597,17 +610,23 @@ fn add_new_window_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
     });
     let Some(file) = file else { return Ok(()) };
     let item = MenuItem::with_id(app, NEW_WINDOW_MENU_ID, "New window", true, Some("CmdOrCtrl+Shift+N"))?;
-    file.prepend_items(&[&item, &PredefinedMenuItem::separator(app)?])?;
+    let close_idle = MenuItem::with_id(app, CLOSE_IDLE_MENU_ID, "Close idle terminals…", true, None::<&str>)?;
+    file.prepend_items(&[&item, &PredefinedMenuItem::separator(app)?, &close_idle, &PredefinedMenuItem::separator(app)?])?;
     app.on_menu_event(|app, event| {
-        if event.id().as_ref() != NEW_WINDOW_MENU_ID {
+        let id = event.id().as_ref();
+        if id != NEW_WINDOW_MENU_ID && id != CLOSE_IDLE_MENU_ID {
             return;
         }
         match front_window(app) {
             Some(w) => {
-                let _ = app.emit_to(w.label(), "new-window", ());
+                let _ = app.emit_to(w.label(), id, ());
             }
             None => {
                 let _ = bar::show_main(app, None);
+                // Close idle terminals is a dialog, so the main window opens it.
+                if id == CLOSE_IDLE_MENU_ID {
+                    let _ = app.emit_to("main", id, ());
+                }
             }
         }
     });
@@ -615,6 +634,7 @@ fn add_new_window_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
 }
 
 const NEW_WINDOW_MENU_ID: &str = "new-window";
+const CLOSE_IDLE_MENU_ID: &str = "close-idle";
 
 /// Every second while the perf log is on, posts to the main thread and logs how late it ran:
 /// the main thread carries every click and pointer move to the windows, so its lag is theirs.
@@ -700,7 +720,7 @@ pub fn run() {
             quick::on_window_event(window, event);
         })
         .register_asynchronous_uri_scheme_protocol("codealong-image", |_ctx, request, responder| serve_image(request, responder))
-        .invoke_handler(tauri::generate_handler![get_board, open_target, open_config, mark_seen, refresh, refresh_usage, set_pinned, set_pinned_worktrees, archive_session, pr_detail, pr_comment_asks, approve_pr, review_in_codex, open_url, get_accounts, save_accounts, found_accounts, get_config, save_config, save_config_text, sign_in, agents_status, install_agents, start_options, start_session, todo_op, canvas_load, canvas_save, save_attachment, import_attachment, open_attachment, expand_attachments, set_theme, open_project_window, fit_bar, show_main, bar_feed, bar_on, set_bar_on, open_from_bar, show_quick, hide_quick, quick_ready, fit_quick, start_from_quick, route_quick, search_text, session_page, session_newer, session_pending, session_answer, send_to_session, suggest_todo, dismiss_todo_hint, jev_key, set_jev_key, test_jev, quick_shortcut, pause_quick_shortcut, perf_mark])
+        .invoke_handler(tauri::generate_handler![get_board, idle_terminals, close_idle_terminals, open_target, open_config, mark_seen, refresh, refresh_usage, set_pinned, set_pinned_worktrees, archive_session, pr_detail, pr_comment_asks, approve_pr, review_in_codex, open_url, get_accounts, save_accounts, found_accounts, get_config, save_config, save_config_text, sign_in, agents_status, install_agents, start_options, start_session, todo_op, canvas_load, canvas_save, save_attachment, import_attachment, open_attachment, expand_attachments, set_theme, open_project_window, fit_bar, show_main, bar_feed, bar_on, set_bar_on, open_from_bar, show_quick, hide_quick, quick_ready, fit_quick, start_from_quick, route_quick, search_text, session_page, session_newer, session_pending, session_answer, send_to_session, suggest_todo, dismiss_todo_hint, jev_key, set_jev_key, test_jev, quick_shortcut, pause_quick_shortcut, perf_mark])
         .build(tauri::generate_context!())
         .expect("error while running Codealong")
         .run(|app, event| {

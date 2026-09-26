@@ -4,7 +4,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { emitTo, listen } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import type { AccountCfg, AccountInfo, AgentsStatus, Attachment, BarFeed, Pending, TranscriptPage, Board, Config, ConfigView, FoundAccount, PrDetail, Route, Sent, ShortcutStatus, TextFound, StartOptions, StartSpec, Started, Theme, TodoSuggested } from './types';
+import type { AccountCfg, AccountInfo, AgentsStatus, Attachment, BarFeed, CloseOutcome, IdlePlan, Pending, TranscriptPage, Board, Config, ConfigView, FoundAccount, PrDetail, Route, Sent, ShortcutStatus, TextFound, StartOptions, StartSpec, Started, Theme, TodoSuggested } from './types';
 import type { TodoOp } from './todos';
 
 export const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -110,6 +110,35 @@ export function onNewWindow(cb: () => void): () => void {
     cancelled = true;
     unlisten?.();
   };
+}
+
+/** Calls `cb` when File › Close idle terminals… asks this window to show its dialog. */
+export function onCloseIdle(cb: () => void): () => void {
+  if (!inTauri) return () => {};
+  let cancelled = false;
+  let unlisten: (() => void) | undefined;
+  void getCurrentWebviewWindow()
+    .listen('close-idle', () => cb())
+    .then((u) => {
+      if (cancelled) u();
+      else unlisten = u;
+    });
+  return () => {
+    cancelled = true;
+    unlisten?.();
+  };
+}
+
+/** Which terminals have sat idle for `afterMs` with nothing asked of you, and which stay open. */
+export async function idleTerminals(afterMs: number): Promise<IdlePlan> {
+  if (!inTauri) return { afterMs, close: [], kept: [] };
+  return invoke<IdlePlan>('idle_terminals', { afterMs });
+}
+
+/** Closes these sessions' terminals, each checked again first. */
+export async function closeIdleTerminals(keys: string[], afterMs: number): Promise<CloseOutcome[]> {
+  if (!inTauri) return [];
+  return invoke<CloseOutcome[]>('close_idle_terminals', { keys, afterMs });
 }
 
 /** Archives or unarchives a session; Codex threads are archived in Codex itself. */
