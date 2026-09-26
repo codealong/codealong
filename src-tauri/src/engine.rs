@@ -437,6 +437,8 @@ struct Engine {
     opencode_live: HashMap<String, opencode::Live>,
     /// OpenCode's interactive terminals, refreshed on the tick.
     opencode_terminals: Vec<opencode::Terminal>,
+    /// Each OpenCode and Antigravity database's size and time, and its WAL's, at the last look.
+    database_marks: HashMap<String, [Option<(u64, Option<std::time::SystemTime>)>; 2]>,
     opencode_inflight: bool,
     opencode_last: Option<Instant>,
     /// Antigravity conversations by account, newest first.
@@ -532,6 +534,7 @@ impl Engine {
             opencode_sessions: HashMap::new(),
             opencode_live: HashMap::new(),
             opencode_terminals: Vec::new(),
+            database_marks: HashMap::new(),
             opencode_inflight: false,
             opencode_last: None,
             antigravity: HashMap::new(),
@@ -810,6 +813,25 @@ impl Engine {
         changed
     }
 
+    /// Rereads each OpenCode or Antigravity database whose size or time changed since the last
+    /// look. A running session writes only to the database's WAL, through a file SQLite holds
+    /// open, and FSEvents doesn't report those writes (checked on this Mac), so watching the
+    /// folder doesn't hear them: a stat of two files every couple of seconds does.
+    fn check_databases(&mut self) {
+        let accounts: Vec<AccountCfg> = self.cfg.accounts.iter().filter(|a| a.harness == "opencode" || a.harness == "antigravity").cloned().collect();
+        for a in accounts {
+            let db = if a.harness == "opencode" { "opencode.db" } else { "conversation_summaries.db" };
+            let home = a.home_path();
+            let mark = [home.join(db), home.join(format!("{db}-wal"))].map(|p| std::fs::metadata(p).ok().map(|m| (m.len(), m.modified().ok())));
+            let changed = self.database_marks.get(&a.name).is_some_and(|before| *before != mark);
+            self.database_marks.insert(a.name.clone(), mark);
+            if changed {
+                self.reread_database(&a.name);
+                self.dirty = true;
+            }
+        }
+    }
+
     /// Reads an OpenCode or Antigravity account's database again after it changed. True when a
     /// session appeared that wasn't there before.
     fn reread_database(&mut self, account: &str) -> bool {
@@ -887,6 +909,7 @@ impl Engine {
         let mut last_event: Option<Instant> = None;
         let mut last_tick = Instant::now();
         let mut last_heartbeat = Instant::now();
+        let mut last_databases = Instant::now();
         loop {
             let now = Instant::now();
             let mut wait = if !pending.is_empty() || self.dirty { Duration::from_millis(50) } else { Duration::from_secs(2) };
@@ -1019,6 +1042,10 @@ impl Engine {
             }
             for path in self.git_queue.due(Instant::now()) {
                 self.send_git(path);
+            }
+            if last_databases.elapsed() >= DATABASES_EVERY {
+                last_databases = Instant::now();
+                self.check_databases();
             }
             if last_tick.elapsed() >= Duration::from_secs(10) {
                 last_tick = Instant::now();
@@ -2150,6 +2177,9 @@ fn board_hash(board: &Board) -> u64 {
     serde_json::to_string(&copy).unwrap_or_default().hash(&mut h);
     h.finish()
 }
+
+/// How often the harness databases are looked at for changes (`check_databases`).
+const DATABASES_EVERY: Duration = Duration::from_millis(1500);
 
 /// Databases harnesses keep their sessions in. They run in WAL mode, so while a session runs
 /// only their `-wal` file changes: that change is how Codealong hears of it.

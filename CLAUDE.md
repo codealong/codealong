@@ -399,8 +399,10 @@ OpenCode (2.0.16, from its source at that tag and its files here)
   aren't asked about unless a config says so (`opencode.json`: `"permission": {"bash": "ask"}`);
   `--auto` approves everything not denied. `opencode --prompt` fills the prompt in without
   sending it. The free models (`opencode/…`) need no sign-in.
-- `opencode.db` runs in WAL mode: while a session runs only `opencode.db-wal` changes, so the
-  engine hears it through that file (`engine::HARNESS_DATABASES`), not the database's.
+- `opencode.db` runs in WAL mode: while a session runs only `opencode.db-wal` changes, and
+  FSEvents doesn't report those writes (SQLite writes through a file it holds open; a watcher
+  saw OpenCode's other files and a probe file change, never the WAL). So the engine stats the
+  database and its WAL every 1.5 s (`engine::check_databases`) and rereads on a change.
 - Sign-in is `opencode auth login`; credentials live in the database (`credential`, and
   `account` for OpenCode Go) or a legacy `auth.json`. There are no plan limits to read.
 - Creating a session through the API in a folder made OpenCode point its `global` project
