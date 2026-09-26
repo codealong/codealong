@@ -390,3 +390,18 @@ export const TAKEN: Record<string, string> = {
   '⌃←': 'moving between Spaces',
   '⌃→': 'moving between Spaces',
 };
+
+/** How many past prompts ↑ can bring back. */
+export const HISTORY_MAX = 50;
+
+/** Past prompts with the newest first, after `text` is sent, started or saved: blank ones aren't
+ *  kept, and one sent again moves to the front rather than showing twice. */
+export function withPrompt(history: string[], text: string, max = HISTORY_MAX): string[] {
+  if (!text.trim()) return history;
+  return [text, ...history.filter((h) => h !== text)].slice(0, max);
+}
+
+/** What ↑ walks back through: the draft left when the panel last closed, then past prompts. */
+export function recallList(draft: string | null, history: string[]): string[] {
+  return draft?.trim() && draft !== history[0] ? [draft, ...history] : history;
+}

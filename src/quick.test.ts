@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ALL_PROJECTS, attentionRows, findSessions, findTodos, laneGroups, projectCounts, readyTodos, shortcutFromKey, shortcutLabel, TAKEN, titleMarks } from './quick';
+import { ALL_PROJECTS, attentionRows, recallList, withPrompt, findSessions, findTodos, laneGroups, projectCounts, readyTodos, shortcutFromKey, shortcutLabel, TAKEN, titleMarks } from './quick';
 import type { Board, Label, Lane, Session, Todo } from './types';
 
 const NOW = 1_790_200_000_000;
@@ -255,5 +255,18 @@ describe('shortcuts', () => {
     expect(shortcutFromKey(key('IntlBackslash', { altKey: true }))).toHaveProperty('error');
     // ⇧⌘ with a key is allowed: apps like Maccy ship on ⇧⌘C.
     expect(shortcutFromKey(key('KeyC', { metaKey: true, shiftKey: true }))).toEqual({ shortcut: 'Shift+Cmd+C' });
+  });
+});
+
+describe('prompt history', () => {
+  it('keeps the newest first, once each, and drops blanks', () => {
+    expect(withPrompt(['b', 'a'], 'a')).toEqual(['a', 'b']);
+    expect(withPrompt(['a'], '  ')).toEqual(['a']);
+    expect(withPrompt(['c', 'b', 'a'], 'd', 3)).toEqual(['d', 'c', 'b']);
+  });
+  it('puts the draft before past prompts unless it is the last one', () => {
+    expect(recallList('draft', ['a'])).toEqual(['draft', 'a']);
+    expect(recallList('a', ['a', 'b'])).toEqual(['a', 'b']);
+    expect(recallList(null, ['a'])).toEqual(['a']);
   });
 });

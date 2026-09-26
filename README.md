@@ -91,7 +91,7 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   its worktree, linked to it). The last row starts a new session with what you typed as its
   prompt. ⏎ does the selected row, ⌘⏎ always starts, ⌥⏎
   shows the session or todo in Codealong, ⌘1 to ⌘9 open a row, Escape closes. Each open starts empty,
-  so ⏎ goes to what needs you; ↑ brings back what you'd typed before closing. A project picker (⌘P) narrows everything to one project. The shortcut is
+  so ⏎ goes to what needs you; ↑ brings back what you'd typed before closing, then earlier prompts you sent, started or saved, and ↓ goes forward again. While you type, the list doesn't shrink until you pause and the answers are in, so the panel holds still. A project picker (⌘P) narrows everything to one project. The shortcut is
   yours to change in Settings › General; Settings names shortcuts macOS and common launchers
   already use.
 - **Session status from Jev** (optional; Settings › Jev, `[jev] sessions`): once per turn,

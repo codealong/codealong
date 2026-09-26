@@ -5,7 +5,8 @@
 // chosen at the bottom.
 //
 // ⏎ does the selected row and ⌘⏎ always starts. ⌥⏎ shows the session in Codealong, ⌘1 to ⌘9
-// open a row, ⌘P picks the project, ⌘T the worktree and ⌘L the agent, and Escape closes. (⌘M is
+// open a row, ⌘P picks the project, ⌘T the worktree and ⌘L the agent, ↑ in the empty input brings
+// back the last draft and earlier prompts, and Escape closes. (⌘M is
 // the Window menu's Minimize, which may take the key before the page sees it.)
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -36,7 +37,7 @@ import { ago, resetsPhrase, tildePath, withTimes } from '../format';
 import { HARNESS_WORD, usageNote } from '../harness';
 import { useLogo } from '../logo';
 import { withoutAccount } from '../lanes';
-import { ALL_PROJECTS, attentionRows, findSessions, findTodos, FOUND_SESSIONS, inProject, laneBranch, laneGroups, MAX_ROWS, projectCounts, queryWords, readyTodos, shortcutLabel, TEXT_SEARCH_MIN, type RowGroup, type SessionRow, type TodoRow } from '../quick';
+import { ALL_PROJECTS, attentionRows, findSessions, findTodos, FOUND_SESSIONS, inProject, laneBranch, laneGroups, MAX_ROWS, projectCounts, queryWords, readyTodos, recallList, shortcutLabel, TEXT_SEARCH_MIN, type RowGroup, type SessionRow, type TodoRow, withPrompt as historyWith } from '../quick';
 import {
   accountFor,
   agentId,
@@ -67,6 +68,7 @@ import { UsageMeter } from './UsageBar';
 /** Room around the card for its shadow. The window (quick.rs) is the card and this on each side. */
 const MARGIN = 20;
 const PROJECT_KEY = 'codealong.quick.project';
+const HISTORY_KEY = 'codealong.quick.history';
 /** The input grows to this many lines, then scrolls. */
 const INPUT_LINES = 8;
 const COMPOSE = 'compose';
@@ -91,9 +93,20 @@ type Row = SessionRow | TodoRow | SuggestRow;
 const ROUTE_AFTER_MS = 350;
 /** How long typing has to pause before what's typed is looked for in what sessions said. */
 const TEXT_AFTER_MS = 150;
+/** How long typing has to pause before the list may shrink to what it shows. */
+const SETTLE_MS = 600;
 
 function plain(e: unknown): string {
   return String(e).replace(/^Error: /, '');
+}
+
+function storedHistory(): string[] {
+  try {
+    const v: unknown = JSON.parse(window.localStorage.getItem(HISTORY_KEY) ?? '[]');
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+  } catch {
+    return [];
+  }
 }
 
 function storedProject(): string | null {
@@ -185,6 +198,22 @@ export function Quick() {
   // What you'd typed when you last closed the panel without acting on it. Every open starts empty,
   // so the list is what needs you and ⏎ goes to it; ↑ in the empty input brings the draft back.
   const [draft, setDraft] = useState<{ text: string; todo: string | null } | null>(null);
+  // Prompts you sent, started or saved, newest first, kept across restarts. ↑ walks back through
+  // the draft and then these; `recall` is where it is, and holds while the text is what it
+  // brought back.
+  const [history, setHistory] = useState<string[]>(storedHistory);
+  const [recall, setRecall] = useState<number | null>(null);
+  const keepPrompt = (prompt: string) => {
+    setHistory((h) => {
+      const next = historyWith(h, prompt);
+      try {
+        window.localStorage.setItem(HISTORY_KEY, JSON.stringify(next));
+      } catch {
+        // Storage can be unavailable; the prompt just won't come back after a restart.
+      }
+      return next;
+    });
+  };
   const todoIdNow = useRef(todoId);
   todoIdNow.current = todoId;
 
@@ -201,6 +230,7 @@ export function Quick() {
         setTodoId(ctx.todo ?? null);
         if (textNow.current.trim()) setDraft({ text: textNow.current, todo: todoIdNow.current });
         setText(ctx.prompt ?? '');
+        setRecall(null);
         setAgent(null);
         setPlace(null);
         setNewWorktree(false);
@@ -268,28 +298,6 @@ export function Quick() {
     const pop = document.querySelector('.ca-picker')?.getBoundingClientRect();
     return Math.ceil(Math.max(c?.bottom ?? 0, pop?.bottom ?? 0) + MARGIN);
   }, []);
-  const reported = useRef(0);
-  useLayoutEffect(() => {
-    if (opens === 0) return;
-    const h = measure();
-    reported.current = h;
-    // The cursor goes at the end of whatever the panel opens with: nothing, a todo's prompt, or
-    // what a failed start left.
-    const el = input.current;
-    if (el) {
-      el.focus();
-      el.setSelectionRange(el.value.length, el.value.length);
-    }
-    void quickReady(h);
-  }, [opens, measure]);
-  useLayoutEffect(() => {
-    if (!shown || opens === 0) return;
-    const h = measure();
-    if (h === reported.current) return;
-    reported.current = h;
-    void fitQuick(h);
-  });
-
   const refocus = () => window.requestAnimationFrame(() => input.current?.focus());
 
   /* ---- Where ---- */
@@ -448,8 +456,52 @@ export function Quick() {
   const effort = route && autoFor && claudeTerminal ? effortModel(route.effort, models, autoPick?.model ?? defaultModel, usage.find((u) => u.account === account)) : null;
   const alreadyOn = duplicate ? ` “${duplicate.session.title}” (${duplicate.session.account} · ${duplicate.lane.callsign}) may already be doing this.` : '';
 
+  // While you type, the list only grows: Jev's suggestions and what sessions said arrive a moment
+  // after each key, and letting the list shrink in between made the panel bounce with every key.
+  // Once typing pauses and the answers are in, it takes the height of what it shows.
+  const [paused, setPaused] = useState(true);
+  useEffect(() => {
+    setPaused(false);
+    const id = window.setTimeout(() => setPaused(true), SETTLE_MS);
+    return () => window.clearTimeout(id);
+  }, [text]);
+  const settled = paused && !routing && (!textFor || !!textFound);
+  const held = useRef({ open: 0, height: 0 });
+  useLayoutEffect(() => {
+    const el = list.current;
+    if (!el) return;
+    el.style.minHeight = '';
+    if (!text.trim() || settled || held.current.open !== opens) held.current = { open: opens, height: 0 };
+    if (!text.trim() || settled) return;
+    held.current.height = Math.max(held.current.height, el.offsetHeight);
+    el.style.minHeight = `${held.current.height}px`;
+  });
+
+  const reported = useRef(0);
+  useLayoutEffect(() => {
+    if (opens === 0) return;
+    const h = measure();
+    reported.current = h;
+    // The cursor goes at the end of whatever the panel opens with: nothing, a todo's prompt, or
+    // what a failed start left.
+    const el = input.current;
+    if (el) {
+      el.focus();
+      el.setSelectionRange(el.value.length, el.value.length);
+    }
+    void quickReady(h);
+  }, [opens, measure]);
+  useLayoutEffect(() => {
+    if (!shown || opens === 0) return;
+    const h = measure();
+    if (h === reported.current) return;
+    reported.current = h;
+    void fitQuick(h);
+  });
+
   const rows: Row[] = query ? [...suggested, ...rankedBy(foundSessions, route), ...foundTodos] : [...(attention?.rows ?? []), ...(readyList?.rows ?? [])];
   const keys = [...rows.map((r) => r.key), COMPOSE];
+  const recallable = useMemo(() => recallList(draft?.text ?? null, history), [draft, history]);
   const active = activeKey && keys.includes(activeKey) ? activeKey : keys[0];
 
   useEffect(() => {
@@ -587,6 +639,7 @@ export function Quick() {
     const to = opener ?? 'main';
     // The panel is fresh for next time; a failed start brings back what you had.
     const kept = { text, todoId, newWorktree };
+    keepPrompt(text);
     setText('');
     setTodoId(null);
     setNewWorktree(false);
@@ -612,6 +665,7 @@ export function Quick() {
     const prompt = textNow.current;
     const id = Date.now();
     const to = opener ?? 'main';
+    keepPrompt(prompt);
     setText('');
     setActiveKey(null);
     setError(null);
@@ -633,6 +687,7 @@ export function Quick() {
     const title = todoTitle(prompt);
     const t = newTodo({ title, description: prompt === title ? '' : prompt, project: where.project, worktrees: [where.id] }, Date.now());
     const to = opener ?? 'main';
+    keepPrompt(prompt);
     setText('');
     setActiveKey(null);
     setError(null);
@@ -676,12 +731,21 @@ export function Quick() {
       else activate(active, e.altKey);
       return;
     }
-    if (e.key === 'ArrowUp' && !el.value && draft && !e.altKey && !e.metaKey && !e.shiftKey && keys.indexOf(active) <= 0) {
+    // ↑ in the empty input brings back the draft, then earlier prompts, and ↓ goes forward again
+    // to the empty input; once you change what came back, the arrows move through the list.
+    const recalled = recall !== null && el.value === recallable[recall];
+    const plainKey = !e.altKey && !e.metaKey && !e.shiftKey && !e.ctrlKey;
+    const walk = (e.key === 'ArrowUp' && (recalled || (!el.value && keys.indexOf(active) <= 0))) || (e.key === 'ArrowDown' && recalled);
+    if (plainKey && walk) {
+      const at = recalled ? recall + (e.key === 'ArrowUp' ? 1 : -1) : 0;
+      if (at >= recallable.length) return e.preventDefault();
       e.preventDefault();
-      setText(draft.text);
-      setTodoId(draft.todo);
-      setDraft(null);
-      window.requestAnimationFrame(() => el.setSelectionRange(draft.text.length, draft.text.length));
+      const next = at < 0 ? '' : recallable[at];
+      setRecall(at < 0 ? null : at);
+      setText(next);
+      setTodoId(at === 0 && draft && recallable[0] === draft.text ? draft.todo : null);
+      setActiveKey(null);
+      window.requestAnimationFrame(() => el.setSelectionRange(next.length, next.length));
       return;
     }
     if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && !e.altKey && !e.metaKey && !e.shiftKey) {
@@ -918,9 +982,10 @@ export function Quick() {
             rows={1}
             spellCheck
             aria-label="Find a session, or describe new work"
-            placeholder={draft ? 'Find a session, or describe new work… ↑ brings back your draft' : 'Find a session, or describe new work…'}
+            placeholder={draft ? 'Find a session, or describe new work… ↑ brings back your draft' : history.length ? 'Find a session, or describe new work… ↑ for earlier prompts' : 'Find a session, or describe new work…'}
             onChange={(e) => {
               setText(e.target.value);
+              setRecall(null);
               setActiveKey(null);
             }}
             onKeyDown={onInputKey}
