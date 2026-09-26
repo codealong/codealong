@@ -4423,3 +4423,77 @@ html.is-quick body {
   background: var(--surface-selected);
   color: var(--ink);
 }
+
+/* A session's own panel (SessionPanel.tsx). */
+.ca-sessinsp .ca-insp-title .ca-tag {
+  margin-left: 0;
+}
+.ca-sessinsp .ca-todoinsp-more {
+  margin-left: auto;
+}
+.ca-sessinsp-title {
+  margin: 6px 0 0;
+  font: 600 17px/22px var(--font-sans);
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.ca-sessinsp-status {
+  margin-top: 2px;
+  color: var(--ink-3);
+  font: 400 12px/16px var(--font-sans);
+}
+.ca-sessinsp-now {
+  margin: 0;
+  color: var(--ink-2);
+  font: 400 13px/18px var(--font-sans);
+  overflow-wrap: anywhere;
+}
+.ca-sessinsp-msg {
+  display: grid;
+  gap: 6px;
+  justify-items: start;
+}
+.ca-sessinsp-msghead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  color: var(--ink-3);
+  font: 500 11px/14px var(--font-sans);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.ca-sessinsp-msghead .ca-meta {
+  text-transform: none;
+  letter-spacing: 0;
+}
+.ca-sessinsp-text {
+  width: 100%;
+  box-sizing: border-box;
+  color: var(--ink);
+  font: 400 13px/19px var(--font-sans);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* Your prompt reads as a quote; the agent's response as the page. */
+.ca-sessinsp-msg.is-you .ca-sessinsp-text {
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  background: var(--neutral-tint);
+  color: var(--ink-2);
+}
+.ca-sessinsp-text.is-clamped {
+  display: -webkit-box;
+  -webkit-line-clamp: 14;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.ca-sessinsp-earlier {
+  gap: 12px;
+  justify-items: start;
+}
+.ca-sessinsp-now .ca-ic {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}

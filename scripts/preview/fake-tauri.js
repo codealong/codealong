@@ -175,6 +175,18 @@ window.__TAURI_INTERNALS__ = {
         return fx && fx.jev && fx.jev.suggest ? fx.jev.suggest : Promise.reject(new Error('Todo suggestions are off.'));
       });
     }
+    // A session's last messages: its title as your prompt and its excerpt as the response.
+    if (cmd === 'session_messages') {
+      return fetch('./board.json').then(function (r) { return r.json(); }).then(function (b) {
+        var s = null;
+        b.lanes.forEach(function (l) { l.sessions.forEach(function (x) { if (x.key === (args || {}).key) s = x; }); });
+        if (!s) return [];
+        return [
+          { at: s.lastPromptAt, you: true, text: s.title },
+          { at: s.lastActivity, you: false, text: (s.excerpt || '') + '\n\nIn the app this is the whole response, read from the session\'s transcript.' },
+        ];
+      });
+    }
     // A todo change "shows" on a board that never comes, so the page keeps its own copy of it.
     if (cmd === 'todo_op') return Promise.resolve(Number.MAX_SAFE_INTEGER);
     // A PNG is kept as an image to show; anything else as a file, by the name it came with.

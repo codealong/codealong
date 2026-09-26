@@ -4,7 +4,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { emitTo, listen } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import type { AccountCfg, AccountInfo, AgentsStatus, Attachment, BarFeed, Board, Config, ConfigView, FoundAccount, PrDetail, Route, Sent, ShortcutStatus, TextFound, StartOptions, StartSpec, Started, Theme, TodoSuggested } from './types';
+import type { AccountCfg, AccountInfo, AgentsStatus, Attachment, BarFeed, Said, Board, Config, ConfigView, FoundAccount, PrDetail, Route, Sent, ShortcutStatus, TextFound, StartOptions, StartSpec, Started, Theme, TodoSuggested } from './types';
 import type { TodoOp } from './todos';
 
 export const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -557,4 +557,11 @@ export async function canvasLoad(project: string): Promise<unknown> {
 export async function canvasSave(project: string, doc: unknown): Promise<void> {
   if (!inTauri) return;
   await invoke('canvas_save', { project, doc });
+}
+
+/** A session's last few messages, yours and the agent's, oldest first (search.rs). Empty when
+ *  searching is off or the session is older than it goes. */
+export async function sessionMessages(key: string): Promise<Said[]> {
+  if (!inTauri) return [];
+  return (await invoke<Said[] | null>('session_messages', { key })) ?? [];
 }

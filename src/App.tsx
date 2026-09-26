@@ -19,6 +19,7 @@ import type { Bay, Board, Label, Lane, PrItem, Session, Theme, Todo, TodoStatus 
 import { LABEL_COLORS } from './types';
 import { SettingsDialog, type SettingsSection } from './ui/SettingsDialog';
 import { Inspector } from './ui/Inspector';
+import { SessionPanel } from './ui/SessionPanel';
 import { LaneRow } from './ui/LaneRow';
 import { PinnedSection, type PinDrag } from './ui/PinnedSection';
 import { BayHeader, Button, Icon, Kbd, NavItem, StatusGlyph } from './ui/primitives';
@@ -1434,7 +1435,26 @@ export function App() {
       }
       case 'session': {
         const p = e.sessions.get(canvasSel.key);
-        return p ? { kind: 'lane' as const, node: inspector(p.lane, p.session.key) } : null;
+        if (!p) return null;
+        const { lane, session } = p;
+        return {
+          kind: 'lane' as const,
+          node: (
+            <SessionPanel
+              key={session.key}
+              lane={lane}
+              session={session}
+              apps={board?.apps ?? { terminal: 'Terminal', terminalId: '', editor: 'Editor', editorId: '' }}
+              now={now}
+              onOpen={(id) => open(lane, id)}
+              onNewSession={() => newSession({ laneId: lane.id })}
+              onShowLane={showLaneFromPanel}
+              todos={todoLinks.bySession.get(session.key)}
+              onShowTodo={showTodoFromPanel}
+              onMoreMenu={(at) => void showContextMenu(sessionMenuSpec(lane, session, 'session'), at).catch((err: unknown) => setToast(String(err)))}
+            />
+          ),
+        };
       }
       case 'todo': {
         const item = todoItems.find((r) => r.todo.id === canvasSel.key);

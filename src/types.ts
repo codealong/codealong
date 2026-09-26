@@ -620,3 +620,11 @@ export interface TextFound {
   /** `[search] days` is 0. */
   off: boolean;
 }
+
+/** A message in a session, from the text search's index. */
+export interface Said {
+  at: number;
+  /** You wrote it; otherwise the agent did. */
+  you: boolean;
+  text: string;
+}

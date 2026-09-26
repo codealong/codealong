@@ -68,11 +68,12 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     or Not yet until something moves on); and a todo's panel suggests its project, labels and
     the todos it waits on as chips you click. Nothing is asked twice: what was asked is kept in
     `jev-todos.json`.
-  **Canvas**: the project's work laid out in space, to remember by where it is. Worktrees,
+  - **Canvas**: the project's work laid out in space, to remember by where it is. Worktrees,
     sessions, todos and PRs are compact cards (status, title, where it stands); hover one
-    for the rest, select one for its panel on the right (the one its own view shows), type
-    in the filter at the top or pick an Inbox row to fade what doesn't match (an Inbox row,
-    or Return in the filter, also zooms to what does; a worktree in the sidebar selects its
+    for the rest, select one for its panel on the right (a session's shows your last prompt
+    and its last response in full; the rest are the ones their own views show), type in the
+    filter at the top or pick an Inbox row to fade what doesn't match (an Inbox row, or
+    Return in the filter, also zooms to what does; a worktree in the sidebar selects its
     card), double-click to open it where it lives, right-click for its usual menu. What
     comes on by itself is set in Bring in (the gear in the toolbar), each kind on or off:
     sessions active in the last 1h to 7d or all (24h at first) and any that's working or
