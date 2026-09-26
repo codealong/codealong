@@ -927,19 +927,26 @@ Options:
 
       --in <PLACE>
           Where it runs
+
+          Possible values:
+          - terminal
+          - background: Claude Code's background service, with no terminal until you
+            attach one
+          - claude-app
+          - codex-app
           
           [default: terminal]
-          [possible values: terminal, claude-app, codex-app]
 
       --model <MODEL>
-          A model for a terminal start: fable, opus, sonnet, haiku, or a full name
+          A model for a terminal or background start: fable, opus, sonnet, haiku, or a
+          full name
 
       --dry-run
           Print what the start would do (the command and environment, or the link)
           without starting anything
 
   -h, --help
-          Print help
+          Print help (see a summary with '-h')
 ```
 
 ## codealong config

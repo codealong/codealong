@@ -452,7 +452,7 @@ pub(crate) fn start_and_link(engine: &engine::Handle, spec: &start::StartSpec) -
             }),
         };
         // A session in a new worktree won't be in the one it started from: only it is linked.
-        let lane = (!(spec.worktree && spec.place == start::Place::Terminal)).then(|| spec.lane_id.clone());
+        let lane = (!(spec.worktree && matches!(spec.place, start::Place::Terminal | start::Place::Background))).then(|| spec.lane_id.clone());
         engine.todo_started(id, lane, started.key.clone(), pending);
     }
     Ok(started)
@@ -819,7 +819,7 @@ pub fn snapshot_cli(args: &[String]) -> i32 {
         return 0;
     }
     if let Some(i) = args.iter().position(|a| a == "--start-plan") {
-        let help = "usage: codealong --snapshot --start-plan <folder> <account> <terminal|claude-app|codex-app> [prompt] [--model <model>] [--worktree]";
+        let help = "usage: codealong --snapshot --start-plan <folder> <account> <terminal|background|claude-app|codex-app> [prompt] [--model <model>] [--worktree]";
         let (Some(folder), Some(name), Some(place)) = (args.get(i + 1), args.get(i + 2), args.get(i + 3)) else {
             eprintln!("{help}");
             return 2;

@@ -160,7 +160,10 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   every model it can start on, with its limits), and where it runs. Ghostty starts Claude Code
   on your prompt, on the account's default model or the one you picked (Fable, Opus, Sonnet,
   Haiku, 1M context, Opus Plan Mode), and with New worktree Claude Code makes a fresh worktree
-  for it (`claude --worktree`: its folder, branch and base are Claude Code's choice). The
+  for it (`claude --worktree`: its folder, branch and base are Claude Code's choice).
+  Background starts it the same way under Claude Code's background service (`claude --bg`),
+  with no terminal: it shows on the board like any other, takes prompts from Codealong, and
+  Attach opens a terminal on it when you want one. The
   Claude app and Codex open a new session with the prompt filled in, and you send it there
   (their own model and worktree choices included). OpenCode starts in Ghostty on your prompt
   (`--prompt`); Antigravity starts conversations only in its own window. Auto, the default,

@@ -65,7 +65,7 @@ The engine binary doubles as a CLI for checking behavior without a window:
   conversation (prompts, replies, tool calls and their output) read from its own record, as its
   panel gets it (`transcript.rs`).
 - `codealong --snapshot --start-options`: where each account can start a session.
-- `codealong --snapshot --start-plan <folder> <account> <terminal|claude-app|codex-app> [prompt]
+- `codealong --snapshot --start-plan <folder> <account> <terminal|background|claude-app|codex-app> [prompt]
   [--model <model>] [--worktree]`: the command or link starting a session would use, without
   starting one.
 
@@ -248,8 +248,16 @@ Claude Code
   replaces all of that, even in a git repo, and prints the path. It refuses folders that haven't
   been trusted yet. Its name is optional, so it must come before the prompt, which it would
   otherwise take as the name: `start.rs` types `--worktree` first.
-- Also available, not used yet: `--bg` starts a session in the background and prints the ID
-  `attach` takes.
+- `--bg` starts a session under the account's background service (checked on 2.1.283) and
+  prints `backgrounded · <job>`, or `(idle — send a prompt to start)` without a prompt. It
+  ignores `--session-id` (with a warning): the session's ID begins with the job ID, and
+  `<home>/daemon/roster.json` has the whole one (`workers.<job>.sessionId`) as soon as it
+  returns. `--worktree`, `--model` and `--add-dir` work with it. It refuses a folder that hasn't
+  been trusted ("Workspace not trusted. Run `claude` in … once"). The session runs under the
+  service's processes, not the calling shell, and gets the environment of whichever shell
+  started the service, so variables set for one start don't reach it (and a stale
+  `CODEALONG_SESSION` can): `start.rs` quotes everything in the command instead. `stop <job>`
+  keeps the conversation; `rm <job>` removes it and its worktree once nothing holds the lock.
 - Every live session (terminal, Claude app, background) listens on a Unix socket, the registry's
   `messagingSocketPath` (`/tmp/cc-socks/<pid>.sock`), for other sessions' messages
   (`peerProtocol: 1`, from 2.1.282's code). One JSON line per connection, nothing comes back on

@@ -350,7 +350,7 @@ struct StartArgs {
     /// Where it runs.
     #[arg(long = "in", value_enum, default_value_t = PlaceArg::Terminal)]
     place: PlaceArg,
-    /// A model for a terminal start: fable, opus, sonnet, haiku, or a full name.
+    /// A model for a terminal or background start: fable, opus, sonnet, haiku, or a full name.
     #[arg(long)]
     model: Option<String>,
     /// Print what the start would do (the command and environment, or the link) without starting anything.
@@ -361,6 +361,8 @@ struct StartArgs {
 #[derive(ValueEnum, Clone, Copy, Debug, PartialEq)]
 enum PlaceArg {
     Terminal,
+    /// Claude Code's background service, with no terminal until you attach one.
+    Background,
     ClaudeApp,
     CodexApp,
 }
@@ -553,7 +555,7 @@ impl Client {
                 (Some(_), _) => None,
                 (None, place) => Some(todos::PendingStart { lane: spec.lane_id.clone(), harness: if place == Place::CodexApp { "codex" } else { "claude" }.into(), account: spec.account.clone(), at: now_ms() }),
             };
-            let lane = (!(spec.worktree && spec.place == Place::Terminal)).then(|| spec.lane_id.clone());
+            let lane = (!(spec.worktree && matches!(spec.place, Place::Terminal | Place::Background))).then(|| spec.lane_id.clone());
             let lanes = BoardLanes(self.board()?.lanes.iter().map(|l| (l.id.clone(), (l.project.clone(), repo_identity(l)))).collect());
             let key = started.key.clone();
             todos::change(|store| Ok((store.started(&id, lane.as_deref(), key.as_deref(), pending, &lanes, now_ms()), ())))?;
@@ -1044,20 +1046,19 @@ struct Whoami {
     todos: Vec<TodoRow>,
 }
 
-/// The session running this command: `CODEALONG_SESSION` from a start the app made, else
-/// the parent process that's a live session on the board.
+/// The session running this command: the parent process that's a live session on the board,
+/// else `CODEALONG_SESSION` from a start the app made, for a session the board hasn't shown yet.
+/// The process comes first: Claude Code's background sessions run under a service that keeps the
+/// environment of whichever shell started it, so they can carry another session's variable.
 fn find_me(c: &mut Client) -> Result<(Option<String>, Option<&'static str>)> {
-    if let Ok(key) = std::env::var(start::SESSION_VAR) {
-        if !key.trim().is_empty() {
-            return Ok((Some(key), Some("environment")));
-        }
-    }
     let mine = procs::ancestors(std::process::id());
     let board = c.board()?;
-    let hit = all_sessions(board).into_iter().filter(|(s, _)| s.live).find(|(s, _)| s.pid.is_some_and(|p| mine.contains(&p)));
-    Ok(match hit {
-        Some((s, _)) => (Some(s.key.clone()), Some("process")),
-        None => (None, None),
+    if let Some((s, _)) = all_sessions(board).into_iter().filter(|(s, _)| s.live).find(|(s, _)| s.pid.is_some_and(|p| mine.contains(&p))) {
+        return Ok((Some(s.key.clone()), Some("process")));
+    }
+    Ok(match std::env::var(start::SESSION_VAR) {
+        Ok(key) if !key.trim().is_empty() => (Some(key), Some("environment")),
+        _ => (None, None),
     })
 }
 
@@ -1673,6 +1674,7 @@ fn start_cmd(c: &mut Client, a: &StartArgs, json: bool) -> Result<()> {
     };
     let place = match a.place {
         PlaceArg::Terminal => Place::Terminal,
+        PlaceArg::Background => Place::Background,
         PlaceArg::ClaudeApp => Place::ClaudeApp,
         PlaceArg::CodexApp => Place::CodexApp,
     };

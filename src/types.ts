@@ -494,7 +494,7 @@ export interface PrComment {
 }
 
 /** Where a new session runs: the terminal, or the Claude or Codex app. */
-export type StartPlace = 'terminal' | 'claude-app' | 'codex-app';
+export type StartPlace = 'terminal' | 'background' | 'claude-app' | 'codex-app';
 
 /** An account as the new-session sheet offers it (src-tauri/src/start.rs). */
 export interface StartAccount {

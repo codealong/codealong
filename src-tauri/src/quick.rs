@@ -248,6 +248,8 @@ pub fn on_window_event(window: &Window, event: &WindowEvent) {
 pub fn start_app(place: Place, terminal: &str) -> Option<&'static str> {
     match place {
         Place::Terminal => (terminal == "ghostty").then_some("com.mitchellh.ghostty"),
+        // Nothing opens: the session runs with no window.
+        Place::Background => None,
         Place::ClaudeApp => Some("com.anthropic.claudefordesktop"),
         Place::CodexApp => Some("com.openai.codex"),
     }

@@ -349,12 +349,12 @@ export function Quick() {
   const accountInfo = accounts.find((a) => a.name === account);
   const autoPick = autoFor ? autoModel(accountInfo?.defaultModel ?? null, usage.find((u) => u.account === account)) : null;
 
-  // A model is asked for on the command line, so choosing one leaves only the terminal; the apps
-  // pick their own.
+  // A model is asked for on the command line, so choosing one leaves only the terminal and the
+  // background; the apps pick their own.
   const allPlaces = placesFor(choice, accounts);
-  const places = chosenModel ? allPlaces.filter((p) => p.place === 'terminal') : allPlaces;
+  const places = chosenModel ? allPlaces.filter((p) => onCommandLine(p.place)) : allPlaces;
   const placeNow = [place, choice ? remembered().places?.[choice] : undefined].map((p) => places.find((x) => x.place === p)?.place).find(Boolean) ?? places[0]?.place ?? null;
-  const claudeTerminal = placeNow === 'terminal' && harness === 'claude';
+  const claudeTerminal = !!placeNow && onCommandLine(placeNow) && harness === 'claude';
   const modelNow = claudeTerminal ? (autoFor ? (autoPick?.model ?? null) : chosenModel) : null;
   const inNewWorktree = claudeTerminal && newWorktree;
   const defaultModel = accountInfo?.defaultModel ?? null;
@@ -623,7 +623,11 @@ export function Quick() {
     ? 'No worktrees in this project yet.'
     : !account || !placeNow
       ? ''
-      : placeNow === 'terminal'
+      : placeNow === 'background'
+        ? inNewWorktree
+          ? `Claude Code makes a new worktree of ${lane.repo} and starts ${account}${onModel} there in the background${withPrompt}. Attach a terminal any time.`
+          : `${account}${onModel} starts in the background in ${lane.callsign}${withPrompt}, with no terminal. Attach one any time.`
+        : placeNow === 'terminal'
         ? inNewWorktree
           ? `Claude Code makes a new worktree of ${lane.repo} and starts ${account}${onModel} there in ${terminalName}${withPrompt}.`
           : `${terminalName} starts ${account}${onModel} in ${lane.callsign}${withPrompt}.`
@@ -640,8 +644,8 @@ export function Quick() {
     if (choice) remember(choice, placeNow);
     const spec: StartSpec = { laneId: where.id, account, place: placeNow, prompt: text, model: modelNow, worktree: newTree, todo: todo?.id ?? null };
     const label =
-      placeNow === 'terminal'
-        ? `Starting ${account}${onModel} in ${newTree ? `a new worktree of ${where.repo}` : where.callsign}…`
+      placeNow === 'terminal' || placeNow === 'background'
+        ? `Starting ${account}${onModel} in ${newTree ? `a new worktree of ${where.repo}` : where.callsign}${placeNow === 'background' ? ' in the background' : ''}…`
         : placeNow === 'claude-app'
           ? 'Opening a new session in the Claude app…'
           : 'Opening a new thread in Codex…';
@@ -940,8 +944,8 @@ export function Quick() {
         : placeNow === 'codex-app'
           ? `Codex opens a new thread in ${sg.lane.callsign} with this prompt filled in.`
           : tree
-            ? `Claude Code makes a new worktree of ${sg.lane.repo} and starts ${who} there.`
-            : `Starts ${who} in ${sg.lane.callsign}.`;
+            ? `Claude Code makes a new worktree of ${sg.lane.repo} and starts ${who} there${placeNow === 'background' ? ' in the background' : ''}.`
+            : `Starts ${who} in ${sg.lane.callsign}${placeNow === 'background' ? ' in the background' : ''}.`;
     // The warning leads: the row's line is cut short when it's long.
     const warned = duplicate ? `“${duplicate.session.title}” may already be on this. ${why}` : why;
     return { icon: 'plus', title: tree ? `Start in a new worktree of ${sg.lane.repo}` : `Start in ${sg.lane.origin === 'main' ? `${sg.lane.callsign} (main)` : sg.lane.callsign}`, why: warned, where: `${sg.lane.project} · ${sg.lane.repo}` };
@@ -1224,14 +1228,14 @@ export function Quick() {
             <div className="ca-segctl ca-quick-places" role="radiogroup" aria-label="Opens in">
               {places.map((p) => (
                 <button key={p.place} type="button" role="radio" aria-checked={placeNow === p.place} className={placeNow === p.place ? 'is-on' : undefined} onClick={() => pickPlace(p.place)}>
-                  <Icon name={p.place === 'terminal' ? 'terminal' : 'app'} size={13} />
+                  <Icon name={placeIcon(p.place)} size={13} />
                   {p.label}
                 </button>
               ))}
             </div>
           ) : places.length === 1 ? (
             <span className="ca-quick-place">
-              <Icon name={places[0].place === 'terminal' ? 'terminal' : 'app'} size={13} />
+              <Icon name={placeIcon(places[0].place)} size={13} />
               {places[0].label}
             </span>
           ) : null}
@@ -1239,6 +1243,15 @@ export function Quick() {
       </div>
     </div>
   );
+}
+
+/** Whether a place starts the account's command, which takes a model and --worktree. */
+function onCommandLine(place: StartPlace): boolean {
+  return place === 'terminal' || place === 'background';
+}
+
+function placeIcon(place: StartPlace): string {
+  return place === 'terminal' ? 'terminal' : place === 'background' ? 'stack' : 'app';
 }
 
 function ProjectCounts({ needs, unread }: { needs: number; unread: number }) {

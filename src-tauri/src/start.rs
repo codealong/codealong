@@ -46,6 +46,8 @@ const CLAUDE_MODELS: [(&str, &str); 8] = [
 pub enum Place {
     /// A new terminal window running the account's command.
     Terminal,
+    /// Claude Code's background service (`--bg`), with no terminal; `attach` opens one later.
+    Background,
     /// The Claude app's new-session page, with the folder and prompt filled in.
     ClaudeApp,
     /// A new thread in the Codex app, with the folder and prompt filled in.
@@ -130,6 +132,10 @@ pub struct Started {
 pub enum Plan {
     /// A new terminal window at `cwd`, with `env` set in its shell, typing `input`.
     Terminal { cwd: PathBuf, input: String, env: Vec<(String, String)> },
+    /// `command` run by the login shell at `cwd`: a Claude Code background session. Its
+    /// arguments are quoted in the command itself: the service the session runs under may start
+    /// from this shell and keep its environment, so nothing is handed over in that.
+    Background { cwd: PathBuf, command: String },
     /// A link the Claude app opens.
     ClaudeApp { url: String },
     /// A link the Codex app opens.
@@ -154,6 +160,7 @@ pub fn options(accounts: &[AccountCfg], terminal: &str, codex_projects: Vec<Stri
             match harness {
                 Harness::Claude => {
                     places.push(PlaceOption { place: Place::Terminal, label: terminal.to_string() });
+                    places.push(PlaceOption { place: Place::Background, label: "Background".into() });
                     if a.home_path() == home.join(".claude") {
                         places.push(PlaceOption { place: Place::ClaudeApp, label: "Claude app".into() });
                     }
@@ -252,6 +259,26 @@ fn plan_in(account: &AccountCfg, place: Place, folder: &Path, prompt: &str, sess
             input.push('\n');
             Plan::Terminal { cwd: folder.to_path_buf(), input, env }
         }
+        Place::Background => {
+            // `--bg` picks the session's ID itself and ignores `--session-id`.
+            let mut command = account.command().to_string();
+            if worktree {
+                command.push_str(" --worktree");
+            }
+            for (has, dir) in [(has_images, images_dir), (has_files, files_dir)] {
+                if has {
+                    command.push_str(&format!(" --add-dir {}", sh_quote(&dir.to_string_lossy())));
+                }
+            }
+            command.push_str(" --bg");
+            if let Some(m) = model.filter(|m| valid_model(m)) {
+                command.push_str(&format!(" --model '{m}'"));
+            }
+            if !prompt.is_empty() {
+                command.push_str(&format!(" {}", sh_quote(&as_argument(prompt))));
+            }
+            Plan::Background { cwd: folder.to_path_buf(), command }
+        }
         Place::ClaudeApp => Plan::ClaudeApp { url: with_param(format!("claude://code/new?folder={}", urlencoding::encode(&dir)), "q", prompt) },
         Place::CodexApp => Plan::CodexApp { url: with_param(format!("codex://threads/new?path={}", urlencoding::encode(&dir)), "prompt", prompt) },
     }
@@ -277,6 +304,75 @@ pub fn as_argument(prompt: &str) -> String {
         p.push(' ');
     }
     p
+}
+
+/// `s` in single quotes for the shell, each quote in it closed, escaped and reopened.
+fn sh_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
+}
+
+/// The job ID `--bg` prints (`backgrounded · 34b864ad`), which is also where the session's own
+/// ID begins.
+pub fn background_job(output: &str) -> Option<String> {
+    output.lines().find_map(|l| {
+        let rest = l.trim().strip_prefix("backgrounded")?;
+        let job: String = rest.trim_start_matches(|c: char| !c.is_ascii_hexdigit()).chars().take_while(char::is_ascii_hexdigit).collect();
+        (job.len() >= 8).then_some(job)
+    })
+}
+
+/// A background job's session ID, from the service's roster (`<home>/daemon/roster.json`,
+/// `workers.<job>.sessionId`), where it's written as the job starts.
+pub fn background_session(roster: &serde_json::Value, job: &str) -> Option<String> {
+    roster.get("workers")?.get(job)?.get("sessionId")?.as_str().filter(|id| id.starts_with(job)).map(str::to_string)
+}
+
+/// Runs a background start in the login shell, which knows the account's command even when it's
+/// an alias, and returns the job's session ID once the service has it. Output goes to a file,
+/// not a pipe: a service the command starts would hold a pipe open long after it returns.
+fn start_background(account: &AccountCfg, cwd: &Path, command: &str) -> Result<(String, Option<String>)> {
+    use std::process::{Command, Stdio};
+    use std::time::{Duration, Instant};
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+    let out_path = std::env::temp_dir().join(format!("codealong-bg-{}-{}.txt", std::process::id(), new_session_id()));
+    let out = std::fs::File::create(&out_path)?;
+    let mut child = Command::new(&shell)
+        .args(["-ilc", command])
+        .current_dir(cwd)
+        .env_remove(SESSION_VAR)
+        .stdin(Stdio::null())
+        .stdout(out.try_clone()?)
+        .stderr(out)
+        .spawn()
+        .map_err(|e| anyhow!("couldn't start {shell}: {e}"))?;
+    let started = Instant::now();
+    let status = loop {
+        if let Some(status) = child.try_wait()? {
+            break status;
+        }
+        if started.elapsed() > Duration::from_secs(60) {
+            let _ = child.kill();
+            let _ = std::fs::remove_file(&out_path);
+            bail!("{} didn't start in the background within a minute.", account.name);
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    let output = std::fs::read_to_string(&out_path).unwrap_or_default();
+    let _ = std::fs::remove_file(&out_path);
+    let Some(job) = background_job(&output) else {
+        // Claude Code says why: an untrusted folder, a bad option, not signed in.
+        let why = output.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with("Starting background service")).last().unwrap_or("").to_string();
+        bail!(if why.is_empty() { format!("{} didn't start in the background (exit {}).", account.name, status.code().unwrap_or(-1)) } else { why });
+    };
+    let roster = account.home_path().join("daemon/roster.json");
+    let deadline = Instant::now() + Duration::from_secs(3);
+    loop {
+        let id = std::fs::read(&roster).ok().and_then(|b| serde_json::from_slice(&b).ok()).and_then(|v| background_session(&v, &job));
+        if id.is_some() || Instant::now() > deadline {
+            return Ok((job, id));
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
 }
 
 /// A random version 4 UUID, the form `--session-id` takes.
@@ -310,7 +406,7 @@ pub fn start(board: &Board, cfg: &Config, spec: &StartSpec) -> Result<Started> {
     }
     // The apps pick their model and worktree themselves, and only Claude Code takes them on the
     // command line, so they go only with a terminal start of a Claude Code account.
-    let claude_terminal = spec.place == Place::Terminal && harness_of(account) == Harness::Claude;
+    let claude_terminal = matches!(spec.place, Place::Terminal | Place::Background) && harness_of(account) == Harness::Claude;
     let model = spec.model.as_deref().map(str::trim).filter(|m| !m.is_empty() && claude_terminal);
     let worktree = spec.worktree && claude_terminal;
     if let Some(m) = model.filter(|m| !valid_model(m)) {
@@ -326,6 +422,13 @@ pub fn start(board: &Board, cfg: &Config, spec: &StartSpec) -> Result<Started> {
             match harness_of(account) {
                 Harness::Opencode => Ok(Started { key: None, message: Some(format!("OpenCode is starting in {}.", lane.callsign)) }),
                 _ => Ok(Started { key: Some(format!("claude:{}:{id}", account.name)), message: None }),
+            }
+        }
+        Plan::Background { cwd, command } => {
+            let (job, id) = start_background(account, &cwd, &command)?;
+            match id {
+                Some(id) => Ok(Started { key: Some(format!("claude:{}:{id}", account.name)), message: None }),
+                None => Ok(Started { key: None, message: Some(format!("{} is starting in the background as {job}.", account.name)) }),
             }
         }
         Plan::ClaudeApp { url } => {
@@ -372,8 +475,8 @@ mod tests {
             account("antigravity", "antigravity", "/Users/me/.gemini/antigravity", None),
         ];
         let o = options(&accounts, "Ghostty", vec!["/r/kestrel".into()], Path::new("/Users/me"), |a| (a.name == "claude2").then(|| "claude-fable-5-1".to_string()));
-        assert_eq!(places(&o, "claude"), vec![Place::Terminal, Place::ClaudeApp]);
-        assert_eq!(places(&o, "claude2"), vec![Place::Terminal]);
+        assert_eq!(places(&o, "claude"), vec![Place::Terminal, Place::Background, Place::ClaudeApp]);
+        assert_eq!(places(&o, "claude2"), vec![Place::Terminal, Place::Background]);
         assert_eq!(places(&o, "codex"), vec![Place::CodexApp]);
         assert!(places(&o, "codex2").is_empty());
         assert!(o.accounts[3].unavailable.as_deref().unwrap_or("").contains("~/.codex"));
@@ -420,6 +523,69 @@ mod tests {
         let custom = account("claude3", "claude", "~/.claude3", Some("CLAUDE_CONFIG_DIR=~/.claude3 claude"));
         let Plan::Terminal { input, .. } = plan(&custom, Place::Terminal, Path::new("/r/x"), "", id, None, false) else { panic!() };
         assert_eq!(input, format!("CLAUDE_CONFIG_DIR=~/.claude3 claude --session-id {id}\n"));
+    }
+
+    #[test]
+    fn starts_in_the_background_with_everything_quoted_in_the_command() {
+        let a = account("claude2", "claude", "~/.claude2", Some("claude2"));
+        let id = "0b7c2a4e-1d2f-4e3a-9b8c-7d6e5f4a3b2c";
+        let (images, files) = (Path::new("/Users/me/Library/Application Support/Codealong/images"), Path::new("/f"));
+        let prompt = "Don't break $HOME or `this`\n![image](images/0123456789abcdef.png)";
+        let Plan::Background { cwd, command } = plan_in(&a, Place::Background, Path::new("/r/x"), prompt, id, Some("fable[1m]"), true, (images, files)) else { panic!() };
+        assert_eq!(cwd, PathBuf::from("/r/x"));
+        // --worktree first (it takes an optional name), --add-dir before --bg (it takes several
+        // folders), and no --session-id, which --bg ignores.
+        assert_eq!(
+            command,
+            format!("claude2 --worktree --add-dir '{}' --bg --model 'fable[1m]' 'Don'\\''t break $HOME or `this`\n@\"{}/0123456789abcdef.png\"'", images.display(), images.display())
+        );
+        let Plan::Background { command, .. } = plan(&a, Place::Background, Path::new("/r/x"), "  ", id, None, false) else { panic!() };
+        assert_eq!(command, "claude2 --bg");
+        // A one-word prompt keeps its padding, so it isn't read as a command.
+        let Plan::Background { command, .. } = plan(&a, Place::Background, Path::new("/r/x"), "update", id, None, false) else { panic!() };
+        assert_eq!(command, "claude2 --bg 'update '");
+    }
+
+    #[test]
+    fn finds_the_background_session_it_started() {
+        let out = "backgrounded · 34b864ad\n  claude agents             list sessions\n  claude attach 34b864ad    open in this terminal\n";
+        assert_eq!(background_job(out).as_deref(), Some("34b864ad"));
+        assert_eq!(background_job("backgrounded · 3a6096ed (idle — send a prompt to start)\n").as_deref(), Some("3a6096ed"));
+        assert_eq!(background_job("Workspace not trusted. Run `claude` in /r/x once and accept the trust prompt, then retry.\n"), None);
+        let roster = serde_json::json!({"workers": {"34b864ad": {"sessionId": "34b864ad-b397-4f98-96fe-b06f41bb2653"}, "11111111": {"sessionId": "22222222-0000-4000-8000-000000000000"}}});
+        assert_eq!(background_session(&roster, "34b864ad").as_deref(), Some("34b864ad-b397-4f98-96fe-b06f41bb2653"));
+        assert_eq!(background_session(&roster, "11111111"), None);
+        assert_eq!(background_session(&roster, "99999999"), None);
+    }
+
+    /// Starts a real background session on Haiku in a folder Claude Code trusts, checks that its
+    /// transcript has the prompt exactly as given, then stops and removes it. Opt in:
+    /// `CODEALONG_TEST_FOLDER=<trusted git folder> cargo test background_round_trip -- --ignored`.
+    #[test]
+    #[ignore]
+    fn background_round_trip() {
+        let folder = PathBuf::from(std::env::var("CODEALONG_TEST_FOLDER").expect("CODEALONG_TEST_FOLDER"));
+        let a = account("claude", "claude", "~/.claude", Some("claude"));
+        let prompt = "Reply with just ok. Don't expand $HOME or `this` or $(say nope) -v";
+        let Plan::Background { cwd, command } = plan(&a, Place::Background, &folder, prompt, "unused", Some("haiku"), false) else { panic!() };
+        let (job, id) = start_background(&a, &cwd, &command).unwrap();
+        let id = id.expect("the roster names the session");
+        assert!(id.starts_with(&job));
+        let mut seen = false;
+        for _ in 0..100 {
+            let found = crate::util::home().join(".claude/projects").read_dir().unwrap().flatten().map(|d| d.path().join(format!("{id}.jsonl"))).find(|p| p.exists());
+            if let Some(text) = found.and_then(|p| std::fs::read_to_string(p).ok()) {
+                // Nothing in it needs escaping in JSON.
+                if text.contains(prompt) {
+                    seen = true;
+                    break;
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
+        let _ = crate::procs::run("claude", &["stop", &job], Some(&folder), std::time::Duration::from_secs(20));
+        let _ = crate::procs::run("claude", &["rm", &job], Some(&folder), std::time::Duration::from_secs(20));
+        assert!(seen, "the transcript never showed the prompt");
     }
 
     #[test]
