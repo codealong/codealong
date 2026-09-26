@@ -334,7 +334,8 @@ export function CanvasView(props: CanvasViewProps) {
       const d = data.get(itemId(it));
       let color = liveColors.gone;
       if (d?.ref === 'session') color = liveColors[d.session.status === 'stopped' ? 'idle' : d.session.status];
-      else if (d?.ref === 'worktree') color = d.lane.glyph === 'idle' || d.lane.glyph === 'stopped' ? liveColors.lane : liveColors[d.lane.glyph];
+      // Zoomed out too, a worktree is its column's dark head; its sessions carry the status.
+      else if (d?.ref === 'worktree') color = liveColors.lane;
       else if (d?.ref === 'todo') color = d.todo.status === 'done' ? liveColors.done : d.todo.status === 'in-progress' ? liveColors.progress : liveColors.todo;
       else if (d?.ref === 'pr') color = d.pr.state === 'merged' ? liveColors.merged : d.pr.state === 'closed' ? liveColors.gone : liveColors.open;
       return { ...r, color: faded?.has(itemId(it)) ? ([color[0], color[1], color[2], color[3] * 0.18] as Rgba) : color };

@@ -109,9 +109,10 @@ function Card({ item, data, now, selected, related, faded }: CardProps) {
     case 'worktree': {
       const l = data.lane;
       return (
-        <div className={cls('worktree', `bay-${l.bay}`)} style={style} data-id={id}>
+        // A worktree heads its column: a folder, not a status, which its sessions below show.
+        <div className={cls('worktree')} style={style} data-id={id}>
           <div className="ca-cv-l1">
-            <LaneGlyph lane={l} />
+            {(l.bay === 'review' || l.bay === 'merged') && l.pr ? <LaneGlyph lane={l} /> : <Icon name="folder" size={14} />}
             <span className="ca-cv-title ca-cv-callsign">{l.callsign}</span>
             {l.pr && <PrChip pr={l.pr} compact />}
           </div>

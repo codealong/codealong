@@ -3899,9 +3899,14 @@ html.is-quick body {
   color: var(--ink);
   overflow: hidden;
 }
+/* A worktree reads as the header of the column under it, not as another card. */
 .ca-cv-card.is-worktree {
-  background: var(--surface-raised);
-  border-color: color-mix(in srgb, var(--line-strong) 40%, var(--line));
+  background: var(--surface-sunken);
+  border-color: transparent;
+  box-shadow: none;
+}
+.ca-cv-card.is-worktree .ca-cv-l1 > .ca-icon {
+  color: var(--ink-3);
 }
 .ca-cv-l1,
 .ca-cv-l2 {
@@ -3982,8 +3987,7 @@ html.is-quick body {
   flex: none;
 }
 /* A stripe down the left edge in the status's color, as the Inbox colors them. */
-.ca-cv-card.st-needs,
-.ca-cv-card.bay-needs {
+.ca-cv-card.st-needs {
   box-shadow: inset 3px 0 0 var(--attn-solid), var(--shadow-lift);
   background: color-mix(in srgb, var(--attn-tint) 55%, var(--surface));
 }
@@ -3991,12 +3995,10 @@ html.is-quick body {
   box-shadow: inset 3px 0 0 var(--alert-solid), var(--shadow-lift);
   background: color-mix(in srgb, var(--alert-tint) 55%, var(--surface));
 }
-.ca-cv-card.st-working,
-.ca-cv-card.bay-working {
+.ca-cv-card.st-working {
   box-shadow: inset 3px 0 0 var(--logo-working), var(--shadow-lift);
 }
-.ca-cv-card.st-unread,
-.ca-cv-card.bay-unread {
+.ca-cv-card.st-unread {
   box-shadow: inset 3px 0 0 var(--unread-solid), var(--shadow-lift);
 }
 .ca-cv-card.st-idle .ca-cv-title,
