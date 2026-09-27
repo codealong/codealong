@@ -707,7 +707,7 @@ impl Inner {
         found.sort_by(|a, b| a.name.cmp(&b.name));
         let asks = st.asks.iter().map(|a| AskView { key: a.key.clone(), short: short_of(&a.key).to_string(), name: a.name.clone(), code: a.code.clone() }).collect();
         let lanes = if st.cfg.enabled {
-            st.linked.iter().filter_map(|l| st.replicas.get(&l.key).map(|c| peerfeed::for_windows(short_of(&l.key), &c.replica))).flatten().collect()
+            st.linked.iter().filter_map(|l| st.replicas.get(&l.key).map(|c| peerfeed::for_windows(short_of(&l.key), &self.name_of(st, &l.key), &c.replica))).flatten().collect()
         } else {
             Vec::new()
         };

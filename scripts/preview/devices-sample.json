@@ -1,0 +1,15 @@
+{
+  "cfg": { "enabled": true, "name": "", "tailscale": true, "iroh": true, "remote_control": false, "port": 47471 },
+  "lanesFromBoard": { "9f8e7d6c5b": 3, "4a3b2c1d0e": 1 },
+  "view": {
+    "enabled": true,
+    "me": { "key": "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90", "short": "a1b2c3d4e5", "name": "Sam’s MacBook Pro", "tailscale": "running", "tailnet": "sam@example.com", "address": "100.101.1.1:47471", "iroh": "online", "remoteControl": false, "error": null },
+    "devices": [
+      { "key": "9f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0", "short": "9f8e7d6c5b", "name": "Mac mini", "online": true, "via": "tailscale", "since": 1790500000000, "lastSeen": null, "remoteControl": true, "app": "0.1.0", "linkedBack": true, "loading": false, "usage": [] },
+      { "key": "4a3b2c1d0e5f6a7b8c9d0e1f2a3b4c5d4a3b2c1d0e5f6a7b8c9d0e1f2a3b4c5d", "short": "4a3b2c1d0e", "name": "Studio", "online": false, "via": null, "since": null, "lastSeenAgo": 7200000, "remoteControl": false, "app": "0.1.0", "linkedBack": true, "loading": false, "usage": [] }
+    ],
+    "found": [ { "key": "7c6b5a49382716f5e4d3c2b1a0f9e8d77c6b5a49382716f5e4d3c2b1a0f9e8d7", "short": "7c6b5a4938", "name": "iMac", "code": "482 915", "asking": false } ],
+    "asks": [ { "key": "2e1d0c9b8a7f6e5d4c3b2a1908f7e6d52e1d0c9b8a7f6e5d4c3b2a1908f7e6d5", "short": "2e1d0c9b8a", "name": "Work MacBook", "code": "731 204" } ],
+    "lanes": []
+  }
+}

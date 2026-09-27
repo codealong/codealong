@@ -101,6 +101,13 @@ window.__TAURI_INTERNALS__ = {
         return all[2] ? withUsage(board, all[2]) : board;
       });
     }
+    // With a devices fixture, Settings reads `[devices]` from it.
+    if (cmd === 'get_config') {
+      return Promise.all([fetch('./config.json').then(function (r) { return r.json(); }), optionalJson('./devices-fixture.json')]).then(function (all) {
+        if (all[1] && all[1].cfg) all[0].config.devices = all[1].cfg;
+        return all[0];
+      });
+    }
     var file = { get_accounts: './accounts.json', found_accounts: './found.json', get_config: './config.json', pr_detail: './pr-detail.json', start_options: './start-options.json', bar_feed: './bar-feed.json' }[cmd];
     if (file) return fetch(file).then(function (r) { return r.ok ? r.json() : Promise.reject(new Error(file + ' is missing')); });
     if (cmd === 'plugin:menu|new') return Promise.resolve([window.__calls.length, 'menu-' + window.__calls.length]);
@@ -119,6 +126,38 @@ window.__TAURI_INTERNALS__ = {
         errors: cmd === 'install_agents' && (args || {}).accounts && args.accounts.indexOf('codex') >= 0 ? ['codex: /Users/you/.codex/skills/codealong exists and Codealong didn\'t put it there; move it away to install the skill.'] : [],
       });
     }
+    // Your other Macs from devices-fixture.json (PREVIEW_DEVICES in preview.sh): its view, with
+    // some of the board's own worktrees shown as if they were on those Macs (`lanesFromBoard`,
+    // Mac short id → how many), their ids and keys made the way the engine makes them.
+    if (cmd === 'devices') {
+      return Promise.all([optionalJson('./devices-fixture.json'), fetch('./board.json').then(function (r) { return r.json(); })]).then(function (all) {
+        var fx = all[0];
+        if (!fx) return { enabled: false, me: { key: '', short: '', name: 'This Mac', tailscale: 'off', tailnet: null, address: null, iroh: 'off', remoteControl: false, error: null }, devices: [], found: [], asks: [], lanes: [] };
+        var view = JSON.parse(JSON.stringify(fx.view));
+        view.devices.forEach(function (d) { if (d.lastSeenAgo) d.lastSeen = Date.now() - d.lastSeenAgo; });
+        var skip = 1;
+        Object.keys(fx.lanesFromBoard || {}).forEach(function (short) {
+          var dev = view.devices.find(function (d) { return d.short === short; });
+          var picked = all[1].lanes.filter(function (l) { return !l.hidden && l.sessions.length > 0; }).slice(skip, skip + fx.lanesFromBoard[short]);
+          skip += fx.lanesFromBoard[short];
+          picked.forEach(function (l) {
+            var copy = JSON.parse(JSON.stringify(l));
+            copy.id = '@' + short + ':' + l.id;
+            copy.mac = dev ? dev.name : short;
+            copy.targets = [];
+            copy.defaultTarget = null;
+            copy.sessions.forEach(function (x) { x.key = '@' + short + ':' + x.key; x.openTarget = ''; x.pid = null; x.resumeCommand = null; });
+            view.lanes.push(copy);
+          });
+        });
+        return view;
+      });
+    }
+    if (cmd === 'link_device') return Promise.resolve('482 915');
+    if (cmd === 'device_link_code') return Promise.resolve('cal1f4k3c0d3xq7mzv2r9k8w3n5b6t1y4u7p2e9s3d8g5h1j6l0a4c7v2b');
+    if (cmd === 'answer_link' || cmd === 'unlink_device') return Promise.resolve(null);
+    if (cmd === 'link_with_code') return Promise.resolve('Studio');
+    if (cmd === 'search_devices') return Promise.resolve([]);
     // Text search: the two latest sessions whose titles don't have the words, as if their
     // conversations did, so the panel's text hits can be seen.
     if (cmd === 'search_text') {

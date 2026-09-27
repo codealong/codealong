@@ -123,6 +123,8 @@ export interface Lane {
   looksFinished?: boolean;
   targets: Target[];
   defaultTarget: string | null;
+  /** The Mac it's on, by name, when that's another of your Macs; missing for this Mac's own. */
+  mac?: string;
 }
 
 export interface ProjectSummary {
@@ -191,7 +193,95 @@ export interface Config {
   projects: ProjectCfg[];
   /** How many days of sessions have what was said in them searched; 0 is off. */
   search?: { days: number };
+  /** Your other Macs. Older files have none: off. */
+  devices?: DevicesCfg;
   debug: { perf_log: boolean };
+}
+
+/** `[devices]` in config.toml: Codealong on your other Macs (src-tauri/src/peers.rs). */
+export interface DevicesCfg {
+  enabled: boolean;
+  /** This Mac's name on the others; empty is the computer's name. */
+  name: string;
+  /** Find your Macs on your tailnet. */
+  tailscale: boolean;
+  /** Reach linked Macs anywhere, through iroh. */
+  iroh: boolean;
+  /** Let linked Macs send prompts, answer approvals and start sessions here. */
+  remote_control: boolean;
+  port: number;
+}
+
+export const DEVICES_OFF: DevicesCfg = { enabled: false, name: '', tailscale: true, iroh: true, remote_control: false, port: 47471 };
+
+export type DeviceVia = 'tailscale' | 'iroh' | 'test';
+
+/** Your other Macs, as the engine hands them to the windows (`devices` event). */
+export interface DevicesView {
+  enabled: boolean;
+  me: DevicesMe;
+  /** Linked Macs, in the order they were linked. */
+  devices: DeviceView[];
+  /** Your Macs on your tailnet running Codealong that aren't linked yet. */
+  found: FoundDevice[];
+  /** Macs asking to link, waiting for your answer here. */
+  asks: DeviceAsk[];
+  /** Every linked Mac's worktrees; each lane id and session key starts `@<short>:`. */
+  lanes: Lane[];
+}
+
+export interface DevicesMe {
+  key: string;
+  short: string;
+  name: string;
+  tailscale: 'off' | 'missing' | 'stopped' | 'running';
+  tailnet: string | null;
+  address: string | null;
+  /** "off", "starting", "online", "offline", or why it didn't start. */
+  iroh: string;
+  remoteControl: boolean;
+  error: string | null;
+}
+
+export interface DeviceView {
+  key: string;
+  short: string;
+  name: string;
+  online: boolean;
+  via: DeviceVia | null;
+  since: number | null;
+  lastSeen: number | null;
+  remoteControl: boolean;
+  app: string;
+  /** It has this Mac linked too. */
+  linkedBack: boolean;
+  loading: boolean;
+  usage: Usage[];
+}
+
+export interface FoundDevice {
+  key: string;
+  short: string;
+  name: string;
+  /** The six digits both Macs show while linking. */
+  code: string;
+  /** You asked it to link; it's waiting for an answer there. */
+  asking: boolean;
+}
+
+export interface DeviceAsk {
+  key: string;
+  short: string;
+  name: string;
+  code: string;
+}
+
+/** A linked Mac's answer to a search of what was said. */
+export interface DeviceFound {
+  device: string;
+  name: string;
+  found: TextFound | null;
+  error: string | null;
 }
 
 /** Where a terminal Codealong opens goes: its own window, a tab in the front window, or a tab
@@ -290,6 +380,8 @@ export interface Board {
   jev?: JevCfg;
   /** Open todos whose work Jev says looks done, by todo id. Missing on older boards. */
   todoHints?: Record<string, TodoHint>;
+  /** `[devices]` from config.toml. Missing on older boards. */
+  devices?: DevicesCfg;
 }
 
 /** Why a todo looks done: how sure Jev is, and what showed it. */

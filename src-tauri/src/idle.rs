@@ -268,6 +268,7 @@ mod tests {
             looks_finished: false,
             targets: Vec::new(),
             default_target: None,
+            mac: None,
         };
         let mut b = Board::default();
         b.lanes = vec![lane];

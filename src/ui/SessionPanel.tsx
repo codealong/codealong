@@ -6,7 +6,7 @@ import { useState } from 'react';
 import { below } from '../contextMenu';
 import { absolute, agoPhrase, duration, middleTruncate, tildePath } from '../format';
 import { HARNESS_WORD, sessionPlace } from '../harness';
-import type { Board, Lane, Session, Todo } from '../types';
+import type { Board, DeviceView, Lane, Session, Todo } from '../types';
 import { STATUS_WORD as TODO_WORD } from '../todos';
 import { InsightChips } from './InsightBits';
 import { OpenInMenu } from './Inspector';
@@ -28,9 +28,11 @@ interface SessionPanelProps {
   onShowTodo?: (todo: Todo) => void;
   /** The session's right-click menu, from its ⋯ button. */
   onMoreMenu: (at: { x: number; y: number }) => void;
+  /** The Mac it's on, when that's another of yours: it opens there, and a message goes there. */
+  device?: DeviceView | null;
 }
 
-export function SessionPanel({ lane, session: s, apps, now, onOpen, onNewSession, onShowLane, todos, onShowTodo, onMoreMenu }: SessionPanelProps) {
+export function SessionPanel({ lane, session: s, apps, now, onOpen, onNewSession, onShowLane, todos, onShowTodo, onMoreMenu, device }: SessionPanelProps) {
   const [details, setDetails] = useState(false);
   const targets = lane.targets.filter((t) => t.id.startsWith(`s|${s.key}|`));
   const since = s.statusSince ? (s.status === 'working' ? `for ${duration(s.statusSince, now)}` : agoPhrase(s.statusSince, now)) : agoPhrase(s.lastActivity, now);
@@ -57,14 +59,19 @@ export function SessionPanel({ lane, session: s, apps, now, onOpen, onNewSession
           </div>
         )}
         <div className="ca-insp-actions">
-          {targets.length > 0 ? (
+          {device ? (
+            <span className="ca-tag ca-device-tag" title={device.online ? `Connected ${device.via === 'iroh' ? 'through iroh' : 'on your tailnet'}` : 'Not connected'}>
+              <span className={device.online ? 'ca-device-dot is-on' : 'ca-device-dot'} aria-hidden="true" />
+              On {device.name}
+            </span>
+          ) : targets.length > 0 ? (
             <OpenInMenu targets={targets} defaultId={s.openTarget} onOpen={onOpen} />
           ) : (
             <Button variant="primary" icon="arrow-up-right" onClick={() => onOpen(s.openTarget)}>
               Open in {sessionPlace(s, apps.terminal)}
             </Button>
           )}
-          <Button icon="plus" title={`New session in ${lane.callsign} (⌘N)`} aria-label={`New session in ${lane.callsign}`} onClick={onNewSession} />
+          {!device && <Button icon="plus" title={`New session in ${lane.callsign} (⌘N)`} aria-label={`New session in ${lane.callsign}`} onClick={onNewSession} />}
           <button type="button" className="ca-linkbtn ca-sessinsp-detailsbtn" aria-expanded={details} onClick={() => setDetails(!details)}>
             <Icon name={details ? 'chevron-down' : 'chevron-right'} size={12} />
             Details
@@ -130,7 +137,17 @@ export function SessionPanel({ lane, session: s, apps, now, onOpen, onNewSession
           ) : null
         }
       />
-      <Reply session={s} terminal={apps.terminal} onOpen={() => onOpen(s.openTarget)} />
+      {device && !device.online ? (
+        <p className="ca-sessinsp-remote" role="status">
+          {device.name} isn't connected, so nothing can reach this session from here right now.
+        </p>
+      ) : device && !device.remoteControl ? (
+        <p className="ca-sessinsp-remote" role="status">
+          {device.name} doesn't take prompts from your other Macs. To send from here, turn on <b>Let my linked Macs act on sessions here</b> in Settings › Devices on {device.name}.
+        </p>
+      ) : (
+        <Reply session={s} terminal={apps.terminal} onOpen={() => onOpen(s.openTarget)} />
+      )}
     </aside>
   );
 }

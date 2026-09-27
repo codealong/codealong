@@ -441,6 +441,7 @@ mod tests {
             looks_finished: false,
             targets: vec![],
             default_target: None,
+            mac: None,
         }
     }
 

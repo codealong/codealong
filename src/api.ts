@@ -4,7 +4,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { emitTo, listen } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import type { AccountCfg, AccountInfo, AgentsStatus, Attachment, BarFeed, BarNote, CloseOutcome, IdlePlan, Pending, PeekOpen, PeekShown, TranscriptPage, Board, Config, ConfigView, FoundAccount, PrDetail, Route, Sent, ShortcutStatus, TextFound, StartOptions, StartSpec, Started, Theme, TodoSuggested } from './types';
+import type { DeviceFound, DevicesView, AccountCfg, AccountInfo, AgentsStatus, Attachment, BarFeed, BarNote, CloseOutcome, IdlePlan, Pending, PeekOpen, PeekShown, TranscriptPage, Board, Config, ConfigView, FoundAccount, PrDetail, Route, Sent, ShortcutStatus, TextFound, StartOptions, StartSpec, Started, Theme, TodoSuggested } from './types';
 import type { TodoOp } from './todos';
 
 export const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -431,6 +431,58 @@ export function onBarFeed(cb: (feed: BarFeed) => void): () => void {
     cancelled = true;
     unlisten?.();
   };
+}
+
+/* ---- Your other Macs (src-tauri/src/peers.rs) ---- */
+
+/** Your other Macs as the engine sees them now; null outside the app. */
+export async function getDevices(): Promise<DevicesView | null> {
+  if (!inTauri) return null;
+  return invoke<DevicesView>('devices');
+}
+
+/** Calls `cb` with every change to your other Macs: linking, connecting, and their boards. */
+export function onDevices(cb: (view: DevicesView) => void): () => void {
+  if (!inTauri) return () => {};
+  let cancelled = false;
+  let unlisten: (() => void) | undefined;
+  void listen<DevicesView>('devices', (e) => cb(e.payload)).then((u) => {
+    if (cancelled) u();
+    else unlisten = u;
+  });
+  return () => {
+    cancelled = true;
+    unlisten?.();
+  };
+}
+
+/** Asks one of your Macs on your tailnet to link. Resolves to the code both Macs show. */
+export async function linkDevice(key: string): Promise<string> {
+  return invoke<string>('link_device', { key });
+}
+
+export async function answerLink(key: string, accept: boolean): Promise<void> {
+  await invoke('answer_link', { key, accept });
+}
+
+export async function unlinkDevice(key: string): Promise<void> {
+  await invoke('unlink_device', { key });
+}
+
+/** A link code for a Mac that isn't on your tailnet: it works once, for ten minutes. */
+export async function deviceLinkCode(): Promise<string> {
+  return invoke<string>('device_link_code');
+}
+
+/** Links with the Mac that made this code. Resolves to its name. */
+export async function linkWithCode(code: string): Promise<string> {
+  return invoke<string>('link_with_code', { code });
+}
+
+/** What was said in sessions on your other Macs, searched on each. */
+export async function searchDevices(words: string[]): Promise<DeviceFound[]> {
+  if (!inTauri || words.length === 0) return [];
+  return invoke<DeviceFound[]>('search_devices', { words });
 }
 
 /** Whether the floating bar is on. Outside the app it counts as on. */

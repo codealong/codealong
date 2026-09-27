@@ -55,10 +55,12 @@ export function currentSessions(lane: Lane, now: number) {
   return lane.sessions.filter((s) => s.live || s.status === 'needs' || s.status === 'error' || s.status === 'working' || s.status === 'unread' || now - s.lastActivity < DAY);
 }
 
-/** `atlas · quarry`: the repo, and the branch when the callsign doesn't already say it. */
+/** `atlas · quarry`: the repo, and the branch when the callsign doesn't already say it; on
+ *  another of your Macs, that Mac first (`Mac mini · atlas`). */
 function laneSub(lane: Lane): { sub: string; branch: string | null } {
   const branch = lane.branch ?? (lane.detached ? `detached @ ${lane.detached}` : null);
-  return { branch, sub: branch && branch !== lane.callsign ? `${lane.repo} · ${middleTruncate(branch, 26)}` : lane.repo };
+  const sub = branch && branch !== lane.callsign ? `${lane.repo} · ${middleTruncate(branch, 26)}` : lane.repo;
+  return { branch, sub: lane.mac ? `${lane.mac} · ${sub}` : sub };
 }
 
 /** Lines added and removed against the default branch, and a dot for uncommitted files. */

@@ -195,14 +195,15 @@ pub fn split_remote(key: &str) -> Option<(&str, &str)> {
 }
 
 /// A linked Mac's worktrees as this Mac's windows get them: every lane id and session key with
-/// the Mac's short id in front.
-pub fn for_windows(short: &str, replica: &Replica) -> Vec<Lane> {
+/// the Mac's short id in front, and the Mac's name on each lane.
+pub fn for_windows(short: &str, name: &str, replica: &Replica) -> Vec<Lane> {
     replica
         .lanes
         .iter()
         .map(|l| {
             let mut l = l.clone();
             l.id = remote_key(short, &l.id);
+            l.mac = Some(name.to_string());
             for s in &mut l.sessions {
                 s.key = remote_key(short, &s.key);
             }
@@ -298,10 +299,11 @@ mod tests {
     fn windows_get_keys_that_name_their_mac() {
         let mut replica = Replica::default();
         replica.apply(FeedMsg { rev: 1, full: true, lanes: vec![lane("/Users/sam/app", vec![session("claude:claude:9f", Status::Needs)])], ..Default::default() });
-        let lanes = for_windows("a1b2c3d4e5", &replica);
+        let lanes = for_windows("a1b2c3d4e5", "Mac mini", &replica);
         assert_eq!(lanes[0].id, "@a1b2c3d4e5:/Users/sam/app");
         assert_eq!(lanes[0].sessions[0].key, "@a1b2c3d4e5:claude:claude:9f");
         assert_eq!(lanes[0].path, "/Users/sam/app");
+        assert_eq!(lanes[0].mac.as_deref(), Some("Mac mini"));
         assert_eq!(split_remote(&lanes[0].sessions[0].key), Some(("a1b2c3d4e5", "claude:claude:9f")));
         assert_eq!(split_remote("claude:claude:9f"), None);
         // The windows split row keys on `::` and target ids on `|`; neither may appear.

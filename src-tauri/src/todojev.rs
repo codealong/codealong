@@ -453,6 +453,7 @@ mod tests {
             last_activity: NOW,
             targets: vec![],
             default_target: None,
+            mac: None,
             looks_finished: false,
         }
     }

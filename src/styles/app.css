@@ -5148,3 +5148,84 @@ html.is-quick body {
   display: inline-flex;
   gap: var(--space-2);
 }
+
+/* ---- Your other Macs (DevicesSection.tsx, the sidebar's Macs, the session panel) ---- */
+
+/* A Mac asking to link, across the top of the board until you answer. */
+.ca-device-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: var(--space-2) var(--space-3) 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--attn-tint);
+  font: 400 12px/16px var(--font-sans);
+  color: var(--ink);
+}
+.ca-device-banner > span {
+  flex: 1;
+  min-width: 0;
+}
+.ca-device-banner > .ca-icon,
+.ca-device-banner > svg {
+  color: var(--attn);
+  flex: none;
+}
+/* The six digits both Macs show while linking. */
+.ca-device-code {
+  font: 500 12px/16px var(--font-mono);
+  letter-spacing: 0.08em;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  color: var(--ink);
+  white-space: nowrap;
+}
+.ca-device-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--logo-idle);
+  flex: none;
+}
+.ca-device-dot.is-on {
+  background: var(--logo-working);
+}
+.ca-device-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.ca-device-ask {
+  border-color: var(--attn);
+}
+.ca-device-linkcode {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0;
+}
+.ca-device-linkcode .ca-code {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+.ca-device-codein {
+  flex: 1;
+  min-width: 0;
+}
+/* Where the reply box would be, for a session on another Mac that can't take one from here. */
+.ca-sessinsp-remote {
+  margin: 0;
+  padding: var(--space-3);
+  border-top: 1px solid var(--line);
+  color: var(--ink-3);
+  font: 400 12px/17px var(--font-sans);
+}
+/* Macs have people's names, not identifiers: the card's own font, not the account cards' mono. */
+.ca-ucard-name.ca-device-name {
+  font-family: var(--font-sans);
+}

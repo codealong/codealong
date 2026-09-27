@@ -46,6 +46,9 @@
 # PREVIEW_TRANSCRIPT=<session key> shows that session's real conversation in its panel (its
 # newest page, from --snapshot --transcript) and what it waits on you to allow (--pending);
 # other sessions show their title and excerpt there.
+# PREVIEW_DEVICES=<file> shows your other Macs from it (scripts/preview/devices-sample.json
+# has some): Settings › Devices, the sidebar's Macs, and a few of the board's own worktrees
+# shown as if they were on those Macs.
 # PREVIEW_FOUND=<file> lists the accounts in it under Settings › Accounts › Found on this Mac
 # (scripts/preview/found-sample.json has some) in place of the ones this Mac has but config.toml
 # doesn't list, which are often none.
@@ -95,6 +98,10 @@ if [ -n "${PREVIEW_CANVAS:-}" ]; then
   cp "$PREVIEW_CANVAS" "$dir/canvas-fixture.json"
 fi
 rm -f "$dir/usage-fixture.json"
+rm -f "$dir/devices-fixture.json"
+if [ -n "${PREVIEW_DEVICES:-}" ]; then
+  cp "$PREVIEW_DEVICES" "$dir/devices-fixture.json"
+fi
 if [ -n "${PREVIEW_USAGE:-}" ]; then
   cp "$PREVIEW_USAGE" "$dir/usage-fixture.json"
 fi

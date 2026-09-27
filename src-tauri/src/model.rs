@@ -310,6 +310,10 @@ pub struct Lane {
     pub looks_finished: bool,
     pub targets: Vec<Target>,
     pub default_target: Option<String>,
+    /// The Mac it's on, by name, when that's another of your Macs (peers.rs); none for this
+    /// Mac's own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mac: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

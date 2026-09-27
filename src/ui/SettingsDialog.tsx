@@ -9,14 +9,16 @@ import { shortcutFromKey, shortcutLabel, TAKEN } from '../quick';
 import type { Config, ConfigView, JevCfg, NewTerminal, Profile, ProjectCfg, ShortcutStatus, Theme, Usage } from '../types';
 import { AccountsSection } from './AccountsSection';
 import { AgentsSection } from './AgentsSection';
+import { DevicesPane } from './DevicesSection';
 import { Button, Icon, NavItem } from './primitives';
 
-export type SettingsSection = 'general' | 'accounts' | 'agents' | 'projects' | 'jev' | 'advanced' | 'file';
+export type SettingsSection = 'general' | 'accounts' | 'agents' | 'devices' | 'projects' | 'jev' | 'advanced' | 'file';
 
 const SECTIONS: { id: SettingsSection; label: string; icon: string }[] = [
   { id: 'general', label: 'General', icon: 'settings' },
   { id: 'accounts', label: 'Accounts', icon: 'user' },
   { id: 'agents', label: 'Agents', icon: 'terminal' },
+  { id: 'devices', label: 'Devices', icon: 'device-desktop' },
   { id: 'projects', label: 'Projects', icon: 'folder' },
   { id: 'jev', label: 'Jev', icon: 'sparkles' },
   { id: 'advanced', label: 'Advanced', icon: 'gauge' },
@@ -125,6 +127,8 @@ export function SettingsDialog({ section, onSection, focus, usage, apps, theme, 
     pane = error ? <p className="ca-form-error">{error}</p> : <p className="ca-empty">Reading settings…</p>;
   } else if (section === 'general' && cfg) {
     pane = <GeneralPane cfg={cfg} view={view} theme={theme} onPickTheme={onPickTheme} disabled={!!broken} onSave={save} />;
+  } else if (section === 'devices' && cfg) {
+    pane = <DevicesPane cfg={cfg} disabled={!!broken} onSave={save} now={now} />;
   } else if (section === 'projects' && cfg) {
     pane = <ProjectsPane cfg={cfg} disabled={!!broken} onSave={save} />;
   } else if (section === 'jev' && cfg) {

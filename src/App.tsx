@@ -10,13 +10,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { showContextMenu, type MenuSpec } from './contextMenu';
 import { AGENT_BAY, BAYS, buildBays, failingPr, filterByAge, inboxCounts, lanePromptAt, narrowed, rowItems, worktreeRow, type BoardRow, type Filter, type WorktreeRow } from './lanes';
-import { approvePr, archiveSession, barOn, dismissTodoHint, expandAttachments, getBoard, markSeen, onBarOn, onBoard, onCloseIdle, onNewWindow, onQuickStart, onReveal, onSettings, openConfig, openProjectWindow, openTarget, openUrl, refresh, refreshUsage, reviewInCodex, setBarOn, setPinned, setPinnedWorktrees, setPreferred, setTheme, showQuick, signIn, windowLabel, type Reveal } from './api';
+import { answerLink, approvePr, archiveSession, barOn, getDevices, onDevices, dismissTodoHint, expandAttachments, getBoard, markSeen, onBarOn, onBoard, onCloseIdle, onNewWindow, onQuickStart, onReveal, onSettings, openConfig, openProjectWindow, openTarget, openUrl, refresh, refreshUsage, reviewInCodex, setBarOn, setPinned, setPinnedWorktrees, setPreferred, setTheme, showQuick, signIn, windowLabel, type Reveal } from './api';
 import { usePerf } from './perf';
 import { reuse } from './reuse';
 import { reorderPinned, usePins } from './pins';
 import { prFlag } from './prStatus';
 import { blockedBy, COLOR_WORD, depsOf, newTodo, pickTo, pickToggle, sectionOf, sessionHomes, snippet, STATUSES, STATUS_WORD, todoIndex, todoInFilter, todoInQuery, todoItem, todoPrompt, todosPrompt, todoSections, useTodoStore, type TodoItem, type TodoPick, type TodoSectionId } from './todos';
-import type { Bay, Board, Label, Lane, PrItem, Session, Theme, Todo, TodoStatus } from './types';
+import type { Bay, Board, DevicesView, Label, Lane, PrItem, Session, Theme, Todo, TodoStatus } from './types';
+import { deviceOf, macOf, needsOn, withMacs, type MacFilter } from './devices';
 import { LABEL_COLORS } from './types';
 import { SettingsDialog, type SettingsSection } from './ui/SettingsDialog';
 import { CloseIdleDialog } from './ui/CloseIdleDialog';
@@ -213,6 +214,15 @@ const widthVar = (width: number | null) => (width == null ? undefined : `${width
 
 export function App() {
   const [board, setBoard] = useState<Board | null>(null);
+  // Your other Macs (src-tauri/src/peers.rs): their worktrees join this Mac's in every view, and
+  // the sidebar's Macs narrow the views to one of them.
+  const [devices, setDevices] = useState<DevicesView | null>(null);
+  const [macFilter, setMacFilter] = useState<MacFilter>(null);
+  useEffect(() => {
+    const show = (d: DevicesView) => setDevices((prev) => (prev ? reuse(prev, d) : d));
+    void getDevices().then((d) => d && show(d));
+    return onDevices(show);
+  }, []);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [project, setProject] = useState<string | null>(() => WINDOW_PROJECT ?? storedProject());
   const [bayFilter, setBayFilter] = useState<Filter | null>(null);
@@ -254,7 +264,9 @@ export function App() {
   // project this window shows. The panel tells this window how the start goes.
   const projectNow = useRef<string>(ALL_PROJECTS);
   const newSession = useCallback((at: { laneId: string | null; todo?: string | null; todos?: string[]; prompt?: string }) => {
-    void showQuick({ ...at, project: projectNow.current, opener: windowLabel() });
+    // The quick panel starts sessions on this Mac; one on another Mac's worktree starts without one.
+    const laneId = at.laneId && macOf(at.laneId) ? null : at.laneId;
+    void showQuick({ ...at, laneId, project: projectNow.current, opener: windowLabel() });
   }, []);
   // Opens and starts still waiting on their app: a spinner shows once one takes a moment.
   const [busy, setBusy] = useState<{ id: number; label: string }[]>([]);
@@ -376,7 +388,12 @@ export function App() {
   const lanePins = usePins(board?.pinnedWorktrees, setPinnedWorktrees, setToast);
 
   // Archived sessions leave every view but the Archived list.
-  const rawLanes = useMemo(() => board?.lanes ?? [], [board?.lanes]);
+  const rawLanes = useMemo(() => withMacs(board?.lanes ?? [], devices?.enabled ? devices.lanes : [], macFilter), [board?.lanes, devices?.enabled, devices?.lanes, macFilter]);
+  // What needs you on each Mac, for the sidebar, whichever Mac the views show.
+  const macNeeds = useMemo(() => {
+    const all = withMacs(board?.lanes ?? [], devices?.enabled ? devices.lanes : [], null);
+    return new Map<string | null, number>([null, ...(devices?.devices ?? []).map((d) => d.short)].map((m) => [m, needsOn(all, m)]));
+  }, [board?.lanes, devices]);
   const lanes = useMemo(
     () =>
       rawLanes.map((l) => {
@@ -578,7 +595,7 @@ export function App() {
     if (!selected) return null;
     if (selected.lane) return selected.lane.id;
     if (selected.kind !== 'pr') return null;
-    return lanes.find((l) => l.repoSlug === selected.pr.repoSlug && l.origin === 'main')?.id ?? null;
+    return lanes.find((l) => !l.mac && l.repoSlug === selected.pr.repoSlug && l.origin === 'main')?.id ?? null;
   }, [selected, lanes, view, canvasLane]);
 
   const counts = useMemo(() => inboxCounts(recentLanes), [recentLanes]);
@@ -1589,6 +1606,7 @@ export function App() {
       todos={todoLinks.bySession.get(session.key)}
       onShowTodo={showTodoFromPanel}
       onMoreMenu={(at) => void showContextMenu(sessionMenuSpec(lane, session, 'session'), at).catch((err: unknown) => setToast(String(err)))}
+      device={deviceOf(devices, session.key)}
     />
   );
 
@@ -1714,6 +1732,23 @@ export function App() {
           <NavItem glyph="unread" label="Your turn" count={counts.unread} active={bayFilter === 'unread'} onClick={() => toggleBay('unread')} />
           <NavItem icon="pr" label="In review" count={counts.review} active={bayFilter === 'review'} onClick={() => toggleBay('review')} />
           <NavItem glyph="error" label="Checks failing" count={counts.failing} tone="alert" active={bayFilter === 'failing'} onClick={() => toggleBay('failing')} />
+          {devices?.enabled && devices.devices.length > 0 && (
+            <>
+              <div className="ca-label ca-side-label">Macs</div>
+              <NavItem icon="device-desktop" label={devices.me.name || 'This Mac'} count={macNeeds.get(null) || undefined} tone="attn" active={macFilter === 'here'} onClick={() => setMacFilter(macFilter === 'here' ? null : 'here')} />
+              {devices.devices.map((d) => (
+                <NavItem
+                  key={d.key}
+                  icon="device-desktop"
+                  label={d.online ? d.name : `${d.name} · away`}
+                  count={macNeeds.get(d.short) || undefined}
+                  tone="attn"
+                  active={macFilter === d.short}
+                  onClick={() => setMacFilter(macFilter === d.short ? null : d.short)}
+                />
+              ))}
+            </>
+          )}
           <div className="ca-label ca-side-label">Worktrees · {recentLanes.length}</div>
           <div className="ca-side-scroll">
             <WorktreeTree
@@ -1758,6 +1793,20 @@ export function App() {
         </nav>
         <Resizer panel="before" cssVar="--sidebar-w" onResize={setSidebarWidth} />
         <main className={view === 'canvas' ? 'ca-board is-canvas' : 'ca-board'} aria-label={VIEWS.find((v) => v.id === view)?.label}>
+          {devices?.asks.map((a) => (
+            <div key={a.key} className="ca-device-banner" role="alert">
+              <Icon name="device-desktop" size={14} />
+              <span>
+                <b>{a.name}</b> wants to link with this Mac. Link only if it shows <span className="ca-device-code">{a.code}</span>.
+              </span>
+              <Button size="sm" variant="primary" onClick={() => void answerLink(a.key, true).catch((e: unknown) => setToast(String(e)))}>
+                Link
+              </Button>
+              <Button size="sm" onClick={() => void answerLink(a.key, false).catch((e: unknown) => setToast(String(e)))}>
+                Not now
+              </Button>
+            </div>
+          ))}
           <div className="ca-board-head">
             <div className="ca-segctl" role="tablist" aria-label="View">
               {VIEWS.map((v) => (
