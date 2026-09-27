@@ -15,9 +15,12 @@ has the same text.
 ## Start here
 
 Run `codealong whoami` once at the start of a task. It says which session you are (key like
-`claude:claude2:<uuid>`), which worktree you're in, and which todos are linked to either.
-`me` and `.` in other commands mean that session and that worktree. If it finds no session,
-todo commands still work; give a session key when you want one linked.
+`claude:claude2:<uuid>`), which worktree you're in, and your open todos: the ones linked to
+your session, and the worktree's when no other live session works there. In a checkout several
+agents share, a todo linked only to the worktree is another agent's. `me` and `.` in other
+commands mean that session and that worktree. If it finds no session, todo commands still
+work, and `todo start` and `todo done` say on stderr that no session was linked; give a session
+key when you want one linked.
 
 ## Todos
 
@@ -31,7 +34,8 @@ todo commands still work; give a session key when you want one linked.
   todo gets a prompt that ends by naming it ("This is Codealong todo <id>"); that session is
   already linked, and that id is the one to mark done.
 - **When the work is done:** `codealong todo done <id>`, once it's merged or the user says
-  it's done. Don't mark a todo done on your own guess that it is; ask.
+  it's done. It links your session to the todo too, if it wasn't already. Don't mark a todo
+  done on your own guess that it is; ask.
 - **Look before adding:** `codealong todo list` shows open todos (`--status all` for every
   one, `--mine` for yours, `--worktree .` for this worktree's). `codealong todo show <id>` has
   the description with attachments as full paths you can read.

@@ -61,9 +61,9 @@ enum Cmd {
         #[arg(long)]
         usage: bool,
     },
-    /// Which session runs this command, its worktree, and the todos linked to either. Run it first.
+    /// Which session runs this command, its worktree, and its open todos: the ones linked to the session, then the worktree's when no other live session works there (in a checkout several agents share, those are the others' work). Run it first.
     Whoami {
-        /// Plain text for a session-start hook: a line or two when a session or todo is found, nothing otherwise.
+        /// Plain text for a session-start hook, even when piped: a line or two when a session or todo is found, nothing otherwise.
         #[arg(long)]
         context: bool,
     },
@@ -112,7 +112,7 @@ enum TodoCmd {
     Update(TodoUpdateArgs),
     /// Mark a todo in progress, and link the session running this command and its worktree to it.
     Start { id: String },
-    /// Mark a todo done.
+    /// Mark a todo done, and link the session running this command to it: finishing a todo says you worked on it.
     Done { id: String },
     /// Put a done or in-progress todo back to todo.
     Reopen { id: String },
@@ -194,7 +194,7 @@ struct TodoAddArgs {
     /// Link a worktree: a path, or `.` for the current folder's.
     #[arg(long)]
     worktree: Option<String>,
-    /// Link a session: a key, an id, or `me`.
+    /// Link a session: a key, an id, or `me`. A linked session is one working on it, so this marks it in progress; leave it out when noting work for later.
     #[arg(long)]
     session: Option<String>,
     /// A todo this one waits on: it's blocked until that one is done. Repeatable.
@@ -216,7 +216,7 @@ struct TodoUpdateArgs {
     /// Read the new description from a file, or stdin with `-`.
     #[arg(long, value_name = "FILE")]
     description_file: Option<String>,
-    /// todo, in-progress or done.
+    /// todo, in-progress or done. in-progress links the session running this command and its worktree, as `todo start` does; done links the session, as `todo done` does.
     #[arg(long)]
     status: Option<String>,
     #[arg(long)]
@@ -1263,7 +1263,8 @@ struct Whoami {
     how: Option<String>,
     session: Option<SessionRow>,
     worktree: Option<LaneRow>,
-    /// Todos linked to the session, then to the worktree.
+    /// Open todos linked to the session, then open ones linked to the worktree when no other
+    /// live session works there (`my_todos`).
     todos: Vec<TodoRow>,
 }
 
@@ -1289,29 +1290,20 @@ fn whoami(c: &mut Client, context: bool, json: bool) -> Result<()> {
     let board = c.board()?;
     let session = key.as_deref().and_then(|k| all_sessions(board).into_iter().find(|(s, _)| s.key == k));
     let lane = session.map(|(_, l)| l).or_else(|| cwd.as_deref().and_then(|d| lane_for_path(board, d)));
-    let mut todos: Vec<&Todo> = board.todos.iter().filter(|t| key.as_deref().is_some_and(|k| t.sessions.contains(&k.to_string()))).collect();
-    if let Some(l) = lane {
-        let more: Vec<&Todo> = board.todos.iter().filter(|t| t.worktrees.contains(&l.id) && !todos.iter().any(|x| x.id == t.id)).collect();
-        todos.extend(more);
-    }
     let out = Whoami {
         found: session.is_some(),
         how: session.and(how).map(str::to_string),
         session: session.map(|(s, l)| session_row(s, l, &board.todos)),
         worktree: lane.map(|l| lane_row(l, board)),
-        todos: todos.iter().map(|t| todo_row(t, &store_of(board), false)).collect(),
+        todos: my_todos(board, key.as_deref(), lane).into_iter().map(|t| todo_row(t, &store_of(board), false)).collect(),
     };
+    // Before JSON: a hook reads the command's output through a pipe.
+    if context {
+        print!("{}", context_text(&out, key.as_deref()));
+        return Ok(());
+    }
     if json {
         return print_json(&out);
-    }
-    if context {
-        if let Some(s) = &out.session {
-            println!("This is Codealong session {} ({} on {}), in worktree {}.", s.key, s.harness, s.account, tilde(Path::new(&s.worktree)));
-        }
-        for t in &out.todos {
-            println!("Todo {} \"{}\" is linked here ({}).{}", t.id, t.title, status_text(t), if t.status == "in-progress" { " Mark it done with `codealong todo done` when the work is merged or the user says so." } else { "" });
-        }
-        return Ok(());
     }
     match &out.session {
         Some(s) => println!("Session {} ({} on {}, {}), found by {}.", s.key, s.harness, s.account, s.status, out.how.clone().unwrap_or_default()),
@@ -1321,9 +1313,44 @@ fn whoami(c: &mut Client, context: bool, json: bool) -> Result<()> {
         println!("Worktree {} ({}{}){}", tilde(Path::new(&w.id)), w.callsign, w.branch.as_deref().map(|b| format!(", {b}")).unwrap_or_default(), w.pr.map(|n| format!(", PR #{n}")).unwrap_or_default());
     }
     for t in &out.todos {
-        println!("Todo {} {} ({})", t.id, t.title, status_text(t));
+        let mine = key.as_deref().is_some_and(|k| t.sessions.iter().any(|s| s == k));
+        println!("Todo {} {} ({}{})", t.id, t.title, status_text(t), if mine { "" } else { ", linked to the worktree" });
     }
     Ok(())
+}
+
+/// The todos `whoami` names: the open ones linked to the session, then the open ones linked to
+/// its worktree when no other live session has that worktree as its own. In a checkout several
+/// agents share, the worktree's todos are the others' work. When the caller isn't known, one
+/// live session there may be the caller itself.
+fn my_todos<'a>(board: &'a Board, key: Option<&str>, lane: Option<&Lane>) -> Vec<&'a Todo> {
+    let open = |t: &&Todo| t.status != TodoStatus::Done;
+    let mut out: Vec<&Todo> = board.todos.iter().filter(open).filter(|t| key.is_some_and(|k| t.sessions.iter().any(|s| s == k))).collect();
+    let alone = lane.filter(|l| l.sessions.iter().filter(|s| s.visitor.is_none() && s.live && Some(s.key.as_str()) != key).count() <= usize::from(key.is_none()));
+    if let Some(l) = alone {
+        let more: Vec<&Todo> = board.todos.iter().filter(open).filter(|t| t.worktrees.contains(&l.id) && !out.iter().any(|x| x.id == t.id)).collect();
+        out.extend(more);
+    }
+    out
+}
+
+/// What `whoami --context` adds to a session's context as it starts: which session it is, and
+/// its todos. `key` is the session's even when the board doesn't show it yet, as happens for
+/// a session the app just started.
+fn context_text(out: &Whoami, key: Option<&str>) -> String {
+    let mut lines = Vec::new();
+    if let Some(s) = &out.session {
+        lines.push(format!("This is Codealong session {} ({} on {}), in worktree {}.", s.key, s.harness, s.account, tilde(Path::new(&s.worktree))));
+    }
+    for t in &out.todos {
+        if key.is_some_and(|k| t.sessions.iter().any(|s| s == k)) {
+            let done = if t.status == "in-progress" { format!(" When the work is merged or the user says it's done, mark it done with `codealong todo done {}`.", t.id) } else { String::new() };
+            lines.push(format!("Todo {} \"{}\" is linked to this session ({}).{done}", t.id, t.title, status_text(t)));
+        } else {
+            lines.push(format!("Todo {} \"{}\" is linked to this worktree ({}). If you take it on, `codealong todo start {}` links this session to it.", t.id, t.title, status_text(t), t.id));
+        }
+    }
+    lines.into_iter().map(|l| l + "\n").collect()
 }
 
 /// A todo's status for a line of text, with what it's marked as waiting for.
@@ -1612,20 +1639,22 @@ fn todo(cmd: TodoCmd, c: &mut Client, json: bool) -> Result<()> {
                 }
                 depends_on = Some(list);
             }
-            let patch = TodoPatch { depends_on, title: a.title, description: read_description(a.description, a.description_file)?, status: a.status.as_deref().map(parse_todo_status).transpose()?, labels, project: a.project, waiting: None };
+            let status = a.status.as_deref().map(parse_todo_status).transpose()?;
+            if status == Some(TodoStatus::InProgress) {
+                warn_blocked(&store, &id, &[]);
+            }
+            let patch = TodoPatch { depends_on, title: a.title, description: read_description(a.description, a.description_file)?, status, labels, project: a.project, waiting: None };
             c.apply(TodoOp::Update { id: id.clone(), patch })?;
+            if let Some(s) = status {
+                link_caller(c, &id, s, json);
+            }
             show_after(c, &id, json)
         }
         TodoCmd::Start { id } => {
             let store = c.todos()?;
             let id = resolve_todo(&store, &id)?;
             warn_blocked(&store, &id, &[]);
-            c.apply(TodoOp::Update { id: id.clone(), patch: TodoPatch { status: Some(TodoStatus::InProgress), ..Default::default() } })?;
-            // Linking `me` and `.` is best effort: a shell outside any session still starts the todo.
-            let me = find_me(c)?.0;
-            let here = std::env::current_dir().ok().and_then(|d| lane_for_path(c.board().ok()?, &d).map(|l| l.id.clone()));
-            link(c, &id, here.as_deref(), me.as_deref(), true)?;
-            show_after(c, &id, json)
+            set_status(c, &id, TodoStatus::InProgress, json)
         }
         TodoCmd::Move(a) => {
             let store = c.todos()?;
@@ -1762,7 +1791,37 @@ fn set_status(c: &mut Client, id: &str, status: TodoStatus, json: bool) -> Resul
     let store = c.todos()?;
     let id = resolve_todo(&store, id)?;
     c.apply(TodoOp::Update { id: id.clone(), patch: TodoPatch { status: Some(status), ..Default::default() } })?;
+    link_caller(c, &id, status, json);
     show_after(c, &id, json)
+}
+
+/// Links the session running this command to a todo it just said it's working on or has
+/// finished. In progress links the session and the worktree the command runs in; done links
+/// only the session, since a finished todo is found through its sessions, and a worktree
+/// several agents share would list it for all of them. Best effort, after the status has
+/// changed: a shell outside any session still changes it, and a link that fails is a note,
+/// not an error. An agent is told when its session wasn't found, so it can link one itself.
+fn link_caller(c: &mut Client, id: &str, status: TodoStatus, json: bool) {
+    if status == TodoStatus::Todo {
+        return;
+    }
+    let mut links = Vec::new();
+    if status == TodoStatus::InProgress {
+        let here = std::env::current_dir().ok().and_then(|d| lane_for_path(c.board().ok()?, &d).map(|l| l.id.clone()));
+        links.extend(here.map(|lane| TodoOp::Link { id: id.into(), worktree: Some(lane), session: None, linked: true }));
+    }
+    match find_me(c).ok().and_then(|(key, _)| key) {
+        // Linked as found, not looked up: a session the app just started isn't on the board yet.
+        Some(key) => links.push(TodoOp::Link { id: id.into(), worktree: None, session: Some(key), linked: true }),
+        // Output that isn't a terminal means an agent or a script; a person at a terminal expects none.
+        None if json => eprintln!("note: Codealong couldn't tell which session runs this command, so no session is linked to {id}. `codealong todo link {id} --session <key>` links one."),
+        None => {}
+    }
+    for op in links {
+        if let Err(e) = c.apply(op) {
+            eprintln!("note: {id} changed, but linking it failed: {e:#}");
+        }
+    }
 }
 
 /// Links (or unlinks) the worktree and session named, `.` and `me` included.
@@ -2294,6 +2353,89 @@ mod tests {
         let Cmd::Start(s) = cli.cmd else { panic!() };
         assert_eq!(s.todo, vec!["t-a".to_string(), "t-b".to_string()]);
         assert!(Cli::try_parse_from(["codealong", "start", "--todo", "t-a", "--prompt", "Fix it"]).is_err());
+    }
+
+    fn session(key: &str, live: bool, visitor: Option<&str>) -> Session {
+        serde_json::from_value(serde_json::json!({
+            "key": key, "id": key, "shortId": key, "harness": "claude", "account": "claude", "surface": "cli",
+            "status": "idle", "live": live, "pid": null, "title": format!("Title {key}"), "cwd": "/r", "work": [],
+            "name": null, "startedAt": null, "statusSince": 0, "lastActivity": 0, "lastPromptAt": 0, "excerpt": null,
+            "resumeCommand": null, "appAccount": false, "openTarget": format!("s|{key}|focus"), "visitor": visitor,
+            "headline": "", "detail": null, "branch": null, "archived": false, "attachCommand": null, "stalledSince": null
+        }))
+        .expect("a session")
+    }
+
+    fn lane(id: &str, sessions: Vec<Session>) -> Lane {
+        let mut l: Lane = serde_json::from_value(serde_json::json!({
+            "id": id, "project": "P", "repo": "r", "repoSlug": null, "path": id, "callsign": id.trim_start_matches('/'),
+            "origin": "main", "branch": null, "detached": null, "bay": "idle", "glyph": "idle", "parked": false,
+            "hidden": false, "headline": "", "detail": null, "sessions": [], "pr": null, "git": null,
+            "lastActivity": 0, "targets": [], "defaultTarget": null
+        }))
+        .expect("a lane");
+        l.sessions = sessions;
+        l
+    }
+
+    fn todo(id: &str, status: TodoStatus, sessions: &[&str], worktrees: &[&str]) -> Todo {
+        let strings = |xs: &[&str]| xs.iter().map(|x| x.to_string()).collect();
+        Todo { id: id.into(), project: String::new(), title: id.to_uppercase(), description: String::new(), status, labels: vec![], worktrees: strings(worktrees), sessions: strings(sessions), created_at: 0, updated_at: 0, done_at: None, pending: vec![], depends_on: vec![], waiting: None }
+    }
+
+    /// The main checkout, where this session and another live one work, and a worktree of its
+    /// own for a second session, with an ended session and a live visitor.
+    fn shared_and_own(other_live: bool) -> Board {
+        let todos = vec![
+            todo("a", TodoStatus::InProgress, &["me"], &["/r/main"]),
+            todo("b", TodoStatus::Done, &["me"], &[]),
+            todo("c", TodoStatus::InProgress, &["other"], &["/r/main"]),
+            todo("d", TodoStatus::Todo, &[], &["/r/wt"]),
+            todo("e", TodoStatus::Done, &["gone"], &["/r/wt"]),
+        ];
+        let lanes = vec![
+            lane("/r/main", vec![session("me", true, None), session("other", other_live, None), session("old", false, None)]),
+            lane("/r/wt", vec![session("me2", true, None), session("gone", false, None), session("other", true, Some("worked here"))]),
+        ];
+        Board { lanes, todos, ..Board::default() }
+    }
+
+    #[test]
+    fn whoami_names_its_own_open_todos_and_a_worktrees_only_when_no_one_else_is_there() {
+        let ids = |ts: Vec<&Todo>| ts.iter().map(|t| t.id.clone()).collect::<Vec<_>>();
+        let b = shared_and_own(true);
+        let (main, wt) = (&b.lanes[0], &b.lanes[1]);
+        // Its done todo is left out, and so is the shared checkout's other todo.
+        assert_eq!(ids(my_todos(&b, Some("me"), Some(main))), ["a"]);
+        // A worktree of its own: ended sessions and visitors don't share it; done todos stay out.
+        assert_eq!(ids(my_todos(&b, Some("me2"), Some(wt))), ["d"]);
+        // A caller that isn't known may be the one live session there, but not one of two.
+        assert_eq!(ids(my_todos(&b, None, Some(wt))), ["d"]);
+        assert!(my_todos(&b, None, Some(main)).is_empty());
+        assert!(my_todos(&b, None, None).is_empty());
+        // Once the other session ends, the checkout's todos are this one's to see.
+        let b = shared_and_own(false);
+        assert_eq!(ids(my_todos(&b, Some("me"), Some(&b.lanes[0]))), ["a", "c"]);
+    }
+
+    #[test]
+    fn a_starting_session_is_told_which_todos_are_its_own() {
+        let b = shared_and_own(false);
+        let (main, store) = (&b.lanes[0], store_of(&b));
+        let rows = |ids: &[&str]| ids.iter().map(|id| todo_row(b.todos.iter().find(|t| t.id == *id).unwrap(), &store, false)).collect::<Vec<_>>();
+        let me = &main.sessions[0];
+        let out = Whoami { found: true, how: Some("process".into()), session: Some(session_row(me, main, &b.todos)), worktree: Some(lane_row(main, &b)), todos: rows(&["a", "c"]) };
+        assert_eq!(
+            context_text(&out, Some("me")),
+            "This is Codealong session me (claude on claude), in worktree /r/main.\n\
+             Todo a \"A\" is linked to this session (in-progress). When the work is merged or the user says it's done, mark it done with `codealong todo done a`.\n\
+             Todo c \"C\" is linked to this worktree (in-progress). If you take it on, `codealong todo start c` links this session to it.\n"
+        );
+        // A session the app just started isn't on the board yet, but its todo is its own.
+        let out = Whoami { found: false, how: None, session: None, worktree: Some(lane_row(main, &b)), todos: rows(&["a"]) };
+        assert!(context_text(&out, Some("me")).starts_with("Todo a \"A\" is linked to this session"));
+        let out = Whoami { found: false, how: None, session: None, worktree: None, todos: vec![] };
+        assert_eq!(context_text(&out, None), "");
     }
 
     #[test]

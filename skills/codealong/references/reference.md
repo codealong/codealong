@@ -22,8 +22,10 @@ Commands:
   status     Whether the app is running, and where the data lives
   accounts   The configured accounts: harness, sign-in, and with --usage how much of
              each plan limit is used
-  whoami     Which session runs this command, its worktree, and the todos linked to
-             either. Run it first
+  whoami     Which session runs this command, its worktree, and its open todos: the ones
+             linked to the session, then the worktree's when no other live session works
+             there (in a checkout several agents share, those are the others' work). Run
+             it first
   todo       Todos: work meant for an agent. Each has a title, a description, labels, a
              status (todo, in-progress, done) and the worktrees and sessions that took
              it on. The app lists open ones under In progress, Ready and Waiting
@@ -112,15 +114,16 @@ Options:
 ## codealong whoami
 
 ```
-Which session runs this command, its worktree, and the todos linked to either. Run it
-first
+Which session runs this command, its worktree, and its open todos: the ones linked to
+the session, then the worktree's when no other live session works there (in a checkout
+several agents share, those are the others' work). Run it first
 
 Usage: codealong whoami [OPTIONS]
 
 Options:
       --context
-          Plain text for a session-start hook: a line or two when a session or todo is
-          found, nothing otherwise
+          Plain text for a session-start hook, even when piped: a line or two when a
+          session or todo is found, nothing otherwise
 
       --json
           JSON output. The default when stdout isn't a terminal
@@ -151,7 +154,8 @@ Commands:
   update  Change a todo's fields. Only the ones given change
   start   Mark a todo in progress, and link the session running this command and its
           worktree to it
-  done    Mark a todo done
+  done    Mark a todo done, and link the session running this command to it: finishing a
+          todo says you worked on it
   reopen  Put a done or in-progress todo back to todo
   wait    Mark a todo as waiting, on something outside the list: a person's answer, a
           release, a date. It stays under Waiting until `todo ready`, until it's
@@ -293,7 +297,8 @@ Options:
           Link a worktree: a path, or `.` for the current folder's
 
       --session <SESSION>
-          Link a session: a key, an id, or `me`
+          Link a session: a key, an id, or `me`. A linked session is one working on it,
+          so this marks it in progress; leave it out when noting work for later
 
       --depends-on <ID>
           A todo this one waits on: it's blocked until that one is done. Repeatable
@@ -337,7 +342,9 @@ Options:
           Say on stderr whether the app or the files answered
 
       --status <STATUS>
-          todo, in-progress or done
+          todo, in-progress or done. in-progress links the session running this command
+          and its worktree, as `todo start` does; done links the session, as `todo done`
+          does
 
       --project <PROJECT>
           
@@ -388,7 +395,8 @@ Options:
 ## codealong todo done
 
 ```
-Mark a todo done
+Mark a todo done, and link the session running this command to it: finishing a todo says
+you worked on it
 
 Usage: codealong todo done [OPTIONS] <ID>
 

@@ -222,10 +222,11 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   --dry-run` lists the same from the command line.
 
 - **For agents**: the `codealong` command and a skill that tells an agent when to use it.
-  `codealong whoami` says which session runs it and which todos are linked to it or its
-  worktree; `codealong todo add|start|done|update|move|wait|ready|link` work the todo list,
-  dependencies, waits and order included (`todo list --ready` is what can start now,
-  `--waiting` what's under Waiting); `codealong
+  `codealong whoami` says which session runs it and its open todos (the worktree's too, when no
+  other live session works there); `codealong todo add|start|done|update|move|wait|ready|link`
+  work the todo list, dependencies, waits and order included (`todo list --ready` is what can
+  start now, `--waiting` what's under Waiting), and starting or finishing a todo links the
+  session that ran the command; `codealong
   sessions [find <words>]`, `session show`, `worktrees` and `accounts --usage` answer what else
   is running, what it did, where it lives, and which account has room; `codealong start
   --todo <id>` starts a session the way New session does (`--todo` again for several todos in
