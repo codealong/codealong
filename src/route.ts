@@ -45,7 +45,8 @@ function findSession(board: Board, key: string): { lane: Lane; session: Session 
  * The rows for an answer. The likeliest action on its likeliest target leads, sureness from
  * both probabilities multiplied. Runners-up follow: another likely session, or starting new
  * work when that's likely too, so a wrong guess is one ↓ away from the right one. A session that
- * needs you is opened, never sent to: what's typed would answer its question.
+ * waits on you for a prompt is opened, never sent to: what's typed would answer the prompt. One
+ * whose reply asks you something is sent to: what's typed is its answer.
  */
 export function suggestions(route: Route, board: Board): Suggestion[] {
   const prob = (a: string) => route.actions.find(([x]) => x === a)?.[1] ?? 0;
@@ -61,7 +62,7 @@ export function suggestions(route: Route, board: Board): Suggestion[] {
   const toSession = (pick: RoutePick | undefined, p: number, find: boolean): Suggestion | null => {
     const found = pick && findSession(board, pick.id);
     if (!found) return null;
-    const open = find || found.session.status === 'needs';
+    const open = find || (found.session.status === 'needs' && !found.session.asks);
     return { kind: open ? 'open' : 'send', key: `${open ? 'open' : 'send'}:${found.session.key}`, ...found, p };
   };
   const startIn = (pick: RoutePick | undefined, p: number): Suggestion | null => {

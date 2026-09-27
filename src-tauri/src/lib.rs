@@ -12,6 +12,7 @@ mod cli;
 mod antigravity;
 mod codex;
 mod opencode;
+mod peek;
 mod config;
 mod detect;
 mod engine;
@@ -189,6 +190,37 @@ fn open_from_bar(app: tauri::AppHandle, engine: State<'_, engine::Handle>, lane_
     }
     flash_focused(&app, &engine, &target_id, from);
     Ok(())
+}
+
+/// Shows a session in the floating bar's peek: for a hover over its pill (where the bar's page
+/// measured it), or with `focus` ready to type into (peek.rs).
+#[tauri::command]
+fn peek_open(app: tauri::AppHandle, engine: State<'_, engine::Handle>, key: String, pill: Option<bar::Rect>, focus: Option<bool>) -> Result<(), String> {
+    let target = engine.read(|b| peek::target(b, &key)).ok_or_else(|| "That session isn't on the board any more.".to_string())?;
+    peek::open(&app, target, pill, focus.unwrap_or(false)).map_err(|e| e.to_string())
+}
+
+/// The peek's page is laid out for the open `id`, at this height.
+#[tauri::command]
+fn peek_ready(app: tauri::AppHandle, id: u64, height: f64) {
+    peek::ready(&app, id, Some(height));
+}
+
+/// The peek's page changed size while up.
+#[tauri::command]
+fn peek_fit(app: tauri::AppHandle, height: f64) {
+    peek::fit(&app, height);
+}
+
+/// A click in the peek: it takes the keyboard.
+#[tauri::command]
+fn peek_focus(app: tauri::AppHandle) {
+    peek::take_keys(&app);
+}
+
+#[tauri::command]
+fn peek_hide(app: tauri::AppHandle) {
+    peek::hide(&app);
 }
 
 /// What the floating bar shows, for its first render; after that it gets `bar-feed` events.
@@ -579,10 +611,10 @@ fn native_theme(theme: config::Theme) -> Option<tauri::Theme> {
     }
 }
 
-/// The board window in front, which a menu command is for. The floating bar and the quick panel
-/// never are.
+/// The board window in front, which a menu command is for. The floating bar, the quick panel and
+/// the peek never are (the bar and the peek say they're key while they aren't).
 fn front_window(app: &tauri::AppHandle) -> Option<tauri::WebviewWindow> {
-    app.webview_windows().into_values().find(|w| w.label() != bar::LABEL && w.label() != quick::LABEL && w.is_focused().unwrap_or(false))
+    app.webview_windows().into_values().find(|w| ![bar::LABEL, quick::LABEL, peek::LABEL].contains(&w.label()) && w.is_focused().unwrap_or(false))
 }
 
 /// Puts Settings… (⌘,) in the app menu, under About. Choosing it tells the front window to
@@ -715,6 +747,9 @@ pub fn run() {
             if let Err(e) = quick::setup(app.handle()) {
                 eprintln!("Couldn't make the quick panel: {e:#}");
             }
+            if let Err(e) = peek::setup(app.handle()) {
+                eprintln!("Couldn't make the floating bar's peek: {e:#}");
+            }
             // Registering waits on the main thread, which this is.
             let handle = app.handle().clone();
             std::thread::spawn(move || quick::apply_shortcut(&handle, &config::quick_shortcut()));
@@ -735,9 +770,10 @@ pub fn run() {
         .on_window_event(|window, event| {
             bar::on_window_event(window, event);
             quick::on_window_event(window, event);
+            peek::on_window_event(window, event);
         })
         .register_asynchronous_uri_scheme_protocol("codealong-image", |_ctx, request, responder| serve_image(request, responder))
-        .invoke_handler(tauri::generate_handler![get_board, idle_terminals, close_idle_terminals, open_target, open_config, mark_seen, refresh, refresh_usage, set_pinned, set_pinned_worktrees, archive_session, pr_detail, pr_comment_asks, approve_pr, review_in_codex, open_url, get_accounts, save_accounts, found_accounts, get_config, save_config, save_config_text, sign_in, agents_status, install_agents, start_options, start_session, todo_op, canvas_load, canvas_save, save_attachment, import_attachment, open_attachment, expand_attachments, set_theme, open_project_window, fit_bar, show_main, bar_feed, bar_on, set_bar_on, open_from_bar, show_quick, hide_quick, quick_ready, fit_quick, start_from_quick, route_quick, search_text, session_page, session_newer, session_pending, session_answer, send_to_session, suggest_todo, dismiss_todo_hint, jev_key, set_jev_key, test_jev, quick_shortcut, pause_quick_shortcut, perf_mark])
+        .invoke_handler(tauri::generate_handler![get_board, idle_terminals, close_idle_terminals, open_target, open_config, mark_seen, refresh, refresh_usage, set_pinned, set_pinned_worktrees, archive_session, pr_detail, pr_comment_asks, approve_pr, review_in_codex, open_url, get_accounts, save_accounts, found_accounts, get_config, save_config, save_config_text, sign_in, agents_status, install_agents, start_options, start_session, todo_op, canvas_load, canvas_save, save_attachment, import_attachment, open_attachment, expand_attachments, set_theme, open_project_window, fit_bar, show_main, peek_open, peek_ready, peek_fit, peek_focus, peek_hide, bar_feed, bar_on, set_bar_on, open_from_bar, show_quick, hide_quick, quick_ready, fit_quick, start_from_quick, route_quick, search_text, session_page, session_newer, session_pending, session_answer, send_to_session, suggest_todo, dismiss_todo_hint, jev_key, set_jev_key, test_jev, quick_shortcut, pause_quick_shortcut, perf_mark])
         .build(tauri::generate_context!())
         .expect("error while running Codealong")
         .run(|app, event| {

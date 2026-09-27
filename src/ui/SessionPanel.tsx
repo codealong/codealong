@@ -1,148 +1,19 @@
 // A session's own panel, on the canvas and in Sessions: where it stands and how to open it at
-// the top, its whole conversation in the middle (SessionThread.tsx), and a box at the bottom
-// that sends it a message where it runs (send.rs), as the quick panel does.
-//
-// When it waits on you to allow a tool call, the bottom of the panel says what and answers it,
-// if its harness can be answered from here (harness.rs: OpenCode through its service, Claude
-// Code by a keypress in its Ghostty or tmux tab, once its own record says the prompt is up).
-// Otherwise it opens the session to answer there.
+// the top, its whole conversation in the middle (SessionThread.tsx), and at the bottom a box that
+// sends it a message where it runs, or what it waits on you to allow (SessionReply.tsx).
 
-import { useEffect, useRef, useState } from 'react';
-import { sendToSession, sessionAnswer, sessionPending } from '../api';
+import { useState } from 'react';
 import { below } from '../contextMenu';
 import { absolute, agoPhrase, duration, middleTruncate, tildePath } from '../format';
 import { HARNESS_WORD, sessionPlace } from '../harness';
-import type { Board, Lane, Pending, Session, Todo } from '../types';
+import type { Board, Lane, Session, Todo } from '../types';
 import { STATUS_WORD as TODO_WORD } from '../todos';
 import { InsightChips } from './InsightBits';
 import { OpenInMenu } from './Inspector';
 import { BranchLabel, Button, HarnessChip, Icon, Rich, STATUS_WORD, StatusGlyph } from './primitives';
+import { Reply } from './SessionReply';
 import { SessionThread } from './SessionThread';
-import { CodeBlock } from './CopyButton';
 import { TodoGlyph } from './TodoBits';
-
-function Composer({ session: s, terminal, onOpen }: { session: Session; terminal: string; onOpen: () => void }) {
-  const [text, setText] = useState('');
-  const [sending, setSending] = useState(false);
-  const [note, setNote] = useState<{ text: string; error: boolean } | null>(null);
-  const box = useRef<HTMLTextAreaElement>(null);
-  const waiting = s.status === 'needs';
-
-  const send = () => {
-    const t = text.trim();
-    if (!t || sending || waiting) return;
-    setSending(true);
-    setNote(null);
-    sendToSession(s.key, t)
-      .then((sent) => {
-        setText('');
-        setNote({ text: sent?.message ?? 'Sent.', error: false });
-      })
-      .catch((e: unknown) => setNote({ text: String(e).replace(/^Error: /, ''), error: true }))
-      .finally(() => {
-        setSending(false);
-        box.current?.focus();
-      });
-  };
-
-  if (waiting) return <Approval session={s} terminal={terminal} onOpen={onOpen} />;
-  return (
-    <div className="ca-composer">
-      <textarea
-        ref={box}
-        value={text}
-        rows={Math.min(8, Math.max(2, text.split('\n').length))}
-        placeholder={s.status === 'working' ? `Send to ${s.account}: it takes this in as it works` : `Send to ${s.account}`}
-        onChange={(e) => {
-          setText(e.target.value);
-          if (note && !note.error) setNote(null);
-        }}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-            e.preventDefault();
-            send();
-          }
-        }}
-        aria-label={`Message to ${s.title}`}
-        disabled={sending}
-      />
-      <div className="ca-composer-foot">
-        <span className={['ca-composer-note', note?.error && 'is-error'].filter(Boolean).join(' ')}>{sending ? 'Sending…' : (note?.text ?? '⏎ sends · ⇧⏎ new line')}</span>
-        <Button variant="primary" size="sm" icon="send" disabled={!text.trim() || sending} onClick={send}>
-          Send
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-/** A session waiting on you: what it wants to do, with Allow and Deny when it can be answered here. */
-function Approval({ session: s, terminal, onOpen }: { session: Session; terminal: string; onOpen: () => void }) {
-  const [pending, setPending] = useState<Pending | null | undefined>(undefined);
-  const [busy, setBusy] = useState(false);
-  const [note, setNote] = useState<{ text: string; error: boolean } | null>(null);
-  useEffect(() => {
-    let live = true;
-    sessionPending(s.key)
-      .then((p) => live && setPending(p))
-      .catch(() => live && setPending(null));
-    return () => {
-      live = false;
-    };
-  }, [s.key, s.statusSince]);
-
-  const answer = (a: 'allow' | 'deny') => {
-    if (!pending) return;
-    setBusy(true);
-    setNote(null);
-    sessionAnswer(s.key, pending.id, a)
-      .then((said) => {
-        setNote({ text: said, error: false });
-        setPending(null);
-      })
-      .catch((e: unknown) => setNote({ text: String(e).replace(/^Error: /, ''), error: true }))
-      .finally(() => setBusy(false));
-  };
-
-  const where = sessionPlace(s, terminal);
-  if (!pending || pending.cannot) {
-    return (
-      <div className="ca-composer is-waiting">
-        <span>
-          {note?.text ?? `It’s waiting on you. Answer it in ${where}.`}
-          {pending?.cannot ? ` ${pending.cannot}` : ''}
-        </span>
-        <Button size="sm" icon="arrow-up-right" onClick={onOpen}>
-          Open
-        </Button>
-      </div>
-    );
-  }
-  return (
-    <div className="ca-composer is-approval">
-      <div className="ca-approval-head">
-        <Icon name="alert" size={14} />
-        <span>Wants to run</span>
-        <button type="button" className="ca-linkbtn" onClick={onOpen}>
-          Open in {where}
-        </button>
-      </div>
-      <div className="ca-approval-label">
-        <Rich text={pending.label} now={0} />
-      </div>
-      {pending.input && pending.input !== pending.label && <CodeBlock text={pending.input} className="ca-approval-input" />}
-      <div className="ca-composer-foot">
-        <span className={['ca-composer-note', note?.error && 'is-error'].filter(Boolean).join(' ')}>{busy ? 'Answering…' : (note?.text ?? 'Allows this call once. Deny stops the turn.')}</span>
-        <Button size="sm" disabled={busy} onClick={() => answer('deny')}>
-          Deny
-        </Button>
-        <Button variant="primary" size="sm" icon="check" disabled={busy} onClick={() => answer('allow')}>
-          Allow
-        </Button>
-      </div>
-    </div>
-  );
-}
 
 interface SessionPanelProps {
   lane: Lane;
@@ -259,7 +130,7 @@ export function SessionPanel({ lane, session: s, apps, now, onOpen, onNewSession
           ) : null
         }
       />
-      <Composer session={s} terminal={apps.terminal} onOpen={() => onOpen(s.openTarget)} />
+      <Reply session={s} terminal={apps.terminal} onOpen={() => onOpen(s.openTarget)} />
     </aside>
   );
 }

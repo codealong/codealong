@@ -44,13 +44,13 @@ pub struct Rect {
 }
 
 impl Rect {
-    fn top(&self) -> f64 {
+    pub(crate) fn top(&self) -> f64 {
         self.y + self.h
     }
-    fn right(&self) -> f64 {
+    pub(crate) fn right(&self) -> f64 {
         self.x + self.w
     }
-    fn center(&self) -> (f64, f64) {
+    pub(crate) fn center(&self) -> (f64, f64) {
         (self.x + self.w / 2.0, self.y + self.h / 2.0)
     }
     pub(crate) fn contains(&self, (x, y): (f64, f64)) -> bool {
@@ -274,6 +274,11 @@ pub fn publish(app: &AppHandle, board: &crate::model::Board) {
         *sent = text;
     }
     let _ = app.emit_to(LABEL, "bar-feed", feed);
+}
+
+/// The bar's window frame, in screen points. On the main thread.
+pub fn frame(app: &AppHandle) -> Option<Rect> {
+    native::frame(&app.get_webview_window(LABEL)?)
 }
 
 /// Whether the bar is on.

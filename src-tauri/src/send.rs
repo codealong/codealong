@@ -6,8 +6,9 @@
 //! gets a message on Claude Code's own cross-session socket, which the session reads as coming
 //! from another session. A session that isn't running any more is resumed with the prompt.
 //!
-//! A session that's waiting on you (a permission or a question) is never typed into: what's
-//! typed would answer the question. Busy sessions are fine; each harness queues the prompt
+//! A session that's waiting on you for a permission prompt, or stuck mid-turn, is never typed
+//! into: what's typed would answer the prompt. One whose last reply asks you something is at its
+//! prompt, so what's typed is its answer. Busy sessions are fine; each harness queues the prompt
 //! until the agent can take it.
 
 use std::io::{BufRead, BufReader, Read, Write};
@@ -87,9 +88,10 @@ pub fn send(board: &Board, cfg: &Config, session_key: &str, text: &str) -> Resul
     Err(last_err.unwrap_or_else(|| anyhow!("Codealong can't reach {} to send it this. Open it and send it there.", quoted(&session.title))))
 }
 
-/// A session waiting on you is never typed into: what's typed would answer its question.
+/// A session waiting on you is never typed into: what's typed would answer its prompt. One that
+/// only asks you something in its reply (`Session::asks`) takes the answer like any prompt.
 fn ensure_not_waiting(session: &Session) -> Result<()> {
-    if session.status == Status::Needs {
+    if session.status == Status::Needs && !session.asks {
         bail!("{} is waiting on you; open it to answer.", quoted(&session.title));
     }
     Ok(())
@@ -477,6 +479,7 @@ mod tests {
             stalled_since: None,
             background: None,
             insight: None,
+            asks: false,
         }
     }
 
@@ -502,6 +505,14 @@ mod tests {
         let s = session(Harness::Claude, Surface::Cli, Status::Needs, true, Some(42));
         let err = route_for(&s, Some(&registry(json!({}))), Path::new("/h"), None).unwrap_err();
         assert!(err.to_string().contains("waiting on you"), "{err}");
+    }
+
+    #[test]
+    fn answers_a_question_its_reply_asks_like_any_prompt() {
+        let mut s = session(Harness::Claude, Surface::Cli, Status::Needs, true, Some(42));
+        s.asks = true;
+        let routes = route_for(&s, Some(&registry(json!({ "status": "idle" }))), Path::new("/h"), None).unwrap();
+        assert_eq!(routes, vec![Route::Type { pid: 42 }, Route::Peer { socket: "/tmp/cc-socks/42.sock".into(), session_id: "abc".into() }]);
     }
 
     #[test]

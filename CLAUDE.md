@@ -553,6 +553,14 @@ Tauri and macOS (from the Tauri 2.11 and tao 0.35 sources)
   `makeKeyWindow`, then making the WKWebView first responder, which a window made with
   `focused(false)` doesn't do by itself. Codealong stays inactive, so the app you were in keeps
   the menu bar. The panel listens for `board` only while it's up.
+- The bar's peek (peek.rs) is a third such panel. A hover shows it with `orderFrontRegardless`
+  alone, so it never takes the keyboard; a pointerdown in its page asks for `makeKeyWindow`.
+  Until then its `isKeyWindow` says yes, as the bar's does, so the page gets hover and tooltips;
+  taking the keyboard turns that off first, so AppKit sees a window that isn't key yet. The
+  peek's page gets no pointer moves off itself, so peek.rs watches `NSEvent.mouseLocation` to
+  close it. A window takes clicks on its clear parts too, so the peek's keeps only a thin margin
+  on the bar's side and never covers a pill. Not yet checked by hand (2026-09-27): a click in
+  the peek making it key under that override.
 - tauri-plugin-global-shortcut's `register` and `unregister` hand the work to the main thread and
   wait for it, so calling them on the main thread (in `setup`, or a command without `async`)
   deadlocks. Carbon's `RegisterEventHotKey` succeeds for keys another app already holds

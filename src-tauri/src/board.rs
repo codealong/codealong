@@ -221,6 +221,7 @@ pub fn claude_session(
         background: background.then(|| quiet.running.unwrap_or_default().to_string()),
         app_account: account.home_path() == crate::util::home().join(".claude"),
         insight: None,
+        asks: false,
     })
 }
 
@@ -296,6 +297,7 @@ pub fn codex_session(account: &AccountCfg, th: &ThreadInfo, name: Option<&str>, 
         stalled_since: None,
         background: None,
         insight: None,
+        asks: false,
     }
 }
 
@@ -362,6 +364,7 @@ pub fn opencode_session(account: &AccountCfg, row: &SessionRow, live: Option<&Li
         stalled_since: None,
         background: None,
         insight: None,
+        asks: false,
     }
 }
 
@@ -425,6 +428,7 @@ pub fn antigravity_session(account: &AccountCfg, c: &Conversation, seen_at: i64,
         stalled_since: None,
         background: None,
         insight: None,
+        asks: false,
     }
 }
 
@@ -698,6 +702,7 @@ pub fn apply_insight(s: &mut Session, i: &SessionInsight) {
     s.insight = Some(i.clone());
     if s.status == Status::Unread && i.asks_you.unwrap_or(0.0) >= ASKS_YOU {
         s.status = Status::Needs;
+        s.asks = true;
         let question = s.reply_tail.as_deref().map(last_sentence).filter(|q| !q.is_empty());
         s.excerpt = Some(match question {
             Some(q) => format!("Asks you · {q}"),
@@ -1561,14 +1566,21 @@ mod tests {
         let mut unsure = s.clone();
         apply_insight(&mut unsure, &insight(|i| i.asks_you = Some(0.5)));
         assert_eq!(unsure.status, Status::Unread);
-        assert!(unsure.insight.is_some());
+        assert!(unsure.insight.is_some() && !unsure.asks);
         apply_insight(&mut s, &insight(|i| i.asks_you = Some(0.9)));
         assert_eq!(s.status, Status::Needs);
+        // It sits at its prompt, so a reply is its answer.
+        assert!(s.asks);
         assert_eq!(s.excerpt.as_deref(), Some("Asks you · Want me to open the PR, or keep it local?"));
         // Seen already, it's yours to answer when you like: no change.
         let mut idle = claude_session(&a, Some(&reg("idle", NOW - 100)), Some(&tr()), NOW - 10, NOW, &Quiet::default()).unwrap();
         apply_insight(&mut idle, &insight(|i| i.asks_you = Some(0.9)));
         assert_eq!(idle.status, Status::Idle);
+        assert!(!idle.asks);
+        // Waiting on a permission prompt is never a question to type an answer to.
+        let mut prompt = claude_session(&a, Some(&reg("waiting", NOW - 10)), Some(&tr()), NOW - 100, NOW, &Quiet::default()).unwrap();
+        apply_insight(&mut prompt, &insight(|i| i.asks_you = Some(0.9)));
+        assert_eq!((prompt.status, prompt.asks), (Status::Needs, false));
     }
 
     #[test]

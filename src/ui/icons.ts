@@ -133,6 +133,9 @@ export const ICONS: Record<string, string[]> = {
  "chevron-right": [
   "M9 6l6 6l-6 6"
  ],
+ "chevron-left": [
+  "M15 6l-6 6l6 6"
+ ],
  "plus": [
   "M12 5l0 14",
   "M5 12l14 0"

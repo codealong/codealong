@@ -426,6 +426,7 @@ mod tests {
             stalled_since: None,
             background: None,
             insight: None,
+            asks: false,
         }
     }
 

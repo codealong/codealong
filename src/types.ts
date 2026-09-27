@@ -42,6 +42,9 @@ export interface Session {
   stalledSince: number | null;
   /** Jev's read of how its turn ended, when `[jev] sessions` is on (insights.rs). */
   insight?: SessionInsight;
+  /** Needs you only because its last reply asks you something: it sits at its prompt, so a
+   *  reply is the answer. Not set while it waits on a permission prompt. */
+  asks?: boolean;
   resumeCommand: string | null;
   /** The Claude app is signed into this session's account. */
   appAccount: boolean;
@@ -606,6 +609,37 @@ export interface BarTodo {
   project: string;
   /** The worktree a session for it starts in, when it has one. */
   callsign: string | null;
+}
+
+/** What the floating bar's peek is asked to show (peek.rs). */
+export interface PeekOpen {
+  /** Answered with the page's height once it's laid out. */
+  id: number;
+  lane: Lane;
+  session: Session;
+  terminal: string;
+  theme: Theme;
+  /** The tallest the peek's window can be where it opens. */
+  room: number;
+  /** Under the floating bar; otherwise over it. */
+  below: boolean;
+  /** It takes the keyboard as it shows, rather than on a click. */
+  focus: boolean;
+}
+
+/** What the peek shows, as the bar and the peek's page hear it. */
+export interface PeekShown {
+  key: string | null;
+  /** It has the keyboard. */
+  engaged: boolean;
+}
+
+/** A note the bar shows in the place of a session's pill: a failed open, or what a send from the
+ *  peek did that you should know about (the prompt is on the clipboard, say). */
+export interface BarNote {
+  key: string;
+  message: string;
+  tone: 'error' | 'info';
 }
 
 /** A session whose prompts and replies have every word typed (search.rs). */

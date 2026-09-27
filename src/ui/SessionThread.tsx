@@ -143,9 +143,11 @@ interface SessionThreadProps {
   onOpen: () => void;
   /** Shown when the record can't be read (Antigravity, or a transcript that's gone). */
   fallback: ReactNode;
+  /** Once the first page is laid out, or the record couldn't be read: the peek shows then. */
+  onLoaded?: () => void;
 }
 
-export function SessionThread({ session: s, now, onOpen, fallback }: SessionThreadProps) {
+export function SessionThread({ session: s, now, onOpen, fallback, onLoaded }: SessionThreadProps) {
   const [items, setItems] = useState<TranscriptItem[]>([]);
   const [before, setBefore] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -222,6 +224,12 @@ export function SessionThread({ session: s, now, onOpen, fallback }: SessionThre
     if (el.scrollHeight <= el.clientHeight + NEAR_TOP) loadOlder();
   }, [items, loadOlder]);
 
+  const loadedNow = useRef(onLoaded);
+  loadedNow.current = onLoaded;
+  useLayoutEffect(() => {
+    if (loaded) loadedNow.current?.();
+  }, [loaded, s.key]);
+
   const onScroll = () => {
     const el = scroller.current;
     if (!el) return;
@@ -276,10 +284,13 @@ export function SessionThread({ session: s, now, onOpen, fallback }: SessionThre
             <span>
               <Rich text={s.excerpt} now={now} />
             </span>
-            <button type="button" className="ca-btn ca-btn--secondary ca-btn--sm" onClick={onOpen}>
-              <Icon name="arrow-up-right" size={13} />
-              <span>Open to answer</span>
-            </button>
+            {/* A question in its reply is answered in the box below; anything else where it runs. */}
+            {!s.asks && (
+              <button type="button" className="ca-btn ca-btn--secondary ca-btn--sm" onClick={onOpen}>
+                <Icon name="arrow-up-right" size={13} />
+                <span>Open to answer</span>
+              </button>
+            )}
           </div>
         </div>
       )}

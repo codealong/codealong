@@ -1,0 +1,77 @@
+// A session to answer at a glance: who it is and where at the top, its conversation, and the box
+// that answers it at the bottom (SessionReply.tsx). The floating bar's peek shows it for the pill
+// under the pointer, and the quick panel's reply view for the session picked there.
+
+import { agoPhrase, duration } from '../format';
+import { sessionPlace } from '../harness';
+import type { Lane, Sent, Session } from '../types';
+import { Button, Rich, STATUS_WORD, StatusGlyph } from './primitives';
+import { Reply } from './SessionReply';
+import { SessionThread } from './SessionThread';
+
+interface ReplyViewProps {
+  lane: Lane;
+  session: Session;
+  terminal: string;
+  now: number;
+  /** Opens the session where it lives. */
+  onOpen: () => void;
+  /** Shows the session in Codealong's main window. */
+  onReveal: () => void;
+  /** Back to where it was picked (the quick panel's list). */
+  onBack?: () => void;
+  autoFocus?: boolean;
+  /** ⌘⏎ allows what it waits on (the quick panel, which is used from the keyboard). */
+  keys?: boolean;
+  onSent?: (sent: Sent) => void;
+  onAnswered?: (said: string) => void;
+  /** Once the conversation's first page is laid out. */
+  onLoaded?: () => void;
+}
+
+/** The open button's words: the lane's own for the session, else where it opens. */
+function openWords(lane: Lane, s: Session, terminal: string): { label: string; detail: string | null; disabled: boolean } {
+  const t = lane.targets.find((x) => x.id === s.openTarget);
+  return t ? { label: t.label, detail: t.detail, disabled: t.disabled } : { label: `Open in ${sessionPlace(s, terminal)}`, detail: null, disabled: false };
+}
+
+export function ReplyView({ lane, session: s, terminal, now, onOpen, onReveal, onBack, autoFocus, keys, onSent, onAnswered, onLoaded }: ReplyViewProps) {
+  const open = openWords(lane, s, terminal);
+  const since = s.statusSince ? (s.status === 'working' ? `for ${duration(s.statusSince, now)}` : agoPhrase(s.statusSince, now)) : agoPhrase(s.lastActivity, now);
+  const status = s.stalledSince ? `Quiet since ${agoPhrase(s.stalledSince, now)}` : `${s.asks ? 'Asks you' : STATUS_WORD[s.status]} ${since}`;
+  return (
+    <div className="ca-reply">
+      <header className="ca-reply-head">
+        {onBack && <Button variant="ghost" size="sm" icon="chevron-left" aria-label="Back" title="Back to the list (Esc)" onClick={onBack} />}
+        <StatusGlyph status={s.status} size={12} />
+        <div className="ca-reply-who">
+          <div className="ca-reply-title" title={s.title}>
+            {s.title}
+          </div>
+          <div className="ca-reply-meta">
+            {s.account} · {lane.callsign} · {status}
+          </div>
+        </div>
+        <Button variant="ghost" size="sm" icon="sidebar" aria-label="Show in Codealong" title="Show in Codealong" onClick={onReveal} />
+        <Button size="sm" icon="arrow-up-right" title={open.detail ?? undefined} disabled={open.disabled} onClick={onOpen}>
+          {open.label}
+        </Button>
+      </header>
+      <SessionThread
+        key={s.key}
+        session={s}
+        now={now}
+        onOpen={onOpen}
+        onLoaded={onLoaded}
+        fallback={
+          s.excerpt ? (
+            <p className="ca-sessinsp-now">
+              <Rich text={s.excerpt} now={now} />
+            </p>
+          ) : null
+        }
+      />
+      <Reply session={s} terminal={terminal} onOpen={onOpen} autoFocus={autoFocus} keys={keys} onSent={onSent} onAnswered={onAnswered} />
+    </div>
+  );
+}

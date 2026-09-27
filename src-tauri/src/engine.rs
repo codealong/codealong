@@ -99,6 +99,14 @@ impl Handle {
         self.board.read().map(|b| b.clone()).unwrap_or_default()
     }
 
+    /// Reads the board in place, for a caller that needs only a piece of it.
+    pub fn read<T>(&self, f: impl FnOnce(&Board) -> T) -> T {
+        match self.board.read() {
+            Ok(b) => f(&b),
+            Err(_) => f(&Board::default()),
+        }
+    }
+
     pub fn refresh_github(&self) {
         let _ = self.tx.send(Msg::RefreshGithub);
     }

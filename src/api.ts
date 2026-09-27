@@ -4,7 +4,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { emitTo, listen } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import type { AccountCfg, AccountInfo, AgentsStatus, Attachment, BarFeed, CloseOutcome, IdlePlan, Pending, TranscriptPage, Board, Config, ConfigView, FoundAccount, PrDetail, Route, Sent, ShortcutStatus, TextFound, StartOptions, StartSpec, Started, Theme, TodoSuggested } from './types';
+import type { AccountCfg, AccountInfo, AgentsStatus, Attachment, BarFeed, BarNote, CloseOutcome, IdlePlan, Pending, PeekOpen, PeekShown, TranscriptPage, Board, Config, ConfigView, FoundAccount, PrDetail, Route, Sent, ShortcutStatus, TextFound, StartOptions, StartSpec, Started, Theme, TodoSuggested } from './types';
 import type { TodoOp } from './todos';
 
 export const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -454,6 +454,70 @@ export function onBarOn(cb: (on: boolean) => void): () => void {
   };
 }
 
+/** Where a pill sits in the floating bar's window, in CSS pixels from its top left. */
+export interface PillRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** Shows a session in the floating bar's peek: for a hover over its pill, or with `focus` ready
+ *  to type into. Without a pill it opens where it last was. */
+export async function peekOpen(key: string, pill: PillRect | null, focus = false): Promise<void> {
+  if (!inTauri) return;
+  await invoke('peek_open', { key, pill, focus });
+}
+
+/** The peek's page is laid out for the open `id`, at this height: time to show it. */
+export async function peekReady(id: number, height: number): Promise<void> {
+  if (!inTauri) return;
+  await invoke('peek_ready', { id, height });
+}
+
+/** The peek's page changed size while up. */
+export async function peekFit(height: number): Promise<void> {
+  if (!inTauri) return;
+  await invoke('peek_fit', { height });
+}
+
+/** A click in the peek: it takes the keyboard. */
+export async function peekFocus(): Promise<void> {
+  if (!inTauri) return;
+  await invoke('peek_focus');
+}
+
+export async function peekHide(): Promise<void> {
+  if (!inTauri) return;
+  await invoke('peek_hide');
+}
+
+/** Calls `cb` when the peek is asked to show a session. */
+export function onPeekOpen(cb: (open: PeekOpen) => void): () => void {
+  return onWindowEvent<PeekOpen>('peek-open', cb);
+}
+
+/** Calls `cb` when the peek has hidden. */
+export function onPeekHidden(cb: () => void): () => void {
+  return onWindowEvent<null>('peek-hidden', () => cb());
+}
+
+/** Calls `cb` with what the peek shows whenever that changes; the bar marks the pill with it. */
+export function onPeekShown(cb: (shown: PeekShown) => void): () => void {
+  return onWindowEvent<PeekShown>('peek', cb);
+}
+
+/** Asks the floating bar to show a note in the place of a session's pill. */
+export async function barNote(note: BarNote): Promise<void> {
+  if (!inTauri) return;
+  await emitTo('bar', 'bar-note', note);
+}
+
+/** Calls `cb` with notes other windows ask the bar to show. */
+export function onBarNote(cb: (note: BarNote) => void): () => void {
+  return onWindowEvent<BarNote>('bar-note', cb);
+}
+
 /** Listens for an event sent to this window only (`emit_to` or `emitTo`); a plain `listen`
  *  would hear ones sent to any window. Returns an unsubscribe function. */
 function onWindowEvent<T>(name: string, cb: (payload: T) => void): () => void {
@@ -488,6 +552,8 @@ export interface QuickOpen {
   opener?: string | null;
   /** Brings the panel back as you left it (after a failed start). */
   keep?: boolean;
+  /** A session to answer: the panel opens on its conversation and a box for the reply. */
+  reply?: string | null;
   /** How tall the panel's window can be: from its top edge to the bottom of the screen's usable
    *  part. quick.rs adds it to every open. */
   room?: number;

@@ -190,6 +190,11 @@ pub struct Session {
     /// Jev's read of how its turn ended (insights.rs), when `[jev] sessions` is on.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub insight: Option<SessionInsight>,
+    /// Needs you only because its last reply asks you something (`board::apply_insight`): its
+    /// turn ended and it sits at its prompt, so what you type is the answer. A session waiting on
+    /// a permission prompt isn't one: what's typed there would answer the prompt.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub asks: bool,
 }
 
 /// Jev's read of a session (insights.rs). Each part is there only when it was asked: how a turn

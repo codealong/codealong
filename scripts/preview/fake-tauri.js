@@ -64,15 +64,16 @@ function withUsage(board, fixture) {
 }
 // Jev's read from insights-fixture.json (PREVIEW_INSIGHTS in preview.sh), merged into the board:
 // "$session:N" and "$lane:N" are the Nth most recent session and worktree on it (hidden ones
-// left out), and each entry's other fields replace the session's or lane's own.
+// left out), or `key` names a session outright, and each entry's other fields replace the
+// session's or lane's own. A session's `pending` is what session_pending answers for it.
 function withInsights(board, fixture) {
   var lanes = board.lanes.filter(function (l) { return !l.hidden; }).sort(function (a, b) { return b.lastActivity - a.lastActivity; });
   var sessions = lanes.flatMap(function (l) { return l.sessions.filter(function (s) { return !s.visitor && !s.archived; }); }).sort(function (a, b) { return b.lastActivity - a.lastActivity; });
   var at = function (list, ref) { var m = /:(\d+)$/.exec(ref); return m ? list[Number(m[1])] : null; };
   (fixture.sessions || []).forEach(function (e) {
-    var hit = at(sessions, e.ref);
+    var hit = e.key ? { key: e.key } : at(sessions, e.ref);
     if (!hit) return;
-    board.lanes.forEach(function (l) { l.sessions.forEach(function (s) { if (s.key === hit.key) { var fields = Object.assign({}, e); delete fields.ref; Object.assign(s, fields); } }); });
+    board.lanes.forEach(function (l) { l.sessions.forEach(function (s) { if (s.key === hit.key) { var fields = Object.assign({}, e); delete fields.ref; delete fields.key; delete fields.pending; Object.assign(s, fields); } }); });
   });
   (fixture.lanes || []).forEach(function (e) {
     var hit = at(lanes, e.ref);
@@ -194,10 +195,14 @@ window.__TAURI_INTERNALS__ = {
         ] };
       });
     }
-    // What PREVIEW_TRANSCRIPT's session waits on you to allow, as the engine read it; nothing else waits.
+    // What PREVIEW_TRANSCRIPT's session waits on you to allow, as the engine read it, or what an
+    // insights fixture says a session waits on; nothing else waits.
     if (cmd === 'session_pending') {
-      return Promise.all([optionalJson('./transcript-key.json'), optionalJson('./pending.json')]).then(function (all) {
-        return all[0] && all[0].key === (args || {}).key ? all[1] : null;
+      return Promise.all([optionalJson('./transcript-key.json'), optionalJson('./pending.json'), optionalJson('./insights-fixture.json')]).then(function (all) {
+        var key = (args || {}).key;
+        var fixed = ((all[2] || {}).sessions || []).filter(function (e) { return e.key === key && e.pending; })[0];
+        if (fixed) return fixed.pending;
+        return all[0] && all[0].key === key ? all[1] : null;
       });
     }
     if (cmd === 'session_answer') return Promise.resolve((args || {}).answer === 'allow' ? 'Allowed it (in the preview nothing is pressed anywhere).' : 'Denied it (in the preview nothing is pressed anywhere).');

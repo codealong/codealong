@@ -51,6 +51,12 @@ describe('suggestions', () => {
     expect(suggestions(r, b)[0]).toMatchObject({ kind: 'open', key: 'open:s:ask' });
   });
 
+  it('sends the answer to a session whose reply asks you something', () => {
+    const asking = board([lane('/api', [session('s:ask', 'needs', { asks: true })])]);
+    const r = route({ action: 'send', actions: [['send', 1]], sessions: [{ id: 's:ask', p: 1 }], lanes: [{ id: '/api', p: 1 }] });
+    expect(suggestions(r, asking)[0]).toMatchObject({ kind: 'send', key: 'send:s:ask' });
+  });
+
   it('starts new work in the likeliest worktree, in a worktree of its own when it wants one', () => {
     const r = route({
       action: 'start',

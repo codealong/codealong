@@ -2,17 +2,18 @@
 // running, one for PRs waiting on your review, and one for todos ready to start, in the project
 // picked beside the mark or in all of them. The engine keeps the window up and sends it what to
 // show (barfeed.rs); the page sizes the window to itself. Pills that don't fit fold into one per
-// group that lists them. Clicking a pill opens the session where it lives, right-clicking shows
-// its menu, and the mark brings Codealong forward.
+// group that lists them. Hovering a session's pill shows it in the peek under the bar (peek.rs,
+// Peek.tsx), its conversation and a box to answer it; clicking the pill opens the session where
+// it lives, right-clicking shows its menu, and the mark brings Codealong forward.
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { fitBar, getBarFeed, markSeen, onBarFeed, openFromBar, setBarOn, showMain, showQuick } from '../api';
+import { fitBar, getBarFeed, markSeen, onBarFeed, onBarNote, onPeekShown, openFromBar, peekHide, peekOpen, setBarOn, showMain, showQuick, type PillRect } from '../api';
 import { elsewhereWaits, fitGroups, GROUPS, plain, projectWaits, type Group, type GroupFit, type WaitCounts } from '../bar';
 import { showContextMenu, type MenuAction, type MenuSpec } from '../contextMenu';
 import { usePerf } from '../perf';
 import { ALL_PROJECTS, inProject } from '../quick';
-import type { BarFeed, BarItem, BarReview, BarTodo, Status } from '../types';
+import type { BarFeed, BarItem, BarReview, BarTodo, PeekShown, Status } from '../types';
 import { Icon, Mark, STATUS_WORD, StatusGlyph } from './primitives';
 import { applyTheme } from './ThemeSwitch';
 import { LOGO_LABEL, useLogo } from '../logo';
@@ -31,6 +32,10 @@ const MARK = 24;
 const FOLD_SAMPLE = '+88';
 /** Where the project picked in the bar's menu is kept. */
 const PROJECT_KEY = 'codealong.bar.project';
+/** How long the pointer rests on a session's pill before the peek shows it, and before it moves
+ *  to another pill once it's up: long enough that passing over the bar doesn't open it. */
+const PEEK_AFTER_MS = 300;
+const PEEK_SWITCH_MS = 90;
 
 const GROUP_GLYPH: Record<Group, Status> = { needs: 'needs', unread: 'unread', working: 'working' };
 const GROUP_WORD: Record<Group, string> = { needs: 'need you', unread: 'your turn', working: 'working' };
@@ -72,19 +77,35 @@ function openLabel(i: BarItem, terminal: string): string {
   return how[i.openTarget.split('|')[2]] ?? 'Open';
 }
 
-function sessionTip(i: BarItem, now: number): string {
+/** What a pill says to a screen reader; the peek shows the rest. */
+function sessionLabel(i: BarItem, now: number): string {
   const where = `${STATUS_WORD[i.status]} · ${i.callsign} · ${i.account}`;
-  return [i.title, where, i.detail ? plain(i.detail, now) : ''].filter(Boolean).join('\n');
+  return [i.title, where, i.detail ? plain(i.detail, now) : ''].filter(Boolean).join('. ');
 }
 
-function SessionPill({ item, now, onOpen, onMenu, measure }: { item: BarItem; now: number; onOpen?: () => void; onMenu?: () => void; measure?: boolean }) {
+interface SessionPillProps {
+  item: BarItem;
+  now: number;
+  /** The peek shows this session. */
+  peeked?: boolean;
+  onOpen?: () => void;
+  onMenu?: () => void;
+  onHover?: (el: HTMLElement) => void;
+  onLeave?: () => void;
+  measure?: boolean;
+}
+
+function SessionPill({ item, now, peeked, onOpen, onMenu, onHover, onLeave, measure }: SessionPillProps) {
   return (
     <button
       type="button"
-      className={`ca-hud-pill ${tone(item.status)}`}
-      title={measure ? undefined : sessionTip(item, now)}
+      className={['ca-hud-pill', tone(item.status), peeked && 'is-peeked'].filter(Boolean).join(' ')}
+      aria-label={measure ? undefined : sessionLabel(item, now)}
       data-pill={measure ? item.group : undefined}
+      data-key={measure ? undefined : item.key}
       onClick={onOpen}
+      onPointerEnter={onHover ? (e) => onHover(e.currentTarget) : undefined}
+      onPointerLeave={onLeave}
       onContextMenu={
         onMenu
           ? (e) => {
@@ -211,11 +232,12 @@ function ProjectButton({ name, others, open, onOpen, measure }: { name: string; 
   );
 }
 
-/** What went wrong opening something, in the place of the pill it came from. A click clears it. */
-function FailedPill({ message, onDismiss }: { message: string; onDismiss: () => void }) {
+/** What went wrong opening something, or what a send from the peek did that you should know
+ *  (the prompt is on the clipboard, say), in the place of the pill it came from. A click clears it. */
+function NotePill({ message, tone: kind, onDismiss }: { message: string; tone: 'error' | 'info'; onDismiss: () => void }) {
   return (
-    <button type="button" className="ca-hud-pill is-failed" role="alert" title={message} onClick={onDismiss}>
-      <Icon name="alert" size={12} stroke={1.75} />
+    <button type="button" className={`ca-hud-pill ${kind === 'error' ? 'is-failed' : 'is-info'}`} role={kind === 'error' ? 'alert' : 'status'} title={message} onClick={onDismiss}>
+      <Icon name={kind === 'error' ? 'alert' : 'check'} size={12} stroke={1.75} />
       <span>{message}</span>
     </button>
   );
@@ -230,9 +252,14 @@ function below(e: MouseEvent<HTMLElement>): { x: number; y: number } {
 export function Bar() {
   const [feed, setFeed] = useState<BarFeed | null>(null);
   const [fits, setFits] = useState<GroupFit[] | null>(null);
-  // A failed open, shown on the pill it came from (a session's key, or `fold:<group>` for a folded
-  // pill's menu) while the rest of the bar stays as it was.
-  const [failed, setFailed] = useState<{ anchor: string; message: string } | null>(null);
+  // A failed open, or a note from the peek, shown on the pill it came from (a session's key, or
+  // `fold:<group>` for a folded pill's menu) while the rest of the bar stays as it was.
+  const [failed, setFailed] = useState<{ anchor: string; message: string; tone?: 'error' | 'info' } | null>(null);
+  // The session the peek shows, and whether it has the keyboard.
+  const [peeked, setPeeked] = useState<PeekShown>({ key: null, engaged: false });
+  const peekedNow = useRef(peeked);
+  peekedNow.current = peeked;
+  const hoverTimer = useRef<number | null>(null);
   // Fonts load after the first layout; pills are measured again once they have.
   const [fontsReady, setFontsReady] = useState(false);
   const [project, setProject] = useState(storedProject);
@@ -258,6 +285,15 @@ export function Bar() {
 
   useEffect(() => {
     void document.fonts.ready.then(() => setFontsReady(true));
+  }, []);
+
+  useEffect(() => {
+    const offShown = onPeekShown(setPeeked);
+    const offNote = onBarNote((n) => setFailed({ anchor: n.key, message: n.message, tone: n.tone }));
+    return () => {
+      offShown();
+      offNote();
+    };
   }, []);
 
   // The theme from config.toml, as in the board's windows.
@@ -333,7 +369,43 @@ export function Bar() {
     return () => observer.disconnect();
   }, [report]);
 
+  const stopHover = () => {
+    if (hoverTimer.current != null) window.clearTimeout(hoverTimer.current);
+    hoverTimer.current = null;
+  };
+
+  /** Where a pill is in the window, for the peek to open by. */
+  const rectOf = (el: Element | null): PillRect | null => {
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return { x: r.left, y: r.top, w: r.width, h: r.height };
+  };
+
+  /** The pointer rests on a session's pill: after a moment the peek shows it, sooner when the peek
+   *  is already up. While you're typing in the peek, it stays on its session. */
+  const hover = (i: BarItem, el: HTMLElement) => {
+    stopHover();
+    const p = peekedNow.current;
+    if (p.key === i.key || (p.engaged && p.key)) return;
+    hoverTimer.current = window.setTimeout(
+      () => {
+        hoverTimer.current = null;
+        void peekOpen(i.key, rectOf(el)).catch(() => {});
+      },
+      p.key ? PEEK_SWITCH_MS : PEEK_AFTER_MS,
+    );
+  };
+
+  /** The peek with the keyboard, ready to answer the session. */
+  const reply = (i: BarItem) => {
+    stopHover();
+    const el = hud.current?.querySelector(`[data-key="${CSS.escape(i.key)}"]`) ?? null;
+    peekOpen(i.key, rectOf(el), true).catch((e: unknown) => setFailed({ anchor: i.key, message: String(e).replace(/^Error: /, '') }));
+  };
+
   const open = (i: BarItem, anchor = i.key) => {
+    stopHover();
+    if (peekedNow.current.key) void peekHide();
     if (i.target?.disabled) {
       setFailed({ anchor, message: i.target.detail ?? `${i.target.label} isn't available right now.` });
       return;
@@ -348,6 +420,7 @@ export function Bar() {
       { label: `${i.title} · ${i.callsign}`, run: () => {}, enabled: false },
       'separator',
       { label: openLabel(i, feed?.terminal ?? 'Terminal'), run: () => open(i) },
+      { label: 'Reply here', run: () => reply(i) },
       { label: 'Show in Codealong', run: () => reveal(i) },
       ...(i.status === 'unread' ? [{ label: 'Mark as seen', run: () => void markSeen([i.key]) }] : []),
     ]);
@@ -424,7 +497,7 @@ export function Bar() {
   let failedShown = false;
   const failedPill = () => {
     failedShown = true;
-    return <FailedPill key="failed" message={failed?.message ?? ''} onDismiss={() => setFailed(null)} />;
+    return <NotePill key="failed" message={failed?.message ?? ''} tone={failed?.tone ?? 'error'} onDismiss={() => setFailed(null)} />;
   };
   if (!feed) {
     sections.push([
@@ -447,7 +520,11 @@ export function Bar() {
       const folded = list.slice(shown.length);
       sections.push([
         ...shown.map((i) =>
-          failed?.anchor === i.key ? failedPill() : <SessionPill key={i.key} item={i} now={now} onOpen={() => open(i)} onMenu={() => sessionMenu(i)} />,
+          failed?.anchor === i.key ? (
+            failedPill()
+          ) : (
+            <SessionPill key={i.key} item={i} now={now} peeked={peeked.key === i.key} onOpen={() => open(i)} onMenu={() => sessionMenu(i)} onHover={(el) => hover(i, el)} onLeave={stopHover} />
+          ),
         ),
         ...(folded.length
           ? [

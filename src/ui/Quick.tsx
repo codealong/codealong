@@ -9,6 +9,10 @@
 // the worktree and ⌘L the agent, ↑ in the empty input brings back the last draft and earlier
 // prompts, and Escape closes. (⌘M is the Window menu's Minimize, which may take the key before
 // the page sees it.)
+//
+// ⇥ on a session answers it here: the panel shows its conversation and a box that sends it a
+// message where it runs, or what it waits on you to allow (ReplyView.tsx). ⏎ sends, and Escape
+// goes back to the list.
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
@@ -65,6 +69,7 @@ import { attachmentsIn, blockedBy, insertAttachments, newTodo, sessionHomes, sni
 import type { Attachment, Board, Lane, Meter, PrItem, Route, Session, StartOptions, StartPlace, StartSpec, TextFound } from '../types';
 import { AttachmentStrip } from './DescriptionEditor';
 import { Picker, type PickerOption, type PickerSection } from './Picker';
+import { ReplyView } from './ReplyView';
 import { Icon, Kbd, Mark, STATUS_WORD, StatusGlyph } from './primitives';
 import { projectForDigit, projectKey } from './ProjectSwitcher';
 import { PrGlyph } from './PrsView';
@@ -81,6 +86,8 @@ const INPUT_LINES = 8;
 const COMPOSE = 'compose';
 /** How long a read of where accounts can start is used without waiting for a new one. */
 const OPTIONS_FOR_MS = 60_000;
+/** The tallest the card gets while it answers a session; the conversation scrolls inside. */
+const REPLY_HEIGHT = 640;
 
 type PickerKind = 'project' | 'worktree' | 'agent';
 
@@ -202,6 +209,8 @@ export function Quick() {
   const [error, setError] = useState<string | null>(null);
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const [picker, setPicker] = useState<PickerKind | null>(null);
+  // The session the panel answers in place of the list (⇥ on its row).
+  const [replyKey, setReplyKey] = useState<string | null>(null);
   const now = useNow(30_000);
   const input = useRef<HTMLTextAreaElement>(null);
   const inputBox = useRef<HTMLDivElement>(null);
@@ -255,6 +264,7 @@ export function Quick() {
         setPlace(null);
         setNewWorktree(false);
         setActiveKey(null);
+        setReplyKey(ctx.reply ?? null);
       }
       // Where accounts can start rarely changes, and reading it means reading Codex's state
       // file, so a recent copy does while a fresh one is read.
@@ -350,6 +360,16 @@ export function Quick() {
   const groups = useMemo(() => laneGroups(lanes, board?.pinnedWorktrees ?? []), [lanes, board?.pinnedWorktrees]);
   // Without one asked for, the first on the list: a pinned one, else the latest.
   const lane = lanes.find((l) => l.id === laneId) ?? groups[0]?.lanes[0] ?? null;
+
+  // The session answered in place of the list, while it's on the board.
+  const replying = useMemo(() => {
+    if (!board || !replyKey) return null;
+    for (const l of board.lanes) {
+      const session = l.sessions.find((x) => x.key === replyKey);
+      if (session) return { lane: l, session };
+    }
+    return null;
+  }, [board, replyKey]);
 
   /* ---- Who ---- */
 
@@ -538,6 +558,21 @@ export function Quick() {
     reported.current = h;
     void fitQuick(h);
   });
+  // Answering a session, the conversation loads and grows on its own, without the panel drawing
+  // again: the window follows the card.
+  const replyingKey = replying?.session.key ?? null;
+  useLayoutEffect(() => {
+    const el = card.current;
+    if (!replyingKey || !el || !shown || opens === 0) return;
+    const observer = new ResizeObserver(() => {
+      const h = measure();
+      if (h === reported.current) return;
+      reported.current = h;
+      void fitQuick(h);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [replyingKey, shown, opens, measure]);
 
   const rows: Row[] = query ? [...suggested, ...rankedBy(foundSessions, route), ...foundTodos, ...foundPrs] : [...(attention?.rows ?? []), ...(readyList?.rows ?? []), ...(recent?.rows ?? [])];
   const keys = [...rows.map((r) => r.key), COMPOSE];
@@ -575,6 +610,19 @@ export function Quick() {
   const revealSession = (lane: Lane, session: Session) => {
     void hideQuick();
     void showMain({ kind: 'session', laneId: lane.id, key: session.key });
+  };
+
+  /** Answers a session here: its conversation, and a box for the reply. What's typed in the input
+   *  stays for when you go back. */
+  const replyTo = (session: Session) => {
+    setReplyKey(session.key);
+    setPicker(null);
+    setError(null);
+  };
+
+  const leaveReply = () => {
+    setReplyKey(null);
+    refocus();
   };
 
   /** The session ⏎ opens for a todo, as in the main window: the live one, else the latest. */
@@ -639,6 +687,7 @@ export function Quick() {
         void showContextMenu([
           ...(sg.kind === 'send' ? [{ label: 'Send this prompt to it', run: () => send(sg.session) }] : []),
           { label: 'Open', run: () => openSession(sg.lane, sg.session) },
+          { label: 'Reply here', run: () => replyTo(sg.session) },
           { label: 'Show in Codealong', run: () => revealSession(sg.lane, sg.session) },
         ]);
       } else {
@@ -652,6 +701,7 @@ export function Quick() {
     if (r.kind === 'session') {
       void showContextMenu([
         { label: 'Open', run: () => openSession(r.lane, r.session) },
+        { label: 'Reply here', run: () => replyTo(r.session) },
         { label: 'Show in Codealong', run: () => revealSession(r.lane, r.session) },
       ]);
       return;
@@ -801,6 +851,16 @@ export function Quick() {
   const onInputKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.nativeEvent.isComposing) return;
     const el = e.currentTarget;
+    // ⇥ on a session answers it here; elsewhere it moves the focus as usual.
+    if (e.key === 'Tab' && !e.shiftKey && !e.metaKey && !e.altKey && !e.ctrlKey) {
+      const row = rows.find((r) => r.key === active);
+      const session = row?.kind === 'session' ? row.session : row?.kind === 'suggest' && (row.s.kind === 'send' || row.s.kind === 'open') ? row.s.session : null;
+      if (session) {
+        e.preventDefault();
+        replyTo(session);
+        return;
+      }
+    }
     if (e.key === 'Enter') {
       if (e.shiftKey) return;
       e.preventDefault();
@@ -851,7 +911,17 @@ export function Quick() {
         if (picker) {
           setPicker(null);
           refocus();
-        } else void hideQuick();
+        } else if (replying) leaveReply();
+        else void hideQuick();
+        return;
+      }
+      // Answering a session, only ⌘Q and ⌘H mean something here: the list's keys are for the list.
+      if (replying) {
+        const k = e.key.toLowerCase();
+        if (e.metaKey && !e.ctrlKey && !e.altKey && (k === 'q' || k === 'h')) {
+          e.preventDefault();
+          void hideQuick();
+        }
         return;
       }
       // ⌥⌘ digits switch projects, as in the main window. ⌥ changes the character, so they go by
@@ -1048,6 +1118,15 @@ export function Quick() {
   const agentDetail = [autoFor ? account : null, modelShown].filter(Boolean).join(' · ');
   const shortcut = shortcutLabel(board?.quickShortcut);
 
+  /** A reply went through, or what it waited on was answered: the panel is done. The window that
+   *  opened it hears what happened. */
+  const replied = (message: string | null) => {
+    setReplyKey(null);
+    setActiveKey(null);
+    void hideQuick();
+    if (message) void tellOpener(opener ?? 'main', { phase: 'end', id: Date.now(), key: null, message });
+  };
+
   return (
     <div
       className="ca-quick-root"
@@ -1056,6 +1135,24 @@ export function Quick() {
         if (e.target === e.currentTarget) void hideQuick();
       }}
     >
+      {replying && (
+        <div ref={card} className="ca-quick is-reply" role="dialog" aria-label={`Answer ${replying.session.title}`} style={{ maxHeight: Math.min(REPLY_HEIGHT, room ? room - 2 * MARGIN : REPLY_HEIGHT) }}>
+          <ReplyView
+            lane={replying.lane}
+            session={replying.session}
+            terminal={board?.apps.terminal ?? 'Terminal'}
+            now={now}
+            autoFocus
+            keys
+            onBack={leaveReply}
+            onOpen={() => openSession(replying.lane, replying.session)}
+            onReveal={() => revealSession(replying.lane, replying.session)}
+            onSent={(sent) => replied(sent.message)}
+            onAnswered={(said) => replied(said)}
+          />
+        </div>
+      )}
+      {!replying && (
       <div ref={card} className="ca-quick" role="dialog" aria-label="Codealong" style={room ? { maxHeight: room - 2 * MARGIN } : undefined}>
         <div ref={inputBox} className="ca-quick-head">
         <div className="ca-quick-input">
@@ -1221,7 +1318,7 @@ export function Quick() {
                           role="option"
                           aria-selected={active === r.key}
                           className={['ca-quick-row', active === r.key && 'is-active', `is-${s2.status}`].filter(Boolean).join(' ')}
-                          title={`${s2.title}\n${s2.account} · ${r.lane.callsign}\n⏎ opens it where it lives · ⌥⏎ shows it in Codealong`}
+                          title={`${s2.title}\n${s2.account} · ${r.lane.callsign}\n⏎ opens it where it lives · ⇥ answers it here · ⌥⏎ shows it in Codealong`}
                           {...handlers}
                         >
                           <StatusGlyph status={s2.status} />
@@ -1242,6 +1339,7 @@ export function Quick() {
                             {s2.account} · {r.lane.callsign}
                           </span>
                           <span className="ca-quick-row-age">{ago(s2.statusSince ?? s2.lastActivity, now)}</span>
+                          {active === r.key && <span className="ca-quick-row-tab">⇥ Reply</span>}
                           {n <= 9 && <Kbd keys={['⌘', String(n)]} />}
                         </div>
                       );
@@ -1346,6 +1444,7 @@ export function Quick() {
           ) : null}
         </div>
       </div>
+      )}
     </div>
   );
 }

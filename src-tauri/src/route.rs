@@ -122,6 +122,7 @@ fn in_project(lane: &Lane, project: &str) -> bool {
 
 fn status_words(s: &Session) -> &'static str {
     match s.status {
+        Status::Needs if s.asks => "finished its turn asking the user a question; what the user sends it next is the answer",
         Status::Needs => "waiting on the user to answer a question or approve something",
         Status::Error => "stopped on an error",
         Status::Working => "working on a turn right now",
@@ -412,6 +413,7 @@ mod tests {
             stalled_since: None,
             background: None,
             insight: None,
+            asks: false,
         }
     }
 

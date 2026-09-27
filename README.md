@@ -39,7 +39,10 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     agent's replies as Markdown, and every tool call, which opens to its input and output; runs
     of calls fold into one line. It opens at the newest and loads older pages as you scroll up,
     and follows the session as it goes. The box at the bottom sends it a message where it runs,
-    as the quick panel does. When a session waits on you to allow a tool call, the bottom of the panel
+    as the quick panel does; paste a screenshot or a file into it and the agent gets its path,
+    and what you'd written to a session and not sent stays with that session. A session whose
+    last reply asks you something (Jev's read) takes your answer there like any message. When a
+    session waits on you to allow a tool call, the bottom of the panel
     shows the call with Allow and Deny: OpenCode's are answered through its service, Claude
     Code's by a keypress in its Ghostty or tmux tab, only while its own record says the prompt
     is up for that call. Others open where they run to be answered.
@@ -131,7 +134,10 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   opens its session, or, when it has none, gets a session ready to start for it (its prompt,
   its worktree, linked to it); on a PR it opens the PR on GitHub. The last row starts a new session with what you typed as its
   prompt. ⏎ does the selected row, ⌘⏎ always starts, ⌥⏎
-  shows the session, todo or PR in Codealong, ⌘1 to ⌘9 open a row, Escape closes. Each open starts empty,
+  shows the session, todo or PR in Codealong, ⌘1 to ⌘9 open a row, Escape closes. ⇥ on a
+  session answers it in the panel: its conversation, and a box that sends it a message where it
+  runs (⏎ sends and closes the panel), or what it waits on you to allow, with Allow and Deny
+  (⌘⏎ allows); Escape goes back to the list. Each open starts empty,
   so ⏎ goes to what needs you; ↑ brings back what you'd typed before closing, then earlier prompts you sent, started or saved, and ↓ goes forward again. While you type, the list doesn't shrink until you pause and the answers are in, so the panel holds still. A project picker (⌘P) narrows everything to one project. The shortcut is
   yours to change in Settings › General; Settings names shortcuts macOS and common launchers
   already use.
@@ -209,9 +215,15 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   apps, with a pill for each agent that needs you, whose turn just ended, or that's running,
   one for PRs waiting on your review, and one for todos ready to start. The project button
   beside the mark shows one project or all of them; a badge on it counts what needs you in the
-  others. Click a pill to open the session where it lives; right-click it to show it in
-  Codealong or mark it seen. The todos pill opens the quick panel ready to start a session for
-  a todo (its menu picks which). Pills that
+  others. Rest the pointer on a session's pill and its peek opens under the bar: the session's
+  conversation, as its panel shows it, and a box to answer it. The peek never takes the keyboard
+  by itself, so passing over the bar can't take what you're typing elsewhere; click in it to
+  type, and ⏎ sends where the session runs and puts it away (Escape does too, keeping what you
+  wrote). A session waiting on you to allow a tool call shows it with Allow and Deny. Until you
+  click in it, the peek follows the pointer from pill to pill and closes once the pointer leaves
+  it. Click a pill to open the session where it lives; right-click it to reply in the peek,
+  show it in Codealong or mark it seen. The todos pill opens the quick panel ready to start a
+  session for a todo (its menu picks which). Pills that
   don't fit fold into one per group that lists them. The mark brings Codealong forward; drag
   the bar by it or by its gaps. The capsule button at the top right of the window turns it on
   and off, as do Window › Floating bar and the bar's own right-click menu.
@@ -394,7 +406,8 @@ light scan (no git, PRs or visitors).
 | `src-tauri/src/start.rs`, `src/start.ts` | New sessions: where each account can start one, the launch it makes, the agent menu (every account on every model) and Auto's pick |
 | `src-tauri/src/quick.rs`, `src/quick.ts`, `src/ui/Quick.tsx` | The quick panel: its window (a panel that takes the keyboard over any app), its shortcut, and its page (what needs you, finding sessions, starting one) |
 | `src-tauri/src/harness.rs` | The interface each harness implements (`Adapter`): a session's record, its conversation, what it waits on you to allow and answering it; CLAUDE.md's "Adding a harness" says what else a new one needs |
-| `src-tauri/src/transcript.rs`, `src/ui/SessionPanel.tsx`, `src/ui/SessionThread.tsx` | A session's conversation, read a page at a time from its own record, and the panel that shows it and sends it messages |
+| `src-tauri/src/transcript.rs`, `src/ui/SessionPanel.tsx`, `src/ui/SessionThread.tsx`, `src/ui/SessionReply.tsx` | A session's conversation, read a page at a time from its own record, the panel that shows it, and the box that sends it messages or answers what it waits on |
+| `src-tauri/src/peek.rs`, `src/ui/Peek.tsx`, `src/ui/ReplyView.tsx` | The floating bar's peek: its window (a panel under the bar that takes the keyboard only on a click), where it opens for a pill and when it closes, and the session view it shares with the quick panel's ⇥ |
 | `src-tauri/src/search.rs` | Searching what was said in sessions: an in-memory index of prompts and replies, read once per file and then from where it stopped |
 | `src-tauri/src/route.rs`, `src/route.ts` | Suggestions in the quick panel: the request to Jev and reading its answer back, the key in the keychain, and which suggestions the panel shows |
 | `src-tauri/src/todojev.rs` | Jev on todos: which todo a new session is for, whether a todo's work looks done, and a todo's suggested project, labels and dependencies |
