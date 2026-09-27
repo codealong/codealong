@@ -361,9 +361,26 @@ interface AgentRowProps {
   onShowTodo?: (todo: Todo) => void;
 }
 
-/** One session in the Sessions view, with its worktree as context. */
+/** Where a session runs, as a chip: its worktree, after its repo when the worktree has a name of
+ *  its own, and after the Mac when it's on another of yours. */
+function WorktreeChip({ lane }: { lane: Lane }) {
+  const { branch } = laneSub(lane);
+  const own = lane.callsign !== lane.repo;
+  return (
+    <span className="ca-chip ca-wtchip" title={`${lane.mac ? `On ${lane.mac}: ` : ''}${lane.path}${branch ? `\nOn ${branch}` : ''}`}>
+      <Icon name="folder" size={12} />
+      {lane.mac && <span className="ca-wtchip-part ca-wtchip-mac">{lane.mac}</span>}
+      {own && <span className="ca-wtchip-part">{lane.repo}</span>}
+      <span className="ca-wtchip-name">{lane.callsign}</span>
+    </span>
+  );
+}
+
+/**
+ * One session in the Sessions view: who and what on the first line (its agent, its sentence),
+ * where and why on the second (its worktree, todo and insights, and the worktree's PR and diff).
+ */
 function AgentRowView({ lane, session: s, domId, now, selected, onSelect, onOpen, pinned, onContextMenu, pinIndex, onPointerDown, extraClass, todos, onShowTodo }: AgentRowProps) {
-  const { sub, branch } = laneSub(lane);
   return (
     <div
       id={domId}
@@ -386,28 +403,23 @@ function AgentRowView({ lane, session: s, domId, now, selected, onSelect, onOpen
       <div className="ca-seg ca-seg-glyph">
         <StatusGlyph status={s.status} />
       </div>
-      <div className="ca-seg ca-seg-call">
-        <span className="ca-lane-call" title={lane.path}>
-          {lane.callsign}
-        </span>
-        <span className="ca-lane-sub" title={branch ?? lane.path}>
-          {sub}
-        </span>
-      </div>
       <div className="ca-seg ca-seg-main">
-        <div className="ca-lane-line1">
-          <span className="ca-lane-headline">
-            <Rich text={s.headline} now={now} />
-          </span>
-          {s.detail && (
-            <span className="ca-lane-detail">
-              <Rich text={s.detail} now={now} />
+        <div className="ca-agentrow-line1">
+          <HarnessChip session={s} withStatus={false} onOpen={onOpen} />
+          <span className="ca-agentline-text">
+            <span className="ca-lane-headline">
+              <Rich text={withoutAccount(s.headline)} now={now} />
             </span>
-          )}
+            {s.detail && (
+              <span className="ca-lane-detail">
+                <Rich text={s.detail} now={now} />
+              </span>
+            )}
+          </span>
         </div>
         <div className="ca-lane-line2">
           <span className="ca-lane-agents">
-            <HarnessChip session={s} onOpen={onOpen} />
+            <WorktreeChip lane={lane} />
             <TodoChips todos={todos} onShow={onShowTodo} />
             <InsightChips session={s} />
           </span>
@@ -417,7 +429,7 @@ function AgentRowView({ lane, session: s, domId, now, selected, onSelect, onOpen
           </span>
         </div>
       </div>
-      <div className="ca-seg ca-seg-age" title={absolute(s.lastActivity)}>
+      <div className="ca-seg ca-seg-age" title={`Last active ${absolute(s.lastActivity)}. You last sent it a prompt ${agoPhrase(s.lastPromptAt, now)}, which sets its place in the list.`}>
         {ago(s.lastActivity, now)}
         {pinned && <PinMark />}
       </div>

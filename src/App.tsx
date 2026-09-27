@@ -1846,10 +1846,9 @@ export function App() {
             )}
           </div>
           {view !== 'prs' && view !== 'todo' && view !== 'canvas' && (
-            <div className="ca-board-cols ca-label" aria-hidden="true">
+            <div className={`ca-board-cols ca-label${view === 'sessions' ? ' is-sessions' : ''}`} aria-hidden="true">
               <span />
-              <span>Worktree</span>
-              <span>{view === 'sessions' ? 'Session' : 'Now'}</span>
+              {view === 'sessions' ? <span>Session</span> : <><span>Worktree</span><span>Now</span></>}
               <span className="ca-board-cols-age">Age</span>
             </div>
           )}

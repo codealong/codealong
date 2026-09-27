@@ -5229,3 +5229,62 @@ html.is-quick body {
 .ca-ucard-name.ca-device-name {
   font-family: var(--font-sans);
 }
+
+/* Session rows: no worktree column. The first line says who and what (the agent's chip, its
+   sentence); the second where and why, starting with the worktree as a chip. */
+.ca-lane.is-agent,
+.ca-board-cols.is-sessions {
+  grid-template-columns: 32px minmax(0, 1fr) 52px;
+}
+.ca-lane.is-agent .ca-seg-main {
+  gap: 5px;
+  padding-top: 7px;
+  padding-bottom: 7px;
+  border-left: 0;
+  padding-left: 0;
+}
+/* The glyph and the age sit on the first line, with the agent and its sentence. */
+.ca-lane.is-agent .ca-seg-glyph {
+  justify-content: flex-start;
+  padding-top: 11px;
+}
+.ca-lane.is-agent .ca-seg-age {
+  padding-top: 8px;
+  border-left: 0;
+}
+.ca-lane.is-agent.is-needs .ca-seg-glyph {
+  box-shadow: inset 2px 0 0 var(--attn-solid);
+}
+.ca-agentrow-line1 {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+/* The worktree reads as a place, not an actor: outlined where the agent's chip is filled. */
+.ca-chip.ca-wtchip {
+  flex: 0 1 auto;
+  min-width: 0;
+  gap: 4px;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.ca-wtchip-part {
+  flex: none;
+  color: var(--ink-3);
+}
+.ca-wtchip-mac {
+  font-family: var(--font-sans);
+}
+.ca-wtchip-part::after {
+  content: '/';
+  margin-left: 4px;
+  color: var(--ink-3);
+  opacity: 0.6;
+}
+.ca-wtchip-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--ink-2);
+}
