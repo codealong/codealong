@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ALL_PROJECTS, attentionRows, recallList, withPrompt, findPrs, findSessions, findTodos, laneGroups, projectCounts, readyTodos, shortcutFromKey, shortcutLabel, TAKEN, titleMarks } from './quick';
+import { ALL_PROJECTS, attentionRows, recallList, withPrompt, findPrs, findSessions, findTodos, laneGroups, projectCounts, readyTodos, recentRows, shortcutFromKey, shortcutLabel, TAKEN, titleMarks } from './quick';
 import type { Board, Label, Lane, PrItem, Session, Todo } from './types';
 
 const NOW = 1_790_200_000_000;
@@ -146,6 +146,30 @@ describe('findTodos', () => {
     expect(first.marks).toEqual([[9, 12]]);
     expect(first.item.todo.id).toBe('t1');
     expect(findTodos(b, 'Northwind', 'clean')[0].item.sessions.map((x) => x.session.key)).toEqual(['s1']);
+  });
+});
+
+describe('recentRows', () => {
+  const HOUR = 60 * 60 * 1000;
+  it('lists sessions started in the last day that the panel doesn’t already show, the latest active first', () => {
+    const b = board([
+      lane('app2', [
+        session('old', 'idle', NOW - HOUR, { startedAt: NOW - 30 * HOUR }),
+        session('i1', 'idle', NOW - 3 * HOUR, { startedAt: NOW - 5 * HOUR }),
+        session('i2', 'stopped', NOW - HOUR, { startedAt: NOW - 2 * HOUR }),
+        session('u', 'unread', NOW, { startedAt: NOW - HOUR }),
+        session('gone', 'idle', NOW, { startedAt: NOW - HOUR, archived: true }),
+        session('guess', 'idle', NOW - 2 * HOUR, { startedAt: null }),
+      ]),
+    ]);
+    const { rows, count } = recentRows(b, ALL_PROJECTS, new Set(['u']), NOW);
+    expect(rows.map((r) => [r.key, r.group])).toEqual([
+      ['i2', 'recent'],
+      ['guess', 'recent'],
+      ['i1', 'recent'],
+    ]);
+    expect(count).toBe(3);
+    expect(recentRows(b, ALL_PROJECTS, new Set(), NOW, 2)).toMatchObject({ count: 4, rows: [{ key: 'u' }, { key: 'i2' }] });
   });
 });
 

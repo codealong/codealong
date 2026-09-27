@@ -1,6 +1,7 @@
 // What the quick panel lists, and how it names shortcuts. With nothing typed it lists the
 // sessions that need you, then the ones whose turn ended; with nothing waiting, the ones
-// working. Under them go the first few todos ready to start. Typed words find sessions, then
+// working. Under them go the first few todos ready to start, then the rest of the sessions
+// started in the last day, which ↓ reaches past the rest. Typed words find sessions, then
 // todos, then PRs: every word has to be in what describes them, or, for a session, in what was
 // said in it (the engine's text search, search.rs). Kept free of React so the rules have tests.
 
@@ -20,7 +21,7 @@ export function inProject(lane: Pick<Lane, 'project' | 'hidden'>, project: strin
   return lane.project === project && (project === ELSEWHERE || !lane.hidden);
 }
 
-export type RowGroup = 'suggested' | 'needs' | 'unread' | 'working' | 'found' | 'todos' | 'prs' | 'ready';
+export type RowGroup = 'suggested' | 'needs' | 'unread' | 'working' | 'found' | 'todos' | 'prs' | 'ready' | 'recent';
 
 /** Where a status puts a session in the empty panel's list, as on the floating bar: errors wait
  *  on you like questions do. */
@@ -47,6 +48,9 @@ export interface SessionRow {
 export const MAX_ROWS = 9;
 /** How many todos ready to start the empty panel lists under the sessions. */
 export const READY_TODOS = 3;
+/** How far back the empty panel's recent sessions go, and how many it lists at most. */
+export const RECENT_MS = 24 * 60 * 60 * 1000;
+export const RECENT_SESSIONS = 20;
 /** A search lists this many sessions and this many todos at most, so both fit. */
 export const FOUND_SESSIONS = 6;
 export const FOUND_TODOS = 5;
@@ -82,6 +86,19 @@ export function attentionRows(board: Board, project: string, limit = MAX_ROWS): 
 }
 
 const ORDER: RowGroup[] = ['needs', 'unread', 'working'];
+
+/**
+ * The empty panel's last list: sessions started in the last day (by their last activity when the
+ * start isn't known) that the lists above don’t show, the newest status first, as their ages read. `count`
+ * is how many there are in all, for the heading.
+ */
+export function recentRows(board: Board, project: string, shown: Set<string>, now: number, limit = RECENT_SESSIONS): { rows: SessionRow[]; count: number } {
+  const recent = sessionsIn(board, project)
+    .filter(({ session: s }) => !shown.has(s.key) && now - (s.startedAt ?? s.lastActivity) <= RECENT_MS)
+    .sort((a, b) => since(b.session) - since(a.session) || a.session.key.localeCompare(b.session.key));
+  const rows = recent.slice(0, limit).map(({ lane, session }): SessionRow => ({ kind: 'session', key: session.key, group: 'recent', lane, session, marks: [] }));
+  return { rows, count: recent.length };
+}
 
 /** The words to look for, lowercased. */
 export function queryWords(query: string): string[] {

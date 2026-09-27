@@ -1,6 +1,6 @@
 // The quick panel's page (quick.rs has its window): one input, and below it what you can do
 // next. With nothing typed it lists the sessions that need you, then the ones whose turn ended,
-// then a few todos ready to start; typed words find sessions, todos and PRs; the last row starts a
+// then a few todos ready to start, then the other sessions started in the last day; typed words find sessions, todos and PRs; the last row starts a
 // new session with what you typed as its prompt, in the worktree, on the agent and in the app
 // chosen at the bottom.
 //
@@ -40,7 +40,7 @@ import { HARNESS_WORD, usageNote } from '../harness';
 import { useLogo } from '../logo';
 import { withoutAccount } from '../lanes';
 import { prPills } from '../prStatus';
-import { ALL_PROJECTS, attentionRows, findPrs, findSessions, findTodos, FOUND_SESSIONS, inProject, laneBranch, laneGroups, MAX_ROWS, projectCounts, queryWords, readyTodos, recallList, shortcutLabel, TEXT_SEARCH_MIN, type PrRow, type RowGroup, type SessionRow, type TodoRow, withPrompt as historyWith } from '../quick';
+import { ALL_PROJECTS, attentionRows, findPrs, findSessions, findTodos, FOUND_SESSIONS, inProject, laneBranch, laneGroups, MAX_ROWS, projectCounts, queryWords, readyTodos, recallList, recentRows, shortcutLabel, TEXT_SEARCH_MIN, type PrRow, type RowGroup, type SessionRow, type TodoRow, withPrompt as historyWith } from '../quick';
 import {
   accountFor,
   agentId,
@@ -84,7 +84,7 @@ const OPTIONS_FOR_MS = 60_000;
 
 type PickerKind = 'project' | 'worktree' | 'agent';
 
-const GROUP_WORD: Record<RowGroup, string> = { suggested: 'Suggested', needs: 'Needs you', unread: 'Your turn', working: 'Working', found: 'Sessions', todos: 'Todos', prs: 'PRs', ready: 'Ready todos' };
+const GROUP_WORD: Record<RowGroup, string> = { suggested: 'Suggested', needs: 'Needs you', unread: 'Your turn', working: 'Working', found: 'Sessions', todos: 'Todos', prs: 'PRs', ready: 'Ready todos', recent: 'Last 24 hours' };
 
 /** A suggestion from Jev, as a row. */
 interface SuggestRow {
@@ -426,6 +426,8 @@ export function Quick() {
   // With nothing typed, a few todos ready to start go under the sessions, which leave them room.
   const readyList = useMemo(() => (board && !query && !todo ? readyTodos(board, current) : null), [board, current, query, todo]);
   const attention = useMemo(() => (board && !query && !todo ? attentionRows(board, current, MAX_ROWS - (readyList?.rows.length ?? 0)) : null), [board, current, query, todo, readyList]);
+  // Below them, the rest of the day's sessions, for ↓ to reach one that isn't waiting on you.
+  const recent = useMemo(() => (board && attention ? recentRows(board, current, new Set(attention.rows.map((r) => r.key)), now) : null), [board, current, attention, now]);
   // What was said in sessions is searched in the engine, once typing pauses; its hits join the
   // list below the sessions whose titles and the like match.
   const textFor = !!board && query.replace(/\s+/g, '').length >= TEXT_SEARCH_MIN ? queryWords(query).join(' ') : null;
@@ -537,7 +539,7 @@ export function Quick() {
     void fitQuick(h);
   });
 
-  const rows: Row[] = query ? [...suggested, ...rankedBy(foundSessions, route), ...foundTodos, ...foundPrs] : [...(attention?.rows ?? []), ...(readyList?.rows ?? [])];
+  const rows: Row[] = query ? [...suggested, ...rankedBy(foundSessions, route), ...foundTodos, ...foundPrs] : [...(attention?.rows ?? []), ...(readyList?.rows ?? []), ...(recent?.rows ?? [])];
   const keys = [...rows.map((r) => r.key), COMPOSE];
   const recallable = useMemo(() => recallList(draft?.text ?? null, history), [draft, history]);
   const active = activeKey && keys.includes(activeKey) ? activeKey : keys[0];
@@ -1038,6 +1040,7 @@ export function Quick() {
   /** A group's heading count: all there are of it, when the list shows only some. */
   const groupCount = (g: RowGroup, shown: number): number => {
     if (g === 'ready') return readyList?.count ?? shown;
+    if (g === 'recent') return recent?.count ?? shown;
     if (g === 'needs' || g === 'unread' || g === 'working') return attention?.counts[g] ?? shown;
     return shown;
   };
