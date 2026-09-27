@@ -7,7 +7,7 @@ import { useEffect, useState } from 'react';
 import { agentsStatus, foundAccounts, getAccounts, installAgents, saveAccounts, signIn } from '../api';
 import { agoPhrase, tildePath } from '../format';
 import { HARNESSES, HARNESS_WORD } from '../harness';
-import type { AccountCfg, AccountInfo, AccountSkill, FoundAccount, Harness, Usage } from '../types';
+import type { AccountCfg, AccountInfo, AccountSkill, FoundAccount, Harness, StartPlace, Usage } from '../types';
 import { Button, Icon, Rich } from './primitives';
 import { asOfPhrase, UsageMeter } from './UsageBar';
 
@@ -18,6 +18,8 @@ interface Draft {
   name: string;
   home: string;
   command: string;
+  /** Where its sessions start unless you pick another; null goes where the last one did. */
+  start: StartPlace | null;
   /** Whether you typed in these fields; untouched ones follow the name. */
   touched: { home: boolean; command: boolean };
 }
@@ -37,6 +39,26 @@ function defaultsFor(harness: Harness, name: string): { home: string; command: s
       // Antigravity keeps every app data folder under ~/.gemini and has no command.
       return { home: `~/.gemini/${name}`, command: '' };
   }
+}
+
+/** Where an account can start a session from Codealong, as start.rs's `places_of` has it: the
+ *  Claude and Codex apps each run only the account in the default folder. */
+export function startPlaces(harness: Harness, home: string): StartPlace[] {
+  const main = (dir: string) => new RegExp(`^(~|/Users/[^/]+)/\\.${dir}/?$`).test(home.trim());
+  switch (harness) {
+    case 'claude':
+      return main('claude') ? ['terminal', 'background', 'claude-app'] : ['terminal', 'background'];
+    case 'codex':
+      return main('codex') ? ['codex-app'] : [];
+    case 'opencode':
+      return ['terminal'];
+    case 'antigravity':
+      return [];
+  }
+}
+
+export function placeName(place: StartPlace, terminal: string): string {
+  return place === 'terminal' ? terminal : place === 'background' ? 'Background' : place === 'claude-app' ? 'Claude app' : 'Codex app';
 }
 
 /** What the config folder holds for a harness, and how it's told about a second one. */
@@ -87,7 +109,7 @@ export function suggestAccount(harness: Harness, taken: AccountCfg[]): Omit<Draf
   const nameFor = (i: number) => (i === 1 ? harness : `${harness}${i}`);
   while (names.has(nameFor(n)) || homes.has(defaultsFor(harness, nameFor(n)).home)) n++;
   const name = nameFor(n);
-  return { harness, name, ...defaultsFor(harness, name) };
+  return { harness, name, start: null, ...defaultsFor(harness, name) };
 }
 
 /** Where a found account stands, in words: its sign-in, when it was last used, and the
@@ -112,7 +134,7 @@ export function skillTag(s: AccountSkill | undefined): { label: string; tone: 'o
 }
 
 function toCfg(a: AccountCfg): AccountCfg {
-  return { name: a.name, harness: a.harness, home: a.home, command: a.command };
+  return { name: a.name, harness: a.harness, home: a.home, command: a.command, start: a.start ?? null };
 }
 
 interface AccountsSectionProps {
@@ -210,12 +232,14 @@ export function AccountsSection({ focus, usage, terminal, now, onSaved }: Accoun
   const startEdit = (a: AccountInfo) => {
     setError(null);
     setRemoving(null);
-    setDraft({ original: a.name, harness: a.harness, name: a.name, home: a.home, command: a.command ?? a.name, touched: { home: true, command: true } });
+    setDraft({ original: a.name, harness: a.harness, name: a.name, home: a.home, command: a.command ?? a.name, start: a.start ?? null, touched: { home: true, command: true } });
   };
 
   const submit = async () => {
     if (!draft || !accounts) return;
-    const entry: AccountCfg = { name: draft.name.trim(), harness: draft.harness, home: draft.home.trim(), command: draft.command.trim() || null };
+    // A place the folder or harness no longer offers falls back to the usual one.
+    const start = draft.start && startPlaces(draft.harness, draft.home).includes(draft.start) ? draft.start : null;
+    const entry: AccountCfg = { name: draft.name.trim(), harness: draft.harness, home: draft.home.trim(), command: draft.command.trim() || null, start };
     const next = draft.original ? accounts.map((a) => (a.name === draft.original ? entry : a)) : [...accounts, entry];
     if (await save(next)) {
       setDraft(null);
@@ -241,6 +265,9 @@ export function AccountsSection({ focus, usage, terminal, now, onSaved }: Accoun
   const startSignIn = (name: string) => {
     signIn(name).catch((e: unknown) => setError(String(e)));
   };
+
+  const draftPlaces = draft ? startPlaces(draft.harness, draft.home) : [];
+  const draftStart = draft?.start && draftPlaces.includes(draft.start) ? draft.start : null;
 
   const form = draft && (
     <form
@@ -299,6 +326,19 @@ export function AccountsSection({ focus, usage, terminal, now, onSaved }: Accoun
         <input value={draft.command} spellCheck={false} autoCapitalize="off" autoCorrect="off" onChange={(e) => setDraft({ ...draft, command: e.target.value, touched: { ...draft.touched, command: true } })} />
         <small>{commandHelp(draft.harness, terminal)}</small>
       </label>
+      {draftPlaces.length > 1 && (
+        <div className="ca-field">
+          <span id="ca-acct-start">New sessions start in</span>
+          <div className="ca-segctl" role="radiogroup" aria-labelledby="ca-acct-start">
+            {[null, ...draftPlaces].map((p) => (
+              <button key={p ?? 'last'} type="button" role="radio" aria-checked={draftStart === p} className={draftStart === p ? 'is-on' : undefined} onClick={() => setDraft({ ...draft, start: p })}>
+                {p ? placeName(p, terminal) : 'Last used'}
+              </button>
+            ))}
+          </div>
+          <small>Where the quick panel and codealong start open a new session on this account. You can still pick another place there.</small>
+        </div>
+      )}
       {!draft.original && skillBox('Install the Codealong skill')}
       <div className="ca-acct-actions">
         <Button variant="primary" size="sm" type="submit" disabled={busy}>
@@ -360,6 +400,12 @@ export function AccountsSection({ focus, usage, terminal, now, onSaved }: Accoun
               <dd className="ca-code">{a.home}</dd>
               <dt>Command</dt>
               <dd className="ca-code">{a.command ?? (a.harness === 'antigravity' ? '—' : a.name)}</dd>
+              {startPlaces(a.harness, a.home).length > 1 && (
+                <>
+                  <dt>Starts in</dt>
+                  <dd>{a.start ? placeName(a.start, terminal) : 'Last used'}</dd>
+                </>
+              )}
             </dl>
             {removing === a.name ? (
               <div className="ca-acct-confirm" role="alert">

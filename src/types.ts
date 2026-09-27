@@ -158,6 +158,8 @@ export interface AccountCfg {
   harness: Harness;
   home: string;
   command: string | null;
+  /** Where a new session starts unless you pick another; absent leaves it to the usual place. */
+  start?: StartPlace | null;
 }
 
 /** A `[[projects]]` table in config.toml. */
@@ -500,8 +502,10 @@ export type StartPlace = 'terminal' | 'background' | 'claude-app' | 'codex-app';
 export interface StartAccount {
   name: string;
   harness: Harness;
-  /** Where this account can start a session, the usual place first. */
+  /** Where this account can start a session, the usual place first: the one `start` names, when set. */
   places: { place: StartPlace; label: string }[];
+  /** The place its `start` setting names; starts go there rather than where the last one went. */
+  chosen: StartPlace | null;
   /** Why there's nowhere, when `places` is empty. */
   unavailable: string | null;
   /** The model a session starts on without one chosen: the account's settings.json `model`. */

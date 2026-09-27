@@ -76,8 +76,12 @@ pub struct PlaceOption {
 pub struct StartAccount {
     pub name: String,
     pub harness: Harness,
-    /// Where this account can start a session, the usual place first.
+    /// Where this account can start a session, the usual place first: the one its `start`
+    /// setting names, when it has one.
     pub places: Vec<PlaceOption>,
+    /// The place its `start` setting names. A start goes there rather than where the last
+    /// one went.
+    pub chosen: Option<Place>,
     /// Why there's nowhere, when `places` is empty.
     pub unavailable: Option<String>,
     /// The model a session starts on without `--model`: the account's settings.json `model`.
@@ -146,39 +150,86 @@ fn harness_of(a: &AccountCfg) -> Harness {
     Harness::from_config(&a.harness)
 }
 
-/// Where each account can start a session. The Claude app and the Codex app each run one
-/// account, the one in the default folder (`~/.claude`, `~/.codex`); the terminal runs any
-/// Claude Code or OpenCode account through its command. Antigravity starts conversations only
-/// in its own window. `default_model` reads an account's default model.
+impl Place {
+    pub const ALL: [Place; 4] = [Place::Terminal, Place::Background, Place::ClaudeApp, Place::CodexApp];
+
+    /// As config.toml and the command line write it.
+    pub fn word(self) -> &'static str {
+        match self {
+            Place::Terminal => "terminal",
+            Place::Background => "background",
+            Place::ClaudeApp => "claude-app",
+            Place::CodexApp => "codex-app",
+        }
+    }
+
+    pub fn from_word(w: &str) -> Option<Place> {
+        Place::ALL.into_iter().find(|p| p.word() == w.trim())
+    }
+}
+
+/// Where an account can start a session, the usual place first, or why it can't. The Claude
+/// app and the Codex app each run one account, the one in the default folder (`~/.claude`,
+/// `~/.codex`); the terminal runs any Claude Code or OpenCode account through its command.
+/// Antigravity starts conversations only in its own window.
+pub fn places_of(a: &AccountCfg, home: &Path) -> std::result::Result<Vec<Place>, String> {
+    match harness_of(a) {
+        Harness::Claude if a.home_path() == home.join(".claude") => Ok(vec![Place::Terminal, Place::Background, Place::ClaudeApp]),
+        Harness::Claude => Ok(vec![Place::Terminal, Place::Background]),
+        Harness::Codex if a.home_path() == home.join(".codex") => Ok(vec![Place::CodexApp]),
+        Harness::Codex => Err(format!("The Codex app runs the account in ~/.codex, so {} can't start threads from here.", a.name)),
+        Harness::Opencode => Ok(vec![Place::Terminal]),
+        Harness::Antigravity => Err(format!("Antigravity starts conversations in its own window, so {} can't start one from here.", a.name)),
+    }
+}
+
+/// Why an account's `start` can't be where its sessions start, in words.
+pub fn check_start(a: &AccountCfg, place: &str, home: &Path) -> std::result::Result<(), String> {
+    let offered = places_of(a, home).unwrap_or_default();
+    let words = |ps: &[Place]| ps.iter().map(|p| format!("\"{}\"", p.word())).collect::<Vec<_>>().join(", ");
+    match Place::from_word(place) {
+        _ if offered.is_empty() => Err(format!("{} can't start sessions from Codealong, so it takes no start.", a.name)),
+        Some(p) if offered.contains(&p) => Ok(()),
+        _ => Err(format!("{} can start sessions in {}; \"{}\" isn't one of them.", a.name, words(&offered), place.trim())),
+    }
+}
+
+/// The places an account offers, with the one its `start` names first.
+pub fn ordered_places(a: &AccountCfg, home: &Path) -> std::result::Result<Vec<Place>, String> {
+    let mut places = places_of(a, home)?;
+    if let Some(i) = a.start.as_deref().and_then(Place::from_word).and_then(|p| places.iter().position(|&q| q == p)) {
+        let p = places.remove(i);
+        places.insert(0, p);
+    }
+    Ok(places)
+}
+
+/// Where each account can start a session, as the sheet offers it. `default_model` reads an
+/// account's default model.
 pub fn options(accounts: &[AccountCfg], terminal: &str, codex_projects: Vec<String>, home: &Path, default_model: impl Fn(&AccountCfg) -> Option<String>) -> StartOptions {
     let accounts = accounts
         .iter()
         .map(|a| {
             let harness = harness_of(a);
-            let mut places = Vec::new();
-            let mut unavailable = None;
-            match harness {
-                Harness::Claude => {
-                    places.push(PlaceOption { place: Place::Terminal, label: terminal.to_string() });
-                    places.push(PlaceOption { place: Place::Background, label: "Background".into() });
-                    if a.home_path() == home.join(".claude") {
-                        places.push(PlaceOption { place: Place::ClaudeApp, label: "Claude app".into() });
-                    }
-                }
-                Harness::Codex => {
-                    if a.home_path() == home.join(".codex") {
-                        places.push(PlaceOption { place: Place::CodexApp, label: "Codex app".into() });
-                    } else {
-                        unavailable = Some(format!("The Codex app runs the account in ~/.codex, so {} can't start threads from here.", a.name));
-                    }
-                }
-                Harness::Opencode => places.push(PlaceOption { place: Place::Terminal, label: terminal.to_string() }),
-                Harness::Antigravity => {
-                    unavailable = Some(format!("Antigravity starts conversations in its own window, so {} can't start one from here.", a.name));
-                }
-            }
+            let (places, unavailable) = match ordered_places(a, home) {
+                Ok(ps) => (ps, None),
+                Err(why) => (Vec::new(), Some(why)),
+            };
+            let places = places
+                .into_iter()
+                .map(|place| {
+                    let label = match place {
+                        Place::Terminal => terminal.to_string(),
+                        Place::Background => "Background".into(),
+                        Place::ClaudeApp => "Claude app".into(),
+                        Place::CodexApp => "Codex app".into(),
+                    };
+                    PlaceOption { place, label }
+                })
+                .collect();
+            let chosen = a.start.as_deref().and_then(Place::from_word);
             let default_model = if harness == Harness::Claude { default_model(a) } else { None };
-            StartAccount { name: a.name.clone(), harness, places, unavailable, default_model }
+            StartAccount { name: a.name.clone(), harness, places, chosen, unavailable, default_model }
         })
         .collect();
     let claude_models = CLAUDE_MODELS.iter().map(|(id, label)| ModelOption { id: id.to_string(), label: label.to_string() }).collect();
@@ -457,7 +508,7 @@ mod tests {
     use super::*;
 
     fn account(name: &str, harness: &str, home: &str, command: Option<&str>) -> AccountCfg {
-        AccountCfg { name: name.into(), harness: harness.into(), home: home.into(), command: command.map(String::from) }
+        AccountCfg { name: name.into(), harness: harness.into(), home: home.into(), command: command.map(String::from), start: None }
     }
 
     fn places(o: &StartOptions, name: &str) -> Vec<Place> {
@@ -489,6 +540,26 @@ mod tests {
         assert_eq!(o.accounts[1].default_model.as_deref(), Some("claude-fable-5-1"));
         assert_eq!(o.accounts[0].default_model, None);
         assert!(o.claude_models.iter().any(|m| m.id == "opus[1m]"));
+    }
+
+    #[test]
+    fn an_accounts_start_setting_goes_first() {
+        let home = Path::new("/Users/me");
+        let with = |name: &str, h: &str, dir: &str, start: &str| AccountCfg { start: Some(start.into()), ..account(name, h, dir, None) };
+        let accounts = vec![with("claude", "claude", "/Users/me/.claude", "claude-app"), with("claude2", "claude", "/Users/me/.claude2", "background"), account("claude3", "claude", "/Users/me/.claude3", None)];
+        let o = options(&accounts, "Ghostty", vec![], home, |_| None);
+        assert_eq!(places(&o, "claude"), vec![Place::ClaudeApp, Place::Terminal, Place::Background]);
+        assert_eq!(o.accounts[0].chosen, Some(Place::ClaudeApp));
+        assert_eq!(places(&o, "claude2"), vec![Place::Background, Place::Terminal]);
+        assert_eq!(places(&o, "claude3"), vec![Place::Terminal, Place::Background]);
+        assert_eq!(o.accounts[2].chosen, None);
+
+        assert!(check_start(&accounts[0], "claude-app", home).is_ok());
+        let err = check_start(&accounts[1], "claude-app", home).unwrap_err();
+        assert!(err.contains("\"terminal\", \"background\""), "{err}");
+        assert!(check_start(&account("codex", "codex", "/Users/me/.codex", None), "terminal", home).is_err());
+        assert!(check_start(&account("ag", "antigravity", "/Users/me/.gemini/antigravity", None), "terminal", home).unwrap_err().contains("takes no start"));
+        assert!(check_start(&accounts[1], "somewhere", home).is_err());
     }
 
     #[test]

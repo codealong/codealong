@@ -1097,7 +1097,8 @@ Options:
           Have Claude Code make a fresh worktree for it (`claude --worktree`)
 
       --in <PLACE>
-          Where it runs
+          Where it runs. Without it, where the account's `start` setting says, else the
+          terminal (the Codex app for Codex)
 
           Possible values:
           - terminal
@@ -1105,8 +1106,6 @@ Options:
             attach one
           - claude-app
           - codex-app
-          
-          [default: terminal]
 
       --model <MODEL>
           A model for a terminal or background start: fable, opus, sonnet, haiku, or a

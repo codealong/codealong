@@ -2454,7 +2454,7 @@ mod tests {
         writeln!(file, r#"{{"timestamp":"2026-09-24T18:00:00.000Z","type":"event_msg","payload":{{"type":"task_complete","last_agent_message":"Earlier result"}}}}"#).unwrap();
         let (tx, _rx) = channel();
         let mut engine = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
-        engine.cfg.accounts = vec![AccountCfg { name: "studio".into(), harness: "codex".into(), home: home.to_string_lossy().into_owned(), command: None }];
+        engine.cfg.accounts = vec![AccountCfg { name: "studio".into(), harness: "codex".into(), home: home.to_string_lossy().into_owned(), command: None, start: None }];
         // A startup scan has the previous completed turn. No filesystem events follow.
         engine.rollouts.insert(path.clone(), ("studio".into(), codex::parse_rollout(&path, 0, None)));
         engine.codex_index.insert("studio".into(), HashMap::new());

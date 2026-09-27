@@ -310,6 +310,7 @@ name = "claude2"               # what the board shows
 harness = "claude"             # claude, codex, opencode or antigravity
 home = "~/.claude2"
 command = "claude2"            # used for `claude2 --resume <id>`
+start = "background"           # where new sessions start: terminal, background, claude-app (~/.claude only), codex-app (~/.codex only)
 
 [[accounts]]
 name = "opencode"

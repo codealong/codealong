@@ -361,6 +361,7 @@ pub fn describe(a: &AccountCfg) -> AccountInfo {
         harness: a.harness.clone(),
         home: a.home.clone(),
         command: a.command.clone(),
+        start: a.start.clone(),
         folder_exists: dir.is_dir(),
         signed_in,
         email,
@@ -475,7 +476,7 @@ mod tests {
     #[test]
     fn codex_takes_the_newest_report_and_applies_resets() {
         let now = 1_000 * DAY_MS;
-        let acct = AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: None };
+        let acct = AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: None, start: None };
         let a: BTreeMap<String, RateLimit> = [("codex".to_string(), limit(None, &[(40.0, 10080, Some(now + DAY_MS))], now - 5_000))].into();
         let b: BTreeMap<String, RateLimit> = [
             ("codex".to_string(), limit(None, &[(48.0, 10080, Some(now + DAY_MS))], now - 1_000)),
@@ -492,7 +493,7 @@ mod tests {
 
     #[test]
     fn codex_without_reports_says_so() {
-        let acct = AccountCfg { name: "codex2".into(), harness: "codex".into(), home: "~/.codex2".into(), command: None };
+        let acct = AccountCfg { name: "codex2".into(), harness: "codex".into(), home: "~/.codex2".into(), command: None, start: None };
         let u = codex(&acct, std::iter::empty(), 0);
         assert!(u.error.is_some() && u.meters.is_empty());
     }

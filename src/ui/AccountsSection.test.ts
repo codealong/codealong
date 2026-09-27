@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AccountSkill, FoundAccount } from '../types';
-import { foundNote, skillTag } from './AccountsSection';
+import { foundNote, skillTag, startPlaces } from './AccountsSection';
 
 const NOW = Date.UTC(2026, 8, 25, 12);
 const DAY = 24 * 60 * 60 * 1000;
@@ -45,5 +45,16 @@ describe('skillTag', () => {
     expect(skillTag(skill({ edited: true }))?.label).toBe('Skill edited');
     expect(skillTag(skill({ edited: true, current: false }))?.label).toBe('Skill edited');
     expect(skillTag(skill({ current: false }))).toEqual({ label: 'Skill out of date', tone: 'attn' });
+  });
+});
+
+describe('startPlaces', () => {
+  it('offers each app only for the account in its default folder', () => {
+    expect(startPlaces('claude', '~/.claude')).toEqual(['terminal', 'background', 'claude-app']);
+    expect(startPlaces('claude', '/Users/me/.claude/')).toEqual(['terminal', 'background', 'claude-app']);
+    expect(startPlaces('claude', '~/.claude2')).toEqual(['terminal', 'background']);
+    expect(startPlaces('codex', '~/.codex')).toEqual(['codex-app']);
+    expect(startPlaces('codex', '~/.codex2')).toEqual([]);
+    expect(startPlaces('opencode', '~/.local/share/opencode')).toEqual(['terminal']);
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { accountFor, agentId, agentOptions, autoModel, autoPicks, choices, initialChoice, initialPlace, modelFamily, modelMeter, modelName, parseAgent, placesFor, takesModel } from './start';
+import { accountFor, autoChoice, agentId, agentOptions, autoModel, autoPicks, choices, initialChoice, initialPlace, modelFamily, modelMeter, modelName, parseAgent, placesFor, settledPlace, takesModel } from './start';
 import type { Meter, StartAccount, Usage } from './types';
 
 const ghostty = { place: 'terminal' as const, label: 'Ghostty' };
@@ -7,9 +7,9 @@ const claudeApp = { place: 'claude-app' as const, label: 'Claude app' };
 const codexApp = { place: 'codex-app' as const, label: 'Codex app' };
 
 const ACCOUNTS: StartAccount[] = [
-  { name: 'claude', harness: 'claude', places: [ghostty, claudeApp], unavailable: null, defaultModel: null },
-  { name: 'claude2', harness: 'claude', places: [ghostty], unavailable: null, defaultModel: null },
-  { name: 'codex', harness: 'codex', places: [codexApp], unavailable: null, defaultModel: null },
+  { name: 'claude', harness: 'claude', places: [ghostty, claudeApp], chosen: null, unavailable: null, defaultModel: null },
+  { name: 'claude2', harness: 'claude', places: [ghostty], chosen: null, unavailable: null, defaultModel: null },
+  { name: 'codex', harness: 'codex', places: [codexApp], chosen: null, unavailable: null, defaultModel: null },
 ];
 
 const NOW = Date.UTC(2026, 8, 24, 12);
@@ -86,13 +86,13 @@ describe('Auto', () => {
   });
 
   it('is only offered for a harness with more than one account that can start sessions', () => {
-    const lone: StartAccount[] = [ACCOUNTS[0], { ...ACCOUNTS[1], places: [], unavailable: 'no', defaultModel: null }, ACCOUNTS[2]];
+    const lone: StartAccount[] = [ACCOUNTS[0], { ...ACCOUNTS[1], places: [], chosen: null, unavailable: 'no', defaultModel: null }, ACCOUNTS[2]];
     expect(autoPicks(lone, [], NOW)).toEqual({});
-    expect(choices(ACCOUNTS, autoPicks(ACCOUNTS, [], NOW))).toEqual(['auto:claude', 'claude', 'claude2', 'codex']);
+    expect(choices(ACCOUNTS, autoPicks(ACCOUNTS, [], NOW))).toEqual([autoChoice('claude'), 'claude', 'claude2', 'codex']);
   });
 
   it('opens only where every account it could start can open', () => {
-    expect(placesFor('auto:claude', ACCOUNTS)).toEqual([ghostty]);
+    expect(placesFor(autoChoice('claude'), ACCOUNTS)).toEqual([ghostty]);
     expect(placesFor('claude', ACCOUNTS)).toEqual([ghostty, claudeApp]);
     expect(placesFor('codex', ACCOUNTS)).toEqual([codexApp]);
     expect(placesFor(null, ACCOUNTS)).toEqual([]);
@@ -100,7 +100,7 @@ describe('Auto', () => {
 
   it('resolves to an account when you start', () => {
     const picks = { claude: { account: 'claude2', reason: 'room' as const, resetsAt: null } };
-    expect(accountFor('auto:claude', picks)).toBe('claude2');
+    expect(accountFor(autoChoice('claude'), picks)).toBe('claude2');
     expect(accountFor('codex', picks)).toBe('codex');
     expect(accountFor('auto:codex', picks)).toBeNull();
   });
@@ -111,9 +111,9 @@ describe('the sheet opens with', () => {
 
   it('the last choice while it is still offered, else the first one', () => {
     expect(initialChoice(ACCOUNTS, picks, 'codex')).toBe('codex');
-    expect(initialChoice(ACCOUNTS, picks, 'claude3')).toBe('auto:claude');
+    expect(initialChoice(ACCOUNTS, picks, 'claude3')).toBe(autoChoice('claude'));
     expect(initialChoice(ACCOUNTS, {}, undefined)).toBe('claude');
-    const none: StartAccount[] = [{ name: 'codex2', harness: 'codex', places: [], unavailable: 'no', defaultModel: null }];
+    const none: StartAccount[] = [{ name: 'codex2', harness: 'codex', places: [], chosen: null, unavailable: 'no', defaultModel: null }];
     expect(initialChoice(none, {}, undefined)).toBeNull();
   });
 
@@ -122,6 +122,16 @@ describe('the sheet opens with', () => {
     expect(initialPlace('claude2', ACCOUNTS, 'claude-app')).toBe('terminal');
     expect(initialPlace('codex', ACCOUNTS, undefined)).toBe('codex-app');
     expect(initialPlace(null, ACCOUNTS, undefined)).toBeNull();
+  });
+
+  it("the place an account's settings name, over the last one", () => {
+    const set = ACCOUNTS.map((a) => (a.name === 'claude' ? { ...a, chosen: 'terminal' as const } : a));
+    expect(initialPlace('claude', set, 'claude-app')).toBe('terminal');
+    expect(settledPlace('claude', set)).toBe('terminal');
+    // Auto lands on either Claude account, and only one of them names a place.
+    expect(settledPlace(autoChoice('claude'), set)).toBeNull();
+    const both = set.map((a) => (a.harness === 'claude' ? { ...a, chosen: 'terminal' as const } : a));
+    expect(settledPlace(autoChoice('claude'), both)).toBe('terminal');
   });
 });
 
@@ -136,7 +146,7 @@ describe('the agent menu', () => {
   it('lists Auto, then each account on its default and, for Claude Code in the terminal, on each model', () => {
     const picks = autoPicks(ACCOUNTS, [], NOW);
     expect(agentOptions(ACCOUNTS, MODELS, picks).map((o) => o.id)).toEqual([
-      'auto:claude',
+      autoChoice('claude'),
       'claude|',
       'claude|fable',
       'claude|fable[1m]',
@@ -155,7 +165,7 @@ describe('the agent menu', () => {
 
   it('reads an id back as the choice and model it stands for', () => {
     for (const [choice, model] of [
-      ['auto:claude', null],
+      [autoChoice('claude'), null],
       ['claude2', null],
       ['claude2', 'fable[1m]'],
       ['my.acct-2', 'claude-opus-5-5'],

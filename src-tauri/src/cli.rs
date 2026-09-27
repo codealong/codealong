@@ -383,9 +383,9 @@ struct StartArgs {
     /// Have Claude Code make a fresh worktree for it (`claude --worktree`).
     #[arg(long)]
     new_worktree: bool,
-    /// Where it runs.
-    #[arg(long = "in", value_enum, default_value_t = PlaceArg::Terminal)]
-    place: PlaceArg,
+    /// Where it runs. Without it, where the account's `start` setting says, else the terminal (the Codex app for Codex).
+    #[arg(long = "in", value_enum)]
+    place: Option<PlaceArg>,
     /// A model for a terminal or background start: fable, opus, sonnet, haiku, or a full name.
     #[arg(long)]
     model: Option<String>,
@@ -1886,12 +1886,12 @@ fn start_cmd(c: &mut Client, a: &StartArgs, json: bool) -> Result<()> {
         (None, Some(p)) => (p.clone(), None),
         (None, None) => bail!("Give --todo or --prompt."),
     };
-    let place = match a.place {
+    let place = a.place.map(|p| match p {
         PlaceArg::Terminal => Place::Terminal,
         PlaceArg::Background => Place::Background,
         PlaceArg::ClaudeApp => Place::ClaudeApp,
         PlaceArg::CodexApp => Place::CodexApp,
-    };
+    });
     let account = match a.account.as_str() {
         "auto" => {
             let cfg = c.cfg().clone();
@@ -1899,9 +1899,19 @@ fn start_cmd(c: &mut Client, a: &StartArgs, json: bool) -> Result<()> {
                 true => c.board()?.usage.clone(),
                 false => Vec::new(),
             };
-            pick_account(&cfg, &usages, place, a.model.as_deref()).ok_or_else(|| anyhow!("No account can start a session there. `codealong accounts` lists them."))?
+            pick_account(&cfg, &usages, place.unwrap_or(Place::Terminal), a.model.as_deref()).ok_or_else(|| anyhow!("No account can start a session there. `codealong accounts` lists them."))?
         }
         name => name.to_string(),
+    };
+    // Without --in, the account's own first place: the one its `start` names, else the usual.
+    let place = match place {
+        Some(p) => p,
+        None => {
+            let cfg = c.cfg().clone();
+            let acct = cfg.accounts.iter().find(|x| x.name == account).ok_or_else(|| anyhow!("There's no account named {account}."))?;
+            let places = start::ordered_places(acct, &crate::util::home()).map_err(|why| anyhow!(why))?;
+            places.first().copied().ok_or_else(|| anyhow!("{account} can't start a session from here."))?
+        }
     };
     let spec = StartSpec { lane_id, account, place, prompt, model: a.model.clone(), worktree: a.new_worktree, todo: todo_id };
     if a.dry_run {

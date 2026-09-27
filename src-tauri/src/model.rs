@@ -368,6 +368,8 @@ pub struct AccountInfo {
     pub harness: String,
     pub home: String,
     pub command: Option<String>,
+    /// Where its sessions start unless you pick another (config.toml's `start`).
+    pub start: Option<String>,
     pub folder_exists: bool,
     pub signed_in: bool,
     pub email: Option<String>,

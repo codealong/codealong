@@ -51,6 +51,7 @@ import {
   modelName,
   parseAgent,
   placesFor,
+  settledPlace,
   remember,
   remembered,
   takesModel,
@@ -362,7 +363,7 @@ export function Quick() {
   // background; the apps pick their own.
   const allPlaces = placesFor(choice, accounts);
   const places = chosenModel ? allPlaces.filter((p) => onCommandLine(p.place)) : allPlaces;
-  const placeNow = [place, choice ? remembered().places?.[choice] : undefined].map((p) => places.find((x) => x.place === p)?.place).find(Boolean) ?? places[0]?.place ?? null;
+  const placeNow = [place, choice ? (settledPlace(choice, accounts) ?? remembered().places?.[choice]) : undefined].map((p) => places.find((x) => x.place === p)?.place).find(Boolean) ?? places[0]?.place ?? null;
   const claudeTerminal = !!placeNow && onCommandLine(placeNow) && harness === 'claude';
   const modelNow = claudeTerminal ? (autoFor ? (autoPick?.model ?? null) : chosenModel) : null;
   const inNewWorktree = claudeTerminal && newWorktree;
@@ -945,7 +946,7 @@ export function Quick() {
     setAgent(id);
     // A model is asked for on the command line; an app picks its own.
     if (model) setPlace('terminal');
-    else setPlace(c ? (remembered().places?.[c] ?? null) : null);
+    else setPlace(c ? (settledPlace(c, accounts) ?? remembered().places?.[c] ?? null) : null);
     setPicker(null);
     refocus();
   };

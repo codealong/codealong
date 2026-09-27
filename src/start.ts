@@ -244,10 +244,22 @@ export function autoModel(defaultModel: string | null, u: Usage | undefined): { 
   return { model: null, spent: own };
 }
 
-/** Where a choice opens at first: where it last opened, while that's still offered. */
+/** The place an account's `start` setting names. Auto has one when every account it can land
+ *  on names the same place. */
+export function settledPlace(choice: Choice | null, accounts: StartAccount[]): StartPlace | null {
+  if (!choice) return null;
+  const h = autoHarness(choice);
+  if (!h) return accounts.find((a) => a.name === choice)?.chosen ?? null;
+  const set = new Set(accounts.filter((a) => a.harness === h && a.places.length > 0).map((a) => a.chosen ?? null));
+  return set.size === 1 ? [...set][0] : null;
+}
+
+/** Where a choice opens at first: where its account's settings say, else where it last opened,
+ *  while that's still offered. */
 export function initialPlace(choice: Choice | null, accounts: StartAccount[], last: StartPlace | undefined): StartPlace | null {
   const places = placesFor(choice, accounts);
-  return places.find((p) => p.place === last)?.place ?? places[0]?.place ?? null;
+  const want = settledPlace(choice, accounts) ?? last;
+  return places.find((p) => p.place === want)?.place ?? places[0]?.place ?? null;
 }
 
 interface Remembered {

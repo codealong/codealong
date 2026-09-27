@@ -1134,7 +1134,7 @@ mod tests {
     const NOW: i64 = 1_790_200_000_000;
 
     fn acct(name: &str) -> AccountCfg {
-        AccountCfg { name: name.into(), harness: "claude".into(), home: format!("~/.{name}"), command: Some(name.into()) }
+        AccountCfg { name: name.into(), harness: "claude".into(), home: format!("~/.{name}"), command: Some(name.into()), start: None }
     }
 
     fn reg(status: &str, updated: i64) -> RegistryEntry {
@@ -1628,7 +1628,7 @@ mod tests {
 
     #[test]
     fn maps_codex_statuses() {
-        let a = AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: None };
+        let a = AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: None, start: None };
         let mut th = ThreadInfo { id: "01a0c4a6".into(), cwd: "/r".into(), last_ts: NOW - 1_000, turn_open: true, turn_started_at: Some(NOW - 5_000), ..Default::default() };
         assert_eq!(codex_session(&a, &th, Some("Photo tools"), 0, NOW).status, Status::Working);
         assert_eq!(codex_session(&a, &th, None, 0, NOW).open_target, "s|codex:codex:01a0c4a6|codex");
@@ -1654,7 +1654,7 @@ mod tests {
 
     #[test]
     fn maps_opencode_statuses() {
-        let a = AccountCfg { name: "opencode".into(), harness: "opencode".into(), home: "~/.local/share/opencode".into(), command: None };
+        let a = AccountCfg { name: "opencode".into(), harness: "opencode".into(), home: "~/.local/share/opencode".into(), command: None, start: None };
         let mut row = SessionRow {
             id: "ses_abc1234567".into(),
             directory: "/r".into(),
@@ -1703,7 +1703,7 @@ mod tests {
 
     #[test]
     fn maps_antigravity_statuses() {
-        let a = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: "~/.gemini/antigravity".into(), command: None };
+        let a = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: "~/.gemini/antigravity".into(), command: None, start: None };
         let mut c = Conversation {
             id: "c1".into(),
             title: Some("Photo tools".into()),
@@ -1866,7 +1866,7 @@ mod tests {
         assert_eq!(default.as_deref(), Some("s|claude:claude2:abc1234567|focus"));
         assert!(t.iter().all(|x| !x.id.ends_with("|claude-app")), "claude2 isn't the Claude app's account");
         assert!(t.iter().any(|x| x.label == "Open in Cursor"));
-        let main = AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: None };
+        let main = AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: None, start: None };
         let mine = claude_session(&main, Some(&reg("waiting", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
         let (t, _) = targets(&seed("/r/atlas-quarry", "quarry"), &[mine], None, &apps);
         assert!(t[1].disabled && t[1].id.ends_with("|claude-app"), "live elsewhere, so offered but disabled");
