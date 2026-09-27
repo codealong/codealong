@@ -355,19 +355,28 @@ mod native {
         unsafe { ptr.as_ref() }
     }
 
-    /// NSPanel that never becomes key or main, so the board keeps the keyboard and its place.
+    /// NSPanel that never becomes key or main, so the board keeps the keyboard and its place, but
+    /// says it's key when asked. WebKit treats a page whose window isn't key as inactive: it sends
+    /// such a page's mouse moves only to scrollbars, so pills never showed hover, `:hover` stayed on
+    /// whatever was last clicked, and no tooltip ever appeared. Keys still go to the app's real key
+    /// window, and menu commands skip the bar (`front_window` in lib.rs).
     fn panel_class() -> &'static AnyClass {
         static CLASS: OnceLock<&'static AnyClass> = OnceLock::new();
         CLASS.get_or_init(|| {
             extern "C" fn no(_: &AnyObject, _: Sel) -> Bool {
                 Bool::NO
             }
+            extern "C" fn yes(_: &AnyObject, _: Sel) -> Bool {
+                Bool::YES
+            }
             match ClassBuilder::new(c"CodealongBarPanel", NSPanel::class()) {
                 Some(mut builder) => {
-                    // SAFETY: both overrides match NSWindow's `- (BOOL)canBecome…Window`.
+                    // SAFETY: the overrides match NSWindow's `- (BOOL)canBecome…Window` and
+                    // `- (BOOL)isKeyWindow`.
                     unsafe {
                         builder.add_method(sel!(canBecomeKeyWindow), no as extern "C" fn(_, _) -> _);
                         builder.add_method(sel!(canBecomeMainWindow), no as extern "C" fn(_, _) -> _);
+                        builder.add_method(sel!(isKeyWindow), yes as extern "C" fn(_, _) -> _);
                     }
                     builder.register()
                 }
@@ -377,7 +386,9 @@ mod native {
     }
 
     /// Turns the bar's window into a non-activating panel, the only kind macOS puts on another
-    /// app's full-screen Space. Tauri makes windows, so the class is swapped after the fact.
+    /// app's full-screen Space. Tauri makes windows, so the class is swapped after the fact. WebKit
+    /// asks again whether the window is key each time it's ordered on screen, which `show` does
+    /// after this, so the page counts as active from the bar's first showing.
     pub fn make_panel(w: &WebviewWindow) {
         let Some(n) = ns(w) else { return };
         let obj: &AnyObject = n;
@@ -394,6 +405,9 @@ mod native {
         n.setStyleMask(n.styleMask() | NSWindowStyleMask::NonactivatingPanel);
         // Panels hide when their app deactivates unless told not to.
         n.setHidesOnDeactivate(false);
+        // The bar is up over other apps, so Codealong is nearly always in the background, and
+        // macOS shows a background app's tooltips only in windows that allow them.
+        n.setAllowsToolTipsWhenApplicationIsInactive(true);
     }
 
     /// Asks the running app with this bundle ID to come forward.

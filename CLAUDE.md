@@ -499,6 +499,14 @@ Tauri and macOS (from the Tauri 2.11 and tao 0.35 sources)
   window once shown as a window stays off full-screen Spaces after the swap.
 - A click in a non-activating panel leaves the app inactive, and macOS may refuse an inactive
   app's request to bring another app forward, so the bar asks after opening (`bring_forward`).
+- WebKit treats a page as active only while its window answers yes to `isKeyWindow` (re-read
+  when the window is ordered on screen). An inactive page gets mouse moves only for its
+  scrollbars: no DOM mouse events, no tooltips, and `:hover` stays where the last click put it
+  (WebKit's WebFrame.cpp, checked in an offscreen WKWebView on 2026-09-26). The bar's panel refuses
+  key but answers yes, and allows tooltips while Codealong is in the background. A WKWebView takes
+  mouse moves from its own tracking area, active always with classic scroll bars and in the key
+  window with overlay ones, and has no `mouseMoved:` to call: a test sends them with
+  `_simulateMouseMove:`.
 - `pkill -f <pattern>` also matches any shell whose command line contains the pattern, such as
   another session's build; `scripts/relaunch.sh` anchors it (`codeal[o]ng$`) so only the app
   matches.
