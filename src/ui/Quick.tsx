@@ -14,6 +14,7 @@
 // message where it runs, or what it waits on you to allow (ReplyView.tsx). ⏎ sends, and Escape
 // goes back to the list.
 
+import { reuse } from '../reuse';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   fitQuick,
@@ -310,7 +311,7 @@ export function Quick() {
     };
   }, []);
 
-  useEffect(() => (shown ? onBoard(setBoard) : undefined), [shown]);
+  useEffect(() => (shown ? onBoard((b) => setBoard((prev) => (prev ? reuse(prev, b) : b))) : undefined), [shown]);
 
   const theme = board?.theme ?? 'system';
   useEffect(() => applyTheme(theme), [theme]);

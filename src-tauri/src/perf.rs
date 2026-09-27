@@ -97,12 +97,15 @@ pub struct Counters {
 }
 
 impl Counters {
-    pub fn fs(&mut self, paths: usize, took: Duration) {
+    /// A file-watcher batch: how many paths, how long they took, and for a big one where they
+    /// were (`busiest`).
+    pub fn fs(&mut self, paths: usize, took: Duration, busiest: Option<String>) {
         self.fs_batches += 1;
         self.fs_paths += paths as u32;
         self.fs_ms += took.as_millis();
         if took >= LAG_FLOOR {
-            log(&format!("fs batch: {paths} paths, {} ms", took.as_millis()));
+            let at = busiest.map(|b| format!(", most in {b}")).unwrap_or_default();
+            log(&format!("fs batch: {paths} paths, {} ms{at}", took.as_millis()));
         }
     }
 
@@ -194,6 +197,32 @@ fn date() -> String {
     format!("{}-{:02}-{:02}", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday)
 }
 
+/// A batch this big says where its paths were.
+const BIG_BATCH: usize = 1000;
+
+/// For a big batch of changed paths, the folders most of them were in (three levels under the
+/// home folder, four elsewhere), with counts: what a build or an install was writing to.
+pub fn busiest(paths: &[PathBuf]) -> Option<String> {
+    if !enabled() || paths.len() < BIG_BATCH {
+        return None;
+    }
+    Some(busiest_in(paths, &home()))
+}
+
+fn busiest_in(paths: &[PathBuf], home: &std::path::Path) -> String {
+    let mut counts: HashMap<PathBuf, usize> = HashMap::new();
+    for p in paths {
+        let folder: PathBuf = match p.strip_prefix(home) {
+            Ok(rel) => home.join(rel.components().take(3).collect::<PathBuf>()),
+            Err(_) => p.components().take(5).collect(),
+        };
+        *counts.entry(folder).or_default() += 1;
+    }
+    let mut top: Vec<(PathBuf, usize)> = counts.into_iter().collect();
+    top.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    top.iter().take(3).map(|(f, n)| format!("{} ({n})", f.display())).collect::<Vec<_>>().join(", ")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -212,5 +241,14 @@ mod tests {
         assert!(!enabled());
         set_enabled(true);
         assert!(!enabled(), "an unarmed process (a --snapshot run) never logs");
+    }
+
+    #[test]
+    fn busiest_names_the_folders_a_big_batch_was_in() {
+        let home = std::path::Path::new("/Users/me");
+        let mut paths: Vec<PathBuf> = (0..5).map(|i| home.join(format!("code/app/node_modules/pkg{i}/index.js"))).collect();
+        paths.extend((0..2).map(|i| PathBuf::from(format!("/private/tmp/build/out/file{i}"))));
+        paths.push(home.join("code/app/src/main.ts"));
+        assert_eq!(busiest_in(&paths, home), "/Users/me/code/app/node_modules (5), /private/tmp/build/out (2), /Users/me/code/app/src (1)");
     }
 }

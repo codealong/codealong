@@ -12,6 +12,7 @@ import { showContextMenu, type MenuSpec } from './contextMenu';
 import { AGENT_BAY, BAYS, buildBays, failingPr, filterByAge, inboxCounts, lanePromptAt, narrowed, rowItems, worktreeRow, type BoardRow, type Filter, type WorktreeRow } from './lanes';
 import { approvePr, archiveSession, barOn, dismissTodoHint, expandAttachments, getBoard, markSeen, onBarOn, onBoard, onCloseIdle, onNewWindow, onQuickStart, onReveal, onSettings, openConfig, openProjectWindow, openTarget, openUrl, refresh, refreshUsage, reviewInCodex, setBarOn, setPinned, setPinnedWorktrees, setPreferred, setTheme, showQuick, signIn, windowLabel, type Reveal } from './api';
 import { usePerf } from './perf';
+import { reuse } from './reuse';
 import { reorderPinned, usePins } from './pins';
 import { prFlag } from './prStatus';
 import { blockedBy, COLOR_WORD, depsOf, newTodo, pickTo, pickToggle, sectionOf, sessionHomes, snippet, STATUSES, STATUS_WORD, todoIndex, todoInFilter, todoInQuery, todoItem, todoPrompt, todosPrompt, todoSections, useTodoStore, type TodoItem, type TodoPick, type TodoSectionId } from './todos';
@@ -157,6 +158,15 @@ function prInFilter(r: PrRowItem, f: Filter | null): boolean {
   }
 }
 
+/** A row's element id, for the list's active descendant. From its key, not its place in the
+ *  list, so a row keeps its id when others move and needn't render again. */
+function domIdOf(key: string): string {
+  return `row-${key}`;
+}
+function domId(r: { key: string }): string {
+  return domIdOf(r.key);
+}
+
 function storedAge(): Age {
   try {
     const v = window.localStorage.getItem(AGE_KEY);
@@ -269,12 +279,30 @@ export function App() {
   usePerf(board, boardArrived);
   useEffect(() => {
     getBoard()
-      .then(setBoard)
+      .then((b) => setBoard((prev) => (prev ? reuse(prev, b) : b)))
       .catch((e: unknown) => setLoadError(String(e)));
-    return onBoard((b) => {
+    // A window that can't be seen keeps only the latest push and shows it when it's seen again:
+    // the engine publishes many times a minute, and every render of a board no one sees is waste.
+    let held: Board | null = null;
+    const show = (b: Board) => {
       boardArrived.current = performance.now();
-      setBoard(b);
+      setBoard((prev) => (prev ? reuse(prev, b) : b));
+    };
+    const onVisible = () => {
+      if (document.hidden || !held) return;
+      const b = held;
+      held = null;
+      show(b);
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    const off = onBoard((b) => {
+      if (document.hidden) held = b;
+      else show(b);
     });
+    return () => {
+      off();
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, []);
 
   useEffect(() => {
@@ -483,6 +511,10 @@ export function App() {
   const openTodoCount = useMemo(() => projectTodos.filter((t) => t.status !== 'done').length, [projectTodos]);
   // Which todos each session and worktree is on, for their chips.
   const todoLinks = useMemo(() => todoIndex(todoStore.todos, homes), [todoStore.todos, homes]);
+  // Which todos each session is linked to depends on the todos alone, so rows that ask keep one
+  // function between pushes and needn't render again.
+  const sessionTodos = useMemo(() => todoIndex(todoStore.todos, new Map()).bySession, [todoStore.todos]);
+  const todosFor = useCallback((k: string) => sessionTodos.get(k), [sessionTodos]);
 
   // The Canvas view: the project's document, kept up to date with the board once it's been shown.
   const canvasEntities = useMemo(
@@ -548,9 +580,6 @@ export function App() {
     if (selected.kind !== 'pr') return null;
     return lanes.find((l) => l.repoSlug === selected.pr.repoSlug && l.origin === 'main')?.id ?? null;
   }, [selected, lanes, view, canvasLane]);
-  const indexByKey = useMemo(() => new Map(visible.map((r, i) => [r.key, i])), [visible]);
-  const domIdOf = (key: string) => `row-${indexByKey.get(key) ?? -1}`;
-  const domId = (r: Row) => domIdOf(r.key);
 
   const counts = useMemo(() => inboxCounts(recentLanes), [recentLanes]);
 
@@ -1541,7 +1570,7 @@ export function App() {
       onOpen={(id) => open(lane, id)}
       onNewSession={() => lane && newSession({ laneId: lane.id })}
       todos={lane ? todoLinks.byLane.get(lane.id) : undefined}
-      todosFor={(k) => todoLinks.bySession.get(k)}
+      todosFor={todosFor}
       onShowTodo={showTodoFromPanel}
     />
   );
@@ -1603,7 +1632,7 @@ export function App() {
       onAgentMenu={(s) => sessionMenu(r.lane, s, 'worktree')}
       todos={todoLinks.byLane.get(r.lane.id)}
       worktreeTodos={todoLinks.byWorktree.get(r.lane.id)}
-      todosFor={(k) => todoLinks.bySession.get(k)}
+      todosFor={todosFor}
       onShowTodo={showTodo}
       {...drag}
     />
@@ -1926,7 +1955,7 @@ export function App() {
                 archived={archivedItems}
                 showArchived={showArchived}
                 onToggleArchived={() => setShowArchived(!showArchived)}
-                todosFor={(k) => todoLinks.bySession.get(k)}
+                todosFor={todosFor}
                 onShowTodo={showTodo}
               />
             )}

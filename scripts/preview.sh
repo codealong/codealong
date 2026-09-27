@@ -13,6 +13,9 @@
 #
 # PREVIEW_INIT=<file.js> runs a script in the page before either, for a screenshot of a state
 # a click gets to (a dialog, say); PREVIEW_NAME names that screenshot instead of the view.
+# PREVIEW_WAIT=<ms> runs a check on the real clock, for one that times work
+# (scripts/preview/push-bench.js): its title is printed once it starts with "done: ", or when
+# the wait runs out. By default time is virtual and stands still while scripts run.
 #
 # PREVIEW_SCHEME=dark renders as if macOS were in dark mode (the screenshot is <view>-dark.png).
 # Under theme = "system" the page follows it; "light" and "dark" in config.toml win over it.
@@ -150,7 +153,24 @@ server=$!
 trap 'kill $server 2>/dev/null || true' EXIT
 sleep 1
 url="http://127.0.0.1:$port/preview.html"
-if [ -n "$check" ]; then
+if [ -n "$check" ] && [ -n "${PREVIEW_WAIT:-}" ]; then
+  # Virtual time stands still while scripts run, so a check that times work runs on the real
+  # clock, and its title is read from Chrome's debugging endpoint once it says "done: " (or the
+  # wait runs out): --dump-dom would read the page as soon as it loads.
+  debug_port="$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')"
+  profile="$(mktemp -d)"
+  "$chrome" --headless=new --disable-gpu --enable-unsafe-swiftshader ${scheme:+"$scheme"} --window-size="$size" --remote-debugging-port="$debug_port" --user-data-dir="$profile" "$url" >/dev/null 2>&1 &
+  browser=$!
+  trap 'kill $server $browser 2>/dev/null || true; rm -rf "$profile"' EXIT
+  title=""
+  deadline=$((SECONDS + PREVIEW_WAIT / 1000))
+  while [ $SECONDS -lt $deadline ]; do
+    sleep 1
+    title="$(curl -s "http://127.0.0.1:$debug_port/json/list" | python3 -c 'import json, sys; print(next((t["title"] for t in json.load(sys.stdin) if t.get("type") == "page"), ""))' 2>/dev/null || true)"
+    case "$title" in done:*) break ;; esac
+  done
+  echo "${title#done: }"
+elif [ -n "$check" ]; then
   "$chrome" --headless=new --disable-gpu --enable-unsafe-swiftshader ${scheme:+"$scheme"} --window-size="$size" --virtual-time-budget=8000 --dump-dom "$url" 2>/dev/null | sed -n 's#.*<title>\(.*\)</title>.*#\1#p'
 else
   "$chrome" --headless=new --disable-gpu --enable-unsafe-swiftshader ${scheme:+"$scheme"} --hide-scrollbars --force-device-scale-factor=1 --window-size="$size" --virtual-time-budget=6000 --screenshot="$shot" "$url" 2>/dev/null

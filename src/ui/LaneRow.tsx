@@ -2,6 +2,7 @@
 // age. Each agent that needs you, is working or just finished gets a line of its own on its
 // worktree's row, so a worktree shows once however many agents run in it.
 
+import { memoRow } from './memoRow';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { absolute, ago, agoPhrase, middleTruncate } from '../format';
 import { AGENT_BAY, withoutAccount, type AgentItem, type WorktreeRow } from '../lanes';
@@ -90,9 +91,12 @@ function menu(show: (() => void) | undefined) {
     : undefined;
 }
 
-export function LaneRow(props: LaneRowProps) {
+function LaneRowView(props: LaneRowProps) {
   return props.row.agents.length > 0 ? <GroupRow {...props} /> : <WorktreeOnlyRow {...props} />;
 }
+
+// `domId` and `todosFor` answer while the row renders, so they're compared as values.
+export const LaneRow = memoRow(LaneRowView, ['domId', 'todosFor']);
 
 /** A worktree with no agent that needs you, is working or just finished: its sentence, and chips for its recent sessions. */
 function WorktreeOnlyRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpenTarget, pinned, onContextMenu, pinIndex, onPointerDown, extraClass, todos, onShowTodo }: LaneRowProps) {
@@ -356,7 +360,7 @@ interface AgentRowProps {
 }
 
 /** One session in the Sessions view, with its worktree as context. */
-export function AgentRow({ lane, session: s, domId, now, selected, onSelect, onOpen, pinned, onContextMenu, pinIndex, onPointerDown, extraClass, todos, onShowTodo }: AgentRowProps) {
+function AgentRowView({ lane, session: s, domId, now, selected, onSelect, onOpen, pinned, onContextMenu, pinIndex, onPointerDown, extraClass, todos, onShowTodo }: AgentRowProps) {
   const { sub, branch } = laneSub(lane);
   return (
     <div
@@ -418,3 +422,5 @@ export function AgentRow({ lane, session: s, domId, now, selected, onSelect, onO
     </div>
   );
 }
+
+export const AgentRow = memoRow(AgentRowView);

@@ -92,8 +92,10 @@ sample todos linked to your real worktrees and sessions in place of your own, an
 which has no Claude numbers, and `PREVIEW_TRANSCRIPT=<session key>` that
 session's real conversation in its panel (others get placeholders), and `PREVIEW_FOUND=scripts/preview/found-sample.json` sample accounts
 under Settings › Accounts › Found on this Mac, and `PREVIEW_CANVAS=<file>` opens the Canvas view on a saved
-document (one project's from canvas.json) in place of a fresh tidy. In check mode Chrome draws no frames, so scroll events never
+document (one project's from canvas.json) in place of a fresh tidy. In check mode Chrome runs on virtual time, which stands still while scripts run (`performance.now()` too), and draws no frames, so scroll events never
 arrive; and it resizes the page just before a screenshot, which closes whatever closes on resize.
+`PREVIEW_WAIT=<ms>` runs a check on the real clock with frames instead, and prints its title once
+it starts with `done: ` (or the wait runs out).
 
 ## Checking performance
 
@@ -103,6 +105,16 @@ load average: every publish (size, how many lanes, sessions and PRs changed, com
 time, file-watcher batches and git runs since the last one), git runs, engine and main-thread
 lag, and per window the push-to-paint time, how long pointer events waited in the queue, and
 event-loop stalls. `perf.rs` has the details. Set it back to false when done; the log grows.
+`node scripts/perf-summary.mjs` sums up the app's latest run (`--since HH:MM`, `--runs N`):
+publishes, engine lag, git runs, file-watcher batches (big ones name the folders they came
+from) and each window's push times. A window that can't be seen holds pushes and renders the
+latest when it's shown, so its push times are for boards someone saw.
+
+A push's cost in the window is measured with `PREVIEW_WAIT=90000 scripts/preview.sh <view> ''
+scripts/preview/push-bench.js`: forty pushes of the real board with one worktree changed, as
+most publishes are. Rows of the board and the sidebar skip rendering when nothing they show
+changed (`reuse.ts` keeps unchanged parts of a push as the same objects, `ui/memoRow.ts`
+compares rows); `scripts/preview/rows-check.js` checks they still update.
 
 Git is the engine's biggest cost and starts during load by construction, so `throttle.rs`
 spaces runs in one worktree two seconds apart, publishes git-only changes in two-second

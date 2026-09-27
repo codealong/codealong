@@ -260,6 +260,12 @@ window.__TAURI_INTERNALS__ = {
   convertFileSrc: function (p) { return p; },
   metadata: { currentWindow: { label: 'main' }, currentWebview: { label: 'main', windowLabel: 'main' } },
 };
+// Pushes an event to the page's listeners, as the engine's emit would: `window.__emit('board', b)`.
+window.__emit = function (event, payload) {
+  window.__calls.forEach(function (c) {
+    if (c[0] === 'plugin:event|listen' && c[1].event === event) window['_' + c[1].handler]({ event: event, id: 0, payload: payload });
+  });
+};
 window.__menu = function () {
   var made = window.__calls.filter(function (c) { return c[0] === 'plugin:menu|new'; });
   var last = made[made.length - 1];

@@ -1111,8 +1111,9 @@ impl Engine {
                     let batch = std::mem::take(&mut pending);
                     first_event = None;
                     let (n, t) = (batch.len(), Instant::now());
+                    let busiest = perf::busiest(&batch);
                     self.apply_fs(batch);
-                    self.perf.fs(n, t.elapsed());
+                    self.perf.fs(n, t.elapsed(), busiest);
                 }
             }
             for path in self.git_queue.due(Instant::now()) {
