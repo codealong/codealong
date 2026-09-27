@@ -15,6 +15,7 @@ use serde_json::Value;
 
 use crate::config::support_dir;
 use crate::engine::Handle;
+use crate::peers::Peers;
 use crate::start::StartSpec;
 use crate::todos::{PendingStart, TodoOp};
 
@@ -42,6 +43,20 @@ pub enum Request {
     IdleTerminals { after_ms: i64 },
     /// Closes the terminals of these sessions, each checked again first.
     CloseIdle { keys: Vec<String>, after_ms: i64 },
+    /// Your other Macs (peers.rs) as Settings › Devices shows them, with how many worktrees and
+    /// sessions each has in place of the worktrees themselves.
+    Devices,
+    /// Asks one of your Macs on your tailnet to link; the reply is the code both show.
+    DeviceLink { key: String },
+    /// Says yes, or no, to a Mac asking to link.
+    DeviceAnswer { key: String, accept: bool },
+    DeviceUnlink { key: String },
+    /// A link code for a Mac that isn't on your tailnet.
+    DeviceCode,
+    /// Links with the Mac that made this link code; the reply is its name.
+    DeviceUseCode { code: String },
+    /// Runs a request on a linked Mac, as this Mac's windows do, by its short id.
+    DeviceAsk { mac: String, request: String, params: Value },
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -78,7 +93,7 @@ pub struct Status {
 
 /// Listens on the socket for as long as the app runs. Errors are printed, not fatal: the
 /// command falls back to the files when there's no socket.
-pub fn serve(engine: Handle) {
+pub fn serve(engine: Handle, peers: Peers) {
     let p = path();
     let _ = std::fs::create_dir_all(support_dir());
     // A socket file left by an app that didn't exit cleanly; a live one would have answered.
@@ -98,14 +113,14 @@ pub fn serve(engine: Handle) {
         .spawn(move || {
             for stream in listener.incoming() {
                 let Ok(stream) = stream else { continue };
-                let engine = engine.clone();
-                let _ = std::thread::Builder::new().name("socket-client".into()).spawn(move || connection(stream, &engine));
+                let (engine, peers) = (engine.clone(), peers.clone());
+                let _ = std::thread::Builder::new().name("socket-client".into()).spawn(move || connection(stream, &engine, &peers));
             }
         })
         .ok();
 }
 
-fn connection(stream: UnixStream, engine: &Handle) {
+fn connection(stream: UnixStream, engine: &Handle, peers: &Peers) {
     let _ = stream.set_read_timeout(Some(Duration::from_secs(60)));
     let mut out = match stream.try_clone() {
         Ok(s) => s,
@@ -117,7 +132,7 @@ fn connection(stream: UnixStream, engine: &Handle) {
         if line.trim().is_empty() {
             continue;
         }
-        let reply = handle(engine, &line);
+        let reply = handle(engine, peers, &line);
         let mut text = serde_json::to_string(&reply).unwrap_or_else(|_| r#"{"ok":false,"error":"Couldn't encode the reply."}"#.into());
         text.push('\n');
         if out.write_all(text.as_bytes()).and_then(|_| out.flush()).is_err() {
@@ -126,7 +141,7 @@ fn connection(stream: UnixStream, engine: &Handle) {
     }
 }
 
-pub fn handle(engine: &Handle, line: &str) -> Reply {
+pub fn handle(engine: &Handle, peers: &Peers, line: &str) -> Reply {
     let req: Request = match serde_json::from_str(line) {
         Ok(r) => r,
         Err(e) => return Reply::err(format!("That isn't a request the app knows: {e}")),
@@ -152,7 +167,41 @@ pub fn handle(engine: &Handle, line: &str) -> Reply {
             Ok(started) => Reply::ok(started),
             Err(e) => Reply::err(e),
         },
+        Request::Devices => Reply::ok(devices(peers)),
+        Request::DeviceLink { key } => answered(peers.link(&key)),
+        Request::DeviceAnswer { key, accept } => answered(peers.answer_link(&key, accept)),
+        Request::DeviceUnlink { key } => answered(peers.unlink(&key)),
+        Request::DeviceCode => answered(peers.link_code()),
+        Request::DeviceUseCode { code } => answered(peers.link_with_code(&code)),
+        Request::DeviceAsk { mac, request, params } => answered(peers.ask(&mac, &request, params, Duration::from_secs(40))),
     }
+}
+
+fn answered<T: Serialize>(r: std::result::Result<T, String>) -> Reply {
+    match r {
+        Ok(v) => Reply::ok(v),
+        Err(e) => Reply::err(e),
+    }
+}
+
+/// The devices view for the command: counts in place of the worktrees, which are big.
+fn devices(peers: &Peers) -> Value {
+    let view = peers.view();
+    let mut v = serde_json::to_value(&view).unwrap_or(Value::Null);
+    if let Some(list) = v.get_mut("devices").and_then(Value::as_array_mut) {
+        for d in list {
+            let prefix = format!("@{}:", d.get("short").and_then(Value::as_str).unwrap_or_default());
+            let lanes: Vec<_> = view.lanes.iter().filter(|l| l.id.starts_with(&prefix)).collect();
+            let sessions = lanes.iter().flat_map(|l| &l.sessions).filter(|s| s.visitor.is_none());
+            d["worktrees"] = lanes.len().into();
+            d["sessions"] = sessions.clone().count().into();
+            d["needs"] = sessions.filter(|s| matches!(s.status, crate::model::Status::Needs | crate::model::Status::Error)).count().into();
+        }
+    }
+    if let Some(o) = v.as_object_mut() {
+        o.remove("lanes");
+    }
+    v
 }
 
 /// One request to the running app, or None when no app answers on the socket.
@@ -189,6 +238,10 @@ mod tests {
         assert!(matches!(back, Request::TodoApply { op: TodoOp::Update { .. } }));
         let status: Request = serde_json::from_str(r#"{"method":"status"}"#).unwrap();
         assert!(matches!(status, Request::Status));
+        let ask: Request = serde_json::from_str(r#"{"method":"device-ask","mac":"a1b2c3d4e5","request":"search","params":{"words":["x"]}}"#).unwrap();
+        assert!(matches!(ask, Request::DeviceAsk { ref request, .. } if request == "search"));
+        let answer = serde_json::to_string(&Request::DeviceAnswer { key: "k".into(), accept: true }).unwrap();
+        assert!(answer.contains(r#""method":"device-answer""#), "{answer}");
         let reply: Reply = serde_json::from_str(r#"{"ok":false,"error":"no"}"#).unwrap();
         assert!(!reply.ok && reply.error.as_deref() == Some("no"));
     }

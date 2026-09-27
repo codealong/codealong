@@ -45,6 +45,9 @@ Commands:
              and check a file before or after editing it. Change settings by editing the
              file; the app watches it
   install    Put the command on PATH and the skill into each account's skills folder
+  devices    Your other Macs (Settings › Devices): this Mac, the Macs it's linked with,
+             your Macs on your tailnet that could be, and Macs asking to link. Linking
+             is how Macs see each other's sessions; needs the app running and Devices on
   help       Print this message or the help of the given subcommand(s)
 
 Options:
@@ -1234,6 +1237,168 @@ Options:
 
       --bin <DIR>
           Where the symlink goes. /usr/local/bin when writable, else ~/.local/bin
+
+  -h, --help
+          Print help
+```
+
+## codealong devices
+
+```
+Your other Macs (Settings › Devices): this Mac, the Macs it's linked with, your Macs on
+your tailnet that could be, and Macs asking to link. Linking is how Macs see each
+other's sessions; needs the app running and Devices on
+
+Usage: codealong devices [OPTIONS] [COMMAND]
+
+Commands:
+  link      Ask one of your Macs on your tailnet to link, by name or short id. Prints
+            the six digits both Macs show; then say yes on that Mac (its app, or
+            `codealong devices answer` there)
+  answer    Say yes to a Mac asking to link, by name or short id, once it shows the same
+            six digits (--no to say no)
+  unlink    Unlink a Mac, here and on it
+  code      A link code for a Mac that isn't on your tailnet; enter it there with
+            `use-code`. It works once, for ten minutes
+  use-code  Link with the Mac that made this link code
+  help      Print this message or the help of the given subcommand(s)
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong devices link
+
+```
+Ask one of your Macs on your tailnet to link, by name or short id. Prints the six digits
+both Macs show; then say yes on that Mac (its app, or `codealong devices answer` there)
+
+Usage: codealong devices link [OPTIONS] <MAC>
+
+Arguments:
+  <MAC>
+          
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong devices answer
+
+```
+Say yes to a Mac asking to link, by name or short id, once it shows the same six digits
+(--no to say no)
+
+Usage: codealong devices answer [OPTIONS] <MAC>
+
+Arguments:
+  <MAC>
+          
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --no
+          
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong devices unlink
+
+```
+Unlink a Mac, here and on it
+
+Usage: codealong devices unlink [OPTIONS] <MAC>
+
+Arguments:
+  <MAC>
+          
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong devices code
+
+```
+A link code for a Mac that isn't on your tailnet; enter it there with `use-code`. It
+works once, for ten minutes
+
+Usage: codealong devices code [OPTIONS]
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong devices use-code
+
+```
+Link with the Mac that made this link code
+
+Usage: codealong devices use-code [OPTIONS] <CODE>
+
+Arguments:
+  <CODE>
+          
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
 
   -h, --help
           Print help

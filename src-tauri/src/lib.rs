@@ -928,7 +928,7 @@ pub fn run() {
             });
             let _ = engine_slot.set(engine.clone());
             app.manage(peers);
-            server::serve(engine.clone());
+            server::serve(engine.clone(), app.state::<peers::Peers>().inner().clone());
             // After the first scan and the first git runs, which have the Mac to themselves.
             search::spawn_warmer(std::time::Duration::from_secs(20));
             app.manage(engine);
