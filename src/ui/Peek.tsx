@@ -2,10 +2,11 @@
 // its conversation, and the box that answers it (ReplyView.tsx). A click in it gives it the
 // keyboard; ⏎ sends, and once a message or an answer went through the peek closes, so the app
 // you were in has the keyboard back. Escape closes it too, and what you'd typed stays for next
-// time. While it's up, the session follows the board.
+// time. Its header's ✓ marks a finished turn seen and its archive button archives the session,
+// either of which takes it off the bar. While it's up, the session follows the board.
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { barNote, getBoard, inPreview, onBoard, onPeekHidden, onPeekOpen, onPeekShown, openFromBar, peekFit, peekFocus, peekHide, peekReady, showMain } from '../api';
+import { archiveSession, barNote, getBoard, markSeen, inPreview, onBoard, onPeekHidden, onPeekOpen, onPeekShown, openFromBar, peekFit, peekFocus, peekHide, peekReady, showMain } from '../api';
 import { attentionRows, ALL_PROJECTS } from '../quick';
 import type { Lane, PeekOpen, Session, Theme } from '../types';
 import { ReplyView } from './ReplyView';
@@ -176,6 +177,12 @@ export function Peek() {
     void openFromBar(lane.id, session.openTarget).catch((e: unknown) => void barNote({ key: session.key, message: String(e).replace(/^Error: /, ''), tone: 'error' }));
   };
 
+  /** Takes the session off the bar, and puts the peek away. */
+  const dismiss = (act: Promise<void>) => {
+    void peekHide();
+    act.catch((e: unknown) => void barNote({ key: session.key, message: String(e).replace(/^Error: /, ''), tone: 'error' }));
+  };
+
   return (
     <div
       className="ca-peek-root"
@@ -203,6 +210,8 @@ export function Peek() {
           autoFocus={open.focus}
           onLoaded={loaded}
           onOpen={openHere}
+          onSeen={() => dismiss(markSeen([session.key]))}
+          onArchive={() => dismiss(archiveSession(session.key, true))}
           onReveal={() => {
             void peekHide();
             void showMain({ kind: 'session', laneId: lane.id, key: session.key });

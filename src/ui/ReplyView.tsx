@@ -20,6 +20,10 @@ interface ReplyViewProps {
   onReveal: () => void;
   /** Back to where it was picked (the quick panel's list). */
   onBack?: () => void;
+  /** Takes it off the list it was picked from: marks a finished turn seen, which the header offers
+   *  only for Your turn and a reply that asks you something (seen, it's idle), or archives it. */
+  onSeen?: () => void;
+  onArchive?: () => void;
   autoFocus?: boolean;
   /** ⌘⏎ allows what it waits on (the quick panel, which is used from the keyboard). */
   keys?: boolean;
@@ -35,7 +39,7 @@ function openWords(lane: Lane, s: Session, terminal: string): { label: string; d
   return t ? { label: t.label, detail: t.detail, disabled: t.disabled } : { label: `Open in ${sessionPlace(s, terminal)}`, detail: null, disabled: false };
 }
 
-export function ReplyView({ lane, session: s, terminal, now, onOpen, onReveal, onBack, autoFocus, keys, onSent, onAnswered, onLoaded }: ReplyViewProps) {
+export function ReplyView({ lane, session: s, terminal, now, onOpen, onReveal, onBack, onSeen, onArchive, autoFocus, keys, onSent, onAnswered, onLoaded }: ReplyViewProps) {
   const open = openWords(lane, s, terminal);
   const since = s.statusSince ? (s.status === 'working' ? `for ${duration(s.statusSince, now)}` : agoPhrase(s.statusSince, now)) : agoPhrase(s.lastActivity, now);
   const status = s.stalledSince ? `Quiet since ${agoPhrase(s.stalledSince, now)}` : `${s.asks ? 'Asks you' : STATUS_WORD[s.status]} ${since}`;
@@ -52,6 +56,17 @@ export function ReplyView({ lane, session: s, terminal, now, onOpen, onReveal, o
             {s.account} · {lane.callsign} · {status}
           </div>
         </div>
+        {onSeen && (s.status === 'unread' || s.asks) && <Button variant="ghost" size="sm" icon="check" aria-label="Mark as seen" title="Mark as seen: it leaves the bar" onClick={onSeen} />}
+        {onArchive && (
+          <Button
+            variant="ghost"
+            size="sm"
+            icon="archive"
+            aria-label="Archive"
+            title={s.harness === 'codex' ? 'Archive: it leaves the bar, and Codex archives the thread' : 'Archive: it leaves the bar and the board until you unarchive it'}
+            onClick={onArchive}
+          />
+        )}
         <Button variant="ghost" size="sm" icon="sidebar" aria-label="Show in Codealong" title="Show in Codealong" onClick={onReveal} />
         <Button size="sm" icon="arrow-up-right" title={open.detail ?? undefined} disabled={open.disabled} onClick={onOpen}>
           {open.label}
