@@ -34,6 +34,8 @@ pub struct Config {
     #[serde(default)]
     pub search: SearchCfg,
     #[serde(default)]
+    pub devices: DevicesCfg,
+    #[serde(default)]
     pub debug: DebugCfg,
 }
 
@@ -49,6 +51,7 @@ impl Default for Config {
             jev: JevCfg::default(),
             router: None,
             search: SearchCfg::default(),
+            devices: DevicesCfg::default(),
             debug: DebugCfg::default(),
         }
     }
@@ -136,6 +139,47 @@ pub const MAX_SEARCH_DAYS: u32 = 14;
 
 fn default_search_days() -> u32 {
     MAX_SEARCH_DAYS
+}
+
+/// Your other Macs (peers.rs): Codealong on each finds the others, shows their sessions here,
+/// and reads or acts on them on request. Off until you turn it on.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DevicesCfg {
+    #[serde(default)]
+    pub enabled: bool,
+    /// This Mac's name on your other Macs; empty is the computer's name.
+    #[serde(default)]
+    pub name: String,
+    /// Find your Macs on your tailnet, when Tailscale runs here.
+    #[serde(default = "yes")]
+    pub tailscale: bool,
+    /// Reach linked Macs that aren't on your tailnet, through iroh (encrypted end to end; its
+    /// relays only pass packets along).
+    #[serde(default = "yes")]
+    pub iroh: bool,
+    /// Let your linked Macs send prompts to sessions here, answer what they wait on you to
+    /// allow, and start sessions. Reading and searching don't need it.
+    #[serde(default)]
+    pub remote_control: bool,
+    /// The TCP port Codealong listens on, on this Mac's tailnet address only.
+    #[serde(default = "default_devices_port")]
+    pub port: u16,
+}
+
+impl Default for DevicesCfg {
+    fn default() -> Self {
+        DevicesCfg { enabled: false, name: String::new(), tailscale: true, iroh: true, remote_control: false, port: default_devices_port() }
+    }
+}
+
+pub const DEFAULT_DEVICES_PORT: u16 = 47471;
+
+fn default_devices_port() -> u16 {
+    DEFAULT_DEVICES_PORT
+}
+
+fn yes() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
@@ -406,6 +450,7 @@ const APPS_COMMENT: &str = "# Where Codealong opens things. Built-in profiles: t
 const APPEARANCE_COMMENT: &str = "# Light or dark. \"system\" follows macOS. The buttons at the foot of the sidebar set this too.\n";
 const JEV_COMMENT: &str = "# What Codealong asks TypeSafe's Jev, feature by feature (Settings › Jev says what each one sends).\n# The API key is kept in the login keychain; set it in Settings.\n";
 const SEARCH_COMMENT: &str = "# The quick panel and `codealong sessions find` search what was said in sessions active in the\n# last `days` days, not just their titles. 0 turns it off; 14, the board's reach, is the most.\n";
+const DEVICES_COMMENT: &str = "# Your other Macs: Codealong on each shows the others' sessions and can read and search them.\n# tailscale finds them on your tailnet; iroh reaches Macs you link with a code, anywhere.\n# remote_control lets your linked Macs send prompts, answer approvals and start sessions here.\n";
 const DEBUG_COMMENT: &str = "# Timings for finding what makes the app slow, in ~/Library/Logs/Codealong/perf.log.\n";
 const SHORTCUTS_COMMENT: &str = "# Shortcuts that work in any app, such as \"Option+Cmd+/\" or \"Cmd+Ctrl+K\". \"\" turns one off.\n# quick_panel opens the quick panel: find a session, or start one.\n";
 
@@ -546,6 +591,12 @@ pub fn check(cfg: &Config) -> std::result::Result<(), String> {
     if cfg.jev.model.trim().is_empty() {
         return Err("[jev] model is empty; use \"jev-latest\".".into());
     }
+    if cfg.devices.port < 1024 {
+        return Err(format!("[devices] port is {}; use one from 1024 up ({DEFAULT_DEVICES_PORT} is the default).", cfg.devices.port));
+    }
+    if cfg.devices.name.chars().count() > 64 || cfg.devices.name.chars().any(char::is_control) {
+        return Err("[devices] name is too long or has control characters.".into());
+    }
     if cfg.apps.terminal.trim().is_empty() || cfg.apps.editor.trim().is_empty() {
         return Err("The terminal and editor need a profile name.".into());
     }
@@ -621,6 +672,28 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
             place_after(&mut doc, "search", after);
         }
         set_value(&mut doc["search"]["days"], Value::from(cfg.search.days as i64));
+    }
+
+    // Opt-in like [search]: only a file that has the table or changes a default gets it.
+    if cfg.devices != DevicesCfg::default() || doc.get("devices").is_some() {
+        if !doc.get("devices").is_some_and(toml_edit::Item::is_table_like) {
+            let mut t = Table::new();
+            t.decor_mut().set_prefix(format!("\n{DEVICES_COMMENT}"));
+            doc.insert("devices", Item::Table(t));
+            let after = ["search", "jev", "shortcuts"].into_iter().find(|k| doc.get(k).is_some()).unwrap_or("shortcuts");
+            place_after(&mut doc, "devices", after);
+        }
+        let d = &cfg.devices;
+        set_value(&mut doc["devices"]["enabled"], Value::from(d.enabled));
+        if !d.name.trim().is_empty() || doc["devices"].get("name").is_some() {
+            set_value(&mut doc["devices"]["name"], Value::from(d.name.trim()));
+        }
+        set_value(&mut doc["devices"]["tailscale"], Value::from(d.tailscale));
+        set_value(&mut doc["devices"]["iroh"], Value::from(d.iroh));
+        set_value(&mut doc["devices"]["remote_control"], Value::from(d.remote_control));
+        if d.port != DEFAULT_DEVICES_PORT || doc["devices"].get("port").is_some() {
+            set_value(&mut doc["devices"]["port"], Value::from(d.port as i64));
+        }
     }
 
     ensure_table(&mut doc, "debug", DEBUG_COMMENT);
@@ -753,6 +826,22 @@ pub fn render(cfg: &Config) -> String {
     s.push_str(SEARCH_COMMENT);
     s.push_str("[search]\n");
     s.push_str(&format!("days = {}\n", cfg.search.days));
+    if cfg.devices != DevicesCfg::default() {
+        let d = &cfg.devices;
+        s.push('\n');
+        s.push_str(DEVICES_COMMENT);
+        s.push_str("[devices]\n");
+        s.push_str(&format!("enabled = {}\n", d.enabled));
+        if !d.name.is_empty() {
+            s.push_str(&format!("name = {}\n", q(&d.name)));
+        }
+        s.push_str(&format!("tailscale = {}\n", d.tailscale));
+        s.push_str(&format!("iroh = {}\n", d.iroh));
+        s.push_str(&format!("remote_control = {}\n", d.remote_control));
+        if d.port != DEFAULT_DEVICES_PORT {
+            s.push_str(&format!("port = {}\n", d.port));
+        }
+    }
     s.push_str("\n# Harness accounts. `name` is what you type and what the board shows.\n# `start` is where new sessions start: \"terminal\", \"background\", \"claude-app\" or \"codex-app\".\n# `preferred = true`: Auto starts this account over ones without it while it has room.\n");
     for a in &cfg.accounts {
         s.push_str("\n[[accounts]]\n");
@@ -806,6 +895,7 @@ mod tests {
             jev: JevCfg { model: "jev-1.13.0".into(), quick_panel: true, sessions: false, todos: true, pull_requests: false },
             router: None,
             search: SearchCfg { days: 7 },
+            devices: DevicesCfg { enabled: true, name: "Studio".into(), tailscale: true, iroh: false, remote_control: true, port: 47000 },
             debug: DebugCfg::default(),
         };
         let parsed: Config = toml::from_str(&render(&cfg)).unwrap();
@@ -906,6 +996,27 @@ mod tests {
         assert_eq!(toml::from_str::<Config>(&text).unwrap(), cfg);
     }
 
+    #[test]
+    fn devices_are_opt_in_and_saved_in_place() {
+        // A file from before [devices] doesn't get the table until something in it changes.
+        let text = render(&full());
+        assert!(!text.contains("[devices]"));
+        assert!(!with_config(&text, &full()).unwrap().contains("[devices]"));
+
+        let on = Config { devices: DevicesCfg { enabled: true, remote_control: true, ..DevicesCfg::default() }, ..full() };
+        let out = with_config(&text, &on).unwrap();
+        assert!(out.contains(DEVICES_COMMENT), "{out}");
+        assert!(out.contains("[devices]\nenabled = true\ntailscale = true\niroh = true\nremote_control = true\n"), "{out}");
+        assert!(out.find("[devices]").unwrap() > out.find("[search]").unwrap_or(0));
+        assert!(!out.contains("port ="), "the default port isn't written");
+        assert_eq!(parse(&out).unwrap().devices, on.devices);
+
+        // Turning it back off keeps the table, with the value changed in place.
+        let off = with_config(&out, &full()).unwrap();
+        assert!(off.contains("[devices]\nenabled = false"));
+        assert!(parse(&"[devices]\nport = 80\n".to_string()).is_err(), "ports under 1024 are refused");
+    }
+
     fn full() -> Config {
         Config {
             scan: vec!["~/projects".into(), "~/work".into()],
@@ -923,6 +1034,7 @@ mod tests {
             jev: JevCfg::default(),
             router: None,
             search: SearchCfg::default(),
+            devices: DevicesCfg::default(),
             debug: DebugCfg { perf_log: true },
         }
     }

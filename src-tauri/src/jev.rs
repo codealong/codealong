@@ -213,7 +213,7 @@ fn post(key: &str, body: &Value) -> Result<Value> {
 
 static KEY: Mutex<Option<(Instant, String)>> = Mutex::new(None);
 
-fn keychain_account() -> String {
+pub(crate) fn keychain_account() -> String {
     std::env::var("USER").ok().filter(|u| !u.is_empty() && u.chars().all(|c| c.is_ascii_alphanumeric() || "._-".contains(c))).unwrap_or_else(|| "codealong".into())
 }
 

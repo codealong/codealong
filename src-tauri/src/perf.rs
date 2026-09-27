@@ -192,6 +192,11 @@ fn clock() -> String {
     format!("{:02}:{:02}:{:02}.{ms:03}", tm.tm_hour, tm.tm_min, tm.tm_sec)
 }
 
+/// The local date and time, for other logs.
+pub(crate) fn stamp() -> String {
+    format!("{} {}", date(), clock())
+}
+
 fn date() -> String {
     let (tm, _) = local_tm();
     format!("{}-{:02}-{:02}", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday)

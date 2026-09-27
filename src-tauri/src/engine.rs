@@ -2171,6 +2171,7 @@ impl Engine {
         board.theme = self.cfg.appearance.theme;
         board.quick_shortcut = self.cfg.shortcuts.quick_panel.clone();
         board.jev = self.cfg.jev.clone();
+        board.devices = self.cfg.devices.clone();
         board.perf_log = perf::enabled();
         board.todos = self.todos.todos.clone();
         board.labels = self.todos.labels.clone();

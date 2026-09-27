@@ -445,6 +445,9 @@ pub struct Board {
     pub jev: crate::config::JevCfg,
     /// Open todos whose work Jev says looks done, by todo id (todojev.rs).
     pub todo_hints: std::collections::BTreeMap<String, TodoHint>,
+    /// `[devices]` from config.toml: your other Macs (peers.rs), which follows it from here.
+    #[serde(default)]
+    pub devices: crate::config::DevicesCfg,
 }
 
 /// Why a todo looks done: how sure Jev is, and what showed it.

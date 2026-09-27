@@ -1115,6 +1115,7 @@ pub fn compose(inp: Inputs) -> Board {
         quick_shortcut: String::new(),
         jev: Default::default(),
         todo_hints: Default::default(),
+        devices: Default::default(),
     }
 }
 

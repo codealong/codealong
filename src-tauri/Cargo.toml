@@ -33,6 +33,11 @@ rusqlite = { version = "0.37", features = ["bundled"] }
 clap = { version = "4", features = ["derive", "wrap_help"] }
 # The quick panel's shortcut, which works in every app (Carbon hot keys: no permission needed).
 tauri-plugin-global-shortcut = "2"
+# Your other Macs (peers.rs): iroh reaches linked Macs anywhere, dialed by their device key
+# (irohnet.rs), on a runtime of its own; data-encoding writes keys and link codes.
+iroh = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "time"] }
+data-encoding = "2"
 
 # The floating bar, the quick panel and the focus outline (flash.rs): panels, window occlusion, placement and Spaces, which
 # Tauri doesn't expose.
