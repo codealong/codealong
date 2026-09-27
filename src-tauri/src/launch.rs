@@ -613,19 +613,16 @@ pub enum Key {
 pub fn press_key(host: &TerminalHost, key: Key) -> Result<()> {
     match host {
         TerminalHost::Ghostty(id) => {
-            // Ghostty's own names, then the plain character, which older versions take.
-            let names: &[&str] = match key {
-                Key::Digit1 => &["digit_1", "1"],
-                Key::Escape => &["escape"],
+            // `send key` makes a key event without text, and Ghostty writes nothing for a
+            // character key without text: only keys with codes of their own, like Escape, get
+            // through. A digit goes through Ghostty's `text:` action, which writes it to the
+            // program as typing it does; `input text` would paste it, and Claude Code's prompt
+            // ignores pastes.
+            match key {
+                Key::Digit1 => osascript(GHOSTTY_ACTION, &[id, "text:1"])?,
+                Key::Escape => osascript(GHOSTTY_KEY, &[id, "escape"])?,
             };
-            let mut last = None;
-            for name in names {
-                match osascript(GHOSTTY_KEY, &[id, name]) {
-                    Ok(_) => return Ok(()),
-                    Err(e) => last = Some(e),
-                }
-            }
-            Err(last.unwrap_or_else(|| anyhow!("Ghostty didn't take the key.")))
+            Ok(())
         }
         TerminalHost::Tmux(pane) => {
             let name = match key {
@@ -645,6 +642,18 @@ on run argv
   tell application "Ghostty"
     if not (exists terminal id (item 1 of argv)) then error "That terminal is gone."
     send key (item 2 of argv) to terminal id (item 1 of argv)
+  end tell
+  return "ok"
+end run
+"#;
+
+/// `<terminal id> <action>`: performs one of Ghostty's actions (as keybindings name them) in
+/// that terminal; it answers false for one it didn't perform.
+const GHOSTTY_ACTION: &str = r#"
+on run argv
+  tell application "Ghostty"
+    if not (exists terminal id (item 1 of argv)) then error "That terminal is gone."
+    if not (perform action (item 2 of argv) on terminal id (item 1 of argv)) then error "Ghostty didn't take the key."
   end tell
   return "ok"
 end run
@@ -948,6 +957,69 @@ end run
         let _ = osascript(CLOSE, &[&sleeper]);
         result.unwrap();
         assert_eq!(still.trim(), "false", "the terminal is still open");
+    }
+
+    /// Opens a Ghostty window whose program records the bytes that reach it, in raw mode with
+    /// bracketed paste on as Claude Code runs, presses 1 and Escape there as answering a
+    /// permission prompt does, and checks both arrived as typed keys: `send key` sent nothing
+    /// for the digit. It opens a window, so it's opt in: `cargo test ghostty_presses_keys --
+    /// --ignored`.
+    #[test]
+    #[ignore]
+    fn ghostty_presses_keys() {
+        const OPEN: &str = r#"
+on run argv
+  tell application "Ghostty"
+    set seenIds to id of every terminal
+    new window with configuration {initial working directory:(item 1 of argv), initial input:(item 2 of argv)}
+    repeat 50 times
+      set nowIds to id of every terminal
+      repeat with t in nowIds
+        if seenIds does not contain (contents of t) then return contents of t
+      end repeat
+      delay 0.1
+    end repeat
+  end tell
+  return ""
+end run
+"#;
+        const CLOSE: &str = r#"
+on run argv
+  tell application "Ghostty"
+    try
+      close terminal id (item 1 of argv)
+    end try
+  end tell
+end run
+"#;
+        let dir = std::env::temp_dir();
+        let out = dir.join(format!("codealong-keys-{}", std::process::id()));
+        let ready = dir.join(format!("codealong-keys-{}.ready", std::process::id()));
+        let _ = std::fs::remove_file(&out);
+        let _ = std::fs::remove_file(&ready);
+        // Once the terminal is raw and takes bracketed pastes, the next two bytes, whatever they are.
+        let input = format!("stty raw -echo; printf '\\033[?2004h'; touch '{}'; dd bs=1 count=2 of='{}' 2>/dev/null; stty sane; exit\n", ready.display(), out.display());
+        let id = osascript(OPEN, &[&dir.to_string_lossy(), &input]).unwrap().trim().to_string();
+        for _ in 0..100 {
+            if ready.exists() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        let host = TerminalHost::Ghostty(id.clone());
+        let pressed = press_key(&host, Key::Digit1).and_then(|_| press_key(&host, Key::Escape));
+        for _ in 0..50 {
+            if std::fs::metadata(&out).map(|m| m.len() >= 2).unwrap_or(false) {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        let got = std::fs::read(&out).unwrap_or_default();
+        let _ = osascript(CLOSE, &[&id]);
+        let _ = std::fs::remove_file(&out);
+        let _ = std::fs::remove_file(&ready);
+        pressed.unwrap();
+        assert_eq!(got, b"1\x1b", "the program got {:?}", String::from_utf8_lossy(&got));
     }
 
     /// Opens three Ghostty windows, focuses the terminal in the one furthest back, checks that

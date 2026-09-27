@@ -287,6 +287,10 @@ Claude Code
   What should Claude do instead?"). A stray digit with no prompt up lands in the input box, so
   `claude.rs`'s adapter presses a key only while the registry and the transcript both agree the
   prompt is up for the call you saw. Read-only commands (`git status`, `ls`) aren't asked about.
+  Only typed keys answer it: a bracketed paste goes to Claude Code's paste handler, never to its
+  keys, so a pasted `1` does nothing. Where the terminal has the kitty keyboard protocol it pushes
+  flags 5 (1 in its legacy mode), never "report all keys", so a typed digit still arrives as the
+  plain character.
 - The folder-trust prompt a new folder gets has "No, exit" as its default: Return quits.
 - A peer message to a session that bypasses permissions is held ("Held message from another
   session", Deny first) unless its settings say `"crossSessionInbound": "accept"`; typing into
@@ -500,10 +504,15 @@ Ghostty (1.3, AppleScript dictionary in the app bundle)
   next turn. `current date` inside `tell application "Ghostty"` goes to Ghostty first.
 - macOS doesn't let a background process bring an app forward: `activate` from a shell leaves
   Ghostty behind; from a click in Codealong it works.
-- `send key "<name>" to terminal id <id>` takes Ghostty's key names (`digit_1`, `escape`, `enter`)
-  and errors with "Unknown key name" for others. While the screen is locked Ghostty doesn't
-  start new terminals ("Terminal surface model is not available"), so nothing can be typed
-  into one opened then.
+- `send key "<name>" to terminal id <id>` takes the Swift names of Ghostty's keys (`digit1`,
+  `escape`, `enter`; `digit_1` and `1` error with "Unknown key name") and sends a key event
+  without text, and Ghostty writes nothing for a character key without text: only keys with
+  codes of their own (Return, Escape, Tab, arrows) arrive. `perform action "text:<chars>" on
+  terminal id <id>` writes characters to the program as typing them does (a Zig string literal,
+  so `\x1b` works) and answers true. Checked on 1.3.1 with a program recording its input,
+  2026-09-27; `cargo test ghostty_presses_keys -- --ignored` repeats it. While the screen is
+  locked Ghostty doesn't start new terminals ("Terminal surface model is not available"), so
+  nothing can be typed into one opened then.
 - Scripts can take many seconds: while Ghostty launches or is busy, and while macOS asks whether
   Codealong may control it. The bundle is ad-hoc signed with a per-build identifier
   (`codealong-<hash>`), so macOS treats each rebuild as a new app and asks again. Ghostty still
