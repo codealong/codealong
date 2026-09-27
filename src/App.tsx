@@ -808,6 +808,7 @@ export function App() {
       { label: 'Move to project', items: projectItems(t) },
       'separator',
       { label: 'Copy as prompt', run: () => copyPrompt(t) },
+      { label: 'Copy todo ID', run: () => copy(t.id, 'todo ID') },
       ...canvasItem('todo', t.id),
       'separator',
       { label: 'Delete todo', run: () => deleteTodo(t) },
@@ -821,6 +822,7 @@ export function App() {
       [
         { label: 'Move to project', items: projectItems(t) },
         { label: 'Copy as prompt', run: () => copyPrompt(t) },
+        { label: 'Copy todo ID', run: () => copy(t.id, 'todo ID') },
         'separator',
         { label: 'Delete todo', run: () => deleteTodo(t) },
       ],
