@@ -191,6 +191,14 @@ pub fn item(at: i64, kind: &'static str, text: impl Into<String>) -> Item {
     Item { at, kind, text: text.into(), id: None, input: None, output: None, failed: false, cursor: 0, n: 0 }
 }
 
+/// The tool calls among `items` that have no result yet, oldest first, for records that keep a
+/// call's output apart from it (`result`, by `id`). A page from the end of the record holds a
+/// call's result whenever it holds the call.
+pub fn open_tools(items: &[Item]) -> Vec<&Item> {
+    let answered: std::collections::HashSet<&str> = items.iter().filter(|i| i.kind == "result").filter_map(|i| i.id.as_deref()).collect();
+    items.iter().filter(|i| i.kind == "tool" && i.id.as_deref().is_some_and(|id| !answered.contains(id))).collect()
+}
+
 /// Numbers a message's items and gives them its place, for records that aren't lines.
 pub fn placed(mut items: Vec<Item>, cursor: u64) -> Vec<Item> {
     for (n, it) in items.iter_mut().enumerate() {

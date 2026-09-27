@@ -440,6 +440,22 @@ impl crate::harness::Adapter for ClaudeCode {
             crate::harness::Answer::Deny => format!("Denied {}; it stops and waits for you.", call.text),
         })
     }
+
+    fn open_calls(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> Vec<String> {
+        record(self, ctx, s).map(|p| open_calls(&p)).unwrap_or_default()
+    }
+
+    /// Its Bash tool's shells, background ones included, are the session process's children.
+    fn runs_its_commands(&self) -> bool {
+        true
+    }
+}
+
+/// The inputs of the calls at the end of a transcript with no result yet: Claude Code writes a
+/// call there before running it.
+fn open_calls(path: &Path) -> Vec<String> {
+    let Ok(page) = crate::transcript::file_page(path, conversation_items, None, 20) else { return Vec::new() };
+    crate::transcript::open_tools(&page.items).into_iter().filter_map(|i| i.input.clone()).collect()
 }
 
 fn record(a: &ClaudeCode, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> anyhow::Result<PathBuf> {
@@ -458,8 +474,7 @@ fn waiting_call(a: &ClaudeCode, ctx: &crate::harness::Ctx, s: &crate::model::Ses
         return None;
     }
     let page = crate::transcript::file_page(&record(a, ctx, s).ok()?, conversation_items, None, 40).ok()?;
-    let answered: HashSet<&str> = page.items.iter().filter(|i| i.kind == "result").filter_map(|i| i.id.as_deref()).collect();
-    let call = page.items.iter().rev().find(|i| i.kind == "tool" && i.id.as_deref().is_some_and(|id| !answered.contains(id)))?;
+    let call = crate::transcript::open_tools(&page.items).last().copied()?;
     Some((call.clone(), pid))
 }
 
@@ -742,6 +757,20 @@ mod tests {
 {"type":"user","cwd":"/x","sessionId":"s","message":{"content":[{"type":"text","text":"Fix the flaky test"}]}}
 "#;
         assert_eq!(parse_lines(head, "").first_prompt.as_deref(), Some("Fix the flaky test"));
+    }
+
+    #[test]
+    fn finds_the_call_running_at_the_end_of_a_transcript() {
+        let dir = std::env::temp_dir().join(format!("codealong-claude-open-calls-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("s.jsonl");
+        let call = |id: &str, command: &str| serde_json::json!({ "type": "assistant", "timestamp": "2026-09-27T16:00:00.000Z", "message": { "content": [{ "type": "tool_use", "id": id, "name": "Bash", "input": { "command": command } }] } }).to_string();
+        let result = |id: &str| serde_json::json!({ "type": "user", "timestamp": "2026-09-27T16:00:01.000Z", "message": { "content": [{ "type": "tool_result", "tool_use_id": id, "content": "ok" }] } }).to_string();
+        std::fs::write(&path, [call("t1", "ls"), result("t1"), call("t2", "codealong todo done t-abc")].join("\n") + "\n").unwrap();
+        assert_eq!(open_calls(&path), vec!["codealong todo done t-abc".to_string()]);
+        std::fs::write(&path, [call("t1", "ls"), result("t1")].join("\n") + "\n").unwrap();
+        assert!(open_calls(&path).is_empty());
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

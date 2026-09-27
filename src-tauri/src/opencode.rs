@@ -279,6 +279,29 @@ fn assistant_summary(message: &Value) -> (Option<String>, Option<String>) {
     (text, tool)
 }
 
+/// The inputs of a session's tool calls that haven't finished, as JSON: the tool parts of its
+/// latest assistant messages that aren't completed or failed yet. The service writes a part as
+/// the call starts, before it runs.
+fn open_calls(db: &Path, session: &str) -> Vec<String> {
+    open(db).map(|db| open_calls_in(&db, session)).unwrap_or_default()
+}
+
+fn open_calls_in(db: &Connection, session: &str) -> Vec<String> {
+    let read = || -> rusqlite::Result<Vec<String>> {
+        let mut stmt = db.prepare("SELECT data FROM session_message WHERE session_id = ?1 AND type = 'assistant' ORDER BY seq DESC LIMIT 3")?;
+        let rows = stmt.query_map([session], |r| r.get::<_, String>(0))?.flatten().collect();
+        Ok(rows)
+    };
+    read()
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|data| serde_json::from_str::<Value>(data).ok())
+        .flat_map(|v| v.get("content").and_then(Value::as_array).cloned().unwrap_or_default())
+        .filter(|p| p.get("type").and_then(Value::as_str) == Some("tool") && !matches!(p.pointer("/state/status").and_then(Value::as_str), Some("completed" | "error")))
+        .filter_map(|p| p.pointer("/state/input").map(Value::to_string))
+        .collect()
+}
+
 /// "bash · `npm test`": the tool's name and the argument that says what it's doing.
 fn tool_summary(part: &Value) -> Option<String> {
     let name = part.get("name").and_then(Value::as_str)?;
@@ -570,6 +593,10 @@ impl crate::harness::Adapter for OpenCode {
         Ok(transcript_newer(&ctx.account.home_path().join("opencode.db"), &s.id, after, conversation_items))
     }
 
+    fn open_calls(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> Vec<String> {
+        open_calls(&ctx.account.home_path().join("opencode.db"), &s.id)
+    }
+
     fn pending(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> Option<crate::harness::Pending> {
         let svc = service(&ctx.account.home_path())?;
         permission_request(&svc, &s.id).map(|r| crate::harness::Pending { id: r.id, label: r.label, input: r.input, cannot: None })
@@ -629,6 +656,20 @@ mod tests {
         .unwrap();
         db.execute_batch(sql).unwrap();
         db
+    }
+
+    #[test]
+    fn finds_the_tool_calls_a_session_is_running() {
+        let part = |status: &str, command: &str| serde_json::json!({ "type": "tool", "name": "bash", "state": { "status": status, "input": { "command": command } } });
+        let msg = |parts: Vec<Value>| serde_json::json!({ "content": parts }).to_string().replace('\'', "''");
+        let db = db_with(&format!(
+            "INSERT INTO session_message VALUES ('m1', 'ses_a', 'assistant', 1, 1, 1, '{}'), ('m2', 'ses_a', 'assistant', 2, 2, 2, '{}'), ('m3', 'ses_b', 'assistant', 1, 1, 1, '{}');",
+            msg(vec![part("completed", "ls"), part("error", "false")]),
+            msg(vec![part("running", "codealong whoami"), part("pending", "sleep 1")]),
+            msg(vec![part("running", "codealong todo done t-abc")]),
+        ));
+        assert_eq!(open_calls_in(&db, "ses_a"), vec![r#"{"command":"codealong whoami"}"#.to_string(), r#"{"command":"sleep 1"}"#.to_string()]);
+        assert!(open_calls_in(&db, "ses_c").is_empty());
     }
 
     #[test]

@@ -480,6 +480,8 @@ struct Client {
     cfg: Option<Config>,
     board: Option<Board>,
     said: bool,
+    /// The session running this command and how it was found, once `find_me` has looked.
+    me: Option<(Option<String>, Option<&'static str>)>,
 }
 
 impl Client {
@@ -488,7 +490,7 @@ impl Client {
             Some(Ok(v)) => serde_json::from_value(v).ok(),
             _ => None,
         };
-        Client { app, verbose, cfg: None, board: None, said: false }
+        Client { app, verbose, cfg: None, board: None, said: false, me: None }
     }
 
     fn note(&mut self) {
@@ -1259,7 +1261,9 @@ fn worktrees(c: &mut Client, a: &WorktreesArgs, json: bool) -> Result<()> {
 #[serde(rename_all = "camelCase")]
 struct Whoami {
     found: bool,
-    /// `environment` (CODEALONG_SESSION was set by the app's start) or `process` (a parent process is a session the board knows).
+    /// `process` (a parent process is a session the board knows), `record` (a session's
+    /// unanswered tool call runs this command) or `environment` (CODEALONG_SESSION was set by
+    /// the app's start).
     how: Option<String>,
     session: Option<SessionRow>,
     worktree: Option<LaneRow>,
@@ -1269,19 +1273,85 @@ struct Whoami {
 }
 
 /// The session running this command: the parent process that's a live session on the board,
-/// else `CODEALONG_SESSION` from a start the app made, for a session the board hasn't shown yet.
-/// The process comes first: Claude Code's background sessions run under a service that keeps the
-/// environment of whichever shell started it, so they can carry another session's variable.
+/// else the session whose unanswered tool call runs this command (`running_this`), else
+/// `CODEALONG_SESSION` from a start the app made, for a session the board hasn't shown yet.
+/// The variable comes last and only for such a session: a terminal keeps it after its session
+/// ends, and long-lived processes started from one (Claude Code's background service,
+/// OpenCode's) pass whichever session's variable they had on to everything they run.
 fn find_me(c: &mut Client) -> Result<(Option<String>, Option<&'static str>)> {
-    let mine = procs::ancestors(std::process::id());
-    let board = c.board()?;
-    if let Some((s, _)) = all_sessions(board).into_iter().filter(|(s, _)| s.live).find(|(s, _)| s.pid.is_some_and(|p| mine.contains(&p))) {
-        return Ok((Some(s.key.clone()), Some("process")));
+    if let Some(me) = &c.me {
+        return Ok(me.clone());
     }
-    Ok(match std::env::var(start::SESSION_VAR) {
-        Ok(key) if !key.trim().is_empty() => (Some(key), Some("environment")),
-        _ => (None, None),
+    // The nearest: a session started from another's shell (`claude -p` run by an agent) is inside it.
+    let live: Vec<&Session> = all_sessions(c.board()?).into_iter().map(|(s, _)| s).filter(|s| s.live).collect();
+    let by_process = procs::ancestors(std::process::id()).into_iter().find_map(|p| live.iter().find(|s| s.pid == Some(p))).map(|s| s.key.clone());
+    let me = match by_process {
+        Some(key) => (Some(key), Some("process")),
+        None => match running_this(c)? {
+            Some(key) => (Some(key), Some("record")),
+            None => match std::env::var(start::SESSION_VAR) {
+                Ok(key) if !key.trim().is_empty() && !all_sessions(c.board()?).iter().any(|(s, _)| s.key == key) => (Some(key), Some("environment")),
+                _ => (None, None),
+            },
+        },
+    };
+    c.me = Some(me.clone());
+    Ok(me)
+}
+
+/// How recently a session that isn't in a turn by the board's last look was active, for it to
+/// be running this command anyway: the board can lag a turn that just started.
+const RUNNING_MS: i64 = 5 * 60 * 1000;
+
+/// The session whose unanswered tool call runs this command, when exactly one has such a call:
+/// how a session is found when no process above this one is a session the board knows. The
+/// Codex app runs every thread's commands under one process, and OpenCode runs its tools in its
+/// service; each writes a call to its record before running it. A live session whose commands
+/// are its own process's children isn't asked: that process isn't above this one. Otherwise an
+/// agent that hands another the command in a prompt would match as well.
+fn running_this(c: &mut Client) -> Result<Option<String>> {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let cfg = c.cfg().clone();
+    let now = now_ms();
+    let hits: Vec<String> = all_sessions(c.board()?)
+        .into_iter()
+        .map(|(s, _)| s)
+        .filter(|s| may_run_this(s, now))
+        .filter(|s| {
+            let Some(account) = cfg.accounts.iter().find(|a| a.name == s.account) else { return false };
+            crate::harness::adapter(s.harness).open_calls(&crate::harness::Ctx { account }, s).iter().any(|call| runs_command(call, &args))
+        })
+        .map(|s| s.key.clone())
+        .collect();
+    Ok(match hits.as_slice() {
+        [one] => Some(one.clone()),
+        _ => None,
     })
+}
+
+/// Whether a session could be running this command although no process above it is the
+/// session's: it's in a turn, or was active a moment ago, and its commands don't run under a
+/// process of its own that the board knows.
+fn may_run_this(s: &Session, now: i64) -> bool {
+    let turn = matches!(s.status, Status::Working | Status::Needs) || now - s.last_activity < RUNNING_MS;
+    !s.archived && turn && !(s.live && s.pid.is_some() && crate::harness::adapter(s.harness).runs_its_commands())
+}
+
+/// Whether a recorded tool call runs this command, given its arguments: `codealong` as a
+/// command (not a folder such as `projects/codealong`) followed by the subcommand, past any
+/// options, and every one-word argument (ids, options, values) somewhere in the call. Free
+/// text is left out, since quoting and escapes change how it's written; the words may sit
+/// apart, as in a loop over ids.
+fn runs_command(call: &str, args: &[String]) -> bool {
+    let words: Vec<&str> = args.iter().map(String::as_str).filter(|a| !a.is_empty() && a.is_ascii() && !a.contains(|c: char| c.is_whitespace() || "\"'`\\$".contains(c))).collect();
+    let Some(sub) = words.iter().find(|w| !w.starts_with('-')) else { return false };
+    let invoked = call.match_indices("codealong").any(|(i, m)| {
+        // Past a quote that closed the command's path, escaped or not.
+        let rest = call[i + m.len()..].trim_start_matches(['"', '\'', '\\']);
+        let next = rest.split_whitespace().find(|w| !w.starts_with('-'));
+        rest.starts_with(char::is_whitespace) && next.and_then(|w| w.strip_prefix(*sub)).is_some_and(|after| !after.starts_with(|c: char| c.is_ascii_alphanumeric() || c == '-' || c == '_'))
+    });
+    invoked && words.iter().all(|w| call.contains(w))
 }
 
 fn whoami(c: &mut Client, context: bool, json: bool) -> Result<()> {
@@ -1306,7 +1376,14 @@ fn whoami(c: &mut Client, context: bool, json: bool) -> Result<()> {
         return print_json(&out);
     }
     match &out.session {
-        Some(s) => println!("Session {} ({} on {}, {}), found by {}.", s.key, s.harness, s.account, s.status, out.how.clone().unwrap_or_default()),
+        Some(s) => {
+            let by = match out.how.as_deref() {
+                Some("process") => "its process",
+                Some("record") => "its own record of this command",
+                _ => "CODEALONG_SESSION",
+            };
+            println!("Session {} ({} on {}, {}), found by {by}.", s.key, s.harness, s.account, s.status)
+        }
         None => println!("No session of this shell is on the board.{}", if key.is_some() { " CODEALONG_SESSION names one the board doesn't show yet." } else { "" }),
     }
     if let Some(w) = &out.worktree {
@@ -2436,6 +2513,56 @@ mod tests {
         assert!(context_text(&out, Some("me")).starts_with("Todo a \"A\" is linked to this session"));
         let out = Whoami { found: false, how: None, session: None, worktree: None, todos: vec![] };
         assert_eq!(context_text(&out, None), "");
+    }
+
+    #[test]
+    fn only_sessions_without_a_process_of_their_own_above_this_one_are_asked() {
+        let now = 10 * RUNNING_MS;
+        let with = |harness: &str, status: &str, live: bool, pid: Option<u32>, active: i64| -> Session {
+            let mut s = session("s", live, None);
+            s.harness = serde_json::from_value(serde_json::json!(harness)).unwrap();
+            s.status = serde_json::from_value(serde_json::json!(status)).unwrap();
+            s.pid = pid;
+            s.last_activity = active;
+            s
+        };
+        // A Codex app thread in a turn has no process; OpenCode's tools run in its service,
+        // whatever terminal shows the session.
+        assert!(may_run_this(&with("codex", "working", true, None, 0), now));
+        assert!(may_run_this(&with("opencode", "working", true, Some(42), 0), now));
+        // Claude Code and a Codex terminal run commands under their own process, which the
+        // process check already looked for.
+        assert!(!may_run_this(&with("claude", "working", true, Some(42), now), now));
+        assert!(!may_run_this(&with("codex", "working", true, Some(42), now), now));
+        // Out of its turn and quiet for a while, or archived, it's running nothing.
+        assert!(!may_run_this(&with("codex", "idle", false, None, now - RUNNING_MS - 1), now));
+        assert!(may_run_this(&with("codex", "idle", false, None, now - 1000), now));
+        assert!(!may_run_this(&Session { archived: true, ..with("codex", "working", true, None, now) }, now));
+    }
+
+    #[test]
+    fn a_tool_call_runs_this_command_only_when_it_invokes_it() {
+        let args = |line: &str| line.split(' ').map(String::from).collect::<Vec<_>>();
+        let done = args("todo done t-abc");
+        // Claude Code's command, with a `cd` first, or through the plugin's quoted shim.
+        assert!(runs_command("cd /Users/me/projects/codealong-x && codealong todo done t-abc", &done));
+        assert!(runs_command("\"${CLAUDE_PLUGIN_ROOT}/bin/codealong\" --json todo done t-abc", &done));
+        assert!(runs_command("/Users/me/codealong-target/debug/codealong todo done t-abc", &done));
+        // A loop puts the id before the command.
+        assert!(runs_command("for id in t-abc t-def; do codealong todo done $id; done", &done));
+        // Codex's code mode, escaped in a string, after other commands; OpenCode's input as JSON.
+        assert!(runs_command(r#"text(await tools.exec_command({cmd:\"sed -n '1,20p' a.rs\ncodealong whoami\",\"max_output_tokens\":8000}));"#, &args("whoami")));
+        assert!(runs_command(r#"{"command":"codealong todo start t-abc","description":"Start it"}"#, &args("todo start t-abc")));
+        // Free text isn't matched word for word; ids and options are.
+        let add = vec!["todo".to_string(), "update".into(), "t-abc".into(), "--title".into(), "It's \"done\"".into()];
+        assert!(runs_command("codealong todo update t-abc --title 'It'\\''s \"done\"'", &add));
+        // The repo's folder isn't the command; another id or subcommand isn't this call.
+        assert!(!runs_command("cd ~/projects/codealong && grep -n whoami src-tauri/src/cli.rs", &args("whoami")));
+        assert!(!runs_command("cat ~/Library/Application\\ Support/Codealong/codealong.sock whoami", &args("whoami")));
+        assert!(!runs_command("codealong todo done t-other", &done));
+        assert!(!runs_command("codealong todo start t-abc", &done));
+        assert!(!runs_command("codealong whoamix", &args("whoami")));
+        assert!(!runs_command("anything", &[]));
     }
 
     #[test]

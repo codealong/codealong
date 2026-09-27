@@ -80,6 +80,21 @@ pub trait Adapter: Sync {
     fn answer(&self, _ctx: &Ctx, _session: &Session, _id: &str, _answer: Answer) -> Result<String> {
         bail!("Answer it in {}: Codealong can't answer it from here.", self.harness().word())
     }
+
+    /// The whole input of each tool call the session made that has no result yet: the command
+    /// it's running now, or the call waiting on you. The `codealong` command finds the session
+    /// that runs it from these when no process above it is a session (cli.rs). The harness
+    /// must have written the call before running it.
+    fn open_calls(&self, _ctx: &Ctx, _session: &Session) -> Vec<String> {
+        Vec::new()
+    }
+
+    /// Whether the commands a session runs are children of its process (`Session.pid`), so
+    /// that a command without that process above it isn't the session's. Not so where tools
+    /// run in a service that serves every session.
+    fn runs_its_commands(&self) -> bool {
+        false
+    }
 }
 
 static ADAPTERS: [&dyn Adapter; 4] = [&crate::claude::ClaudeCode, &crate::codex::Codex, &crate::opencode::OpenCode, &crate::antigravity::Antigravity];

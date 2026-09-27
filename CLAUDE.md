@@ -228,6 +228,10 @@ Claude Code
   where it started. `board::session_seed` lists an agent where most of its last five
   commands and edits worked; `util::command_dir` has the rule for commands.
 - Background jobs (`kind: bg`) have no terminal; `<account command> attach <jobId>` opens one.
+- A Bash call's `tool_use` is in the transcript before its command runs, and the command's
+  shell, a background one too, is a child of the session's process: the `codealong` command
+  finds the session that runs it by its parent processes. A terminal keeps
+  `CODEALONG_SESSION` after its session ends, and whatever starts from it later inherits it.
 - A command that acted on git or GitHub gets a `toolUseResult.gitOperation` on its result line:
   `pr` (`number`, `url`, `action` created, edited, commented or closed; closed has no url),
   `push`, `commit`, `branch`. `prlinks.rs` links a session to each PR its `pr` names, subagents'
@@ -349,6 +353,12 @@ Codex
   items, `changes` keyed by path. The item carries the command's `stdout` too, so a `gh pr
   create` is followed by the URL it printed; the app's `attach_artifact` tool (`McpToolCall`,
   `artifact_type: pull_request`) shows a PR on the thread.
+- The app runs every thread's commands under its one `codex app-server` process, with no
+  thread id in their environment. A call is in the rollout before it runs: a `response_item`
+  `custom_tool_call` (the app's `exec` tool, whose `input` is JavaScript holding the command in
+  a string literal, `tools.exec_command({cmd:\"…\"})`) or `function_call` (`arguments` as
+  JSON), answered by a `*_output` with its `call_id`. `codealong` finds the thread that runs it
+  from these (`Adapter::open_calls`); a terminal's thread runs its commands under its `codex`.
 - Each turn's `token_count` event carries `rate_limits` (`primary`/`secondary` windows with
   `used_percent`, `window_minutes`, `resets_at`; `limit_id` `codex` or per model; `plan_type`).
 - The desktop app is `/Applications/ChatGPT.app` (bundle id `com.openai.codex`; an older
@@ -416,6 +426,10 @@ OpenCode (2.0.16, from its source at that tag and its files here)
   terminals only for `mini`. The TUI titles its tab `OC | <title>` (can be turned off), and two
   terminals can show one session. Codealong pairs a `--session` terminal with its session and
   any other with its folder's latest session.
+- Tools run in the service, not the TUI, and the service keeps the environment of the shell
+  that first started it, `CODEALONG_SESSION` included. A tool part is in `session_message`
+  with its `state.input` while its command runs (`state.status` not yet completed or error), so
+  `codealong` finds the session that runs it there (checked with `opencode run`, 2026-09-27).
 - `POST /api/session/<id>/prompt` with `{text, delivery: "queue"|"steer"}` sends a session a
   prompt; any TUI on that session shows it.
 - Permission requests: `GET /api/session/<id>/permission` lists them (`id` `per_…`, `action`

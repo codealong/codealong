@@ -644,6 +644,43 @@ impl crate::harness::Adapter for Codex {
     fn conversation_after(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, after: u64) -> anyhow::Result<Page> {
         crate::transcript::file_newer(&record(self, ctx, s)?, conversation_items, after)
     }
+
+    fn open_calls(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> Vec<String> {
+        record(self, ctx, s).map(|p| open_calls(&p)).unwrap_or_default()
+    }
+
+    /// A terminal's thread runs its commands under that terminal's `codex`; the app's threads
+    /// have no process of their own.
+    fn runs_its_commands(&self) -> bool {
+        true
+    }
+}
+
+/// The inputs of the calls at the end of a rollout with no output yet: a call is written there
+/// before it runs, and waits there while the app asks you to approve it.
+fn open_calls(path: &Path) -> Vec<String> {
+    let Ok(page) = crate::transcript::file_page(path, call_items, None, 30) else { return Vec::new() };
+    // A turn that ended or was stopped leaves no call running.
+    let turn = page.items.iter().rposition(|i| i.kind == "note").map_or(0, |i| i + 1);
+    crate::transcript::open_tools(&page.items[turn..]).into_iter().filter_map(|i| i.input.clone()).collect()
+}
+
+/// A rollout line as the tool calls in it: a call (`tool`, its code or arguments whole as the
+/// input), its output (`result`), or a turn starting or ending (`note`).
+fn call_items(v: &Value, at: i64) -> Vec<Item> {
+    if is_turn_event(v) {
+        return vec![item(at, "note", "")];
+    }
+    let Some(p) = (v.get("type").and_then(Value::as_str) == Some("response_item")).then(|| v.get("payload")).flatten() else { return Vec::new() };
+    let id = p.get("call_id").and_then(Value::as_str).map(String::from);
+    match p.get("type").and_then(Value::as_str) {
+        Some("function_call" | "custom_tool_call") => {
+            let input = p.get("input").or_else(|| p.get("arguments")).and_then(Value::as_str).map(String::from);
+            vec![Item { id, input, ..item(at, "tool", "") }]
+        }
+        Some("function_call_output" | "custom_tool_call_output") => vec![Item { id, ..item(at, "result", "") }],
+        _ => Vec::new(),
+    }
 }
 
 fn record(a: &Codex, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> anyhow::Result<PathBuf> {
@@ -926,6 +963,27 @@ mod tests {
         assert_eq!(request_of(voice), Some("Open a PR for this"));
         assert_eq!(request_of("<send_user_message_question_reply>\n[{\"answer\":\"Yes\"}]\n</send_user_message_question_reply>"), None);
         assert_eq!(request_of("Tighten the photo tools"), Some("Tighten the photo tools"));
+    }
+
+    #[test]
+    fn finds_the_calls_still_running_at_the_end_of_a_rollout() {
+        let dir = std::env::temp_dir().join(format!("codealong-codex-open-calls-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("rollout.jsonl");
+        let line = |kind: &str, payload: &str| format!(r#"{{"timestamp":"2026-09-27T16:00:00.000Z","type":"{kind}","payload":{payload}}}"#);
+        let exec = r#"text(await tools.exec_command({cmd:\"codealong whoami\"}));"#;
+        let lines = [
+            line("event_msg", r#"{"type":"task_started"}"#),
+            line("response_item", &serde_json::json!({ "type": "custom_tool_call", "call_id": "a", "name": "exec", "input": exec }).to_string()),
+            line("response_item", r#"{"type":"function_call","call_id":"b","name":"exec_command","arguments":"{\"cmd\":\"ls\"}"}"#),
+            line("response_item", r#"{"type":"function_call_output","call_id":"b","output":"x"}"#),
+        ];
+        std::fs::write(&path, lines.join("\n") + "\n").unwrap();
+        assert_eq!(open_calls(&path), vec![exec.to_string()]);
+        // Once the turn ends, nothing is running, whatever went unanswered.
+        std::fs::write(&path, [lines.join("\n"), line("event_msg", r#"{"type":"turn_aborted"}"#)].join("\n") + "\n").unwrap();
+        assert!(open_calls(&path).is_empty());
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     /// A rollout with `head` more than 256KB before `tail`: a tool output longer than a read
