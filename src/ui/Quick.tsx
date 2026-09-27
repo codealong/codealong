@@ -5,9 +5,10 @@
 // chosen at the bottom.
 //
 // ⏎ does the selected row and ⌘⏎ always starts. ⌥⏎ shows the session in Codealong, ⌘1 to ⌘9
-// open a row, ⌘P picks the project, ⌘T the worktree and ⌘L the agent, ↑ in the empty input brings
-// back the last draft and earlier prompts, and Escape closes. (⌘M is
-// the Window menu's Minimize, which may take the key before the page sees it.)
+// open a row, ⌘P picks the project and ⌥⌘1 to ⌥⌘9 switch to one (⌥⌘0 to all of them), ⌘T picks
+// the worktree and ⌘L the agent, ↑ in the empty input brings back the last draft and earlier
+// prompts, and Escape closes. (⌘M is the Window menu's Minimize, which may take the key before
+// the page sees it.)
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
@@ -64,6 +65,7 @@ import type { Attachment, Board, Lane, Meter, PrItem, Route, Session, StartOptio
 import { AttachmentStrip } from './DescriptionEditor';
 import { Picker, type PickerOption, type PickerSection } from './Picker';
 import { Icon, Kbd, Mark, STATUS_WORD, StatusGlyph } from './primitives';
+import { projectForDigit, projectKey } from './ProjectSwitcher';
 import { PrGlyph } from './PrsView';
 import { applyTheme } from './ThemeSwitch';
 import { TodoGlyph } from './TodoBits';
@@ -836,6 +838,15 @@ export function Quick() {
         } else void hideQuick();
         return;
       }
+      // ⌥⌘ digits switch projects, as in the main window. ⌥ changes the character, so they go by
+      // the key's code.
+      const digit = /^Digit(\d)$/.exec(e.code);
+      if (e.metaKey && e.altKey && !e.ctrlKey && !e.shiftKey && digit) {
+        e.preventDefault();
+        const name = projectForDigit(Number(digit[1]), projects);
+        if (name) pickProject(name);
+        return;
+      }
       if (!e.metaKey || e.ctrlKey || e.altKey) return;
       if (/^[1-9]$/.test(e.key)) {
         const row = rows[Number(e.key) - 1];
@@ -870,7 +881,12 @@ export function Quick() {
     text: name,
     label: name,
     lead: <Icon name={name === ALL_PROJECTS ? 'stack' : 'folder'} size={14} />,
-    trail: <ProjectCounts needs={counts[name]?.needs ?? 0} unread={counts[name]?.unread ?? 0} />,
+    trail: (
+      <>
+        <ProjectCounts needs={counts[name]?.needs ?? 0} unread={counts[name]?.unread ?? 0} />
+        <span className="ca-projswitch-key">{projectKey(name, projects)}</span>
+      </>
+    ),
   });
   // As in the main window's switcher: the projects, then All projects set apart.
   const projectSections: PickerSection[] = [

@@ -14,7 +14,7 @@ export function projectForDigit(digit: number, projects: ProjectSummary[]): stri
   return projects[digit - 1]?.name;
 }
 
-function projectKey(name: string, projects: ProjectSummary[]): string | null {
+export function projectKey(name: string, projects: ProjectSummary[]): string | null {
   if (name === ALL_PROJECTS) return '⌥⌘0';
   const i = projects.findIndex((p) => p.name === name);
   return i >= 0 && i < 9 ? `⌥⌘${i + 1}` : null;
