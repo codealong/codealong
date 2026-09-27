@@ -79,10 +79,12 @@ end run
 
 /// Three questions give three lists, which only line up if no terminal opened or closed in
 /// between, so it asks for the ids again to check, and gives up with nothing rather than pair
-/// a terminal with another's folder.
+/// a terminal with another's folder. The separator is set outside the tell: inside it, `tab`
+/// is Ghostty's tab class, and the lines came out joined by the word "tab".
 const GHOSTTY_LIST: &str = r#"
 on run argv
   set out to ""
+  set sep to character id 9
   tell application "Ghostty"
     repeat 3 times
       set ids to id of every terminal
@@ -91,7 +93,7 @@ on run argv
       set again to id of every terminal
       if again = ids and (count of dirs) = (count of ids) and (count of names) = (count of ids) then
         repeat with i from 1 to count of ids
-          set out to out & (item i of ids) & tab & (item i of dirs) & tab & (item i of names) & linefeed
+          set out to out & (item i of ids) & sep & (item i of dirs) & sep & (item i of names) & linefeed
         end repeat
         return out
       end if
@@ -856,6 +858,17 @@ mod tests {
             let r = procs::run_stdin("/usr/bin/osacompile", &["-o", &out.to_string_lossy()], script, Duration::from_secs(20));
             assert!(r.is_ok(), "script {i} failed to compile: {r:?}");
         }
+    }
+
+    /// Every terminal comes back with its folder: `tab` inside a Ghostty tell once meant its tab
+    /// class, the lines had no separators, and every terminal was dropped. Needs Ghostty running
+    /// with a terminal open: `cargo test ghostty_lists_terminals_with_folders -- --ignored`.
+    #[test]
+    #[ignore]
+    fn ghostty_lists_terminals_with_folders() {
+        let count: usize = osascript(r#"tell application "Ghostty" to return count of every terminal"#, &[]).unwrap().trim().parse().unwrap();
+        assert!(count > 0, "Ghostty has no terminals open");
+        assert_eq!(ghostty_terminals().unwrap().len(), count);
     }
 
     /// Opens a real Ghostty window whose shell writes the prompt it was handed back to a file,
