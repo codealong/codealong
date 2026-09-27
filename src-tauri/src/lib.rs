@@ -443,19 +443,20 @@ fn start_options() -> Result<start::StartOptions, String> {
 }
 
 /// Starts a session in a worktree: in the terminal, or in the Claude or Codex app. A start from
-/// a todo links the todo to the session, or to the next one of that account in the repo when an
-/// app picks the session's ID.
+/// todos links each of them to the session, or to the next one of that account in the repo when
+/// an app picks the session's ID.
 #[tauri::command(async)]
 fn start_session(engine: State<'_, engine::Handle>, spec: start::StartSpec) -> Result<start::Started, String> {
     start_and_link(&engine, &spec)
 }
 
-/// Starts a session and links it to its todo; the socket (server.rs) does the same for the
+/// Starts a session and links it to its todos; the socket (server.rs) does the same for the
 /// `codealong start` command.
 pub(crate) fn start_and_link(engine: &engine::Handle, spec: &start::StartSpec) -> Result<start::Started, String> {
     let cfg = config::load().map_err(|e| format!("{e:#}"))?.unwrap_or_default();
     let started = start::start(&engine.board(), &cfg, spec).map_err(|e| format!("{e:#}"))?;
-    if let Some(id) = spec.todo.clone() {
+    if !spec.todos.is_empty() {
+        // One start for all of them: todos started together wait for the same session.
         let pending = match (&started.key, spec.place) {
             (Some(_), _) => None,
             (None, place) => Some(todos::PendingStart {
@@ -467,7 +468,7 @@ pub(crate) fn start_and_link(engine: &engine::Handle, spec: &start::StartSpec) -
         };
         // A session in a new worktree won't be in the one it started from: only it is linked.
         let lane = (!(spec.worktree && matches!(spec.place, start::Place::Terminal | start::Place::Background))).then(|| spec.lane_id.clone());
-        engine.todo_started(id, lane, started.key.clone(), pending);
+        engine.todo_started(spec.todos.clone(), lane, started.key.clone(), pending);
     }
     Ok(started)
 }

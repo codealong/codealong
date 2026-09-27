@@ -60,7 +60,7 @@ import {
   type AutoPick,
 } from '../start';
 import { duplicateOf, rankedBy, suggestions, sureness, todoTitle, worthRouting, type Suggestion } from '../route';
-import { attachmentsIn, blockedBy, insertAttachments, newTodo, sessionHomes, snippet, todoItem, todoPrompt, withoutAttachment } from '../todos';
+import { attachmentsIn, blockedBy, insertAttachments, newTodo, sessionHomes, snippet, todoItem, todoPrompt, todosPrompt, withoutAttachment } from '../todos';
 import type { Attachment, Board, Lane, Meter, PrItem, Route, Session, StartOptions, StartPlace, StartSpec, TextFound } from '../types';
 import { AttachmentStrip } from './DescriptionEditor';
 import { Picker, type PickerOption, type PickerSection } from './Picker';
@@ -194,7 +194,8 @@ export function Quick() {
   const [agent, setAgent] = useState<string | null>(null);
   const [place, setPlace] = useState<StartPlace | null>(null);
   const [newWorktree, setNewWorktree] = useState(false);
-  const [todoId, setTodoId] = useState<string | null>(null);
+  // The todos a new session is for: one, or several started together on one prompt.
+  const [todoIds, setTodoIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const [picker, setPicker] = useState<PickerKind | null>(null);
@@ -212,7 +213,7 @@ export function Quick() {
   const routes = useRef(new Map<string, Route>());
   // What you'd typed when you last closed the panel without acting on it. Every open starts empty,
   // so the list is what needs you and ⏎ goes to it; ↑ in the empty input brings the draft back.
-  const [draft, setDraft] = useState<{ text: string; todo: string | null } | null>(null);
+  const [draft, setDraft] = useState<{ text: string; todos: string[] } | null>(null);
   // Prompts you sent, started or saved, newest first, kept across restarts. ↑ walks back through
   // the draft and then these; `recall` is where it is, and holds while the text is what it
   // brought back.
@@ -229,8 +230,8 @@ export function Quick() {
       return next;
     });
   };
-  const todoIdNow = useRef(todoId);
-  todoIdNow.current = todoId;
+  const todoIdsNow = useRef(todoIds);
+  todoIdsNow.current = todoIds;
 
   // Opening: what for, then fresh data, then the height (below), and only then the panel shows.
   useEffect(() => {
@@ -243,8 +244,8 @@ export function Quick() {
         setError(null);
         setProject(ctx.project ?? storedProject() ?? ALL_PROJECTS);
         setLaneId(ctx.laneId ?? null);
-        setTodoId(ctx.todo ?? null);
-        if (textNow.current.trim()) setDraft({ text: textNow.current, todo: todoIdNow.current });
+        setTodoIds(ctx.todos ?? (ctx.todo ? [ctx.todo] : []));
+        if (textNow.current.trim()) setDraft({ text: textNow.current, todos: todoIdsNow.current });
         setText(ctx.prompt ?? '');
         setRecall(null);
         setAgent(null);
@@ -268,10 +269,13 @@ export function Quick() {
           setOptions(o);
           // A todo asked for without its prompt (by the floating bar, which doesn't have it)
           // starts the way the Todo view starts it: as its prompt, in its worktree.
-          const t = !ctx.keep && ctx.todo && ctx.prompt === undefined ? b.todos.find((x) => x.id === ctx.todo) : undefined;
-          if (t) {
-            setText(todoPrompt(t));
-            if (!ctx.laneId) setLaneId(todoItem(t, new Map(b.lanes.map((l) => [l.id, l])), sessionHomes(b.lanes), new Map()).lane?.id ?? null);
+          const ids = ctx.todos ?? (ctx.todo ? [ctx.todo] : []);
+          const ts = !ctx.keep && ctx.prompt === undefined ? ids.flatMap((id) => b.todos.find((x) => x.id === id) ?? []) : [];
+          if (ts.length > 0) {
+            setText(todosPrompt(ts));
+            const laneById = new Map(b.lanes.map((l) => [l.id, l]));
+            const homes = sessionHomes(b.lanes);
+            if (!ctx.laneId) setLaneId(ts.map((t) => todoItem(t, laneById, homes, new Map()).lane?.id).find(Boolean) ?? null);
           }
         })
         .catch((e: unknown) => setError(plain(e)))
@@ -386,8 +390,13 @@ export function Quick() {
 
   /* ---- What for ---- */
 
-  const todo = todoId ? (board?.todos.find((t) => t.id === todoId) ?? null) : null;
-  const waitsOn = todo && board ? blockedBy(todo, board.todos) : [];
+  const forTodos = useMemo(() => (board ? todoIds.flatMap((id) => board.todos.find((t) => t.id === id) ?? []) : []), [board, todoIds]);
+  const todo = forTodos[0] ?? null;
+  // What each waits on that isn't done, leaving out the others: started together, they're done
+  // together.
+  const blocked = board ? forTodos.map((t) => ({ t, on: blockedBy(t, board.todos).filter((w) => !todoIds.includes(w.id)) })).filter((b) => b.on.length > 0) : [];
+  const waitsOn = [...new Map(blocked.flatMap((b) => b.on).map((w) => [w.id, w])).values()];
+  const marked = forTodos.filter((t) => t.waiting);
   const attached = attachmentsIn(text);
 
   // Attachments go in at the cursor, each on a line of its own.
@@ -567,7 +576,7 @@ export function Quick() {
   /** Makes the new session the todo's: its prompt, its worktree, and linked to it. It starts
    *  when you say so. */
   const prepareTodo = (r: TodoRow) => {
-    setTodoId(r.item.todo.id);
+    setTodoIds([r.item.todo.id]);
     setText(todoPrompt(r.item.todo));
     if (r.item.lane) setLaneId(r.item.lane.id);
     setActiveKey(COMPOSE);
@@ -688,7 +697,7 @@ export function Quick() {
     const newTree = claudeTerminal && (over ? over.newWorktree : newWorktree);
     if (!where || !account || !placeNow) return;
     if (choice) remember(choice, placeNow);
-    const spec: StartSpec = { laneId: where.id, account, place: placeNow, prompt: text, model: modelNow, worktree: newTree, todo: todo?.id ?? null };
+    const spec: StartSpec = { laneId: where.id, account, place: placeNow, prompt: text, model: modelNow, worktree: newTree, todos: forTodos.map((t) => t.id) };
     const label =
       placeNow === 'terminal' || placeNow === 'background'
         ? `Starting ${account}${onModel} in ${newTree ? `a new worktree of ${where.repo}` : where.callsign}${placeNow === 'background' ? ' in the background' : ''}…`
@@ -698,10 +707,10 @@ export function Quick() {
     const id = Date.now();
     const to = opener ?? 'main';
     // The panel is fresh for next time; a failed start brings back what you had.
-    const kept = { text, todoId, newWorktree };
+    const kept = { text, todoIds, newWorktree };
     keepPrompt(text);
     setText('');
-    setTodoId(null);
+    setTodoIds([]);
     setNewWorktree(false);
     setError(null);
     setActiveKey(null);
@@ -712,7 +721,7 @@ export function Quick() {
       .catch((e: unknown) => {
         void tellOpener(to, { phase: 'end', id, key: null, message: null });
         setText(kept.text);
-        setTodoId(kept.todoId);
+        setTodoIds(kept.todoIds);
         setNewWorktree(kept.newWorktree);
         setError(plain(e));
         void showQuick({ keep: true });
@@ -804,7 +813,7 @@ export function Quick() {
       const next = at < 0 ? '' : recallable[at];
       setRecall(at < 0 ? null : at);
       setText(next);
-      setTodoId(at === 0 && draft && recallable[0] === draft.text ? draft.todo : null);
+      setTodoIds(at === 0 && draft && recallable[0] === draft.text ? draft.todos : []);
       setActiveKey(null);
       window.requestAnimationFrame(() => el.setSelectionRange(next.length, next.length));
       return;
@@ -1248,7 +1257,7 @@ export function Quick() {
               <Icon name="plus" size={14} stroke={2} />
             </span>
             <span className="ca-quick-row-main">
-              <span className="ca-quick-row-title">{todo ? 'Start a session for this todo' : prompted ? 'Start a new session with this prompt' : 'Start a new session'}</span>
+              <span className="ca-quick-row-title">{forTodos.length > 1 ? `Start one session for these ${forTodos.length} todos` : todo ? 'Start a session for this todo' : prompted ? 'Start a new session with this prompt' : 'Start a new session'}</span>
               <span className="ca-quick-row-why">
                 {happens}
                 {alreadyOn}
@@ -1261,21 +1270,24 @@ export function Quick() {
         </div>
         {todo && (
           <div className="ca-quick-todo">
-            <TodoGlyph status={todo.status} />
-            <span className="ca-quick-todo-title">For “{todo.title || 'Untitled'}”</span>
+            {forTodos.length > 1 ? <Icon name="list-check" size={14} /> : <TodoGlyph status={todo.status} />}
+            <span className="ca-quick-todo-title" title={forTodos.length > 1 ? forTodos.map((t, i) => `${i + 1}. ${t.title || 'Untitled'}`).join('\n') : undefined}>
+              {forTodos.length > 1 ? `For ${forTodos.length} todos: ${forTodos.map((t) => `“${t.title || 'Untitled'}”`).join(', ')}` : `For “${todo.title || 'Untitled'}”`}
+            </span>
             {waitsOn.length > 0 && (
-              <span className="ca-quick-todo-wait" title={waitsOn.map((t) => `Waits on “${t.title || 'Untitled'}”`).join('\n')}>
+              <span className="ca-quick-todo-wait" title={blocked.flatMap((b) => b.on.map((w) => `${forTodos.length > 1 ? `“${b.t.title || 'Untitled'}” waits` : 'Waits'} on “${w.title || 'Untitled'}”`)).join('\n')}>
                 <Icon name="lock" size={12} />
-                {waitsOn.length === 1 ? 'waits on a todo that isn’t done' : `waits on ${waitsOn.length} todos that aren’t done`}
+                {forTodos.length > 1 && (blocked.length === 1 ? 'one ' : `${blocked.length} `)}
+                {forTodos.length > 1 && blocked.length > 1 ? 'wait' : 'waits'} on {waitsOn.length === 1 ? 'a todo that isn’t done' : `${waitsOn.length} todos that aren’t done`}
               </span>
             )}
-            {todo.waiting && (
-              <span className="ca-quick-todo-wait" title="Starting a session on it ends the wait.">
+            {marked.length > 0 && (
+              <span className="ca-quick-todo-wait" title={`Starting a session on ${forTodos.length > 1 ? 'them' : 'it'} ends the wait.`}>
                 <Icon name="hourglass" size={12} />
-                {todo.waiting.note ? `waiting for ${todo.waiting.note}` : 'marked as waiting'}
+                {forTodos.length > 1 ? `${marked.length === 1 ? 'one' : marked.length} marked as waiting` : todo.waiting?.note ? `waiting for ${todo.waiting.note}` : 'marked as waiting'}
               </span>
             )}
-            <button type="button" className="ca-linkbtn" title="Start a session that isn't linked to this todo" onClick={() => setTodoId(null)}>
+            <button type="button" className="ca-linkbtn" title={forTodos.length > 1 ? "Start a session that isn't linked to these todos" : "Start a session that isn't linked to this todo"} onClick={() => setTodoIds([])}>
               Don’t link
             </button>
           </div>

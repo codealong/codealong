@@ -86,7 +86,7 @@ enum Cmd {
         #[command(subcommand)]
         cmd: PrCmd,
     },
-    /// Start a session for a todo or on a prompt, the way the app's New session does, and link it to the todo.
+    /// Start a session for a todo (or several, on one prompt) or on a prompt, the way the app's New session does, and link it to the todos.
     Start(StartArgs),
     /// Codealong's own settings (config.toml): show them as the app reads them, and check a file before or after editing it. Change settings by editing the file; the app watches it.
     Config {
@@ -368,9 +368,9 @@ struct WorktreesArgs {
 
 #[derive(Args, Debug)]
 struct StartArgs {
-    /// The todo to start: its title and description become the prompt, and the session is linked to it.
+    /// The todo to start: its title and description become the prompt, and the session is linked to it. Give it more than once to start several todos in one session, on one prompt that has each of them.
     #[arg(long, conflicts_with = "prompt")]
-    todo: Option<String>,
+    todo: Vec<String>,
     /// The prompt, when not starting a todo.
     #[arg(long)]
     prompt: Option<String>,
@@ -586,7 +586,7 @@ impl Client {
         }
         let cfg = self.cfg().clone();
         let started = start::start(self.board()?, &cfg, spec)?;
-        if let Some(id) = spec.todo.clone() {
+        if !spec.todos.is_empty() {
             let pending = match (&started.key, spec.place) {
                 (Some(_), _) => None,
                 (None, place) => Some(todos::PendingStart { lane: spec.lane_id.clone(), harness: if place == Place::CodexApp { "codex" } else { "claude" }.into(), account: spec.account.clone(), at: now_ms() }),
@@ -594,7 +594,14 @@ impl Client {
             let lane = (!(spec.worktree && matches!(spec.place, Place::Terminal | Place::Background))).then(|| spec.lane_id.clone());
             let lanes = BoardLanes(self.board()?.lanes.iter().map(|l| (l.id.clone(), (l.project.clone(), repo_identity(l)))).collect());
             let key = started.key.clone();
-            todos::change(|store| Ok((store.started(&id, lane.as_deref(), key.as_deref(), pending, &lanes, now_ms()), ())))?;
+            let now = now_ms();
+            todos::change(|store| {
+                let mut changed = false;
+                for id in &spec.todos {
+                    changed |= store.started(id, lane.as_deref(), key.as_deref(), pending.clone(), &lanes, now);
+                }
+                Ok((changed, ()))
+            })?;
             self.board = None;
         }
         Ok(started)
@@ -1612,7 +1619,7 @@ fn todo(cmd: TodoCmd, c: &mut Client, json: bool) -> Result<()> {
         TodoCmd::Start { id } => {
             let store = c.todos()?;
             let id = resolve_todo(&store, &id)?;
-            warn_blocked(&store, &id);
+            warn_blocked(&store, &id, &[]);
             c.apply(TodoOp::Update { id: id.clone(), patch: TodoPatch { status: Some(TodoStatus::InProgress), ..Default::default() } })?;
             // Linking `me` and `.` is best effort: a shell outside any session still starts the todo.
             let me = find_me(c)?.0;
@@ -1737,9 +1744,10 @@ fn todo(cmd: TodoCmd, c: &mut Client, json: bool) -> Result<()> {
 
 /// A note on stderr, so JSON on stdout stays clean: starting a blocked todo is allowed, but
 /// whoever starts it should know.
-fn warn_blocked(store: &TodoStore, id: &str) {
+/// Says what a todo being started still waits on, leaving out the todos started with it.
+fn warn_blocked(store: &TodoStore, id: &str, with: &[String]) {
     let Some(t) = store.todos.iter().find(|t| t.id == id) else { return };
-    let open = store.blocked_by(t);
+    let open: Vec<&Todo> = store.blocked_by(t).into_iter().filter(|x| !with.contains(&x.id)).collect();
     if !open.is_empty() {
         let names: Vec<String> = open.iter().map(|x| format!("{} \"{}\" ({})", x.id, x.title, status_name(x.status))).collect();
         eprintln!("note: {} waits on {}, not done yet.", t.id, names.join(", "));
@@ -1873,18 +1881,47 @@ fn todo_prompt(t: &Todo) -> String {
     [t.title.trim(), t.description.trim(), &footer].iter().filter(|s| !s.is_empty()).cloned().collect::<Vec<_>>().join("\n\n")
 }
 
+/// What one session started on several todos is asked: each one's title and description,
+/// numbered, then which todos they are. One todo is `todo_prompt`'s. `todosPrompt` in
+/// `src/todos.ts` writes the same text.
+fn todos_prompt(ts: &[&Todo]) -> String {
+    if let [t] = ts {
+        return todo_prompt(t);
+    }
+    let mut parts = vec![format!("Work on these {} todos:", ts.len())];
+    for (i, t) in ts.iter().enumerate() {
+        let title = t.title.trim();
+        parts.push(format!("{}. {}", i + 1, if title.is_empty() { "Untitled" } else { title }));
+        if !t.description.trim().is_empty() {
+            parts.push(t.description.trim().to_string());
+        }
+    }
+    let ids: Vec<String> = ts.iter().enumerate().map(|(i, t)| format!("{} ({})", t.id, i + 1)).collect();
+    let (last, rest) = ids.split_last().map(|(l, r)| (l.clone(), r.join(", "))).unwrap_or_default();
+    parts.push(format!("These are Codealong todos {rest} and {last}. When the work on one is merged or I say it's done, mark it done with `codealong todo done <id>`."));
+    parts.join("\n\n")
+}
+
 fn start_cmd(c: &mut Client, a: &StartArgs, json: bool) -> Result<()> {
     let lane_id = resolve_worktree(c, &a.worktree)?;
-    let (prompt, todo_id) = match (&a.todo, &a.prompt) {
-        (Some(id), _) => {
+    let (prompt, todo_ids) = match (a.todo.as_slice(), &a.prompt) {
+        ([], Some(p)) => (p.clone(), Vec::new()),
+        ([], None) => bail!("Give --todo or --prompt."),
+        (given, _) => {
             let store = c.todos()?;
-            let id = resolve_todo(&store, id)?;
-            let t = store.todos.iter().find(|t| t.id == id).unwrap();
-            warn_blocked(&store, &id);
-            (todo_prompt(t), Some(id))
+            let mut ids: Vec<String> = Vec::new();
+            for id in given {
+                let id = resolve_todo(&store, id)?;
+                if !ids.contains(&id) {
+                    ids.push(id);
+                }
+            }
+            for id in &ids {
+                warn_blocked(&store, id, &ids);
+            }
+            let ts: Vec<&Todo> = ids.iter().filter_map(|id| store.todos.iter().find(|t| &t.id == id)).collect();
+            (todos_prompt(&ts), ids)
         }
-        (None, Some(p)) => (p.clone(), None),
-        (None, None) => bail!("Give --todo or --prompt."),
     };
     let place = a.place.map(|p| match p {
         PlaceArg::Terminal => Place::Terminal,
@@ -1913,7 +1950,7 @@ fn start_cmd(c: &mut Client, a: &StartArgs, json: bool) -> Result<()> {
             places.first().copied().ok_or_else(|| anyhow!("{account} can't start a session from here."))?
         }
     };
-    let spec = StartSpec { lane_id, account, place, prompt, model: a.model.clone(), worktree: a.new_worktree, todo: todo_id };
+    let spec = StartSpec { lane_id, account, place, prompt, model: a.model.clone(), worktree: a.new_worktree, todos: todo_ids };
     if a.dry_run {
         let cfg = c.cfg().clone();
         let account = cfg.accounts.iter().find(|x| x.name == spec.account).ok_or_else(|| anyhow!("There's no account named {}.", spec.account))?;
@@ -2242,6 +2279,21 @@ mod tests {
         assert!(resolve_todo(&store, "t-ab").unwrap_err().to_string().contains("2 todos"));
         assert!(resolve_todo(&store, "zz").is_err());
         assert!(resolve_todo(&store, "").is_err() && resolve_todo(&store, " ").is_err());
+    }
+
+    #[test]
+    fn several_todos_start_on_one_prompt() {
+        let t = |id: &str, title: &str, description: &str| Todo { id: id.into(), project: String::new(), title: title.into(), description: description.into(), status: TodoStatus::Todo, labels: vec![], worktrees: vec![], sessions: vec![], created_at: 0, updated_at: 0, done_at: None, pending: vec![], depends_on: vec![], waiting: None };
+        let (a, b, c) = (t("t-a", " Fix the header ", "\nIt wraps.\n"), t("t-b", "Add a logout button", ""), t("t-c", "", "No title."));
+        // The same text as `todosPrompt`'s test in src/todos.test.ts.
+        let footer = "When the work on one is merged or I say it's done, mark it done with `codealong todo done <id>`.";
+        assert_eq!(todos_prompt(&[&a, &b]), format!("Work on these 2 todos:\n\n1. Fix the header\n\nIt wraps.\n\n2. Add a logout button\n\nThese are Codealong todos t-a (1) and t-b (2). {footer}"));
+        assert!(todos_prompt(&[&a, &b, &c]).contains("3. Untitled\n\nNo title.\n\nThese are Codealong todos t-a (1), t-b (2) and t-c (3)."));
+        assert_eq!(todos_prompt(&[&a]), todo_prompt(&a));
+        let cli = Cli::try_parse_from(["codealong", "start", "--todo", "t-a", "--todo", "t-b"]).unwrap();
+        let Cmd::Start(s) = cli.cmd else { panic!() };
+        assert_eq!(s.todo, vec!["t-a".to_string(), "t-b".to_string()]);
+        assert!(Cli::try_parse_from(["codealong", "start", "--todo", "t-a", "--prompt", "Fix it"]).is_err());
     }
 
     #[test]

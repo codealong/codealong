@@ -34,7 +34,7 @@ pub enum Request {
     TodoApply { op: TodoOp },
     /// A session started for a todo, as `start_session` reports it.
     TodoStarted { id: String, lane: Option<String>, session: Option<String>, pending: Option<PendingStart> },
-    /// Starts a session, and links it to its todo.
+    /// Starts a session, and links it to its todos.
     Start { spec: StartSpec },
     /// Sessions whose prompts and replies have every word (search.rs).
     Search { words: Vec<String> },
@@ -142,7 +142,7 @@ pub fn handle(engine: &Handle, line: &str) -> Reply {
             Err(e) => Reply::err(e),
         },
         Request::TodoStarted { id, lane, session, pending } => {
-            engine.todo_started(id, lane, session, pending);
+            engine.todo_started(vec![id], lane, session, pending);
             Reply::ok(true)
         }
         Request::Search { words } => Reply::ok(crate::search::find(&words, 1000)),

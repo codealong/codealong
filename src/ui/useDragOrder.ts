@@ -33,7 +33,8 @@ export function useDragOrder(onMove: (key: string, index: number) => void) {
   };
 
   const startDrag = (e: ReactPointerEvent<HTMLDivElement>, key: string) => {
-    if (e.button !== 0 || (e.target as HTMLElement).closest('button')) return;
+    // ⌘- and ⇧-clicks pick rows; they never start a drag.
+    if (e.button !== 0 || e.metaKey || e.shiftKey || e.ctrlKey || (e.target as HTMLElement).closest('button')) return;
     dragRef.current = { key, startY: e.clientY, active: false, index: -1 };
     const move = (ev: PointerEvent) => {
       const d = dragRef.current;

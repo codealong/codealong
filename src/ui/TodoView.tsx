@@ -2,7 +2,8 @@
 // order (drag, or ⌥↑ ⌥↓, to reorder), then Done under a fold. Waiting holds the todos marked as
 // waiting and the ones not started that wait on a todo that isn't done. A row shows the todo's
 // labels, what it waits on, the sessions on it with their status, and the worktree it's in.
-// Type in the box at the top and press Return to add one.
+// Type in the box at the top and press Return to add one. ⌘-click and ⇧-click pick several, to
+// start in one session.
 
 import { forwardRef, type ReactNode } from 'react';
 import { absolute, ago, middleTruncate } from '../format';
@@ -73,6 +74,9 @@ export const TodoComposer = forwardRef<HTMLInputElement, ComposerProps>(function
   );
 });
 
+/** How a click selects a row: alone, ⌘ to add it or leave it out, ⇧ for the rows up to it. */
+export type SelectHow = 'one' | 'toggle' | 'range';
+
 interface TodoRowProps {
   item: TodoItem;
   /** The section it's listed in. */
@@ -82,7 +86,7 @@ interface TodoRowProps {
   selected: boolean;
   /** Show the project: the view spans all of them. */
   showProject: boolean;
-  onSelect: () => void;
+  onSelect: (how: SelectHow) => void;
   onOpen: () => void;
   onContextMenu: () => void;
   onOpenSession: (lane: Lane, session: Session) => void;
@@ -113,8 +117,15 @@ function TodoRow({ item, section, domId, now, selected, showProject, onSelect, o
       className={['ca-lane', 'ca-todorow', `is-${todo.status}`, selected && 'is-selected', drag && 'is-draggable', drag?.extraClass].filter(Boolean).join(' ')}
       data-pin-index={drag?.pinIndex}
       onPointerDown={drag?.onPointerDown}
-      onMouseDown={onSelect}
-      onDoubleClick={onOpen}
+      onMouseDown={(e) => {
+        // A right-click (or ⌃-click) leaves the selection to the menu: on a picked row, the menu
+        // is for all of them.
+        if (e.button !== 0 || e.ctrlKey) return;
+        onSelect(e.metaKey ? 'toggle' : e.shiftKey ? 'range' : 'one');
+      }}
+      onDoubleClick={(e) => {
+        if (!e.metaKey && !e.shiftKey) onOpen();
+      }}
       onContextMenu={(e) => {
         e.preventDefault();
         onContextMenu();
@@ -199,11 +210,13 @@ interface TodoViewProps {
   todos: Todo[];
   now: number;
   selectedKey: string | null;
+  /** The rows picked together with the selected one, when there are several. */
+  picked: Set<string>;
   domId: (row: TodoItem) => string;
   showProject: boolean;
   /** Dragging reorders a section; not while a search or a filter hides some of it. */
   canReorder: boolean;
-  onSelect: (row: TodoItem) => void;
+  onSelect: (row: TodoItem, how: SelectHow) => void;
   onOpen: (row: TodoItem) => void;
   onContextMenu: (row: TodoItem) => void;
   onOpenSession: (lane: Lane, session: Session) => void;
@@ -234,7 +247,7 @@ function SectionHead({ id, count, hint }: { id: TodoSectionId; count: number; hi
 }
 
 function Section({ section, props }: { section: TodoSection; props: TodoViewProps }) {
-  const { todos, now, selectedKey, domId, showProject, canReorder, onSelect, onOpen, onContextMenu, onOpenSession, onFilterLabel, onMove } = props;
+  const { todos, now, selectedKey, picked, domId, showProject, canReorder, onSelect, onOpen, onContextMenu, onOpenSession, onFilterLabel, onMove } = props;
   const { listRef, dragging, rowProps } = useDragOrder((id, index) => onMove(section.id, id, index));
   const draggable = canReorder && section.rows.length > 1;
   return (
@@ -243,7 +256,7 @@ function Section({ section, props }: { section: TodoSection; props: TodoViewProp
         id={section.id}
         count={section.rows.length}
         hint={
-          draggable && selectedKey && section.rows.some((r) => r.key === selectedKey) ? (
+          draggable && selectedKey && picked.size === 0 && section.rows.some((r) => r.key === selectedKey) ? (
             <>
               Drag or <Kbd keys={['⌥', '↑']} /> <Kbd keys={['⌥', '↓']} /> to reorder
             </>
@@ -258,9 +271,9 @@ function Section({ section, props }: { section: TodoSection; props: TodoViewProp
             section={section.id}
             domId={domId(r)}
             now={now}
-            selected={r.key === selectedKey}
+            selected={r.key === selectedKey || picked.has(r.key)}
             showProject={showProject}
-            onSelect={() => onSelect(r)}
+            onSelect={(how) => onSelect(r, how)}
             onOpen={() => onOpen(r)}
             onContextMenu={() => onContextMenu(r)}
             onOpenSession={onOpenSession}
@@ -276,7 +289,7 @@ function Section({ section, props }: { section: TodoSection; props: TodoViewProp
 }
 
 export function TodoView(props: TodoViewProps) {
-  const { sections, todos, now, selectedKey, domId, showProject, onSelect, onOpen, onContextMenu, onOpenSession, onFilterLabel, showDone, onToggleDone, composer, empty } = props;
+  const { sections, todos, now, selectedKey, picked, domId, showProject, onSelect, onOpen, onContextMenu, onOpenSession, onFilterLabel, showDone, onToggleDone, composer, empty } = props;
   const open = sections.filter((s) => s.id !== 'done');
   const done = sections.find((s) => s.id === 'done');
   return (
@@ -306,9 +319,9 @@ export function TodoView(props: TodoViewProps) {
                   section="done"
                   domId={domId(r)}
                   now={now}
-                  selected={r.key === selectedKey}
+                  selected={r.key === selectedKey || picked.has(r.key)}
                   showProject={showProject}
-                  onSelect={() => onSelect(r)}
+                  onSelect={(how) => onSelect(r, how)}
                   onOpen={() => onOpen(r)}
                   onContextMenu={() => onContextMenu(r)}
                   onOpenSession={onOpenSession}

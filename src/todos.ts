@@ -240,7 +240,8 @@ export function applyOp(store: TodoStore, op: TodoOp, now: number): TodoStore {
 /**
  * The todos and labels as the engine has them, with this window's changes on top until a board
  * that shows each one arrives. The engine answers a change with the time of that board; a
- * change it turned down goes, and `onError` hears why.
+ * change it turned down goes, and `onError` hears why. `run` resolves once the engine has
+ * answered, for changes that must reach it in turn.
  */
 export function useTodoStore(board: Board | null, onError: (message: string) => void) {
   const [changes, setChanges] = useState<{ seq: number; op: TodoOp; at: number; shownAt: number | null }[]>([]);
@@ -255,10 +256,10 @@ export function useTodoStore(board: Board | null, onError: (message: string) => 
     });
   }, [boardAt]);
   const run = useCallback(
-    (op: TodoOp) => {
+    (op: TodoOp): Promise<void> => {
       const id = ++seq.current;
       setChanges((cs) => [...cs, { seq: id, op, at: Date.now(), shownAt: null }]);
-      todoOp(op)
+      return todoOp(op)
         .then((shownAt) =>
           setChanges((cs) => (shownAt <= boardAtRef.current ? cs.filter((c) => c.seq !== id) : cs.map((c) => (c.seq === id ? { ...c, shownAt } : c)))),
         )
@@ -426,6 +427,56 @@ export function todoPrompt(t: Todo): string {
   const body = t.description.trim();
   const footer = `This is Codealong todo ${t.id}. When the work is merged or I say it's done, mark it done with \`codealong todo done ${t.id}\`.`;
   return [title, body, footer].filter(Boolean).join('\n\n');
+}
+
+/** What one session started for several todos is asked: each one's title and description,
+ *  numbered, then which todos they are. One todo is `todoPrompt`'s. `todos_prompt` in cli.rs
+ *  writes the same text. */
+export function todosPrompt(ts: Todo[]): string {
+  if (ts.length === 1) return todoPrompt(ts[0]);
+  const parts = ts.flatMap((t, i) => [`${i + 1}. ${t.title.trim() || 'Untitled'}`, t.description.trim()].filter(Boolean));
+  const ids = ts.map((t, i) => `${t.id} (${i + 1})`);
+  const footer = `These are Codealong todos ${ids.slice(0, -1).join(', ')} and ${ids[ids.length - 1]}. When the work on one is merged or I say it's done, mark it done with \`codealong todo done <id>\`.`;
+  return [`Work on these ${ts.length} todos:`, ...parts, footer].join('\n\n');
+}
+
+/** Todos picked together in the Todo view, to start in one session. It holds while `focus` is
+ *  the selected row: selecting another row any other way ends it. */
+export interface TodoPick {
+  /** The row the keyboard is on; the panel's todo when only one is picked. */
+  focus: string;
+  /** Where a ⇧-click or ⇧↑ ⇧↓ range starts. */
+  anchor: string;
+  keys: string[];
+}
+
+/** The rows from `from` to `to`, both included, in the list's order. */
+function rangeOf(order: string[], from: string, to: string): string[] {
+  const a = order.indexOf(from);
+  const b = order.indexOf(to);
+  if (a < 0 || b < 0) return [to];
+  return order.slice(Math.min(a, b), Math.max(a, b) + 1);
+}
+
+/** ⇧-click, or ⇧↑ ⇧↓: the rows from the anchor to `to`. Without a pick, the anchor is the row
+ *  selected before. */
+export function pickTo(order: string[], pick: TodoPick | null, selected: string | null, to: string): TodoPick {
+  const anchor = pick?.anchor ?? selected ?? to;
+  return { focus: to, anchor, keys: rangeOf(order, anchor, to) };
+}
+
+/** ⌘-click: adds a row to the pick, or leaves it out. Leaving out the row the keyboard is on
+ *  moves it to the nearest row still picked, in the list's order. */
+export function pickToggle(order: string[], pick: TodoPick | null, selected: string | null, key: string): TodoPick {
+  const keys = pick?.keys ?? (selected ? [selected] : []);
+  if (!keys.includes(key)) return { focus: key, anchor: key, keys: [...keys, key] };
+  const left = keys.filter((k) => k !== key);
+  if (left.length === 0) return { focus: key, anchor: key, keys: [key] };
+  if (pick && pick.focus !== key && left.includes(pick.focus)) return { ...pick, keys: left };
+  const at = order.indexOf(key);
+  const inOrder = [...left].sort((x, y) => order.indexOf(x) - order.indexOf(y));
+  const focus = inOrder.find((k) => order.indexOf(k) > at) ?? inOrder[inOrder.length - 1];
+  return { focus, anchor: focus, keys: left };
 }
 
 /** The first line of a description, for a row. Images drop out; a file leaves its name. */

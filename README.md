@@ -70,7 +70,9 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     waits on that isn't done, so it's Ready at once; the toast can undo it. Start session
     (⌘N) opens the quick panel with the todo as the prompt, and the session it starts
     is linked to the todo, which moves to In progress; one started in the Claude or Codex
-    app is linked when it shows up.
+    app is linked when it shows up. ⌘-click (or ⇧-click, ⇧↑ ⇧↓) picks several todos: Start
+    one session (⌘N) starts a single session on a prompt that numbers each of them, linked to
+    all of them, and `x`, `w` and Delete act on all of them.
     Link worktrees and sessions you already have from the todo, or from a session's or
     worktree's right-click menu (Add to todo). A session or worktree on a todo shows the
     todo's chip; click it to go to the todo.
@@ -225,7 +227,8 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   `--waiting` what's under Waiting); `codealong
   sessions [find <words>]`, `session show`, `worktrees` and `accounts --usage` answer what else
   is running, what it did, where it lives, and which account has room; `codealong start
-  --todo <id>` starts a session the way New session does; `codealong config show|check`
+  --todo <id>` starts a session the way New session does (`--todo` again for several todos in
+  one session); `codealong config show|check`
   prints the settings and checks an edited config.toml. With the app running, answers come
   from it over a socket and todo changes go through its engine; with it closed, the command
   reads the files (sessions then show without git or PRs). Output is JSON when piped, tables

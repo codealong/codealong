@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { filesToAttach } from './attachInput';
-import { applyOp, attachmentsIn, blockedBy, cantWaitOn, dependents, inlines, insertAttachments, newTodo, nextColor, pieces, sectionOf, sessionHomes, snippet, todoIndex, todoInFilter, todoInQuery, todoItem, todoPrompt, todoSections, todoSuggestions, waitsOn, worthSuggesting, withoutAttachment, type TodoPatch, type TodoStore } from './todos';
+import { applyOp, attachmentsIn, blockedBy, cantWaitOn, dependents, inlines, insertAttachments, newTodo, nextColor, pickTo, pickToggle, pieces, sectionOf, sessionHomes, snippet, todoIndex, todoInFilter, todoInQuery, todoItem, todoPrompt, todosPrompt, todoSections, todoSuggestions, waitsOn, worthSuggesting, withoutAttachment, type TodoPatch, type TodoStore } from './todos';
 import type { Label, Lane, Session, Todo } from './types';
 
 const NOW = 1_790_000_000_000;
@@ -181,6 +181,17 @@ describe('prompts and images', () => {
     const footer = "This is Codealong todo a. When the work is merged or I say it's done, mark it done with `codealong todo done a`.";
     expect(todoPrompt(todo('a', { title: ' Fix the header ', description: '\nIt wraps.\n' }))).toBe(`Fix the header\n\nIt wraps.\n\n${footer}`);
     expect(todoPrompt(todo('a', { title: 'Fix it' }))).toBe(`Fix it\n\n${footer}`);
+  });
+
+  it('asks one session for several todos, numbered, then says which they are', () => {
+    // The same text as `todos_prompt`'s test in cli.rs.
+    const a = todo('t-a', { title: ' Fix the header ', description: '\nIt wraps.\n' });
+    const b = todo('t-b', { title: 'Add a logout button', description: '' });
+    const c = todo('t-c', { title: '', description: 'No title.' });
+    const footer = "When the work on one is merged or I say it's done, mark it done with `codealong todo done <id>`.";
+    expect(todosPrompt([a, b])).toBe(`Work on these 2 todos:\n\n1. Fix the header\n\nIt wraps.\n\n2. Add a logout button\n\nThese are Codealong todos t-a (1) and t-b (2). ${footer}`);
+    expect(todosPrompt([a, b, c])).toContain('3. Untitled\n\nNo title.\n\nThese are Codealong todos t-a (1), t-b (2) and t-c (3).');
+    expect(todosPrompt([a])).toBe(todoPrompt(a));
   });
 
   it('splits a description into text and its images', () => {
@@ -386,5 +397,32 @@ describe('suggestions from Jev', () => {
   it('asks once the title says something', () => {
     expect(worthSuggesting(todo('x', { title: 'Fix it' }))).toBe(false);
     expect(worthSuggesting(todo('x', { title: 'Retry failed export jobs' }))).toBe(true);
+  });
+});
+
+describe('picking several todos', () => {
+  const order = ['a', 'b', 'c', 'd', 'e'];
+
+  it('⇧ picks the rows from the anchor, which stays put', () => {
+    const p = pickTo(order, null, 'b', 'd');
+    expect(p).toEqual({ focus: 'd', anchor: 'b', keys: ['b', 'c', 'd'] });
+    // Back up past the anchor: the range turns around it.
+    expect(pickTo(order, p, 'd', 'a')).toEqual({ focus: 'a', anchor: 'b', keys: ['a', 'b'] });
+    // Nothing selected before: the row alone.
+    expect(pickTo(order, null, null, 'c').keys).toEqual(['c']);
+  });
+
+  it('⌘ adds a row or leaves it out, and the keyboard stays on a picked row', () => {
+    const p = pickToggle(order, null, 'b', 'd');
+    expect(p).toEqual({ focus: 'd', anchor: 'd', keys: ['b', 'd'] });
+    const q = pickToggle(order, p, 'd', 'a');
+    expect(q.keys).toEqual(['b', 'd', 'a']);
+    // Leaving out another row keeps the keyboard where it is.
+    expect(pickToggle(order, q, 'a', 'd')).toEqual({ focus: 'a', anchor: 'a', keys: ['b', 'a'] });
+    // Leaving out its own row moves it to the next picked row, else the one before.
+    expect(pickToggle(order, { focus: 'b', anchor: 'b', keys: ['a', 'b', 'd'] }, 'b', 'b').focus).toBe('d');
+    expect(pickToggle(order, { focus: 'd', anchor: 'd', keys: ['a', 'b', 'd'] }, 'd', 'd').focus).toBe('b');
+    // The last one can't be left out: something stays selected.
+    expect(pickToggle(order, null, 'c', 'c').keys).toEqual(['c']);
   });
 });

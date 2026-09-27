@@ -78,9 +78,9 @@ pub enum Msg {
     /// A change to a todo or to the labels, from a window. The reply is the time of the board
     /// that shows it.
     Todo(TodoOp, Sender<std::result::Result<i64, String>>),
-    /// A session started from a todo: its worktree (none for a new one), and the session's key
-    /// when Codealong chose its ID, or the start to wait for.
-    TodoStarted { id: String, lane: Option<String>, session: Option<String>, pending: Option<todos::PendingStart> },
+    /// A session started from todos (one, or several on one prompt): its worktree (none for a
+    /// new one), and the session's key when Codealong chose its ID, or the start to wait for.
+    TodoStarted { ids: Vec<String>, lane: Option<String>, session: Option<String>, pending: Option<todos::PendingStart> },
     /// Jev's answer to a question the engine asked (`ask_jev`), by the id it was asked under.
     JevDone(String, std::result::Result<serde_json::Value, String>),
     /// "Looks done" was wrong for this todo, for now.
@@ -134,13 +134,14 @@ impl Handle {
         rx.recv_timeout(wait).map_err(|_| "Codealong is busy; the change will show when it catches up.".to_string())?
     }
 
-    /// Links a session started from a todo, or waits for it to show up.
+    /// "Looks done" was wrong for this todo, for now.
     pub fn dismiss_todo_hint(&self, id: String) {
         let _ = self.tx.send(Msg::DismissTodoHint(id));
     }
 
-    pub fn todo_started(&self, id: String, lane: Option<String>, session: Option<String>, pending: Option<todos::PendingStart>) {
-        let _ = self.tx.send(Msg::TodoStarted { id, lane, session, pending });
+    /// Links a session started from todos to each of them, or waits for it to show up.
+    pub fn todo_started(&self, ids: Vec<String>, lane: Option<String>, session: Option<String>, pending: Option<todos::PendingStart>) {
+        let _ = self.tx.send(Msg::TodoStarted { ids, lane, session, pending });
     }
 
     /// Archives or unarchives a session. Codex threads are archived in Codex itself, so the
@@ -1039,12 +1040,19 @@ impl Engine {
                 }
                 Ok(Msg::JevDone(id, answer)) => self.on_jev(id, answer),
                 Ok(Msg::DismissTodoHint(id)) => self.dismiss_todo_hint(id),
-                Ok(Msg::TodoStarted { id, lane, session, pending }) => {
+                Ok(Msg::TodoStarted { ids, lane, session, pending }) => {
                     let lanes = self.lane_index();
                     let _lock = todos::lock().map_err(|e| eprintln!("{e:#}")).ok();
                     self.reload_todos();
-                    if !self.todos_unreadable && self.todos.started(&id, lane.as_deref(), session.as_deref(), pending, &lanes, now_ms()) {
-                        self.save_todos();
+                    if !self.todos_unreadable {
+                        let now = now_ms();
+                        let mut changed = false;
+                        for id in &ids {
+                            changed |= self.todos.started(id, lane.as_deref(), session.as_deref(), pending.clone(), &lanes, now);
+                        }
+                        if changed {
+                            self.save_todos();
+                        }
                     }
                 }
                 Ok(Msg::UsageDone(list)) => {

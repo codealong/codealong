@@ -115,9 +115,25 @@ pub struct StartSpec {
     /// their own worktree choice on their new-session pages.
     #[serde(default)]
     pub worktree: bool,
-    /// The todo this session is for, which it's linked to once it starts.
-    #[serde(default)]
-    pub todo: Option<String>,
+    /// The todos this session is for, which it's linked to once it starts: one, or several
+    /// started together on one prompt. Older windows and commands send one as `todo`.
+    #[serde(default, alias = "todo", deserialize_with = "one_or_more")]
+    pub todos: Vec<String>,
+}
+
+/// A list of todo ids, or the one id (or null) that `todo` held.
+fn one_or_more<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<String>, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Ids {
+        One(String),
+        More(Vec<String>),
+    }
+    Ok(match Option::<Ids>::deserialize(d)? {
+        None => Vec::new(),
+        Some(Ids::One(id)) => vec![id],
+        Some(Ids::More(ids)) => ids,
+    })
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -560,6 +576,17 @@ mod tests {
         assert!(check_start(&account("codex", "codex", "/Users/me/.codex", None), "terminal", home).is_err());
         assert!(check_start(&account("ag", "antigravity", "/Users/me/.gemini/antigravity", None), "terminal", home).unwrap_err().contains("takes no start"));
         assert!(check_start(&accounts[1], "somewhere", home).is_err());
+    }
+
+    #[test]
+    fn reads_the_todos_a_start_is_for_old_and_new() {
+        let read = |json: &str| serde_json::from_str::<StartSpec>(json).unwrap().todos;
+        let base = r#""laneId":"/r/x","account":"claude","place":"terminal""#;
+        assert_eq!(read(&format!(r#"{{{base},"todos":["t-1","t-2"]}}"#)), vec!["t-1", "t-2"]);
+        // As windows and the command sent it before a start could be for several.
+        assert_eq!(read(&format!(r#"{{{base},"todo":"t-1"}}"#)), vec!["t-1"]);
+        assert!(read(&format!(r#"{{{base},"todo":null}}"#)).is_empty());
+        assert!(read(&format!("{{{base}}}")).is_empty());
     }
 
     #[test]

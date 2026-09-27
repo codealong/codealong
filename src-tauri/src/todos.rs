@@ -561,12 +561,15 @@ impl TodoStore {
     /// Links the sessions that starts in the apps were waiting for, and forgets starts that
     /// waited too long. A start takes the earliest new session of its account and harness in
     /// its worktree, else in another worktree of the same repo (the apps can make their own),
-    /// that no todo has yet. Returns whether anything changed.
+    /// that no todo has yet. A start for several todos put the same pending start on each, and
+    /// they all take the session the first one takes. Returns whether anything changed.
     pub fn resolve_pending(&mut self, sessions: &[SessionRef], lanes: &dyn Lanes, now: i64) -> bool {
         if self.todos.iter().all(|t| t.pending.is_empty()) {
             return false;
         }
         let mut taken: HashSet<String> = self.todos.iter().flat_map(|t| t.sessions.iter().cloned()).collect();
+        // The starts linked on this pass, and the session each took.
+        let mut took: Vec<(PendingStart, String)> = Vec::new();
         let mut changed = false;
         for t in &mut self.todos {
             if t.pending.is_empty() {
@@ -575,6 +578,12 @@ impl TodoStore {
             let mut waiting = Vec::new();
             for p in std::mem::take(&mut t.pending) {
                 if now - p.at > PENDING_MS {
+                    changed = true;
+                    continue;
+                }
+                if let Some((_, key)) = took.iter().find(|(q, _)| *q == p) {
+                    link(t, None, Some(key.as_str()), lanes, now);
+                    t.updated_at = now;
                     changed = true;
                     continue;
                 }
@@ -587,6 +596,7 @@ impl TodoStore {
                 match pick {
                     Some(s) => {
                         taken.insert(s.key.to_string());
+                        took.push((p.clone(), s.key.to_string()));
                         link(t, None, Some(s.key), lanes, now);
                         t.updated_at = now;
                         changed = true;
@@ -1026,6 +1036,27 @@ mod tests {
         s.started("b", Some("/r/app"), None, Some(pending("/r/app", "codex", "codex", at)), &lanes(), at);
         assert!(!s.resolve_pending(&board, &lanes(), at + 40_000));
         assert_eq!(s.todos[1].pending.len(), 1);
+    }
+
+    #[test]
+    fn todos_started_together_in_an_app_take_one_session() {
+        let mut s = store(&["a", "b", "c"]);
+        let at = 2_000_000;
+        // One start for a and c; b waits on a start of its own in the same worktree, a moment
+        // later.
+        for id in ["a", "c"] {
+            s.started(id, Some("/r/app"), None, Some(pending("/r/app", "claude", "claude", at)), &lanes(), at);
+        }
+        s.started("b", Some("/r/app"), None, Some(pending("/r/app", "claude", "claude", at + 1)), &lanes(), at + 1);
+        let board = [session("claude:claude:first", "/r/app", "claude", "claude", at + 4_000), session("claude:claude:second", "/r/app", "claude", "claude", at + 6_000)];
+        assert!(s.resolve_pending(&board[..1], &lanes(), at + 10_000));
+        assert_eq!(s.todos[0].sessions, vec!["claude:claude:first".to_string()]);
+        assert_eq!(s.todos[2].sessions, vec!["claude:claude:first".to_string()]);
+        assert!(s.todos[0].pending.is_empty() && s.todos[2].pending.is_empty());
+        // b's start isn't theirs: it waits for a session of its own.
+        assert_eq!((s.todos[1].sessions.len(), s.todos[1].pending.len()), (0, 1));
+        assert!(s.resolve_pending(&board, &lanes(), at + 12_000));
+        assert_eq!(s.todos[1].sessions, vec!["claude:claude:second".to_string()]);
     }
 
     #[test]

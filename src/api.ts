@@ -478,8 +478,11 @@ export interface QuickOpen {
   laneId?: string | null;
   /** The project to show; the panel's own choice when left out. */
   project?: string | null;
-  /** The todo a new session is for, and the prompt it starts as. */
+  /** The todo a new session is for, and the prompt it starts as. Without the prompt, the
+   *  panel writes the todo's. */
   todo?: string | null;
+  /** Several todos for one new session, in place of `todo`; the prompt has each of them. */
+  todos?: string[];
   prompt?: string;
   /** The board window that asked, which hears how a start went. */
   opener?: string | null;

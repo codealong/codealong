@@ -37,8 +37,8 @@ Commands:
              hand. A session is linked by itself when its records show it made, edited
              or commented on the PR (`gh pr create` and the like), or when it worked in
              a worktree on the PR's branch while the PR was open
-  start      Start a session for a todo or on a prompt, the way the app's New session
-             does, and link it to the todo
+  start      Start a session for a todo (or several, on one prompt) or on a prompt, the
+             way the app's New session does, and link it to the todos
   config     Codealong's own settings (config.toml): show them as the app reads them,
              and check a file before or after editing it. Change settings by editing the
              file; the app watches it
@@ -1060,8 +1060,8 @@ Options:
 ## codealong start
 
 ```
-Start a session for a todo or on a prompt, the way the app's New session does, and link
-it to the todo
+Start a session for a todo (or several, on one prompt) or on a prompt, the way the app's
+New session does, and link it to the todos
 
 Usage: codealong start [OPTIONS]
 
@@ -1071,7 +1071,8 @@ Options:
 
       --todo <TODO>
           The todo to start: its title and description become the prompt, and the
-          session is linked to it
+          session is linked to it. Give it more than once to start several todos in one
+          session, on one prompt that has each of them
 
       --prompt <PROMPT>
           The prompt, when not starting a todo

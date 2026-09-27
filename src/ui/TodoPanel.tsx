@@ -5,12 +5,14 @@
 // prompt, and the session it starts is linked to the todo.
 // With `[jev] todos` on, Jev's suggestions for its project, labels and what it waits on show as
 // chips to click, and a todo whose linked work looks done says so, with Mark done and Not yet.
+// With several todos picked in the list, `TodoPickPanel` shows them instead, to start in one
+// session.
 
 import { useEffect, useRef, useState } from 'react';
 import { suggestTodo } from '../api';
 import { below } from '../contextMenu';
 import { absolute, ago, middleTruncate } from '../format';
-import { cantWaitOn, dependents, depsOf, newId, nextColor, SECTION_WORD, sectionOf, STATUSES, STATUS_WORD, todoSuggestions, waitsOnTodos, worthSuggesting, type TodoItem, type TodoOp, type TodoPlace } from '../todos';
+import { blockedBy, cantWaitOn, dependents, depsOf, newId, nextColor, SECTION_WORD, sectionOf, STATUSES, STATUS_WORD, todoSuggestions, waitsOnTodos, worthSuggesting, type TodoItem, type TodoOp, type TodoPlace } from '../todos';
 import type { Label, Lane, Session, Todo, TodoHint, TodoSuggested } from '../types';
 import { DescriptionEditor } from './DescriptionEditor';
 import { Button, Icon, Kbd, LaneGlyph, StatusGlyph } from './primitives';
@@ -447,7 +449,7 @@ export function TodoPanel({ item, todos, onShowTodo, labels, lanes, now, onRun, 
         </div>
       </header>
       <div className="ca-insp-actions ca-todoinsp-actions">
-        <Button variant="primary" icon="player-play" title="Start a session for this todo (⌘N)" onClick={onStart}>
+        <Button variant="primary" icon="player-play" title="Start a session for this todo (⌘N). ⌘-click other todos in the list to start them with it, in one session." onClick={onStart}>
           Start session
         </Button>
         <div className="ca-segctl" role="radiogroup" aria-label="Status">
@@ -601,6 +603,89 @@ export function TodoPanel({ item, todos, onShowTodo, labels, lanes, now, onRun, 
             Nothing yet. Start a session from this todo and it’s linked here, or link a worktree or session you already have. <Kbd keys={['⌘', 'N']} /> starts one.
           </p>
         )}
+      </section>
+    </aside>
+  );
+}
+
+interface TodoPickPanelProps {
+  /** The todos picked, in the list's order, which is how the prompt numbers them. */
+  items: TodoItem[];
+  /** Every todo, in any project, for what each waits on. */
+  todos: Todo[];
+  /** Show each one's project: the view spans all of them. */
+  showProject: boolean;
+  /** Opens the quick panel for one session on all of them. */
+  onStart: () => void;
+  /** Selects only this one. */
+  onShow: (item: TodoItem) => void;
+  /** Takes it out of the ones picked. */
+  onLeaveOut: (item: TodoItem) => void;
+  /** The ⋯ button: status, copy as prompt, delete. */
+  onMoreMenu: (at: { x: number; y: number }) => void;
+}
+
+/** Several todos picked in the list (⌘-click, ⇧-click): one session for all of them, started on
+ *  one prompt that has each, numbered as listed here, and linked to each. */
+export function TodoPickPanel({ items, todos, showProject, onStart, onShow, onLeaveOut, onMoreMenu }: TodoPickPanelProps) {
+  const ids = items.map((r) => r.todo.id);
+  return (
+    <aside className="ca-insp ca-todoinsp ca-todopick" aria-label="Selected todos">
+      <header>
+        <div className="ca-insp-title">
+          <Icon name="list-check" size={14} />
+          <span className="ca-tag">Selected</span>
+          <Button variant="ghost" size="sm" icon="dots" aria-label="More" title="Status, copy as prompt or IDs, delete" className="ca-todoinsp-more" onClick={(e) => onMoreMenu(below(e.currentTarget))} />
+        </div>
+        <h2 className="ca-todopick-head">{items.length} todos</h2>
+        <div className="ca-todoinsp-meta">
+          <span>⌘-click adds a todo or leaves it out, ⇧-click adds a run of them. Esc goes back to one.</span>
+        </div>
+      </header>
+      <div className="ca-insp-actions ca-todoinsp-actions">
+        <Button variant="primary" icon="player-play" title="Start one session for all of them (⌘N)" onClick={onStart}>
+          Start one session
+        </Button>
+      </div>
+      <p className="ca-todopick-note">The session starts on one prompt with each todo in it, numbered as below, and it’s linked to all {items.length}.</p>
+      <section className="ca-insp-sec">
+        <h4 className="ca-label">In the prompt</h4>
+        <ol className="ca-todopick-list">
+          {items.map((r, i) => {
+            const t = r.todo;
+            const title = t.title || 'Untitled';
+            // What it waits on outside the ones picked: those are done together.
+            const open = t.status === 'done' ? [] : blockedBy(t, todos).filter((w) => !ids.includes(w.id));
+            return (
+              <li key={r.key} className="ca-todopick-row">
+                <span className="ca-todopick-n">{i + 1}</span>
+                <TodoGlyph status={t.status} waiting={sectionOf(t, todos) === 'waiting'} size={12} />
+                <button type="button" className="ca-todopick-name" title={`${title}. Click to show only this todo.`} onClick={() => onShow(r)}>
+                  {title}
+                </button>
+                {showProject && t.project && <span className="ca-tag">{t.project}</span>}
+                {open.length > 0 && (
+                  <span className="ca-todopick-flag" title={`Waits on ${open.map((w) => `“${w.title || 'Untitled'}”`).join(', ')}, not done yet.`}>
+                    <Icon name="lock" size={12} />
+                  </span>
+                )}
+                {t.waiting && t.status !== 'done' && (
+                  <span className="ca-todopick-flag" title={`${t.waiting.note ? `Waiting for ${t.waiting.note}` : 'Marked as waiting'}. Starting a session on it ends the wait.`}>
+                    <Icon name="hourglass" size={12} />
+                  </span>
+                )}
+                {r.sessions.length > 0 && (
+                  <span className="ca-todopick-sessions" title={r.sessions.map(({ session }) => `${session.account} · ${session.title}`).join('\n')}>
+                    {r.sessions.length === 1 ? '1 session' : `${r.sessions.length} sessions`}
+                  </span>
+                )}
+                <button type="button" className="ca-todopick-out" aria-label={`Leave out ${title}`} title="Leave it out" onClick={() => onLeaveOut(r)}>
+                  <Icon name="x" size={10} stroke={2.25} />
+                </button>
+              </li>
+            );
+          })}
+        </ol>
       </section>
     </aside>
   );

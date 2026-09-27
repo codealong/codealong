@@ -530,8 +530,8 @@ export interface StartSpec {
   model: string | null;
   /** A terminal start in a new worktree Claude Code makes (`--worktree`). */
   worktree: boolean;
-  /** The todo the session is for: it's linked once it starts. */
-  todo: string | null;
+  /** The todos the session is for, one or several on one prompt: each is linked once it starts. */
+  todos: string[];
 }
 
 /** The quick panel's shortcut, and why it isn't working when it isn't (src-tauri/src/quick.rs). */
