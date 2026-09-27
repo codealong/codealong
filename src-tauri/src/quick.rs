@@ -255,7 +255,7 @@ pub fn start_app(place: Place, terminal: &str) -> Option<&'static str> {
     }
 }
 
-/// A shortcut as config.toml writes it (`Option+Shift+Space`), or None when it's off (empty).
+/// A shortcut as config.toml writes it (`Option+Cmd+/`), or None when it's off (empty).
 /// It needs ⌃, ⌥ or ⌘ unless it's a function key, since the panel would otherwise take a key
 /// you type; and ⌘ alone with a key is a menu shortcut in every app.
 pub fn parse_shortcut(text: &str) -> std::result::Result<Option<Shortcut>, String> {
@@ -263,7 +263,7 @@ pub fn parse_shortcut(text: &str) -> std::result::Result<Option<Shortcut>, Strin
     if text.is_empty() {
         return Ok(None);
     }
-    let shortcut = Shortcut::from_str(text).map_err(|_| format!("\"{text}\" isn't a shortcut Codealong can read. Write it like \"Option+Shift+Space\" or \"Cmd+Ctrl+K\"."))?;
+    let shortcut = Shortcut::from_str(text).map_err(|_| format!("\"{text}\" isn't a shortcut Codealong can read. Write it like \"Option+Cmd+/\" or \"Cmd+Ctrl+K\"."))?;
     let function_key = matches!(
         shortcut.key,
         Code::F1 | Code::F2 | Code::F3 | Code::F4 | Code::F5 | Code::F6 | Code::F7 | Code::F8 | Code::F9 | Code::F10 | Code::F11 | Code::F12
@@ -509,6 +509,8 @@ mod tests {
         let s = parse_shortcut(" cmd+ctrl+k ").unwrap().unwrap();
         assert_eq!((s.mods, s.key), (Modifiers::SUPER | Modifiers::CONTROL, Code::KeyK));
         assert_eq!(parse_shortcut("Alt+`").unwrap().unwrap().key, Code::Backquote);
+        let s = parse_shortcut(crate::config::DEFAULT_QUICK_PANEL).unwrap().unwrap();
+        assert_eq!((s.mods, s.key), (Modifiers::ALT | Modifiers::SUPER, Code::Slash));
         assert!(parse_shortcut("").unwrap().is_none());
         assert!(parse_shortcut("  ").unwrap().is_none());
         // A function key can stand alone; Command and Space is allowed, for people who moved Spotlight.

@@ -126,7 +126,7 @@ new_terminal = "project"           # project (a tab beside the same repo or proj
 theme = "system"                   # system, light or dark
 
 [shortcuts]
-quick_panel = "Option+Shift+Space" # opens the quick panel from any app; "" turns it off
+quick_panel = "Option+Cmd+/"       # opens the quick panel from any app; "" turns it off
 
 [debug]
 perf_log = false                   # true logs timings to ~/Library/Logs/Codealong/perf.log

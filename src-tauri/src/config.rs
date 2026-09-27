@@ -165,10 +165,10 @@ impl Default for ShortcutsCfg {
     }
 }
 
-/// ⌥⇧Space. Neither macOS nor the usual launchers take it: Spotlight has ⌘Space, the Finder
-/// ⌥⌘Space, input sources ⌃Space and ⌃⌥Space, emoji ⌃⌘Space, and ChatGPT, Raycast and Alfred
-/// ship on ⌥Space.
-pub const DEFAULT_QUICK_PANEL: &str = "Option+Shift+Space";
+/// ⌥⌘/, / for search as in many apps. The other / keys are taken: ⌘/ comments out lines in
+/// editors, ⌘? searches the Help menu, ⌃/ is undo in shells (terminals send it as ^_), and ⌥/
+/// and ⌥⇧/ type ÷ and ¿. Written as Settings records it, so its "Use …" button knows it.
+pub const DEFAULT_QUICK_PANEL: &str = "Option+Cmd+/";
 
 fn default_quick_panel() -> String {
     DEFAULT_QUICK_PANEL.to_string()
@@ -407,7 +407,7 @@ const APPEARANCE_COMMENT: &str = "# Light or dark. \"system\" follows macOS. The
 const JEV_COMMENT: &str = "# What Codealong asks TypeSafe's Jev, feature by feature (Settings › Jev says what each one sends).\n# The API key is kept in the login keychain; set it in Settings.\n";
 const SEARCH_COMMENT: &str = "# The quick panel and `codealong sessions find` search what was said in sessions active in the\n# last `days` days, not just their titles. 0 turns it off; 14, the board's reach, is the most.\n";
 const DEBUG_COMMENT: &str = "# Timings for finding what makes the app slow, in ~/Library/Logs/Codealong/perf.log.\n";
-const SHORTCUTS_COMMENT: &str = "# Shortcuts that work in any app, such as \"Option+Shift+Space\" or \"Cmd+Ctrl+K\". \"\" turns one off.\n# quick_panel opens the quick panel: find a session, or start one.\n";
+const SHORTCUTS_COMMENT: &str = "# Shortcuts that work in any app, such as \"Option+Cmd+/\" or \"Cmd+Ctrl+K\". \"\" turns one off.\n# quick_panel opens the quick panel: find a session, or start one.\n";
 
 /// Sets `[appearance] theme` in config.toml and keeps everything else as written.
 pub fn save_theme(theme: Theme) -> Result<()> {
@@ -1049,7 +1049,7 @@ mod tests {
     #[test]
     fn checks_the_shortcut() {
         let mut cfg = full();
-        for ok in ["Option+Shift+Space", "Cmd+Ctrl+K", "ctrl+alt+space", "F18", ""] {
+        for ok in ["Option+Cmd+/", "Option+Shift+Space", "Cmd+Ctrl+K", "ctrl+alt+space", "F18", ""] {
             cfg.shortcuts.quick_panel = ok.into();
             assert!(check(&cfg).is_ok(), "{ok:?}: {:?}", check(&cfg));
         }

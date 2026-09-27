@@ -626,8 +626,8 @@ export function windowLabel(): string | null {
 
 /** The quick panel's shortcut and whether it works. */
 export async function quickShortcut(): Promise<ShortcutStatus> {
-  if (!inTauri) return { shortcut: 'Option+Shift+Space', error: null };
-  return (await invoke<ShortcutStatus | null>('quick_shortcut')) ?? { shortcut: 'Option+Shift+Space', error: null };
+  if (!inTauri) return { shortcut: 'Option+Cmd+/', error: null };
+  return (await invoke<ShortcutStatus | null>('quick_shortcut')) ?? { shortcut: 'Option+Cmd+/', error: null };
 }
 
 /** Turns the quick panel's shortcut off while Settings records a new one, and back on. */

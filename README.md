@@ -121,7 +121,7 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   window already showing that worktree, repo or project (`new_terminal` in config.toml).
   A session's tab that comes forward on another screen than the pointer's is outlined for a
   moment, and `move_pointer` moves the pointer to it.
-- **Quick panel** (⌥⇧Space from any app, over full-screen ones too; ⌘N, the title bar, the
+- **Quick panel** (⌥⌘/ from any app, over full-screen ones too; ⌘N, the title bar, the
   inspector, or a worktree's or session's right-click menu in Codealong): one input, and below
   it what you can do next. With nothing typed it lists the sessions that need you, then the
   ones whose turn ended (the working ones when nothing waits on you), and under them the first
@@ -313,7 +313,7 @@ move_pointer = false           # move the pointer to a terminal brought forward 
 theme = "system"               # follows macOS; or "light", "dark"
 
 [shortcuts]
-quick_panel = "Option+Shift+Space"  # works in every app; "" turns it off (Settings › General)
+quick_panel = "Option+Cmd+/"        # works in every app; "" turns it off (Settings › General)
 
 [jev]                          # TypeSafe's Jev, each feature off until turned on (Settings › Jev)
 model = "jev-latest"

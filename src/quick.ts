@@ -354,7 +354,7 @@ const KEY_SYMBOLS: Record<string, string> = {
   slash: '/',
 };
 
-/** A shortcut as config.toml writes it (`Option+Shift+Space`) the way macOS shows it (⌥⇧Space),
+/** A shortcut as config.toml writes it (`Option+Cmd+/`) the way macOS shows it (⌥⌘/),
  *  or null when it's off or unreadable. */
 export function shortcutLabel(text: string | null | undefined): string | null {
   const parts = (text ?? '')

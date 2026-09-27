@@ -183,7 +183,7 @@ export interface Config {
   scan: string[];
   apps: { terminal: string; editor: string; new_terminal?: NewTerminal; move_pointer?: boolean };
   appearance: { theme: Theme };
-  /** Shortcuts that work in any app, as config.toml writes them (`Option+Shift+Space`); empty is off. */
+  /** Shortcuts that work in any app, as config.toml writes them (`Option+Cmd+/`); empty is off. */
   shortcuts: { quick_panel: string };
   /** What Codealong asks TypeSafe's Jev, feature by feature. Older files have none: all off. */
   jev?: JevCfg;

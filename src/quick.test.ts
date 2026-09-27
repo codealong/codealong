@@ -249,6 +249,7 @@ describe('shortcuts', () => {
 
   it('shows config.toml’s shortcuts the way macOS writes them', () => {
     expect(shortcutLabel('Option+Shift+Space')).toBe('⌥⇧Space');
+    expect(shortcutLabel('Option+Cmd+/')).toBe('⌥⌘/');
     expect(shortcutLabel('Cmd+Ctrl+K')).toBe('⌃⌘K');
     expect(shortcutLabel('alt+`')).toBe('⌥`');
     expect(shortcutLabel('CommandOrControl+Shift+KeyP')).toBe('⇧⌘P');
@@ -261,6 +262,7 @@ describe('shortcuts', () => {
 
   it('records a key press as config.toml writes it', () => {
     expect(shortcutFromKey(key('Space', { altKey: true, shiftKey: true }))).toEqual({ shortcut: 'Option+Shift+Space' });
+    expect(shortcutFromKey(key('Slash', { altKey: true, metaKey: true }))).toEqual({ shortcut: 'Option+Cmd+/' });
     expect(shortcutFromKey(key('KeyK', { metaKey: true, ctrlKey: true }))).toEqual({ shortcut: 'Ctrl+Cmd+K' });
     expect(shortcutFromKey(key('Digit1', { ctrlKey: true, altKey: true }))).toEqual({ shortcut: 'Ctrl+Option+1' });
     expect(shortcutFromKey(key('F18'))).toEqual({ shortcut: 'F18' });

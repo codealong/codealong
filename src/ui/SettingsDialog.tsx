@@ -253,7 +253,8 @@ function GeneralPane({ cfg, view, theme, onPickTheme, disabled, onSave }: PanePr
   );
 }
 
-const DEFAULT_QUICK_PANEL = 'Option+Shift+Space';
+/** config.rs's DEFAULT_QUICK_PANEL. */
+const DEFAULT_QUICK_PANEL = 'Option+Cmd+/';
 
 /** The board goes back this far, so searching further finds nothing more (config.rs). */
 const MAX_SEARCH_DAYS = 14;
