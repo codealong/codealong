@@ -26,7 +26,6 @@ import { PinnedSection, type PinDrag } from './ui/PinnedSection';
 import { BayHeader, Button, Icon, Kbd, NavItem, StatusGlyph } from './ui/primitives';
 import { ALL_PROJECTS, openSwitcher, projectForDigit, ProjectSwitcher, type ActionCounts } from './ui/ProjectSwitcher';
 import { useLogo } from './logo';
-import { shortcutLabel } from './quick';
 import { PrInspector } from './ui/PrInspector';
 import { prIsOpen, prPlaces, prSections, PrsView, type PrRowItem } from './ui/PrsView';
 import { Resizer, usePanelWidth } from './ui/Resizer';
@@ -247,7 +246,6 @@ export function App() {
   const newSession = useCallback((at: { laneId: string | null; todo?: string | null; prompt?: string }) => {
     void showQuick({ ...at, project: projectNow.current, opener: windowLabel() });
   }, []);
-  const quickKeys = shortcutLabel(board?.quickShortcut);
   // Opens and starts still waiting on their app: a spinner shows once one takes a moment.
   const [busy, setBusy] = useState<{ id: number; label: string }[]>([]);
   const busySeq = useRef(0);
@@ -1510,7 +1508,6 @@ export function App() {
     <div className="ca-win ca-win--app">
       <div className="ca-win-bar" data-tauri-drag-region>
         <ProjectSwitcher logoStatus={logoStatus} projects={projects} current={current} total={totalLanes} actions={actions} onPick={pickProject} onOpenWindow={switcherWindow} onEditProjects={() => openSettings('projects')} />
-        <div className="ca-search-group">
         <label className="ca-search">
           <Icon name="search" size={14} />
           <input
@@ -1521,18 +1518,23 @@ export function App() {
             aria-label="Filter worktrees, sessions and PRs"
             spellCheck={false}
           />
-          {!query && <Kbd keys={['⌘', 'K']} />}
+          {query ? (
+            <button
+              type="button"
+              className="ca-search-clear"
+              aria-label="Clear filter"
+              title="Clear filter"
+              onClick={() => {
+                setQuery('');
+                searchRef.current?.focus();
+              }}
+            >
+              <Icon name="x" size={12} />
+            </button>
+          ) : (
+            <Kbd keys={['⌘', 'K']} />
+          )}
         </label>
-        <button
-          type="button"
-          className="ca-btn ca-btn--ghost ca-btn--sm is-icon ca-quickbtn"
-          aria-label="Quick panel"
-          title={`Open the quick panel: find any session or todo, or start new work${quickKeys ? ` (${quickKeys})` : ''}`}
-          onClick={() => newSession({ laneId: null })}
-        >
-          <Icon name="bolt" size={16} />
-        </button>
-        </div>
         <div className="ca-bar-tools" data-tauri-drag-region>
           <button
             type="button"
