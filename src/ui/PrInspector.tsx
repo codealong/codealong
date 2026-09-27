@@ -1,6 +1,6 @@
-// A PR in the right sidebar: where it stands, where it lives on this Mac (worktrees and the
-// sessions that worked on it, drawn like the sidebar's tree), its description as GitHub renders
-// it, and its changed files with their diffs.
+// A PR in the right sidebar: where it lives on this Mac first (worktrees and the sessions that
+// worked on it, drawn like the sidebar's tree), then where it stands, its comments, its
+// description as GitHub renders it, and its changed files with their diffs.
 //
 // The description is GitHub's own rendering (`bodyHTML`), which GitHub sanitizes; the page's
 // content security policy blocks scripts on top of that. Links in it open in the browser.
@@ -299,6 +299,27 @@ export function PrInspector({ item, now, approving, onApprove, onOpenSession, on
         </Button>
       </div>
 
+      {item.places.length > 0 && (
+        <section className="ca-insp-sec">
+          <h4 className="ca-label">On this Mac</h4>
+          <div className="ca-tree" role="tree" aria-label="On this Mac">
+            {item.places.map((place) => (
+              <Place
+                key={place.lane.id}
+                place={place}
+                prNumber={pr.number}
+                head={pr.head}
+                now={now}
+                onShowLane={onShowLane}
+                onLaneMenu={onLaneMenu}
+                onOpenSession={onOpenSession}
+                onSessionMenu={onSessionMenu}
+              />
+            ))}
+          </div>
+        </section>
+      )}
+
       <section className="ca-insp-sec">
         <h4 className="ca-label">Checks and reviews</h4>
         <div className="ca-prinsp-checks">
@@ -344,27 +365,6 @@ export function PrInspector({ item, now, approving, onApprove, onOpenSession, on
             {asking.size > 0 && <span className="ca-prcomments-asks"> · {asking.size} {asking.size === 1 ? 'asks' : 'ask'} for a change</span>}
           </h4>
           <Comments comments={comments} asks={asking} now={now} />
-        </section>
-      )}
-
-      {item.places.length > 0 && (
-        <section className="ca-insp-sec">
-          <h4 className="ca-label">On this Mac</h4>
-          <div className="ca-tree" role="tree" aria-label="On this Mac">
-            {item.places.map((place) => (
-              <Place
-                key={place.lane.id}
-                place={place}
-                prNumber={pr.number}
-                head={pr.head}
-                now={now}
-                onShowLane={onShowLane}
-                onLaneMenu={onLaneMenu}
-                onOpenSession={onOpenSession}
-                onSessionMenu={onSessionMenu}
-              />
-            ))}
-          </div>
         </section>
       )}
 
