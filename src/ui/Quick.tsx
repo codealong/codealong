@@ -1,6 +1,6 @@
 // The quick panel's page (quick.rs has its window): one input, and below it what you can do
 // next. With nothing typed it lists the sessions that need you, then the ones whose turn ended,
-// then a few todos ready to start; typed words find sessions and todos; the last row starts a
+// then a few todos ready to start; typed words find sessions, todos and PRs; the last row starts a
 // new session with what you typed as its prompt, in the worktree, on the agent and in the app
 // chosen at the bottom.
 //
@@ -19,6 +19,7 @@ import {
   onQuickHidden,
   onQuickOpen,
   openFromBar,
+  openUrl,
   quickReady,
   routeQuick,
   searchText,
@@ -37,7 +38,8 @@ import { ago, agoPhrase, resetsPhrase, tildePath, withTimes } from '../format';
 import { HARNESS_WORD, usageNote } from '../harness';
 import { useLogo } from '../logo';
 import { withoutAccount } from '../lanes';
-import { ALL_PROJECTS, attentionRows, findSessions, findTodos, FOUND_SESSIONS, inProject, laneBranch, laneGroups, MAX_ROWS, projectCounts, queryWords, readyTodos, recallList, shortcutLabel, TEXT_SEARCH_MIN, type RowGroup, type SessionRow, type TodoRow, withPrompt as historyWith } from '../quick';
+import { prPills } from '../prStatus';
+import { ALL_PROJECTS, attentionRows, findPrs, findSessions, findTodos, FOUND_SESSIONS, inProject, laneBranch, laneGroups, MAX_ROWS, projectCounts, queryWords, readyTodos, recallList, shortcutLabel, TEXT_SEARCH_MIN, type PrRow, type RowGroup, type SessionRow, type TodoRow, withPrompt as historyWith } from '../quick';
 import {
   accountFor,
   agentId,
@@ -57,10 +59,11 @@ import {
 } from '../start';
 import { duplicateOf, rankedBy, suggestions, sureness, todoTitle, worthRouting, type Suggestion } from '../route';
 import { attachmentsIn, blockedBy, insertAttachments, newTodo, sessionHomes, snippet, todoItem, todoPrompt, withoutAttachment } from '../todos';
-import type { Attachment, Board, Lane, Meter, Route, Session, StartOptions, StartPlace, StartSpec, TextFound } from '../types';
+import type { Attachment, Board, Lane, Meter, PrItem, Route, Session, StartOptions, StartPlace, StartSpec, TextFound } from '../types';
 import { AttachmentStrip } from './DescriptionEditor';
 import { Picker, type PickerOption, type PickerSection } from './Picker';
 import { Icon, Kbd, Mark, STATUS_WORD, StatusGlyph } from './primitives';
+import { PrGlyph } from './PrsView';
 import { applyTheme } from './ThemeSwitch';
 import { TodoGlyph } from './TodoBits';
 import { UsageMeter } from './UsageBar';
@@ -77,7 +80,7 @@ const OPTIONS_FOR_MS = 60_000;
 
 type PickerKind = 'project' | 'worktree' | 'agent';
 
-const GROUP_WORD: Record<RowGroup, string> = { suggested: 'Suggested', needs: 'Needs you', unread: 'Your turn', working: 'Working', found: 'Sessions', todos: 'Todos', ready: 'Ready todos' };
+const GROUP_WORD: Record<RowGroup, string> = { suggested: 'Suggested', needs: 'Needs you', unread: 'Your turn', working: 'Working', found: 'Sessions', todos: 'Todos', prs: 'PRs', ready: 'Ready todos' };
 
 /** A suggestion from Jev, as a row. */
 interface SuggestRow {
@@ -87,7 +90,7 @@ interface SuggestRow {
   s: Suggestion;
 }
 
-type Row = SessionRow | TodoRow | SuggestRow;
+type Row = SessionRow | TodoRow | PrRow | SuggestRow;
 
 /** How long typing has to pause before what's typed goes to Jev. */
 const ROUTE_AFTER_MS = 350;
@@ -149,6 +152,12 @@ function todoWhy(r: TodoRow): string {
   if (live) return `${live.session.account} · ${STATUS_WORD[live.session.status]}`;
   const n = r.item.sessions.length;
   return snippet(t.description, 120) || (n > 0 ? `${n} session${n === 1 ? '' : 's'}` : 'No session yet');
+}
+
+/** What a found PR's row says under its title: its number, who opened it, and where it stands.
+ *  Checks read as words ("10 checks passed"): the row has no icons to carry them. */
+function prWhy(pr: PrItem): string {
+  return [`#${pr.number}`, pr.mine ? 'yours' : pr.author, ...prPills(pr).map((p) => (p.key === 'checks' ? p.title : p.text))].filter(Boolean).join(' · ');
 }
 
 /** A title with the typed words underlined. */
@@ -421,6 +430,7 @@ export function Quick() {
   const said = useMemo(() => new Map((textFound?.hits ?? []).map((h) => [h.key, h] as const)), [textFound]);
   const foundSessions = useMemo(() => (board && query ? findSessions(board, current, query, FOUND_SESSIONS, said) : []), [board, current, query, said]);
   const foundTodos = useMemo(() => (board && query ? findTodos(board, current, query) : []), [board, current, query]);
+  const foundPrs = useMemo(() => (board && query ? findPrs(board, current, query) : []), [board, current, query]);
 
   // With routing on, what you type goes to Jev once you pause, and its suggestions lead the
   // list, so ⏎ does the likeliest. A word or two is a search and isn't sent.
@@ -510,7 +520,7 @@ export function Quick() {
     void fitQuick(h);
   });
 
-  const rows: Row[] = query ? [...suggested, ...rankedBy(foundSessions, route), ...foundTodos] : [...(attention?.rows ?? []), ...(readyList?.rows ?? [])];
+  const rows: Row[] = query ? [...suggested, ...rankedBy(foundSessions, route), ...foundTodos, ...foundPrs] : [...(attention?.rows ?? []), ...(readyList?.rows ?? [])];
   const keys = [...rows.map((r) => r.key), COMPOSE];
   const recallable = useMemo(() => recallList(draft?.text ?? null, history), [draft, history]);
   const active = activeKey && keys.includes(activeKey) ? activeKey : keys[0];
@@ -579,6 +589,30 @@ export function Quick() {
     void showMain({ kind: 'todo', id: r.item.todo.id });
   };
 
+  /** A PR opens on GitHub, as it does in the PRs view. */
+  const openPr = (pr: PrItem) => {
+    void hideQuick();
+    openUrl(pr.url).catch((e: unknown) => {
+      setError(plain(e));
+      void showQuick({ keep: true });
+    });
+  };
+
+  const revealPr = (pr: PrItem) => {
+    void hideQuick();
+    void showMain({ kind: 'pr', key: pr.key });
+  };
+
+  /** The latest session that worked on a PR, where it's listed. */
+  const prSession = (pr: PrItem): { lane: Lane; session: Session } | null => {
+    const found = pr.sessions.flatMap((x) => {
+      const lane = board?.lanes.find((l) => l.id === x.lane);
+      const session = lane?.sessions.find((s) => s.key === x.key);
+      return lane && session ? [{ lane, session }] : [];
+    });
+    return found.sort((a, b) => Number(b.session.live) - Number(a.session.live) || b.session.lastActivity - a.session.lastActivity)[0] ?? null;
+  };
+
   const rowMenu = (r: Row) => {
     if (r.kind === 'suggest') {
       const sg = r.s;
@@ -600,6 +634,15 @@ export function Quick() {
       void showContextMenu([
         { label: 'Open', run: () => openSession(r.lane, r.session) },
         { label: 'Show in Codealong', run: () => revealSession(r.lane, r.session) },
+      ]);
+      return;
+    }
+    if (r.kind === 'pr') {
+      const s = prSession(r.pr);
+      void showContextMenu([
+        { label: 'Open on GitHub', run: () => openPr(r.pr) },
+        ...(s ? [{ label: s.session.live ? 'Open its session' : 'Open its latest session', run: () => openSession(s.lane, s.session) }] : []),
+        { label: 'Show in Codealong', run: () => revealPr(r.pr) },
       ]);
       return;
     }
@@ -728,6 +771,7 @@ export function Quick() {
     if (!row) start();
     else if (row.kind === 'suggest') suggest(row.s, alt);
     else if (row.kind === 'todo') (alt ? revealTodo : openTodo)(row);
+    else if (row.kind === 'pr') (alt ? revealPr : openPr)(row.pr);
     else (alt ? revealSession : openSession)(row.lane, row.session);
   };
 
@@ -1043,7 +1087,7 @@ export function Quick() {
                   </p>
                 )}
                 {routeProblem && <p className="ca-quick-note">Couldn’t suggest where this goes: {routeProblem}</p>}
-                {query && rows.length === 0 && <p className="ca-quick-note">No sessions or todos match. Start a session with this prompt below.</p>}
+                {query && rows.length === 0 && <p className="ca-quick-note">No sessions, todos or PRs match. Start a session with this prompt below.</p>}
                 {query && textFound?.building && <p className="ca-quick-note">Still reading what recent sessions said, so more may match in a moment.</p>}
                 {sections.map((s) => (
                   <div key={s.group} className="ca-quick-group" role="group" aria-label={GROUP_WORD[s.group]}>
@@ -1110,6 +1154,30 @@ export function Quick() {
                             </span>
                             <span className="ca-quick-row-where">{r.item.lane?.callsign ?? (t.project || 'No worktree')}</span>
                             <span className="ca-quick-row-age">{ago(r.item.lastActivity, now)}</span>
+                            {n <= 9 && <Kbd keys={['⌘', String(n)]} />}
+                          </div>
+                        );
+                      }
+                      if (r.kind === 'pr') {
+                        const pr = r.pr;
+                        return (
+                          <div
+                            key={r.key}
+                            role="option"
+                            aria-selected={active === r.key}
+                            className={['ca-quick-row', 'is-pr', active === r.key && 'is-active'].filter(Boolean).join(' ')}
+                            title={`${pr.title}\n${pr.repoSlug}#${pr.number} · ${pr.head}\n⏎ opens it on GitHub · ⌥⏎ shows it in Codealong`}
+                            {...handlers}
+                          >
+                            <PrGlyph pr={pr} />
+                            <span className="ca-quick-row-main">
+                              <span className="ca-quick-row-title">
+                                <Marked text={pr.title} marks={r.marks} />
+                              </span>
+                              <span className="ca-quick-row-why">{prWhy(pr)}</span>
+                            </span>
+                            <span className="ca-quick-row-where">{pr.repo}</span>
+                            <span className="ca-quick-row-age">{ago(pr.updatedAt, now)}</span>
                             {n <= 9 && <Kbd keys={['⌘', String(n)]} />}
                           </div>
                         );

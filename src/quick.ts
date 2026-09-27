@@ -1,12 +1,13 @@
 // What the quick panel lists, and how it names shortcuts. With nothing typed it lists the
 // sessions that need you, then the ones whose turn ended; with nothing waiting, the ones
 // working. Under them go the first few todos ready to start. Typed words find sessions, then
-// todos: every word has to be in what describes them, or, for a session, in what was said in it
-// (the engine's text search, search.rs). Kept free of React so the rules have tests.
+// todos, then PRs: every word has to be in what describes them, or, for a session, in what was
+// said in it (the engine's text search, search.rs). Kept free of React so the rules have tests.
 
 import { middleTruncate } from './format';
 import { sectionOf, sessionHomes, todoItem, type TodoItem, type TodoSectionId } from './todos';
-import type { Board, Lane, Session, Status, TextHit } from './types';
+import { prFlag } from './prStatus';
+import type { Board, Lane, PrItem, PrState, Session, Status, TextHit } from './types';
 
 export const ALL_PROJECTS = 'All projects';
 const ELSEWHERE = 'Elsewhere';
@@ -19,7 +20,7 @@ export function inProject(lane: Pick<Lane, 'project' | 'hidden'>, project: strin
   return lane.project === project && (project === ELSEWHERE || !lane.hidden);
 }
 
-export type RowGroup = 'suggested' | 'needs' | 'unread' | 'working' | 'found' | 'todos' | 'ready';
+export type RowGroup = 'suggested' | 'needs' | 'unread' | 'working' | 'found' | 'todos' | 'prs' | 'ready';
 
 /** Where a status puts a session in the empty panel's list, as on the floating bar: errors wait
  *  on you like questions do. */
@@ -49,6 +50,7 @@ export const READY_TODOS = 3;
 /** A search lists this many sessions and this many todos at most, so both fit. */
 export const FOUND_SESSIONS = 6;
 export const FOUND_TODOS = 5;
+export const FOUND_PRS = 4;
 
 /** Every session once, listed under the worktree it runs in (not as a visitor elsewhere), with
  *  archived ones left out. */
@@ -187,6 +189,40 @@ export function findTodos(board: Board, project: string, query: string, limit = 
     });
   return found
     .sort((a, b) => Number(b.inTitle) - Number(a.inTitle) || a.rank - b.rank || b.row.item.lastActivity - a.row.item.lastActivity || a.row.key.localeCompare(b.row.key))
+    .slice(0, limit)
+    .map((f) => f.row);
+}
+
+/** A PR a search found. */
+export interface PrRow {
+  kind: 'pr';
+  key: string;
+  group: 'prs';
+  pr: PrItem;
+  marks: [number, number][];
+}
+
+const PR_STATE_RANK: Record<PrState, number> = { open: 0, draft: 0, approved: 0, changes: 0, merged: 1, closed: 2 };
+
+/**
+ * PRs with every typed word in their number (`#123` or `123`), title, repo, branch, author or
+ * project, best first: those whose title has them all, then open ones (your move first), merged,
+ * closed, then the latest activity. In a project, only its own.
+ */
+export function findPrs(board: Board, project: string, query: string, limit = FOUND_PRS): PrRow[] {
+  const words = queryWords(query);
+  if (words.length === 0) return [];
+  const found = (board.prs ?? [])
+    .filter((p) => project === ALL_PROJECTS || p.project === project)
+    .flatMap((p) => {
+      const hay = [`#${p.number}`, p.title, p.repo, p.repoSlug, p.head, p.author ?? '', p.project].join('\n').toLowerCase();
+      if (!words.every((w) => hay.includes(w))) return [];
+      const title = p.title.toLowerCase();
+      const row: PrRow = { kind: 'pr', key: `pr:${p.key}`, group: 'prs', pr: p, marks: titleMarks(p.title, words) };
+      return [{ row, inTitle: words.every((w) => title.includes(w)), rank: PR_STATE_RANK[p.state] * 2 + (prFlag(p) ? 0 : 1) }];
+    });
+  return found
+    .sort((a, b) => Number(b.inTitle) - Number(a.inTitle) || a.rank - b.rank || b.row.pr.updatedAt - a.row.pr.updatedAt || a.row.key.localeCompare(b.row.key))
     .slice(0, limit)
     .map((f) => f.row);
 }

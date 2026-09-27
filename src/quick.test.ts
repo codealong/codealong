@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { ALL_PROJECTS, attentionRows, recallList, withPrompt, findSessions, findTodos, laneGroups, projectCounts, readyTodos, shortcutFromKey, shortcutLabel, TAKEN, titleMarks } from './quick';
-import type { Board, Label, Lane, Session, Todo } from './types';
+import { ALL_PROJECTS, attentionRows, recallList, withPrompt, findPrs, findSessions, findTodos, laneGroups, projectCounts, readyTodos, shortcutFromKey, shortcutLabel, TAKEN, titleMarks } from './quick';
+import type { Board, Label, Lane, PrItem, Session, Todo } from './types';
 
 const NOW = 1_790_200_000_000;
 
@@ -268,5 +268,26 @@ describe('prompt history', () => {
     expect(recallList('draft', ['a'])).toEqual(['draft', 'a']);
     expect(recallList('a', ['a', 'b'])).toEqual(['a', 'b']);
     expect(recallList(null, ['a'])).toEqual(['a']);
+  });
+});
+
+describe('findPrs', () => {
+  const pr = (number: number, title: string, extra: Partial<PrItem> = {}): PrItem =>
+    ({ key: `northwind/atlas#${number}`, repoSlug: 'northwind/atlas', repo: 'atlas', project: 'Northwind', number, title, url: '', state: 'open', author: 'someone', mine: false, reviewRequested: false, head: `branch-${number}`, base: 'main', checks: { passed: 0, failed: 0, pending: 0, skipped: 0, failing: [] }, merge: 'unknown', updatedAt: number, lanes: [], sessions: [], ...extra }) as PrItem;
+  const withPrs = (prs: PrItem[]): Board => ({ ...board([]), prs }) as Board;
+
+  it('finds PRs by number, title, branch or author, titles first, then open ones', () => {
+    const b = withPrs([pr(1, 'Fix the login page', { state: 'merged' }), pr(2, 'Login retries'), pr(3, 'Docs', { head: 'login-docs' }), pr(4, 'Other')]);
+    expect(findPrs(b, ALL_PROJECTS, 'login').map((r) => r.pr.number)).toEqual([2, 1, 3]);
+    expect(findPrs(b, ALL_PROJECTS, '#4').map((r) => r.pr.number)).toEqual([4]);
+    expect(findPrs(b, ALL_PROJECTS, 'someone docs').map((r) => r.pr.number)).toEqual([3]);
+    expect(findPrs(b, ALL_PROJECTS, 'login')[0].marks).toEqual([[0, 5]]);
+  });
+
+  it('puts the ones that are your move first, and keeps to the project', () => {
+    const b = withPrs([pr(1, 'Page one'), pr(2, 'Page two', { reviewRequested: true }), pr(3, 'Page three', { project: 'Other' })]);
+    expect(findPrs(b, ALL_PROJECTS, 'page').map((r) => r.pr.number)).toEqual([2, 3, 1]);
+    expect(findPrs(b, 'Northwind', 'page').map((r) => r.pr.number)).toEqual([2, 1]);
+    expect(findPrs(b, 'Northwind', '')).toEqual([]);
   });
 });

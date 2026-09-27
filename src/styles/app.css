@@ -3256,6 +3256,13 @@ html.is-quick body {
   border-radius: var(--radius-sm);
   cursor: pointer;
 }
+/* A PR's icon is drawn larger than the status glyphs; it keeps to their column so titles line up. */
+.ca-quick-row.is-pr .ca-lane-pricon {
+  flex: none;
+  display: flex;
+  justify-content: center;
+  width: 12px;
+}
 .ca-quick-row.is-active {
   background: var(--surface-selected);
 }

@@ -117,21 +117,17 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
 - **Quick panel** (⌥⇧Space from any app, over full-screen ones too; ⌘N, the title bar, the
   inspector, or a worktree's or session's right-click menu in Codealong): one input, and below
   it what you can do next. With nothing typed it lists the sessions that need you, then the
-<<<<<<< HEAD
   ones whose turn ended (the working ones when nothing waits on you), and under them the first
   three todos ready to start, in your order. Typed words find
-  sessions by title, account, worktree, branch, repo, project or PR, and under them todos by
-=======
-  ones whose turn ended (the working ones when nothing waits on you). Typed words find
   sessions by title, account, worktree, branch, repo, project or PR, then by what was said in
   them (your prompts and the agents' replies, for sessions active in the last `[search] days`,
   with the matching line shown), and under them todos by
->>>>>>> origin/main
-  title, description, label, project, or the worktrees and sessions linked to them. ⏎ on a todo
+  title, description, label, project, or the worktrees and sessions linked to them, then PRs by
+  number, title, repo, branch or author. ⏎ on a todo
   opens its session, or, when it has none, gets a session ready to start for it (its prompt,
-  its worktree, linked to it). The last row starts a new session with what you typed as its
+  its worktree, linked to it); on a PR it opens the PR on GitHub. The last row starts a new session with what you typed as its
   prompt. ⏎ does the selected row, ⌘⏎ always starts, ⌥⏎
-  shows the session or todo in Codealong, ⌘1 to ⌘9 open a row, Escape closes. Each open starts empty,
+  shows the session, todo or PR in Codealong, ⌘1 to ⌘9 open a row, Escape closes. Each open starts empty,
   so ⏎ goes to what needs you; ↑ brings back what you'd typed before closing, then earlier prompts you sent, started or saved, and ↓ goes forward again. While you type, the list doesn't shrink until you pause and the answers are in, so the panel holds still. A project picker (⌘P) narrows everything to one project. The shortcut is
   yours to change in Settings › General; Settings names shortcuts macOS and common launchers
   already use.
