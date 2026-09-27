@@ -573,6 +573,8 @@ export interface BarFeed {
   projects: string[];
   /** In bar order: by group, then the newest status first. */
   items: BarItem[];
+  /** The other sessions started in the last day, the newest status first. */
+  recent: BarRecent[];
   /** Open PRs that ask for your review, newest first. */
   reviews: BarReview[];
   /** Todos ready to start (not started, and waiting on nothing), in your order. */
@@ -591,10 +593,15 @@ export interface BarItem {
   /** In a worktree the board keeps out of sight (Elsewhere's, while nothing there needs you). */
   hidden: boolean;
   detail: string | null;
+  /** When its status began, for its age. */
+  since: number;
   openTarget: string;
   /** The lane's own entry for `openTarget`, when it lists one. */
   target: { label: string; detail: string | null; disabled: boolean } | null;
 }
+
+/** A session on the bar's recent pill: started in the last day, and in none of its groups. */
+export type BarRecent = Omit<BarItem, 'group'> & { group: 'recent' };
 
 export interface BarReview {
   key: string;

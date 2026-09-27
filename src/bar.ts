@@ -28,7 +28,8 @@ export interface Metrics {
   /** The bar's mark, and the project menu's button beside it (0 when there is none). */
   mark: number;
   project: number;
-  /** The reviews and todos pills at the end, side by side (0 for one that isn't there). */
+  /** The recent, reviews and todos pills at the end, side by side (0 for one that isn't there). */
+  recent: number;
   reviews: number;
   todos: number;
   /** Space between neighbors, a divider's own width, and the bar's padding on each side. */
@@ -44,7 +45,7 @@ export function barWidth(fits: GroupFit[], m: Metrics): number {
     const widths = [...m.pills[f.group].slice(0, f.shown), ...(f.folded > 0 ? [m.fold[f.group]] : [])];
     if (widths.length) sections.push(widths);
   }
-  const last = [m.reviews, m.todos].filter((w) => w > 0);
+  const last = [m.recent, m.reviews, m.todos].filter((w) => w > 0);
   if (last.length) sections.push(last);
   const pieces = sections.flat();
   const dividers = sections.length - 1;

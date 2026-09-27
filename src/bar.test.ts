@@ -14,6 +14,7 @@ describe('fitGroups', () => {
     fold: { needs: 30, unread: 30, working: 30 },
     mark: 24,
     project: 0,
+    recent: 0,
     reviews,
     todos: 0,
     gap: 4,

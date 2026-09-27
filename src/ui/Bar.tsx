@@ -1,5 +1,6 @@
 // The floating bar's page: pills for the sessions that need you, whose turn ended, or that are
-// running, one for PRs waiting on your review, and one for todos ready to start, in the project
+// running, one for the rest of the sessions started in the last day, one for PRs waiting on your
+// review, and one for todos ready to start, in the project
 // picked beside the mark or in all of them. The engine keeps the window up and sends it what to
 // show (barfeed.rs); the page sizes the window to itself. Pills that don't fit fold into one per
 // group that lists them. Hovering a session's pill shows it in the peek under the bar (peek.rs,
@@ -11,9 +12,10 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { fitBar, getBarFeed, markSeen, onBarFeed, onBarNote, onPeekShown, openFromBar, peekHide, peekOpen, setBarOn, showMain, showQuick, type PillRect } from '../api';
 import { elsewhereWaits, fitGroups, GROUPS, plain, projectWaits, type Group, type GroupFit, type WaitCounts } from '../bar';
 import { showContextMenu, type MenuAction, type MenuSpec } from '../contextMenu';
+import { ago } from '../format';
 import { usePerf } from '../perf';
 import { ALL_PROJECTS, inProject } from '../quick';
-import type { BarFeed, BarItem, BarReview, BarTodo, PeekShown, Status } from '../types';
+import type { BarFeed, BarItem, BarRecent, BarReview, BarTodo, PeekShown, Status } from '../types';
 import { Icon, Mark, STATUS_WORD, StatusGlyph } from './primitives';
 import { applyTheme } from './ThemeSwitch';
 import { LOGO_LABEL, useLogo } from '../logo';
@@ -170,6 +172,31 @@ function ReviewsPill({ prs, onOpen, measure }: { prs: BarReview[]; onOpen?: (e: 
   );
 }
 
+/** The rest of the sessions started in the last day, as one pill: a click drops a menu of them. */
+function RecentPill({ items, now, onOpen, measure }: { items: BarRecent[]; now: number; onOpen?: (e: MouseEvent<HTMLButtonElement>) => void; measure?: boolean }) {
+  return (
+    <button
+      type="button"
+      className="ca-hud-pill is-recent"
+      title={measure ? undefined : `${items.length === 1 ? '1 other session' : `${items.length} other sessions`} from the last 24 hours:\n${items.map((i) => `${i.title} · ${i.callsign} · ${ago(i.since, now)}`).join('\n')}`}
+      data-recent={measure ? '' : undefined}
+      onClick={onOpen}
+      onContextMenu={
+        onOpen
+          ? (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onOpen(e);
+            }
+          : undefined
+      }
+    >
+      <Icon name="clock" size={12} stroke={1.75} />
+      <span>{items.length} recent</span>
+    </button>
+  );
+}
+
 /** The todos ready to start, as one pill beside the reviews: a click opens the quick panel ready
  *  to start one (the only one, or the one picked from its menu). */
 function TodosPill({ todos, onOpen, onMenu, measure }: { todos: BarTodo[]; onOpen?: (e: MouseEvent<HTMLButtonElement>) => void; onMenu?: (e: MouseEvent<HTMLButtonElement>) => void; measure?: boolean }) {
@@ -313,6 +340,7 @@ export function Bar() {
   const current = picking && projects.includes(project) ? project : ALL_PROJECTS;
   const allItems = useMemo(() => feed?.items ?? [], [feed]);
   const items = useMemo(() => allItems.filter((i) => inProject(i, current)), [allItems, current]);
+  const recent = useMemo(() => (feed?.recent ?? []).filter((i) => inProject(i, current)), [feed, current]);
   const reviews = useMemo(() => (feed?.reviews ?? []).filter((r) => current === ALL_PROJECTS || r.project === current), [feed, current]);
   const todos = useMemo(() => (feed?.todos ?? []).filter((t) => current === ALL_PROJECTS || t.project === current), [feed, current]);
   const waits = useMemo(() => projectWaits(allItems, projects), [allItems, projects]);
@@ -339,6 +367,7 @@ export function Bar() {
           fold,
           mark: MARK,
           project: picking ? width('[data-project]') : 0,
+          recent: recent.length ? width('[data-recent]') : 0,
           reviews: reviews.length ? width('[data-reviews]') : 0,
           todos: todos.length ? width('[data-todos]') : 0,
           gap: GAP,
@@ -348,7 +377,7 @@ export function Bar() {
         room,
       ),
     );
-  }, [items, reviews, todos, picking, current, others, fontsReady]);
+  }, [items, recent, reviews, todos, picking, current, others, fontsReady]);
 
   // The window follows the bar's size: after every render, since WebKit holds back resize
   // notifications while the window is hidden, and on resizes renders don't cause (fonts).
@@ -403,7 +432,7 @@ export function Bar() {
     peekOpen(i.key, rectOf(el), true).catch((e: unknown) => setFailed({ anchor: i.key, message: String(e).replace(/^Error: /, '') }));
   };
 
-  const open = (i: BarItem, anchor = i.key) => {
+  const open = (i: BarItem | BarRecent, anchor = i.key) => {
     stopHover();
     if (peekedNow.current.key) void peekHide();
     if (i.target?.disabled) {
@@ -430,6 +459,13 @@ export function Bar() {
     const menu: MenuSpec = folded.map((i) => ({ label: `${i.title} · ${i.callsign}`, run: () => open(i, `fold:${group}`) }));
     if (group === 'unread') menu.push('separator', { label: 'Mark these as seen', run: () => void markSeen(folded.map((i) => i.key)) });
     void showContextMenu(menu, below(e));
+  };
+
+  const recentMenu = (e: MouseEvent<HTMLButtonElement>) => {
+    void showContextMenu(
+      recent.map((i) => ({ label: `${i.title} · ${i.callsign} · ${ago(i.since, now)}`, run: () => open(i, 'recent') })),
+      below(e),
+    );
   };
 
   const reviewsMenu = (e: MouseEvent<HTMLButtonElement>) => {
@@ -505,7 +541,7 @@ export function Bar() {
         Reading sessions…
       </span>,
     ]);
-  } else if (items.length === 0 && reviews.length === 0 && todos.length === 0) {
+  } else if (items.length === 0 && recent.length === 0 && reviews.length === 0 && todos.length === 0) {
     sections.push([
       <span key="note" className="ca-hud-note">
         {current === ALL_PROJECTS ? 'No agents running' : `No agents running in ${current}`}
@@ -544,6 +580,7 @@ export function Bar() {
       ]);
     }
     const last = [
+      ...(recent.length ? [failed?.anchor === 'recent' ? failedPill() : <RecentPill key="recent" items={recent} now={now} onOpen={recentMenu} />] : []),
       ...(reviews.length ? [<ReviewsPill key="reviews" prs={reviews} onOpen={reviewsMenu} />] : []),
       ...(todos.length ? [<TodosPill key="todos" todos={todos} onOpen={openTodos} onMenu={todosMenu} />] : []),
     ];
@@ -594,6 +631,7 @@ export function Bar() {
         {GROUPS.map((g) => (
           <FoldPill key={g} group={g} label={FOLD_SAMPLE} measure />
         ))}
+        {recent.length > 0 && <RecentPill items={recent} now={now} measure />}
         {reviews.length > 0 && <ReviewsPill prs={reviews} measure />}
         {todos.length > 0 && <TodosPill todos={todos} measure />}
         {picking && <ProjectButton name={current} others={others} measure />}

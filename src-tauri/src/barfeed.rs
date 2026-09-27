@@ -1,6 +1,6 @@
 //! What the floating bar shows, cut from the board: the sessions that need you, whose turn ended,
-//! or that are running, in bar order, the PRs waiting on your review, and the todos ready to
-//! start. Each names its project, and the bar narrows them to the one picked in its project menu.
+//! or that are running, in bar order, the rest of the sessions started in the last day, the PRs
+//! waiting on your review, and the todos ready to start. Each names its project, and the bar narrows them to the one picked in its project menu.
 //! The bar gets this instead of the board, and only when it changes: the board is about half a
 //! megabyte and is published many times a minute, while this is a few kilobytes and changes far
 //! less often.
@@ -18,7 +18,13 @@ pub enum Group {
     Needs,
     Unread,
     Working,
+    /// Started in the last day and in none of the others: listed apart, in `recent`.
+    Recent,
 }
+
+/// How far back the bar's recent sessions go, and how many it lists at most.
+const RECENT_MS: i64 = 24 * 60 * 60 * 1000;
+const RECENT_MAX: usize = 20;
 
 pub fn group_of(status: Status) -> Option<Group> {
     match status {
@@ -44,6 +50,9 @@ pub struct BarFeed {
     pub projects: Vec<String>,
     /// In bar order: by group, then the newest status first.
     pub items: Vec<BarItem>,
+    /// The other sessions started in the last day (by their last activity when the start isn't
+    /// known), the newest status first, as the quick panel lists them.
+    pub recent: Vec<BarItem>,
     /// Open PRs that ask for your review, newest first.
     pub reviews: Vec<BarReview>,
     /// Todos ready to start (not started, and waiting on nothing), in your order.
@@ -66,6 +75,8 @@ pub struct BarItem {
     /// the bar shows it only with Elsewhere picked, as the quick panel does.
     pub hidden: bool,
     pub detail: Option<String>,
+    /// When its status began (its last activity when that isn't known), for its age.
+    pub since: i64,
     pub open_target: String,
     /// The lane's own entry for `open_target`, when it lists one: lanes list their first few
     /// sessions' targets only.
@@ -106,17 +117,23 @@ pub struct BarTodo {
 /// in place while agents work. Visitors and archived sessions are left out, as on the board.
 pub fn feed(board: &Board) -> BarFeed {
     let mut items: Vec<(i64, BarItem)> = Vec::new();
+    let mut recent: Vec<(i64, BarItem)> = Vec::new();
     for lane in &board.lanes {
         for s in &lane.sessions {
             if s.visitor.is_some() || s.archived {
                 continue;
             }
-            let Some(group) = group_of(s.status) else { continue };
+            let group = match group_of(s.status) {
+                Some(g) => g,
+                None if board.generated_at - s.started_at.unwrap_or(s.last_activity) <= RECENT_MS => Group::Recent,
+                None => continue,
+            };
             let target = lane.targets.iter().find(|t| t.id == s.open_target).map(|t| BarTarget {
                 label: t.label.clone(),
                 detail: t.detail.clone(),
                 disabled: t.disabled,
             });
+            let at = s.status_since.unwrap_or(s.last_activity);
             let item = BarItem {
                 key: s.key.clone(),
                 group,
@@ -128,13 +145,20 @@ pub fn feed(board: &Board) -> BarFeed {
                 project: lane.project.clone(),
                 hidden: lane.hidden,
                 detail: s.detail.clone(),
+                since: at,
                 open_target: s.open_target.clone(),
                 target,
             };
-            items.push((s.status_since.unwrap_or(s.last_activity), item));
+            if group == Group::Recent {
+                recent.push((at, item));
+            } else {
+                items.push((at, item));
+            }
         }
     }
     items.sort_by(|(a_at, a), (b_at, b)| a.group.cmp(&b.group).then(b_at.cmp(a_at)).then_with(|| a.key.cmp(&b.key)));
+    recent.sort_by(|(a_at, a), (b_at, b)| b_at.cmp(a_at).then_with(|| a.key.cmp(&b.key)));
+    recent.truncate(RECENT_MAX);
 
     let mut prs: Vec<_> = board.prs.iter().filter(|p| p.review_requested && p.state.is_open()).collect();
     prs.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
@@ -153,6 +177,7 @@ pub fn feed(board: &Board) -> BarFeed {
         terminal: board.apps.terminal.clone(),
         projects: board.projects.iter().map(|p| p.name.clone()).collect(),
         items: items.into_iter().map(|(_, item)| item).collect(),
+        recent: recent.into_iter().map(|(_, item)| item).collect(),
         reviews,
         todos: ready,
     }
@@ -232,6 +257,36 @@ mod tests {
         let b = board(vec![lane("/a", vec![visitor, archived], false), elsewhere, lane("/b", vec![session("ok", Status::Working, NOW)], false)], vec![]);
         let got: Vec<(String, String, bool)> = feed(&b).items.into_iter().map(|i| (i.key, i.project, i.hidden)).collect();
         assert_eq!(got, vec![("ok".to_string(), "P".to_string(), false), ("h".to_string(), "Elsewhere".to_string(), true)]);
+    }
+
+    #[test]
+    fn lists_the_rest_of_the_last_days_sessions_apart_newest_status_first() {
+        const HOUR: i64 = 60 * 60 * 1000;
+        let started = |key: &str, status: Status, since: i64, at: Option<i64>| {
+            let mut s = session(key, status, since);
+            s.started_at = at;
+            s
+        };
+        let mut b = board(
+            vec![lane(
+                "/a",
+                vec![
+                    started("old", Status::Idle, NOW - HOUR, Some(NOW - 30 * HOUR)),
+                    started("i1", Status::Idle, NOW - 3 * HOUR, Some(NOW - 5 * HOUR)),
+                    started("s1", Status::Stopped, NOW - HOUR, Some(NOW - 2 * HOUR)),
+                    started("w", Status::Working, NOW, Some(NOW - HOUR)),
+                    started("guess", Status::Idle, NOW - 2 * HOUR, None),
+                    started("stale", Status::Idle, NOW - 25 * HOUR, None),
+                ],
+                false,
+            )],
+            vec![],
+        );
+        b.generated_at = NOW;
+        let f = feed(&b);
+        assert_eq!(f.items.iter().map(|i| i.key.as_str()).collect::<Vec<_>>(), vec!["w"]);
+        let got: Vec<(&str, Group)> = f.recent.iter().map(|i| (i.key.as_str(), i.group)).collect();
+        assert_eq!(got, vec![("s1", Group::Recent), ("guess", Group::Recent), ("i1", Group::Recent)]);
     }
 
     #[test]
