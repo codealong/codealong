@@ -153,6 +153,8 @@ export interface Usage {
   error: string | null;
   needsSignIn: boolean;
   loading: boolean;
+  /** Its `preferred` setting: Auto starts it over accounts without one while it has room. */
+  preferred?: boolean;
 }
 
 /** An `[[accounts]]` table in config.toml. */

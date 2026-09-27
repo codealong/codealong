@@ -41,6 +41,7 @@ pub fn loading(account: &AccountCfg) -> Usage {
         error: None,
         needs_sign_in: false,
         loading: true,
+        preferred: account.preferred,
         rate_limited: false,
     }
 }

@@ -373,9 +373,10 @@ export function Quick() {
 
   /* ---- Who ---- */
 
-  const accounts = useMemo(() => options?.accounts ?? [], [options]);
-  const models = useMemo(() => options?.claudeModels ?? [], [options]);
   const usage = useMemo(() => board?.usage ?? [], [board?.usage]);
+  // Stars come with the board, which is current; where accounts can start is read less often.
+  const accounts = useMemo(() => (options?.accounts ?? []).map((a) => ({ ...a, preferred: usage.find((u) => u.account === a.name)?.preferred ?? a.preferred })), [options, usage]);
+  const models = useMemo(() => options?.claudeModels ?? [], [options]);
   // Auto follows usage while the panel is up, and resolves when you start.
   const pick = useMemo(() => autoPick(accounts, usage, now), [accounts, usage, now]);
   const agents = useMemo(() => agentOptions(accounts, models, pick), [accounts, models, pick]);

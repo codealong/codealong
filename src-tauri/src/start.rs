@@ -680,6 +680,7 @@ mod tests {
             error: None,
             needs_sign_in: false,
             loading: false,
+            preferred: false,
             rate_limited: false,
         }
     }

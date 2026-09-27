@@ -708,6 +708,46 @@ body.is-resizing * {
   cursor: pointer;
   transition: background var(--dur-fast) ease-out, border-color var(--dur-fast) ease-out;
 }
+/* The star sits over the chip's left end, so the chip leaves it room. */
+.ca-uchip-wrap {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+}
+.ca-uchip-wrap > .ca-uchip {
+  padding-left: 27px;
+}
+.ca-uchip-star {
+  position: absolute;
+  top: 50%;
+  left: 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin-top: -10px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: none;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+.ca-uchip-star:hover {
+  background: var(--surface-hover);
+  color: var(--ink-2);
+}
+.ca-uchip-star:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+.ca-uchip-star.is-on {
+  color: var(--attn);
+}
+.ca-uchip-star.is-on svg {
+  fill: currentColor;
+}
 .ca-uchip:hover {
   background: var(--surface-hover);
   border-color: var(--line-strong);

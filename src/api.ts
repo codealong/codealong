@@ -170,6 +170,12 @@ export async function getAccounts(): Promise<AccountInfo[]> {
   return res.ok ? ((await res.json()) as AccountInfo[]) : [];
 }
 
+/** Stars an account, or takes its star away: Auto starts preferred accounts first. */
+export async function setPreferred(account: string, preferred: boolean): Promise<void> {
+  if (!inTauri) throw new Error('Starring an account needs the app.');
+  await invoke('set_preferred', { account, preferred });
+}
+
 export async function saveAccounts(accounts: AccountCfg[]): Promise<void> {
   if (!inTauri) throw new Error('Saving accounts needs the app.');
   await invoke('save_accounts', { accounts });

@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { showContextMenu, type MenuSpec } from './contextMenu';
 import { AGENT_BAY, BAYS, buildBays, failingPr, filterByAge, inboxCounts, lanePromptAt, narrowed, rowItems, worktreeRow, type BoardRow, type Filter, type WorktreeRow } from './lanes';
-import { approvePr, archiveSession, barOn, dismissTodoHint, expandAttachments, getBoard, markSeen, onBarOn, onBoard, onCloseIdle, onNewWindow, onQuickStart, onReveal, onSettings, openConfig, openProjectWindow, openTarget, openUrl, refresh, refreshUsage, reviewInCodex, setBarOn, setPinned, setPinnedWorktrees, setTheme, showQuick, signIn, windowLabel, type Reveal } from './api';
+import { approvePr, archiveSession, barOn, dismissTodoHint, expandAttachments, getBoard, markSeen, onBarOn, onBoard, onCloseIdle, onNewWindow, onQuickStart, onReveal, onSettings, openConfig, openProjectWindow, openTarget, openUrl, refresh, refreshUsage, reviewInCodex, setBarOn, setPinned, setPinnedWorktrees, setPreferred, setTheme, showQuick, signIn, windowLabel, type Reveal } from './api';
 import { usePerf } from './perf';
 import { reorderPinned, usePins } from './pins';
 import { prFlag } from './prStatus';
@@ -1672,6 +1672,7 @@ export function App() {
         onRefresh={() => void refreshUsage()}
         onAccounts={(account) => openSettings('accounts', account ?? null)}
         onSignIn={startSignIn}
+        onStar={(account, preferred) => void setPreferred(account, preferred).catch((e: unknown) => setToast(String(e).replace(/^Error: /, '')))}
       />
       <div
         className={['ca-win-body', panelKind === 'pr' && 'is-prs', panelKind === 'todo' && 'is-todo', panelKind === 'session' && 'is-session', view === 'canvas' && 'is-canvas', view === 'canvas' && canvasPanel && 'has-panel'].filter(Boolean).join(' ')}

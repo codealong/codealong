@@ -399,6 +399,9 @@ pub struct Usage {
     pub needs_sign_in: bool,
     /// True until the first read finishes.
     pub loading: bool,
+    /// Its `preferred` setting: Auto starts it over accounts without one while it has room.
+    #[serde(default)]
+    pub preferred: bool,
     /// The usage endpoint asked us to slow down.
     #[serde(skip)]
     pub rate_limited: bool,

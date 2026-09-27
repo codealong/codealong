@@ -180,6 +180,14 @@ impl Handle {
         config::save_accounts(&accounts)
     }
 
+    /// Stars an account, or takes its star away, in config.toml.
+    pub fn set_preferred(&self, account: &str, preferred: bool) -> Result<()> {
+        let mut accounts = config::load()?.unwrap_or_default().accounts;
+        let a = accounts.iter_mut().find(|a| a.name == account).ok_or_else(|| anyhow::anyhow!("There's no account named {account}."))?;
+        a.preferred = preferred;
+        config::save_accounts(&accounts)
+    }
+
     /// Saves every setting to config.toml, in place. The watcher sees the change and reloads;
     /// the theme is published at once, as the theme buttons do.
     pub fn save_config(&self, cfg: &config::Config) -> Result<()> {
@@ -2184,6 +2192,9 @@ impl Engine {
                 "antigravity" => usage::none(a, "Antigravity keeps its quotas in the app."),
                 _ => self.usage.get(&a.name).cloned().unwrap_or_else(|| usage::loading(a)),
             })
+            // A read made before the star changed still carries the old one.
+            .zip(&self.cfg.accounts)
+            .map(|(u, a)| Usage { preferred: a.preferred, ..u })
             .collect()
     }
 
@@ -2558,6 +2569,7 @@ mod tests {
             error: error.map(str::to_string),
             needs_sign_in,
             loading: false,
+            preferred: false,
             rate_limited: false,
         }
     }
