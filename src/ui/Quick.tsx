@@ -45,10 +45,11 @@ import {
   accountFor,
   agentId,
   agentOptions,
-  autoHarness,
   autoModel,
-  autoPicks,
+  autoPick,
   initialChoice,
+  isAuto,
+  preferredNames,
   modelName,
   parseAgent,
   placesFor,
@@ -132,8 +133,10 @@ function useNow(everyMs: number): number {
   return now;
 }
 
-/** Why Auto starts the account and model it does. */
-function autoWhy(p: AutoPick, spent: Meter | null, now: number): string {
+/** Why Auto starts the account and model it does. `fallback`: it isn't one of the preferred
+ *  accounts, which are all near a limit. */
+function autoWhy(p: AutoPick, spent: Meter | null, fallback: boolean, now: number): string {
+  if (fallback) return 'preferred accounts are near their limits';
   if (spent) return `${spent.label}’s week is ${Math.round(spent.percent)}% used`;
   if (p.reason === 'reset' && p.resetsAt) return `week resets ${resetsPhrase(p.resetsAt, now)}`;
   return p.reason === 'room' ? 'most room' : '';
@@ -354,24 +357,24 @@ export function Quick() {
   const models = useMemo(() => options?.claudeModels ?? [], [options]);
   const usage = useMemo(() => board?.usage ?? [], [board?.usage]);
   // Auto follows usage while the panel is up, and resolves when you start.
-  const picks = useMemo(() => autoPicks(accounts, usage, now), [accounts, usage, now]);
-  const agents = useMemo(() => agentOptions(accounts, models, picks), [accounts, models, picks]);
-  const first = useMemo(() => initialChoice(accounts, picks, undefined), [accounts, picks]);
+  const pick = useMemo(() => autoPick(accounts, usage, now), [accounts, usage, now]);
+  const agents = useMemo(() => agentOptions(accounts, models, pick), [accounts, models, pick]);
+  const first = useMemo(() => initialChoice(accounts, pick, undefined), [accounts, pick]);
   const agentNow = agent && agents.some((o) => o.id === agent) ? agent : first ? agentId(first, null) : null;
   const { choice, model: chosenModel } = agentNow ? parseAgent(agentNow) : { choice: null, model: null };
-  const autoFor = choice ? autoHarness(choice) : null;
-  const harness = autoFor ?? accounts.find((a) => a.name === choice)?.harness ?? null;
-  const account = accountFor(choice, picks);
+  const autoFor = isAuto(choice);
+  const account = accountFor(choice, pick);
   const accountInfo = accounts.find((a) => a.name === account);
-  const autoPick = autoFor ? autoModel(accountInfo?.defaultModel ?? null, usage.find((u) => u.account === account)) : null;
+  const harness = accountInfo?.harness ?? null;
+  const autoModelPick = autoFor ? autoModel(accountInfo?.defaultModel ?? null, usage.find((u) => u.account === account)) : null;
 
   // A model is asked for on the command line, so choosing one leaves only the terminal and the
   // background; the apps pick their own.
-  const allPlaces = placesFor(choice, accounts);
+  const allPlaces = placesFor(choice, accounts, pick);
   const places = chosenModel ? allPlaces.filter((p) => onCommandLine(p.place)) : allPlaces;
-  const placeNow = [place, choice ? (settledPlace(choice, accounts) ?? remembered().places?.[choice]) : undefined].map((p) => places.find((x) => x.place === p)?.place).find(Boolean) ?? places[0]?.place ?? null;
+  const placeNow = [place, choice ? (settledPlace(choice, accounts, pick) ?? remembered().places?.[choice]) : undefined].map((p) => places.find((x) => x.place === p)?.place).find(Boolean) ?? places[0]?.place ?? null;
   const claudeTerminal = !!placeNow && onCommandLine(placeNow) && harness === 'claude';
-  const modelNow = claudeTerminal ? (autoFor ? (autoPick?.model ?? null) : chosenModel) : null;
+  const modelNow = claudeTerminal ? (autoFor ? (autoModelPick?.model ?? null) : chosenModel) : null;
   const inNewWorktree = claudeTerminal && newWorktree;
   const defaultModel = accountInfo?.defaultModel ?? null;
   const modelShown = !claudeTerminal
@@ -922,38 +925,36 @@ export function Quick() {
 
   const agentSections: PickerSection[] = useMemo(() => {
     const out: PickerSection[] = [];
-    const autos = agents.filter((o) => autoHarness(o.choice));
-    if (autos.length > 0) {
+    const auto = agents.find((o) => isAuto(o.choice));
+    if (auto && pick) {
+      const a = accounts.find((x) => x.name === pick.account);
+      const m = autoModel(a?.defaultModel ?? null, usage.find((u) => u.account === pick.account));
+      const model = m.model ?? a?.defaultModel ?? null;
+      const why = autoWhy(pick, m.spent, !preferredNames(accounts).includes(pick.account), now);
       out.push({
         key: 'auto',
-        options: autos.map((o) => {
-          const h = autoHarness(o.choice)!;
-          const p = picks[h]!;
-          const a = accounts.find((x) => x.name === p.account);
-          const m = autoModel(a?.defaultModel ?? null, usage.find((u) => u.account === p.account));
-          const model = m.model ?? a?.defaultModel ?? null;
-          const why = autoWhy(p, m.spent, now);
-          return {
-            id: o.id,
-            text: `auto ${HARNESS_WORD[h]} ${p.account} ${model ?? ''}`,
-            label: autos.length > 1 ? `Auto · ${HARNESS_WORD[h]}` : 'Auto',
-            detail: [p.account, model ? modelName(model, models) : null, why].filter(Boolean).join(' · '),
+        options: [
+          {
+            id: auto.id,
+            text: `auto ${pick.account} ${a ? HARNESS_WORD[a.harness] : ''} ${model ?? ''}`,
+            label: 'Auto',
+            detail: [pick.account, model ? modelName(model, models) : null, why].filter(Boolean).join(' · '),
             lead: <Icon name="sparkles" size={14} />,
             title:
-              `Starts the ${HARNESS_WORD[h]} account whose weekly limit resets soonest within 48 hours, so its room isn't lost, ` +
+              `Starts a preferred account (starred in Settings › Accounts) while one has room, else another. Among them, the one whose weekly limit resets soonest, so its room isn't lost, ` +
               `else the one whose fullest limit is least full, on its own default model; when that model's own limit is nearly used, on the next best. ` +
-              `Accounts at 90% of a limit are passed over while another has room. Decided when you start.`,
-          };
-        }),
+              `An account at 90% of a limit has no room. Decided when you start.`,
+          },
+        ],
       });
     }
     for (const a of accounts) {
       const u = usage.find((x) => x.account === a.name);
-      const mine = agents.filter((o) => !autoHarness(o.choice) && o.choice === a.name);
+      const mine = agents.filter((o) => !isAuto(o.choice) && o.choice === a.name);
       const cant = a.places.length === 0;
       out.push({
         key: a.name,
-        head: <AccountHead name={a.name} detail={[HARNESS_WORD[a.harness], u?.plan].filter(Boolean).join(' · ')} meters={cant ? null : (u?.meters ?? [])} note={cant ? 'Can’t start from here' : usageNote(u)} now={now} />,
+        head: <AccountHead name={a.name} detail={[HARNESS_WORD[a.harness], u?.plan, a.preferred ? 'Preferred' : null].filter(Boolean).join(' · ')} meters={cant ? null : (u?.meters ?? [])} note={cant ? 'Can’t start from here' : usageNote(u)} now={now} />,
         options: mine.map((o: AgentOption) => ({
           id: o.id,
           lead: <span className="ca-picker-check">{o.id === agentNow ? <Icon name="check" size={14} /> : null}</span>,
@@ -966,14 +967,14 @@ export function Quick() {
       });
     }
     return out;
-  }, [agents, accounts, picks, usage, models, now, agentNow]);
+  }, [agents, accounts, pick, usage, models, now, agentNow]);
 
   const pickAgent = (id: string) => {
     const { choice: c, model } = parseAgent(id);
     setAgent(id);
     // A model is asked for on the command line; an app picks its own.
     if (model) setPlace('terminal');
-    else setPlace(c ? (settledPlace(c, accounts) ?? remembered().places?.[c] ?? null) : null);
+    else setPlace(c ? (settledPlace(c, accounts, pick) ?? remembered().places?.[c] ?? null) : null);
     setPicker(null);
     refocus();
   };

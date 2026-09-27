@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { accountFor, autoChoice, agentId, agentOptions, autoModel, autoPicks, choices, initialChoice, initialPlace, modelFamily, modelMeter, modelName, parseAgent, placesFor, settledPlace, takesModel } from './start';
+import { accountFor, AUTO, agentId, agentOptions, autoModel, autoPick, choices, initialChoice, initialPlace, modelFamily, modelMeter, modelName, parseAgent, placesFor, preferredNames, settledPlace, takesModel, type AutoPick } from './start';
 import type { Meter, StartAccount, Usage } from './types';
 
 const ghostty = { place: 'terminal' as const, label: 'Ghostty' };
@@ -7,9 +7,9 @@ const claudeApp = { place: 'claude-app' as const, label: 'Claude app' };
 const codexApp = { place: 'codex-app' as const, label: 'Codex app' };
 
 const ACCOUNTS: StartAccount[] = [
-  { name: 'claude', harness: 'claude', places: [ghostty, claudeApp], chosen: null, unavailable: null, defaultModel: null },
-  { name: 'claude2', harness: 'claude', places: [ghostty], chosen: null, unavailable: null, defaultModel: null },
-  { name: 'codex', harness: 'codex', places: [codexApp], chosen: null, unavailable: null, defaultModel: null },
+  { name: 'claude', harness: 'claude', places: [ghostty, claudeApp], chosen: null, unavailable: null, defaultModel: null, preferred: false },
+  { name: 'claude2', harness: 'claude', places: [ghostty], chosen: null, unavailable: null, defaultModel: null, preferred: false },
+  { name: 'codex', harness: 'codex', places: [codexApp], chosen: null, unavailable: null, defaultModel: null, preferred: false },
 ];
 
 const NOW = Date.UTC(2026, 8, 24, 12);
@@ -19,7 +19,7 @@ function meter(key: string, percent: number, resetsAt: number | null = null): Me
   return { key, label: key, window: key, percent, resetsAt, severity: percent >= 90 ? 'critical' : 'normal', model: null };
 }
 
-/** An account's 5-hour and weekly use, and when its week resets. */
+/** An account's 5-hour and weekly use, and in how many hours its week resets. */
 function usage(account: string, session: number, week: number, weekResetsIn: number | null = 5 * 24, extra: Partial<Usage> = {}): Usage {
   return {
     account,
@@ -34,36 +34,49 @@ function usage(account: string, session: number, week: number, weekResetsIn: num
   };
 }
 
-const pick = (u: Usage[]) => autoPicks(ACCOUNTS, u, NOW).claude;
+const pick = (u: Usage[], accounts = ACCOUNTS) => autoPick(accounts, u, NOW);
+const star = (...names: string[]) => ACCOUNTS.map((a) => ({ ...a, preferred: names.includes(a.name) }));
 
+// start.rs's auto_pick tests the same cases.
 describe('Auto', () => {
-  it('without a reset soon, starts the account whose fullest limit is least full', () => {
-    // claude's fullest limit is 38%, claude2's is 45%: claude has more room, though its 5-hour is fuller.
-    expect(pick([usage('claude', 38, 20), usage('claude2', 12, 45)])).toEqual({ account: 'claude', reason: 'room', resetsAt: null });
-    expect(pick([usage('claude', 90, 10), usage('claude2', 10, 30)])?.account).toBe('claude2');
-  });
-
-  it('spends room first on an account whose weekly limit resets within 48 hours', () => {
-    const u = [usage('claude', 10, 20), usage('claude2', 30, 70, 20)];
-    expect(pick(u)).toEqual({ account: 'claude2', reason: 'reset', resetsAt: NOW + 20 * HOUR });
-    // Past 48 hours a reset doesn't count.
-    expect(pick([usage('claude', 10, 20), usage('claude2', 30, 70, 49)])?.account).toBe('claude');
+  it('spends the week that resets soonest, so its room is the first used', () => {
+    // claude2 has less room, but its week resets first.
+    expect(pick([usage('claude', 10, 20, 100), usage('claude2', 30, 70, 90)])).toEqual({ account: 'claude2', reason: 'reset', resetsAt: NOW + 90 * HOUR });
+    expect(pick([usage('claude', 10, 20, 40), usage('claude2', 30, 70, 6)])?.account).toBe('claude2');
     // A week that hasn't started has nothing to lose.
-    expect(pick([usage('claude', 10, 20), usage('claude2', 30, 0, null)])?.account).toBe('claude');
+    expect(pick([usage('claude', 10, 20, 100), usage('claude2', 0, 0, null)])?.account).toBe('claude');
   });
 
-  it('takes the soonest reset when both reset within 48 hours', () => {
-    expect(pick([usage('claude', 10, 20, 40), usage('claude2', 30, 70, 6)])).toEqual({ account: 'claude2', reason: 'reset', resetsAt: NOW + 6 * HOUR });
+  it('without a week under way, starts the account whose fullest limit is least full', () => {
+    // claude's fullest limit is 38%, claude2's is 45%: claude has more room, though its 5-hour is fuller.
+    expect(pick([usage('claude', 38, 20, null), usage('claude2', 12, 45, null)])).toEqual({ account: 'claude', reason: 'room', resetsAt: null });
   });
 
   it('passes over an account near a limit while another has room', () => {
     // claude2's week resets soon, but its 5-hour window is nearly used up.
-    expect(pick([usage('claude', 10, 20), usage('claude2', 95, 70, 6)])).toEqual({ account: 'claude', reason: 'room', resetsAt: null });
-    // When every account is near a limit, the rules apply to all of them.
-    expect(pick([usage('claude', 92, 20), usage('claude2', 95, 70, 6)])?.account).toBe('claude2');
+    expect(pick([usage('claude', 10, 20), usage('claude2', 95, 70, 6)])?.account).toBe('claude');
+    // When every account is near a limit, the least full.
+    expect(pick([usage('claude', 92, 20), usage('claude2', 95, 70, 6), usage('codex', 99, 20)])).toEqual({ account: 'claude', reason: 'room', resetsAt: null });
+    // One without numbers may have room.
+    expect(pick([usage('claude', 92, 20), usage('claude2', 95, 70, 6)])).toEqual({ account: 'codex', reason: 'first', resetsAt: null });
   });
 
-  it('passes over accounts without numbers unless none have them', () => {
+  it('keeps to preferred accounts while one has room', () => {
+    const codexSoon = usage('codex', 0, 10, 3);
+    // Without a star, the first account's agent is preferred.
+    expect(preferredNames(ACCOUNTS)).toEqual(['claude', 'claude2']);
+    expect(pick([usage('claude', 50, 80), usage('claude2', 50, 85), codexSoon])?.account).toBe('claude');
+    // Out of room on both: Codex.
+    expect(pick([usage('claude', 50, 95), usage('claude2', 91, 85), codexSoon])).toEqual({ account: 'codex', reason: 'reset', resetsAt: NOW + 3 * HOUR });
+    // A preferred account without numbers yet still goes first.
+    expect(pick([codexSoon])).toEqual({ account: 'claude', reason: 'first', resetsAt: null });
+    // Stars decide once there are any.
+    expect(preferredNames(star('claude2'))).toEqual(['claude2']);
+    expect(pick([usage('claude', 10, 20, 6), usage('claude2', 50, 80), codexSoon], star('claude2'))?.account).toBe('claude2');
+    expect(pick([usage('claude', 10, 20, 6), usage('claude2', 50, 95), codexSoon], star('claude2'))?.account).toBe('codex');
+  });
+
+  it('passes over signed-out accounts', () => {
     expect(pick([usage('claude', 0, 0, null, { meters: [], needsSignIn: true }), usage('claude2', 80, 20)])?.account).toBe('claude2');
     expect(pick([usage('claude', 20, 20, 3, { needsSignIn: true }), usage('claude2', 80, 20)])?.account).toBe('claude2');
     expect(pick([])).toEqual({ account: 'claude', reason: 'first', resetsAt: null });
@@ -71,67 +84,65 @@ describe('Auto', () => {
 
   it('counts only the limits the chosen model spends', () => {
     const fable = (percent: number, resetsIn: number): Meter => ({ ...meter('model:Fable', percent, NOW + resetsIn * HOUR), model: 'Fable' });
-    // claude is out of Fable but has the most room otherwise, and its week resets in a day.
+    // claude is out of Fable, and its week resets first.
     const u = [usage('claude', 10, 40, 24, { meters: [...usage('claude', 10, 40, 24).meters, fable(100, 24)] }), usage('claude2', 20, 50)];
-    expect(autoPicks(ACCOUNTS, u, NOW, 'opus').claude).toEqual({ account: 'claude', reason: 'reset', resetsAt: NOW + 24 * HOUR });
-    expect(autoPicks(ACCOUNTS, u, NOW, 'opus[1m]').claude?.account).toBe('claude');
-    expect(autoPicks(ACCOUNTS, u, NOW, 'opusplan').claude?.account).toBe('claude');
+    expect(autoPick(ACCOUNTS, u, NOW, 'opus')).toEqual({ account: 'claude', reason: 'reset', resetsAt: NOW + 24 * HOUR });
+    expect(autoPick(ACCOUNTS, u, NOW, 'opus[1m]')?.account).toBe('claude');
+    expect(autoPick(ACCOUNTS, u, NOW, 'opusplan')?.account).toBe('claude');
     // On Fable, or a model that could be Fable, its Fable limit rules it out.
-    expect(autoPicks(ACCOUNTS, u, NOW, 'fable').claude?.account).toBe('claude2');
-    expect(autoPicks(ACCOUNTS, u, NOW, 'best').claude?.account).toBe('claude2');
-    expect(autoPicks(ACCOUNTS, u, NOW).claude?.account).toBe('claude2');
+    expect(autoPick(ACCOUNTS, u, NOW, 'fable')?.account).toBe('claude2');
+    expect(autoPick(ACCOUNTS, u, NOW, 'best')?.account).toBe('claude2');
+    expect(autoPick(ACCOUNTS, u, NOW)?.account).toBe('claude2');
     // Without a model, each account's own default decides.
     const opusDefault = ACCOUNTS.map((a) => (a.name === 'claude' ? { ...a, defaultModel: 'claude-opus-5-5' } : a));
-    expect(autoPicks(opusDefault, u, NOW).claude?.account).toBe('claude');
+    expect(autoPick(opusDefault, u, NOW)?.account).toBe('claude');
   });
 
-  it('is only offered for a harness with more than one account that can start sessions', () => {
-    const lone: StartAccount[] = [ACCOUNTS[0], { ...ACCOUNTS[1], places: [], chosen: null, unavailable: 'no', defaultModel: null }, ACCOUNTS[2]];
-    expect(autoPicks(lone, [], NOW)).toEqual({});
-    expect(choices(ACCOUNTS, autoPicks(ACCOUNTS, [], NOW))).toEqual([autoChoice('claude'), 'claude', 'claude2', 'codex']);
+  it('is only offered with more than one account that can start sessions', () => {
+    const can = (a: StartAccount) => a;
+    const cant = (a: StartAccount) => ({ ...a, places: [], unavailable: 'no' });
+    const lone = [can(ACCOUNTS[0]), cant(ACCOUNTS[1]), cant(ACCOUNTS[2])];
+    expect(choices(lone, pick([], lone))).toEqual(['claude', 'claude2', 'codex']);
+    expect(choices(ACCOUNTS, pick([]))).toEqual([AUTO, 'claude', 'claude2', 'codex']);
   });
 
-  it('opens only where every account it could start can open', () => {
-    expect(placesFor(autoChoice('claude'), ACCOUNTS)).toEqual([ghostty]);
-    expect(placesFor('claude', ACCOUNTS)).toEqual([ghostty, claudeApp]);
-    expect(placesFor('codex', ACCOUNTS)).toEqual([codexApp]);
-    expect(placesFor(null, ACCOUNTS)).toEqual([]);
-  });
-
-  it('resolves to an account when you start', () => {
-    const picks = { claude: { account: 'claude2', reason: 'room' as const, resetsAt: null } };
-    expect(accountFor(autoChoice('claude'), picks)).toBe('claude2');
-    expect(accountFor('codex', picks)).toBe('codex');
-    expect(accountFor('auto:codex', picks)).toBeNull();
+  it('opens where the account it picks can, and resolves to it when you start', () => {
+    const p: AutoPick = { account: 'claude2', reason: 'room', resetsAt: null };
+    expect(placesFor(AUTO, ACCOUNTS, p)).toEqual([ghostty]);
+    expect(placesFor(AUTO, ACCOUNTS, { ...p, account: 'codex' })).toEqual([codexApp]);
+    expect(placesFor('claude', ACCOUNTS, p)).toEqual([ghostty, claudeApp]);
+    expect(placesFor(null, ACCOUNTS, p)).toEqual([]);
+    expect(accountFor(AUTO, p)).toBe('claude2');
+    expect(accountFor('codex', p)).toBe('codex');
+    expect(accountFor(AUTO, null)).toBeNull();
   });
 });
 
 describe('the sheet opens with', () => {
-  const picks = { claude: { account: 'claude2', reason: 'room' as const, resetsAt: null } };
+  const p: AutoPick = { account: 'claude2', reason: 'room', resetsAt: null };
 
   it('the last choice while it is still offered, else the first one', () => {
-    expect(initialChoice(ACCOUNTS, picks, 'codex')).toBe('codex');
-    expect(initialChoice(ACCOUNTS, picks, 'claude3')).toBe(autoChoice('claude'));
-    expect(initialChoice(ACCOUNTS, {}, undefined)).toBe('claude');
-    const none: StartAccount[] = [{ name: 'codex2', harness: 'codex', places: [], chosen: null, unavailable: 'no', defaultModel: null }];
-    expect(initialChoice(none, {}, undefined)).toBeNull();
+    expect(initialChoice(ACCOUNTS, p, 'codex')).toBe('codex');
+    expect(initialChoice(ACCOUNTS, p, 'claude3')).toBe(AUTO);
+    expect(initialChoice(ACCOUNTS, null, undefined)).toBe('claude');
+    const none: StartAccount[] = [{ name: 'codex2', harness: 'codex', places: [], chosen: null, unavailable: 'no', defaultModel: null, preferred: false }];
+    expect(initialChoice(none, null, undefined)).toBeNull();
   });
 
   it('the place that choice last opened in, while it is still offered', () => {
-    expect(initialPlace('claude', ACCOUNTS, 'claude-app')).toBe('claude-app');
-    expect(initialPlace('claude2', ACCOUNTS, 'claude-app')).toBe('terminal');
-    expect(initialPlace('codex', ACCOUNTS, undefined)).toBe('codex-app');
-    expect(initialPlace(null, ACCOUNTS, undefined)).toBeNull();
+    expect(initialPlace('claude', ACCOUNTS, p, 'claude-app')).toBe('claude-app');
+    expect(initialPlace('claude2', ACCOUNTS, p, 'claude-app')).toBe('terminal');
+    expect(initialPlace('codex', ACCOUNTS, p, undefined)).toBe('codex-app');
+    expect(initialPlace(null, ACCOUNTS, p, undefined)).toBeNull();
   });
 
   it("the place an account's settings name, over the last one", () => {
     const set = ACCOUNTS.map((a) => (a.name === 'claude' ? { ...a, chosen: 'terminal' as const } : a));
-    expect(initialPlace('claude', set, 'claude-app')).toBe('terminal');
-    expect(settledPlace('claude', set)).toBe('terminal');
-    // Auto lands on either Claude account, and only one of them names a place.
-    expect(settledPlace(autoChoice('claude'), set)).toBeNull();
-    const both = set.map((a) => (a.harness === 'claude' ? { ...a, chosen: 'terminal' as const } : a));
-    expect(settledPlace(autoChoice('claude'), both)).toBe('terminal');
+    expect(initialPlace('claude', set, p, 'claude-app')).toBe('terminal');
+    expect(settledPlace('claude', set, p)).toBe('terminal');
+    // Auto goes where the account it picks names.
+    expect(settledPlace(AUTO, set, p)).toBeNull();
+    expect(settledPlace(AUTO, set, { ...p, account: 'claude' })).toBe('terminal');
   });
 });
 
@@ -144,9 +155,8 @@ const MODELS = [
 
 describe('the agent menu', () => {
   it('lists Auto, then each account on its default and, for Claude Code in the terminal, on each model', () => {
-    const picks = autoPicks(ACCOUNTS, [], NOW);
-    expect(agentOptions(ACCOUNTS, MODELS, picks).map((o) => o.id)).toEqual([
-      autoChoice('claude'),
+    expect(agentOptions(ACCOUNTS, MODELS, pick([])).map((o) => o.id)).toEqual([
+      AUTO,
       'claude|',
       'claude|fable',
       'claude|fable[1m]',
@@ -165,7 +175,7 @@ describe('the agent menu', () => {
 
   it('reads an id back as the choice and model it stands for', () => {
     for (const [choice, model] of [
-      [autoChoice('claude'), null],
+      [AUTO, null],
       ['claude2', null],
       ['claude2', 'fable[1m]'],
       ['my.acct-2', 'claude-opus-5-5'],

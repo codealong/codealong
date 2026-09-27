@@ -170,10 +170,12 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   Claude app and Codex open a new session with the prompt filled in, and you send it there
   (their own model and worktree choices included). OpenCode starts in Ghostty on your prompt
   (`--prompt`), and so does the Codex CLI, for any Codex account (`codex -- <prompt>`, images
-  with `-i`); Antigravity starts conversations only in its own window. Auto, the default,
-  picks between accounts of one harness: first the one whose weekly limit resets soonest
-  within 48 hours, so its room isn't lost, else the one with the most room, judged by the
-  limits its default model spends; accounts at 90% of a limit are passed over. It starts on
+  with `-i`); Antigravity starts conversations only in its own window. Auto, the default
+  (and `codealong start`'s), keeps to preferred accounts (starred in Settings › Accounts;
+  without a star, those of the first account's agent) while one has room, judged by the limits
+  its default model spends, where 90% of a limit is no room; the others only once they're all
+  out. Among them it takes the one whose weekly limit resets soonest, so no week's room goes
+  unused, else the one with the most room. It starts on
   that default model, or the next best (Opus, then Sonnet) when the default's own weekly limit
   is nearly used up. Codealong only launches: the session shows on the board like any other,
   and one started in Ghostty is selected as soon as it appears. Paste or drop screenshots and
@@ -317,6 +319,7 @@ harness = "claude"             # claude, codex, opencode or antigravity
 home = "~/.claude2"
 command = "claude2"            # used for `claude2 --resume <id>`
 start = "background"           # where new sessions start: terminal, background, claude-app (~/.claude only), codex-app (~/.codex only)
+preferred = true               # Auto starts it over accounts without this while it has room
 
 [[accounts]]
 name = "opencode"

@@ -370,6 +370,8 @@ pub struct AccountInfo {
     pub command: Option<String>,
     /// Where its sessions start unless you pick another (config.toml's `start`).
     pub start: Option<String>,
+    /// Auto starts it over accounts that aren't preferred (config.toml's `preferred`).
+    pub preferred: bool,
     pub folder_exists: bool,
     pub signed_in: bool,
     pub email: Option<String>,

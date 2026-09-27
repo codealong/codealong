@@ -101,7 +101,7 @@ rate-limits.
 ## Starting sessions
 
 `codealong start --todo <id>` starts a session on the todo (its title and description as the
-prompt, then a line naming the todo) in the current worktree, on the account with the most room, in a new terminal
+prompt, then a line naming the todo) in the current worktree, on the account Auto picks (a preferred one with room, the one whose week resets soonest), in a new terminal
 (a tab or window, as config.toml's `new_terminal` says), and links the session to the todo. Give `--todo` more than once to
 start several todos in one session: the prompt numbers them, and the session is linked to each. `--account`, `--worktree`, `--new-worktree`,
 `--in background|claude-app|codex-app` (background: Claude Code's `--bg`, no terminal), `--model` change that. Only do this when the user asks for a

@@ -1,28 +1,21 @@
 // The rules for starting a session from the quick panel: the account and model Auto starts,
 // what the agent menu offers (every account on every model it can start on), and where each
-// choice can open. Auto only chooses between accounts of one harness: picking Claude Code, Codex
-// or OpenCode is picking an agent, not just whose limits to spend.
+// choice can open. Auto chooses among every account that can start a session, preferred ones
+// first (config.toml's `preferred`), so it keeps to the agents you'd rather use while they have
+// room. start.rs's `auto_pick` has the same rule for `codealong start`.
 
-import { HARNESSES } from './harness';
-import type { Harness, Meter, StartAccount, StartPlace, Usage } from './types';
+import type { Meter, StartAccount, StartPlace, Usage } from './types';
 
-/** An account's name, or `auto:<harness>` for Auto. */
+/** An account's name, or `auto` for Auto. */
 export type Choice = string;
 
-const AUTO = 'auto:';
+export const AUTO: Choice = 'auto';
 const REMEMBER_KEY = 'codealong.start';
-const HOUR = 60 * 60 * 1000;
-/** A weekly limit resetting this soon has room that will be lost unless it's used. */
-export const RESET_SOON_MS = 48 * HOUR;
 /** An account this close to any limit could stall a new session. */
 const NEAR_LIMIT = 90;
 
-export function autoChoice(h: Harness): Choice {
-  return `${AUTO}${h}`;
-}
-
-export function autoHarness(c: Choice): Harness | null {
-  return c.startsWith(AUTO) ? (c.slice(AUTO.length) as Harness) : null;
+export function isAuto(c: Choice | null): boolean {
+  return c === AUTO;
 }
 
 /** Families that have their own weekly limits, as the usage report names them. */
@@ -39,22 +32,6 @@ export function metersFor(u: Usage, model: string | null): Meter[] {
   return u.meters.filter((x) => x.model === null || m.includes(x.model.toLowerCase()));
 }
 
-/** How full an account's fullest limit for a model is, 0 to 100, or null when there are no numbers. */
-export function fullest(u: Usage | undefined, model: string | null = null): number | null {
-  if (!u || u.needsSignIn || u.meters.length === 0) return null;
-  return Math.max(...metersFor(u, model).map((m) => m.percent));
-}
-
-/** When an account's weekly room for a model resets, if it's been used this week: the soonest
- *  of its weekly limits, all models' or the model's own. */
-export function weeklyReset(u: Usage | undefined, model: string | null = null): number | null {
-  if (!u) return null;
-  const at = metersFor(u, model)
-    .filter((m) => (m.key === 'week' || m.key.startsWith('model:')) && m.resetsAt !== null)
-    .map((m) => m.resetsAt as number);
-  return at.length > 0 ? Math.min(...at) : null;
-}
-
 function near(m: Meter): boolean {
   return m.severity === 'critical' || m.percent >= NEAR_LIMIT;
 }
@@ -65,12 +42,8 @@ export function modelHasRoom(u: Usage | undefined, model: string): boolean {
   return !own || !near(own);
 }
 
-function nearLimit(u: Usage, model: string | null): boolean {
-  return metersFor(u, model).some(near);
-}
-
-/** Auto's account for a harness, and why: its weekly limit resets soon (`reset`), it has the
- *  most room (`room`), or there are no numbers to go by (`first`). */
+/** Auto's account, and why: its weekly limit resets soonest, so its room is the first to be
+ *  lost (`reset`); it has the most room (`room`); or there are no numbers to go by (`first`). */
 export interface AutoPick {
   account: string;
   reason: 'reset' | 'room' | 'first';
@@ -78,75 +51,89 @@ export interface AutoPick {
   resetsAt: number | null;
 }
 
-export type Picks = Partial<Record<Harness, AutoPick>>;
+function startable(accounts: StartAccount[]): StartAccount[] {
+  return accounts.filter((a) => a.places.length > 0);
+}
+
+/** The accounts Auto prefers among those that can start sessions: the ones marked preferred,
+ *  else those of the first account's harness, so that without a star Auto keeps to one agent
+ *  until its accounts are out of room. start.rs's `preferred_names` has the same rule. */
+export function preferredNames(accounts: StartAccount[]): string[] {
+  const can = startable(accounts);
+  if (can.some((a) => a.preferred)) return can.filter((a) => a.preferred).map((a) => a.name);
+  return can.filter((a) => a.harness === can[0]?.harness).map((a) => a.name);
+}
 
 /**
- * The account Auto starts for each harness with more than one account that can start sessions,
- * for a session on `model` (null for each account's default). Only the limits that model spends
- * count, so an account out of Fable can still start Opus.
- * Room that's about to reset is spent first: among accounts not near a limit, the one whose
- * weekly limit resets soonest within 48 hours. Without one, the account whose fullest limit is
- * least full. Accounts at 90% of any limit are passed over while another has room, and accounts
- * without numbers are picked only when none have them.
+ * The account Auto starts, for a session on `model` (null for each account's default; only
+ * Claude Code takes one). Only the limits each account's model spends count, so an account out
+ * of Fable can still start Opus, and an account at 90% of one of them has no room. Preferred
+ * accounts with room go first, then a preferred one without numbers yet, then the others the
+ * same way, and only when all are near a limit the least full of them. Among accounts with
+ * room, the one whose weekly limit resets soonest wins, so no week's room goes unused; without
+ * a reset under way, the one whose fullest limit is least full. Signed-out accounts are passed
+ * over. Null when no account can start a session.
  */
-export function autoPicks(accounts: StartAccount[], usage: Usage[], now: number, model: string | null = null): Picks {
-  const out: Picks = {};
-  for (const h of HARNESSES) {
-    const mine = accounts.filter((a) => a.harness === h && a.places.length > 0);
-    if (mine.length < 2) continue;
-    const measured = mine.flatMap((a) => {
-      const u = usage.find((x) => x.account === a.name);
-      const on = model ?? a.defaultModel;
-      const full = fullest(u, on);
-      return u && full !== null ? [{ name: a.name, u, on, full }] : [];
-    });
-    if (measured.length === 0) {
-      out[h] = { account: mine[0].name, reason: 'first', resetsAt: null };
+export function autoPick(accounts: StartAccount[], usage: Usage[], now: number, model: string | null = null): AutoPick | null {
+  const preferred = preferredNames(accounts);
+  const candidates = startable(accounts)
+    .filter((a) => model === null || a.harness === 'claude')
+    .map((a) => ({ name: a.name, preferred: preferred.includes(a.name), on: model ?? a.defaultModel }));
+  const measured: { name: string; preferred: boolean; full: number; near: boolean; reset: number | null }[] = [];
+  const unknown: typeof candidates = [];
+  for (const c of candidates) {
+    const u = usage.find((x) => x.account === c.name);
+    if (u?.needsSignIn) continue;
+    const meters = u ? metersFor(u, c.on) : [];
+    if (meters.length === 0) {
+      unknown.push(c);
       continue;
     }
-    const roomy = measured.filter((m) => !nearLimit(m.u, m.on));
-    const pool = roomy.length > 0 ? roomy : measured;
-    const soon = pool
-      .map((m) => ({ ...m, at: weeklyReset(m.u, m.on) }))
-      .filter((m): m is typeof m & { at: number } => m.at !== null && m.at > now && m.at - now <= RESET_SOON_MS)
-      .sort((a, b) => a.at - b.at || a.full - b.full);
-    if (soon.length > 0) {
-      out[h] = { account: soon[0].name, reason: 'reset', resetsAt: soon[0].at };
-      continue;
-    }
-    const least = pool.reduce((best, m) => (m.full < best.full ? m : best));
-    out[h] = { account: least.name, reason: 'room', resetsAt: null };
+    const resets = meters.filter((m) => (m.key === 'week' || m.key.startsWith('model:')) && m.resetsAt !== null && m.resetsAt > now).map((m) => m.resetsAt as number);
+    measured.push({ name: c.name, preferred: c.preferred, full: Math.max(...meters.map((m) => m.percent)), near: meters.some(near), reset: resets.length > 0 ? Math.min(...resets) : null });
   }
-  return out;
+  const leastFull = (pool: typeof measured): AutoPick => ({ account: pool.reduce((best, m) => (m.full < best.full ? m : best)).name, reason: 'room', resetsAt: null });
+  const best = (pool: typeof measured): AutoPick => {
+    const soon = pool.filter((m) => m.reset !== null).sort((a, b) => (a.reset as number) - (b.reset as number) || a.full - b.full);
+    return soon.length > 0 ? { account: soon[0].name, reason: 'reset', resetsAt: soon[0].reset } : leastFull(pool);
+  };
+  for (const pref of [true, false]) {
+    const roomy = measured.filter((m) => m.preferred === pref && !m.near);
+    if (roomy.length > 0) return best(roomy);
+    const waiting = unknown.find((c) => c.preferred === pref);
+    if (waiting) return { account: waiting.name, reason: 'first', resetsAt: null };
+  }
+  if (measured.length > 0) return leastFull(measured);
+  const first = candidates.find((c) => c.preferred) ?? candidates[0];
+  return first ? { account: first.name, reason: 'first', resetsAt: null } : null;
 }
 
-/** The choices the sheet lists: Auto for each harness that has it, then every account. */
-export function choices(accounts: StartAccount[], picks: Picks): Choice[] {
-  return [...HARNESSES.filter((h) => picks[h]).map(autoChoice), ...accounts.map((a) => a.name)];
+/** The choices the sheet lists: Auto when there's more than one account to choose between,
+ *  then every account. */
+export function choices(accounts: StartAccount[], pick: AutoPick | null): Choice[] {
+  return [...(offersAuto(accounts, pick) ? [AUTO] : []), ...accounts.map((a) => a.name)];
 }
 
-/** Where a choice can open. Auto can land on any account of its harness, so it offers only the
- *  places they all have. */
-export function placesFor(choice: Choice | null, accounts: StartAccount[]): StartAccount['places'] {
-  if (!choice) return [];
-  const h = autoHarness(choice);
-  if (!h) return accounts.find((a) => a.name === choice)?.places ?? [];
-  const mine = accounts.filter((a) => a.harness === h && a.places.length > 0);
-  if (mine.length === 0) return [];
-  return mine[0].places.filter((p) => mine.every((a) => a.places.some((q) => q.place === p.place)));
+function offersAuto(accounts: StartAccount[], pick: AutoPick | null): boolean {
+  return !!pick && startable(accounts).length > 1;
+}
+
+/** Where a choice can open. Auto opens where the account it picks can. */
+export function placesFor(choice: Choice | null, accounts: StartAccount[], pick: AutoPick | null): StartAccount['places'] {
+  const name = accountFor(choice, pick);
+  return accounts.find((a) => a.name === name)?.places ?? [];
 }
 
 /** The account a choice starts right now. */
-export function accountFor(choice: Choice | null, picks: Picks): string | null {
+export function accountFor(choice: Choice | null, pick: AutoPick | null): string | null {
   if (!choice) return null;
-  const h = autoHarness(choice);
-  return h ? (picks[h]?.account ?? null) : choice;
+  return isAuto(choice) ? (pick?.account ?? null) : choice;
 }
 
 /** The choice the panel opens with: `wanted` (what a failed start had) while it's still
  *  offered, else the first on the list that can start a session, which is Auto where there's one. */
-export function initialChoice(accounts: StartAccount[], picks: Picks, wanted: Choice | undefined): Choice | null {
-  const offered = choices(accounts, picks).filter((c) => placesFor(c, accounts).length > 0);
+export function initialChoice(accounts: StartAccount[], pick: AutoPick | null, wanted: Choice | undefined): Choice | null {
+  const offered = choices(accounts, pick).filter((c) => placesFor(c, accounts, pick).length > 0);
   return wanted && offered.includes(wanted) ? wanted : (offered[0] ?? null);
 }
 
@@ -166,12 +153,12 @@ export interface AgentOption {
 }
 
 export function agentId(choice: Choice, model: string | null): string {
-  return autoHarness(choice) ? choice : `${choice}|${model ?? ''}`;
+  return isAuto(choice) ? choice : `${choice}|${model ?? ''}`;
 }
 
 /** The choice and model an agent menu id stands for. Account names and models have no `|`. */
 export function parseAgent(id: string): { choice: Choice; model: string | null } {
-  if (autoHarness(id)) return { choice: id, model: null };
+  if (isAuto(id)) return { choice: id, model: null };
   const at = id.indexOf('|');
   return at < 0 ? { choice: id, model: null } : { choice: id.slice(0, at), model: id.slice(at + 1) || null };
 }
@@ -182,10 +169,10 @@ export function takesModel(a: StartAccount | undefined): boolean {
   return !!a && a.harness === 'claude' && a.places.some((p) => p.place === 'terminal');
 }
 
-/** What the agent menu lists: Auto for each harness that has it, then every account, on its own
+/** What the agent menu lists: Auto when it's offered, then every account, on its own
  *  default and, where Codealong can ask for one, on each model. */
-export function agentOptions(accounts: StartAccount[], models: ModelOption[], picks: Picks): AgentOption[] {
-  const out: AgentOption[] = HARNESSES.filter((h) => picks[h]).map((h) => ({ id: autoChoice(h), choice: autoChoice(h), model: null }));
+export function agentOptions(accounts: StartAccount[], models: ModelOption[], pick: AutoPick | null): AgentOption[] {
+  const out: AgentOption[] = offersAuto(accounts, pick) ? [{ id: AUTO, choice: AUTO, model: null }] : [];
   for (const a of accounts) {
     out.push({ id: agentId(a.name, null), choice: a.name, model: null });
     if (takesModel(a)) for (const m of models) out.push({ id: agentId(a.name, m.id), choice: a.name, model: m.id });
@@ -244,21 +231,17 @@ export function autoModel(defaultModel: string | null, u: Usage | undefined): { 
   return { model: null, spent: own };
 }
 
-/** The place an account's `start` setting names. Auto has one when every account it can land
- *  on names the same place. */
-export function settledPlace(choice: Choice | null, accounts: StartAccount[]): StartPlace | null {
-  if (!choice) return null;
-  const h = autoHarness(choice);
-  if (!h) return accounts.find((a) => a.name === choice)?.chosen ?? null;
-  const set = new Set(accounts.filter((a) => a.harness === h && a.places.length > 0).map((a) => a.chosen ?? null));
-  return set.size === 1 ? [...set][0] : null;
+/** The place an account's `start` setting names; for Auto, the one the account it picks names. */
+export function settledPlace(choice: Choice | null, accounts: StartAccount[], pick: AutoPick | null): StartPlace | null {
+  const name = accountFor(choice, pick);
+  return accounts.find((a) => a.name === name)?.chosen ?? null;
 }
 
 /** Where a choice opens at first: where its account's settings say, else where it last opened,
  *  while that's still offered. */
-export function initialPlace(choice: Choice | null, accounts: StartAccount[], last: StartPlace | undefined): StartPlace | null {
-  const places = placesFor(choice, accounts);
-  const want = settledPlace(choice, accounts) ?? last;
+export function initialPlace(choice: Choice | null, accounts: StartAccount[], pick: AutoPick | null, last: StartPlace | undefined): StartPlace | null {
+  const places = placesFor(choice, accounts, pick);
+  const want = settledPlace(choice, accounts, pick) ?? last;
   return places.find((p) => p.place === want)?.place ?? places[0]?.place ?? null;
 }
 

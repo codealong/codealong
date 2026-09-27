@@ -374,7 +374,7 @@ struct StartArgs {
     /// The prompt, when not starting a todo.
     #[arg(long)]
     prompt: Option<String>,
-    /// The account to run it on. `auto` picks as the app does: the Claude account with the most room for the model.
+    /// The account to run it on. `auto` picks as the quick panel does: a preferred account with room for the model (config.toml's `preferred`), and among those the one whose weekly limit resets soonest.
     #[arg(long, default_value = "auto")]
     account: String,
     /// The worktree to run in: a path, or `.` (the default).
@@ -2072,7 +2072,7 @@ fn start_cmd(c: &mut Client, a: &StartArgs, json: bool) -> Result<()> {
                 true => c.board()?.usage.clone(),
                 false => Vec::new(),
             };
-            pick_account(&cfg, &usages, place.unwrap_or(Place::Terminal), a.model.as_deref()).ok_or_else(|| anyhow!("No account can start a session there. `codealong accounts` lists them."))?
+            pick_account(&cfg, &usages, place, a.model.as_deref()).ok_or_else(|| anyhow!("No account can start a session there. `codealong accounts` lists them."))?
         }
         name => name.to_string(),
     };
@@ -2109,34 +2109,21 @@ fn start_cmd(c: &mut Client, a: &StartArgs, json: bool) -> Result<()> {
     Ok(())
 }
 
-/// Auto's pick, simplified: among Claude accounts (the terminal and the Claude app), the one
-/// with the most room by its tightest limit for the model (`model`, else the account's
-/// default); without usage numbers, the first. Codex for its app.
-fn pick_account(cfg: &Config, usages: &[crate::model::Usage], place: Place, model: Option<&str>) -> Option<String> {
-    let harness = match place {
-        Place::CodexApp => "codex",
-        _ => "claude",
-    };
-    let candidates: Vec<&AccountCfg> = cfg.accounts.iter().filter(|a| a.harness == harness).collect();
-    let room = |a: &AccountCfg| {
-        let on = model.map(str::to_string).or_else(|| if harness == "claude" { start::claude_default_model(a) } else { None });
-        let u = usages.iter().find(|u| u.account == a.name)?;
-        u.meters.iter().filter(|m| spends(on.as_deref(), m.model.as_deref())).map(|m| 100.0 - m.percent).fold(None, |acc: Option<f64>, x| Some(acc.map_or(x, |a| a.min(x))))
-    };
-    let room = |a: &AccountCfg| room(a).unwrap_or(50.0);
-    candidates.iter().filter(|a| room(a) > 10.0).max_by(|a, b| room(a).partial_cmp(&room(b)).unwrap_or(std::cmp::Ordering::Equal)).or(candidates.first()).map(|a| a.name.clone())
-}
-
-/// Whether a session on `model` spends a limit for `limit_model` (None: every model). A model
-/// that names no family could be any of them, so it spends every limit; `src/start.ts`'s
-/// `metersFor` has the same rule.
-fn spends(model: Option<&str>, limit_model: Option<&str>) -> bool {
-    let m = model.unwrap_or("").to_lowercase();
-    match limit_model {
-        None => true,
-        Some(_) if !["fable", "opus", "sonnet", "haiku"].iter().any(|f| m.contains(f)) => true,
-        Some(l) => m.contains(&l.to_lowercase()),
-    }
+/// Auto's account, by the quick panel's rule (`start::auto_pick`): among the accounts that can
+/// start a session (in `place`, when given; on `model`, when given, which only Claude Code
+/// takes), preferred ones with room first, and among those the one whose week resets soonest.
+fn pick_account(cfg: &Config, usages: &[crate::model::Usage], place: Option<Place>, model: Option<&str>) -> Option<String> {
+    let home = crate::util::home();
+    let startable: Vec<(&AccountCfg, Vec<Place>)> = cfg.accounts.iter().filter_map(|a| start::ordered_places(a, &home).ok().filter(|p| !p.is_empty()).map(|p| (a, p))).collect();
+    let preferred = start::preferred_names(&startable.iter().map(|(a, _)| *a).collect::<Vec<_>>());
+    let models: Vec<Option<String>> = startable.iter().map(|(a, _)| model.map(str::to_string).or_else(|| if a.harness == "claude" { start::claude_default_model(a) } else { None })).collect();
+    let candidates: Vec<start::Candidate> = startable
+        .iter()
+        .zip(&models)
+        .filter(|((a, places), _)| place.is_none_or(|p| places.contains(&p)) && (model.is_none() || a.harness == "claude"))
+        .map(|((a, _), m)| start::Candidate { name: &a.name, preferred: preferred.contains(&a.name.as_str()), model: m.as_deref() })
+        .collect();
+    start::auto_pick(&candidates, usages, crate::util::now_ms()).map(|p| p.account)
 }
 
 // ---- config ----
@@ -2333,16 +2320,6 @@ fn table_text(head: &[&str], rows: Vec<Vec<String>>) -> String {
 mod tests {
     use super::*;
     use clap::CommandFactory;
-
-    #[test]
-    fn auto_counts_only_the_models_limits() {
-        assert!(spends(Some("opus"), None));
-        assert!(!spends(Some("opus[1m]"), Some("Fable")));
-        assert!(spends(Some("claude-opus-5-5"), Some("Opus")));
-        assert!(spends(Some("fable"), Some("Fable")));
-        assert!(spends(Some("best"), Some("Fable")));
-        assert!(spends(None, Some("Fable")));
-    }
 
     #[test]
     fn the_command_line_parses() {

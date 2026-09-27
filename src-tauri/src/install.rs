@@ -347,7 +347,7 @@ mod tests {
         let src = root.join("src");
         std::fs::create_dir_all(&src).unwrap();
         std::fs::write(src.join("SKILL.md"), "---\nname: codealong\n---\n").unwrap();
-        let a = AccountCfg { name: "claude9".into(), harness: "claude".into(), home: root.join("claude9").to_string_lossy().into_owned(), command: None, start: None };
+        let a = AccountCfg { name: "claude9".into(), harness: "claude".into(), home: root.join("claude9").to_string_lossy().into_owned(), command: None, start: None, preferred: false };
         let row = account_skill(Some(&src), &a);
         assert_eq!((row.installed, row.current), (false, false));
         assert!(row.path.as_deref().unwrap().ends_with("claude9/skills/codealong"));
@@ -356,20 +356,20 @@ mod tests {
         assert_eq!((row.installed, row.current, row.edited), (true, true, false));
         // Without a source nothing counts as installed, and an unknown harness has no path.
         assert_eq!(account_skill(None, &a).installed, false);
-        let other = AccountCfg { name: "x".into(), harness: "other".into(), home: "~/x".into(), command: None, start: None };
+        let other = AccountCfg { name: "x".into(), harness: "other".into(), home: "~/x".into(), command: None, start: None, preferred: false };
         assert!(account_skill(Some(&src), &other).path.is_none());
         let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
     fn refreshes_copies_in_folders_config_toml_listed_before() {
-        let claude = AccountCfg { name: "claude".into(), harness: "claude".into(), home: "/Users/me/.claude".into(), command: None, start: None };
+        let claude = AccountCfg { name: "claude".into(), harness: "claude".into(), home: "/Users/me/.claude".into(), command: None, start: None, preferred: false };
         let targets = refresh_targets(&[claude], &["/Users/me/.claude".to_string(), "/Users/me/.claude-old".to_string()]);
         assert_eq!(targets, vec![PathBuf::from("/Users/me/.claude/skills/codealong"), PathBuf::from("/Users/me/.claude-old/skills/codealong")]);
     }
 
     fn account(harness: &str, home: &str) -> AccountCfg {
-        AccountCfg { name: harness.into(), harness: harness.into(), home: home.into(), command: None, start: None }
+        AccountCfg { name: harness.into(), harness: harness.into(), home: home.into(), command: None, start: None, preferred: false }
     }
 
     #[test]

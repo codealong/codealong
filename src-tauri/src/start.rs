@@ -11,7 +11,7 @@ use crate::codex;
 use crate::config::{AccountCfg, Config};
 use crate::attachments::{self, Style};
 use crate::launch;
-use crate::model::{Board, Harness};
+use crate::model::{Board, Harness, Meter, Severity, Usage};
 use crate::util::{home, tilde};
 
 /// The environment variable a terminal start hands the prompt over in. The command Codealong
@@ -86,6 +86,8 @@ pub struct StartAccount {
     pub unavailable: Option<String>,
     /// The model a session starts on without `--model`: the account's settings.json `model`.
     pub default_model: Option<String>,
+    /// Its `preferred` setting: Auto starts it over accounts without one while it has room.
+    pub preferred: bool,
 }
 
 #[derive(Serialize, Clone, Debug, Default, PartialEq)]
@@ -245,11 +247,124 @@ pub fn options(accounts: &[AccountCfg], terminal: &str, codex_projects: Vec<Stri
                 .collect();
             let chosen = a.start.as_deref().and_then(Place::from_word);
             let default_model = if harness == Harness::Claude { default_model(a) } else { None };
-            StartAccount { name: a.name.clone(), harness, places, chosen, unavailable, default_model }
+            StartAccount { name: a.name.clone(), harness, places, chosen, unavailable, default_model, preferred: a.preferred }
         })
         .collect();
     let claude_models = CLAUDE_MODELS.iter().map(|(id, label)| ModelOption { id: id.to_string(), label: label.to_string() }).collect();
     StartOptions { accounts, codex_projects, claude_models }
+}
+
+/// Why Auto starts the account it does: its weekly limit resets soonest, so its room is the
+/// first to be lost (`reset`); it has the most room (`room`); or there are no numbers to go by
+/// (`first`).
+#[derive(Serialize, Clone, Copy, Debug, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub enum AutoReason {
+    Reset,
+    Room,
+    First,
+}
+
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AutoPick {
+    pub account: String,
+    pub reason: AutoReason,
+    /// The weekly reset, for `reset`.
+    pub resets_at: Option<i64>,
+}
+
+/// An account Auto could start: whether it's preferred (see `preferred_names`) and the model
+/// it would start on, None when that could be any.
+pub struct Candidate<'a> {
+    pub name: &'a str,
+    pub preferred: bool,
+    pub model: Option<&'a str>,
+}
+
+/// An account this close to any limit could stall a new session.
+const NEAR_LIMIT: f64 = 90.0;
+
+/// The accounts Auto prefers among those that can start sessions (`startable`, in config
+/// order): the ones config.toml marks `preferred`, else those of the first account's harness,
+/// so that without a star Auto keeps to one agent until its accounts are out of room.
+/// `src/start.ts`'s `preferredNames` has the same rule.
+pub fn preferred_names<'a>(startable: &[&'a AccountCfg]) -> Vec<&'a str> {
+    if startable.iter().any(|a| a.preferred) {
+        return startable.iter().filter(|a| a.preferred).map(|a| a.name.as_str()).collect();
+    }
+    let first = startable.first().map(|a| a.harness.as_str());
+    startable.iter().filter(|a| Some(a.harness.as_str()) == first).map(|a| a.name.as_str()).collect()
+}
+
+/// Whether a session on `model` spends a limit for `limit_model` (None: every model). A model
+/// that names no family could be any of them, so it spends every limit; `src/start.ts`'s
+/// `metersFor` has the same rule.
+pub fn spends(model: Option<&str>, limit_model: Option<&str>) -> bool {
+    let m = model.unwrap_or("").to_lowercase();
+    match limit_model {
+        None => true,
+        Some(_) if !["fable", "opus", "sonnet", "haiku"].iter().any(|f| m.contains(f)) => true,
+        Some(l) => m.contains(&l.to_lowercase()),
+    }
+}
+
+/// The account Auto starts, from `candidates` in config order. Only the limits each one's model
+/// spends count, and an account at 90% of one of them has no room. Preferred accounts with room
+/// go first, then a preferred one without numbers yet, then the others the same way, and only
+/// when all are near a limit the least full of them. Among accounts with room, the one whose
+/// weekly limit resets soonest wins, so no week's room goes unused; without a reset under way,
+/// the one whose fullest limit is least full. Signed-out accounts are passed over.
+/// `src/start.ts`'s `autoPick` has the same rule.
+pub fn auto_pick(candidates: &[Candidate], usages: &[Usage], now: i64) -> Option<AutoPick> {
+    struct Measured<'a> {
+        name: &'a str,
+        preferred: bool,
+        full: f64,
+        near: bool,
+        reset: Option<i64>,
+    }
+    let near = |m: &Meter| m.severity == Severity::Critical || m.percent >= NEAR_LIMIT;
+    let mut measured: Vec<Measured> = Vec::new();
+    let mut unknown: Vec<&Candidate> = Vec::new();
+    for c in candidates {
+        let u = usages.iter().find(|u| u.account == c.name);
+        if u.is_some_and(|u| u.needs_sign_in) {
+            continue;
+        }
+        let meters: Vec<&Meter> = u.map(|u| u.meters.iter().filter(|m| spends(c.model, m.model.as_deref())).collect()).unwrap_or_default();
+        if meters.is_empty() {
+            unknown.push(c);
+            continue;
+        }
+        measured.push(Measured {
+            name: c.name,
+            preferred: c.preferred,
+            full: meters.iter().map(|m| m.percent).fold(0.0, f64::max),
+            near: meters.iter().any(|m| near(m)),
+            reset: meters.iter().filter(|m| m.key == "week" || m.key.starts_with("model:")).filter_map(|m| m.resets_at).filter(|&at| at > now).min(),
+        });
+    }
+    let least_full = |pool: &[&Measured]| pool.iter().min_by(|a, b| a.full.total_cmp(&b.full)).map(|m| AutoPick { account: m.name.to_string(), reason: AutoReason::Room, resets_at: None });
+    let best = |pool: Vec<&Measured>| {
+        let soonest = pool.iter().filter(|m| m.reset.is_some()).min_by(|a, b| a.reset.cmp(&b.reset).then(a.full.total_cmp(&b.full)));
+        match soonest {
+            Some(m) => Some(AutoPick { account: m.name.to_string(), reason: AutoReason::Reset, resets_at: m.reset }),
+            None => least_full(&pool),
+        }
+    };
+    let first = |c: &Candidate| AutoPick { account: c.name.to_string(), reason: AutoReason::First, resets_at: None };
+    for preferred in [true, false] {
+        let roomy: Vec<&Measured> = measured.iter().filter(|m| m.preferred == preferred && !m.near).collect();
+        if !roomy.is_empty() {
+            return best(roomy);
+        }
+        if let Some(c) = unknown.iter().find(|c| c.preferred == preferred) {
+            return Some(first(c));
+        }
+    }
+    let all: Vec<&Measured> = measured.iter().collect();
+    least_full(&all).or_else(|| candidates.iter().find(|c| c.preferred).or(candidates.first()).map(first))
 }
 
 /// The `model` in a Claude account's settings.json, which Claude Code starts on without
@@ -543,7 +658,95 @@ mod tests {
     use super::*;
 
     fn account(name: &str, harness: &str, home: &str, command: Option<&str>) -> AccountCfg {
-        AccountCfg { name: name.into(), harness: harness.into(), home: home.into(), command: command.map(String::from), start: None }
+        AccountCfg { name: name.into(), harness: harness.into(), home: home.into(), command: command.map(String::from), start: None, preferred: false }
+    }
+
+    fn meter(key: &str, percent: f64, resets_at: Option<i64>) -> Meter {
+        let severity = if percent >= 90.0 { Severity::Critical } else { Severity::Normal };
+        Meter { key: key.into(), label: key.into(), window: key.into(), percent, resets_at, severity, model: None }
+    }
+
+    const NOW: i64 = 1_790_200_000_000;
+    const HOUR: i64 = 3_600_000;
+
+    /// An account's 5-hour and weekly use, and in how many hours its week resets.
+    fn usage(account: &str, session: f64, week: f64, week_resets_in: Option<i64>) -> Usage {
+        Usage {
+            account: account.into(),
+            harness: Harness::Claude,
+            plan: None,
+            meters: vec![meter("session", session, Some(NOW + 2 * HOUR)), meter("week", week, week_resets_in.map(|h| NOW + h * HOUR))],
+            as_of: Some(NOW),
+            error: None,
+            needs_sign_in: false,
+            loading: false,
+            rate_limited: false,
+        }
+    }
+
+    fn cand(name: &str, preferred: bool) -> Candidate<'_> {
+        Candidate { name, preferred, model: None }
+    }
+
+    fn pick(cs: &[Candidate], us: &[Usage]) -> (String, AutoReason) {
+        let p = auto_pick(cs, us, NOW).unwrap();
+        (p.account, p.reason)
+    }
+
+    #[test]
+    fn auto_spends_the_week_that_resets_soonest() {
+        let cs = [cand("claude", true), cand("claude2", true)];
+        // claude2 has less room, but its week resets first: its room is the first to be lost.
+        assert_eq!(pick(&cs, &[usage("claude", 10.0, 20.0, Some(100)), usage("claude2", 30.0, 70.0, Some(90))]), ("claude2".into(), AutoReason::Reset));
+        // A week that hasn't started has nothing to lose.
+        assert_eq!(pick(&cs, &[usage("claude", 10.0, 20.0, Some(100)), usage("claude2", 0.0, 0.0, None)]).0, "claude");
+        // Without a reset under way, the most room.
+        assert_eq!(pick(&cs, &[usage("claude", 38.0, 20.0, None), usage("claude2", 12.0, 45.0, None)]), ("claude".into(), AutoReason::Room));
+        // Near a limit is no room, while another has some.
+        assert_eq!(pick(&cs, &[usage("claude", 10.0, 20.0, Some(100)), usage("claude2", 95.0, 70.0, Some(6))]).0, "claude");
+        // All near: the least full.
+        assert_eq!(pick(&cs, &[usage("claude", 92.0, 20.0, Some(100)), usage("claude2", 95.0, 70.0, Some(6))]), ("claude".into(), AutoReason::Room));
+    }
+
+    #[test]
+    fn auto_keeps_to_preferred_accounts_while_they_have_room() {
+        let cs = [cand("claude", true), cand("codex", false)];
+        let codex_soon = usage("codex", 0.0, 10.0, Some(3));
+        assert_eq!(pick(&cs, &[usage("claude", 50.0, 80.0, Some(100)), codex_soon.clone()]).0, "claude");
+        // A preferred account without numbers yet still goes first.
+        assert_eq!(pick(&cs, &[codex_soon.clone()]), ("claude".into(), AutoReason::First));
+        // Out of room: the others.
+        assert_eq!(pick(&cs, &[usage("claude", 50.0, 95.0, Some(100)), codex_soon.clone()]), ("codex".into(), AutoReason::Reset));
+        // Signed out counts as out.
+        let signed_out = Usage { needs_sign_in: true, ..usage("claude", 0.0, 0.0, None) };
+        assert_eq!(pick(&cs, &[signed_out, codex_soon]).0, "codex");
+        assert_eq!(pick(&[cand("codex", false), cand("claude", true)], &[]).0, "claude");
+    }
+
+    #[test]
+    fn auto_counts_only_the_models_limits() {
+        assert!(spends(Some("opus"), None));
+        assert!(!spends(Some("opus[1m]"), Some("Fable")));
+        assert!(spends(Some("claude-opus-5-5"), Some("Opus")));
+        assert!(spends(Some("fable"), Some("Fable")));
+        assert!(spends(Some("best"), Some("Fable")));
+        assert!(spends(None, Some("Fable")));
+        let mut u = usage("claude", 10.0, 20.0, Some(20));
+        u.meters.push(Meter { model: Some("Fable".into()), ..meter("model:Fable", 100.0, Some(NOW + 20 * HOUR)) });
+        let us = [u, usage("claude2", 20.0, 50.0, None)];
+        let on = |m| [Candidate { model: Some(m), ..cand("claude", true) }, Candidate { model: Some(m), ..cand("claude2", true) }];
+        assert_eq!(pick(&on("opus"), &us).0, "claude");
+        assert_eq!(pick(&on("fable"), &us).0, "claude2");
+    }
+
+    #[test]
+    fn prefers_starred_accounts_else_the_first_ones_agent() {
+        let a = |name: &str, harness: &str, preferred: bool| AccountCfg { preferred, ..account(name, harness, &format!("~/.{name}"), None) };
+        let (claude, claude2, codex) = (a("claude", "claude", false), a("claude2", "claude", false), a("codex", "codex", false));
+        assert_eq!(preferred_names(&[&codex, &claude, &claude2]), vec!["codex"]);
+        assert_eq!(preferred_names(&[&claude, &codex, &claude2]), vec!["claude", "claude2"]);
+        let starred = a("codex", "codex", true);
+        assert_eq!(preferred_names(&[&claude, &starred, &claude2]), vec!["codex"]);
     }
 
     fn places(o: &StartOptions, name: &str) -> Vec<Place> {

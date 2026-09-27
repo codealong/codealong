@@ -914,6 +914,35 @@ body.is-resizing * {
 .ca-ucard-head .ca-acct-tags .ca-tag {
   margin-left: 0;
 }
+/* Preferred accounts: Auto starts them first. Filled when on. */
+.ca-acct-star {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin: -4px -2px -4px -6px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+.ca-acct-star:hover {
+  background: var(--surface-hover);
+  color: var(--ink-2);
+}
+.ca-acct-star:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+.ca-acct-star.is-on {
+  color: var(--attn);
+}
+.ca-acct-star.is-on svg {
+  fill: currentColor;
+}
 .ca-acct .ca-tag.is-attn {
   background: var(--attn-tint);
   color: var(--attn);

@@ -1089,8 +1089,9 @@ Options:
           Tables, even when piped
 
       --account <ACCOUNT>
-          The account to run it on. `auto` picks as the app does: the Claude account
-          with the most room for the model
+          The account to run it on. `auto` picks as the quick panel does: a preferred
+          account with room for the model (config.toml's `preferred`), and among those
+          the one whose weekly limit resets soonest
           
           [default: auto]
 

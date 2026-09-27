@@ -160,6 +160,8 @@ export interface AccountCfg {
   command: string | null;
   /** Where a new session starts unless you pick another; absent leaves it to the usual place. */
   start?: StartPlace | null;
+  /** Auto starts it over accounts that aren't preferred while it has room. */
+  preferred?: boolean;
 }
 
 /** A `[[projects]]` table in config.toml. */
@@ -508,6 +510,8 @@ export interface StartAccount {
   chosen: StartPlace | null;
   /** Why there's nowhere, when `places` is empty. */
   unavailable: string | null;
+  /** Its `preferred` setting: Auto starts it over accounts without one while it has room. */
+  preferred: boolean;
   /** The model a session starts on without one chosen: the account's settings.json `model`. */
   defaultModel: string | null;
 }

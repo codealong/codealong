@@ -134,7 +134,7 @@ export function skillTag(s: AccountSkill | undefined): { label: string; tone: 'o
 }
 
 function toCfg(a: AccountCfg): AccountCfg {
-  return { name: a.name, harness: a.harness, home: a.home, command: a.command, start: a.start ?? null };
+  return { name: a.name, harness: a.harness, home: a.home, command: a.command, start: a.start ?? null, preferred: a.preferred ?? false };
 }
 
 interface AccountsSectionProps {
@@ -239,7 +239,8 @@ export function AccountsSection({ focus, usage, terminal, now, onSaved }: Accoun
     if (!draft || !accounts) return;
     // A place the folder or harness no longer offers falls back to the usual one.
     const start = draft.start && startPlaces(draft.harness, draft.home).includes(draft.start) ? draft.start : null;
-    const entry: AccountCfg = { name: draft.name.trim(), harness: draft.harness, home: draft.home.trim(), command: draft.command.trim() || null, start };
+    const preferred = accounts.find((a) => a.name === draft.original)?.preferred ?? false;
+    const entry: AccountCfg = { name: draft.name.trim(), harness: draft.harness, home: draft.home.trim(), command: draft.command.trim() || null, start, preferred };
     const next = draft.original ? accounts.map((a) => (a.name === draft.original ? entry : a)) : [...accounts, entry];
     if (await save(next)) {
       setDraft(null);
@@ -368,6 +369,17 @@ export function AccountsSection({ focus, usage, terminal, now, onSaved }: Accoun
         return (
           <div key={a.name} id={`ca-acct-${a.name}`} className={['ca-ucard', 'ca-acct', focus === a.name && 'is-focus'].filter(Boolean).join(' ')}>
             <div className="ca-ucard-head">
+              <button
+                type="button"
+                className={['ca-acct-star', a.preferred ? 'is-on' : ''].filter(Boolean).join(' ')}
+                aria-pressed={!!a.preferred}
+                aria-label={`Preferred: ${a.name}`}
+                title={a.preferred ? 'Preferred: Auto starts this account while it has room. Click to stop preferring it.' : 'Prefer this account: Auto starts preferred accounts while one has room, and others only when they’re all near a limit.'}
+                disabled={busy}
+                onClick={() => void save((accounts ?? []).map((x) => (x.name === a.name ? { ...x, preferred: !x.preferred } : x)))}
+              >
+                <Icon name="star" size={16} />
+              </button>
               <span className="ca-ucard-name">{a.name}</span>
               <span className="ca-ucard-plan">{[HARNESS_WORD[a.harness], u?.plan].filter(Boolean).join(' · ')}</span>
               <span className="ca-acct-tags">

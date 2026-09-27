@@ -608,11 +608,11 @@ mod tests {
 
     #[test]
     fn resumes_with_the_prompt_in_the_environment() {
-        let account = AccountCfg { name: "claude2".into(), harness: "claude".into(), home: "~/.claude2".into(), command: None, start: None };
+        let account = AccountCfg { name: "claude2".into(), harness: "claude".into(), home: "~/.claude2".into(), command: None, start: None, preferred: false };
         let (input, env) = resume_input(&account, "abc", "-v please");
         assert_eq!(input, format!("claude2 --resume abc \"${}\"\n", start::PROMPT_VAR));
         assert_eq!(env, vec![(start::PROMPT_VAR.to_string(), " -v please".to_string())]);
-        let codex = AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: Some("codex".into()), start: None };
+        let codex = AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: Some("codex".into()), start: None, preferred: false };
         let (input, env) = resume_input(&codex, "01a0e379", "-v please");
         assert_eq!(input, format!("codex resume -- 01a0e379 \"${}\"\n", start::PROMPT_VAR));
         assert_eq!(env, vec![(start::PROMPT_VAR.to_string(), "-v please".to_string())]);
