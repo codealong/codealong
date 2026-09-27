@@ -15,6 +15,7 @@ mod opencode;
 mod config;
 mod detect;
 mod engine;
+mod flash;
 mod git;
 mod harness;
 mod idle;
@@ -100,8 +101,21 @@ fn get_board(engine: State<'_, engine::Handle>) -> model::Board {
 }
 
 #[tauri::command(async)]
-fn open_target(engine: State<'_, engine::Handle>, lane_id: String, target_id: String) -> Result<(), String> {
-    engine.open(&lane_id, &target_id).map_err(|e| e.to_string())
+fn open_target(app: tauri::AppHandle, engine: State<'_, engine::Handle>, lane_id: String, target_id: String) -> Result<(), String> {
+    let from = flash::pointer();
+    engine.open(&lane_id, &target_id).map_err(|e| e.to_string())?;
+    flash_focused(&app, &engine, &target_id, from);
+    Ok(())
+}
+
+/// After a session's terminal came forward, shows where when it's on another screen (flash.rs).
+fn flash_focused(app: &tauri::AppHandle, engine: &engine::Handle, target_id: &str, from: Option<(f64, f64)>) {
+    if !target_id.ends_with("|focus") {
+        return;
+    }
+    if let Some(bundle) = bar::target_app(target_id, &engine.board().apps.terminal_id) {
+        flash::after_focus(app, from, bundle);
+    }
 }
 
 #[tauri::command(async)]
@@ -168,10 +182,12 @@ fn show_main(app: tauri::AppHandle, reveal: Option<serde_json::Value>) -> Result
 /// bar doesn't make Codealong the active app.
 #[tauri::command(async)]
 fn open_from_bar(app: tauri::AppHandle, engine: State<'_, engine::Handle>, lane_id: String, target_id: String) -> Result<(), String> {
+    let from = flash::pointer();
     engine.open(&lane_id, &target_id).map_err(|e| e.to_string())?;
     if let Some(bundle) = bar::target_app(&target_id, &engine.board().apps.terminal_id) {
         bar::bring_forward(&app, bundle);
     }
+    flash_focused(&app, &engine, &target_id, from);
     Ok(())
 }
 

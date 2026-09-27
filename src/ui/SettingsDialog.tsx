@@ -227,6 +227,11 @@ function GeneralPane({ cfg, view, theme, onPickTheme, disabled, onSave }: PanePr
           </div>
           <small>{NEW_TERMINALS.find((t) => t.id === (cfg.apps.new_terminal ?? 'project'))?.says}</small>
         </div>
+        <label className="ca-field ca-settings-check">
+          <input type="checkbox" checked={cfg.apps.move_pointer ?? false} onChange={(e) => void onSave({ ...cfg, apps: { ...cfg.apps, move_pointer: e.target.checked } })} />
+          <span>Move the pointer to a terminal on another screen</span>
+          <small>When a session's terminal comes forward on another screen than the pointer's, Codealong outlines it for a moment. This moves the pointer there too.</small>
+        </label>
         <label className="ca-field">
           <span>Editor</span>
           <ProfileSelect value={cfg.apps.editor} profiles={view.editors} onChange={(editor) => void onSave({ ...cfg, apps: { ...cfg.apps, editor } })} />

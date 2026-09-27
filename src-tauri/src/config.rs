@@ -202,11 +202,15 @@ pub struct AppsCfg {
     pub editor: String,
     #[serde(default)]
     pub new_terminal: NewTerminal,
+    /// After bringing a session's terminal forward on another screen, moves the pointer to it
+    /// (flash.rs). Off by default: the terminal is outlined either way.
+    #[serde(default)]
+    pub move_pointer: bool,
 }
 
 impl Default for AppsCfg {
     fn default() -> Self {
-        AppsCfg { terminal: default_terminal(), editor: default_editor(), new_terminal: NewTerminal::default() }
+        AppsCfg { terminal: default_terminal(), editor: default_editor(), new_terminal: NewTerminal::default(), move_pointer: false }
     }
 }
 
@@ -398,7 +402,7 @@ fn set_accounts(doc: &mut toml_edit::DocumentMut, accounts: &[AccountCfg]) {
     set_tables(doc, "accounts", rows);
 }
 
-const APPS_COMMENT: &str = "# Where Codealong opens things. Built-in profiles: terminal \"ghostty\", editor \"cursor\".\n# new_terminal: \"window\", \"tab\" (in the front window), or \"project\" (a tab beside the same repo or project).\n";
+const APPS_COMMENT: &str = "# Where Codealong opens things. Built-in profiles: terminal \"ghostty\", editor \"cursor\".\n# new_terminal: \"window\", \"tab\" (in the front window), or \"project\" (a tab beside the same repo or project).\n# move_pointer: move the pointer to a terminal Codealong brings forward on another screen.\n";
 const APPEARANCE_COMMENT: &str = "# Light or dark. \"system\" follows macOS. The buttons at the foot of the sidebar set this too.\n";
 const JEV_COMMENT: &str = "# What Codealong asks TypeSafe's Jev, feature by feature (Settings › Jev says what each one sends).\n# The API key is kept in the login keychain; set it in Settings.\n";
 const SEARCH_COMMENT: &str = "# The quick panel and `codealong sessions find` search what was said in sessions active in the\n# last `days` days, not just their titles. 0 turns it off; 14, the board's reach, is the most.\n";
@@ -587,6 +591,10 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
     set_value(&mut doc["apps"]["terminal"], Value::from(cfg.apps.terminal.trim()));
     set_value(&mut doc["apps"]["editor"], Value::from(cfg.apps.editor.trim()));
     set_value(&mut doc["apps"]["new_terminal"], Value::from(cfg.apps.new_terminal.as_str()));
+    // Opt-in: only a file that turns it on, or has it already, gets the key.
+    if cfg.apps.move_pointer || doc["apps"].get("move_pointer").is_some() {
+        set_value(&mut doc["apps"]["move_pointer"], Value::from(cfg.apps.move_pointer));
+    }
 
     set_theme(&mut doc, cfg.appearance.theme);
     set_shortcuts(&mut doc, &cfg.shortcuts);
@@ -720,6 +728,9 @@ pub fn render(cfg: &Config) -> String {
     s.push_str(&format!("terminal = {}\n", q(&cfg.apps.terminal)));
     s.push_str(&format!("editor = {}\n", q(&cfg.apps.editor)));
     s.push_str(&format!("new_terminal = {}\n", q(cfg.apps.new_terminal.as_str())));
+    if cfg.apps.move_pointer {
+        s.push_str("move_pointer = true\n");
+    }
     s.push('\n');
     s.push_str(APPEARANCE_COMMENT);
     s.push_str("[appearance]\n");

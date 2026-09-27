@@ -116,6 +116,8 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   Antigravity brought forward (it has no link to a conversation), a background job attached
   in a new terminal, or the folder in Cursor. A new terminal opens as a tab in the Ghostty
   window already showing that worktree, repo or project (`new_terminal` in config.toml).
+  A session's tab that comes forward on another screen than the pointer's is outlined for a
+  moment, and `move_pointer` moves the pointer to it.
 - **Quick panel** (⌥⇧Space from any app, over full-screen ones too; ⌘N, the title bar, the
   inspector, or a worktree's or session's right-click menu in Codealong): one input, and below
   it what you can do next. With nothing typed it lists the sessions that need you, then the
@@ -293,6 +295,7 @@ scan = ["~/projects"]          # where repos are found, three levels deep
 terminal = "ghostty"
 editor = "cursor"
 new_terminal = "project"       # a tab beside the same worktree, repo or project; or "tab", "window"
+move_pointer = false           # move the pointer to a terminal brought forward on another screen
 
 [appearance]
 theme = "system"               # follows macOS; or "light", "dark"
@@ -386,6 +389,7 @@ light scan (no git, PRs or visitors).
 | `src-tauri/src/opencode.rs`, `antigravity.rs` | Harness adapters: OpenCode's database and background service, Antigravity's conversation summaries |
 | `src-tauri/src/repos.rs`, `git.rs`, `github.rs` | Repo discovery, callsigns, worktrees, git status, PRs |
 | `src-tauri/src/launch.rs` | App profiles: Ghostty (AppleScript, exact tab focus), Cursor (CLI), deep links |
+| `src-tauri/src/flash.rs` | Outlines a focused terminal that came forward on another screen |
 | `src-tauri/src/idle.rs`, `src/ui/CloseIdleDialog.tsx` | Close idle terminals: which sessions' tabs can close and why (pure, tested), and closing them |
 | `src-tauri/src/start.rs`, `src/start.ts` | New sessions: where each account can start one, the launch it makes, the agent menu (every account on every model) and Auto's pick |
 | `src-tauri/src/quick.rs`, `src/quick.ts`, `src/ui/Quick.tsx` | The quick panel: its window (a panel that takes the keyboard over any app), its shortcut, and its page (what needs you, finding sessions, starting one) |

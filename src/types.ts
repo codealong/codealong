@@ -176,7 +176,7 @@ export interface ProjectCfg {
 /** config.toml, as the engine parses it (src-tauri/src/config.rs). Keys are the file's own. */
 export interface Config {
   scan: string[];
-  apps: { terminal: string; editor: string; new_terminal?: NewTerminal };
+  apps: { terminal: string; editor: string; new_terminal?: NewTerminal; move_pointer?: boolean };
   appearance: { theme: Theme };
   /** Shortcuts that work in any app, as config.toml writes them (`Option+Shift+Space`); empty is off. */
   shortcuts: { quick_panel: string };
