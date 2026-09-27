@@ -1,6 +1,7 @@
 // A session to answer at a glance: who it is and where at the top, its conversation, and the box
 // that answers it at the bottom (SessionReply.tsx). The floating bar's peek shows it for the pill
-// under the pointer, and the quick panel's reply view for the session picked there.
+// under the pointer, and the quick panel's reply view for the session picked there. Both give its
+// header a way to mark a finished turn seen or archive the session, off the list it came from.
 
 import { agoPhrase, duration } from '../format';
 import { sessionPlace } from '../harness';
@@ -56,14 +57,14 @@ export function ReplyView({ lane, session: s, terminal, now, onOpen, onReveal, o
             {s.account} · {lane.callsign} · {status}
           </div>
         </div>
-        {onSeen && (s.status === 'unread' || s.asks) && <Button variant="ghost" size="sm" icon="check" aria-label="Mark as seen" title="Mark as seen: it leaves the bar" onClick={onSeen} />}
+        {onSeen && (s.status === 'unread' || s.asks) && <Button variant="ghost" size="sm" icon="check" aria-label="Mark as seen" title="Mark as seen: it leaves the list" onClick={onSeen} />}
         {onArchive && (
           <Button
             variant="ghost"
             size="sm"
             icon="archive"
             aria-label="Archive"
-            title={s.harness === 'codex' ? 'Archive: it leaves the bar, and Codex archives the thread' : 'Archive: it leaves the bar and the board until you unarchive it'}
+            title={s.harness === 'codex' ? 'Archive: it leaves the list and the board, and Codex archives the thread' : 'Archive: it leaves the list and the board until you unarchive it'}
             onClick={onArchive}
           />
         )}

@@ -12,15 +12,17 @@
 //
 // ⇥ on a session answers it here: the panel shows its conversation and a box that sends it a
 // message where it runs, or what it waits on you to allow (ReplyView.tsx). ⏎ sends, and Escape
-// goes back to the list.
+// goes back to the list, as marking it seen or archiving it from its header does.
 
 import { reuse } from '../reuse';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
+  archiveSession,
   fitQuick,
   getBoard,
   hideQuick,
   inPreview,
+  markSeen,
   onBoard,
   onQuickHidden,
   onQuickOpen,
@@ -627,6 +629,12 @@ export function Quick() {
     refocus();
   };
 
+  /** Marks the session answered seen or archives it, and goes back to the list it's left. */
+  const dismissReply = (act: Promise<void>) => {
+    leaveReply();
+    act.catch((e: unknown) => setError(plain(e)));
+  };
+
   /** The session ⏎ opens for a todo, as in the main window: the live one, else the latest. */
   const todoSession = (r: TodoRow) => r.item.sessions.find((x) => x.session.live) ?? r.item.sessions[0] ?? null;
 
@@ -1149,6 +1157,8 @@ export function Quick() {
             onBack={leaveReply}
             onOpen={() => openSession(replying.lane, replying.session)}
             onReveal={() => revealSession(replying.lane, replying.session)}
+            onSeen={() => dismissReply(markSeen([replying.session.key]))}
+            onArchive={() => dismissReply(archiveSession(replying.session.key, true))}
             onSent={(sent) => replied(sent.message)}
             onAnswered={(said) => replied(said)}
           />
