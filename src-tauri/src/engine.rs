@@ -451,6 +451,7 @@ struct Engine {
     opencode_live: HashMap<String, opencode::Live>,
     /// OpenCode's interactive terminals, refreshed on the tick.
     opencode_terminals: Vec<opencode::Terminal>,
+    codex_terminals: Vec<codex::Terminal>,
     /// Each OpenCode and Antigravity database's size and time, and its WAL's, at the last look.
     database_marks: HashMap<String, [Option<(u64, Option<std::time::SystemTime>)>; 2]>,
     opencode_inflight: bool,
@@ -555,6 +556,7 @@ impl Engine {
             opencode_sessions: HashMap::new(),
             opencode_live: HashMap::new(),
             opencode_terminals: Vec::new(),
+            codex_terminals: Vec::new(),
             database_marks: HashMap::new(),
             opencode_inflight: false,
             opencode_last: None,
@@ -837,6 +839,17 @@ impl Engine {
         let fresh = opencode::terminals();
         let changed = fresh != self.opencode_terminals;
         self.opencode_terminals = fresh;
+        changed
+    }
+
+    /// Codex's terminal UIs: which threads are open in a terminal, and which one.
+    fn refresh_codex_terminals(&mut self) -> bool {
+        if !self.cfg.accounts.iter().any(|a| a.harness == "codex") {
+            return false;
+        }
+        let fresh = codex::terminals();
+        let changed = fresh != self.codex_terminals;
+        self.codex_terminals = fresh;
         changed
     }
 
@@ -1183,6 +1196,7 @@ impl Engine {
             }
         }
         self.refresh_opencode_terminals();
+        self.refresh_codex_terminals();
         self.refresh_archived_rollouts();
     }
 
@@ -1481,7 +1495,7 @@ impl Engine {
             }
         }
         self.poll_codex();
-        if self.refresh_opencode_terminals() {
+        if self.refresh_opencode_terminals() | self.refresh_codex_terminals() {
             self.dirty = true;
         }
         self.poll_opencode();
@@ -1985,11 +1999,17 @@ impl Engine {
                     let index = self.codex_index.get(&a.name);
                     // Codex decides what's archived: its archived threads live in `archived_sessions`.
                     let archived_dir = a.home_path().join("archived_sessions");
+                    let threads: Vec<(&str, &str, i64, i64, bool)> = self
+                        .rollouts
+                        .values()
+                        .filter_map(|(acct, info)| info.as_ref().filter(|_| acct == &a.name).map(|(th, _)| (th.id.as_str(), th.cwd.as_str(), th.started_at.unwrap_or(0), th.last_ts, th.cli)))
+                        .collect();
+                    let terminals = codex::pair_terminals(&self.codex_terminals, &threads);
                     for (path, (acct, info)) in &self.rollouts {
                         let (true, Some((th, _))) = (acct == &a.name, info.as_ref()) else { continue };
                         let key = format!("codex:{}:{}", a.name, th.id);
                         let name = index.and_then(|i| i.get(&th.id)).map(|(n, _)| n.as_str());
-                        let mut s = board::codex_session(a, th, name, self.seen.seen_at(&key), now);
+                        let mut s = board::codex_session(a, th, name, terminals.get(&th.id).copied(), self.seen.seen_at(&key), now);
                         s.archived = path.starts_with(&archived_dir);
                         out.push(s);
                     }

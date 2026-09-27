@@ -482,7 +482,7 @@ pub fn terminal_args(command: &str) -> Option<(Option<String>, Option<PathBuf>)>
 }
 
 /// A process's working folder, from lsof.
-fn cwd_of(pid: u32) -> Option<PathBuf> {
+pub fn cwd_of(pid: u32) -> Option<PathBuf> {
     let out = procs::run("/usr/sbin/lsof", &["-a", "-p", &pid.to_string(), "-d", "cwd", "-Fn"], None, Duration::from_secs(3)).ok()?;
     out.lines().find_map(|l| l.strip_prefix('n')).map(PathBuf::from)
 }

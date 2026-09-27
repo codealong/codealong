@@ -186,14 +186,14 @@ impl Place {
 
 /// Where an account can start a session, the usual place first, or why it can't. The Claude
 /// app and the Codex app each run one account, the one in the default folder (`~/.claude`,
-/// `~/.codex`); the terminal runs any Claude Code or OpenCode account through its command.
+/// `~/.codex`); the terminal runs any Claude Code, Codex or OpenCode account through its command.
 /// Antigravity starts conversations only in its own window.
 pub fn places_of(a: &AccountCfg, home: &Path) -> std::result::Result<Vec<Place>, String> {
     match harness_of(a) {
         Harness::Claude if a.home_path() == home.join(".claude") => Ok(vec![Place::Terminal, Place::Background, Place::ClaudeApp]),
         Harness::Claude => Ok(vec![Place::Terminal, Place::Background]),
-        Harness::Codex if a.home_path() == home.join(".codex") => Ok(vec![Place::CodexApp]),
-        Harness::Codex => Err(format!("The Codex app runs the account in ~/.codex, so {} can't start threads from here.", a.name)),
+        Harness::Codex if a.home_path() == home.join(".codex") => Ok(vec![Place::CodexApp, Place::Terminal]),
+        Harness::Codex => Ok(vec![Place::Terminal]),
         Harness::Opencode => Ok(vec![Place::Terminal]),
         Harness::Antigravity => Err(format!("Antigravity starts conversations in its own window, so {} can't start one from here.", a.name)),
     }
@@ -290,12 +290,30 @@ pub fn plan(account: &AccountCfg, place: Place, folder: &Path, prompt: &str, ses
 #[allow(clippy::too_many_arguments)]
 fn plan_in(account: &AccountCfg, place: Place, folder: &Path, prompt: &str, session_id: &str, model: Option<&str>, worktree: bool, (images_dir, files_dir): (&Path, &Path)) -> Plan {
     let (has_images, has_files) = attachments::kinds(prompt);
-    // OpenCode has no --add-dir; it gets plain paths, as Codex does.
-    let style = if place == Place::CodexApp || harness_of(account) == Harness::Opencode { Style::Path } else { Style::Mention };
+    let prompt_in = prompt;
+    // OpenCode and Codex have no --add-dir; they get plain paths.
+    let style = if matches!(harness_of(account), Harness::Opencode | Harness::Codex) { Style::Path } else { Style::Mention };
     let prompt = attachments::expand_in(prompt, images_dir, files_dir, style);
     let prompt = prompt.trim();
     let dir = folder.to_string_lossy();
     match place {
+        Place::Terminal if harness_of(account) == Harness::Codex => {
+            // Codex picks its own thread id. Its images go with -i, which takes several, so `--`
+            // ends them before the prompt; other files are paths it can read.
+            let mut input = account.command().to_string();
+            let mut env = Vec::new();
+            for rel in attachments::referenced(prompt_in).iter().filter(|r| r.starts_with("images/")) {
+                if let Some(name) = rel.strip_prefix("images/") {
+                    input.push_str(&format!(" -i {}", sh_quote(&images_dir.join(name).to_string_lossy())));
+                }
+            }
+            if !prompt.is_empty() {
+                input.push_str(&format!(" -- \"${PROMPT_VAR}\""));
+                env.push((PROMPT_VAR.to_string(), prompt.to_string()));
+            }
+            input.push('\n');
+            Plan::Terminal { cwd: folder.to_path_buf(), input, env }
+        }
         Place::Terminal => {
             // OpenCode picks its own session id, takes the prompt as an option, and has no
             // --worktree, --add-dir or --model.
@@ -485,9 +503,10 @@ pub fn start(board: &Board, cfg: &Config, spec: &StartSpec) -> Result<Started> {
         Plan::Terminal { cwd, input, env } => {
             let near = crate::board::terminal_neighbours(&board.lanes, folder);
             launch::terminal_run(&cfg.apps.terminal, launch::Placement { new_terminal: cfg.apps.new_terminal, near: &near }, &cwd, &input, &env)?;
-            // OpenCode names its own session; it shows on the board once it's written.
+            // OpenCode and Codex name their own sessions; one shows on the board once it's written.
             match harness_of(account) {
                 Harness::Opencode => Ok(Started { key: None, message: Some(format!("OpenCode is starting in {}.", lane.callsign)) }),
+                Harness::Codex => Ok(Started { key: None, message: Some(format!("Codex is starting in {}.", lane.callsign)) }),
                 _ => Ok(Started { key: Some(format!("claude:{}:{id}", account.name)), message: None }),
             }
         }
@@ -544,9 +563,8 @@ mod tests {
         let o = options(&accounts, "Ghostty", vec!["/r/kestrel".into()], Path::new("/Users/me"), |a| (a.name == "claude2").then(|| "claude-fable-5-1".to_string()));
         assert_eq!(places(&o, "claude"), vec![Place::Terminal, Place::Background, Place::ClaudeApp]);
         assert_eq!(places(&o, "claude2"), vec![Place::Terminal, Place::Background]);
-        assert_eq!(places(&o, "codex"), vec![Place::CodexApp]);
-        assert!(places(&o, "codex2").is_empty());
-        assert!(o.accounts[3].unavailable.as_deref().unwrap_or("").contains("~/.codex"));
+        assert_eq!(places(&o, "codex"), vec![Place::CodexApp, Place::Terminal]);
+        assert_eq!(places(&o, "codex2"), vec![Place::Terminal]);
         assert_eq!(places(&o, "opencode"), vec![Place::Terminal]);
         assert!(places(&o, "antigravity").is_empty());
         assert!(o.accounts[5].unavailable.as_deref().unwrap_or("").contains("its own window"));
@@ -573,7 +591,8 @@ mod tests {
         assert!(check_start(&accounts[0], "claude-app", home).is_ok());
         let err = check_start(&accounts[1], "claude-app", home).unwrap_err();
         assert!(err.contains("\"terminal\", \"background\""), "{err}");
-        assert!(check_start(&account("codex", "codex", "/Users/me/.codex", None), "terminal", home).is_err());
+        assert!(check_start(&account("codex", "codex", "/Users/me/.codex", None), "terminal", home).is_ok());
+        assert!(check_start(&account("codex2", "codex", "/Users/me/.codex2", None), "codex-app", home).is_err());
         assert!(check_start(&account("ag", "antigravity", "/Users/me/.gemini/antigravity", None), "terminal", home).unwrap_err().contains("takes no start"));
         assert!(check_start(&accounts[1], "somewhere", home).is_err());
     }
@@ -717,6 +736,13 @@ mod tests {
         // Without images, nothing changes.
         let Plan::Terminal { input, .. } = plan_in(&a, Place::Terminal, Path::new("/r/x"), "Fix it", id, None, false, (dir, Path::new("/f"))) else { panic!() };
         assert_eq!(input, format!("claude2 --session-id {id} \"$CODEALONG_PROMPT\"\n"));
+        // The Codex CLI gets the image with -i as well as its path, `--` before the prompt.
+        let cx2 = account("codex2", "codex", "~/.codex2", Some("CODEX_HOME=~/.codex2 codex"));
+        let Plan::Terminal { input, env, .. } = plan_in(&cx2, Place::Terminal, Path::new("/r/x"), prompt, id, Some("opus"), true, (dir, Path::new("/f"))) else { panic!() };
+        assert_eq!(input, format!("CODEX_HOME=~/.codex2 codex -i '{}/0123456789abcdef.png' -- \"$CODEALONG_PROMPT\"\n", dir.display()));
+        assert_eq!(env, vec![(PROMPT_VAR.to_string(), format!("Match this:\n![image]({}/0123456789abcdef.png)", dir.display()))]);
+        let Plan::Terminal { input, env, .. } = plan_in(&cx2, Place::Terminal, Path::new("/r/x"), "", id, None, false, (dir, Path::new("/f"))) else { panic!() };
+        assert_eq!((input.as_str(), env.len()), ("CODEX_HOME=~/.codex2 codex\n", 0));
         // Codex opens the path; the Claude app gets the same mention the terminal does.
         let codex = account("codex", "codex", "~/.codex", None);
         let Plan::CodexApp { url } = plan_in(&codex, Place::CodexApp, Path::new("/r/x"), prompt, id, None, false, (dir, Path::new("/f"))) else { panic!() };

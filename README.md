@@ -112,7 +112,7 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     selection, ⇧0 100%. Zoomed out, cards become blocks in their status color drawn by the
     GPU (WebGL2).
 - **Open where it lives**: the session's own Ghostty tab, the Claude app session, the Codex
-  thread, an OpenCode session in its terminal (or resumed in a new one with `--session`),
+  thread (a CLI thread's terminal, or `codex resume` in a new one), an OpenCode session in its terminal (or resumed in a new one with `--session`),
   Antigravity brought forward (it has no link to a conversation), a background job attached
   in a new terminal, or the folder in Cursor. A new terminal opens as a tab in the Ghostty
   window already showing that worktree, repo or project (`new_terminal` in config.toml).
@@ -169,7 +169,8 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   Attach opens a terminal on it when you want one. The
   Claude app and Codex open a new session with the prompt filled in, and you send it there
   (their own model and worktree choices included). OpenCode starts in Ghostty on your prompt
-  (`--prompt`); Antigravity starts conversations only in its own window. Auto, the default,
+  (`--prompt`), and so does the Codex CLI, for any Codex account (`codex -- <prompt>`, images
+  with `-i`); Antigravity starts conversations only in its own window. Auto, the default,
   picks between accounts of one harness: first the one whose weekly limit resets soonest
   within 48 hours, so its room isn't lost, else the one with the most room, judged by the
   limits its default model spends; accounts at 90% of a limit are passed over. It starts on

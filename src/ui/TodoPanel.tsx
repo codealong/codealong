@@ -594,7 +594,7 @@ export function TodoPanel({ item, todos, onShowTodo, labels, lanes, now, onRun, 
           <p key={`${p.lane}@${p.at}`} className="ca-todoinsp-waiting">
             <Icon name="clock" size={12} />
             <span>
-              Waiting for the new {p.harness === 'codex' ? 'Codex thread' : 'Claude app session'} in {lane?.callsign ?? 'its worktree'} to show up. Started {ago(p.at, now)} ago.
+              Waiting for the new {p.harness === 'codex' ? 'Codex thread' : p.harness === 'opencode' ? 'OpenCode session' : 'Claude session'} in {lane?.callsign ?? 'its worktree'} to show up. Started {ago(p.at, now)} ago.
             </span>
           </p>
         ))}

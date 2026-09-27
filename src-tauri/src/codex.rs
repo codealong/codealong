@@ -36,6 +36,8 @@ pub struct ThreadInfo {
     pub rate_limits: BTreeMap<String, RateLimit>,
     /// Where its latest commands ran and file changes landed, oldest first.
     pub work: Vec<String>,
+    /// Started in the Codex CLI (`codex` in a terminal), not the app.
+    pub cli: bool,
 }
 
 /// A tool call without its output yet.
@@ -287,6 +289,8 @@ pub fn parse_meta(first_line: &str) -> Option<ThreadInfo> {
         id: p.get("id").and_then(Value::as_str).unwrap_or_default().to_string(),
         cwd: p.get("cwd").and_then(Value::as_str)?.to_string(),
         branch: p.pointer("/git/branch").and_then(Value::as_str).map(String::from),
+        // The app writes "Codex Desktop"; the terminal UI "codex-tui" (and "codex_cli_rs" before).
+        cli: matches!(p.get("originator").and_then(Value::as_str), Some("codex-tui" | "codex_cli_rs")),
         started_at: p
             .get("timestamp")
             .and_then(Value::as_str)
@@ -628,10 +632,12 @@ impl crate::harness::Adapter for Codex {
 
     /// A thread in a terminal is typed into; any other goes through the app.
     fn routes(&self, _account: &crate::config::AccountCfg, s: &crate::model::Session) -> Vec<crate::send::Route> {
-        if s.surface == crate::model::Surface::Cli && s.live {
-            s.pid.map(|pid| vec![crate::send::Route::Type { pid }]).unwrap_or_default()
-        } else {
-            vec![crate::send::Route::CodexApp]
+        // A thread open in a terminal gets it typed there; one made in the CLI and closed
+        // resumes in a new terminal; the app's own go to the app.
+        match (s.surface, s.pid) {
+            (crate::model::Surface::Cli, Some(pid)) => vec![crate::send::Route::Type { pid }],
+            (crate::model::Surface::Cli, None) => vec![crate::send::Route::Resume],
+            _ => vec![crate::send::Route::CodexApp],
         }
     }
 
@@ -659,9 +665,145 @@ fn walk_files(dir: &Path, depth: usize, visit: &mut dyn FnMut(&Path)) {
     }
 }
 
+// ---- Terminal sessions ----
+
+/// A Codex terminal UI running on this Mac.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Terminal {
+    pub pid: u32,
+    pub cwd: PathBuf,
+    /// The thread it was started on (`codex resume <id>`), when it was.
+    pub thread: Option<String>,
+    pub started_at: i64,
+}
+
+/// Codex's interactive terminals on this Mac. Its daemon, `exec` runs and the app's own
+/// app-server aren't terminals; neither is anything run from inside an app bundle.
+pub fn terminals() -> Vec<Terminal> {
+    let Ok(out) = crate::procs::run("/bin/ps", &["-axo", "pid=,command="], None, std::time::Duration::from_secs(3)) else { return Vec::new() };
+    out.lines()
+        .filter_map(|line| {
+            let (pid, command) = line.trim().split_once(' ')?;
+            let pid: u32 = pid.parse().ok()?;
+            let (thread, dir) = terminal_args(command)?;
+            let cwd = dir.or_else(|| crate::opencode::cwd_of(pid))?;
+            let cwd = std::fs::canonicalize(&cwd).unwrap_or(cwd);
+            Some(Terminal { pid, cwd, thread, started_at: crate::procs::proc_start_ms(pid)? })
+        })
+        .collect()
+}
+
+/// For a process command line that is Codex's interactive UI: the thread it resumed, and the
+/// folder `-C` gave it. None for anything else. `ps` joins the arguments with spaces, so a
+/// prompt reads as words; only the first word that isn't an option matters.
+pub fn terminal_args(command: &str) -> Option<(Option<String>, Option<PathBuf>)> {
+    let mut words = command.split_whitespace().peekable();
+    let program = words.next()?;
+    if program.rsplit('/').next() != Some("codex") || program.contains(".app/") || program.contains("/packages/") {
+        return None;
+    }
+    let mut dir = None;
+    while let Some(w) = words.next() {
+        match w {
+            "-C" | "--cd" => dir = words.next().map(crate::util::expand),
+            "-c" | "--config" | "--enable" | "--disable" | "--remote" | "--remote-auth-token-env" | "-m" | "--model" | "--local-provider" | "-p" | "--profile" | "-s" | "--sandbox" | "--add-dir" | "-a" | "--ask-for-approval" => {
+                words.next();
+            }
+            // Images take several values, up to the next option.
+            "-i" | "--image" => {
+                while words.peek().is_some_and(|n| !n.starts_with('-')) {
+                    words.next();
+                }
+            }
+            "--" => return Some((None, dir)),
+            _ if w.starts_with('-') => {}
+            "resume" | "fork" => {
+                let rest: Vec<&str> = words.collect();
+                let id = rest.iter().find(|a| looks_like_uuid(a)).map(|a| a.to_string());
+                let id = if w == "resume" { id } else { None };
+                let dir = dir.or_else(|| rest.windows(2).find(|p| p[0] == "-C" || p[0] == "--cd").map(|p| crate::util::expand(p[1])));
+                return Some((id, dir));
+            }
+            "exec" | "e" | "review" | "login" | "logout" | "mcp" | "plugin" | "app-server" | "remote-control" | "app" | "completion" | "update" | "doctor" | "sandbox" | "debug" | "apply" | "a" | "queue" | "archive" | "delete" | "migrate-rollouts" | "unarchive" | "cloud" | "exec-server" | "features" | "help" | "agents" | "mcp-server" | "proto" | "responses-api-proxy" => return None,
+            // The prompt.
+            _ => return Some((None, dir)),
+        }
+    }
+    Some((None, dir))
+}
+
+fn looks_like_uuid(s: &str) -> bool {
+    s.len() == 36 && s.chars().all(|c| c.is_ascii_hexdigit() || c == '-') && s.matches('-').count() == 4
+}
+
+/// Which terminal shows each thread. One started on a thread (`resume <id>`) shows it; the rest
+/// show their folder's CLI threads that were active since they started, the newest terminal the
+/// newest thread. `threads` is (id, folder, started, last activity, made in the CLI).
+pub fn pair_terminals(terminals: &[Terminal], threads: &[(&str, &str, i64, i64, bool)]) -> HashMap<String, u32> {
+    let mut out: HashMap<String, u32> = HashMap::new();
+    for t in terminals {
+        if let Some(id) = &t.thread {
+            out.insert(id.clone(), t.pid);
+        }
+    }
+    let mut folders: HashMap<&Path, Vec<&Terminal>> = HashMap::new();
+    for t in terminals.iter().filter(|t| t.thread.is_none()) {
+        folders.entry(t.cwd.as_path()).or_default().push(t);
+    }
+    for (dir, mut terms) in folders {
+        terms.sort_by_key(|t| std::cmp::Reverse(t.started_at));
+        let mut candidates: Vec<&(&str, &str, i64, i64, bool)> = threads.iter().filter(|th| th.4 && Path::new(th.1) == dir && !out.contains_key(th.0)).collect();
+        candidates.sort_by_key(|th| std::cmp::Reverse(th.2));
+        for term in terms {
+            // A thread quiet since before the terminal started isn't the one it shows.
+            if let Some(i) = candidates.iter().position(|th| th.3 >= term.started_at) {
+                out.insert(candidates.remove(i).0.to_string(), term.pid);
+            }
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tells_terminals_from_other_codex_processes() {
+        let id = "01a0e375-0b36-77c1-8bf9-908e396b259e";
+        assert_eq!(terminal_args("codex Reply with just the word pong."), Some((None, None)));
+        assert_eq!(terminal_args("/opt/homebrew/bin/codex"), Some((None, None)));
+        assert_eq!(terminal_args("codex -m gpt-5 -C /r/kestrel -i /a.png /b.png -- fix it"), Some((None, Some(PathBuf::from("/r/kestrel")))));
+        assert_eq!(terminal_args(&format!("codex resume {id} carry on")), Some((Some(id.into()), None)));
+        assert_eq!(terminal_args("codex resume --last"), Some((None, None)));
+        assert_eq!(terminal_args("codex resume the work"), Some((None, None)));
+        assert_eq!(terminal_args("codex exec fix it"), None);
+        assert_eq!(terminal_args("/Users/me/.codex/packages/app-server-daemon/releases/0.157.1/bin/codex app-server --listen unix://"), None);
+        assert_eq!(terminal_args("/Applications/Codex.app/Contents/Resources/codex app-server"), None);
+        assert_eq!(terminal_args("claude --resume x"), None);
+    }
+
+    #[test]
+    fn pairs_terminals_with_their_threads() {
+        let term = |pid: u32, cwd: &str, thread: Option<&str>, at: i64| Terminal { pid, cwd: PathBuf::from(cwd), thread: thread.map(String::from), started_at: at };
+        let terms = vec![term(1, "/r/a", None, 100), term(2, "/r/a", None, 200), term(3, "/r/b", Some("app-thread"), 50), term(4, "/r/c", None, 500)];
+        let threads = [
+            // (id, folder, started, last activity, cli)
+            ("old", "/r/a", 10, 20, true),
+            ("first", "/r/a", 110, 150, true),
+            ("second", "/r/a", 210, 250, true),
+            ("app-thread", "/r/b", 5, 60, false),
+            ("from-app", "/r/c", 600, 700, false),
+            ("stale", "/r/c", 10, 20, true),
+        ];
+        let p = pair_terminals(&terms, &threads);
+        assert_eq!(p.get("second"), Some(&2));
+        assert_eq!(p.get("first"), Some(&1));
+        assert_eq!(p.get("old"), None, "quiet since before either terminal started");
+        assert_eq!(p.get("app-thread"), Some(&3), "resumed by id, even one the app made");
+        assert_eq!(p.get("from-app"), None);
+        assert_eq!(p.get("stale"), None);
+    }
 
     fn apply_events(info: &mut ThreadInfo, text: &str) {
         for v in parse_events(text) {

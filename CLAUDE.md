@@ -365,7 +365,17 @@ Codex
 - The CLI inside the app bundle (`Contents/Resources/codex`, v0.152.1 on 2026-09-26) can be older
   than the account's default model, which the API then refuses ("requires a newer version of
   Codex"); `-m` picks another. A new folder asks to be trusted, then about new or changed hooks.
-  Codealong doesn't detect Codex CLI processes: every Codex thread counts as the app's.
+- The CLI (Homebrew cask `codex`, 0.157.1 on 2026-09-27; `/opt/homebrew/bin/codex`) runs its
+  TUI against a shared app-server daemon it spawns (`~/.codex/packages/app-server-daemon/…/codex
+  app-server --managed-daemon`); the daemon, not the TUI, holds the rollout open, so a TUI's
+  thread isn't in its open files. A thread the TUI made says `originator: "codex-tui"` in its
+  `session_meta` (`codex_cli_rs` before; the app's say `Codex Desktop`), with `source` "vscode"
+  through the daemon. There's no way to choose a new thread's id. `codex -- <prompt>` starts on
+  a prompt (`-i` takes several images, so `--` ends them), `codex resume -- <id> <prompt>`
+  continues one, and a typed-in prompt pasted into the TUI is sent with Return, queued while a
+  turn runs. `codex::terminals` finds TUIs by `ps` (the daemon, `exec` and bundled copies aren't
+  terminals) and `pair_terminals` gives each its `resume` id or its folder's newest CLI thread
+  active since it started.
 - `codex://threads/new?path=<folder>&prompt=<text>` opens a new thread there with the prompt
   filled in (it also takes `originUrl`, `projectId`, `mode` and `browserUrl`, and no images);
   `codex://threads/<uuid>?prompt=` fills in a reply. `mode` is chat, work or codex, not a

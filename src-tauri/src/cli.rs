@@ -589,7 +589,7 @@ impl Client {
         if !spec.todos.is_empty() {
             let pending = match (&started.key, spec.place) {
                 (Some(_), _) => None,
-                (None, place) => Some(todos::PendingStart { lane: spec.lane_id.clone(), harness: if place == Place::CodexApp { "codex" } else { "claude" }.into(), account: spec.account.clone(), at: now_ms() }),
+                (None, place) => Some(todos::PendingStart { lane: spec.lane_id.clone(), harness: cfg.accounts.iter().find(|a| a.name == spec.account).map(|a| a.harness.clone()).unwrap_or_else(|| if place == Place::CodexApp { "codex" } else { "claude" }.into()), account: spec.account.clone(), at: now_ms() }),
             };
             let lane = (!(spec.worktree && matches!(spec.place, Place::Terminal | Place::Background))).then(|| spec.lane_id.clone());
             let lanes = BoardLanes(self.board()?.lanes.iter().map(|l| (l.id.clone(), (l.project.clone(), repo_identity(l)))).collect());

@@ -461,7 +461,7 @@ pub(crate) fn start_and_link(engine: &engine::Handle, spec: &start::StartSpec) -
             (Some(_), _) => None,
             (None, place) => Some(todos::PendingStart {
                 lane: spec.lane_id.clone(),
-                harness: if place == start::Place::CodexApp { "codex" } else { "claude" }.into(),
+                harness: cfg.accounts.iter().find(|a| a.name == spec.account).map(|a| a.harness.clone()).unwrap_or_else(|| if place == start::Place::CodexApp { "codex" } else { "claude" }.into()),
                 account: spec.account.clone(),
                 at: util::now_ms(),
             }),

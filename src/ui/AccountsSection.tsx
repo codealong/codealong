@@ -49,7 +49,7 @@ export function startPlaces(harness: Harness, home: string): StartPlace[] {
     case 'claude':
       return main('claude') ? ['terminal', 'background', 'claude-app'] : ['terminal', 'background'];
     case 'codex':
-      return main('codex') ? ['codex-app'] : [];
+      return main('codex') ? ['codex-app', 'terminal'] : ['terminal'];
     case 'opencode':
       return ['terminal'];
     case 'antigravity':
@@ -93,7 +93,7 @@ function commandHelp(harness: Harness, terminal: string): string {
     case 'claude':
       return `Starts this account in ${terminal}. Codealong adds --resume to reopen a session.`;
     case 'codex':
-      return `Signs this account in from ${terminal}. Threads open in the Codex app.`;
+      return `Starts this account in ${terminal} and signs it in there. Codealong adds resume to reopen a thread.`;
     case 'opencode':
       return `Starts this account in ${terminal}. Codealong adds --session to reopen a session.`;
     case 'antigravity':

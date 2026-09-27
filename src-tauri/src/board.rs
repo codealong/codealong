@@ -233,7 +233,7 @@ fn codex_unanswered(th: &ThreadInfo, now: i64) -> Option<String> {
 }
 
 /// A Codex thread. Threads have no process of their own, so they are never Stopped.
-pub fn codex_session(account: &AccountCfg, th: &ThreadInfo, name: Option<&str>, seen_at: i64, now: i64) -> Session {
+pub fn codex_session(account: &AccountCfg, th: &ThreadInfo, name: Option<&str>, terminal: Option<u32>, seen_at: i64, now: i64) -> Session {
     let fresh = now - th.last_ts < CODEX_STALE_MS;
     let unanswered = codex_unanswered(th, now);
     let status = if th.pending_approval.is_some() || unanswered.is_some() {
@@ -255,8 +255,16 @@ pub fn codex_session(account: &AccountCfg, th: &ThreadInfo, name: Option<&str>, 
         _ => th.last_agent_message.clone(),
     };
     let key = format!("codex:{}:{}", account.name, th.id);
+    // A thread shows where it's open: its terminal, else where it was made. `codex resume`
+    // opens any of them in a terminal.
+    let surface = if th.cli || terminal.is_some() { Surface::Cli } else { Surface::App };
+    let action = match (surface, terminal) {
+        (Surface::App, _) => "codex",
+        (Surface::Cli, Some(_)) => "focus",
+        (Surface::Cli, None) => "resume",
+    };
     Session {
-        open_target: format!("s|{key}|codex"),
+        open_target: format!("s|{key}|{action}"),
         visitor: None,
         headline: String::new(),
         detail: None,
@@ -265,10 +273,10 @@ pub fn codex_session(account: &AccountCfg, th: &ThreadInfo, name: Option<&str>, 
         short_id: short_id(&th.id),
         harness: Harness::Codex,
         account: account.name.clone(),
-        surface: Surface::App,
+        surface,
         status,
-        live: th.turn_open && fresh,
-        pid: None,
+        live: (th.turn_open && fresh) || terminal.is_some(),
+        pid: terminal,
         title: truncate(&plain(&title), 90),
         cwd: th.cwd.clone(),
         work: th.work.clone(),
@@ -280,8 +288,8 @@ pub fn codex_session(account: &AccountCfg, th: &ThreadInfo, name: Option<&str>, 
         last_prompt_at: th.last_prompt_at.or(th.started_at).unwrap_or(th.last_ts),
         last_activity: th.last_ts,
         excerpt,
-        resume_command: None,
-        app_account: false,
+        resume_command: Some(format!("{} resume {}", account.command(), th.id)),
+        app_account: account.home_path() == crate::util::home().join(".codex"),
         branch: th.branch.clone(),
         archived: false,
         attach_command: None,
@@ -904,9 +912,27 @@ pub fn targets(seed: &LaneSeed, sessions: &[Session], pr: Option<&Pr>, apps: &Ap
                     }
                 }
             }
-            (Harness::Codex, _) => {
+            (Harness::Codex, Surface::Cli) => {
+                // Its terminal is focused; otherwise `codex resume` opens a new one.
+                let (verb, action) = match (respond, s.pid.is_some()) {
+                    (true, true) => ("Respond in", "focus"),
+                    (false, true) => ("Show in", "focus"),
+                    (_, false) => ("Resume in", "resume"),
+                };
+                t.push(target(format!("s|{}|{action}", s.key), "terminal", format!("{verb} {term}"), Some(who.clone()), enter, false, "session"));
+                // The Codex app reads the same threads, for the account it runs.
+                if first && s.app_account {
+                    let (why, busy) = if s.pid.is_some() { (format!("Open in {term}, finish there first"), true) } else { (who, false) };
+                    t.push(target(format!("s|{}|codex", s.key), "app", "Open in Codex".into(), Some(why), None, busy, "session"));
+                }
+            }
+            (Harness::Codex, Surface::App) => {
                 let verb = if respond { "Respond in" } else { "Open in" };
-                t.push(target(format!("s|{}|codex", s.key), "app", format!("{verb} Codex"), Some(who), enter, false, "session"));
+                t.push(target(format!("s|{}|codex", s.key), "app", format!("{verb} Codex"), Some(who.clone()), enter, false, "session"));
+                if first {
+                    let (why, busy) = if s.live { ("Working in the Codex app".to_string(), true) } else { (who, false) };
+                    t.push(target(format!("s|{}|resume", s.key), "terminal", format!("Resume in {term}"), Some(why), None, busy, "session"));
+                }
             }
             (Harness::Opencode, _) => {
                 // A terminal showing it is focused; otherwise `opencode --session` opens a new one.
@@ -1630,26 +1656,42 @@ mod tests {
     fn maps_codex_statuses() {
         let a = AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: None, start: None };
         let mut th = ThreadInfo { id: "01a0c4a6".into(), cwd: "/r".into(), last_ts: NOW - 1_000, turn_open: true, turn_started_at: Some(NOW - 5_000), ..Default::default() };
-        assert_eq!(codex_session(&a, &th, Some("Photo tools"), 0, NOW).status, Status::Working);
-        assert_eq!(codex_session(&a, &th, None, 0, NOW).open_target, "s|codex:codex:01a0c4a6|codex");
+        assert_eq!(codex_session(&a, &th, Some("Photo tools"), None, 0, NOW).status, Status::Working);
+        assert_eq!(codex_session(&a, &th, None, None, 0, NOW).open_target, "s|codex:codex:01a0c4a6|codex");
         th.last_ts = NOW - CODEX_STALE_MS - 1;
-        assert_eq!(codex_session(&a, &th, None, 0, NOW).status, Status::Idle);
+        assert_eq!(codex_session(&a, &th, None, None, 0, NOW).status, Status::Idle);
         th.turn_open = false;
         th.last_complete_at = Some(NOW - 1_000);
-        assert_eq!(codex_session(&a, &th, None, NOW - 2_000, NOW).status, Status::Unread);
-        assert_eq!(codex_session(&a, &th, None, NOW, NOW).status, Status::Idle);
+        assert_eq!(codex_session(&a, &th, None, None, NOW - 2_000, NOW).status, Status::Unread);
+        assert_eq!(codex_session(&a, &th, None, None, NOW, NOW).status, Status::Idle);
         th.pending_approval = Some("Run · `yarn install`".into());
-        assert_eq!(codex_session(&a, &th, None, 0, NOW).status, Status::Needs);
+        assert_eq!(codex_session(&a, &th, None, None, 0, NOW).status, Status::Needs);
         // A computer-use call that hasn't answered in a minute is waiting for approval.
         th.pending_approval = None;
         th.turn_open = true;
         th.last_ts = NOW - 30_000;
         th.pending_calls = vec![crate::codex::PendingCall { call_id: "c".into(), at: NOW - 30_000, what: "Inspect the Dock".into(), limit_ms: 60_000 }];
-        assert_eq!(codex_session(&a, &th, None, 0, NOW).status, Status::Working);
+        assert_eq!(codex_session(&a, &th, None, None, 0, NOW).status, Status::Working);
         th.pending_calls[0].at = NOW - 61_000;
-        let waiting = codex_session(&a, &th, None, 0, NOW);
+        let waiting = codex_session(&a, &th, None, None, 0, NOW);
         assert_eq!(waiting.status, Status::Needs);
         assert_eq!(waiting.excerpt.as_deref(), Some("Waiting for approval? · Inspect the Dock"));
+    }
+
+    #[test]
+    fn a_codex_cli_thread_opens_in_its_terminal() {
+        let a = AccountCfg { name: "codex2".into(), harness: "codex".into(), home: "~/.codex2".into(), command: Some("CODEX_HOME=~/.codex2 codex".into()), start: None };
+        let th = ThreadInfo { id: "01a0e375".into(), cwd: "/r".into(), last_ts: NOW - 1_000, cli: true, ..Default::default() };
+        let open = codex_session(&a, &th, None, Some(42), 0, NOW);
+        assert_eq!((open.surface, open.live, open.pid, open.open_target.as_str()), (Surface::Cli, true, Some(42), "s|codex:codex2:01a0e375|focus"));
+        let closed = codex_session(&a, &th, None, None, 0, NOW);
+        assert_eq!((closed.surface, closed.live, closed.open_target.as_str()), (Surface::Cli, false, "s|codex:codex2:01a0e375|resume"));
+        assert_eq!(closed.resume_command.as_deref(), Some("CODEX_HOME=~/.codex2 codex resume 01a0e375"));
+        assert!(!closed.app_account, "the Codex app runs ~/.codex only");
+        // An app thread resumed in a terminal shows there while it's open.
+        let app = ThreadInfo { cli: false, ..th };
+        assert_eq!(codex_session(&a, &app, None, Some(7), 0, NOW).surface, Surface::Cli);
+        assert_eq!(codex_session(&a, &app, None, None, 0, NOW).surface, Surface::App);
     }
 
     #[test]

@@ -381,7 +381,9 @@ export function Quick() {
         ? 'model chosen in Codex'
         : harness === 'opencode'
           ? 'OpenCode’s model'
-          : null
+          : harness === 'codex'
+            ? 'Codex’s model'
+            : null
     : modelNow
       ? modelName(modelNow, models)
       : defaultModel
@@ -995,7 +997,7 @@ export function Quick() {
           : { icon: 'external', title: `Open “${x.title}”`, why: `${age}${rowWhy(x.detail, x.headline, now)}`, where };
       }
       const why = !x.live
-        ? x.harness === 'claude' && x.surface === 'cli'
+        ? (x.harness === 'claude' || x.harness === 'codex') && x.surface === 'cli'
           ? 'It isn’t running: it resumes in a new terminal with this prompt.'
           : 'It isn’t running: it opens with this prompt ready to send.'
         : x.status === 'working'

@@ -293,6 +293,12 @@ fn peer_send(socket: &str, session_id: &str, text: &str) -> Result<()> {
 /// that carries the prompt: typed through the shell, as a new session's is (start.rs), so no
 /// quoting of yours can break the command.
 pub fn resume_input(account: &AccountCfg, session_id: &str, text: &str) -> (String, Vec<(String, String)>) {
+    if account.harness == "codex" {
+        // `codex resume <id> <prompt>`; its files go as paths, and `--` keeps a prompt that
+        // starts with a dash from reading as an option.
+        let input = format!("{} resume -- {session_id} \"${}\"\n", account.command(), start::PROMPT_VAR);
+        return (input, vec![(start::PROMPT_VAR.to_string(), attachments::expand(text, Style::Path).trim().to_string())]);
+    }
     let (has_images, has_files) = attachments::kinds(text);
     let mut input = account.command().to_string();
     let mut env = Vec::new();
@@ -606,5 +612,9 @@ mod tests {
         let (input, env) = resume_input(&account, "abc", "-v please");
         assert_eq!(input, format!("claude2 --resume abc \"${}\"\n", start::PROMPT_VAR));
         assert_eq!(env, vec![(start::PROMPT_VAR.to_string(), " -v please".to_string())]);
+        let codex = AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: Some("codex".into()), start: None };
+        let (input, env) = resume_input(&codex, "01a0e379", "-v please");
+        assert_eq!(input, format!("codex resume -- 01a0e379 \"${}\"\n", start::PROMPT_VAR));
+        assert_eq!(env, vec![(start::PROMPT_VAR.to_string(), "-v please".to_string())]);
     }
 }
