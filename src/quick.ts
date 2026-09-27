@@ -224,13 +224,16 @@ const PR_STATE_RANK: Record<PrState, number> = { open: 0, draft: 0, approved: 0,
 /**
  * PRs with every typed word in their number (`#123` or `123`), title, repo, branch, author or
  * project, best first: those whose title has them all, then open ones (your move first), merged,
- * closed, then the latest activity. In a project, only its own.
+ * closed, then the latest activity. In a project, only its own, unless what's typed is just a
+ * number: a PR's number is how it's known wherever you are, and finding nothing for it only
+ * because the panel was on another project reads as the PR missing.
  */
 export function findPrs(board: Board, project: string, query: string, limit = FOUND_PRS): PrRow[] {
   const words = queryWords(query);
   if (words.length === 0) return [];
+  const anyProject = project === ALL_PROJECTS || (words.length === 1 && /^#?\d+$/.test(words[0]));
   const found = (board.prs ?? [])
-    .filter((p) => project === ALL_PROJECTS || p.project === project)
+    .filter((p) => anyProject || p.project === project)
     .flatMap((p) => {
       const hay = [`#${p.number}`, p.title, p.repo, p.repoSlug, p.head, p.author ?? '', p.project].join('\n').toLowerCase();
       if (!words.every((w) => hay.includes(w))) return [];

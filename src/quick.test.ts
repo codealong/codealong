@@ -316,4 +316,11 @@ describe('findPrs', () => {
     expect(findPrs(b, 'Northwind', 'page').map((r) => r.pr.number)).toEqual([2, 1]);
     expect(findPrs(b, 'Northwind', '')).toEqual([]);
   });
+
+  it('finds a PR by its number whatever the project', () => {
+    const b = withPrs([pr(1055, 'Page one', { project: 'Other' }), pr(2, 'Page two')]);
+    expect(findPrs(b, 'Northwind', '1055').map((r) => r.pr.number)).toEqual([1055]);
+    expect(findPrs(b, 'Northwind', '#1055').map((r) => r.pr.number)).toEqual([1055]);
+    expect(findPrs(b, 'Northwind', 'page 1055')).toEqual([]);
+  });
 });
