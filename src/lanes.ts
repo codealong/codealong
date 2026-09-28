@@ -279,6 +279,20 @@ export function narrowed(lane: Lane, f: Filter | null, since: string): Lane | nu
 }
 
 /**
+ * The session that stands for a worktree that needs you for its PR alone (failing checks,
+ * changes requested) where only sessions are listed: its latest own one, where you'd go back to
+ * fix it, else the latest that worked there from another worktree (the one that made it, say).
+ * A visitor that needs you is listed as that already. Null for any other worktree.
+ */
+export function prNeedsSession(lane: Lane): Session | null {
+  if (lane.bay !== 'needs') return null;
+  const own = lane.sessions.filter((s) => !s.visitor && !s.archived);
+  if (own.some((s) => AGENT_BAY[s.status] === 'needs')) return null;
+  const pool = own.length > 0 ? own : lane.sessions.filter((s) => s.visitor && !s.archived && AGENT_BAY[s.status] !== 'needs');
+  return pool.reduce<Session | null>((a, s) => (a && a.lastActivity >= s.lastActivity ? a : s), null);
+}
+
+/**
  * The Inbox's counts: agents that need you, are working or just finished, and worktrees whose
  * PR needs you, is in review or has failing checks.
  */

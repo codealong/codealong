@@ -63,6 +63,22 @@ describe('timeSections', () => {
       ['Today', ['idle']],
     ]);
   });
+  it('puts a worktree that needs you for its PR under Needs you, as its latest session, when asked', () => {
+    const now = new Date(2026, 8, 24, 15, 0).getTime();
+    const at = (d: number, h: number) => new Date(2026, 8, d, h, 0).getTime();
+    const failing = { bay: 'needs', sessions: [] as Session[] } as unknown as Lane;
+    const on = (r: SessionItem): SessionItem => {
+      failing.sessions.push(r.session);
+      return { ...r, lane: failing };
+    };
+    const rows = [item('blocked', at(24, 12), 'needs', at(24, 11), at(24, 12)), on(item('fixer', at(24, 10), 'unread')), on(item('earlier', at(23, 9))), item('idle', at(24, 14))];
+    expect(timeSections(rows, now, true).map((s) => [s.label, s.rows.map((r) => r.session.key)])).toEqual([
+      ['Needs you', ['blocked', 'fixer']],
+      ['Today', ['idle']],
+      ['Yesterday', ['earlier']],
+    ]);
+    expect(timeSections(rows, now).map((s) => s.label)).toEqual(['Needs you', 'Your turn', 'Today', 'Yesterday']);
+  });
 });
 
 describe('waitingQueue', () => {

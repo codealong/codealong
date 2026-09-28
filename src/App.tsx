@@ -9,7 +9,7 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { below, showContextMenu, type MenuAction, type MenuSpec } from './contextMenu';
-import { AGENT_BAY, BAYS, buildBays, failingPr, filterByAge, inboxCounts, lanePromptAt, narrowed, rowItems, seenable, worktreeRow, type BoardRow, type Filter, type WorktreeRow } from './lanes';
+import { AGENT_BAY, BAYS, buildBays, failingPr, filterByAge, inboxCounts, lanePromptAt, narrowed, prNeedsSession, rowItems, seenable, worktreeRow, type BoardRow, type Filter, type WorktreeRow } from './lanes';
 import { answerLink, approvePr, barOn, desktopPins, getDevices, onDevices, dismissTodoHint, expandAttachments, getBoard, onBarOn, onBoard, onCloseIdle, onDesktopPins, onNewWindow, onQuickStart, onReveal, onSettings, openConfig, openProjectWindow, openTarget, openUrl, pinToDesktop, refresh, refreshUsage, reviewInCodex, setBarOn, startOptions, startSession, forkSession, setPinned, setPinnedWorktrees, setTheme, showQuick, signIn, unpinFromDesktop, windowLabel, type Reveal } from './api';
 import { agoPhrase, middleTruncate } from './format';
 import { usePerf } from './perf';
@@ -118,7 +118,8 @@ function sessionInFilter(r: SessionItem, f: Filter | null): boolean {
     case null:
       return true;
     case 'needs':
-      return r.session.status === 'needs' || r.session.status === 'error';
+      // A worktree that needs you for its PR alone, which the count includes, shows as a session.
+      return r.session.status === 'needs' || r.session.status === 'error' || prNeedsSession(r.lane)?.key === r.session.key;
     case 'working':
     case 'unread':
       return r.session.status === f;
@@ -469,12 +470,24 @@ export function App() {
     () => projectLanes.flatMap((lane) => lane.sessions.filter((s) => !s.visitor).map((s): SessionItem => ({ kind: 'agent', key: `${lane.id}::${s.key}`, lane, session: s }))),
     [projectLanes],
   );
+  // Under Needs you, a worktree that needs you for its PR alone shows as its latest session. One
+  // with no session of its own shows the latest that worked there, in that worktree's row.
+  const prVisitors = useMemo(
+    () =>
+      bayFilter !== 'needs'
+        ? []
+        : projectLanes.flatMap((lane): SessionItem[] => {
+            const s = prNeedsSession(lane);
+            return s?.visitor ? [{ kind: 'agent', key: `${lane.id}::${s.key}`, lane, session: s }] : [];
+          }),
+    [bayFilter, projectLanes],
+  );
   const shownSessions = useMemo(
     () =>
-      sessionItems.filter(
+      [...sessionItems, ...prVisitors].filter(
         (r) => (r.session.lastActivity >= cutoff || sessionPins.set.has(r.session.key)) && sessionInQuery(r, query) && sessionInFilter(r, bayFilter),
       ),
-    [sessionItems, cutoff, sessionPins.set, query, bayFilter],
+    [sessionItems, prVisitors, cutoff, sessionPins.set, query, bayFilter],
   );
   const shownSessionCount = useMemo(
     () => sessionItems.filter((r) => r.session.lastActivity >= cutoff || sessionPins.set.has(r.session.key)).length,
@@ -484,7 +497,10 @@ export function App() {
     const byKey = new Map(shownSessions.map((r) => [r.session.key, r]));
     return sessionPins.keys.flatMap((k) => byKey.get(k) ?? []);
   }, [shownSessions, sessionPins.keys]);
-  const sessionSections = useMemo(() => timeSections(shownSessions.filter((r) => !sessionPins.set.has(r.session.key)), now), [shownSessions, sessionPins.set, now]);
+  const sessionSections = useMemo(
+    () => timeSections(shownSessions.filter((r) => !sessionPins.set.has(r.session.key)), now, bayFilter === 'needs'),
+    [shownSessions, sessionPins.set, now, bayFilter],
+  );
   // Pinned worktrees that match the search and the Inbox filter, in your order. Each shows at the
   // top of the board and leaves the bays below.
   const pinnedLaneRows = useMemo(() => {

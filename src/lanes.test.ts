@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ageFiltered, bayOf, buildBays, bySession, filterByAge, inboxCounts, narrowed, rowItems, withoutAccount } from './lanes';
+import { ageFiltered, bayOf, buildBays, bySession, filterByAge, inboxCounts, narrowed, prNeedsSession, rowItems, withoutAccount } from './lanes';
 import type { Lane, Pr, Session } from './types';
 
 const NOW = 1_790_200_000_000;
@@ -138,6 +138,24 @@ describe('narrowed', () => {
     const inReview = { ...lane([session('c', 'idle', NOW)], pr('open')), id: '/r/review' } as Lane;
     expect(narrowed(inReview, 'review', '')).toBe(inReview);
     expect(narrowed(inReview, 'failing', '')).toBeNull();
+  });
+});
+
+describe('prNeedsSession', () => {
+  it('picks the latest own session of a worktree that needs you for its PR alone', () => {
+    const failing = lane([session('old', 'stopped', NOW - DAY), session('new', 'unread', NOW), { ...session('guest', 'idle', NOW + 1), visitor: 'worked here' }], pr('open', 2));
+    expect(prNeedsSession(failing)?.key).toBe('new');
+    // An agent that needs you stands for itself, and a worktree fine with its PR needs nobody.
+    expect(prNeedsSession(lane([session('a', 'needs', NOW), session('b', 'idle', NOW + 1)], pr('open', 2)))).toBeNull();
+    expect(prNeedsSession(lane([session('c', 'idle', NOW)], pr('open')))).toBeNull();
+    expect(prNeedsSession(lane([], pr('open', 2)))).toBeNull();
+  });
+
+  it('falls back to the latest session that worked there from elsewhere', () => {
+    const visit = (key: string, status: Session['status'], at: number) => ({ ...session(key, status, at), visitor: 'made this worktree' });
+    expect(prNeedsSession(lane([visit('maker', 'idle', NOW), visit('helper', 'stopped', NOW - DAY)], pr('open', 2)))?.key).toBe('maker');
+    // One that needs you is listed under its own worktree already.
+    expect(prNeedsSession(lane([visit('asking', 'needs', NOW)], pr('open', 2)))).toBeNull();
   });
 });
 
