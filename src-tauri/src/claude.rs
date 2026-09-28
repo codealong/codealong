@@ -420,6 +420,8 @@ fn claude_input(name: &str, input: &Value) -> String {
         "Read" | "Write" => s("file_path"),
         "Edit" => format!("{}\n- {}\n+ {}", s("file_path"), s("old_string").replace('\n', "\n- "), s("new_string").replace('\n', "\n+ ")),
         "Grep" | "Glob" => [s("pattern"), s("path")].into_iter().filter(|x| !x.is_empty()).collect::<Vec<_>>().join(" in "),
+        // Plan mode's approval: the plan itself, in Markdown.
+        "ExitPlanMode" => s("plan"),
         _ => serde_json::to_string_pretty(input).unwrap_or_default(),
     }
 }
@@ -462,7 +464,10 @@ impl crate::harness::Adapter for ClaudeCode {
             Some(_) => None,
             None => Some("It isn't in a terminal Codealong can press keys in (Ghostty or tmux).".to_string()),
         };
-        Some(crate::harness::Pending { id: call.id.clone().unwrap_or_default(), label: call.text, input: call.input, cannot })
+        // Not every prompt has "Yes, and always allow" as its second choice, and a 2 pressed at
+        // one without it is something else, so Always isn't offered in a terminal.
+        let plan = call.text == PLAN;
+        Some(crate::harness::Pending { id: call.id.clone().unwrap_or_default(), label: call.text, input: call.input, cannot, always: false, plan })
     }
 
     fn answer(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, id: &str, answer: crate::harness::Answer) -> anyhow::Result<String> {
@@ -476,13 +481,14 @@ impl crate::harness::Adapter for ClaudeCode {
         let key = match answer {
             crate::harness::Answer::Allow => crate::launch::Key::Digit1,
             crate::harness::Answer::Deny => crate::launch::Key::Escape,
+            crate::harness::Answer::Always => anyhow::bail!("Claude Code's prompt in a terminal is answered here with Allow or Deny only."),
         };
         let Some(host) = crate::launch::terminal_host(pid, Path::new(&s.cwd))? else {
             anyhow::bail!("It isn't in a terminal Codealong can press keys in (Ghostty or tmux). Open it to answer.");
         };
         crate::launch::press_key(&host, key)?;
         Ok(match answer {
-            crate::harness::Answer::Allow => format!("Allowed {}.", call.text),
+            crate::harness::Answer::Allow | crate::harness::Answer::Always => format!("Allowed {}.", call.text),
             crate::harness::Answer::Deny => format!("Denied {}; it stops and waits for you.", call.text),
         })
     }
@@ -708,7 +714,13 @@ fn work_path(name: &str, input: &Value, cwd: &str) -> Option<String> {
 }
 
 /// What a pending tool call asks for, e.g. "Bash · `yarn mikro-orm migration:up`".
+/// How plan mode's approval (`ExitPlanMode`) reads: its call is the plan, waiting for your yes.
+pub const PLAN: &str = "Plan";
+
 pub fn tool_request(name: &str, input: &Value) -> String {
+    if name == "ExitPlanMode" {
+        return PLAN.to_string();
+    }
     let detail = match name {
         "Bash" => input_str(input, "command").map(|c| code(&one_line(without_cd(&c), 80))),
         "Edit" | "Write" | "MultiEdit" | "NotebookEdit" | "Read" => input_str(input, "file_path").map(|p| code(&short_path(&p))),
@@ -913,6 +925,10 @@ mod tests {
     fn describes_tools() {
         let input = serde_json::json!({"command": "git status\n--short"});
         assert_eq!(tool_request("Bash", &input), "Bash · `git status`");
+        // Plan mode's approval reads as its plan, not as the tool's JSON.
+        let plan = serde_json::json!({ "plan": "# Fix the build\n\n1. Pin the toolchain" });
+        assert_eq!(tool_request("ExitPlanMode", &plan), PLAN);
+        assert_eq!(claude_input("ExitPlanMode", &plan), "# Fix the build\n\n1. Pin the toolchain");
         assert_eq!(tool_request("mcp__northwind__search", &Value::Null), "northwind · search");
         // The row already names the worktree a leading `cd` goes to.
         let input = serde_json::json!({"command": "cd /Users/me/projects/app-fix && yarn test"});

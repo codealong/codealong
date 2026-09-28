@@ -8,6 +8,7 @@
 //! the app deals in device keys only. After that, linked devices send their feeds (peerfeed.rs) and
 //! ask each other things (`req` and `res`); a device that isn't linked can only ask to link.
 
+use std::collections::HashMap;
 use std::io::{self, BufRead};
 
 use anyhow::{anyhow, bail, Result};
@@ -40,6 +41,10 @@ pub enum Msg {
         /// none, and they're Macs.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         kind: Option<String>,
+        /// What it knows beyond version 1 (`KNOWS`), so the other side sends it only what it can
+        /// read.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        knows: Vec<String>,
     },
     /// The sender's signature over the receiver's nonce and both keys (`proof_message`).
     Proof { sig: String },
@@ -72,6 +77,13 @@ pub enum Msg {
     Unlinked,
     Ping,
     Pong,
+    /// The worktrees the sender still has from the receiver's last feed, by id, with the hash that
+    /// feed gave each (`FeedMsg::hashes`): the receiver's next feed then carries only what
+    /// changed since, not everything. Sent right after the proofs, and only to devices that know
+    /// `HAVE`.
+    Have { lanes: HashMap<String, u64> },
+    /// A session's reply as it's written, for a device watching it (`api::SESSION_WATCH`).
+    Stream(crate::api::Stream),
     /// A message from a newer device that this one doesn't know. It's skipped; devices from before
     /// this ended the connection on one, so new messages go only to devices that say they know them.
     #[serde(other)]
@@ -84,6 +96,12 @@ pub const MAC: &str = "mac";
 /// and it dials the devices it's linked with itself, while it's open.
 pub const PHONE: &str = "phone";
 pub const TABLET: &str = "tablet";
+
+/// What this build knows beyond version 1, as its hello says: `Have` (resuming a feed where the
+/// last one left off) and watching sessions' replies (`api::SESSION_WATCH`, `Msg::Stream`).
+pub const HAVE: &str = "have";
+pub const WATCH: &str = "watch";
+pub const KNOWS: [&str; 2] = [HAVE, WATCH];
 
 /// Whether a device of this kind only watches.
 pub fn watches(kind: Option<&str>) -> bool {
@@ -219,8 +237,10 @@ mod tests {
     #[test]
     fn messages_round_trip_as_lines() {
         let msgs = [
-            Msg::Hello { v: 1, key: "ab".into(), name: "Mac mini".into(), app: "0.1.0".into(), nonce: "00".into(), kind: None },
-            Msg::Hello { v: 1, key: "cd".into(), name: "iPhone".into(), app: "0.1.0".into(), nonce: "01".into(), kind: Some(PHONE.into()) },
+            Msg::Hello { v: 1, key: "ab".into(), name: "Mac mini".into(), app: "0.1.0".into(), nonce: "00".into(), kind: None, knows: vec![] },
+            Msg::Hello { v: 1, key: "cd".into(), name: "iPhone".into(), app: "0.1.0".into(), nonce: "01".into(), kind: Some(PHONE.into()), knows: KNOWS.map(String::from).to_vec() },
+            Msg::Have { lanes: HashMap::from([("/a".to_string(), 7u64)]) },
+            Msg::Stream(crate::api::Stream { key: "claude:claude:9f".into(), text: "Looking at".into(), tool: None }),
             Msg::Req { id: 7, method: "search".into(), params: serde_json::json!({"words": ["webhook"]}) },
             Msg::Res { id: 7, ok: false, result: None, error: Some("no".into()) },
             Msg::LinkAsk { secret: None },
@@ -239,7 +259,7 @@ mod tests {
 
     #[test]
     fn messages_from_newer_devices_are_skipped() {
-        let mut r = std::io::BufReader::new("{\"t\":\"stream\",\"key\":\"k\",\"text\":\"hi\"}\n{\"t\":\"ping\"}\n".as_bytes());
+        let mut r = std::io::BufReader::new("{\"t\":\"hologram\",\"key\":\"k\"}\n{\"t\":\"ping\"}\n".as_bytes());
         assert!(matches!(read_msg(&mut r).unwrap(), Some(Msg::Unknown)));
         assert!(matches!(read_msg(&mut r).unwrap(), Some(Msg::Ping)));
         // A hello from before kinds is a Mac's.

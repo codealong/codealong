@@ -77,10 +77,16 @@ Unlinking on one device unlinks both when they're connected.
   `session_pending`, `session_answer`, `send_to_session`, `archive_session`, `mark_seen`,
   `start_session`. Seen goes to the device a session is on, so Your turn clears on every device
   at once.
-- **Requests** (`peer_answer` in `lib.rs`): `session-page`, `session-newer`, `session-pending`,
-  `search`, `session-archive`, `mark-seen`, `start-options`, and, only with remote control on
-  at the device asked, `session-send`, `session-answer` and `start`. Each of the last three is
-  written to that device's `~/Library/Logs/Codealong/devices.log`, without the prompt. A send
+- **Requests** (`peer_answer` in `lib.rs`; the names are codealong-peer's `api`): `session-page`,
+  `session-newer`, `session-pending`, `session-stream`, `search`, `session-archive`, `mark-seen`,
+  `start-options`, `session-watch` (peers.rs keeps it: the hosted sessions whose replies go to
+  that connection as they're written, as `stream` messages), and, only with remote control on at
+  the device asked, `session-send`, `session-answer`, `start` and `session-cancel`. Each of those
+  is written to that device's `~/Library/Logs/Codealong/devices.log`, without the prompt.
+- **Picking up where a feed left off:** a feed carries each lane's hash, and a device that
+  reconnects sends back the ones it still has (`have`, just before its `standing`, which the
+  first feed waits for), so only what changed since comes again. Hellos list what a device knows
+  (`have`, `watch`), and new messages go only to devices that know them. A send
   whose only way in opens the app with the prompt ready (`Sent.opened`) is refused: nobody's
   there to send it.
 

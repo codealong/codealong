@@ -49,15 +49,9 @@ pub enum Change {
     Stream(Stream),
 }
 
-#[derive(Serialize, Clone, Debug, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct Stream {
-    pub key: String,
-    /// The reply so far since the turn's last tool call; empty when there's none.
-    pub text: String,
-    /// The tool it's running, as a line.
-    pub tool: Option<String>,
-}
+/// The reply being written; it goes to other devices watching the session too, so it's in
+/// codealong-peer.
+pub use codealong_peer::api::Stream;
 
 /// A permission request waiting for an answer.
 #[derive(Clone, Debug)]
@@ -657,7 +651,8 @@ pub fn cancel(key: &str) -> Result<()> {
 pub fn pending(key: &str) -> Option<Pending> {
     let st = state();
     let p = st.sessions.get(key)?.permission.as_ref()?;
-    Some(Pending { id: p.tool_call.clone(), label: p.label.clone(), input: p.input.clone(), cannot: None })
+    let always = p.options.iter().any(|(_, kind)| kind == "allow_always");
+    Some(Pending { id: p.tool_call.clone(), label: p.label.clone(), input: p.input.clone(), cannot: None, always, plan: false })
 }
 
 /// Answers the permission request for tool call `id`.
@@ -670,9 +665,10 @@ pub fn answer(key: &str, id: &str, answer: Answer) -> Result<String> {
             _ => bail!("It isn't waiting on that any more."),
         }
     };
-    let wanted = match answer {
-        Answer::Allow => ["allow_once", "allow_always"],
-        Answer::Deny => ["reject_once", "reject_always"],
+    let wanted: &[&str] = match answer {
+        Answer::Allow => &["allow_once", "allow_always"],
+        Answer::Always => &["allow_always"],
+        Answer::Deny => &["reject_once", "reject_always"],
     };
     let option = wanted.iter().find_map(|k| p.options.iter().find(|(_, kind)| kind == k)).map(|(o, _)| o.clone()).ok_or_else(|| anyhow!("The agent offered no way to answer that."))?;
     let ag = state().agents.get(&account).cloned().ok_or_else(|| anyhow!("That session's agent stopped."))?;
@@ -680,6 +676,7 @@ pub fn answer(key: &str, id: &str, answer: Answer) -> Result<String> {
     notify(Change::Board);
     Ok(match answer {
         Answer::Allow => "Allowed.".into(),
+        Answer::Always => "Allowed, and from now on.".into(),
         Answer::Deny => "Denied.".into(),
     })
 }

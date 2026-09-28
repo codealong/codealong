@@ -91,6 +91,8 @@ pub struct Device {
 
 struct Conn {
     serial: u64,
+    /// What the other device knows beyond version 1, from its hello.
+    knows: Vec<String>,
     tx: Sender<Msg>,
     /// Ends the connection: its reader stops, so nothing more is taken from it.
     close: Arc<dyn Fn() + Send + Sync>,
@@ -110,6 +112,8 @@ struct State {
     pending: HashMap<u64, (String, Sender<std::result::Result<Value, String>>)>,
     /// Link codes in use: the device's key, and where its answer goes.
     linking: HashMap<String, Sender<std::result::Result<String, String>>>,
+    /// Replies being written in sessions this device watches, by device key, then session key.
+    streams: HashMap<String, HashMap<String, api::Stream>>,
     cache_dirty: bool,
 }
 
@@ -347,6 +351,46 @@ impl Client {
         read(self.ask(device, api::START, json!({ "spec": spec }), ACT_WAIT)?)
     }
 
+    /// Asks `device` to send the replies of these sessions (keys there) as they're written, in
+    /// place of any it sent before; none stops them. Also reads where each stands now, since
+    /// only what's written from here on is sent. Says false when the device doesn't know how.
+    pub fn watch(&self, device: &str, keys: &[String]) -> bool {
+        let Some(hex) = self.key_of(device) else { return false };
+        let knows = self.0.lock().conns.get(&hex).is_some_and(|c| c.knows.iter().any(|k| k == proto::WATCH));
+        if !knows {
+            return false;
+        }
+        if self.ask(&hex, api::SESSION_WATCH, json!({ "keys": keys }), READ_WAIT).is_err() {
+            return false;
+        }
+        for key in keys {
+            if let Ok(Some(s)) = self.ask(&hex, api::SESSION_STREAM, json!({ "key": key }), READ_WAIT).and_then(read::<Option<api::Stream>>) {
+                let mut st = self.0.lock();
+                if !(s.text.is_empty() && s.tool.is_none()) {
+                    st.streams.entry(hex.clone()).or_default().insert(key.clone(), s);
+                }
+            }
+        }
+        self.0.changed();
+        true
+    }
+
+    /// The reply a watched session on `device` is writing, if it is.
+    pub fn stream(&self, device: &str, key: &str) -> Option<api::Stream> {
+        let hex = self.key_of(device)?;
+        self.0.lock().streams.get(&hex).and_then(|m| m.get(key)).cloned()
+    }
+
+    /// Stops the turn a session Codealong runs on `device` is taking.
+    pub fn cancel(&self, device: &str, key: &str) -> std::result::Result<(), String> {
+        self.ask(device, api::SESSION_CANCEL, json!({ "key": key }), ACT_WAIT).map(|_| ())
+    }
+
+    /// A linked device's whole key, from it or its short id.
+    fn key_of(&self, device: &str) -> Option<String> {
+        self.0.lock().linked.iter().find(|l| l.key == device || short_of(&l.key) == device).map(|l| l.key.clone())
+    }
+
     /// The linked devices, in the order they were linked.
     pub fn devices(&self) -> Vec<Device> {
         let st = self.0.lock();
@@ -486,6 +530,9 @@ fn dial_loop(inner: Arc<Inner>, iroh: Arc<Iroh>, gen: u64) {
 /// One connection, from the hello to the end. With `secret`, it asks to link with that link
 /// code's secret once the proofs check out.
 fn run(inner: Arc<Inner>, wire: Wire, expect: PublicKey, secret: Option<String>, gen: u64) {
+    // Only the connection that asks to link answers for the link: an earlier one to the same
+    // device, closed as this one opens, has nothing to say about it.
+    let linking = secret.is_some();
     let Wire { reader, mut writer, set_timeout, close } = wire;
     let close: Arc<dyn Fn() + Send + Sync> = Arc::from(close);
     let hex = proto::key_hex(&expect);
@@ -512,9 +559,9 @@ fn run(inner: Arc<Inner>, wire: Wire, expect: PublicKey, secret: Option<String>,
     let mut reader = BufReader::with_capacity(64 * 1024, reader);
     set_timeout(Some(HANDSHAKE_TIMEOUT));
     let my_nonce = proto::nonce();
-    let _ = tx.send(Msg::Hello { v: VERSION, key: inner.hex.clone(), name: inner.name.clone(), app: inner.app.clone(), nonce: my_nonce.clone(), kind: Some(inner.kind.clone()) });
-    let shook = (|| -> std::result::Result<(String, String), String> {
-        let Ok(Some(Msg::Hello { v, key, name, app, nonce, .. })) = proto::read_msg(&mut reader) else { return Err("The other device didn't say hello.".into()) };
+    let _ = tx.send(Msg::Hello { v: VERSION, key: inner.hex.clone(), name: inner.name.clone(), app: inner.app.clone(), nonce: my_nonce.clone(), kind: Some(inner.kind.clone()), knows: proto::KNOWS.map(String::from).to_vec() });
+    let shook = (|| -> std::result::Result<(String, String, Vec<String>), String> {
+        let Ok(Some(Msg::Hello { v, key, name, app, nonce, knows, .. })) = proto::read_msg(&mut reader) else { return Err("The other device didn't say hello.".into()) };
         if v != VERSION {
             return Err(format!("{name} speaks version {v} of Codealong's protocol; update Codealong there or here."));
         }
@@ -525,13 +572,15 @@ fn run(inner: Arc<Inner>, wire: Wire, expect: PublicKey, secret: Option<String>,
         let _ = tx.send(Msg::Proof { sig: proto::prove(&inner.secret, &nonce, &key).map_err(|e| e.to_string())? });
         let Ok(Some(Msg::Proof { sig })) = proto::read_msg(&mut reader) else { return Err("The other device didn't prove it holds its key.".into()) };
         proto::check_proof(&key, &sig, &my_nonce, &inner.key).map_err(|e| e.to_string())?;
-        Ok((name, app))
+        Ok((name, app, knows))
     })();
-    let (name, app) = match shook {
+    let (name, app, knows) = match shook {
         Ok(v) => v,
         Err(e) => {
-            if let Some(s) = inner.lock().linking.remove(&hex) {
-                let _ = s.send(Err(e));
+            if linking {
+                if let Some(s) = inner.lock().linking.remove(&hex) {
+                    let _ = s.send(Err(e));
+                }
             }
             drop(tx);
             close();
@@ -556,7 +605,13 @@ fn run(inner: Arc<Inner>, wire: Wire, expect: PublicKey, secret: Option<String>,
             l.name = name.clone();
             save_linked(&inner.dir, &st.linked);
         }
-        st.conns.insert(hex.clone(), Conn { serial, tx: tx.clone(), close: close.clone(), name: name.clone(), app, linked_there: false, since: now_ms() });
+        // What this device still has of the other's last feed, so only what changed since comes.
+        let resume = (linked && knows.iter().any(|k| k == proto::HAVE)).then(|| st.replicas.get(&hex).map(|c| c.replica.have())).flatten().filter(|h| !h.is_empty());
+        st.conns.insert(hex.clone(), Conn { serial, knows, tx: tx.clone(), close: close.clone(), name: name.clone(), app, linked_there: false, since: now_ms() });
+        // Before the standing, which the other side's first feed waits for.
+        if let Some(lanes) = resume {
+            let _ = tx.send(Msg::Have { lanes });
+        }
         let _ = tx.send(Msg::Standing { linked });
         if let Some(secret) = secret {
             let _ = tx.send(Msg::LinkAsk { secret: Some(secret) });
@@ -581,9 +636,14 @@ fn run(inner: Arc<Inner>, wire: Wire, expect: PublicKey, secret: Option<String>,
                 let _ = s.send(Err(format!("{name} went away.")));
             }
         }
-        if let Some(s) = st.linking.remove(&hex) {
-            let _ = s.send(Err(format!("{name} went away before it answered.")));
+        if linking {
+            if let Some(s) = st.linking.remove(&hex) {
+                let _ = s.send(Err(format!("{name} went away before it answered.")));
+            }
         }
+        // A reply half written when the connection went is no longer being written, as far as
+        // this device can tell.
+        st.streams.remove(&hex);
     }
     drop(st);
     inner.changed();
@@ -659,6 +719,17 @@ fn handle(inner: &Arc<Inner>, key: &str, serial: u64, tx: &Sender<Msg>, msg: Msg
             let _ = tx.send(Msg::Pong);
             return;
         }
+        Msg::Stream(s) => {
+            let replies = st.streams.entry(key.to_string()).or_default();
+            // Both empty: the turn ended.
+            if s.text.is_empty() && s.tool.is_none() {
+                replies.remove(&s.key);
+            } else {
+                replies.insert(s.key.clone(), s);
+            }
+        }
+        // This device has no feed to pick up.
+        Msg::Have { .. } => return,
         Msg::Pong | Msg::Hello { .. } | Msg::Proof { .. } | Msg::Unknown => return,
     }
     drop(st);

@@ -38,6 +38,10 @@ if fetch && clean && git merge-base --is-ancestor HEAD origin/main &&
   git merge -q --ff-only origin/main || echo "Couldn't fast-forward; building the checkout as it is."
 fi
 
+# The workspace's own crates build to the same files from every checkout, and cargo goes by file
+# times: a build another checkout made since this one's files last changed would pass for this
+# checkout's. Touched, they compile from here.
+touch src-tauri/src/lib.rs src-tauri/peer/src/lib.rs
 npx tauri build
 pkill -f 'Codealong\.app/Contents/MacOS/codeal[o]ng$' || true
 # macOS won't open an app while its last copy is still quitting (error -600), so wait for it to

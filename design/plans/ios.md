@@ -2,7 +2,8 @@
 
 Status: planned 2026-09-27. The spike linked the simulator with a Mac and listed its sessions;
 codealong-peer landed 2026-09-28 (f44c553), then phones as a kind of device, QR link codes and the
-typed requests (items 1 and 2 below). The app is its own repo, github.com/codealong/codealong-ios,
+typed requests (items 1 and 2 below), then resumable feeds, hosted sessions' replies as they're
+written, Stop, Always allow, and plans shown as plans (items 3 and 4). The app is its own repo, github.com/codealong/codealong-ios,
 at `../codealong-ios`.
 
 ## The idea

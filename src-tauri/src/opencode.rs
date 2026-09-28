@@ -599,7 +599,8 @@ impl crate::harness::Adapter for OpenCode {
 
     fn pending(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> Option<crate::harness::Pending> {
         let svc = service(&ctx.account.home_path())?;
-        permission_request(&svc, &s.id).map(|r| crate::harness::Pending { id: r.id, label: r.label, input: r.input, cannot: None })
+        // OpenCode takes "always" for any request it asks about.
+        permission_request(&svc, &s.id).map(|r| crate::harness::Pending { id: r.id, label: r.label, input: r.input, cannot: None, always: true, plan: false })
     }
 
     fn answer(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, id: &str, answer: crate::harness::Answer) -> anyhow::Result<String> {
@@ -610,11 +611,13 @@ impl crate::harness::Adapter for OpenCode {
         }
         let decision = match answer {
             crate::harness::Answer::Allow => "once",
+            crate::harness::Answer::Always => "always",
             crate::harness::Answer::Deny => "reject",
         };
         post(&svc, &format!("/api/session/{}/permission/{}/reply", urlencoding::encode(&s.id), urlencoding::encode(id)), &serde_json::json!({ "decision": decision }))?;
         Ok(match answer {
             crate::harness::Answer::Allow => format!("Allowed {}.", r.label),
+            crate::harness::Answer::Always => format!("Allowed {}, and from now on.", r.label),
             crate::harness::Answer::Deny => format!("Denied {}.", r.label),
         })
     }

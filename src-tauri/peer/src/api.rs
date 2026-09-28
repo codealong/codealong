@@ -18,9 +18,28 @@ pub const MARK_SEEN: &str = "mark-seen";
 pub const SEARCH: &str = "search";
 pub const START_OPTIONS: &str = "start-options";
 pub const START: &str = "start";
+/// The reply a session Codealong runs (over ACP) is writing, as it stands.
+pub const SESSION_STREAM: &str = "session-stream";
+/// The sessions whose replies to send this connection as they're written (`Msg::Stream`), in
+/// place of the ones before; `keys` empty stops them.
+pub const SESSION_WATCH: &str = "session-watch";
+/// Stops the turn a session Codealong runs is taking.
+pub const SESSION_CANCEL: &str = "session-cancel";
 
 /// Requests that act on a session: they need remote control on at the device asked.
-pub const CONTROL: [&str; 3] = [SESSION_SEND, SESSION_ANSWER, START];
+pub const CONTROL: [&str; 4] = [SESSION_SEND, SESSION_ANSWER, START, SESSION_CANCEL];
+
+/// The reply a session Codealong runs is writing, as the Mac's acp.rs has it: what it said since
+/// its last tool call, and the tool it's running. Both empty once the turn ends.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct Stream {
+    pub key: String,
+    /// The reply so far since the turn's last tool call; empty when there's none.
+    pub text: String,
+    /// The tool it's running, as a line.
+    pub tool: Option<String>,
+}
 
 /// One thing said or done in a session, as a conversation page carries it.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -70,14 +89,24 @@ pub struct Pending {
     pub input: Option<String>,
     /// Why Codealong can't answer it here, when it can't; the panel then offers to open it.
     pub cannot: Option<String>,
+    /// It can also be allowed from now on (`Answer::Always`), not just this once.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub always: bool,
+    /// It's a plan to approve (Claude Code's plan mode): `input` is the plan, in Markdown, to read
+    /// as prose rather than as a command.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub plan: bool,
 }
 
-/// Your answer to a pending request.
+/// Your answer to a pending request. `Always` is offered only where `Pending::always` says so;
+/// devices from before it don't know it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Answer {
     Allow,
     Deny,
+    /// Allow this, and calls like it from now on.
+    Always,
 }
 
 /// How a prompt sent to a session went.

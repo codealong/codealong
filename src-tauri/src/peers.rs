@@ -59,6 +59,9 @@ const DIAL_ANYWAY_AFTER: Duration = Duration::from_secs(45);
 const IROH_FIRST_DIAL: Duration = Duration::from_secs(30);
 const IROH_DIAL_EVERY: Duration = Duration::from_secs(30);
 const LINK_CODE_FOR_MS: i64 = 10 * 60 * 1000;
+/// A reply streams out at most this often: acp.rs reports every chunk, and each report is the
+/// reply so far.
+const STREAM_EVERY: Duration = Duration::from_millis(150);
 
 /// Requests that act on a session: they need remote control on at the device asked.
 pub use codealong_peer::api::CONTROL;
@@ -242,6 +245,11 @@ struct Conn {
     app: String,
     /// What kind of device it is, from its hello.
     kind: Option<String>,
+    /// The sessions here whose replies it asked for as they're written (`api::SESSION_WATCH`).
+    watching: HashSet<String>,
+    /// It said whether it has this device linked (`Standing`). Its first feed waits for that: a
+    /// device that picks up where its copy left off says so (`Have`) just before.
+    heard: bool,
     linked_there: bool,
     since: i64,
     outbox: Outbox,
@@ -283,6 +291,10 @@ struct State {
     view_at: Option<Instant>,
     cache_dirty: bool,
     cached_at: Option<Instant>,
+    /// Hosted sessions' replies as they're written, the newest per session, for connections
+    /// watching them; sent at most every `STREAM_EVERY`.
+    streams: HashMap<String, codealong_peer::api::Stream>,
+    streamed_at: Option<Instant>,
 }
 
 struct Inner {
@@ -400,6 +412,18 @@ impl Peers {
     pub fn view(&self) -> DevicesView {
         let st = self.0.lock();
         self.0.view(&st)
+    }
+
+    /// A hosted session's reply as it's written (acp.rs), for the linked devices watching it. The
+    /// newest per session goes out at most every `STREAM_EVERY`.
+    pub fn stream(&self, s: codealong_peer::api::Stream) {
+        let mut st = self.0.lock();
+        if !st.conns.values().any(|c| c.watching.contains(&s.key)) {
+            return;
+        }
+        st.streams.insert(s.key.clone(), s);
+        drop(st);
+        self.0.wake.notify_all();
     }
 
     /// Asks a device of yours on your tailnet to link. Returns the code both devices show.
@@ -825,6 +849,20 @@ fn feed_loop(inner: Arc<Inner>) {
             send_feeds(&mut st, &snap);
         }
 
+        if !st.streams.is_empty() && st.streamed_at.is_none_or(|t| now.duration_since(t) >= STREAM_EVERY) {
+            st.streamed_at = Some(now);
+            let streams: Vec<codealong_peer::api::Stream> = st.streams.drain().map(|(_, s)| s).collect();
+            let linked: HashSet<String> = st.linked.iter().map(|l| l.key.clone()).collect();
+            for (key, conn) in st.conns.iter() {
+                if !linked.contains(key) {
+                    continue;
+                }
+                for s in streams.iter().filter(|s| conn.watching.contains(&s.key)) {
+                    let _ = conn.tx.send(Msg::Stream(s.clone()));
+                }
+            }
+        }
+
         if st.view_dirty && st.view_at.is_none_or(|t| now.duration_since(t) >= VIEW_EVERY) {
             st.view_dirty = false;
             st.view_at = Some(now);
@@ -848,7 +886,7 @@ fn feed_loop(inner: Arc<Inner>) {
 fn send_feeds(st: &mut State, snap: &Snapshot) {
     let linked: HashSet<String> = st.linked.iter().map(|l| l.key.clone()).collect();
     for (key, conn) in st.conns.iter_mut() {
-        if linked.contains(key) {
+        if linked.contains(key) && conn.heard {
             if let Some(msg) = conn.outbox.next(snap) {
                 let _ = conn.tx.send(Msg::Feed(msg));
             }
@@ -890,9 +928,9 @@ fn run(inner: Arc<Inner>, wire: Wire, via: Via, dialed: bool, expect: Option<Pub
     set_timeout(Some(HANDSHAKE_TIMEOUT));
     let my_nonce = peerproto::nonce();
     let my_name = inner.my_name(&inner.lock());
-    let _ = tx.send(Msg::Hello { v: VERSION, key: me.hex.clone(), name: my_name, app: APP.into(), nonce: my_nonce.clone(), kind: Some(peerproto::MAC.into()) });
-    let shook = (|| -> std::result::Result<(PublicKey, String, String, Option<String>), String> {
-        let Ok(Some(Msg::Hello { v, key, name, app, nonce, kind })) = peerproto::read_msg(&mut reader) else { return Err("no hello".into()) };
+    let _ = tx.send(Msg::Hello { v: VERSION, key: me.hex.clone(), name: my_name, app: APP.into(), nonce: my_nonce.clone(), kind: Some(peerproto::MAC.into()), knows: peerproto::KNOWS.map(String::from).to_vec() });
+    let shook = (|| -> std::result::Result<(PublicKey, String, String, Option<String>, Vec<String>), String> {
+        let Ok(Some(Msg::Hello { v, key, name, app, nonce, kind, knows })) = peerproto::read_msg(&mut reader) else { return Err("no hello".into()) };
         if v != VERSION {
             return Err(format!("{name} speaks version {v} of Codealong's protocol; update Codealong on both devices."));
         }
@@ -903,9 +941,9 @@ fn run(inner: Arc<Inner>, wire: Wire, via: Via, dialed: bool, expect: Option<Pub
         let _ = tx.send(Msg::Proof { sig: peerproto::prove(&me.secret, &nonce, &key).map_err(|e| e.to_string())? });
         let Ok(Some(Msg::Proof { sig })) = peerproto::read_msg(&mut reader) else { return Err("no proof".into()) };
         peerproto::check_proof(&key, &sig, &my_nonce, &me.key).map_err(|e| e.to_string())?;
-        Ok((key, name, app, kind))
+        Ok((key, name, app, kind, knows))
     })();
-    let Ok((key, name, app, kind)) = shook else {
+    let Ok((key, name, app, kind, knows)) = shook else {
         drop(tx);
         close();
         return;
@@ -943,8 +981,13 @@ fn run(inner: Arc<Inner>, wire: Wire, via: Via, dialed: bool, expect: Option<Pub
             st.board_dirty = true;
             st.board_at = None;
         }
-        st.conns.insert(hex.clone(), Conn { serial, dialed, via, peer_user, addr, tx: tx.clone(), close: close.clone(), name: name.clone(), app, kind, linked_there: false, since: now_ms(), outbox: Outbox::default() });
+        // A device that knows how gets only what changed since its copy of this one's last feed.
+        let resume = (linked && knows.iter().any(|k| k == peerproto::HAVE)).then(|| st.replicas.get(&hex).map(|c| c.replica.have())).flatten().filter(|h| !h.is_empty());
+        st.conns.insert(hex.clone(), Conn { serial, dialed, via, peer_user, addr, tx: tx.clone(), close: close.clone(), name: name.clone(), app, kind, watching: HashSet::new(), heard: false, linked_there: false, since: now_ms(), outbox: Outbox::default() });
         st.view_dirty = true;
+        if let Some(lanes) = resume {
+            let _ = tx.send(Msg::Have { lanes });
+        }
         let _ = tx.send(Msg::Standing { linked });
         if let Some(secret) = ask_link {
             st.asking.insert(hex.clone());
@@ -997,6 +1040,21 @@ fn handle(inner: &Arc<Inner>, key: &str, serial: u64, tx: &Sender<Msg>, msg: Msg
                 st.cache_dirty = true;
             }
         }
+        // Which sessions' replies this connection wants as they're written: its own business,
+        // so it's kept here rather than asked of the engine.
+        Msg::Req { id, method, params } if method == codealong_peer::api::SESSION_WATCH => {
+            let mut st = inner.lock();
+            let linked = Inner::is_linked(&st, key);
+            let reply = match st.conns.get_mut(key) {
+                Some(c) if linked => {
+                    c.watching = params.get("keys").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).map(String::from).collect();
+                    Msg::Res { id, ok: true, result: None, error: None }
+                }
+                _ => Msg::Res { id, ok: false, result: None, error: Some(format!("{} isn't linked with this device.", inner.my_name(&st))) },
+            };
+            let _ = tx.send(reply);
+            return;
+        }
         Msg::Req { id, method, params } => {
             let (inner, key, tx) = (inner.clone(), key.to_string(), tx.clone());
             std::thread::spawn(move || {
@@ -1021,6 +1079,12 @@ fn handle(inner: &Arc<Inner>, key: &str, serial: u64, tx: &Sender<Msg>, msg: Msg
             let mut st = inner.lock();
             if let Some(c) = st.conns.get_mut(key) {
                 c.linked_there = linked;
+                c.heard = true;
+            }
+            // Its first feed was waiting for this.
+            if Inner::is_linked(&st, key) {
+                st.board_dirty = true;
+                st.board_at = None;
             }
             st.view_dirty = true;
         }
@@ -1087,6 +1151,17 @@ fn handle(inner: &Arc<Inner>, key: &str, serial: u64, tx: &Sender<Msg>, msg: Msg
             let _ = tx.send(Msg::Pong);
             return;
         }
+        Msg::Have { lanes } => {
+            let mut st = inner.lock();
+            if Inner::is_linked(&st, key) {
+                if let Some(c) = st.conns.get_mut(key) {
+                    c.outbox.resume(lanes);
+                }
+            }
+            return;
+        }
+        // Another Mac's replies aren't shown here yet: its panel reads the conversation.
+        Msg::Stream(_) => return,
         Msg::Pong | Msg::Hello { .. } | Msg::Proof { .. } | Msg::Unknown => return,
     }
     inner.wake.notify_all();
@@ -1396,6 +1471,7 @@ mod tests {
                     "session-page" => Ok(json!({ "items": [], "before": null, "after": 0, "key": params["key"] })),
                     "search" => Ok(json!({ "hits": [{ "key": "claude:claude:s1", "snippet": "the webhook", "you": true, "at": 5 }], "building": false, "off": false })),
                     "session-send" => Ok(json!({ "message": "Sent.", "opened": false })),
+                    "session-stream" => Ok(Value::Null),
                     "start-options" => Ok(json!({ "accounts": [{ "name": "claude", "harness": "claude", "places": [{ "place": "background", "label": "Background" }], "chosen": null, "unavailable": null, "defaultModel": "opus", "preferred": true }], "codexProjects": [], "claudeModels": [{ "id": "opus", "label": "Opus" }] })),
                     _ => Err(format!("no {method}")),
                 }
@@ -1501,8 +1577,26 @@ mod tests {
         assert!(mac.peers.search(&["webhook".into()]).is_empty());
 
         // Gone, it's remembered with when it was last here.
+        assert_eq!(phone.with_feeds(|f| f[0].1.rev), 1, "one whole feed so far");
         phone.stop();
         until("the Mac to see the phone go", || mac.peers.view().phones.first().is_some_and(|p| !p.online && p.last_seen.is_some()));
+
+        // Back after the Mac changed: it picks up where its copy left off, rather than taking
+        // everything again.
+        mac.board.lock().unwrap().lanes[0].sessions[0].status = Status::Unread;
+        mac.peers.publish(&mac.board.lock().unwrap());
+        phone.connect_wire(reconnect(&mac), mac.peers.0.me.get().unwrap().key);
+        until("the change to arrive", || phone.with_feeds(|f| f[0].1.lanes.first().is_some_and(|l| l.sessions[0].status == Status::Unread)));
+        assert_eq!(phone.with_feeds(|f| f[0].1.rev), 2, "only what changed, after its Have");
+
+        // A reply being written reaches the phone watching its session, and goes with the turn.
+        assert!(phone.watch(&d.short, &["claude:claude:s2".to_string()]));
+        mac.peers.stream(codealong_peer::api::Stream { key: "claude:claude:s2".into(), text: "Looking at the build".into(), tool: None });
+        until("the reply", || phone.stream(&d.short, "claude:claude:s2").is_some_and(|s| s.text == "Looking at the build"));
+        mac.peers.stream(codealong_peer::api::Stream { key: "claude:claude:s2".into(), text: String::new(), tool: None });
+        until("the turn's end", || phone.stream(&d.short, "claude:claude:s2").is_none());
+        // Stopping a turn acts on the session, so it needs remote control there.
+        assert!(phone.cancel(&d.short, "claude:claude:s2").unwrap_err().contains("Remote control is off on Mini"));
 
         // A Mac that forgot the phone without saying so (its list edited): the phone still has
         // it, and a new code links them again.

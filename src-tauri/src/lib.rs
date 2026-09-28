@@ -450,15 +450,25 @@ fn newer_here(engine: &engine::Handle, key: &str, after: u64) -> Result<serde_js
     serde_json::to_value(page).map_err(|e| e.to_string())
 }
 
-/// The reply a session Codealong runs is writing, for a panel that opens mid-turn.
+/// The reply a session Codealong runs is writing, for a panel that opens mid-turn. One on another
+/// device is asked of it.
 #[tauri::command(async)]
-fn session_stream(key: String) -> Option<acp::Stream> {
+fn session_stream(peers: State<'_, peers::Peers>, key: String) -> Option<acp::Stream> {
+    if let Some((device, own)) = peerfeed::split_remote(&key) {
+        let got = peers.ask(device, api::SESSION_STREAM, serde_json::json!({ "key": own }), ASK_READ).ok()?;
+        let mut s: acp::Stream = serde_json::from_value(got).ok()?;
+        s.key = key.clone();
+        return Some(s);
+    }
     acp::stream(&key)
 }
 
-/// Stops the turn a session Codealong runs is taking.
+/// Stops the turn a session Codealong runs is taking, here or on another device.
 #[tauri::command(async)]
-fn session_cancel(key: String) -> Result<(), String> {
+fn session_cancel(peers: State<'_, peers::Peers>, key: String) -> Result<(), String> {
+    if let Some((device, own)) = peerfeed::split_remote(&key) {
+        return peers.ask(device, api::SESSION_CANCEL, serde_json::json!({ "key": own }), ASK_ACT).map(|_| ());
+    }
     acp::cancel(&key).map_err(|e| format!("{e:#}"))
 }
 
@@ -752,6 +762,8 @@ fn peer_answer(engine: &engine::Handle, method: &str, p: serde_json::Value) -> R
             let spec: start::StartSpec = p.get("spec").cloned().and_then(|s| serde_json::from_value(s).ok()).ok_or("The request has no start.")?;
             to_value(start_and_link(engine, &spec)?).map_err(|e| e.to_string())
         }
+        api::SESSION_STREAM => to_value(acp::stream(&key()?)).map_err(|e| e.to_string()),
+        api::SESSION_CANCEL => acp::cancel(&key()?).map(|_| Value::Null).map_err(|e| format!("{e:#}")),
         _ => Err(format!("Codealong on this device doesn't know how to {method} yet; update it here.")),
     }
 }
@@ -1062,10 +1074,12 @@ pub fn run() {
             // Sessions Codealong runs itself: a turn's start and end recompose the board, and
             // the reply as it streams goes to whichever windows show the session.
             {
-                let (engine, app) = (engine.clone(), app.handle().clone());
+                let (engine, app, watchers) = (engine.clone(), app.handle().clone(), peers.clone());
                 acp::init(move |change| match change {
                     acp::Change::Board => engine.hosted_changed(),
                     acp::Change::Stream(s) => {
+                        // Linked devices watching the session get it too (a phone showing it).
+                        watchers.stream(s.clone());
                         let _ = app.emit("hosted-stream", s);
                     }
                 });

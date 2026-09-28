@@ -44,6 +44,10 @@ pub struct FeedMsg {
     pub gone: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub usage: Option<Vec<Usage>>,
+    /// Each lane's hash as the sender worked it out, by id, for the lanes this message carries: the
+    /// receiver keeps them and hands them back when it reconnects (`Msg::Have`).
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub hashes: HashMap<String, u64>,
 }
 
 /// What this device knows of a linked device's board, kept up to date by its feeds, and kept on disk
@@ -56,12 +60,30 @@ pub struct Replica {
     pub device: DeviceInfo,
     pub lanes: Vec<Lane>,
     pub usage: Vec<Usage>,
+    /// The sender's hash of each lane, as its feeds said, for resuming (`have`).
+    #[serde(default)]
+    pub hashes: HashMap<String, u64>,
 }
 
 impl Replica {
+    /// The lanes to tell the sender this device still has when it reconnects (`Msg::Have`): only
+    /// ones whose hash it sent, so a lane from a sender that sends none is sent again.
+    pub fn have(&self) -> HashMap<String, u64> {
+        self.lanes.iter().filter_map(|l| self.hashes.get(&l.id).map(|h| (l.id.clone(), *h))).collect()
+    }
+
     pub fn apply(&mut self, msg: FeedMsg) {
         if msg.full {
             *self = Replica::default();
+        }
+        for id in &msg.gone {
+            self.hashes.remove(id);
+        }
+        for l in &msg.lanes {
+            match msg.hashes.get(&l.id) {
+                Some(h) => self.hashes.insert(l.id.clone(), *h),
+                None => self.hashes.remove(&l.id),
+            };
         }
         self.rev = msg.rev;
         self.generated_at = msg.generated_at;
@@ -129,6 +151,20 @@ mod tests {
         replica.apply(FeedMsg { rev: 2, lanes: vec![changed, lane("/c")], gone: vec!["/b".into()], ..Default::default() });
         assert_eq!(replica.lanes.iter().map(|l| (l.id.as_str(), l.headline.as_str())).collect::<Vec<_>>(), [("/a", "new"), ("/c", "")]);
         assert_eq!(replica.rev, 2);
+    }
+
+    #[test]
+    fn replicas_keep_the_hashes_they_were_sent() {
+        let mut replica = Replica::default();
+        replica.apply(FeedMsg { rev: 1, full: true, lanes: vec![lane("/a"), lane("/b")], hashes: HashMap::from([("/a".to_string(), 1), ("/b".to_string(), 2)]), ..Default::default() });
+        assert_eq!(replica.have(), HashMap::from([("/a".to_string(), 1), ("/b".to_string(), 2)]));
+        // A changed lane brings its new hash; a lane that left takes its hash with it; a lane sent
+        // without one isn't claimed.
+        replica.apply(FeedMsg { rev: 2, lanes: vec![lane("/a"), lane("/c")], hashes: HashMap::from([("/a".to_string(), 3)]), gone: vec!["/b".into()], ..Default::default() });
+        assert_eq!(replica.have(), HashMap::from([("/a".to_string(), 3)]));
+        // It survives the trip to disk.
+        let back: Replica = serde_json::from_value(serde_json::to_value(&replica).unwrap()).unwrap();
+        assert_eq!(back.have(), replica.have());
     }
 
     #[test]

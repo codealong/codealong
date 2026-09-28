@@ -29,7 +29,11 @@ resolves `../codealong-target` against the checkout it runs in, so a worktree in
 (Claude Code's `.claude/worktrees/<name>`) gets `.claude/worktrees/codealong-target`: the
 scripts that build pass the shared directory to cargo as `CARGO_TARGET_DIR`, and
 `scripts/target-dir.sh` makes that folder a link to it, for cargo run by hand. It only reports
-a real folder already there; remove that once nothing builds in it. Tests
+a real folder already there; remove that once nothing builds in it. The workspace's own crates
+(codealong, codealong-peer) build to the same files from every checkout too, and cargo goes by
+file times: once another session has built, a `cargo test` in your worktree can link its copy of
+them instead of yours (errors about what you just added are the sign). `touch
+src-tauri/src/lib.rs src-tauri/peer/src/lib.rs` before cargo then; `relaunch.sh` always does. Tests
 run in the debug profile: after the first build they rebuild in seconds, and the release
 profile is tuned for rebuild speed too (no LTO). Hand a change to the user with
 `scripts/relaunch.sh`: it waits for any bundle build in progress, builds, and only then quits

@@ -78,6 +78,17 @@ pub struct Outbox {
 }
 
 impl Outbox {
+    /// Picks up where the other device's copy leaves off (`Msg::Have`): the lanes it has, by the
+    /// hashes this device sent it, so the next feed carries only the lanes that changed since and
+    /// the ids of those that left, not everything. Only before anything went out on this
+    /// connection: after that, the other device's copy is this outbox's own.
+    pub fn resume(&mut self, have: HashMap<String, u64>) {
+        if self.rev == 0 {
+            self.lanes = have;
+            self.rev = 1;
+        }
+    }
+
     /// What to send for `snap`, or None when nothing changed since the last feed.
     pub fn next(&mut self, snap: &Snapshot) -> Option<FeedMsg> {
         let full = self.rev == 0;
@@ -95,6 +106,7 @@ impl Outbox {
             here.insert(&lane.id);
             if self.lanes.get(&lane.id) != Some(h) {
                 msg.lanes.push(lane.clone());
+                msg.hashes.insert(lane.id.clone(), *h);
                 self.lanes.insert(lane.id.clone(), *h);
             }
         }
@@ -205,6 +217,30 @@ mod tests {
         replica.apply(rename);
         assert_eq!(replica.device.name, "Studio");
         assert_eq!(replica.rev, 3);
+    }
+
+    #[test]
+    fn a_reconnect_picks_up_where_the_last_feed_left_off() {
+        let b = board(vec![lane("/a", vec![session("s1", Status::Working)]), lane("/b", vec![]), lane("/c", vec![])]);
+        let mut first = Outbox::default();
+        let mut replica = Replica::default();
+        replica.apply(first.next(&snapshot(&b, info("Mini"))).unwrap());
+
+        // While apart: /a changes and /b leaves.
+        let b2 = board(vec![lane("/a", vec![session("s1", Status::Unread)]), lane("/c", vec![])]);
+        let mut again = Outbox::default();
+        again.resume(replica.have());
+        let msg = again.next(&snapshot(&b2, info("Mini"))).unwrap();
+        assert!(!msg.full, "only what changed");
+        assert_eq!(msg.lanes.iter().map(|l| l.id.as_str()).collect::<Vec<_>>(), ["/a"]);
+        assert_eq!(msg.gone, ["/b"]);
+        replica.apply(msg);
+        let json = |l: &Vec<Lane>| serde_json::to_value(l).unwrap();
+        assert_eq!(json(&replica.lanes), json(&snapshot(&b2, info("Mini")).lanes));
+
+        // A resume after the first feed changes nothing: the outbox already knows what went out.
+        again.resume(std::collections::HashMap::new());
+        assert!(again.next(&snapshot(&b2, info("Mini"))).is_none());
     }
 
     #[test]
