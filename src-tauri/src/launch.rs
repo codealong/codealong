@@ -1,5 +1,5 @@
-//! Opening things where they live: the terminal and editor app profiles (Ghostty through
-//! AppleScript, Cursor through its CLI) and the Claude and Codex deep links. See *Apps*.
+//! Opening things where they live: the terminal profile (Ghostty through AppleScript) and the
+//! Claude and Codex deep links. Editors are in editors.rs. See *Apps*.
 
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -15,13 +15,6 @@ use crate::util::home;
 pub fn terminal_name(id: &str) -> String {
     match id {
         "ghostty" => "Ghostty".to_string(),
-        other => other.to_string(),
-    }
-}
-
-pub fn editor_name(id: &str) -> String {
-    match id {
-        "cursor" => "Cursor".to_string(),
         other => other.to_string(),
     }
 }
@@ -767,17 +760,6 @@ pub fn pick_by_title(terminals: &[GhosttyTerminal], title: &str, cwd: &Path) -> 
     }
     let here: Vec<&GhosttyTerminal> = titled.iter().copied().filter(|t| t.cwd == dir).collect();
     only(titled).or_else(|| only(here))
-}
-
-pub fn editor_open(profile: &str, path: &Path) -> Result<()> {
-    let dir = path.to_string_lossy();
-    match profile {
-        "cursor" => procs::run("cursor", &[&dir], None, Duration::from_secs(15))
-            .or_else(|_| procs::run("/usr/bin/open", &["-a", "Cursor", &dir], None, Duration::from_secs(15)))
-            .map(|_| ())
-            .map_err(|_| anyhow!("Couldn't open Cursor. Is it installed?")),
-        other => bail!("There's no editor profile called {other:?} yet. Use \"cursor\" in config.toml."),
-    }
 }
 
 pub fn open_url(url: &str) -> Result<()> {

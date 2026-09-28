@@ -2101,7 +2101,7 @@ mod tests {
 
     #[test]
     fn builds_targets_with_app_names() {
-        let apps = AppNames { terminal: "Ghostty".into(), terminal_id: "ghostty".into(), editor: "Cursor".into(), editor_id: "cursor".into(), new_terminal: Default::default() };
+        let apps = AppNames { terminal: "Ghostty".into(), terminal_id: "ghostty".into(), editor: "Cursor".into(), editor_id: "cursor".into(), ..Default::default() };
         let a = acct("claude2");
         let live = claude_session(&a, Some(&reg("waiting", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
         let (t, default) = targets(&seed("/r/atlas-quarry", "quarry"), &[live], None, &apps);

@@ -5,8 +5,8 @@
 A Mac app that keeps track of every coding agent you have running: Claude Code on two
 accounts (`claude`, `claude2`), the Codex app, OpenCode and Antigravity. It sorts them by
 project, worktree, branch and PR, shows what each one is doing, and opens any session where
-it lives: Ghostty for terminal sessions, the Claude app, Codex, Antigravity, or Cursor for
-the folder.
+it lives: Ghostty for terminal sessions, the Claude app, Codex, Antigravity, or the folder in
+your editor (VS Code, Cursor, Zed, Xcode and others).
 
 **Every agent runs in a worktree, and every worktree is a lane.**
 
@@ -149,8 +149,13 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
 - **Open where it lives**: the session's own Ghostty tab, the Claude app session, the Codex
   thread (a CLI thread's terminal, or `codex resume` in a new one), an OpenCode session in its terminal (or resumed in a new one with `--session`),
   Antigravity brought forward (it has no link to a conversation), a background job attached
-  in a new terminal, or the folder in Cursor. A new terminal opens as a tab in the Ghostty
+  in a new terminal, or the folder in your editor. A new terminal opens as a tab in the Ghostty
   window already showing that worktree, repo or project (`new_terminal` in config.toml).
+  A worktree opens in your editor (`editor` in config.toml, ⌘2) or, from Open in in its
+  right-click menu and its Open button, any other editor installed on the Mac: VS Code,
+  Cursor, Windsurf, Zed, Sublime Text, Nova, BBEdit, Xcode, the JetBrains IDEs and Android
+  Studio. A session's right-click menu and Open button open its worktree's folder the same way.
+  Picking another editor there makes it yours, as Codex's Open button remembers its last.
   A session's tab that comes forward on another screen than the pointer's is outlined for a
   moment, and `move_pointer` moves the pointer to it.
 - **Quick panel** (⌥⌘/ from any app, over full-screen ones too; ⌘N, the title bar, the
@@ -361,7 +366,7 @@ Next: the menu bar icon and popover, and notifications (the design system's *Bui
 - macOS 13 or later
 - Rust (`rustup`), Node 20+
 - `gh` signed in (`gh auth login`) for PRs
-- Ghostty 1.3+ and Cursor (both swappable later through app profiles)
+- Ghostty 1.3+ (swappable later through app profiles)
 
 ## Develop
 
@@ -403,7 +408,7 @@ scan = ["~/projects"]          # where repos are found, three levels deep
 
 [apps]
 terminal = "ghostty"
-editor = "cursor"
+editor = "cursor"              # or "vscode", "zed", "xcode"… (Settings lists those installed), or an app's name
 new_terminal = "project"       # a tab beside the same worktree, repo or project; or "tab", "window"
 move_pointer = false           # move the pointer to a terminal brought forward on another screen
 
@@ -527,7 +532,8 @@ light scan (no git, PRs or visitors).
 | `src-tauri/src/acp.rs` | Sessions Codealong runs itself: an Agent Client Protocol adapter process per account, turns, permission requests, the streamed reply |
 | `src-tauri/src/repos.rs`, `git.rs`, `github.rs` | Repo discovery, callsigns, worktrees, git status, PRs |
 | `src-tauri/src/held.rs` | The repo scan's reads of folders it doesn't own, each on a thread of its own, so one macOS holds for a privacy prompt holds up only that folder |
-| `src-tauri/src/launch.rs` | App profiles: Ghostty (AppleScript, exact tab focus), Cursor (CLI), deep links |
+| `src-tauri/src/launch.rs` | App profiles: Ghostty (AppleScript, exact tab focus), deep links |
+| `src-tauri/src/editors.rs`, `src/editors.ts` | The editors a folder opens in: the ones Codealong knows, found where Mac apps are installed, and the Open in menus |
 | `src-tauri/src/flash.rs` | Outlines a focused terminal that came forward on another screen |
 | `src-tauri/src/idle.rs`, `src/ui/CloseIdleDialog.tsx` | Close idle terminals: which sessions' tabs can close and why (pure, tested), and closing them |
 | `src-tauri/src/start.rs`, `src/start.ts` | New sessions: where each account can start one, the launch it makes, the agent menu (every account on every model, and the effort levels) and Auto's pick |

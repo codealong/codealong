@@ -464,13 +464,31 @@ fn set_accounts(doc: &mut toml_edit::DocumentMut, accounts: &[AccountCfg]) {
     set_tables(doc, "accounts", rows);
 }
 
-const APPS_COMMENT: &str = "# Where Codealong opens things. Built-in profiles: terminal \"ghostty\", editor \"cursor\".\n# new_terminal: \"window\", \"tab\" (in the front window), or \"project\" (a tab beside the same repo or project).\n# move_pointer: move the pointer to a terminal Codealong brings forward on another screen.\n";
+const APPS_COMMENT: &str = "# Where Codealong opens things. terminal: \"ghostty\". editor: \"vscode\", \"cursor\", \"zed\", \"xcode\" and the others\n# Settings lists, or any app's name. Picking another editor from an Open in menu sets it here.\n# new_terminal: \"window\", \"tab\" (in the front window), or \"project\" (a tab beside the same repo or project).\n# move_pointer: move the pointer to a terminal Codealong brings forward on another screen.\n";
 const APPEARANCE_COMMENT: &str = "# Light or dark. \"system\" follows macOS. The buttons at the foot of the sidebar set this too.\n";
 const JEV_COMMENT: &str = "# What Codealong asks TypeSafe's Jev, feature by feature (Settings › Jev says what each one sends).\n# The API key is kept in the login keychain; set it in Settings.\n";
 const SEARCH_COMMENT: &str = "# The quick panel and `codealong sessions find` search what was said in sessions active in the\n# last `days` days, not just their titles. 0 turns it off; 14, the board's reach, is the most.\n";
 const DEVICES_COMMENT: &str = "# Your other devices: Codealong on each shows the others' sessions and can read and search them.\n# tailscale finds them on your tailnet; iroh reaches devices you link with a code, anywhere.\n# remote_control lets your linked devices send prompts, answer approvals and start sessions here.\n";
 const DEBUG_COMMENT: &str = "# Timings for finding what makes the app slow, in ~/Library/Logs/Codealong/perf.log.\n";
 const SHORTCUTS_COMMENT: &str = "# Shortcuts that work in any app, such as \"Option+Cmd+/\" or \"Cmd+Ctrl+K\". \"\" turns one off.\n# quick_panel opens the quick panel: find a session, or start one.\n";
+
+/// Sets `[apps] editor` in config.toml and keeps everything else as written: an editor picked
+/// from an Open in menu is the one Open in <editor> uses from then on.
+pub fn save_editor(id: &str) -> Result<()> {
+    std::fs::create_dir_all(support_dir())?;
+    let text = match std::fs::read_to_string(config_path()) {
+        Ok(t) => t,
+        Err(_) => render(&Config::default()),
+    };
+    write_atomic(&with_editor(&text, id)?)
+}
+
+pub fn with_editor(text: &str, id: &str) -> Result<String> {
+    let mut doc: toml_edit::DocumentMut = text.parse().context("config.toml has an error; fix it before changing the editor")?;
+    ensure_table(&mut doc, "apps", APPS_COMMENT);
+    set_value(&mut doc["apps"]["editor"], toml_edit::Value::from(id));
+    Ok(doc.to_string())
+}
 
 /// Sets `[appearance] theme` in config.toml and keeps everything else as written.
 pub fn save_theme(theme: Theme) -> Result<()> {
@@ -537,18 +555,19 @@ fn place_after(doc: &mut toml_edit::DocumentMut, name: &str, after: &str) {
 }
 
 /// A terminal or editor profile the `[apps]` table can name.
-#[derive(Debug, Clone, Serialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Profile {
     pub id: String,
     pub name: String,
 }
 
-/// The built-in app profiles (see launch.rs): what the Settings form offers for `[apps]`.
+/// What the Settings form offers for `[apps]`: the built-in terminal profiles (see launch.rs),
+/// and the editors installed here (editors.rs).
 pub fn terminal_profiles() -> Vec<Profile> {
     vec![Profile { id: "ghostty".into(), name: "Ghostty".into() }]
 }
 pub fn editor_profiles() -> Vec<Profile> {
-    vec![Profile { id: "cursor".into(), name: "Cursor".into() }]
+    crate::editors::installed()
 }
 
 /// What Settings works from: the settings as parsed, the file as written, and why it couldn't
@@ -1007,6 +1026,18 @@ mod tests {
         let out = with_theme(text, Theme::System).unwrap();
         assert_eq!(out, text.replace("\"light\"", "\"system\""));
         assert!(with_theme("scan = [", Theme::Dark).is_err());
+    }
+
+    #[test]
+    fn picking_an_editor_changes_only_the_editor() {
+        let text = "scan = [\"~/code\"]\n\n[apps]\n# mine\neditor = \"cursor\" # for now\nterminal = \"ghostty\"\n";
+        let out = with_editor(text, "vscode").unwrap();
+        assert_eq!(out, text.replace("\"cursor\"", "\"vscode\""));
+        // A file without [apps] gets one, commented as a new file's is.
+        let out = with_editor("scan = [\"~/code\"]\n", "zed").unwrap();
+        assert!(out.contains(&format!("{APPS_COMMENT}[apps]\neditor = \"zed\"\n")), "{out}");
+        assert_eq!(toml::from_str::<Config>(&out).unwrap().apps.editor, "zed");
+        assert!(with_editor("scan = [", "zed").is_err());
     }
 
     #[test]

@@ -19,6 +19,7 @@ mod config;
 mod detect;
 mod desktop;
 mod devicekey;
+mod editors;
 mod engine;
 mod flash;
 mod git;

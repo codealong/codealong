@@ -1,6 +1,7 @@
 // The selected lane: where it is, how to open it, its sessions, its PR and its git state.
 
 import { useEffect, useRef, useState } from 'react';
+import { withOtherEditors } from '../editors';
 import { absolute, ago, count, middleTruncate, tildePath } from '../format';
 import { HARNESS_APP } from '../harness';
 import type { Board, Lane, Origin, Session, Target, Todo } from '../types';
@@ -197,7 +198,7 @@ export function Inspector({ lane, focusKey, apps, now, onOpen, onNewSession, tod
         )}
       </header>
       <div className="ca-insp-actions">
-        <OpenInMenu targets={lane.targets} defaultId={lane.defaultTarget} onOpen={onOpen} />
+        <OpenInMenu targets={withOtherEditors(lane.targets, apps)} defaultId={lane.defaultTarget} onOpen={onOpen} />
         <Button icon="plus" title="New session here (⌘N)" aria-label="New session here" onClick={onNewSession} />
         <Button icon="terminal" title={`New ${apps.terminal} terminal here`} aria-label={`New ${apps.terminal} terminal here`} onClick={() => onOpen('l|terminal')} />
         <Button icon="code" title={`Open in ${apps.editor}`} aria-label={`Open in ${apps.editor}`} onClick={() => onOpen('l|editor')} />

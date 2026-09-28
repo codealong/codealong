@@ -21,6 +21,7 @@ use crate::codex::{self, ThreadInfo};
 use crate::opencode;
 use crate::config::{self, AccountCfg, Config, Theme};
 use crate::detect;
+use crate::editors;
 use crate::git;
 use crate::github::{self, PrRaw};
 use crate::held::Held;
@@ -297,7 +298,7 @@ impl Handle {
     pub fn open_config(&self) -> Result<()> {
         let editor = self.board.read().map(|b| b.apps.editor_id.clone()).unwrap_or_default();
         let editor = if editor.is_empty() { "cursor".to_string() } else { editor };
-        launch::editor_open(&editor, &config::config_path())
+        editors::open(&editor, &config::config_path())
     }
 
     /// Opens a lane's target where it lives. See *Surfaces*, Open where it lives.
@@ -305,6 +306,13 @@ impl Handle {
         let board = self.board.read().map(|b| b.clone()).map_err(|_| anyhow!("board unavailable"))?;
         if let Some(key) = open_on(&board, lane_id, target_id)? {
             self.mark_seen(vec![key]);
+        }
+        // Another editor picked from an Open in menu is the one Open in <editor> uses from then
+        // on, as Codex's Open button remembers its last. The watcher publishes the change.
+        if let Some(id) = target_id.strip_prefix("l|editor|").filter(|id| *id != board.apps.editor_id) {
+            if let Err(e) = config::save_editor(id) {
+                eprintln!("Couldn't save the editor: {e:#}");
+            }
         }
         Ok(())
     }
@@ -347,7 +355,8 @@ pub fn open_on(board: &Board, lane_id: &str, target_id: &str) -> Result<Option<S
             return Ok(Some(s.key.clone()));
         }
         ["l", "terminal"] => launch::terminal_open(&apps.terminal_id, place, &path, None)?,
-        ["l", "editor"] => launch::editor_open(&apps.editor_id, &path)?,
+        ["l", "editor"] => editors::open(&apps.editor_id, &path)?,
+        ["l", "editor", id] if opens_in(&apps, id) => editors::open(id, &path)?,
         ["l", "finder"] => launch::reveal(&path)?,
         ["p", which] => {
             let pr = lane.pr.as_ref().ok_or_else(|| anyhow!("This lane has no PR."))?;
@@ -360,6 +369,12 @@ pub fn open_on(board: &Board, lane_id: &str, target_id: &str) -> Result<Option<S
         _ => bail!("Unknown target {target_id:?}"),
     }
     Ok(None)
+}
+
+/// Whether a target may open a folder in the editor `id`: yours, or another found installed, not
+/// any app a target could name.
+fn opens_in(apps: &AppNames, id: &str) -> bool {
+    id == apps.editor_id || apps.editors.iter().any(|e| e.id == id)
 }
 
 pub fn start(emit: impl Fn(&Board) + Send + 'static) -> Handle {
@@ -1111,6 +1126,8 @@ impl Engine {
         rest.appearance = before.appearance.clone();
         rest.shortcuts = before.shortcuts.clone();
         rest.debug = before.debug.clone();
+        // The apps are read as the board is composed; nothing to rescan for them either.
+        rest.apps = before.apps.clone();
         // A star only changes which account Auto picks; nothing to rescan for it.
         for a in &mut rest.accounts {
             if let Some(b) = before.accounts.iter().find(|b| b.name == a.name) {
@@ -2461,8 +2478,9 @@ impl Engine {
         let apps = AppNames {
             terminal: launch::terminal_name(&self.cfg.apps.terminal),
             terminal_id: self.cfg.apps.terminal.clone(),
-            editor: launch::editor_name(&self.cfg.apps.editor),
+            editor: editors::name(&self.cfg.apps.editor),
             editor_id: self.cfg.apps.editor.clone(),
+            editors: editors::installed(),
             new_terminal: self.cfg.apps.new_terminal,
         };
         let order: Vec<String> = self.cfg.projects.iter().map(|p| p.name.clone()).collect();
@@ -2840,6 +2858,15 @@ mod tests {
         assert!(!is_noise(Path::new("/Users/me/.local/share/opencode/opencode.db-wal")));
         assert!(is_noise(Path::new("/Users/me/.local/share/opencode/opencode.db-shm")));
         assert!(is_noise(Path::new("/Users/me/projects/app/data/cache.db-wal")));
+    }
+
+    #[test]
+    fn opens_folders_in_your_editor_or_one_installed() {
+        use super::*;
+        let apps = AppNames { editor_id: "cursor".into(), editors: vec![config::Profile { id: "zed".into(), name: "Zed".into() }], ..Default::default() };
+        assert!(opens_in(&apps, "cursor"));
+        assert!(opens_in(&apps, "zed"));
+        assert!(!opens_in(&apps, "Terminal"));
     }
 
     #[test]

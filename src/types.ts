@@ -379,7 +379,8 @@ export interface Board {
   generatedAt: number;
   /** App-wide status from the engine; view and project filters do not change the logo. */
   logoStatus: LogoStatus;
-  apps: { terminal: string; terminalId: string; editor: string; editorId: string; newTerminal?: NewTerminal };
+  /** `editors`: the editors installed here, in menu order (editors.ts). */
+  apps: { terminal: string; terminalId: string; editor: string; editorId: string; editors?: Profile[]; newTerminal?: NewTerminal };
   projects: ProjectSummary[];
   lanes: Lane[];
   warnings: string[];

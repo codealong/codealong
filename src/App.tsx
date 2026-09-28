@@ -9,6 +9,7 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { below, showContextMenu, type MenuAction, type MenuSpec } from './contextMenu';
+import { allEditors, editorTarget, opensInEditor, otherEditors } from './editors';
 import { AGENT_BAY, BAYS, buildBays, failingPr, filterByAge, inboxCounts, lanePromptAt, narrowed, prNeedsSession, rowItems, seenable, worktreeRow, type BoardRow, type Filter, type WorktreeRow } from './lanes';
 import { answerLink, approvePr, barOn, desktopPins, getDevices, onDevices, dismissTodoHint, expandAttachments, getBoard, onBarOn, onBoard, onCloseIdle, onDesktopPins, onNewWindow, onQuickStart, onReveal, onSettings, openConfig, openProjectWindow, openTarget, openUrl, pinToDesktop, refresh, refreshUsage, reviewInCodex, setBarOn, startOptions, startSession, forkSession, setPinned, setPinnedWorktrees, setTheme, showQuick, signIn, unpinFromDesktop, windowLabel, type Reveal } from './api';
 import { agoPhrase, middleTruncate } from './format';
@@ -1224,6 +1225,15 @@ export function App() {
         if (started?.key) setPendingSession({ key: started.key, until: Date.now() + 60_000 });
       })
       .catch((e: unknown) => setToast(String(e).replace(/^Error: /, '')));
+  /** Opens a worktree's folder in an editor from a session's menu: yours, or, with others
+   *  installed, any of them. */
+  const folderMenuItems = (lane: Lane): MenuSpec => {
+    const apps = board?.apps;
+    if (!apps || !opensInEditor(lane)) return [];
+    const all = allEditors(apps);
+    if (all.length < 2) return [{ label: `Open folder in ${apps.editor}`, run: () => open(lane, 'l|editor') }];
+    return [{ label: 'Open folder in', items: all.map((e) => ({ label: e.name, run: () => open(lane, editorTarget(e.id)) })) }];
+  };
   const sessionMenuSpec = (lane: Lane, s: Session, pin: 'session' | 'worktree'): MenuSpec => {
       const target = lane.targets.find((t) => t.id === s.openTarget);
       const pinItem =
@@ -1232,6 +1242,7 @@ export function App() {
           : { label: lanePins.set.has(lane.id) ? 'Unpin worktree' : 'Pin worktree', run: () => toggleLanePin(lane) };
       return [
         { label: target?.label ?? 'Open', run: () => open(lane, s.openTarget) },
+        ...folderMenuItems(lane),
         { label: 'New session here…', run: () => newSession({ laneId: lane.id }) },
         // Forks open in a terminal, where only sessions that resume in one can go.
         ...(s.resumeCommand ? [{ label: 'Fork in terminal', run: () => void fork(s) }] : []),
@@ -1254,13 +1265,17 @@ export function App() {
   const laneMenuSpec = (lane: Lane): MenuSpec => {
       const main = lane.targets.find((t) => t.id === lane.defaultTarget);
       const pr = lane.pr;
-      const more = ['l|editor', 'l|finder'].flatMap((id) => {
+      const item = (id: string): MenuSpec => {
         const t = lane.targets.find((x) => x.id === id);
         return t && id !== lane.defaultTarget ? [{ label: t.label, run: () => open(lane, id) }] : [];
-      });
+      };
+      // Open in <yours>, then the other editors installed here.
+      const others = board && opensInEditor(lane) ? otherEditors(board.apps) : [];
       return [
         { label: main?.label ?? 'Open', run: () => open(lane, lane.defaultTarget) },
-        ...more,
+        ...item('l|editor'),
+        ...(others.length > 0 ? [{ label: 'Open in', items: others.map((e) => ({ label: e.name, run: () => open(lane, editorTarget(e.id)) })) }] : []),
+        ...item('l|finder'),
         { label: 'New session here…', run: () => newSession({ laneId: lane.id }) },
         'separator',
         ...todoItemsRef.current(lane.project, { worktree: lane.id }, { worktree: lane.id, label: lane.callsign }),

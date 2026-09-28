@@ -42,6 +42,10 @@ pub struct AppNames {
     pub terminal_id: String,
     pub editor: String,
     pub editor_id: String,
+    /// The editors installed here, in menu order: the Open in menus list the ones besides
+    /// `editor_id`, and a folder opens in one with the target `l|editor|<id>`.
+    #[serde(default)]
+    pub editors: Vec<crate::config::Profile>,
     /// `[apps] new_terminal`: where a terminal Codealong opens goes.
     pub new_terminal: crate::config::NewTerminal,
 }

@@ -239,7 +239,7 @@ function GeneralPane({ cfg, view, theme, onPickTheme, disabled, onSave }: PanePr
         <label className="ca-field">
           <span>Editor</span>
           <ProfileSelect value={cfg.apps.editor} profiles={view.editors} onChange={(editor) => void onSave({ ...cfg, apps: { ...cfg.apps, editor } })} />
-          <small>Opens a worktree's folder, and config.toml.</small>
+          <small>Opens a worktree's folder, and config.toml. The Open in menus offer the other editors installed here, and picking one there makes it this.</small>
         </label>
         <div className="ca-field">
           <span>Appearance</span>

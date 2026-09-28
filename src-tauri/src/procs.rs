@@ -142,7 +142,7 @@ pub fn login_path() -> Option<&'static str> {
 }
 
 /// The PATH of the user's login shell. Apps launched from Finder get a minimal PATH, so
-/// `git`, `gh` and `cursor` would otherwise not be found.
+/// `git` and `gh` would otherwise not be found.
 pub fn user_path() -> &'static str {
     static PATH: OnceLock<String> = OnceLock::new();
     PATH.get_or_init(|| {
