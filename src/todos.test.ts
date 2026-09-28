@@ -127,7 +127,7 @@ describe('the list', () => {
     expect(item.labels).toEqual([bug]);
     expect(item.lastActivity).toBe(NOW);
     expect(todoInFilter(item, 'working')).toBe(true);
-    expect(todoInFilter(item, 'failing')).toBe(true);
+    expect(todoInFilter(item, 'work')).toBe(true);
     expect(todoInFilter(item, 'needs')).toBe(false);
     expect(todoInQuery(item, 'bug')).toBe(true);
     expect(todoInQuery(item, 'app3')).toBe(true);

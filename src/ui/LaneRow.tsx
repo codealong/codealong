@@ -8,7 +8,7 @@ import { DeviceBadge } from './DeviceBadge';
 import { memoRow } from './memoRow';
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
 import { absolute, ago, agoPhrase, middleTruncate, untilShort } from '../format';
-import { AGENT_BAY, withoutAccount, type AgentItem, type WorktreeRow } from '../lanes';
+import { withoutAccount, type AgentItem, type WorktreeRow } from '../lanes';
 import { untilWords } from '../snooze';
 import type { GitInfo, Lane, Pr, Session, Todo } from '../types';
 import { Drift, driftWords, HarnessChip, Icon, LaneGlyph, PrChip, Rich, StatusGlyph } from './primitives';
@@ -202,8 +202,6 @@ function GroupRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpenTarget
   const shown = others.slice(0, 3);
   const extra = others.length - shown.length;
   const hasSelection = agents.some((a) => a.key === selectedKey);
-  // A worktree can need you for its PR alone (failing checks, changes requested): say so above its agents.
-  const prNeeds = lane.bay === 'needs' && !agents.some((a) => AGENT_BAY[a.session.status] === 'needs');
   // The worktree's own todos, less the ones its agents' lines already show.
   const onLines = new Set(agents.flatMap((a) => todosFor?.(a.session.key) ?? []));
   const footTodos = (worktreeTodos ?? []).filter((t) => !onLines.has(t));
@@ -213,7 +211,7 @@ function GroupRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpenTarget
     <div
       role="group"
       aria-label={`${lane.callsign}, ${agents.length} ${agents.length === 1 ? 'agent' : 'agents'}`}
-      className={['ca-lane', 'is-group', `is-${lane.bay}`, agents.length + (prNeeds ? 1 : 0) > 1 && 'is-tall', hasSelection && 'has-selection', pinned && 'is-pinned', away(lane) && 'is-away', extraClass]
+      className={['ca-lane', 'is-group', `is-${lane.bay}`, agents.length > 1 && 'is-tall', hasSelection && 'has-selection', pinned && 'is-pinned', away(lane) && 'is-away', extraClass]
         .filter(Boolean)
         .join(' ')}
       data-pin-index={pinIndex}
@@ -236,21 +234,6 @@ function GroupRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpenTarget
         </span>
       </div>
       <div className="ca-seg-lines">
-        {prNeeds && (
-          <div className="ca-agentline ca-agentline--lane" onMouseDown={selectFirst} onDoubleClick={() => onOpen(lane)}>
-            <span className="ca-agentline-main">
-              <span className="ca-lane-headline">
-                <Rich text={lane.headline} now={now} />
-              </span>
-              {lane.detail && (
-                <span className="ca-lane-detail">
-                  <Rich text={lane.detail} now={now} />
-                </span>
-              )}
-            </span>
-            <span className="ca-agentline-age" />
-          </div>
-        )}
         {agents.map((a, i) => (
           <AgentLine
             key={a.key}
@@ -258,7 +241,7 @@ function GroupRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpenTarget
             now={now}
             domId={domId(a.key)}
             selected={a.key === selectedKey}
-            pinned={pinned === true && i === 0 && !prNeeds}
+            pinned={pinned === true && i === 0}
             onSelect={() => onSelect(a.key)}
             onOpen={() => onOpenTarget(lane, a.session.openTarget)}
             onContextMenu={onAgentMenu ? () => onAgentMenu(a.session) : undefined}

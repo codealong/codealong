@@ -6,6 +6,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { todoOp } from './api';
+import { prNeedsWork } from './lanes';
 import type { Attachment, Board, Label, LabelColor, Lane, Pr, Session, Todo, TodoStatus, TodoSuggested, Waiting } from './types';
 import { LABEL_COLORS } from './types';
 
@@ -387,8 +388,8 @@ export function todoInFilter(r: TodoItem, f: string | null): boolean {
       const pr = todoPr(r);
       return !!pr && pr.state !== 'merged' && pr.state !== 'closed';
     }
-    case 'failing':
-      return r.places.some((p) => p.lane.pr && p.lane.pr.state !== 'merged' && p.lane.pr.state !== 'closed' && p.lane.pr.checks.failed > 0);
+    case 'work':
+      return r.places.some((p) => prNeedsWork(p.lane.pr));
     default:
       return false;
   }

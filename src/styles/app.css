@@ -1487,17 +1487,12 @@ body.is-resizing * {
   min-width: 0;
   padding: 0 var(--space-3);
 }
-.ca-agentline-text,
-.ca-agentline--lane .ca-agentline-main {
+.ca-agentline-text {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font: 400 13px/18px var(--font-sans);
-}
-.ca-agentline--lane .ca-agentline-main {
-  display: block;
-  line-height: 30px;
 }
 .ca-agentline-age {
   display: flex;

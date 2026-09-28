@@ -3,7 +3,7 @@
 // snoozed, then the rest by the day they were last active. Drag a pinned session, or press ⌥↑ ⌥↓,
 // to reorder.
 
-import { bySession, byStatusTime, prNeedsSession } from '../lanes';
+import { bySession, byStatusTime } from '../lanes';
 import type { MouseEvent } from 'react';
 import type { Bay, Lane, Session, Status, Todo } from '../types';
 import { AgentRow } from './LaneRow';
@@ -54,28 +54,25 @@ export function waitingQueue(rows: SessionItem[]): SessionItem[] {
  * Needs you, Your turn and Working first, in the floating bar's order: Needs you the longest
  * wait first, the others the newest status first. Then Snoozed, the soonest back first. The
  * rest go under Today, Yesterday, Last 7 days and Older, by last activity in local time, the one
- * you last sent a prompt first. With `prs` (the Inbox's Needs you), a worktree that needs you
- * for its PR alone is under Needs you as its latest session, after the agents that need you.
+ * you last sent a prompt first.
  */
-export function timeSections(rows: SessionItem[], now: number, prs = false): SessionSection[] {
-  const forPr = (r: SessionItem) => prs && prNeedsSession(r.lane)?.key === r.session.key;
+export function timeSections(rows: SessionItem[], now: number): SessionSection[] {
   const attention: SessionSection[] = ATTENTION.map(({ bay, label, statuses }) => ({
     id: bay,
     label,
     bay,
     rows: rows
-      .filter((r) => statuses.includes(r.session.status) && !snoozedApart(r.session) && !forPr(r))
-      .sort((a, b) => byStatusTime(a.session, b.session) || a.key.localeCompare(b.key))
-      .concat(bay === 'needs' ? rows.filter(forPr).sort((a, b) => b.session.lastActivity - a.session.lastActivity || a.key.localeCompare(b.key)) : []),
+      .filter((r) => statuses.includes(r.session.status) && !snoozedApart(r.session))
+      .sort((a, b) => byStatusTime(a.session, b.session) || a.key.localeCompare(b.key)),
   }));
   const until = (r: SessionItem) => r.session.snoozedUntil ?? 0;
   const snoozed: SessionSection = {
     id: 'snoozed',
     label: 'Snoozed',
     icon: 'zzz',
-    rows: rows.filter((r) => snoozedApart(r.session) && !forPr(r)).sort((a, b) => until(a) - until(b) || a.key.localeCompare(b.key)),
+    rows: rows.filter((r) => snoozedApart(r.session)).sort((a, b) => until(a) - until(b) || a.key.localeCompare(b.key)),
   };
-  const rest = rows.filter((r) => !forPr(r) && !snoozedApart(r.session) && !ATTENTION.some((g) => g.statuses.includes(r.session.status)));
+  const rest = rows.filter((r) => !snoozedApart(r.session) && !ATTENTION.some((g) => g.statuses.includes(r.session.status)));
   const today = new Date(now);
   today.setHours(0, 0, 0, 0);
   const daysBack = (n: number) => {

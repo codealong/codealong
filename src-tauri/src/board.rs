@@ -524,8 +524,8 @@ fn lane_prompt_at(sessions: &[Session], last_activity: i64) -> i64 {
 }
 
 /// How long a lane in Needs you has waited: since the longest wait of its own agents that need
-/// you and aren't snoozed. None when it needs you for its PR alone, or only through agents
-/// you've snoozed, which come after the ones waiting.
+/// you and aren't snoozed. None when it needs you only through agents you've snoozed, which come
+/// after the ones waiting.
 fn lane_waiting_since(sessions: &[Session]) -> Option<i64> {
     sessions.iter().filter(|s| s.visitor.is_none() && !s.archived && s.snoozed_until.is_none()).filter_map(waiting_since).min()
 }
@@ -679,27 +679,18 @@ pub fn pr_items(seeds: &[LaneSeed], lanes: &[Lane], prs: &HashMap<String, Vec<Pr
     out
 }
 
-/// The first rule that matches. See *The model*, Lane status.
+/// The first rule that matches. See *The model*, Lane status. Needs you, Working and Your turn
+/// are about the lane's agents; a PR that needs work (failing checks, changes requested) keeps
+/// it in In review, where the Inbox's PR needs work finds it.
 pub fn bay_of(sessions: &[Session], pr: Option<&Pr>) -> (Bay, Status) {
     let has = |st: Status| sessions.iter().any(|s| s.status == st);
-    let working = has(Status::Working);
     if has(Status::Needs) {
         return (Bay::Needs, Status::Needs);
     }
     if has(Status::Error) {
         return (Bay::Needs, Status::Error);
     }
-    if let Some(pr) = pr {
-        if pr.state.is_open() && !working {
-            if pr.checks.failed > 0 {
-                return (Bay::Needs, Status::Error);
-            }
-            if pr.state == PrState::Changes {
-                return (Bay::Needs, Status::Needs);
-            }
-        }
-    }
-    if working {
+    if has(Status::Working) {
         return (Bay::Working, Status::Working);
     }
     if has(Status::Unread) {
@@ -874,35 +865,29 @@ pub fn headline(bay: Bay, sessions: &[Session], pr: Option<&Pr>, git: Option<&Gi
     let acct = |s: &Session| code(&s.account);
     let first = |st: Status| sessions.iter().find(|s| s.status == st);
     match bay {
-        Bay::Needs => {
-            if let Some(s) = first(Status::Needs).or_else(|| first(Status::Error)) {
-                return session_headline(s);
-            }
-            match pr {
-                Some(pr) if pr.checks.failed > 0 => {
-                    let mut names: Vec<String> = pr.checks.failing.iter().take(3).map(|n| code(n)).collect();
-                    if pr.checks.failing.len() > 3 {
-                        names.push(format!("+{} more", pr.checks.failing.len() - 3));
-                    }
-                    (format!("Checks failing on #{}", pr.number), Some(names.join(" · ")))
-                }
-                Some(pr) => (format!("Changes requested on #{}", pr.number), Some(plain(&truncate(&pr.title, 80)))),
-                None => ("Needs you".to_string(), None),
-            }
-        }
+        Bay::Needs => session_headline(first(Status::Needs).or_else(|| first(Status::Error)).expect("needs bay has an agent that needs you")),
         Bay::Working => session_headline(first(Status::Working).expect("working bay has a working session")),
         Bay::Unread => session_headline(first(Status::Unread).expect("unread bay has an unread session")),
         Bay::Review => {
             let pr = pr.expect("review bay has a PR");
             let c = &pr.checks;
+            let n = pr.number;
+            // Failing checks are what the PR needs from you first; the detail names them.
+            if c.failed > 0 && !c.failing.is_empty() {
+                let mut names: Vec<String> = c.failing.iter().take(3).map(|n| code(n)).collect();
+                if c.failing.len() > 3 {
+                    names.push(format!("+{} more", c.failing.len() - 3));
+                }
+                return (format!("#{n} · checks failing"), Some(names.join(" · ")));
+            }
             // Ready to merge is GitHub's word for it: the reviews the repo requires, passing
             // checks and no conflicts. Until GitHub has worked that out, an approval is only that.
-            let n = pr.number;
             let head = match pr.state {
                 PrState::Draft => format!("#{n} is a draft"),
                 _ if pr.merge == Merge::Conflicts => format!("#{n} has conflicts"),
                 _ if pr.merge == Merge::Behind => format!("#{n} · branch out of date"),
                 PrState::Changes => format!("#{n} · changes requested"),
+                _ if c.failed > 0 => format!("#{n} · checks failing"),
                 _ if c.pending > 0 && pr.state == PrState::Approved => format!("#{n} approved · checks running"),
                 _ if c.pending > 0 => format!("#{n} · checks running"),
                 PrState::Approved if pr.merge == Merge::Clean => format!("#{n} approved · ready to merge"),
@@ -2057,7 +2042,9 @@ mod tests {
         let failing = find_pr(&seed("/r", "quarry"), &HashMap::from([("northwindai/atlas".to_string(), vec![pr(PrState::Open, 2)])]), NOW);
         let merged = find_pr(&seed("/r", "quarry"), &HashMap::from([("northwindai/atlas".to_string(), vec![pr(PrState::Merged, 0)])]), NOW);
         assert_eq!(bay_of(&[working.clone(), needs.clone()], None), (Bay::Needs, Status::Needs));
-        assert_eq!(bay_of(&[unread.clone()], failing.as_ref()), (Bay::Needs, Status::Error));
+        // A PR that needs work doesn't make the worktree need you: its agents do.
+        assert_eq!(bay_of(&[unread.clone()], failing.as_ref()), (Bay::Unread, Status::Unread));
+        assert_eq!(bay_of(&[], failing.as_ref()), (Bay::Review, Status::Idle));
         assert_eq!(bay_of(&[working.clone()], failing.as_ref()), (Bay::Working, Status::Working));
         assert_eq!(bay_of(&[unread.clone()], open_pr.as_ref()), (Bay::Unread, Status::Unread));
         assert_eq!(bay_of(&[], open_pr.as_ref()), (Bay::Review, Status::Idle));
@@ -2083,8 +2070,8 @@ mod tests {
         assert_eq!(headline(Bay::Working, &[working], None, None).1, Some(format!("{{for:{}}} · running `yarn test`", NOW - 2_000)));
         let failing = find_pr(&seed("/r", "quarry"), &HashMap::from([("northwindai/atlas".to_string(), vec![pr(PrState::Open, 2)])]), NOW);
         assert_eq!(
-            headline(Bay::Needs, &[], failing.as_ref(), None),
-            ("Checks failing on #1037".to_string(), Some("`check-0` · `check-1`".to_string()))
+            headline(Bay::Review, &[], failing.as_ref(), None),
+            ("#1037 · checks failing".to_string(), Some("`check-0` · `check-1`".to_string()))
         );
         let review = |state: PrState, merge: Merge| {
             let pr = find_pr(&seed("/r", "quarry"), &HashMap::from([("northwindai/atlas".to_string(), vec![PrRaw { merge, ..pr(state, 0) }])]), NOW);
@@ -2210,9 +2197,7 @@ mod tests {
         snoozed.snoozed_until = Some(NOW + 60 * MIN);
         let mut lanes = vec![
             lane("new", Bay::Needs, vec![session("waiting", NOW - MIN, NOW - 2 * MIN)]),
-            // Needs you for its PR alone, or only through a snoozed agent: after those waiting,
-            // the one you last prompted first.
-            lane("pr-only", Bay::Needs, vec![session("idle", NOW - 5 * MIN, NOW - 3 * MIN)]),
+            // Needs you only through a snoozed agent: after those waiting.
             lane("snoozed", Bay::Needs, vec![snoozed]),
             lane("old", Bay::Needs, vec![session("busy", NOW - MIN, NOW - MIN), session("waiting", NOW - 40 * MIN, NOW - 45 * MIN)]),
             // The other bays still put the one you last prompted first.
@@ -2220,7 +2205,7 @@ mod tests {
             lane("idle-new", Bay::Idle, vec![session("idle", NOW - 5 * MIN, NOW - 10 * MIN)]),
         ];
         lanes.sort_by(lane_order);
-        assert_eq!(lanes.iter().map(|l| l.id.as_str()).collect::<Vec<_>>(), vec!["old", "new", "pr-only", "snoozed", "idle-new", "idle-old"]);
+        assert_eq!(lanes.iter().map(|l| l.id.as_str()).collect::<Vec<_>>(), vec!["old", "new", "snoozed", "idle-new", "idle-old"]);
     }
 
     #[test]

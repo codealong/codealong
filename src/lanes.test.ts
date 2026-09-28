@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ageFiltered, bayOf, buildBays, bySession, filterByAge, inboxCounts, narrowed, prNeedsSession, rowItems, withoutAccount } from './lanes';
+import { ageFiltered, bayOf, buildBays, bySession, filterByAge, inboxCounts, narrowed, rowItems, withoutAccount } from './lanes';
 import type { Lane, Pr, Session } from './types';
 
 const NOW = 1_790_200_000_000;
@@ -14,9 +14,12 @@ const lane = (sessions: Session[], p: Pr | null): Lane => {
 };
 
 describe('bayOf', () => {
-  it('follows the engine: agents first, then the PR, then work', () => {
+  it('follows the engine: agents first, then the PR', () => {
     expect(bayOf([session('a', 'needs', NOW)], pr('open'))).toEqual(['needs', 'needs']);
-    expect(bayOf([session('a', 'idle', NOW)], pr('open', 2))).toEqual(['needs', 'error']);
+    // A PR that needs work doesn't make the worktree need you.
+    expect(bayOf([session('a', 'idle', NOW)], pr('open', 2))).toEqual(['review', 'idle']);
+    expect(bayOf([], pr('changes'))).toEqual(['review', 'idle']);
+    expect(bayOf([session('a', 'unread', NOW)], pr('open', 2))).toEqual(['unread', 'unread']);
     expect(bayOf([session('a', 'working', NOW)], pr('open', 2))).toEqual(['working', 'working']);
     expect(bayOf([], pr('merged'))).toEqual(['merged', 'idle']);
     expect(bayOf([], null)).toEqual(['idle', 'idle']);
@@ -107,12 +110,11 @@ describe('buildBays', () => {
     const at = (id: string, sessions: Session[], p: Pr | null = null) => ({ ...lane(sessions, p), id, lastActivity: NOW }) as Lane;
     const lanes = [
       at('/r/new', [fresh]),
-      // Needs you for its PR alone, or only through a snoozed agent: after those waiting.
-      at('/r/pr', [session('p', 'idle', NOW - 60_000, NOW - 60_000)], pr('open', 1)),
+      // Needs you only through a snoozed agent: after those waiting.
       at('/r/snoozed', [waiting('z', NOW - 7_200_000, NOW - 7_300_000, { snoozedUntil: NOW + 60_000 })]),
       at('/r/old', [session('b', 'working', NOW, NOW), waited]),
     ];
-    expect(buildBays(lanes)[0].rows.map((r) => r.key)).toEqual(['/r/old', '/r/new', '/r/pr', '/r/snoozed']);
+    expect(buildBays(lanes)[0].rows.map((r) => r.key)).toEqual(['/r/old', '/r/new', '/r/snoozed']);
   });
 });
 
@@ -127,35 +129,19 @@ describe('narrowed', () => {
     expect(narrowed(mixed, null, '')).toBe(mixed);
   });
 
-  it('keeps a worktree whole for its PR, and one that needs you for its PR alone', () => {
-    expect(narrowed(mixed, 'failing', '')).toBe(mixed);
+  it('keeps a worktree whole for its PR; Needs you is only about its agents', () => {
+    expect(narrowed(mixed, 'work', '')).toBe(mixed);
     expect(narrowed(mixed, 'review', '')).toBeNull();
     expect(narrowed(mixed, 'needs', '')).toBeNull();
     const failing = { ...lane([session('u', 'unread', NOW)], pr('open', 2)), id: '/r/failing' } as Lane;
-    expect(failing.bay).toBe('needs');
-    const shown = narrowed(failing, 'needs', '')!;
-    expect([shown.bay, shown.sessions]).toEqual(['needs', []]);
+    expect(failing.bay).toBe('unread');
+    expect(narrowed(failing, 'needs', '')).toBeNull();
+    expect(narrowed(failing, 'work', '')).toBe(failing);
+    const changes = { ...lane([session('c', 'idle', NOW)], pr('changes')), id: '/r/changes' } as Lane;
+    expect([narrowed(changes, 'review', ''), narrowed(changes, 'work', '')]).toEqual([changes, changes]);
     const inReview = { ...lane([session('c', 'idle', NOW)], pr('open')), id: '/r/review' } as Lane;
     expect(narrowed(inReview, 'review', '')).toBe(inReview);
-    expect(narrowed(inReview, 'failing', '')).toBeNull();
-  });
-});
-
-describe('prNeedsSession', () => {
-  it('picks the latest own session of a worktree that needs you for its PR alone', () => {
-    const failing = lane([session('old', 'stopped', NOW - DAY), session('new', 'unread', NOW), { ...session('guest', 'idle', NOW + 1), visitor: 'worked here' }], pr('open', 2));
-    expect(prNeedsSession(failing)?.key).toBe('new');
-    // An agent that needs you stands for itself, and a worktree fine with its PR needs nobody.
-    expect(prNeedsSession(lane([session('a', 'needs', NOW), session('b', 'idle', NOW + 1)], pr('open', 2)))).toBeNull();
-    expect(prNeedsSession(lane([session('c', 'idle', NOW)], pr('open')))).toBeNull();
-    expect(prNeedsSession(lane([], pr('open', 2)))).toBeNull();
-  });
-
-  it('falls back to the latest session that worked there from elsewhere', () => {
-    const visit = (key: string, status: Session['status'], at: number) => ({ ...session(key, status, at), visitor: 'made this worktree' });
-    expect(prNeedsSession(lane([visit('maker', 'idle', NOW), visit('helper', 'stopped', NOW - DAY)], pr('open', 2)))?.key).toBe('maker');
-    // One that needs you is listed under its own worktree already.
-    expect(prNeedsSession(lane([visit('asking', 'needs', NOW)], pr('open', 2)))).toBeNull();
+    expect(narrowed(inReview, 'work', '')).toBeNull();
   });
 });
 
@@ -163,8 +149,10 @@ describe('inboxCounts', () => {
   it('counts agents, and worktrees for what their PR needs', () => {
     const busy = { ...lane([session('a', 'needs', NOW), session('b', 'working', NOW), session('c', 'working', NOW), session('d', 'unread', NOW)], null), id: '/r/busy' } as Lane;
     const failing = { ...lane([session('e', 'unread', NOW)], pr('open', 2)), id: '/r/failing' } as Lane;
+    const changes = { ...lane([], pr('changes')), id: '/r/changes' } as Lane;
     const inReview = { ...lane([], pr('open')), id: '/r/review' } as Lane;
-    expect(inboxCounts([busy, failing, inReview])).toEqual({ needs: 2, working: 2, unread: 2, review: 1, failing: 1 });
+    // Needs you counts agents alone; the PRs that need work count under PR needs work.
+    expect(inboxCounts([busy, failing, changes, inReview])).toEqual({ needs: 1, working: 2, unread: 2, review: 2, work: 2 });
   });
 });
 

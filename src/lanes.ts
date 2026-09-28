@@ -27,8 +27,8 @@ export interface WorktreeRow {
   lane: Lane;
   agents: AgentItem[];
 }
-/** What the Inbox narrows the board to: one bay, or worktrees whose PR checks are failing. */
-export type Filter = Bay | 'failing';
+/** What the Inbox narrows the board to: one bay, or worktrees whose PR needs work. */
+export type Filter = Bay | 'work';
 
 /** When a session began waiting on you, for one that needs you, as the engine has it
  *  (`waiting_since`): Needs you is a queue, the longest wait first, so a new one can't keep
@@ -73,7 +73,7 @@ export function lanePromptAt(lane: Lane): number {
 
 /** How long a worktree in Needs you has waited, as the engine has it (`lane_waiting_since`):
  *  since the longest wait of its own agents that need you and aren't snoozed. Null when it needs
- *  you for its PR alone, or only through snoozed agents. */
+ *  you only through snoozed agents. */
 function laneWaitingSince(lane: Lane): number | null {
   const waits = lane.sessions.filter((s) => !s.visitor && !s.archived && !s.snoozedUntil).flatMap((s) => waitingSince(s) ?? []);
   return waits.length > 0 ? Math.min(...waits) : null;
@@ -88,7 +88,7 @@ function byLane(a: Lane, b: Lane): number {
   return waited || lanePromptAt(b) - lanePromptAt(a) || b.lastActivity - a.lastActivity;
 }
 
-function prOpen(pr: Pr): boolean {
+function prOpen(pr: Pick<Pr, 'state'>): boolean {
   return pr.state !== 'merged' && pr.state !== 'closed';
 }
 
@@ -98,17 +98,19 @@ export function failingPr(lane: Lane): Pr | null {
   return pr && prOpen(pr) && pr.checks.failed > 0 ? pr : null;
 }
 
-/** The first rule that matches, as in the engine: agents that need you, then the PR, then work. */
+/** Whether an open PR needs work: failing checks or changes requested. The Inbox's PR needs
+ *  work, for worktrees, sessions, PRs and todos alike. */
+export function prNeedsWork(pr: Pick<Pr, 'state' | 'checks'> | null | undefined): boolean {
+  return !!pr && prOpen(pr) && (pr.checks.failed > 0 || pr.state === 'changes');
+}
+
+/** The first rule that matches, as in the engine: agents that need you, work, finish, then the
+ *  PR. A PR that needs work doesn't make the worktree need you; PR needs work finds it. */
 export function bayOf(sessions: Session[], pr: Pr | null): [Bay, Status] {
   const has = (st: Status) => sessions.some((s) => s.status === st);
-  const working = has('working');
   if (has('needs')) return ['needs', 'needs'];
   if (has('error')) return ['needs', 'error'];
-  if (pr && prOpen(pr) && !working) {
-    if (pr.checks.failed > 0) return ['needs', 'error'];
-    if (pr.state === 'changes') return ['needs', 'needs'];
-  }
-  if (working) return ['working', 'working'];
+  if (has('working')) return ['working', 'working'];
   if (has('unread')) return ['unread', 'unread'];
   if (pr) return prOpen(pr) ? ['review', 'idle'] : ['merged', 'idle'];
   return ['idle', 'idle'];
@@ -119,13 +121,12 @@ export function bayOf(sessions: Session[], pr: Pr | null): [Bay, Status] {
  * `headline`), an agent bay takes its sentence from the first agent with that status in the
  * lane's order, the one you last sent a prompt; the rest get a plain one.
  */
-function headlineFor(bay: Bay, status: Status, own: Session[], pr: Pr | null, since: string): [string, string | null] {
+function headlineFor(bay: Bay, own: Session[], pr: Pr | null, since: string): [string, string | null] {
   const first = (...statuses: Status[]) => statuses.map((st) => own.find((s) => s.status === st)).find((s) => s != null);
   const agent = bay === 'needs' ? first('needs', 'error') : bay === 'working' || bay === 'unread' ? first(bay) : undefined;
   if (agent) return [agent.headline, agent.detail];
-  if (pr && bay === 'needs') return [status === 'error' ? `Checks failing on #${pr.number}` : `Changes requested on #${pr.number}`, null];
   if (pr && bay === 'merged') return [`#${pr.number} ${pr.state === 'closed' ? 'closed' : 'merged'}`, null];
-  if (pr && bay === 'review') return [`#${pr.number} ${pr.title}`, null];
+  if (pr && bay === 'review') return [pr.checks.failed > 0 ? `#${pr.number} · checks failing` : `#${pr.number} ${pr.title}`, null];
   return [`No agents active ${since}`, null];
 }
 
@@ -199,7 +200,7 @@ export function relaned(lane: Lane, sessions: Session[]): Lane {
     return { ...next, headline, detail };
   }
   if (bay === lane.bay) return next;
-  const [headline, detail] = headlineFor(bay, glyph, own, lane.pr, '');
+  const [headline, detail] = headlineFor(bay, own, lane.pr, '');
   return { ...next, headline, detail };
 }
 
@@ -209,7 +210,7 @@ function withSessions(lane: Lane, sessions: Session[], since: string): Lane {
   const own = sessions.filter((s) => !s.visitor);
   const [bay, glyph] = bayOf(own, lane.pr);
   if (bay === lane.bay && glyph === lane.glyph) return { ...lane, sessions };
-  const [headline, detail] = headlineFor(bay, glyph, own, lane.pr, since);
+  const [headline, detail] = headlineFor(bay, own, lane.pr, since);
   return { ...lane, sessions, bay, glyph, headline, detail };
 }
 
@@ -261,52 +262,36 @@ export function buildBays(lanes: Lane[]): { bay: Bay; rows: WorktreeRow[] }[] {
 /**
  * A worktree as an Inbox filter shows it, or null when the filter leaves it out. Needs you,
  * Working and Your turn narrow it to its agents in that state, and it moves to that state's
- * bay, as it does under the age filter; In review and Checks failing are about its PR and keep
+ * bay, as it does under the age filter; In review and PR needs work are about its PR and keep
  * it whole.
  */
 export function narrowed(lane: Lane, f: Filter | null, since: string): Lane | null {
   if (!f) return lane;
-  if (f === 'failing') return failingPr(lane) ? lane : null;
+  if (f === 'work') return prNeedsWork(lane.pr) ? lane : null;
   if (f !== 'needs' && f !== 'working' && f !== 'unread') return lane.bay === f ? lane : null;
   const sessions = lane.sessions.filter((s) => !s.visitor && AGENT_BAY[s.status] === f);
-  // A worktree can need you for its PR alone: failing checks or changes requested.
-  if (sessions.length === 0) return f === 'needs' && lane.bay === 'needs' ? { ...lane, sessions: [] } : null;
-  // It shows in the filter's bay even when its agents alone would put it elsewhere: finished
-  // agents on a branch whose checks fail would otherwise make it need you.
+  if (sessions.length === 0) return null;
+  // It shows in the filter's bay even when its other agents put it elsewhere: one working and
+  // one finished shows under Your turn.
   const glyph: Status = f === 'needs' ? (sessions.some((s) => s.status === 'needs') ? 'needs' : 'error') : f;
-  const [headline, detail] = headlineFor(f, glyph, sessions, lane.pr, since);
+  const [headline, detail] = headlineFor(f, sessions, lane.pr, since);
   return { ...lane, sessions, bay: f, glyph, headline, detail };
 }
 
 /**
- * The session that stands for a worktree that needs you for its PR alone (failing checks,
- * changes requested) where only sessions are listed: its latest own one, where you'd go back to
- * fix it, else the latest that worked there from another worktree (the one that made it, say).
- * A visitor that needs you is listed as that already. Null for any other worktree.
- */
-export function prNeedsSession(lane: Lane): Session | null {
-  if (lane.bay !== 'needs') return null;
-  const own = lane.sessions.filter((s) => !s.visitor && !s.archived);
-  if (own.some((s) => AGENT_BAY[s.status] === 'needs')) return null;
-  const pool = own.length > 0 ? own : lane.sessions.filter((s) => s.visitor && !s.archived && AGENT_BAY[s.status] !== 'needs');
-  return pool.reduce<Session | null>((a, s) => (a && a.lastActivity >= s.lastActivity ? a : s), null);
-}
-
-/**
  * The Inbox's counts: agents that need you, are working or just finished, and worktrees whose
- * PR needs you, is in review or has failing checks.
+ * PR is in review or needs work.
  */
-export function inboxCounts(lanes: Lane[]): { needs: number; working: number; unread: number; review: number; failing: number } {
-  const c = { needs: 0, working: 0, unread: 0, review: 0, failing: 0 };
+export function inboxCounts(lanes: Lane[]): { needs: number; working: number; unread: number; review: number; work: number } {
+  const c = { needs: 0, working: 0, unread: 0, review: 0, work: 0 };
   for (const lane of lanes) {
     const own = lane.sessions.filter((s) => !s.visitor);
     for (const s of own) {
       const bay = AGENT_BAY[s.status];
       if (bay === 'needs' || bay === 'working' || bay === 'unread') c[bay]++;
     }
-    if (lane.bay === 'needs' && !own.some((s) => AGENT_BAY[s.status] === 'needs')) c.needs++;
     if (lane.bay === 'review') c.review++;
-    if (failingPr(lane)) c.failing++;
+    if (prNeedsWork(lane.pr)) c.work++;
   }
   return c;
 }

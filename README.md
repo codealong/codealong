@@ -65,7 +65,9 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     in, where most of its latest commands ran and edits landed, even if it started somewhere
     else; resuming it still happens where it started. Needs you is a queue: the worktree and
     the agent that have waited longest come first, so newer ones can't keep an old one down
-    (worktrees that need you only for their PR, or only through snoozed agents, come after).
+    (worktrees that need you only through snoozed agents come after). Needs you, Working and
+    Your turn are about agents: a worktree whose PR has failing checks or changes requested
+    stays in In review, and the Inbox's PR needs work lists it.
     Within the other statuses, the worktree and the agent you last sent a prompt come first,
     so rows hold still while agents work. Stuck
     agents (busy but silent for 30 minutes) show in Needs you with the command they're stuck
@@ -271,7 +273,7 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   its place in the file, so comments and order stay as you wrote them. The config.toml section
   edits the file itself, for anything the form doesn't cover, and says what's wrong when it
   doesn't parse.
-- **Filters**: the Inbox (Needs you, Working, Your turn, In review, Checks failing), search,
+- **Filters**: the Inbox (Needs you, Working, Your turn, In review, PR needs work), search,
   and how recently things were active (24h, 3d, 7d, all).
 - **Light or dark**: follows macOS unless you pick light or dark with the buttons at the foot
   of the sidebar. The choice is saved in config.toml, and every window follows it.
