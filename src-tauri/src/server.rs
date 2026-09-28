@@ -60,6 +60,10 @@ pub enum Request {
     /// A message to a session from an agent (`codealong session send`), sent as a window's is
     /// (send.rs); `from` is the session that ran the command, when it found one.
     Send { key: String, text: String, from: Option<String> },
+    /// A permission request from Claude Code's `PermissionRequest` hook, its input as the hook
+    /// got it: the connection is held until it's answered here or where the session runs, and
+    /// the reply is the decision, or null for none (asks.rs).
+    PermissionAsk { hook: Value },
 }
 
 /// How a reply starts when the app doesn't know the request: it's older than the command.
@@ -138,7 +142,12 @@ fn connection(stream: UnixStream, engine: &Handle, peers: &Peers) {
         if line.trim().is_empty() {
             continue;
         }
-        let reply = handle(engine, peers, &line);
+        let req = serde_json::from_str::<Request>(&line);
+        if let Ok(Request::PermissionAsk { hook }) = req {
+            hold_permission_ask(engine, &hook, &mut out);
+            break;
+        }
+        let reply = handle_request(engine, peers, req);
         let mut text = serde_json::to_string(&reply).unwrap_or_else(|_| r#"{"ok":false,"error":"Couldn't encode the reply."}"#.into());
         text.push('\n');
         if out.write_all(text.as_bytes()).and_then(|_| out.flush()).is_err() {
@@ -147,8 +156,8 @@ fn connection(stream: UnixStream, engine: &Handle, peers: &Peers) {
     }
 }
 
-pub fn handle(engine: &Handle, peers: &Peers, line: &str) -> Reply {
-    let req: Request = match serde_json::from_str(line) {
+fn handle_request(engine: &Handle, peers: &Peers, req: serde_json::Result<Request>) -> Reply {
+    let req = match req {
         Ok(r) => r,
         Err(e) => return Reply::err(format!("{UNKNOWN_REQUEST}: {e}")),
     };
@@ -181,7 +190,36 @@ pub fn handle(engine: &Handle, peers: &Peers, line: &str) -> Reply {
         Request::DeviceUseCode { code } => answered(peers.link_with_code(&code)),
         Request::DeviceAsk { device, request, params } => answered(peers.ask(&device, &request, params, Duration::from_secs(40))),
         Request::Send { key, text, from } => answered(crate::send_here(engine, &key, &text, crate::send::Sender::Agent(from))),
+        // Held on its connection instead (`connection`).
+        Request::PermissionAsk { .. } => Reply::ok(Value::Null),
     }
+}
+
+/// Holds a hook's permission request until it's answered (asks.rs). No answer comes from here
+/// for a session the board doesn't show within a few seconds (an account config.toml doesn't
+/// list), nor for one Codealong runs itself, which asks through its adapter instead.
+fn hold_permission_ask(engine: &Handle, hook: &Value, out: &mut UnixStream) {
+    let Some((asked, record)) = crate::asks::parse(hook, crate::util::now_ms()) else {
+        crate::asks::reply(out, None);
+        return;
+    };
+    let cfg = crate::config::load().ok().flatten().unwrap_or_default();
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    let found = loop {
+        if let Some(found) = engine.read(|b| crate::asks::session_for(b, &cfg, &asked.session)) {
+            break Some(found);
+        }
+        if std::time::Instant::now() >= deadline {
+            break None;
+        }
+        std::thread::sleep(Duration::from_millis(250));
+    };
+    let Some((session, home)) = found.filter(|(s, _)| !crate::acp::hosts(&s.key)) else {
+        crate::asks::reply(out, None);
+        return;
+    };
+    let watch = crate::asks::Watch { home, session, record };
+    crate::asks::hold(out, asked, watch, &|| engine.hosted_changed());
 }
 
 fn answered<T: Serialize>(r: std::result::Result<T, String>) -> Reply {
@@ -209,6 +247,22 @@ fn devices(peers: &Peers) -> Value {
         o.remove("lanes");
     }
     v
+}
+
+/// Hands the running app a hook's permission request and waits, however long it takes, for the
+/// reply: the decision, or None when no app answers, it doesn't know the request (an older
+/// one), or it let the request go unanswered.
+pub fn ask_permission(hook: &Value) -> Option<Value> {
+    let mut stream = UnixStream::connect(path()).ok()?;
+    let _ = stream.set_write_timeout(Some(Duration::from_secs(5)));
+    let mut text = serde_json::to_string(&Request::PermissionAsk { hook: hook.clone() }).ok()?;
+    text.push('\n');
+    stream.write_all(text.as_bytes()).ok()?;
+    stream.flush().ok()?;
+    let mut line = String::new();
+    BufReader::new(stream).read_line(&mut line).ok()?;
+    let reply: Reply = serde_json::from_str(&line).ok()?;
+    reply.result.filter(|v| reply.ok && !v.is_null())
 }
 
 /// One request to the running app, or None when no app answers on the socket.

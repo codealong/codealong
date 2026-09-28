@@ -96,6 +96,10 @@ pub struct Pending {
     /// as prose rather than as a command.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub plan: bool,
+    /// What `Answer::Always` adds, in a sentence, when Codealong can say: "Allows
+    /// `Bash(npm test:*)` in this project, for you."
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub always_rule: Option<String>,
 }
 
 /// Your answer to a pending request. `Always` is offered only where `Pending::always` says so;

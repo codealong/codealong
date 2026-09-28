@@ -40,8 +40,12 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     restarts. A session whose last reply asks you something (Jev's read) takes your answer there
     like any message. When a session waits on you to allow a tool call, the call shows above the
     box with Allow and Deny: OpenCode's are answered through its service, Claude
-    Code's by a keypress in its Ghostty or tmux tab, only while its own record says the prompt
-    is up for that call. Others open where they run to be answered. The box stays meanwhile,
+    Code's through the Codealong plugin's `PermissionRequest` hook when the account has the
+    plugin (wherever the session runs: any terminal, the Claude app), with Always too where
+    Claude Code offers to allow calls like it from now on (its button says what that adds),
+    and otherwise by a keypress in its Ghostty or tmux tab, only while its own record says the
+    prompt is up for that call. Claude Code's own prompt stays up all the while, and whichever
+    answer comes first counts. Others open where they run to be answered. The box stays meanwhile,
     keeping what you'd written, and Send works again once the session isn't waiting (a session
     run In Codealong takes it at once, after its current turn). To work through what waits on
     you, ⌘⏎ in the box sends and goes on to the next session listed that waits on you (Needs
@@ -473,9 +477,16 @@ account's skills folder with a `.codealong-version` marker; at launch the app re
 made when the skill changed, including ones in folders of accounts you've since removed, and
 never touches a folder it didn't make. A copy someone edited is left alone: Settings › Agents
 marks it Edited, and replaces it only when asked (so does `codealong install --account <name>`). `plugin/` wraps the same skill as a Claude Code plugin
-(`.claude-plugin/plugin.json`, a `bin/codealong` shim that finds the app, and a `SessionStart`
-hook that runs `codealong whoami --context`), and `.claude-plugin/marketplace.json` makes the
-repo a marketplace.
+(`.claude-plugin/plugin.json`, a `bin/codealong` shim that finds the app, a `SessionStart`
+hook that runs `codealong whoami --context`, and a `PermissionRequest` hook that runs the
+hidden `codealong session hook permission-request`), and `.claude-plugin/marketplace.json`
+makes the repo a marketplace. The permission hook hands the request to the app over its socket
+and waits; the app holds it (`asks.rs`) until it's answered in one of Codealong's windows or on
+another device, or answered or gone where the session runs, and the hook prints the decision,
+or nothing. It prints nothing and exits 0 when the app isn't running, and an app older than the
+hook fails its unknown subcommand the same quiet way, so Claude Code's own prompt is always
+there to answer. Questions (`AskUserQuestion`) and plans (`ExitPlanMode`) are left to the
+prompt: Claude Code drops a plain allow for them.
 
 The command talks to the running app over `codealong.sock` next to the config (JSON lines, one
 request and reply per line, mode 0600), and the app answers with the board its windows have and

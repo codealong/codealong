@@ -378,6 +378,24 @@ Claude Code
   flags 5 (1 in its legacy mode), never "report all keys", so a typed digit still arrives as the
   plain character.
 - The folder-trust prompt a new folder gets has "No, exit" as its default: Return quits.
+- A `PermissionRequest` hook (checked on 2.1.284, from its code and a session in tmux with a
+  stub hook) gets `session_id`, `transcript_path` (a subagent's calls are in
+  `<session>/subagents/agent-<agent_id>.jsonl`), `cwd`, `permission_mode`, `agent_id` in a
+  subagent, `tool_name`, `tool_input` and `permission_suggestions` (permission updates:
+  `addRules`, `addDirectories`, `setMode`… with a `destination`), but no tool-use id. Its
+  process is a child of the session's. In a terminal (and for the Claude app) the prompt
+  shows while the hook runs and the first answer wins; answered at the prompt, the hook's
+  process is left running until its `timeout` (default 600 s). A background subagent's prompt
+  waits for its hooks instead (`awaitAutomatedChecksBeforeDialog`), and there the registry
+  doesn't say waiting until they return. The hook answers by printing
+  `{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":…}}`: `{"behavior":
+  "allow"}` ("Allowed by PermissionRequest hook"), with `updatedPermissions` (the suggestions)
+  to apply them as the prompt's "don't ask again" does (a `setMode` one switches the session's
+  mode), or `{"behavior":"deny","message":…,"interrupt":true}`, which ends the turn as the
+  prompt's No does. A plain allow for `AskUserQuestion` or `ExitPlanMode` is dropped and the
+  prompt stays (`requiresUserInteraction`); a question takes `updatedInput` with `answers`.
+  The registry's `waiting` / `permission prompt` comes from the session's `requires_action`
+  state, in a terminal and under the Claude app alike.
 - A peer message to a session that bypasses permissions is held ("Held message from another
   session", Deny first) unless its settings say `"crossSessionInbound": "accept"`; typing into
   its terminal isn't held. Under the Claude app (stream-json) a hold is only a `{"type":

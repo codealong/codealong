@@ -282,7 +282,7 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onAllowNext,
     };
   }, [s.key, s.statusSince]);
 
-  const answer = (a: 'allow' | 'deny', then?: (said: string) => void) => {
+  const answer = (a: 'allow' | 'deny' | 'always', then?: (said: string) => void) => {
     if (!pending || busy) return;
     setBusy(true);
     setNote(null);
@@ -354,6 +354,11 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onAllowNext,
         <Button size="sm" disabled={busy} onClick={() => answer('deny')}>
           Deny
         </Button>
+        {pending.always && (
+          <Button size="sm" disabled={busy} title={pending.alwaysRule ?? 'Allows this call, and calls like it from now on.'} onClick={() => answer('always')}>
+            Always
+          </Button>
+        )}
         <Button variant="primary" size="sm" icon="check" kbd={keys ? ['⌘', '⏎'] : undefined} disabled={busy} onClick={() => answer('allow')}>
           Allow
         </Button>

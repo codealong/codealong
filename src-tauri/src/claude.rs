@@ -492,7 +492,8 @@ fn claude_input(name: &str, input: &Value) -> String {
 
 
 /// Claude Code (`harness::Adapter`): its transcript for the conversation, and its permission
-/// prompt answered by a keypress in the terminal it runs in, once its own record says it's
+/// prompt answered through the plugin's hook when the hook handed the app the request
+/// (asks.rs), else by a keypress in the terminal it runs in, once its own record says it's
 /// waiting on that prompt and its transcript that the call is the one you saw.
 pub struct ClaudeCode;
 
@@ -528,6 +529,11 @@ impl crate::harness::Adapter for ClaudeCode {
     }
 
     fn pending(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> Option<crate::harness::Pending> {
+        // A request the plugin's hook handed the app is answered through the hook, wherever the
+        // session runs (asks.rs).
+        if let Some(a) = crate::asks::of_session(&s.id) {
+            return Some(asked_pending(&a));
+        }
         let (call, _) = waiting_call(self, ctx, s)?;
         let cannot = match crate::launch::terminal_kind(s.pid?) {
             Some(_) => None,
@@ -536,10 +542,27 @@ impl crate::harness::Adapter for ClaudeCode {
         // Not every prompt has "Yes, and always allow" as its second choice, and a 2 pressed at
         // one without it is something else, so Always isn't offered in a terminal.
         let plan = call.text == PLAN;
-        Some(crate::harness::Pending { id: call.id.clone().unwrap_or_default(), label: call.text, input: call.input, cannot, always: false, plan })
+        Some(crate::harness::Pending { id: call.id.clone().unwrap_or_default(), label: call.text, input: call.input, cannot, always: false, plan, always_rule: None })
     }
 
     fn answer(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, id: &str, answer: crate::harness::Answer) -> anyhow::Result<String> {
+        let decision = match answer {
+            crate::harness::Answer::Allow => crate::asks::Decision::Allow,
+            crate::harness::Answer::Always => crate::asks::Decision::Always,
+            crate::harness::Answer::Deny => crate::asks::Decision::Deny,
+        };
+        if let Some(r) = crate::asks::answer(id, decision) {
+            let a = r?;
+            let call = tool_request(&a.tool, &a.input);
+            return Ok(match answer {
+                crate::harness::Answer::Allow => format!("Allowed {call}."),
+                crate::harness::Answer::Always => format!("Allowed {call}, and from now on."),
+                crate::harness::Answer::Deny => format!("Denied {call}; it stops and waits for you."),
+            });
+        }
+        if crate::asks::is_ask_id(id) {
+            anyhow::bail!("It isn't waiting on that any more.");
+        }
         let Some((call, pid)) = waiting_call(self, ctx, s) else {
             anyhow::bail!("It isn't waiting on a permission prompt any more.");
         };
@@ -586,6 +609,68 @@ fn fork_as(account: &crate::config::AccountCfg, id: &str, new_id: &str) -> crate
         env: vec![(crate::start::SESSION_VAR.to_string(), key.clone())],
         key: Some(key),
     }
+}
+
+/// A permission request the plugin's hook holds in the app, as the panel shows it.
+fn asked_pending(a: &crate::asks::Asked) -> crate::harness::Pending {
+    crate::harness::Pending {
+        id: a.id.clone(),
+        label: tool_request(&a.tool, &a.input),
+        input: Some(clip_input(&claude_input(&a.tool, &a.input))),
+        cannot: None,
+        always: !a.suggestions.is_empty(),
+        plan: false,
+        always_rule: always_text(&a.suggestions),
+    }
+}
+
+/// What answering Always adds, in a sentence: Claude Code's own suggestions for the call, the
+/// ones its "Yes, and don't ask again" applies (permission updates: rules, a mode, folders).
+pub fn always_text(suggestions: &[Value]) -> Option<String> {
+    let parts: Vec<String> = suggestions
+        .iter()
+        .filter_map(|u| {
+            let s = |k: &str| u.get(k).and_then(Value::as_str);
+            let place = match s("destination") {
+                Some("session") => " for this session",
+                Some("localSettings") => " in this project, for you",
+                Some("projectSettings") => " in this project, for everyone",
+                Some("userSettings") => " everywhere, for you",
+                _ => "",
+            };
+            let list = |k: &str, f: &dyn Fn(&Value) -> Option<String>| -> Vec<String> { u.get(k).and_then(Value::as_array).map(|a| a.iter().filter_map(f).collect()).unwrap_or_default() };
+            match s("type")? {
+                "addRules" if s("behavior") == Some("allow") => {
+                    let rules = list("rules", &|r| {
+                        let tool = r.get("toolName")?.as_str()?;
+                        Some(code(&match r.get("ruleContent").and_then(Value::as_str) {
+                            Some(c) => format!("{tool}({c})"),
+                            None => tool.to_string(),
+                        }))
+                    });
+                    (!rules.is_empty()).then(|| format!("Allows {}{place}", rules.join(", ")))
+                }
+                "addDirectories" => {
+                    let dirs = list("directories", &|d| d.as_str().map(|p| code(&crate::util::tilde(Path::new(p)))));
+                    (!dirs.is_empty()).then(|| format!("Allows working in {}{place}", dirs.join(", ")))
+                }
+                "setMode" => {
+                    let mode = match s("mode")? {
+                        "acceptEdits" => "accepting edits",
+                        "default" => "asking first",
+                        "plan" => "plan mode",
+                        "dontAsk" => "not asking",
+                        "auto" => "auto mode",
+                        "bypassPermissions" => "skipping permission prompts",
+                        _ => return None,
+                    };
+                    Some(format!("Switches to {mode}{place}"))
+                }
+                _ => None,
+            }
+        })
+        .collect();
+    (!parts.is_empty()).then(|| format!("{}.", parts.join("; ")))
 }
 
 /// The inputs of the calls at the end of a transcript with no result yet: Claude Code writes a
@@ -850,6 +935,29 @@ pub fn tool_activity(name: &str, input: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn says_what_always_adds_from_claude_codes_own_suggestions() {
+        // What 2.1.284 suggested for `touch` in the session's folder.
+        let s = serde_json::json!([
+            { "type": "addDirectories", "directories": ["/Users/x/work"], "destination": "session" },
+            { "type": "setMode", "mode": "acceptEdits", "destination": "session" }
+        ]);
+        let s = s.as_array().unwrap();
+        assert_eq!(always_text(s).as_deref(), Some("Allows working in `/Users/x/work` for this session; Switches to accepting edits for this session."));
+        let rules = serde_json::json!([{ "type": "addRules", "rules": [{ "toolName": "Bash", "ruleContent": "npm test:*" }, { "toolName": "WebFetch" }], "behavior": "allow", "destination": "localSettings" }]);
+        assert_eq!(always_text(rules.as_array().unwrap()).as_deref(), Some("Allows `Bash(npm test:*)`, `WebFetch` in this project, for you."));
+        assert_eq!(always_text(&[]), None);
+        assert_eq!(always_text(&[serde_json::json!({ "type": "removeRules" })]), None);
+    }
+
+    #[test]
+    fn a_held_request_is_the_call_the_panel_answers() {
+        let a = crate::asks::Asked { id: "ask-9".into(), session: "abc".into(), agent: None, tool: "Bash".into(), input: serde_json::json!({ "command": "touch alpha.txt" }), suggestions: vec![serde_json::json!({ "type": "setMode", "mode": "acceptEdits", "destination": "session" })], at: 1 };
+        let p = asked_pending(&a);
+        assert_eq!((p.id.as_str(), p.label.as_str(), p.input.as_deref(), p.cannot, p.always), ("ask-9", "Bash · `touch alpha.txt`", Some("touch alpha.txt"), None, true));
+        assert_eq!(p.always_rule.as_deref(), Some("Switches to accepting edits for this session."));
+    }
 
     #[test]
     fn reads_the_mode_the_latest_prompt_went_in() {

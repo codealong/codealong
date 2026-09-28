@@ -359,6 +359,12 @@ enum SessionCmd {
     Show { key: String },
     /// Send a message to another session where it runs, on any account or harness. It's never your user's word: the message starts by saying it's from another agent and not the user, which session sent it, and how to answer (`codealong session send <sender's key> "…"`), so an answer arrives in your session as a new message. Claude Code sessions get it on their socket for messages between sessions; one that skips permission prompts takes it at once only from a session that skips them too, and otherwise asks its user first (a Claude app session can't, so nothing is sent). Codex and OpenCode sessions get it as a prompt, typed into their terminal or posted to their service, and queued while they work. Nothing is sent to a session that isn't running, one waiting on its user to answer a prompt, or an Antigravity one.
     Send(SendArgs),
+    /// For the Codealong plugin's hooks, with the hook's input on stdin. `permission-request`
+    /// hands Claude Code's permission request to the app, to be answered from Codealong as well
+    /// as the prompt, and prints the answer for Claude Code. It prints nothing, and exits 0,
+    /// when the app isn't running or nobody answers there.
+    #[command(hide = true)]
+    Hook { event: String },
 }
 
 #[derive(Args, Debug)]
@@ -509,6 +515,11 @@ pub fn main(args: &[String]) -> i32 {
             return if e.use_stderr() { 2 } else { 0 };
         }
     };
+    // A hook needs none of what the client reads, and must never fail Claude Code's prompt.
+    if let Cmd::Session { cmd: SessionCmd::Hook { event } } = &cli.cmd {
+        session_hook(event);
+        return 0;
+    }
     // SAFETY: isatty reads a descriptor's kind and touches nothing.
     let json = !cli.table && (cli.json || unsafe { libc::isatty(1) } == 0);
     let mut client = Client::new(cli.verbose);
@@ -711,6 +722,10 @@ fn run(cmd: Cmd, c: &mut Client, json: bool) -> Result<()> {
         },
         Cmd::Session { cmd: SessionCmd::Show { key } } => session_show(c, &key, json),
         Cmd::Session { cmd: SessionCmd::Send(args) } => session_send(c, args, json),
+        Cmd::Session { cmd: SessionCmd::Hook { event } } => {
+            session_hook(&event);
+            Ok(())
+        }
         Cmd::Worktrees(args) => worktrees(c, &args, json),
         Cmd::Pr { cmd: PrCmd::Show { pr } } => pr_show(c, &pr, json),
         Cmd::Pr { cmd: PrCmd::Link(a) } => pr_link(c, &a, true, json),
@@ -1616,6 +1631,26 @@ fn runs_command(call: &str, args: &[String]) -> bool {
         rest.starts_with(char::is_whitespace) && next.and_then(|w| w.strip_prefix(*sub)).is_some_and(|after| !after.starts_with(|c: char| c.is_ascii_alphanumeric() || c == '-' || c == '_'))
     });
     invoked && words.iter().all(|w| call.contains(w))
+}
+
+/// A hook of the Codealong plugin's (plugin/hooks/hooks.json). Whatever goes wrong it prints
+/// nothing, so Claude Code's own prompt stays the way to answer.
+fn session_hook(event: &str) {
+    if event != "permission-request" {
+        return;
+    }
+    let mut input = String::new();
+    if std::io::stdin().take(16 << 20).read_to_string(&mut input).is_err() {
+        return;
+    }
+    let Ok(hook) = serde_json::from_str::<Value>(&input) else { return };
+    // Questions and plans are left to the prompt: the app isn't asked about them.
+    if !hook.get("tool_name").and_then(Value::as_str).is_some_and(crate::asks::answers_tool) {
+        return;
+    }
+    if let Some(out) = server::ask_permission(&hook).and_then(|d| crate::asks::hook_output(&d)) {
+        println!("{out}");
+    }
 }
 
 fn whoami(c: &mut Client, context: bool, json: bool) -> Result<()> {
@@ -2633,6 +2668,11 @@ mod tests {
         let cli = Cli::try_parse_from(["codealong", "sessions", "--live", "--json"]).unwrap();
         assert!(cli.json && matches!(cli.cmd, Cmd::Sessions(SessionsArgs { cmd: None, .. })));
         assert!(Cli::try_parse_from(["codealong", "todo", "add"]).is_err());
+        // The plugin's hook, under a subcommand every older app knows: one that doesn't know
+        // `hook` fails with a usage error, where an unknown first word would start the app.
+        let cli = Cli::try_parse_from(["codealong", "session", "hook", "permission-request"]).unwrap();
+        assert!(matches!(cli.cmd, Cmd::Session { cmd: SessionCmd::Hook { ref event } } if event == "permission-request"));
+        assert!(is_cli(&["codealong".into(), "session".into(), "hook".into()]));
         let cli = Cli::try_parse_from(["codealong", "todo", "move", "t-1", "--after", "t-2"]).unwrap();
         let Cmd::Todo { cmd: TodoCmd::Move(m) } = cli.cmd else { panic!() };
         assert_eq!((m.id.as_str(), m.after.as_deref(), m.top), ("t-1", Some("t-2"), false));

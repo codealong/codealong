@@ -660,7 +660,7 @@ pub fn pending(key: &str) -> Option<Pending> {
     let st = state();
     let p = st.sessions.get(key)?.permission.as_ref()?;
     let always = p.options.iter().any(|(_, kind)| kind == "allow_always");
-    Some(Pending { id: p.tool_call.clone(), label: p.label.clone(), input: p.input.clone(), cannot: None, always, plan: false })
+    Some(Pending { id: p.tool_call.clone(), label: p.label.clone(), input: p.input.clone(), cannot: None, always, plan: false, always_rule: None })
 }
 
 /// Answers the permission request for tool call `id`.

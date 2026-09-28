@@ -173,7 +173,9 @@ impl Handle {
         rx.recv_timeout(SHOWN_WAIT).ok()
     }
 
-    /// A session Codealong runs started or ended a turn, or asked or stopped asking something.
+    /// A session Codealong runs started or ended a turn, or asked or stopped asking something;
+    /// or a Claude Code session's hook handed the app a permission request, or took it back
+    /// (asks.rs).
     pub fn hosted_changed(&self) {
         let _ = self.tx.send(Msg::Hosted);
     }
@@ -2371,9 +2373,11 @@ impl Engine {
                 _ => {}
             }
         }
-        // What only the process knows about the sessions Codealong runs.
+        // What only the process knows: about the sessions Codealong runs, and the permission
+        // requests Claude Code's hook holds here.
         for s in &mut out {
             crate::acp::overlay(s, self.seen.seen_at(&s.key));
+            crate::asks::overlay(s);
         }
         out
     }

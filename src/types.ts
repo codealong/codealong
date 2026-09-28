@@ -870,6 +870,10 @@ export interface Pending {
   input: string | null;
   /** Why Codealong can't answer it here; the panel offers to open it instead. */
   cannot: string | null;
+  /** It can also be allowed from now on, not just this once. */
+  always?: boolean;
+  /** What allowing it from now on adds, in a sentence, when Codealong can say. */
+  alwaysRule?: string;
 }
 
 /** A terminal that Close idle terminals would close, named by its session (idle.rs). */

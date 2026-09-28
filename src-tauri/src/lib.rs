@@ -2,6 +2,7 @@
 
 mod acp;
 mod appserver;
+mod asks;
 mod attachments;
 mod bar;
 mod barfeed;
