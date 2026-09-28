@@ -26,7 +26,7 @@ import { filesToAttach, keepFiles } from '../attachInput';
 import { onDraftChange, readDraft, writeDraft } from '../drafts';
 import { sessionPlace } from '../harness';
 import { attachmentsIn, insertAttachments, withoutAttachment } from '../todos';
-import type { Pending, Sent, Session } from '../types';
+import type { Answers, Pending, Question, Sent, Session } from '../types';
 import { CodeBlock } from './CopyButton';
 import { AttachmentStrip } from './DescriptionEditor';
 import { Button, Icon, Rich } from './primitives';
@@ -282,11 +282,11 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onAllowNext,
     };
   }, [s.key, s.statusSince]);
 
-  const answer = (a: 'allow' | 'deny' | 'always', then?: (said: string) => void) => {
+  const answer = (a: 'allow' | 'deny' | 'always', then?: (said: string) => void, answers?: Answers) => {
     if (!pending || busy) return;
     setBusy(true);
     setNote(null);
-    sessionAnswer(s.key, pending.id, a)
+    sessionAnswer(s.key, pending.id, a, answers)
       .then((said) => {
         setNote({ text: said, error: false });
         setPending(null);
@@ -297,7 +297,9 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onAllowNext,
       .finally(() => setBusy(false));
   };
 
-  const answerable = !!pending && !pending.cannot;
+  const asks = !!pending?.questions?.length;
+  // Questions take picks, so ⌘⏎ doesn't allow them from the box.
+  const answerable = !!pending && !pending.cannot && !asks;
   const allowRef = useRef(answer);
   allowRef.current = answer;
   useEffect(() => {
@@ -334,6 +336,20 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onAllowNext,
       </div>
     );
   }
+  if (pending.questions?.length) {
+    return (
+      <Questions
+        questions={pending.questions}
+        where={s.hosted ? null : where}
+        onOpen={onOpen}
+        keys={keys}
+        busy={busy}
+        note={note}
+        onAnswer={(answers) => answer('allow', undefined, answers)}
+        onDecline={() => answer('deny')}
+      />
+    );
+  }
   return (
     <div className="ca-composer is-approval">
       <div className="ca-approval-head">
@@ -361,6 +377,106 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onAllowNext,
         )}
         <Button variant="primary" size="sm" icon="check" kbd={keys ? ['⌘', '⏎'] : undefined} disabled={busy} onClick={() => answer('allow')}>
           Allow
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+interface QuestionsProps {
+  questions: Question[];
+  /** Where the session runs, for its Open link; none for one Codealong runs. */
+  where: string | null;
+  onOpen: () => void;
+  /** ⌘⏎ answers, where the keyboard is the way in (the quick panel). */
+  keys?: boolean;
+  busy: boolean;
+  note: { text: string; error: boolean } | null;
+  onAnswer: (answers: Answers) => void;
+  onDecline: () => void;
+}
+
+/** Questions a session asks you (Claude Code's AskUserQuestion): pick a choice, several where a
+ *  question takes more, or type your own answer; your picks go back as its answer. */
+function Questions({ questions, where, onOpen, keys, busy, note, onAnswer, onDecline }: QuestionsProps) {
+  const [picks, setPicks] = useState<Record<string, string[]>>({});
+  const [own, setOwn] = useState<Record<string, string>>({});
+  const answers: Answers = {};
+  for (const q of questions) {
+    const words = (own[q.question] ?? '').trim();
+    const chosen = picks[q.question] ?? [];
+    if (q.multiSelect) {
+      const all = words ? [...chosen, words] : chosen;
+      if (all.length) answers[q.question] = all;
+    } else if (words || chosen.length) {
+      answers[q.question] = words || chosen[0];
+    }
+  }
+  const ready = Object.keys(answers).length > 0;
+  const pick = (q: Question, label: string) => {
+    setPicks((all) => {
+      const chosen = all[q.question] ?? [];
+      const next = q.multiSelect ? (chosen.includes(label) ? chosen.filter((l) => l !== label) : [...chosen, label]) : [label];
+      return { ...all, [q.question]: next };
+    });
+    // One answer to a question that takes one: a choice clears what was typed.
+    if (!q.multiSelect) setOwn((all) => ({ ...all, [q.question]: '' }));
+  };
+  const type = (q: Question, text: string) => {
+    setOwn((all) => ({ ...all, [q.question]: text }));
+    if (!q.multiSelect && text.trim()) setPicks((all) => ({ ...all, [q.question]: [] }));
+  };
+  const answerRef = useRef(() => {});
+  answerRef.current = () => {
+    if (ready && !busy) onAnswer(answers);
+  };
+  useEffect(() => {
+    if (!keys) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || !e.metaKey || e.altKey || e.ctrlKey || e.shiftKey || e.key !== 'Enter') return;
+      e.preventDefault();
+      answerRef.current();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [keys]);
+  return (
+    <div className="ca-composer is-approval is-questions">
+      <div className="ca-approval-head">
+        <Icon name="help" size={14} />
+        <span>Asks you</span>
+        {where && (
+          <button type="button" className="ca-linkbtn" onClick={onOpen}>
+            Open in {where}
+          </button>
+        )}
+      </div>
+      {questions.map((q) => (
+        <div key={q.question} className="ca-question">
+          <div className="ca-approval-label">
+            {q.header && <span className="ca-chip ca-question-header">{q.header}</span>}
+            <Rich text={q.question} now={0} />
+          </div>
+          <div className="ca-question-choices" role={q.multiSelect ? 'group' : 'radiogroup'} aria-label={q.question}>
+            {q.options.map((o) => {
+              const on = (picks[q.question] ?? []).includes(o.label);
+              return (
+                <Button key={o.label} size="sm" variant={on ? 'primary' : 'secondary'} role={q.multiSelect ? 'checkbox' : 'radio'} aria-checked={on} title={o.description} disabled={busy} onClick={() => pick(q, o.label)}>
+                  {o.label}
+                </Button>
+              );
+            })}
+          </div>
+          <input className="ca-question-own" type="text" placeholder={q.options.length ? 'Or type your own answer' : 'Type your answer'} value={own[q.question] ?? ''} disabled={busy} onChange={(e) => type(q, e.target.value)} />
+        </div>
+      ))}
+      <div className="ca-composer-foot">
+        <span className={['ca-composer-note', note?.error && 'is-error'].filter(Boolean).join(' ')}>{busy ? 'Answering…' : (note?.text ?? (questions.some((q) => q.multiSelect) ? 'Pick one or more. Decline stops the turn.' : 'Pick one, or type your own. Decline stops the turn.'))}</span>
+        <Button size="sm" disabled={busy} onClick={onDecline}>
+          Decline
+        </Button>
+        <Button variant="primary" size="sm" icon="check" kbd={keys ? ['⌘', '⏎'] : undefined} disabled={busy || !ready} onClick={() => answerRef.current()}>
+          Answer
         </Button>
       </div>
     </div>

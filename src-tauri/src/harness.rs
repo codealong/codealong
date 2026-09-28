@@ -21,7 +21,7 @@ use crate::transcript::Page;
 
 /// What a session waits on you for, and your answer: they go between devices too, so they're in
 /// codealong-peer.
-pub use codealong_peer::api::{Answer, Pending};
+pub use codealong_peer::api::{Answer, Pending, Question};
 
 /// What an adapter gets to work with besides the session: the account it's on.
 pub struct Ctx<'a> {
@@ -58,6 +58,13 @@ pub trait Adapter: Sync {
     /// Answers the pending request `id`, checking first that it's still the one waiting.
     /// Returns what happened, in a sentence.
     fn answer(&self, _ctx: &Ctx, _session: &Session, _id: &str, _answer: Answer) -> Result<String> {
+        bail!("Answer it in {}: Codealong can't answer it from here.", self.harness().word())
+    }
+
+    /// Answers the questions of the pending request `id` (`Pending::questions`): `answers` has
+    /// each answered question's text for a key, and a choice's label, several for a question
+    /// that takes more, or words of your own. Returns what happened, in a sentence.
+    fn answer_questions(&self, _ctx: &Ctx, _session: &Session, _id: &str, _answers: &serde_json::Value) -> Result<String> {
         bail!("Answer it in {}: Codealong can't answer it from here.", self.harness().word())
     }
 

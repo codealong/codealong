@@ -452,24 +452,30 @@ fn pending_here(engine: &engine::Handle, key: &str) -> Result<serde_json::Value,
     serde_json::to_value(harness::adapter(s.harness).pending(&harness::Ctx { account }, s)).map_err(|e| e.to_string())
 }
 
-/// Allows or denies the tool call `id` a session waits on, if it's still the one waiting.
+/// Allows or denies the tool call `id` a session waits on, if it's still the one waiting; or,
+/// with `answers`, answers the questions it asks (`Pending::questions`).
 #[tauri::command(async)]
-fn session_answer(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, id: String, answer: harness::Answer) -> Result<String, String> {
+fn session_answer(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, id: String, answer: harness::Answer, answers: Option<serde_json::Value>) -> Result<String, String> {
     if let Some((device, key)) = peerfeed::split_remote(&key) {
-        let said = peers.ask(device, api::SESSION_ANSWER, serde_json::json!({ "key": key, "id": id, "answer": answer }), ASK_ACT)?;
+        let said = peers.ask(device, api::SESSION_ANSWER, serde_json::json!({ "key": key, "id": id, "answer": answer, "answers": answers }), ASK_ACT)?;
         return Ok(said.as_str().unwrap_or_default().to_string());
     }
-    answer_here(engine.inner(), &key, &id, answer)
+    answer_here(engine.inner(), &key, &id, answer, answers.as_ref())
 }
 
-fn answer_here(engine: &engine::Handle, key: &str, id: &str, answer: harness::Answer) -> Result<String, String> {
+fn answer_here(engine: &engine::Handle, key: &str, id: &str, answer: harness::Answer, answers: Option<&serde_json::Value>) -> Result<String, String> {
     if acp::hosts(key) {
         return acp::answer(key, id, answer).map_err(|e| format!("{e:#}"));
     }
     let cfg = config::load().map_err(|e| format!("{e:#}"))?.unwrap_or_default();
     let board = engine.board();
     let (s, account) = harness::find(&board, &cfg, key).map_err(|e| format!("{e:#}"))?;
-    harness::adapter(s.harness).answer(&harness::Ctx { account }, s, id, answer).map_err(|e| format!("{e:#}"))
+    let ctx = harness::Ctx { account };
+    match answers.filter(|a| !a.is_null()) {
+        Some(a) => harness::adapter(s.harness).answer_questions(&ctx, s, id, a),
+        None => harness::adapter(s.harness).answer(&ctx, s, id, answer),
+    }
+    .map_err(|e| format!("{e:#}"))
 }
 
 /// What a session said and did after `after`, as it goes on.
@@ -788,7 +794,7 @@ fn peer_answer(engine: &engine::Handle, method: &str, p: serde_json::Value) -> R
         }
         api::SESSION_ANSWER => {
             let answer: harness::Answer = p.get("answer").cloned().and_then(|a| serde_json::from_value(a).ok()).ok_or("The request has no answer.")?;
-            answer_here(engine, &key()?, &text("id"), answer).map(Value::String)
+            answer_here(engine, &key()?, &text("id"), answer, p.get("answers")).map(Value::String)
         }
         api::SESSION_ARCHIVE => engine.archive(&key()?, p.get("archived").and_then(Value::as_bool).unwrap_or(true)).map(|_| Value::Null).map_err(|e| format!("{e:#}")),
         api::MARK_SEEN => {

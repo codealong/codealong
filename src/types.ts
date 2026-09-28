@@ -875,7 +875,23 @@ export interface Pending {
   always?: boolean;
   /** What allowing it from now on adds, in a sentence, when Codealong can say. */
   alwaysRule?: string;
+  /** Questions it asks you: answered with your picks rather than allowed. */
+  questions?: Question[];
 }
+
+/** A question an agent asks you, with choices to pick from. */
+export interface Question {
+  /** Its text, which its answer is keyed by. */
+  question: string;
+  header?: string;
+  options: { label: string; description?: string }[];
+  /** More than one choice can be picked. */
+  multiSelect?: boolean;
+}
+
+/** Answers to questions, each by its question's text: a choice's label or your own words, or
+ *  several where the question takes more. */
+export type Answers = Record<string, string | string[]>;
 
 /** A terminal that Close idle terminals would close, named by its session (idle.rs). */
 export interface IdleTerminal {

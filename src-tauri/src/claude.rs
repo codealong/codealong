@@ -542,7 +542,7 @@ impl crate::harness::Adapter for ClaudeCode {
         // Not every prompt has "Yes, and always allow" as its second choice, and a 2 pressed at
         // one without it is something else, so Always isn't offered in a terminal.
         let plan = call.text == PLAN;
-        Some(crate::harness::Pending { id: call.id.clone().unwrap_or_default(), label: call.text, input: call.input, cannot, always: false, plan, always_rule: None })
+        Some(crate::harness::Pending { id: call.id.clone().unwrap_or_default(), label: call.text, input: call.input, cannot, always: false, plan, always_rule: None, questions: Vec::new() })
     }
 
     fn answer(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, id: &str, answer: crate::harness::Answer) -> anyhow::Result<String> {
@@ -585,6 +585,18 @@ impl crate::harness::Adapter for ClaudeCode {
         })
     }
 
+    fn answer_questions(&self, _ctx: &crate::harness::Ctx, s: &crate::model::Session, id: &str, answers: &Value) -> anyhow::Result<String> {
+        let Some(asked) = crate::asks::of_session(&s.id).filter(|a| a.id == id) else {
+            anyhow::bail!("It isn't waiting on that any more.");
+        };
+        let answers = picked(&questions_of(&asked.input), answers)?;
+        let said = answers.iter().map(|(q, a)| format!("{} → {}", one_line(q, 80), a.as_str().map(String::from).unwrap_or_else(|| a.as_array().map(|l| l.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(", ")).unwrap_or_default()))).collect::<Vec<_>>().join("; ");
+        match crate::asks::answer(id, crate::asks::Decision::Answers(Value::Object(answers))) {
+            Some(r) => r.map(|_| format!("Answered: {said}.")),
+            None => anyhow::bail!("It isn't waiting on that any more."),
+        }
+    }
+
     fn open_calls(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> Vec<String> {
         record(self, ctx, s).map(|p| open_calls(&p)).unwrap_or_default()
     }
@@ -611,17 +623,68 @@ fn fork_as(account: &crate::config::AccountCfg, id: &str, new_id: &str) -> crate
     }
 }
 
-/// A permission request the plugin's hook holds in the app, as the panel shows it.
+/// A permission request the plugin's hook holds in the app, as the panel shows it: a call to
+/// allow, or questions to answer.
 fn asked_pending(a: &crate::asks::Asked) -> crate::harness::Pending {
+    let questions = if a.tool == crate::asks::QUESTIONS { questions_of(&a.input) } else { Vec::new() };
     crate::harness::Pending {
         id: a.id.clone(),
-        label: tool_request(&a.tool, &a.input),
-        input: Some(clip_input(&claude_input(&a.tool, &a.input))),
+        label: asked_label(a),
+        input: questions.is_empty().then(|| clip_input(&claude_input(&a.tool, &a.input))),
         cannot: None,
-        always: !a.suggestions.is_empty(),
+        always: questions.is_empty() && !a.suggestions.is_empty(),
         plan: false,
         always_rule: always_text(&a.suggestions),
+        questions,
     }
+}
+
+/// A held request as a line: the call, or what it asks you.
+pub fn asked_label(a: &crate::asks::Asked) -> String {
+    match questions_of(&a.input).first().filter(|_| a.tool == crate::asks::QUESTIONS) {
+        Some(q) => format!("Asks you · {}", one_line(&q.question, 160)),
+        None => tool_request(&a.tool, &a.input),
+    }
+}
+
+/// The questions in an `AskUserQuestion` call's input.
+fn questions_of(input: &Value) -> Vec<crate::harness::Question> {
+    let text = |v: &Value, k: &str| v.get(k).and_then(Value::as_str).map(str::trim).filter(|t| !t.is_empty()).map(String::from);
+    input
+        .get("questions")
+        .and_then(Value::as_array)
+        .map(|qs| {
+            qs.iter()
+                .filter_map(|q| {
+                    let options = q.get("options").and_then(Value::as_array).map(|o| o.iter().filter_map(|c| Some(codealong_peer::api::Choice { label: text(c, "label")?, description: text(c, "description") })).collect()).unwrap_or_default();
+                    Some(crate::harness::Question { question: text(q, "question")?, header: text(q, "header"), options, multi_select: q.get("multiSelect").and_then(Value::as_bool) == Some(true) })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Your answers to the questions, as Claude Code takes them: each question answered by its text,
+/// with a label or words of your own, or a list of them where it takes several. Empty answers
+/// and questions it didn't ask are left out; none at all is refused.
+fn picked(questions: &[crate::harness::Question], answers: &Value) -> anyhow::Result<serde_json::Map<String, Value>> {
+    let mut out = serde_json::Map::new();
+    for q in questions {
+        let words = |v: &Value| v.as_str().map(str::trim).filter(|t| !t.is_empty()).map(|t| Value::String(t.to_string()));
+        let answer = match answers.get(&q.question) {
+            Some(Value::Array(list)) if q.multi_select => Some(list.iter().filter_map(words).collect::<Vec<_>>()).filter(|l| !l.is_empty()).map(Value::Array),
+            Some(Value::Array(list)) => list.iter().find_map(words),
+            Some(v) => words(v),
+            None => None,
+        };
+        if let Some(a) = answer {
+            out.insert(q.question.clone(), a);
+        }
+    }
+    if out.is_empty() {
+        anyhow::bail!("Pick an answer first.");
+    }
+    Ok(out)
 }
 
 /// What answering Always adds, in a sentence: Claude Code's own suggestions for the call, the
@@ -949,6 +1012,25 @@ mod tests {
         assert_eq!(always_text(rules.as_array().unwrap()).as_deref(), Some("Allows `Bash(npm test:*)`, `WebFetch` in this project, for you."));
         assert_eq!(always_text(&[]), None);
         assert_eq!(always_text(&[serde_json::json!({ "type": "removeRules" })]), None);
+    }
+
+    #[test]
+    fn a_question_is_answered_with_its_choices_or_your_own_words() {
+        let input = serde_json::json!({ "questions": [
+            { "question": "Which color do you prefer?", "header": "Color", "options": [{ "label": "Red", "description": "The color red" }, { "label": "Blue" }], "multiSelect": false },
+            { "question": "Which days?", "options": [{ "label": "Mon" }, { "label": "Tue" }], "multiSelect": true }
+        ] });
+        let qs = questions_of(&input);
+        assert_eq!(qs.len(), 2);
+        assert_eq!((qs[0].header.as_deref(), qs[0].options[0].description.as_deref(), qs[1].multi_select), (Some("Color"), Some("The color red"), true));
+        let a = crate::asks::Asked { id: "ask-q".into(), session: "abc".into(), agent: None, tool: "AskUserQuestion".into(), input: input.clone(), suggestions: vec![], at: 1 };
+        let p = asked_pending(&a);
+        assert_eq!((p.label.as_str(), p.input, p.always, p.questions.len()), ("Asks you · Which color do you prefer?", None, false, 2));
+        let got = picked(&qs, &serde_json::json!({ "Which color do you prefer?": " Green, please ", "Which days?": ["Mon", "", "Tue"], "Not asked": "x" })).unwrap();
+        assert_eq!(Value::Object(got), serde_json::json!({ "Which color do you prefer?": "Green, please", "Which days?": ["Mon", "Tue"] }));
+        let one = picked(&qs, &serde_json::json!({ "Which color do you prefer?": ["Blue", "Red"] })).unwrap();
+        assert_eq!(one["Which color do you prefer?"], "Blue", "one pick for a question that takes one");
+        assert!(picked(&qs, &serde_json::json!({ "Which days?": [] })).is_err());
     }
 
     #[test]

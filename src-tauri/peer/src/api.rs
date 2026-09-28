@@ -100,6 +100,33 @@ pub struct Pending {
     /// `Bash(npm test:*)` in this project, for you."
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub always_rule: Option<String>,
+    /// Questions it asks you (Claude Code's `AskUserQuestion`): they're answered with your picks
+    /// (the `answers` of `session-answer`), not allowed. Devices that don't know them offer Allow
+    /// and Deny, and an Allow is refused.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub questions: Vec<Question>,
+}
+
+/// A question an agent asks you, with choices to pick from.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Question {
+    /// Its text, which its answer is keyed by.
+    pub question: String,
+    /// A word or two naming it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub header: Option<String>,
+    pub options: Vec<Choice>,
+    /// More than one choice can be picked.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub multi_select: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Choice {
+    pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
 }
 
 /// Your answer to a pending request. `Always` is offered only where `Pending::always` says so;

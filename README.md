@@ -44,7 +44,9 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     plugin (wherever the session runs: any terminal, the Claude app), with Always too where
     Claude Code offers to allow calls like it from now on (its button says what that adds),
     and otherwise by a keypress in its Ghostty or tmux tab, only while its own record says the
-    prompt is up for that call. Claude Code's own prompt stays up all the while, and whichever
+    prompt is up for that call. Questions a Claude Code session asks you (its `AskUserQuestion`)
+    show the same way through the plugin, with their choices and a box for your own answer, and
+    Answer sends your picks. Claude Code's own prompt stays up all the while, and whichever
     answer comes first counts. Others open where they run to be answered. The box stays meanwhile,
     keeping what you'd written, and Send works again once the session isn't waiting (a session
     run In Codealong takes it at once, after its current turn). To work through what waits on
@@ -490,8 +492,9 @@ and waits; the app holds it (`asks.rs`) until it's answered in one of Codealong'
 another device, or answered or gone where the session runs, and the hook prints the decision,
 or nothing. It prints nothing and exits 0 when the app isn't running, and an app older than the
 hook fails its unknown subcommand the same quiet way, so Claude Code's own prompt is always
-there to answer. Questions (`AskUserQuestion`) and plans (`ExitPlanMode`) are left to the
-prompt: Claude Code drops a plain allow for them.
+there to answer. A question (`AskUserQuestion`) is answered with the allow's `updatedInput`,
+its questions with your answers beside them; a plan (`ExitPlanMode`) is left to the prompt,
+since Claude Code drops a plain allow for it.
 
 The command talks to the running app over `codealong.sock` next to the config (JSON lines, one
 request and reply per line, mode 0600), and the app answers with the board its windows have and

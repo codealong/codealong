@@ -1,5 +1,6 @@
 //! Permission requests Claude Code hands the app through the Codealong plugin's
-//! `PermissionRequest` hook, for you to answer from Codealong's windows or your other devices.
+//! `PermissionRequest` hook, for you to answer from Codealong's windows or your other devices:
+//! a call to allow or deny, or the questions of an `AskUserQuestion`, answered with your picks.
 //!
 //! The hook (`codealong session hook permission-request`, cli.rs) sends the request over the
 //! app's socket (server.rs) and waits there; the connection's thread holds it here until you
@@ -40,11 +41,13 @@ pub struct Asked {
     pub at: i64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Decision {
     Allow,
     Always,
     Deny,
+    /// A question's answers: each question's text to a label, several, or words of your own.
+    Answers(Value),
 }
 
 struct Held {
@@ -60,12 +63,16 @@ fn held() -> std::sync::MutexGuard<'static, Vec<Held>> {
     HELD.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-/// The tools whose prompt a plain allow doesn't answer: Claude Code wants the person's own
-/// input for them (`requiresUserInteraction`), so it drops the hook's allow and keeps asking.
-/// Codealong leaves them to the prompt where the session runs.
+/// The tools whose prompt Codealong answers. Claude Code wants the person's own input for
+/// questions and plans (`requiresUserInteraction`) and drops a plain allow for them; a question
+/// takes its answers in the allow's `updatedInput`, but a plan is left to the prompt where the
+/// session runs.
 pub fn answers_tool(tool: &str) -> bool {
-    !matches!(tool, "AskUserQuestion" | "ExitPlanMode")
+    tool != "ExitPlanMode"
 }
+
+/// Claude Code's tool that asks you questions with choices.
+pub const QUESTIONS: &str = "AskUserQuestion";
 
 /// The request in a hook's input, when it's one Codealong can answer.
 pub fn parse(hook: &Value, at: i64) -> Option<(Asked, PathBuf)> {
@@ -111,8 +118,12 @@ pub fn of_session(session: &str) -> Option<Asked> {
 /// hook was gone before the answer reached it.
 pub fn answer(id: &str, decision: Decision) -> Option<Result<Asked>> {
     let (asked, tx) = held().iter().find(|h| h.asked.id == id).map(|h| (h.asked.clone(), h.tx.clone()))?;
-    if decision == Decision::Always && asked.suggestions.is_empty() {
-        return Some(Err(anyhow!("Claude Code offered no way to allow this from now on: allow it once instead.")));
+    let questions = asked.tool == QUESTIONS;
+    match &decision {
+        Decision::Always if asked.suggestions.is_empty() => return Some(Err(anyhow!("Claude Code offered no way to allow this from now on: allow it once instead."))),
+        Decision::Allow | Decision::Always if questions => return Some(Err(anyhow!("It asks you questions: pick your answers."))),
+        Decision::Answers(_) if !questions => return Some(Err(anyhow!("It isn't asking you questions: allow or deny it."))),
+        _ => {}
     }
     let (ack, got) = channel();
     let delivered = tx.send((decision, ack)).is_ok() && got.recv_timeout(Duration::from_secs(5)).unwrap_or(false);
@@ -120,12 +131,20 @@ pub fn answer(id: &str, decision: Decision) -> Option<Result<Asked>> {
 }
 
 /// What the hook prints for Claude Code (`hookSpecificOutput.decision`).
-pub fn decision_json(d: Decision, suggestions: &[Value]) -> Value {
+pub fn decision_json(d: &Decision, asked: &Asked) -> Value {
     match d {
         Decision::Allow => json!({ "behavior": "allow" }),
-        Decision::Always => json!({ "behavior": "allow", "updatedPermissions": suggestions }),
+        Decision::Always => json!({ "behavior": "allow", "updatedPermissions": asked.suggestions }),
         // As the prompt's own No does: the turn stops, and the session waits for you.
         Decision::Deny => json!({ "behavior": "deny", "message": "Denied in Codealong.", "interrupt": true }),
+        // The questions as asked, with the answers beside them, as the prompt gives them.
+        Decision::Answers(answers) => {
+            let mut input = asked.input.clone();
+            if let Some(o) = input.as_object_mut() {
+                o.insert("answers".into(), answers.clone());
+            }
+            json!({ "behavior": "allow", "updatedInput": input })
+        }
     }
 }
 
@@ -140,7 +159,7 @@ pub fn overlay(s: &mut Session) {
     let since = if s.status == Status::Needs { s.status_since.unwrap_or(0).max(a.at) } else { a.at };
     s.status = Status::Needs;
     s.status_since = Some(since);
-    s.excerpt = Some(crate::claude::tool_request(&a.tool, &a.input));
+    s.excerpt = Some(crate::claude::asked_label(&a));
     s.stalled_since = None;
     s.asks = false;
 }
@@ -174,9 +193,8 @@ const GRACE: Duration = Duration::from_secs(4);
 /// board should show it, or stop.
 pub fn hold(stream: &mut UnixStream, asked: Asked, watch: Watch, changed: &dyn Fn()) {
     let (tx, rx) = channel();
-    let suggestions = asked.suggestions.clone();
     let id = asked.id.clone();
-    held().push(Held { asked, tx });
+    held().push(Held { asked: asked.clone(), tx });
     changed();
     let start = Instant::now();
     let mut checked = Instant::now();
@@ -184,7 +202,7 @@ pub fn hold(stream: &mut UnixStream, asked: Asked, watch: Watch, changed: &dyn F
     loop {
         match rx.recv_timeout(Duration::from_millis(400)) {
             Ok((d, ack)) => {
-                let ok = reply(stream, Some(decision_json(d, &suggestions)));
+                let ok = reply(stream, Some(decision_json(&d, &asked)));
                 let _ = ack.send(ok);
                 answer = Some(d);
                 break;
@@ -214,14 +232,16 @@ pub fn hold(stream: &mut UnixStream, asked: Asked, watch: Watch, changed: &dyn F
 fn still_asked(w: &Watch, id: &str) -> bool {
     let Some(asked) = held().iter().find(|h| h.asked.id == id).map(|h| h.asked.clone()) else { return false };
     let registry = std::fs::read_to_string(w.home.join("sessions").join(format!("{}.json", w.pid))).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok());
-    let waiting = registry.is_some_and(|r| r.get("sessionId").and_then(Value::as_str) == Some(asked.session.as_str()) && waits_on_permission(&r));
+    let waiting = registry.is_some_and(|r| r.get("sessionId").and_then(Value::as_str) == Some(asked.session.as_str()) && waits_on(&r, &asked.tool));
     waiting && !call_answered(&w.record, &asked, w.from)
 }
 
-/// Claude Code's registry says the session has a permission prompt up (`requires_action`).
-pub fn waits_on_permission(registry: &Value) -> bool {
+/// Claude Code's registry says the session has the tool's prompt up (`requires_action`): a
+/// permission prompt, or for questions, "input needed".
+pub fn waits_on(registry: &Value, tool: &str) -> bool {
     let f = |k: &str| registry.get(k).and_then(Value::as_str);
-    f("status") == Some("waiting") && f("waitingFor") == Some("permission prompt")
+    let prompt = if tool == QUESTIONS { "input needed" } else { "permission prompt" };
+    f("status") == Some("waiting") && f("waitingFor") == Some(prompt)
 }
 
 /// Whether a result for the request's call (a call of its tool, with its input) was written at
@@ -340,7 +360,7 @@ mod tests {
         assert_eq!((a.session.as_str(), a.tool.as_str(), a.agent, a.at), ("abc", "Bash", None, 5));
         assert_eq!(a.suggestions.len(), 1);
         assert_eq!(record, PathBuf::from("/p/-r/abc.jsonl"));
-        assert!(parse(&hook("AskUserQuestion"), 5).is_none());
+        assert!(parse(&hook("AskUserQuestion"), 5).is_some());
         assert!(parse(&hook("ExitPlanMode"), 5).is_none());
         let mut sub = hook("Bash");
         sub["agent_id"] = json!("a1b2");
@@ -350,10 +370,18 @@ mod tests {
 
     #[test]
     fn decisions_are_what_claude_code_takes() {
-        let s = vec![json!({ "type": "addRules" })];
-        assert_eq!(decision_json(Decision::Allow, &s), json!({ "behavior": "allow" }));
-        assert_eq!(decision_json(Decision::Always, &s)["updatedPermissions"], json!(s));
-        assert_eq!(decision_json(Decision::Deny, &s)["interrupt"], json!(true));
+        let (a, _) = parse(&hook("Bash"), 0).unwrap();
+        assert_eq!(decision_json(&Decision::Allow, &a), json!({ "behavior": "allow" }));
+        assert_eq!(decision_json(&Decision::Always, &a)["updatedPermissions"], json!(a.suggestions));
+        assert_eq!(decision_json(&Decision::Deny, &a)["interrupt"], json!(true));
+        // What 2.1.284 took for a question: its input with the answers beside the questions.
+        let mut q = hook("AskUserQuestion");
+        q["tool_input"] = json!({ "questions": [{ "question": "Which color?", "options": [{ "label": "Red" }, { "label": "Blue" }] }] });
+        let (q, _) = parse(&q, 0).unwrap();
+        let d = decision_json(&Decision::Answers(json!({ "Which color?": "Blue" })), &q);
+        assert_eq!(d["behavior"], "allow");
+        assert_eq!(d["updatedInput"]["questions"][0]["question"], "Which color?");
+        assert_eq!(d["updatedInput"]["answers"], json!({ "Which color?": "Blue" }));
         let out: Value = serde_json::from_str(&hook_output(&json!({ "behavior": "allow" })).unwrap()).unwrap();
         assert_eq!(out["hookSpecificOutput"]["hookEventName"], "PermissionRequest");
         assert_eq!(hook_output(&Value::Null), None);
@@ -497,8 +525,26 @@ mod tests {
 
     #[test]
     fn the_registry_says_when_a_prompt_is_up() {
-        assert!(waits_on_permission(&json!({ "status": "waiting", "waitingFor": "permission prompt" })));
-        assert!(!waits_on_permission(&json!({ "status": "waiting", "waitingFor": "input needed" })));
-        assert!(!waits_on_permission(&json!({ "status": "busy" })));
+        assert!(waits_on(&json!({ "status": "waiting", "waitingFor": "permission prompt" }), "Bash"));
+        assert!(!waits_on(&json!({ "status": "waiting", "waitingFor": "input needed" }), "Bash"));
+        assert!(waits_on(&json!({ "status": "waiting", "waitingFor": "input needed" }), QUESTIONS));
+        assert!(!waits_on(&json!({ "status": "busy" }), "Bash"));
+    }
+
+    #[test]
+    fn a_question_takes_answers_and_a_call_takes_allow_or_deny() {
+        let (tx, _rx) = channel();
+        let mut q = parse(&hook("AskUserQuestion"), 0).unwrap().0;
+        q.id = "ask-q1".into();
+        let mut c = parse(&hook("Bash"), 0).unwrap().0;
+        c.id = "ask-c1".into();
+        c.suggestions.clear();
+        held().push(Held { asked: q, tx: tx.clone() });
+        held().push(Held { asked: c, tx });
+        let refused = |id: &str, d: Decision| answer(id, d).unwrap().unwrap_err().to_string();
+        assert!(refused("ask-q1", Decision::Allow).contains("pick your answers"));
+        assert!(refused("ask-c1", Decision::Answers(json!({}))).contains("allow or deny"));
+        assert!(refused("ask-c1", Decision::Always).contains("allow it once"));
+        held().retain(|h| h.asked.id != "ask-q1" && h.asked.id != "ask-c1");
     }
 }

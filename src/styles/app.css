@@ -5181,6 +5181,34 @@ html.is-quick body {
   white-space: normal;
   overflow-wrap: anywhere;
 }
+/* Questions a session asks you, each with its choices and a box for your own answer. */
+.ca-question {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ca-question-header {
+  margin-right: 6px;
+  vertical-align: 1px;
+}
+.ca-question-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.ca-question-own {
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font: 400 12px/16px var(--font-sans);
+}
+.ca-question-own:focus {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
 .ca-approval-input {
   margin: 0;
   max-height: 140px;
