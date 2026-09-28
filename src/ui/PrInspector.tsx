@@ -10,8 +10,9 @@ import { openUrl, prCommentAsks, prDetail, reviewInCodex } from '../api';
 import { absolute, ago, middleTruncate } from '../format';
 import { asksFor, commentPreview, commentsToAsk } from '../prStatus';
 import type { Lane, PrComment, PrDetail, PrFile, Session } from '../types';
+import { PanelSession } from './PanelSession';
 import { PrPills } from './PrPills';
-import { Button, Icon, LaneGlyph, StatusGlyph } from './primitives';
+import { Button, Icon, LaneGlyph } from './primitives';
 import { ChecksSummary, PrGlyph, prIsOpen, syncWords, type PrPlace, type PrRowItem } from './PrsView';
 
 /** Details already fetched, by PR and last update, so going back to a PR is instant. */
@@ -109,6 +110,7 @@ interface PlaceProps {
   now: number;
   onShowLane: (lane: Lane) => void;
   onLaneMenu: (lane: Lane) => void;
+  onShowSession: (lane: Lane, session: Session) => void;
   onOpenSession: (lane: Lane, session: Session) => void;
   onSessionMenu: (lane: Lane, session: Session) => void;
 }
@@ -132,7 +134,7 @@ function PlaceNote({ place: { lane, holds }, prNumber, head }: { place: PrPlace;
 }
 
 /** A worktree and the PR's sessions in it, as the sidebar's tree draws them. */
-function Place({ place, prNumber, head, now, onShowLane, onLaneMenu, onOpenSession, onSessionMenu }: PlaceProps) {
+function Place({ place, prNumber, head, now, onShowLane, onLaneMenu, onShowSession, onOpenSession, onSessionMenu }: PlaceProps) {
   const { lane, sessions } = place;
   return (
     <div role="treeitem" aria-expanded={sessions.length > 0 ? true : undefined}>
@@ -152,26 +154,7 @@ function Place({ place, prNumber, head, now, onShowLane, onLaneMenu, onOpenSessi
       {sessions.length > 0 && (
         <div className="ca-tree-children" role="group">
           {sessions.map((s) => (
-            <button
-              key={s.key}
-              type="button"
-              role="treeitem"
-              className="ca-tree-session"
-              title={`${s.account} · ${s.title}${s.visitor ? ` (${s.visitor})` : ''}. Click to open it where it lives.`}
-              onClick={() => onOpenSession(lane, s)}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                onSessionMenu(lane, s);
-              }}
-            >
-              <StatusGlyph status={s.status} size={10} />
-              <span className="ca-tree-acct">{s.account}</span>
-              <span className="ca-tree-title">{s.title}</span>
-              {s.visitor && <span className="ca-tree-age">{s.visitor}</span>}
-              <span className="ca-tree-age" title={absolute(s.lastActivity)}>
-                {ago(s.lastActivity, now)}
-              </span>
-            </button>
+            <PanelSession key={s.key} lane={lane} session={s} now={now} onShow={onShowSession} onOpen={onOpenSession} onMenu={onSessionMenu} />
           ))}
         </div>
       )}
@@ -184,6 +167,9 @@ interface PrInspectorProps {
   now: number;
   approving: boolean;
   onApprove: () => void;
+  /** Shows a session in the panel, in place of the PR until you go back. */
+  onShowSession: (lane: Lane, session: Session) => void;
+  /** Opens a session where it runs. */
   onOpenSession: (lane: Lane, session: Session) => void;
   onShowLane: (lane: Lane) => void;
   /** Right-click on a worktree. */
@@ -192,7 +178,7 @@ interface PrInspectorProps {
   onSessionMenu: (lane: Lane, session: Session) => void;
 }
 
-export function PrInspector({ item, now, approving, onApprove, onOpenSession, onShowLane, onLaneMenu, onSessionMenu }: PrInspectorProps) {
+export function PrInspector({ item, now, approving, onApprove, onShowSession, onOpenSession, onShowLane, onLaneMenu, onSessionMenu }: PrInspectorProps) {
   const { pr } = item;
   const cacheKey = `${pr.key}@${pr.updatedAt}`;
   const [state, setState] = useState<{ key: string; detail?: PrDetail; error?: string }>({ key: '' });
@@ -312,6 +298,7 @@ export function PrInspector({ item, now, approving, onApprove, onOpenSession, on
                 now={now}
                 onShowLane={onShowLane}
                 onLaneMenu={onLaneMenu}
+                onShowSession={onShowSession}
                 onOpenSession={onOpenSession}
                 onSessionMenu={onSessionMenu}
               />

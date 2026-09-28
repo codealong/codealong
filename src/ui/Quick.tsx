@@ -42,10 +42,9 @@ import {
 } from '../api';
 import { filesToAttach, keepFiles, useFileDrop } from '../attachInput';
 import { showContextMenu } from '../contextMenu';
-import { ago, agoPhrase, resetsPhrase, tildePath, withTimes } from '../format';
+import { ago, agoPhrase, resetsPhrase, tildePath } from '../format';
 import { HARNESS_WORD, usageNote } from '../harness';
 import { useLogo } from '../logo';
-import { withoutAccount } from '../lanes';
 import { prPills } from '../prStatus';
 import { ALL_PROJECTS, attentionRows, findPrs, findSessions, findTodos, FOUND_SESSIONS, inProject, laneBranch, laneGroups, MAX_ROWS, projectCounts, queryWords, readyTodos, recallList, recentRows, shortcutLabel, TEXT_SEARCH_MIN, type PrRow, type RowGroup, type SessionRow, type TodoRow, withPrompt as historyWith } from '../quick';
 import {
@@ -71,6 +70,7 @@ import { duplicateOf, rankedBy, suggestions, sureness, todoTitle, worthRouting, 
 import { attachmentsIn, blockedBy, insertAttachments, newTodo, sessionHomes, snippet, todoItem, todoPrompt, todosPrompt, withoutAttachment } from '../todos';
 import type { Attachment, Board, Lane, Meter, PrItem, Route, Session, StartOptions, StartPlace, StartSpec, TextFound } from '../types';
 import { AttachmentStrip } from './DescriptionEditor';
+import { sessionWhy } from './PanelSession';
 import { Picker, type PickerOption, type PickerSection } from './Picker';
 import { ReplyView } from './ReplyView';
 import { Icon, Kbd, Mark, STATUS_WORD, StatusGlyph } from './primitives';
@@ -150,13 +150,6 @@ function autoWhy(p: AutoPick, spent: Meter | null, fallback: boolean, now: numbe
   if (spent) return `${spent.label}’s week is ${Math.round(spent.percent)}% used`;
   if (p.reason === 'reset' && p.resetsAt) return `week resets ${resetsPhrase(p.resetsAt, now)}`;
   return p.reason === 'room' ? 'most room' : '';
-}
-
-/** What a session is doing or said last, for its row. Its time is in the row's own column, so
- *  the detail's running time is left out. */
-function rowWhy(detail: string | null, headline: string, now: number): string {
-  const text = detail ? detail.replace(/^\{for:-?\d+\}( · )?/, '') : withoutAccount(headline);
-  return withTimes(text.replace(/`/g, ''), now);
 }
 
 /** What a found todo's row says under its title: what it waits for, else the start of its
@@ -1077,7 +1070,7 @@ export function Quick() {
       if (sg.kind === 'open') {
         return x.status === 'needs'
           ? { icon: 'external', title: `Answer “${x.title}”`, why: `${age}It’s waiting on you, so it opens where it lives and you answer there.`, where }
-          : { icon: 'external', title: `Open “${x.title}”`, why: `${age}${rowWhy(x.detail, x.headline, now)}`, where };
+          : { icon: 'external', title: `Open “${x.title}”`, why: `${age}${sessionWhy(x.detail, x.headline, now)}`, where };
       }
       const why = !x.live
         ? (x.harness === 'claude' || x.harness === 'codex') && x.surface === 'cli'
@@ -1344,7 +1337,7 @@ export function Quick() {
                                 <Marked text={r.said.text} marks={r.said.marks} />
                               </span>
                             ) : (
-                              <span className="ca-quick-row-why">{rowWhy(s2.detail, s2.headline, now)}</span>
+                              <span className="ca-quick-row-why">{sessionWhy(s2.detail, s2.headline, now)}</span>
                             )}
                           </span>
                           <span className="ca-quick-row-where">

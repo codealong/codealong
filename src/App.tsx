@@ -11,6 +11,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import { showContextMenu, type MenuSpec } from './contextMenu';
 import { AGENT_BAY, BAYS, buildBays, failingPr, filterByAge, inboxCounts, lanePromptAt, narrowed, rowItems, worktreeRow, type BoardRow, type Filter, type WorktreeRow } from './lanes';
 import { answerLink, approvePr, archiveSession, barOn, getDevices, onDevices, dismissTodoHint, expandAttachments, getBoard, markSeen, onBarOn, onBoard, onCloseIdle, onNewWindow, onQuickStart, onReveal, onSettings, openConfig, openProjectWindow, openTarget, openUrl, refresh, refreshUsage, reviewInCodex, setBarOn, setPinned, setPinnedWorktrees, setPreferred, setTheme, showQuick, signIn, windowLabel, type Reveal } from './api';
+import { middleTruncate } from './format';
 import { usePerf } from './perf';
 import { reuse } from './reuse';
 import { reorderPinned, usePins } from './pins';
@@ -588,6 +589,20 @@ export function App() {
     return rows.length > 1 ? rows : [];
   }, [view, pick, selected?.key, todoVisible]);
   const pickedKeys = useMemo(() => new Set(pickedRows.map((r) => r.key)), [pickedRows]);
+  // A session shown in a PR's or todo's panel, from its list of sessions, until you go back.
+  // It's tied to the panel it came from: selecting another PR or todo leaves it.
+  const [drill, setDrill] = useState<{ from: string; key: string } | null>(null);
+  const panelFrom =
+    view === 'canvas'
+      ? canvasSel && (canvasSel.ref === 'pr' || canvasSel.ref === 'todo')
+        ? `${canvasSel.ref}:${canvasSel.key}`
+        : null
+      : (view === 'prs' || view === 'todo') && pickedRows.length === 0
+        ? (selected?.key ?? null)
+        : null;
+  useEffect(() => {
+    if (drill && drill.from !== panelFrom) setDrill(null);
+  }, [drill, panelFrom]);
   // Where a new session starts: the selected worktree, session or PR's worktree; for a PR with
   // no worktree on this Mac, its repo's main checkout.
   const startLaneId = useMemo(() => {
@@ -1528,7 +1543,8 @@ export function App() {
   };
 
   /** The panels on the right, as each view shows them. */
-  const todoPanel = (item: TodoItem) => (
+  const todoPanel = (item: TodoItem) =>
+    drilledPanel(item.key, middleTruncate(item.todo.title, 40)) ?? (
     <TodoPanel
       key={item.todo.id}
       item={item}
@@ -1539,6 +1555,7 @@ export function App() {
       now={now}
       onRun={runTodo}
       onStart={() => startForTodo(item)}
+      onShowSession={(_lane, session) => setDrill({ from: item.key, key: session.key })}
       onOpenSession={(lane, session) => open(lane, session.openTarget)}
       onShowLane={showLaneFromPanel}
       onLaneMenu={(lane) => laneMenu(lane)}
@@ -1565,13 +1582,15 @@ export function App() {
       onMoreMenu={(at) => pickMenu(rows, at)}
     />
   );
-  const prPanel = (item: PrRowItem) => (
+  const prPanel = (item: PrRowItem) =>
+    drilledPanel(item.key, `PR #${item.pr.number}`) ?? (
     <PrInspector
       key={item.pr.key}
       item={item}
       now={now}
       approving={approving.has(item.pr.key)}
       onApprove={() => approve(item.pr)}
+      onShowSession={(_lane, session) => setDrill({ from: item.key, key: session.key })}
       onOpenSession={(lane, session) => open(lane, session.openTarget)}
       onShowLane={showLaneFromPanel}
       onLaneMenu={laneMenu}
@@ -1593,7 +1612,7 @@ export function App() {
   );
 
   /** A session's own panel: its last prompt and response, how to open it, its details. */
-  const sessionPanel = (lane: Lane, session: Session) => (
+  const sessionPanel = (lane: Lane, session: Session, back?: { label: string; onBack: () => void }) => (
     <SessionPanel
       key={session.key}
       lane={lane}
@@ -1607,8 +1626,18 @@ export function App() {
       onShowTodo={showTodoFromPanel}
       onMoreMenu={(at) => void showContextMenu(sessionMenuSpec(lane, session, 'session'), at).catch((err: unknown) => setToast(String(err)))}
       device={deviceOf(devices, session.key)}
+      back={back}
     />
   );
+  /** The session a PR's or todo's panel was asked to show, in its place, with the way back. */
+  const drilledPanel = (from: string, label: string) => {
+    if (drill?.from !== from) return null;
+    for (const lane of lanes) {
+      const session = lane.sessions.find((x) => x.key === drill.key);
+      if (session) return sessionPanel(lane, session, { label, onBack: () => setDrill(null) });
+    }
+    return null;
+  };
 
   /** The canvas's selected card as its view's panel shows it; null when nothing (or a gone card) is selected. */
   const canvasPanel = (() => {

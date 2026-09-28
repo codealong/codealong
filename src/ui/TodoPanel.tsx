@@ -15,7 +15,8 @@ import { absolute, ago, middleTruncate } from '../format';
 import { blockedBy, cantWaitOn, dependents, depsOf, newId, nextColor, SECTION_WORD, sectionOf, STATUSES, STATUS_WORD, todoSuggestions, waitsOnTodos, worthSuggesting, type TodoItem, type TodoOp, type TodoPlace } from '../todos';
 import type { Label, Lane, Session, Todo, TodoHint, TodoSuggested } from '../types';
 import { DescriptionEditor } from './DescriptionEditor';
-import { Button, Icon, Kbd, LaneGlyph, StatusGlyph } from './primitives';
+import { PanelSession } from './PanelSession';
+import { Button, Icon, Kbd, LaneGlyph } from './primitives';
 import { LabelDot, TodoGlyph } from './TodoBits';
 
 /** How long the title and description have to rest before Jev is asked about them. */
@@ -331,7 +332,7 @@ function TodoRef({ todo, onShow, onRemove }: { todo: Todo; onShow: (t: Todo) => 
 }
 
 /** A worktree the todo is linked to, and its sessions, as the sidebar's tree draws them. */
-function Place({ place, now, onShowLane, onLaneMenu, onOpenSession, onSessionMenu }: { place: TodoPlace; now: number } & Pick<TodoPanelProps, 'onShowLane' | 'onLaneMenu' | 'onOpenSession' | 'onSessionMenu'>) {
+function Place({ place, now, onShowLane, onLaneMenu, onShowSession, onOpenSession, onSessionMenu }: { place: TodoPlace; now: number } & Pick<TodoPanelProps, 'onShowLane' | 'onLaneMenu' | 'onShowSession' | 'onOpenSession' | 'onSessionMenu'>) {
   const { lane, sessions } = place;
   const branch = lane.branch ?? (lane.detached ? `detached @ ${lane.detached}` : null);
   return (
@@ -352,25 +353,7 @@ function Place({ place, now, onShowLane, onLaneMenu, onOpenSession, onSessionMen
       {sessions.length > 0 && (
         <div className="ca-tree-children" role="group">
           {sessions.map((s) => (
-            <button
-              key={s.key}
-              type="button"
-              role="treeitem"
-              className="ca-tree-session"
-              title={`${s.account} · ${s.title}. Click to open it where it lives.`}
-              onClick={() => onOpenSession(lane, s)}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                onSessionMenu(lane, s);
-              }}
-            >
-              <StatusGlyph status={s.status} size={10} />
-              <span className="ca-tree-acct">{s.account}</span>
-              <span className="ca-tree-title">{s.title}</span>
-              <span className="ca-tree-age" title={absolute(s.lastActivity)}>
-                {ago(s.lastActivity, now)}
-              </span>
-            </button>
+            <PanelSession key={s.key} lane={lane} session={s} now={now} onShow={onShowSession} onOpen={onOpenSession} onMenu={onSessionMenu} />
           ))}
         </div>
       )}
@@ -391,6 +374,9 @@ interface TodoPanelProps {
   onRun: (op: TodoOp) => void;
   /** Opens the new-session sheet for this todo. */
   onStart: () => void;
+  /** Shows a session in the panel, in place of the todo until you go back. */
+  onShowSession: (lane: Lane, session: Session) => void;
+  /** Opens a session where it runs. */
   onOpenSession: (lane: Lane, session: Session) => void;
   onShowLane: (lane: Lane) => void;
   /** Right-click on a linked worktree; `linked` when it's linked itself, not through a session. */
@@ -412,7 +398,7 @@ interface TodoPanelProps {
   projects?: string[];
 }
 
-export function TodoPanel({ item, todos, onShowTodo, labels, lanes, now, onRun, onStart, onOpenSession, onShowLane, onLaneMenu, onSessionMenu, onLinkMenu, onMoreMenu, onLabelMenu, onError, hint, onDismissHint, suggest = false, projects = [] }: TodoPanelProps) {
+export function TodoPanel({ item, todos, onShowTodo, labels, lanes, now, onRun, onStart, onShowSession, onOpenSession, onShowLane, onLaneMenu, onSessionMenu, onLinkMenu, onMoreMenu, onLabelMenu, onError, hint, onDismissHint, suggest = false, projects = [] }: TodoPanelProps) {
   const { todo } = item;
   const section = sectionOf(todo, todos);
   const [picking, setPicking] = useState(false);
@@ -586,7 +572,7 @@ export function TodoPanel({ item, todos, onShowTodo, labels, lanes, now, onRun, 
         {item.places.length > 0 && (
           <div className="ca-tree" role="tree" aria-label="Worktrees and sessions">
             {item.places.map((place) => (
-              <Place key={place.lane.id} place={place} now={now} onShowLane={onShowLane} onLaneMenu={onLaneMenu} onOpenSession={onOpenSession} onSessionMenu={onSessionMenu} />
+              <Place key={place.lane.id} place={place} now={now} onShowLane={onShowLane} onLaneMenu={onLaneMenu} onShowSession={onShowSession} onOpenSession={onOpenSession} onSessionMenu={onSessionMenu} />
             ))}
           </div>
         )}

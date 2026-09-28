@@ -30,9 +30,11 @@ interface SessionPanelProps {
   onMoreMenu: (at: { x: number; y: number }) => void;
   /** The Mac it's on, when that's another of yours: it opens there, and a message goes there. */
   device?: DeviceView | null;
+  /** Shown from another panel (a PR's, a todo's): the way back to it. */
+  back?: { label: string; onBack: () => void };
 }
 
-export function SessionPanel({ lane, session: s, apps, now, onOpen, onNewSession, onShowLane, todos, onShowTodo, onMoreMenu, device }: SessionPanelProps) {
+export function SessionPanel({ lane, session: s, apps, now, onOpen, onNewSession, onShowLane, todos, onShowTodo, onMoreMenu, device, back }: SessionPanelProps) {
   const [details, setDetails] = useState(false);
   const targets = lane.targets.filter((t) => t.id.startsWith(`s|${s.key}|`));
   const since = s.statusSince ? (s.status === 'working' ? `for ${duration(s.statusSince, now)}` : agoPhrase(s.statusSince, now)) : agoPhrase(s.lastActivity, now);
@@ -40,6 +42,12 @@ export function SessionPanel({ lane, session: s, apps, now, onOpen, onNewSession
   return (
     <aside className="ca-insp ca-sessinsp" aria-label={`${s.title} details`}>
       <header className="ca-sessinsp-head">
+        {back && (
+          <button type="button" className="ca-linkbtn ca-sessinsp-back" title={`Back to ${back.label}`} onClick={back.onBack}>
+            <Icon name="chevron-left" size={12} />
+            {back.label}
+          </button>
+        )}
         <div className="ca-insp-title">
           <StatusGlyph status={s.status} size={14} />
           <span className="ca-tag">{HARNESS_WORD[s.harness]}</span>

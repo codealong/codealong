@@ -58,7 +58,9 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     diffs, and under On this Mac
     the worktrees and sessions behind it, drawn like the sidebar's tree: whether the worktree
     has anything GitHub doesn't, and the agents that worked on the PR, including one that made
-    the worktree from another folder.
+    the worktree from another folder. Clicking one of those sessions, here or in a todo's
+    panel, shows it in the panel (its conversation, a box to answer it) with a link back;
+    double-click or its arrow opens it where it runs.
   - **Todo**: work you mean to hand an agent. Each todo has a title, a description that can
     hold screenshots and any other files (paste, drop or attach them; files copied in the
     Finder paste too), colored labels, and a status: Todo, In
