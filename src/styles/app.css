@@ -5040,6 +5040,28 @@ html.is-quick body {
   white-space: normal;
   overflow-wrap: anywhere;
 }
+/* A wide table scrolls sideways inside the thread rather than pushing it wider. */
+.ca-md .ca-md-table {
+  max-width: 100%;
+  overflow-x: auto;
+}
+.ca-md table {
+  border-collapse: collapse;
+  font-size: 12px;
+  line-height: 17px;
+}
+.ca-md th,
+.ca-md td {
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+.ca-md th {
+  background: var(--neutral-tint);
+  font-weight: 600;
+  color: var(--ink);
+}
 /* A session waiting on you to allow a tool call, at the bottom of its panel. */
 .ca-composer.is-approval {
   background: var(--attn-tint);

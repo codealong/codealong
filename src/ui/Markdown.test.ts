@@ -9,4 +9,22 @@ describe('blocks', () => {
     expect(b[3]).toMatchObject({ ordered: true, items: ['first', 'second'] });
     expect(b[4]).toEqual({ kind: 'code', text: 'cargo test' });
   });
+
+  it('reads tables, with alignment, ragged rows and pipes in code', () => {
+    const b = blocks('Results:\n| File | Lines | Note |\n|:--|--:|:-:|\n| `a.ts` | 12 | uses `x | y` |\n| b.ts | 3 |\n\nafter');
+    expect(b.map((x) => x.kind)).toEqual(['para', 'table', 'para']);
+    expect(b[1]).toEqual({
+      kind: 'table',
+      align: ['left', 'right', 'center'],
+      head: ['File', 'Lines', 'Note'],
+      rows: [
+        ['`a.ts`', '12', 'uses `x | y`'],
+        ['b.ts', '3', ''],
+      ],
+    });
+  });
+
+  it("doesn't read a pipe over a rule as a table", () => {
+    expect(blocks('a | b\n---').some((x) => x.kind === 'table')).toBe(false);
+  });
 });

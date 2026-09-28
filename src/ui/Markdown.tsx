@@ -1,8 +1,8 @@
-// Just enough Markdown for what agents write back: headings, lists, quotes, fenced code, and
-// **bold**, *italics*, `code` and [links](url) inside lines. Built as React elements, never as
+// Just enough Markdown for what agents write back: headings, lists, quotes, fenced code, tables,
+// and **bold**, *italics*, `code` and [links](url) inside lines. Built as React elements, never as
 // HTML, so nothing in a transcript can put markup on the page. Links show as their text.
 
-import { Fragment, type ReactNode } from 'react';
+import { Fragment, memo, type ReactNode } from 'react';
 import { CodeBlock } from './CopyButton';
 
 type Block =
@@ -11,9 +11,41 @@ type Block =
   | { kind: 'list'; ordered: boolean; items: string[] }
   | { kind: 'quote'; text: string }
   | { kind: 'code'; text: string }
+  | { kind: 'table'; align: Align[]; head: string[]; rows: string[][] }
   | { kind: 'rule' };
 
+type Align = 'left' | 'center' | 'right' | null;
+
 const ITEM = /^\s*(?:[-*+]|(\d+)[.)])\s+(.*)$/;
+/** A table's delimiter row, under its header: `| --- | :-: |`. */
+const DELIM = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
+
+/** A table row's cells: split on pipes that aren't escaped or inside `code`. */
+function cells(line: string): string[] {
+  const out: string[] = [];
+  let cell = '';
+  let tick = false;
+  const s = line.trim().replace(/^\|/, '').replace(/(?<!\\)\|$/, '');
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (c === '\\' && s[i + 1] === '|') {
+      cell += '|';
+      i++;
+    } else if (c === '`') {
+      tick = !tick;
+      cell += c;
+    } else if (c === '|' && !tick) {
+      out.push(cell.trim());
+      cell = '';
+    } else cell += c;
+  }
+  out.push(cell.trim());
+  return out;
+}
+
+/** Whether a table starts at line i: a row with a pipe, then a delimiter row with as many cells. */
+const tableAt = (lines: string[], i: number) =>
+  lines[i].includes('|') && i + 1 < lines.length && DELIM.test(lines[i + 1]) && cells(lines[i]).length === cells(lines[i + 1]).length;
 
 export function blocks(src: string): Block[] {
   const out: Block[] = [];
@@ -44,6 +76,19 @@ export function blocks(src: string): Block[] {
       i++;
       continue;
     }
+    if (tableAt(lines, i)) {
+      const head = cells(line);
+      const align = cells(lines[i + 1]).map((d): Align => (d.startsWith(':') ? (d.endsWith(':') ? 'center' : 'left') : d.endsWith(':') ? 'right' : null));
+      const rows: string[][] = [];
+      i += 2;
+      while (i < lines.length && lines[i].trim() && lines[i].includes('|')) {
+        const r = cells(lines[i++]);
+        // Rows pad or trim to the header's width, as GitHub's do.
+        rows.push(head.map((_, j) => r[j] ?? ''));
+      }
+      out.push({ kind: 'table', align: head.map((_, j) => align[j] ?? null), head, rows });
+      continue;
+    }
     const item = ITEM.exec(line);
     if (item) {
       const ordered = !!item[1];
@@ -66,7 +111,7 @@ export function blocks(src: string): Block[] {
       continue;
     }
     const body: string[] = [];
-    while (i < lines.length && lines[i].trim() && !/^(#{1,6})\s|^\s*```|^\s*>/.test(lines[i]) && !ITEM.exec(lines[i])) body.push(lines[i++].trim());
+    while (i < lines.length && lines[i].trim() && !/^(#{1,6})\s|^\s*```|^\s*>/.test(lines[i]) && !ITEM.exec(lines[i]) && !tableAt(lines, i)) body.push(lines[i++].trim());
     out.push({ kind: 'para', text: body.join(' ') });
   }
   return out;
@@ -91,7 +136,8 @@ export function inline(text: string): ReactNode[] {
   return out;
 }
 
-export function Markdown({ text, className }: { text: string; className?: string }) {
+/** Memoized: a thread re-renders every clock tick, and its messages' text doesn't change. */
+export const Markdown = memo(function Markdown({ text, className }: { text: string; className?: string }) {
   return (
     <div className={['ca-md', className].filter(Boolean).join(' ')}>
       {blocks(text).map((b, i) => {
@@ -118,10 +164,37 @@ export function Markdown({ text, className }: { text: string; className?: string
             return <blockquote key={i}>{inline(b.text)}</blockquote>;
           case 'code':
             return <CodeBlock key={i} text={b.text} />;
+          case 'table':
+            return (
+              <div key={i} className="ca-md-table">
+                <table>
+                  <thead>
+                    <tr>
+                      {b.head.map((c, j) => (
+                        <th key={j} style={b.align[j] ? { textAlign: b.align[j] } : undefined}>
+                          {inline(c)}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {b.rows.map((r, k) => (
+                      <tr key={k}>
+                        {r.map((c, j) => (
+                          <td key={j} style={b.align[j] ? { textAlign: b.align[j] } : undefined}>
+                            {inline(c)}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            );
           case 'rule':
             return <hr key={i} />;
         }
       })}
     </div>
   );
-}
+});
