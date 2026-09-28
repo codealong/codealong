@@ -429,7 +429,19 @@ optional `references/`, read by all four harnesses; from their docs, 2026-09-24)
   than links: not every harness follows links, and the bundle moves on rebuild.
 - A Claude Code plugin's `bin/` goes on the Bash tool's PATH while it's enabled, so
   `plugin/bin/codealong` is a shim that finds the app; `${CLAUDE_PLUGIN_ROOT}` resolves in
-  hooks. A `SessionStart` or `UserPromptSubmit` command hook's stdout (exit 0) is added to
+  hooks.
+- `claude plugin` (2.1.284, with `CLAUDE_CONFIG_DIR` choosing the account) is how install.rs puts
+  the plugin in a Claude Code account: `marketplace add <folder>` records `{source: "directory",
+  path}` in `plugins/known_marketplaces.json` and `extraKnownMarketplaces` in settings.json;
+  `install codealong@codealong` copies the plugin, links followed, into
+  `plugins/cache/<marketplace>/<plugin>/<version>` and lists it in
+  `plugins/installed_plugins.json` (`plugins."codealong@codealong"[].{scope, version,
+  installPath}`), with `enabledPlugins` in settings.json (false once disabled; `list --json` says
+  the same). `update` rereads a folder marketplace by itself and updates on any change to the
+  version string (`0.2.1+aaaa` to `0.2.1+bbbb` updated), succeeding when there's nothing to do;
+  new sessions get it. `enable` fails on an enabled plugin. `marketplace remove` uninstalls the
+  marketplace's plugins with it. A GitHub marketplace (`owner/repo`) is cloned over SSH, then
+  HTTPS, with git's prompts off: a private repo works wherever git can already clone it. A `SessionStart` or `UserPromptSubmit` command hook's stdout (exit 0) is added to
   the model's context, which is how `plugin/hooks/hooks.json` hands a session its todo.
   `allowed-tools` and `disable-model-invocation` in SKILL.md are Claude Code's own.
 

@@ -94,7 +94,7 @@ enum Cmd {
         #[command(subcommand)]
         cmd: ConfigCmd,
     },
-    /// Put the command on PATH, the skill into each account's skills folder, and the adapters Codealong runs sessions through.
+    /// Put the command on PATH, Codealong's plugin in each Claude Code account (the skill, the command for its Bash tool, and the hooks that let Codealong answer its permission prompts and questions) and the skill in each other account's skills folder, and the adapters Codealong runs sessions through.
     Install(InstallArgs),
     /// Your other devices (Settings › Devices): this device, the devices it's linked with, your devices on your tailnet that could be, and devices asking to link. Linking is how devices see each other's sessions; needs the app running and Devices on.
     Devices {
@@ -471,8 +471,8 @@ struct InstallArgs {
     /// Only the command: a symlink on PATH to this binary.
     #[arg(long)]
     command: bool,
-    /// Only the skill, into the accounts' skills folders.
-    #[arg(long)]
+    /// Only Codealong for the accounts' agents: the plugin in a Claude Code account (replacing a skill copy Codealong put there before), the skill in the others' skills folders.
+    #[arg(long, alias = "plugin")]
     skill: bool,
     /// Only the Agent Client Protocol adapters that let Codealong run Claude Code and Codex sessions itself (npm packages, in Codealong's folder).
     #[arg(long)]
@@ -2514,9 +2514,17 @@ fn config_cmd(cmd: ConfigCmd, json: bool) -> Result<()> {
 #[serde(rename_all = "camelCase")]
 struct Installed {
     command: Option<String>,
+    plugins: Vec<PluginInstall>,
     skills: Vec<SkillInstall>,
     acp: Option<String>,
     warnings: Vec<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PluginInstall {
+    account: String,
+    version: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -2528,7 +2536,7 @@ struct SkillInstall {
 
 fn install(c: &mut Client, a: &InstallArgs, json: bool) -> Result<()> {
     let both = !a.command && !a.skill && !a.acp;
-    let mut out = Installed { command: None, skills: Vec::new(), acp: None, warnings: Vec::new() };
+    let mut out = Installed { command: None, plugins: Vec::new(), skills: Vec::new(), acp: None, warnings: Vec::new() };
     if a.acp || both {
         match crate::acp::install_adapters() {
             Ok(done) => out.acp = Some(done),
@@ -2549,6 +2557,13 @@ fn install(c: &mut Client, a: &InstallArgs, json: bool) -> Result<()> {
         }
         let source = crate::install::skill_source().ok_or_else(|| anyhow!("The skill folder isn't next to this binary. Run from the app bundle, or from the repo."))?;
         for acct in accounts {
+            if acct.harness == "claude" {
+                match crate::install::install_plugin(acct) {
+                    Ok(()) => out.plugins.push(PluginInstall { account: acct.name.clone(), version: crate::install::plugin_state(&acct.home_path()).version }),
+                    Err(e) => out.warnings.push(format!("{}: the plugin wasn't installed: {e:#}", acct.name)),
+                }
+                continue;
+            }
             match crate::install::skill_dir(acct) {
                 // Installing for every account leaves an edited copy alone; naming the account replaces it.
                 Some(dir) if a.account.is_empty() && crate::install::copy_state(&source, &dir).edited => {
@@ -2567,6 +2582,9 @@ fn install(c: &mut Client, a: &InstallArgs, json: bool) -> Result<()> {
     }
     if let Some(p) = &out.command {
         println!("Command: {}", tilde(Path::new(p)));
+    }
+    for p in &out.plugins {
+        println!("Plugin for {}: codealong {}", p.account, p.version.as_deref().unwrap_or("(version unknown)"));
     }
     for s in &out.skills {
         println!("Skill for {}: {}", s.account, tilde(Path::new(&s.path)));

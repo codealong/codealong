@@ -357,12 +357,13 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   prints the settings and checks an edited config.toml. With the app running, answers come
   from it over a socket and todo changes go through its engine; with it closed, the command
   reads the files (sessions then show without git or PRs). Output is JSON when piped, tables
-  in a terminal. Settings › Agents installs the command (a symlink on PATH) and the skill
-  into every account's skills folder (`~/.claude/skills`, `~/.claude2/skills`,
-  `~/.codex/skills`, `~/.config/opencode/skills`, `~/.gemini/config/skills`), and keeps the
-  copies current; `codealong install` does the same from a terminal. Claude Code users can
-  instead add the repo as a plugin marketplace: `/plugin marketplace add codealong/codealong`,
-  `/plugin install codealong@codealong`. See *For agents* below.
+  in a terminal. Settings › Agents installs the command (a symlink on PATH), the Codealong
+  plugin in every Claude Code account (the skill, the command for its Bash tool, and the hooks
+  that let you answer its permission prompts and questions from Codealong), and the skill in
+  every other account's skills folder (`~/.codex/skills`, `~/.config/opencode/skills`,
+  `~/.gemini/config/skills`), and keeps them current; `codealong install` does the same from a
+  terminal. Settings › Agents is where each account's plugin or skill shows. See *For agents*
+  below.
 
 Next: the menu bar icon and popover, and notifications (the design system's *Build plan*).
 
@@ -482,15 +483,27 @@ this device's key is in the login keychain.
 `skills/codealong/` is one skill in the Agent Skills layout (`SKILL.md` plus
 `references/reference.md`, generated from `codealong --help` by `scripts/skill-reference.sh`),
 read as-is by Claude Code, Codex, OpenCode and Antigravity. The app ships it in its bundle and
-Settings › Agents (or `codealong install`, or adding an account in Settings) copies it into each
-account's skills folder with a `.codealong-version` marker; at launch the app refreshes copies it
-made when the skill changed, including ones in folders of accounts you've since removed, and
-never touches a folder it didn't make. A copy someone edited is left alone: Settings › Agents
-marks it Edited, and replaces it only when asked (so does `codealong install --account <name>`). `plugin/` wraps the same skill as a Claude Code plugin
-(`.claude-plugin/plugin.json`, a `bin/codealong` shim that finds the app, a `SessionStart`
-hook that runs `codealong whoami --context`, and a `PermissionRequest` hook that runs the
-hidden `codealong session hook permission-request`), and `.claude-plugin/marketplace.json`
-makes the repo a marketplace. The permission hook hands the request to the app over its socket
+Settings › Agents (or `codealong install`, or adding an account in Settings) copies it into the
+skills folder of each account that isn't Claude Code, with a `.codealong-version` marker; at
+launch the app refreshes copies it made when the skill changed, including ones in folders of
+accounts you've since removed, and never touches a folder it didn't make. A copy someone edited
+is left alone: Settings › Agents marks it Edited, and replaces it only when asked (so does
+`codealong install --account <name>`).
+
+`plugin/` wraps the same skill as a Claude Code plugin (`.claude-plugin/plugin.json`, a
+`bin/codealong` shim that finds the app, a `SessionStart` hook that runs `codealong whoami
+--context`, and a `PermissionRequest` hook that runs the hidden `codealong session hook
+permission-request`), and `.claude-plugin/marketplace.json` makes the repo a marketplace. The app
+ships the marketplace too (`Resources/plugin-marketplace`, with the skill from
+`Resources/skills`) and installs the plugin in each Claude Code account with `claude plugin`,
+from a copy it keeps in `~/Library/Application Support/Codealong/plugin-marketplace`: the plugin
+is the one the app answers, and it needs no network or access to the repo. The copy's version is
+plugin.json's with a hash of the plugin's files after a `+`, and Claude Code updates a plugin
+whenever that string changes, so at launch the app updates the plugin it installed whenever its
+files, the skill included, changed. An account whose plugin comes from another marketplace (the
+repo's, added by hand) keeps it until you pick Use Codealong's copy. A Claude Code account with
+the plugin gets no skill copy, and one Codealong made there before is taken away, so sessions
+don't see the skill twice. The permission hook hands the request to the app over its socket
 and waits; the app holds it (`asks.rs`) until it's answered in one of Codealong's windows or on
 another device, or answered or gone where the session runs, and the hook prints the decision,
 or nothing. It prints nothing and exits 0 when the app isn't running, and an app older than the

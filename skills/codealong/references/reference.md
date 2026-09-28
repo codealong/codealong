@@ -49,8 +49,10 @@ Commands:
   config     Codealong's own settings (config.toml): show them as the app reads them,
              and check a file before or after editing it. Change settings by editing the
              file; the app watches it
-  install    Put the command on PATH, the skill into each account's skills folder, and
-             the adapters Codealong runs sessions through
+  install    Put the command on PATH, Codealong's plugin in each Claude Code account
+             (the skill, the command for its Bash tool, and the hooks that let Codealong
+             answer its permission prompts and questions) and the skill in each other
+             account's skills folder, and the adapters Codealong runs sessions through
   devices    Your other devices (Settings › Devices): this device, the devices it's
              linked with, your devices on your tailnet that could be, and devices asking
              to link. Linking is how devices see each other's sessions; needs the app
@@ -1288,8 +1290,10 @@ Options:
 ## codealong install
 
 ```
-Put the command on PATH, the skill into each account's skills folder, and the adapters
-Codealong runs sessions through
+Put the command on PATH, Codealong's plugin in each Claude Code account (the skill, the
+command for its Bash tool, and the hooks that let Codealong answer its permission
+prompts and questions) and the skill in each other account's skills folder, and the
+adapters Codealong runs sessions through
 
 Usage: codealong install [OPTIONS]
 
@@ -1301,7 +1305,9 @@ Options:
           JSON output. The default when stdout isn't a terminal
 
       --skill
-          Only the skill, into the accounts' skills folders
+          Only Codealong for the accounts' agents: the plugin in a Claude Code account
+          (replacing a skill copy Codealong put there before), the skill in the others'
+          skills folders
 
       --table
           Tables, even when piped

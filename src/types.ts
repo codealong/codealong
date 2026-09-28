@@ -369,6 +369,8 @@ export interface AgentsStatus {
   command: { link: string | null; target: string; onPath: boolean };
   /** Whether the skill folder ships with this build at all. */
   skillFound: boolean;
+  /** The Claude Code plugin's version in this build, when it ships with it. */
+  pluginVersion: string | null;
   accounts: AccountSkill[];
   /** One line per failure of the last install; empty when only read. */
   errors: string[];
@@ -383,6 +385,19 @@ export interface AccountSkill {
   current: boolean;
   /** Someone changed this copy, so updates leave it alone until it's replaced from Settings. */
   edited: boolean;
+  /** For a Claude Code account, the plugin, which is what Codealong installs there; the skill
+   *  fields then say whether a copy Codealong made before is still in its skills folder. */
+  plugin: PluginState | null;
+}
+
+/** The Codealong plugin in a Claude Code account. */
+export interface PluginState {
+  /** The version installed; null when it isn't. */
+  version: string | null;
+  /** Turned off in Claude Code: its hooks and skill don't run. */
+  disabled: boolean;
+  /** Where its marketplace is when it isn't Codealong's own (a GitHub repo, say). */
+  from: string | null;
 }
 
 export interface Board {
