@@ -115,7 +115,9 @@ A push's cost in the window is measured with `PREVIEW_WAIT=90000 scripts/preview
 scripts/preview/push-bench.js`: forty pushes of the real board with one worktree changed, as
 most publishes are. Rows of the board and the sidebar skip rendering when nothing they show
 changed (`reuse.ts` keeps unchanged parts of a push as the same objects, `ui/memoRow.ts`
-compares rows); `scripts/preview/rows-check.js` checks they still update.
+compares rows). `PREVIEW_WAIT=120000 scripts/preview.sh worktrees '' scripts/preview/rows-check.js`
+(and `sessions`) checks that a session's row still shows what a push changes while the other
+worktrees' rows skip rendering (it counts renders through React's devtools hook).
 
 The quick panel's open, keys and pushes are timed with `PREVIEW_WAIT=120000 scripts/preview.sh
 quick '' scripts/preview/quick-bench.js`. Chrome doesn't drop a hidden page to background
