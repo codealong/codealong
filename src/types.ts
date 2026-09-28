@@ -680,6 +680,9 @@ export type BarGroup = 'needs' | 'unread' | 'working';
 /** What the floating bar shows (barfeed.rs): the engine sends it instead of the board. */
 export interface BarFeed {
   loading: boolean;
+  /** The board's time: a change the bar shows ahead of the engine goes once a feed this new
+   *  arrives (ahead.ts). Missing from a feed an older app sent. */
+  generatedAt?: number;
   theme: Theme;
   /** What the mark's colors say, as on the board. */
   logoStatus: LogoStatus;
@@ -705,6 +708,9 @@ export interface BarItem {
   key: string;
   group: BarGroup;
   status: Status;
+  /** Needs you only because its last reply asks you something: marking it seen settles it.
+   *  Missing from a feed an older app sent. */
+  asks?: boolean;
   title: string;
   account: string;
   laneId: string;

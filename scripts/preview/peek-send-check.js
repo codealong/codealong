@@ -1,8 +1,8 @@
-// Checks that a send still on its way survives the floating bar's peek closing and opening again
-// (SessionReply.tsx): the box that shows again says it's sending and can't send the same text a
-// second time, then hears how it went; a send that went as a message from Codealong rather than
-// typed puts a note on the bar; and one that fails while no box shows says so in the next box,
-// with the text still there to send.
+// Checks sending from the floating bar's peek (SessionReply.tsx, ahead.ts): the box clears and
+// the peek closes as you send, without waiting for the send; the peek that shows again has the
+// message in its thread as sending, and a second message waits for the first; a send that went as
+// a message from Codealong rather than typed puts a note on the bar; and one that fails while no
+// box shows says so on the bar and in the next box, with the text back to send.
 //   PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/peek-send-check.js
 // Every step should say ok.
 (function () {
@@ -43,6 +43,7 @@
 
   var box = function () { return document.querySelector('.ca-peek .ca-composer textarea'); };
   var note = function () { var n = document.querySelector('.ca-peek .ca-composer-note'); return n ? n.textContent : ''; };
+  var bubbles = function () { return Array.prototype.map.call(document.querySelectorAll('.ca-peek .ca-thread-said.is-ahead'), function (b) { return b.querySelector('.ca-meta').textContent + ': ' + b.querySelector('.ca-thread-you').textContent; }); };
   var sendButton = function () { return Array.prototype.find.call(document.querySelectorAll('.ca-peek .ca-composer button'), function (b) { return /Send/.test(b.textContent); }); };
   var type = function (el, text) {
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(el, text);
@@ -62,54 +63,61 @@
   var fell = 'Sent as a message from Codealong, not typed into “' + picked.title.trim() + '”: Codealong couldn’t find its Ghostty tab.';
 
   say('peek send check: waiting for the peek');
+  var hides;
   until(function () { return !!box(); }, 20000)
     .then(function () {
+      hides = calls('peek_hide').length;
       type(box(), 'Evening then?');
       enter(box());
       return until(function () { return calls('send_to_session').length === 1; }, 5000);
     })
     .then(function () { return wait(100); })
     .then(function () {
-      check('sending shows', note() === 'Sending…' && box().disabled, note());
+      check('the box clears at once and stays open to typing', box() ? box().value === '' && !box().disabled : true, box() ? box().value : 'gone');
+      check('the draft goes as it sends', stored() === null, String(stored()));
+      check('the peek closes without waiting for the send', calls('peek_hide').length > hides, String(calls('peek_hide').length - hides));
       return hide();
     })
     .then(show)
+    .then(function () { return until(function () { return bubbles().length === 1; }, 5000).catch(function () {}); })
     .then(function () {
-      check('the box that shows again is still sending', note() === 'Sending…' && box().disabled && box().value === 'Evening then?', note() + ' / ' + box().value);
+      check('the peek that shows again has it sending in its thread', bubbles()[0] === 'Sending…: Evening then?', JSON.stringify(bubbles()));
+      check('and says so under the box', note() === 'Sending…' && box().value === '' && !box().disabled, note() + ' / ' + box().value);
+      type(box(), 'And lunch');
       enter(box());
-      if (sendButton()) sendButton().click();
       return wait(200);
     })
     .then(function () {
-      check('it doesn’t send the same text twice', calls('send_to_session').length === 1, String(calls('send_to_session').length));
-      var hides = calls('peek_hide').length;
-      flying[0].res({ message: fell, opened: false, fellBack: true });
-      return until(function () { return calls('peek_hide').length > hides; }, 5000);
+      check('a second message waits for the first', calls('send_to_session').length === 1 && bubbles().length === 2, calls('send_to_session').length + ' / ' + JSON.stringify(bubbles()));
+      return show();
     })
+    .then(function () {
+      flying[0].res({ message: fell, opened: false, fellBack: true });
+      return until(function () { return calls('send_to_session').length === 2; }, 5000);
+    })
+    .then(function () { return wait(100); })
     .then(function () {
       var notes = barNotes();
       check('a message that went another way goes on the bar', notes.length === 1 && notes[0][1].payload.message === fell, JSON.stringify(notes.map(function (n) { return n[1].payload; })));
-      check('the peek closes once it went', true);
-      check('sending cleared the draft', stored() === null && box().value === '', String(stored()));
-      // A send that fails while no box shows.
+      check('then the second goes', calls('send_to_session')[1][1].text === 'And lunch', JSON.stringify(calls('send_to_session')[1][1]));
+      check('the first shows as sent', bubbles()[0] === 'Sent: Evening then?', JSON.stringify(bubbles()));
+      // The second fails while no box shows.
       return hide();
     })
-    .then(show)
-    .then(function () {
-      type(box(), 'Second one');
-      enter(box());
-      return until(function () { return calls('send_to_session').length === 2; }, 5000);
-    })
-    .then(hide)
     .then(function () {
       flying[1].rej('Ghostty said no.');
       return wait(100);
     })
-    .then(show)
+    .then(function () {
+      var notes = barNotes();
+      check('one that fails with the peek away says so on the bar', notes.length === 2 && notes[1][1].payload.message === 'Ghostty said no.' && notes[1][1].payload.tone === 'error', JSON.stringify(notes.map(function (n) { return n[1].payload; })));
+      check('and is back in the draft', stored() === 'And lunch', String(stored()));
+      return show();
+    })
     .then(function () {
       check('the next box says how it went', note() === 'Ghostty said no.', note());
-      check('with the text still there to send', box().value === 'Second one' && !box().disabled && sendButton() && !sendButton().disabled, box().value);
-      check('and nothing more on the bar', barNotes().length === 1, String(barNotes().length));
+      check('with the text back to send', box().value === 'And lunch' && !box().disabled && sendButton() && !sendButton().disabled, box().value);
+      check('and it’s gone from the thread', bubbles().every(function (b) { return b.indexOf('And lunch') < 0; }), JSON.stringify(bubbles()));
       say('done: ' + out.join('; '));
     })
     .catch(function (e) { say('done: ' + out.join('; ') + '; stopped: ' + e.message); });

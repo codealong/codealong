@@ -278,6 +278,18 @@ mod tests {
     }
 
     #[test]
+    fn a_message_sent_while_claude_worked_reads_as_yours() {
+        let queued = r#"{"type":"attachment","timestamp":"2026-09-26T10:00:03Z","attachment":{"type":"queued_command","prompt":"Also check the docs"}}"#;
+        let task = r#"{"type":"attachment","timestamp":"2026-09-26T10:00:04Z","attachment":{"type":"queued_command","prompt":"<task-notification>\n<status>completed</status>\n</task-notification>"}}"#;
+        let other = r#"{"type":"attachment","timestamp":"2026-09-26T10:00:04Z","attachment":{"type":"edited_text_file","filename":"a.rs"}}"#;
+        let p = write(&[PROMPT, CALL, queued, task, other, RESULT]);
+        let page = file_page(&p, crate::claude::conversation_items, None, 100).unwrap();
+        let kinds: Vec<&str> = page.items.iter().map(|i| i.kind).collect();
+        assert_eq!(kinds, ["you", "agent", "tool", "you", "result"]);
+        assert_eq!(page.items[3].text, "Also check the docs");
+    }
+
+    #[test]
     fn pages_go_back_a_line_at_a_time_and_meet_in_the_middle() {
         let p = write(&[PROMPT, CALL, RESULT, REPLY]);
         let last = file_page(&p, crate::claude::conversation_items, None, 2).unwrap();

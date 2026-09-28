@@ -65,6 +65,9 @@ const ROOT_WAIT: Duration = Duration::from_secs(10);
 const HELD_WARN_AFTER: Duration = Duration::from_secs(10);
 /// Reads that land within this of each other are used by one scan.
 const LANDED_QUIET: Duration = Duration::from_millis(150);
+/// How long a window's seen or archive waits to hear which board shows it. A window shows the
+/// change meanwhile; without an answer it keeps its copy until a board shows the change.
+const SHOWN_WAIT: Duration = Duration::from_secs(10);
 
 /// A command a Claude session left running in the background, as last seen.
 struct BackgroundWatch {
@@ -84,9 +87,11 @@ pub enum Msg {
     /// What GitHub calls each repo now, by the slug its remote has (lowercase); None where
     /// GitHub didn't answer.
     RepoNames(Vec<(String, Option<String>)>),
-    MarkSeen(Vec<String>),
-    /// Sessions snoozed until then, or woken now with none.
-    Snooze(Vec<String>, Option<i64>),
+    /// Sessions marked seen. With a reply, the time of the board that shows it, published at once.
+    MarkSeen(Vec<String>, Option<Sender<i64>>),
+    /// Sessions snoozed until then, or woken now with none. The reply is the time of the board
+    /// that shows it, published at once.
+    Snooze(Vec<String>, Option<i64>, Sender<i64>),
     /// Lane path → session keys whose logs mention it.
     Visitors(HashMap<PathBuf, Vec<String>>),
     /// Session key → the PRs its records show it made or changed (prlinks.rs).
@@ -100,7 +105,8 @@ pub enum Msg {
     /// The full list of pinned worktrees (lane ids), in order.
     SetPinnedWorktrees(Vec<String>),
     /// A session archived (true) or unarchived from Codealong; Codex has already done its part.
-    SetArchived(String, bool),
+    /// The reply is the time of the board that shows it, published at once.
+    SetArchived(String, bool, Sender<i64>),
     /// The theme, already saved to config.toml.
     SetTheme(Theme),
     /// An account's star, already saved to config.toml.
@@ -148,12 +154,23 @@ impl Handle {
     }
 
     pub fn mark_seen(&self, keys: Vec<String>) {
-        let _ = self.tx.send(Msg::MarkSeen(keys));
+        let _ = self.tx.send(Msg::MarkSeen(keys, None));
     }
 
-    /// Snoozes sessions until `until`, or wakes them with none.
-    pub fn snooze(&self, keys: Vec<String>, until: Option<i64>) {
-        let _ = self.tx.send(Msg::Snooze(keys, until));
+    /// Marks sessions seen and returns the time of the board that shows it, so a window knows
+    /// when its own copy of the change can go; None when the engine is too busy to say.
+    pub fn mark_seen_shown(&self, keys: Vec<String>) -> Option<i64> {
+        let (tx, rx) = channel();
+        self.tx.send(Msg::MarkSeen(keys, Some(tx))).ok()?;
+        rx.recv_timeout(SHOWN_WAIT).ok()
+    }
+
+    /// Snoozes sessions until `until`, or wakes them with none. Returns the time of the board
+    /// that shows it, as `mark_seen_shown` does.
+    pub fn snooze(&self, keys: Vec<String>, until: Option<i64>) -> Option<i64> {
+        let (tx, rx) = channel();
+        self.tx.send(Msg::Snooze(keys, until, tx)).ok()?;
+        rx.recv_timeout(SHOWN_WAIT).ok()
     }
 
     /// A session Codealong runs started or ended a turn, or asked or stopped asking something.
@@ -201,7 +218,8 @@ impl Handle {
     /// Archives or unarchives a session. Codex threads are archived in Codex itself, so the
     /// Codex app shows it too; neither Claude Code nor the Claude app lets another program
     /// archive, so a Claude session is archived in Codealong until it's active again.
-    pub fn archive(&self, key: &str, archived: bool) -> Result<()> {
+    /// Returns the time of the board that shows it, as `mark_seen_shown` does.
+    pub fn archive(&self, key: &str, archived: bool) -> Result<Option<i64>> {
         let mut parts = key.splitn(3, ':');
         let (Some(harness), Some(account), Some(id)) = (parts.next(), parts.next(), parts.next()) else {
             bail!("That isn't a session.");
@@ -211,8 +229,11 @@ impl Handle {
             let a = cfg.accounts.iter().find(|a| a.name == account).ok_or_else(|| anyhow!("There's no account named {account}."))?;
             appserver::set_archived(&a.home_path(), id, archived)?;
         }
-        let _ = self.tx.send(Msg::SetArchived(key.to_string(), archived));
-        Ok(())
+        let (tx, rx) = channel();
+        if self.tx.send(Msg::SetArchived(key.to_string(), archived, tx)).is_err() {
+            bail!("Codealong's engine stopped.");
+        }
+        Ok(rx.recv_timeout(SHOWN_WAIT).ok())
     }
 
     /// The accounts in config.toml, each with whether it's signed in.
@@ -1170,13 +1191,15 @@ impl Engine {
                     }
                     self.dirty = true;
                 }
-                Ok(Msg::SetArchived(key, archived)) => {
+                Ok(Msg::SetArchived(key, archived, reply)) => {
                     self.seen.set_archived(&key, archived, now_ms());
                     self.seen.save();
                     if key.starts_with("codex:") {
                         self.refresh_archived_rollouts();
                     }
-                    self.dirty = true;
+                    // Now rather than on the next tick: the window shows it already, and waits for it.
+                    self.publish();
+                    let _ = reply.send(self.board.read().map(|b| b.generated_at).unwrap_or(0));
                 }
                 Ok(Msg::SetPinned(keys)) => {
                     self.seen.set_pinned(keys);
@@ -1255,15 +1278,18 @@ impl Engine {
                     }
                     self.dirty = true;
                 }
-                Ok(Msg::MarkSeen(keys)) => {
+                Ok(Msg::MarkSeen(keys, reply)) => {
                     let now = now_ms();
                     for k in keys {
                         self.seen.mark(&k, now);
                     }
                     self.seen.save();
-                    self.dirty = true;
+                    self.publish();
+                    if let Some(reply) = reply {
+                        let _ = reply.send(self.board.read().map(|b| b.generated_at).unwrap_or(0));
+                    }
                 }
-                Ok(Msg::Snooze(keys, until)) => {
+                Ok(Msg::Snooze(keys, until, reply)) => {
                     let now = now_ms();
                     for k in keys {
                         match until {
@@ -1272,7 +1298,9 @@ impl Engine {
                         }
                     }
                     self.seen.save();
-                    self.dirty = true;
+                    // Now rather than on the next tick: the window shows it already, and waits for it.
+                    self.publish();
+                    let _ = reply.send(self.board.read().map(|b| b.generated_at).unwrap_or(0));
                 }
                 Err(RecvTimeoutError::Timeout) => {}
                 Err(RecvTimeoutError::Disconnected) => break,

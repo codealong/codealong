@@ -18,12 +18,10 @@ import { reuse } from '../reuse';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import {
-  archiveSession,
   fitQuick,
   getBoard,
   hideQuick,
   inPreview,
-  markSeen,
   onBoard,
   onQuickHidden,
   openFromBar,
@@ -31,7 +29,6 @@ import {
   quickReady,
   routeQuick,
   searchText,
-  sendToSession,
   showMain,
   showQuick,
   startFromQuick,
@@ -40,6 +37,7 @@ import {
   todoOp,
   type QuickOpen,
 } from '../api';
+import { archiveAhead, boardAhead, boardView, observe, seenAhead, sendAhead, useAhead } from '../ahead';
 import { filesToAttach, keepFiles, useFileDrop } from '../attachInput';
 import { useKeyPerf, usePerf } from '../perf';
 import { showContextMenu } from '../contextMenu';
@@ -195,7 +193,10 @@ function Marked({ text, marks }: { text: string; marks: [number, number][] }) {
 }
 
 export function Quick() {
-  const [board, setBoard] = useState<Board | null>(null);
+  const [engineBoard, setBoard] = useState<Board | null>(null);
+  // Changes made in any window that the engine hasn't shown yet (ahead.ts), on top of the board.
+  const ahead = useAhead();
+  const board = useMemo(() => (engineBoard ? boardAhead(engineBoard, ahead) : null), [engineBoard, ahead]);
   const [options, setOptions] = useState<StartOptions | null>(null);
   // Up (or about to be): the page follows the board only then.
   const [shown, setShown] = useState(false);
@@ -373,7 +374,11 @@ export function Quick() {
         : undefined,
     [shown],
   );
-  usePerf(board, arrived);
+  usePerf(engineBoard, arrived);
+  // The panel follows the board only while it's up; so does what it knows of its changes.
+  useEffect(() => {
+    if (shown && engineBoard) observe(boardView(engineBoard.generatedAt, [engineBoard.lanes]));
+  }, [shown, engineBoard]);
   // Keys typed anywhere in the panel, its reply box included.
   const keyed = useKeyPerf(board?.perfLog ?? false);
   useEffect(() => {
@@ -901,7 +906,7 @@ export function Quick() {
     setError(null);
     void tellOpener(to, { phase: 'begin', id, label: `Sending to ${session.title}…` });
     void hideQuick();
-    sendToSession(session.key, prompt)
+    sendAhead(session, prompt, { toDraft: false })
       .then((sent) => tellOpener(to, { phase: 'end', id, key: null, message: sent.message }))
       .catch((e: unknown) => {
         void tellOpener(to, { phase: 'end', id, key: null, message: null });
@@ -1226,7 +1231,7 @@ export function Quick() {
   const agentDetail = [autoFor ? account : null, modelShown].filter(Boolean).join(' · ');
   const shortcut = shortcutLabel(board?.quickShortcut);
 
-  /** A reply went through, or what it waited on was answered: the panel is done. The window that
+  /** A reply is on its way, or what it waited on was answered: the panel is done. The window that
    *  opened it hears what happened. */
   const replied = (message: string | null) => {
     setReplyKey(null);
@@ -1255,9 +1260,17 @@ export function Quick() {
             onBack={leaveReply}
             onOpen={() => openSession(replying.lane, replying.session)}
             onReveal={() => revealSession(replying.lane, replying.session)}
-            onSeen={() => dismissReply(markSeen([replying.session.key]))}
-            onArchive={() => dismissReply(archiveSession(replying.session.key, true))}
-            onSent={(sent) => replied(sent.message)}
+            onSeen={() => dismissReply(seenAhead([replying.session.key]))}
+            onArchive={() => dismissReply(archiveAhead(replying.session.key, true))}
+            onSending={() => replied(null)}
+            onSent={(sent) => {
+              if (sent.message) void tellOpener(opener ?? 'main', { phase: 'end', id: Date.now(), key: null, message: sent.message });
+            }}
+            // Back on the session, with what you wrote in the box and why it didn't go.
+            onFailed={() => {
+              const key = replying.session.key;
+              reopen(() => setReplyKey(key));
+            }}
             onAnswered={(said) => replied(said)}
           />
         </div>

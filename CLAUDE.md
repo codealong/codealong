@@ -270,7 +270,10 @@ Claude Code
   messages `peer`, compaction summaries `isCompactSummary`. Older transcripts have no
   `origin`. `last-prompt` lines repeat the prompt's text but carry no time. One turn often
   writes more than the last 256KB, so the prompt can be far behind the tail. A message sent
-  while a session is busy doesn't change the registry's `statusUpdatedAt`.
+  while a session is busy doesn't change the registry's `statusUpdatedAt`, nor is it a `user`
+  line: it's written when the turn takes it in, as a `type: "attachment"` line whose
+  `attachment` is `{type: "queued_command", prompt}` (background tasks' notifications come the
+  same way, as `<task-notification>…`).
 - A line's `cwd` is the shell's folder. After a command that `cd`s outside the session's
   folder the shell goes back to it, so an agent working in another worktree starts each
   command there with `cd <folder> &&`, and its other commands (temp files, `osascript`) run

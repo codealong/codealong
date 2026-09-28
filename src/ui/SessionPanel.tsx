@@ -37,9 +37,11 @@ interface SessionPanelProps {
   device?: DeviceView | null;
   /** Shown from another panel (a PR's, a todo's): the way back to it. */
   back?: { label: string; onBack: () => void };
+  /** A message sent from here didn't go, and its panel had gone by then to say so. */
+  onSendFailed?: (why: string) => void;
 }
 
-export function SessionPanel({ lane, session: s, apps, now, onOpen, onNewSession, onShowLane, todos, onShowTodo, onMoreMenu, onSeen, device, back }: SessionPanelProps) {
+export function SessionPanel({ lane, session: s, apps, now, onOpen, onNewSession, onShowLane, todos, onShowTodo, onMoreMenu, onSeen, device, back, onSendFailed }: SessionPanelProps) {
   const [details, setDetails] = useState(false);
   const targets = lane.targets.filter((t) => t.id.startsWith(`s|${s.key}|`));
   const since = s.statusSince ? (s.status === 'working' ? `for ${duration(s.statusSince, now)}` : agoPhrase(s.statusSince, now)) : agoPhrase(s.lastActivity, now);
@@ -157,7 +159,7 @@ export function SessionPanel({ lane, session: s, apps, now, onOpen, onNewSession
           {device.name} doesn't take prompts from your other devices. To send from here, turn on <b>Let my linked devices act on sessions here</b> in Settings › Devices on {device.name}.
         </p>
       ) : (
-        <Reply session={s} terminal={apps.terminal} onOpen={() => onOpen(s.openTarget)} />
+        <Reply session={s} terminal={apps.terminal} onOpen={() => onOpen(s.openTarget)} onFailed={onSendFailed} />
       )}
     </aside>
   );

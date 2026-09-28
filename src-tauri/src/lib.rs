@@ -150,12 +150,11 @@ async fn close_idle_terminals(engine: State<'_, engine::Handle>, keys: Vec<Strin
     Ok(idle::close(&engine.board(), &keys, after_ms))
 }
 
-#[tauri::command]
-fn mark_seen(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, keys: Vec<String>) {
+/// Returns the time of the board that shows the sessions on this device seen (none when they're
+/// all on other devices, whose feeds show it as they come in), for the window's own copy.
+#[tauri::command(async)]
+fn mark_seen(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, keys: Vec<String>) -> Option<i64> {
     let (elsewhere, here): (Vec<String>, Vec<String>) = keys.into_iter().partition(|k| peerfeed::split_remote(k).is_some());
-    if !here.is_empty() {
-        engine.mark_seen(here);
-    }
     // Seen goes to the device the session is on: its status changes there, and so on every device.
     let mut by_device: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
     for k in &elsewhere {
@@ -169,15 +168,23 @@ fn mark_seen(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, 
             let _ = peers.ask(&device, api::MARK_SEEN, serde_json::json!({ "keys": keys }), ASK_ACT);
         });
     }
+    if here.is_empty() {
+        None
+    } else {
+        engine.mark_seen_shown(here)
+    }
 }
 
 /// Snoozes sessions until `until` (ms since the epoch), or wakes them with none. Only this Mac's:
-/// the floating bar, which snoozes keep sessions off, shows only this Mac's.
-#[tauri::command]
-fn snooze_sessions(engine: State<'_, engine::Handle>, keys: Vec<String>, until: Option<i64>) {
+/// the floating bar, which snoozes keep sessions off, shows only this Mac's. Returns the time of
+/// the board that shows it, as `mark_seen` does.
+#[tauri::command(async)]
+fn snooze_sessions(engine: State<'_, engine::Handle>, keys: Vec<String>, until: Option<i64>) -> Option<i64> {
     let here: Vec<String> = keys.into_iter().filter(|k| peerfeed::split_remote(k).is_none()).collect();
-    if !here.is_empty() {
-        engine.snooze(here, until);
+    if here.is_empty() {
+        None
+    } else {
+        engine.snooze(here, until)
     }
 }
 
@@ -574,10 +581,11 @@ fn open_url(url: String) -> Result<(), String> {
     launch::open_url(&url).map_err(|e| e.to_string())
 }
 
+/// Returns the time of the board that shows it, as `mark_seen` does.
 #[tauri::command(async)]
-fn archive_session(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, archived: bool) -> Result<(), String> {
+fn archive_session(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, archived: bool) -> Result<Option<i64>, String> {
     if let Some((device, key)) = peerfeed::split_remote(&key) {
-        return peers.ask(device, api::SESSION_ARCHIVE, serde_json::json!({ "key": key, "archived": archived }), ASK_ACT).map(|_| ());
+        return peers.ask(device, api::SESSION_ARCHIVE, serde_json::json!({ "key": key, "archived": archived }), ASK_ACT).map(|_| None);
     }
     engine.archive(&key, archived).map_err(|e| format!("{e:#}"))
 }

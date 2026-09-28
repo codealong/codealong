@@ -4,8 +4,13 @@
 // come in at the bottom as the session goes on, and the view follows them if you're at the end.
 // A tool call is a line; click it for its input and output. A run of calls folds into one line
 // that keeps its latest call in view.
+//
+// A message you sent shows at the end as it goes (ahead.ts): sending, then sent, until the
+// session's record has it and it shows from there. One that went but that the session shows no
+// sign of taking, well after, says so, with a way to open the session and look.
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { delivered, dismiss, inRecord, useAhead, type Ahead } from '../ahead';
 import { onHostedStream, sessionNewer, sessionPage, sessionStream } from '../api';
 import { absolute, agoPhrase } from '../format';
 import type { HostedStream, Session, Status, TranscriptItem } from '../types';
@@ -136,6 +141,34 @@ function Said({ item, now, label }: { item: TranscriptItem; now: number; label: 
   );
 }
 
+/** A message of yours on its way, or one the session shows no sign of having taken. */
+function Unsaid({ ahead, onOpen }: { ahead: Ahead; onOpen: () => void }) {
+  const c = ahead.change;
+  if (c.kind !== 'send') return null;
+  const state = ahead.doneAt == null ? 'Sending…' : ahead.unconfirmed ? 'Not in the session yet' : 'Sent';
+  return (
+    <div className={['ca-thread-said', 'is-you', 'is-ahead', ahead.doneAt == null && 'is-going', ahead.unconfirmed && 'is-unconfirmed'].filter(Boolean).join(' ')}>
+      <div className="ca-thread-meta">
+        <span>You</span>
+        <span className="ca-meta">{state}</span>
+      </div>
+      <div className="ca-thread-you">{c.text}</div>
+      {ahead.unconfirmed && (
+        <div className="ca-thread-askrow">
+          <span>It went, but the session hasn’t shown it. It may not have reached it.</span>
+          <button type="button" className="ca-btn ca-btn--secondary ca-btn--sm" onClick={onOpen}>
+            <Icon name="arrow-up-right" size={13} />
+            <span>Open to check</span>
+          </button>
+          <button type="button" className="ca-btn ca-btn--ghost ca-btn--sm" title="Stop showing this" onClick={() => dismiss(ahead.id)}>
+            <Icon name="x" size={13} />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface SessionThreadProps {
   session: Session;
   now: number;
@@ -261,6 +294,20 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded }: S
 
 
   const rows = useMemo(() => rowsOf(items), [items]);
+  // Your messages to it still on their way, less the ones its record has now.
+  const ahead = useAhead();
+  const sends = useMemo(() => ahead.filter((a) => a.change.kind === 'send' && a.change.key === s.key), [ahead, s.key]);
+  const { showing, found } = useMemo(() => inRecord(sends, items), [sends, items]);
+  useEffect(() => {
+    for (const id of found) delivered(id);
+  }, [found]);
+  // A message you just sent brings the view to the end, wherever you'd scrolled.
+  const shownSends = useRef(0);
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    if (el && showing.length > shownSends.current) el.scrollTop = el.scrollHeight;
+    shownSends.current = showing.length;
+  }, [showing.length]);
   // The last call with no answer yet is what's running, or what the session waits on you for.
   const pending = useMemo(() => {
     const answered = new Set(items.filter((it) => it.kind === 'result' && it.id).map((it) => it.id));
@@ -300,13 +347,16 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded }: S
         }
         return <Said key={keyOf(it)} item={it} now={now} label={it.kind === 'you' ? 'You' : s.account} />;
       })}
+      {showing.map((a) => (
+        <Unsaid key={a.id} ahead={a} onOpen={onOpen} />
+      ))}
       {streaming?.text && <Said item={{ at: now, kind: 'agent', text: streaming.text, failed: false, cursor: 0, n: 0 }} now={now} label={`${s.account} · writing`} />}
       {streaming && !streaming.text && streaming.tool && !pending && (
         <div className="ca-thread-note">
           <Rich text={`Running \`${streaming.tool.replace(/`/g, '')}\``} now={now} />
         </div>
       )}
-      {loaded && items.length === 0 && !streaming?.text && <p className="ca-empty">Nothing said yet.</p>}
+      {loaded && items.length === 0 && showing.length === 0 && !streaming?.text && <p className="ca-empty">Nothing said yet.</p>}
       {s.status === 'needs' && !pending && s.excerpt && (
         <div className="ca-thread-tool is-asks">
           <div className="ca-thread-askrow">

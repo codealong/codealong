@@ -9,11 +9,12 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { fitBar, getBarFeed, markSeen, onBarFeed, onBarNote, onPeekShown, openFromBar, peekHide, peekOpen, setBarOn, showMain, showQuick, snoozeSessions, type PillRect } from '../api';
+import { fitBar, getBarFeed, onBarFeed, onBarNote, onPeekShown, openFromBar, peekHide, peekOpen, setBarOn, showMain, showQuick, type PillRect } from '../api';
 import { elsewhereWaits, fitGroups, GROUPS, plain, projectWaits, type Group, type GroupFit, type WaitCounts } from '../bar';
 import { showContextMenu, type MenuAction, type MenuSpec } from '../contextMenu';
 import { ago } from '../format';
 import { usePerf } from '../perf';
+import { barAhead, barView, observe, seenAhead, snoozeAhead, useAhead } from '../ahead';
 import { ALL_PROJECTS, inProject } from '../quick';
 import { snoozeMenu, untilWords } from '../snooze';
 import type { BarFeed, BarItem, BarRecent, BarReview, BarSnoozed, BarTodo, PeekShown, Status } from '../types';
@@ -305,7 +306,14 @@ function below(e: MouseEvent<HTMLElement>): { x: number; y: number } {
 }
 
 export function Bar() {
-  const [feed, setFeed] = useState<BarFeed | null>(null);
+  const [engineFeed, setFeed] = useState<BarFeed | null>(null);
+  // Changes made in any window that the engine hasn't shown yet (ahead.ts): a pill marked seen in
+  // the peek goes at once.
+  const ahead = useAhead();
+  const feed = useMemo(() => (engineFeed ? barAhead(engineFeed, ahead) : null), [engineFeed, ahead]);
+  useEffect(() => {
+    if (engineFeed) observe(barView(engineFeed));
+  }, [engineFeed]);
   const [fits, setFits] = useState<GroupFit[] | null>(null);
   // A failed open, or a note from the peek, shown on the pill it came from (a session's key, or
   // `fold:<group>` for a folded pill's menu) while the rest of the bar stays as it was.
@@ -330,7 +338,7 @@ export function Bar() {
 
   // The engine sends the bar a small feed, and only when it changes, rather than the board.
   const feedArrived = useRef<number | null>(null);
-  usePerf(feed, feedArrived);
+  usePerf(engineFeed, feedArrived);
   useEffect(() => {
     const stop = onBarFeed((next) => {
       feedArrived.current = performance.now();
@@ -494,6 +502,11 @@ export function Bar() {
     act.catch((e: unknown) => setFailed({ anchor, message: String(e).replace(/^Error: /, '') }));
   };
 
+  /** Marks sessions seen: their pills go at once, and come back with why if the engine can't. */
+  const markSeen = (keys: string[], anchor: string) => {
+    seenAhead(keys).catch((e: unknown) => setFailed({ anchor, message: String(e).replace(/^Error: /, '') }));
+  };
+
   const sessionMenu = (i: BarItem) => {
     void showContextMenu([
       { label: `${i.title} · ${i.callsign}`, run: () => {}, enabled: false },
@@ -501,7 +514,7 @@ export function Bar() {
       { label: openLabel(i, feed?.terminal ?? 'Terminal'), run: () => open(i) },
       { label: 'Reply here', run: () => reply(i) },
       { label: 'Show in Codealong', run: () => reveal(i) },
-      ...(i.status === 'unread' ? [{ label: 'Mark as seen', run: () => void markSeen([i.key]) }] : []),
+      ...(i.status === 'unread' ? [{ label: 'Mark as seen', run: () => markSeen([i.key], i.key) }] : []),
       snoozeMenu([i.key], Date.now(), { until: i.snoozedUntil, onDone: snoozeDone([i.key], i.key) }),
     ]);
   };
@@ -510,16 +523,16 @@ export function Bar() {
     const menu: MenuSpec = folded.map((i) => ({ label: `${i.title} · ${i.callsign}`, run: () => open(i, `fold:${group}`) }));
     const keys = folded.map((i) => i.key);
     if (group !== 'working') menu.push('separator');
-    if (group === 'unread') menu.push({ label: 'Mark these as seen', run: () => void markSeen(keys) });
+    if (group === 'unread') menu.push({ label: 'Mark these as seen', run: () => markSeen(keys, `fold:${group}`) });
     if (group !== 'working') menu.push(snoozeMenu(keys, Date.now(), { label: 'Snooze these', onDone: snoozeDone(keys, `fold:${group}`) }));
     void showContextMenu(menu, below(e));
   };
 
-  /** Wakes a snoozed session and opens it: you're taking it up now, so it doesn't come back later. */
+  /** Wakes a snoozed session and opens it: you're taking it up now, so it doesn't come back later.
+   *  The engine hears the wake before the open's mark seen, which comes once the session is open. */
   const wakeAndOpen = (i: BarSnoozed) => {
-    snoozeSessions([i.key], null)
-      .then(() => open(i, 'snoozed'))
-      .catch((e: unknown) => setFailed({ anchor: 'snoozed', message: String(e).replace(/^Error: /, '') }));
+    snoozeAhead([i.key], null).catch((e: unknown) => setFailed({ anchor: 'snoozed', message: String(e).replace(/^Error: /, '') }));
+    open(i, 'snoozed');
   };
 
   const snoozedMenu = (e: MouseEvent<HTMLButtonElement>) => {
@@ -531,13 +544,13 @@ export function Bar() {
         { label: openLabel(i, terminal), run: () => wakeAndOpen(i) },
         { label: 'Show in Codealong', run: () => reveal(i) },
         'separator',
-        { label: 'Wake now', run: () => snoozeDone([i.key], 'snoozed')(snoozeSessions([i.key], null)) },
+        { label: 'Wake now', run: () => snoozeDone([i.key], 'snoozed')(snoozeAhead([i.key], null)) },
         snoozeMenu([i.key], t, { label: 'Snooze instead', onDone: snoozeDone([i.key], 'snoozed') }),
       ],
     }));
     if (snoozed.length > 1) {
       const keys = snoozed.map((i) => i.key);
-      menu.push('separator', { label: 'Wake all', run: () => snoozeDone(keys, 'snoozed')(snoozeSessions(keys, null)) });
+      menu.push('separator', { label: 'Wake all', run: () => snoozeDone(keys, 'snoozed')(snoozeAhead(keys, null)) });
     }
     void showContextMenu(menu, below(e));
   };
@@ -602,7 +615,7 @@ export function Bar() {
     const unread = byGroup.unread;
     void showContextMenu([
       { label: 'Show Codealong', run: () => void showMain() },
-      ...(unread.length ? [{ label: 'Mark all as seen', run: () => void markSeen(unread.map((i) => i.key)) }] : []),
+      ...(unread.length ? [{ label: 'Mark all as seen', run: () => markSeen(unread.map((i) => i.key), 'fold:unread') }] : []),
       'separator',
       { label: 'Hide floating bar', run: () => void setBarOn(false) },
     ]);

@@ -9,11 +9,16 @@
 // doesn't take what you wrote away; you can send it once the session is no longer waiting. What
 // you wrote is kept per session, for every window (drafts.ts), until you send it.
 //
+// Sending clears the box at once and the thread shows the message on its way (ahead.ts), so you
+// can go on writing the next; messages to one session go in the order you sent them. One that
+// doesn't go is back in the box, with why.
+//
 // A session that needs you only because its last reply asks you something sits at its prompt, so
 // what you type is the answer.
 
 import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent } from 'react';
-import { sendToSession, sessionAnswer, sessionCancel, sessionPending } from '../api';
+import { sendAhead, sending, useAhead } from '../ahead';
+import { sessionAnswer, sessionCancel, sessionPending } from '../api';
 import { filesToAttach, keepFiles } from '../attachInput';
 import { onDraftChange, readDraft, writeDraft } from '../drafts';
 import { sessionPlace } from '../harness';
@@ -54,53 +59,41 @@ interface ComposerProps {
   autoFocus?: boolean;
   /** The session waits on you (Approval above says for what): what you write waits too. */
   waiting?: boolean;
+  /** As a message goes on its way: the box is clear and the thread shows it. */
+  onSending?: () => void;
   /** After a message went through, with what happened. */
   onSent?: (sent: Sent) => void;
+  /** A message didn't go and no box on its session was showing to say so. It's back in the
+   *  session's draft. */
+  onFailed?: (why: string) => void;
 }
 
 type Note = { text: string; error: boolean };
 
-/** Sends on their way, by session, in this window. The box goes when the peek closes, and a send
- *  can take a while on a busy Mac: a box that shows again while its session's send is still on its
- *  way shows it sending and hears how it went, rather than offering the same text to send twice. */
-const flights = new Map<string, Promise<Sent>>();
-/** How a send went that landed with no box showing, for the next box on its session to say. */
+/** How a send went, by session, for the box showing on it now or, with none, the next. */
 const landed = new Map<string, Note>();
+/** The boxes showing, by session, each hearing how its session's sends go. */
+const hearing = new Map<string, Set<(note: Note) => void>>();
 
-/** Sends `text` to a session; its draft goes once it's through. */
-function fly(key: string, text: string): Promise<Sent> {
-  landed.delete(key);
-  const flight = sendToSession(key, text).then((sent) => {
-    writeDraft(key, '');
-    return sent;
-  });
-  flights.set(key, flight);
-  const land = (note: Note) => {
-    if (flights.get(key) !== flight) return;
-    flights.delete(key);
+/** Tells the boxes showing on a session how a send went, or keeps it for the next one. Says
+ *  whether a box heard. */
+function land(key: string, note: Note): boolean {
+  const boxes = hearing.get(key);
+  if (!boxes || boxes.size === 0) {
     landed.set(key, note);
-  };
-  flight.then(
-    (sent) => land({ text: sent?.message ?? 'Sent.', error: false }),
-    (e: unknown) => land({ text: plain(e), error: true }),
-  );
-  return flight;
+    return false;
+  }
+  landed.delete(key);
+  for (const hear of boxes) hear(note);
+  return true;
 }
 
-function Composer({ session: s, terminal, autoFocus, waiting, onSent }: ComposerProps) {
+function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent, onFailed }: ComposerProps) {
   const [text, setTextNow] = useState(() => readDraft(s.key));
-  // This session's send on its way, from this box or from one showing before it.
-  const [flight, setFlight] = useState<Promise<Sent> | null>(() => flights.get(s.key) ?? null);
-  const sending = flight !== null;
-  const [note, setNote] = useState<Note | null>(() => (flights.has(s.key) ? null : (landed.get(s.key) ?? null)));
-  // Said here, so no later box says it again. (An effect, not the initializer: StrictMode mounts
-  // a box twice in development and keeps the second.)
-  useEffect(() => {
-    landed.delete(s.key);
-  }, [s.key]);
+  // A message to this session on its way, from this box or any other.
+  const going = sending(useAhead(), s.key);
+  const [note, setNote] = useState<Note | null>(() => landed.get(s.key) ?? null);
   const box = useRef<HTMLTextAreaElement>(null);
-  const sentNow = useRef(onSent);
-  sentNow.current = onSent;
   const latest = useRef(text);
   latest.current = text;
   const attached = attachmentsIn(text);
@@ -121,6 +114,29 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSent }: Composer
     [s.key],
   );
 
+  // How this session's sends go, whichever box sent them. A message that didn't go is back in the
+  // draft, so the box takes the draft again.
+  useEffect(() => {
+    // Said here, so no later box says it again. (An effect, not the initializer: StrictMode
+    // mounts a box twice in development and keeps the second.)
+    landed.delete(s.key);
+    const hear = (n: Note) => {
+      setNote(n);
+      if (!n.error) return;
+      const t = readDraft(s.key);
+      setTextNow(t);
+      latest.current = t;
+      box.current?.focus();
+    };
+    const boxes = hearing.get(s.key) ?? new Set<(note: Note) => void>();
+    boxes.add(hear);
+    hearing.set(s.key, boxes);
+    return () => {
+      boxes.delete(hear);
+      if (boxes.size === 0) hearing.delete(s.key);
+    };
+  }, [s.key]);
+
   useLayoutEffect(() => {
     const el = box.current;
     if (!autoFocus || !el) return;
@@ -137,36 +153,25 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSent }: Composer
       .finally(() => setStopping(false));
   };
 
-  // The box says how its session's send went, whichever box sent it.
-  useEffect(() => {
-    if (!flight) return;
-    let live = true;
-    flight
-      .then((sent) => {
-        if (!live) return;
-        setTextNow('');
-        latest.current = '';
-        setNote({ text: sent?.message ?? 'Sent.', error: false });
-        sentNow.current?.(sent);
-      })
-      .catch((e: unknown) => live && setNote({ text: plain(e), error: true }))
-      .finally(() => {
-        if (!live) return;
-        // Heard here, so no later box says it again.
-        landed.delete(s.key);
-        setFlight(null);
-        box.current?.focus();
-      });
-    return () => {
-      live = false;
-    };
-  }, [flight, s.key]);
-
   const send = () => {
     const t = text.trim();
-    if (!t || sending || waiting || flights.has(s.key)) return;
+    if (!t || waiting) return;
     setNote(null);
-    setFlight(fly(s.key, t));
+    setText('');
+    // What happens next is told to whichever box is showing then: this one may be gone by then
+    // (the peek closes as it sends).
+    const key = s.key;
+    sendAhead(s, t).then(
+      (sent) => {
+        land(key, { text: sent?.message ?? 'Sent.', error: false });
+        onSent?.(sent);
+      },
+      (e: unknown) => {
+        const why = plain(e);
+        if (!land(key, { text: why, error: true })) onFailed?.(why);
+      },
+    );
+    onSending?.();
   };
 
   // A pasted screenshot or file goes in at the cursor, on a line of its own; the agent gets its
@@ -208,19 +213,18 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSent }: Composer
         }}
         onPaste={paste}
         aria-label={`Message to ${s.title}`}
-        disabled={sending}
       />
       {attached.length > 0 && <AttachmentStrip items={attached} onRemove={(a) => setText(withoutAttachment(latest.current, a.path))} />}
       <div className="ca-composer-foot">
         <span className={['ca-composer-note', note?.error && 'is-error'].filter(Boolean).join(' ')}>
-          {sending ? 'Sending…' : (note?.text ?? (waiting ? 'Send this once it isn’t waiting on you' : '⏎ sends · ⇧⏎ new line'))}
+          {note?.error ? note.text : going ? 'Sending…' : (note?.text ?? (waiting ? 'Send this once it isn’t waiting on you' : '⏎ sends · ⇧⏎ new line'))}
         </span>
         {s.hosted && s.status === 'working' && (
           <Button size="sm" icon="pause" disabled={stopping} onClick={stop}>
             Stop
           </Button>
         )}
-        <Button variant="primary" size="sm" icon="send" disabled={!text.trim() || sending || waiting} onClick={send}>
+        <Button variant="primary" size="sm" icon="send" disabled={!text.trim() || waiting} onClick={send}>
           Send
         </Button>
       </div>
@@ -331,20 +335,22 @@ export interface ReplyProps {
   onOpen: () => void;
   autoFocus?: boolean;
   keys?: boolean;
+  onSending?: () => void;
   onSent?: (sent: Sent) => void;
+  onFailed?: (why: string) => void;
   onAnswered?: (said: string) => void;
 }
 
 /** The bottom of a session's panel: what it waits on you for, if anything, and the box that sends
  *  it a message. The box is the same one throughout, so it keeps what's in it as the session
  *  starts and stops waiting. */
-export function Reply({ session, terminal, onOpen, autoFocus, keys, onSent, onAnswered }: ReplyProps) {
+export function Reply({ session, terminal, onOpen, autoFocus, keys, onSending, onSent, onFailed, onAnswered }: ReplyProps) {
   const waiting = !takesReply(session);
   return (
     <>
       {waiting && <Approval key={`wait:${session.key}`} session={session} terminal={terminal} onOpen={onOpen} onAnswered={onAnswered} keys={keys} />}
       {/* A session Codealong runs takes a message while it waits, after its current turn. */}
-      <Composer key={`box:${session.key}`} session={session} terminal={terminal} autoFocus={autoFocus} waiting={waiting && !session.hosted} onSent={onSent} />
+      <Composer key={`box:${session.key}`} session={session} terminal={terminal} autoFocus={autoFocus} waiting={waiting && !session.hosted} onSending={onSending} onSent={onSent} onFailed={onFailed} />
     </>
   );
 }

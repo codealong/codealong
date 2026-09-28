@@ -10,9 +10,10 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { showContextMenu, type MenuSpec } from './contextMenu';
 import { AGENT_BAY, BAYS, buildBays, failingPr, filterByAge, inboxCounts, lanePromptAt, narrowed, rowItems, seenable, worktreeRow, type BoardRow, type Filter, type WorktreeRow } from './lanes';
-import { answerLink, approvePr, archiveSession, barOn, getDevices, onDevices, dismissTodoHint, expandAttachments, getBoard, markSeen, onBarOn, onBoard, onCloseIdle, onNewWindow, onQuickStart, onReveal, onSettings, openConfig, openProjectWindow, openTarget, openUrl, refresh, refreshUsage, reviewInCodex, setBarOn, setPinned, setPinnedWorktrees, setTheme, showQuick, signIn, windowLabel, type Reveal } from './api';
+import { answerLink, approvePr, barOn, getDevices, onDevices, dismissTodoHint, expandAttachments, getBoard, onBarOn, onBoard, onCloseIdle, onNewWindow, onQuickStart, onReveal, onSettings, openConfig, openProjectWindow, openTarget, openUrl, refresh, refreshUsage, reviewInCodex, setBarOn, setPinned, setPinnedWorktrees, setTheme, showQuick, signIn, windowLabel, type Reveal } from './api';
 import { agoPhrase, middleTruncate } from './format';
 import { usePerf } from './perf';
+import { archiveAhead, boardAhead, boardView, lanesAhead, observe, seenAhead, useAhead } from './ahead';
 import { reuse } from './reuse';
 import { reorderPinned, usePins } from './pins';
 import { prFlag } from './prStatus';
@@ -217,7 +218,10 @@ function inField(el: Element | null, search: HTMLInputElement | null): boolean {
 const widthVar = (width: number | null) => (width == null ? undefined : `${width}px`);
 
 export function App() {
-  const [board, setBoard] = useState<Board | null>(null);
+  const [engineBoard, setBoard] = useState<Board | null>(null);
+  // Changes you made that the engine hasn't shown yet (ahead.ts), on top of the board it sent.
+  const ahead = useAhead();
+  const board = useMemo(() => (engineBoard ? boardAhead(engineBoard, ahead) : null), [engineBoard, ahead]);
   // Your other devices (src-tauri/src/peers.rs): their worktrees join this device's in every view,
   // the sidebar's Devices narrow the views to one of them, and Worktrees can group by device.
   const [devices, setDevices] = useState<DevicesView | null>(null);
@@ -238,6 +242,9 @@ export function App() {
       }
       return !on;
     });
+  // Other devices' worktrees, with your changes to their sessions too.
+  const deviceLanes = useMemo(() => (devices?.enabled ? lanesAhead(devices.lanes, ahead) : []), [devices, ahead]);
+  useEffect(() => observe(boardView(engineBoard?.generatedAt ?? null, [engineBoard?.lanes ?? [], devices?.lanes ?? []])), [engineBoard, devices]);
   useEffect(() => {
     const show = (d: DevicesView) => setDevices((prev) => (prev ? reuse(prev, d) : d));
     void getDevices().then((d) => d && show(d));
@@ -256,8 +263,6 @@ export function App() {
   const [prPanelWidth, setPrPanelWidth] = usePanelWidth(PR_PANEL_WIDTH_KEY);
   const [todoPanelWidth, setTodoPanelWidth] = usePanelWidth(TODO_PANEL_WIDTH_KEY);
   const [sessionPanelWidth, setSessionPanelWidth] = usePanelWidth(SESSION_PANEL_WIDTH_KEY);
-  // Archives made here (key → archived), shown until the board catches up: Codex takes a moment.
-  const [archiveOverride, setArchiveOverride] = useState<Record<string, boolean>>({});
   const [undo, setUndo] = useState<{ key: string; title: string } | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [showDonePrs, setShowDonePrs] = useState(false);
@@ -291,6 +296,10 @@ export function App() {
   // Opens and starts still waiting on their app: a spinner shows once one takes a moment.
   const [busy, setBusy] = useState<{ id: number; label: string }[]>([]);
   const busySeq = useRef(0);
+  /** Marks sessions seen, shown at once; the engine turning it down puts them back and says why. */
+  const markSeen = useCallback((keys: string[]) => {
+    seenAhead(keys).catch((e: unknown) => setToast(String(e).replace(/^Error: /, '')));
+  }, []);
   const track = useCallback(<T,>(label: string, work: Promise<T>): Promise<T> => {
     const id = ++busySeq.current;
     const timer = window.setTimeout(() => setBusy((b) => [...b, { id, label }]), 300);
@@ -308,7 +317,7 @@ export function App() {
   const gPending = useRef(false);
 
   const boardArrived = useRef<number | null>(null);
-  usePerf(board, boardArrived);
+  usePerf(engineBoard, boardArrived);
   useEffect(() => {
     getBoard()
       .then((b) => setBoard((prev) => (prev ? reuse(prev, b) : b)))
@@ -371,14 +380,14 @@ export function App() {
     const here = board?.projects ?? [];
     const names = new Set(here.map((p) => p.name));
     const elsewhere: Map<string, number> = new Map();
-    for (const l of devices?.enabled ? devices.lanes : []) {
+    for (const l of deviceLanes) {
       if (!names.has(l.project) && !l.hidden) elsewhere.set(l.project, (elsewhere.get(l.project) ?? 0) + 1);
     }
     if (elsewhere.size === 0) return here;
     const extra = [...elsewhere].map(([name, lanes]) => ({ name, lanes, repos: [] }));
     const last = here.length > 0 && here[here.length - 1].name === ELSEWHERE ? here.length - 1 : here.length;
     return [...here.slice(0, last), ...extra, ...here.slice(last)];
-  }, [board?.projects, devices]);
+  }, [board?.projects, deviceLanes]);
   const known = project === ALL_PROJECTS || projects.some((p) => p.name === project);
   const current = known && project ? project : (projects.find((p) => p.name !== ELSEWHERE)?.name ?? ALL_PROJECTS);
   projectNow.current = current;
@@ -421,26 +430,13 @@ export function App() {
   const lanePins = usePins(board?.pinnedWorktrees, setPinnedWorktrees, setToast);
 
   // Archived sessions leave every view but the Archived list.
-  const rawLanes = useMemo(() => withDevices(board?.lanes ?? [], devices?.enabled ? devices.lanes : [], deviceFilter), [board?.lanes, devices?.enabled, devices?.lanes, deviceFilter]);
+  const rawLanes = useMemo(() => withDevices(board?.lanes ?? [], deviceLanes, deviceFilter), [board?.lanes, deviceLanes, deviceFilter]);
   // What needs you on each device, for the sidebar, whichever device the views show.
   const deviceNeeds = useMemo(() => {
-    const all = withDevices(board?.lanes ?? [], devices?.enabled ? devices.lanes : [], null);
+    const all = withDevices(board?.lanes ?? [], deviceLanes, null);
     return new Map<string | null, number>([null, ...(devices?.devices ?? []).map((d) => d.short)].map((m) => [m, needsOn(all, m)]));
-  }, [board?.lanes, devices]);
-  const lanes = useMemo(
-    () =>
-      rawLanes.map((l) => {
-        if (!l.sessions.some((s) => s.archived || s.key in archiveOverride)) return l;
-        const sessions = l.sessions.filter((s) => !(archiveOverride[s.key] ?? s.archived)).map((s) => (s.archived ? { ...s, archived: false } : s));
-        return { ...l, sessions };
-      }),
-    [rawLanes, archiveOverride],
-  );
-  useEffect(() => {
-    const settled = Object.keys(archiveOverride).filter((k) => rawLanes.some((l) => l.sessions.some((s) => s.key === k && s.archived === archiveOverride[k])));
-    if (settled.length === 0) return;
-    setArchiveOverride((o) => Object.fromEntries(Object.entries(o).filter(([k]) => !settled.includes(k))));
-  }, [rawLanes, archiveOverride]);
+  }, [board?.lanes, deviceLanes, devices?.devices]);
+  const lanes = useMemo(() => rawLanes.map((l) => (l.sessions.some((s) => s.archived) ? { ...l, sessions: l.sessions.filter((s) => !s.archived) } : l)), [rawLanes]);
   const projectLanes = useMemo(() => lanes.filter((l) => inProject(l, current)), [lanes, current]);
   const archivedItems = useMemo(
     () =>
@@ -448,11 +444,11 @@ export function App() {
         .filter((l) => inProject(l, current))
         .flatMap((lane) =>
           lane.sessions
-            .filter((s) => !s.visitor && (archiveOverride[s.key] ?? s.archived))
-            .map((s): SessionItem => ({ kind: 'agent', key: `${lane.id}::${s.key}`, lane, session: { ...s, archived: true } })),
+            .filter((s) => !s.visitor && s.archived)
+            .map((s): SessionItem => ({ kind: 'agent', key: `${lane.id}::${s.key}`, lane, session: s })),
         )
         .sort((a, b) => b.session.lastActivity - a.session.lastActivity),
-    [rawLanes, archiveOverride, current],
+    [rawLanes, current],
   );
   // The age filter: worktrees and sessions active since the cutoff. Pinned worktrees always
   // show on the board and in the sidebar, and pinned sessions in Sessions.
@@ -677,7 +673,7 @@ export function App() {
       const key = targetId.slice(2, -'|hosted'.length);
       reveal.current({ kind: 'session', laneId: lane.id, key });
       setView('sessions');
-      void markSeen([key]);
+      markSeen([key]);
       return;
     }
     const target = lane.targets.find((t) => t.id === targetId);
@@ -686,7 +682,7 @@ export function App() {
       return;
     }
     track(`${target?.label ?? 'Opening'}…`, openTarget(lane.id, targetId)).catch((e: unknown) => setToast(String(e)));
-  }, [track]);
+  }, [track, markSeen]);
 
   const openRow = useCallback(
     (row: Row | null) => {
@@ -743,12 +739,10 @@ export function App() {
 
   /** Archives a session (Codex threads in Codex itself), or unarchives it. */
   const setArchived = useCallback((key: string, archived: boolean, title: string) => {
-    setArchiveOverride((o) => ({ ...o, [key]: archived }));
     setUndo(archived ? { key, title } : null);
-    archiveSession(key, archived).catch((e: unknown) => {
-      setArchiveOverride((o) => Object.fromEntries(Object.entries(o).filter(([k]) => k !== key)));
+    archiveAhead(key, archived).catch((e: unknown) => {
       setUndo(null);
-      setToast(String(e));
+      setToast(String(e).replace(/^Error: /, ''));
     });
   }, []);
 
@@ -1099,7 +1093,7 @@ export function App() {
   const todoItemsRef = useRef(todoMenuItems);
   todoItemsRef.current = todoMenuItems;
   /** Marks a finished turn seen: it goes idle, and leaves Your turn and the bar. */
-  const seen = (s: Session) => void markSeen([s.key]).catch((e: unknown) => setToast(String(e)));
+  const seen = (s: Session) => markSeen([s.key]);
   const sessionMenuSpec = (lane: Lane, s: Session, pin: 'session' | 'worktree'): MenuSpec => {
       const target = lane.targets.find((t) => t.id === s.openTarget);
       const pinItem =
@@ -1442,7 +1436,7 @@ export function App() {
         copy(lane?.branch, 'branch name');
       } else if (key === 'e' && !mod) {
         const sessions = selected?.kind === 'agent' ? [selected.session] : selected?.kind === 'todo' ? (pickedRows.length > 0 ? pickedRows : [selected]).flatMap((r) => r.sessions.map((x) => x.session)) : (lane?.sessions ?? []);
-        void markSeen(sessions.filter(seenable).map((s) => s.key));
+        markSeen(sessions.filter(seenable).map((s) => s.key));
       } else if (key === 'g' && !mod) {
         gPending.current = true;
         window.setTimeout(() => (gPending.current = false), 1200);
@@ -1696,6 +1690,7 @@ export function App() {
       onSeen={() => seen(session)}
       device={deviceOf(devices, session.key)}
       back={back}
+      onSendFailed={(why) => setToast(`Didn’t send to ${session.title}, so it’s back in its box: ${why}`)}
     />
   );
   /** The session a PR's or todo's panel was asked to show, in its place, with the way back. */
@@ -2148,7 +2143,7 @@ export function App() {
                             count={count}
                             action={
                               unreadKeys.length > 0 ? (
-                                <button type="button" className="ca-linkbtn" onClick={() => void markSeen(unreadKeys)}>
+                                <button type="button" className="ca-linkbtn" onClick={() => markSeen(unreadKeys)}>
                                   Mark all seen
                                 </button>
                               ) : undefined

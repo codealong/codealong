@@ -1,14 +1,16 @@
 // The floating bar's peek (peek.rs has its window): the session whose pill is under the pointer,
 // its conversation, and the box that answers it (ReplyView.tsx). A click in it gives it the
-// keyboard; ⏎ sends, and once a message or an answer went through the peek closes, so the app
-// you were in has the keyboard back; after an answer it stays while the box holds something for
-// you to send next. Escape closes it too, and what you'd typed stays with the session (drafts.ts),
-// here and in its panels, until you send it. Its header's ✓ marks a finished turn seen, its snooze
-// button snoozes the session, and its archive button archives it, any of which takes it off the bar. While it's up, the
-// session follows the board, and the peek stays on it as its pill moves along the bar.
+// keyboard; ⏎ sends and the peek closes at once, so the app you were in has the keyboard back (a
+// message that doesn't go says so on the bar, and is back in the box). Once an answer went
+// through it closes too, but stays while the box holds something for you to send next. Escape
+// closes it too, and what you'd typed stays with the session (drafts.ts), here and in its panels,
+// until you send it. Its header's ✓ marks a finished turn seen, its snooze button snoozes the
+// session, and its archive button archives it, any of which takes it off the bar. While it's up,
+// the session follows the board, and the peek stays on it as its pill moves along the bar.
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { archiveSession, barNote, getBoard, markSeen, inPreview, onBoard, onPeekHidden, onPeekOpen, onPeekShown, openFromBar, peekFit, peekFocus, peekHide, peekReady, showMain } from '../api';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { barNote, getBoard, inPreview, onBoard, onPeekHidden, onPeekOpen, onPeekShown, openFromBar, peekFit, peekFocus, peekHide, peekReady, showMain } from '../api';
+import { archiveAhead, boardView, lanesAhead, observe, seenAhead, useAhead } from '../ahead';
 import { below, showContextMenu } from '../contextMenu';
 import { readDraft } from '../drafts';
 import { snoozeMenu } from '../snooze';
@@ -99,14 +101,19 @@ export function Peek() {
   useEffect(() => {
     if (!shown || !key) return;
     return onBoard((b) => {
+      observe(boardView(b.generatedAt, [b.lanes]));
       const lane = b.lanes.find((l) => l.sessions.some((s) => s.key === key));
       const session = lane?.sessions.find((s) => s.key === key);
       if (lane && session) setLive({ lane, session, theme: b.theme });
     });
   }, [shown, key]);
 
-  const lane = live?.lane ?? open?.lane ?? null;
-  const session = live?.session ?? open?.session ?? null;
+  // With changes made in any window that the engine hasn't shown yet (ahead.ts).
+  const ahead = useAhead();
+  const engineLane = live?.lane ?? open?.lane ?? null;
+  const lane = useMemo(() => (engineLane ? lanesAhead([engineLane], ahead)[0] : null), [engineLane, ahead]);
+  const sessionKey = live?.session.key ?? open?.session.key ?? null;
+  const session = lane?.sessions.find((s) => s.key === sessionKey) ?? live?.session ?? open?.session ?? null;
   const theme = live?.theme ?? open?.theme ?? 'system';
   useEffect(() => applyTheme(theme), [theme]);
 
@@ -223,19 +230,21 @@ export function Peek() {
           autoFocus={open.focus}
           onLoaded={loaded}
           onOpen={openHere}
-          onSeen={() => dismiss(markSeen([session.key]))}
-          onArchive={() => dismiss(archiveSession(session.key, true))}
+          onSeen={() => dismiss(seenAhead([session.key]))}
+          onArchive={() => dismiss(archiveAhead(session.key, true))}
           onSnooze={(e) => void showContextMenu(snoozeMenu([session.key], Date.now(), { until: session.snoozedUntil, onDone: dismiss }).items, below(e.currentTarget))}
           onReveal={() => {
             void peekHide();
             void showMain({ kind: 'session', laneId: lane.id, key: session.key });
           }}
+          onSending={() => void peekHide()}
           onSent={(sent) => {
             // What you'd want to know goes on the bar: the prompt is on the clipboard, say, or it
             // went as a message from Codealong because its terminal couldn't be typed into.
             if (sent.opened || sent.fellBack) void barNote({ key: session.key, message: sent.message, tone: 'info' });
-            void peekHide();
           }}
+          // It's back in the box for when the peek shows it again.
+          onFailed={(why) => void barNote({ key: session.key, message: why, tone: 'error' })}
           onAnswered={() => {
             // What you wrote while it waited is likely what you'd send next.
             if (!readDraft(session.key)) void peekHide();

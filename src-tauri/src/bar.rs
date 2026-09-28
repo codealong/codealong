@@ -261,11 +261,14 @@ pub fn fit(app: &AppHandle, width: f64, height: f64) {
 }
 
 /// Sends the bar its feed after the engine publishes, if what it shows changed. The bar doesn't
-/// listen for the board, so Tauri doesn't send it the half megabyte each publish.
+/// listen for the board, so Tauri doesn't send it the half megabyte each publish. The board's
+/// time changes with every publish and shows nothing, so it alone doesn't send a feed.
 pub fn publish(app: &AppHandle, board: &crate::model::Board) {
     let Some(state) = app.try_state::<Bar>() else { return };
-    let feed = crate::barfeed::feed(board);
+    let mut feed = crate::barfeed::feed(board);
+    let at = std::mem::take(&mut feed.generated_at);
     let Ok(text) = serde_json::to_string(&feed) else { return };
+    feed.generated_at = at;
     {
         let Ok(mut sent) = state.sent.lock() else { return };
         if *sent == text {

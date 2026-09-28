@@ -2,7 +2,7 @@
 // pick, then comes back, as Your turn if nothing else would bring it (board::apply_snooze). The
 // engine keeps snoozes in state.json; this is the menu that sets them.
 
-import { snoozeSessions } from './api';
+import { snoozeAhead } from './ahead';
 import type { MenuAction, MenuGroup } from './contextMenu';
 
 const MIN = 60_000;
@@ -49,7 +49,7 @@ export function untilWords(at: number, now: number): string {
 /** The Snooze submenu for sessions: the times, and Wake now for one that's snoozed already. */
 export function snoozeMenu(keys: string[], now: number, opts: { label?: string; until?: number | null; onDone?: (act: Promise<void>) => void } = {}): MenuGroup {
   const done = opts.onDone ?? ((act: Promise<void>) => void act.catch(() => {}));
-  const items: (MenuAction | 'separator')[] = snoozeChoices(now).map((c) => ({ label: c.label, run: () => done(snoozeSessions(keys, c.until)) }));
-  if (opts.until) items.push('separator', { label: 'Wake now', run: () => done(snoozeSessions(keys, null)) });
+  const items: (MenuAction | 'separator')[] = snoozeChoices(now).map((c) => ({ label: c.label, run: () => done(snoozeAhead(keys, c.until)) }));
+  if (opts.until) items.push('separator', { label: 'Wake now', run: () => done(snoozeAhead(keys, null)) });
   return { label: opts.label ?? (opts.until ? `Snoozed until ${untilWords(opts.until, now)}` : 'Snooze'), items };
 }

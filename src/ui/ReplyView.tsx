@@ -34,7 +34,11 @@ interface ReplyViewProps {
   autoFocus?: boolean;
   /** ⌘⏎ allows what it waits on (the quick panel, which is used from the keyboard). */
   keys?: boolean;
+  /** As a message goes on its way; `onSent` once it went, `onFailed` if it didn't and the box
+   *  isn't showing to say so (SessionReply.tsx). */
+  onSending?: () => void;
   onSent?: (sent: Sent) => void;
+  onFailed?: (why: string) => void;
   onAnswered?: (said: string) => void;
   /** Once the conversation's first page is laid out. */
   onLoaded?: () => void;
@@ -46,7 +50,7 @@ function openWords(lane: Lane, s: Session, terminal: string): { label: string; d
   return t ? { label: t.label, detail: t.detail, disabled: t.disabled } : { label: `Open in ${sessionPlace(s, terminal)}`, detail: null, disabled: false };
 }
 
-export function ReplyView({ lane, session: s, terminal, now, onOpen, onReveal, onBack, onSeen, onArchive, onSnooze, autoFocus, keys, onSent, onAnswered, onLoaded }: ReplyViewProps) {
+export function ReplyView({ lane, session: s, terminal, now, onOpen, onReveal, onBack, onSeen, onArchive, onSnooze, autoFocus, keys, onSending, onSent, onFailed, onAnswered, onLoaded }: ReplyViewProps) {
   const open = openWords(lane, s, terminal);
   const since = s.statusSince ? (s.status === 'working' ? `for ${duration(s.statusSince, now)}` : agoPhrase(s.statusSince, now)) : agoPhrase(s.lastActivity, now);
   const snoozed = s.snoozedUntil ? ` · snoozed until ${untilWords(s.snoozedUntil, now)}` : '';
@@ -105,7 +109,7 @@ export function ReplyView({ lane, session: s, terminal, now, onOpen, onReveal, o
           ) : null
         }
       />
-      <Reply session={s} terminal={terminal} onOpen={onOpen} autoFocus={autoFocus} keys={keys} onSent={onSent} onAnswered={onAnswered} />
+      <Reply session={s} terminal={terminal} onOpen={onOpen} autoFocus={autoFocus} keys={keys} onSending={onSending} onSent={onSent} onFailed={onFailed} onAnswered={onAnswered} />
     </div>
   );
 }

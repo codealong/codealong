@@ -372,6 +372,20 @@ pub fn conversation_items(v: &Value, at: i64) -> Vec<Item> {
                 })
                 .collect()
         }
+        // A message you sent while it worked: Claude Code writes it when the turn takes it in, as
+        // a `queued_command` attachment rather than a prompt. Background tasks' notifications
+        // come the same way, wrapped in a tag.
+        Some("attachment") => {
+            if v.pointer("/attachment/type").and_then(Value::as_str) != Some("queued_command") {
+                return Vec::new();
+            }
+            let t = text_of(v.pointer("/attachment/prompt").unwrap_or(&Value::Null));
+            let t = t.trim();
+            if t.is_empty() || t.starts_with('<') {
+                return Vec::new();
+            }
+            vec![item(at, "you", t)]
+        }
         Some("assistant") => {
             let Some(parts) = v.pointer("/message/content").and_then(Value::as_array) else { return Vec::new() };
             let mut out = Vec::new();

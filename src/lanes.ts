@@ -129,6 +129,80 @@ function headlineFor(bay: Bay, status: Status, own: Session[], pr: Pr | null, si
   return [`No agents active ${since}`, null];
 }
 
+/** Text in backticks, as the engine's `code` writes it: shown as code. */
+function code(s: string): string {
+  return `\`${s.replace(/`/g, "'")}\``;
+}
+
+function truncate(s: string, max: number): string {
+  return [...s].length <= max ? s : `${[...s].slice(0, max - 1).join('').trimEnd()}…`;
+}
+
+/** A session's own sentence, as the engine words it (board.rs, `session_headline`). */
+export function sessionHeadline(s: Session): [string, string | null] {
+  const acct = code(s.account);
+  if (s.stalledSince != null) return [`${acct} is stuck · ${s.title}`, s.excerpt];
+  switch (s.status) {
+    case 'needs':
+      if (s.excerpt == null) return [`${acct} needs you`, s.title];
+      if (s.harness === 'claude') return [`${acct} is waiting for approval`, s.excerpt];
+      if (s.harness === 'codex' || s.harness === 'opencode') return [`${acct} asks for approval`, s.excerpt];
+      return [`${acct} needs you`, s.excerpt];
+    case 'error':
+      return [`${acct} stopped with an error`, s.excerpt];
+    case 'working': {
+      // How long it has worked on what you last asked, as the engine counts it.
+      const since = s.statusSince != null ? Math.max(s.statusSince, s.lastPromptAt) : null;
+      const detail = since != null ? (s.excerpt != null ? `{for:${since}} · ${s.excerpt}` : `{for:${since}}`) : s.excerpt;
+      return [`${acct} · ${s.title}`, detail];
+    }
+    case 'unread':
+      return [`${acct} finished · ${s.title}`, s.excerpt];
+    case 'idle':
+      return [`${acct} · ${s.title}`, `last turn {ago:${s.lastActivity}}`];
+    case 'stopped':
+      return [`${acct} · ${s.title}`, `stopped {ago:${s.lastActivity}}`];
+  }
+}
+
+/** An idle lane's sentence, as the engine words it: its latest own session, else the session that
+ *  made it or worked in it, else what git says. */
+function idleHeadline(lane: Lane, own: Session[]): [string, string | null] {
+  const latest = own.reduce<Session | null>((a, s) => (a == null || s.lastActivity > a.lastActivity ? s : a), null);
+  if (latest) return [sessionHeadline(latest)[0], `last turn {ago:${latest.lastActivity}}`];
+  const guest = lane.sessions.find((s) => s.visitor && !s.archived);
+  if (guest) return [`${guest.visitor === 'made this worktree' ? 'Made by' : 'Worked on by'} ${code(guest.account)} · ${guest.title}`, `last turn {ago:${guest.lastActivity}}`];
+  const g = lane.git;
+  if (g && g.dirty > 0) return ['Uncommitted changes', `${g.dirty} files`];
+  if (g?.lastCommit) {
+    const commit = truncate(g.lastCommit, 70).replace(/`/g, "'");
+    return ['No agents', g.lastCommitAt != null ? `Last commit {ago:${g.lastCommitAt}} · ${commit}` : commit];
+  }
+  return ['No agents', null];
+}
+
+/**
+ * The lane with its sessions' statuses changed (src/ahead.ts): the bay, glyph and sentence
+ * worked out again from its own sessions, as the engine would. A lane whose PR puts it in review
+ * or merged keeps the engine's sentence when it was there already.
+ */
+export function relaned(lane: Lane, sessions: Session[]): Lane {
+  const own = sessions.filter((s) => !s.visitor && !s.archived).sort(bySession);
+  const [bay, glyph] = bayOf(own, lane.pr);
+  const next = { ...lane, sessions, bay, glyph };
+  if (bay === 'needs' || bay === 'working' || bay === 'unread') {
+    const first = own.find((s) => s.status === glyph) ?? (bay === 'needs' ? own.find((s) => s.status === 'error') : undefined);
+    if (first) return { ...next, headline: first.headline, detail: first.detail };
+  }
+  if (bay === 'idle') {
+    const [headline, detail] = idleHeadline(lane, own);
+    return { ...next, headline, detail };
+  }
+  if (bay === lane.bay) return next;
+  const [headline, detail] = headlineFor(bay, glyph, own, lane.pr, '');
+  return { ...next, headline, detail };
+}
+
 /** The lane with only `sessions`. When that changes its status, the bay, glyph and headline are worked out again. */
 function withSessions(lane: Lane, sessions: Session[], since: string): Lane {
   if (sessions.length === lane.sessions.length) return lane;

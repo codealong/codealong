@@ -2,7 +2,7 @@
 // browser preview of a snapshot), the board comes from ./board.json and actions do nothing.
 
 import { invoke } from '@tauri-apps/api/core';
-import { emitTo, listen } from '@tauri-apps/api/event';
+import { emit, emitTo, listen } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import type { DeviceFound, DevicesView, LabelColor, AccountCfg, AccountInfo, AgentsStatus, Attachment, BarFeed, BarNote, CloseOutcome, IdlePlan, Pending, HostedStream, PeekOpen, PeekShown, TranscriptPage, Board, Config, ConfigView, FoundAccount, PrDetail, Route, Sent, ShortcutStatus, TextFound, StartOptions, StartSpec, Started, Theme, TodoSuggested } from './types';
 import type { TodoOp } from './todos';
@@ -52,15 +52,18 @@ export async function openConfig(): Promise<void> {
   await invoke('open_config');
 }
 
-export async function markSeen(keys: string[]): Promise<void> {
-  if (!inTauri || keys.length === 0) return;
-  await invoke('mark_seen', { keys });
+/** Marks sessions seen. Returns the time of the board that shows it, or null when the engine
+ *  didn't say (sessions on other devices). Windows mark seen through ahead.ts, which shows it at once. */
+export async function markSeen(keys: string[]): Promise<number | null> {
+  if (!inTauri || keys.length === 0) return null;
+  return (await invoke<number | null>('mark_seen', { keys })) ?? null;
 }
 
-/** Snoozes sessions until `until` (ms since the epoch), or wakes them now with null. */
-export async function snoozeSessions(keys: string[], until: number | null): Promise<void> {
-  if (!inTauri || keys.length === 0) return;
-  await invoke('snooze_sessions', { keys, until });
+/** Snoozes sessions until `until` (ms since the epoch), or wakes them now with null. Returns the
+ *  time of the board that shows it, as `markSeen` does; windows snooze through ahead.ts. */
+export async function snoozeSessions(keys: string[], until: number | null): Promise<number | null> {
+  if (!inTauri || keys.length === 0) return null;
+  return (await invoke<number | null>('snooze_sessions', { keys, until })) ?? null;
 }
 
 export async function refresh(): Promise<void> {
@@ -153,10 +156,31 @@ export async function closeIdleTerminals(keys: string[], afterMs: number): Promi
   return invoke<CloseOutcome[]>('close_idle_terminals', { keys, afterMs });
 }
 
-/** Archives or unarchives a session; Codex threads are archived in Codex itself. */
-export async function archiveSession(key: string, archived: boolean): Promise<void> {
-  if (!inTauri) return;
-  await invoke('archive_session', { key, archived });
+/** Archives or unarchives a session; Codex threads are archived in Codex itself. Returns the
+ *  time of the board that shows it, as `markSeen` does. */
+export async function archiveSession(key: string, archived: boolean): Promise<number | null> {
+  if (!inTauri) return null;
+  return (await invoke<number | null>('archive_session', { key, archived })) ?? null;
+}
+
+/** Tells every window about a change shown ahead of the engine (ahead.ts). */
+export function emitAhead<T>(event: T): void {
+  if (inTauri) void emit('ahead', event);
+}
+
+/** Calls `cb` with what other windows say about their changes shown ahead of the engine. */
+export function onAhead<T>(cb: (event: T) => void): () => void {
+  if (!inTauri) return () => {};
+  let cancelled = false;
+  let unlisten: (() => void) | undefined;
+  void listen<T>('ahead', (e) => cb(e.payload)).then((u) => {
+    if (cancelled) u();
+    else unlisten = u;
+  });
+  return () => {
+    cancelled = true;
+    unlisten?.();
+  };
 }
 
 /** Saves the whole pinned list, in order. */

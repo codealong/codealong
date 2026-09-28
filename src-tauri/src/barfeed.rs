@@ -42,6 +42,9 @@ pub fn group_of(status: Status) -> Option<Group> {
 pub struct BarFeed {
     /// True until the engine's first full scan has finished.
     pub loading: bool,
+    /// The board's time: a change the bar shows ahead of the engine goes once a feed this new
+    /// arrives (src/pending.ts).
+    pub generated_at: i64,
     pub theme: Theme,
     /// What the mark's colors say, as on the board.
     pub logo_status: LogoStatus,
@@ -72,6 +75,8 @@ pub struct BarItem {
     pub key: String,
     pub group: Group,
     pub status: Status,
+    /// Needs you only because its last reply asks you something: marking it seen settles it.
+    pub asks: bool,
     pub title: String,
     pub account: String,
     pub lane_id: String,
@@ -149,6 +154,7 @@ pub fn feed(board: &Board) -> BarFeed {
                 key: s.key.clone(),
                 group,
                 status: s.status,
+                asks: s.asks,
                 title: s.title.clone(),
                 account: s.account.clone(),
                 lane_id: lane.id.clone(),
@@ -189,6 +195,7 @@ pub fn feed(board: &Board) -> BarFeed {
 
     BarFeed {
         loading: board.loading,
+        generated_at: board.generated_at,
         theme: board.theme,
         logo_status: board.logo_status,
         perf_log: board.perf_log,
