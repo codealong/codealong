@@ -85,6 +85,8 @@ pub enum Msg {
     /// GitHub didn't answer.
     RepoNames(Vec<(String, Option<String>)>),
     MarkSeen(Vec<String>),
+    /// Sessions snoozed until then, or woken now with none.
+    Snooze(Vec<String>, Option<i64>),
     /// Lane path → session keys whose logs mention it.
     Visitors(HashMap<PathBuf, Vec<String>>),
     /// Session key → the PRs its records show it made or changed (prlinks.rs).
@@ -147,6 +149,11 @@ impl Handle {
 
     pub fn mark_seen(&self, keys: Vec<String>) {
         let _ = self.tx.send(Msg::MarkSeen(keys));
+    }
+
+    /// Snoozes sessions until `until`, or wakes them with none.
+    pub fn snooze(&self, keys: Vec<String>, until: Option<i64>) {
+        let _ = self.tx.send(Msg::Snooze(keys, until));
     }
 
     /// A session Codealong runs started or ended a turn, or asked or stopped asking something.
@@ -915,6 +922,18 @@ impl Engine {
         sessions
     }
 
+    /// Sessions with their snoozes applied (board::apply_snooze). A snooze's time coming changes
+    /// nothing on disk: the 30-second heartbeat's publish brings it back.
+    fn with_snoozes(&self, mut sessions: Vec<Session>, now: i64) -> Vec<Session> {
+        if self.seen.snoozed.is_empty() {
+            return sessions;
+        }
+        for s in &mut sessions {
+            board::apply_snooze(s, self.seen.snooze_of(&s.key), self.seen.seen_at(&s.key), now);
+        }
+        sessions
+    }
+
     fn full_scan(&mut self) {
         self.load_config();
         self.seen = SeenState::load();
@@ -1240,6 +1259,17 @@ impl Engine {
                     let now = now_ms();
                     for k in keys {
                         self.seen.mark(&k, now);
+                    }
+                    self.seen.save();
+                    self.dirty = true;
+                }
+                Ok(Msg::Snooze(keys, until)) => {
+                    let now = now_ms();
+                    for k in keys {
+                        match until {
+                            Some(until) if until > now => self.seen.snooze(&k, now, until),
+                            _ => self.seen.wake(&k, now),
+                        }
                     }
                     self.seen.save();
                     self.dirty = true;
@@ -2412,7 +2442,7 @@ impl Engine {
             now,
             apps: &apps,
             seeds: &self.seeds,
-            sessions: self.with_insights(self.build_sessions(now), now),
+            sessions: self.with_snoozes(self.with_insights(self.build_sessions(now), now), now),
             git: &self.git,
             prs: &self.prs,
             project_order: &order,

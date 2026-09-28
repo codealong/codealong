@@ -198,6 +198,10 @@ pub struct Session {
     /// and answers what it asks, and opening it shows the panel.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub hosted: bool,
+    /// Snoozed from Codealong until then (`board::apply_snooze`): the floating bar and the mark
+    /// leave it out of Needs you and Your turn until the time comes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub snoozed_until: Option<i64>,
 }
 
 /// Jev's read of a session (insights.rs). Each part is there only when it was asked: how a turn

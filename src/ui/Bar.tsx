@@ -1,6 +1,6 @@
 // The floating bar's page: pills for the sessions that need you, whose turn ended, or that are
-// running, one for the rest of the sessions started in the last day, one for PRs waiting on your
-// review, and one for todos ready to start, in the project
+// running, one for the sessions you snoozed, one for the rest of the sessions started in the last
+// day, one for PRs waiting on your review, and one for todos ready to start, in the project
 // picked beside the mark or in all of them. The engine keeps the window up and sends it what to
 // show (barfeed.rs); the page sizes the window to itself. Pills that don't fit fold into one per
 // group that lists them. Hovering a session's pill shows it in the peek under the bar (peek.rs,
@@ -9,13 +9,14 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { fitBar, getBarFeed, markSeen, onBarFeed, onBarNote, onPeekShown, openFromBar, peekHide, peekOpen, setBarOn, showMain, showQuick, type PillRect } from '../api';
+import { fitBar, getBarFeed, markSeen, onBarFeed, onBarNote, onPeekShown, openFromBar, peekHide, peekOpen, setBarOn, showMain, showQuick, snoozeSessions, type PillRect } from '../api';
 import { elsewhereWaits, fitGroups, GROUPS, plain, projectWaits, type Group, type GroupFit, type WaitCounts } from '../bar';
 import { showContextMenu, type MenuAction, type MenuSpec } from '../contextMenu';
 import { ago } from '../format';
 import { usePerf } from '../perf';
 import { ALL_PROJECTS, inProject } from '../quick';
-import type { BarFeed, BarItem, BarRecent, BarReview, BarTodo, PeekShown, Status } from '../types';
+import { snoozeMenu, untilWords } from '../snooze';
+import type { BarFeed, BarItem, BarRecent, BarReview, BarSnoozed, BarTodo, PeekShown, Status } from '../types';
 import { Icon, Mark, STATUS_WORD, StatusGlyph } from './primitives';
 import { applyTheme } from './ThemeSwitch';
 import { LOGO_LABEL, useLogo } from '../logo';
@@ -66,7 +67,7 @@ function tone(status: Status): string {
 
 /** The session menu's open item: its lane's label for it, or one from how the session opens
  *  (lanes list targets for their first few sessions only). */
-function openLabel(i: BarItem, terminal: string): string {
+function openLabel(i: Pick<BarItem, 'target' | 'openTarget'>, terminal: string): string {
   if (i.target) return i.target.label;
   const how: Record<string, string> = {
     focus: `Show in ${terminal}`,
@@ -195,6 +196,31 @@ function RecentPill({ items, now, onOpen, measure }: { items: BarRecent[]; now: 
     >
       <Icon name="clock" size={12} stroke={1.75} />
       <span>{items.length} recent</span>
+    </button>
+  );
+}
+
+/** The sessions you snoozed, as one pill: a click drops a menu to open or wake them. */
+function SnoozedPill({ items, now, onOpen, measure }: { items: BarSnoozed[]; now: number; onOpen?: (e: MouseEvent<HTMLButtonElement>) => void; measure?: boolean }) {
+  return (
+    <button
+      type="button"
+      className="ca-hud-pill is-snoozed"
+      title={measure ? undefined : `${items.length === 1 ? '1 session' : `${items.length} sessions`} snoozed, back on the bar when their time comes:\n${items.map((i) => `${i.title} · ${i.callsign} · until ${untilWords(i.snoozedUntil, now)}`).join('\n')}`}
+      data-snoozed={measure ? '' : undefined}
+      onClick={onOpen}
+      onContextMenu={
+        onOpen
+          ? (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onOpen(e);
+            }
+          : undefined
+      }
+    >
+      <Icon name="zzz" size={12} stroke={1.75} />
+      <span>{items.length} snoozed</span>
     </button>
   );
 }
@@ -347,6 +373,7 @@ export function Bar() {
   const allItems = useMemo(() => feed?.items ?? [], [feed]);
   const items = useMemo(() => allItems.filter((i) => inProject(i, current)), [allItems, current]);
   const recent = useMemo(() => (feed?.recent ?? []).filter((i) => inProject(i, current)), [feed, current]);
+  const snoozed = useMemo(() => (feed?.snoozed ?? []).filter((i) => inProject(i, current)), [feed, current]);
   const reviews = useMemo(() => (feed?.reviews ?? []).filter((r) => current === ALL_PROJECTS || r.project === current), [feed, current]);
   const todos = useMemo(() => (feed?.todos ?? []).filter((t) => current === ALL_PROJECTS || t.project === current), [feed, current]);
   const waits = useMemo(() => projectWaits(allItems, projects), [allItems, projects]);
@@ -373,6 +400,7 @@ export function Bar() {
           fold,
           mark: MARK,
           project: picking ? width('[data-project]') : 0,
+          snoozed: snoozed.length ? width('[data-snoozed]') : 0,
           recent: recent.length ? width('[data-recent]') : 0,
           reviews: reviews.length ? width('[data-reviews]') : 0,
           todos: todos.length ? width('[data-todos]') : 0,
@@ -383,7 +411,7 @@ export function Bar() {
         room,
       ),
     );
-  }, [items, recent, reviews, todos, picking, current, others, fontsReady]);
+  }, [items, snoozed, recent, reviews, todos, picking, current, others, fontsReady]);
 
   // The window follows the bar's size: after every render, since WebKit holds back resize
   // notifications while the window is hidden, and on resizes renders don't cause (fonts).
@@ -446,7 +474,7 @@ export function Bar() {
     peekOpen(i.key, rectOf(el), true).catch((e: unknown) => setFailed({ anchor: i.key, message: String(e).replace(/^Error: /, '') }));
   };
 
-  const open = (i: BarItem | BarRecent, anchor = i.key) => {
+  const open = (i: BarItem | BarRecent | BarSnoozed, anchor = i.key) => {
     stopHover();
     if (peekedNow.current.key) void peekHide();
     if (i.target?.disabled) {
@@ -456,7 +484,15 @@ export function Bar() {
     openFromBar(i.laneId, i.openTarget).catch((e: unknown) => setFailed({ anchor, message: String(e).replace(/^Error: /, '') }));
   };
 
-  const reveal = (i: BarItem) => void showMain({ kind: 'session', laneId: i.laneId, key: i.key });
+  const reveal = (i: BarItem | BarSnoozed) => void showMain({ kind: 'session', laneId: i.laneId, key: i.key });
+
+  /** Snoozing or waking takes the sessions off the bar or puts them back; the peek goes away
+   *  from a session leaving it. What goes wrong shows where the menu came from. */
+  const snoozeDone = (keys: string[], anchor: string) => (act: Promise<void>) => {
+    const p = peekedNow.current.key;
+    if (p && keys.includes(p)) void peekHide();
+    act.catch((e: unknown) => setFailed({ anchor, message: String(e).replace(/^Error: /, '') }));
+  };
 
   const sessionMenu = (i: BarItem) => {
     void showContextMenu([
@@ -466,12 +502,43 @@ export function Bar() {
       { label: 'Reply here', run: () => reply(i) },
       { label: 'Show in Codealong', run: () => reveal(i) },
       ...(i.status === 'unread' ? [{ label: 'Mark as seen', run: () => void markSeen([i.key]) }] : []),
+      snoozeMenu([i.key], Date.now(), { until: i.snoozedUntil, onDone: snoozeDone([i.key], i.key) }),
     ]);
   };
 
   const foldMenu = (group: Group, folded: BarItem[], e: MouseEvent<HTMLButtonElement>) => {
     const menu: MenuSpec = folded.map((i) => ({ label: `${i.title} · ${i.callsign}`, run: () => open(i, `fold:${group}`) }));
-    if (group === 'unread') menu.push('separator', { label: 'Mark these as seen', run: () => void markSeen(folded.map((i) => i.key)) });
+    const keys = folded.map((i) => i.key);
+    if (group !== 'working') menu.push('separator');
+    if (group === 'unread') menu.push({ label: 'Mark these as seen', run: () => void markSeen(keys) });
+    if (group !== 'working') menu.push(snoozeMenu(keys, Date.now(), { label: 'Snooze these', onDone: snoozeDone(keys, `fold:${group}`) }));
+    void showContextMenu(menu, below(e));
+  };
+
+  /** Wakes a snoozed session and opens it: you're taking it up now, so it doesn't come back later. */
+  const wakeAndOpen = (i: BarSnoozed) => {
+    snoozeSessions([i.key], null)
+      .then(() => open(i, 'snoozed'))
+      .catch((e: unknown) => setFailed({ anchor: 'snoozed', message: String(e).replace(/^Error: /, '') }));
+  };
+
+  const snoozedMenu = (e: MouseEvent<HTMLButtonElement>) => {
+    const t = Date.now();
+    const terminal = feed?.terminal ?? 'Terminal';
+    const menu: MenuSpec = snoozed.map((i) => ({
+      label: `${i.title} · ${i.callsign} · until ${untilWords(i.snoozedUntil, t)}`,
+      items: [
+        { label: openLabel(i, terminal), run: () => wakeAndOpen(i) },
+        { label: 'Show in Codealong', run: () => reveal(i) },
+        'separator',
+        { label: 'Wake now', run: () => snoozeDone([i.key], 'snoozed')(snoozeSessions([i.key], null)) },
+        snoozeMenu([i.key], t, { label: 'Snooze instead', onDone: snoozeDone([i.key], 'snoozed') }),
+      ],
+    }));
+    if (snoozed.length > 1) {
+      const keys = snoozed.map((i) => i.key);
+      menu.push('separator', { label: 'Wake all', run: () => snoozeDone(keys, 'snoozed')(snoozeSessions(keys, null)) });
+    }
     void showContextMenu(menu, below(e));
   };
 
@@ -555,7 +622,7 @@ export function Bar() {
         Reading sessions…
       </span>,
     ]);
-  } else if (items.length === 0 && recent.length === 0 && reviews.length === 0 && todos.length === 0) {
+  } else if (items.length === 0 && snoozed.length === 0 && recent.length === 0 && reviews.length === 0 && todos.length === 0) {
     sections.push([
       <span key="note" className="ca-hud-note">
         {current === ALL_PROJECTS ? 'No agents running' : `No agents running in ${current}`}
@@ -594,6 +661,7 @@ export function Bar() {
       ]);
     }
     const last = [
+      ...(snoozed.length ? [failed?.anchor === 'snoozed' ? failedPill() : <SnoozedPill key="snoozed" items={snoozed} now={now} onOpen={snoozedMenu} />] : []),
       ...(recent.length ? [failed?.anchor === 'recent' ? failedPill() : <RecentPill key="recent" items={recent} now={now} onOpen={recentMenu} />] : []),
       ...(reviews.length ? [<ReviewsPill key="reviews" prs={reviews} onOpen={reviewsMenu} />] : []),
       ...(todos.length ? [<TodosPill key="todos" todos={todos} onOpen={openTodos} onMenu={todosMenu} />] : []),
@@ -652,6 +720,7 @@ export function Bar() {
         {GROUPS.map((g) => (
           <FoldPill key={g} group={g} label={FOLD_SAMPLE} measure />
         ))}
+        {snoozed.length > 0 && <SnoozedPill items={snoozed} now={now} measure />}
         {recent.length > 0 && <RecentPill items={recent} now={now} measure />}
         {reviews.length > 0 && <ReviewsPill prs={reviews} measure />}
         {todos.length > 0 && <TodosPill todos={todos} measure />}

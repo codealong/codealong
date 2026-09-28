@@ -241,6 +241,7 @@ mod tests {
             insight: None,
             asks: false,
             hosted: false,
+            snoozed_until: None,
         }
     }
 

@@ -249,8 +249,15 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   change groups don't move it. Once you've clicked in it, it stays on its session whatever the
   bar does, until you send, press Escape or click somewhere else. Click a pill to open the
   session where it lives; right-click it to reply in the peek,
-  show it in Codealong or mark it seen. The todos pill opens the quick panel ready to start a
-  session for a todo (its menu picks which). Pills that
+  show it in Codealong, mark it seen or snooze it. The todos pill opens the quick panel ready to start a
+  session for a todo (its menu picks which).
+  **Snooze** (a session's menu on the bar or in Codealong, the peek's zzz button, or a folded
+  pill's menu for all of its sessions): for 15 minutes, an hour, three hours or until 9 the
+  next morning. A snoozed session leaves Needs you and Your turn, and the mark stops counting
+  it; the snoozed pill lists it with when it's back, to open or wake it early. When the time
+  comes it's back as it is then, and one with nothing new (its turn already seen, or its
+  process gone) comes back as Your turn, so a snooze always brings its session back. A running
+  session stays in Working while snoozed, and sending a session a prompt ends its snooze. Pills that
   don't fit fold into one per group that lists them. The mark brings Codealong forward; drag
   the bar by it or by its gaps. The capsule button at the top right of the window turns it on
   and off, as do Window › Floating bar and the bar's own right-click menu.
@@ -406,7 +413,7 @@ repos = ["github.com/northwindai/*"]
 folders = []
 ```
 
-What you've seen (for Your turn), what you've pinned and what you've archived in Codealong are
+What you've seen (for Your turn), what you've pinned, snoozed and archived in Codealong are
 kept in `state.json` next to it; whether the floating bar is on, and where you left it, in
 `bar.json`; each project's canvas in `canvas.json`; sessions linked to PRs or unlinked from
 them by hand in `pr-links.json`. Todos and labels are in `todos.json`, which is watched, so an

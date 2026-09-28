@@ -48,6 +48,9 @@ export interface Session {
   /** Codealong runs it itself, over the Agent Client Protocol (acp.rs): its panel sends to it
    *  and answers what it asks, and opening it shows the panel. */
   hosted?: boolean;
+  /** Snoozed from Codealong until then: the floating bar and the mark leave it out of Needs you
+   *  and Your turn until the time comes (board::apply_snooze). */
+  snoozedUntil?: number;
   resumeCommand: string | null;
   /** The Claude app is signed into this session's account. */
   appAccount: boolean;
@@ -689,6 +692,9 @@ export interface BarFeed {
   items: BarItem[];
   /** The other sessions started in the last day, the newest status first. */
   recent: BarRecent[];
+  /** Sessions you snoozed, out of Needs you and Your turn until their time comes (running ones
+   *  stay in Working), the soonest back first. */
+  snoozed: BarSnoozed[];
   /** Open PRs that ask for your review, newest first. */
   reviews: BarReview[];
   /** Todos ready to start (not started, and waiting on nothing), in your order. */
@@ -712,10 +718,15 @@ export interface BarItem {
   openTarget: string;
   /** The lane's own entry for `openTarget`, when it lists one. */
   target: { label: string; detail: string | null; disabled: boolean } | null;
+  /** When it's back, while it's snoozed. */
+  snoozedUntil: number | null;
 }
 
 /** A session on the bar's recent pill: started in the last day, and in none of its groups. */
 export type BarRecent = Omit<BarItem, 'group'> & { group: 'recent' };
+
+/** A session on the bar's snoozed pill: snoozed, and not running. */
+export type BarSnoozed = Omit<BarItem, 'group' | 'snoozedUntil'> & { group: 'snoozed'; snoozedUntil: number };
 
 export interface BarReview {
   key: string;

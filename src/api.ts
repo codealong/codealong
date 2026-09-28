@@ -51,6 +51,12 @@ export async function markSeen(keys: string[]): Promise<void> {
   await invoke('mark_seen', { keys });
 }
 
+/** Snoozes sessions until `until` (ms since the epoch), or wakes them now with null. */
+export async function snoozeSessions(keys: string[], until: number | null): Promise<void> {
+  if (!inTauri || keys.length === 0) return;
+  await invoke('snooze_sessions', { keys, until });
+}
+
 export async function refresh(): Promise<void> {
   if (!inTauri) return;
   await invoke('refresh');

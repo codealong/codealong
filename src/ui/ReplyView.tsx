@@ -1,11 +1,14 @@
 // A session to answer at a glance: who it is and where at the top, its conversation, and the box
 // that answers it at the bottom (SessionReply.tsx). The floating bar's peek shows it for the pill
 // under the pointer, and the quick panel's reply view for the session picked there. Both give its
-// header a way to mark a finished turn seen or archive the session, off the list it came from.
+// header a way to mark a finished turn seen or archive the session, off the list it came from, and
+// the peek one to snooze it off the bar.
 
+import type { MouseEvent } from 'react';
 import { agoPhrase, duration } from '../format';
 import { sessionPlace } from '../harness';
 import { seenable } from '../lanes';
+import { untilWords } from '../snooze';
 import type { Lane, Sent, Session } from '../types';
 import { Button, Rich, STATUS_WORD, StatusGlyph } from './primitives';
 import { Reply } from './SessionReply';
@@ -26,6 +29,8 @@ interface ReplyViewProps {
    *  only for Your turn and a reply that asks you something (seen, it's idle), or archives it. */
   onSeen?: () => void;
   onArchive?: () => void;
+  /** Drops the snooze menu from the header's button. */
+  onSnooze?: (e: MouseEvent<HTMLButtonElement>) => void;
   autoFocus?: boolean;
   /** ⌘⏎ allows what it waits on (the quick panel, which is used from the keyboard). */
   keys?: boolean;
@@ -41,10 +46,11 @@ function openWords(lane: Lane, s: Session, terminal: string): { label: string; d
   return t ? { label: t.label, detail: t.detail, disabled: t.disabled } : { label: `Open in ${sessionPlace(s, terminal)}`, detail: null, disabled: false };
 }
 
-export function ReplyView({ lane, session: s, terminal, now, onOpen, onReveal, onBack, onSeen, onArchive, autoFocus, keys, onSent, onAnswered, onLoaded }: ReplyViewProps) {
+export function ReplyView({ lane, session: s, terminal, now, onOpen, onReveal, onBack, onSeen, onArchive, onSnooze, autoFocus, keys, onSent, onAnswered, onLoaded }: ReplyViewProps) {
   const open = openWords(lane, s, terminal);
   const since = s.statusSince ? (s.status === 'working' ? `for ${duration(s.statusSince, now)}` : agoPhrase(s.statusSince, now)) : agoPhrase(s.lastActivity, now);
-  const status = s.stalledSince ? `Quiet since ${agoPhrase(s.stalledSince, now)}` : `${s.asks ? 'Asks you' : STATUS_WORD[s.status]} ${since}`;
+  const snoozed = s.snoozedUntil ? ` · snoozed until ${untilWords(s.snoozedUntil, now)}` : '';
+  const status = (s.stalledSince ? `Quiet since ${agoPhrase(s.stalledSince, now)}` : `${s.asks ? 'Asks you' : STATUS_WORD[s.status]} ${since}`) + snoozed;
   return (
     <div className="ca-reply">
       <header className="ca-reply-head">
@@ -59,6 +65,17 @@ export function ReplyView({ lane, session: s, terminal, now, onOpen, onReveal, o
           </div>
         </div>
         {onSeen && seenable(s) && <Button variant="ghost" size="sm" icon="check" aria-label="Mark as seen" title="Mark as seen: it leaves the list" onClick={onSeen} />}
+        {onSnooze && (
+          <Button
+            variant="ghost"
+            size="sm"
+            icon="zzz"
+            aria-label={s.snoozedUntil ? 'Snoozed' : 'Snooze'}
+            aria-haspopup="menu"
+            title={s.snoozedUntil ? `Snoozed until ${untilWords(s.snoozedUntil, now)}: snooze it longer, or wake it now` : 'Snooze: off the bar until the time you pick, then back'}
+            onClick={onSnooze}
+          />
+        )}
         {onArchive && (
           <Button
             variant="ghost"

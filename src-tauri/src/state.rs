@@ -1,7 +1,8 @@
-//! What you've seen and pinned. A finished turn is "Your turn" until you open the session from
-//! Codealong or mark it seen. Pinned sessions stay at the top of the Sessions view and pinned
-//! worktrees at the top of the Worktrees view, each in your order. Stored in `state.json` next
-//! to the config.
+//! What you've seen, pinned and snoozed. A finished turn is "Your turn" until you open the
+//! session from Codealong or mark it seen. Pinned sessions stay at the top of the Sessions view
+//! and pinned worktrees at the top of the Worktrees view, each in your order. A snoozed session
+//! stays off the floating bar's Needs you and Your turn until its time (`board::apply_snooze`).
+//! Stored in `state.json` next to the config.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -33,6 +34,19 @@ pub struct SeenState {
     /// leave, as `detect::folder_key` writes them. Only others are suggested as new.
     #[serde(default)]
     pub known_accounts: Vec<String>,
+    /// Sessions snoozed from Codealong, the latest snooze of each.
+    #[serde(default)]
+    pub snoozed: Vec<Snooze>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Snooze {
+    pub key: String,
+    /// When it was snoozed: a prompt sent to the session after this ends the snooze.
+    pub at: i64,
+    /// When it comes back.
+    pub until: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -54,6 +68,7 @@ impl SeenState {
     pub fn save(&mut self) {
         let cutoff = now_ms() - 30 * DAY_MS;
         self.seen.retain(|_, at| *at >= cutoff);
+        self.snoozed.retain(|z| z.until >= cutoff);
         if std::fs::create_dir_all(support_dir()).is_ok() {
             if let Ok(text) = serde_json::to_string_pretty(self) {
                 // Through a temporary file: Settings reads this while the engine writes it.
@@ -72,6 +87,23 @@ impl SeenState {
 
     pub fn mark(&mut self, key: &str, at: i64) {
         self.seen.insert(key.to_string(), at);
+    }
+
+    /// Snoozes a session until `until`, in place of any snooze it had.
+    pub fn snooze(&mut self, key: &str, at: i64, until: i64) {
+        self.snoozed.retain(|z| z.key != key);
+        self.snoozed.push(Snooze { key: key.to_string(), at, until });
+    }
+
+    /// Ends a session's snooze now, as if its time had come: it comes back to the bar.
+    pub fn wake(&mut self, key: &str, now: i64) {
+        if let Some(z) = self.snoozed.iter_mut().find(|z| z.key == key && z.until > now) {
+            z.until = now;
+        }
+    }
+
+    pub fn snooze_of(&self, key: &str) -> Option<&Snooze> {
+        self.snoozed.iter().find(|z| z.key == key)
     }
 
     /// Replaces the pinned list, keeping the first of any repeats.
@@ -175,6 +207,21 @@ mod tests {
         assert!(old.pinned_worktrees.is_empty());
         let text = serde_json::to_string(&s).unwrap();
         assert!(text.contains(r#""pinnedWorktrees":["/r/app3","/r/main"]"#));
+    }
+
+    #[test]
+    fn a_snooze_replaces_the_last_and_waking_brings_its_time_forward() {
+        let mut s = SeenState::default();
+        s.snooze("claude:claude:a", 10, 100);
+        s.snooze("claude:claude:a", 20, 200);
+        assert_eq!(s.snoozed, vec![Snooze { key: "claude:claude:a".into(), at: 20, until: 200 }]);
+        s.wake("claude:claude:a", 50);
+        assert_eq!(s.snooze_of("claude:claude:a").map(|z| (z.at, z.until)), Some((20, 50)));
+        // A snooze whose time has passed stays as it ended.
+        s.wake("claude:claude:a", 80);
+        assert_eq!(s.snooze_of("claude:claude:a").map(|z| z.until), Some(50));
+        let old: SeenState = serde_json::from_str(r#"{"firstRun":5,"seen":{}}"#).unwrap();
+        assert!(old.snoozed.is_empty());
     }
 
     #[test]

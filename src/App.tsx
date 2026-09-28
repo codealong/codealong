@@ -19,6 +19,7 @@ import { prFlag } from './prStatus';
 import { blockedBy, COLOR_WORD, depsOf, newTodo, pickTo, pickToggle, sectionOf, sessionHomes, snippet, STATUSES, STATUS_WORD, todoIndex, todoInFilter, todoInQuery, todoItem, todoPrompt, todosPrompt, todoSections, useTodoStore, type TodoItem, type TodoPick, type TodoSectionId } from './todos';
 import type { Bay, Board, DevicesView, Label, Lane, PrItem, Session, Theme, Todo, TodoStatus } from './types';
 import { byDevice, deviceOf, needsOn, shortOf, withDevices, type DeviceFilter } from './devices';
+import { snoozeMenu } from './snooze';
 import { DeviceBadge } from './ui/DeviceBadge';
 import { LABEL_COLORS } from './types';
 import { SettingsDialog, type SettingsSection } from './ui/SettingsDialog';
@@ -1074,7 +1075,8 @@ export function App() {
   const toggleLanePin = useCallback((lane: Lane) => lanePins.toggle(lane.id), [lanePins]);
 
   /**
-   * A session's right-click menu: open it, mark it seen, pin it, archive it, copy its ID. Each list pins what
+   * A session's right-click menu: open it, mark it seen, pin it, snooze it, archive it, copy its
+   * ID. Snoozes keep sessions off the floating bar, which shows this Mac's only. Each list pins what
    * it shows: Sessions pins the session; the board and the sidebar, lists of worktrees, pin the
    * session's worktree.
    */
@@ -1096,6 +1098,7 @@ export function App() {
         'separator',
         ...(seenable(s) ? [{ label: 'Mark as seen', run: () => seen(s) }] : []),
         ...(s.archived ? [] : [pinItem]),
+        ...(s.archived || shortOf(s.key) ? [] : [snoozeMenu([s.key], Date.now(), { until: s.snoozedUntil, onDone: (act) => void act.catch((e: unknown) => setToast(String(e))) })]),
         { label: s.archived ? 'Unarchive' : s.harness === 'codex' ? 'Archive in Codex' : 'Archive', run: () => setArchived(s.key, !s.archived, s.title) },
         'separator',
         { label: 'Copy session ID', run: () => copy(s.id, 'session ID') },

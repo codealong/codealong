@@ -1,6 +1,6 @@
 //! What the floating bar shows, cut from the board: the sessions that need you, whose turn ended,
-//! or that are running, in bar order, the rest of the sessions started in the last day, the PRs
-//! waiting on your review, and the todos ready to start. Each names its project, and the bar narrows them to the one picked in its project menu.
+//! or that are running, in bar order, the rest of the sessions started in the last day, the ones
+//! you snoozed, the PRs waiting on your review, and the todos ready to start. Each names its project, and the bar narrows them to the one picked in its project menu.
 //! The bar gets this instead of the board, and only when it changes: the board is about half a
 //! megabyte and is published many times a minute, while this is a few kilobytes and changes far
 //! less often.
@@ -20,6 +20,8 @@ pub enum Group {
     Working,
     /// Started in the last day and in none of the others: listed apart, in `recent`.
     Recent,
+    /// Snoozed and not running: listed apart, in `snoozed`, until the snooze's time.
+    Snoozed,
 }
 
 /// How far back the bar's recent sessions go, and how many it lists at most.
@@ -53,6 +55,9 @@ pub struct BarFeed {
     /// The other sessions started in the last day (by their last activity when the start isn't
     /// known), the newest status first, as the quick panel lists them.
     pub recent: Vec<BarItem>,
+    /// Sessions you snoozed, out of Needs you and Your turn until their time comes (running ones
+    /// stay in Working), the soonest back first.
+    pub snoozed: Vec<BarItem>,
     /// Open PRs that ask for your review, newest first.
     pub reviews: Vec<BarReview>,
     /// Todos ready to start (not started, and waiting on nothing), in your order.
@@ -81,6 +86,8 @@ pub struct BarItem {
     /// The lane's own entry for `open_target`, when it lists one: lanes list their first few
     /// sessions' targets only.
     pub target: Option<BarTarget>,
+    /// When it's back, while it's snoozed.
+    pub snoozed_until: Option<i64>,
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
@@ -118,12 +125,15 @@ pub struct BarTodo {
 pub fn feed(board: &Board) -> BarFeed {
     let mut items: Vec<(i64, BarItem)> = Vec::new();
     let mut recent: Vec<(i64, BarItem)> = Vec::new();
+    let mut snoozed: Vec<(i64, BarItem)> = Vec::new();
     for lane in &board.lanes {
         for s in &lane.sessions {
             if s.visitor.is_some() || s.archived {
                 continue;
             }
             let group = match group_of(s.status) {
+                Some(Group::Working) => Group::Working,
+                _ if s.snoozed_until.is_some() => Group::Snoozed,
                 Some(g) => g,
                 None if board.generated_at - s.started_at.unwrap_or(s.last_activity) <= RECENT_MS => Group::Recent,
                 None => continue,
@@ -148,17 +158,19 @@ pub fn feed(board: &Board) -> BarFeed {
                 since: at,
                 open_target: s.open_target.clone(),
                 target,
+                snoozed_until: s.snoozed_until,
             };
-            if group == Group::Recent {
-                recent.push((at, item));
-            } else {
-                items.push((at, item));
+            match group {
+                Group::Recent => recent.push((at, item)),
+                Group::Snoozed => snoozed.push((s.snoozed_until.unwrap_or(at), item)),
+                _ => items.push((at, item)),
             }
         }
     }
     items.sort_by(|(a_at, a), (b_at, b)| a.group.cmp(&b.group).then(b_at.cmp(a_at)).then_with(|| a.key.cmp(&b.key)));
     recent.sort_by(|(a_at, a), (b_at, b)| b_at.cmp(a_at).then_with(|| a.key.cmp(&b.key)));
     recent.truncate(RECENT_MAX);
+    snoozed.sort_by(|(a_at, a), (b_at, b)| a_at.cmp(b_at).then_with(|| a.key.cmp(&b.key)));
 
     let mut prs: Vec<_> = board.prs.iter().filter(|p| p.review_requested && p.state.is_open()).collect();
     prs.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
@@ -178,6 +190,7 @@ pub fn feed(board: &Board) -> BarFeed {
         projects: board.projects.iter().map(|p| p.name.clone()).collect(),
         items: items.into_iter().map(|(_, item)| item).collect(),
         recent: recent.into_iter().map(|(_, item)| item).collect(),
+        snoozed: snoozed.into_iter().map(|(_, item)| item).collect(),
         reviews,
         todos: ready,
     }
@@ -287,6 +300,36 @@ mod tests {
         assert_eq!(f.items.iter().map(|i| i.key.as_str()).collect::<Vec<_>>(), vec!["w"]);
         let got: Vec<(&str, Group)> = f.recent.iter().map(|i| (i.key.as_str(), i.group)).collect();
         assert_eq!(got, vec![("s1", Group::Recent), ("guess", Group::Recent), ("i1", Group::Recent)]);
+    }
+
+    #[test]
+    fn lists_snoozed_sessions_apart_soonest_back_first_unless_they_run() {
+        let snoozed = |key: &str, status: Status, until: i64| {
+            let mut s = session(key, status, NOW - 10);
+            s.snoozed_until = Some(until);
+            s
+        };
+        let mut b = board(
+            vec![lane(
+                "/a",
+                vec![
+                    snoozed("later", Status::Needs, NOW + 3_000),
+                    snoozed("soon", Status::Unread, NOW + 1_000),
+                    snoozed("idle", Status::Idle, NOW + 2_000),
+                    snoozed("busy", Status::Working, NOW + 1_000),
+                    session("n", Status::Needs, NOW),
+                ],
+                false,
+            )],
+            vec![],
+        );
+        b.generated_at = NOW;
+        let f = feed(&b);
+        let got: Vec<(&str, Group, Option<i64>)> = f.items.iter().map(|i| (i.key.as_str(), i.group, i.snoozed_until)).collect();
+        assert_eq!(got, vec![("n", Group::Needs, None), ("busy", Group::Working, Some(NOW + 1_000))]);
+        let got: Vec<(&str, Group)> = f.snoozed.iter().map(|i| (i.key.as_str(), i.group)).collect();
+        assert_eq!(got, vec![("soon", Group::Snoozed), ("idle", Group::Snoozed), ("later", Group::Snoozed)]);
+        assert!(f.recent.is_empty());
     }
 
     #[test]

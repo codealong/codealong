@@ -12,6 +12,7 @@ use crate::opencode::{Live, SessionRow};
 use crate::config::AccountCfg;
 use crate::github::PrRaw;
 use crate::model::*;
+use crate::state::Snooze;
 use crate::util::{code, one_line, tilde, truncate, DAY_MS};
 
 /// A Codex turn with no events for this long is treated as interrupted.
@@ -238,6 +239,7 @@ pub fn claude_session(
         insight: None,
         asks: false,
         hosted: false,
+        snoozed_until: None,
     })
 }
 
@@ -315,6 +317,7 @@ pub fn codex_session(account: &AccountCfg, th: &ThreadInfo, name: Option<&str>, 
         insight: None,
         asks: false,
         hosted: false,
+        snoozed_until: None,
     }
 }
 
@@ -383,6 +386,7 @@ pub fn opencode_session(account: &AccountCfg, row: &SessionRow, live: Option<&Li
         insight: None,
         asks: false,
         hosted: false,
+        snoozed_until: None,
     }
 }
 
@@ -448,6 +452,7 @@ pub fn antigravity_session(account: &AccountCfg, c: &Conversation, seen_at: i64,
         insight: None,
         asks: false,
         hosted: false,
+        snoozed_until: None,
     }
 }
 
@@ -710,6 +715,25 @@ pub fn last_sentence(text: &str) -> String {
     let chars: Vec<(usize, char)> = t.char_indices().collect();
     let cut = chars.windows(2).filter(|w| matches!(w[0].1, '.' | '!' | '?') && w[1].1.is_whitespace()).map(|w| w[1].0).last().unwrap_or(0);
     truncate(t[cut..].trim(), 140)
+}
+
+/// Applies a snooze from Codealong to a session, after its status and Jev's read of it, before
+/// bays and headlines are worked out. Until its time the session carries `snoozed_until`, and the
+/// floating bar and the mark leave it out of Needs you and Your turn. When the time comes it's
+/// back as it is then, and one with nothing to show for itself (its turn seen, or its process
+/// gone) is Your turn from then until you've seen it: a snooze always brings its session back. A
+/// prompt you sent it after snoozing it ends the snooze without that: you took it up.
+pub fn apply_snooze(s: &mut Session, snooze: Option<&Snooze>, seen_at: i64, now: i64) {
+    let Some(z) = snooze else { return };
+    if s.last_prompt_at > z.at || s.archived {
+        return;
+    }
+    if now < z.until {
+        s.snoozed_until = Some(z.until);
+    } else if seen_at < z.until && matches!(s.status, Status::Idle | Status::Stopped) {
+        s.status = Status::Unread;
+        s.status_since = Some(z.until);
+    }
 }
 
 /// Applies Jev's read of a session to what the board shows, before bays and headlines are
@@ -1166,10 +1190,12 @@ pub fn logo_status(lanes: &[Lane], prs: &[PrItem]) -> LogoStatus {
     let sessions = lanes.iter().filter(|l| !l.hidden).flat_map(|l| &l.sessions)
         .filter(|s| !s.archived && s.visitor.is_none())
         .map(|s| match s.status {
+            Status::Working => LogoStatus::Working,
+            // Snoozed, it's off the bar's Needs you and Your turn, so off the mark too.
+            _ if s.snoozed_until.is_some() => LogoStatus::Idle,
             Status::Error => LogoStatus::Error,
             Status::Needs => LogoStatus::Needs,
             Status::Unread => LogoStatus::Unread,
-            Status::Working => LogoStatus::Working,
             Status::Idle | Status::Stopped => LogoStatus::Idle,
         });
     let review = prs.iter().any(|p| p.review_requested && p.state.is_open());
@@ -1340,6 +1366,19 @@ mod tests {
         assert_eq!(logo_status(&b.lanes, &b.prs), LogoStatus::Working);
         b.lanes[1].hidden = false;
         assert_eq!(logo_status(&b.lanes, &b.prs), LogoStatus::Error, "attention in another visible project counts");
+    }
+
+    #[test]
+    fn logo_leaves_out_snoozed_sessions_unless_they_work() {
+        let mut b = logo_board();
+        let s = &mut b.lanes[0].sessions[0];
+        s.snoozed_until = Some(NOW + 60_000);
+        assert_eq!(logo_status(&b.lanes, &b.prs), LogoStatus::Working);
+        b.lanes[0].sessions[0].status = Status::Needs;
+        b.prs.clear();
+        assert_eq!(logo_status(&b.lanes, &b.prs), LogoStatus::Idle);
+        b.lanes[0].sessions[0].snoozed_until = None;
+        assert_eq!(logo_status(&b.lanes, &b.prs), LogoStatus::Needs);
     }
 
     #[test]
@@ -1621,6 +1660,42 @@ mod tests {
         let mut prompt = claude_session(&a, Some(&reg("waiting", NOW - 10)), Some(&tr()), NOW - 100, NOW, &Quiet::default()).unwrap();
         apply_insight(&mut prompt, &insight(|i| i.asks_you = Some(0.9)));
         assert_eq!((prompt.status, prompt.asks), (Status::Needs, false));
+    }
+
+    #[test]
+    fn a_snooze_keeps_a_session_off_until_its_time_then_brings_it_back() {
+        const MIN: i64 = 60_000;
+        let a = acct("claude2");
+        let z = Snooze { key: "k".into(), at: NOW - 10 * MIN, until: NOW + 50 * MIN };
+        let unread = claude_session(&a, Some(&reg("idle", NOW - 20 * MIN)), Some(&tr()), NOW - 30 * MIN, NOW, &Quiet::default()).unwrap();
+        assert_eq!(unread.status, Status::Unread);
+        assert!(unread.last_prompt_at < z.at);
+        let snoozed = |s: &Session, seen: i64, now: i64| {
+            let mut s = s.clone();
+            apply_snooze(&mut s, Some(&z), seen, now);
+            (s.status, s.snoozed_until, s.status_since)
+        };
+        // Until its time it keeps its status and says when it's back.
+        assert_eq!(snoozed(&unread, NOW - 30 * MIN, NOW), (Status::Unread, Some(z.until), unread.status_since));
+        // Then it's back as it is.
+        assert_eq!(snoozed(&unread, NOW - 30 * MIN, z.until), (Status::Unread, None, unread.status_since));
+        // One with nothing to show for itself is Your turn from its time until you've seen it.
+        let idle = Session { status: Status::Idle, ..unread.clone() };
+        assert_eq!(snoozed(&idle, NOW - 5 * MIN, z.until + MIN), (Status::Unread, None, Some(z.until)));
+        let stopped = Session { status: Status::Stopped, live: false, ..unread.clone() };
+        assert_eq!(snoozed(&stopped, NOW - 5 * MIN, z.until + MIN).0, Status::Unread);
+        assert_eq!(snoozed(&idle, z.until + MIN, z.until + 2 * MIN).0, Status::Idle, "seen since");
+        let working = Session { status: Status::Working, ..unread.clone() };
+        assert_eq!(snoozed(&working, NOW - 5 * MIN, z.until + MIN).0, Status::Working);
+        // A prompt sent since snoozing ends it.
+        let prompted = Session { status: Status::Idle, last_prompt_at: NOW - 5 * MIN, ..unread.clone() };
+        assert_eq!(snoozed(&prompted, NOW - 30 * MIN, NOW), (Status::Idle, None, prompted.status_since));
+        assert_eq!(snoozed(&prompted, NOW - 30 * MIN, z.until + MIN).0, Status::Idle);
+        let archived = Session { archived: true, ..idle.clone() };
+        assert_eq!(snoozed(&archived, NOW - 30 * MIN, z.until + MIN).0, Status::Idle);
+        let mut untouched = idle.clone();
+        apply_snooze(&mut untouched, None, 0, NOW);
+        assert_eq!((untouched.status, untouched.snoozed_until), (Status::Idle, None));
     }
 
     #[test]
