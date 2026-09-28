@@ -395,7 +395,11 @@ Claude Code
   prompt's No does. A plain allow for `AskUserQuestion` or `ExitPlanMode` is dropped and the
   prompt stays (`requiresUserInteraction`); a question takes `updatedInput` with `answers`.
   The registry's `waiting` / `permission prompt` comes from the session's `requires_action`
-  state, in a terminal and under the Claude app alike.
+  state, in a terminal and under the Claude app alike (an `AskUserQuestion` says `input
+  needed`). On 2.1.284 the call's own transcript line can be missing while its prompt is up: a
+  session's first call was written as its prompt showed, but a later one only with its result,
+  four minutes after, when it was answered. So a prompt's call can't be read from the
+  transcript until then (`claude.rs`'s keypress path looks for it there); the hook has it.
 - A peer message to a session that bypasses permissions is held ("Held message from another
   session", Deny first) unless its settings say `"crossSessionInbound": "accept"`; typing into
   its terminal isn't held. Under the Claude app (stream-json) a hold is only a `{"type":

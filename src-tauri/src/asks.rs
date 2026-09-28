@@ -23,7 +23,6 @@ use anyhow::{anyhow, Result};
 use serde_json::{json, Value};
 
 use crate::model::{Harness, Session, Status};
-use crate::transcript::Item;
 
 /// A request as the hook gives it, less what Codealong doesn't use.
 #[derive(Debug, Clone, PartialEq)]
@@ -148,16 +147,26 @@ pub fn overlay(s: &mut Session) {
 
 /// Where a held request's session is, to see whether it still asks.
 pub struct Watch {
-    /// The account's folder, where the session's registry is.
+    /// The account's folder, where the session's registry is (`sessions/<pid>.json`).
     pub home: PathBuf,
-    pub session: Session,
+    /// The session's Claude Code process.
+    pub pid: u32,
     /// The file the call is written in; empty when the hook didn't say.
     pub record: PathBuf,
+    /// How long that file was when the request came: a result for the call written after that
+    /// is its answer.
+    pub from: u64,
 }
 
-/// How long a request is taken as asked before the session's own files must say so: the prompt
-/// and the transcript line are written as the hook starts, and the files reach the disk soon
-/// after.
+impl Watch {
+    pub fn new(home: PathBuf, pid: u32, record: PathBuf) -> Watch {
+        let from = std::fs::metadata(&record).map(|m| m.len()).unwrap_or(0);
+        Watch { home, pid, record, from }
+    }
+}
+
+/// How long a request is taken as asked before the session's registry must say so: Claude Code
+/// writes it as the prompt shows, while the hook starts.
 const GRACE: Duration = Duration::from_secs(4);
 
 /// Holds the request on this connection until it's answered here or elsewhere, then writes the
@@ -200,14 +209,13 @@ pub fn hold(stream: &mut UnixStream, asked: Asked, watch: Watch, changed: &dyn F
     changed();
 }
 
-/// Whether the session still waits on this request: it says it waits on a permission prompt,
-/// and the call has no result yet.
+/// Whether the session still waits on this request: its registry says it waits on a permission
+/// prompt, and no result for the call has been written since the request came.
 fn still_asked(w: &Watch, id: &str) -> bool {
-    if !crate::send::claude_registry(&w.home, &w.session).is_some_and(|r| waits_on_permission(&r)) {
-        return false;
-    }
     let Some(asked) = held().iter().find(|h| h.asked.id == id).map(|h| h.asked.clone()) else { return false };
-    call_open(&w.record, &asked).unwrap_or(true)
+    let registry = std::fs::read_to_string(w.home.join("sessions").join(format!("{}.json", w.pid))).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok());
+    let waiting = registry.is_some_and(|r| r.get("sessionId").and_then(Value::as_str) == Some(asked.session.as_str()) && waits_on_permission(&r));
+    waiting && !call_answered(&w.record, &asked, w.from)
 }
 
 /// Claude Code's registry says the session has a permission prompt up (`requires_action`).
@@ -216,48 +224,46 @@ pub fn waits_on_permission(registry: &Value) -> bool {
     f("status") == Some("waiting") && f("waitingFor") == Some("permission prompt")
 }
 
-/// Whether a call of the request's tool is among the record's calls with no result yet: once
-/// the prompt is answered where the session runs, the call gets its result (a denied one too).
-/// The input isn't compared, since the hook can get it a little rewritten. None when the
-/// record can't be read.
-fn call_open(record: &Path, asked: &Asked) -> Option<bool> {
+/// Whether a result for the request's call (a call of its tool, with its input) was written at
+/// or after `from` in the record: it was answered where the session runs, or denied. Claude Code
+/// can write the call itself only then, with its result. Only the end of the record is read.
+fn call_answered(record: &Path, asked: &Asked, from: u64) -> bool {
     if record.as_os_str().is_empty() {
-        return None;
+        return false;
     }
-    let mut f = std::fs::File::open(record).ok()?;
-    let len = f.metadata().ok()?.len();
-    let from = len.saturating_sub(TAIL);
-    f.seek(SeekFrom::Start(from)).ok()?;
+    let Ok(mut f) = std::fs::File::open(record) else { return false };
+    let Ok(len) = f.metadata().map(|m| m.len()) else { return false };
+    let start = len.saturating_sub(TAIL);
     let mut buf = Vec::new();
-    f.take(TAIL).read_to_end(&mut buf).ok()?;
-    // The first line of a tail that starts mid-file is cut short.
-    let lines = buf.split(|&b| b == b'\n').skip(usize::from(from > 0));
-    let items: Vec<Item> = lines.filter_map(|l| serde_json::from_slice::<Value>(l).ok()).flat_map(|v| calls(&v, 0)).collect();
-    Some(crate::transcript::open_tools(&items).iter().any(|i| i.text == asked.tool))
+    if f.seek(SeekFrom::Start(start)).is_err() || f.take(TAIL).read_to_end(&mut buf).is_err() {
+        return false;
+    }
+    let mut calls: Vec<String> = Vec::new();
+    let mut results: Vec<(u64, String)> = Vec::new();
+    let mut at = start;
+    for (n, line) in buf.split(|&b| b == b'\n').enumerate() {
+        let here = at;
+        at += line.len() as u64 + 1;
+        // The first line of a tail that starts mid-file is cut short.
+        if n == 0 && start > 0 {
+            continue;
+        }
+        let Ok(v) = serde_json::from_slice::<Value>(line) else { continue };
+        let Some(content) = v.get("message").and_then(|m| m.get("content")).and_then(Value::as_array) else { continue };
+        for p in content {
+            let id = |k: &str| p.get(k).and_then(Value::as_str).map(String::from);
+            match p.get("type").and_then(Value::as_str) {
+                Some("tool_use") if p.get("name").and_then(Value::as_str) == Some(asked.tool.as_str()) && p.get("input") == Some(&asked.input) => calls.extend(id("id")),
+                Some("tool_result") => results.extend(id("tool_use_id").map(|i| (here, i))),
+                _ => {}
+            }
+        }
+    }
+    results.iter().any(|(at, id)| *at >= from && calls.contains(id))
 }
 
-/// How much of a record's end is read for its open calls, each second a request is held: the
-/// call is written just before its prompt shows, and little comes after it while the prompt is
-/// up.
+/// How much of a record's end is read for the call's result, each second a request is held.
 const TAIL: u64 = 512 * 1024;
-
-/// Tool calls and their results in a Claude Code record, subagents' lines included: an item per
-/// call (`tool`, its name) and per result (`result`), by the call's id.
-fn calls(v: &Value, at: i64) -> Vec<Item> {
-    let Some(content) = v.get("message").and_then(|m| m.get("content")).and_then(Value::as_array) else { return Vec::new() };
-    content
-        .iter()
-        .filter_map(|p| {
-            let (kind, id) = match p.get("type").and_then(Value::as_str) {
-                Some("tool_use") => ("tool", p.get("id")),
-                Some("tool_result") => ("result", p.get("tool_use_id")),
-                _ => return None,
-            };
-            let name = p.get("name").and_then(Value::as_str).unwrap_or_default();
-            Some(Item { id: id.and_then(Value::as_str).map(String::from), ..crate::transcript::item(at, kind, name) })
-        })
-        .collect()
-}
 
 /// The hook's process is gone: its end of the connection is closed.
 fn closed(stream: &mut UnixStream) -> bool {
@@ -290,12 +296,25 @@ pub fn hook_output(decision: &Value) -> Option<String> {
     Some(json!({ "hookSpecificOutput": { "hookEventName": "PermissionRequest", "decision": decision } }).to_string())
 }
 
-/// The session a hook's request comes from, once the board shows it, with its account's
-/// folder: None for a session Codealong doesn't show (an account config.toml doesn't list).
-pub fn session_for(board: &crate::model::Board, cfg: &crate::config::Config, id: &str) -> Option<(Session, PathBuf)> {
-    let s = board.lanes.iter().flat_map(|l| &l.sessions).find(|s| s.harness == Harness::Claude && s.id == id)?;
-    let account = cfg.accounts.iter().find(|a| a.name == s.account)?;
-    Some((s.clone(), account.home_path()))
+/// The Claude Code process a hook runs under: the first of its parents with a registry entry for
+/// the session in the account's folder. The hook is its child, by way of a shell.
+pub fn session_process(home: &Path, session: &str) -> Option<u32> {
+    let mut pid = std::process::id();
+    for _ in 0..6 {
+        pid = crate::procs::parent_pid(pid).filter(|&p| p > 1)?;
+        let registry = std::fs::read_to_string(home.join("sessions").join(format!("{pid}.json"))).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok());
+        if registry.is_some_and(|r| r.get("sessionId").and_then(Value::as_str) == Some(session)) {
+            return Some(pid);
+        }
+    }
+    None
+}
+
+/// The account a hook's session is on, by its folder (`CLAUDE_CONFIG_DIR`, else `~/.claude`):
+/// None for one config.toml doesn't list, whose sessions Codealong doesn't show.
+pub fn account_for<'a>(cfg: &'a crate::config::Config, home: &Path) -> Option<&'a crate::config::AccountCfg> {
+    let same = |a: &Path| a == home || std::fs::canonicalize(a).ok().zip(std::fs::canonicalize(home).ok()).is_some_and(|(x, y)| x == y);
+    cfg.accounts.iter().find(|a| a.harness == "claude" && same(&a.home_path()))
 }
 
 #[cfg(test)]
@@ -341,22 +360,39 @@ mod tests {
     }
 
     #[test]
-    fn a_call_is_open_until_its_result_is_written_in_the_session_or_its_subagents_log() {
+    fn a_call_is_answered_once_its_result_is_written_after_the_request_came() {
         let dir = std::env::temp_dir().join(format!("codealong-asks-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let record = dir.join("s.jsonl");
-        let call = json!({ "type": "assistant", "isSidechain": true, "message": { "content": [{ "type": "tool_use", "id": "t1", "name": "Bash", "input": {} }] } });
-        std::fs::write(&record, format!("{call}\n")).unwrap();
         let (a, _) = parse(&hook("Bash"), 0).unwrap();
-        assert_eq!(call_open(&record, &a), Some(true));
-        let (edit, _) = parse(&hook("Edit"), 0).unwrap();
-        assert_eq!(call_open(&record, &edit), Some(false));
-        let result = json!({ "type": "user", "isSidechain": true, "message": { "content": [{ "type": "tool_result", "tool_use_id": "t1" }] } });
-        std::fs::write(&record, format!("{call}\n{result}\n")).unwrap();
-        assert_eq!(call_open(&record, &a), Some(false));
-        assert_eq!(call_open(Path::new(""), &a), None);
-        assert_eq!(call_open(&dir.join("missing.jsonl"), &a), None);
+        let line = |v: Value| format!("{v}\n");
+        let call = |id: &str, cmd: &str| line(json!({ "type": "assistant", "isSidechain": true, "message": { "content": [{ "type": "tool_use", "id": id, "name": "Bash", "input": { "command": cmd } }] } }));
+        let result = |id: &str| line(json!({ "type": "user", "message": { "content": [{ "type": "tool_result", "tool_use_id": id }] } }));
+        // The same command ran and was answered before: that's not this request's answer.
+        let before = call("t0", "rm -rf build") + &result("t0");
+        std::fs::write(&record, &before).unwrap();
+        let from = before.len() as u64;
+        assert!(!call_answered(&record, &a, from));
+        // Claude Code may write the call only with its answer.
+        std::fs::write(&record, before.clone() + &call("t1", "rm -rf build")).unwrap();
+        assert!(!call_answered(&record, &a, from));
+        std::fs::write(&record, before.clone() + &call("t1", "rm -rf build") + &result("t1")).unwrap();
+        assert!(call_answered(&record, &a, from));
+        // Another call's result isn't.
+        std::fs::write(&record, before.clone() + &call("t2", "make") + &result("t2")).unwrap();
+        assert!(!call_answered(&record, &a, from));
+        assert!(!call_answered(Path::new(""), &a, 0));
+        assert!(!call_answered(&dir.join("missing.jsonl"), &a, 0));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn finds_the_account_by_its_folder() {
+        let acct = |name: &str, harness: &str, home: &str| crate::config::AccountCfg { name: name.into(), harness: harness.into(), home: home.into(), command: None, start: None, preferred: false, acp: None };
+        let cfg = crate::config::Config { accounts: vec![acct("codex", "codex", "/h/.codex"), acct("claude2", "claude", "/h/.claude2")], ..Default::default() };
+        assert_eq!(account_for(&cfg, Path::new("/h/.claude2")).map(|a| a.name.as_str()), Some("claude2"));
+        assert!(account_for(&cfg, Path::new("/h/.codex")).is_none(), "not a Claude Code account");
+        assert!(account_for(&cfg, Path::new("/h/.claude")).is_none());
     }
 
     fn session(id: &str) -> Session {
@@ -400,7 +436,7 @@ mod tests {
     }
 
     fn watch(record: PathBuf) -> Watch {
-        Watch { home: PathBuf::from("/nonexistent"), session: session("abc"), record }
+        Watch::new(PathBuf::from("/nonexistent"), 1, record)
     }
 
     #[test]

@@ -61,9 +61,16 @@ pub enum Request {
     /// (send.rs); `from` is the session that ran the command, when it found one.
     Send { key: String, text: String, from: Option<String> },
     /// A permission request from Claude Code's `PermissionRequest` hook, its input as the hook
-    /// got it: the connection is held until it's answered here or where the session runs, and
-    /// the reply is the decision, or null for none (asks.rs).
-    PermissionAsk { hook: Value },
+    /// got it, with the session's process and account folder: the connection is held until it's
+    /// answered here or where the session runs, and the reply is the decision, or null for none
+    /// (asks.rs).
+    PermissionAsk {
+        hook: Value,
+        #[serde(default)]
+        pid: Option<u32>,
+        #[serde(default)]
+        home: Option<String>,
+    },
 }
 
 /// How a reply starts when the app doesn't know the request: it's older than the command.
@@ -143,8 +150,8 @@ fn connection(stream: UnixStream, engine: &Handle, peers: &Peers) {
             continue;
         }
         let req = serde_json::from_str::<Request>(&line);
-        if let Ok(Request::PermissionAsk { hook }) = req {
-            hold_permission_ask(engine, &hook, &mut out);
+        if let Ok(Request::PermissionAsk { hook, pid, home }) = req {
+            hold_permission_ask(engine, &hook, pid, home.as_deref(), &mut out);
             break;
         }
         let reply = handle_request(engine, peers, req);
@@ -196,29 +203,16 @@ fn handle_request(engine: &Handle, peers: &Peers, req: serde_json::Result<Reques
 }
 
 /// Holds a hook's permission request until it's answered (asks.rs). No answer comes from here
-/// for a session the board doesn't show within a few seconds (an account config.toml doesn't
-/// list), nor for one Codealong runs itself, which asks through its adapter instead.
-fn hold_permission_ask(engine: &Handle, hook: &Value, out: &mut UnixStream) {
-    let Some((asked, record)) = crate::asks::parse(hook, crate::util::now_ms()) else {
-        crate::asks::reply(out, None);
-        return;
-    };
+/// for a session whose process the hook didn't find (one Codealong runs itself has none: it asks
+/// through its adapter), nor for an account config.toml doesn't list.
+fn hold_permission_ask(engine: &Handle, hook: &Value, pid: Option<u32>, home: Option<&str>, out: &mut UnixStream) {
     let cfg = crate::config::load().ok().flatten().unwrap_or_default();
-    let deadline = std::time::Instant::now() + Duration::from_secs(5);
-    let found = loop {
-        if let Some(found) = engine.read(|b| crate::asks::session_for(b, &cfg, &asked.session)) {
-            break Some(found);
-        }
-        if std::time::Instant::now() >= deadline {
-            break None;
-        }
-        std::thread::sleep(Duration::from_millis(250));
-    };
-    let Some((session, home)) = found.filter(|(s, _)| !crate::acp::hosts(&s.key)) else {
+    let found = crate::asks::parse(hook, crate::util::now_ms()).zip(pid).zip(home.and_then(|h| crate::asks::account_for(&cfg, std::path::Path::new(h))));
+    let Some((((asked, record), pid), account)) = found else {
         crate::asks::reply(out, None);
         return;
     };
-    let watch = crate::asks::Watch { home, session, record };
+    let watch = crate::asks::Watch::new(account.home_path(), pid, record);
     crate::asks::hold(out, asked, watch, &|| engine.hosted_changed());
 }
 
@@ -252,10 +246,11 @@ fn devices(peers: &Peers) -> Value {
 /// Hands the running app a hook's permission request and waits, however long it takes, for the
 /// reply: the decision, or None when no app answers, it doesn't know the request (an older
 /// one), or it let the request go unanswered.
-pub fn ask_permission(hook: &Value) -> Option<Value> {
+pub fn ask_permission(hook: &Value, pid: Option<u32>, home: &std::path::Path) -> Option<Value> {
     let mut stream = UnixStream::connect(path()).ok()?;
     let _ = stream.set_write_timeout(Some(Duration::from_secs(5)));
-    let mut text = serde_json::to_string(&Request::PermissionAsk { hook: hook.clone() }).ok()?;
+    let req = Request::PermissionAsk { hook: hook.clone(), pid, home: Some(home.to_string_lossy().into_owned()) };
+    let mut text = serde_json::to_string(&req).ok()?;
     text.push('\n');
     stream.write_all(text.as_bytes()).ok()?;
     stream.flush().ok()?;
