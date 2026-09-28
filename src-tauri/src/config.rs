@@ -340,13 +340,21 @@ pub fn config_path() -> PathBuf {
 
 /// Loads the config, or `None` when there isn't one yet.
 pub fn load() -> Result<Option<Config>> {
+    read_text()?.map(|text| load_text(&text)).transpose()
+}
+
+/// config.toml's text, or `None` when there isn't one yet.
+pub fn read_text() -> Result<Option<String>> {
     let path = config_path();
     if !path.exists() {
         return Ok(None);
     }
-    let text = std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
-    let cfg = from_text(&text).with_context(|| format!("{} has an error", crate::util::tilde(&path)))?;
-    Ok(Some(cfg))
+    std::fs::read_to_string(&path).map(Some).with_context(|| format!("reading {}", path.display()))
+}
+
+/// The settings in config.toml's text, as `load` reads them.
+pub fn load_text(text: &str) -> Result<Config> {
+    from_text(text).with_context(|| format!("{} has an error", crate::util::tilde(&config_path())))
 }
 
 /// The theme config.toml asks for: `system` when there's no file yet or it has an error.
@@ -360,9 +368,12 @@ pub fn quick_shortcut() -> String {
     load().ok().flatten().map(|c| c.shortcuts.quick_panel).unwrap_or_else(default_quick_panel)
 }
 
-pub fn write(cfg: &Config) -> Result<()> {
+/// Writes config.toml afresh. Returns the text written.
+pub fn write(cfg: &Config) -> Result<String> {
     std::fs::create_dir_all(support_dir())?;
-    write_atomic(&render(cfg))
+    let text = render(cfg);
+    write_atomic(&text)?;
+    Ok(text)
 }
 
 /// Writes config.toml through a temporary file, so the watcher never reads half a file.

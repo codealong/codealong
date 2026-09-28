@@ -455,6 +455,9 @@ struct Engine {
     tx: Sender<Msg>,
     board: Arc<RwLock<Board>>,
     cfg: Config,
+    /// config.toml as last read or written (`None` when there was none or it didn't read), so an
+    /// edit the watcher didn't hear can be told from what's loaded.
+    config_text: Option<String>,
     config_warning: Option<String>,
     seen: SeenState,
     /// Todos and labels, as in todos.json.
@@ -575,6 +578,7 @@ impl Engine {
             tx,
             board,
             cfg: Config::default(),
+            config_text: None,
             config_warning: None,
             seen: SeenState::default(),
             todos: TodoStore::default(),
@@ -847,6 +851,13 @@ impl Engine {
         self.fetch_usage();
         self.poll_opencode();
         self.watch();
+        // The scan read config.toml and todos.json before the watcher started, and can take
+        // minutes (a permission dialog holds it up): an edit made meanwhile is read now, as the
+        // watcher would have, rather than when the file next changes.
+        if config::read_text().ok().flatten() != self.config_text {
+            self.reload();
+        }
+        self.reload_todos();
         self.refresh_visitors(false);
         self.load_pr_links();
         self.scan_pr_marks(false);
@@ -1179,15 +1190,18 @@ impl Engine {
     }
 
     fn load_config(&mut self) {
-        match config::load() {
+        let text = config::read_text();
+        self.config_text = text.as_ref().ok().cloned().flatten();
+        match text.and_then(|t| t.map(|t| config::load_text(&t)).transpose()) {
             Ok(Some(cfg)) => {
                 self.cfg = cfg;
                 self.config_warning = None;
             }
             Ok(None) => {
                 let cfg = first_run_config();
-                if let Err(e) = config::write(&cfg) {
-                    self.config_warning = Some(format!("Couldn't save config.toml: {e}"));
+                match config::write(&cfg) {
+                    Ok(text) => self.config_text = Some(text),
+                    Err(e) => self.config_warning = Some(format!("Couldn't save config.toml: {e}")),
                 }
                 self.cfg = cfg;
             }
@@ -2631,6 +2645,51 @@ mod tests {
         assert!(engine.build_sessions(now).is_empty());
         drop(hidden);
         std::fs::remove_dir_all(&home).unwrap();
+    }
+
+    /// The first scan reads config.toml before the watcher starts, and can take minutes, so an
+    /// edit made meanwhile is read once the watcher is up. A scan reads and writes under the
+    /// home folder (config.toml, state.json), so it runs in a copy of this test binary with an
+    /// empty home of its own.
+    #[test]
+    fn a_config_edit_during_the_first_scan_is_read() {
+        use super::*;
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        let Some(own) = std::env::var_os("CODEALONG_TEST_HOME") else {
+            let home = std::env::temp_dir().join(format!("codealong-first-scan-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&home);
+            std::fs::create_dir_all(&home).unwrap();
+            let run = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["engine::tests::a_config_edit_during_the_first_scan_is_read", "--exact", "--nocapture"])
+                .env("HOME", &home)
+                .env("CODEALONG_TEST_HOME", &home)
+                .output()
+                .unwrap();
+            let ran = home.join("ran").exists();
+            std::fs::remove_dir_all(&home).unwrap();
+            assert!(run.status.success() && ran, "{}{}", String::from_utf8_lossy(&run.stdout), String::from_utf8_lossy(&run.stderr));
+            return;
+        };
+        assert_eq!(home(), PathBuf::from(own), "never the real home folder");
+
+        // No accounts and nothing to scan, so the scan stays in this home.
+        let off = Config { scan: vec![], ..Config::default() };
+        config::write(&off).unwrap();
+        let on = config::render(&Config { devices: crate::config::DevicesCfg { enabled: true, ..Default::default() }, ..off });
+        // The scan's first board goes out before the watcher starts: devices are turned on then.
+        let edited = AtomicBool::new(false);
+        let emit = move |_: &Board| {
+            if !edited.swap(true, Ordering::SeqCst) {
+                std::fs::write(config::config_path(), &on).unwrap();
+            }
+        };
+        let (tx, _rx) = channel();
+        let mut engine = Engine::new(Box::new(emit), tx, Arc::new(RwLock::new(Board::default())));
+        engine.full_scan();
+        assert!(engine.cfg.devices.enabled);
+        assert!(engine.compose().devices.enabled);
+        std::fs::write(home().join("ran"), "").unwrap();
     }
 
     fn usage(error: Option<&str>, needs_sign_in: bool, percent: f64) -> Usage {
