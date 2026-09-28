@@ -298,6 +298,12 @@ export async function startSession(spec: StartSpec): Promise<Started | null> {
   return invoke<Started | null>('start_session', { spec });
 }
 
+/** Forks a session into a new terminal in its folder: the copy goes on from what it had written. */
+export async function forkSession(key: string): Promise<Started | null> {
+  if (!inTauri) throw new Error('Forking a session needs the app.');
+  return invoke<Started | null>('fork_session', { key });
+}
+
 /** A change to a todo or the labels. Resolves with the time of the first board that shows it. */
 /** Where what's typed in the quick panel should go, from Jev. */
 export async function routeQuick(project: string, text: string): Promise<Route> {

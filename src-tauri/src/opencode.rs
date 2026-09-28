@@ -621,6 +621,25 @@ impl crate::harness::Adapter for OpenCode {
             crate::harness::Answer::Deny => format!("Denied {}.", r.label),
         })
     }
+
+    /// Its command line can't fork, but its service can: the copy is a session of its own
+    /// (no parent), named "<title> (fork #1)", which the terminal UI then opens.
+    fn fork(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> anyhow::Result<crate::harness::Fork> {
+        let svc = service(&ctx.account.home_path()).ok_or_else(|| anyhow::anyhow!("OpenCode's service isn't running, so Codealong can't fork {}. Open OpenCode and try again.", s.title))?;
+        let got = post(&svc, &format!("/api/session/{}/fork", urlencoding::encode(&s.id)), &serde_json::json!({})).map_err(|e| anyhow::anyhow!("OpenCode couldn't fork {}: {e}", s.title))?;
+        let id = forked_id(&got).ok_or_else(|| anyhow::anyhow!("OpenCode forked {} but didn't say what it called the copy.", s.title))?;
+        Ok(fork_into(ctx.account, &id))
+    }
+}
+
+/// The copy's id in the service's answer to a fork: `{data: {id, fork: {sessionID, boundary}}}`.
+fn forked_id(answer: &Value) -> Option<String> {
+    answer.get("data")?.get("id")?.as_str().map(String::from)
+}
+
+/// Opens the terminal UI on `id`, a fork the service has made.
+fn fork_into(account: &crate::config::AccountCfg, id: &str) -> crate::harness::Fork {
+    crate::harness::Fork { input: format!("{} --session {id}\n", account.command()), env: Vec::new(), key: Some(format!("opencode:{}:{id}", account.name)) }
 }
 
 struct PermissionRequest {
@@ -738,5 +757,19 @@ mod tests {
         std::fs::write(&path, r#"{"url":"http://127.0.0.1:1","pid":4000000,"password":"pw"}"#).unwrap();
         assert_eq!(service_at(&path), None);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn opens_the_fork_its_service_made() {
+        // The service's answer to a fork, as 2.0.16 gave it.
+        let answer: Value = serde_json::from_str(r#"{"data":{"id":"ses_f15f6e5a9ffe57CibPTgUS3IlW","fork":{"sessionID":"ses_f15f72088ffep4qnjzWbYxa0w6","boundary":{"type":"through","messageID":"msg_0dee2f9b8001Pd8F98MdK1test"}},"projectID":"global","title":"orig (fork #1)"}}"#).unwrap();
+        let id = forked_id(&answer).unwrap();
+        assert_eq!(id, "ses_f15f6e5a9ffe57CibPTgUS3IlW");
+        let a = crate::config::AccountCfg { name: "opencode".into(), harness: "opencode".into(), home: "~/.local/share/opencode".into(), command: None, start: None, preferred: false, acp: None };
+        let f = fork_into(&a, &id);
+        assert_eq!(f.input, "opencode --session ses_f15f6e5a9ffe57CibPTgUS3IlW\n");
+        assert_eq!(f.key.as_deref(), Some("opencode:opencode:ses_f15f6e5a9ffe57CibPTgUS3IlW"));
+        // A refusal (an empty session) has no copy in it.
+        assert_eq!(forked_id(&serde_json::json!({"_tag": "InvalidRequestError", "kind": "empty_session"})), None);
     }
 }

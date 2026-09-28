@@ -10,7 +10,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { below, showContextMenu, type MenuAction, type MenuSpec } from './contextMenu';
 import { AGENT_BAY, BAYS, buildBays, failingPr, filterByAge, inboxCounts, lanePromptAt, narrowed, rowItems, seenable, worktreeRow, type BoardRow, type Filter, type WorktreeRow } from './lanes';
-import { answerLink, approvePr, barOn, desktopPins, getDevices, onDevices, dismissTodoHint, expandAttachments, getBoard, onBarOn, onBoard, onCloseIdle, onDesktopPins, onNewWindow, onQuickStart, onReveal, onSettings, openConfig, openProjectWindow, openTarget, openUrl, pinToDesktop, refresh, refreshUsage, reviewInCodex, setBarOn, startOptions, startSession, setPinned, setPinnedWorktrees, setTheme, showQuick, signIn, unpinFromDesktop, windowLabel, type Reveal } from './api';
+import { answerLink, approvePr, barOn, desktopPins, getDevices, onDevices, dismissTodoHint, expandAttachments, getBoard, onBarOn, onBoard, onCloseIdle, onDesktopPins, onNewWindow, onQuickStart, onReveal, onSettings, openConfig, openProjectWindow, openTarget, openUrl, pinToDesktop, refresh, refreshUsage, reviewInCodex, setBarOn, startOptions, startSession, forkSession, setPinned, setPinnedWorktrees, setTheme, showQuick, signIn, unpinFromDesktop, windowLabel, type Reveal } from './api';
 import { agoPhrase, middleTruncate } from './format';
 import { usePerf } from './perf';
 import { archiveAhead, boardAhead, boardView, lanesAhead, observe, seenAhead, useAhead } from './ahead';
@@ -1191,8 +1191,8 @@ export function App() {
   const toggleLanePin = useCallback((lane: Lane) => lanePins.toggle(lane.id), [lanePins]);
 
   /**
-   * A session's right-click menu: open it, mark it seen, pin it, snooze it, archive it, copy its
-   * ID. Snoozes keep sessions off the floating bar, which shows this Mac's only. Each list pins what
+   * A session's right-click menu: open it, fork it, mark it seen, pin it, snooze it, archive it,
+   * copy its ID. Snoozes keep sessions off the floating bar, which shows this Mac's only. Each list pins what
    * it shows: Sessions pins the session; the board and the sidebar, lists of worktrees, pin the
    * session's worktree.
    */
@@ -1200,6 +1200,14 @@ export function App() {
   todoItemsRef.current = todoMenuItems;
   /** Marks a finished turn seen: it goes idle, and leaves Your turn and the bar. */
   const seen = (s: Session) => markSeen([s.key]);
+  /** Forks a session into a new terminal, and selects the copy once it shows, as a start does. */
+  const fork = (s: Session) =>
+    track(`Forking ${s.title}…`, forkSession(s.key))
+      .then((started) => {
+        if (started?.message) setToast(started.message);
+        if (started?.key) setPendingSession({ key: started.key, until: Date.now() + 60_000 });
+      })
+      .catch((e: unknown) => setToast(String(e).replace(/^Error: /, '')));
   const sessionMenuSpec = (lane: Lane, s: Session, pin: 'session' | 'worktree'): MenuSpec => {
       const target = lane.targets.find((t) => t.id === s.openTarget);
       const pinItem =
@@ -1209,6 +1217,8 @@ export function App() {
       return [
         { label: target?.label ?? 'Open', run: () => open(lane, s.openTarget) },
         { label: 'New session here…', run: () => newSession({ laneId: lane.id }) },
+        // Forks open in a terminal, where only sessions that resume in one can go.
+        ...(s.resumeCommand ? [{ label: 'Fork in terminal', run: () => void fork(s) }] : []),
         'separator',
         ...todoItemsRef.current(lane.project, { session: s.key }, { session: s.key, worktree: lane.id, label: `${s.account} in ${lane.callsign}` }, s.title),
         'separator',

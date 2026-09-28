@@ -83,6 +83,24 @@ pub trait Adapter: Sync {
     fn skips_permission_prompts(&self, _ctx: &Ctx, _session: &Session) -> bool {
         false
     }
+
+    /// A copy of the session's conversation as far as it's written, to go on with in a new
+    /// terminal while the session itself carries on: what to type there. A harness that copies
+    /// through a service has made the copy by the time this returns.
+    fn fork(&self, _ctx: &Ctx, _session: &Session) -> Result<Fork> {
+        bail!("{} can't fork a session.", self.harness().word())
+    }
+}
+
+/// How a fork opens in a terminal (`Adapter::fork`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Fork {
+    /// Typed into the new terminal, Return included.
+    pub input: String,
+    /// Set in the terminal's shell.
+    pub env: Vec<(String, String)>,
+    /// The new session's key, when it's known before the harness writes the session.
+    pub key: Option<String>,
 }
 
 static ADAPTERS: [&dyn Adapter; 4] = [&crate::claude::ClaudeCode, &crate::codex::Codex, &crate::opencode::OpenCode, &crate::antigravity::Antigravity];

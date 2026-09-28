@@ -654,6 +654,16 @@ impl crate::harness::Adapter for Codex {
     fn runs_its_commands(&self) -> bool {
         true
     }
+
+    /// `codex fork <id>` opens its terminal UI on a copy of the thread, an app's thread too.
+    /// Codex picks the copy's id, so it shows on the board once it's written.
+    fn fork(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> anyhow::Result<crate::harness::Fork> {
+        Ok(fork_of(ctx.account, &s.id))
+    }
+}
+
+fn fork_of(account: &crate::config::AccountCfg, id: &str) -> crate::harness::Fork {
+    crate::harness::Fork { input: format!("{} fork {id}\n", account.command()), env: Vec::new(), key: None }
 }
 
 /// The inputs of the calls at the end of a rollout with no output yet: a call is written there
@@ -1055,5 +1065,15 @@ mod tests {
     fn reads_thread_ids_from_file_names() {
         let p = Path::new("/x/rollout-2026-09-21T08-47-36-01a0c4a6-bc7b-7212-b766-77fcc7a15d43.jsonl");
         assert_eq!(thread_id_of(p).as_deref(), Some("01a0c4a6-bc7b-7212-b766-77fcc7a15d43"));
+    }
+
+    #[test]
+    fn forks_a_thread_in_its_accounts_terminal_ui() {
+        let a = crate::config::AccountCfg { name: "codex2".into(), harness: "codex".into(), home: "~/.codex2".into(), command: Some("CODEX_HOME=~/.codex2 codex".into()), start: None, preferred: false, acp: None };
+        let f = fork_of(&a, "01a0e375-1c2d-7e3f-8a9b-0c1d2e3f4a5b");
+        assert_eq!(f.input, "CODEX_HOME=~/.codex2 codex fork 01a0e375-1c2d-7e3f-8a9b-0c1d2e3f4a5b\n");
+        assert_eq!(f.key, None);
+        // The terminal it opens is paired with its folder's newest thread, not the one it forked.
+        assert_eq!(terminal_args("codex fork 01a0e375-1c2d-7e3f-8a9b-0c1d2e3f4a5b"), Some((None, None)));
     }
 }

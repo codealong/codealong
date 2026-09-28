@@ -308,6 +308,12 @@ Claude Code
   swallows the prompt. There's no image flag. The prompt is a positional argument parsed like any other: one that starts with `-`
   reads as an option, and one that is only a subcommand's name (`update`, `doctor`) runs that
   command. `start.rs` pads such prompts with a space.
+- `--resume <id> --fork-session` opens a copy of the conversation as far as it's written (a
+  turn still running shows as interrupted in the copy) while the original carries on.
+  `--session-id <uuid>` names the copy; with `--resume` it's taken only alongside
+  `--fork-session` ("--session-id can only be used with --continue or --resume if
+  --fork-session is also specified"). The registry has the new ID at once, the transcript from
+  the first prompt, as with a start (checked on 2.1.284, 2026-09-28).
 - `--model` takes a full name or an alias for the newest model of a family: `sonnet`, `opus`,
   `haiku`, `fable`, their `[1m]` (1M context) variants, `best` and `opusplan` (2.1.282's list).
   Quote it when typing it: zsh reads `fable[1m]` as a file pattern ("no matches found"). Without
@@ -481,7 +487,8 @@ Codex
   `session_meta` (`codex_cli_rs` before; the app's say `Codex Desktop`), with `source` "vscode"
   through the daemon. There's no way to choose a new thread's id. `codex -- <prompt>` starts on
   a prompt (`-i` takes several images, so `--` ends them), `codex resume -- <id> <prompt>`
-  continues one, and a typed-in prompt pasted into the TUI is sent with Return, queued while a
+  continues one, `codex fork <id> [prompt]` opens a copy of one (an app's thread too) under a new
+  id Codex picks (the app-server's `thread/fork {threadId, cwd, …}` does the same), and a typed-in prompt pasted into the TUI is sent with Return, queued while a
   turn runs. `codex::terminals` finds TUIs by `ps` (the daemon, `exec` and bundled copies aren't
   terminals) and `pair_terminals` gives each its `resume` id or its folder's newest CLI thread
   active since it started.
@@ -531,6 +538,11 @@ OpenCode (2.0.16, from its source at that tag and its files here)
   `codealong` finds the session that runs it there (checked with `opencode run`, 2026-09-27).
 - `POST /api/session/<id>/prompt` with `{text, delivery: "queue"|"steer"}` sends a session a
   prompt; any TUI on that session shows it.
+- `POST /api/session/<id>/fork` with `{}` copies a session's history into a new session (`{before:
+  <message id>}` copies what came before it) and answers `{data: {id, title, fork: {sessionID,
+  boundary}}}`. The copy has no `parent_id`, so it lists as a session of its own, titled `<title>
+  (fork #1)`; an empty session is refused (`kind: "empty_session"`). The command line can't
+  fork (checked against a service of its own with scratch `XDG_*` folders, 2026-09-28).
 - Permission requests: `GET /api/session/<id>/permission` lists them (`id` `per_…`, `action`
   such as `shell`, `resources` such as the command, `source.id` the tool call);
   `POST /api/session/<id>/permission/<request>/reply` with `{"decision": "once"|"always"|"reject"}`

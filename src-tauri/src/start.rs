@@ -582,6 +582,27 @@ pub fn start(board: &Board, cfg: &Config, spec: &StartSpec) -> Result<Started> {
     }
 }
 
+/// Forks a session into a new terminal in its folder (`Adapter::fork`): the copy goes on from
+/// what the session had written, and the session itself carries on as it was.
+pub fn fork(board: &Board, cfg: &Config, key: &str) -> Result<Started> {
+    let (s, account) = crate::harness::find(board, cfg, key)?;
+    // The id is typed into a shell, and the harnesses' ids are letters, digits, - and _.
+    if s.id.is_empty() || !s.id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+        bail!("Codealong won't type {}'s id into a shell: {:?}.", s.title, s.id);
+    }
+    // Its own worktree, not one it only visits.
+    let own = |l: &&crate::model::Lane| l.sessions.iter().any(|x| x.key == key && x.visitor.is_none());
+    let holds = |l: &&crate::model::Lane| l.sessions.iter().any(|x| x.key == key);
+    let lane = board.lanes.iter().find(own).or_else(|| board.lanes.iter().find(holds)).ok_or_else(|| anyhow!("That session isn't on the board any more."))?;
+    let cwd = if Path::new(&s.cwd).is_dir() { PathBuf::from(&s.cwd) } else { PathBuf::from(&lane.path) };
+    let fork = crate::harness::adapter(s.harness).fork(&crate::harness::Ctx { account }, s)?;
+    let near = crate::board::terminal_neighbours(&board.lanes, &cwd);
+    launch::terminal_run(&cfg.apps.terminal, launch::Placement { new_terminal: cfg.apps.new_terminal, near: &near }, &cwd, &fork.input, &fork.env)?;
+    // One whose harness names the copy shows on the board once it's written.
+    let message = fork.key.is_none().then(|| format!("{} is opening a fork of {} in {}.", s.harness.word(), s.title, lane.callsign));
+    Ok(Started { key: fork.key, message })
+}
+
 /// Starts a Codex app thread on a prompt. The app's new-thread link only fills the prompt in, so
 /// Codealong makes the thread itself, and the app, once it has the thread open, runs the first
 /// turn as if you'd sent it there. When that fails the link still fills the prompt in: in the

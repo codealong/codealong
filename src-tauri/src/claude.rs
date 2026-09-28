@@ -570,6 +570,22 @@ impl crate::harness::Adapter for ClaudeCode {
     fn runs_its_commands(&self) -> bool {
         true
     }
+
+    fn fork(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> anyhow::Result<crate::harness::Fork> {
+        Ok(fork_as(ctx.account, &s.id, &crate::start::new_session_id()))
+    }
+}
+
+/// Forks session `id` into a new one named `new_id`: `--fork-session` copies the transcript, and
+/// takes `--session-id` for the copy's ID (resuming takes it only with `--fork-session`), so the
+/// copy's key is known before it's written, as a start's is.
+fn fork_as(account: &crate::config::AccountCfg, id: &str, new_id: &str) -> crate::harness::Fork {
+    let key = format!("claude:{}:{new_id}", account.name);
+    crate::harness::Fork {
+        input: format!("{} --resume {id} --fork-session --session-id {new_id}\n", account.command()),
+        env: vec![(crate::start::SESSION_VAR.to_string(), key.clone())],
+        key: Some(key),
+    }
 }
 
 /// The inputs of the calls at the end of a transcript with no result yet: Claude Code writes a
@@ -1030,5 +1046,14 @@ mod tests {
         let input = serde_json::json!({"command": "cd /Users/me/projects/app-fix && yarn test"});
         assert_eq!(tool_request("Bash", &input), "Bash · `yarn test`");
         assert_eq!(tool_activity("Bash", &input), "running `yarn test`");
+    }
+
+    #[test]
+    fn forks_under_an_id_it_picks() {
+        let a = crate::config::AccountCfg { name: "claude2".into(), harness: "claude".into(), home: "~/.claude2".into(), command: None, start: None, preferred: false, acp: None };
+        let f = fork_as(&a, "4f1c2a9e-0b7d-4e21-9c55-1a2b3c4d5e6f", "9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a");
+        assert_eq!(f.input, "claude2 --resume 4f1c2a9e-0b7d-4e21-9c55-1a2b3c4d5e6f --fork-session --session-id 9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a\n");
+        assert_eq!(f.key.as_deref(), Some("claude:claude2:9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a"));
+        assert_eq!(f.env, vec![("CODEALONG_SESSION".to_string(), "claude:claude2:9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a".to_string())]);
     }
 }
