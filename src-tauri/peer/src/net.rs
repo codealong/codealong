@@ -1,12 +1,13 @@
-//! Reaching linked devices that aren't on your tailnet, through iroh (peers.rs). A device's key
+//! Reaching linked devices that aren't on your tailnet, through iroh (the engine's peers.rs, and
+//! client.rs here). A device's key
 //! is its iroh address: another device dials the key, iroh finds a path (straight through,
 //! punching through NATs, or by one of number 0's relays, which pass encrypted packets along
 //! and can't read them), and the connection itself proves both keys. Linking a device this way
 //! takes a link code (`Ticket`) made on one device and entered on the other: this device's key and a
 //! one-time secret.
 //!
-//! iroh is async and Codealong's engine is threads and channels, so iroh runs on a runtime of
-//! its own and each connection is handed to peers.rs as a reader and a writer that block.
+//! iroh is async and Codealong is threads and channels, so iroh runs on a runtime of its own and
+//! each connection is handed over as a reader and a writer that block (`Wire`).
 
 use std::io::{self, Read, Write};
 use std::sync::{Arc, Mutex};
@@ -18,7 +19,7 @@ use iroh::endpoint::{presets, Connection, Incoming, RecvStream, SendStream, VarI
 use iroh::{Endpoint, EndpointAddr, PublicKey, SecretKey};
 use tokio::runtime::Runtime;
 
-use crate::peers::Wire;
+use crate::wire::Wire;
 
 /// The protocol name iroh connections for Codealong carry, so nothing else is taken for one.
 pub const ALPN: &[u8] = b"codealong/peer/1";
@@ -149,7 +150,7 @@ const SECRET_BYTES: usize = 10;
 
 impl Ticket {
     pub fn new(key: PublicKey) -> Ticket {
-        let secret = crate::peerproto::nonce()[..SECRET_BYTES * 2].to_string();
+        let secret = crate::proto::nonce()[..SECRET_BYTES * 2].to_string();
         Ticket { key, secret }
     }
 

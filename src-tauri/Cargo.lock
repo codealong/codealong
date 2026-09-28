@@ -594,6 +594,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "codealong-peer",
  "data-encoding",
  "dirs",
  "ignore",
@@ -611,10 +612,23 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-global-shortcut",
- "tokio",
  "toml 1.1.6+spec-1.1.0",
  "toml_edit 0.23.10+spec-1.0.0",
  "urlencoding",
+]
+
+[[package]]
+name = "codealong-peer"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "data-encoding",
+ "iroh",
+ "memchr",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tokio",
 ]
 
 [[package]]

@@ -103,18 +103,6 @@ pub fn adapter(h: Harness) -> &'static dyn Adapter {
     *ADAPTERS.iter().find(|a| a.harness() == h).expect("every harness has an adapter")
 }
 
-impl Harness {
-    /// The harness as the UI names it.
-    pub fn word(self) -> &'static str {
-        match self {
-            Harness::Claude => "Claude Code",
-            Harness::Codex => "Codex",
-            Harness::Opencode => "OpenCode",
-            Harness::Antigravity => "Antigravity",
-        }
-    }
-}
-
 /// A session on the board with its account, for an adapter.
 pub fn find<'a>(board: &'a crate::model::Board, cfg: &'a Config, key: &str) -> Result<(&'a Session, &'a AccountCfg)> {
     let s = board.lanes.iter().flat_map(|l| &l.sessions).find(|s| s.key == key).ok_or_else(|| anyhow::anyhow!("That session isn't on the board any more."))?;

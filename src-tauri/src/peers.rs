@@ -19,7 +19,7 @@
 //! hands the windows what they show of other devices (`DevicesView`).
 
 use std::collections::{HashMap, HashSet};
-use std::io::{BufReader, Read, Write};
+use std::io::{BufReader, Write};
 use std::net::{IpAddr, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -64,31 +64,7 @@ const LINK_CODE_FOR_MS: i64 = 10 * 60 * 1000;
 pub const CONTROL: [&str; 3] = ["session-send", "session-answer", "start"];
 
 /// A connection to another device as the rest of this module sees it, whatever carries it.
-pub struct Wire {
-    pub reader: Box<dyn Read + Send>,
-    pub writer: Box<dyn Write + Send>,
-    /// How long a read may wait; None waits for ever.
-    pub set_timeout: Box<dyn Fn(Option<Duration>) + Send + Sync>,
-    pub close: Box<dyn Fn() + Send + Sync>,
-}
-
-impl Wire {
-    pub fn tcp(s: TcpStream) -> Result<Wire> {
-        // Accepted from a listener that doesn't block, a stream doesn't block either on macOS.
-        s.set_nonblocking(false)?;
-        let (reader, writer, timeouts) = (s.try_clone()?, s.try_clone()?, s.try_clone()?);
-        Ok(Wire {
-            reader: Box::new(reader),
-            writer: Box::new(writer),
-            set_timeout: Box::new(move |d| {
-                let _ = timeouts.set_read_timeout(d);
-            }),
-            close: Box::new(move || {
-                let _ = s.shutdown(std::net::Shutdown::Both);
-            }),
-        })
-    }
-}
+pub use codealong_peer::wire::Wire;
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -1448,6 +1424,44 @@ mod tests {
         assert_eq!(b.peers.view().asks[0].code, code, "both devices show the same code");
         b.peers.answer_link(&key_of(a), true).unwrap();
         until("both linked", || a.peers.view().devices.iter().any(|d| d.online && d.key == key_of(b)) && b.peers.view().devices.iter().any(|d| d.online && d.key == key_of(a)));
+    }
+
+    /// The phone's client (codealong-peer's device that only watches) links with a Mac's link
+    /// code, gets its feed, reads through the Mac's own functions, and is refused what needs
+    /// remote control there.
+    #[test]
+    fn a_watching_device_links_with_a_code_and_reads() {
+        let mac = device("Mini", vec![lane("/Users/sam/app", vec![session("claude:claude:s2", Status::Needs)])]);
+        // A link code as Settings › Devices makes one, without starting iroh.
+        let secret = "00112233445566778899".to_string();
+        mac.peers.0.lock().codes.push((secret.clone(), now_ms() + LINK_CODE_FOR_MS));
+        let code = Ticket { key: mac.peers.0.me.get().unwrap().key, secret }.encode();
+
+        let dir = mac.dir.with_extension("phone");
+        let phone = codealong_peer::client::Client::new(dir.clone(), SecretKey::generate(), "iPhone".into(), "0.1.0".into(), Box::new(|| {}));
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let dialer = TcpStream::connect(("127.0.0.1", l.local_addr().unwrap().port())).unwrap();
+        let (accepted, _) = l.accept().unwrap();
+        // The Mac takes it as it takes a connection through iroh: from no tailnet user.
+        mac.peers.attach(Wire::tcp(accepted).unwrap(), Via::Test, false, None, None, None);
+        assert_eq!(phone.link_wire(&code, Wire::tcp(dialer).unwrap()).unwrap(), "Mini");
+
+        until("the Mac to list the phone", || mac.peers.view().devices.iter().any(|d| d.name == "iPhone" && d.online));
+        until("the Mac's feed", || phone.with_feeds(|f| f.first().is_some_and(|(_, r)| r.lanes.len() == 1)));
+        let d = phone.devices().remove(0);
+        assert!(d.online && d.linked_back && !d.remote_control, "{d:?}");
+        assert_eq!(d.name, "Mini");
+        assert_eq!(phone.with_feeds(|f| f[0].1.lanes[0].sessions[0].status), Status::Needs);
+
+        let page = phone.ask(&d.short, "session-page", json!({ "key": "claude:claude:s2" }), Duration::from_secs(5)).unwrap();
+        assert_eq!(page["key"], "claude:claude:s2");
+        let refused = phone.ask(&d.short, "session-send", json!({ "key": "claude:claude:s2", "text": "hi" }), Duration::from_secs(5)).unwrap_err();
+        assert!(refused.contains("Remote control is off on Mini"), "{refused}");
+
+        // Unlinking on the phone unlinks the Mac too.
+        phone.unlink(&d.key).unwrap();
+        until("the Mac to forget the phone", || mac.peers.view().devices.is_empty());
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

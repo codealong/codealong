@@ -1,5 +1,6 @@
-//! What two Codealongs say to each other (peers.rs): JSON lines over whatever carries them, a
-//! TCP connection on the tailnet (tailnet.rs) or a QUIC stream through iroh (irohnet.rs).
+//! What two Codealongs say to each other (the engine's peers.rs, and client.rs here): JSON lines
+//! over whatever carries them, a TCP connection on the tailnet (the engine's tailnet.rs) or a QUIC
+//! stream through iroh (net.rs).
 //!
 //! A connection opens with each side's `hello` (its device key, its name and a fresh nonce),
 //! then each side's `proof`: its signature over the other side's nonce and both keys. So each
@@ -16,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-use crate::peerfeed::FeedMsg;
+use crate::feed::FeedMsg;
 
 pub const VERSION: u32 = 1;
 

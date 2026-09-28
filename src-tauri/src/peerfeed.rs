@@ -7,46 +7,18 @@
 //! The receiving device keeps a `Replica` of each linked device's feed, and hands its windows the
 //! worktrees with `@<short>:` in front of every lane id and session key (`for_windows`), so a
 //! click on one goes back to the device it's on and no id from there is taken for one here.
+//!
+//! The feed's messages and the replica are in codealong-peer (peer/src/feed.rs), which apps that
+//! only watch share; this file has the sending side.
 
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
+
+pub use codealong_peer::feed::{remote_key, split_remote, DeviceInfo, FeedMsg, Replica};
 
 use crate::model::{Board, DeviceTag, Lane, Usage};
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct DeviceInfo {
-    pub name: String,
-    pub app: String,
-    /// Its linked devices may send prompts, answer approvals and start sessions there.
-    #[serde(default)]
-    pub remote_control: bool,
-    /// Its first scan hasn't finished.
-    #[serde(default)]
-    pub loading: bool,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct FeedMsg {
-    pub rev: u64,
-    /// Everything the sender has: the receiver drops what it had from it before.
-    #[serde(default)]
-    pub full: bool,
-    #[serde(default)]
-    pub generated_at: i64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub device: Option<DeviceInfo>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub lanes: Vec<Lane>,
-    /// Lanes that left, by id.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub gone: Vec<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub usage: Option<Vec<Usage>>,
-}
 
 /// What a device shares, cut from one board, with each part's hash worked out once for every
 /// connection it goes to.
@@ -142,58 +114,6 @@ impl Outbox {
     }
 }
 
-/// What this device knows of a linked device's board, kept up to date by its feeds, and kept on disk
-/// so a device that's asleep still shows as it was when last seen.
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct Replica {
-    pub rev: u64,
-    pub generated_at: i64,
-    pub device: DeviceInfo,
-    pub lanes: Vec<Lane>,
-    pub usage: Vec<Usage>,
-}
-
-impl Replica {
-    pub fn apply(&mut self, msg: FeedMsg) {
-        if msg.full {
-            *self = Replica::default();
-        }
-        self.rev = msg.rev;
-        self.generated_at = msg.generated_at;
-        if let Some(d) = msg.device {
-            self.device = d;
-        }
-        if let Some(u) = msg.usage {
-            self.usage = u;
-        }
-        if !msg.gone.is_empty() {
-            let gone: HashSet<&String> = msg.gone.iter().collect();
-            self.lanes.retain(|l| !gone.contains(&l.id));
-        }
-        let mut at: HashMap<String, usize> = self.lanes.iter().enumerate().map(|(i, l)| (l.id.clone(), i)).collect();
-        for l in msg.lanes {
-            match at.get(&l.id) {
-                Some(&i) => self.lanes[i] = l,
-                None => {
-                    at.insert(l.id.clone(), self.lanes.len());
-                    self.lanes.push(l);
-                }
-            }
-        }
-    }
-}
-
-/// A key from another device, as this device's windows get it.
-pub fn remote_key(short: &str, key: &str) -> String {
-    format!("@{short}:{key}")
-}
-
-/// The device's short id and its own key, for a key that came from another device.
-pub fn split_remote(key: &str) -> Option<(&str, &str)> {
-    key.strip_prefix('@')?.split_once(':')
-}
-
 /// A linked device's worktrees as this device's windows get them: every lane id and session key with
 /// the device's short id in front, and each lane tagged with the device.
 pub fn for_windows(short: &str, tag: &DeviceTag, replica: &Replica) -> Vec<Lane> {
@@ -285,14 +205,6 @@ mod tests {
         replica.apply(rename);
         assert_eq!(replica.device.name, "Studio");
         assert_eq!(replica.rev, 3);
-    }
-
-    #[test]
-    fn a_full_feed_replaces_what_was_there() {
-        let mut replica = Replica::default();
-        replica.apply(FeedMsg { rev: 5, full: true, lanes: vec![lane("/old", vec![])], ..Default::default() });
-        replica.apply(FeedMsg { rev: 1, full: true, lanes: vec![lane("/new", vec![])], ..Default::default() });
-        assert_eq!(replica.lanes.iter().map(|l| l.id.as_str()).collect::<Vec<_>>(), ["/new"]);
     }
 
     #[test]

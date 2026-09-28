@@ -1,0 +1,17 @@
+[package]
+name = "codealong-peer"
+version = "0.1.0"
+description = "What Codealong on one device says to Codealong on another: the protocol, link codes, feeds and the worktrees and sessions they carry, over the tailnet or iroh."
+edition = "2021"
+rust-version = "1.80"
+publish = false
+
+[dependencies]
+anyhow = "1"
+data-encoding = "2"
+iroh = "1"
+memchr = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tokio = { version = "1", features = ["rt-multi-thread", "time"] }

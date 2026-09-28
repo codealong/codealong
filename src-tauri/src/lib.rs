@@ -26,13 +26,15 @@ mod idle;
 mod github;
 mod install;
 mod insights;
-mod irohnet;
+// Link codes and iroh, the messages between devices, and the model their feeds carry are in
+// codealong-peer (peer/), which the phone app builds on too.
+use codealong_peer::net as irohnet;
 mod jev;
 mod launch;
 mod logo;
 mod model;
 mod peerfeed;
-mod peerproto;
+use codealong_peer::proto as peerproto;
 mod peers;
 mod perf;
 mod prasks;

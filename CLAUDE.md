@@ -15,7 +15,7 @@ repos or naming. Behavior comes from what the harnesses record and from `config.
 ```bash
 npm run typecheck                       # tsc
 npm test                                # vitest (format, lanes, pins, sections)
-(cd src-tauri && cargo test)            # engine rules, parsers, usage, config, launch scripts
+(cd src-tauri && cargo test)            # engine rules, parsers, usage, config, launch scripts; codealong-peer's too
 (cd src-tauri && cargo build --release) # the engine binary; cargo test does NOT rebuild it
 scripts/relaunch.sh                     # builds the bundle, then quits and reopens the app
 ```
@@ -197,6 +197,14 @@ some work is, answer with one.
 ## Conventions
 
 - The frontend never shells out; every side effect is a Tauri command in `src-tauri/src/lib.rs`.
+- What goes between devices is codealong-peer (`src-tauri/peer/`, a second package in the
+  engine's Cargo workspace): the messages and key proofs (`proto`, re-exported as
+  `crate::peerproto`), link codes and iroh (`net`, as `crate::irohnet`), feeds (`feed`), the
+  connection (`wire`), a device that only watches (`client`), and the worktree and session model
+  their feeds carry (`model`; the engine's `model.rs` re-exports it and keeps the board). So a new
+  field on a session or lane goes in `peer/src/model.rs`. The iPhone app (codealong-ios) builds
+  on the crate at a pinned `origin/main` commit and talks to Macs of other builds: a message a
+  peer doesn't know ends its connection, so new messages go only to peers that say they know them.
 - `src-tauri/src/board.rs` holds the model's rules as pure functions with tests; the engine
   gathers inputs and calls them. `src/lanes.ts` mirrors `bay_of`, the agent bays'
   headlines and the order of sessions and lanes (`sort_sessions`, `lane_prompt_at`) for the
@@ -620,7 +628,7 @@ Tailscale (1.102, through its command; for your other devices, tailnet.rs)
 - A TCP listener binds to this device's 100.x address without asking anything. A stream accepted
   from a listener that doesn't block doesn't block either on macOS, so `Wire::tcp` sets it back.
 
-iroh (1.2; irohnet.rs)
+iroh (1.2; codealong-peer's net.rs)
 
 - `Endpoint::builder(presets::N0)` uses number 0's public relays (rate-limited; their Pro plan
   or a self-hosted `iroh-relay` for real use) and its address lookup (pkarr and DNS), so a device
@@ -628,7 +636,7 @@ iroh (1.2; irohnet.rs)
   hex, parses hex or base32, and `fmt_short` is its first five bytes. A connection proves the
   other side's key (`remote_id`). A stream from `open_bi` reaches the other side's `accept_bi`
   only once something is written on it.
-- It's async on tokio: irohnet.rs runs a runtime of its own, and each connection's reader and
+- It's async on tokio: net.rs runs a runtime of its own, and each connection's reader and
   writer `block_on` it from plain threads.
 
 Tauri and macOS (from the Tauri 2.11 and tao 0.35 sources)

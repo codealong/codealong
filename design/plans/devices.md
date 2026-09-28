@@ -38,13 +38,13 @@ Off until `[devices] enabled = true` (Settings › Devices).
   address only (47471 by default), dials your devices that are online (the one with the lower
   address first, so two devices don't both dial), and asks `tailscale whois` whose each
   incoming connection is, keeping only your own machines'.
-- **iroh** (`irohnet.rs`), for linked devices anywhere: a device's key is its iroh address, so
+- **iroh** (codealong-peer's `net.rs`), for linked devices anywhere: a device's key is its iroh address, so
   a device dials the key; iroh connects directly when it can (about 90% of pairs) and otherwise
   through number 0's relays, which pass encrypted packets along. Linked devices not connected
   are dialed through iroh after the tailnet has had its turn, less often each time one doesn't
   answer.
 
-Either way the connection is JSON lines (`peerproto.rs`), and both sides first prove they hold
+Either way the connection is JSON lines (codealong-peer's `proto.rs`), and both sides first prove they hold
 the device key they claim: each signs the other's nonce and both keys. So trust goes by device
 key whatever carried the connection, and one device is one key. The key is made when Devices is
 first turned on and kept in the login keychain (`devicekey.rs`).
@@ -130,4 +130,5 @@ Projects.
    holds).
 6. Teams: another tailnet user's devices, sharing only what each device allows (status, titles
    or excerpts) and answering team searches only in shared repos.
-7. A web or phone view, and todos synced between your devices.
+7. A phone view (ios.md: the iPhone app, a device that only watches), a web view, and todos
+   synced between your devices.
