@@ -158,9 +158,11 @@ interface InspectorProps {
   onShowTodo?: (todo: Todo) => void;
   /** Right-click on its PR: the PR's menu (open it, copy its link…). */
   onPrMenu?: () => void;
+  /** Drops Review with… for its PR from the button. */
+  onReviewPr?: (button: Element) => void;
 }
 
-export function Inspector({ lane, focusKey, apps, now, onOpen, onNewSession, todos, todosFor, onShowTodo, onPrMenu }: InspectorProps) {
+export function Inspector({ lane, focusKey, apps, now, onOpen, onNewSession, todos, todosFor, onShowTodo, onPrMenu, onReviewPr }: InspectorProps) {
   const [showAll, setShowAll] = useState(false);
   useEffect(() => setShowAll(false), [lane?.id]);
   if (!lane) {
@@ -285,9 +287,11 @@ export function Inspector({ lane, focusKey, apps, now, onOpen, onNewSession, tod
               <Button variant="ghost" size="sm" icon="external" onClick={() => onOpen('p|github')}>
                 Open in GitHub
               </Button>
-              <Button variant="ghost" size="sm" icon="eye" onClick={() => onOpen('p|codex-review')}>
-                Review in Codex
-              </Button>
+              {onReviewPr && (
+                <Button variant="ghost" size="sm" icon="eye" onClick={(e) => onReviewPr(e.currentTarget)}>
+                  Review with…
+                </Button>
+              )}
             </div>
           </div>
         </section>

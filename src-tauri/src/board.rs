@@ -1057,7 +1057,6 @@ pub fn targets(seed: &LaneSeed, sessions: &[Session], pr: Option<&Pr>, apps: &Ap
     t.push(target("l|finder".into(), "folder", "Reveal in Finder".into(), None, None, false, "lane"));
     if let Some(pr) = pr {
         t.push(target("p|github".into(), "external", format!("Open #{} on GitHub", pr.number), None, Some(&["⌘", "O"]), false, "pr"));
-        t.push(target("p|codex-review".into(), "eye", format!("Review #{} in Codex", pr.number), None, None, false, "pr"));
     }
     // The main action pulls up the most recent session where it lives; with no sessions, a
     // terminal at the lane. The editor is always secondary.

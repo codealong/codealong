@@ -8,17 +8,19 @@
 // Keyboard map: the design system's Surfaces page.
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import { showContextMenu, type MenuSpec } from './contextMenu';
+import { below, showContextMenu, type MenuAction, type MenuSpec } from './contextMenu';
 import { AGENT_BAY, BAYS, buildBays, failingPr, filterByAge, inboxCounts, lanePromptAt, narrowed, rowItems, seenable, worktreeRow, type BoardRow, type Filter, type WorktreeRow } from './lanes';
-import { answerLink, approvePr, barOn, getDevices, onDevices, dismissTodoHint, expandAttachments, getBoard, onBarOn, onBoard, onCloseIdle, onNewWindow, onQuickStart, onReveal, onSettings, openConfig, openProjectWindow, openTarget, openUrl, refresh, refreshUsage, reviewInCodex, setBarOn, setPinned, setPinnedWorktrees, setTheme, showQuick, signIn, windowLabel, type Reveal } from './api';
+import { answerLink, approvePr, barOn, getDevices, onDevices, dismissTodoHint, expandAttachments, getBoard, onBarOn, onBoard, onCloseIdle, onNewWindow, onQuickStart, onReveal, onSettings, openConfig, openProjectWindow, openTarget, openUrl, refresh, refreshUsage, reviewInCodex, setBarOn, startOptions, startSession, setPinned, setPinnedWorktrees, setTheme, showQuick, signIn, windowLabel, type Reveal } from './api';
 import { agoPhrase, middleTruncate } from './format';
 import { usePerf } from './perf';
 import { archiveAhead, boardAhead, boardView, lanesAhead, observe, seenAhead, useAhead } from './ahead';
 import { reuse } from './reuse';
 import { reorderPinned, usePins } from './pins';
 import { prFlag } from './prStatus';
+import { reviewLane, reviewPicks, reviewPrompt } from './review';
+import { remembered } from './start';
 import { blockedBy, COLOR_WORD, depsOf, newTodo, pickTo, pickToggle, sectionOf, sessionHomes, snippet, STATUSES, STATUS_WORD, todoIndex, todoInFilter, todoInQuery, todoItem, todoPrompt, todosPrompt, todoSections, useTodoStore, type TodoItem, type TodoPick, type TodoSectionId } from './todos';
-import type { Bay, Board, DevicesView, Label, Lane, PrItem, Session, Theme, Todo, TodoStatus } from './types';
+import type { Bay, Board, DevicesView, Label, Lane, Pr, PrItem, Session, StartOptions, Theme, Todo, TodoStatus } from './types';
 import { byDevice, deviceOf, needsOn, shortOf, withDevices, type DeviceFilter } from './devices';
 import { snoozeMenu } from './snooze';
 import { queueAfter, statusTime, type Handled } from './quick';
@@ -1096,12 +1098,56 @@ export function App() {
     ];
   };
 
+  // Where each account can start a session, for Review with: read at launch, and again each time
+  // the menu is built, so a menu goes by the last answer and never waits on one.
+  const startOpts = useRef<StartOptions | null>(null);
+  const loadStartOpts = useCallback(() => {
+    startOptions()
+      .then((o) => (startOpts.current = o))
+      .catch(() => {
+        // Keeps the last answer.
+      });
+  }, []);
+  useEffect(loadStartOpts, [loadStartOpts]);
+  /** Review with…'s items for a PR: its review page in the Codex app, or a session on a review
+   *  prompt in a worktree of its repo on this Mac (review.ts). */
+  const reviewItems = (pr: Pick<PrItem, 'number' | 'title' | 'url' | 'repoSlug' | 'lanes'>): MenuAction[] => {
+    loadStartOpts();
+    const at = reviewLane(pr, lanes);
+    const picks = reviewPicks(startOpts.current?.accounts ?? [], board?.usage ?? [], Date.now(), !!at, remembered().places);
+    return picks.map((pick) => ({
+      label: pick.label,
+      run: () => {
+        if (pick.kind === 'codex-app' || !at) {
+          reviewInCodex(pr.url).catch((e: unknown) => setToast(String(e)));
+          return;
+        }
+        const spec = { laneId: at.lane.id, account: pick.account, place: pick.place, prompt: reviewPrompt(pr, at.checkedOut), model: null, worktree: false, todos: [] };
+        track(`Starting a review of #${pr.number} on ${pick.account}…`, startSession(spec))
+          .then((started) => {
+            if (started?.message) setToast(started.message);
+            if (started?.key) setPendingSession({ key: started.key, until: Date.now() + 60_000 });
+          })
+          .catch((e: unknown) => setToast(String(e).replace(/^Error: /, '')));
+      },
+    }));
+  };
+  /** A worktree's PR as Review with… needs it: the board's, or what the worktree knows of one
+   *  the board doesn't list (on another Mac, say). */
+  const reviewedPr = (lane: Lane, p: Pr) => board?.prs.find((x) => x.url === p.url) ?? { ...p, repoSlug: lane.repoSlugNow ?? lane.repoSlug ?? '', lanes: [lane.id] };
+  /** Drops Review with… from a button, as the PR panels have it. */
+  const reviewMenuFrom = (pr: Pick<PrItem, 'number' | 'title' | 'url' | 'repoSlug' | 'lanes'>, el: Element) => {
+    const items = reviewItems(pr);
+    const spec = items.length > 0 ? items : [{ label: 'No account can start a review here', run: () => {}, enabled: false }];
+    void showContextMenu(spec, below(el)).catch((e: unknown) => setToast(String(e)));
+  };
+
   /** A PR's right-click menu. */
   const prMenuSpec = (r: PrRowItem): MenuSpec => {
     const p = r.pr;
     return [
         { label: 'Open on GitHub', run: () => void openUrl(p.url) },
-        { label: 'Review in Codex', run: () => void reviewInCodex(p.url) },
+        { label: 'Review with', items: reviewItems(p) },
         ...(p.reviewRequested && prIsOpen(p) ? ['separator' as const, { label: `Approve #${p.number}`, run: () => approve(p) }] : []),
         'separator',
         ...(r.lane ? [{ label: `Show worktree ${r.lane.callsign}`, run: () => r.lane && focusLane(r.lane) }] : []),
@@ -1121,7 +1167,7 @@ export function App() {
       ? prMenuSpec(prRowOf(item))
       : [
           { label: 'Open on GitHub', run: () => void openUrl(p.url) },
-          { label: 'Review in Codex', run: () => void reviewInCodex(p.url) },
+          { label: 'Review with', items: reviewItems(reviewedPr(lane, p)) },
           'separator',
           { label: 'Copy link', run: () => copy(p.url, 'PR link') },
         ];
@@ -1712,6 +1758,7 @@ export function App() {
       now={now}
       approving={approving.has(item.pr.key)}
       onApprove={() => approve(item.pr)}
+      onReview={(el) => reviewMenuFrom(item.pr, el)}
       onShowSession={(_lane, session) => setDrill({ from: item.key, key: session.key })}
       onOpenSession={(lane, session) => open(lane, session.openTarget)}
       onShowLane={showLaneFromPanel}
@@ -1731,6 +1778,7 @@ export function App() {
       todosFor={todosFor}
       onShowTodo={showTodoFromPanel}
       onPrMenu={() => lane && lanePrMenu(lane)}
+      onReviewPr={lane?.pr ? (el) => lane.pr && reviewMenuFrom(reviewedPr(lane, lane.pr), el) : undefined}
     />
   );
 

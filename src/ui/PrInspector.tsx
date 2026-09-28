@@ -6,7 +6,7 @@
 // content security policy blocks scripts on top of that. Links in it open in the browser.
 
 import { useEffect, useState, type MouseEvent as ReactMouseEvent } from 'react';
-import { openUrl, prCommentAsks, prDetail, reviewInCodex } from '../api';
+import { openUrl, prCommentAsks, prDetail } from '../api';
 import { absolute, ago, middleTruncate } from '../format';
 import { asksFor, commentPreview, commentsToAsk } from '../prStatus';
 import type { Lane, PrComment, PrDetail, PrFile, Session } from '../types';
@@ -167,6 +167,8 @@ interface PrInspectorProps {
   now: number;
   approving: boolean;
   onApprove: () => void;
+  /** Drops Review with… from the button. */
+  onReview: (button: Element) => void;
   /** Shows a session in the panel, in place of the PR until you go back. */
   onShowSession: (lane: Lane, session: Session) => void;
   /** Opens a session where it runs. */
@@ -178,7 +180,7 @@ interface PrInspectorProps {
   onSessionMenu: (lane: Lane, session: Session) => void;
 }
 
-export function PrInspector({ item, now, approving, onApprove, onShowSession, onOpenSession, onShowLane, onLaneMenu, onSessionMenu }: PrInspectorProps) {
+export function PrInspector({ item, now, approving, onApprove, onReview, onShowSession, onOpenSession, onShowLane, onLaneMenu, onSessionMenu }: PrInspectorProps) {
   const { pr } = item;
   const cacheKey = `${pr.key}@${pr.updatedAt}`;
   const [state, setState] = useState<{ key: string; detail?: PrDetail; error?: string }>({ key: '' });
@@ -280,8 +282,8 @@ export function PrInspector({ item, now, approving, onApprove, onShowSession, on
         <Button icon="external" onClick={() => void openUrl(pr.url)}>
           GitHub
         </Button>
-        <Button icon="eye" onClick={() => void reviewInCodex(pr.url)}>
-          Review in Codex
+        <Button icon="eye" onClick={(e) => onReview(e.currentTarget)}>
+          Review with…
         </Button>
       </div>
 
