@@ -3,6 +3,7 @@ name = "codealong-peer"
 version = "0.1.0"
 description = "What Codealong on one device says to Codealong on another: the protocol, link codes, feeds and the worktrees and sessions they carry, over the tailnet or iroh."
 edition = "2021"
+license = "Apache-2.0"
 rust-version = "1.80"
 publish = false
 

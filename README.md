@@ -497,3 +497,9 @@ light scan (no git, PRs or visitors).
 | `src/` | The React UI, built from the design system's components and tokens; `lanes.ts` groups the board and mirrors the engine's status rules for the age filter; `pins.ts` keeps the pinned lists; `prStatus.ts` and `ui/PrPills.tsx` say where a PR stands and which PRs are your move; `bar.ts` and `ui/Bar.tsx` lay out the floating bar; `ui/Picker.tsx` is the quick panel's filterable menus; `ui/SettingsDialog.tsx` and `ui/AccountsSection.tsx` are Settings |
 | `scripts/preview.sh` | Headless preview against real data, for screenshots and scripted checks |
 | `design/tokens.json` | Design tokens; `npm run tokens` regenerates `src/styles/tokens.css` |
+
+## License
+
+Copyright 2026 Gordon L. Hempton. The code is under the [Apache License 2.0](LICENSE); copies
+carry the [NOTICE](NOTICE). The Codealong name and logo are trademarks, and the license doesn't
+grant rights to them: a fork should go by its own name.

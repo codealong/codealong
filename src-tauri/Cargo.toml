@@ -3,6 +3,7 @@ name = "codealong"
 version = "0.1.0"
 description = "Every agent runs in a worktree, and every worktree is a lane."
 edition = "2021"
+license = "Apache-2.0"
 rust-version = "1.80"
 publish = false
 
