@@ -271,8 +271,8 @@ interface UsageBarProps {
   /** Opens Settings at Accounts, at one account when given. */
   onAccounts: (account?: string) => void;
   onSignIn: (account: string) => void;
-  /** Stars an account, or takes its star away. */
-  onStar: (account: string, preferred: boolean) => void;
+  /** Stars an account, or takes its star away; rejects when that couldn't be saved. */
+  onStar: (account: string, preferred: boolean) => Promise<void>;
 }
 
 export function UsageBar({ usage, now, onRefresh, onAccounts, onSignIn, onStar }: UsageBarProps) {
@@ -285,6 +285,24 @@ export function UsageBar({ usage, now, onRefresh, onAccounts, onSignIn, onStar }
   const [clipped, setClipped] = useState({ start: false, end: false });
   const { peek, show, hide } = usePeek();
   const accounts = usage.map((u) => u.account).join('\n');
+  // A clicked star shows at once; the board catches up a moment later, or it goes back when the
+  // change couldn't be saved.
+  const [starred, setStarred] = useState<Record<string, boolean>>({});
+  useEffect(() => {
+    setStarred((s) => {
+      const left = Object.entries(s).filter(([name, on]) => usage.find((u) => u.account === name)?.preferred !== on && usage.some((u) => u.account === name));
+      return left.length === Object.keys(s).length ? s : Object.fromEntries(left);
+    });
+  }, [usage]);
+  const star = (account: string, on: boolean) => {
+    setStarred((s) => ({ ...s, [account]: on }));
+    onStar(account, on).catch(() =>
+      setStarred((s) => {
+        const { [account]: _, ...rest } = s;
+        return rest;
+      }),
+    );
+  };
 
   // Every chip is measured with all its limits, in a hidden copy, against the room the row has.
   useLayoutEffect(() => {
@@ -357,10 +375,10 @@ export function UsageBar({ usage, now, onRefresh, onAccounts, onSignIn, onStar }
         {usage.map((u) => (
           <StarredChip
             key={u.account}
-            usage={u}
+            usage={u.account in starred ? { ...u, preferred: starred[u.account] } : u}
             now={now}
             collapsed={collapsed}
-            onStar={() => onStar(u.account, !u.preferred)}
+            onStar={() => star(u.account, !(starred[u.account] ?? u.preferred))}
             onOpen={() => onAccounts(u.account)}
             onSignIn={() => onSignIn(u.account)}
             onPeek={(el) => show(u.account, el)}

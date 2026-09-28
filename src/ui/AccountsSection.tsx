@@ -4,7 +4,7 @@
 // account can put the Codealong skill in its folder too (install.rs), as Settings › Agents does.
 
 import { useEffect, useState } from 'react';
-import { agentsStatus, foundAccounts, getAccounts, installAgents, saveAccounts, signIn } from '../api';
+import { agentsStatus, foundAccounts, getAccounts, installAgents, saveAccounts, setPreferred, signIn } from '../api';
 import { agoPhrase, tildePath } from '../format';
 import { HARNESSES, HARNESS_WORD } from '../harness';
 import type { AccountCfg, AccountInfo, AccountSkill, FoundAccount, Harness, StartPlace, Usage } from '../types';
@@ -187,6 +187,19 @@ export function AccountsSection({ focus, usage, terminal, now, onSaved }: Accoun
     window.addEventListener('focus', onFocus);
     return () => window.removeEventListener('focus', onFocus);
   }, []);
+
+  // The star goes through the engine, which publishes it at once, so the usage bar's star
+  // changes with this one; it shows here before that.
+  const star = async (name: string, on: boolean) => {
+    setError(null);
+    setAccounts((list) => list && list.map((x) => (x.name === name ? { ...x, preferred: on } : x)));
+    try {
+      await setPreferred(name, on);
+    } catch (e) {
+      setError(String(e));
+      await load();
+    }
+  };
 
   const save = async (next: AccountCfg[]) => {
     setBusy(true);
@@ -376,7 +389,7 @@ export function AccountsSection({ focus, usage, terminal, now, onSaved }: Accoun
                 aria-label={`Preferred: ${a.name}`}
                 title={a.preferred ? 'Preferred: Auto starts this account while it has room. Click to stop preferring it.' : 'Prefer this account: Auto starts preferred accounts while one has room, and others only when they’re all near a limit.'}
                 disabled={busy}
-                onClick={() => void save((accounts ?? []).map((x) => (x.name === a.name ? { ...x, preferred: !x.preferred } : x)))}
+                onClick={() => void star(a.name, !a.preferred)}
               >
                 <Icon name="star" size={16} />
               </button>

@@ -73,6 +73,8 @@ pub enum Msg {
     SetArchived(String, bool),
     /// The theme, already saved to config.toml.
     SetTheme(Theme),
+    /// An account's star, already saved to config.toml.
+    SetPreferred(String, bool),
     /// Sent every second while the perf log is on; how late it's read is the engine's lag.
     Ping(Instant),
     /// A change to a todo or to the labels, from a window. The reply is the time of the board
@@ -180,12 +182,15 @@ impl Handle {
         config::save_accounts(&accounts)
     }
 
-    /// Stars an account, or takes its star away, in config.toml.
+    /// Stars an account, or takes its star away, in config.toml, and publishes it at once
+    /// rather than when the watcher notices the file.
     pub fn set_preferred(&self, account: &str, preferred: bool) -> Result<()> {
         let mut accounts = config::load()?.unwrap_or_default().accounts;
         let a = accounts.iter_mut().find(|a| a.name == account).ok_or_else(|| anyhow::anyhow!("There's no account named {account}."))?;
         a.preferred = preferred;
-        config::save_accounts(&accounts)
+        config::save_accounts(&accounts)?;
+        let _ = self.tx.send(Msg::SetPreferred(account.to_string(), preferred));
+        Ok(())
     }
 
     /// Saves every setting to config.toml, in place. The watcher sees the change and reloads;
@@ -931,8 +936,8 @@ impl Engine {
         });
     }
 
-    /// Everything that depends on config.toml, read again. When nothing but the theme or the
-    /// shortcuts changed, a new board is enough: reading everything again also asks for Claude usage, and the usage
+    /// Everything that depends on config.toml, read again. When nothing but the theme, the
+    /// shortcuts or an account's star changed, a new board is enough: reading everything again also asks for Claude usage, and the usage
     /// endpoint turns away calls that come often.
     fn reload(&mut self) {
         let before = self.cfg.clone();
@@ -944,6 +949,12 @@ impl Engine {
         rest.appearance = before.appearance.clone();
         rest.shortcuts = before.shortcuts.clone();
         rest.debug = before.debug.clone();
+        // A star only changes which account Auto picks; nothing to rescan for it.
+        for a in &mut rest.accounts {
+            if let Some(b) = before.accounts.iter().find(|b| b.name == a.name) {
+                a.preferred = b.preferred;
+            }
+        }
         if rest == before {
             self.dirty = true;
             return;
@@ -1039,6 +1050,14 @@ impl Engine {
                 Ok(Msg::SetTheme(theme)) => {
                     // Published now, not on the next tick: the app's appearance follows the board.
                     self.cfg.appearance.theme = theme;
+                    self.publish();
+                }
+                Ok(Msg::SetPreferred(account, preferred)) => {
+                    // Published now: the star is on the usage bar, and the watcher's reload
+                    // comes later.
+                    if let Some(a) = self.cfg.accounts.iter_mut().find(|a| a.name == account) {
+                        a.preferred = preferred;
+                    }
                     self.publish();
                 }
                 Ok(Msg::Ping(sent)) => perf::lag("engine", sent.elapsed()),

@@ -1748,7 +1748,12 @@ export function App() {
         onRefresh={() => void refreshUsage()}
         onAccounts={(account) => openSettings('accounts', account ?? null)}
         onSignIn={startSignIn}
-        onStar={(account, preferred) => void setPreferred(account, preferred).catch((e: unknown) => setToast(String(e).replace(/^Error: /, '')))}
+        onStar={(account, preferred) =>
+          setPreferred(account, preferred).catch((e: unknown) => {
+            setToast(String(e).replace(/^Error: /, ''));
+            throw e;
+          })
+        }
       />
       <div
         className={['ca-win-body', panelKind === 'pr' && 'is-prs', panelKind === 'todo' && 'is-todo', panelKind === 'session' && 'is-session', view === 'canvas' && 'is-canvas', view === 'canvas' && canvasPanel && 'has-panel'].filter(Boolean).join(' ')}
