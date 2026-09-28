@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- A build signed with a Developer ID runs under the hardened runtime, which lets the app send
+       Apple Events only with this. Codealong scripts Ghostty (through osascript, its child) to
+       open, focus and type into sessions; macOS still asks the person once. -->
+  <key>com.apple.security.automation.apple-events</key>
+  <true/>
+</dict>
+</plist>
