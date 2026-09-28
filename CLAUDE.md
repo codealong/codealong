@@ -382,7 +382,7 @@ Codex
   `used_percent`, `window_minutes`, `resets_at`; `limit_id` `codex` or per model; `plan_type`).
 - The desktop app is `/Applications/ChatGPT.app` (bundle id `com.openai.codex`; an older
   `/Applications/Codex.app` copy may exist). Installing it doesn't put `codex` on the PATH; its
-  CLI is `Contents/Resources/codex`. The ChatGPT chat app has the same name, so Codealong knows
+  CLI is `Contents/Resources/codex-cli/bin/codex` (`Contents/Resources/codex` before 26.924). The ChatGPT chat app has the same name, so Codealong knows
   the Codex app by its bundle id. `codex://threads/<uuid>` opens a thread (the app
   reads it first and ignores ones it can't), `codex://review?pr=<url>` opens a PR review.
 - The app's main process routes between its windows on `<CODEX_HOME>/ipc/ipc.sock` (4-byte
@@ -391,7 +391,20 @@ Codex
   starts a turn there, as if typed. Answer `client-discovery-request`s with `canHandle: false`
   or the router waits 10 s on you. A mismatched version is dropped. Starting a turn from an
   app-server of your own would make a second copy of the thread the app doesn't see.
-- The CLI inside the app bundle (`Contents/Resources/codex`, v0.152.1 on 2026-09-26) can be older
+- A window owns only the threads it has loaded (4 of 40 recent ones, checked 2026-09-27); a
+  discovery for any other goes unanswered until the router gives up after 10 s. Opening
+  `codex://threads/<id>` makes the window take it within about 2 s, but it takes it as it starts
+  loading: a turn sent in the next second went out with an empty model ("The '' model is not
+  supported") and the app's default reviewer, so `send::codex_start_turn` waits 2 s more.
+- A new thread can be started for the app to run: `thread/start {cwd}` from an app-server of
+  your own, then `thread/inject_items` with one item (an empty list is refused), since the
+  rollout isn't written until the history has something in it and the app can't open a thread
+  without its rollout ("rollout_not_found"). Opened in the app and sent its first turn through
+  the window socket, it runs in the app like one typed there (`start::codex_app_start`). A turn
+  in a thread with no turns needs `model` (and `effort`) in its request, or the window sends an
+  empty model. Such a thread says `originator: "codealong"`; the app's thread list doesn't
+  filter on originator for local threads.
+- The CLI inside the app bundle (v0.152.1 on 2026-09-26, 0.158.0-alpha.2 in 26.924) can be older
   than the account's default model, which the API then refuses ("requires a newer version of
   Codex"); `-m` picks another. A new folder asks to be trusted, then about new or changed hooks.
 - The CLI (Homebrew cask `codex`, 0.157.1 on 2026-09-27; `/opt/homebrew/bin/codex`) runs its
@@ -406,15 +419,15 @@ Codex
   terminals) and `pair_terminals` gives each its `resume` id or its folder's newest CLI thread
   active since it started.
 - `codex://threads/new?path=<folder>&prompt=<text>` opens a new thread there with the prompt
-  filled in (it also takes `originUrl`, `projectId`, `mode` and `browserUrl`, and no images);
+  filled in (it also takes `originUrl`, `projectId`, `mode` and `browserUrl`, and no images;
+  nothing in 26.924's link parser sends it);
   `codex://threads/<uuid>?prompt=` fills in a reply. `mode` is chat, work or codex, not a
   worktree choice: the new-thread page has its own Local or Worktree. The app sends images as
   `{type: "localImage", path}`, and so does the app-server's `turn/start` input; the CLI's
   `-i/--image <FILE>...` attaches images to its first prompt (prompt first, or after `--`). A folder the app has no project for becomes a new project. Its projects are
   in `<CODEX_HOME>/.codex-global-state.json` (`local-projects[].rootPaths`,
   `electron-saved-workspace-roots`), a file of several megabytes.
-- Actions go through its app-server: `/Applications/ChatGPT.app/Contents/Resources/codex
-  app-server --listen stdio://` with `CODEX_HOME` set, JSON lines: `initialize {clientInfo}`,
+- Actions go through its app-server: `<the app's CLI> app-server --listen stdio://` with `CODEX_HOME` set, JSON lines: `initialize {clientInfo}`,
   then `{"method":"initialized"}`, then e.g. `thread/archive {threadId}`. No shared daemon runs,
   so `codex app-server proxy` fails. `codex app-server generate-json-schema --out <dir>` dumps
   the protocol. Logs: `~/Library/Logs/com.openai.codex/`.

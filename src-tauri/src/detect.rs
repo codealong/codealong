@@ -603,8 +603,10 @@ fn app(bundle: &str) -> Option<PathBuf> {
 
 /// The Codex CLI inside the Codex app, which ships as ChatGPT.app now (an older Codex.app may
 /// be there too). The ChatGPT chat app has the same name, so the app is known by its bundle id.
+/// From 26.924 the CLI is a package under `codex-cli`; before, a single `codex` binary.
 pub fn codex_app_cli() -> Option<PathBuf> {
-    ["ChatGPT.app", "Codex.app"].iter().filter_map(|b| app(b)).filter(|a| bundle_id_is(a, "com.openai.codex")).map(|a| a.join("Contents/Resources/codex")).find(|p| p.is_file())
+    let apps = ["ChatGPT.app", "Codex.app"].iter().filter_map(|b| app(b)).filter(|a| bundle_id_is(a, "com.openai.codex"));
+    apps.flat_map(|a| ["Contents/Resources/codex-cli/bin/codex", "Contents/Resources/codex"].map(|p| a.join(p))).find(|p| p.is_file())
 }
 
 /// Whether an app's Info.plist names this bundle id. A binary plist keeps ASCII strings as they

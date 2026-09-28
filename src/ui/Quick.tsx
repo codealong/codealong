@@ -748,8 +748,12 @@ export function Quick() {
           : `${terminalName} starts ${account}${onModel} in ${lane.callsign}${withPrompt}.`
         : placeNow === 'claude-app'
           ? `The Claude app opens a new session in ${lane.callsign}${prompted ? ' with this prompt filled in' : ''}. You send it from there.`
-          : `Codex opens a new thread in ${lane.callsign}${prompted ? ' with this prompt filled in' : ''}. You send it from there.`;
-  const newToCodex = placeNow === 'codex-app' && !!lane && !!options && !options.codexProjects.includes(lane.path);
+          : prompted
+            ? `The Codex app starts a new thread in ${lane.callsign} on this prompt.`
+            : `Codex opens a new thread in ${lane.callsign}. You write the prompt there.`;
+  // Only the new-thread page adds the folder as a project; a thread Codealong starts on a prompt
+  // shows under the app's Recents.
+  const newToCodex = placeNow === 'codex-app' && !prompted && !!lane && !!options && !options.codexProjects.includes(lane.path);
 
   /** Starts a session: in the worktree chosen below, or where a suggestion says. */
   const start = (over?: { lane: Lane; newWorktree: boolean }) => {
@@ -1092,7 +1096,7 @@ export function Quick() {
       placeNow === 'claude-app'
         ? `The Claude app opens a new session in ${sg.lane.callsign} with this prompt filled in.`
         : placeNow === 'codex-app'
-          ? `Codex opens a new thread in ${sg.lane.callsign} with this prompt filled in.`
+          ? `The Codex app starts a new thread in ${sg.lane.callsign} on this prompt.`
           : tree
             ? `Claude Code makes a new worktree of ${sg.lane.repo} and starts ${who} there${placeNow === 'background' ? ' in the background' : ''}.`
             : `Starts ${who} in ${sg.lane.callsign}${placeNow === 'background' ? ' in the background' : ''}.`;

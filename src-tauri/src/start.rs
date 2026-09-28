@@ -642,6 +642,9 @@ pub fn start(board: &Board, cfg: &Config, spec: &StartSpec) -> Result<Started> {
             Ok(Started { key: None, message: Some(message) })
         }
         Plan::CodexApp { url } => {
+            if prompted {
+                return codex_app_start(account, folder, &spec.prompt, &url);
+            }
             launch::open_codex(&url)?;
             let message = if prompted {
                 "Your prompt is waiting in a new Codex thread. Send it from there.".to_string()
@@ -649,6 +652,30 @@ pub fn start(board: &Board, cfg: &Config, spec: &StartSpec) -> Result<Started> {
                 format!("A new Codex thread is open in {}.", lane.callsign)
             };
             Ok(Started { key: None, message: Some(message) })
+        }
+    }
+}
+
+/// Starts a Codex app thread on a prompt. The app's new-thread link only fills the prompt in, so
+/// Codealong makes the thread itself, and the app, once it has the thread open, runs the first
+/// turn as if you'd sent it there. When that fails the link still fills the prompt in: in the
+/// thread just made if there is one, else on the new-thread page.
+fn codex_app_start(account: &AccountCfg, folder: &Path, prompt: &str, link: &str) -> Result<Started> {
+    let home = account.home_path();
+    let text = attachments::expand(prompt.trim(), Style::Path);
+    let thread = match crate::appserver::new_thread(&home, folder, None) {
+        Ok(t) => t,
+        Err(_) => {
+            launch::open_codex(link)?;
+            return Ok(Started { key: None, message: Some("Your prompt is waiting in a new Codex thread. Send it from there.".into()) });
+        }
+    };
+    let model = thread.model.as_deref().map(|m| (m, thread.effort.as_deref()));
+    match crate::send::codex_start_turn(&home, &thread.id, &text, model) {
+        Ok(()) => Ok(Started { key: Some(format!("codex:{}:{}", account.name, thread.id)), message: None }),
+        Err(_) => {
+            launch::open_codex(&format!("{}?prompt={}", launch::codex_thread_url(&thread.id), urlencoding::encode(&text)))?;
+            Ok(Started { key: Some(format!("codex:{}:{}", account.name, thread.id)), message: Some("Your prompt is waiting in a new Codex thread. Send it from there.".into()) })
         }
     }
 }

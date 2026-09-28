@@ -164,10 +164,10 @@ fn attempt(route: &Route, session: &Session, account: &AccountCfg, cfg: &Config,
         }
         Route::CodexApp => {
             let prompt = attachments::expand(text, Style::Path);
-            match codex_start_turn(&account.home_path(), &session.id, &prompt) {
+            match codex_start_turn(&account.home_path(), &session.id, &prompt, None) {
                 Ok(()) => sent(if busy { format!("Sent to {title} in Codex; it takes it after its current turn.") } else { format!("Sent to {title} in Codex.") }),
                 Err(_) => {
-                    // The app isn't running, doesn't have the thread open, or has changed how its
+                    // The app isn't running, didn't take the thread, or has changed how its
                     // windows talk: its own link fills the reply in instead.
                     launch::open_codex(&format!("{}?prompt={}", launch::codex_thread_url(&session.id), urlencoding::encode(&prompt)))?;
                     Ok(Some(Sent { message: format!("Codex has {title} open with the prompt filled in; send it there."), opened: true }))
@@ -341,7 +341,20 @@ pub fn ipc_take(buf: &mut Vec<u8>) -> Option<Value> {
 /// The request that starts a turn in a thread the app has open, sent to the window that owns it.
 /// The app's router drops a request whose `version` isn't the one it expects for the method
 /// (2 for this one in 0.155), so a changed app fails here rather than doing something else.
-pub fn codex_start_request(request_id: &str, client_id: &str, owner: &str, thread: &str, text: &str, message_id: &str) -> Value {
+/// A thread with no turns yet needs its model named: the window otherwise sends an empty one,
+/// which the API refuses.
+pub fn codex_start_request(request_id: &str, client_id: &str, owner: &str, thread: &str, text: &str, message_id: &str, model: Option<(&str, Option<&str>)>) -> Value {
+    let mut request = json!({
+        "threadId": thread,
+        "input": [{ "type": "text", "text": text, "text_elements": [] }],
+        "clientUserMessageId": message_id,
+    });
+    if let Some((m, effort)) = model {
+        request["model"] = json!(m);
+        if let Some(e) = effort {
+            request["effort"] = json!(e);
+        }
+    }
     json!({
         "type": "request",
         "requestId": request_id,
@@ -352,14 +365,7 @@ pub fn codex_start_request(request_id: &str, client_id: &str, owner: &str, threa
         "timeoutMs": 10_000,
         "params": {
             "conversationId": thread,
-            "turnStart": {
-                "request": {
-                    "threadId": thread,
-                    "input": [{ "type": "text", "text": text, "text_elements": [] }],
-                    "clientUserMessageId": message_id,
-                },
-                "context": {},
-            },
+            "turnStart": { "request": request, "context": {} },
         },
     })
 }
@@ -406,11 +412,14 @@ impl Ipc {
     }
 }
 
-/// Starts a turn with `text` in a thread the Codex app has open, through the socket its windows
-/// use to reach each other (`<CODEX_HOME>/ipc/ipc.sock`). The window that owns the thread runs
-/// the turn in the app's own app-server, so the app shows it as if you'd sent it there.
-fn codex_start_turn(codex_home: &Path, thread: &str, text: &str) -> Result<()> {
-    let deadline = Instant::now() + Duration::from_secs(12);
+/// Starts a turn with `text` in a Codex thread, through the socket the app's windows use to
+/// reach each other (`<CODEX_HOME>/ipc/ipc.sock`). The window that owns the thread runs the turn
+/// in the app's own app-server, so the app shows it as if you'd sent it there. A window owns only
+/// the threads it has loaded, and asking about any other goes unanswered until the router gives
+/// up ten seconds later; so after a short wait Codealong opens the thread in the app, which loads
+/// it and takes it within a couple of seconds, and asks again.
+pub fn codex_start_turn(codex_home: &Path, thread: &str, text: &str, model: Option<(&str, Option<&str>)>) -> Result<()> {
+    let deadline = Instant::now() + Duration::from_secs(18);
     let stream = UnixStream::connect(codex_home.join("ipc/ipc.sock"))?;
     stream.set_write_timeout(Some(Duration::from_secs(5)))?;
     let mut ipc = Ipc { stream, buf: Vec::new(), client_id: String::new() };
@@ -418,21 +427,42 @@ fn codex_start_turn(codex_home: &Path, thread: &str, text: &str) -> Result<()> {
     ipc.send(&json!({ "type": "request", "requestId": init, "method": "initialize", "params": { "clientType": "codealong" } }))?;
     let r = ipc.response(&init, deadline)?;
     ipc.client_id = r.pointer("/result/clientId").and_then(Value::as_str).ok_or_else(|| anyhow!("Codex didn't take Codealong as a client."))?.to_string();
-
-    let find = start::new_session_id();
     let client = ipc.client_id.clone();
-    ipc.send(&json!({
-        "type": "request", "requestId": find, "sourceClientId": client, "version": 1,
-        "method": "thread-owner-discovery", "params": { "hostId": "local", "conversationId": thread },
-    }))?;
-    let r = ipc.response(&find, deadline)?;
-    if r.get("resultType").and_then(Value::as_str) != Some("success") {
-        bail!("No Codex window has this thread open.");
-    }
-    let owner = r.get("handledByClientId").and_then(Value::as_str).ok_or_else(|| anyhow!("No Codex window has this thread open."))?.to_string();
+
+    let mut opened = false;
+    let owner = loop {
+        let find = start::new_session_id();
+        ipc.send(&json!({
+            "type": "request", "requestId": find, "sourceClientId": client, "version": 1,
+            "method": "thread-owner-discovery", "params": { "hostId": "local", "conversationId": thread },
+        }))?;
+        let wait = (Instant::now() + Duration::from_millis(1500)).min(deadline);
+        if let Ok(r) = ipc.response(&find, wait) {
+            if r.get("resultType").and_then(Value::as_str) == Some("success") {
+                if let Some(owner) = r.get("handledByClientId").and_then(Value::as_str) {
+                    if opened {
+                        // A window takes a thread as it starts loading it, and a turn that
+                        // arrives before its settings are in goes out with an empty model
+                        // (refused) and the app's default reviewer. They're in within about a
+                        // second.
+                        std::thread::sleep(Duration::from_secs(2));
+                    }
+                    break owner.to_string();
+                }
+            }
+        }
+        if Instant::now() >= deadline {
+            bail!("No Codex window took this thread.");
+        }
+        if !opened {
+            launch::open_codex(&launch::codex_thread_url(thread))?;
+            opened = true;
+        }
+        std::thread::sleep(Duration::from_millis(300));
+    };
 
     let turn = start::new_session_id();
-    ipc.send(&codex_start_request(&turn, &client, &owner, thread, text, &start::new_session_id()))?;
+    ipc.send(&codex_start_request(&turn, &client, &owner, thread, text, &start::new_session_id(), model))?;
     let r = ipc.response(&turn, deadline)?;
     if r.get("resultType").and_then(Value::as_str) != Some("success") {
         bail!("Codex didn't start the turn: {}", r.get("error").and_then(Value::as_str).unwrap_or("no reason given"));
@@ -611,10 +641,13 @@ mod tests {
         buf.extend(half);
         assert_eq!(ipc_take(&mut buf), Some(json!({ "n": 2 })));
         assert!(buf.is_empty());
-        let r = codex_start_request("r", "me", "owner", "t1", "hello", "u1");
+        let r = codex_start_request("r", "me", "owner", "t1", "hello", "u1", None);
         assert_eq!(r["version"], 2);
         assert_eq!(r["targetClientId"], "owner");
         assert_eq!(r["params"]["turnStart"]["request"]["input"][0], json!({ "type": "text", "text": "hello", "text_elements": [] }));
+        assert!(r["params"]["turnStart"]["request"].get("model").is_none());
+        let r = codex_start_request("r", "me", "owner", "t1", "hello", "u1", Some(("gpt-x", Some("high"))));
+        assert_eq!((&r["params"]["turnStart"]["request"]["model"], &r["params"]["turnStart"]["request"]["effort"]), (&json!("gpt-x"), &json!("high")));
     }
 
     #[test]

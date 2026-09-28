@@ -74,7 +74,7 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     you stop it waiting, start it or finish it. Stop waiting (`w` again) also drops what it
     waits on that isn't done, so it's Ready at once; the toast can undo it. Start session
     (⌘N) opens the quick panel with the todo as the prompt, and the session it starts
-    is linked to the todo, which moves to In progress; one started in the Claude or Codex
+    is linked to the todo, which moves to In progress; one started in the Claude
     app is linked when it shows up. ⌘-click (or ⇧-click, ⇧↑ ⇧↓) picks several todos: Start
     one session (⌘N) starts a single session on a prompt that numbers each of them, linked to
     all of them, and `x`, `w` and Delete act on all of them.
@@ -166,8 +166,8 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   is offered), and puts the sessions it thinks you mean first among the search results. Jev
   never picks the model: a new session starts on the one the start menu shows. Sending goes the
   way each harness takes a prompt: pasted into the session's Ghostty tab, Claude Code's daemon
-  for a background job, OpenCode's service, a turn started by the Codex app itself (else the
-  thread opens with the prompt filled in), and Claude Code's cross-session socket for Claude
+  for a background job, OpenCode's service, a turn started by the Codex app itself (opening
+  the thread there first when no window has it; else it opens with the prompt filled in), and Claude Code's cross-session socket for Claude
   app sessions, which read it as a message from another session. A session that isn't running
   is resumed with the prompt; one waiting on you is opened instead, so what you typed can't
   answer its question. The API key stays in the login keychain. What you type, repo names and
@@ -182,8 +182,10 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   Background starts it the same way under Claude Code's background service (`claude --bg`),
   with no terminal: it shows on the board like any other, takes prompts from Codealong, and
   Attach opens a terminal on it when you want one. The
-  Claude app and Codex open a new session with the prompt filled in, and you send it there
-  (their own model and worktree choices included). OpenCode starts in Ghostty on your prompt
+  Claude app opens a new session with the prompt filled in, and you send it there (its own
+  model and worktree choices included). The Codex app runs the new thread on your prompt:
+  Codealong makes the thread, opens it in the app and has the app send the prompt, on the
+  account's default model; without a prompt it opens the app's new-thread page. OpenCode starts in Ghostty on your prompt
   (`--prompt`), and so does the Codex CLI, for any Codex account (`codex -- <prompt>`, images
   with `-i`); Antigravity starts conversations only in its own window. Auto, the default
   (and `codealong start`'s), keeps to preferred accounts (starred in Settings › Accounts;
