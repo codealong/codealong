@@ -9,6 +9,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { archiveSession, barNote, getBoard, markSeen, inPreview, onBoard, onPeekHidden, onPeekOpen, onPeekShown, openFromBar, peekFit, peekFocus, peekHide, peekReady, showMain } from '../api';
 import { attentionRows, ALL_PROJECTS } from '../quick';
 import type { Lane, PeekOpen, Session, Theme } from '../types';
+import { useKeyPerf } from '../perf';
 import { ReplyView } from './ReplyView';
 import { applyTheme } from './ThemeSwitch';
 
@@ -145,6 +146,13 @@ export function Peek() {
     observer.observe(el);
     return () => observer.disconnect();
   }, [open, shown]);
+
+  // With the perf log on, how long typed keys take to show.
+  const keyed = useKeyPerf(open?.perfLog ?? false);
+  useEffect(() => {
+    window.addEventListener('keydown', keyed, true);
+    return () => window.removeEventListener('keydown', keyed, true);
+  }, [keyed]);
 
   // Escape closes it, and ⌘Q, ⌘H and ⌘W close it rather than going to Codealong: the menu bar is
   // the other app's. Typing with nothing focused goes to the box.

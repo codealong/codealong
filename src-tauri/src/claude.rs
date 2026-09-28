@@ -285,6 +285,36 @@ fn prompt_before(path: &Path, end: u64) -> Option<i64> {
     at
 }
 
+/// How far back a transcript is read for the mode its latest prompt went in.
+const MODE_SCAN: u64 = 8 * 1024 * 1024;
+
+/// The permission mode a live session runs in, as its files have it: a Claude app session's is
+/// in the app's record of it (`hostSessionId` names it), where the app keeps the mode you pick;
+/// otherwise it's the mode its latest prompt went in, which its transcript writes on that line.
+fn permission_mode(registry: Option<&Value>, transcripts: &[PathBuf]) -> Option<String> {
+    let app = registry.and_then(|r| r.get("hostSessionId")).and_then(Value::as_str);
+    if let Some(mode) = app.and_then(|id| crate::claudeapp::permission_mode(&crate::claudeapp::records_dir(), id)) {
+        return Some(mode);
+    }
+    let path = transcripts.first()?;
+    let end = std::fs::metadata(path).ok()?.len();
+    let mut mode = None;
+    scan_lines_back(path, end.saturating_sub(MODE_SCAN), end, |line| {
+        mode = line_mode(line);
+        mode.is_some()
+    });
+    mode
+}
+
+/// A transcript line's own `permissionMode`. A quote inside a string is escaped, so the key
+/// unescaped is never something a tool read or printed.
+fn line_mode(line: &str) -> Option<String> {
+    if !line.contains("\"permissionMode\":\"") {
+        return None;
+    }
+    serde_json::from_str::<Value>(line).ok()?.get("permissionMode")?.as_str().map(str::to_string)
+}
+
 fn read_range(path: &Path, start: u64, end: u64) -> Option<String> {
     let mut f = File::open(path).ok()?;
     f.seek(SeekFrom::Start(start)).ok()?;
@@ -403,7 +433,9 @@ impl crate::harness::Adapter for ClaudeCode {
 
     fn routes(&self, account: &crate::config::AccountCfg, s: &crate::model::Session) -> Vec<crate::send::Route> {
         let home = account.home_path();
-        crate::send::claude_routes(s, crate::send::claude_registry(&home, s).as_ref(), &home, crate::send::daemon_socket(&home).as_deref())
+        let registry = crate::send::claude_registry(&home, s);
+        let mode = permission_mode(registry.as_ref(), &self.records(account, s));
+        crate::send::claude_routes(s, registry.as_ref(), &home, crate::send::daemon_socket(&home).as_deref(), mode)
     }
 
     fn conversation_after(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, after: u64) -> anyhow::Result<Page> {
@@ -695,6 +727,24 @@ pub fn tool_activity(name: &str, input: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reads_the_mode_the_latest_prompt_went_in() {
+        let dir = std::env::temp_dir().join(format!("codealong-mode-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let t = dir.join("s.jsonl");
+        let lines = [
+            r#"{"type":"user","permissionMode":"default","message":{"role":"user","content":"one"}}"#,
+            r#"{"type":"user","permissionMode":"bypassPermissions","message":{"role":"user","content":"two"}}"#,
+            // A tool's output that has the key in it is a string, its quotes escaped.
+            r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":"\"permissionMode\":\"default\""}]}}"#,
+        ];
+        std::fs::write(&t, lines.join("\n") + "\n").unwrap();
+        assert_eq!(permission_mode(None, std::slice::from_ref(&t)).as_deref(), Some("bypassPermissions"));
+        assert_eq!(line_mode(lines[2]), None);
+        assert_eq!(permission_mode(None, &[]), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     const HEAD: &str = r#"{"type":"permission-mode","mode":"default"}
 {"type":"user","cwd":"/Users/me/projects/atlasai/atlas-quarry","sessionId":"25b09e0e","gitBranch":"quarry","entrypoint":"cli","timestamp":"2026-09-23T14:00:00.000Z","message":{"role":"user","content":"Can you make a photo write tool?"}}

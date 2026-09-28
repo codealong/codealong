@@ -168,7 +168,8 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   way each harness takes a prompt: pasted into the session's Ghostty tab, Claude Code's daemon
   for a background job, OpenCode's service, a turn started by the Codex app itself (opening
   the thread there first when no window has it; else it opens with the prompt filled in), and Claude Code's cross-session socket for Claude
-  app sessions, which read it as a message from another session. A session that isn't running
+  app sessions, which read it as a message from another session (what you type in Codealong
+  says it's yours, so one that skips permission prompts takes it without asking). A session that isn't running
   is resumed with the prompt; one waiting on you is opened instead, so what you typed can't
   answer its question. The API key stays in the login keychain. What you type, repo names and
   session titles and latest lines go to TypeSafe.

@@ -295,8 +295,17 @@ Claude Code
   "message":{"role":"user","content":…},"priority":"next"}`. The auth line is optional on macOS.
   The receiver starts a turn when idle and folds it into the running one when busy, tells the
   model it came from another session and isn't the user's approval, and holds it for you when
-  its permission mode differs from the sender's claimed `from-mode` (send none: a
-  bypass-permissions session asks first). `send.rs` uses it for Claude app sessions.
+  its permission class differs from the one the sender claims (none claimed: a session that
+  bypasses permissions holds it, `cause: "no-mode-asserted"`). The claim is an attribute of the
+  envelope, `<cross-session-message from-name="…" from-mode="bypass|prompting">`, in Claude
+  Code's order (`from`, `from-session`, `hop-chain`, `from-name`, `from-mode`, `from-plugin`):
+  it reads the envelope only if writing it again gives the same text. `bypass` is
+  `bypassPermissions` (and `plan` entered from it). `send.rs` uses the socket for Claude app
+  sessions and claims `bypass` for what you type in Codealong's windows to a session in that
+  mode, never for the command line or another device (checked on 2.1.281, 2026-09-27).
+- A Claude app session's mode is in the app's record of it (`local_<id>.json`,
+  `permissionMode`; the registry's `hostSessionId` names the record); a terminal session's is
+  on its transcript's prompt lines (`permissionMode`).
 - Background jobs take input through the account's daemon: `/tmp/cc-daemon-<uid>/<first 8 hex of
   sha256(config dir)>/control.sock`, one JSON line each way, `{"proto":1,"op":"reply","short":
   <jobId>,"text":…,"auth":<contents of <home>/daemon/control.key>}`. It's pasted into the job as
@@ -315,7 +324,9 @@ Claude Code
 - The folder-trust prompt a new folder gets has "No, exit" as its default: Return quits.
 - A peer message to a session that bypasses permissions is held ("Held message from another
   session", Deny first) unless its settings say `"crossSessionInbound": "accept"`; typing into
-  its terminal isn't held.
+  its terminal isn't held. Under the Claude app (stream-json) a hold is only a `{"type":
+  "system","subtype":"peer_message_hold","state":"held"}` line to the app, which (2.9939.2) has
+  no code for it: the message is never shown or delivered, and the sender never hears.
 - Sign-in lives in the login keychain: service `Claude Code-credentials` for `~/.claude`,
   `Claude Code-credentials-<first 8 hex of sha256(config dir)>` for any other folder, account
   `$USER`. Read it with `/usr/bin/security find-generic-password -a $USER -s <service> -w`

@@ -742,6 +742,8 @@ export interface PeekOpen {
   below: boolean;
   /** It takes the keyboard as it shows, rather than on a click. */
   focus: boolean;
+  /** `[debug] perf_log` is on, so the page reports its timings. */
+  perfLog?: boolean;
 }
 
 /** What the peek shows, as the bar and the peek's page hear it. */

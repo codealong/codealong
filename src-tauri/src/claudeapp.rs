@@ -1,7 +1,8 @@
 //! The Claude app's records of its Code sessions: one `local_<id>.json` per session under
-//! `claude-code-sessions/<account>/<org>/`, naming the CLI session it runs (`cliSessionId`) and
-//! whether you archived it there (`isArchived`). The app has no way for another program to
-//! archive a session, so Codealong reads these to hide what you archived in the app.
+//! `claude-code-sessions/<account>/<org>/`, naming the CLI session it runs (`cliSessionId`),
+//! whether you archived it there (`isArchived`) and the permission mode you run it in
+//! (`permissionMode`). The app has no way for another program to archive a session, so
+//! Codealong reads these to hide what you archived in the app.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -22,9 +23,12 @@ pub struct Record {
     pub archived: bool,
 }
 
+fn subdirs(p: &Path) -> Vec<PathBuf> {
+    std::fs::read_dir(p).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect()
+}
+
 /// Every record file with its modification time, newest first.
 pub fn record_files(root: &Path) -> Vec<(PathBuf, i64)> {
-    let subdirs = |p: &Path| -> Vec<PathBuf> { std::fs::read_dir(p).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect() };
     let mut files: Vec<(PathBuf, i64)> = subdirs(root)
         .iter()
         .flat_map(|account| subdirs(account))
@@ -37,6 +41,20 @@ pub fn record_files(root: &Path) -> Vec<(PathBuf, i64)> {
         .collect();
     files.sort_by(|a, b| b.1.cmp(&a.1));
     files
+}
+
+/// The permission mode the app runs one of its sessions in, from its record, where the app keeps
+/// the mode you pick. `local_id` is the app's own ID, which a live session's registry entry
+/// names (`hostSessionId`).
+pub fn permission_mode(root: &Path, local_id: &str) -> Option<String> {
+    let id = local_id.strip_prefix("local_")?;
+    if id.is_empty() || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+        return None;
+    }
+    let name = format!("{local_id}.json");
+    let path = subdirs(root).iter().flat_map(|account| subdirs(account)).map(|org| org.join(&name)).find(|p| p.is_file())?;
+    let v: Value = serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()?;
+    v.get("permissionMode").and_then(Value::as_str).map(str::to_string)
 }
 
 pub fn read_record(path: &Path) -> Option<Record> {
@@ -104,6 +122,22 @@ mod tests {
         std::fs::remove_file(org.join("local_a.json")).unwrap();
         assert!(records.refresh(&root));
         assert!(records.archived().is_empty());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn reads_the_permission_mode_the_app_runs_a_session_in() {
+        let root = std::env::temp_dir().join(format!("codealong-app-modes-{}", std::process::id()));
+        let org = root.join("acct").join("org");
+        std::fs::create_dir_all(&org).unwrap();
+        std::fs::write(org.join("local_7a-b2.json"), r#"{"sessionId":"local_7a-b2","cliSessionId":"cli","permissionMode":"bypassPermissions"}"#).unwrap();
+        std::fs::write(org.join("local_c3.json"), r#"{"sessionId":"local_c3","cliSessionId":"cli2"}"#).unwrap();
+        assert_eq!(permission_mode(&root, "local_7a-b2").as_deref(), Some("bypassPermissions"));
+        assert_eq!(permission_mode(&root, "local_c3"), None);
+        assert_eq!(permission_mode(&root, "local_gone"), None);
+        // Only the app's own IDs name a file: nothing reaches outside the records.
+        assert_eq!(permission_mode(&root, "local_../../x"), None);
+        assert_eq!(permission_mode(&root, "7a-b2"), None);
         let _ = std::fs::remove_dir_all(&root);
     }
 }

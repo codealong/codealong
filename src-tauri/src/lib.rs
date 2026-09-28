@@ -400,18 +400,19 @@ fn session_cancel(key: String) -> Result<(), String> {
     acp::cancel(&key).map_err(|e| format!("{e:#}"))
 }
 
-/// Sends a prompt to a session that's already going, where it runs (send.rs).
+/// Sends a prompt to a session that's already going, where it runs (send.rs). Only Codealong's
+/// windows call this, so what it sends is what you typed.
 #[tauri::command(async)]
 fn send_to_session(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, text: String) -> Result<serde_json::Value, String> {
     if let Some((device, key)) = peerfeed::split_remote(&key) {
         return peers.ask(device, "session-send", serde_json::json!({ "key": key, "text": text }), ASK_ACT);
     }
-    serde_json::to_value(send_here(engine.inner(), &key, &text)?).map_err(|e| e.to_string())
+    serde_json::to_value(send_here(engine.inner(), &key, &text, send::Sender::You)?).map_err(|e| e.to_string())
 }
 
-fn send_here(engine: &engine::Handle, key: &str, text: &str) -> Result<send::Sent, String> {
+fn send_here(engine: &engine::Handle, key: &str, text: &str, sender: send::Sender) -> Result<send::Sent, String> {
     let cfg = config::load().map_err(|e| format!("{e:#}"))?.unwrap_or_default();
-    send::send(&engine.board(), &cfg, key, text).map_err(|e| format!("{e:#}"))
+    send::send(&engine.board(), &cfg, key, text, sender).map_err(|e| format!("{e:#}"))
 }
 
 /// What Jev suggests for a todo being written: its project, labels and the todos it waits on
@@ -655,7 +656,7 @@ fn peer_answer(engine: &engine::Handle, method: &str, p: serde_json::Value) -> R
             to_value(search_text(words)).map_err(|e| e.to_string())
         }
         "session-send" => {
-            let sent = send_here(engine, &key()?, &text("text"))?;
+            let sent = send_here(engine, &key()?, &text("text"), send::Sender::Elsewhere)?;
             // Opening the session with the prompt ready to send needs someone at this device.
             if sent.opened {
                 return Err(format!("It needs someone at this device: {}", sent.message));
@@ -1096,7 +1097,7 @@ pub fn snapshot_cli(args: &[String]) -> i32 {
         };
         let cfg = config::load().ok().flatten().unwrap_or_default();
         let board = engine::snapshot(false, false);
-        return match send::send(&board, &cfg, key, text) {
+        return match send::send(&board, &cfg, key, text, send::Sender::Elsewhere) {
             Ok(sent) => {
                 println!("{}", sent.message);
                 0

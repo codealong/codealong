@@ -374,7 +374,12 @@ export function Quick() {
     [shown],
   );
   usePerf(board, arrived);
+  // Keys typed anywhere in the panel, its reply box included.
   const keyed = useKeyPerf(board?.perfLog ?? false);
+  useEffect(() => {
+    window.addEventListener('keydown', keyed, true);
+    return () => window.removeEventListener('keydown', keyed, true);
+  }, [keyed]);
 
   const theme = board?.theme ?? 'system';
   useEffect(() => applyTheme(theme), [theme]);
@@ -940,7 +945,6 @@ export function Quick() {
   const togglePicker = (k: PickerKind) => setPicker((p) => (p === k ? null : k));
 
   const onInputKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    keyed(e);
     if (e.nativeEvent.isComposing) return;
     const el = e.currentTarget;
     // ⇥ on a session answers it here; elsewhere it moves the focus as usual.

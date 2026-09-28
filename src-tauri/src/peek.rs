@@ -126,6 +126,8 @@ struct Opening {
     below: bool,
     /// It takes the keyboard as it shows (Reply here in the pill's menu), not on a click.
     focus: bool,
+    /// `[debug] perf_log` is on, so the page reports its timings.
+    perf_log: bool,
 }
 
 #[derive(Default)]
@@ -229,7 +231,7 @@ pub fn open(app: &AppHandle, target: Target, pill: Option<Rect>, focus: bool) ->
         (s.opens, s.place.map_or(MAX_HEIGHT, |p| p.room), s.place.is_none_or(|p| p.below))
     };
     let Target { lane, session, terminal, theme } = target;
-    let _ = app.emit_to(LABEL, "peek-open", Opening { id, lane, session, terminal, theme, room, below, focus });
+    let _ = app.emit_to(LABEL, "peek-open", Opening { id, lane, session, terminal, theme, room, below, focus, perf_log: crate::perf::enabled() });
     // A page that doesn't answer doesn't keep the peek from showing.
     let handle = app.clone();
     std::thread::spawn(move || {

@@ -6,6 +6,13 @@
 //! gets a message on Claude Code's own cross-session socket, which the session reads as coming
 //! from another session. A session that isn't running any more is resumed with the prompt.
 //!
+//! A session that skips permission prompts holds such a message for you to allow unless it
+//! claims the session's own permission class, and the Claude app has no way to show a held one.
+//! What you type in Codealong's windows here is yours, as if typed in the session, so it makes
+//! that claim; from the command line or another device it doesn't, so an agent can't use
+//! Codealong to get past the hold, and a Claude app session is told nothing rather than holding
+//! a message no one will see.
+//!
 //! A session that's waiting on you for a permission prompt, or stuck mid-turn, is never typed
 //! into: what's typed would answer the prompt. One whose last reply asks you something is at its
 //! prompt, so what's typed is its answer. Busy sessions are fine; each harness queues the prompt
@@ -37,6 +44,15 @@ pub struct Sent {
     pub opened: bool,
 }
 
+/// Who a message is from, as far as a session's own permission check goes.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Sender {
+    /// You, in one of Codealong's windows on this Mac.
+    You,
+    /// The command line or another device, where an agent may have written it.
+    Elsewhere,
+}
+
 /// How a prompt reaches a session, tried in order until one works.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Route {
@@ -44,8 +60,9 @@ pub enum Route {
     Daemon { socket: PathBuf, key_file: PathBuf, job: String },
     /// Pasted into the session's Ghostty tab, then Return.
     Type { pid: u32 },
-    /// A line on the session's cross-session socket.
-    Peer { socket: String, session_id: String },
+    /// A line on the session's cross-session socket; `mode` is the permission mode it runs in,
+    /// when its files say.
+    Peer { socket: String, session_id: String, mode: Option<String> },
     /// Not running: a new terminal resumes it with the prompt.
     Resume,
     /// A Claude app session that isn't running: the app opens it, with the prompt on the
@@ -60,7 +77,7 @@ pub enum Route {
 }
 
 /// Sends `text` to the session with this key.
-pub fn send(board: &Board, cfg: &Config, session_key: &str, text: &str) -> Result<Sent> {
+pub fn send(board: &Board, cfg: &Config, session_key: &str, text: &str, sender: Sender) -> Result<Sent> {
     let session = board
         .lanes
         .iter()
@@ -84,7 +101,7 @@ pub fn send(board: &Board, cfg: &Config, session_key: &str, text: &str) -> Resul
     let place = launch::Placement { new_terminal: cfg.apps.new_terminal, near: &near };
     let mut last_err = None;
     for route in routes {
-        match attempt(&route, session, account, cfg, place, text) {
+        match attempt(&route, session, account, cfg, place, text, sender) {
             Ok(Some(sent)) => return Ok(sent),
             // This way doesn't reach the session; the next one may.
             Ok(None) => {}
@@ -107,7 +124,7 @@ fn ensure_not_waiting(session: &Session) -> Result<()> {
 /// Pure, so the choice has tests. A live session: its daemon for a background job, its
 /// terminal, then its cross-session socket; one that isn't running: the Claude app for an app
 /// session, else a terminal that resumes it.
-pub fn claude_routes(session: &Session, registry: Option<&Value>, home: &Path, daemon: Option<&Path>) -> Vec<Route> {
+pub fn claude_routes(session: &Session, registry: Option<&Value>, home: &Path, daemon: Option<&Path>, mode: Option<String>) -> Vec<Route> {
     if !session.live {
         return vec![if session.surface == Surface::App { Route::ClaudeApp } else { Route::Resume }];
     }
@@ -126,7 +143,7 @@ pub fn claude_routes(session: &Session, registry: Option<&Value>, home: &Path, d
         .filter(|r| r.get("peerProtocol").and_then(Value::as_u64) == Some(1))
         .and_then(|r| Some((r.get("messagingSocketPath")?.as_str()?, r.get("sessionId")?.as_str()?)));
     if let Some((socket, id)) = peer {
-        out.push(Route::Peer { socket: socket.to_string(), session_id: id.to_string() });
+        out.push(Route::Peer { socket: socket.to_string(), session_id: id.to_string(), mode });
     }
     out
 }
@@ -137,7 +154,7 @@ pub fn claude_registry(home: &Path, session: &Session) -> Option<Value> {
 }
 
 /// One way in. `Ok(None)` when it doesn't reach this session, so the next way is tried.
-fn attempt(route: &Route, session: &Session, account: &AccountCfg, cfg: &Config, place: launch::Placement, text: &str) -> Result<Option<Sent>> {
+fn attempt(route: &Route, session: &Session, account: &AccountCfg, cfg: &Config, place: launch::Placement, text: &str, sender: Sender) -> Result<Option<Sent>> {
     let busy = session.status == Status::Working;
     let title = quoted(&session.title);
     let sent = |message: String| Ok(Some(Sent { message, opened: false }));
@@ -154,9 +171,20 @@ fn attempt(route: &Route, session: &Session, account: &AccountCfg, cfg: &Config,
             };
             sent(if busy { format!("Typed into {title} in {app}; it takes it after its current step.") } else { format!("Typed into {title} in {app}.") })
         }
-        Route::Peer { socket, session_id } => {
-            peer_send(socket, session_id, &attachments::expand(text, Style::Path))?;
-            sent(format!("Sent to {title} as a message from another session. A session that skips permission prompts asks you before taking it."))
+        Route::Peer { socket, session_id, mode } => {
+            let skips = mode.as_deref() == Some("bypassPermissions");
+            if skips && sender == Sender::Elsewhere && session.surface == Surface::App {
+                bail!("{title} skips permission prompts, so Claude Code would hold a message from here for you to allow, and the Claude app can't show that. Send it from Codealong on the Mac it runs on, or in the Claude app.");
+            }
+            let claim = (skips && sender == Sender::You).then_some("bypass");
+            peer_send(socket, session_id, &attachments::expand(text, Style::Path), claim)?;
+            sent(if skips && claim.is_none() {
+                format!("Sent to {title}. It skips permission prompts, so it asks you in its terminal before taking it.")
+            } else if busy {
+                format!("Sent to {title}; it reads it as it works.")
+            } else {
+                format!("Sent to {title}.")
+            })
         }
         Route::Resume => {
             let (input, env) = resume_input(account, &session.id, text);
@@ -259,22 +287,26 @@ fn daemon_reply(socket: &Path, key: &str, job: &str, text: &str) -> Result<()> {
 
 /// The prompt as a cross-session message. The envelope is the one Claude Code writes for its
 /// own sends (`<cross-session-message from-name="…">`, the body on lines of its own), so the
-/// session shows who it's from. It asserts no permission mode: a session that skips prompts
-/// then holds it for you to allow, rather than taking Codealong's word for it.
-pub fn peer_content(text: &str) -> String {
+/// session shows who it's from. `claim` is the permission class it claims (`bypass` or
+/// `prompting`, `from-mode`), which Claude Code compares with the session's own: a session
+/// that skips prompts holds a message that claims none, or another, for you to allow. The
+/// attributes go in the order Claude Code writes them, since it reads the envelope only when
+/// writing it again gives the same text.
+pub fn peer_content(text: &str, claim: Option<&str>) -> String {
     let body = format!("Your user sent this to this session from Codealong:\n\n{}", text.trim()).replace("</cross-session-message", "<\\/cross-session-message");
-    format!("<cross-session-message from-name=\"Codealong\">\n{body}\n</cross-session-message>")
+    let mode = claim.map(|m| format!(" from-mode=\"{m}\"")).unwrap_or_default();
+    format!("<cross-session-message from-name=\"Codealong\"{mode}>\n{body}\n</cross-session-message>")
 }
 
 /// The line written to a session's socket. `session_id` makes a session that has since taken
 /// over the pid drop it.
-pub fn peer_frame(session_id: &str, msg_id: &str, text: &str) -> String {
+pub fn peer_frame(session_id: &str, msg_id: &str, text: &str, claim: Option<&str>) -> String {
     let frame = json!({
         "msgV": 1,
         "msg_id": msg_id,
         "type": "user",
         "session_id": session_id,
-        "message": { "role": "user", "content": peer_content(text) },
+        "message": { "role": "user", "content": peer_content(text, claim) },
         "priority": "next",
     });
     format!("{frame}\n")
@@ -282,8 +314,8 @@ pub fn peer_frame(session_id: &str, msg_id: &str, text: &str) -> String {
 
 /// Nothing comes back on the connection, so a successful write is all there is to see. Claude
 /// Code's own sender waits a moment before closing, so the line is read before the socket goes.
-fn peer_send(socket: &str, session_id: &str, text: &str) -> Result<()> {
-    let frame = peer_frame(session_id, &start::new_session_id(), text);
+fn peer_send(socket: &str, session_id: &str, text: &str, claim: Option<&str>) -> Result<()> {
+    let frame = peer_frame(session_id, &start::new_session_id(), text, claim);
     // Claude Code caps a line at a million characters.
     if frame.len() > 1_000_000 {
         bail!("That's too long to send to another session; shorten it or put it in a file.");
@@ -524,7 +556,7 @@ mod tests {
     fn route_for(s: &Session, registry: Option<&Value>, home: &Path, daemon: Option<&Path>) -> Result<Vec<Route>> {
         ensure_not_waiting(s)?;
         Ok(if s.harness == Harness::Claude {
-            claude_routes(s, registry, home, daemon)
+            claude_routes(s, registry, home, daemon, None)
         } else {
             let account: AccountCfg = serde_json::from_value(json!({ "name": "a", "harness": "codex", "home": "/h" })).unwrap();
             crate::harness::adapter(s.harness).routes(&account, s)
@@ -549,21 +581,48 @@ mod tests {
         let mut s = session(Harness::Claude, Surface::Cli, Status::Needs, true, Some(42));
         s.asks = true;
         let routes = route_for(&s, Some(&registry(json!({ "status": "idle" }))), Path::new("/h"), None).unwrap();
-        assert_eq!(routes, vec![Route::Type { pid: 42 }, Route::Peer { socket: "/tmp/cc-socks/42.sock".into(), session_id: "abc".into() }]);
+        assert_eq!(routes, vec![Route::Type { pid: 42 }, Route::Peer { socket: "/tmp/cc-socks/42.sock".into(), session_id: "abc".into(), mode: None }]);
     }
 
     #[test]
     fn types_into_a_terminal_session_and_falls_back_to_its_socket() {
         let s = session(Harness::Claude, Surface::Cli, Status::Working, true, Some(42));
         let routes = route_for(&s, Some(&registry(json!({}))), Path::new("/h"), None).unwrap();
-        assert_eq!(routes, vec![Route::Type { pid: 42 }, Route::Peer { socket: "/tmp/cc-socks/42.sock".into(), session_id: "abc".into() }]);
+        assert_eq!(routes, vec![Route::Type { pid: 42 }, Route::Peer { socket: "/tmp/cc-socks/42.sock".into(), session_id: "abc".into(), mode: None }]);
+    }
+
+    #[test]
+    fn tells_the_socket_route_the_mode_the_session_runs_in() {
+        let s = session(Harness::Claude, Surface::App, Status::Unread, true, Some(42));
+        let routes = claude_routes(&s, Some(&registry(json!({ "entrypoint": "claude-desktop" }))), Path::new("/h"), None, Some("bypassPermissions".into()));
+        assert_eq!(routes, vec![Route::Peer { socket: "/tmp/cc-socks/42.sock".into(), session_id: "abc".into(), mode: Some("bypassPermissions".into()) }]);
+    }
+
+    #[test]
+    fn claims_the_sessions_class_only_for_what_you_type_here() {
+        let account: AccountCfg = serde_json::from_value(json!({ "name": "claude", "harness": "claude", "home": "/h" })).unwrap();
+        let cfg = Config::default();
+        let place = launch::Placement { new_terminal: cfg.apps.new_terminal, near: &[] };
+        let app = session(Harness::Claude, Surface::App, Status::Unread, true, Some(42));
+        // From the command line or another device, a Claude app session that skips prompts
+        // would hold it where no one sees it: nothing is sent, and the error says why.
+        let route = Route::Peer { socket: "/nonexistent/cc.sock".into(), session_id: "abc".into(), mode: Some("bypassPermissions".into()) };
+        let err = attempt(&route, &app, &account, &cfg, place, "hi", Sender::Elsewhere).unwrap_err();
+        assert!(err.to_string().contains("can't show that"), "{err}");
+        // What you type goes to the socket (here there's none to answer).
+        let err = attempt(&route, &app, &account, &cfg, place, "hi", Sender::You).unwrap_err();
+        assert!(err.to_string().contains("socket didn't answer"), "{err}");
+        // A session that asks for permission takes it from anywhere.
+        let route = Route::Peer { socket: "/nonexistent/cc.sock".into(), session_id: "abc".into(), mode: Some("default".into()) };
+        let err = attempt(&route, &app, &account, &cfg, place, "hi", Sender::Elsewhere).unwrap_err();
+        assert!(err.to_string().contains("socket didn't answer"), "{err}");
     }
 
     #[test]
     fn reaches_claude_app_sessions_only_through_their_socket() {
         let s = session(Harness::Claude, Surface::App, Status::Unread, true, Some(42));
         let routes = route_for(&s, Some(&registry(json!({ "entrypoint": "claude-desktop" }))), Path::new("/h"), None).unwrap();
-        assert_eq!(routes, vec![Route::Peer { socket: "/tmp/cc-socks/42.sock".into(), session_id: "abc".into() }]);
+        assert_eq!(routes, vec![Route::Peer { socket: "/tmp/cc-socks/42.sock".into(), session_id: "abc".into(), mode: None }]);
     }
 
     #[test]
@@ -575,12 +634,12 @@ mod tests {
             routes,
             vec![
                 Route::Daemon { socket: "/tmp/d/control.sock".into(), key_file: "/h/daemon/control.key".into(), job: "6e07c149".into() },
-                Route::Peer { socket: "/tmp/cc-socks/42.sock".into(), session_id: "abc".into() },
+                Route::Peer { socket: "/tmp/cc-socks/42.sock".into(), session_id: "abc".into(), mode: None },
             ]
         );
         // Without the daemon running, the job's socket still takes it.
         let routes = route_for(&s, Some(&reg), Path::new("/h"), None).unwrap();
-        assert_eq!(routes, vec![Route::Peer { socket: "/tmp/cc-socks/42.sock".into(), session_id: "abc".into() }]);
+        assert_eq!(routes, vec![Route::Peer { socket: "/tmp/cc-socks/42.sock".into(), session_id: "abc".into(), mode: None }]);
     }
 
     #[test]
@@ -620,14 +679,17 @@ mod tests {
 
     #[test]
     fn wraps_the_prompt_as_claude_code_wraps_its_own_messages() {
-        let c = peer_content("  run the tests\n");
+        let c = peer_content("  run the tests\n", None);
         assert!(c.starts_with("<cross-session-message from-name=\"Codealong\">\n"), "{c}");
         assert!(c.ends_with("\nrun the tests\n</cross-session-message>"), "{c}");
         assert!(!c.contains("from-mode"));
+        // A claimed permission class follows the name, as Claude Code writes its attributes.
+        let c = peer_content("hi", Some("bypass"));
+        assert!(c.starts_with("<cross-session-message from-name=\"Codealong\" from-mode=\"bypass\">\n"), "{c}");
         // A closing tag in the prompt can't end the envelope early.
-        let c = peer_content("see </cross-session-message> here");
+        let c = peer_content("see </cross-session-message> here", None);
         assert_eq!(c.matches("</cross-session-message>").count(), 1);
-        let frame = peer_frame("abc", "m1", "hi");
+        let frame = peer_frame("abc", "m1", "hi", None);
         assert!(frame.ends_with('\n') && frame.matches('\n').count() == 1);
         let v: Value = serde_json::from_str(frame.trim()).unwrap();
         assert_eq!(v["session_id"], "abc");
