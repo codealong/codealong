@@ -1467,6 +1467,18 @@ body.is-resizing * {
   min-height: 26px;
   padding-bottom: 4px;
 }
+/* Commits ahead of and behind the default branch on the remote, beside the line diff. */
+.ca-drift {
+  display: inline-flex;
+  gap: 5px;
+  font: 500 11px/14px var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--ink-3);
+}
+.ca-drift-ahead {
+  color: var(--ink-2);
+}
 .ca-agentline-main {
   display: flex;
   align-items: center;
@@ -4253,6 +4265,9 @@ html.is-quick body {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.ca-cv-l2 .ca-drift {
+  flex: none;
 }
 .ca-cv-age {
   margin-left: auto;

@@ -1,9 +1,9 @@
 // The main window. One project at a time, picked in the switcher at top left. The sidebar
-// lists that project's worktrees. The main area has four views: Worktrees lists pinned
-// worktrees in your order, then every other worktree once, in Needs you, Working, Your turn, In
-// review, Idle or Merged, with a line for each agent that needs you, is working or just
-// finished; Sessions lists every session, pinned ones first in your order; PRs lists the
-// project's pull requests; Todo lists work you mean to hand an agent, and the sessions on it;
+// lists that project's worktrees. The main area has five views: Sessions lists every session,
+// pinned ones first in your order; Worktrees lists pinned worktrees in your order, then every
+// other worktree once, in Needs you, Working, Your turn, In review, Idle or Merged, with a line
+// for each agent that needs you, is working or just finished; PRs lists the project's pull
+// requests; Todo lists work you mean to hand an agent, and the sessions on it;
 // Canvas lays the project's work out in space, to be remembered by where it is (CanvasView.tsx).
 // Keyboard map: the design system's Surfaces page.
 
@@ -70,8 +70,8 @@ const DAY = 24 * 60 * 60 * 1000;
 
 type View = 'worktrees' | 'sessions' | 'prs' | 'todo' | 'canvas';
 const VIEWS: { id: View; label: string }[] = [
-  { id: 'worktrees', label: 'Worktrees' },
   { id: 'sessions', label: 'Sessions' },
+  { id: 'worktrees', label: 'Worktrees' },
   { id: 'prs', label: 'PRs' },
   { id: 'todo', label: 'Todo' },
   { id: 'canvas', label: 'Canvas' },
@@ -185,9 +185,9 @@ function storedAge(): Age {
 function storedView(): View {
   try {
     const v = window.localStorage.getItem(VIEW_KEY);
-    return VIEWS.some((x) => x.id === v) ? (v as View) : 'worktrees';
+    return VIEWS.some((x) => x.id === v) ? (v as View) : 'sessions';
   } catch {
-    return 'worktrees';
+    return 'sessions';
   }
 }
 

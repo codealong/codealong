@@ -269,6 +269,15 @@ pub struct GitInfo {
     /// Lines added and removed against the merge base with the default branch.
     pub added: Option<u32>,
     pub removed: Option<u32>,
+    /// The default branch on the remote (`origin/main`), and how far HEAD has moved from it,
+    /// whatever the branch tracks: commits only HEAD has (`base_ahead`) and commits only it has
+    /// (`base_behind`). Other Macs' older versions don't send these.
+    #[serde(default)]
+    pub base: Option<String>,
+    #[serde(default)]
+    pub base_ahead: Option<u32>,
+    #[serde(default)]
+    pub base_behind: Option<u32>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

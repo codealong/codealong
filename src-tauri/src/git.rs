@@ -16,7 +16,7 @@ fn git(path: &Path, args: &[&str]) -> Option<String> {
     procs::run_background("git", &full, None, TIMEOUT).ok()
 }
 
-/// Status, last commit, and the diff against the merge base with `base` (e.g. `origin/main`).
+/// Status, last commit, and the commits and diff against `base` (e.g. `origin/main`).
 pub fn status(path: &Path, base: Option<&str>) -> GitInfo {
     let mut info = GitInfo::default();
     if let Some(out) = git(path, &["status", "--porcelain=v2", "--branch"]) {
@@ -33,6 +33,17 @@ pub fn status(path: &Path, base: Option<&str>) -> GitInfo {
         }
     }
     if let Some(base) = base {
+        info.base = Some(base.to_string());
+        // A branch that tracks the default branch has its counts from status already.
+        if info.upstream.as_deref() == Some(base) {
+            info.base_ahead = Some(info.ahead);
+            info.base_behind = Some(info.behind);
+        } else if let Some(out) = git(path, &["rev-list", "--left-right", "--count", &format!("{base}...HEAD")]) {
+            if let Some((behind, ahead)) = parse_left_right(&out) {
+                info.base_ahead = Some(ahead);
+                info.base_behind = Some(behind);
+            }
+        }
         // One process finds the merge base and diffs (git 2.30+); older gits take two.
         let stat = git(path, &["diff", "--shortstat", "--merge-base", base])
             .or_else(|| git(path, &["merge-base", "HEAD", base]).and_then(|mb| git(path, &["diff", "--shortstat", mb.trim()])));
@@ -69,6 +80,14 @@ pub fn parse_status(out: &str) -> StatusSummary {
     s
 }
 
+/// `rev-list --left-right --count A...B`: commits only in A, then only in B.
+pub fn parse_left_right(out: &str) -> Option<(u32, u32)> {
+    let mut parts = out.split_whitespace();
+    let left = parts.next()?.parse().ok()?;
+    let right = parts.next()?.parse().ok()?;
+    Some((left, right))
+}
+
 pub fn parse_shortstat(out: &str) -> (u32, u32) {
     let mut added = 0;
     let mut removed = 0;
@@ -95,6 +114,14 @@ mod tests {
             parse_status(out),
             StatusSummary { upstream: Some("ghempton/quarry".into()), ahead: 3, behind: 1, dirty: 3 }
         );
+    }
+
+    #[test]
+    fn parses_left_right_counts() {
+        assert_eq!(parse_left_right("42\t3\n"), Some((42, 3)));
+        assert_eq!(parse_left_right("0\t0\n"), Some((0, 0)));
+        assert_eq!(parse_left_right("fatal: bad revision\n"), None);
+        assert_eq!(parse_left_right(""), None);
     }
 
     #[test]

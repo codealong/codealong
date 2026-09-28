@@ -1,6 +1,7 @@
-// One worktree as a flight strip: status, callsign, its agents or what's happening, PR, diff,
-// age. Each agent that needs you, is working or just finished gets a line of its own on its
-// worktree's row, so a worktree shows once however many agents run in it.
+// One worktree as a flight strip: status, callsign, its agents or what's happening, PR, commits
+// and lines against the default branch, age. Each agent that needs you, is working or just
+// finished gets a line of its own on its worktree's row, so a worktree shows once however many
+// agents run in it.
 
 import { deviceLabel } from '../devices';
 import { DeviceBadge } from './DeviceBadge';
@@ -9,7 +10,7 @@ import type { PointerEvent as ReactPointerEvent } from 'react';
 import { absolute, ago, agoPhrase, middleTruncate } from '../format';
 import { AGENT_BAY, withoutAccount, type AgentItem, type WorktreeRow } from '../lanes';
 import type { GitInfo, Lane, Pr, Session, Todo } from '../types';
-import { HarnessChip, Icon, LaneGlyph, PrChip, Rich, StatusGlyph } from './primitives';
+import { Drift, driftWords, HarnessChip, Icon, LaneGlyph, PrChip, Rich, StatusGlyph } from './primitives';
 import { InsightChips, LooksFinished } from './InsightBits';
 import { TodoChips } from './TodoBits';
 
@@ -174,6 +175,7 @@ function WorktreeOnlyRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpe
           </span>
           <span className="ca-lane-right">
             {lane.pr && <PrChip pr={lane.pr} compact onMenu={onPrMenu} />}
+            <Drift git={lane.git} />
             <Diff git={lane.git} />
           </span>
         </div>
@@ -204,7 +206,7 @@ function GroupRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpenTarget
   // The worktree's own todos, less the ones its agents' lines already show.
   const onLines = new Set(agents.flatMap((a) => todosFor?.(a.session.key) ?? []));
   const footTodos = (worktreeTodos ?? []).filter((t) => !onLines.has(t));
-  const foot = shown.length > 0 || footTodos.length > 0 || lane.pr != null || (lane.git != null && ((lane.git.added ?? 0) > 0 || (lane.git.removed ?? 0) > 0 || lane.git.dirty > 0));
+  const foot = shown.length > 0 || footTodos.length > 0 || lane.pr != null || driftWords(lane.git) != null || (lane.git != null && ((lane.git.added ?? 0) > 0 || (lane.git.removed ?? 0) > 0 || lane.git.dirty > 0));
   const selectFirst = () => onSelect(agents[0].key);
   return (
     <div
@@ -282,6 +284,7 @@ function GroupRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpenTarget
               </span>
               <span className="ca-lane-right">
                 {lane.pr && <PrChip pr={lane.pr} compact onMenu={onPrMenu} />}
+                <Drift git={lane.git} />
                 <Diff git={lane.git} />
               </span>
             </span>

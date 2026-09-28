@@ -8,7 +8,7 @@ import { HARNESS_WORD, sessionPlace } from '../harness';
 import { blockedBy, sectionOf, SECTION_WORD, snippet } from '../todos';
 import type { Label, Lane, PrItem, Session, Todo } from '../types';
 import { CARD_H, CARD_W, type Entities, type RefItem } from '../canvas/model';
-import { BranchLabel, HarnessChip, Icon, LaneGlyph, PR_ICON, PR_WORD, PrChip, Rich, STATUS_WORD, StatusGlyph } from './primitives';
+import { BranchLabel, Drift, HarnessChip, Icon, LaneGlyph, PR_ICON, PR_WORD, PrChip, Rich, STATUS_WORD, StatusGlyph } from './primitives';
 import { LabelChip, LabelDot, TodoGlyph } from './TodoBits';
 import { DeviceBadge } from './DeviceBadge';
 
@@ -61,7 +61,7 @@ export function cardSig(d: CardData | null, now: number): string {
   switch (d.ref) {
     case 'worktree': {
       const l = d.lane;
-      return `w|${l.glyph}|${l.bay}|${l.callsign}|${l.branch}|${l.headline}|${l.repo}|${l.pr?.number}|${l.pr?.state}|${l.pr?.checks.failed}|${l.pr?.checks.pending}|${l.lastActivity}|${l.device?.color}|${l.device?.online}|${minute}`;
+      return `w|${l.glyph}|${l.bay}|${l.callsign}|${l.branch}|${l.headline}|${l.repo}|${l.pr?.number}|${l.pr?.state}|${l.pr?.checks.failed}|${l.pr?.checks.pending}|${l.git?.baseAhead}|${l.git?.baseBehind}|${l.lastActivity}|${l.device?.color}|${l.device?.online}|${minute}`;
     }
     case 'session': {
       const s = d.session;
@@ -128,6 +128,7 @@ function Card({ item, data, now, selected, related, faded, hovered }: CardProps)
                 <Rich text={l.headline} now={now} />
               </span>
             )}
+            <Drift git={l.git} />
             <span className="ca-cv-age">{ago(l.lastActivity, now)}</span>
           </div>
         </div>

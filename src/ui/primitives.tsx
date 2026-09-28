@@ -4,7 +4,7 @@ import type { ButtonHTMLAttributes, ReactNode } from 'react';
 import { Fragment } from 'react';
 import { middleTruncate, withTimes } from '../format';
 import { sessionPlace } from '../harness';
-import type { Bay, Lane, LogoStatus, Pr, PrState, Session, Status, Surface } from '../types';
+import type { Bay, GitInfo, Lane, LogoStatus, Pr, PrState, Session, Status, Surface } from '../types';
 import { LOGO_LABEL } from '../logo';
 import { ICONS } from './icons';
 import { MARK_PATHS, MARK_VIEW_BOX } from './brand';
@@ -243,6 +243,34 @@ export function PrChip({ pr, compact = false, onMenu }: { pr: Pr; compact?: bool
           {c.passed}
         </span>
       )}
+    </span>
+  );
+}
+
+/** How far a worktree has moved from the default branch on the remote, in words: `3 commits
+ *  ahead of origin/main, 42 behind`. Null when it's even with it or git hasn't said. */
+export function driftWords(g: GitInfo | null): string | null {
+  const ahead = g?.baseAhead ?? 0;
+  const behind = g?.baseBehind ?? 0;
+  if (!g || (ahead === 0 && behind === 0)) return null;
+  const base = g.base ?? 'the default branch';
+  const commits = (n: number) => `${n.toLocaleString('en-US')} ${n === 1 ? 'commit' : 'commits'}`;
+  if (behind === 0) return `${commits(ahead)} ahead of ${base}`;
+  if (ahead === 0) return `${commits(behind)} behind ${base}`;
+  return `${commits(ahead)} ahead of ${base}, ${behind.toLocaleString('en-US')} behind`;
+}
+
+/** Commits ahead of and behind the default branch on the remote: `↑3 ↓42`. Ahead is work the
+ *  remote doesn't have yet, so it reads stronger than behind. */
+export function Drift({ git: g }: { git: GitInfo | null }) {
+  const words = driftWords(g);
+  if (!g || !words) return null;
+  const ahead = g.baseAhead ?? 0;
+  const behind = g.baseBehind ?? 0;
+  return (
+    <span className="ca-drift" title={words}>
+      {ahead > 0 && <span className="ca-drift-ahead">↑{ahead.toLocaleString('en-US')}</span>}
+      {behind > 0 && <span className="ca-drift-behind">↓{behind.toLocaleString('en-US')}</span>}
     </span>
   );
 }

@@ -16,23 +16,9 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
 
 ## What it does
 
-- **Four views** of the current project, each in a window of its own if you like (⌘⇧N). The
+- **Five views** of the current project, each in a window of its own if you like (⌘⇧N). The
   project switcher (⌘P) shows each project's key: ⌥⌘1 to ⌥⌘9 switch projects, ⌥⌘0 shows them
   all. The views:
-  - **Worktrees**: each worktree once, pinned ones first in your order, then the rest by
-    status: Needs you, Working, Your turn, In review, Idle, Merged. A worktree's row has a
-    line for each agent that needs you, is working or just finished, which you select, open
-    or right-click as you would a row. An agent is listed under the worktree it's working
-    in, where most of its latest commands ran and edits landed, even if it started somewhere
-    else; resuming it still happens where it started. Needs you is a queue: the worktree and
-    the agent that have waited longest come first, so newer ones can't keep an old one down
-    (worktrees that need you only for their PR, or only through snoozed agents, come after).
-    Within the other statuses, the worktree and the agent you last sent a prompt come first,
-    so rows hold still while agents work. Stuck
-    agents (busy but silent for 30 minutes) show in Needs you with the command they're stuck
-    on. The Inbox filters narrow each worktree to the agents they're about. Pin a worktree
-    with `p` or the right-click menu of the worktree or one of its agents, and reorder pins
-    by dragging or with ⌥↑ ⌥↓; a pinned worktree stays whatever the age filter says.
   - **Sessions**: every session, pinned ones first in your order (drag or ⌥↑ ⌥↓), then Needs
     you, Your turn and Working as the floating bar groups them and orders them, then the
     rest by day, the one you last sent a prompt first. Sessions are pinned
@@ -54,6 +40,23 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     is up for that call. Others open where they run to be answered. The box stays meanwhile,
     keeping what you'd written, and Send works again once the session isn't waiting (a session
     run In Codealong takes it at once, after its current turn).
+  - **Worktrees**: each worktree once, pinned ones first in your order, then the rest by
+    status: Needs you, Working, Your turn, In review, Idle, Merged. A worktree's row has a
+    line for each agent that needs you, is working or just finished, which you select, open
+    or right-click as you would a row. An agent is listed under the worktree it's working
+    in, where most of its latest commands ran and edits landed, even if it started somewhere
+    else; resuming it still happens where it started. Needs you is a queue: the worktree and
+    the agent that have waited longest come first, so newer ones can't keep an old one down
+    (worktrees that need you only for their PR, or only through snoozed agents, come after).
+    Within the other statuses, the worktree and the agent you last sent a prompt come first,
+    so rows hold still while agents work. Stuck
+    agents (busy but silent for 30 minutes) show in Needs you with the command they're stuck
+    on. The Inbox filters narrow each worktree to the agents they're about. Pin a worktree
+    with `p` or the right-click menu of the worktree or one of its agents, and reorder pins
+    by dragging or with ⌥↑ ⌥↓; a pinned worktree stays whatever the age filter says. Beside
+    its line diff, a row shows how far the worktree has moved from the default branch on the
+    remote (`origin/main`), whatever its branch tracks: `↑3` for commits it has that the remote
+    doesn't, `↓42` for commits the remote has that it doesn't. Canvas cards show the same.
   - **PRs**: every PR in the project's repos, with the worktree and sessions that worked on
     each: the ones that made, edited or commented on it (from their own records), the ones on
     its branch while it was open, and any linked by hand (`codealong pr link|unlink`). Reviews asked of you come first, with one-click Approve.

@@ -5,7 +5,7 @@ import { absolute, ago, count, middleTruncate, tildePath } from '../format';
 import { HARNESS_APP } from '../harness';
 import type { Board, Lane, Origin, Session, Target, Todo } from '../types';
 import { InsightChips } from './InsightBits';
-import { BranchLabel, Button, HarnessChip, Icon, Kbd, LaneGlyph, PrChip, Rich, StatusGlyph } from './primitives';
+import { BranchLabel, Button, driftWords, HarnessChip, Icon, Kbd, LaneGlyph, PrChip, Rich, StatusGlyph } from './primitives';
 import { TodoChips, TodoGlyph } from './TodoBits';
 import { STATUS_WORD } from '../todos';
 
@@ -300,6 +300,14 @@ export function Inspector({ lane, focusKey, apps, now, onOpen, onNewSession, tod
             <dd className="ca-code">{g.upstream ?? 'None'}</dd>
             <dt>Uncommitted</dt>
             <dd>{g.dirty ? count(g.dirty, 'file') : 'Clean'}</dd>
+            {g.base && g.baseAhead != null && g.baseBehind != null && (
+              <>
+                <dt>Base</dt>
+                <dd title={driftWords(g) ?? `Has the same commits as ${g.base}`}>
+                  <span className="ca-code">{g.base}</span> · {g.baseAhead === 0 && g.baseBehind === 0 ? 'same commits' : `${g.baseAhead.toLocaleString('en-US')} ahead, ${g.baseBehind.toLocaleString('en-US')} behind`}
+                </dd>
+              </>
+            )}
             {g.added != null && (
               <>
                 <dt>Against base</dt>

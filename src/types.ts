@@ -92,6 +92,12 @@ export interface GitInfo {
   lastCommitAt: number | null;
   added: number | null;
   removed: number | null;
+  /** The default branch on the remote (`origin/main`), and commits only HEAD has
+   *  (`baseAhead`) and only it has (`baseBehind`), whatever the branch tracks. Missing from
+   *  other Macs on older versions. */
+  base?: string | null;
+  baseAhead?: number | null;
+  baseBehind?: number | null;
 }
 
 export interface Target {
