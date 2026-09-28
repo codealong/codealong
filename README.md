@@ -173,7 +173,10 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   for a background job, OpenCode's service, a turn started by the Codex app itself (opening
   the thread there first when no window has it; else it opens with the prompt filled in), and Claude Code's cross-session socket for Claude
   app sessions, which read it as a message from another session (what you type in Codealong
-  says it's yours, so one that skips permission prompts takes it without asking). A session that isn't running
+  says it's yours, so one that skips permission prompts takes it without asking). A terminal
+  session whose tab can't be found gets such a message too, and the note (on the bar, from the
+  peek) says it wasn't typed and why; once typing has started, nothing else is tried, so it
+  can't arrive twice, and the same text sent again while it's on its way goes once. A session that isn't running
   is resumed with the prompt; one waiting on you is opened instead, so what you typed can't
   answer its question. The API key stays in the login keychain. What you type, repo names and
   session titles and latest lines go to TypeSafe.

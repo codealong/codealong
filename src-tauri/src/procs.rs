@@ -21,35 +21,99 @@ pub fn pid_alive(pid: u32) -> bool {
     r == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
 }
 
-/// Process start time in epoch milliseconds, read from the kernel.
-pub fn proc_start_ms(pid: u32) -> Option<i64> {
-    // SAFETY: proc_pidinfo fills a plain-old-data struct of the size we pass.
-    unsafe {
-        let mut info: libc::proc_bsdinfo = std::mem::zeroed();
-        let size = std::mem::size_of::<libc::proc_bsdinfo>() as libc::c_int;
-        let n = libc::proc_pidinfo(
-            pid as libc::c_int,
-            libc::PROC_PIDTBSDINFO,
-            0,
-            &mut info as *mut libc::proc_bsdinfo as *mut libc::c_void,
-            size,
-        );
-        if n != size {
-            return None;
-        }
-        Some(info.pbi_start_tvsec as i64 * 1000 + info.pbi_start_tvusec as i64 / 1000)
-    }
-}
-
-/// A process's parent, from the kernel; None once it's gone.
-pub fn parent_pid(pid: u32) -> Option<u32> {
+/// What the kernel keeps about one of your processes: its parent and start. None once it's
+/// gone, and for another user's process.
+fn bsd_info(pid: u32) -> Option<libc::proc_bsdinfo> {
     // SAFETY: proc_pidinfo fills a plain-old-data struct of the size we pass.
     unsafe {
         let mut info: libc::proc_bsdinfo = std::mem::zeroed();
         let size = std::mem::size_of::<libc::proc_bsdinfo>() as libc::c_int;
         let n = libc::proc_pidinfo(pid as libc::c_int, libc::PROC_PIDTBSDINFO, 0, &mut info as *mut libc::proc_bsdinfo as *mut libc::c_void, size);
-        (n == size && info.pbi_ppid > 0).then_some(info.pbi_ppid)
+        (n == size).then_some(info)
     }
+}
+
+/// Process start time in epoch milliseconds, read from the kernel.
+pub fn proc_start_ms(pid: u32) -> Option<i64> {
+    let info = bsd_info(pid)?;
+    Some(info.pbi_start_tvsec as i64 * 1000 + info.pbi_start_tvusec as i64 / 1000)
+}
+
+/// A process's parent, from the kernel; None once it's gone.
+pub fn parent_pid(pid: u32) -> Option<u32> {
+    bsd_info(pid).map(|info| info.pbi_ppid).filter(|&p| p > 0)
+}
+
+/// A process as `ps` lists it: its parent, short name and terminal device.
+struct Listed {
+    ppid: u32,
+    name: String,
+    tdev: u32,
+}
+
+/// A process's entry in the kernel's process table (`sysctl` KERN_PROC_PID), which `ps` reads
+/// too, for any process: `proc_pidinfo` refuses other users', such as the root `login` between
+/// a Ghostty tab's shell and Ghostty. Asking starts no process and reads nothing of the
+/// process's own, so it answers at once however busy the Mac is: `ps`, asked the same on a Mac
+/// that had stalled, took minutes, and a send waiting on it gave up on the session's terminal.
+/// None once it's gone.
+fn listed(pid: u32) -> Option<Listed> {
+    // `struct kinfo_proc` (sys/sysctl.h) is 648 bytes on 64-bit macOS; these are the offsets of
+    // the fields read, from the SDK's layout. `p_pid` is checked, so a layout that changed reads
+    // as nothing rather than as nonsense.
+    const SIZE: usize = 648;
+    const P_PID: usize = 40;
+    const P_COMM: usize = 243;
+    const COMM_LEN: usize = 17;
+    const E_PPID: usize = 560;
+    const E_TDEV: usize = 572;
+    let mut buf = [0u64; SIZE / 8];
+    let mut len: libc::size_t = SIZE;
+    let mut mib = [libc::CTL_KERN, libc::KERN_PROC, libc::KERN_PROC_PID, pid as libc::c_int];
+    // SAFETY: sysctl writes at most `len` bytes into `buf`, which holds that many.
+    let r = unsafe { libc::sysctl(mib.as_mut_ptr(), 4, buf.as_mut_ptr() as *mut libc::c_void, &mut len, std::ptr::null_mut(), 0) };
+    if r != 0 || len != SIZE {
+        return None;
+    }
+    // SAFETY: the bytes of the buffer just filled.
+    let bytes = unsafe { std::slice::from_raw_parts(buf.as_ptr() as *const u8, SIZE) };
+    let int = |at: usize| i32::from_ne_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]]);
+    if int(P_PID) != pid as i32 {
+        return None;
+    }
+    let comm = &bytes[P_COMM..P_COMM + COMM_LEN];
+    let name = String::from_utf8_lossy(&comm[..comm.iter().position(|&b| b == 0).unwrap_or(COMM_LEN)]).into_owned();
+    Some(Listed { ppid: int(E_PPID) as u32, name, tdev: int(E_TDEV) as u32 })
+}
+
+/// A process's parent and name as `ps -c` shows them (its executable's file name, cut to 16
+/// characters), for any process. None once it's gone.
+pub fn parent_and_name(pid: u32) -> Option<(u32, String)> {
+    listed(pid).map(|p| (p.ppid, p.name))
+}
+
+/// The terminal a process runs in (`/dev/ttys006`), from the kernel; None for one with no
+/// terminal, such as a background job, or once it's gone.
+pub fn tty(pid: u32) -> Option<std::path::PathBuf> {
+    extern "C" {
+        fn devname_r(dev: libc::dev_t, kind: libc::mode_t, buf: *mut libc::c_char, len: libc::c_int) -> *mut libc::c_char;
+    }
+    // A process without a terminal has NODEV, all ones.
+    let dev = listed(pid)?.tdev;
+    if dev == u32::MAX {
+        return None;
+    }
+    let mut buf = [0 as libc::c_char; 64];
+    // SAFETY: devname_r writes at most `len` bytes, ending in a NUL, into `buf`, and returns it
+    // (or null when it can't name the device).
+    let name = unsafe {
+        let p = devname_r(dev as libc::dev_t, libc::S_IFCHR, buf.as_mut_ptr(), buf.len() as libc::c_int);
+        if p.is_null() {
+            return None;
+        }
+        std::ffi::CStr::from_ptr(p).to_string_lossy().into_owned()
+    };
+    name.starts_with("tty").then(|| Path::new("/dev").join(name))
 }
 
 /// A process and its ancestors up to launchd, nearest first.
@@ -249,7 +313,9 @@ fn run_with_path(program: &str, args: &[&str], cwd: Option<&Path>, timeout: Dura
         }
         if started.elapsed() > timeout {
             let _ = child.kill();
-            let _ = child.wait();
+            // A process stuck in the kernel dies only once the kernel lets it go, minutes later
+            // on a Mac that has stalled: it's reaped out of the way, so the timeout holds.
+            std::thread::spawn(move || child.wait());
             return Err(anyhow!("{program} timed out after {}s", timeout.as_secs()));
         }
         std::thread::sleep(Duration::from_millis(5));
@@ -282,6 +348,7 @@ pub fn run_stdin(program: &str, args: &[&str], input: &str, timeout: Duration) -
         }
         if started.elapsed() > timeout {
             let _ = child.kill();
+            std::thread::spawn(move || child.wait());
             return Err(anyhow!("{program} timed out"));
         }
         std::thread::sleep(Duration::from_millis(5));

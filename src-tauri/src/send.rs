@@ -21,6 +21,7 @@
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, bail, Result};
@@ -69,8 +70,86 @@ pub enum Route {
     Antigravity,
 }
 
-/// Sends `text` to the session with this key.
+/// Sends `text` to the session with this key. The same text sent to the same session while it's
+/// still on its way (the peek closed and opened again, and you sent what it still showed, or
+/// another window sent it too) joins that send and gets its outcome, rather than going twice.
 pub fn send(board: &Board, cfg: &Config, session_key: &str, text: &str, sender: Sender) -> Result<Sent> {
+    join(session_key, text.trim(), || send_now(board, cfg, session_key, text, sender))
+}
+
+/// A send on its way, which a send of the same text to the same session waits on.
+struct Flight {
+    key: String,
+    text: String,
+    outcome: Mutex<Option<std::result::Result<Sent, String>>>,
+    landed: Condvar,
+    /// How many sends joined it.
+    joined: std::sync::atomic::AtomicUsize,
+}
+
+static FLIGHTS: Mutex<Vec<Arc<Flight>>> = Mutex::new(Vec::new());
+
+/// Runs `send` unless the same text is on its way to the same session already, in which case
+/// it waits for that one and says how it went.
+fn join(key: &str, text: &str, send: impl FnOnce() -> Result<Sent>) -> Result<Sent> {
+    let lock = || FLIGHTS.lock().unwrap_or_else(|e| e.into_inner());
+    let (flight, joined) = {
+        let mut all = lock();
+        match all.iter().find(|f| f.key == key && f.text == text) {
+            Some(f) => (f.clone(), true),
+            None => {
+                let f = Arc::new(Flight { key: key.to_string(), text: text.to_string(), outcome: Mutex::new(None), landed: Condvar::new(), joined: Default::default() });
+                all.push(f.clone());
+                (f, false)
+            }
+        }
+    };
+    if joined {
+        flight.joined.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let mut out = flight.outcome.lock().unwrap_or_else(|e| e.into_inner());
+        while out.is_none() {
+            out = flight.landed.wait(out).unwrap_or_else(|e| e.into_inner());
+        }
+        return out.clone().expect("landed").map_err(|e| anyhow!(e));
+    }
+    /// Lands the flight however the send ends, a panic included, so no one waits on it forever.
+    struct Landing<'a>(&'a Arc<Flight>, Option<std::result::Result<Sent, String>>);
+    impl Drop for Landing<'_> {
+        fn drop(&mut self) {
+            let outcome = self.1.take().unwrap_or_else(|| Err("The send stopped partway.".to_string()));
+            *self.0.outcome.lock().unwrap_or_else(|e| e.into_inner()) = Some(outcome);
+            self.0.landed.notify_all();
+            FLIGHTS.lock().unwrap_or_else(|e| e.into_inner()).retain(|f| !Arc::ptr_eq(f, self.0));
+        }
+    }
+    let mut landing = Landing(&flight, None);
+    let result = send();
+    landing.1 = Some(result.as_ref().map(Sent::clone).map_err(|e| format!("{e:#}")));
+    result
+}
+
+/// A way in that failed after the prompt may have reached the session, such as typing Ghostty
+/// didn't confirm: no other way is tried, or the session could get it twice.
+#[derive(Debug)]
+struct MayHaveArrived(String);
+
+impl std::fmt::Display for MayHaveArrived {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for MayHaveArrived {}
+
+/// How one way in went, when it didn't fail.
+enum Tried {
+    Sent(Sent),
+    /// Nothing went this way, so the next way is tried; why, when the note on where it went
+    /// instead should say (typing into its terminal didn't work).
+    Passed(Option<String>),
+}
+
+fn send_now(board: &Board, cfg: &Config, session_key: &str, text: &str, sender: Sender) -> Result<Sent> {
     let session = board
         .lanes
         .iter()
@@ -85,7 +164,7 @@ pub fn send(board: &Board, cfg: &Config, session_key: &str, text: &str, sender: 
         // Codealong runs it: the prompt goes in over its adapter, after the running turn if
         // there is one, and a question it waits on is answered from its panel.
         let message = crate::acp::send(account, session_key, &attachments::expand(text, Style::Path))?;
-        return Ok(Sent { message, opened: false });
+        return Ok(Sent { message, opened: false, fell_back: false });
     }
     ensure_not_waiting(session)?;
     // Each harness says which ways reach the session, best first (`harness::Adapter::routes`).
@@ -93,11 +172,14 @@ pub fn send(board: &Board, cfg: &Config, session_key: &str, text: &str, sender: 
     let near = crate::board::terminal_neighbours(&board.lanes, Path::new(&session.cwd));
     let place = launch::Placement { new_terminal: cfg.apps.new_terminal, near: &near };
     let mut last_err = None;
+    // Why typing into its terminal didn't work, for the note on the way it went instead.
+    let mut untyped = None;
     for route in routes {
-        match attempt(&route, session, account, cfg, place, text, sender) {
-            Ok(Some(sent)) => return Ok(sent),
+        match attempt(&route, session, account, cfg, place, text, sender, untyped.as_deref()) {
+            Ok(Tried::Sent(sent)) => return Ok(sent),
             // This way doesn't reach the session; the next one may.
-            Ok(None) => {}
+            Ok(Tried::Passed(why)) => untyped = why.or(untyped),
+            Err(e) if e.is::<MayHaveArrived>() => return Err(e),
             Err(e) => last_err = Some(e),
         }
     }
@@ -146,11 +228,14 @@ pub fn claude_registry(home: &Path, session: &Session) -> Option<Value> {
     session.pid.and_then(|pid| read_registry(home, pid)).filter(|r| r.get("sessionId").and_then(Value::as_str) == Some(session.id.as_str()))
 }
 
-/// One way in. `Ok(None)` when it doesn't reach this session, so the next way is tried.
-fn attempt(route: &Route, session: &Session, account: &AccountCfg, cfg: &Config, place: launch::Placement, text: &str, sender: Sender) -> Result<Option<Sent>> {
+/// One way in: it went, or nothing went and the next way is tried, or it failed. `untyped` is
+/// why typing into the session's terminal didn't work, when that was tried first.
+#[allow(clippy::too_many_arguments)]
+fn attempt(route: &Route, session: &Session, account: &AccountCfg, cfg: &Config, place: launch::Placement, text: &str, sender: Sender, untyped: Option<&str>) -> Result<Tried> {
     let busy = session.status == Status::Working;
     let title = quoted(&session.title);
-    let sent = |message: String| Ok(Some(Sent { message, opened: false }));
+    let sent = |message: String| Ok(Tried::Sent(Sent { message, opened: false, fell_back: false }));
+    let opened = |message: String| Ok(Tried::Sent(Sent { message, opened: true, fell_back: false }));
     match route {
         Route::Daemon { socket, key_file, job } => {
             let key = std::fs::read_to_string(key_file).map_err(|e| anyhow!("Claude Code's daemon key: {e}"))?;
@@ -159,10 +244,11 @@ fn attempt(route: &Route, session: &Session, account: &AccountCfg, cfg: &Config,
         }
         Route::Type { pid } => {
             let style = if session.harness == Harness::Claude { Style::Mention } else { Style::Path };
-            let Some(app) = launch::terminal_type_session(&cfg.apps.terminal, *pid, Path::new(&session.cwd), &attachments::expand(text, style))? else {
-                return Ok(None);
-            };
-            sent(if busy { format!("Typed into {title} in {app}; it takes it after its current step.") } else { format!("Typed into {title} in {app}.") })
+            match launch::terminal_type_session(&cfg.apps.terminal, *pid, Path::new(&session.cwd), &attachments::expand(text, style)) {
+                Ok(launch::Typed::Into(app)) => sent(if busy { format!("Typed into {title} in {app}; it takes it after its current step.") } else { format!("Typed into {title} in {app}.") }),
+                Ok(launch::Typed::Nowhere(why)) => Ok(Tried::Passed(Some(why))),
+                Err(_) => Err(MayHaveArrived(format!("Codealong started typing this into {title}, and its terminal didn't confirm it went in: look there before sending it again.")).into()),
+            }
         }
         Route::Peer { socket, session_id, mode } => {
             let skips = mode.as_deref() == Some("bypassPermissions");
@@ -171,13 +257,7 @@ fn attempt(route: &Route, session: &Session, account: &AccountCfg, cfg: &Config,
             }
             let claim = (skips && sender == Sender::You).then_some("bypass");
             peer_send(socket, session_id, &attachments::expand(text, Style::Path), claim)?;
-            sent(if skips && claim.is_none() {
-                format!("Sent to {title}. It skips permission prompts, so it asks you in its terminal before taking it.")
-            } else if busy {
-                format!("Sent to {title}; it reads it as it works.")
-            } else {
-                format!("Sent to {title}.")
-            })
+            Ok(Tried::Sent(Sent { message: peer_note(&title, untyped, busy, skips && claim.is_none()), opened: false, fell_back: untyped.is_some() }))
         }
         Route::Resume => {
             let (input, env) = resume_input(account, &session.id, text);
@@ -187,7 +267,7 @@ fn attempt(route: &Route, session: &Session, account: &AccountCfg, cfg: &Config,
         Route::ClaudeApp => {
             copy(&attachments::expand(text, Style::Path))?;
             launch::open_url(&launch::claude_app_url(&session.id))?;
-            Ok(Some(Sent { message: format!("{title} is open in the Claude app and the prompt is on the clipboard. Paste it there to send it."), opened: true }))
+            opened(format!("{title} is open in the Claude app and the prompt is on the clipboard. Paste it there to send it."))
         }
         Route::CodexApp => {
             let prompt = attachments::expand(text, Style::Path);
@@ -197,7 +277,7 @@ fn attempt(route: &Route, session: &Session, account: &AccountCfg, cfg: &Config,
                     // The app isn't running, didn't take the thread, or has changed how its
                     // windows talk: its own link fills the reply in instead.
                     launch::open_codex(&format!("{}?prompt={}", launch::codex_thread_url(&session.id), urlencoding::encode(&prompt)))?;
-                    Ok(Some(Sent { message: format!("Codex has {title} open with the prompt filled in; send it there."), opened: true }))
+                    opened(format!("Codex has {title} open with the prompt filled in; send it there."))
                 }
             }
         }
@@ -210,8 +290,26 @@ fn attempt(route: &Route, session: &Session, account: &AccountCfg, cfg: &Config,
         Route::Antigravity => {
             copy(&attachments::expand(text, Style::Path))?;
             launch::open_antigravity()?;
-            Ok(Some(Sent { message: "Antigravity is open and the prompt is on the clipboard. Paste it there to send it.".to_string(), opened: true }))
+            opened("Antigravity is open and the prompt is on the clipboard. Paste it there to send it.".to_string())
         }
+    }
+}
+
+/// What a prompt sent on a session's socket says it did. `untyped` is why it wasn't typed into
+/// the session's terminal, when that was tried first: a session reads a message from another
+/// session as a teammate's, not as yours, so it says it went that way, first, since the bar
+/// shows the start of it. `held`: the session skips permission prompts and the message claims
+/// no mode, so it asks you first.
+fn peer_note(title: &str, untyped: Option<&str>, busy: bool, held: bool) -> String {
+    let lead = match untyped {
+        Some(why) => format!("Sent as a message from Codealong, not typed into {title}: {why}."),
+        None if busy && !held => format!("Sent to {title}; it reads it as it works."),
+        None => format!("Sent to {title}."),
+    };
+    if held {
+        format!("{lead} It skips permission prompts, so it asks you in its terminal before taking it.")
+    } else {
+        lead
     }
 }
 
@@ -600,14 +698,14 @@ mod tests {
         // From the command line or another device, a Claude app session that skips prompts
         // would hold it where no one sees it: nothing is sent, and the error says why.
         let route = Route::Peer { socket: "/nonexistent/cc.sock".into(), session_id: "abc".into(), mode: Some("bypassPermissions".into()) };
-        let err = attempt(&route, &app, &account, &cfg, place, "hi", Sender::Elsewhere).unwrap_err();
+        let err = attempt(&route, &app, &account, &cfg, place, "hi", Sender::Elsewhere, None).map(|_| ()).unwrap_err();
         assert!(err.to_string().contains("can't show that"), "{err}");
         // What you type goes to the socket (here there's none to answer).
-        let err = attempt(&route, &app, &account, &cfg, place, "hi", Sender::You).unwrap_err();
+        let err = attempt(&route, &app, &account, &cfg, place, "hi", Sender::You, None).map(|_| ()).unwrap_err();
         assert!(err.to_string().contains("socket didn't answer"), "{err}");
         // A session that asks for permission takes it from anywhere.
         let route = Route::Peer { socket: "/nonexistent/cc.sock".into(), session_id: "abc".into(), mode: Some("default".into()) };
-        let err = attempt(&route, &app, &account, &cfg, place, "hi", Sender::Elsewhere).unwrap_err();
+        let err = attempt(&route, &app, &account, &cfg, place, "hi", Sender::Elsewhere, None).map(|_| ()).unwrap_err();
         assert!(err.to_string().contains("socket didn't answer"), "{err}");
     }
 
@@ -689,6 +787,52 @@ mod tests {
         assert_eq!(v["type"], "user");
         assert_eq!(v["priority"], "next");
         assert_eq!(v["message"]["role"], "user");
+    }
+
+    #[test]
+    fn says_when_a_prompt_went_as_a_message_rather_than_typed() {
+        assert_eq!(peer_note("“Fix”", None, false, false), "Sent to “Fix”.");
+        assert_eq!(peer_note("“Fix”", None, true, false), "Sent to “Fix”; it reads it as it works.");
+        assert_eq!(
+            peer_note("“Fix”", Some("Codealong couldn't find its Ghostty tab"), true, false),
+            "Sent as a message from Codealong, not typed into “Fix”: Codealong couldn't find its Ghostty tab."
+        );
+        assert_eq!(peer_note("“Fix”", None, true, true), "Sent to “Fix”. It skips permission prompts, so it asks you in its terminal before taking it.");
+    }
+
+    #[test]
+    fn the_same_prompt_sent_again_while_on_its_way_goes_once() {
+        use std::sync::atomic::Ordering;
+        use std::sync::mpsc;
+        let sent = |m: &str| Ok(Sent { message: m.into(), opened: false, fell_back: false });
+        let (started, on_way) = mpsc::channel();
+        let (go, wait) = mpsc::channel::<()>();
+        let first = std::thread::spawn(move || {
+            join("k-once", "hello", || {
+                started.send(()).unwrap();
+                wait.recv().unwrap();
+                Ok(Sent { message: "Typed.".into(), opened: false, fell_back: false })
+            })
+        });
+        on_way.recv().unwrap();
+        let second = std::thread::spawn(|| join("k-once", "hello", || panic!("sent twice")));
+        let flight = FLIGHTS.lock().unwrap().iter().find(|f| f.key == "k-once").cloned().unwrap();
+        let t = Instant::now();
+        while flight.joined.load(Ordering::SeqCst) == 0 {
+            assert!(t.elapsed() < Duration::from_secs(30), "the second send never joined");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        // Other text, or the same text to another session, goes on its own meanwhile.
+        assert_eq!(join("k-once", "other", || sent("Other.")).unwrap().message, "Other.");
+        assert_eq!(join("k-else", "hello", || sent("Else.")).unwrap().message, "Else.");
+        go.send(()).unwrap();
+        assert_eq!(first.join().unwrap().unwrap().message, "Typed.");
+        assert_eq!(second.join().unwrap().unwrap().message, "Typed.");
+        // Once it has landed, the same text goes again.
+        assert_eq!(join("k-once", "hello", || sent("Again.")).unwrap().message, "Again.");
+        // A send that fails lands too, so trying again sends it.
+        assert!(join("k-fail", "x", || Err(anyhow!("Ghostty said no."))).unwrap_err().to_string().contains("Ghostty said no."));
+        assert_eq!(join("k-fail", "x", || sent("Sent.")).unwrap().message, "Sent.");
     }
 
     #[test]

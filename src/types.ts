@@ -466,6 +466,9 @@ export interface Sent {
   message: string;
   /** The session or its app was opened instead, with the prompt filled in or copied. */
   opened: boolean;
+  /** It couldn't be typed into the session's terminal, so it went another way, as `message` says.
+   *  Missing from other devices that don't know it yet. */
+  fellBack?: boolean;
 }
 
 export type TodoStatus = 'todo' | 'in-progress' | 'done';

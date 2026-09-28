@@ -205,13 +205,16 @@ const GHOSTTY_MARK_WAIT_SECS: &str = "8";
 /// reported failures for windows that then opened.
 const OSASCRIPT_TIMEOUT: Duration = Duration::from_secs(60);
 
+/// What `osascript` says when macOS hasn't let Codealong control Ghostty.
+const NOT_ALLOWED: &str = "Codealong isn't allowed to control Ghostty. Turn it on in System Settings → Privacy & Security → Automation.";
+
 fn osascript(script: &str, args: &[&str]) -> Result<String> {
     let mut full = vec!["-"];
     full.extend_from_slice(args);
     procs::run_stdin("/usr/bin/osascript", &full, script, OSASCRIPT_TIMEOUT).map_err(|e| {
         let msg = e.to_string();
         if msg.contains("-1743") || msg.contains("Not authorized") {
-            anyhow!("Codealong isn't allowed to control Ghostty. Turn it on in System Settings → Privacy & Security → Automation.")
+            anyhow!(NOT_ALLOWED)
         } else if msg.contains("timed out") {
             anyhow!("Ghostty didn't answer within a minute. It may still open the window; if macOS asked whether Codealong may control Ghostty, allow it and try again.")
         } else {
@@ -361,9 +364,7 @@ pub fn terminal_focus_session(profile: &str, pid: u32, title: &str, cwd: &Path) 
     };
     let terminals = ghostty_terminals()?;
     // A session Ghostty didn't start (tmux, another terminal) can't show the mark: don't wait.
-    let in_ghostty = procs::run("/bin/ps", &["-A", "-o", "pid=,ppid=,comm="], None, Duration::from_secs(3))
-        .map(|table| runs_under(&table, pid, "ghostty"))
-        .unwrap_or(true);
+    let in_ghostty = runs_under(pid, "ghostty");
     let mark = format!("{MARK_PREFIX}{pid}-{}", crate::util::now_ms());
     let mut failed = None;
     if in_ghostty && write_osc7(&tty, &mark).is_ok() {
@@ -390,19 +391,42 @@ pub fn terminal_focus_session(profile: &str, pid: u32, title: &str, cwd: &Path) 
     }
 }
 
+/// How typing into a session's terminal went, when nothing went wrong while typing.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Typed {
+    /// Typed into the session's tab in this terminal app.
+    Into(&'static str),
+    /// Nothing was typed, so another way can take it: the session isn't in a terminal Codealong
+    /// can type into, or its tab didn't turn up. Why, as the end of a sentence.
+    Nowhere(String),
+}
+
 /// Types `text` into the terminal a session's process runs in and presses Return: Ghostty
 /// (found by an OSC 7 mark, since it has no TTY or PID property) or tmux (by the pane's TTY).
-/// Returns the terminal's name, or none when it isn't in one of those, so the caller tries
-/// another way.
-pub fn terminal_type_session(profile: &str, pid: u32, cwd: &Path, text: &str) -> Result<Option<&'static str>> {
+/// An error means typing started and failed, so the text may be in the terminal already:
+/// Ghostty carries out what it was asked even after Codealong stopped waiting on it.
+pub fn terminal_type_session(profile: &str, pid: u32, cwd: &Path, text: &str) -> Result<Typed> {
     match terminal_kind(pid) {
-        Some(HostKind::Tmux) => Ok(tmux_type(pid, text)?.then_some("tmux")),
+        Some(HostKind::Tmux) => match tmux_pane_of(pid) {
+            Some(pane) => tmux_type(&pane, text).map(|_| Typed::Into("tmux")),
+            None => Ok(Typed::Nowhere("Codealong couldn't find its tmux pane".into())),
+        },
         Some(HostKind::Ghostty) if profile == "ghostty" => {
-            let Some(id) = ghostty_terminal_of(pid, cwd)? else { return Ok(None) };
-            Ok((!osascript(GHOSTTY_TYPE, &[&id, text])?.trim().is_empty()).then_some("Ghostty"))
+            let id = match ghostty_terminal_of(pid, cwd) {
+                Ok(Some(id)) => id,
+                Ok(None) => return Ok(Typed::Nowhere("Codealong couldn't find its Ghostty tab".into())),
+                // Nothing was typed yet, so another way can take it; say why this one didn't.
+                Err(e) if e.to_string() == NOT_ALLOWED => return Ok(Typed::Nowhere("Codealong isn't allowed to control Ghostty (System Settings → Privacy & Security → Automation)".into())),
+                Err(_) => return Ok(Typed::Nowhere("Ghostty didn't answer in time".into())),
+            };
+            if osascript(GHOSTTY_TYPE, &[&id, text])?.trim().is_empty() {
+                // Its tab closed between finding it and typing: nothing went in.
+                return Ok(Typed::Nowhere("its Ghostty tab closed".into()));
+            }
+            Ok(Typed::Into("Ghostty"))
         }
-        Some(HostKind::Ghostty) => bail!("There's no terminal profile called {profile:?} yet."),
-        None => Ok(None),
+        Some(HostKind::Ghostty) => Ok(Typed::Nowhere(format!("there's no terminal profile called {profile:?}"))),
+        None => Ok(Typed::Nowhere("it isn't in a Ghostty or tmux tab".into())),
     }
 }
 
@@ -481,19 +505,9 @@ fn close_ghostty_terminals(sessions: &[(u32, &Path)]) -> Result<Vec<Result<()>>>
     let mut out: Vec<Result<()>> = Vec::new();
     // (index, tty, mark) for each process that has a terminal.
     let mut marked = Vec::new();
-    // Every process's TTY from one `ps`, not one per process.
-    let table = procs::run("/bin/ps", &["-A", "-o", "pid=,tty="], None, Duration::from_secs(5)).unwrap_or_default();
-    let ttys: std::collections::HashMap<u32, std::path::PathBuf> = table
-        .lines()
-        .filter_map(|l| {
-            let (pid, tty) = l.trim().split_once(char::is_whitespace)?;
-            let tty = tty.trim();
-            Some((pid.parse().ok()?, tty)).filter(|(_, t)| t.starts_with("tty")).map(|(p, t)| (p, Path::new("/dev").join(t)))
-        })
-        .collect();
     for (i, (pid, _)) in sessions.iter().enumerate() {
         let mark = format!("{MARK_PREFIX}{pid}-{stamp}");
-        match ttys.get(pid).cloned() {
+        match tty_of(*pid) {
             Some(tty) if write_osc7(&tty, &mark).is_ok() => {
                 marked.push((i, tty, mark));
                 out.push(Ok(()));
@@ -576,10 +590,9 @@ pub enum HostKind {
 }
 
 pub fn terminal_kind(pid: u32) -> Option<HostKind> {
-    let table = procs::run("/bin/ps", &["-A", "-o", "pid=,ppid=,comm="], None, Duration::from_secs(3)).ok()?;
-    if runs_under(&table, pid, "ghostty") {
+    if runs_under(pid, "ghostty") {
         Some(HostKind::Ghostty)
-    } else if runs_under(&table, pid, "tmux") && tmux_bin().is_some() {
+    } else if runs_under(pid, "tmux") && tmux_bin().is_some() {
         Some(HostKind::Tmux)
     } else {
         None
@@ -678,33 +691,27 @@ fn tmux_pane_for(list: &str, tty: &str) -> Option<String> {
 
 /// Pastes `text` into the pane (bracketed, so a prompt of several lines arrives whole), then
 /// presses Return a moment later, as `GHOSTTY_TYPE` does.
-fn tmux_type(pid: u32, text: &str) -> Result<bool> {
-    let (Some(pane), Some(bin)) = (tmux_pane_of(pid), tmux_bin()) else { return Ok(false) };
-    let bin = bin.to_string_lossy().into_owned();
+fn tmux_type(pane: &str, text: &str) -> Result<()> {
+    let bin = tmux_bin().ok_or_else(|| anyhow!("tmux isn't installed where Codealong looks for it."))?.to_string_lossy().into_owned();
     procs::run_stdin(&bin, &["load-buffer", "-b", "codealong", "-"], text, Duration::from_secs(5))?;
-    procs::run(&bin, &["paste-buffer", "-p", "-d", "-b", "codealong", "-t", &pane], None, Duration::from_secs(5))?;
+    procs::run(&bin, &["paste-buffer", "-p", "-d", "-b", "codealong", "-t", pane], None, Duration::from_secs(5))?;
     std::thread::sleep(Duration::from_millis(300));
-    procs::run(&bin, &["send-keys", "-t", &pane, "Enter"], None, Duration::from_secs(5))?;
-    Ok(true)
+    procs::run(&bin, &["send-keys", "-t", pane, "Enter"], None, Duration::from_secs(5))?;
+    Ok(())
 }
 
-/// Whether `pid` runs inside the app whose executable is named `exe`, from a `ps -A -o
-/// pid=,ppid=,comm=` table. Ghostty starts a login shell per tab: claude → zsh → login → ghostty.
-pub fn runs_under(table: &str, pid: u32, exe: &str) -> bool {
-    let parents: std::collections::HashMap<u32, (u32, &str)> = table
-        .lines()
-        .filter_map(|line| {
-            // `  849     1 /Applications/Ghostty.app/Contents/MacOS/ghostty`; names can have spaces.
-            let (pid, rest) = line.trim_start().split_once(char::is_whitespace)?;
-            let rest = rest.trim_start();
-            let (ppid, comm) = rest.split_once(char::is_whitespace).unwrap_or((rest, ""));
-            Some((pid.parse().ok()?, (ppid.parse().ok()?, comm.trim())))
-        })
-        .collect();
+/// Whether `pid` runs inside the app whose executable is named `exe`, asked of the kernel
+/// (procs.rs). Ghostty starts a login shell per tab: claude → zsh → login → ghostty.
+pub fn runs_under(pid: u32, exe: &str) -> bool {
+    runs_under_by(pid, exe, procs::parent_and_name)
+}
+
+/// `runs_under`, with `step` giving each process's parent and name.
+fn runs_under_by(pid: u32, exe: &str, step: impl Fn(u32) -> Option<(u32, String)>) -> bool {
     let mut at = pid;
     for _ in 0..16 {
-        let Some(&(ppid, comm)) = parents.get(&at) else { return false };
-        if Path::new(comm).file_name().is_some_and(|n| n == exe) {
+        let Some((ppid, name)) = step(at) else { return false };
+        if name == exe {
             return true;
         }
         if ppid <= 1 {
@@ -717,9 +724,7 @@ pub fn runs_under(table: &str, pid: u32, exe: &str) -> bool {
 
 /// The terminal device a process writes to, or None for a background process.
 fn tty_of(pid: u32) -> Option<std::path::PathBuf> {
-    let out = procs::run("/bin/ps", &["-o", "tty=", "-p", &pid.to_string()], None, Duration::from_secs(3)).ok()?;
-    let tty = out.trim();
-    tty.starts_with("tty").then(|| Path::new("/dev").join(tty))
+    procs::tty(pid)
 }
 
 /// Reports `dir` as the terminal's folder. Never blocks: a full or stuck terminal just misses it.
@@ -964,6 +969,23 @@ end run
     /// permission prompt does, and checks both arrived as typed keys: `send key` sent nothing
     /// for the digit. It opens a window, so it's opt in: `cargo test ghostty_presses_keys --
     /// --ignored`.
+    /// Finds the Ghostty tab of a process that runs in one, as a send does before it types, and
+    /// types nothing: `CODEALONG_TEST_PID=<pid> cargo test ghostty_finds_a_tab -- --ignored
+    /// --nocapture`. The tab's folder changes for a moment and is put back, as a click's does.
+    #[test]
+    #[ignore]
+    fn ghostty_finds_a_tab() {
+        let pid: u32 = std::env::var("CODEALONG_TEST_PID").expect("CODEALONG_TEST_PID").parse().unwrap();
+        let t = std::time::Instant::now();
+        let kind = terminal_kind(pid);
+        println!("terminal: {kind:?}, tty {:?}, in {:?}", tty_of(pid), t.elapsed());
+        assert_eq!(kind, Some(HostKind::Ghostty));
+        let t = std::time::Instant::now();
+        let id = ghostty_terminal_of(pid, Path::new("/")).unwrap();
+        println!("tab: {id:?}, in {:?}", t.elapsed());
+        assert!(id.is_some());
+    }
+
     #[test]
     #[ignore]
     fn ghostty_presses_keys() {
@@ -1102,19 +1124,58 @@ end run
 
     #[test]
     fn knows_a_session_ghostty_started() {
-        let table = "  849     1 /Applications/Ghostty.app/Contents/MacOS/ghostty
-  958   849 /usr/bin/login
-  997   958 -/bin/zsh
-68277   997 claude
- 4100     1 tmux
- 4101  4100 -/bin/zsh
- 4102  4101 claude
- 5000     1 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
-";
-        assert!(runs_under(table, 68277, "ghostty"));
-        assert!(!runs_under(table, 4102, "ghostty"));
-        assert!(!runs_under(table, 5000, "ghostty"));
-        assert!(!runs_under(table, 999_999, "ghostty"));
+        // (pid, parent, name) as the kernel has them.
+        let table = [(849, 1, "ghostty"), (958, 849, "login"), (997, 958, "zsh"), (68277, 997, "claude"), (4100, 1, "tmux"), (4101, 4100, "zsh"), (4102, 4101, "claude"), (5000, 1, "Google Chrome")];
+        let step = |pid: u32| table.iter().find(|r| r.0 == pid).map(|r| (r.1, r.2.to_string()));
+        assert!(runs_under_by(68277, "ghostty", step));
+        assert!(!runs_under_by(4102, "ghostty", step));
+        assert!(runs_under_by(4102, "tmux", step));
+        assert!(!runs_under_by(5000, "ghostty", step));
+        assert!(!runs_under_by(999_999, "ghostty", step));
+    }
+
+    #[test]
+    fn reads_a_process_line_and_terminal_from_the_kernel() {
+        // This test's own process and a child of it: named, with parents, found under it.
+        let me = std::process::id();
+        let (_, name) = procs::parent_and_name(me).expect("the kernel lists this process");
+        assert!(!name.is_empty());
+        assert!(runs_under(me, &name));
+        assert!(!runs_under(me, "no-such-program"));
+        let mut sleeper = std::process::Command::new("/bin/sleep").arg("30").stdin(std::process::Stdio::null()).spawn().unwrap();
+        let child = sleeper.id();
+        assert_eq!(procs::parent_and_name(child), Some((me, "sleep".to_string())));
+        assert!(runs_under(child, &name));
+        // Every process `ps` lists has the parent, name and terminal it says, other users'
+        // included, and is under Ghostty when `ps` puts it there: the root `login` in a Ghostty
+        // tab's line is on the way, when one is open.
+        let table = procs::run("/bin/ps", &["-A", "-o", "pid=,ppid=,tty=,ucomm="], None, Duration::from_secs(20)).unwrap();
+        let rows: Vec<(u32, u32, &str, &str)> = table
+            .lines()
+            .filter_map(|line| {
+                let mut f = line.split_whitespace();
+                let (pid, ppid, tty) = (f.next()?.parse().ok()?, f.next()?.parse().ok()?, f.next()?);
+                // A name can have spaces: the rest of the line.
+                let name = line[line.find(tty)? + tty.len()..].trim();
+                Some((pid, ppid, tty, name))
+            })
+            .collect();
+        let by_ps = |pid: u32| rows.iter().find(|r| r.0 == pid).map(|r| (r.1, r.3.to_string()));
+        let mut checked = 0;
+        for &(pid, ppid, tty, name) in &rows {
+            // Gone since `ps` looked.
+            let Some((parent, kernel_name)) = procs::parent_and_name(pid) else { continue };
+            // A name cut to 16 characters can end in a space, which `ps` doesn't print.
+            assert_eq!((parent, kernel_name.trim_end()), (ppid, name), "pid {pid}");
+            let want = tty.starts_with("tty").then(|| Path::new("/dev").join(tty));
+            assert_eq!(procs::tty(pid), want, "pid {pid}");
+            assert_eq!(runs_under(pid, "ghostty"), runs_under_by(pid, "ghostty", by_ps), "pid {pid}");
+            checked += 1;
+        }
+        assert!(checked > 10, "only {checked} processes checked");
+        let _ = sleeper.kill();
+        let _ = sleeper.wait();
+        assert_eq!(procs::parent_and_name(child), None);
     }
 
     #[test]

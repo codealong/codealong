@@ -88,6 +88,11 @@ pub struct Sent {
     pub message: String,
     /// The session or its app was opened for you to send it there, rather than sent.
     pub opened: bool,
+    /// It couldn't be typed into the session's terminal, so it went another way, as `message`
+    /// says: worth showing where a send usually goes without a word (the floating bar's peek).
+    /// Missing from devices that don't know it yet.
+    #[serde(default)]
+    pub fell_back: bool,
 }
 
 // ---- starting a session (`start-options`, `start`) ----

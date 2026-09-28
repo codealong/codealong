@@ -58,11 +58,47 @@ interface ComposerProps {
   onSent?: (sent: Sent) => void;
 }
 
+type Note = { text: string; error: boolean };
+
+/** Sends on their way, by session, in this window. The box goes when the peek closes, and a send
+ *  can take a while on a busy Mac: a box that shows again while its session's send is still on its
+ *  way shows it sending and hears how it went, rather than offering the same text to send twice. */
+const flights = new Map<string, Promise<Sent>>();
+/** How a send went that landed with no box showing, for the next box on its session to say. */
+const landed = new Map<string, Note>();
+
+/** Sends `text` to a session; its draft goes once it's through. */
+function fly(key: string, text: string): Promise<Sent> {
+  const flight = sendToSession(key, text).then((sent) => {
+    writeDraft(key, '');
+    return sent;
+  });
+  flights.set(key, flight);
+  const land = (note: Note) => {
+    if (flights.get(key) !== flight) return;
+    flights.delete(key);
+    landed.set(key, note);
+  };
+  flight.then(
+    (sent) => land({ text: sent?.message ?? 'Sent.', error: false }),
+    (e: unknown) => land({ text: plain(e), error: true }),
+  );
+  return flight;
+}
+
 function Composer({ session: s, terminal, autoFocus, waiting, onSent }: ComposerProps) {
   const [text, setTextNow] = useState(() => readDraft(s.key));
-  const [sending, setSending] = useState(false);
-  const [note, setNote] = useState<{ text: string; error: boolean } | null>(null);
+  // This session's send on its way, from this box or from one showing before it.
+  const [flight, setFlight] = useState<Promise<Sent> | null>(() => flights.get(s.key) ?? null);
+  const sending = flight !== null;
+  const [note, setNote] = useState<Note | null>(() => {
+    const n = flights.has(s.key) ? undefined : landed.get(s.key);
+    landed.delete(s.key);
+    return n ?? null;
+  });
   const box = useRef<HTMLTextAreaElement>(null);
+  const sentNow = useRef(onSent);
+  sentNow.current = onSent;
   const latest = useRef(text);
   latest.current = text;
   const attached = attachmentsIn(text);
@@ -99,22 +135,36 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSent }: Composer
       .finally(() => setStopping(false));
   };
 
-  const send = () => {
-    const t = text.trim();
-    if (!t || sending || waiting) return;
-    setSending(true);
-    setNote(null);
-    sendToSession(s.key, t)
+  // The box says how its session's send went, whichever box sent it.
+  useEffect(() => {
+    if (!flight) return;
+    let live = true;
+    flight
       .then((sent) => {
-        setText('');
+        if (!live) return;
+        setTextNow('');
+        latest.current = '';
         setNote({ text: sent?.message ?? 'Sent.', error: false });
-        onSent?.(sent);
+        sentNow.current?.(sent);
       })
-      .catch((e: unknown) => setNote({ text: plain(e), error: true }))
+      .catch((e: unknown) => live && setNote({ text: plain(e), error: true }))
       .finally(() => {
-        setSending(false);
+        if (!live) return;
+        // Heard here, so no later box says it again.
+        landed.delete(s.key);
+        setFlight(null);
         box.current?.focus();
       });
+    return () => {
+      live = false;
+    };
+  }, [flight, s.key]);
+
+  const send = () => {
+    const t = text.trim();
+    if (!t || sending || waiting || flights.has(s.key)) return;
+    setNote(null);
+    setFlight(fly(s.key, t));
   };
 
   // A pasted screenshot or file goes in at the cursor, on a line of its own; the agent gets its

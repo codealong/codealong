@@ -146,10 +146,9 @@ pub fn plan(board: &Board, now: i64, after_ms: i64, in_ghostty: impl Fn(u32) -> 
     out
 }
 
-/// The plan for the board as it is now, with Ghostty's processes read from `ps`.
+/// The plan for the board as it is now, with Ghostty's processes asked of the kernel.
 pub fn plan_now(board: &Board, after_ms: i64) -> Plan {
-    let table = crate::procs::run("/bin/ps", &["-A", "-o", "pid=,ppid=,comm="], None, std::time::Duration::from_secs(3)).unwrap_or_default();
-    plan(board, crate::util::now_ms(), after_ms, |pid| crate::launch::runs_under(&table, pid, "ghostty"))
+    plan(board, crate::util::now_ms(), after_ms, |pid| crate::launch::runs_under(pid, "ghostty"))
 }
 
 /// Closes the terminals of `keys` that the board, looked at again now, still says can close.

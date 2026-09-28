@@ -228,8 +228,9 @@ export function Peek() {
             void showMain({ kind: 'session', laneId: lane.id, key: session.key });
           }}
           onSent={(sent) => {
-            // What you'd want to know goes on the bar: the prompt is on the clipboard, say.
-            if (sent.opened) void barNote({ key: session.key, message: sent.message, tone: 'info' });
+            // What you'd want to know goes on the bar: the prompt is on the clipboard, say, or it
+            // went as a message from Codealong because its terminal couldn't be typed into.
+            if (sent.opened || sent.fellBack) void barNote({ key: session.key, message: sent.message, tone: 'info' });
             void peekHide();
           }}
           onAnswered={() => {

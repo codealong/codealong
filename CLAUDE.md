@@ -666,6 +666,11 @@ Tauri and macOS (from the Tauri 2.11 and tao 0.35 sources)
   mouse moves from its own tracking area, active always with classic scroll bars and in the key
   window with overlay ones, and has no `mouseMoved:` to call: a test sends them with
   `_simulateMouseMove:`.
+- `proc_pidinfo` answers only for your own processes: it refuses the root `login` between a
+  Ghostty tab's shell and Ghostty. `sysctl` KERN_PROC_PID, which `ps` reads, answers for any
+  (`procs::parent_and_name`, `procs::tty`). On a Mac that had stalled (load in the hundreds after
+  a restart, 2026-09-28) `ps` took minutes, and a killed process isn't reaped until the kernel
+  lets it go, so `procs::run` reaps a timed-out one on a thread of its own.
 - `pkill -f <pattern>` also matches any shell whose command line contains the pattern, such as
   another session's build; `scripts/relaunch.sh` anchors it (`codeal[o]ng$`) so only the app
   matches.
