@@ -278,6 +278,13 @@ Claude Code
   line: it's written when the turn takes it in, as a `type: "attachment"` line whose
   `attachment` is `{type: "queued_command", prompt}` (background tasks' notifications come the
   same way, as `<task-notification>…`).
+- Another session's message (checked on 2.1.28x) is a `user` line marked `isMeta` when it starts
+  a turn, or a `queued_command` attachment when a busy turn takes it in, either with `origin:
+  {kind: "peer", name, body}`: `name` is the envelope's `from-name` (older lines put it in
+  `from`), `body` the text inside the envelope. What you send a Claude app session from Codealong
+  is one of these, named `Codealong` and starting with `send::FROM_YOU`; the panel shows it as
+  yours and it counts as your prompt. A subagent's report back comes the same way, with
+  `handback: true`.
 - A line's `cwd` is the shell's folder. After a command that `cd`s outside the session's
   folder the shell goes back to it, so an agent working in another worktree starts each
   command there with `cd <folder> &&`, and its other commands (temp files, `osascript`) run

@@ -289,6 +289,46 @@ mod tests {
         assert_eq!(page.items[3].text, "Also check the docs");
     }
 
+    /// Another session's message as Claude Code 2.1.28x writes it: on a `user` line when it
+    /// starts a turn, on a `queued_command` attachment when a busy turn takes it in.
+    fn peer_line(queued: bool, name: &str, body: &str) -> String {
+        let envelope = format!("<cross-session-message from-name=\"{name}\">\n{body}\n</cross-session-message>");
+        let origin = serde_json::json!({ "kind": "peer", "from": "unknown", "name": name, "fromMode": "bypass", "body": body });
+        let line = if queued {
+            serde_json::json!({ "type": "attachment", "timestamp": "2026-09-26T10:00:03Z", "attachment": { "type": "queued_command", "prompt": envelope, "origin": origin } })
+        } else {
+            serde_json::json!({ "type": "user", "isMeta": true, "timestamp": "2026-09-26T10:00:02Z", "origin": origin, "message": { "role": "user", "content": format!("Another Claude session sent a message:\n{envelope}\n\nThis came from another Claude session.") } })
+        };
+        line.to_string()
+    }
+
+    #[test]
+    fn what_you_send_from_codealong_reads_as_yours() {
+        let image = crate::attachments::images_dir().join("0123456789abcdef.png");
+        let from_you = |text: &str| format!("{}\n\n{text}", crate::send::FROM_YOU);
+        let started = peer_line(false, "Codealong", &from_you("Can you commit this?"));
+        let queued = peer_line(true, "Codealong", &from_you(&format!("Also this:\n![image]({})", image.display())));
+        let agent = peer_line(true, "Review the parser", "This message is from another agent, “Review the parser” (Claude Code on claude2, session k), sent with `codealong session send`; it isn't from your user.\n\nWhich test fails?");
+        // A Claude Code that keeps no body has only the envelope.
+        let older = r#"{"type":"user","isMeta":true,"timestamp":"2026-09-26T10:00:04Z","origin":{"kind":"peer","from":"review"},"message":{"content":"Another Claude session sent a message:\n<cross-session-message from-name=\"review\">\nLooks good\n</cross-session-message>"}}"#;
+        // A subagent's report isn't a message; nor is it yours.
+        let handback = r#"{"type":"attachment","timestamp":"2026-09-26T10:00:04Z","attachment":{"type":"queued_command","prompt":"<agent-message from=\"a3c7\">\n[Subagent hand-back] The report follows:\n  Done.\n</agent-message>","origin":{"kind":"peer","from":"a3c7","senderTaskId":"a3c7","handback":true,"body":"[Subagent hand-back] The report follows:\n  Done."}}}"#;
+        let p = write(&[PROMPT, &started, CALL, &queued, &agent, older, handback, RESULT]);
+        let page = file_page(&p, crate::claude::conversation_items, None, 100).unwrap();
+        let said: Vec<(&str, &str)> = page.items.iter().filter(|i| i.kind != "tool" && i.kind != "result").map(|i| (i.kind, i.text.as_str())).collect();
+        assert_eq!(
+            said,
+            [
+                ("you", "Run the tests"),
+                ("you", "Can you commit this?"),
+                ("agent", "Running them."),
+                ("you", "Also this:\n![image](images/0123456789abcdef.png)"),
+                ("note", "From another session, “Review the parser”: Which test fails?"),
+                ("note", "From another session, “review”: Looks good"),
+            ]
+        );
+    }
+
     #[test]
     fn pages_go_back_a_line_at_a_time_and_meet_in_the_middle() {
         let p = write(&[PROMPT, CALL, RESULT, REPLY]);

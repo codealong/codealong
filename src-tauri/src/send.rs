@@ -90,6 +90,17 @@ fn byline(board: &Board, from: Option<&str>) -> Byline {
     }
 }
 
+/// An agent's message without the byline it starts with, as a note of it shows it (claude.rs,
+/// `peer_item`): the byline says whose it is, which the note says already.
+pub fn without_byline(text: &str) -> &str {
+    let t = text.trim();
+    let starts = ["This message is from another agent, ", "This message was sent with `codealong session send`"];
+    match t.split_once("\n\n") {
+        Some((intro, rest)) if starts.iter().any(|s| intro.starts_with(s)) => rest.trim(),
+        _ => t,
+    }
+}
+
 /// What goes to the session: the text as it gets it, before its attachments are written out for
 /// the way in, and who it's from.
 struct Message<'a> {
@@ -488,6 +499,12 @@ fn daemon_reply(socket: &Path, key: &str, job: &str, text: &str) -> Result<()> {
     bail!("Claude Code's daemon didn't take it: {last}")
 }
 
+/// The sender's name on what you send, and the line its text starts with. The session's
+/// transcript keeps both (claude.rs, `sent_from_codealong`), which is how its panel knows the
+/// message was yours.
+pub const FROM_CODEALONG: &str = "Codealong";
+pub const FROM_YOU: &str = "Your user sent this to this session from Codealong:";
+
 /// The prompt as a cross-session message. The envelope is the one Claude Code writes for its
 /// own sends (`<cross-session-message from-name="…">`, the body on lines of its own), so the
 /// session shows who it's from: Codealong for what you sent, or `from`, an agent's session, whose
@@ -499,7 +516,7 @@ fn daemon_reply(socket: &Path, key: &str, job: &str, text: &str) -> Result<()> {
 pub fn peer_content(text: &str, claim: Option<&str>, from: Option<&str>) -> String {
     let (name, body) = match from {
         Some(name) => (envelope_name(name), text.trim().to_string()),
-        None => ("Codealong".to_string(), format!("Your user sent this to this session from Codealong:\n\n{}", text.trim())),
+        None => (FROM_CODEALONG.to_string(), format!("{FROM_YOU}\n\n{}", text.trim())),
     };
     let body = body.replace("</cross-session-message", "<\\/cross-session-message");
     let mode = claim.map(|m| format!(" from-mode=\"{m}\"")).unwrap_or_default();
@@ -895,6 +912,10 @@ mod tests {
         let msg = Message::new(&board, &Config::default(), "  Which test fails?\n", &agent);
         assert_eq!(msg.text, format!("{}\n\nWhich test fails?", byline(&board, Some("claude:claude2:me")).intro));
         assert_eq!(msg.byline.map(|b| b.name).as_deref(), Some("Review the parser"));
+        // A note of it in the session's panel leaves the byline out, either kind.
+        assert_eq!(without_byline(&msg.text), "Which test fails?");
+        assert_eq!(without_byline(&format!("{}\n\nAnd the docs?", byline(&board, None).intro)), "And the docs?");
+        assert_eq!(without_byline("Plain words\n\nstay whole"), "Plain words\n\nstay whole");
         assert_eq!(Message::new(&board, &Config::default(), "hi", &Sender::You).text, "hi");
     }
 

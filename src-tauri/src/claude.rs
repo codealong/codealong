@@ -350,15 +350,14 @@ pub fn conversation_items(v: &Value, at: i64) -> Vec<Item> {
             if flag("isCompactSummary") {
                 return vec![item(at, "note", "The conversation was compacted here")];
             }
+            if let Some(peer) = line_peer(v) {
+                return vec![peer_item(at, &peer)];
+            }
             if let Some(t) = typed_text(v) {
                 return vec![item(at, "you", t)];
             }
             if flag("isMeta") {
                 return Vec::new();
-            }
-            if v.pointer("/origin/kind").and_then(Value::as_str) == Some("peer") {
-                let t = text_of(v.pointer("/message/content").unwrap_or(&Value::Null));
-                return vec![item(at, "note", format!("From another session: {}", one_line(&t, 200)))];
             }
             let Some(parts) = v.pointer("/message/content").and_then(Value::as_array) else { return Vec::new() };
             parts
@@ -374,10 +373,13 @@ pub fn conversation_items(v: &Value, at: i64) -> Vec<Item> {
         }
         // A message you sent while it worked: Claude Code writes it when the turn takes it in, as
         // a `queued_command` attachment rather than a prompt. Background tasks' notifications
-        // come the same way, wrapped in a tag.
+        // and other sessions' messages come the same way, wrapped in a tag.
         Some("attachment") => {
             if v.pointer("/attachment/type").and_then(Value::as_str) != Some("queued_command") {
                 return Vec::new();
+            }
+            if let Some(peer) = line_peer(v) {
+                return vec![peer_item(at, &peer)];
             }
             let t = text_of(v.pointer("/attachment/prompt").unwrap_or(&Value::Null));
             let t = t.trim();
@@ -409,6 +411,68 @@ pub fn conversation_items(v: &Value, at: i64) -> Vec<Item> {
         }
         _ => Vec::new(),
     }
+}
+
+/// A message from another session, as Claude Code records it: `origin: {kind: "peer", name,
+/// body}` on the `user` line that started a turn with it, or on the `queued_command` attachment
+/// by which a busy turn took it in. `body` is the text inside the message's envelope; a Claude
+/// Code that doesn't keep it has only the envelope, in the line's own text.
+struct Peer {
+    name: String,
+    body: String,
+}
+
+fn line_peer(v: &Value) -> Option<Peer> {
+    let (origin, text) = match v.get("type").and_then(Value::as_str) {
+        Some("user") => (v.get("origin")?, v.pointer("/message/content")),
+        Some("attachment") => (v.pointer("/attachment/origin")?, v.pointer("/attachment/prompt")),
+        _ => return None,
+    };
+    // A subagent's report back comes the same way; like a background task's notification, it
+    // isn't a message anyone sent.
+    if origin.get("kind").and_then(Value::as_str) != Some("peer") || origin.get("handback").and_then(Value::as_bool) == Some(true) {
+        return None;
+    }
+    let body = match origin.get("body").and_then(Value::as_str) {
+        Some(b) => b.to_string(),
+        None => envelope_body(&text_of(text.unwrap_or(&Value::Null)))?,
+    };
+    // Older lines name the sender in `from`; newer ones say `unknown` there and use `name`.
+    let name = [origin.get("name"), origin.get("from")].into_iter().flatten().filter_map(Value::as_str).find(|n| !n.is_empty() && *n != "unknown").unwrap_or("");
+    Some(Peer { name: name.to_string(), body: body.replace("<\\/cross-session-message", "</cross-session-message") })
+}
+
+/// The text inside a `<cross-session-message …>` envelope.
+fn envelope_body(text: &str) -> Option<String> {
+    let start = text.find("<cross-session-message")?;
+    let inside = start + text[start..].find('>')? + 1;
+    let end = inside + text[inside..].find("</cross-session-message>")?;
+    Some(text[inside..end].trim().to_string())
+}
+
+/// What you sent from Codealong, as the text you wrote. A Claude app session takes it as another
+/// session's message (send.rs, `peer_content`), from Codealong, with a first line saying it's
+/// from you, which an agent's message never starts with. It went with its attachments' full
+/// paths; they read as references again, as they did in the box you sent it from.
+fn sent_from_codealong(peer: &Peer) -> Option<String> {
+    // The first line as it is now, and as Codealong worded it until 2026-09-28.
+    const YOURS: [&str; 2] = [crate::send::FROM_YOU, "Your user typed this in Codealong's quick panel and sent it to this session:"];
+    if peer.name != crate::send::FROM_CODEALONG {
+        return None;
+    }
+    let body = peer.body.trim_start();
+    let text = YOURS.iter().find_map(|first| body.strip_prefix(first))?.trim();
+    (!text.is_empty()).then(|| crate::attachments::shorten(text))
+}
+
+/// Another session's message in the conversation: yours when Codealong sent it for you, else a
+/// note of who it's from and what it says.
+fn peer_item(at: i64, peer: &Peer) -> Item {
+    if let Some(text) = sent_from_codealong(peer) {
+        return item(at, "you", text);
+    }
+    let from = if peer.name.is_empty() { String::new() } else { format!(", “{}”", peer.name) };
+    item(at, "note", format!("From another session{from}: {}", one_line(crate::send::without_byline(&peer.body), 200)))
 }
 
 /// A Claude Code tool's input as you'd want to read it: the command, the file and the change,
@@ -655,16 +719,25 @@ fn user_prompt(v: &Value) -> Option<String> {
     Some(one_line(t, 140))
 }
 
-/// A turn you took: a prompt you typed, pasted or ran as a slash command. Claude Code marks
-/// these `origin: {kind: "human"}`; a background task's notification (`task-notification`) or
-/// another session's message (`peer`) is marked otherwise. Older transcripts have no mark, so
-/// for them this is whatever `user_prompt` takes for a prompt.
+/// A turn you took: a prompt you typed, pasted or ran as a slash command, or sent from
+/// Codealong. Claude Code marks what's typed `origin: {kind: "human"}`; a background task's
+/// notification (`task-notification`) or another session's message (`peer`) is marked
+/// otherwise, and what you send a Claude app session from Codealong comes as another session's
+/// message (`sent_from_codealong`). Older transcripts have no mark, so for them this is whatever
+/// `user_prompt` takes for a prompt.
 fn you_typed(v: &Value) -> bool {
     if v.get("type").and_then(Value::as_str) != Some("user") {
         return false;
     }
     let flag = |k: &str| v.get(k).and_then(Value::as_bool) == Some(true);
-    if flag("isMeta") || flag("isSidechain") || flag("isCompactSummary") {
+    if flag("isSidechain") || flag("isCompactSummary") {
+        return false;
+    }
+    // Claude Code marks another session's message as meta, yours from Codealong included.
+    if let Some(peer) = line_peer(v) {
+        return sent_from_codealong(&peer).is_some();
+    }
+    if flag("isMeta") {
         return false;
     }
     match v.pointer("/origin/kind").and_then(Value::as_str) {
@@ -677,6 +750,9 @@ fn you_typed(v: &Value) -> bool {
 pub fn typed_text(v: &Value) -> Option<String> {
     if !you_typed(v) {
         return None;
+    }
+    if let Some(peer) = line_peer(v) {
+        return sent_from_codealong(&peer);
     }
     let text = match v.pointer("/message/content")? {
         Value::String(s) => s.clone(),
@@ -901,6 +977,21 @@ mod tests {
 "#;
         assert_eq!(parse_lines(HEAD, old).last_prompt_at, parse_rfc3339_ms("2026-09-23T16:00:00.000Z"));
         assert_eq!(parse_lines(HEAD, "").last_prompt_at, None);
+    }
+
+    #[test]
+    fn what_you_send_from_codealong_is_a_prompt_you_typed() {
+        let peer = |at: &str, name: &str, body: &str| serde_json::json!({ "type": "user", "isMeta": true, "timestamp": at, "origin": { "kind": "peer", "from": "unknown", "name": name, "body": body }, "message": { "content": "Another Claude session sent a message" } }).to_string();
+        let tail = [
+            r#"{"type":"user","timestamp":"2026-09-23T15:00:00.000Z","origin":{"kind":"human"},"message":{"content":"Fix the build"}}"#.to_string(),
+            peer("2026-09-23T15:05:00.000Z", "Codealong", &format!("{}\n\nNow the docs", crate::send::FROM_YOU)),
+            // An agent's isn't, whatever it calls itself.
+            peer("2026-09-23T15:06:00.000Z", "Codealong", "This message is from another agent, “x”.\n\nhi"),
+            peer("2026-09-23T15:07:00.000Z", "review", &format!("{}\n\nhi", crate::send::FROM_YOU)),
+        ]
+        .join("\n");
+        let info = parse_lines(HEAD, &(tail + "\n"));
+        assert_eq!(info.last_prompt_at, parse_rfc3339_ms("2026-09-23T15:05:00.000Z"));
     }
 
     #[test]

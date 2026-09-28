@@ -318,6 +318,17 @@ pub fn expand(text: &str, style: Style) -> String {
     expand_in(text, &images_dir(), &files_dir(), style)
 }
 
+/// Text that went out with full paths (`Style::Path`) as a window writes it again, each kept
+/// file by its `images/…` or `files/…` reference, so it shows as it did when you sent it.
+pub fn shorten_in(text: &str, images: &Path, files: &Path) -> String {
+    let dir = |d: &Path| format!("{}/", d.to_string_lossy().trim_end_matches('/'));
+    text.replace(&dir(images), IMAGES).replace(&dir(files), FILES)
+}
+
+pub fn shorten(text: &str) -> String {
+    shorten_in(text, &images_dir(), &files_dir())
+}
+
 /// Removes attachments no todo refers to any more, once they've sat unused for 30 days: one cut
 /// from a description, or a todo deleted and restored, is still there for a while, and so is one
 /// a session was started with for as long as Claude Code keeps the session.
@@ -466,6 +477,13 @@ mod tests {
             expand_in("[a.log](files/0123456789abcdef/a.log)", images, Path::new("/f"), Style::Path),
             "[a.log](/f/0123456789abcdef/a.log)"
         );
+    }
+
+    #[test]
+    fn sent_text_shortens_back_to_references() {
+        let (images, files) = (Path::new("/Users/me/Library/Application Support/Codealong/images"), Path::new("/Users/me/Library/Application Support/Codealong/files"));
+        let text = "The export fails:\n[Crash report 1.log](files/0123456789abcdef/Crash-report-1-.log)\nand ![image](images/fedcba9876543210.png), not /Users/me/images/x.png";
+        assert_eq!(shorten_in(&expand_in(text, images, files, Style::Path), images, files), text);
     }
 
     #[test]

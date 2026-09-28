@@ -15,6 +15,7 @@ import { onHostedStream, sessionNewer, sessionPage, sessionStream } from '../api
 import { absolute, agoPhrase } from '../format';
 import type { HostedStream, Session, Status, TranscriptItem } from '../types';
 import { CodeBlock } from './CopyButton';
+import { DescriptionView } from './DescriptionEditor';
 import { Markdown } from './Markdown';
 import { Icon, Rich, StatusGlyph } from './primitives';
 
@@ -136,7 +137,16 @@ function Said({ item, now, label }: { item: TranscriptItem; now: number; label: 
           {agoPhrase(item.at, now)}
         </span>
       </div>
-      {item.kind === 'you' ? <div className="ca-thread-you">{item.text}</div> : <Markdown text={item.text} className="ca-thread-agent" />}
+      {item.kind === 'you' ? <YourText text={item.text} /> : <Markdown text={item.text} className="ca-thread-agent" />}
+    </div>
+  );
+}
+
+/** What you wrote, as you wrote it, with the images you sent shown in place and files as chips. */
+function YourText({ text }: { text: string }) {
+  return (
+    <div className="ca-thread-you">
+      <DescriptionView text={text} />
     </div>
   );
 }
@@ -152,7 +162,7 @@ function Unsaid({ ahead, onOpen }: { ahead: Ahead; onOpen: () => void }) {
         <span>You</span>
         <span className="ca-meta">{state}</span>
       </div>
-      <div className="ca-thread-you">{c.text}</div>
+      <YourText text={c.text} />
       {ahead.unconfirmed && (
         <div className="ca-thread-askrow">
           <span>It went, but the session hasn’t shown it. It may not have reached it.</span>
