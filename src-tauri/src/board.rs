@@ -1219,7 +1219,7 @@ pub fn compose(inp: Inputs) -> Board {
     }
 }
 
-pub const ELSEWHERE: &str = "Elsewhere";
+pub use codealong_peer::model::ELSEWHERE;
 
 /// Match the floating bar's scope: all visible projects, without archived sessions or
 /// duplicate visitors. An open review request also needs the user's attention.

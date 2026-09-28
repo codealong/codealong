@@ -293,6 +293,10 @@ pub struct Target {
     pub group: String,
 }
 
+/// The project of worktrees in none of a device's projects. Such a lane stays off the board
+/// (`hidden`) unless it needs you; a device that has the repo in a project puts it there.
+pub const ELSEWHERE: &str = "Elsewhere";
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Lane {
