@@ -52,6 +52,8 @@ pub enum Place {
     ClaudeApp,
     /// A new thread in the Codex app, with the folder and prompt filled in.
     CodexApp,
+    /// In Codealong itself, through the account's Agent Client Protocol adapter (acp.rs).
+    Codealong,
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
@@ -162,6 +164,8 @@ pub enum Plan {
     ClaudeApp { url: String },
     /// A link the Codex app opens.
     CodexApp { url: String },
+    /// A session Codealong runs over the account's ACP adapter, on `prompt`.
+    Hosted { account: String, cwd: PathBuf, prompt: String, model: Option<String> },
 }
 
 fn harness_of(a: &AccountCfg) -> Harness {
@@ -169,7 +173,7 @@ fn harness_of(a: &AccountCfg) -> Harness {
 }
 
 impl Place {
-    pub const ALL: [Place; 4] = [Place::Terminal, Place::Background, Place::ClaudeApp, Place::CodexApp];
+    pub const ALL: [Place; 5] = [Place::Terminal, Place::Background, Place::ClaudeApp, Place::CodexApp, Place::Codealong];
 
     /// As config.toml and the command line write it.
     pub fn word(self) -> &'static str {
@@ -178,6 +182,7 @@ impl Place {
             Place::Background => "background",
             Place::ClaudeApp => "claude-app",
             Place::CodexApp => "codex-app",
+            Place::Codealong => "codealong",
         }
     }
 
@@ -192,11 +197,11 @@ impl Place {
 /// Antigravity starts conversations only in its own window.
 pub fn places_of(a: &AccountCfg, home: &Path) -> std::result::Result<Vec<Place>, String> {
     match harness_of(a) {
-        Harness::Claude if a.home_path() == home.join(".claude") => Ok(vec![Place::Terminal, Place::Background, Place::ClaudeApp]),
-        Harness::Claude => Ok(vec![Place::Terminal, Place::Background]),
-        Harness::Codex if a.home_path() == home.join(".codex") => Ok(vec![Place::CodexApp, Place::Terminal]),
-        Harness::Codex => Ok(vec![Place::Terminal]),
-        Harness::Opencode => Ok(vec![Place::Terminal]),
+        Harness::Claude if a.home_path() == home.join(".claude") => Ok(vec![Place::Terminal, Place::Background, Place::ClaudeApp, Place::Codealong]),
+        Harness::Claude => Ok(vec![Place::Terminal, Place::Background, Place::Codealong]),
+        Harness::Codex if a.home_path() == home.join(".codex") => Ok(vec![Place::CodexApp, Place::Terminal, Place::Codealong]),
+        Harness::Codex => Ok(vec![Place::Terminal, Place::Codealong]),
+        Harness::Opencode => Ok(vec![Place::Terminal, Place::Codealong]),
         Harness::Antigravity => Err(format!("Antigravity starts conversations in its own window, so {} can't start one from here.", a.name)),
     }
 }
@@ -241,6 +246,7 @@ pub fn options(accounts: &[AccountCfg], terminal: &str, codex_projects: Vec<Stri
                         Place::Background => "Background".into(),
                         Place::ClaudeApp => "Claude app".into(),
                         Place::CodexApp => "Codex app".into(),
+                        Place::Codealong => "Codealong".into(),
                     };
                     PlaceOption { place, label }
                 })
@@ -481,6 +487,13 @@ fn plan_in(account: &AccountCfg, place: Place, folder: &Path, prompt: &str, sess
         }
         Place::ClaudeApp => Plan::ClaudeApp { url: with_param(format!("claude://code/new?folder={}", urlencoding::encode(&dir)), "q", prompt) },
         Place::CodexApp => Plan::CodexApp { url: with_param(format!("codex://threads/new?path={}", urlencoding::encode(&dir)), "prompt", prompt) },
+        // The agents take the prompt as text, so attachments go as paths they can read.
+        Place::Codealong => Plan::Hosted {
+            account: account.name.clone(),
+            cwd: folder.to_path_buf(),
+            prompt: attachments::expand_in(prompt_in, images_dir, files_dir, Style::Path).trim().to_string(),
+            model: model.filter(|m| valid_model(m)).map(String::from),
+        },
     }
 }
 
@@ -607,7 +620,9 @@ pub fn start(board: &Board, cfg: &Config, spec: &StartSpec) -> Result<Started> {
     // The apps pick their model and worktree themselves, and only Claude Code takes them on the
     // command line, so they go only with a terminal start of a Claude Code account.
     let claude_terminal = matches!(spec.place, Place::Terminal | Place::Background) && harness_of(account) == Harness::Claude;
-    let model = spec.model.as_deref().map(str::trim).filter(|m| !m.is_empty() && claude_terminal);
+    // Codealong hands a Claude Code session's model to its adapter, which takes the same names.
+    let claude_hosted = spec.place == Place::Codealong && harness_of(account) == Harness::Claude;
+    let model = spec.model.as_deref().map(str::trim).filter(|m| !m.is_empty() && (claude_terminal || claude_hosted));
     let worktree = spec.worktree && claude_terminal;
     if let Some(m) = model.filter(|m| !valid_model(m)) {
         bail!("{m:?} isn't a model name Codealong can pass to Claude Code.");
@@ -640,6 +655,10 @@ pub fn start(board: &Board, cfg: &Config, spec: &StartSpec) -> Result<Started> {
                 format!("A new Claude app session is open in {}.", lane.callsign)
             };
             Ok(Started { key: None, message: Some(message) })
+        }
+        Plan::Hosted { cwd, prompt, model, .. } => {
+            let key = crate::acp::start(account, &cwd, &prompt, model.as_deref())?;
+            Ok(Started { key: Some(key), message: None })
         }
         Plan::CodexApp { url } => {
             if prompted {
@@ -685,7 +704,7 @@ mod tests {
     use super::*;
 
     fn account(name: &str, harness: &str, home: &str, command: Option<&str>) -> AccountCfg {
-        AccountCfg { name: name.into(), harness: harness.into(), home: home.into(), command: command.map(String::from), start: None, preferred: false }
+        AccountCfg { name: name.into(), harness: harness.into(), home: home.into(), command: command.map(String::from), start: None, preferred: false, acp: None }
     }
 
     fn meter(key: &str, percent: f64, resets_at: Option<i64>) -> Meter {
@@ -792,11 +811,11 @@ mod tests {
             account("antigravity", "antigravity", "/Users/me/.gemini/antigravity", None),
         ];
         let o = options(&accounts, "Ghostty", vec!["/r/kestrel".into()], Path::new("/Users/me"), |a| (a.name == "claude2").then(|| "claude-fable-5-1".to_string()));
-        assert_eq!(places(&o, "claude"), vec![Place::Terminal, Place::Background, Place::ClaudeApp]);
-        assert_eq!(places(&o, "claude2"), vec![Place::Terminal, Place::Background]);
-        assert_eq!(places(&o, "codex"), vec![Place::CodexApp, Place::Terminal]);
-        assert_eq!(places(&o, "codex2"), vec![Place::Terminal]);
-        assert_eq!(places(&o, "opencode"), vec![Place::Terminal]);
+        assert_eq!(places(&o, "claude"), vec![Place::Terminal, Place::Background, Place::ClaudeApp, Place::Codealong]);
+        assert_eq!(places(&o, "claude2"), vec![Place::Terminal, Place::Background, Place::Codealong]);
+        assert_eq!(places(&o, "codex"), vec![Place::CodexApp, Place::Terminal, Place::Codealong]);
+        assert_eq!(places(&o, "codex2"), vec![Place::Terminal, Place::Codealong]);
+        assert_eq!(places(&o, "opencode"), vec![Place::Terminal, Place::Codealong]);
         assert!(places(&o, "antigravity").is_empty());
         assert!(o.accounts[5].unavailable.as_deref().unwrap_or("").contains("its own window"));
         assert_eq!(o.accounts[4].default_model, None);
@@ -813,15 +832,15 @@ mod tests {
         let with = |name: &str, h: &str, dir: &str, start: &str| AccountCfg { start: Some(start.into()), ..account(name, h, dir, None) };
         let accounts = vec![with("claude", "claude", "/Users/me/.claude", "claude-app"), with("claude2", "claude", "/Users/me/.claude2", "background"), account("claude3", "claude", "/Users/me/.claude3", None)];
         let o = options(&accounts, "Ghostty", vec![], home, |_| None);
-        assert_eq!(places(&o, "claude"), vec![Place::ClaudeApp, Place::Terminal, Place::Background]);
+        assert_eq!(places(&o, "claude"), vec![Place::ClaudeApp, Place::Terminal, Place::Background, Place::Codealong]);
         assert_eq!(o.accounts[0].chosen, Some(Place::ClaudeApp));
-        assert_eq!(places(&o, "claude2"), vec![Place::Background, Place::Terminal]);
-        assert_eq!(places(&o, "claude3"), vec![Place::Terminal, Place::Background]);
+        assert_eq!(places(&o, "claude2"), vec![Place::Background, Place::Terminal, Place::Codealong]);
+        assert_eq!(places(&o, "claude3"), vec![Place::Terminal, Place::Background, Place::Codealong]);
         assert_eq!(o.accounts[2].chosen, None);
 
         assert!(check_start(&accounts[0], "claude-app", home).is_ok());
         let err = check_start(&accounts[1], "claude-app", home).unwrap_err();
-        assert!(err.contains("\"terminal\", \"background\""), "{err}");
+        assert!(err.contains("\"terminal\", \"background\", \"codealong\""), "{err}");
         assert!(check_start(&account("codex", "codex", "/Users/me/.codex", None), "terminal", home).is_ok());
         assert!(check_start(&account("codex2", "codex", "/Users/me/.codex2", None), "codex-app", home).is_err());
         assert!(check_start(&account("ag", "antigravity", "/Users/me/.gemini/antigravity", None), "terminal", home).unwrap_err().contains("takes no start"));

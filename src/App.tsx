@@ -671,6 +671,14 @@ export function App() {
 
   const open = useCallback((lane: Lane | null, targetId: string | null | undefined) => {
     if (!lane || !targetId) return;
+    // A session Codealong runs lives in its panel here: Sessions, with it selected.
+    if (targetId.startsWith('s|') && targetId.endsWith('|hosted')) {
+      const key = targetId.slice(2, -'|hosted'.length);
+      reveal.current({ kind: 'session', laneId: lane.id, key });
+      setView('sessions');
+      void markSeen([key]);
+      return;
+    }
     const target = lane.targets.find((t) => t.id === targetId);
     if (target?.disabled) {
       setToast(target.detail ?? `${target.label} isn't available right now.`);
@@ -1190,7 +1198,9 @@ export function App() {
     if (current !== ALL_PROJECTS && current !== home) pickProject(home);
     setQuery('');
     if (lane && session) {
-      if (view === 'prs' || view === 'todo') setView('worktrees');
+      // A session Codealong runs is read and answered in its panel, which Sessions shows.
+      if (session.hosted) setView('sessions');
+      else if (view === 'prs' || view === 'todo') setView('worktrees');
       setBayFilter(null);
       // Its own row in Sessions, its line on its worktree's row on the board.
       setSelectedKey(`${lane.id}::${session.key}`);

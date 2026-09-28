@@ -103,6 +103,8 @@ pub enum Msg {
     JevDone(String, std::result::Result<serde_json::Value, String>),
     /// "Looks done" was wrong for this todo, for now.
     DismissTodoHint(String),
+    /// A session Codealong runs changed in a way the board shows (acp.rs).
+    Hosted,
 }
 
 /// What the UI talks to. Cheap to clone.
@@ -131,6 +133,11 @@ impl Handle {
 
     pub fn mark_seen(&self, keys: Vec<String>) {
         let _ = self.tx.send(Msg::MarkSeen(keys));
+    }
+
+    /// A session Codealong runs started or ended a turn, or asked or stopped asking something.
+    pub fn hosted_changed(&self) {
+        let _ = self.tx.send(Msg::Hosted);
     }
 
     pub fn refresh_usage(&self) {
@@ -289,6 +296,8 @@ pub fn open_on(board: &Board, lane_id: &str, target_id: &str) -> Result<Option<S
                 "claude-app" => launch::open_url(&launch::claude_app_url(&s.id))?,
                 "codex" => launch::open_codex(&launch::codex_thread_url(&s.id))?,
                 "antigravity" => launch::open_antigravity()?,
+                // A window shows it in its own panel; nothing opens elsewhere.
+                "hosted" => {}
                 other => bail!("Unknown action {other:?}"),
             }
             return Ok(Some(s.key.clone()));
@@ -1061,6 +1070,7 @@ impl Engine {
                     self.dirty = true;
                 }
                 Ok(Msg::RefreshUsage) => self.fetch_usage(),
+                Ok(Msg::Hosted) => self.dirty = true,
                 Ok(Msg::OpencodeLive(results)) => {
                     self.opencode_inflight = false;
                     for (account, live) in results {
@@ -2212,6 +2222,10 @@ impl Engine {
                 _ => {}
             }
         }
+        // What only the process knows about the sessions Codealong runs.
+        for s in &mut out {
+            crate::acp::overlay(s, self.seen.seen_at(&s.key));
+        }
         out
     }
 
@@ -2682,7 +2696,7 @@ mod tests {
         writeln!(file, r#"{{"timestamp":"2026-09-24T18:00:00.000Z","type":"event_msg","payload":{{"type":"task_complete","last_agent_message":"Earlier result"}}}}"#).unwrap();
         let (tx, _rx) = channel();
         let mut engine = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
-        engine.cfg.accounts = vec![AccountCfg { name: "studio".into(), harness: "codex".into(), home: home.to_string_lossy().into_owned(), command: None, start: None, preferred: false }];
+        engine.cfg.accounts = vec![AccountCfg { name: "studio".into(), harness: "codex".into(), home: home.to_string_lossy().into_owned(), command: None, start: None, preferred: false, acp: None }];
         // A startup scan has the previous completed turn. No filesystem events follow.
         engine.rollouts.insert(path.clone(), ("studio".into(), codex::parse_rollout(&path, 0, None)));
         engine.codex_index.insert("studio".into(), HashMap::new());

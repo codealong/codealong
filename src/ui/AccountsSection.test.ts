@@ -50,11 +50,11 @@ describe('skillTag', () => {
 
 describe('startPlaces', () => {
   it('offers each app only for the account in its default folder', () => {
-    expect(startPlaces('claude', '~/.claude')).toEqual(['terminal', 'background', 'claude-app']);
-    expect(startPlaces('claude', '/Users/me/.claude/')).toEqual(['terminal', 'background', 'claude-app']);
-    expect(startPlaces('claude', '~/.claude2')).toEqual(['terminal', 'background']);
-    expect(startPlaces('codex', '~/.codex')).toEqual(['codex-app', 'terminal']);
-    expect(startPlaces('codex', '~/.codex2')).toEqual(['terminal']);
-    expect(startPlaces('opencode', '~/.local/share/opencode')).toEqual(['terminal']);
+    expect(startPlaces('claude', '~/.claude')).toEqual(['terminal', 'background', 'claude-app', 'codealong']);
+    expect(startPlaces('claude', '/Users/me/.claude/')).toEqual(['terminal', 'background', 'claude-app', 'codealong']);
+    expect(startPlaces('claude', '~/.claude2')).toEqual(['terminal', 'background', 'codealong']);
+    expect(startPlaces('codex', '~/.codex')).toEqual(['codex-app', 'terminal', 'codealong']);
+    expect(startPlaces('codex', '~/.codex2')).toEqual(['terminal', 'codealong']);
+    expect(startPlaces('opencode', '~/.local/share/opencode')).toEqual(['terminal', 'codealong']);
   });
 });

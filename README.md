@@ -187,7 +187,13 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   Codealong makes the thread, opens it in the app and has the app send the prompt, on the
   account's default model; without a prompt it opens the app's new-thread page. OpenCode starts in Ghostty on your prompt
   (`--prompt`), and so does the Codex CLI, for any Codex account (`codex -- <prompt>`, images
-  with `-i`); Antigravity starts conversations only in its own window. Auto, the default
+  with `-i`); Antigravity starts conversations only in its own window. **In Codealong** runs
+  the session in Codealong itself, for any Claude Code, Codex or OpenCode account, through the
+  agent's Agent Client Protocol adapter (`codealong install` adds the ones for Claude Code and
+  Codex; OpenCode has its own): its panel shows the reply as it's written, takes the next
+  prompt (queued while a turn runs), answers what it asks to run with Allow and Deny, and Stop
+  ends a turn. The agent keeps the session in its usual records, so it can be resumed in a
+  terminal too, and after Codealong restarts, sending to it picks it up again. Auto, the default
   (and `codealong start`'s), keeps to preferred accounts (starred in Settings › Accounts;
   without a star, those of the first account's agent) while one has room, judged by the limits
   its default model spends, where 90% of a limit is no room; the others only once they're all
@@ -363,7 +369,8 @@ name = "claude2"               # what the board shows
 harness = "claude"             # claude, codex, opencode or antigravity
 home = "~/.claude2"
 command = "claude2"            # used for `claude2 --resume <id>`
-start = "background"           # where new sessions start: terminal, background, claude-app (~/.claude only), codex-app (~/.codex only)
+start = "background"           # where new sessions start: terminal, background, claude-app (~/.claude only), codex-app (~/.codex only), codealong
+# acp = "my-adapter --stdio"   # the Agent Client Protocol adapter Codealong runs its sessions through, in place of the installed one
 preferred = true               # Auto starts it over accounts without this while it has room
 
 [[accounts]]
@@ -419,6 +426,9 @@ light scan (no git, PRs or visitors).
 - Codealong only reads: it never creates, resets or removes worktrees, never changes
   branches, and never types into a live session. Close idle terminals ends idle sessions'
   processes and closes their tabs, but only the ones you tick. Git runs with `GIT_OPTIONAL_LOCKS=0`.
+- A session started In Codealong runs as a child of the app, through the agent's ACP adapter;
+  what it's allowed to do is the agent's own permission setting for the account, and what it
+  asks is answered only by you, in its panel. Its processes end when Codealong quits.
 - Starting a session types the account's command into a new Ghostty window; the prompt goes in
   the window's environment (`CODEALONG_PROMPT`), so nothing in it is typed or needs quoting.
 - Transcripts stay on the Mac; only titles, statuses and short excerpts are kept in memory.
@@ -435,6 +445,7 @@ light scan (no git, PRs or visitors).
 | `src-tauri/src/board.rs` | The model's rules: status, bays, headlines, open targets (pure, tested) |
 | `src-tauri/src/claude.rs`, `codex.rs` | Harness adapters: registries, transcripts, rollouts, incremental tailing |
 | `src-tauri/src/opencode.rs`, `antigravity.rs` | Harness adapters: OpenCode's database and background service, Antigravity's conversation summaries |
+| `src-tauri/src/acp.rs` | Sessions Codealong runs itself: an Agent Client Protocol adapter process per account, turns, permission requests, the streamed reply |
 | `src-tauri/src/repos.rs`, `git.rs`, `github.rs` | Repo discovery, callsigns, worktrees, git status, PRs |
 | `src-tauri/src/launch.rs` | App profiles: Ghostty (AppleScript, exact tab focus), Cursor (CLI), deep links |
 | `src-tauri/src/flash.rs` | Outlines a focused terminal that came forward on another screen |

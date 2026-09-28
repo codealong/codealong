@@ -71,6 +71,12 @@ pub fn send(board: &Board, cfg: &Config, session_key: &str, text: &str) -> Resul
         bail!("There's nothing to send.");
     }
     let account = cfg.accounts.iter().find(|a| a.name == session.account).ok_or_else(|| anyhow!("There's no account named {} in config.toml.", session.account))?;
+    if session.hosted {
+        // Codealong runs it: the prompt goes in over its adapter, after the running turn if
+        // there is one, and a question it waits on is answered from its panel.
+        let message = crate::acp::send(account, session_key, &attachments::expand(text, Style::Path))?;
+        return Ok(Sent { message, opened: false });
+    }
     ensure_not_waiting(session)?;
     // Each harness says which ways reach the session, best first (`harness::Adapter::routes`).
     let routes = crate::harness::adapter(session.harness).routes(account, session);
@@ -510,6 +516,7 @@ mod tests {
             background: None,
             insight: None,
             asks: false,
+            hosted: false,
         }
     }
 
@@ -652,11 +659,11 @@ mod tests {
 
     #[test]
     fn resumes_with_the_prompt_in_the_environment() {
-        let account = AccountCfg { name: "claude2".into(), harness: "claude".into(), home: "~/.claude2".into(), command: None, start: None, preferred: false };
+        let account = AccountCfg { name: "claude2".into(), harness: "claude".into(), home: "~/.claude2".into(), command: None, start: None, preferred: false, acp: None };
         let (input, env) = resume_input(&account, "abc", "-v please");
         assert_eq!(input, format!("claude2 --resume abc \"${}\"\n", start::PROMPT_VAR));
         assert_eq!(env, vec![(start::PROMPT_VAR.to_string(), " -v please".to_string())]);
-        let codex = AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: Some("codex".into()), start: None, preferred: false };
+        let codex = AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: Some("codex".into()), start: None, preferred: false, acp: None };
         let (input, env) = resume_input(&codex, "01a0e379", "-v please");
         assert_eq!(input, format!("codex resume -- 01a0e379 \"${}\"\n", start::PROMPT_VAR));
         assert_eq!(env, vec![(start::PROMPT_VAR.to_string(), "-v please".to_string())]);

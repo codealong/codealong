@@ -309,6 +309,8 @@ pub fn start_app(place: Place, terminal: &str) -> Option<&'static str> {
         Place::Background => None,
         Place::ClaudeApp => Some("com.anthropic.claudefordesktop"),
         Place::CodexApp => Some("com.openai.codex"),
+        // It runs here, and shows on the board.
+        Place::Codealong => None,
     }
 }
 

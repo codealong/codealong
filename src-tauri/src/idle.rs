@@ -241,6 +241,7 @@ mod tests {
             background: None,
             insight: None,
             asks: false,
+            hosted: false,
         }
     }
 

@@ -9,7 +9,7 @@
 // it gets the box: what you type is the answer.
 
 import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent } from 'react';
-import { sendToSession, sessionAnswer, sessionPending } from '../api';
+import { sendToSession, sessionAnswer, sessionCancel, sessionPending } from '../api';
 import { filesToAttach, keepFiles } from '../attachInput';
 import { sessionPlace } from '../harness';
 import { attachmentsIn, insertAttachments, withoutAttachment } from '../todos';
@@ -38,6 +38,7 @@ export function takesReply(s: Session): boolean {
 /** What the box asks for, and where a message goes when that isn't where the session runs. */
 export function replyPlaceholder(s: Session, terminal: string): string {
   const to = s.asks ? `Answer ${s.account}` : `Send to ${s.account}`;
+  if (s.hosted) return s.status === 'working' || s.status === 'needs' ? `${to}: it takes this after its current turn` : to;
   if (s.harness === 'antigravity') return `${to}: Antigravity opens with this on the clipboard`;
   if (!s.live && s.harness === 'claude') return s.surface === 'app' ? `${to}: it isn’t running, so the Claude app opens it with this on the clipboard` : `${to}: it isn’t running, so this resumes it in ${terminal}`;
   if (!s.live && s.harness === 'codex' && s.surface === 'cli') return `${to}: it isn’t running, so this resumes it in ${terminal}`;
@@ -76,6 +77,15 @@ function Composer({ session: s, terminal, autoFocus, onSent }: ComposerProps) {
     el.focus();
     el.setSelectionRange(el.value.length, el.value.length);
   }, [autoFocus]);
+
+  // A session Codealong runs can be stopped mid-turn from here.
+  const [stopping, setStopping] = useState(false);
+  const stop = () => {
+    setStopping(true);
+    sessionCancel(s.key)
+      .catch((e: unknown) => setNote({ text: plain(e), error: true }))
+      .finally(() => setStopping(false));
+  };
 
   const send = () => {
     const t = text.trim();
@@ -138,6 +148,11 @@ function Composer({ session: s, terminal, autoFocus, onSent }: ComposerProps) {
       {attached.length > 0 && <AttachmentStrip items={attached} onRemove={(a) => setText(withoutAttachment(latest.current, a.path))} />}
       <div className="ca-composer-foot">
         <span className={['ca-composer-note', note?.error && 'is-error'].filter(Boolean).join(' ')}>{sending ? 'Sending…' : (note?.text ?? '⏎ sends · ⇧⏎ new line')}</span>
+        {s.hosted && s.status === 'working' && (
+          <Button size="sm" icon="pause" disabled={stopping} onClick={stop}>
+            Stop
+          </Button>
+        )}
         <Button variant="primary" size="sm" icon="send" disabled={!text.trim() || sending} onClick={send}>
           Send
         </Button>
@@ -219,16 +234,18 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys }: ApprovalPr
       <div className="ca-approval-head">
         <Icon name="alert" size={14} />
         <span>Wants to run</span>
-        <button type="button" className="ca-linkbtn" onClick={onOpen}>
-          Open in {where}
-        </button>
+        {!s.hosted && (
+          <button type="button" className="ca-linkbtn" onClick={onOpen}>
+            Open in {where}
+          </button>
+        )}
       </div>
       <div className="ca-approval-label">
         <Rich text={pending.label} now={0} />
       </div>
       {pending.input && pending.input !== pending.label && <CodeBlock text={pending.input} className="ca-approval-input" />}
       <div className="ca-composer-foot">
-        <span className={['ca-composer-note', note?.error && 'is-error'].filter(Boolean).join(' ')}>{busy ? 'Answering…' : (note?.text ?? 'Allows this call once. Deny stops the turn.')}</span>
+        <span className={['ca-composer-note', note?.error && 'is-error'].filter(Boolean).join(' ')}>{busy ? 'Answering…' : (note?.text ?? (s.hosted ? 'Allows this call once. Deny tells it no, and it carries on.' : 'Allows this call once. Deny stops the turn.'))}</span>
         <Button size="sm" disabled={busy} onClick={() => answer('deny')}>
           Deny
         </Button>

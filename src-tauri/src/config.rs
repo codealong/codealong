@@ -291,13 +291,17 @@ pub struct AccountCfg {
     #[serde(default)]
     pub command: Option<String>,
     /// Where a new session on this account starts unless you pick another: `terminal`,
-    /// `background`, `claude-app` or `codex-app`. None leaves it to the usual place.
+    /// `background`, `claude-app`, `codex-app` or `codealong`. None leaves it to the usual place.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub start: Option<String>,
     /// Auto starts preferred accounts while one has room for the model, and the others only
     /// when they're all near a limit.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub preferred: bool,
+    /// The command that runs this account's Agent Client Protocol adapter, for sessions
+    /// Codealong runs itself (acp.rs). None uses the one `codealong install` adds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub acp: Option<String>,
 }
 
 impl AccountCfg {
@@ -450,6 +454,9 @@ fn set_accounts(doc: &mut toml_edit::DocumentMut, accounts: &[AccountCfg]) {
             }
             if a.preferred {
                 t["preferred"] = value(true);
+            }
+            if let Some(c) = a.acp.as_deref().map(str::trim).filter(|c| !c.is_empty()) {
+                t["acp"] = value(c);
             }
             t
         })
@@ -853,7 +860,7 @@ pub fn render(cfg: &Config) -> String {
             s.push_str(&format!("port = {}\n", d.port));
         }
     }
-    s.push_str("\n# Harness accounts. `name` is what you type and what the board shows.\n# `start` is where new sessions start: \"terminal\", \"background\", \"claude-app\" or \"codex-app\".\n# `preferred = true`: Auto starts this account over ones without it while it has room.\n");
+    s.push_str("\n# Harness accounts. `name` is what you type and what the board shows.\n# `start` is where new sessions start: \"terminal\", \"background\", \"claude-app\", \"codex-app\" or \"codealong\".\n# `acp`: the command that runs the account's Agent Client Protocol adapter, for sessions Codealong runs itself.\n# `preferred = true`: Auto starts this account over ones without it while it has room.\n");
     for a in &cfg.accounts {
         s.push_str("\n[[accounts]]\n");
         s.push_str(&format!("name = {}\n", q(&a.name)));
@@ -867,6 +874,9 @@ pub fn render(cfg: &Config) -> String {
         }
         if a.preferred {
             s.push_str("preferred = true\n");
+        }
+        if let Some(c) = &a.acp {
+            s.push_str(&format!("acp = {}\n", q(c)));
         }
     }
     s.push_str("\n# Projects group repos (by pattern) and plain folders.\n");
@@ -895,8 +905,8 @@ mod tests {
             appearance: AppearanceCfg { theme: Theme::Dark },
             shortcuts: ShortcutsCfg { quick_panel: "Cmd+Ctrl+K".into() },
             accounts: vec![
-                AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: Some("claude".into()), start: None, preferred: false },
-                AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: None, start: None, preferred: false },
+                AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: Some("claude".into()), start: None, preferred: false, acp: None },
+                AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: None, start: None, preferred: false, acp: None },
             ],
             projects: vec![ProjectCfg {
                 name: "Northwind".into(),
@@ -916,14 +926,14 @@ mod tests {
     #[test]
     fn saving_accounts_keeps_the_rest_of_the_file() {
         let text = render(&Config {
-            accounts: vec![AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: Some("claude".into()), start: None, preferred: false }],
+            accounts: vec![AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: Some("claude".into()), start: None, preferred: false, acp: None }],
             projects: vec![ProjectCfg { name: "Northwind".into(), repos: vec!["github.com/northwindai/*".into()], folders: vec![] }],
             ..Config::default()
         });
         let text = text.replace("[apps]\n", "[apps]\n# my editor of choice\n");
         let accounts = vec![
-            AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: Some("claude".into()), start: None, preferred: false },
-            AccountCfg { name: "claude3".into(), harness: "claude".into(), home: "~/.claude3".into(), command: Some("CLAUDE_CONFIG_DIR=~/.claude3 claude".into()), start: Some("background".into()), preferred: true },
+            AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: Some("claude".into()), start: None, preferred: false, acp: None },
+            AccountCfg { name: "claude3".into(), harness: "claude".into(), home: "~/.claude3".into(), command: Some("CLAUDE_CONFIG_DIR=~/.claude3 claude".into()), start: Some("background".into()), preferred: true, acp: None },
         ];
         let out = with_accounts(&text, &accounts).unwrap();
         assert!(out.contains("# my editor of choice"));
@@ -936,7 +946,7 @@ mod tests {
 
     #[test]
     fn rejects_bad_accounts() {
-        let a = |name: &str, home: &str| AccountCfg { name: name.into(), harness: "claude".into(), home: home.into(), command: None, start: None, preferred: false };
+        let a = |name: &str, home: &str| AccountCfg { name: name.into(), harness: "claude".into(), home: home.into(), command: None, start: None, preferred: false, acp: None };
         assert!(check_accounts(&[a("claude", "~/.claude"), a("claude", "~/.claude2")]).is_err());
         assert!(check_accounts(&[a("claude", "~/.claude"), a("claude2", "~/.claude")]).is_err());
         assert!(check_accounts(&[a("my claude", "~/.claude")]).is_err());
@@ -969,7 +979,7 @@ mod tests {
     fn setting_the_theme_adds_appearance_after_apps() {
         // A file written before there was a theme: no [appearance] table.
         let text = render(&Config {
-            accounts: vec![AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: Some("claude".into()), start: None, preferred: false }],
+            accounts: vec![AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: Some("claude".into()), start: None, preferred: false, acp: None }],
             projects: vec![ProjectCfg { name: "Northwind".into(), repos: vec!["github.com/northwindai/*".into()], folders: vec![] }],
             ..Config::default()
         });
@@ -1035,8 +1045,8 @@ mod tests {
             appearance: AppearanceCfg { theme: Theme::Dark },
             shortcuts: ShortcutsCfg::default(),
             accounts: vec![
-                AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: Some("claude".into()), start: None, preferred: false },
-                AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: None, start: None, preferred: false },
+                AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: Some("claude".into()), start: None, preferred: false, acp: None },
+                AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: None, start: None, preferred: false, acp: None },
             ],
             projects: vec![
                 ProjectCfg { name: "Northwind".into(), repos: vec!["github.com/northwindai/*".into()], folders: vec!["~/projects/atlasai/osprey".into()] },

@@ -13,6 +13,7 @@ export const HARNESS_APP: Record<Harness, string> = { claude: 'Claude app', code
 
 /** Where a session opens: the terminal by name, or the harness's app. */
 export function sessionPlace(s: Session, terminal: string): string {
+  if (s.hosted) return 'Codealong';
   return s.surface === 'cli' ? terminal : HARNESS_APP[s.harness];
 }
 

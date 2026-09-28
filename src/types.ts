@@ -45,6 +45,9 @@ export interface Session {
   /** Needs you only because its last reply asks you something: it sits at its prompt, so a
    *  reply is the answer. Not set while it waits on a permission prompt. */
   asks?: boolean;
+  /** Codealong runs it itself, over the Agent Client Protocol (acp.rs): its panel sends to it
+   *  and answers what it asks, and opening it shows the panel. */
+  hosted?: boolean;
   resumeCommand: string | null;
   /** The Claude app is signed into this session's account. */
   appAccount: boolean;
@@ -608,7 +611,7 @@ export interface PrComment {
 }
 
 /** Where a new session runs: the terminal, or the Claude or Codex app. */
-export type StartPlace = 'terminal' | 'background' | 'claude-app' | 'codex-app';
+export type StartPlace = 'terminal' | 'background' | 'claude-app' | 'codex-app' | 'codealong';
 
 /** An account as the new-session sheet offers it (src-tauri/src/start.rs). */
 export interface StartAccount {
@@ -841,4 +844,13 @@ export interface CloseOutcome {
   title: string;
   closed: boolean;
   message: string;
+}
+
+/** The reply a session Codealong runs is writing (acp.rs). */
+export interface HostedStream {
+  key: string;
+  /** The reply so far since its last tool call; empty when there's none. */
+  text: string;
+  /** The tool it's running, as a line. */
+  tool: string | null;
 }

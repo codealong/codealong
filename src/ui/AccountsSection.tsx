@@ -42,23 +42,24 @@ function defaultsFor(harness: Harness, name: string): { home: string; command: s
 }
 
 /** Where an account can start a session from Codealong, as start.rs's `places_of` has it: the
- *  Claude and Codex apps each run only the account in the default folder. */
+ *  Claude and Codex apps each run only the account in the default folder, and Codealong runs any
+ *  Claude Code, Codex or OpenCode account over its ACP adapter. */
 export function startPlaces(harness: Harness, home: string): StartPlace[] {
   const main = (dir: string) => new RegExp(`^(~|/Users/[^/]+)/\\.${dir}/?$`).test(home.trim());
   switch (harness) {
     case 'claude':
-      return main('claude') ? ['terminal', 'background', 'claude-app'] : ['terminal', 'background'];
+      return main('claude') ? ['terminal', 'background', 'claude-app', 'codealong'] : ['terminal', 'background', 'codealong'];
     case 'codex':
-      return main('codex') ? ['codex-app', 'terminal'] : ['terminal'];
+      return main('codex') ? ['codex-app', 'terminal', 'codealong'] : ['terminal', 'codealong'];
     case 'opencode':
-      return ['terminal'];
+      return ['terminal', 'codealong'];
     case 'antigravity':
       return [];
   }
 }
 
 export function placeName(place: StartPlace, terminal: string): string {
-  return place === 'terminal' ? terminal : place === 'background' ? 'Background' : place === 'claude-app' ? 'Claude app' : 'Codex app';
+  return place === 'terminal' ? terminal : place === 'background' ? 'Background' : place === 'claude-app' ? 'Claude app' : place === 'codex-app' ? 'Codex app' : 'Codealong';
 }
 
 /** What the config folder holds for a harness, and how it's told about a second one. */

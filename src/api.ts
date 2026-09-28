@@ -4,7 +4,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { emitTo, listen } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import type { DeviceFound, DevicesView, LabelColor, AccountCfg, AccountInfo, AgentsStatus, Attachment, BarFeed, BarNote, CloseOutcome, IdlePlan, Pending, PeekOpen, PeekShown, TranscriptPage, Board, Config, ConfigView, FoundAccount, PrDetail, Route, Sent, ShortcutStatus, TextFound, StartOptions, StartSpec, Started, Theme, TodoSuggested } from './types';
+import type { DeviceFound, DevicesView, LabelColor, AccountCfg, AccountInfo, AgentsStatus, Attachment, BarFeed, BarNote, CloseOutcome, IdlePlan, Pending, HostedStream, PeekOpen, PeekShown, TranscriptPage, Board, Config, ConfigView, FoundAccount, PrDetail, Route, Sent, ShortcutStatus, TextFound, StartOptions, StartSpec, Started, Theme, TodoSuggested } from './types';
 import type { TodoOp } from './todos';
 
 export const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -733,6 +733,33 @@ export async function sessionNewer(key: string, after: number): Promise<Transcri
 export async function sessionPending(key: string): Promise<Pending | null> {
   if (!inTauri) return null;
   return invoke<Pending | null>('session_pending', { key });
+}
+
+/** The reply a session Codealong runs is writing, when a turn is running. */
+export async function sessionStream(key: string): Promise<HostedStream | null> {
+  if (!inTauri) return null;
+  return invoke<HostedStream | null>('session_stream', { key });
+}
+
+/** Stops the turn a session Codealong runs is taking. */
+export async function sessionCancel(key: string): Promise<void> {
+  if (!inTauri) throw new Error('Stopping needs the app.');
+  await invoke('session_cancel', { key });
+}
+
+/** The replies sessions Codealong runs write, as they stream. */
+export function onHostedStream(cb: (s: HostedStream) => void): () => void {
+  if (!inTauri) return () => {};
+  let cancelled = false;
+  let unlisten: (() => void) | undefined;
+  void listen<HostedStream>('hosted-stream', (e) => cb(e.payload)).then((u) => {
+    if (cancelled) u();
+    else unlisten = u;
+  });
+  return () => {
+    cancelled = true;
+    unlisten?.();
+  };
 }
 
 /** Allows or denies the call `id` a session waits on; says what happened. */

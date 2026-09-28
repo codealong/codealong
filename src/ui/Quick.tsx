@@ -456,13 +456,15 @@ export function Quick() {
   // A model is asked for on the command line, so choosing one leaves only the terminal and the
   // background; the apps pick their own.
   const allPlaces = placesFor(choice, accounts, pick);
-  const places = chosenModel ? allPlaces.filter((p) => onCommandLine(p.place)) : allPlaces;
+  const places = chosenModel ? allPlaces.filter((p) => placeTakesModel(p.place)) : allPlaces;
   const placeNow = [place, choice ? (settledPlace(choice, accounts, pick) ?? remembered().places?.[choice]) : undefined].map((p) => places.find((x) => x.place === p)?.place).find(Boolean) ?? places[0]?.place ?? null;
   const claudeTerminal = !!placeNow && onCommandLine(placeNow) && harness === 'claude';
-  const modelNow = claudeTerminal ? (autoFor ? (autoModelPick?.model ?? null) : chosenModel) : null;
+  // Codealong hands the model to Claude Code's adapter, which takes the same names.
+  const claudeModel = !!placeNow && placeTakesModel(placeNow) && harness === 'claude';
+  const modelNow = claudeModel ? (autoFor ? (autoModelPick?.model ?? null) : chosenModel) : null;
   const inNewWorktree = claudeTerminal && newWorktree;
   const defaultModel = accountInfo?.defaultModel ?? null;
-  const modelShown = !claudeTerminal
+  const modelShown = !claudeModel
     ? placeNow === 'claude-app'
       ? 'model chosen in the Claude app'
       : placeNow === 'codex-app'
@@ -806,7 +808,7 @@ export function Quick() {
   const ready = !!lane && !!account && !!placeNow;
   const terminalName = places.find((p) => p.place === 'terminal')?.label ?? 'The terminal';
   // Claude Code starts on the model asked for, else the account's own.
-  const startsOn = claudeTerminal ? (modelNow ?? defaultModel) : null;
+  const startsOn = claudeModel ? (modelNow ?? defaultModel) : null;
   const onModel = startsOn ? ` on ${modelName(startsOn, models)}` : '';
   const withPrompt = prompted ? ' with this prompt' : '';
   const happens = !lane
@@ -821,6 +823,8 @@ export function Quick() {
         ? inNewWorktree
           ? `Claude Code makes a new worktree of ${lane.repo} and starts ${account}${onModel} there in ${terminalName}${withPrompt}.`
           : `${terminalName} starts ${account}${onModel} in ${lane.callsign}${withPrompt}.`
+        : placeNow === 'codealong'
+          ? `Codealong runs ${account}${onModel} in ${lane.callsign}${withPrompt}. Its panel here shows the reply, takes the next prompt and answers what it asks.`
         : placeNow === 'claude-app'
           ? `The Claude app opens a new session in ${lane.callsign}${prompted ? ' with this prompt filled in' : ''}. You send it from there.`
           : prompted
@@ -840,6 +844,8 @@ export function Quick() {
     const label =
       placeNow === 'terminal' || placeNow === 'background'
         ? `Starting ${account}${onModel} in ${newTree ? `a new worktree of ${where.repo}` : where.callsign}${placeNow === 'background' ? ' in the background' : ''}…`
+        : placeNow === 'codealong'
+          ? `Starting ${account}${onModel} in Codealong…`
         : placeNow === 'claude-app'
           ? 'Opening a new session in the Claude app…'
           : 'Opening a new thread in Codex…';
@@ -1172,7 +1178,9 @@ export function Quick() {
     const tree = claudeTerminal && sg.newWorktree;
     const who = account ? `${account}${onModel}` : 'a session';
     const why =
-      placeNow === 'claude-app'
+      placeNow === 'codealong'
+        ? `Codealong runs ${who} in ${sg.lane.callsign}.`
+      : placeNow === 'claude-app'
         ? `The Claude app opens a new session in ${sg.lane.callsign} with this prompt filled in.`
         : placeNow === 'codex-app'
           ? `The Codex app starts a new thread in ${sg.lane.callsign} on this prompt.`
@@ -1540,6 +1548,11 @@ export function Quick() {
 /** Whether a place starts the account's command, which takes a model and --worktree. */
 function onCommandLine(place: StartPlace): boolean {
   return place === 'terminal' || place === 'background';
+}
+
+/** Whether a Claude Code start there takes the model you pick: the command line, or the adapter. */
+function placeTakesModel(place: StartPlace): boolean {
+  return onCommandLine(place) || place === 'codealong';
 }
 
 function placeIcon(place: StartPlace): string {

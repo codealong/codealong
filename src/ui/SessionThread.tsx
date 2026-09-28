@@ -6,9 +6,9 @@
 // that keeps its latest call in view.
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { sessionNewer, sessionPage } from '../api';
+import { onHostedStream, sessionNewer, sessionPage, sessionStream } from '../api';
 import { absolute, agoPhrase } from '../format';
-import type { Session, Status, TranscriptItem } from '../types';
+import type { HostedStream, Session, Status, TranscriptItem } from '../types';
 import { CodeBlock } from './CopyButton';
 import { Markdown } from './Markdown';
 import { Icon, Rich, StatusGlyph } from './primitives';
@@ -159,6 +159,28 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded }: S
   const anchor = useRef<{ kind: 'end' } | { kind: 'keep'; fromEnd: number } | null>(null);
   const atEnd = useRef(true);
 
+  // A session Codealong runs streams its reply before its record has it: shown at the end
+  // until the record catches up at the end of the message.
+  const [stream, setStream] = useState<HostedStream | null>(null);
+  useEffect(() => {
+    setStream(null);
+    if (!s.hosted) return;
+    let live = true;
+    sessionStream(s.key)
+      .then((st) => live && setStream(st))
+      .catch(() => {});
+    const off = onHostedStream((st) => {
+      if (st.key !== s.key) return;
+      if (atEnd.current) anchor.current = { kind: 'end' };
+      setStream(st);
+    });
+    return () => {
+      live = false;
+      off();
+    };
+  }, [s.key, s.hosted]);
+  const streaming = s.hosted && s.status === 'working' && stream ? stream : null;
+
   useEffect(() => {
     let live = true;
     setItems([]);
@@ -222,7 +244,7 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded }: S
     el.scrollTop = a.kind === 'end' ? el.scrollHeight : el.scrollHeight - a.fromEnd;
     // A first page too short to scroll can't be scrolled up to load more: load it now.
     if (el.scrollHeight <= el.clientHeight + NEAR_TOP) loadOlder();
-  }, [items, loadOlder]);
+  }, [items, loadOlder, stream]);
 
   const loadedNow = useRef(onLoaded);
   loadedNow.current = onLoaded;
@@ -236,6 +258,7 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded }: S
     atEnd.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
     if (el.scrollTop < NEAR_TOP) loadOlder();
   };
+
 
   const rows = useMemo(() => rowsOf(items), [items]);
   // The last call with no answer yet is what's running, or what the session waits on you for.
@@ -277,7 +300,13 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded }: S
         }
         return <Said key={keyOf(it)} item={it} now={now} label={it.kind === 'you' ? 'You' : s.account} />;
       })}
-      {loaded && items.length === 0 && <p className="ca-empty">Nothing said yet.</p>}
+      {streaming?.text && <Said item={{ at: now, kind: 'agent', text: streaming.text, failed: false, cursor: 0, n: 0 }} now={now} label={`${s.account} · writing`} />}
+      {streaming && !streaming.text && streaming.tool && !pending && (
+        <div className="ca-thread-note">
+          <Rich text={`Running \`${streaming.tool.replace(/`/g, '')}\``} now={now} />
+        </div>
+      )}
+      {loaded && items.length === 0 && !streaming?.text && <p className="ca-empty">Nothing said yet.</p>}
       {s.status === 'needs' && !pending && s.excerpt && (
         <div className="ca-thread-tool is-asks">
           <div className="ca-thread-askrow">

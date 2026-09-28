@@ -1,5 +1,6 @@
 //! Codealong: every agent runs in a worktree, and every worktree is a lane.
 
+mod acp;
 mod appserver;
 mod attachments;
 mod bar;
@@ -208,6 +209,11 @@ fn show_main(app: tauri::AppHandle, reveal: Option<serde_json::Value>) -> Result
 /// bar doesn't make Codealong the active app.
 #[tauri::command(async)]
 fn open_from_bar(app: tauri::AppHandle, engine: State<'_, engine::Handle>, lane_id: String, target_id: String) -> Result<(), String> {
+    if let Some(key) = target_id.strip_prefix("s|").and_then(|t| t.strip_suffix("|hosted")) {
+        // Codealong runs it: its panel in the main window is where it lives.
+        engine.mark_seen(vec![key.to_string()]);
+        return bar::show_main(&app, Some(serde_json::json!({ "kind": "session", "laneId": lane_id, "key": key }))).map_err(|e| e.to_string());
+    }
     let from = flash::pointer();
     engine.open(&lane_id, &target_id).map_err(|e| e.to_string())?;
     if let Some(bundle) = bar::target_app(&target_id, &engine.board().apps.terminal_id) {
@@ -338,6 +344,9 @@ fn session_pending(engine: State<'_, engine::Handle>, peers: State<'_, peers::Pe
 }
 
 fn pending_here(engine: &engine::Handle, key: &str) -> Result<serde_json::Value, String> {
+    if acp::hosts(key) {
+        return serde_json::to_value(acp::pending(key)).map_err(|e| e.to_string());
+    }
     let cfg = config::load().map_err(|e| format!("{e:#}"))?.unwrap_or_default();
     let board = engine.board();
     let (s, account) = harness::find(&board, &cfg, key).map_err(|e| format!("{e:#}"))?;
@@ -355,6 +364,9 @@ fn session_answer(engine: State<'_, engine::Handle>, peers: State<'_, peers::Pee
 }
 
 fn answer_here(engine: &engine::Handle, key: &str, id: &str, answer: harness::Answer) -> Result<String, String> {
+    if acp::hosts(key) {
+        return acp::answer(key, id, answer).map_err(|e| format!("{e:#}"));
+    }
     let cfg = config::load().map_err(|e| format!("{e:#}"))?.unwrap_or_default();
     let board = engine.board();
     let (s, account) = harness::find(&board, &cfg, key).map_err(|e| format!("{e:#}"))?;
@@ -374,6 +386,18 @@ fn newer_here(engine: &engine::Handle, key: &str, after: u64) -> Result<serde_js
     let cfg = config::load().map_err(|e| format!("{e:#}"))?.unwrap_or_default();
     let page = transcript::newer(&engine.board(), &cfg, key, after).map_err(|e| format!("{e:#}"))?;
     serde_json::to_value(page).map_err(|e| e.to_string())
+}
+
+/// The reply a session Codealong runs is writing, for a panel that opens mid-turn.
+#[tauri::command(async)]
+fn session_stream(key: String) -> Option<acp::Stream> {
+    acp::stream(&key)
+}
+
+/// Stops the turn a session Codealong runs is taking.
+#[tauri::command(async)]
+fn session_cancel(key: String) -> Result<(), String> {
+    acp::cancel(&key).map_err(|e| format!("{e:#}"))
 }
 
 /// Sends a prompt to a session that's already going, where it runs (send.rs).
@@ -939,6 +963,17 @@ pub fn run() {
                 publishes.publish(board);
             });
             let _ = engine_slot.set(engine.clone());
+            // Sessions Codealong runs itself: a turn's start and end recompose the board, and
+            // the reply as it streams goes to whichever windows show the session.
+            {
+                let (engine, app) = (engine.clone(), app.handle().clone());
+                acp::init(move |change| match change {
+                    acp::Change::Board => engine.hosted_changed(),
+                    acp::Change::Stream(s) => {
+                        let _ = app.emit("hosted-stream", s);
+                    }
+                });
+            }
             app.manage(peers);
             server::serve(engine.clone(), app.state::<peers::Peers>().inner().clone());
             // After the first scan and the first git runs, which have the Mac to themselves.
@@ -977,7 +1012,7 @@ pub fn run() {
             peek::on_window_event(window, event);
         })
         .register_asynchronous_uri_scheme_protocol("codealong-image", |_ctx, request, responder| serve_image(request, responder))
-        .invoke_handler(tauri::generate_handler![get_board, idle_terminals, close_idle_terminals, open_target, open_config, mark_seen, refresh, refresh_usage, set_pinned, set_pinned_worktrees, archive_session, pr_detail, pr_comment_asks, approve_pr, review_in_codex, open_url, get_accounts, save_accounts, set_preferred, found_accounts, get_config, save_config, save_config_text, sign_in, agents_status, install_agents, start_options, start_session, todo_op, canvas_load, canvas_save, save_attachment, import_attachment, open_attachment, expand_attachments, set_theme, open_project_window, fit_bar, show_main, peek_open, peek_ready, peek_fit, peek_focus, peek_hide, bar_feed, bar_on, set_bar_on, open_from_bar, show_quick, hide_quick, quick_ready, fit_quick, start_from_quick, route_quick, search_text, search_devices, devices, set_device_color, link_device, answer_link, unlink_device, device_link_code, link_with_code, session_page, session_newer, session_pending, session_answer, send_to_session, suggest_todo, dismiss_todo_hint, jev_key, set_jev_key, test_jev, quick_shortcut, pause_quick_shortcut, perf_mark])
+        .invoke_handler(tauri::generate_handler![get_board, idle_terminals, close_idle_terminals, open_target, open_config, mark_seen, refresh, refresh_usage, set_pinned, set_pinned_worktrees, archive_session, pr_detail, pr_comment_asks, approve_pr, review_in_codex, open_url, get_accounts, save_accounts, set_preferred, found_accounts, get_config, save_config, save_config_text, sign_in, agents_status, install_agents, start_options, start_session, todo_op, canvas_load, canvas_save, save_attachment, import_attachment, open_attachment, expand_attachments, set_theme, open_project_window, fit_bar, show_main, peek_open, peek_ready, peek_fit, peek_focus, peek_hide, bar_feed, bar_on, set_bar_on, open_from_bar, show_quick, hide_quick, quick_ready, fit_quick, start_from_quick, route_quick, search_text, search_devices, devices, set_device_color, link_device, answer_link, unlink_device, device_link_code, link_with_code, session_page, session_newer, session_pending, session_answer, session_stream, session_cancel, send_to_session, suggest_todo, dismiss_todo_hint, jev_key, set_jev_key, test_jev, quick_shortcut, pause_quick_shortcut, perf_mark])
         .build(tauri::generate_context!())
         .expect("error while running Codealong")
         .run(|app, event| {

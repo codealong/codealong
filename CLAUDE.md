@@ -553,6 +553,36 @@ Ghostty (1.3, AppleScript dictionary in the app bundle)
   carries out an Apple event after `osascript` is killed, so `launch.rs` waits a minute rather
   than report a failure for a window that then opens.
 
+Agent Client Protocol (hosted sessions, acp.rs; schema v1, adapters checked 2026-09-27)
+
+- JSON-RPC 2.0, one message a line, on the adapter's stdin and stdout. `initialize`
+  (`protocolVersion: 1`; Codealong offers no `fs` or `terminal`, so the agents use their own
+  tools), `session/new {cwd, mcpServers}`, `session/prompt` (answers with `stopReason` when the
+  turn ends: turns take as long as they take), `session/cancel`, `session/resume` or
+  `session/load` (replays the history as updates) for a session the process hasn't got.
+  Updates are `session/update` notifications (`agent_message_chunk`, `tool_call`,
+  `tool_call_update`, `usage_update`, `session_info_update`…); asking is a request,
+  `session/request_permission {toolCall, options: [{optionId, kind}]}`, answered `{outcome:
+  {outcome: "selected", optionId}}` (kinds `allow_once`, `allow_always`, `reject_once`) or
+  `cancelled`.
+- `@agentclientprotocol/claude-agent-acp` 0.81.2 (the Claude Agent SDK and its own `claude`)
+  honors `CLAUDE_CONFIG_DIR`: sign-in, settings (its mode starts at the account's
+  `defaultMode`, e.g. bypassPermissions) and skills are the account's. The ACP session id is the
+  Claude session id, and the transcript is the usual `projects/<cwd>/<id>.jsonl` with
+  `entrypoint: "sdk-cli"`; there's no `sessions/<pid>.json`, so the board only knows it's live
+  from acp.rs. Modes `default` (asks), `acceptEdits`, `plan`, `auto`, `bypassPermissions`; its
+  `model` option takes `opus`, `sonnet`, `haiku`, `opus[1m]`… A denied call doesn't end the
+  turn: the agent carries on and says so.
+- `@agentclientprotocol/codex-acp` 1.13.1 runs its own bundled `codex app-server` (0.156.1)
+  with `CODEX_HOME`; the session id is the thread id, and the rollout is an ordinary one with
+  `originator: "codealong"`. With `approvals_reviewer = "auto_review"` in config.toml it doesn't
+  ask: its reviewer model decides.
+- `opencode acp` (built in) is a client of OpenCode's service; ids are its `ses_…` rows. It's
+  installed in `~/.opencode/bin`, which only an interactive shell puts on PATH.
+- The adapter processes are the app's children, one per account, with stderr in
+  `~/Library/Logs/Codealong/acp-<account>.log`; the sessions Codealong started are in
+  `hosted.json` in its folder.
+
 Tailscale (1.102, through its command; for your other devices, tailnet.rs)
 
 - The command is `/usr/local/bin/tailscale` (the standalone app's link), Homebrew's, or

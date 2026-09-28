@@ -93,7 +93,7 @@ enum Cmd {
         #[command(subcommand)]
         cmd: ConfigCmd,
     },
-    /// Put the command on PATH and the skill into each account's skills folder.
+    /// Put the command on PATH, the skill into each account's skills folder, and the adapters Codealong runs sessions through.
     Install(InstallArgs),
     /// Your other devices (Settings › Devices): this device, the devices it's linked with, your devices on your tailnet that could be, and devices asking to link. Linking is how devices see each other's sessions; needs the app running and Devices on.
     Devices {
@@ -427,6 +427,8 @@ enum PlaceArg {
     Background,
     ClaudeApp,
     CodexApp,
+    /// In Codealong itself, over the account's Agent Client Protocol adapter. Needs the app running.
+    Codealong,
 }
 
 #[derive(Subcommand, Debug)]
@@ -445,6 +447,9 @@ struct InstallArgs {
     /// Only the skill, into the accounts' skills folders.
     #[arg(long)]
     skill: bool,
+    /// Only the Agent Client Protocol adapters that let Codealong run Claude Code and Codex sessions itself (npm packages, in Codealong's folder).
+    #[arg(long)]
+    acp: bool,
     /// Only these accounts (by name). Every configured one by default.
     #[arg(long)]
     account: Vec<String>,
@@ -611,6 +616,10 @@ impl Client {
                 Some(Err(e)) => Err(anyhow!("{e}")),
                 None => bail!("The app stopped answering."),
             };
+        }
+        if spec.place == Place::Codealong {
+            // The session would run in this command's process and end with it.
+            bail!("Starting a session in Codealong needs the app running.");
         }
         let cfg = self.cfg().clone();
         let started = start::start(self.board()?, &cfg, spec)?;
@@ -2217,6 +2226,7 @@ fn start_cmd(c: &mut Client, a: &StartArgs, json: bool) -> Result<()> {
         PlaceArg::Background => Place::Background,
         PlaceArg::ClaudeApp => Place::ClaudeApp,
         PlaceArg::CodexApp => Place::CodexApp,
+        PlaceArg::Codealong => Place::Codealong,
     });
     let account = match a.account.as_str() {
         "auto" => {
@@ -2340,6 +2350,7 @@ fn config_cmd(cmd: ConfigCmd, json: bool) -> Result<()> {
 struct Installed {
     command: Option<String>,
     skills: Vec<SkillInstall>,
+    acp: Option<String>,
     warnings: Vec<String>,
 }
 
@@ -2351,8 +2362,14 @@ struct SkillInstall {
 }
 
 fn install(c: &mut Client, a: &InstallArgs, json: bool) -> Result<()> {
-    let both = !a.command && !a.skill;
-    let mut out = Installed { command: None, skills: Vec::new(), warnings: Vec::new() };
+    let both = !a.command && !a.skill && !a.acp;
+    let mut out = Installed { command: None, skills: Vec::new(), acp: None, warnings: Vec::new() };
+    if a.acp || both {
+        match crate::acp::install_adapters() {
+            Ok(done) => out.acp = Some(done),
+            Err(e) => out.warnings.push(format!("{e:#}")),
+        }
+    }
     if a.command || both {
         match crate::install::link_command(a.bin.as_deref().map(expand)) {
             Ok(p) => out.command = Some(p.to_string_lossy().into_owned()),
@@ -2388,6 +2405,9 @@ fn install(c: &mut Client, a: &InstallArgs, json: bool) -> Result<()> {
     }
     for s in &out.skills {
         println!("Skill for {}: {}", s.account, tilde(Path::new(&s.path)));
+    }
+    if let Some(done) = &out.acp {
+        println!("{done}");
     }
     for w in &out.warnings {
         println!("! {w}");

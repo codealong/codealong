@@ -44,7 +44,8 @@ Commands:
   config     Codealong's own settings (config.toml): show them as the app reads them,
              and check a file before or after editing it. Change settings by editing the
              file; the app watches it
-  install    Put the command on PATH and the skill into each account's skills folder
+  install    Put the command on PATH, the skill into each account's skills folder, and
+             the adapters Codealong runs sessions through
   devices    Your other devices (Settings › Devices): this device, the devices it's
              linked with, your devices on your tailnet that could be, and devices asking
              to link. Linking is how devices see each other's sessions; needs the app
@@ -1120,6 +1121,8 @@ Options:
             attach one
           - claude-app
           - codex-app
+          - codealong:  In Codealong itself, over the account's Agent Client Protocol
+            adapter. Needs the app running
 
       --model <MODEL>
           A model for a terminal or background start: fable, opus, sonnet, haiku, or a
@@ -1213,7 +1216,8 @@ Options:
 ## codealong install
 
 ```
-Put the command on PATH and the skill into each account's skills folder
+Put the command on PATH, the skill into each account's skills folder, and the adapters
+Codealong runs sessions through
 
 Usage: codealong install [OPTIONS]
 
@@ -1230,11 +1234,15 @@ Options:
       --table
           Tables, even when piped
 
-      --account <ACCOUNT>
-          Only these accounts (by name). Every configured one by default
+      --acp
+          Only the Agent Client Protocol adapters that let Codealong run Claude Code and
+          Codex sessions itself (npm packages, in Codealong's folder)
 
       --verbose
           Say on stderr whether the app or the files answered
+
+      --account <ACCOUNT>
+          Only these accounts (by name). Every configured one by default
 
       --bin <DIR>
           Where the symlink goes. /usr/local/bin when writable, else ~/.local/bin

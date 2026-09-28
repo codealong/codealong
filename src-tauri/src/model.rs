@@ -195,6 +195,10 @@ pub struct Session {
     /// a permission prompt isn't one: what's typed there would answer the prompt.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub asks: bool,
+    /// Codealong runs it itself, over the Agent Client Protocol (acp.rs): its panel sends to it
+    /// and answers what it asks, and opening it shows the panel.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hosted: bool,
 }
 
 /// Jev's read of a session (insights.rs). Each part is there only when it was asked: how a turn
