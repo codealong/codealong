@@ -108,6 +108,47 @@ window.__TAURI_INTERNALS__ = {
         return all[0];
       });
     }
+    // A card pinned to the desktop (preview.sh desktop): PREVIEW_PIN's session, worktree or todo
+    // (`<ref>:<key>`), cut from the board as desktop.rs cuts it. A ref alone takes the latest
+    // worktree with sessions, the latest session, or the first todo.
+    if (cmd === 'desktop_feed') {
+      return window.__TAURI_INTERNALS__.invoke('get_board').then(function (board) {
+        var pin = window.__CODEALONG_PIN__ || 'session';
+        var at = pin.indexOf(':');
+        var ref = at < 0 ? pin : pin.slice(0, at);
+        var key = at < 0 ? '' : pin.slice(at + 1);
+        var lanes = board.lanes.filter(function (l) { return !l.hidden; }).sort(function (a, b) { return b.lastActivity - a.lastActivity; });
+        var own = function (l) { return l.sessions.filter(function (s) { return !s.visitor && !s.archived; }); };
+        if (!key && ref === 'worktree') key = (lanes.find(function (l) { return own(l).length > 1; }) || lanes[0] || {}).id;
+        if (!key && ref === 'session') key = (lanes.flatMap(own).sort(function (a, b) { return b.lastActivity - a.lastActivity; })[0] || {}).key;
+        if (!key && ref === 'todo') key = ((board.todos || [])[0] || {}).id;
+        var feed = { pin: { ref: ref, key: key }, title: null, loading: false, generatedAt: board.generatedAt, theme: board.theme, terminal: board.apps.terminal, lanes: [], todos: [], labels: [] };
+        var cut = function (l, keep) { return Object.assign({}, l, { sessions: l.sessions.filter(keep) }); };
+        if (ref === 'session') {
+          var home = board.lanes.find(function (l) { return l.sessions.some(function (s) { return s.key === key && !s.visitor; }); });
+          if (home) {
+            feed.lanes = [cut(home, function (s) { return s.key === key && !s.visitor; })];
+            feed.title = feed.lanes[0].sessions[0].title;
+          }
+        } else if (ref === 'worktree') {
+          var lane = board.lanes.find(function (l) { return l.id === key; });
+          if (lane) {
+            feed.lanes = [lane];
+            feed.title = lane.callsign;
+          }
+        } else if (ref === 'todo') {
+          var t = (board.todos || []).find(function (x) { return x.id === key; });
+          if (t) {
+            var mine = function (s) { return !s.visitor && t.sessions.indexOf(s.key) >= 0; };
+            feed.lanes = board.lanes.filter(function (l) { return t.worktrees.indexOf(l.id) >= 0 || l.sessions.some(mine); }).map(function (l) { return cut(l, mine); });
+            feed.todos = [t];
+            feed.labels = (board.labels || []).filter(function (l) { return t.labels.indexOf(l.id) >= 0; });
+            feed.title = t.title;
+          }
+        }
+        return feed;
+      });
+    }
     var file = { get_accounts: './accounts.json', found_accounts: './found.json', get_config: './config.json', pr_detail: './pr-detail.json', start_options: './start-options.json', device_start_options: './start-options.json', bar_feed: './bar-feed.json' }[cmd];
     if (file) return fetch(file).then(function (r) { return r.ok ? r.json() : Promise.reject(new Error(file + ' is missing')); });
     if (cmd === 'plugin:menu|new') return Promise.resolve([window.__calls.length, 'menu-' + window.__calls.length]);
@@ -291,6 +332,8 @@ window.__TAURI_INTERNALS__ = {
       });
     }
     if (cmd === 'todo_op') return Promise.resolve(Number.MAX_SAFE_INTEGER);
+    // Nothing is pinned to the desktop until a check pushes `desktop-pins`.
+    if (cmd === 'desktop_pins') return Promise.resolve([]);
     // A PNG is kept as an image to show; anything else as a file, by the name it came with.
     if (cmd === 'save_attachment' || cmd === 'import_attachment') {
       var png = args instanceof Uint8Array && args[0] === 0x89;

@@ -289,6 +289,14 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   don't fit fold into one per group that lists them. The mark brings Codealong forward; drag
   the bar by it or by its gaps. The capsule button at the top right of the window turns it on
   and off, as do Window › Floating bar and the bar's own right-click menu.
+- **Pin to desktop** (a session's, worktree's or todo's right-click menu, in any view or on the
+  canvas): puts its card, the one the Canvas view shows, on the desktop, floating over every
+  window, on every Space and over full-screen apps as the floating bar does. A worktree's card
+  lists its sessions that are running or waiting on you, and a todo's its sessions. Drag a card
+  where you want it; it stays there across launches. Click it to open what it shows where it
+  lives (a session line opens that session, a todo without one starts one in the quick panel),
+  and right-click it to show it in Codealong, mark it seen or snooze it, or Remove from desktop,
+  which its menu in Codealong also offers once it's pinned.
 - **New window** (File › New window, ⌘⇧N): one more window on the project you're looking at.
   Closing the main window hides it; New window, the Dock icon or the bar brings it back, and
   ⌘Q quits.
@@ -443,7 +451,7 @@ folders = []
 
 What you've seen (for Your turn), what you've pinned, snoozed and archived in Codealong are
 kept in `state.json` next to it; whether the floating bar is on, and where you left it, in
-`bar.json`; each project's canvas in `canvas.json`; sessions linked to PRs or unlinked from
+`bar.json`; what's pinned to the desktop, and where each card was left, in `desktop.json`; each project's canvas in `canvas.json`; sessions linked to PRs or unlinked from
 them by hand in `pr-links.json`. Todos and labels are in `todos.json`, which is watched, so an
 agent or an editor can add to it. Attachments are kept by their content: images in `images/`,
 other files in `files/<hash>/<name>`; ones no todo uses are cleared after 30 days. The devices
@@ -530,6 +538,7 @@ light scan (no git, PRs or visitors).
 | `src-tauri/src/prlinks.rs` | Sessions tied to PRs other than by branch: what their records show they did to a PR, and links made by hand (`pr-links.json`) |
 | `src-tauri/src/detect.rs` | The harness accounts on this device: folders, sign-ins, and the wrappers and aliases that run them |
 | `src-tauri/src/bar.rs`, `barfeed.rs` | The floating bar's window (a panel over every app, where it sits, Window › Floating bar) and the small feed of what it shows, sent only when that changes |
+| `src-tauri/src/desktop.rs`, `src/ui/DesktopPin.tsx` | Cards pinned to the desktop: a window each, made as the bar's is, where a new one goes, `desktop.json`, and what each shows, cut from the board and sent only when it changes; the page draws the Canvas view's card (`ui/CanvasCard.tsx`) |
 | `src/` | The React UI, built from the design system's components and tokens; `lanes.ts` groups the board and mirrors the engine's status rules for the age filter; `pins.ts` keeps the pinned lists; `ahead.ts` shows sessions marked seen, archived or sent a message at once, in every window, until a board shows it; `prStatus.ts` and `ui/PrPills.tsx` say where a PR stands and which PRs are your move; `bar.ts` and `ui/Bar.tsx` lay out the floating bar; `ui/Picker.tsx` is the quick panel's filterable menus; `ui/SettingsDialog.tsx` and `ui/AccountsSection.tsx` are Settings |
 | `scripts/preview.sh` | Headless preview against real data, for screenshots and scripted checks |
 | `design/tokens.json` | Design tokens; `npm run tokens` regenerates `src/styles/tokens.css` |

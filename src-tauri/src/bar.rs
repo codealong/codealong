@@ -29,9 +29,9 @@ const CHECK_EVERY: Duration = Duration::from_secs(1);
 /// The bar's size before its page has measured itself.
 const START: (f64, f64) = (240.0, 48.0);
 /// Space between a newly placed bar and the menu bar.
-const TOP_GAP: f64 = 6.0;
+pub(crate) const TOP_GAP: f64 = 6.0;
 /// Room kept at the sides of the screen.
-const EDGE: f64 = 8.0;
+pub(crate) const EDGE: f64 = 8.0;
 
 /// A rectangle in screen points as AppKit gives them: the origin at the bottom left of the main
 /// screen, y growing up.
@@ -82,7 +82,7 @@ pub fn place(current: Rect, w: f64, h: f64, screen: Rect) -> Rect {
 }
 
 /// Moves the rectangle onto the screen, narrowing it only when it's wider than the screen.
-fn clamp(r: Rect, screen: Rect) -> Rect {
+pub(crate) fn clamp(r: Rect, screen: Rect) -> Rect {
     let w = r.w.min(screen.w - 2.0 * EDGE).max(1.0);
     let h = r.h.min(screen.h).max(1.0);
     let x = r.x.min(screen.right() - EDGE - w).max(screen.x + EDGE);
@@ -104,7 +104,7 @@ pub fn start_frame(saved: Option<Rect>, screens: &[Screen]) -> Option<Rect> {
 }
 
 /// The usable area of the screen a rectangle is on: the one holding its center, else the first.
-fn screen_for(r: Rect, screens: &[Screen]) -> Option<Rect> {
+pub(crate) fn screen_for(r: Rect, screens: &[Screen]) -> Option<Rect> {
     screens.iter().find(|s| s.frame.contains(r.center())).or(screens.first()).map(|s| s.visible)
 }
 
@@ -342,13 +342,14 @@ pub fn show_main(app: &AppHandle, reveal: Option<serde_json::Value>) -> Result<(
     Ok(())
 }
 
+/// The bar's panel, shared with the cards pinned to the desktop (desktop.rs), which float the same way.
 #[cfg(target_os = "macos")]
-mod native {
+pub(crate) mod native {
     use std::sync::OnceLock;
 
     use objc2::runtime::{AnyClass, AnyObject, Bool, ClassBuilder, Sel};
     use objc2::{sel, ClassType, MainThreadMarker};
-    use objc2_app_kit::{NSApplicationActivationOptions, NSPanel, NSRunningApplication, NSScreen, NSStatusWindowLevel, NSWindow, NSWindowCollectionBehavior, NSWindowOcclusionState, NSWindowStyleMask};
+    use objc2_app_kit::{NSApplicationActivationOptions, NSEvent, NSPanel, NSRunningApplication, NSScreen, NSStatusWindowLevel, NSWindow, NSWindowCollectionBehavior, NSWindowOcclusionState, NSWindowStyleMask};
     use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
     use tauri::WebviewWindow;
 
@@ -478,11 +479,18 @@ mod native {
         let all = NSScreen::screens(mtm);
         (0..all.count()).map(|i| all.objectAtIndex(i)).map(|s| Screen { frame: rect(s.frame()), visible: rect(s.visibleFrame()) }).collect()
     }
+
+    /// Where the pointer is, in screen points.
+    pub fn pointer() -> Option<(f64, f64)> {
+        MainThreadMarker::new()?;
+        let p = NSEvent::mouseLocation();
+        Some((p.x, p.y))
+    }
 }
 
 /// Elsewhere the bar is an ordinary always-on-top window, left where it opens.
 #[cfg(not(target_os = "macos"))]
-mod native {
+pub(crate) mod native {
     use tauri::WebviewWindow;
 
     use super::{Rect, Screen};
@@ -503,6 +511,9 @@ mod native {
     pub fn set_frame(_: &WebviewWindow, _: Rect) {}
     pub fn screens() -> Vec<Screen> {
         Vec::new()
+    }
+    pub fn pointer() -> Option<(f64, f64)> {
+        None
     }
 }
 

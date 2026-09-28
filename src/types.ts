@@ -762,6 +762,33 @@ export interface BarTodo {
   callsign: string | null;
 }
 
+/** A session, worktree or todo pinned to the desktop (desktop.rs), by its session key, lane id or
+ *  todo id. */
+export interface DesktopPinned {
+  ref: 'session' | 'worktree' | 'todo';
+  key: string;
+}
+
+/** What a card pinned to the desktop shows, cut from the board: the engine sends it instead of
+ *  the board. */
+export interface DesktopFeed {
+  pin: DesktopPinned;
+  /** Its title now, or when last seen once the board no longer has it. */
+  title: string | null;
+  /** True until the engine's first full scan has finished. */
+  loading: boolean;
+  generatedAt: number;
+  theme: Theme;
+  /** The terminal app's name, for menu items such as "Show in Ghostty". */
+  terminal: string;
+  /** The worktree's own lane; the session's; the todo's linked worktrees and its sessions'. A
+   *  worktree keeps all its sessions, the others only the ones the card shows. */
+  lanes: Lane[];
+  /** The todo, for a todo's card. */
+  todos: Todo[];
+  labels: Label[];
+}
+
 /** What the floating bar's peek is asked to show (peek.rs). */
 export interface PeekOpen {
   /** Answered with the page's height once it's laid out. */

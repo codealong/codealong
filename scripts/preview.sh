@@ -5,7 +5,8 @@
 #   scripts/preview.sh [view] [project] [check.js]
 #
 #   view     worktrees | sessions | prs | todo | canvas, bar for the floating bar, peek for the
-#            bar's peek, or quick for the quick panel (default worktrees)
+#            bar's peek, quick for the quick panel, or desktop for a card pinned to the desktop
+#            (default worktrees)
 #   project  the project to show (default: the first one)
 #   check.js optional script run in the page; whatever it puts in document.title is printed
 #            (use it to click things and read window.__calls). Without it, a screenshot is
@@ -24,6 +25,8 @@
 # the quick panel (default 760,640: its window's width). The panel opens as the shortcut opens
 # it, with nothing typed; PREVIEW_INIT can type or click from there. The peek (default 520,640)
 # opens on PREVIEW_TRANSCRIPT's session when there is one, else on the first that needs you.
+# A desktop card (default 360,300) shows PREVIEW_PIN: `session`, `worktree` or `todo` for the
+# latest session, the latest worktree with sessions or the first todo, or `<ref>:<key>` for one.
 #
 # PREVIEW_TODOS=<file> shows the todos in it (scripts/preview/todos-sample.json has some) in
 # place of yours; "$lane:N" and "$session:N" in it stand for the project's Nth most recent
@@ -139,6 +142,10 @@ fi
 if [ "$view" = quick ]; then
   size="${PREVIEW_SIZE:-760,640}"
   setup="$setup window.__CODEALONG_QUICK__=true;</script><style>html.is-quick{background:linear-gradient(135deg,rgb(93,111,134),rgb(169,182,196))!important}</style><script>"
+fi
+if [ "$view" = desktop ]; then
+  size="${PREVIEW_SIZE:-360,300}"
+  setup="$setup window.__CODEALONG_DESKTOP__=true; window.__CODEALONG_PIN__='${PREVIEW_PIN:-session}';</script><style>html.is-desktop{background:linear-gradient(135deg,rgb(93,111,134),rgb(169,182,196))!important}</style><script>"
 fi
 if [ "$view" = peek ]; then
   size="${PREVIEW_SIZE:-520,640}"

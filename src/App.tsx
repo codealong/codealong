@@ -10,7 +10,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { below, showContextMenu, type MenuAction, type MenuSpec } from './contextMenu';
 import { AGENT_BAY, BAYS, buildBays, failingPr, filterByAge, inboxCounts, lanePromptAt, narrowed, rowItems, seenable, worktreeRow, type BoardRow, type Filter, type WorktreeRow } from './lanes';
-import { answerLink, approvePr, barOn, getDevices, onDevices, dismissTodoHint, expandAttachments, getBoard, onBarOn, onBoard, onCloseIdle, onNewWindow, onQuickStart, onReveal, onSettings, openConfig, openProjectWindow, openTarget, openUrl, refresh, refreshUsage, reviewInCodex, setBarOn, startOptions, startSession, setPinned, setPinnedWorktrees, setTheme, showQuick, signIn, windowLabel, type Reveal } from './api';
+import { answerLink, approvePr, barOn, desktopPins, getDevices, onDevices, dismissTodoHint, expandAttachments, getBoard, onBarOn, onBoard, onCloseIdle, onDesktopPins, onNewWindow, onQuickStart, onReveal, onSettings, openConfig, openProjectWindow, openTarget, openUrl, pinToDesktop, refresh, refreshUsage, reviewInCodex, setBarOn, startOptions, startSession, setPinned, setPinnedWorktrees, setTheme, showQuick, signIn, unpinFromDesktop, windowLabel, type Reveal } from './api';
 import { agoPhrase, middleTruncate } from './format';
 import { usePerf } from './perf';
 import { archiveAhead, boardAhead, boardView, lanesAhead, observe, seenAhead, useAhead } from './ahead';
@@ -20,7 +20,7 @@ import { prFlag } from './prStatus';
 import { reviewLane, reviewPicks, reviewPrompt } from './review';
 import { remembered } from './start';
 import { blockedBy, COLOR_WORD, depsOf, newTodo, pickTo, pickToggle, sectionOf, sessionHomes, snippet, STATUSES, STATUS_WORD, todoIndex, todoInFilter, todoInQuery, todoItem, todoPrompt, todosPrompt, todoSections, useTodoStore, type TodoItem, type TodoPick, type TodoSectionId } from './todos';
-import type { Bay, Board, DevicesView, Label, Lane, Pr, PrItem, Session, StartOptions, Theme, Todo, TodoStatus } from './types';
+import type { Bay, Board, DesktopPinned, DevicesView, Label, Lane, Pr, PrItem, Session, StartOptions, Theme, Todo, TodoStatus } from './types';
 import { byDevice, deviceOf, needsOn, shortOf, withDevices, type DeviceFilter } from './devices';
 import { snoozeMenu } from './snooze';
 import { queueAfter, statusTime, type Handled } from './quick';
@@ -587,6 +587,18 @@ export function App() {
   /** The menu item that does that, in the other views' menus. */
   const canvasItem = (ref: RefKind, key: string): MenuSpec =>
     view === 'canvas' ? [] : [{ label: canvas.has(ref, key) ? 'Show on canvas' : 'Add to canvas', run: () => showOnCanvas(ref, key) }];
+  // What's pinned to the desktop, as `ref:key`, so menus offer to take it off (desktop.rs).
+  const [onDesktop, setOnDesktop] = useState<Set<string>>(() => new Set());
+  useEffect(() => {
+    const take = (pins: DesktopPinned[]) => setOnDesktop(new Set(pins.map((p) => `${p.ref}:${p.key}`)));
+    void desktopPins().then(take);
+    return onDesktopPins(take);
+  }, []);
+  /** Pins a session, worktree or todo to the desktop, over every window, or takes it off. */
+  const desktopItem = (ref: DesktopPinned['ref'], key: string): MenuSpec => {
+    const pinned = onDesktop.has(`${ref}:${key}`);
+    return [{ label: pinned ? 'Remove from desktop' : 'Pin to desktop', run: () => void (pinned ? unpinFromDesktop({ ref, key }) : pinToDesktop({ ref, key })).catch((e: unknown) => setToast(String(e))) }];
+  };
   useEffect(() => {
     if (composerFocus === 0) return;
     composerRef.current?.focus();
@@ -1005,6 +1017,7 @@ export function App() {
       'separator',
       { label: 'Labels', items: labelItems(t) },
       { label: 'Move to project', items: projectItems(t) },
+      ...desktopItem('todo', t.id),
       'separator',
       { label: 'Copy as prompt', run: () => copyPrompt([t]) },
       { label: 'Copy todo ID', run: () => copy(t.id, 'todo ID') },
@@ -1200,7 +1213,7 @@ export function App() {
         ...todoItemsRef.current(lane.project, { session: s.key }, { session: s.key, worktree: lane.id, label: `${s.account} in ${lane.callsign}` }, s.title),
         'separator',
         ...(seenable(s) ? [{ label: 'Mark as seen', run: () => seen(s) }] : []),
-        ...(s.archived ? [] : [pinItem]),
+        ...(s.archived ? [] : [pinItem, ...desktopItem('session', s.key)]),
         ...(s.archived || shortOf(s.key) ? [] : [snoozeMenu([s.key], Date.now(), { until: s.snoozedUntil, onDone: (act) => void act.catch((e: unknown) => setToast(String(e))) })]),
         { label: s.archived ? 'Unarchive' : s.harness === 'codex' ? 'Archive in Codex' : 'Archive', run: () => setArchived(s.key, !s.archived, s.title) },
         'separator',
@@ -1227,6 +1240,7 @@ export function App() {
         ...todoItemsRef.current(lane.project, { worktree: lane.id }, { worktree: lane.id, label: lane.callsign }),
         'separator',
         { label: lanePins.set.has(lane.id) ? 'Unpin worktree' : 'Pin worktree', run: () => toggleLanePin(lane) },
+        ...desktopItem('worktree', lane.id),
         'separator',
         { label: 'Copy path', run: () => copy(lane.path, 'worktree path') },
         ...(lane.branch ? [{ label: 'Copy branch name', run: () => copy(lane.branch, 'branch name') }] : []),
@@ -1291,8 +1305,8 @@ export function App() {
     });
   };
 
-  // The floating bar or the quick panel asks to show a session, PR or todo here: in its project,
-  // with no search hiding it.
+  // The floating bar, the quick panel or a card on the desktop asks to show a session, worktree,
+  // PR or todo here: in its project, with no search hiding it.
   const reveal = useRef<(r: Reveal) => void>(() => {});
   reveal.current = (r: Reveal) => {
     // A todo the quick panel found: the Todo view, in its project.
@@ -1301,14 +1315,16 @@ export function App() {
       if (t) showTodo(t);
       return;
     }
-    const lane = r.kind === 'session' ? lanes.find((l) => l.id === r.laneId) : undefined;
+    const lane = r.kind === 'session' || r.kind === 'worktree' ? lanes.find((l) => l.id === r.laneId) : undefined;
     const session = lane?.sessions.find((s) => s.key === (r.kind === 'session' ? r.key : ''));
     const pr = r.kind === 'pr' ? board?.prs.find((p) => p.key === r.key) : undefined;
     const home = lane?.project ?? pr?.project;
     if (!home) return;
     if (current !== ALL_PROJECTS && current !== home) pickProject(home);
     setQuery('');
-    if (lane && session) {
+    if (lane && r.kind === 'worktree') {
+      focusLane(lane);
+    } else if (lane && session) {
       // A session Codealong runs is read and answered in its panel, which Sessions shows.
       if (session.hosted) setView('sessions');
       else if (view === 'prs' || view === 'todo') setView('worktrees');

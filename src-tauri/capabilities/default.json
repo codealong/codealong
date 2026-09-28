@@ -1,13 +1,14 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Codealong windows (the main one, one per project, the floating bar, its peek and the quick panel): board events, menus and dragging the toolbar or the bar.",
+  "description": "Codealong windows (the main one, one per project, the floating bar, its peek, the quick panel and the cards pinned to the desktop): board events, menus and dragging the toolbar, the bar or a card.",
   "windows": [
     "main",
     "project-*",
     "bar",
     "peek",
-    "quick"
+    "quick",
+    "desktop-*"
   ],
   "permissions": [
     "core:default",

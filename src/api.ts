@@ -4,7 +4,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { emit, emitTo, listen } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import type { DeviceFound, DevicesView, LabelColor, AccountCfg, AccountInfo, AgentsStatus, Attachment, BarFeed, BarNote, CloseOutcome, IdlePlan, Pending, HostedStream, PeekOpen, PeekShown, TranscriptPage, Board, Config, ConfigView, FoundAccount, PrDetail, Route, Sent, ShortcutStatus, TextFound, StartOptions, StartSpec, Started, Theme, TodoSuggested } from './types';
+import type { DesktopFeed, DesktopPinned, DeviceFound, DevicesView, LabelColor, AccountCfg, AccountInfo, AgentsStatus, Attachment, BarFeed, BarNote, CloseOutcome, IdlePlan, Pending, HostedStream, PeekOpen, PeekShown, TranscriptPage, Board, Config, ConfigView, FoundAccount, PrDetail, Route, Sent, ShortcutStatus, TextFound, StartOptions, StartSpec, Started, Theme, TodoSuggested } from './types';
 import type { TodoOp } from './todos';
 
 export const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -413,10 +413,10 @@ export async function setTheme(theme: Theme): Promise<void> {
   await invoke('set_theme', { theme });
 }
 
-/** What the floating bar asks the main window to show. */
-export type Reveal = { kind: 'session'; laneId: string; key: string } | { kind: 'pr'; key: string } | { kind: 'todo'; id: string };
+/** What the floating bar, the quick panel or a card on the desktop asks the main window to show. */
+export type Reveal = { kind: 'session'; laneId: string; key: string } | { kind: 'worktree'; laneId: string } | { kind: 'pr'; key: string } | { kind: 'todo'; id: string };
 
-/** Brings the main window forward, showing a session, PR or todo if given. */
+/** Brings the main window forward, showing a session, worktree, PR or todo if given. */
 export async function showMain(reveal: Reveal | null = null): Promise<void> {
   if (!inTauri) return;
   await invoke('show_main', { reveal });
@@ -473,6 +473,57 @@ export function onBarFeed(cb: (feed: BarFeed) => void): () => void {
     cancelled = true;
     unlisten?.();
   };
+}
+
+/* ---- Cards pinned to the desktop (src-tauri/src/desktop.rs) ---- */
+
+/** What's pinned to the desktop, in the order it was pinned. */
+export async function desktopPins(): Promise<DesktopPinned[]> {
+  if (!inTauri) return [];
+  return invoke<DesktopPinned[]>('desktop_pins');
+}
+
+/** Calls `cb` with what's pinned whenever a card is pinned or taken off, from any window. */
+export function onDesktopPins(cb: (pins: DesktopPinned[]) => void): () => void {
+  if (!inTauri) return () => {};
+  let cancelled = false;
+  let unlisten: (() => void) | undefined;
+  void listen<DesktopPinned[]>('desktop-pins', (e) => cb(e.payload)).then((u) => {
+    if (cancelled) u();
+    else unlisten = u;
+  });
+  return () => {
+    cancelled = true;
+    unlisten?.();
+  };
+}
+
+/** Pins a session, worktree or todo to the desktop, or brings its card up if it's there. */
+export async function pinToDesktop(pin: DesktopPinned): Promise<void> {
+  if (!inTauri) return;
+  await invoke('pin_to_desktop', { pin });
+}
+
+/** Takes a card off the desktop. */
+export async function unpinFromDesktop(pin: DesktopPinned): Promise<void> {
+  if (!inTauri) return;
+  await invoke('unpin_from_desktop', { pin });
+}
+
+/** What this window's card shows; null once it's no longer pinned. */
+export async function getDesktopFeed(): Promise<DesktopFeed | null> {
+  return invoke<DesktopFeed | null>('desktop_feed');
+}
+
+/** Calls `cb` with each new feed for this window's card; the engine sends one only when it changed. */
+export function onDesktopFeed(cb: (feed: DesktopFeed) => void): () => void {
+  return onWindowEvent<DesktopFeed>('desktop-feed', cb);
+}
+
+/** A card on the desktop measured itself; its window takes that size. */
+export async function fitDesktop(width: number, height: number): Promise<void> {
+  if (!inTauri) return;
+  await invoke('fit_desktop', { width, height });
 }
 
 /* ---- Your other devices (src-tauri/src/peers.rs) ---- */

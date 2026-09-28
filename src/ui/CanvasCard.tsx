@@ -2,7 +2,7 @@
 // few dozen fit on screen and the shape of the work reads at a glance. Hovering one opens a
 // popover with the rest: the whole headline, the last message, what it's linked to.
 
-import { memo, type ReactNode } from 'react';
+import { memo, type CSSProperties, type ReactNode } from 'react';
 import { absolute, agoPhrase, ago, duration, tildePath } from '../format';
 import { HARNESS_WORD, sessionPlace } from '../harness';
 import { blockedBy, sectionOf, SECTION_WORD, snippet } from '../todos';
@@ -95,7 +95,23 @@ interface CardProps {
 
 function Card({ item, data, now, selected, related, faded, hovered }: CardProps) {
   const style = { transform: `translate(${item.x}px, ${item.y}px)`, width: CARD_W, height: CARD_H[item.ref] };
-  const cls = (kind: string, extra?: string | false) => cx('ca-cv-card', `is-${kind}`, selected && 'is-selected', related && 'is-related', hovered && 'is-hovered', faded && 'is-faded', extra);
+  return <CardFace item={item} data={data} now={now} style={style} className={cx(selected && 'is-selected', related && 'is-related', hovered && 'is-hovered', faded && 'is-faded')} />;
+}
+
+interface CardFaceProps {
+  item: Pick<RefItem, 'ref' | 'key' | 'title'>;
+  data: CardData | null;
+  now: number;
+  style?: CSSProperties;
+  /** More of the card's classes. */
+  className?: string;
+  /** Drawn under the card's two lines: a desktop card's sessions. */
+  children?: ReactNode;
+}
+
+/** A card's face: placed on the canvas, or pinned to the desktop (DesktopPin.tsx). */
+export function CardFace({ item, data, now, style, className, children }: CardFaceProps) {
+  const cls = (kind: string, extra?: string | false) => cx('ca-cv-card', `is-${kind}`, className, extra);
   const id = `${item.ref}:${item.key}`;
   if (!data) {
     return (
@@ -105,6 +121,7 @@ function Card({ item, data, now, selected, related, faded, hovered }: CardProps)
           <span className="ca-cv-title">{item.title ?? item.key}</span>
         </div>
         <div className="ca-cv-l2">No longer on the board</div>
+        {children}
       </div>
     );
   }
@@ -131,6 +148,7 @@ function Card({ item, data, now, selected, related, faded, hovered }: CardProps)
             <Drift git={l.git} />
             <span className="ca-cv-age">{ago(l.lastActivity, now)}</span>
           </div>
+          {children}
         </div>
       );
     }
@@ -153,6 +171,7 @@ function Card({ item, data, now, selected, related, faded, hovered }: CardProps)
               <Rich text={sessionLine(s)} now={now} />
             </span>
           </div>
+          {children}
         </div>
       );
     }
@@ -176,6 +195,7 @@ function Card({ item, data, now, selected, related, faded, hovered }: CardProps)
                   : 'Todo'}
             </span>
           </div>
+          {children}
         </div>
       );
     }
@@ -196,6 +216,7 @@ function Card({ item, data, now, selected, related, faded, hovered }: CardProps)
             {p.checks.failed > 0 && <span className="ca-cv-bad">{p.checks.failed} failing</span>}
             <span className="ca-cv-age">{ago(p.updatedAt, now)}</span>
           </div>
+          {children}
         </div>
       );
     }
@@ -218,7 +239,7 @@ function Row({ icon, children }: { icon: string; children: ReactNode }) {
   );
 }
 
-function SessionLine({ s, now }: { s: Session; now: number }) {
+export function SessionLine({ s, now }: { s: Session; now: number }) {
   return (
     <div className="ca-cvp-session">
       <StatusGlyph status={s.status} size={10} />
