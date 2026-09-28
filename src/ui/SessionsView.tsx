@@ -1,12 +1,12 @@
 // The Sessions view: every session in the project, pinned ones first in your order, then the
-// rest by the day they were last active, most urgent first and then the one you last sent a
-// prompt. Drag a pinned session, or press ⌥↑ ⌥↓, to reorder.
+// ones that want you or are running, grouped as the floating bar groups them, then the rest by
+// the day they were last active. Drag a pinned session, or press ⌥↑ ⌥↓, to reorder.
 
 import { bySession } from '../lanes';
-import type { Lane, Session, Todo } from '../types';
+import type { Bay, Lane, Session, Status, Todo } from '../types';
 import { AgentRow } from './LaneRow';
 import { PinnedSection, type PinDrag } from './PinnedSection';
-import { SectionHeader } from './primitives';
+import { BayHeader, SectionHeader } from './primitives';
 
 export interface SessionItem {
   kind: 'agent';
@@ -18,14 +18,33 @@ export interface SessionItem {
 export interface SessionSection {
   id: string;
   label: string;
+  /** Set on the sections for what wants you or is running, which head as the board's bays do. */
+  bay?: Bay;
   rows: SessionItem[];
 }
 
+/** The bar's groups, most urgent first: what needs you, turns that ended, then running agents. */
+const ATTENTION: { bay: Bay; label: string; statuses: Status[] }[] = [
+  { bay: 'needs', label: 'Needs you', statuses: ['needs', 'error'] },
+  { bay: 'unread', label: 'Your turn', statuses: ['unread'] },
+  { bay: 'working', label: 'Working', statuses: ['working'] },
+];
+
 /**
- * Today, Yesterday, Last 7 days and Older, by last activity in local time. Within a day, most
- * urgent first, then the one you last sent a prompt: a working session holds its place.
+ * Needs you, Your turn and Working first, as on the floating bar, each newest status first: a
+ * status's time doesn't move while it lasts, so rows hold their places. The rest go under Today,
+ * Yesterday, Last 7 days and Older, by last activity in local time, the one you last sent a
+ * prompt first.
  */
 export function timeSections(rows: SessionItem[], now: number): SessionSection[] {
+  const since = (s: Session) => s.statusSince ?? s.lastActivity;
+  const attention: SessionSection[] = ATTENTION.map(({ bay, label, statuses }) => ({
+    id: bay,
+    label,
+    bay,
+    rows: rows.filter((r) => statuses.includes(r.session.status)).sort((a, b) => since(b.session) - since(a.session) || a.key.localeCompare(b.key)),
+  }));
+  const rest = rows.filter((r) => !ATTENTION.some((g) => g.statuses.includes(r.session.status)));
   const today = new Date(now);
   today.setHours(0, 0, 0, 0);
   const daysBack = (n: number) => {
@@ -40,11 +59,11 @@ export function timeSections(rows: SessionItem[], now: number): SessionSection[]
     { id: 'week', label: 'Last 7 days', rows: [] },
     { id: 'older', label: 'Older', rows: [] },
   ];
-  for (const r of [...rows].sort((a, b) => bySession(a.session, b.session))) {
+  for (const r of rest.sort((a, b) => bySession(a.session, b.session))) {
     const t = r.session.lastActivity;
     sections[t >= t0 ? 0 : t >= t1 ? 1 : t >= t6 ? 2 : 3].rows.push(r);
   }
-  return sections.filter((s) => s.rows.length > 0);
+  return [...attention, ...sections].filter((s) => s.rows.length > 0);
 }
 
 interface SessionsViewProps {
@@ -94,7 +113,7 @@ export function SessionsView(props: SessionsViewProps) {
       {pinned.length > 0 && <PinnedSection items={pinned} keyOf={(r) => r.session.key} onMove={onMovePinned} row={row} />}
       {sections.map((s) => (
         <section key={s.id} className="ca-bayblock">
-          <SectionHeader label={s.label} count={s.rows.length} />
+          {s.bay ? <BayHeader bay={s.bay} count={s.rows.length} /> : <SectionHeader label={s.label} count={s.rows.length} />}
           <div className="ca-bay-lanes">{s.rows.map((r) => row(r))}</div>
         </section>
       ))}

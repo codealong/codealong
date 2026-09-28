@@ -30,8 +30,9 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     on. The Inbox filters narrow each worktree to the agents they're about. Pin a worktree
     with `p` or the right-click menu of the worktree or one of its agents, and reorder pins
     by dragging or with ⌥↑ ⌥↓; a pinned worktree stays whatever the age filter says.
-  - **Sessions**: every session, pinned ones first in your order (drag or ⌥↑ ⌥↓), then by
-    day, most urgent first and then the one you last sent a prompt. Sessions are pinned
+  - **Sessions**: every session, pinned ones first in your order (drag or ⌥↑ ⌥↓), then Needs
+    you, Your turn and Working as the floating bar groups them, newest status first, then the
+    rest by day, the one you last sent a prompt first. Sessions are pinned
     here, with `p` or the right-click menu, and their pins show only here. Archive a session
     with `a` or its right-click menu; Codex threads are archived in Codex itself. The
     selected session's panel shows its whole conversation, read from the session's own
