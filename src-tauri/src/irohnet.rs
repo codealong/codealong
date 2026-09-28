@@ -1,8 +1,8 @@
-//! Reaching linked Macs that aren't on your tailnet, through iroh (peers.rs). A Mac's device
-//! key is its iroh address: another Mac dials the key, iroh finds a path (straight through,
+//! Reaching linked devices that aren't on your tailnet, through iroh (peers.rs). A device's key
+//! is its iroh address: another device dials the key, iroh finds a path (straight through,
 //! punching through NATs, or by one of number 0's relays, which pass encrypted packets along
-//! and can't read them), and the connection itself proves both keys. Linking a Mac this way
-//! takes a link code (`Ticket`) made on one Mac and entered on the other: this Mac's key and a
+//! and can't read them), and the connection itself proves both keys. Linking a device this way
+//! takes a link code (`Ticket`) made on one device and entered on the other: this device's key and a
 //! one-time secret.
 //!
 //! iroh is async and Codealong's engine is threads and channels, so iroh runs on a runtime of
@@ -30,14 +30,14 @@ pub struct Iroh {
 }
 
 impl Iroh {
-    /// Starts this Mac's endpoint, on number 0's relays and address lookup.
+    /// Starts this device's endpoint, on number 0's relays and address lookup.
     pub fn start(key: SecretKey) -> Result<Iroh> {
         let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(2).thread_name("iroh").enable_all().build()?;
         let ep = rt.block_on(Endpoint::builder(presets::N0).secret_key(key).alpns(vec![ALPN.to_vec()]).bind()).map_err(|e| anyhow!("iroh didn't start: {e}"))?;
         Ok(Iroh { rt: Arc::new(rt), ep })
     }
 
-    /// Waits for another Mac to connect; None once the endpoint has closed. The connection is
+    /// Waits for another device to connect; None once the endpoint has closed. The connection is
     /// finished by `finish`, on a thread of its own, so a slow one doesn't hold up the rest.
     pub fn accept(&self) -> Option<Incoming> {
         self.rt.block_on(self.ep.accept())
@@ -47,12 +47,12 @@ impl Iroh {
         let rt = self.rt.clone();
         self.rt.block_on(async move {
             let conn = incoming.await.map_err(|e| anyhow!("{e}"))?;
-            let (send, recv) = tokio::time::timeout(CONNECT_TIMEOUT, conn.accept_bi()).await.map_err(|_| anyhow!("The other Mac opened nothing."))?.map_err(|e| anyhow!("{e}"))?;
+            let (send, recv) = tokio::time::timeout(CONNECT_TIMEOUT, conn.accept_bi()).await.map_err(|_| anyhow!("The other device opened nothing."))?.map_err(|e| anyhow!("{e}"))?;
             Ok((conn.remote_id(), wire(rt, conn, send, recv)))
         })
     }
 
-    /// Dials a Mac by its device key.
+    /// Dials a device by its device key.
     pub fn connect(&self, key: PublicKey) -> Result<Wire> {
         let rt = self.rt.clone();
         self.rt.block_on(async move {
@@ -62,11 +62,11 @@ impl Iroh {
                 Ok::<Wire, anyhow::Error>(wire(rt, conn, send, recv))
             })
             .await
-            .map_err(|_| anyhow!("The other Mac didn't answer through iroh."))?
+            .map_err(|_| anyhow!("The other device didn't answer through iroh."))?
         })
     }
 
-    /// Whether this Mac has reached a relay, so other Macs can find it.
+    /// Whether this device has reached a relay, so other devices can find it.
     pub fn online(&self, wait: Duration) -> bool {
         self.rt.block_on(async { tokio::time::timeout(wait, self.ep.online()).await.is_ok() })
     }
@@ -109,7 +109,7 @@ impl Read for Reader {
             match limit {
                 Some(d) => match tokio::time::timeout(d, recv.read(buf)).await {
                     Ok(r) => r.map_err(io::Error::other),
-                    Err(_) => Err(io::Error::new(io::ErrorKind::TimedOut, "The other Mac went quiet.")),
+                    Err(_) => Err(io::Error::new(io::ErrorKind::TimedOut, "The other device went quiet.")),
                 },
                 None => recv.read(buf).await.map_err(io::Error::other),
             }
@@ -136,7 +136,7 @@ impl Write for Writer {
     }
 }
 
-/// A link code: a Mac's device key and a one-time secret, for linking a Mac that isn't on your
+/// A link code: a device's key and a one-time secret, for linking a device that isn't on your
 /// tailnet. Letters and digits only (base32), so it survives a chat message or being retyped.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Ticket {
@@ -189,7 +189,7 @@ mod tests {
         assert!(Ticket::decode("hello").is_err());
     }
 
-    /// Two endpoints on this Mac reach each other through number 0's relays and prove their
+    /// Two endpoints on this device reach each other through number 0's relays and prove their
     /// keys. Needs the internet, so it's run by hand: `cargo test iroh_connects -- --ignored`.
     #[test]
     #[ignore]

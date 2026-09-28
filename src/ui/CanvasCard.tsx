@@ -10,6 +10,7 @@ import type { Label, Lane, PrItem, Session, Todo } from '../types';
 import { CARD_H, CARD_W, type Entities, type RefItem } from '../canvas/model';
 import { BranchLabel, HarnessChip, Icon, LaneGlyph, PR_ICON, PR_WORD, PrChip, Rich, STATUS_WORD, StatusGlyph } from './primitives';
 import { LabelChip, LabelDot, TodoGlyph } from './TodoBits';
+import { DeviceBadge } from './DeviceBadge';
 
 const cx = (...parts: (string | false | null | undefined)[]) => parts.filter(Boolean).join(' ');
 
@@ -60,11 +61,11 @@ export function cardSig(d: CardData | null, now: number): string {
   switch (d.ref) {
     case 'worktree': {
       const l = d.lane;
-      return `w|${l.glyph}|${l.bay}|${l.callsign}|${l.branch}|${l.headline}|${l.repo}|${l.pr?.number}|${l.pr?.state}|${l.pr?.checks.failed}|${l.pr?.checks.pending}|${l.lastActivity}|${minute}`;
+      return `w|${l.glyph}|${l.bay}|${l.callsign}|${l.branch}|${l.headline}|${l.repo}|${l.pr?.number}|${l.pr?.state}|${l.pr?.checks.failed}|${l.pr?.checks.pending}|${l.lastActivity}|${l.device?.color}|${l.device?.online}|${minute}`;
     }
     case 'session': {
       const s = d.session;
-      return `s|${s.status}|${s.title}|${sessionLine(s)}|${s.account}|${s.surface}|${s.lastActivity}|${s.statusSince}|${d.lane.callsign}|${minute}`;
+      return `s|${s.status}|${s.title}|${sessionLine(s)}|${s.account}|${s.surface}|${s.lastActivity}|${s.statusSince}|${d.lane.callsign}|${d.lane.device?.color}|${d.lane.device?.online}|${minute}`;
     }
     case 'todo': {
       const t = d.todo;
@@ -112,10 +113,11 @@ function Card({ item, data, now, selected, related, faded, hovered }: CardProps)
       const l = data.lane;
       return (
         // A worktree heads its column: a folder, not a status, which its sessions below show.
-        <div className={cls('worktree')} style={style} data-id={id}>
+        <div className={cls('worktree', l.device && !l.device.online && 'is-away')} style={style} data-id={id}>
           <div className="ca-cv-l1">
             {(l.bay === 'review' || l.bay === 'merged') && l.pr ? <LaneGlyph lane={l} /> : <Icon name="folder" size={14} />}
             <span className="ca-cv-title ca-cv-callsign">{l.callsign}</span>
+            {l.device && <DeviceBadge device={l.device} now={now} />}
             {l.pr && <PrChip pr={l.pr} compact />}
           </div>
           <div className="ca-cv-l2">
@@ -134,13 +136,14 @@ function Card({ item, data, now, selected, related, faded, hovered }: CardProps)
     case 'session': {
       const s = data.session;
       return (
-        <div className={cls('session', `st-${s.status}`)} style={style} data-id={id}>
+        <div className={cls('session', cx(`st-${s.status}`, data.lane.device && !data.lane.device.online && 'is-away'))} style={style} data-id={id}>
           <div className="ca-cv-l1">
             <StatusGlyph status={s.status} />
             <span className="ca-cv-title">{s.title}</span>
             <span className="ca-cv-age">{s.status === 'working' && s.statusSince ? duration(s.statusSince, now) : ago(s.lastActivity, now)}</span>
           </div>
           <div className="ca-cv-l2">
+            {data.lane.device && <DeviceBadge device={data.lane.device} now={now} />}
             <span className="ca-cv-account">
               <Icon name={s.surface === 'cli' ? 'terminal' : 'app'} size={11} />
               {s.account}

@@ -141,27 +141,27 @@ fn default_search_days() -> u32 {
     MAX_SEARCH_DAYS
 }
 
-/// Your other Macs (peers.rs): Codealong on each finds the others, shows their sessions here,
+/// Your other devices (peers.rs): Codealong on each finds the others, shows their sessions here,
 /// and reads or acts on them on request. Off until you turn it on.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DevicesCfg {
     #[serde(default)]
     pub enabled: bool,
-    /// This Mac's name on your other Macs; empty is the computer's name.
+    /// This device's name on your other devices; empty is the computer's name.
     #[serde(default)]
     pub name: String,
-    /// Find your Macs on your tailnet, when Tailscale runs here.
+    /// Find your devices on your tailnet, when Tailscale runs here.
     #[serde(default = "yes")]
     pub tailscale: bool,
-    /// Reach linked Macs that aren't on your tailnet, through iroh (encrypted end to end; its
+    /// Reach linked devices that aren't on your tailnet, through iroh (encrypted end to end; its
     /// relays only pass packets along).
     #[serde(default = "yes")]
     pub iroh: bool,
-    /// Let your linked Macs send prompts to sessions here, answer what they wait on you to
+    /// Let your linked devices send prompts to sessions here, answer what they wait on you to
     /// allow, and start sessions. Reading and searching don't need it.
     #[serde(default)]
     pub remote_control: bool,
-    /// The TCP port Codealong listens on, on this Mac's tailnet address only.
+    /// The TCP port Codealong listens on, on this device's tailnet address only.
     #[serde(default = "default_devices_port")]
     pub port: u16,
 }
@@ -450,7 +450,7 @@ const APPS_COMMENT: &str = "# Where Codealong opens things. Built-in profiles: t
 const APPEARANCE_COMMENT: &str = "# Light or dark. \"system\" follows macOS. The buttons at the foot of the sidebar set this too.\n";
 const JEV_COMMENT: &str = "# What Codealong asks TypeSafe's Jev, feature by feature (Settings › Jev says what each one sends).\n# The API key is kept in the login keychain; set it in Settings.\n";
 const SEARCH_COMMENT: &str = "# The quick panel and `codealong sessions find` search what was said in sessions active in the\n# last `days` days, not just their titles. 0 turns it off; 14, the board's reach, is the most.\n";
-const DEVICES_COMMENT: &str = "# Your other Macs: Codealong on each shows the others' sessions and can read and search them.\n# tailscale finds them on your tailnet; iroh reaches Macs you link with a code, anywhere.\n# remote_control lets your linked Macs send prompts, answer approvals and start sessions here.\n";
+const DEVICES_COMMENT: &str = "# Your other devices: Codealong on each shows the others' sessions and can read and search them.\n# tailscale finds them on your tailnet; iroh reaches devices you link with a code, anywhere.\n# remote_control lets your linked devices send prompts, answer approvals and start sessions here.\n";
 const DEBUG_COMMENT: &str = "# Timings for finding what makes the app slow, in ~/Library/Logs/Codealong/perf.log.\n";
 const SHORTCUTS_COMMENT: &str = "# Shortcuts that work in any app, such as \"Option+Cmd+/\" or \"Cmd+Ctrl+K\". \"\" turns one off.\n# quick_panel opens the quick panel: find a session, or start one.\n";
 

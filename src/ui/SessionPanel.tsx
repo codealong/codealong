@@ -12,6 +12,7 @@ import { InsightChips } from './InsightBits';
 import { OpenInMenu } from './Inspector';
 import { BranchLabel, Button, HarnessChip, Icon, Rich, STATUS_WORD, StatusGlyph } from './primitives';
 import { Reply } from './SessionReply';
+import { DeviceBadge } from './DeviceBadge';
 import { SessionThread } from './SessionThread';
 import { TodoGlyph } from './TodoBits';
 
@@ -28,7 +29,7 @@ interface SessionPanelProps {
   onShowTodo?: (todo: Todo) => void;
   /** The session's right-click menu, from its ⋯ button. */
   onMoreMenu: (at: { x: number; y: number }) => void;
-  /** The Mac it's on, when that's another of yours: it opens there, and a message goes there. */
+  /** The device it's on, when that's another of yours: it opens there, and a message goes there. */
   device?: DeviceView | null;
   /** Shown from another panel (a PR's, a todo's): the way back to it. */
   back?: { label: string; onBack: () => void };
@@ -68,10 +69,7 @@ export function SessionPanel({ lane, session: s, apps, now, onOpen, onNewSession
         )}
         <div className="ca-insp-actions">
           {device ? (
-            <span className="ca-tag ca-device-tag" title={device.online ? `Connected ${device.via === 'iroh' ? 'through iroh' : 'on your tailnet'}` : 'Not connected'}>
-              <span className={device.online ? 'ca-device-dot is-on' : 'ca-device-dot'} aria-hidden="true" />
-              On {device.name}
-            </span>
+            <DeviceBadge device={device} now={now} full />
           ) : targets.length > 0 ? (
             <OpenInMenu targets={targets} defaultId={s.openTarget} onOpen={onOpen} />
           ) : (
@@ -151,7 +149,7 @@ export function SessionPanel({ lane, session: s, apps, now, onOpen, onNewSession
         </p>
       ) : device && !device.remoteControl ? (
         <p className="ca-sessinsp-remote" role="status">
-          {device.name} doesn't take prompts from your other Macs. To send from here, turn on <b>Let my linked Macs act on sessions here</b> in Settings › Devices on {device.name}.
+          {device.name} doesn't take prompts from your other devices. To send from here, turn on <b>Let my linked devices act on sessions here</b> in Settings › Devices on {device.name}.
         </p>
       ) : (
         <Reply session={s} terminal={apps.terminal} onOpen={() => onOpen(s.openTarget)} />

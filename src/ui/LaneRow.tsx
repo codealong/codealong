@@ -2,6 +2,8 @@
 // age. Each agent that needs you, is working or just finished gets a line of its own on its
 // worktree's row, so a worktree shows once however many agents run in it.
 
+import { deviceLabel } from '../devices';
+import { DeviceBadge } from './DeviceBadge';
 import { memoRow } from './memoRow';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { absolute, ago, agoPhrase, middleTruncate } from '../format';
@@ -55,12 +57,15 @@ export function currentSessions(lane: Lane, now: number) {
   return lane.sessions.filter((s) => s.live || s.status === 'needs' || s.status === 'error' || s.status === 'working' || s.status === 'unread' || now - s.lastActivity < DAY);
 }
 
-/** `atlas · quarry`: the repo, and the branch when the callsign doesn't already say it; on
- *  another of your Macs, that Mac first (`Mac mini · atlas`). */
+/** `atlas · quarry`: the repo, and the branch when the callsign doesn't already say it. */
 function laneSub(lane: Lane): { sub: string; branch: string | null } {
   const branch = lane.branch ?? (lane.detached ? `detached @ ${lane.detached}` : null);
-  const sub = branch && branch !== lane.callsign ? `${lane.repo} · ${middleTruncate(branch, 26)}` : lane.repo;
-  return { branch, sub: lane.mac ? `${lane.mac} · ${sub}` : sub };
+  return { branch, sub: branch && branch !== lane.callsign ? `${lane.repo} · ${middleTruncate(branch, 26)}` : lane.repo };
+}
+
+/** A worktree on another of your devices, a device that's away included: its rows are dimmed. */
+function away(lane: Lane): boolean {
+  return lane.device ? !lane.device.online : false;
 }
 
 /** Lines added and removed against the default branch, and a dot for uncommitted files. */
@@ -113,7 +118,7 @@ function WorktreeOnlyRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpe
       id={domId(lane.id)}
       role="option"
       aria-selected={selected}
-      className={['ca-lane', `is-${lane.bay}`, selected && 'is-selected', pinned && 'is-pinned', extraClass].filter(Boolean).join(' ')}
+      className={['ca-lane', `is-${lane.bay}`, selected && 'is-selected', pinned && 'is-pinned', away(lane) && 'is-away', extraClass].filter(Boolean).join(' ')}
       data-pin-index={pinIndex}
       onPointerDown={onPointerDown}
       onMouseDown={() => onSelect(lane.id)}
@@ -133,6 +138,7 @@ function WorktreeOnlyRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpe
           {lane.callsign}
         </span>
         <span className="ca-lane-sub" title={branch ?? lane.path}>
+          {lane.device && <DeviceBadge device={lane.device} now={now} />}
           {sub}
         </span>
       </div>
@@ -202,7 +208,7 @@ function GroupRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpenTarget
     <div
       role="group"
       aria-label={`${lane.callsign}, ${agents.length} ${agents.length === 1 ? 'agent' : 'agents'}`}
-      className={['ca-lane', 'is-group', `is-${lane.bay}`, agents.length + (prNeeds ? 1 : 0) > 1 && 'is-tall', hasSelection && 'has-selection', pinned && 'is-pinned', extraClass]
+      className={['ca-lane', 'is-group', `is-${lane.bay}`, agents.length + (prNeeds ? 1 : 0) > 1 && 'is-tall', hasSelection && 'has-selection', pinned && 'is-pinned', away(lane) && 'is-away', extraClass]
         .filter(Boolean)
         .join(' ')}
       data-pin-index={pinIndex}
@@ -220,6 +226,7 @@ function GroupRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpenTarget
       <div className="ca-seg ca-seg-call" onMouseDown={selectFirst} onDoubleClick={() => onOpen(lane)} title={`${lane.path}. Double-click to open its most recent session.`}>
         <span className="ca-lane-call">{lane.callsign}</span>
         <span className="ca-lane-sub" title={branch ?? lane.path}>
+          {lane.device && <DeviceBadge device={lane.device} now={now} />}
           {sub}
         </span>
       </div>
@@ -362,14 +369,19 @@ interface AgentRowProps {
 }
 
 /** Where a session runs, as a chip: its worktree, after its repo when the worktree has a name of
- *  its own, and after the Mac when it's on another of yours. */
+ *  its own, and after its device, in that device's color, when it's on another of yours. */
 function WorktreeChip({ lane }: { lane: Lane }) {
   const { branch } = laneSub(lane);
   const own = lane.callsign !== lane.repo;
   return (
-    <span className="ca-chip ca-wtchip" title={`${lane.mac ? `On ${lane.mac}: ` : ''}${lane.path}${branch ? `\nOn ${branch}` : ''}`}>
+    <span className="ca-chip ca-wtchip" title={`${lane.device ? `On ${lane.device.name}: ` : ''}${lane.path}${branch ? `\nOn ${branch}` : ''}`}>
       <Icon name="folder" size={12} />
-      {lane.mac && <span className="ca-wtchip-part ca-wtchip-mac">{lane.mac}</span>}
+      {lane.device && (
+        <span className="ca-wtchip-part ca-wtchip-device">
+          <i className={`ca-labeldot is-${lane.device.color}`} aria-hidden="true" />
+          {deviceLabel(lane.device.name)}
+        </span>
+      )}
       {own && <span className="ca-wtchip-part">{lane.repo}</span>}
       <span className="ca-wtchip-name">{lane.callsign}</span>
     </span>
@@ -386,7 +398,7 @@ function AgentRowView({ lane, session: s, domId, now, selected, onSelect, onOpen
       id={domId}
       role="option"
       aria-selected={selected}
-      className={['ca-lane', 'is-agent', `is-${s.status === 'error' ? 'needs' : s.status}`, selected && 'is-selected', pinned && 'is-pinned', extraClass]
+      className={['ca-lane', 'is-agent', `is-${s.status === 'error' ? 'needs' : s.status}`, selected && 'is-selected', pinned && 'is-pinned', away(lane) && 'is-away', extraClass]
         .filter(Boolean)
         .join(' ')}
       data-pin-index={pinIndex}

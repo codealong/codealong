@@ -1,22 +1,22 @@
-//! Your other Macs (`[devices]` in config.toml). Codealong on each Mac finds the others, on your
+//! Your other devices (`[devices]` in config.toml). Codealong on each device finds the others, on your
 //! tailnet (tailnet.rs) or, once linked, anywhere through iroh (irohnet.rs), and keeps a
-//! connection open to each. Over it (peerproto.rs) each Mac sends the other its feed
-//! (peerfeed.rs), so the windows here show that Mac's worktrees and sessions beside this one's,
+//! connection open to each. Over it (peerproto.rs) each device sends the other its feed
+//! (peerfeed.rs), so the windows here show that device's worktrees and sessions beside this one's,
 //! and asks it things: a page of a session's conversation, what a session waits on you for, a
 //! search of what was said, and, when remote control is on over there, to send a prompt or
-//! answer an approval. The Mac that's asked runs the same function a window's command runs
+//! answer an approval. The device that's asked runs the same function a window's command runs
 //! there (`Hooks::answer`, in lib.rs), as server.rs does for the `codealong` command.
 //!
-//! Trust goes by device key, and each Mac keeps its own list of the Macs it's linked with
-//! (`devices.json`). Being on the same tailnet links nothing: you link a Mac once, by answering
-//! its ask on the Mac it asks (both show the same six-digit code), or with a link code made on
-//! one and entered on the other. A Mac sends its feed only to Macs it has linked and answers
-//! only them. What each linked Mac last said is kept in `device-feeds.json`, so a Mac that's
+//! Trust goes by device key, and each device keeps its own list of the devices it's linked with
+//! (`devices.json`). Being on the same tailnet links nothing: you link a device once, by answering
+//! its ask on the device it asks (both show the same six-digit code), or with a link code made on
+//! one and entered on the other. A device sends its feed only to devices it has linked and answers
+//! only them. What each linked device last said is kept in `device-feeds.json`, so a device that's
 //! asleep still shows as it was when last seen.
 //!
 //! Everything here is threads and channels, like the engine: a thread per connection reading,
 //! one writing, and a feeder that turns board changes into feeds at most once a second and
-//! hands the windows what they show of other Macs (`DevicesView`).
+//! hands the windows what they show of other devices (`DevicesView`).
 
 use std::collections::{HashMap, HashSet};
 use std::io::{BufReader, Read, Write};
@@ -32,9 +32,9 @@ use iroh::{PublicKey, SecretKey};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::config::DevicesCfg;
+use crate::config::{DevicesCfg, ProjectCfg};
 use crate::irohnet::{Iroh, Ticket};
-use crate::model::{Board, Lane, Usage};
+use crate::model::{Board, DeviceTag, Lane, Usage};
 use crate::peerfeed::{self, DeviceInfo, Outbox, Replica, Snapshot};
 use crate::peerproto::{self, Msg, VERSION};
 use crate::tailnet;
@@ -42,7 +42,7 @@ use crate::util::now_ms;
 
 const APP: &str = env!("CARGO_PKG_VERSION");
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(15);
-/// A connection with nothing coming in for this long is gone (a Mac that slept, a network that
+/// A connection with nothing coming in for this long is gone (a device that slept, a network that
 /// changed); pings go out well within it.
 const IDLE_TIMEOUT: Duration = Duration::from_secs(80);
 const PING_EVERY: Duration = Duration::from_secs(25);
@@ -53,17 +53,17 @@ const SETTLE: Duration = Duration::from_millis(150);
 const VIEW_EVERY: Duration = Duration::from_millis(300);
 const CACHE_EVERY: Duration = Duration::from_secs(60);
 const TAILNET_EVERY: Duration = Duration::from_secs(20);
-/// The Mac with the lower tailnet address dials; the other dials too once one has been online
+/// The device with the lower tailnet address dials; the other dials too once one has been online
 /// this long without a connection, in case the first can't.
 const DIAL_ANYWAY_AFTER: Duration = Duration::from_secs(45);
 const IROH_FIRST_DIAL: Duration = Duration::from_secs(30);
 const IROH_DIAL_EVERY: Duration = Duration::from_secs(30);
 const LINK_CODE_FOR_MS: i64 = 10 * 60 * 1000;
 
-/// Requests that act on a session: they need remote control on at the Mac asked.
+/// Requests that act on a session: they need remote control on at the device asked.
 pub const CONTROL: [&str; 3] = ["session-send", "session-answer", "start"];
 
-/// A connection to another Mac as the rest of this module sees it, whatever carries it.
+/// A connection to another device as the rest of this module sees it, whatever carries it.
 pub struct Wire {
     pub reader: Box<dyn Read + Send>,
     pub writer: Box<dyn Write + Send>,
@@ -103,13 +103,13 @@ pub enum Via {
 pub struct Hooks {
     /// The board as it stands, for the feed.
     pub board: Box<dyn Fn() -> Board + Send + Sync>,
-    /// Answers a linked Mac's request, as the matching Tauri command would here.
+    /// Answers a linked device's request, as the matching Tauri command would here.
     pub answer: Box<dyn Fn(&str, Value) -> Result<Value, String> + Send + Sync>,
-    /// Hands the windows what they show of other Macs.
+    /// Hands the windows what they show of other devices.
     pub emit: Box<dyn Fn(&DevicesView) + Send + Sync>,
 }
 
-/// A Mac on this Mac's list, as `devices.json` keeps it.
+/// A device on this device's list, as `devices.json` keeps it.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Linked {
@@ -119,6 +119,22 @@ pub struct Linked {
     pub linked_at: i64,
     #[serde(default)]
     pub via: String,
+    /// The color you gave it; none takes the one its key picks (`color_of`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+}
+
+/// The label colors a device can have, as the windows name them.
+pub const COLORS: [&str; 8] = ["gray", "red", "pink", "purple", "indigo", "blue", "teal", "green"];
+/// The ones a key picks from when you haven't chosen: none that reads as a status (red, gray).
+const PICKED: [&str; 6] = ["purple", "teal", "indigo", "pink", "blue", "green"];
+
+/// A linked device's color: yours, else one its key picks, the same on every device that has it.
+fn color_of(l: &Linked) -> String {
+    match &l.color {
+        Some(c) if COLORS.contains(&c.as_str()) => c.clone(),
+        _ => PICKED[u8::from_str_radix(l.key.get(..2).unwrap_or("0"), 16).unwrap_or(0) as usize % PICKED.len()].to_string(),
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -128,19 +144,19 @@ struct Cached {
     replica: Replica,
 }
 
-/// What the windows show of other Macs, and what Settings › Devices shows.
+/// What the windows show of other devices, and what Settings › Devices shows.
 #[derive(Serialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct DevicesView {
     pub enabled: bool,
     pub me: MeView,
-    /// Linked Macs, in the order they were linked.
+    /// Linked devices, in the order they were linked.
     pub devices: Vec<DeviceView>,
-    /// Your Macs on your tailnet running Codealong that aren't linked yet.
+    /// Your devices on your tailnet running Codealong that aren't linked yet.
     pub found: Vec<FoundView>,
-    /// Macs asking to be linked, waiting for your answer here.
+    /// Devices asking to be linked, waiting for your answer here.
     pub asks: Vec<AskView>,
-    /// Every linked Mac's worktrees, each lane id and session key with `@<short>:` in front.
+    /// Every linked device's worktrees, each lane id and session key with `@<short>:` in front.
     pub lanes: Vec<Lane>,
 }
 
@@ -153,7 +169,7 @@ pub struct MeView {
     /// "off", "missing" (not installed), "stopped" (not connected or signed out), "running".
     pub tailscale: String,
     pub tailnet: Option<String>,
-    /// Where this Mac listens, when it does.
+    /// Where this device listens, when it does.
     pub address: Option<String>,
     /// "off", "starting", "online", "offline", or why it didn't start.
     pub iroh: String,
@@ -167,6 +183,8 @@ pub struct DeviceView {
     pub key: String,
     pub short: String,
     pub name: String,
+    /// One of `COLORS`: the badge and edge its lanes and sessions get in the windows.
+    pub color: String,
     pub online: bool,
     pub via: Option<Via>,
     /// When the connection opened.
@@ -174,8 +192,8 @@ pub struct DeviceView {
     pub last_seen: Option<i64>,
     pub remote_control: bool,
     pub app: String,
-    /// It has this Mac on its list too. A link made from either side is made on both, so this
-    /// is false only when the other Mac forgot this one.
+    /// It has this device on its list too. A link made from either side is made on both, so this
+    /// is false only when the other device forgot this one.
     pub linked_back: bool,
     pub loading: bool,
     pub usage: Vec<Usage>,
@@ -201,7 +219,7 @@ pub struct AskView {
     pub code: String,
 }
 
-/// A linked Mac's answer to a search, for the quick panel.
+/// A linked device's answer to a search, for the quick panel.
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct DeviceFound {
@@ -244,6 +262,8 @@ struct Ask {
 #[derive(Default)]
 struct State {
     cfg: DevicesCfg,
+    /// This device's `[[projects]]`, which other devices' worktrees are put into (`project_here`).
+    projects: Vec<ProjectCfg>,
     error: Option<String>,
     board_dirty: bool,
     board_at: Option<Instant>,
@@ -252,7 +272,7 @@ struct State {
     conns: HashMap<String, Conn>,
     replicas: HashMap<String, Cached>,
     asks: Vec<Ask>,
-    /// Macs this one asked to link, waiting for their answer.
+    /// Devices this one asked to link, waiting for their answer.
     asking: HashSet<String>,
     /// Link codes made here and not used yet: the secret and when it stops working.
     codes: Vec<(String, i64)>,
@@ -297,11 +317,11 @@ impl Peers {
         Peers(inner)
     }
 
-    /// For tests: a Mac with its key already.
+    /// For tests: a device with its key already.
     #[cfg(test)]
     fn with_key(dir: PathBuf, key: SecretKey, hooks: Hooks) -> Peers {
         let p = Peers::new(dir, hooks);
-        let _ = p.0.computer.set("Test Mac".into());
+        let _ = p.0.computer.set("Test device".into());
         p.0.set_key(key);
         p
     }
@@ -316,6 +336,10 @@ impl Peers {
         let mut st = self.0.lock();
         st.board_dirty = true;
         st.board_at = Some(Instant::now());
+        if st.projects != board.project_rules {
+            st.projects = board.project_rules.clone();
+            st.view_dirty = true;
+        }
         drop(st);
         self.0.wake.notify_all();
     }
@@ -357,7 +381,7 @@ impl Peers {
                 match crate::devicekey::load_or_create() {
                     Ok(k) => inner.set_key(k),
                     Err(e) => {
-                        inner.lock().error = Some(format!("Couldn't read this Mac's device key from the keychain: {e:#}"));
+                        inner.lock().error = Some(format!("Couldn't read this device's key from the keychain: {e:#}"));
                         inner.wake.notify_all();
                         return;
                     }
@@ -380,14 +404,14 @@ impl Peers {
         self.0.view(&st)
     }
 
-    /// Asks a Mac of yours on your tailnet to link. Returns the code both Macs show.
+    /// Asks a device of yours on your tailnet to link. Returns the code both devices show.
     pub fn link(&self, key: &str) -> std::result::Result<String, String> {
         let inner = &self.0;
         let me = inner.me.get().ok_or("Turn on Devices first.")?;
         let mut st = inner.lock();
-        let conn = st.conns.get(key).ok_or("That Mac isn't connected any more.")?;
+        let conn = st.conns.get(key).ok_or("That device isn't connected any more.")?;
         if conn.peer_user.is_none() || conn.peer_user != st.my_user {
-            return Err("Only your own Macs on your tailnet can be linked this way; use a link code.".into());
+            return Err("Only your own devices on your tailnet can be linked this way; use a link code.".into());
         }
         let _ = conn.tx.send(Msg::LinkAsk { secret: None });
         let code = peerproto::link_code(&me.key, &peerproto::parse_key(key).map_err(|e| e.to_string())?);
@@ -398,11 +422,11 @@ impl Peers {
         Ok(code)
     }
 
-    /// Your answer to a Mac asking to link.
+    /// Your answer to a device asking to link.
     pub fn answer_link(&self, key: &str, accept: bool) -> std::result::Result<(), String> {
         let inner = &self.0;
         let mut st = inner.lock();
-        let i = st.asks.iter().position(|a| a.key == key).ok_or("That Mac isn't asking any more.")?;
+        let i = st.asks.iter().position(|a| a.key == key).ok_or("That device isn't asking any more.")?;
         let ask = st.asks.remove(i);
         let Some(conn) = st.conns.get(key) else { return Err(format!("{} went away.", ask.name)) };
         let (tx, via) = (conn.tx.clone(), conn.via);
@@ -419,11 +443,29 @@ impl Peers {
         Ok(())
     }
 
+    /// Gives a linked device a color of your choosing; none goes back to the one its key picks.
+    pub fn set_color(&self, key: &str, color: Option<String>) -> std::result::Result<(), String> {
+        if let Some(c) = &color {
+            if !COLORS.contains(&c.as_str()) {
+                return Err(format!("{c} isn't one of the colors: {}.", COLORS.join(", ")));
+            }
+        }
+        let inner = &self.0;
+        let mut st = inner.lock();
+        let l = st.linked.iter_mut().find(|l| l.key == key).ok_or("That device isn't linked.")?;
+        l.color = color;
+        save_linked(&inner.dir, &st.linked);
+        st.view_dirty = true;
+        drop(st);
+        inner.wake.notify_all();
+        Ok(())
+    }
+
     pub fn unlink(&self, key: &str) -> std::result::Result<(), String> {
         let inner = &self.0;
         let mut st = inner.lock();
         if !st.linked.iter().any(|l| l.key == key) {
-            return Err("That Mac isn't linked.".into());
+            return Err("That device isn't linked.".into());
         }
         if let Some(conn) = st.conns.get_mut(key) {
             let _ = conn.tx.send(Msg::Unlinked);
@@ -436,14 +478,14 @@ impl Peers {
         Ok(())
     }
 
-    /// A link code for a Mac that isn't on your tailnet; it works once, for ten minutes.
+    /// A link code for a device that isn't on your tailnet; it works once, for ten minutes.
     pub fn link_code(&self) -> std::result::Result<String, String> {
         let inner = &self.0;
         let mut st = inner.lock();
         if !st.cfg.enabled || !st.cfg.iroh {
             return Err("Link codes go through iroh; turn it on in Settings › Devices first.".into());
         }
-        let me = inner.me.get().ok_or("This Mac's device key isn't ready yet.")?;
+        let me = inner.me.get().ok_or("This device's key isn't ready yet.")?;
         let t = Ticket::new(me.key);
         let now = now_ms();
         st.codes.retain(|(_, until)| *until > now);
@@ -451,21 +493,21 @@ impl Peers {
         Ok(t.encode())
     }
 
-    /// Links with the Mac whose link code this is: dials it through iroh and asks with the
-    /// code's secret. Returns the other Mac's name.
+    /// Links with the device whose link code this is: dials it through iroh and asks with the
+    /// code's secret. Returns the other device's name.
     pub fn link_with_code(&self, code: &str) -> std::result::Result<String, String> {
         let inner = &self.0;
         let t = Ticket::decode(code).map_err(|e| e.to_string())?;
         let me = inner.me.get().ok_or("Turn on Devices first.")?;
         if t.key == me.key {
-            return Err("That's this Mac's own link code; enter it on the other Mac.".into());
+            return Err("That's this device's own link code; enter it on the other device.".into());
         }
         let hex = peerproto::key_hex(&t.key);
         if let Some(l) = inner.lock().linked.iter().find(|l| l.key == hex) {
             return Ok(l.name.clone());
         }
         let iroh = inner.iroh.lock().ok().and_then(|i| i.clone()).ok_or("iroh isn't running; turn it on in Settings › Devices.")?;
-        let wire = iroh.connect(t.key).map_err(|e| format!("Couldn't reach that Mac: {e:#}"))?;
+        let wire = iroh.connect(t.key).map_err(|e| format!("Couldn't reach that device: {e:#}"))?;
         let gen = inner.gen.load(Ordering::SeqCst);
         let i = inner.clone();
         let secret = t.secret.clone();
@@ -480,19 +522,19 @@ impl Peers {
             }
             asked |= st.asking.contains(&hex);
             if asked && !st.asking.contains(&hex) {
-                return Err("The other Mac didn't take that code; make a new one there.".into());
+                return Err("The other device didn't take that code; make a new one there.".into());
             }
         }
-        Err("The other Mac didn't answer in time.".into())
+        Err("The other device didn't answer in time.".into())
     }
 
-    /// Asks a linked Mac, by its short id, to run a request, and waits for its answer.
+    /// Asks a linked device, by its short id, to run a request, and waits for its answer.
     pub fn ask(&self, short: &str, method: &str, params: Value, timeout: Duration) -> std::result::Result<Value, String> {
         let inner = &self.0;
         let (id, rx, name) = {
             let mut st = inner.lock();
             let Some(key) = st.linked.iter().find(|l| short_of(&l.key) == short).map(|l| l.key.clone()) else {
-                return Err("That Mac isn't linked with this one any more.".into());
+                return Err("That device isn't linked with this one any more.".into());
             };
             let name = inner.name_of(&st, &key);
             let Some(tx) = st.conns.get(&key).map(|c| c.tx.clone()) else {
@@ -517,8 +559,8 @@ impl Peers {
         }
     }
 
-    /// Searches what was said on every linked Mac that's connected, at once, each answer with
-    /// its session keys made this Mac's (`@<short>:`).
+    /// Searches what was said on every linked device that's connected, at once, each answer with
+    /// its session keys made this device's (`@<short>:`).
     pub fn search(&self, words: &[String]) -> Vec<DeviceFound> {
         let targets: Vec<(String, String)> = {
             let st = self.0.lock();
@@ -570,20 +612,20 @@ impl Inner {
         let _ = self.me.set(Me { hex: peerproto::key_hex(&key), short: peerproto::short(&key), key, secret });
     }
 
-    /// This Mac's name on the others: config.toml's, else the computer's.
+    /// This device's name on the others: config.toml's, else the computer's.
     fn my_name(&self, st: &State) -> String {
         let n = st.cfg.name.trim();
         if !n.is_empty() {
             return n.to_string();
         }
-        self.computer.get().cloned().unwrap_or_else(|| "This Mac".into())
+        self.computer.get().cloned().unwrap_or_else(|| "This device".into())
     }
 
     fn name_of(&self, st: &State, key: &str) -> String {
         st.replicas.get(key).map(|c| c.replica.device.name.clone()).filter(|n| !n.is_empty())
             .or_else(|| st.conns.get(key).map(|c| c.name.clone()))
             .or_else(|| st.linked.iter().find(|l| l.key == key).map(|l| l.name.clone()))
-            .unwrap_or_else(|| "The other Mac".into())
+            .unwrap_or_else(|| "The other device".into())
     }
 
     fn is_linked(st: &State, key: &str) -> bool {
@@ -599,13 +641,13 @@ impl Inner {
                 Via::Iroh => "iroh",
                 Via::Test => "test",
             };
-            st.linked.push(Linked { key: key.to_string(), name: name.to_string(), linked_at: now_ms(), via: via.into() });
+            st.linked.push(Linked { key: key.to_string(), name: name.to_string(), linked_at: now_ms(), via: via.into(), color: None });
             save_linked(&self.dir, &st.linked);
         }
         if let Some(c) = st.conns.get_mut(key) {
             c.outbox = Outbox::default();
         }
-        // The new Mac gets a whole feed at once.
+        // The new device gets a whole feed at once.
         st.board_dirty = true;
         st.board_at = None;
         st.view_dirty = true;
@@ -619,14 +661,14 @@ impl Inner {
         st.view_dirty = true;
     }
 
-    /// Runs a linked Mac's request, after checking it may make it.
+    /// Runs a linked device's request, after checking it may make it.
     fn answer(&self, from: &str, method: &str, params: Value) -> std::result::Result<Value, String> {
         let (linked, control, me, them) = {
             let st = self.lock();
             (Self::is_linked(&st, from), st.cfg.remote_control, self.my_name(&st), self.name_of(&st, from))
         };
         if !linked {
-            return Err(format!("{me} isn't linked with this Mac."));
+            return Err(format!("{me} isn't linked with this device."));
         }
         let acts = CONTROL.contains(&method);
         if acts && !control {
@@ -676,6 +718,7 @@ impl Inner {
                     key: l.key.clone(),
                     short: short_of(&l.key).to_string(),
                     name: self.name_of(st, &l.key),
+                    color: color_of(l),
                     online: conn.is_some(),
                     via: conn.map(|c| c.via),
                     since: conn.map(|c| c.since),
@@ -707,11 +750,40 @@ impl Inner {
         found.sort_by(|a, b| a.name.cmp(&b.name));
         let asks = st.asks.iter().map(|a| AskView { key: a.key.clone(), short: short_of(&a.key).to_string(), name: a.name.clone(), code: a.code.clone() }).collect();
         let lanes = if st.cfg.enabled {
-            st.linked.iter().filter_map(|l| st.replicas.get(&l.key).map(|c| peerfeed::for_windows(short_of(&l.key), &self.name_of(st, &l.key), &c.replica))).flatten().collect()
+            st.linked
+                .iter()
+                .filter_map(|l| {
+                    let c = st.replicas.get(&l.key)?;
+                    let tag = DeviceTag { name: self.name_of(st, &l.key), short: short_of(&l.key).to_string(), color: color_of(l), online: st.conns.contains_key(&l.key), last_seen: Some(c.last_seen).filter(|t| *t > 0) };
+                    Some(peerfeed::for_windows(short_of(&l.key), &tag, &c.replica))
+                })
+                .flatten()
+                .map(|mut lane| {
+                    project_here(&mut lane, &st.projects);
+                    lane
+                })
+                .collect()
         } else {
             Vec::new()
         };
         DevicesView { enabled: st.cfg.enabled, me, devices, found, asks, lanes }
+    }
+}
+
+/// Puts another device's worktree into one of this device's projects. Projects line up by repo,
+/// not by name: a repo is the same everywhere, while what a device calls its project, and where
+/// its folders are, are that device's own. So the worktree goes by this device's own patterns,
+/// as this device's worktrees do; failing that, into a project here with the name the other
+/// device gave it; failing that, it keeps that name, and shows as a project of its own.
+fn project_here(lane: &mut Lane, projects: &[ProjectCfg]) {
+    let by_repo = lane.repo_slug.as_ref().and_then(|slug| {
+        let identity = format!("github.com/{}", slug.to_lowercase());
+        projects.iter().find(|p| p.repos.iter().any(|pat| crate::repos::matches(&identity, pat)))
+    });
+    if let Some(p) = by_repo.or_else(|| projects.iter().find(|p| p.name.eq_ignore_ascii_case(&lane.project))) {
+        lane.project = p.name.clone();
+        // Only worktrees in no project stay off the board; this one is in one here.
+        lane.hidden = false;
     }
 }
 
@@ -804,11 +876,11 @@ fn run(inner: Arc<Inner>, wire: Wire, via: Via, dialed: bool, expect: Option<Pub
     let shook = (|| -> std::result::Result<(PublicKey, String, String), String> {
         let Ok(Some(Msg::Hello { v, key, name, app, nonce })) = peerproto::read_msg(&mut reader) else { return Err("no hello".into()) };
         if v != VERSION {
-            return Err(format!("{name} speaks version {v} of Codealong's protocol; update Codealong on both Macs."));
+            return Err(format!("{name} speaks version {v} of Codealong's protocol; update Codealong on both devices."));
         }
         let key = peerproto::parse_key(&key).map_err(|e| e.to_string())?;
         if key == me.key || expect.is_some_and(|e| e != key) {
-            return Err("not the Mac expected".into());
+            return Err("not the device expected".into());
         }
         let _ = tx.send(Msg::Proof { sig: peerproto::prove(&me.secret, &nonce, &key).map_err(|e| e.to_string())? });
         let Ok(Some(Msg::Proof { sig })) = peerproto::read_msg(&mut reader) else { return Err("no proof".into()) };
@@ -832,8 +904,8 @@ fn run(inner: Arc<Inner>, wire: Wire, via: Via, dialed: bool, expect: Option<Pub
             return;
         }
         if let Some(old) = st.conns.get(&hex) {
-            // Both Macs may dial at once. Each keeps the connection the lower key dialed, so
-            // both keep the same one; two dialed by the same Mac, the newer.
+            // Both devices may dial at once. Each keeps the connection the lower key dialed, so
+            // both keep the same one; two dialed by the same device, the newer.
             let keep_new = old.dialed == dialed || (dialed == (me.key.as_bytes() < key.as_bytes()));
             if !keep_new {
                 drop(st);
@@ -920,7 +992,7 @@ fn handle(inner: &Arc<Inner>, key: &str, serial: u64, tx: &Sender<Msg>, msg: Msg
             let mut st = inner.lock();
             if st.pending.get(&id).is_some_and(|(k, _)| k == key) {
                 if let Some((_, s)) = st.pending.remove(&id) {
-                    let _ = s.send(if ok { Ok(result.unwrap_or(Value::Null)) } else { Err(error.unwrap_or_else(|| "The other Mac said no.".into())) });
+                    let _ = s.send(if ok { Ok(result.unwrap_or(Value::Null)) } else { Err(error.unwrap_or_else(|| "The other device said no.".into())) });
                 }
             }
             return;
@@ -948,7 +1020,7 @@ fn handle(inner: &Arc<Inner>, key: &str, serial: u64, tx: &Sender<Msg>, msg: Msg
                 }
                 Some(found.is_some())
             } else if theirs.is_some() && theirs == st.my_user {
-                // Your own Mac on your tailnet: you answer here (`answer_link`).
+                // Your own device on your tailnet: you answer here (`answer_link`).
                 let code = match (inner.me.get(), peerproto::parse_key(key)) {
                     (Some(m), Ok(k)) => peerproto::link_code(&m.key, &k),
                     _ => String::new(),
@@ -974,7 +1046,7 @@ fn handle(inner: &Arc<Inner>, key: &str, serial: u64, tx: &Sender<Msg>, msg: Msg
             let mut st = inner.lock();
             if st.asking.remove(key) {
                 if accepted {
-                    let (name, via) = st.conns.get(key).map(|c| (c.name.clone(), c.via)).unwrap_or(("Mac".into(), Via::Test));
+                    let (name, via) = st.conns.get(key).map(|c| (c.name.clone(), c.via)).unwrap_or(("device".into(), Via::Test));
                     inner.add_linked(&mut st, key, &name, via);
                     let _ = tx.send(Msg::Standing { linked: true });
                 }
@@ -1000,7 +1072,7 @@ fn handle(inner: &Arc<Inner>, key: &str, serial: u64, tx: &Sender<Msg>, msg: Msg
     inner.wake.notify_all();
 }
 
-/// Finds your Macs on your tailnet, listens there, and dials the ones not connected.
+/// Finds your devices on your tailnet, listens there, and dials the ones not connected.
 fn tailnet_loop(inner: Arc<Inner>, gen: u64) {
     crate::procs::utility_thread();
     let mut listener: Option<(IpAddr, u16, std::net::TcpListener)> = None;
@@ -1014,7 +1086,7 @@ fn tailnet_loop(inner: Arc<Inner>, gen: u64) {
             match tailnet::status() {
                 Ok(s) => {
                     let ip = s.my_ipv4().filter(|_| s.running);
-                    // Listen on this Mac's tailnet address, and follow it if it changes.
+                    // Listen on this device's tailnet address, and follow it if it changes.
                     if listener.as_ref().map(|(i, p, _)| (*i, *p)) != ip.map(|i| (i, port)) {
                         listener = None;
                         if let Some(ip) = ip {
@@ -1032,7 +1104,7 @@ fn tailnet_loop(inner: Arc<Inner>, gen: u64) {
                     st.my_user = Some(s.me.user.clone()).filter(|u| !u.is_empty());
                     let connected: HashSet<IpAddr> = st.conns.values().filter_map(|c| c.addr).collect();
                     drop(st);
-                    let mine = s.my_macs();
+                    let mine = s.my_devices();
                     first_seen.retain(|ip, _| mine.iter().any(|(_, i)| i == ip));
                     for (node, peer_ip) in mine {
                         let seen = *first_seen.entry(peer_ip).or_insert_with(Instant::now);
@@ -1094,9 +1166,9 @@ fn accept_tailnet(inner: Arc<Inner>, stream: TcpStream, from: IpAddr, gen: u64) 
     }
 }
 
-/// The name you gave this Mac in System Settings › General › Sharing.
+/// The name you gave this device in System Settings › General › Sharing.
 fn computer_name() -> String {
-    crate::procs::run("/usr/sbin/scutil", &["--get", "ComputerName"], None, Duration::from_secs(3)).ok().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).unwrap_or_else(|| "This Mac".into())
+    crate::procs::run("/usr/sbin/scutil", &["--get", "ComputerName"], None, Duration::from_secs(3)).ok().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).unwrap_or_else(|| "This device".into())
 }
 
 fn ip_before(a: IpAddr, b: IpAddr) -> bool {
@@ -1106,7 +1178,7 @@ fn ip_before(a: IpAddr, b: IpAddr) -> bool {
     }
 }
 
-/// Starts iroh, takes connections from it, and dials linked Macs that aren't connected.
+/// Starts iroh, takes connections from it, and dials linked devices that aren't connected.
 fn iroh_loop(inner: Arc<Inner>, gen: u64) {
     let Some(me) = inner.me.get() else { return };
     inner.lock().iroh = "starting".into();
@@ -1152,7 +1224,7 @@ fn iroh_loop(inner: Arc<Inner>, gen: u64) {
     inner.lock().view_dirty = true;
     inner.wake.notify_all();
 
-    // Linked Macs that aren't connected, tried through iroh after the tailnet has had its turn,
+    // Linked devices that aren't connected, tried through iroh after the tailnet has had its turn,
     // then less often each time one doesn't answer, up to every ten minutes.
     let mut wait: HashMap<String, (Instant, Duration)> = HashMap::new();
     let started = Instant::now();
@@ -1187,13 +1259,13 @@ fn iroh_loop(inner: Arc<Inner>, gen: u64) {
                 }
             });
         }
-        // A Mac that connected any way starts its wait over.
+        // A device that connected any way starts its wait over.
         let st = inner.lock();
         wait.retain(|k, _| !st.conns.contains_key(k));
     }
 }
 
-/// Every request that acts on a session here from another Mac, what it was and how it went, in
+/// Every request that acts on a session here from another device, what it was and how it went, in
 /// `~/Library/Logs/Codealong/devices.log`. The prompt itself isn't written down.
 fn audit(from: &str, short: &str, method: &str, key: &str, got: &std::result::Result<Value, String>) {
     let dir = crate::util::home().join("Library/Logs/Codealong");
@@ -1277,7 +1349,7 @@ mod tests {
         l
     }
 
-    struct Mac {
+    struct Device {
         peers: Peers,
         board: Arc<Mutex<Board>>,
         views: Arc<Mutex<Vec<DevicesView>>>,
@@ -1285,8 +1357,8 @@ mod tests {
         dir: PathBuf,
     }
 
-    fn mac(name: &str, lanes: Vec<Lane>) -> Mac {
-        // Tests run side by side; each Mac gets a folder of its own.
+    fn device(name: &str, lanes: Vec<Lane>) -> Device {
+        // Tests run side by side; each device gets a folder of its own.
         static N: AtomicU64 = AtomicU64::new(0);
         let dir = std::env::temp_dir().join(format!("codealong-peers-{}-{name}-{}", std::process::id(), N.fetch_add(1, Ordering::SeqCst)));
         let _ = std::fs::remove_dir_all(&dir);
@@ -1312,17 +1384,17 @@ mod tests {
         let peers = Peers::with_key(dir.clone(), SecretKey::generate(), hooks);
         peers.configure(&cfg);
         peers.0.lock().my_user = Some("sam@example.com".into());
-        Mac { peers, board, views, asked, dir }
+        Device { peers, board, views, asked, dir }
     }
 
-    /// Joins two Macs over a loopback TCP connection, as the tailnet would, both machines Sam's.
-    fn join(a: &Mac, b: &Mac) {
+    /// Joins two devices over a loopback TCP connection, as the tailnet would, both machines Sam's.
+    fn join(a: &Device, b: &Device) {
         join_as(a, "sam@example.com", b, "sam@example.com");
     }
 
-    /// Joins two Macs, `a` on `a_user`'s machine and `b` on `b_user`'s, as `tailscale whois`
+    /// Joins two devices, `a` on `a_user`'s machine and `b` on `b_user`'s, as `tailscale whois`
     /// would tell each about the other.
-    fn join_as(a: &Mac, a_user: &str, b: &Mac, b_user: &str) {
+    fn join_as(a: &Device, a_user: &str, b: &Device, b_user: &str) {
         let l = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = l.local_addr().unwrap().port();
         let dialer = TcpStream::connect(("127.0.0.1", port)).unwrap();
@@ -1342,30 +1414,30 @@ mod tests {
         panic!("timed out waiting for {what}");
     }
 
-    fn key_of(m: &Mac) -> String {
+    fn key_of(m: &Device) -> String {
         m.peers.0.me.get().unwrap().hex.clone()
     }
 
-    fn link(a: &Mac, b: &Mac) {
+    fn link(a: &Device, b: &Device) {
         until("b to be found", || a.peers.view().found.iter().any(|f| f.key == key_of(b)));
         let code = a.peers.link(&key_of(b)).unwrap();
         until("b to be asked", || b.peers.view().asks.iter().any(|x| x.key == key_of(a)));
-        assert_eq!(b.peers.view().asks[0].code, code, "both Macs show the same code");
+        assert_eq!(b.peers.view().asks[0].code, code, "both devices show the same code");
         b.peers.answer_link(&key_of(a), true).unwrap();
         until("both linked", || a.peers.view().devices.iter().any(|d| d.online && d.key == key_of(b)) && b.peers.view().devices.iter().any(|d| d.online && d.key == key_of(a)));
     }
 
     #[test]
     fn linked_macs_share_their_boards_and_answer_each_other() {
-        let a = mac("Book", vec![lane("/a", vec![session("claude:claude:s1", Status::Working)])]);
-        let b = mac("Mini", vec![lane("/Users/sam/app", vec![session("claude:claude:s2", Status::Needs)])]);
+        let a = device("Book", vec![lane("/a", vec![session("claude:claude:s1", Status::Working)])]);
+        let b = device("Mini", vec![lane("/Users/sam/app", vec![session("claude:claude:s2", Status::Needs)])]);
         join(&a, &b);
         // Found on the tailnet, but nothing is shared before they're linked.
         until("a to find b", || a.peers.view().found.len() == 1);
         assert!(a.peers.view().lanes.is_empty() && a.peers.view().devices.is_empty());
         link(&a, &b);
 
-        // Each gets the other's worktrees, with keys that name the Mac they're on.
+        // Each gets the other's worktrees, with keys that name the device they're on.
         let b_short = short_of(&key_of(&b)).to_string();
         until("a to get b's lanes", || a.peers.view().lanes.len() == 1);
         let lanes = a.peers.view().lanes;
@@ -1386,7 +1458,7 @@ mod tests {
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].found.as_ref().unwrap().hits[0].key, format!("@{b_short}:claude:claude:s1"));
 
-        // Acting on a session needs remote control on at the Mac asked.
+        // Acting on a session needs remote control on at the device asked.
         let refused = a.peers.ask(&b_short, "session-send", json!({ "key": "claude:claude:s2", "text": "hi" }), Duration::from_secs(5)).unwrap_err();
         assert!(refused.contains("Remote control is off on Mini"), "{refused}");
         assert!(!b.asked.lock().unwrap().iter().any(|(m, _)| m == "session-send"), "the Mini never ran it");
@@ -1413,8 +1485,8 @@ mod tests {
 
     #[test]
     fn saying_no_links_nothing_and_strangers_cant_ask() {
-        let a = mac("Book", vec![]);
-        let b = mac("Mini", vec![]);
+        let a = device("Book", vec![]);
+        let b = device("Mini", vec![]);
         join(&a, &b);
         until("a to find b", || a.peers.view().found.len() == 1);
         a.peers.link(&key_of(&b)).unwrap();
@@ -1423,8 +1495,8 @@ mod tests {
         until("a to stop asking", || !a.peers.view().found[0].asking);
         assert!(a.peers.view().devices.is_empty() && b.peers.view().devices.is_empty());
 
-        // A Mac that isn't yours on the tailnet (another user) isn't found and can't ask.
-        let c = mac("Alex", vec![]);
+        // A device that isn't yours on the tailnet (another user) isn't found and can't ask.
+        let c = device("Alex", vec![]);
         c.peers.0.lock().my_user = Some("alex@example.com".into());
         join_as(&c, "alex@example.com", &a, "sam@example.com");
         until("a to see c connected", || a.peers.0.lock().conns.len() == 2);
@@ -1442,8 +1514,8 @@ mod tests {
 
     #[test]
     fn a_link_code_links_once() {
-        let a = mac("Book", vec![]);
-        let b = mac("Office", vec![]);
+        let a = device("Book", vec![]);
+        let b = device("Office", vec![]);
         // Not on the same tailnet account: only a link code will do.
         b.peers.0.lock().my_user = Some("work@example.com".into());
         // Link codes need iroh on; the code's secret is what's checked, so the transport here is
@@ -1467,9 +1539,70 @@ mod tests {
     }
 
     #[test]
+    fn other_devices_worktrees_go_into_this_devices_projects_by_repo() {
+        let projects = vec![
+            ProjectCfg { name: "Kestrel".into(), repos: vec!["github.com/kestrelhq/*".into()], folders: vec![] },
+            ProjectCfg { name: "Notes".into(), repos: vec![], folders: vec!["~/notes".into()] },
+        ];
+        let with = |slug: Option<&str>, project: &str, hidden: bool| {
+            let mut l = lane("/x", vec![]);
+            l.repo_slug = slug.map(str::to_string);
+            l.project = project.into();
+            l.hidden = hidden;
+            l
+        };
+        // The Mac mini calls it "kestrelhq" (or has no project for it at all): here it's Kestrel.
+        let mut l = with(Some("KestrelHQ/kestrel"), "kestrelhq", false);
+        project_here(&mut l, &projects);
+        assert_eq!(l.project, "Kestrel");
+        let mut l = with(Some("kestrelhq/lumen"), "Elsewhere", true);
+        project_here(&mut l, &projects);
+        assert_eq!((l.project.as_str(), l.hidden), ("Kestrel", false), "out of Elsewhere, and shown");
+        // No repo to go by: a project of the same name takes it.
+        let mut l = with(None, "notes", false);
+        project_here(&mut l, &projects);
+        assert_eq!(l.project, "Notes");
+        // Nothing here matches: it keeps the other device's project, or stays in Elsewhere.
+        let mut l = with(Some("acme/app"), "Acme", false);
+        project_here(&mut l, &projects);
+        assert_eq!(l.project, "Acme");
+        let mut l = with(Some("acme/app"), "Elsewhere", true);
+        project_here(&mut l, &projects);
+        assert_eq!((l.project.as_str(), l.hidden), ("Elsewhere", true));
+    }
+
+    #[test]
+    fn devices_have_a_color_their_key_picks_until_you_choose() {
+        let l = |key: &str, color: Option<&str>| Linked { key: key.into(), name: "d".into(), linked_at: 0, via: String::new(), color: color.map(str::to_string) };
+        // The same key picks the same color everywhere, never red or gray.
+        assert_eq!(color_of(&l("00ab", None)), "purple");
+        assert_eq!(color_of(&l("01ab", None)), "teal");
+        assert!(!["red", "gray"].contains(&color_of(&l("ff00", None)).as_str()));
+        assert_eq!(color_of(&l("00ab", Some("red"))), "red");
+        assert_eq!(color_of(&l("00ab", Some("plaid"))), "purple", "an unknown color is ignored");
+
+        let a = device("Book", vec![]);
+        let b = device("Mini", vec![lane("/x", vec![])]);
+        join(&a, &b);
+        link(&a, &b);
+        let bk = key_of(&b);
+        until("b's lanes", || a.peers.view().lanes.len() == 1);
+        a.peers.set_color(&bk, Some("green".into())).unwrap();
+        assert!(a.peers.set_color(&bk, Some("plaid".into())).is_err());
+        let view = a.peers.view();
+        assert_eq!(view.devices[0].color, "green");
+        let tag = view.lanes[0].device.clone().unwrap();
+        assert_eq!((tag.color.as_str(), tag.name.as_str(), tag.online), ("green", "Mini", true));
+        assert_eq!(load_linked(&a.dir)[0].color.as_deref(), Some("green"), "kept on disk");
+        for m in [&a, &b] {
+            let _ = std::fs::remove_dir_all(&m.dir);
+        }
+    }
+
+    #[test]
     fn both_macs_keep_the_same_connection_when_both_dial() {
-        let a = mac("Book", vec![]);
-        let b = mac("Mini", vec![]);
+        let a = device("Book", vec![]);
+        let b = device("Mini", vec![]);
         join(&a, &b);
         join(&b, &a);
         std::thread::sleep(Duration::from_millis(500));

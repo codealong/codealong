@@ -5292,11 +5292,6 @@ html.is-quick body {
 .ca-device-dot.is-on {
   background: var(--logo-working);
 }
-.ca-device-tag {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
 .ca-device-ask {
   border-color: var(--attn);
 }
@@ -5372,8 +5367,15 @@ html.is-quick body {
   flex: none;
   color: var(--ink-3);
 }
-.ca-wtchip-mac {
+.ca-wtchip-device {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-family: var(--font-sans);
+}
+.ca-wtchip-device .ca-labeldot {
+  width: 6px;
+  height: 6px;
 }
 .ca-wtchip-part::after {
   content: '/';
@@ -5386,4 +5388,118 @@ html.is-quick body {
   overflow: hidden;
   text-overflow: ellipsis;
   color: var(--ink-2);
+}
+
+/* A device's badge (DeviceBadge.tsx): drawn as labels are, a colored square in a neutral chip, since
+   the color names a device, not a status. */
+.ca-devbadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  max-width: 140px;
+  height: 16px;
+  padding: 0 6px 0 5px;
+  box-sizing: border-box;
+  border-radius: var(--radius-xs);
+  background: var(--neutral-tint);
+  color: var(--ink-2);
+  font: 500 10.5px/14px var(--font-sans);
+  white-space: nowrap;
+  vertical-align: 1px;
+}
+.ca-devbadge .ca-labeldot {
+  width: 6px;
+  height: 6px;
+}
+.ca-devbadge-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ca-devbadge.is-away {
+  color: var(--ink-3);
+}
+.ca-insp-actions .ca-devbadge {
+  height: 22px;
+  max-width: none;
+  padding: 0 8px 0 7px;
+  font-size: 12px;
+}
+.ca-lane-sub .ca-devbadge {
+  margin-right: 6px;
+}
+.ca-cv-l1 .ca-devbadge,
+.ca-cv-l2 .ca-devbadge {
+  max-width: 88px;
+}
+/* A device that's away: what it last said still shows, faded, until it's back. */
+.ca-lane.is-away,
+.ca-cv-card.is-away,
+.ca-tree-node.is-away,
+.ca-nav.is-away {
+  opacity: 0.55;
+}
+.ca-lane.is-away.is-selected,
+.ca-lane.is-away:hover,
+.ca-cv-card.is-away.is-selected {
+  opacity: 0.85;
+}
+.ca-tree-devdot {
+  width: 6px;
+  height: 6px;
+  margin-left: 2px;
+}
+.ca-side-devdot {
+  margin: 0 3px;
+}
+/* Worktrees grouped by device: a heading over each device's bays. */
+.ca-devgroup-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: var(--space-4) var(--space-3) var(--space-1);
+}
+.ca-devgroup-head:first-child {
+  padding-top: var(--space-2);
+}
+.ca-devgroup-here {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink);
+  font: 600 12px/16px var(--font-sans);
+}
+.ca-devgroup-head .ca-devbadge {
+  height: 20px;
+  max-width: none;
+  padding: 0 8px 0 7px;
+  font-size: 12px;
+  color: var(--ink);
+}
+.ca-groupby {
+  margin-left: auto;
+}
+.ca-groupby + .ca-agefilter {
+  margin-left: 8px;
+}
+/* A linked device's color, in Settings › Devices: its square, which opens a menu of colors. */
+.ca-devcolor {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin: 0 -2px 0 -3px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: none;
+  cursor: pointer;
+}
+.ca-devcolor:hover {
+  background: var(--surface-hover);
+}
+.ca-devcolor:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
 }

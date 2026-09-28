@@ -91,8 +91,8 @@ sample todos linked to your real worktrees and sessions in place of your own, an
 `PREVIEW_USAGE=scripts/preview/usage-sample.json` sample plan usage in place of the snapshot's,
 which has no Claude numbers, and `PREVIEW_TRANSCRIPT=<session key>` that
 session's real conversation in its panel (others get placeholders), and `PREVIEW_FOUND=scripts/preview/found-sample.json` sample accounts
-under Settings › Accounts › Found on this Mac, and `PREVIEW_DEVICES=scripts/preview/devices-sample.json` other Macs
-(Settings › Devices, the sidebar's Macs, a link ask, and a few of your worktrees shown as if on those Macs), and `PREVIEW_CANVAS=<file>` opens the Canvas view on a saved
+under Settings › Accounts › Found on this Mac, and `PREVIEW_DEVICES=scripts/preview/devices-sample.json` other devices
+(Settings › Devices, the sidebar's devices, a link ask, and a few of your worktrees shown as if on those devices), and `PREVIEW_CANVAS=<file>` opens the Canvas view on a saved
 document (one project's from canvas.json) in place of a fresh tidy. In check mode Chrome runs on virtual time, which stands still while scripts run (`performance.now()` too), and draws no frames, so scroll events never
 arrive; and it resizes the page just before a screenshot, which closes whatever closes on resize.
 `PREVIEW_WAIT=<ms>` runs a check on the real clock with frames instead, and prints its title once
@@ -534,21 +534,22 @@ Ghostty (1.3, AppleScript dictionary in the app bundle)
   carries out an Apple event after `osascript` is killed, so `launch.rs` waits a minute rather
   than report a failure for a window that then opens.
 
-Tailscale (1.102, through its command; for your other Macs, tailnet.rs)
+Tailscale (1.102, through its command; for your other devices, tailnet.rs)
 
 - The command is `/usr/local/bin/tailscale` (the standalone app's link), Homebrew's, or
   `/Applications/Tailscale.app/Contents/MacOS/Tailscale`. `status --json` has `BackendState`
-  ("Running"), `Self`, and `Peer` keyed by node key, each with `ID`, `HostName`, `DNSName` (with
-  a trailing dot), `OS` ("macOS", "iOS"), `Online`, `UserID` and `TailscaleIPs`; `User` maps the
-  id, as a string, to `LoginName`; `CurrentTailnet.Name`. `whois --json <ip>` gives
-  `Node.ComputedName` and `UserProfile.LoginName` for any tailnet address, this Mac's included.
-- A TCP listener binds to this Mac's 100.x address without asking anything. A stream accepted
+  ("Running"), `Self`, and `Peer` keyed by node key, each with `ID`, `HostName`, `DNSName`
+  (with a trailing dot), `OS` ("macOS", "iOS"), `Online`, `UserID` and `TailscaleIPs`; `User`
+  maps the id, as a string, to `LoginName`; `CurrentTailnet.Name`. `whois --json <ip>` gives
+  `Node.ComputedName` and `UserProfile.LoginName` for any tailnet address, this device's
+  included.
+- A TCP listener binds to this device's 100.x address without asking anything. A stream accepted
   from a listener that doesn't block doesn't block either on macOS, so `Wire::tcp` sets it back.
 
 iroh (1.2; irohnet.rs)
 
 - `Endpoint::builder(presets::N0)` uses number 0's public relays (rate-limited; their Pro plan
-  or a self-hosted `iroh-relay` for real use) and its address lookup (pkarr and DNS), so a Mac
+  or a self-hosted `iroh-relay` for real use) and its address lookup (pkarr and DNS), so a device
   dials another by key alone. The `EndpointId` is the Ed25519 public key: `PublicKey` prints as
   hex, parses hex or base32, and `fmt_short` is its first five bytes. A connection proves the
   other side's key (`remote_id`). A stream from `open_bi` reaches the other side's `accept_bi`
@@ -651,10 +652,9 @@ is checked without starting one: `--snapshot --start-plan` prints the launch, an
 `cargo test ghostty_hands_over -- --ignored` opens a real Ghostty window that echoes
 a tricky prompt back through its environment, then closes.
 
-Your other Macs are tested with two in the same process over loopback (`cargo test peers`):
-linking, feeds, requests and remote control's refusal. By hand, `cargo test iroh_connects
--- --ignored` connects two iroh endpoints on this Mac through the relays (it needs the
-internet), and `cargo test tailnet_here -- --ignored --nocapture` reads this Mac's tailnet and
-listens on it.
-Don't turn remote control on to test sends against real sessions; `CODEALONG_DEVICE_KEY=<hex>`
-gives a second copy of the app a device key of its own.
+Your other devices are tested with two in the same process over loopback (`cargo test peers`):
+linking, feeds, requests and remote control's refusal. By hand, `cargo test iroh_connects --
+--ignored` connects two iroh endpoints on this device through the relays (it needs the
+internet), and `cargo test tailnet_here -- --ignored --nocapture` reads this device's tailnet
+and listens on it. Don't turn remote control on to test sends against real sessions;
+`CODEALONG_DEVICE_KEY=<hex>` gives a second copy of the app a device key of its own.

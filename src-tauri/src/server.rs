@@ -43,20 +43,20 @@ pub enum Request {
     IdleTerminals { after_ms: i64 },
     /// Closes the terminals of these sessions, each checked again first.
     CloseIdle { keys: Vec<String>, after_ms: i64 },
-    /// Your other Macs (peers.rs) as Settings › Devices shows them, with how many worktrees and
+    /// Your other devices (peers.rs) as Settings › Devices shows them, with how many worktrees and
     /// sessions each has in place of the worktrees themselves.
     Devices,
-    /// Asks one of your Macs on your tailnet to link; the reply is the code both show.
+    /// Asks one of your devices on your tailnet to link; the reply is the code both show.
     DeviceLink { key: String },
-    /// Says yes, or no, to a Mac asking to link.
+    /// Says yes, or no, to a device asking to link.
     DeviceAnswer { key: String, accept: bool },
     DeviceUnlink { key: String },
-    /// A link code for a Mac that isn't on your tailnet.
+    /// A link code for a device that isn't on your tailnet.
     DeviceCode,
-    /// Links with the Mac that made this link code; the reply is its name.
+    /// Links with the device that made this link code; the reply is its name.
     DeviceUseCode { code: String },
-    /// Runs a request on a linked Mac, as this Mac's windows do, by its short id.
-    DeviceAsk { mac: String, request: String, params: Value },
+    /// Runs a request on a linked device, as this device's windows do, by its short id.
+    DeviceAsk { device: String, request: String, params: Value },
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -173,7 +173,7 @@ pub fn handle(engine: &Handle, peers: &Peers, line: &str) -> Reply {
         Request::DeviceUnlink { key } => answered(peers.unlink(&key)),
         Request::DeviceCode => answered(peers.link_code()),
         Request::DeviceUseCode { code } => answered(peers.link_with_code(&code)),
-        Request::DeviceAsk { mac, request, params } => answered(peers.ask(&mac, &request, params, Duration::from_secs(40))),
+        Request::DeviceAsk { device, request, params } => answered(peers.ask(&device, &request, params, Duration::from_secs(40))),
     }
 }
 
@@ -238,7 +238,7 @@ mod tests {
         assert!(matches!(back, Request::TodoApply { op: TodoOp::Update { .. } }));
         let status: Request = serde_json::from_str(r#"{"method":"status"}"#).unwrap();
         assert!(matches!(status, Request::Status));
-        let ask: Request = serde_json::from_str(r#"{"method":"device-ask","mac":"a1b2c3d4e5","request":"search","params":{"words":["x"]}}"#).unwrap();
+        let ask: Request = serde_json::from_str(r#"{"method":"device-ask","device":"a1b2c3d4e5","request":"search","params":{"words":["x"]}}"#).unwrap();
         assert!(matches!(ask, Request::DeviceAsk { ref request, .. } if request == "search"));
         let answer = serde_json::to_string(&Request::DeviceAnswer { key: "k".into(), accept: true }).unwrap();
         assert!(answer.contains(r#""method":"device-answer""#), "{answer}");

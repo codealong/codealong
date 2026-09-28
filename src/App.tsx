@@ -7,18 +7,19 @@
 // Canvas lays the project's work out in space, to be remembered by where it is (CanvasView.tsx).
 // Keyboard map: the design system's Surfaces page.
 
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { showContextMenu, type MenuSpec } from './contextMenu';
 import { AGENT_BAY, BAYS, buildBays, failingPr, filterByAge, inboxCounts, lanePromptAt, narrowed, rowItems, worktreeRow, type BoardRow, type Filter, type WorktreeRow } from './lanes';
 import { answerLink, approvePr, archiveSession, barOn, getDevices, onDevices, dismissTodoHint, expandAttachments, getBoard, markSeen, onBarOn, onBoard, onCloseIdle, onNewWindow, onQuickStart, onReveal, onSettings, openConfig, openProjectWindow, openTarget, openUrl, refresh, refreshUsage, reviewInCodex, setBarOn, setPinned, setPinnedWorktrees, setPreferred, setTheme, showQuick, signIn, windowLabel, type Reveal } from './api';
-import { middleTruncate } from './format';
+import { agoPhrase, middleTruncate } from './format';
 import { usePerf } from './perf';
 import { reuse } from './reuse';
 import { reorderPinned, usePins } from './pins';
 import { prFlag } from './prStatus';
 import { blockedBy, COLOR_WORD, depsOf, newTodo, pickTo, pickToggle, sectionOf, sessionHomes, snippet, STATUSES, STATUS_WORD, todoIndex, todoInFilter, todoInQuery, todoItem, todoPrompt, todosPrompt, todoSections, useTodoStore, type TodoItem, type TodoPick, type TodoSectionId } from './todos';
 import type { Bay, Board, DevicesView, Label, Lane, PrItem, Session, Theme, Todo, TodoStatus } from './types';
-import { deviceOf, macOf, needsOn, withMacs, type MacFilter } from './devices';
+import { byDevice, deviceOf, needsOn, shortOf, withDevices, type DeviceFilter } from './devices';
+import { DeviceBadge } from './ui/DeviceBadge';
 import { LABEL_COLORS } from './types';
 import { SettingsDialog, type SettingsSection } from './ui/SettingsDialog';
 import { CloseIdleDialog } from './ui/CloseIdleDialog';
@@ -57,6 +58,7 @@ const WINDOW_PROJECT = typeof window !== 'undefined' ? (window.__CODEALONG_PROJE
 const PROJECT_KEY = 'codealong.project';
 const VIEW_KEY = 'codealong.view';
 const AGE_KEY = 'codealong.age';
+const GROUP_KEY = 'codealong.byDevice';
 const SIDEBAR_WIDTH_KEY = 'codealong.sidebarWidth';
 const INSPECTOR_WIDTH_KEY = 'codealong.inspectorWidth';
 const PR_PANEL_WIDTH_KEY = 'codealong.prPanelWidth';
@@ -215,10 +217,26 @@ const widthVar = (width: number | null) => (width == null ? undefined : `${width
 
 export function App() {
   const [board, setBoard] = useState<Board | null>(null);
-  // Your other Macs (src-tauri/src/peers.rs): their worktrees join this Mac's in every view, and
-  // the sidebar's Macs narrow the views to one of them.
+  // Your other devices (src-tauri/src/peers.rs): their worktrees join this device's in every view,
+  // the sidebar's Devices narrow the views to one of them, and Worktrees can group by device.
   const [devices, setDevices] = useState<DevicesView | null>(null);
-  const [macFilter, setMacFilter] = useState<MacFilter>(null);
+  const [deviceFilter, setDeviceFilter] = useState<DeviceFilter>(null);
+  const [groupByDevice, setGroupByDevice] = useState(() => {
+    try {
+      return window.localStorage.getItem(GROUP_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+  const toggleGroupByDevice = () =>
+    setGroupByDevice((on) => {
+      try {
+        window.localStorage.setItem(GROUP_KEY, on ? '0' : '1');
+      } catch {
+        // Grouping still changes for this window; it just isn't remembered.
+      }
+      return !on;
+    });
   useEffect(() => {
     const show = (d: DevicesView) => setDevices((prev) => (prev ? reuse(prev, d) : d));
     void getDevices().then((d) => d && show(d));
@@ -265,8 +283,8 @@ export function App() {
   // project this window shows. The panel tells this window how the start goes.
   const projectNow = useRef<string>(ALL_PROJECTS);
   const newSession = useCallback((at: { laneId: string | null; todo?: string | null; todos?: string[]; prompt?: string }) => {
-    // The quick panel starts sessions on this Mac; one on another Mac's worktree starts without one.
-    const laneId = at.laneId && macOf(at.laneId) ? null : at.laneId;
+    // The quick panel starts sessions on this device; one on another device's worktree starts without one.
+    const laneId = at.laneId && shortOf(at.laneId) ? null : at.laneId;
     void showQuick({ ...at, laneId, project: projectNow.current, opener: windowLabel() });
   }, []);
   // Opens and starts still waiting on their app: a spinner shows once one takes a moment.
@@ -346,7 +364,20 @@ export function App() {
     });
   }, []);
 
-  const projects = board?.projects ?? [];
+  // This device's projects, then any only another device has: its worktrees go into this device's
+  // projects by repo (peers.rs), and the rest keep that device's own project, listed here too.
+  const projects = useMemo(() => {
+    const here = board?.projects ?? [];
+    const names = new Set(here.map((p) => p.name));
+    const elsewhere: Map<string, number> = new Map();
+    for (const l of devices?.enabled ? devices.lanes : []) {
+      if (!names.has(l.project) && !l.hidden) elsewhere.set(l.project, (elsewhere.get(l.project) ?? 0) + 1);
+    }
+    if (elsewhere.size === 0) return here;
+    const extra = [...elsewhere].map(([name, lanes]) => ({ name, lanes, repos: [] }));
+    const last = here.length > 0 && here[here.length - 1].name === ELSEWHERE ? here.length - 1 : here.length;
+    return [...here.slice(0, last), ...extra, ...here.slice(last)];
+  }, [board?.projects, devices]);
   const known = project === ALL_PROJECTS || projects.some((p) => p.name === project);
   const current = known && project ? project : (projects.find((p) => p.name !== ELSEWHERE)?.name ?? ALL_PROJECTS);
   projectNow.current = current;
@@ -389,10 +420,10 @@ export function App() {
   const lanePins = usePins(board?.pinnedWorktrees, setPinnedWorktrees, setToast);
 
   // Archived sessions leave every view but the Archived list.
-  const rawLanes = useMemo(() => withMacs(board?.lanes ?? [], devices?.enabled ? devices.lanes : [], macFilter), [board?.lanes, devices?.enabled, devices?.lanes, macFilter]);
-  // What needs you on each Mac, for the sidebar, whichever Mac the views show.
-  const macNeeds = useMemo(() => {
-    const all = withMacs(board?.lanes ?? [], devices?.enabled ? devices.lanes : [], null);
+  const rawLanes = useMemo(() => withDevices(board?.lanes ?? [], devices?.enabled ? devices.lanes : [], deviceFilter), [board?.lanes, devices?.enabled, devices?.lanes, deviceFilter]);
+  // What needs you on each device, for the sidebar, whichever device the views show.
+  const deviceNeeds = useMemo(() => {
+    const all = withDevices(board?.lanes ?? [], devices?.enabled ? devices.lanes : [], null);
     return new Map<string | null, number>([null, ...(devices?.devices ?? []).map((d) => d.short)].map((m) => [m, needsOn(all, m)]));
   }, [board?.lanes, devices]);
   const lanes = useMemo(
@@ -466,15 +497,17 @@ export function App() {
   }, [recentLanes, lanePins.keys, query, bayFilter, since]);
   // Every other worktree once, in the bay its status puts it in. The Inbox filter narrows each to
   // what it's about, which can move it to that bay.
-  const bays = useMemo(
-    () => buildBays(recentLanes.flatMap((l) => (inQuery(l, query) && !lanePins.set.has(l.id) ? (narrowed(l, bayFilter, since) ?? []) : []))),
-    [recentLanes, query, lanePins.set, bayFilter, since],
-  );
+  const bayRows = useCallback((ls: Lane[]) => buildBays(ls.flatMap((l) => (inQuery(l, query) && !lanePins.set.has(l.id) ? (narrowed(l, bayFilter, since) ?? []) : []))), [query, lanePins.set, bayFilter, since]);
+  const bays = useMemo(() => bayRows(recentLanes), [bayRows, recentLanes]);
+  // Grouped by device, each device's worktrees get bays of their own: this device's first.
+  const grouped = groupByDevice && deviceFilter === null && (devices?.enabled ?? false) && (devices?.lanes.length ?? 0) > 0;
+  const deviceGroups = useMemo(() => (grouped ? byDevice(recentLanes, devices).map((g) => ({ short: g.short, bays: bayRows(g.lanes) })) : null), [grouped, recentLanes, devices, bayRows]);
   const foldParked = !showParked && !query;
-  const parkedCount = useMemo(() => bays.flatMap((b) => b.rows).filter((r) => r.lane.parked).length, [bays]);
-  const shownBays = useMemo(() => bays.map((b) => ({ ...b, rows: b.rows.filter((r) => !foldParked || !r.lane.parked) })), [bays, foldParked]);
+  const fold = useCallback((bs: typeof bays) => bs.map((b) => ({ ...b, rows: b.rows.filter((r) => !foldParked || !r.lane.parked) })), [foldParked]);
+  const shownBays = useMemo(() => fold(bays), [fold, bays]);
+  const shownGroups = useMemo(() => (deviceGroups ?? [{ short: undefined as string | null | undefined, bays }]).map((g) => ({ ...g, shown: fold(g.bays) })), [deviceGroups, bays, fold]);
   // What you can select on the board, top to bottom: agents' lines, and worktrees without any.
-  const worktreeItems = useMemo(() => [...pinnedLaneRows, ...shownBays.flatMap((b) => b.rows)].flatMap(rowItems), [pinnedLaneRows, shownBays]);
+  const worktreeItems = useMemo(() => [...pinnedLaneRows, ...shownGroups.flatMap((g) => g.shown.flatMap((b) => b.rows))].flatMap(rowItems), [pinnedLaneRows, shownGroups]);
   // The PRs view: the project's PRs with the worktrees that hold them and the sessions that
   // worked on them. A session is looked up in the worktree it's listed under, which for one that
   // made or worked in a worktree isn't its own.
@@ -610,7 +643,7 @@ export function App() {
     if (!selected) return null;
     if (selected.lane) return selected.lane.id;
     if (selected.kind !== 'pr') return null;
-    return lanes.find((l) => !l.mac && l.repoSlug === selected.pr.repoSlug && l.origin === 'main')?.id ?? null;
+    return lanes.find((l) => !l.device && l.repoSlug === selected.pr.repoSlug && l.origin === 'main')?.id ?? null;
   }, [selected, lanes, view, canvasLane]);
 
   const counts = useMemo(() => inboxCounts(recentLanes), [recentLanes]);
@@ -1768,17 +1801,19 @@ export function App() {
           <NavItem glyph="error" label="Checks failing" count={counts.failing} tone="alert" active={bayFilter === 'failing'} onClick={() => toggleBay('failing')} />
           {devices?.enabled && devices.devices.length > 0 && (
             <>
-              <div className="ca-label ca-side-label">Macs</div>
-              <NavItem icon="device-desktop" label={devices.me.name || 'This Mac'} count={macNeeds.get(null) || undefined} tone="attn" active={macFilter === 'here'} onClick={() => setMacFilter(macFilter === 'here' ? null : 'here')} />
+              <div className="ca-label ca-side-label">Devices</div>
+              <NavItem icon="device-desktop" label={devices.me.name || 'This device'} count={deviceNeeds.get(null) || undefined} tone="attn" active={deviceFilter === 'here'} onClick={() => setDeviceFilter(deviceFilter === 'here' ? null : 'here')} />
               {devices.devices.map((d) => (
                 <NavItem
                   key={d.key}
-                  icon="device-desktop"
+                  lead={<i className={`ca-labeldot ca-side-devdot is-${d.color}`} aria-hidden="true" />}
                   label={d.online ? d.name : `${d.name} · away`}
-                  count={macNeeds.get(d.short) || undefined}
+                  className={d.online ? undefined : 'is-away'}
+                  title={d.online ? `Connected ${d.via === 'iroh' ? 'through iroh' : 'on your tailnet'}` : d.lastSeen ? `Away: last seen ${agoPhrase(d.lastSeen, now)}` : 'Away'}
+                  count={deviceNeeds.get(d.short) || undefined}
                   tone="attn"
-                  active={macFilter === d.short}
-                  onClick={() => setMacFilter(macFilter === d.short ? null : d.short)}
+                  active={deviceFilter === d.short}
+                  onClick={() => setDeviceFilter(deviceFilter === d.short ? null : d.short)}
                 />
               ))}
             </>
@@ -1831,7 +1866,7 @@ export function App() {
             <div key={a.key} className="ca-device-banner" role="alert">
               <Icon name="device-desktop" size={14} />
               <span>
-                <b>{a.name}</b> wants to link with this Mac. Link only if it shows <span className="ca-device-code">{a.code}</span>.
+                <b>{a.name}</b> wants to link with this device. Link only if it shows <span className="ca-device-code">{a.code}</span>.
               </span>
               <Button size="sm" variant="primary" onClick={() => void answerLink(a.key, true).catch((e: unknown) => setToast(String(e)))}>
                 Link
@@ -1870,6 +1905,14 @@ export function App() {
                 )}
               </div>
             ) : view === 'canvas' ? null : (
+              <>
+              {view === 'worktrees' && devices?.enabled && devices.lanes.length > 0 && deviceFilter === null && (
+                <div className="ca-segctl ca-groupby">
+                  <button type="button" aria-pressed={groupByDevice} className={groupByDevice ? 'is-on' : undefined} title="Group worktrees by the device they're on" onClick={toggleGroupByDevice}>
+                    By device
+                  </button>
+                </div>
+              )}
               <div className="ca-segctl ca-agefilter" role="radiogroup" aria-label="Active in">
                 {AGES.map((a) => (
                   <button key={a.id} type="button" role="radio" aria-checked={age === a.id} className={age === a.id ? 'is-on' : undefined} title={a.title} onClick={() => setAge(a.id)}>
@@ -1877,6 +1920,7 @@ export function App() {
                   </button>
                 ))}
               </div>
+              </>
             )}
           </div>
           {view !== 'prs' && view !== 'todo' && view !== 'canvas' && (
@@ -2044,33 +2088,54 @@ export function App() {
             {view === 'worktrees' && pinnedLaneRows.length > 0 && (
               <PinnedSection items={pinnedLaneRows} keyOf={(r) => r.lane.id} onMove={movePinnedLane} row={laneRow} />
             )}
-            {view === 'worktrees' && shownBays.map((b) => {
-              const count = bays.find((x) => x.bay === b.bay)?.rows.length ?? b.rows.length;
-              const unreadKeys = b.bay === 'unread' ? b.rows.flatMap((r) => r.agents.filter((a) => a.session.status === 'unread').map((a) => a.session.key)) : [];
-              return (
-                <section key={b.bay} className="ca-bayblock">
-                  <BayHeader
-                    bay={b.bay}
-                    count={count}
-                    action={
-                      unreadKeys.length > 0 ? (
-                        <button type="button" className="ca-linkbtn" onClick={() => void markSeen(unreadKeys)}>
-                          Mark all seen
-                        </button>
-                      ) : undefined
-                    }
-                  />
-                  <div className="ca-bay-lanes">
-                    {b.rows.map((r) => laneRow(r))}
-                    {b.bay === 'idle' && foldParked && parkedCount > 0 && (
-                      <button type="button" className="ca-parked" onClick={() => setShowParked(true)}>
-                        Show {parkedCount} parked {parkedCount === 1 ? 'worktree' : 'worktrees'}
-                      </button>
+            {view === 'worktrees' &&
+              shownGroups.map((g) => {
+                const groupParked = g.bays.flatMap((b) => b.rows).filter((r) => r.lane.parked).length;
+                const other = g.short ? devices?.devices.find((d) => d.short === g.short) : undefined;
+                return (
+                  <Fragment key={g.short ?? 'here'}>
+                    {g.short !== undefined && (
+                      <div className="ca-devgroup-head">
+                        {other ? (
+                          <DeviceBadge device={other} now={now} heading />
+                        ) : (
+                          <span className="ca-devgroup-here">
+                            <Icon name="device-desktop" size={13} />
+                            {devices?.me.name || 'This device'}
+                          </span>
+                        )}
+                      </div>
                     )}
-                  </div>
-                </section>
-              );
-            })}
+                    {g.shown.map((b) => {
+                      const count = g.bays.find((x) => x.bay === b.bay)?.rows.length ?? b.rows.length;
+                      const unreadKeys = b.bay === 'unread' ? b.rows.flatMap((r) => r.agents.filter((a) => a.session.status === 'unread').map((a) => a.session.key)) : [];
+                      return (
+                        <section key={b.bay} className="ca-bayblock">
+                          <BayHeader
+                            bay={b.bay}
+                            count={count}
+                            action={
+                              unreadKeys.length > 0 ? (
+                                <button type="button" className="ca-linkbtn" onClick={() => void markSeen(unreadKeys)}>
+                                  Mark all seen
+                                </button>
+                              ) : undefined
+                            }
+                          />
+                          <div className="ca-bay-lanes">
+                            {b.rows.map((r) => laneRow(r))}
+                            {b.bay === 'idle' && foldParked && groupParked > 0 && (
+                              <button type="button" className="ca-parked" onClick={() => setShowParked(true)}>
+                                Show {groupParked} parked {groupParked === 1 ? 'worktree' : 'worktrees'}
+                              </button>
+                            )}
+                          </div>
+                        </section>
+                      );
+                    })}
+                  </Fragment>
+                );
+              })}
           </div>
           )}
         </main>

@@ -1094,7 +1094,7 @@ pub fn compose(inp: Inputs) -> Board {
             last_activity,
             targets,
             default_target,
-            mac: None,
+            device: None,
         });
     }
     lanes.sort_by_key(|l| (l.bay, Reverse(lane_prompt_at(&l.sessions, l.last_activity)), Reverse(l.last_activity)));
@@ -1143,6 +1143,7 @@ pub fn compose(inp: Inputs) -> Board {
         jev: Default::default(),
         todo_hints: Default::default(),
         devices: Default::default(),
+        project_rules: Vec::new(),
     }
 }
 

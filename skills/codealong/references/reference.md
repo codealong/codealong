@@ -45,9 +45,10 @@ Commands:
              and check a file before or after editing it. Change settings by editing the
              file; the app watches it
   install    Put the command on PATH and the skill into each account's skills folder
-  devices    Your other Macs (Settings › Devices): this Mac, the Macs it's linked with,
-             your Macs on your tailnet that could be, and Macs asking to link. Linking
-             is how Macs see each other's sessions; needs the app running and Devices on
+  devices    Your other devices (Settings › Devices): this device, the devices it's
+             linked with, your devices on your tailnet that could be, and devices asking
+             to link. Linking is how devices see each other's sessions; needs the app
+             running and Devices on
   help       Print this message or the help of the given subcommand(s)
 
 Options:
@@ -1245,22 +1246,22 @@ Options:
 ## codealong devices
 
 ```
-Your other Macs (Settings › Devices): this Mac, the Macs it's linked with, your Macs on
-your tailnet that could be, and Macs asking to link. Linking is how Macs see each
-other's sessions; needs the app running and Devices on
+Your other devices (Settings › Devices): this device, the devices it's linked with, your
+devices on your tailnet that could be, and devices asking to link. Linking is how
+devices see each other's sessions; needs the app running and Devices on
 
 Usage: codealong devices [OPTIONS] [COMMAND]
 
 Commands:
-  link      Ask one of your Macs on your tailnet to link, by name or short id. Prints
-            the six digits both Macs show; then say yes on that Mac (its app, or
+  link      Ask one of your devices on your tailnet to link, by name or short id. Prints
+            the six digits both devices show; then say yes on that device (its app, or
             `codealong devices answer` there)
-  answer    Say yes to a Mac asking to link, by name or short id, once it shows the same
-            six digits (--no to say no)
-  unlink    Unlink a Mac, here and on it
-  code      A link code for a Mac that isn't on your tailnet; enter it there with
+  answer    Say yes to a device asking to link, by name or short id, once it shows the
+            same six digits (--no to say no)
+  unlink    Unlink a device, here and on it
+  code      A link code for a device that isn't on your tailnet; enter it there with
             `use-code`. It works once, for ten minutes
-  use-code  Link with the Mac that made this link code
+  use-code  Link with the device that made this link code
   help      Print this message or the help of the given subcommand(s)
 
 Options:
@@ -1280,13 +1281,14 @@ Options:
 ## codealong devices link
 
 ```
-Ask one of your Macs on your tailnet to link, by name or short id. Prints the six digits
-both Macs show; then say yes on that Mac (its app, or `codealong devices answer` there)
+Ask one of your devices on your tailnet to link, by name or short id. Prints the six
+digits both devices show; then say yes on that device (its app, or `codealong devices
+answer` there)
 
-Usage: codealong devices link [OPTIONS] <MAC>
+Usage: codealong devices link [OPTIONS] <DEVICE>
 
 Arguments:
-  <MAC>
+  <DEVICE>
           
 
 Options:
@@ -1306,13 +1308,13 @@ Options:
 ## codealong devices answer
 
 ```
-Say yes to a Mac asking to link, by name or short id, once it shows the same six digits
-(--no to say no)
+Say yes to a device asking to link, by name or short id, once it shows the same six
+digits (--no to say no)
 
-Usage: codealong devices answer [OPTIONS] <MAC>
+Usage: codealong devices answer [OPTIONS] <DEVICE>
 
 Arguments:
-  <MAC>
+  <DEVICE>
           
 
 Options:
@@ -1335,12 +1337,12 @@ Options:
 ## codealong devices unlink
 
 ```
-Unlink a Mac, here and on it
+Unlink a device, here and on it
 
-Usage: codealong devices unlink [OPTIONS] <MAC>
+Usage: codealong devices unlink [OPTIONS] <DEVICE>
 
 Arguments:
-  <MAC>
+  <DEVICE>
           
 
 Options:
@@ -1360,7 +1362,7 @@ Options:
 ## codealong devices code
 
 ```
-A link code for a Mac that isn't on your tailnet; enter it there with `use-code`. It
+A link code for a device that isn't on your tailnet; enter it there with `use-code`. It
 works once, for ten minutes
 
 Usage: codealong devices code [OPTIONS]
@@ -1382,7 +1384,7 @@ Options:
 ## codealong devices use-code
 
 ```
-Link with the Mac that made this link code
+Link with the device that made this link code
 
 Usage: codealong devices use-code [OPTIONS] <CODE>
 

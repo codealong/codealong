@@ -126,9 +126,9 @@ window.__TAURI_INTERNALS__ = {
         errors: cmd === 'install_agents' && (args || {}).accounts && args.accounts.indexOf('codex') >= 0 ? ['codex: /Users/you/.codex/skills/codealong exists and Codealong didn\'t put it there; move it away to install the skill.'] : [],
       });
     }
-    // Your other Macs from devices-fixture.json (PREVIEW_DEVICES in preview.sh): its view, with
-    // some of the board's own worktrees shown as if they were on those Macs (`lanesFromBoard`,
-    // Mac short id → how many), their ids and keys made the way the engine makes them.
+    // Your other devices from devices-fixture.json (PREVIEW_DEVICES in preview.sh): its view, with
+    // some of the board's own worktrees shown as if they were on those devices (`lanesFromBoard`,
+    // device short id → how many), their ids, keys and tags made the way the engine makes them.
     if (cmd === 'devices') {
       return Promise.all([optionalJson('./devices-fixture.json'), fetch('./board.json').then(function (r) { return r.json(); })]).then(function (all) {
         var fx = all[0];
@@ -143,7 +143,7 @@ window.__TAURI_INTERNALS__ = {
           picked.forEach(function (l) {
             var copy = JSON.parse(JSON.stringify(l));
             copy.id = '@' + short + ':' + l.id;
-            copy.mac = dev ? dev.name : short;
+            copy.device = { name: dev ? dev.name : short, short: short, color: dev ? dev.color : 'gray', online: dev ? dev.online : true, lastSeen: dev ? dev.lastSeen : null };
             copy.targets = [];
             copy.defaultTarget = null;
             copy.sessions.forEach(function (x) { x.key = '@' + short + ':' + x.key; x.openTarget = ''; x.pid = null; x.resumeCommand = null; });
@@ -155,7 +155,7 @@ window.__TAURI_INTERNALS__ = {
     }
     if (cmd === 'link_device') return Promise.resolve('482 915');
     if (cmd === 'device_link_code') return Promise.resolve('cal1f4k3c0d3xq7mzv2r9k8w3n5b6t1y4u7p2e9s3d8g5h1j6l0a4c7v2b');
-    if (cmd === 'answer_link' || cmd === 'unlink_device') return Promise.resolve(null);
+    if (cmd === 'answer_link' || cmd === 'unlink_device' || cmd === 'set_device_color') return Promise.resolve(null);
     if (cmd === 'link_with_code') return Promise.resolve('Studio');
     if (cmd === 'search_devices') return Promise.resolve([]);
     // Text search: the two latest sessions whose titles don't have the words, as if their

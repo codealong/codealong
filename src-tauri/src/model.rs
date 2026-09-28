@@ -310,10 +310,23 @@ pub struct Lane {
     pub looks_finished: bool,
     pub targets: Vec<Target>,
     pub default_target: Option<String>,
-    /// The Mac it's on, by name, when that's another of your Macs (peers.rs); none for this
-    /// Mac's own.
+    /// The device it's on, when that's another of your devices (peers.rs); none for this
+    /// device's own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub mac: Option<String>,
+    pub device: Option<DeviceTag>,
+}
+
+/// Which of your other devices a lane is on, as the windows mark it: its name, its short id, the
+/// color you gave it (or the one its key picks), and whether it's connected now.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DeviceTag {
+    pub name: String,
+    pub short: String,
+    /// One of the label colors: gray, red, pink, purple, indigo, blue, teal, green.
+    pub color: String,
+    pub online: bool,
+    pub last_seen: Option<i64>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -449,9 +462,13 @@ pub struct Board {
     pub jev: crate::config::JevCfg,
     /// Open todos whose work Jev says looks done, by todo id (todojev.rs).
     pub todo_hints: std::collections::BTreeMap<String, TodoHint>,
-    /// `[devices]` from config.toml: your other Macs (peers.rs), which follows it from here.
+    /// `[devices]` from config.toml: your other devices (peers.rs), which follows it from here.
     #[serde(default)]
     pub devices: crate::config::DevicesCfg,
+    /// `[[projects]]` as config.toml has them, for putting other devices' worktrees into this
+    /// device's projects (peers.rs). The windows get the projects as `projects`.
+    #[serde(skip)]
+    pub project_rules: Vec<crate::config::ProjectCfg>,
 }
 
 /// Why a todo looks done: how sure Jev is, and what showed it.

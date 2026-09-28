@@ -95,7 +95,7 @@ enum Cmd {
     },
     /// Put the command on PATH and the skill into each account's skills folder.
     Install(InstallArgs),
-    /// Your other Macs (Settings › Devices): this Mac, the Macs it's linked with, your Macs on your tailnet that could be, and Macs asking to link. Linking is how Macs see each other's sessions; needs the app running and Devices on.
+    /// Your other devices (Settings › Devices): this device, the devices it's linked with, your devices on your tailnet that could be, and devices asking to link. Linking is how devices see each other's sessions; needs the app running and Devices on.
     Devices {
         #[command(subcommand)]
         cmd: Option<DevicesCmd>,
@@ -107,23 +107,23 @@ enum Cmd {
 
 #[derive(Subcommand, Debug)]
 enum DevicesCmd {
-    /// Ask one of your Macs on your tailnet to link, by name or short id. Prints the six digits both Macs show; then say yes on that Mac (its app, or `codealong devices answer` there).
-    Link { mac: String },
-    /// Say yes to a Mac asking to link, by name or short id, once it shows the same six digits (--no to say no).
+    /// Ask one of your devices on your tailnet to link, by name or short id. Prints the six digits both devices show; then say yes on that device (its app, or `codealong devices answer` there).
+    Link { device: String },
+    /// Say yes to a device asking to link, by name or short id, once it shows the same six digits (--no to say no).
     Answer {
-        mac: String,
+        device: String,
         #[arg(long)]
         no: bool,
     },
-    /// Unlink a Mac, here and on it.
-    Unlink { mac: String },
-    /// A link code for a Mac that isn't on your tailnet; enter it there with `use-code`. It works once, for ten minutes.
+    /// Unlink a device, here and on it.
+    Unlink { device: String },
+    /// A link code for a device that isn't on your tailnet; enter it there with `use-code`. It works once, for ten minutes.
     Code,
-    /// Link with the Mac that made this link code.
+    /// Link with the device that made this link code.
     UseCode { code: String },
-    /// Run a request on a linked Mac as this Mac's windows do (session-page, session-newer, session-pending, search, session-send, session-answer, mark-seen, start-options), with its parameters as JSON. For checking a link by hand.
+    /// Run a request on a linked device as this device's windows do (session-page, session-newer, session-pending, search, session-send, session-answer, mark-seen, start-options), with its parameters as JSON. For checking a link by hand.
     #[command(hide = true)]
-    Ask { mac: String, method: String, params: Option<String> },
+    Ask { device: String, method: String, params: Option<String> },
 }
 
 #[derive(Subcommand, Debug)]
@@ -703,19 +703,19 @@ pub fn reference_text() -> String {
     out
 }
 
-// ---- your other Macs ----
+// ---- your other devices ----
 
 fn ask_app(req: &Request) -> Result<Value> {
     match server::ask(req) {
         Some(Ok(v)) => Ok(v),
         Some(Err(e)) => Err(anyhow!("{e}")),
-        None => bail!("Devices need the Codealong app running on this Mac."),
+        None => bail!("Devices need the Codealong app running on this device."),
     }
 }
 
-/// A Mac named on the command line, by name, short id or the start of its key, among the ones
+/// A device named on the command line, by name, short id or the start of its key, among the ones
 /// the view lists: linked, found on the tailnet, asking. Its key and name.
-fn which_mac(view: &Value, named: &str, lists: &[&str]) -> Result<(String, String)> {
+fn which_device(view: &Value, named: &str, lists: &[&str]) -> Result<(String, String)> {
     let named = named.trim();
     let lower = named.to_lowercase();
     let all: Vec<(String, String, String)> = lists
@@ -729,14 +729,14 @@ fn which_mac(view: &Value, named: &str, lists: &[&str]) -> Result<(String, Strin
     let hits: Vec<&(String, String, String)> = all.iter().filter(|(k, short, name)| name.to_lowercase() == lower || short == named || (named.len() >= 4 && k.starts_with(named))).collect();
     match hits.as_slice() {
         [one] => Ok((one.0.clone(), one.2.clone())),
-        [] => bail!("No Mac here matches {named:?}; `codealong devices` lists them."),
-        _ => bail!("More than one Mac matches {named:?}; give its short id."),
+        [] => bail!("No device here matches {named:?}; `codealong devices` lists them."),
+        _ => bail!("More than one device matches {named:?}; give its short id."),
     }
 }
 
 fn devices_cmd(c: &mut Client, cmd: Option<DevicesCmd>, json: bool) -> Result<()> {
     if c.app.is_none() {
-        bail!("Devices need the Codealong app running on this Mac.");
+        bail!("Devices need the Codealong app running on this device.");
     }
     let view = ask_app(&Request::Devices)?;
     let said = |text: String, v: Value| -> Result<()> {
@@ -749,39 +749,39 @@ fn devices_cmd(c: &mut Client, cmd: Option<DevicesCmd>, json: bool) -> Result<()
     };
     match cmd {
         None => devices_list(&view, json),
-        Some(DevicesCmd::Link { mac }) => {
-            let (key, name) = which_mac(&view, &mac, &["found"])?;
+        Some(DevicesCmd::Link { device }) => {
+            let (key, name) = which_device(&view, &device, &["found"])?;
             let code = ask_app(&Request::DeviceLink { key })?;
             let code = code.as_str().unwrap_or_default().to_string();
-            said(format!("Asked {name}. Say yes there when it shows {code}."), json!({ "mac": name, "code": code }))
+            said(format!("Asked {name}. Say yes there when it shows {code}."), json!({ "device": name, "code": code }))
         }
-        Some(DevicesCmd::Answer { mac, no }) => {
-            let (key, name) = which_mac(&view, &mac, &["asks"])?;
+        Some(DevicesCmd::Answer { device, no }) => {
+            let (key, name) = which_device(&view, &device, &["asks"])?;
             ask_app(&Request::DeviceAnswer { key, accept: !no })?;
-            said(if no { format!("Said no to {name}.") } else { format!("Linked with {name}.") }, json!({ "mac": name, "linked": !no }))
+            said(if no { format!("Said no to {name}.") } else { format!("Linked with {name}.") }, json!({ "device": name, "linked": !no }))
         }
-        Some(DevicesCmd::Unlink { mac }) => {
-            let (key, name) = which_mac(&view, &mac, &["devices"])?;
+        Some(DevicesCmd::Unlink { device }) => {
+            let (key, name) = which_device(&view, &device, &["devices"])?;
             ask_app(&Request::DeviceUnlink { key })?;
-            said(format!("Unlinked {name}."), json!({ "mac": name, "linked": false }))
+            said(format!("Unlinked {name}."), json!({ "device": name, "linked": false }))
         }
         Some(DevicesCmd::Code) => {
             let code = ask_app(&Request::DeviceCode)?;
             let code = code.as_str().unwrap_or_default().to_string();
-            said(format!("{code}\nEnter it on the other Mac within ten minutes: codealong devices use-code <code>, or Settings › Devices."), json!({ "code": code }))
+            said(format!("{code}\nEnter it on the other device within ten minutes: codealong devices use-code <code>, or Settings › Devices."), json!({ "code": code }))
         }
         Some(DevicesCmd::UseCode { code }) => {
             let name = ask_app(&Request::DeviceUseCode { code })?;
             let name = name.as_str().unwrap_or_default().to_string();
-            said(format!("Linked with {name}."), json!({ "mac": name, "linked": true }))
+            said(format!("Linked with {name}."), json!({ "device": name, "linked": true }))
         }
-        Some(DevicesCmd::Ask { mac, method, params }) => {
-            let (key, _) = which_mac(&view, &mac, &["devices"])?;
+        Some(DevicesCmd::Ask { device, method, params }) => {
+            let (key, _) = which_device(&view, &device, &["devices"])?;
             let params: Value = match params {
                 Some(p) => serde_json::from_str(&p).context("the parameters aren't JSON")?,
                 None => json!({}),
             };
-            let got = ask_app(&Request::DeviceAsk { mac: key.chars().take(10).collect(), request: method, params })?;
+            let got = ask_app(&Request::DeviceAsk { device: key.chars().take(10).collect(), request: method, params })?;
             print_json(&got)
         }
     }
@@ -793,7 +793,7 @@ fn devices_list(view: &Value, json: bool) -> Result<()> {
     }
     let s = |v: &Value, k: &str| v.get(k).and_then(Value::as_str).unwrap_or_default().to_string();
     if !view.get("enabled").and_then(Value::as_bool).unwrap_or(false) {
-        println!("Devices is off on this Mac: turn it on in Settings › Devices, or [devices] enabled = true in config.toml.");
+        println!("Devices is off on this device: turn it on in Settings › Devices, or [devices] enabled = true in config.toml.");
         return Ok(());
     }
     let me = view.get("me").cloned().unwrap_or_default();
@@ -803,7 +803,7 @@ fn devices_list(view: &Value, json: bool) -> Result<()> {
         "stopped" => "not connected".into(),
         _ => "off".into(),
     };
-    println!("This Mac: {} ({}). Tailscale: {tailscale}. iroh: {}. Remote control: {}.", s(&me, "name"), s(&me, "short"), s(&me, "iroh"), if me.get("remoteControl").and_then(Value::as_bool).unwrap_or(false) { "on" } else { "off" });
+    println!("This device: {} ({}). Tailscale: {tailscale}. iroh: {}. Remote control: {}.", s(&me, "name"), s(&me, "short"), s(&me, "iroh"), if me.get("remoteControl").and_then(Value::as_bool).unwrap_or(false) { "on" } else { "off" });
     if let Some(e) = me.get("error").and_then(Value::as_str) {
         println!("{e}");
     }
@@ -822,7 +822,7 @@ fn devices_list(view: &Value, json: bool) -> Result<()> {
         rows.push(vec![s(a, "name"), s(a, "short"), format!("asks to link, code {}", s(a, "code")), String::new(), String::new(), String::new(), String::new()]);
     }
     if rows.is_empty() {
-        println!("No other Macs yet.");
+        println!("No other devices yet.");
     } else {
         print!("{}", table_text(&["MAC", "ID", "STATE", "REMOTE CONTROL", "WORKTREES", "SESSIONS", "NEED YOU"], rows));
     }
@@ -2703,16 +2703,16 @@ mod tests {
     }
 
     #[test]
-    fn macs_are_named_by_name_short_id_or_key() {
+    fn devices_are_named_by_name_short_id_or_key() {
         let view = json!({
             "devices": [{ "key": "9f8e7d6c5b4a3928", "short": "9f8e7d6c5b", "name": "Mac mini" }],
             "found": [{ "key": "7c6b5a4938271605", "short": "7c6b5a4938", "name": "iMac" }, { "key": "7c6b00000000", "short": "7c6b000000", "name": "iMac Pro" }]
         });
-        assert_eq!(which_mac(&view, "mac MINI", &["devices"]).unwrap().1, "Mac mini");
-        assert_eq!(which_mac(&view, "9f8e7d6c5b", &["devices"]).unwrap().0, "9f8e7d6c5b4a3928");
-        assert_eq!(which_mac(&view, "7c6b5a", &["found"]).unwrap().1, "iMac");
-        assert!(which_mac(&view, "7c6b", &["found"]).is_err(), "two keys start that way");
-        assert!(which_mac(&view, "iMac", &["devices"]).is_err(), "only the lists asked for");
+        assert_eq!(which_device(&view, "mac MINI", &["devices"]).unwrap().1, "Mac mini");
+        assert_eq!(which_device(&view, "9f8e7d6c5b", &["devices"]).unwrap().0, "9f8e7d6c5b4a3928");
+        assert_eq!(which_device(&view, "7c6b5a", &["found"]).unwrap().1, "iMac");
+        assert!(which_device(&view, "7c6b", &["found"]).is_err(), "two keys start that way");
+        assert!(which_device(&view, "iMac", &["devices"]).is_err(), "only the lists asked for");
     }
 
     #[test]

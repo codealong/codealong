@@ -110,7 +110,7 @@ fn get_board(engine: State<'_, engine::Handle>) -> model::Board {
 #[tauri::command(async)]
 fn open_target(app: tauri::AppHandle, engine: State<'_, engine::Handle>, lane_id: String, target_id: String) -> Result<(), String> {
     if peerfeed::split_remote(&lane_id).is_some() {
-        return Err("That's on another Mac: it opens there, and its sessions show in their panel here.".into());
+        return Err("That's on another device: it opens there, and its sessions show in their panel here.".into());
     }
     let from = flash::pointer();
     engine.open(&lane_id, &target_id).map_err(|e| e.to_string())?;
@@ -151,17 +151,17 @@ fn mark_seen(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, 
     if !here.is_empty() {
         engine.mark_seen(here);
     }
-    // Seen goes to the Mac the session is on: its status changes there, and so on every Mac.
-    let mut by_mac: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+    // Seen goes to the device the session is on: its status changes there, and so on every device.
+    let mut by_device: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
     for k in &elsewhere {
-        if let Some((mac, key)) = peerfeed::split_remote(k) {
-            by_mac.entry(mac.to_string()).or_default().push(key.to_string());
+        if let Some((device, key)) = peerfeed::split_remote(k) {
+            by_device.entry(device.to_string()).or_default().push(key.to_string());
         }
     }
-    for (mac, keys) in by_mac {
+    for (device, keys) in by_device {
         let peers = peers.inner().clone();
         std::thread::spawn(move || {
-            let _ = peers.ask(&mac, "mark-seen", serde_json::json!({ "keys": keys }), ASK_ACT);
+            let _ = peers.ask(&device, "mark-seen", serde_json::json!({ "keys": keys }), ASK_ACT);
         });
     }
 }
@@ -310,8 +310,8 @@ fn search_text(words: Vec<String>) -> search::Found {
 /// `before` is none, else what came before it.
 #[tauri::command(async)]
 fn session_page(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, before: Option<u64>) -> Result<serde_json::Value, String> {
-    if let Some((mac, key)) = peerfeed::split_remote(&key) {
-        return peers.ask(mac, "session-page", serde_json::json!({ "key": key, "before": before }), ASK_READ);
+    if let Some((device, key)) = peerfeed::split_remote(&key) {
+        return peers.ask(device, "session-page", serde_json::json!({ "key": key, "before": before }), ASK_READ);
     }
     page_here(engine.inner(), &key, before)
 }
@@ -326,8 +326,8 @@ fn page_here(engine: &engine::Handle, key: &str, before: Option<u64>) -> Result<
 /// (`harness::Adapter::pending`).
 #[tauri::command(async)]
 fn session_pending(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String) -> Result<serde_json::Value, String> {
-    if let Some((mac, key)) = peerfeed::split_remote(&key) {
-        return peers.ask(mac, "session-pending", serde_json::json!({ "key": key }), ASK_READ);
+    if let Some((device, key)) = peerfeed::split_remote(&key) {
+        return peers.ask(device, "session-pending", serde_json::json!({ "key": key }), ASK_READ);
     }
     pending_here(engine.inner(), &key)
 }
@@ -342,8 +342,8 @@ fn pending_here(engine: &engine::Handle, key: &str) -> Result<serde_json::Value,
 /// Allows or denies the tool call `id` a session waits on, if it's still the one waiting.
 #[tauri::command(async)]
 fn session_answer(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, id: String, answer: harness::Answer) -> Result<String, String> {
-    if let Some((mac, key)) = peerfeed::split_remote(&key) {
-        let said = peers.ask(mac, "session-answer", serde_json::json!({ "key": key, "id": id, "answer": answer }), ASK_ACT)?;
+    if let Some((device, key)) = peerfeed::split_remote(&key) {
+        let said = peers.ask(device, "session-answer", serde_json::json!({ "key": key, "id": id, "answer": answer }), ASK_ACT)?;
         return Ok(said.as_str().unwrap_or_default().to_string());
     }
     answer_here(engine.inner(), &key, &id, answer)
@@ -359,8 +359,8 @@ fn answer_here(engine: &engine::Handle, key: &str, id: &str, answer: harness::An
 /// What a session said and did after `after`, as it goes on.
 #[tauri::command(async)]
 fn session_newer(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, after: u64) -> Result<serde_json::Value, String> {
-    if let Some((mac, key)) = peerfeed::split_remote(&key) {
-        return peers.ask(mac, "session-newer", serde_json::json!({ "key": key, "after": after }), ASK_READ);
+    if let Some((device, key)) = peerfeed::split_remote(&key) {
+        return peers.ask(device, "session-newer", serde_json::json!({ "key": key, "after": after }), ASK_READ);
     }
     newer_here(engine.inner(), &key, after)
 }
@@ -374,8 +374,8 @@ fn newer_here(engine: &engine::Handle, key: &str, after: u64) -> Result<serde_js
 /// Sends a prompt to a session that's already going, where it runs (send.rs).
 #[tauri::command(async)]
 fn send_to_session(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, text: String) -> Result<serde_json::Value, String> {
-    if let Some((mac, key)) = peerfeed::split_remote(&key) {
-        return peers.ask(mac, "session-send", serde_json::json!({ "key": key, "text": text }), ASK_ACT);
+    if let Some((device, key)) = peerfeed::split_remote(&key) {
+        return peers.ask(device, "session-send", serde_json::json!({ "key": key, "text": text }), ASK_ACT);
     }
     serde_json::to_value(send_here(engine.inner(), &key, &text)?).map_err(|e| e.to_string())
 }
@@ -491,8 +491,8 @@ fn open_url(url: String) -> Result<(), String> {
 
 #[tauri::command(async)]
 fn archive_session(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, archived: bool) -> Result<(), String> {
-    if let Some((mac, key)) = peerfeed::split_remote(&key) {
-        return peers.ask(mac, "session-archive", serde_json::json!({ "key": key, "archived": archived }), ASK_ACT).map(|_| ());
+    if let Some((device, key)) = peerfeed::split_remote(&key) {
+        return peers.ask(device, "session-archive", serde_json::json!({ "key": key, "archived": archived }), ASK_ACT).map(|_| ());
     }
     engine.archive(&key, archived).map_err(|e| format!("{e:#}"))
 }
@@ -555,17 +555,24 @@ fn install_agents(command: bool, accounts: Vec<String>) -> Result<install::Agent
 }
 
 /// Where each account can start a session, for the new-session sheet.
-/// How long a window waits on another Mac: to read, and to act.
+/// How long a window waits on another device: to read, and to act.
 const ASK_READ: std::time::Duration = std::time::Duration::from_secs(15);
 const ASK_ACT: std::time::Duration = std::time::Duration::from_secs(40);
 
-/// Your other Macs as Settings › Devices and the views show them (peers.rs).
+/// Your other devices as Settings › Devices and the views show them (peers.rs).
 #[tauri::command]
 fn devices(peers: State<'_, peers::Peers>) -> peers::DevicesView {
     peers.view()
 }
 
-/// Asks one of your Macs on your tailnet to link; returns the code both show.
+/// Gives a linked device a color, for its badge and its lanes' edge; none goes back to the one
+/// its key picks.
+#[tauri::command(async)]
+fn set_device_color(peers: State<'_, peers::Peers>, key: String, color: Option<String>) -> Result<(), String> {
+    peers.set_color(&key, color)
+}
+
+/// Asks one of your devices on your tailnet to link; returns the code both show.
 #[tauri::command(async)]
 fn link_device(peers: State<'_, peers::Peers>, key: String) -> Result<String, String> {
     peers.link(&key)
@@ -581,19 +588,19 @@ fn unlink_device(peers: State<'_, peers::Peers>, key: String) -> Result<(), Stri
     peers.unlink(&key)
 }
 
-/// A link code for a Mac that isn't on your tailnet.
+/// A link code for a device that isn't on your tailnet.
 #[tauri::command(async)]
 fn device_link_code(peers: State<'_, peers::Peers>) -> Result<String, String> {
     peers.link_code()
 }
 
-/// Links with the Mac that made this link code; returns its name.
+/// Links with the device that made this link code; returns its name.
 #[tauri::command(async)]
 fn link_with_code(peers: State<'_, peers::Peers>, code: String) -> Result<String, String> {
     peers.link_with_code(&code)
 }
 
-/// What was said in sessions on your other Macs, searched on each of them.
+/// What was said in sessions on your other devices, searched on each of them.
 #[tauri::command(async)]
 fn search_devices(peers: State<'_, peers::Peers>, words: Vec<String>) -> Vec<peers::DeviceFound> {
     let words: Vec<String> = words.iter().map(|w| w.trim().to_lowercase()).filter(|w| !w.is_empty()).collect();
@@ -603,8 +610,8 @@ fn search_devices(peers: State<'_, peers::Peers>, words: Vec<String>) -> Vec<pee
     peers.search(&words)
 }
 
-/// Answers a linked Mac's request, with the function the matching command runs for a window
-/// here. peers.rs has already checked the Mac is linked, and that remote control is on for the
+/// Answers a linked device's request, with the function the matching command runs for a window
+/// here. peers.rs has already checked the device is linked, and that remote control is on for the
 /// requests that act on a session.
 fn peer_answer(engine: &engine::Handle, method: &str, p: serde_json::Value) -> Result<serde_json::Value, String> {
     use serde_json::{to_value, Value};
@@ -620,9 +627,9 @@ fn peer_answer(engine: &engine::Handle, method: &str, p: serde_json::Value) -> R
         }
         "session-send" => {
             let sent = send_here(engine, &key()?, &text("text"))?;
-            // Opening the session with the prompt ready to send needs someone at this Mac.
+            // Opening the session with the prompt ready to send needs someone at this device.
             if sent.opened {
-                return Err(format!("It needs someone at this Mac: {}", sent.message));
+                return Err(format!("It needs someone at this device: {}", sent.message));
             }
             to_value(sent).map_err(|e| e.to_string())
         }
@@ -641,7 +648,7 @@ fn peer_answer(engine: &engine::Handle, method: &str, p: serde_json::Value) -> R
             let spec: start::StartSpec = p.get("spec").cloned().and_then(|s| serde_json::from_value(s).ok()).ok_or("The request has no start.")?;
             to_value(start_and_link(engine, &spec)?).map_err(|e| e.to_string())
         }
-        _ => Err(format!("Codealong on this Mac doesn't know how to {method} yet; update it here.")),
+        _ => Err(format!("Codealong on this device doesn't know how to {method} yet; update it here.")),
     }
 }
 
@@ -656,12 +663,12 @@ fn start_options() -> Result<start::StartOptions, String> {
 /// an app picks the session's ID.
 #[tauri::command(async)]
 fn start_session(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, spec: start::StartSpec) -> Result<start::Started, String> {
-    if let Some((mac, lane)) = peerfeed::split_remote(&spec.lane_id) {
-        // Its todos are this Mac's; the other Mac has its own list.
+    if let Some((device, lane)) = peerfeed::split_remote(&spec.lane_id) {
+        // Its todos are this device's; the other device has its own list.
         let spec = start::StartSpec { lane_id: lane.to_string(), todos: Vec::new(), ..spec.clone() };
-        let got = peers.ask(mac, "start", serde_json::json!({ "spec": spec }), ASK_ACT)?;
+        let got = peers.ask(device, "start", serde_json::json!({ "spec": spec }), ASK_ACT)?;
         let mut started: start::Started = serde_json::from_value(got).map_err(|e| e.to_string())?;
-        started.key = started.key.map(|k| peerfeed::remote_key(mac, &k));
+        started.key = started.key.map(|k| peerfeed::remote_key(device, &k));
         return Ok(started);
     }
     start_and_link(&engine, &spec)
@@ -877,7 +884,7 @@ pub fn run() {
             let shown = std::sync::Mutex::new(theme);
             let shown_logo = std::sync::Mutex::new(model::LogoStatus::Idle);
             let shortcut = std::sync::Mutex::new(config::quick_shortcut());
-            // Your other Macs (peers.rs). They come before the engine, which publishes to them,
+            // Your other devices (peers.rs). They come before the engine, which publishes to them,
             // and ask it for the board and for answers once it's there.
             let engine_slot: std::sync::Arc<std::sync::OnceLock<engine::Handle>> = Default::default();
             let peers = {
@@ -888,7 +895,7 @@ pub fn run() {
                         board: Box::new(move || boards.get().map(|e| e.board()).unwrap_or_default()),
                         answer: Box::new(move |method, params| match answers.get() {
                             Some(e) => peer_answer(e, method, params),
-                            None => Err("Codealong is still starting on that Mac.".into()),
+                            None => Err("Codealong is still starting on that device.".into()),
                         }),
                         emit: Box::new(move |view| {
                             let _ = emits.emit("devices", view);
@@ -965,7 +972,7 @@ pub fn run() {
             peek::on_window_event(window, event);
         })
         .register_asynchronous_uri_scheme_protocol("codealong-image", |_ctx, request, responder| serve_image(request, responder))
-        .invoke_handler(tauri::generate_handler![get_board, idle_terminals, close_idle_terminals, open_target, open_config, mark_seen, refresh, refresh_usage, set_pinned, set_pinned_worktrees, archive_session, pr_detail, pr_comment_asks, approve_pr, review_in_codex, open_url, get_accounts, save_accounts, set_preferred, found_accounts, get_config, save_config, save_config_text, sign_in, agents_status, install_agents, start_options, start_session, todo_op, canvas_load, canvas_save, save_attachment, import_attachment, open_attachment, expand_attachments, set_theme, open_project_window, fit_bar, show_main, peek_open, peek_ready, peek_fit, peek_focus, peek_hide, bar_feed, bar_on, set_bar_on, open_from_bar, show_quick, hide_quick, quick_ready, fit_quick, start_from_quick, route_quick, search_text, search_devices, devices, link_device, answer_link, unlink_device, device_link_code, link_with_code, session_page, session_newer, session_pending, session_answer, send_to_session, suggest_todo, dismiss_todo_hint, jev_key, set_jev_key, test_jev, quick_shortcut, pause_quick_shortcut, perf_mark])
+        .invoke_handler(tauri::generate_handler![get_board, idle_terminals, close_idle_terminals, open_target, open_config, mark_seen, refresh, refresh_usage, set_pinned, set_pinned_worktrees, archive_session, pr_detail, pr_comment_asks, approve_pr, review_in_codex, open_url, get_accounts, save_accounts, set_preferred, found_accounts, get_config, save_config, save_config_text, sign_in, agents_status, install_agents, start_options, start_session, todo_op, canvas_load, canvas_save, save_attachment, import_attachment, open_attachment, expand_attachments, set_theme, open_project_window, fit_bar, show_main, peek_open, peek_ready, peek_fit, peek_focus, peek_hide, bar_feed, bar_on, set_bar_on, open_from_bar, show_quick, hide_quick, quick_ready, fit_quick, start_from_quick, route_quick, search_text, search_devices, devices, set_device_color, link_device, answer_link, unlink_device, device_link_code, link_with_code, session_page, session_newer, session_pending, session_answer, send_to_session, suggest_todo, dismiss_todo_hint, jev_key, set_jev_key, test_jev, quick_shortcut, pause_quick_shortcut, perf_mark])
         .build(tauri::generate_context!())
         .expect("error while running Codealong")
         .run(|app, event| {

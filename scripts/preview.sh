@@ -46,9 +46,9 @@
 # PREVIEW_TRANSCRIPT=<session key> shows that session's real conversation in its panel (its
 # newest page, from --snapshot --transcript) and what it waits on you to allow (--pending);
 # other sessions show their title and excerpt there.
-# PREVIEW_DEVICES=<file> shows your other Macs from it (scripts/preview/devices-sample.json
-# has some): Settings › Devices, the sidebar's Macs, and a few of the board's own worktrees
-# shown as if they were on those Macs.
+# PREVIEW_DEVICES=<file> shows your other devices from it (scripts/preview/devices-sample.json
+# has some): Settings › Devices, the sidebar's Devices, and a few of the board's own worktrees
+# shown as if they were on those devices.
 # PREVIEW_FOUND=<file> lists the accounts in it under Settings › Accounts › Found on this Mac
 # (scripts/preview/found-sample.json has some) in place of the ones this Mac has but config.toml
 # doesn't list, which are often none.

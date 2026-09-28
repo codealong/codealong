@@ -1,8 +1,8 @@
-//! This Mac's device key: the Ed25519 key your other Macs know it by (peers.rs). Over iroh it's
-//! the address they dial; over Tailscale each side proves it holds its key when a connection
+//! This device's key: the Ed25519 key your other devices know it by (peers.rs). Over iroh it's the
+//! address they dial; over Tailscale each side proves it holds its key when a connection
 //! opens. It's made the first time `[devices]` is turned on and kept in the login keychain
 //! (service `Codealong device key`), like Jev's API key, so it never sits in a file and a
-//! reinstall keeps this Mac's links.
+//! reinstall keeps this device's links.
 
 use std::time::Duration;
 
@@ -14,7 +14,7 @@ const SERVICE: &str = "Codealong device key";
 const TIMEOUT: Duration = Duration::from_secs(15);
 
 /// The key in the keychain, made and saved there first if there's none. `CODEALONG_DEVICE_KEY`
-/// (hex) stands in for it, so a second copy of the app on one Mac can be another device.
+/// (hex) stands in for it, so a second copy of the app on one computer can be a device of its own.
 pub fn load_or_create() -> Result<SecretKey> {
     if let Ok(hex) = std::env::var("CODEALONG_DEVICE_KEY") {
         return decode(&hex);
@@ -27,7 +27,7 @@ pub fn load_or_create() -> Result<SecretKey> {
     // The keychain is where the key lives; one it didn't keep would change on every launch.
     match read() {
         Some(k) if k.public() == key.public() => Ok(k),
-        _ => bail!("The keychain didn't keep this Mac's device key."),
+        _ => bail!("The keychain didn't keep this device's key."),
     }
 }
 
@@ -41,7 +41,7 @@ fn save(key: &SecretKey) -> Result<()> {
     let command = format!("add-generic-password -U -a \"{}\" -s \"{SERVICE}\" -l \"{SERVICE}\" -w \"{}\"\n", crate::jev::keychain_account(), HEXLOWER.encode(&key.to_bytes()));
     let out = crate::procs::run_stdin("/usr/bin/security", &["-i"], &command, TIMEOUT)?;
     if out.to_lowercase().contains("error") {
-        bail!("The keychain didn't take this Mac's device key.");
+        bail!("The keychain didn't take this device's key.");
     }
     Ok(())
 }

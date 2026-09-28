@@ -4,8 +4,8 @@
 //! A connection opens with each side's `hello` (its device key, its name and a fresh nonce),
 //! then each side's `proof`: its signature over the other side's nonce and both keys. So each
 //! side knows the other holds the key it claims whatever carried the connection, and the rest of
-//! the app deals in device keys only. After that, linked Macs send their feeds (peerfeed.rs) and
-//! ask each other things (`req` and `res`); a Mac that isn't linked can only ask to link.
+//! the app deals in device keys only. After that, linked devices send their feeds (peerfeed.rs) and
+//! ask each other things (`req` and `res`); a device that isn't linked can only ask to link.
 
 use std::io::{self, BufRead};
 
@@ -20,7 +20,7 @@ use crate::peerfeed::FeedMsg;
 
 pub const VERSION: u32 = 1;
 
-/// The longest line either side reads. A busy Mac's whole feed fits with room to spare, and a
+/// The longest line either side reads. A busy device's whole feed fits with room to spare, and a
 /// peer that sends without end can't make the other buffer it.
 pub const MAX_LINE: usize = 32 * 1024 * 1024;
 
@@ -38,7 +38,7 @@ pub enum Msg {
     },
     /// The sender's signature over the receiver's nonce and both keys (`proof_message`).
     Proof { sig: String },
-    /// Whether the sender has the receiver on its list of linked Macs: sent once the proofs
+    /// Whether the sender has the receiver on its list of linked devices: sent once the proofs
     /// check out, and again whenever that changes.
     Standing { linked: bool },
     Feed(FeedMsg),
@@ -56,8 +56,8 @@ pub enum Msg {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         error: Option<String>,
     },
-    /// Asks to be linked. `secret` comes from a link code this Mac made (irohnet.rs); without
-    /// one, only a Mac on the same tailnet account can ask, and you answer on this Mac.
+    /// Asks to be linked. `secret` comes from a link code this device made (irohnet.rs); without
+    /// one, only a device on the same tailnet account can ask, and you answer on this device.
     LinkAsk {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         secret: Option<String>,
@@ -138,14 +138,14 @@ pub fn parse_key(s: &str) -> Result<PublicKey> {
 }
 
 /// A device's short id: the first five bytes of its key, as hex. Session and lane keys from
-/// another Mac carry it (`@<short>:<key>`); it's unique enough among one person's Macs, and
+/// another device carry it (`@<short>:<key>`); it's unique enough among one person's devices, and
 /// trust always goes by the whole key.
 pub fn short(key: &PublicKey) -> String {
     key.fmt_short().to_string()
 }
 
 /// What a proof signs: a label, the nonce the verifier made, then the signer's key and the
-/// verifier's. A signature made for one connection or one pair of Macs is worth nothing on
+/// verifier's. A signature made for one connection or one pair of devices is worth nothing on
 /// another.
 fn proof_message(nonce: &[u8], signer: &PublicKey, verifier: &PublicKey) -> Vec<u8> {
     let mut m = b"codealong-peer-proof-v1".to_vec();
@@ -167,7 +167,7 @@ pub fn check_proof(theirs: &PublicKey, sig: &str, my_nonce: &str, mine: &PublicK
     let nonce = decode_nonce(my_nonce)?;
     let bytes = HEXLOWER.decode(sig.trim().as_bytes()).map_err(|_| anyhow!("The proof isn't hex."))?;
     let bytes: [u8; 64] = bytes.try_into().map_err(|_| anyhow!("The proof is the wrong length."))?;
-    theirs.verify(&proof_message(&nonce, theirs, mine), &Signature::from_bytes(&bytes)).map_err(|_| anyhow!("The other Mac couldn't prove it holds its key."))
+    theirs.verify(&proof_message(&nonce, theirs, mine), &Signature::from_bytes(&bytes)).map_err(|_| anyhow!("The other device couldn't prove it holds its key."))
 }
 
 fn decode_nonce(s: &str) -> Result<Vec<u8>> {
@@ -178,8 +178,8 @@ fn decode_nonce(s: &str) -> Result<Vec<u8>> {
     Ok(n)
 }
 
-/// The six digits both Macs show while linking, the same on each for the same pair of keys, so
-/// you can see the Mac asking is the one in front of you.
+/// The six digits both devices show while linking, the same on each for the same pair of keys, so
+/// you can see the device asking is the one in front of you.
 pub fn link_code(a: &PublicKey, b: &PublicKey) -> String {
     let (lo, hi) = if a.as_bytes() <= b.as_bytes() { (a, b) } else { (b, a) };
     let mut h = Sha256::new();

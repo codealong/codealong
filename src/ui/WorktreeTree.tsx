@@ -126,7 +126,7 @@ const TreeLane = memoRow(function TreeLane({ lane, now, open, all, selected, sel
   return (
     <div key={lane.id} role="treeitem" aria-expanded={lane.sessions.length ? open : undefined} aria-selected={selected}>
       <div
-        className={['ca-tree-node', lane.parked && 'is-parked', selected && !selectedSessionKey && 'is-active'].filter(Boolean).join(' ')}
+        className={['ca-tree-node', lane.parked && 'is-parked', selected && !selectedSessionKey && 'is-active', lane.device && !lane.device.online && 'is-away'].filter(Boolean).join(' ')}
         onContextMenu={(e) => {
           e.preventDefault();
           onLaneMenu(lane);
@@ -150,6 +150,7 @@ const TreeLane = memoRow(function TreeLane({ lane, now, open, all, selected, sel
         >
           <LaneGlyph lane={lane} />
           <span className="ca-nav-label">{lane.callsign}</span>
+          {lane.device && <i className={`ca-labeldot ca-tree-devdot is-${lane.device.color}`} title={`On ${lane.device.name}`} aria-hidden="true" />}
           {failing && (
             <span className="ca-tree-fail" title={failingTitle(failing)}>
               <Icon name="x" size={11} stroke={2.25} />#{failing.number}

@@ -1,26 +1,26 @@
-//! What a Mac tells the Macs it's linked with about itself (peers.rs): its name, and its board's
+//! What a device tells the devices it's linked with about itself (peers.rs): its name, and its board's
 //! worktrees, sessions and plan usage, cut from each board the engine publishes as barfeed.rs
 //! cuts the bar's. Only what changed goes out: each worktree is hashed, and a feed carries the
-//! ones that changed and the ids of the ones that left. What only works on this Mac stays here:
+//! ones that changed and the ids of the ones that left. What only works on this device stays here:
 //! open targets, process ids, and resume and attach commands.
 //!
-//! The receiving Mac keeps a `Replica` of each linked Mac's feed, and hands its windows the
+//! The receiving device keeps a `Replica` of each linked device's feed, and hands its windows the
 //! worktrees with `@<short>:` in front of every lane id and session key (`for_windows`), so a
-//! click on one goes back to the Mac it's on and no id from there is taken for one here.
+//! click on one goes back to the device it's on and no id from there is taken for one here.
 
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 
 use serde::{Deserialize, Serialize};
 
-use crate::model::{Board, Lane, Usage};
+use crate::model::{Board, DeviceTag, Lane, Usage};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct DeviceInfo {
     pub name: String,
     pub app: String,
-    /// Its linked Macs may send prompts, answer approvals and start sessions there.
+    /// Its linked devices may send prompts, answer approvals and start sessions there.
     #[serde(default)]
     pub remote_control: bool,
     /// Its first scan hasn't finished.
@@ -48,7 +48,7 @@ pub struct FeedMsg {
     pub usage: Option<Vec<Usage>>,
 }
 
-/// What a Mac shares, cut from one board, with each part's hash worked out once for every
+/// What a device shares, cut from one board, with each part's hash worked out once for every
 /// connection it goes to.
 #[derive(Clone, Debug, Default)]
 pub struct Snapshot {
@@ -74,7 +74,7 @@ pub fn snapshot(board: &Board, device: DeviceInfo) -> Snapshot {
     }
 }
 
-/// A lane as another Mac may see it: nothing that only works here.
+/// A lane as another device may see it: nothing that only works here.
 pub fn shareable(lane: &Lane) -> Lane {
     let mut l = lane.clone();
     l.targets.clear();
@@ -95,7 +95,7 @@ fn hash_of<T: Serialize>(v: &T) -> u64 {
     h.finish()
 }
 
-/// Sends a Mac's snapshots to one peer, a change at a time. There's one per connection, so a
+/// Sends a device's snapshots to one peer, a change at a time. There's one per connection, so a
 /// new connection starts with everything.
 #[derive(Default)]
 pub struct Outbox {
@@ -142,8 +142,8 @@ impl Outbox {
     }
 }
 
-/// What this Mac knows of a linked Mac's board, kept up to date by its feeds, and kept on disk
-/// so a Mac that's asleep still shows as it was when last seen.
+/// What this device knows of a linked device's board, kept up to date by its feeds, and kept on disk
+/// so a device that's asleep still shows as it was when last seen.
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Replica {
@@ -184,26 +184,26 @@ impl Replica {
     }
 }
 
-/// A key from another Mac, as this Mac's windows get it.
+/// A key from another device, as this device's windows get it.
 pub fn remote_key(short: &str, key: &str) -> String {
     format!("@{short}:{key}")
 }
 
-/// The Mac's short id and its own key, for a key that came from another Mac.
+/// The device's short id and its own key, for a key that came from another device.
 pub fn split_remote(key: &str) -> Option<(&str, &str)> {
     key.strip_prefix('@')?.split_once(':')
 }
 
-/// A linked Mac's worktrees as this Mac's windows get them: every lane id and session key with
-/// the Mac's short id in front, and the Mac's name on each lane.
-pub fn for_windows(short: &str, name: &str, replica: &Replica) -> Vec<Lane> {
+/// A linked device's worktrees as this device's windows get them: every lane id and session key with
+/// the device's short id in front, and each lane tagged with the device.
+pub fn for_windows(short: &str, tag: &DeviceTag, replica: &Replica) -> Vec<Lane> {
     replica
         .lanes
         .iter()
         .map(|l| {
             let mut l = l.clone();
             l.id = remote_key(short, &l.id);
-            l.mac = Some(name.to_string());
+            l.device = Some(tag.clone());
             for s in &mut l.sessions {
                 s.key = remote_key(short, &s.key);
             }
@@ -299,11 +299,12 @@ mod tests {
     fn windows_get_keys_that_name_their_mac() {
         let mut replica = Replica::default();
         replica.apply(FeedMsg { rev: 1, full: true, lanes: vec![lane("/Users/sam/app", vec![session("claude:claude:9f", Status::Needs)])], ..Default::default() });
-        let lanes = for_windows("a1b2c3d4e5", "Mac mini", &replica);
+        let tag = DeviceTag { name: "Mac mini".into(), short: "a1b2c3d4e5".into(), color: "teal".into(), online: true, last_seen: None };
+        let lanes = for_windows("a1b2c3d4e5", &tag, &replica);
         assert_eq!(lanes[0].id, "@a1b2c3d4e5:/Users/sam/app");
         assert_eq!(lanes[0].sessions[0].key, "@a1b2c3d4e5:claude:claude:9f");
         assert_eq!(lanes[0].path, "/Users/sam/app");
-        assert_eq!(lanes[0].mac.as_deref(), Some("Mac mini"));
+        assert_eq!(lanes[0].device.as_ref(), Some(&tag));
         assert_eq!(split_remote(&lanes[0].sessions[0].key), Some(("a1b2c3d4e5", "claude:claude:9f")));
         assert_eq!(split_remote("claude:claude:9f"), None);
         // The windows split row keys on `::` and target ids on `|`; neither may appear.

@@ -123,8 +123,8 @@ export interface Lane {
   looksFinished?: boolean;
   targets: Target[];
   defaultTarget: string | null;
-  /** The Mac it's on, by name, when that's another of your Macs; missing for this Mac's own. */
-  mac?: string;
+  /** The device it's on, when that's another of your devices; missing for this device's own. */
+  device?: DeviceTag;
 }
 
 export interface ProjectSummary {
@@ -198,16 +198,16 @@ export interface Config {
   debug: { perf_log: boolean };
 }
 
-/** `[devices]` in config.toml: Codealong on your other Macs (src-tauri/src/peers.rs). */
+/** `[devices]` in config.toml: Codealong on your other devices (src-tauri/src/peers.rs). */
 export interface DevicesCfg {
   enabled: boolean;
-  /** This Mac's name on the others; empty is the computer's name. */
+  /** This device's name on the others; empty is the computer's name. */
   name: string;
-  /** Find your Macs on your tailnet. */
+  /** Find your devices on your tailnet. */
   tailscale: boolean;
-  /** Reach linked Macs anywhere, through iroh. */
+  /** Reach linked devices anywhere, through iroh. */
   iroh: boolean;
-  /** Let linked Macs send prompts, answer approvals and start sessions here. */
+  /** Let linked devices send prompts, answer approvals and start sessions here. */
   remote_control: boolean;
   port: number;
 }
@@ -216,17 +216,26 @@ export const DEVICES_OFF: DevicesCfg = { enabled: false, name: '', tailscale: tr
 
 export type DeviceVia = 'tailscale' | 'iroh' | 'test';
 
-/** Your other Macs, as the engine hands them to the windows (`devices` event). */
+/** Which of your other devices a lane is on, as its badge shows it. */
+export interface DeviceTag {
+  name: string;
+  short: string;
+  color: LabelColor;
+  online: boolean;
+  lastSeen: number | null;
+}
+
+/** Your other devices, as the engine hands them to the windows (`devices` event). */
 export interface DevicesView {
   enabled: boolean;
   me: DevicesMe;
-  /** Linked Macs, in the order they were linked. */
+  /** Linked devices, in the order they were linked. */
   devices: DeviceView[];
-  /** Your Macs on your tailnet running Codealong that aren't linked yet. */
+  /** Your devices on your tailnet running Codealong that aren't linked yet. */
   found: FoundDevice[];
-  /** Macs asking to link, waiting for your answer here. */
+  /** Devices asking to link, waiting for your answer here. */
   asks: DeviceAsk[];
-  /** Every linked Mac's worktrees; each lane id and session key starts `@<short>:`. */
+  /** Every linked device's worktrees; each lane id and session key starts `@<short>:`. */
   lanes: Lane[];
 }
 
@@ -247,13 +256,15 @@ export interface DeviceView {
   key: string;
   short: string;
   name: string;
+  /** Its badge's color: the one you gave it, or the one its key picks. */
+  color: LabelColor;
   online: boolean;
   via: DeviceVia | null;
   since: number | null;
   lastSeen: number | null;
   remoteControl: boolean;
   app: string;
-  /** It has this Mac linked too. */
+  /** It has this device linked too. */
   linkedBack: boolean;
   loading: boolean;
   usage: Usage[];
@@ -263,7 +274,7 @@ export interface FoundDevice {
   key: string;
   short: string;
   name: string;
-  /** The six digits both Macs show while linking. */
+  /** The six digits both devices show while linking. */
   code: string;
   /** You asked it to link; it's waiting for an answer there. */
   asking: boolean;
@@ -276,7 +287,7 @@ export interface DeviceAsk {
   code: string;
 }
 
-/** A linked Mac's answer to a search of what was said. */
+/** A linked device's answer to a search of what was said. */
 export interface DeviceFound {
   device: string;
   name: string;

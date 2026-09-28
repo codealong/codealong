@@ -1,8 +1,8 @@
-//! Finding your Macs on your tailnet (peers.rs). Tailscale already knows your machines, reaches
+//! Finding your devices on your tailnet (peers.rs). Tailscale already knows your machines, reaches
 //! them through NATs, encrypts what goes between them and knows whose each one is, so Codealong
-//! asks its command: `tailscale status --json` for this Mac's address and the other machines,
+//! asks its command: `tailscale status --json` for this device's address and the other machines,
 //! and `tailscale whois --json <ip>` for whose a connection is. Codealong listens on a TCP port
-//! bound to this Mac's tailnet address alone, so nothing on the local network or the internet
+//! bound to this device's tailnet address alone, so nothing on the local network or the internet
 //! can reach it.
 
 use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream};
@@ -15,6 +15,8 @@ use serde_json::Value;
 
 const TIMEOUT: Duration = Duration::from_secs(6);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(4);
+/// The systems, as Tailscale names them, a device running Codealong can be on.
+const DESKTOPS: [&str; 3] = ["macOS", "linux", "windows"];
 
 /// The `tailscale` command: Homebrew's, the standalone app's, or the one inside the app.
 pub fn cli() -> Option<PathBuf> {
@@ -48,16 +50,17 @@ pub struct Status {
 }
 
 impl Status {
-    /// This Mac's IPv4 address on the tailnet, which Codealong listens on and dials from.
+    /// This device's IPv4 address on the tailnet, which Codealong listens on and dials from.
     pub fn my_ipv4(&self) -> Option<IpAddr> {
         self.me.ips.iter().copied().find(IpAddr::is_ipv4)
     }
 
-    /// The other Macs on the tailnet that are yours and online now, with the address to dial.
-    pub fn my_macs(&self) -> Vec<(&Node, IpAddr)> {
+    /// The other devices on the tailnet that are yours, online now and on a system Codealong runs
+    /// on, with the address to dial. Phones and tablets are left out: nothing there would answer.
+    pub fn my_devices(&self) -> Vec<(&Node, IpAddr)> {
         self.peers
             .iter()
-            .filter(|n| n.online && n.os.eq_ignore_ascii_case("macos") && n.user == self.me.user && !self.me.user.is_empty())
+            .filter(|n| n.online && DESKTOPS.iter().any(|os| n.os.eq_ignore_ascii_case(os)) && n.user == self.me.user && !self.me.user.is_empty())
             .filter_map(|n| n.ips.iter().copied().find(IpAddr::is_ipv4).map(|ip| (n, ip)))
             .collect()
     }
@@ -127,7 +130,7 @@ pub fn parse_whois(json: &str) -> Result<WhoIs> {
     Ok(WhoIs { user, machine })
 }
 
-/// Listens on this Mac's tailnet address. Accepting doesn't block, so the loop that accepts can
+/// Listens on this device's tailnet address. Accepting doesn't block, so the loop that accepts can
 /// notice when it should stop.
 pub fn listen(ip: IpAddr, port: u16) -> Result<TcpListener> {
     let l = TcpListener::bind(SocketAddr::new(ip, port)).with_context(|| format!("Couldn't listen on {ip}:{port}"))?;
@@ -172,8 +175,8 @@ mod tests {
         assert_eq!(s.my_ipv4(), Some("100.101.1.1".parse().unwrap()));
         assert_eq!(s.me.dns, "sams-macbook-pro.tail1234.ts.net");
         assert_eq!(s.peers.len(), 4);
-        // Only your own Macs that are online: not the phone, not Alex's, not the one that's off.
-        let mine: Vec<(&str, String)> = s.my_macs().into_iter().map(|(n, ip)| (n.name.as_str(), ip.to_string())).collect();
+        // Only your own devices that are online: not the phone, not Alex's, not the one that's off.
+        let mine: Vec<(&str, String)> = s.my_devices().into_iter().map(|(n, ip)| (n.name.as_str(), ip.to_string())).collect();
         assert_eq!(mine, [("sams-mac-mini", "100.101.1.2".to_string())]);
     }
 
@@ -184,14 +187,14 @@ mod tests {
         assert!(!parse_status(&stopped).unwrap().running);
     }
 
-    /// This Mac's real tailnet: its status reads, `whois` knows this Mac, and Codealong can
+    /// This device's real tailnet: its status reads, `whois` knows this device, and Codealong can
     /// listen on its tailnet address. Read-only; run by hand: `cargo test tailnet_here -- --ignored --nocapture`.
     #[test]
     #[ignore]
     fn tailnet_here() {
         let s = status().expect("tailscale status");
         let ip = s.my_ipv4().expect("an IPv4 address on the tailnet");
-        println!("me: {} ({}) on {}, {} peers, your Macs online: {:?}", s.me.name, ip, s.tailnet, s.peers.len(), s.my_macs().iter().map(|(n, _)| &n.name).collect::<Vec<_>>());
+        println!("me: {} ({}) on {}, {} peers, your devices online: {:?}", s.me.name, ip, s.tailnet, s.peers.len(), s.my_devices().iter().map(|(n, _)| &n.name).collect::<Vec<_>>());
         let who = whois(ip).expect("whois");
         assert_eq!(who.user, s.me.user);
         let l = listen(ip, 0).expect("listen on the tailnet address");

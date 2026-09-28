@@ -287,13 +287,17 @@ interface NavItemProps {
   active?: boolean;
   child?: boolean;
   tone?: 'attn' | 'alert';
+  /** Drawn where the glyph or icon goes, for a mark of its own (a device's color). */
+  lead?: ReactNode;
+  className?: string;
+  title?: string;
   onClick?: () => void;
 }
 
-export function NavItem({ label, icon, glyph, count, active, child, tone, onClick }: NavItemProps) {
+export function NavItem({ label, icon, glyph, count, active, child, tone, lead, className, title, onClick }: NavItemProps) {
   return (
-    <button type="button" className={cx('ca-nav', active && 'is-active', child && 'is-child')} aria-pressed={active} onClick={onClick}>
-      {glyph ? <StatusGlyph status={glyph} size={10} title="" /> : icon ? <Icon name={icon} size={14} /> : null}
+    <button type="button" className={cx('ca-nav', active && 'is-active', child && 'is-child', className)} aria-pressed={active} title={title} onClick={onClick}>
+      {lead ?? (glyph ? <StatusGlyph status={glyph} size={10} title="" /> : icon ? <Icon name={icon} size={14} /> : null)}
       <span className="ca-nav-label">{label}</span>
       {count != null && <span className={cx('ca-nav-count', tone && count > 0 && `is-${tone}`)}>{count}</span>}
     </button>

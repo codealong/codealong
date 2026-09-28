@@ -244,16 +244,19 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   ends the agent's process; the conversation stays and resumes. `codealong sessions close-idle
   --dry-run` lists the same from the command line.
 
-- **Your other Macs** (Settings › Devices; off until you turn it on): Codealong on each of
-  your Macs shows the others' worktrees and sessions beside its own, each saying which Mac it's
-  on, and the sidebar's Macs narrow the views to one of them. A session on another Mac shows its
-  whole conversation in its panel, and when that Mac lets its linked Macs act on its sessions
-  (remote control, off by default) you can send it a message or answer an approval from here.
-  Macs find each other on your tailnet when Tailscale runs, and reach linked Macs anywhere
-  through iroh; they talk directly, encrypted end to end, with no server of Codealong's in
-  between. You link a Mac once: on your tailnet, both Macs show the same six digits and you
-  say yes on the other one; elsewhere, with a link code made on one Mac and entered on the
-  other.
+- **Your other devices** (Settings › Devices; off until you turn it on): Codealong on each of
+  your devices shows the others' worktrees and sessions beside its own. Everything from another
+  device wears that device's badge, a colored square and its name (pick each device's color in
+  Settings › Devices); other devices' worktrees go into this device's projects by their repos,
+  whatever those devices call them; work on a device that's away stays, faded, as it was when
+  last seen; the sidebar's Devices narrow the views to one of them; and Worktrees can group by
+  device. A session on another device shows its whole conversation in its panel, and when that
+  device lets its linked devices act on its sessions (remote control, off by default) you can
+  send it a message or answer an approval from here. Devices find each other on your tailnet
+  when Tailscale runs, and reach linked devices anywhere through iroh; they talk directly,
+  encrypted end to end, with no server of Codealong's in between. You link a device once: on
+  your tailnet, both show the same six digits and you say yes on the other one; elsewhere, with
+  a link code made on one device and entered on the other.
 
 - **For agents**: the `codealong` command and a skill that tells an agent when to use it.
   `codealong whoami` says which session runs it (found by its processes, or for the Codex app
@@ -343,11 +346,11 @@ pull_requests = false          # review comments that ask for a change
 [search]
 days = 14                      # prompts and replies searched this far back; 0 is titles only (Settings › General)
 
-[devices]                      # your other Macs (Settings › Devices)
+[devices]                      # your other devices (Settings › Devices)
 enabled = false
 tailscale = true               # find them on your tailnet
-iroh = true                    # reach linked Macs anywhere
-remote_control = false         # let linked Macs send prompts, answer approvals, start sessions here
+iroh = true                    # reach linked devices anywhere
+remote_control = false         # let linked devices act on sessions here
 
 [debug]
 perf_log = false               # true logs timings to ~/Library/Logs/Codealong/perf.log (Settings › Advanced)
@@ -377,14 +380,14 @@ repos = ["github.com/northwindai/*"]
 folders = []
 ```
 
-What you've seen (for Your turn), what you've pinned and what you've archived in Codealong
-are kept in `state.json` next to it; whether the floating bar is on, and where you left it, in
-`bar.json`; each project's canvas in `canvas.json`; sessions linked to PRs or unlinked from them
-by hand in `pr-links.json`. Todos and labels are in `todos.json`, which is watched, so an agent or an editor can
-add to it. Attachments are kept by their content: images in `images/`, other files in
-`files/<hash>/<name>`; ones no todo uses are cleared after 30 days. The Macs this one is linked
-with are in `devices.json`, and what each last said in `device-feeds.json`; this Mac's device
-key is in the login keychain.
+What you've seen (for Your turn), what you've pinned and what you've archived in Codealong are
+kept in `state.json` next to it; whether the floating bar is on, and where you left it, in
+`bar.json`; each project's canvas in `canvas.json`; sessions linked to PRs or unlinked from
+them by hand in `pr-links.json`. Todos and labels are in `todos.json`, which is watched, so an
+agent or an editor can add to it. Attachments are kept by their content: images in `images/`,
+other files in `files/<hash>/<name>`; ones no todo uses are cleared after 30 days. The devices
+this one is linked with are in `devices.json`, and what each last said in `device-feeds.json`;
+this device's key is in the login keychain.
 
 ## For agents
 
@@ -416,8 +419,8 @@ light scan (no git, PRs or visitors).
 - Starting a session types the account's command into a new Ghostty window; the prompt goes in
   the window's environment (`CODEALONG_PROMPT`), so nothing in it is typed or needs quoting.
 - Transcripts stay on the Mac; only titles, statuses and short excerpts are kept in memory.
-  With Devices on, the Macs you've linked get those too, and read a conversation or search
-  what was said only by asking this Mac, directly. With remote control on, they can also send
+  With Devices on, the devices you've linked get those too, and read a conversation or search
+  what was said only by asking this device, directly. With remote control on, they can also send
   prompts, answer approvals and start sessions here; each such request is written to
   `~/Library/Logs/Codealong/devices.log`.
 
@@ -442,9 +445,9 @@ light scan (no git, PRs or visitors).
 | `src-tauri/src/route.rs`, `src/route.ts` | Suggestions in the quick panel: the request to Jev and reading its answer back, the key in the keychain, and which suggestions the panel shows |
 | `src-tauri/src/todojev.rs` | Jev on todos: which todo a new session is for, whether a todo's work looks done, and a todo's suggested project, labels and dependencies |
 | `src-tauri/src/send.rs` | Sending a prompt to a session that's already going, the way its harness takes one |
-| `src-tauri/src/peers.rs`, `peerproto.rs`, `peerfeed.rs` | Your other Macs: links, connections, the protocol (each side proves its device key), and the feed of worktrees and sessions sent a change at a time; `design/plans/devices.md` has the reasoning |
-| `src-tauri/src/tailnet.rs`, `irohnet.rs`, `devicekey.rs` | Reaching them: on your tailnet through Tailscale's command, anywhere through iroh by device key, and this Mac's key in the keychain |
-| `src/devices.ts`, `src/ui/DevicesSection.tsx` | Other Macs' worktrees in the views, and Settings › Devices |
+| `src-tauri/src/peers.rs`, `peerproto.rs`, `peerfeed.rs` | Your other devices: links, connections, the protocol (each side proves its device key), and the feed of worktrees and sessions sent a change at a time; `design/plans/devices.md` has the reasoning |
+| `src-tauri/src/tailnet.rs`, `irohnet.rs`, `devicekey.rs` | Reaching them: on your tailnet through Tailscale's command, anywhere through iroh by device key, and this device's key in the keychain |
+| `src/devices.ts`, `src/ui/DevicesSection.tsx` | Other devices' worktrees in the views, and Settings › Devices |
 | `src-tauri/src/cli.rs`, `server.rs`, `install.rs` | The `codealong` command (clap; JSON or tables; the app over its socket, else the files), the app's socket, and putting the skill and the command where agents find them |
 | `src-tauri/src/todos.rs`, `src/todos.ts` | Todos: the store and its changes, linking sessions started from a todo; the list's sections, filters and prompt |
 | `src-tauri/src/canvas.rs`, `src/canvas/`, `src/ui/CanvasView.tsx`, `src/ui/CanvasCard.tsx` | The Canvas view: its documents (what's on it, where; kept in sync with the board; Tidy's layouts), the WebGL layer (grid, links, zoomed-out blocks) and the HTML cards, notes and frames on top |
@@ -454,7 +457,7 @@ light scan (no git, PRs or visitors).
 | `src-tauri/src/claudeapp.rs` | The Claude app's session records (its IDs, what you archived there) |
 | `src-tauri/src/config.rs`, `state.rs` | `config.toml` (accounts saved in place) and `state.json` (seen, pinned, archived, account folders already read) |
 | `src-tauri/src/prlinks.rs` | Sessions tied to PRs other than by branch: what their records show they did to a PR, and links made by hand (`pr-links.json`) |
-| `src-tauri/src/detect.rs` | The harness accounts on this Mac: folders, sign-ins, and the wrappers and aliases that run them |
+| `src-tauri/src/detect.rs` | The harness accounts on this device: folders, sign-ins, and the wrappers and aliases that run them |
 | `src-tauri/src/bar.rs`, `barfeed.rs` | The floating bar's window (a panel over every app, where it sits, Window › Floating bar) and the small feed of what it shows, sent only when that changes |
 | `src/` | The React UI, built from the design system's components and tokens; `lanes.ts` groups the board and mirrors the engine's status rules for the age filter; `pins.ts` keeps the pinned lists; `prStatus.ts` and `ui/PrPills.tsx` say where a PR stands and which PRs are your move; `bar.ts` and `ui/Bar.tsx` lay out the floating bar; `ui/Picker.tsx` is the quick panel's filterable menus; `ui/SettingsDialog.tsx` and `ui/AccountsSection.tsx` are Settings |
 | `scripts/preview.sh` | Headless preview against real data, for screenshots and scripted checks |
