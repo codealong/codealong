@@ -337,6 +337,16 @@ impl Client {
         self.ask(device, api::MARK_SEEN, json!({ "keys": keys }), ACT_WAIT).map(|_| ())
     }
 
+    /// Where each of `device`'s accounts can start a session, and the models it can ask for.
+    pub fn start_options(&self, device: &str) -> std::result::Result<api::StartOptions, String> {
+        read(self.ask(device, api::START_OPTIONS, json!({}), READ_WAIT)?)
+    }
+
+    /// Starts a session on `device`, in one of its worktrees (`spec.lane_id`, its own id there).
+    pub fn start_session(&self, device: &str, spec: &api::StartSpec) -> std::result::Result<api::Started, String> {
+        read(self.ask(device, api::START, json!({ "spec": spec }), ACT_WAIT)?)
+    }
+
     /// The linked devices, in the order they were linked.
     pub fn devices(&self) -> Vec<Device> {
         let st = self.0.lock();

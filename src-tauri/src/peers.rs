@@ -1396,6 +1396,7 @@ mod tests {
                     "session-page" => Ok(json!({ "items": [], "before": null, "after": 0, "key": params["key"] })),
                     "search" => Ok(json!({ "hits": [{ "key": "claude:claude:s1", "snippet": "the webhook", "you": true, "at": 5 }], "building": false, "off": false })),
                     "session-send" => Ok(json!({ "message": "Sent.", "opened": false })),
+                    "start-options" => Ok(json!({ "accounts": [{ "name": "claude", "harness": "claude", "places": [{ "place": "background", "label": "Background" }], "chosen": null, "unavailable": null, "defaultModel": "opus", "preferred": true }], "codexProjects": [], "claudeModels": [{ "id": "opus", "label": "Opus" }] })),
                     _ => Err(format!("no {method}")),
                 }
             }),
@@ -1491,6 +1492,11 @@ mod tests {
         assert_eq!(mac.asked.lock().unwrap().last().unwrap().1["key"], "claude:claude:s2");
         let refused = phone.send(&d.short, "claude:claude:s2", "hi").unwrap_err();
         assert!(refused.contains("Remote control is off on Mini"), "{refused}");
+        // Where it could start a session reads without remote control; starting one needs it.
+        let options = phone.start_options(&d.short).unwrap();
+        assert_eq!((options.accounts[0].name.as_str(), options.accounts[0].places[0].place), ("claude", codealong_peer::api::Place::Background));
+        let spec = codealong_peer::api::StartSpec { lane_id: "/Users/sam/app".into(), account: "claude".into(), place: codealong_peer::api::Place::Background, prompt: "Fix the build".into(), model: None, worktree: false, todos: vec![] };
+        assert!(phone.start_session(&d.short, &spec).unwrap_err().contains("Remote control is off on Mini"));
         // A phone has nothing to search, so a search on the Mac doesn't ask it.
         assert!(mac.peers.search(&["webhook".into()]).is_empty());
 

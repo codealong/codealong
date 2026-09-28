@@ -5,6 +5,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::model::Harness;
+
 /// The requests, by name.
 pub const SESSION_PAGE: &str = "session-page";
 pub const SESSION_NEWER: &str = "session-newer";
@@ -86,6 +88,137 @@ pub struct Sent {
     pub message: String,
     /// The session or its app was opened for you to send it there, rather than sent.
     pub opened: bool,
+}
+
+// ---- starting a session (`start-options`, `start`) ----
+
+/// Where a new session runs.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "kebab-case")]
+pub enum Place {
+    /// A new terminal window running the account's command.
+    Terminal,
+    /// Claude Code's background service (`--bg`), with no terminal; `attach` opens one later.
+    Background,
+    /// The Claude app's new-session page, with the folder and prompt filled in.
+    ClaudeApp,
+    /// A new thread in the Codex app, with the folder and prompt filled in.
+    CodexApp,
+    /// In Codealong itself, through the account's Agent Client Protocol adapter (acp.rs).
+    Codealong,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelOption {
+    /// What `--model` gets.
+    pub id: String,
+    pub label: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaceOption {
+    pub place: Place,
+    /// The app's name, the way buttons say it: Ghostty, Claude app, Codex app.
+    pub label: String,
+}
+
+/// An account as the new-session sheet offers it.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct StartAccount {
+    pub name: String,
+    pub harness: Harness,
+    /// Where this account can start a session, the usual place first: the one its `start`
+    /// setting names, when it has one.
+    pub places: Vec<PlaceOption>,
+    /// The place its `start` setting names. A start goes there rather than where the last
+    /// one went.
+    pub chosen: Option<Place>,
+    /// Why there's nowhere, when `places` is empty.
+    pub unavailable: Option<String>,
+    /// The model a session starts on without `--model`: the account's settings.json `model`.
+    pub default_model: Option<String>,
+    /// Its `preferred` setting: Auto starts it over accounts without one while it has room.
+    pub preferred: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct StartOptions {
+    /// In config order.
+    pub accounts: Vec<StartAccount>,
+    /// Folders the Codex app has as projects. A thread started anywhere else adds one.
+    pub codex_projects: Vec<String>,
+    /// The models a Claude Code start in the terminal can ask for.
+    pub claude_models: Vec<ModelOption>,
+}
+
+/// What the sheet asks for.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct StartSpec {
+    pub lane_id: String,
+    pub account: String,
+    pub place: Place,
+    #[serde(default)]
+    pub prompt: String,
+    /// `--model` for a terminal start; None starts on the account's default.
+    #[serde(default)]
+    pub model: Option<String>,
+    /// A terminal start in a new worktree Claude Code makes (`--worktree`). The apps have
+    /// their own worktree choice on their new-session pages.
+    #[serde(default)]
+    pub worktree: bool,
+    /// The todos this session is for, which it's linked to once it starts: one, or several
+    /// started together on one prompt. Older windows and commands send one as `todo`.
+    #[serde(default, alias = "todo", deserialize_with = "one_or_more")]
+    pub todos: Vec<String>,
+}
+
+/// A list of todo ids, or the one id (or null) that `todo` held.
+fn one_or_more<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<String>, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Ids {
+        One(String),
+        More(Vec<String>),
+    }
+    Ok(match Option::<Ids>::deserialize(d)? {
+        None => Vec::new(),
+        Some(Ids::One(id)) => vec![id],
+        Some(Ids::More(ids)) => ids,
+    })
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Started {
+    /// The new session's key when Codealong chose its ID, so the board can select it as soon
+    /// as it shows.
+    pub key: Option<String>,
+    /// What to do next, when the app is waiting on you.
+    pub message: Option<String>,
+}
+
+impl Place {
+    pub const ALL: [Place; 5] = [Place::Terminal, Place::Background, Place::ClaudeApp, Place::CodexApp, Place::Codealong];
+
+    /// As config.toml and the command line write it.
+    pub fn word(self) -> &'static str {
+        match self {
+            Place::Terminal => "terminal",
+            Place::Background => "background",
+            Place::ClaudeApp => "claude-app",
+            Place::CodexApp => "codex-app",
+            Place::Codealong => "codealong",
+        }
+    }
+
+    pub fn from_word(w: &str) -> Option<Place> {
+        Place::ALL.into_iter().find(|p| p.word() == w.trim())
+    }
 }
 
 #[cfg(test)]
