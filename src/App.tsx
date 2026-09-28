@@ -21,6 +21,7 @@ import { blockedBy, COLOR_WORD, depsOf, newTodo, pickTo, pickToggle, sectionOf, 
 import type { Bay, Board, DevicesView, Label, Lane, PrItem, Session, Theme, Todo, TodoStatus } from './types';
 import { byDevice, deviceOf, needsOn, shortOf, withDevices, type DeviceFilter } from './devices';
 import { snoozeMenu } from './snooze';
+import { queueAfter, statusTime, type Handled } from './quick';
 import { DeviceBadge } from './ui/DeviceBadge';
 import { LABEL_COLORS } from './types';
 import { SettingsDialog, type SettingsSection } from './ui/SettingsDialog';
@@ -35,7 +36,7 @@ import { useLogo } from './logo';
 import { PrInspector } from './ui/PrInspector';
 import { prIsOpen, prPlaces, prSections, PrsView, type PrRowItem } from './ui/PrsView';
 import { Resizer, usePanelWidth } from './ui/Resizer';
-import { SessionsView, timeSections, type SessionItem } from './ui/SessionsView';
+import { SessionsView, timeSections, waitingQueue, type SessionItem } from './ui/SessionsView';
 import { LabelDot } from './ui/TodoBits';
 import { TodoPanel, TodoPickPanel } from './ui/TodoPanel';
 import { TodoComposer, TodoView, type ComposerContext, type SelectHow } from './ui/TodoView';
@@ -737,6 +738,41 @@ export function App() {
     [visible, selected],
   );
 
+  // Working through what waits on you from a session's panel in Sessions: ⌘⏎ in its box sends (or
+  // allows the call it waits on) and goes on to the next listed that waits on you, and ⌘] skips to
+  // it; a skipped one comes round again after the rest. The ones dealt with stay out until they
+  // wait on you anew, since an allowed call isn't shown ahead of the board.
+  const waitingRows = useMemo(() => waitingQueue(shownSessions), [shownSessions]);
+  const handled = useRef<Handled>(new Map());
+  // How the last one went, on the panel of the one gone on to, for a moment.
+  const [queueNote, setQueueNote] = useState<{ key: string; text: string } | null>(null);
+  // The row gone on to, whose box takes the cursor.
+  const [boxFocus, setBoxFocus] = useState<string | null>(null);
+  // Read when an answer comes in, which can be after you've moved on by hand.
+  const waitingNow = useRef(waitingRows);
+  waitingNow.current = waitingRows;
+  const selectedNow = useRef(selected?.key);
+  selectedNow.current = selected?.key;
+  /** On from the session in row `from` to the next that waits on you, with what was done to it, or
+   *  none for a skip. With nothing left, the panel stays where it is. */
+  const goOn = (from: string, s: Session, done: string | null) => {
+    if (view !== 'sessions' || selectedNow.current !== from) return;
+    if (done) handled.current.set(s.key, statusTime(s));
+    const next = queueAfter(waitingNow.current, s.key, handled.current)[0];
+    if (!next) return;
+    setQueueNote(done ? { key: next.key, text: `${s.title}: ${done}` } : null);
+    setBoxFocus(next.key);
+    setSelectedKey(next.key);
+  };
+  useEffect(() => {
+    if (!queueNote) return;
+    const t = window.setTimeout(() => setQueueNote(null), 4000);
+    return () => window.clearTimeout(t);
+  }, [queueNote]);
+  useEffect(() => {
+    if (boxFocus && selected?.key !== boxFocus) setBoxFocus(null);
+  }, [selected?.key]);
+
   /** Archives a session (Codex threads in Codex itself), or unarchives it. */
   const setArchived = useCallback((key: string, archived: boolean, title: string) => {
     setUndo(archived ? { key, title } : null);
@@ -1300,7 +1336,7 @@ export function App() {
       const mod = e.metaKey;
       const key = e.key.toLowerCase();
       // So does a text field, a todo's title or description say, but for the window's own ⌘ keys.
-      if (inField(document.activeElement, searchRef.current) && !(mod && (key === 'k' || key === 'p' || e.key === ',' || (e.altKey && /^Digit\d$/.test(e.code))))) return;
+      if (inField(document.activeElement, searchRef.current) && !(mod && (key === 'k' || key === 'p' || e.key === ',' || (e.code === 'BracketRight' && view === 'sessions') || (e.altKey && /^Digit\d$/.test(e.code))))) return;
       if (mod && e.key === ',') {
         e.preventDefault();
         openSettings();
@@ -1308,6 +1344,13 @@ export function App() {
       }
       // Settings has the keyboard while it's open.
       if (settings) return;
+      // ⌘] skips to the next session that waits on you, from the panel's box too. ] goes by its
+      // key's code, which layouts that type it with ⌥ keep.
+      if (mod && !e.ctrlKey && !e.shiftKey && e.code === 'BracketRight' && view === 'sessions') {
+        e.preventDefault();
+        if (selected?.kind === 'agent') goOn(selected.key, selected.session, null);
+        return;
+      }
       if (mod && key === 'k') {
         e.preventDefault();
         searchRef.current?.focus();
@@ -1673,26 +1716,41 @@ export function App() {
     />
   );
 
-  /** A session's own panel: its last prompt and response, how to open it, its details. */
-  const sessionPanel = (lane: Lane, session: Session, back?: { label: string; onBack: () => void }) => (
-    <SessionPanel
-      key={session.key}
-      lane={lane}
-      session={session}
-      apps={board?.apps ?? { terminal: 'Terminal', terminalId: '', editor: 'Editor', editorId: '' }}
-      now={now}
-      onOpen={(id) => open(lane, id)}
-      onNewSession={() => newSession({ laneId: lane.id })}
-      onShowLane={showLaneFromPanel}
-      todos={todoLinks.bySession.get(session.key)}
-      onShowTodo={showTodoFromPanel}
-      onMoreMenu={(at) => void showContextMenu(sessionMenuSpec(lane, session, 'session'), at).catch((err: unknown) => setToast(String(err)))}
-      onSeen={() => seen(session)}
-      device={deviceOf(devices, session.key)}
-      back={back}
-      onSendFailed={(why) => setToast(`Didn’t send to ${session.title}, so it’s back in its box: ${why}`)}
-    />
-  );
+  /** A session's own panel: its last prompt and response, how to open it, its details. Given its
+   *  row in Sessions, it works through what waits on you from there. */
+  const sessionPanel = (lane: Lane, session: Session, back?: { label: string; onBack: () => void }, row?: string) => {
+    // In Sessions it works through what waits on you: what's left after it, and how the last went.
+    const note = row !== undefined && queueNote?.key === row ? { text: queueNote.text, error: false } : null;
+    const left = row !== undefined ? queueAfter(waitingRows, session.key, handled.current) : [];
+    const queued = row !== undefined && (!!note || waitingRows.some((r) => r.key === row));
+    return (
+      <SessionPanel
+        key={session.key}
+        lane={lane}
+        session={session}
+        apps={board?.apps ?? { terminal: 'Terminal', terminalId: '', editor: 'Editor', editorId: '' }}
+        now={now}
+        onOpen={(id) => open(lane, id)}
+        onNewSession={() => newSession({ laneId: lane.id })}
+        onShowLane={showLaneFromPanel}
+        todos={todoLinks.bySession.get(session.key)}
+        onShowTodo={showTodoFromPanel}
+        onMoreMenu={(at) => void showContextMenu(sessionMenuSpec(lane, session, 'session'), at).catch((err: unknown) => setToast(String(err)))}
+        onSeen={() => seen(session)}
+        device={deviceOf(devices, session.key)}
+        back={back}
+        onSendFailed={(why) => {
+          // Not dealt with after all: it comes round again.
+          handled.current.delete(session.key);
+          setToast(`Didn’t send to ${session.title}, so it’s back in its box: ${why}`);
+        }}
+        queue={row !== undefined && queued ? { left: left.length, next: left[0]?.session ?? null, onNext: () => goOn(row, session, null) } : undefined}
+        notice={note}
+        onDone={row !== undefined ? (done) => goOn(row, session, done) : undefined}
+        autoFocus={row !== undefined && boxFocus === row}
+      />
+    );
+  };
   /** The session a PR's or todo's panel was asked to show, in its place, with the way back. */
   const drilledPanel = (from: string, label: string) => {
     if (drill?.from !== from) return null;
@@ -2188,7 +2246,7 @@ export function App() {
             </aside>
           )
         ) : view === 'sessions' && selected?.kind === 'agent' ? (
-          sessionPanel(selected.lane, selected.session)
+          sessionPanel(selected.lane, selected.session, undefined, selected.key)
         ) : (
           inspector(selectedLane, selected?.kind === 'agent' ? selected.session.key : null)
         )}

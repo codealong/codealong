@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Lane, Session } from '../types';
-import { timeSections, type SessionItem } from './SessionsView';
+import { timeSections, waitingQueue, type SessionItem } from './SessionsView';
 
 const item = (key: string, lastActivity: number, status: Session['status'] = 'idle', lastPromptAt = lastActivity, statusSince: number | null = null): SessionItem => ({
   kind: 'agent',
@@ -62,5 +62,22 @@ describe('timeSections', () => {
       ['Snoozed', ['soon', 'quiet', 'later']],
       ['Today', ['idle']],
     ]);
+  });
+});
+
+describe('waitingQueue', () => {
+  it('lists what waits on you in the sections\' order, pinned ones too, and leaves snoozed ones to wait', () => {
+    const at = (d: number, h: number) => new Date(2026, 8, d, h, 0).getTime();
+    const rows = [
+      item('idle', at(24, 14)),
+      item('busy', at(24, 12), 'working', at(24, 11), at(24, 11)),
+      item('turn-old', at(24, 9), 'unread', at(24, 9), at(24, 9)),
+      item('turn-new', at(24, 13), 'unread', at(24, 13), at(24, 13)),
+      item('blocked', at(24, 12), 'needs', at(24, 11), at(24, 12)),
+      item('failed', at(23, 8), 'error', at(23, 8), at(23, 8)),
+    ];
+    const later = item('later', at(24, 12), 'needs', at(24, 11), at(24, 10));
+    rows.push({ ...later, session: { ...later.session, snoozedUntil: at(24, 18) } });
+    expect(waitingQueue(rows).map((r) => r.session.key)).toEqual(['failed', 'blocked', 'turn-new', 'turn-old']);
   });
 });

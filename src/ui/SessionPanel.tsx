@@ -1,6 +1,10 @@
 // A session's own panel, on the canvas and in Sessions: where it stands and how to open it at
 // the top, its whole conversation in the middle (SessionThread.tsx), and at the bottom a box that
 // sends it a message where it runs, or what it waits on you to allow (SessionReply.tsx).
+//
+// In Sessions it works through what waits on you: ⌘⏎ in the box sends (or allows the call the
+// session waits on) and goes on to the next, ⌘] skips to it, and a strip above the header says how
+// many more there are and how the last one went (ReplyView.tsx's).
 
 import { useState } from 'react';
 import { below } from '../contextMenu';
@@ -10,6 +14,7 @@ import { seenable } from '../lanes';
 import type { Board, DeviceView, Lane, Session, Todo } from '../types';
 import { STATUS_WORD as TODO_WORD } from '../todos';
 import { InsightChips } from './InsightBits';
+import { QueueStrip, type Notice, type Queue } from './ReplyView';
 import { OpenInMenu } from './Inspector';
 import { BranchLabel, Button, HarnessChip, Icon, Rich, STATUS_WORD, StatusGlyph } from './primitives';
 import { Reply } from './SessionReply';
@@ -39,15 +44,24 @@ interface SessionPanelProps {
   back?: { label: string; onBack: () => void };
   /** A message sent from here didn't go, and its panel had gone by then to say so. */
   onSendFailed?: (why: string) => void;
+  /** Working through what waits on you (Sessions): what's left after this one, and how the one
+   *  before went. */
+  queue?: Queue;
+  notice?: Notice | null;
+  /** Sent or allowed with ⌘⏎: on to the next, with what was done. */
+  onDone?: (done: string) => void;
+  /** Puts the cursor in the box, for a session gone on to from the one before. */
+  autoFocus?: boolean;
 }
 
-export function SessionPanel({ lane, session: s, apps, now, onOpen, onNewSession, onShowLane, todos, onShowTodo, onMoreMenu, onSeen, device, back, onSendFailed }: SessionPanelProps) {
+export function SessionPanel({ lane, session: s, apps, now, onOpen, onNewSession, onShowLane, todos, onShowTodo, onMoreMenu, onSeen, device, back, onSendFailed, queue, notice, onDone, autoFocus }: SessionPanelProps) {
   const [details, setDetails] = useState(false);
   const targets = lane.targets.filter((t) => t.id.startsWith(`s|${s.key}|`));
   const since = s.statusSince ? (s.status === 'working' ? `for ${duration(s.statusSince, now)}` : agoPhrase(s.statusSince, now)) : agoPhrase(s.lastActivity, now);
 
   return (
     <aside className="ca-insp ca-sessinsp" aria-label={`${s.title} details`}>
+      <QueueStrip queue={queue} notice={notice} />
       <header className="ca-sessinsp-head">
         {back && (
           <button type="button" className="ca-linkbtn ca-sessinsp-back" title={`Back to ${back.label}`} onClick={back.onBack}>
@@ -159,7 +173,7 @@ export function SessionPanel({ lane, session: s, apps, now, onOpen, onNewSession
           {device.name} doesn't take prompts from your other devices. To send from here, turn on <b>Let my linked devices act on sessions here</b> in Settings › Devices on {device.name}.
         </p>
       ) : (
-        <Reply session={s} terminal={apps.terminal} onOpen={() => onOpen(s.openTarget)} onFailed={onSendFailed} />
+        <Reply session={s} terminal={apps.terminal} onOpen={() => onOpen(s.openTarget)} onFailed={onSendFailed} autoFocus={autoFocus} onNext={queue?.next ? onDone : undefined} />
       )}
     </aside>
   );

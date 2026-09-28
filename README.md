@@ -40,7 +40,12 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     Code's by a keypress in its Ghostty or tmux tab, only while its own record says the prompt
     is up for that call. Others open where they run to be answered. The box stays meanwhile,
     keeping what you'd written, and Send works again once the session isn't waiting (a session
-    run In Codealong takes it at once, after its current turn).
+    run In Codealong takes it at once, after its current turn). To work through what waits on
+    you, ⌘⏎ in the box sends and goes on to the next session listed that waits on you (Needs
+    you the longest wait first, then Your turn), or, while the session waits on a call that can
+    be allowed here, allows it and goes on; ⏎ sends and stays. ⌘] skips to the next, and a
+    skipped one comes round again after the rest. A line at the top of the panel says how many
+    more wait on you and how the last one went.
   - **Worktrees**: each worktree once, pinned ones first in your order, then the rest by
     status: Needs you, Working, Your turn, In review, Idle, Merged. A worktree's row has a
     line for each agent that needs you, is working or just finished, which you select, open

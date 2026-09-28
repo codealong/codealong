@@ -39,6 +39,17 @@ function snoozedApart(s: Session): s is Session & { snoozedUntil: number } {
 }
 
 /**
+ * What a session's panel works through with ⌘⏎ and ⌘]: the sessions listed that wait on you,
+ * pinned ones too, Needs you the longest wait first, then Your turn the newest first, as their
+ * sections list them. Snoozed ones wait their time.
+ */
+export function waitingQueue(rows: SessionItem[]): SessionItem[] {
+  return ATTENTION.filter((g) => g.bay !== 'working').flatMap(({ statuses }) =>
+    rows.filter((r) => statuses.includes(r.session.status) && !snoozedApart(r.session)).sort((a, b) => byStatusTime(a.session, b.session) || a.key.localeCompare(b.key)),
+  );
+}
+
+/**
  * Needs you, Your turn and Working first, in the floating bar's order: Needs you the longest
  * wait first, the others the newest status first. Then Snoozed, the soonest back first. The
  * rest go under Today, Yesterday, Last 7 days and Older, by last activity in local time, the one

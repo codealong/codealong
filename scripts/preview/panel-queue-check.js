@@ -1,0 +1,123 @@
+// Checks the Sessions view's panel working through what waits on you (App.tsx `goOn`,
+// SessionsView.tsx `waitingQueue`): three sessions that need you, one of them on a call to allow,
+// and one whose turn ended. ⌘⏎ in the box sends and goes on, ⌘⏎ on the call allows it and goes
+// on, ⌘] skips, a skipped one comes round again, and a plain ⏎ sends and stays.
+//   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/panel-queue-check.js
+// Every step should say ok.
+(function () {
+  var out = [];
+  var say = function (t) { window.__t = t; };
+  setInterval(function () { if (window.__t) document.title = window.__t; }, 100);
+  var wait = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
+  var until = function (f, ms) {
+    var s = Date.now();
+    return new Promise(function (res, rej) {
+      (function p() { if (f()) return res(); if (Date.now() - s > ms) return rej(new Error('timeout')); setTimeout(p, 10); })();
+    });
+  };
+  var check = function (name, ok, why) { out.push(name + (ok ? ' ok' : ' FAIL') + (why ? ' (' + why + ')' : '')); };
+
+  // This runs before the app's script: the board it gets has four sessions waiting on you, made
+  // from real ones, and nothing else waiting. The second waits on a call to allow.
+  localStorage.setItem('codealong.project', 'All projects');
+  var now = Date.now();
+  var plan = [
+    { status: 'needs', since: now - 3 * 3600e3, asks: true },
+    { status: 'needs', since: now - 3600e3, asks: false },
+    { status: 'needs', since: now - 5 * 60e3, asks: true },
+    { status: 'unread', since: now - 10 * 60e3, asks: false },
+  ];
+  var picked = [];
+  var real = window.__TAURI_INTERNALS__.invoke;
+  window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {
+    if (cmd === 'session_pending' && picked[1] && (args || {}).key === picked[1].key) {
+      window.__calls.push([cmd, args, options]);
+      return Promise.resolve({ id: 'p1', label: 'Run `git push`', input: 'git push origin HEAD:main', cannot: null });
+    }
+    var p = real(cmd, args, options);
+    if (cmd !== 'get_board') return p;
+    return p.then(function (board) {
+      var seen = {};
+      board.lanes.forEach(function (l) {
+        l.sessions.forEach(function (s) {
+          if (s.status === 'needs' || s.status === 'error' || s.status === 'unread') s.status = 'idle';
+          s.snoozedUntil = undefined;
+          if (l.hidden || s.visitor || s.archived || seen[s.key] || picked.length >= plan.length) return;
+          seen[s.key] = true;
+          var p = plan[picked.length];
+          s.status = p.status;
+          s.statusSince = p.since;
+          s.lastActivity = p.since;
+          s.asks = p.asks;
+          s.hosted = false;
+          s.title = 'Queue ' + 'ABCD'[picked.length];
+          picked.push({ key: s.key, lane: l.id });
+        });
+      });
+      return board;
+    });
+  };
+
+  var title = function () { var t = document.querySelector('.ca-sessinsp-title'); return t ? t.textContent : null; };
+  var strip = function () { var t = document.querySelector('.ca-sessinsp .ca-reply-queue-note'); return t ? t.textContent : ''; };
+  var note = function () { var t = document.querySelector('.ca-sessinsp .ca-composer:not(.is-approval) .ca-composer-note'); return t ? t.textContent : ''; };
+  var box = function () { return document.querySelector('.ca-sessinsp .ca-composer textarea'); };
+  var row = function (i) { return document.getElementById('row-' + picked[i].lane + '::' + picked[i].key); };
+  var key = function (el, init) { el.dispatchEvent(new KeyboardEvent('keydown', Object.assign({ bubbles: true, cancelable: true }, init))); };
+  var type = function (el, text) {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(el, text);
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  };
+  var calls = function (cmd) { return window.__calls.filter(function (c) { return c[0] === cmd; }); };
+  var on = function (name) { return until(function () { return title() === name; }, 3000).catch(function () {}); };
+
+  say('panel queue check: waiting for the list');
+  until(function () { return picked.length === plan.length && row(0); }, 20000)
+    .then(function () { return wait(300); })
+    .then(function () {
+      row(0).dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+      return on('Queue A');
+    })
+    .then(function () {
+      check('a session that waits on you shows what’s left', /3 more waiting on you/.test(strip()), strip());
+      check('the box says what ⌘⏎ does', /⌘⏎ sends, then goes to the next/.test(note()), note());
+      type(box(), 'Yes, go ahead.');
+      key(box(), { key: 'Enter', metaKey: true });
+      return on('Queue B');
+    })
+    .then(function () {
+      check('⌘⏎ sends and goes on to the next', title() === 'Queue B' && calls('send_to_session').length === 1, title());
+      check('and says it went', /Queue A: sent/.test(strip()), strip());
+      check('the next one’s box has the cursor', document.activeElement === box());
+      return until(function () { return document.querySelector('.ca-sessinsp .ca-composer.is-approval'); }, 3000).then(function () { return wait(50); });
+    })
+    .then(function () {
+      check('the box says ⌘⏎ allows', /⌘⏎ allows it, then goes to the next/.test(note()), note());
+      key(box(), { key: 'Enter', metaKey: true });
+      return on('Queue C');
+    })
+    .then(function () {
+      var answer = calls('session_answer')[0];
+      check('⌘⏎ on a call allows it and goes on', title() === 'Queue C' && !!answer && answer[1].answer === 'allow', title());
+      check('and says how that went', /Queue B: Allowed/.test(strip()), strip());
+      key(box(), { key: ']', code: 'BracketRight', metaKey: true });
+      return on('Queue D');
+    })
+    .then(function () {
+      check('⌘] skips to the next, from the box', title() === 'Queue D', title());
+      key(box(), { key: ']', code: 'BracketRight', metaKey: true });
+      return on('Queue C');
+    })
+    .then(function () {
+      check('a skipped one comes round again, the ones dealt with don’t', title() === 'Queue C', title());
+      type(box(), 'Thanks.');
+      key(box(), { key: 'Enter' });
+      return wait(500);
+    })
+    .then(function () {
+      check('a plain ⏎ sends and stays', title() === 'Queue C' && calls('send_to_session').length === 2, title());
+      check('no strip once it no longer waits on you', !document.querySelector('.ca-sessinsp .ca-reply-queue'), strip());
+    })
+    .catch(function (e) { check('ran', false, String(e) + ' at ' + title()); })
+    .then(function () { say('done: ' + out.join('; ')); });
+})();

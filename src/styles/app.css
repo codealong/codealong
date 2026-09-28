@@ -5162,6 +5162,10 @@ html.is-quick body {
 .ca-reply-queue .ca-btn {
   flex: none;
 }
+/* In a session's panel (Sessions), lined up with the panel's header. */
+.ca-sessinsp .ca-reply-queue {
+  padding: 4px 12px 4px var(--space-4);
+}
 .ca-reply .ca-thread {
   padding: var(--space-3) var(--space-3) var(--space-3) 14px;
 }

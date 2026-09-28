@@ -43,10 +43,37 @@ interface ReplyViewProps {
   onAnswered?: (said: string) => void;
   /** Once the conversation's first page is laid out. */
   onLoaded?: () => void;
-  /** Working through what waits on you: how many are left after this one, and the next. */
-  queue?: { left: number; next: Session | null; onNext: () => void };
-  /** How the one before went: sent, or why it didn't go. */
-  notice?: { text: string; error: boolean } | null;
+  queue?: Queue;
+  notice?: Notice | null;
+}
+
+/** Working through what waits on you: how many are left after this one, and the next. */
+export interface Queue {
+  left: number;
+  next: Session | null;
+  onNext: () => void;
+}
+/** How the one before went: sent, or why it didn't go. */
+export type Notice = { text: string; error: boolean };
+
+/** Above a session answered in turn: how the one before went, else how many more wait on you, and
+ *  the way on to the next (⌘]). The quick panel's reply view and the main window's session panel
+ *  show it. */
+export function QueueStrip({ queue, notice }: { queue?: Queue; notice?: Notice | null }) {
+  const next = queue?.next;
+  if (!notice && !next) return null;
+  return (
+    <div className="ca-reply-queue">
+      <span className={`ca-reply-queue-note${notice?.error ? ' is-error' : ''}`} role="status">
+        {notice ? notice.text : `${queue?.left} more waiting on you`}
+      </span>
+      {next && queue && (
+        <Button variant="ghost" size="sm" kbd={['⌘', ']']} title={`Next: ${next.title}`} onClick={queue.onNext}>
+          {notice ? `${queue.left} more` : 'Next'}
+        </Button>
+      )}
+    </div>
+  );
 }
 
 /** The open button's words: the lane's own for the session, else where it opens. */
@@ -60,21 +87,9 @@ export function ReplyView({ lane, session: s, terminal, now, onOpen, onReveal, o
   const since = s.statusSince ? (s.status === 'working' ? `for ${duration(s.statusSince, now)}` : agoPhrase(s.statusSince, now)) : agoPhrase(s.lastActivity, now);
   const snoozed = s.snoozedUntil ? ` · snoozed until ${untilWords(s.snoozedUntil, now)}` : '';
   const status = (s.stalledSince ? `Quiet since ${agoPhrase(s.stalledSince, now)}` : `${s.asks ? 'Asks you' : STATUS_WORD[s.status]} ${since}`) + snoozed;
-  const next = queue?.next;
   return (
     <div className="ca-reply">
-      {(notice || next) && (
-        <div className="ca-reply-queue">
-          <span className={`ca-reply-queue-note${notice?.error ? ' is-error' : ''}`} role="status">
-            {notice ? notice.text : `${queue?.left} more waiting on you`}
-          </span>
-          {next && queue && (
-            <Button variant="ghost" size="sm" kbd={['⌘', ']']} title={`Next: ${next.title}`} onClick={queue.onNext}>
-              {notice ? `${queue.left} more` : 'Next'}
-            </Button>
-          )}
-        </div>
-      )}
+      <QueueStrip queue={queue} notice={notice} />
       <header className="ca-reply-head">
         {onBack && <Button variant="ghost" size="sm" icon="chevron-left" aria-label="Back" title="Back to the list (Esc)" onClick={onBack} />}
         <StatusGlyph status={s.status} size={12} />

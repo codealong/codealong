@@ -68,7 +68,8 @@ function sessionsIn(board: Board, project: string): { lane: Lane; session: Sessi
   return out;
 }
 
-const since = (s: Session) => s.statusSince ?? s.lastActivity;
+/** When a session's status last changed, as `Handled` keeps it. */
+export const statusTime = (s: Session) => s.statusSince ?? s.lastActivity;
 
 /** The empty panel's list: sessions that need you, the longest wait first, then those whose
  *  turn ended, the newest first, as on the floating bar; with neither, the ones working.
@@ -105,14 +106,15 @@ export type Handled = Map<string, number>;
 /**
  * What's left to answer after the session `key`: those after it in the queue, then those before
  * it (the ones you skipped), without it and the ones you've dealt with. The first is the one
- * the view shows next.
+ * the view shows next. The quick panel's reply view and the main window's session panel both go
+ * by it, each with its own rows.
  */
-export function queueAfter(queue: SessionRow[], key: string, handled: Handled): SessionRow[] {
-  const i = queue.findIndex((r) => r.key === key);
+export function queueAfter<T extends { session: Session }>(queue: T[], key: string, handled: Handled): T[] {
+  const i = queue.findIndex((r) => r.session.key === key);
   const order = i < 0 ? queue : [...queue.slice(i + 1), ...queue.slice(0, i)];
   return order.filter((r) => {
-    const at = handled.get(r.key);
-    return r.key !== key && (at === undefined || since(r.session) > at);
+    const at = handled.get(r.session.key);
+    return r.session.key !== key && (at === undefined || statusTime(r.session) > at);
   });
 }
 
@@ -124,7 +126,7 @@ export function queueAfter(queue: SessionRow[], key: string, handled: Handled): 
 export function recentRows(board: Board, project: string, shown: Set<string>, now: number, limit = RECENT_SESSIONS): { rows: SessionRow[]; count: number } {
   const recent = sessionsIn(board, project)
     .filter(({ session: s }) => !shown.has(s.key) && now - (s.startedAt ?? s.lastActivity) <= RECENT_MS)
-    .sort((a, b) => since(b.session) - since(a.session) || a.session.key.localeCompare(b.session.key));
+    .sort((a, b) => statusTime(b.session) - statusTime(a.session) || a.session.key.localeCompare(b.session.key));
   const rows = recent.slice(0, limit).map(({ lane, session }): SessionRow => ({ kind: 'session', key: session.key, group: 'recent', lane, session, marks: [] }));
   return { rows, count: recent.length };
 }
