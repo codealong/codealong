@@ -21,6 +21,12 @@ export function perfMark(line: string): void {
   if (inTauri) void invoke('perf_mark', { line });
 }
 
+/** Pops up a menu made with `Menu.new` at `at` (logical window coordinates) or the pointer, and
+ *  resolves when it has closed. */
+export async function popupMenu(rid: number, at?: { x: number; y: number }): Promise<void> {
+  await invoke('popup_menu', { rid, at: at ? { Logical: at } : null });
+}
+
 /** Calls `cb` with every board the engine publishes. Returns an unsubscribe function. */
 export function onBoard(cb: (board: Board) => void): () => void {
   if (!inTauri) return () => {};

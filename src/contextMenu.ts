@@ -1,9 +1,8 @@
 // Native context menus (right-click), through Tauri's menu API. Outside the app, in a browser
 // preview, there's no native menu and right-click does nothing.
 
-import { LogicalPosition } from '@tauri-apps/api/dpi';
 import { Menu, type MenuOptions } from '@tauri-apps/api/menu';
-import { inTauri } from './api';
+import { inTauri, popupMenu } from './api';
 
 export interface MenuAction {
   label: string;
@@ -39,7 +38,9 @@ export async function showContextMenu(items: MenuSpec, at?: { x: number; y: numb
   if (!inTauri || items.length === 0) return;
   const menu = await Menu.new({ items: options(items, 'ctx') });
   try {
-    await menu.popup(at ? new LogicalPosition(at.x, at.y) : undefined);
+    // Not menu.popup(): Tauri's keeps a lock the next right-click's Menu.new needs while the
+    // menu is open, which hung the app (popup_menu in lib.rs).
+    await popupMenu(menu.rid, at);
   } finally {
     await menu.close();
   }

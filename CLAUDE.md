@@ -719,6 +719,12 @@ Tauri and macOS (from the Tauri 2.11 and tao 0.35 sources)
   `KeyboardShortcuts_<name>` = `{carbonKeyCode, carbonModifiers}` (ChatGPT in `com.openai.chat`,
   Maccy in its sandbox container), macOS in `com.apple.symbolichotkeys`, which lists only the
   ones changed from their defaults.
+- A context menu runs its own event loop on the main thread until it closes, and the page's IPC
+  goes on being served inside it. Tauri's `plugin:menu|popup` (2.11.6, the same in 2.12.0)
+  holds the webview's resource table lock all that time, and `Menu.new` and a resource's
+  `close`, commands without `async`, take it on the main thread: a burst of right-clicks hung
+  the app for good (2026-09-28; a `sample` showed the main thread in `popUpMenuPositioningItem`
+  waiting on a mutex). `popup_menu` in lib.rs lets go of the lock before popping up.
 - The background computer-use tools click through raw input: the app comes forward for a moment
   and the one before is put back, which takes the keyboard from the quick panel and hides it.
   `screencapture -l <window id>` captures a window of Codealong's alone, even ordered out.
