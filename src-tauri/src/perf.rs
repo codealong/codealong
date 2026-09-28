@@ -84,6 +84,33 @@ pub fn lag(what: &str, waited: Duration) {
     }
 }
 
+/// What a probe hands the main thread to run.
+pub type Probe = Box<dyn FnOnce() + Send>;
+
+/// One probe of the main thread: `post` hands it something to run there, and this waits for it.
+/// It returns how long that waited, one line's worth however long it was, or None when it never
+/// ran (the app is closing). While it waits, `stuck` is called at `stuck_after` and again at
+/// `hung_after`: the moments the main thread is stuck, and a sample shows on what.
+pub fn probe(post: impl FnOnce(Probe) -> bool, stuck_after: Duration, hung_after: Duration, mut stuck: impl FnMut(Duration)) -> Option<Duration> {
+    use std::sync::mpsc::RecvTimeoutError;
+    let t = std::time::Instant::now();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let ran: Probe = Box::new(move || {
+        let _ = tx.send(t.elapsed());
+    });
+    if !post(ran) {
+        return None;
+    }
+    for at in [stuck_after, hung_after] {
+        match rx.recv_timeout(at.saturating_sub(t.elapsed())) {
+            Ok(waited) => return Some(waited),
+            Err(RecvTimeoutError::Disconnected) => return None,
+            Err(RecvTimeoutError::Timeout) => stuck(at),
+        }
+    }
+    rx.recv().ok()
+}
+
 /// Where samples of a stuck main thread go.
 pub fn stalls_dir() -> PathBuf {
     home().join("Library/Logs/Codealong/stalls")
@@ -361,6 +388,42 @@ fn busiest_in(paths: &[PathBuf], home: &std::path::Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A probe against a stand-in main thread the test drives: what's posted comes out of a
+    /// channel, and the test runs it once the probe has said it's stuck as often as asked.
+    fn probe_stuck_until(moments: usize) -> (Option<Duration>, Vec<Duration>) {
+        let (stuck_after, hung_after) = (Duration::from_millis(50), Duration::from_millis(150));
+        let (post_tx, posted) = std::sync::mpsc::channel::<Probe>();
+        let (said_tx, said) = std::sync::mpsc::channel::<Duration>();
+        let prober = std::thread::spawn(move || {
+            probe(move |p| post_tx.send(p).is_ok(), stuck_after, hung_after, |after| {
+                let _ = said_tx.send(after);
+            })
+        });
+        let run = posted.recv().unwrap();
+        let heard: Vec<Duration> = (0..moments).map(|_| said.recv().unwrap()).collect();
+        run();
+        (prober.join().unwrap(), heard)
+    }
+
+    #[test]
+    fn probes_say_when_the_main_thread_is_stuck_and_for_how_long() {
+        // Stuck past the first moment: that's when it's sampled, and the whole wait is logged.
+        let (waited, heard) = probe_stuck_until(1);
+        assert_eq!(heard, [Duration::from_millis(50)]);
+        assert!(waited.unwrap() >= Duration::from_millis(50));
+        // Frozen: sampled again at the second.
+        let (waited, heard) = probe_stuck_until(2);
+        assert_eq!(heard, [Duration::from_millis(50), Duration::from_millis(150)]);
+        assert!(waited.unwrap() >= Duration::from_millis(150));
+        // A probe the main thread drops (the app closing), or that can't be posted, says nothing.
+        let dropped = probe(|p| {
+            drop(p);
+            true
+        }, Duration::from_secs(5), Duration::from_secs(10), |_| panic!("dropped, not stuck"));
+        assert_eq!(dropped, None);
+        assert_eq!(probe(|_| false, Duration::from_secs(5), Duration::from_secs(10), |_| panic!("never posted")), None);
+    }
 
     const BUSY: &str = "Analysis of sampling codealong (pid 1) every 5 milliseconds
 Load Address:    0x10092c000

@@ -897,7 +897,6 @@ const CLOSE_IDLE_MENU_ID: &str = "close-idle";
 /// One still waiting after a second is stuck at that moment, so it's sampled then (a lag line
 /// comes only once it's over): the sample says what it's stuck on (perf::sample_stall).
 fn watch_main_thread(app: tauri::AppHandle) {
-    use std::sync::mpsc::RecvTimeoutError;
     use std::time::{Duration, Instant};
     // A probe still waiting this long means the main thread is stuck right now.
     const STUCK: Duration = Duration::from_secs(1);
@@ -913,37 +912,16 @@ fn watch_main_thread(app: tauri::AppHandle) {
             if !perf::enabled() {
                 continue;
             }
-            // One probe at a time, so a long stall is one line with its whole length.
-            let t = Instant::now();
-            let (tx, rx) = std::sync::mpsc::channel();
-            let probe = move || {
-                let _ = tx.send(t.elapsed());
-            };
-            if app.run_on_main_thread(probe).is_err() {
-                continue;
-            }
-            let waited = match rx.recv_timeout(STUCK) {
-                Ok(w) => w,
-                Err(RecvTimeoutError::Disconnected) => continue,
-                Err(RecvTimeoutError::Timeout) => {
-                    if sampled.is_none_or(|s| s.elapsed() >= SAMPLE_GAP) {
-                        sampled = Some(Instant::now());
-                        perf::sample_stall("main thread stuck for 1 s".into());
-                    }
-                    match rx.recv_timeout(HUNG - STUCK) {
-                        Ok(w) => w,
-                        Err(RecvTimeoutError::Disconnected) => continue,
-                        Err(RecvTimeoutError::Timeout) => {
-                            perf::sample_stall("main thread stuck for 10 s".into());
-                            match rx.recv() {
-                                Ok(w) => w,
-                                Err(_) => continue,
-                            }
-                        }
-                    }
+            let post = |probe: perf::Probe| app.run_on_main_thread(probe).is_ok();
+            let waited = perf::probe(post, STUCK, HUNG, |after| {
+                if after >= HUNG || sampled.is_none_or(|s| s.elapsed() >= SAMPLE_GAP) {
+                    sampled = Some(Instant::now());
+                    perf::sample_stall(format!("main thread stuck for {} s", after.as_secs()));
                 }
-            };
-            perf::lag("main thread", waited);
+            });
+            if let Some(w) = waited {
+                perf::lag("main thread", w);
+            }
         }
     });
 }
