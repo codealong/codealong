@@ -744,6 +744,22 @@ mod tests {
         }
     }
 
+    /// Against a real adapter: `CODEALONG_TEST_ACP_RESUME=<key of a session in hosted.json>
+    /// cargo test acp_resumes -- --ignored --nocapture`. Sends to a session this process never
+    /// started, as after a restart: it's resumed in a new adapter process first.
+    #[test]
+    #[ignore]
+    fn acp_resumes_a_session() {
+        let Ok(key) = std::env::var("CODEALONG_TEST_ACP_RESUME") else { return };
+        let cfg = config::load().unwrap().unwrap_or_default();
+        init(|_| {});
+        let account = state().sessions.get(&key).expect("a remembered session").account.clone();
+        let a = cfg.accounts.iter().find(|x| x.name == account).unwrap().clone();
+        println!("{}", send(&a, &key, "What was the last thing I asked you? Answer in one short sentence.").unwrap());
+        wait_until("the turn to end", 180, || !state().sessions[&key].running);
+        assert!(state().sessions[&key].error.is_none(), "{:?}", state().sessions[&key].error);
+    }
+
     /// Against a real adapter: `CODEALONG_TEST_ACP=<account> CODEALONG_TEST_ACP_DIR=<folder>
     /// cargo test acp_runs -- --ignored --nocapture`. Starts a session, has it ask to run a
     /// command in its manual mode, denies it, then sends it a follow-up. The session stays in
