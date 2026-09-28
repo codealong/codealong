@@ -69,6 +69,7 @@ const landed = new Map<string, Note>();
 
 /** Sends `text` to a session; its draft goes once it's through. */
 function fly(key: string, text: string): Promise<Sent> {
+  landed.delete(key);
   const flight = sendToSession(key, text).then((sent) => {
     writeDraft(key, '');
     return sent;
@@ -91,11 +92,12 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSent }: Composer
   // This session's send on its way, from this box or from one showing before it.
   const [flight, setFlight] = useState<Promise<Sent> | null>(() => flights.get(s.key) ?? null);
   const sending = flight !== null;
-  const [note, setNote] = useState<Note | null>(() => {
-    const n = flights.has(s.key) ? undefined : landed.get(s.key);
+  const [note, setNote] = useState<Note | null>(() => (flights.has(s.key) ? null : (landed.get(s.key) ?? null)));
+  // Said here, so no later box says it again. (An effect, not the initializer: StrictMode mounts
+  // a box twice in development and keeps the second.)
+  useEffect(() => {
     landed.delete(s.key);
-    return n ?? null;
-  });
+  }, [s.key]);
   const box = useRef<HTMLTextAreaElement>(null);
   const sentNow = useRef(onSent);
   sentNow.current = onSent;
