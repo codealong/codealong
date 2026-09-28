@@ -1,7 +1,9 @@
 // Checks the Sessions view's panel working through what waits on you (App.tsx `goOn`,
 // SessionsView.tsx `waitingQueue`): three sessions that need you, one of them on a call to allow,
 // and one whose turn ended. ⌘⏎ in the box sends and goes on, ⌘⏎ on the call allows it and goes
-// on, ⌘] skips, a skipped one comes round again, and a plain ⏎ sends and stays.
+// on, ⌘] skips, a skipped one comes round again, and a plain ⏎ sends and stays. Clicking a row
+// puts the cursor in the box, and Escape there gives the list its keys back. (A synthetic press
+// doesn't focus the list first as a real one does.)
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/panel-queue-check.js
 // Every step should say ok.
 (function () {
@@ -76,11 +78,12 @@
     .then(function () { return wait(300); })
     .then(function () {
       row(0).dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-      return on('Queue A');
+      return on('Queue A').then(function () { return wait(50); });
     })
     .then(function () {
+      check('clicking a row puts the cursor in its box', document.activeElement === box());
       check('a session that waits on you shows what’s left', /3 more waiting on you/.test(strip()), strip());
-      check('the box says what ⌘⏎ does', /⌘⏎ sends, then goes to the next/.test(note()), note());
+      check('the box says what ⌘⏎ does', /⌘⏎ send \+ next/.test(note()), note());
       type(box(), 'Yes, go ahead.');
       key(box(), { key: 'Enter', metaKey: true });
       return on('Queue B');
@@ -92,7 +95,7 @@
       return until(function () { return document.querySelector('.ca-sessinsp .ca-composer.is-approval'); }, 3000).then(function () { return wait(50); });
     })
     .then(function () {
-      check('the box says ⌘⏎ allows', /⌘⏎ allows it, then goes to the next/.test(note()), note());
+      check('the box says ⌘⏎ allows', /⌘⏎ allow \+ next/.test(note()), note());
       key(box(), { key: 'Enter', metaKey: true });
       return on('Queue C');
     })
@@ -117,6 +120,8 @@
     .then(function () {
       check('a plain ⏎ sends and stays', title() === 'Queue C' && calls('send_to_session').length === 2, title());
       check('no strip once it no longer waits on you', !document.querySelector('.ca-sessinsp .ca-reply-queue'), strip());
+      key(box(), { key: 'Escape' });
+      check('Escape in the box gives the list its keys back', document.activeElement === document.querySelector('[role="listbox"]'), document.activeElement && document.activeElement.className);
     })
     .catch(function (e) { check('ran', false, String(e) + ' at ' + title()); })
     .then(function () { say('done: ' + out.join('; ')); });

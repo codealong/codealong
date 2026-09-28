@@ -249,8 +249,8 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
 
 /** What the box's keys do, below it. */
 function hint(waiting: boolean | undefined, next: boolean, allowNext: boolean): string {
-  if (waiting) return allowNext ? '⌘⏎ allows it, then goes to the next · send this once it isn’t waiting on you' : 'Send this once it isn’t waiting on you';
-  return next ? '⏎ sends · ⌘⏎ sends, then goes to the next · ⇧⏎ new line' : '⏎ sends · ⇧⏎ new line';
+  if (waiting) return allowNext ? '⌘⏎ allow + next · send this once it isn’t waiting on you' : 'Send this once it isn’t waiting on you';
+  return next ? '⏎ send · ⌘⏎ send + next · ⇧⏎ new line' : '⏎ sends · ⇧⏎ new line';
 }
 
 interface ApprovalProps {

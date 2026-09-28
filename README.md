@@ -45,7 +45,8 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     you the longest wait first, then Your turn), or, while the session waits on a call that can
     be allowed here, allows it and goes on; ⏎ sends and stays. ⌘] skips to the next, and a
     skipped one comes round again after the rest. A line at the top of the panel says how many
-    more wait on you and how the last one went.
+    more wait on you and how the last one went. Clicking a session puts the cursor in its box;
+    moving along the list with the keys leaves them there, and Escape in the box gives them back.
   - **Worktrees**: each worktree once, pinned ones first in your order, then the rest by
     status: Needs you, Working, Your turn, In review, Idle, Merged. A worktree's row has a
     line for each agent that needs you, is working or just finished, which you select, open

@@ -6,7 +6,7 @@
 import { deviceLabel } from '../devices';
 import { DeviceBadge } from './DeviceBadge';
 import { memoRow } from './memoRow';
-import type { PointerEvent as ReactPointerEvent } from 'react';
+import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
 import { absolute, ago, agoPhrase, middleTruncate, untilShort } from '../format';
 import { AGENT_BAY, withoutAccount, type AgentItem, type WorktreeRow } from '../lanes';
 import { untilWords } from '../snooze';
@@ -360,7 +360,7 @@ interface AgentRowProps {
   domId: string;
   now: number;
   selected: boolean;
-  onSelect: () => void;
+  onSelect: (e: ReactMouseEvent) => void;
   onOpen: () => void;
   pinned?: boolean;
   /** Right-click: the session's menu (open, pin, archive…). */

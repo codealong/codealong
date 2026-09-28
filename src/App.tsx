@@ -772,6 +772,17 @@ export function App() {
   useEffect(() => {
     if (boxFocus && selected?.key !== boxFocus) setBoxFocus(null);
   }, [selected?.key]);
+  // A session you click in Sessions is one you mean to answer: the cursor goes to its panel's box,
+  // once the click has given the list the keyboard, as a press does. Moving along the list with
+  // the keys leaves them with the list, and Escape in the box gives them back to it.
+  const listRef = useRef<HTMLDivElement>(null);
+  const focusBox = () =>
+    window.setTimeout(() => {
+      const el = document.querySelector<HTMLTextAreaElement>('.ca-sessinsp .ca-composer textarea');
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(el.value.length, el.value.length);
+    });
 
   /** Archives a session (Codex threads in Codex itself), or unarchives it. */
   const setArchived = useCallback((key: string, archived: boolean, title: string) => {
@@ -1335,6 +1346,13 @@ export function App() {
       const typing = document.activeElement === searchRef.current;
       const mod = e.metaKey;
       const key = e.key.toLowerCase();
+      // Escape in a session panel's box gives the list its keys back (a click on a row put them
+      // there).
+      if (e.key === 'Escape' && !e.isComposing && view === 'sessions' && document.activeElement?.closest('.ca-sessinsp .ca-composer')) {
+        e.preventDefault();
+        listRef.current?.focus();
+        return;
+      }
       // So does a text field, a todo's title or description say, but for the window's own ⌘ keys.
       if (inField(document.activeElement, searchRef.current) && !(mod && (key === 'k' || key === 'p' || e.key === ',' || (e.code === 'BracketRight' && view === 'sessions') || (e.altKey && /^Digit\d$/.test(e.code))))) return;
       if (mod && e.key === ',') {
@@ -2077,6 +2095,7 @@ export function App() {
             aria-activedescendant={selected ? domId(selected) : undefined}
             aria-multiselectable={view === 'todo' || undefined}
             tabIndex={0}
+            ref={listRef}
             className="ca-board-list"
           >
             {view === 'todo' && board && (
@@ -2155,7 +2174,10 @@ export function App() {
                 now={now}
                 selectedKey={selected?.key ?? null}
                 domId={domId}
-                onSelect={(r) => setSelectedKey(r.key)}
+                onSelect={(r, e) => {
+                  setSelectedKey(r.key);
+                  if (e.button === 0) focusBox();
+                }}
                 onOpen={(r) => {
                   setSelectedKey(r.key);
                   openRow(r);
