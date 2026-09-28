@@ -31,7 +31,7 @@ describe('plugin rows', () => {
     expect(pluginState(plugin({}), shipped)).toEqual({ label: 'Installed', tone: 'ok' });
     expect(pluginState(plugin({ version: '0.2.0+99999999' }), shipped)).toEqual({ label: 'Update available', tone: 'attn' });
     expect(pluginState(plugin({ version: null }), shipped)).toEqual({ label: 'Not installed', tone: 'attn' });
-    expect(pluginState(plugin({ disabled: true }), shipped).label).toBe('Turned off in Claude Code');
+    expect(pluginState(plugin({ disabled: true }), shipped).label).toBe('Turned off');
     expect(pluginState(plugin({ from: 'codealong/codealong', version: '0.2.0' }), shipped).label).toBe('Installed from elsewhere');
   });
 

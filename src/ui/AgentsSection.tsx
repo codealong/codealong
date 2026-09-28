@@ -28,7 +28,7 @@ export function skillAction(a: AccountSkill): string {
 /** The state word for a Claude Code account's plugin, against the version this build carries. */
 export function pluginState(p: PluginState, shipped: string | null): { label: string; tone: 'ok' | 'attn' | 'none' } {
   if (!p.version) return { label: 'Not installed', tone: 'attn' };
-  if (p.disabled) return { label: 'Turned off in Claude Code', tone: 'attn' };
+  if (p.disabled) return { label: 'Turned off', tone: 'attn' };
   if (p.from) return { label: 'Installed from elsewhere', tone: 'none' };
   if (shipped && p.version !== shipped) return { label: 'Update available', tone: 'attn' };
   return { label: 'Installed', tone: 'ok' };
@@ -165,7 +165,7 @@ export function AgentsSection() {
                   )}
                 </dl>
                 {p.from && <p className="ca-acct-note">It comes from another marketplace, so Codealong doesn’t update it. Use Codealong’s copy to install the one that comes with this app, which it keeps up to date.</p>}
-                {p.disabled && <p className="ca-acct-note">It’s installed but turned off, so its skill and hooks don’t run. Turn on switches it back on.</p>}
+                {p.disabled && <p className="ca-acct-note">It’s installed but not turned on, so its skill and hooks don’t run. Turn on switches it on.</p>}
                 {a.installed && (
                   <p className="ca-acct-note">
                     {a.edited

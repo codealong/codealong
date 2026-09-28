@@ -177,6 +177,13 @@ pub fn refresh_installed() {
                 eprintln!("Couldn't update the plugin in {}: {e:#}", home.display());
             }
         }
+        // Installed from Codealong's folder and not turned off by anyone, but not on either: the
+        // write that turned it on was lost.
+        if state.from.is_none() && enabled_entry(&home).is_none() {
+            if let Err(e) = claude_plugin(&home, &["enable", PLUGIN]) {
+                eprintln!("Couldn't turn the plugin on in {}: {e:#}", home.display());
+            }
+        }
         if let Err(e) = remove_skill_copy(a) {
             eprintln!("Couldn't take the skill copy out of {}: {e:#}", home.display());
         }
@@ -404,7 +411,9 @@ fn stage_marketplace_from(src: &Path, skill: Option<&Path>, dst: &Path) -> Resul
 pub struct PluginState {
     /// The version installed; None when it isn't.
     pub version: Option<String>,
-    /// Turned off in Claude Code (`/plugin`): installed, but its hooks and skill don't run.
+    /// Installed but not turned on: its hooks and skill don't run. Claude Code runs a plugin only
+    /// while settings.json's `enabledPlugins` says true: false is turned off (`/plugin`), and none
+    /// at all is a write that was lost (another process writing the file over, it looked like).
     pub disabled: bool,
     /// Where its marketplace is when it isn't Codealong's folder: a GitHub repo (`owner/name`), a
     /// URL or a folder. Codealong updates only the plugin it installed from its own.
@@ -423,7 +432,7 @@ fn plugin_state_in(home: &Path, ours: &Path) -> PluginState {
         let entries = v.get("plugins")?.get(PLUGIN)?.as_array()?.clone();
         entries.iter().find(|e| e.get("scope").and_then(Value::as_str) == Some("user"))?.get("version")?.as_str().map(String::from)
     });
-    let disabled = read(home.join("settings.json")).and_then(|s| s.get("enabledPlugins")?.get(PLUGIN)?.as_bool()) == Some(false);
+    let disabled = version.is_some() && enabled_entry(home) != Some(true);
     let from = marketplace_source(home).filter(|s| !is_ours(s, ours)).map(|s| {
         let f = |k: &str| s.get(k).and_then(Value::as_str).unwrap_or_default().to_string();
         match f("source").as_str() {
@@ -434,6 +443,12 @@ fn plugin_state_in(home: &Path, ours: &Path) -> PluginState {
         }
     });
     PluginState { version: version.clone(), disabled, from: from.filter(|_| version.is_some()) }
+}
+
+/// What settings.json's `enabledPlugins` says of the plugin: true, false, or nothing.
+fn enabled_entry(home: &Path) -> Option<bool> {
+    let s: Value = serde_json::from_str(&std::fs::read_to_string(home.join("settings.json")).ok()?).ok()?;
+    s.get("enabledPlugins")?.get(PLUGIN)?.as_bool()
 }
 
 /// Where the account's `codealong` marketplace comes from (`plugins/known_marketplaces.json`).
@@ -473,13 +488,12 @@ pub fn install_plugin(a: &AccountCfg) -> Result<()> {
     if !ours {
         claude_plugin(&home, &["marketplace", "add", &dir.to_string_lossy()])?;
     }
-    let state = plugin_state(&home);
-    if state.version.is_none() {
+    if plugin_state(&home).version.is_none() {
         claude_plugin(&home, &["install", PLUGIN])?;
     } else {
         claude_plugin(&home, &["update", PLUGIN])?;
     }
-    if state.disabled {
+    if plugin_state(&home).disabled {
         claude_plugin(&home, &["enable", PLUGIN])?;
     }
     remove_skill_copy(a)
@@ -660,10 +674,14 @@ mod tests {
         // As Claude Code 2.1.284 wrote them.
         write("plugins/installed_plugins.json", serde_json::json!({ "version": 2, "plugins": { PLUGIN: [{ "scope": "user", "installPath": "/x", "version": "0.2.0" }] } }));
         write("plugins/known_marketplaces.json", serde_json::json!({ MARKETPLACE: { "source": { "source": "directory", "path": ours }, "installLocation": ours } }));
+        // Installed, with nothing in settings.json saying it's on: Claude Code doesn't run it.
+        assert!(plugin_state_in(&home, &ours).disabled);
         write("settings.json", serde_json::json!({ "enabledPlugins": { PLUGIN: true } }));
         assert_eq!(plugin_state_in(&home, &ours), PluginState { version: Some("0.2.0".into()), disabled: false, from: None });
+        assert_eq!(enabled_entry(&home), Some(true));
         write("settings.json", serde_json::json!({ "enabledPlugins": { PLUGIN: false } }));
         assert!(plugin_state_in(&home, &ours).disabled);
+        assert_eq!(enabled_entry(&home), Some(false));
         write("plugins/known_marketplaces.json", serde_json::json!({ MARKETPLACE: { "source": { "source": "github", "repo": "codealong/codealong" } } }));
         assert_eq!(plugin_state_in(&home, &ours).from.as_deref(), Some("codealong/codealong"));
         let _ = std::fs::remove_dir_all(&root);

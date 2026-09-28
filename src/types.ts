@@ -407,7 +407,7 @@ export interface AccountSkill {
 export interface PluginState {
   /** The version installed; null when it isn't. */
   version: string | null;
-  /** Turned off in Claude Code: its hooks and skill don't run. */
+  /** Installed but not turned on in Claude Code: its hooks and skill don't run. */
   disabled: boolean;
   /** Where its marketplace is when it isn't Codealong's own (a GitHub repo, say). */
   from: string | null;
