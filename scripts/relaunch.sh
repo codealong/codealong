@@ -7,6 +7,9 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 export PATH="$HOME/.cargo/bin:$PATH"
 target="$(scripts/target-dir.sh)"
+# From any checkout, cargo and tauri build in the shared directory, which holds the lock below
+# and the app that gets opened.
+export CARGO_TARGET_DIR="$target"
 app="$target/release/bundle/macos/Codealong.app"
 lock="$target/relaunch.lock"
 mkdir -p "$target"

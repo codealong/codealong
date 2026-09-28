@@ -5,6 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 export PATH="$HOME/.cargo/bin:$PATH"
 target="$(scripts/target-dir.sh)"
+export CARGO_TARGET_DIR="$target"
 (cd src-tauri && cargo build --quiet)
 mkdir -p skills/codealong/references
 "$target/debug/codealong" reference > skills/codealong/references/reference.md

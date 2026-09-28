@@ -307,8 +307,9 @@ scripts/relaunch.sh    # build the bundle, then quit and reopen the app
 npm run snapshot       # print the board as a table without opening a window
 ```
 
-Builds go to `../codealong-target`, one directory shared by every checkout and worktree
-(`.cargo/config.toml`); `scripts/target-dir.sh` prints it. Tests: `npm test` (vitest),
+Builds go to `codealong-target` next to the main checkout, one directory shared by every
+checkout and worktree (`.cargo/config.toml`); `scripts/target-dir.sh` prints it and has
+worktrees inside the checkout build there too. Tests: `npm test` (vitest),
 `npm run typecheck`, and `cargo test` in `src-tauri`
 (model rules, parsers, git and GitHub parsing, usage, config writes, deep links, Ghostty
 scripts). `scripts/preview.sh` renders the UI in headless Chrome against your real data with

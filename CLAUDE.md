@@ -20,10 +20,15 @@ npm test                                # vitest (format, lanes, pins, sections)
 scripts/relaunch.sh                     # builds the bundle, then quits and reopens the app
 ```
 
-Every checkout and worktree builds into one directory, `../codealong-target` next to them
-(`.cargo/config.toml`), so dependencies compile once and concurrent builds queue on cargo's lock
-instead of fighting for cores. `scripts/target-dir.sh` prints it; the engine binary is
-`<dir>/release/codealong` and the bundle `<dir>/release/bundle/macos/Codealong.app`. Tests
+Every checkout and worktree builds into one directory, `codealong-target` next to the main
+checkout (`.cargo/config.toml`), so dependencies compile once and concurrent builds queue on
+cargo's lock instead of fighting for cores. `scripts/target-dir.sh` prints it; the engine binary
+is `<dir>/release/codealong` and the bundle `<dir>/release/bundle/macos/Codealong.app`. Cargo
+resolves `../codealong-target` against the checkout it runs in, so a worktree inside another
+(Claude Code's `.claude/worktrees/<name>`) gets `.claude/worktrees/codealong-target`: the
+scripts that build pass the shared directory to cargo as `CARGO_TARGET_DIR`, and
+`scripts/target-dir.sh` makes that folder a link to it, for cargo run by hand. It only reports
+a real folder already there; remove that once nothing builds in it. Tests
 run in the debug profile: after the first build they rebuild in seconds, and the release
 profile is tuned for rebuild speed too (no LTO). Hand a change to the user with
 `scripts/relaunch.sh`: it waits for any bundle build in progress, builds, and only then quits

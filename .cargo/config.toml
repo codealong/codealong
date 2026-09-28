@@ -1,5 +1,7 @@
-# One build directory for every checkout and worktree of Codealong, next to them: dependencies
-# compile once, and cargo's lock on it queues concurrent builds instead of letting them fight
-# for cores. Bundles land in <that dir>/release/bundle; scripts/target-dir.sh prints the path.
+# One build directory for every checkout and worktree of Codealong, next to the main checkout:
+# dependencies compile once, and cargo's lock on it queues concurrent builds instead of letting
+# them fight for cores. Bundles land in <that dir>/release/bundle; scripts/target-dir.sh prints
+# the path. Cargo resolves this against the checkout it runs in, so a worktree inside another
+# (.claude/worktrees/<name>) gets a folder beside it, which scripts/target-dir.sh links here.
 [build]
 target-dir = "../codealong-target"
