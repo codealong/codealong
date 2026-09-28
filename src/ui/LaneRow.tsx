@@ -7,8 +7,9 @@ import { deviceLabel } from '../devices';
 import { DeviceBadge } from './DeviceBadge';
 import { memoRow } from './memoRow';
 import type { PointerEvent as ReactPointerEvent } from 'react';
-import { absolute, ago, agoPhrase, middleTruncate } from '../format';
+import { absolute, ago, agoPhrase, middleTruncate, untilShort } from '../format';
 import { AGENT_BAY, withoutAccount, type AgentItem, type WorktreeRow } from '../lanes';
+import { untilWords } from '../snooze';
 import type { GitInfo, Lane, Pr, Session, Todo } from '../types';
 import { Drift, driftWords, HarnessChip, Icon, LaneGlyph, PrChip, Rich, StatusGlyph } from './primitives';
 import { InsightChips, LooksFinished } from './InsightBits';
@@ -395,6 +396,18 @@ function WorktreeChip({ lane }: { lane: Lane }) {
   );
 }
 
+/** A snoozed session's chip: how long until it's back on the floating bar, as short as the age
+ *  beside it, and the time in its tooltip. */
+function SnoozeChip({ session: s, now }: { session: Session; now: number }) {
+  if (s.snoozedUntil == null) return null;
+  return (
+    <span className="ca-chip ca-snoozechip" title={`Snoozed until ${untilWords(s.snoozedUntil, now)}: off the floating bar until then, then back`}>
+      <Icon name="zzz" size={12} />
+      {untilShort(s.snoozedUntil, now)}
+    </span>
+  );
+}
+
 /**
  * One session in the Sessions view: who and what on the first line (its agent, its sentence),
  * where and why on the second (its worktree, todo and insights, and the worktree's PR and diff).
@@ -405,7 +418,7 @@ function AgentRowView({ lane, session: s, domId, now, selected, onSelect, onOpen
       id={domId}
       role="option"
       aria-selected={selected}
-      className={['ca-lane', 'is-agent', `is-${s.status === 'error' ? 'needs' : s.status}`, selected && 'is-selected', pinned && 'is-pinned', away(lane) && 'is-away', extraClass]
+      className={['ca-lane', 'is-agent', `is-${s.status === 'error' ? 'needs' : s.status}`, s.snoozedUntil != null && 'is-snoozed', selected && 'is-selected', pinned && 'is-pinned', away(lane) && 'is-away', extraClass]
         .filter(Boolean)
         .join(' ')}
       data-pin-index={pinIndex}
@@ -439,6 +452,7 @@ function AgentRowView({ lane, session: s, domId, now, selected, onSelect, onOpen
         <div className="ca-lane-line2">
           <span className="ca-lane-agents">
             <WorktreeChip lane={lane} />
+            <SnoozeChip session={s} now={now} />
             <TodoChips todos={todos} onShow={onShowTodo} />
             <InsightChips session={s} />
           </span>

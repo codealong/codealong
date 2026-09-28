@@ -20,8 +20,9 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   project switcher (⌘P) shows each project's key: ⌥⌘1 to ⌥⌘9 switch projects, ⌥⌘0 shows them
   all. The views:
   - **Sessions**: every session, pinned ones first in your order (drag or ⌥↑ ⌥↓), then Needs
-    you, Your turn and Working as the floating bar groups them and orders them, then the
-    rest by day, the one you last sent a prompt first. Sessions are pinned
+    you, Your turn and Working as the floating bar groups them and orders them, then the ones
+    you snoozed, the soonest back first, then the rest by day, the one you last sent a prompt
+    first. A snoozed session's row says how long until it's back. Sessions are pinned
     here, with `p` or the right-click menu, and their pins show only here. Archive a session
     with `a` or its right-click menu; Codex threads are archived in Codex itself. Mark a
     finished turn seen, which makes it idle and takes it off the floating bar, with `e`, the

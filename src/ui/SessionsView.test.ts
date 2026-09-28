@@ -43,4 +43,24 @@ describe('timeSections', () => {
       ['Yesterday', ['stopped']],
     ]);
   });
+
+  it('keeps snoozed sessions apart after Working, the soonest back first, unless they run', () => {
+    const now = new Date(2026, 8, 24, 15, 0).getTime();
+    const at = (d: number, h: number) => new Date(2026, 8, d, h, 0).getTime();
+    const snoozed = (r: SessionItem, until: number): SessionItem => ({ ...r, session: { ...r.session, snoozedUntil: until } });
+    const rows = [
+      item('blocked', at(24, 12), 'needs', at(24, 11), at(24, 12)),
+      snoozed(item('later', at(24, 12), 'needs', at(24, 11), at(24, 12)), at(24, 18)),
+      snoozed(item('soon', at(24, 13), 'unread'), at(24, 16)),
+      snoozed(item('quiet', at(20, 9)), at(24, 17)),
+      snoozed(item('busy', at(24, 14), 'working', at(24, 14), at(24, 14)), at(24, 16)),
+      item('idle', at(24, 14)),
+    ];
+    expect(timeSections(rows, now).map((s) => [s.label, s.rows.map((r) => r.session.key)])).toEqual([
+      ['Needs you', ['blocked']],
+      ['Working', ['busy']],
+      ['Snoozed', ['soon', 'quiet', 'later']],
+      ['Today', ['idle']],
+    ]);
+  });
 });

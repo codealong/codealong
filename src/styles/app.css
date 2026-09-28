@@ -5403,6 +5403,16 @@ html.is-quick body {
 .ca-lane.is-agent.is-needs .ca-seg-glyph {
   box-shadow: inset 2px 0 0 var(--attn-solid);
 }
+/* Snoozed, it waits apart (SessionsView.tsx): no mark calling you to it until its time. */
+.ca-lane.is-agent.is-snoozed .ca-seg-glyph {
+  box-shadow: none;
+}
+.ca-chip.ca-snoozechip {
+  padding: 0 7px 0 6px;
+  font-family: var(--font-sans);
+  font-weight: 600;
+  color: var(--ink-3);
+}
 .ca-agentrow-line1 {
   display: flex;
   align-items: center;
