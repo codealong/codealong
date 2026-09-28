@@ -824,7 +824,7 @@ fn devices_list(view: &Value, json: bool) -> Result<()> {
     if rows.is_empty() {
         println!("No other devices yet.");
     } else {
-        print!("{}", table_text(&["MAC", "ID", "STATE", "REMOTE CONTROL", "WORKTREES", "SESSIONS", "NEED YOU"], rows));
+        print!("{}", table_text(&["DEVICE", "ID", "STATE", "REMOTE CONTROL", "WORKTREES", "SESSIONS", "NEED YOU"], rows));
     }
     Ok(())
 }
