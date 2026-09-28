@@ -30,13 +30,33 @@ export interface WorktreeRow {
 /** What the Inbox narrows the board to: one bay, or worktrees whose PR checks are failing. */
 export type Filter = Bay | 'failing';
 
+/** When a session began waiting on you, for one that needs you, as the engine has it
+ *  (`waiting_since`): Needs you is a queue, the longest wait first, so a new one can't keep
+ *  pushing an old one down. */
+export function waitingSince(s: Session): number | null {
+  return s.status === 'needs' || s.status === 'error' ? (s.statusSince ?? s.lastActivity) : null;
+}
+
+/** When a session's status began. */
+const statusAt = (s: Session) => s.statusSince ?? s.lastActivity;
+
 /**
- * Most urgent first, then the one you last sent a prompt, as the engine sorts a lane's
- * sessions. Activity would reorder working agents with every tool call; your prompts only move
- * one when you do something.
+ * Two sessions of one of the floating bar's groups, in its order (barfeed.rs): Needs you the
+ * longest wait first; Your turn and Working, which read as a feed, the newest status first. A
+ * status's time doesn't move while it lasts, so rows hold their places.
+ */
+export function byStatusTime(a: Session, b: Session): number {
+  const d = statusAt(a) - statusAt(b);
+  return waitingSince(a) !== null ? d : -d;
+}
+
+/**
+ * Most urgent first, as the engine sorts a lane's sessions; those that need you by how long
+ * they've waited, the rest by the one you last sent a prompt. Activity would reorder working
+ * agents with every tool call; your prompts only move one when you do something.
  */
 export function bySession(a: Session, b: Session): number {
-  return URGENCY[a.status] - URGENCY[b.status] || b.lastPromptAt - a.lastPromptAt || b.lastActivity - a.lastActivity;
+  return URGENCY[a.status] - URGENCY[b.status] || (waitingSince(a) ?? 0) - (waitingSince(b) ?? 0) || b.lastPromptAt - a.lastPromptAt || b.lastActivity - a.lastActivity;
 }
 
 /** A finished turn waiting on you to read it: Your turn, or a reply that asks you something.
@@ -51,9 +71,21 @@ export function lanePromptAt(lane: Lane): number {
   return own.length > 0 ? Math.max(...own.map((s) => s.lastPromptAt)) : lane.lastActivity;
 }
 
-/** Worktrees in a bay: the one you last sent a prompt first. */
+/** How long a worktree in Needs you has waited, as the engine has it (`lane_waiting_since`):
+ *  since the longest wait of its own agents that need you and aren't snoozed. Null when it needs
+ *  you for its PR alone, or only through snoozed agents. */
+function laneWaitingSince(lane: Lane): number | null {
+  const waits = lane.sessions.filter((s) => !s.visitor && !s.archived && !s.snoozedUntil).flatMap((s) => waitingSince(s) ?? []);
+  return waits.length > 0 ? Math.min(...waits) : null;
+}
+
+/** Worktrees in a bay, as the engine sorts them (`lane_order`): in Needs you the longest wait
+ *  first, then those with no agent waiting; within that, and in the other bays, the one you
+ *  last sent a prompt first. */
 function byLane(a: Lane, b: Lane): number {
-  return lanePromptAt(b) - lanePromptAt(a) || b.lastActivity - a.lastActivity;
+  const [x, y] = a.bay === 'needs' ? [laneWaitingSince(a), laneWaitingSince(b)] : [null, null];
+  const waited = x === y ? 0 : x === null ? 1 : y === null ? -1 : x - y;
+  return waited || lanePromptAt(b) - lanePromptAt(a) || b.lastActivity - a.lastActivity;
 }
 
 function prOpen(pr: Pr): boolean {
@@ -142,8 +174,9 @@ export function rowItems(row: WorktreeRow): BoardRow[] {
 }
 
 /**
- * Each worktree once, in the bay its status puts it in, with its agents on its row. Within a
- * bay, the worktree you last sent a prompt comes first.
+ * Each worktree once, in the bay its status puts it in, with its agents on its row. In Needs
+ * you the worktree that has waited longest comes first; in the other bays, the one you last
+ * sent a prompt.
  */
 export function buildBays(lanes: Lane[]): { bay: Bay; rows: WorktreeRow[] }[] {
   const groups: Record<Bay, Lane[]> = { needs: [], working: [], unread: [], review: [], idle: [], merged: [] };

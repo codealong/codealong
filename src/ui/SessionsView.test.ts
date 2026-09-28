@@ -22,7 +22,7 @@ describe('timeSections', () => {
     ]);
   });
 
-  it('puts what needs you, your turns and working agents first, as the bar does, newest status first', () => {
+  it("puts what needs you, your turns and working agents first, in the bar's order", () => {
     const now = new Date(2026, 8, 24, 15, 0).getTime();
     const at = (d: number, h: number) => new Date(2026, 8, d, h, 0).getTime();
     const rows = [
@@ -35,7 +35,8 @@ describe('timeSections', () => {
       item('stopped', at(23, 9), 'stopped'),
     ];
     expect(timeSections(rows, now).map((s) => [s.label, s.rows.map((r) => r.session.key)])).toEqual([
-      ['Needs you', ['blocked', 'failed']],
+      // The longest wait first; the others the newest status first.
+      ['Needs you', ['failed', 'blocked']],
       ['Your turn', ['turn']],
       ['Working', ['busy-new', 'busy-old']],
       ['Today', ['idle']],

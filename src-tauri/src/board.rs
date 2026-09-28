@@ -303,7 +303,13 @@ pub fn codex_session(account: &AccountCfg, th: &ThreadInfo, name: Option<&str>, 
         first_prompt: None,
         name: None,
         started_at: th.started_at,
-        status_since: if status == Status::Working { th.turn_started_at } else { th.last_complete_at },
+        // Waiting on you since its oldest unanswered call, not since the turn before it ended:
+        // Needs you is a queue by that time.
+        status_since: match status {
+            Status::Working => th.turn_started_at,
+            Status::Needs => th.pending_calls.iter().map(|c| c.at).min().or(Some(th.last_ts)),
+            _ => th.last_complete_at,
+        },
         last_prompt_at: th.last_prompt_at.or(th.started_at).unwrap_or(th.last_ts),
         last_activity: th.last_ts,
         excerpt,
@@ -492,16 +498,47 @@ fn urgency(s: Status) -> u8 {
     }
 }
 
-/// Most urgent first, then the one you last sent a prompt. Activity would reorder working
-/// sessions with every tool call; your prompts only move one when you do something.
+/// When a session began waiting on you, for one that needs you: the list of those is a queue,
+/// the longest wait first, so a new one can't keep pushing an old one down.
+pub fn waiting_since(s: &Session) -> Option<i64> {
+    matches!(s.status, Status::Needs | Status::Error).then(|| s.status_since.unwrap_or(s.last_activity))
+}
+
+/// Most urgent first; those that need you by how long they've waited, the rest by the one you
+/// last sent a prompt. Activity would reorder working sessions with every tool call; your
+/// prompts only move one when you do something.
 fn sort_sessions(sessions: &mut [Session]) {
-    sessions.sort_by(|a, b| urgency(a.status).cmp(&urgency(b.status)).then(b.last_prompt_at.cmp(&a.last_prompt_at)).then(b.last_activity.cmp(&a.last_activity)));
+    sessions.sort_by(|a, b| {
+        urgency(a.status)
+            .cmp(&urgency(b.status))
+            .then(waiting_since(a).cmp(&waiting_since(b)))
+            .then(b.last_prompt_at.cmp(&a.last_prompt_at))
+            .then(b.last_activity.cmp(&a.last_activity))
+    });
 }
 
 /// When you last sent a prompt to one of a lane's own sessions; for a lane with none, when
 /// anything last happened in it.
 fn lane_prompt_at(sessions: &[Session], last_activity: i64) -> i64 {
     sessions.iter().filter(|s| s.visitor.is_none() && !s.archived).map(|s| s.last_prompt_at).max().unwrap_or(last_activity)
+}
+
+/// How long a lane in Needs you has waited: since the longest wait of its own agents that need
+/// you and aren't snoozed. None when it needs you for its PR alone, or only through agents
+/// you've snoozed, which come after the ones waiting.
+fn lane_waiting_since(sessions: &[Session]) -> Option<i64> {
+    sessions.iter().filter(|s| s.visitor.is_none() && !s.archived && s.snoozed_until.is_none()).filter_map(waiting_since).min()
+}
+
+/// Lanes by bay; in Needs you the longest wait first, then those with no agent waiting; within
+/// that, and in the other bays, the one you last sent a prompt first.
+fn lane_order(a: &Lane, b: &Lane) -> std::cmp::Ordering {
+    let waited = |l: &Lane| if l.bay == Bay::Needs { lane_waiting_since(&l.sessions).map_or((1, 0), |t| (0, t)) } else { (0, 0) };
+    a.bay
+        .cmp(&b.bay)
+        .then(waited(a).cmp(&waited(b)))
+        .then(lane_prompt_at(&b.sessions, b.last_activity).cmp(&lane_prompt_at(&a.sessions, a.last_activity)))
+        .then(b.last_activity.cmp(&a.last_activity))
 }
 
 /// The PR for a lane: an open one on its branch, else one merged or closed in the last
@@ -1132,7 +1169,7 @@ pub fn compose(inp: Inputs) -> Board {
             repo_slug_now: None,
         });
     }
-    lanes.sort_by_key(|l| (l.bay, Reverse(lane_prompt_at(&l.sessions, l.last_activity)), Reverse(l.last_activity)));
+    lanes.sort_by(lane_order);
     let pr_list = pr_items(seeds, &lanes, prs, github_login, pr_links);
 
     let mut projects = Vec::new();
@@ -1828,7 +1865,9 @@ mod tests {
         assert_eq!(codex_session(&a, &th, None, None, NOW - 2_000, NOW).status, Status::Unread);
         assert_eq!(codex_session(&a, &th, None, None, NOW, NOW).status, Status::Idle);
         th.pending_approval = Some("Run · `yarn install`".into());
-        assert_eq!(codex_session(&a, &th, None, None, 0, NOW).status, Status::Needs);
+        let asks = codex_session(&a, &th, None, None, 0, NOW);
+        // It waits from its request, not from the turn before it.
+        assert_eq!((asks.status, asks.status_since), (Status::Needs, Some(th.last_ts)));
         // A computer-use call that hasn't answered in a minute is waiting for approval.
         th.pending_approval = None;
         th.turn_open = true;
@@ -1837,7 +1876,7 @@ mod tests {
         assert_eq!(codex_session(&a, &th, None, None, 0, NOW).status, Status::Working);
         th.pending_calls[0].at = NOW - 61_000;
         let waiting = codex_session(&a, &th, None, None, 0, NOW);
-        assert_eq!(waiting.status, Status::Needs);
+        assert_eq!((waiting.status, waiting.status_since), (Status::Needs, Some(NOW - 61_000)));
         assert_eq!(waiting.excerpt.as_deref(), Some("Waiting for approval? · Inspect the Dock"));
     }
 
@@ -2137,9 +2176,52 @@ mod tests {
         ];
         sort_sessions(&mut sessions);
         assert_eq!(sessions.iter().map(|s| s.key.as_str()).collect::<Vec<_>>(), vec!["needs", "new-ask", "old-ask", "stopped", "finished"]);
+        // Those that need you go by how long they've waited, not by your last prompt: a new one
+        // can't keep pushing an old one down.
+        let mut waiting = vec![at("waiting", Some(NOW - 60_000), NOW - 30_000, "prompted-last"), at("waiting", Some(NOW - 600_000), NOW - 500_000, "prompted-first")];
+        waiting[0].status_since = Some(NOW - 30_000);
+        waiting[1].status_since = Some(NOW - 500_000);
+        sort_sessions(&mut waiting);
+        assert_eq!(waiting.iter().map(|s| s.key.as_str()).collect::<Vec<_>>(), vec!["prompted-first", "prompted-last"]);
         // With no prompt in its log, a session counts from when it started.
         let unknown = at("busy", None, NOW, "unknown");
         assert_eq!(unknown.last_prompt_at, NOW - 3_600_000);
+    }
+
+    #[test]
+    fn needs_you_lists_the_longest_wait_first() {
+        const MIN: i64 = 60_000;
+        let a = acct("claude");
+        let session = |status: &str, since: i64, prompt: i64| {
+            let t = TranscriptInfo { last_prompt_at: Some(prompt), last_ts: since, ..tr() };
+            claude_session(&a, Some(&reg(status, since)), Some(&t), NOW, NOW, &Quiet::default()).unwrap()
+        };
+        let lane = |id: &str, bay: Bay, sessions: Vec<Session>| -> Lane {
+            let mut l: Lane = serde_json::from_value(serde_json::json!({
+                "id": id, "project": "P", "repo": "r", "repoSlug": null, "path": id, "callsign": id,
+                "origin": "main", "branch": null, "detached": null, "bay": "idle", "glyph": "idle", "parked": false,
+                "hidden": false, "headline": "", "detail": null, "sessions": [], "pr": null, "git": null,
+                "lastActivity": 0, "targets": [], "defaultTarget": null
+            }))
+            .expect("a lane");
+            (l.bay, l.sessions) = (bay, sessions);
+            l
+        };
+        let mut snoozed = session("waiting", NOW - 90 * MIN, NOW - 100 * MIN);
+        snoozed.snoozed_until = Some(NOW + 60 * MIN);
+        let mut lanes = vec![
+            lane("new", Bay::Needs, vec![session("waiting", NOW - MIN, NOW - 2 * MIN)]),
+            // Needs you for its PR alone, or only through a snoozed agent: after those waiting,
+            // the one you last prompted first.
+            lane("pr-only", Bay::Needs, vec![session("idle", NOW - 5 * MIN, NOW - 3 * MIN)]),
+            lane("snoozed", Bay::Needs, vec![snoozed]),
+            lane("old", Bay::Needs, vec![session("busy", NOW - MIN, NOW - MIN), session("waiting", NOW - 40 * MIN, NOW - 45 * MIN)]),
+            // The other bays still put the one you last prompted first.
+            lane("idle-old", Bay::Idle, vec![session("idle", NOW - 50 * MIN, NOW - 60 * MIN)]),
+            lane("idle-new", Bay::Idle, vec![session("idle", NOW - 5 * MIN, NOW - 10 * MIN)]),
+        ];
+        lanes.sort_by(lane_order);
+        assert_eq!(lanes.iter().map(|l| l.id.as_str()).collect::<Vec<_>>(), vec!["old", "new", "pr-only", "snoozed", "idle-new", "idle-old"]);
     }
 
     #[test]

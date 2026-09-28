@@ -17,6 +17,7 @@ use serde::Serialize;
 use serde_json::{json, Value};
 
 use crate::attachments;
+use crate::board;
 use crate::config::{self, AccountCfg, Config};
 use crate::engine;
 use crate::model::{Board, Lane, Session, Status};
@@ -1080,7 +1081,7 @@ fn sessions(c: &mut Client, f: &SessionFilter, query: &[String], json: bool) -> 
     let words: Vec<String> = query.iter().flat_map(|q| q.split_whitespace()).map(str::to_lowercase).collect();
     let said = if words.is_empty() { HashMap::new() } else { c.search_text(&words) };
     let board = c.board()?;
-    let mut rows: Vec<SessionRow> = all_sessions(board)
+    let mut found: Vec<(&Session, &Lane)> = all_sessions(board)
         .into_iter()
         .filter(|(s, lane)| {
             (f.archived || !s.archived)
@@ -1095,10 +1096,13 @@ fn sessions(c: &mut Client, f: &SessionFilter, query: &[String], json: bool) -> 
                     words.iter().all(|w| hay.contains(w)) || said.contains_key(&s.key)
                 })
         })
-        .map(|(s, lane)| SessionRow { said: said.get(&s.key).cloned(), ..session_row(s, lane, &board.todos) })
         .collect();
-    rows.sort_by(|a, b| (b.status == "needs").cmp(&(a.status == "needs")).then(b.last_prompt_at.cmp(&a.last_prompt_at)));
-    rows.truncate(f.limit);
+    // Those that need you first, the longest wait first as on the bar; then the one you last
+    // prompted.
+    let waited = |s: &Session| board::waiting_since(s).map_or((1, 0), |t| (0, t));
+    found.sort_by(|(a, _), (b, _)| waited(a).cmp(&waited(b)).then(b.last_prompt_at.cmp(&a.last_prompt_at)));
+    found.truncate(f.limit);
+    let rows: Vec<SessionRow> = found.into_iter().map(|(s, lane)| SessionRow { said: said.get(&s.key).cloned(), ..session_row(s, lane, &board.todos) }).collect();
     if json {
         return print_json(&rows);
     }

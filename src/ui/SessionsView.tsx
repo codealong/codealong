@@ -2,7 +2,7 @@
 // ones that want you or are running, grouped as the floating bar groups them, then the rest by
 // the day they were last active. Drag a pinned session, or press ⌥↑ ⌥↓, to reorder.
 
-import { bySession } from '../lanes';
+import { bySession, byStatusTime } from '../lanes';
 import type { Bay, Lane, Session, Status, Todo } from '../types';
 import { AgentRow } from './LaneRow';
 import { PinnedSection, type PinDrag } from './PinnedSection';
@@ -31,18 +31,17 @@ const ATTENTION: { bay: Bay; label: string; statuses: Status[] }[] = [
 ];
 
 /**
- * Needs you, Your turn and Working first, as on the floating bar, each newest status first: a
- * status's time doesn't move while it lasts, so rows hold their places. The rest go under Today,
+ * Needs you, Your turn and Working first, in the floating bar's order: Needs you the longest
+ * wait first, the others the newest status first. The rest go under Today,
  * Yesterday, Last 7 days and Older, by last activity in local time, the one you last sent a
  * prompt first.
  */
 export function timeSections(rows: SessionItem[], now: number): SessionSection[] {
-  const since = (s: Session) => s.statusSince ?? s.lastActivity;
   const attention: SessionSection[] = ATTENTION.map(({ bay, label, statuses }) => ({
     id: bay,
     label,
     bay,
-    rows: rows.filter((r) => statuses.includes(r.session.status)).sort((a, b) => since(b.session) - since(a.session) || a.key.localeCompare(b.key)),
+    rows: rows.filter((r) => statuses.includes(r.session.status)).sort((a, b) => byStatusTime(a.session, b.session) || a.key.localeCompare(b.key)),
   }));
   const rest = rows.filter((r) => !ATTENTION.some((g) => g.statuses.includes(r.session.status)));
   const today = new Date(now);

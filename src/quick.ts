@@ -6,6 +6,7 @@
 // said in it (the engine's text search, search.rs). Kept free of React so the rules have tests.
 
 import { middleTruncate } from './format';
+import { byStatusTime } from './lanes';
 import { sectionOf, sessionHomes, todoItem, type TodoItem, type TodoSectionId } from './todos';
 import { prFlag } from './prStatus';
 import type { Board, Lane, PrItem, PrState, Session, Status, TextHit } from './types';
@@ -69,16 +70,16 @@ function sessionsIn(board: Board, project: string): { lane: Lane; session: Sessi
 
 const since = (s: Session) => s.statusSince ?? s.lastActivity;
 
-/** The empty panel's list: sessions that need you, then those whose turn ended, the newest
- *  status first, as on the floating bar; with neither, the ones working. `counts` has every
- *  group's full size, for the headings. */
+/** The empty panel's list: sessions that need you, the longest wait first, then those whose
+ *  turn ended, the newest first, as on the floating bar; with neither, the ones working.
+ *  `counts` has every group's full size, for the headings. */
 export function attentionRows(board: Board, project: string, limit = MAX_ROWS): { rows: SessionRow[]; counts: Record<'needs' | 'unread' | 'working', number> } {
   const all = sessionsIn(board, project)
     .flatMap(({ lane, session }) => {
       const group = groupOf(session.status);
       return group ? [{ kind: 'session' as const, key: session.key, group, lane, session, marks: [] }] : [];
     })
-    .sort((a, b) => ORDER.indexOf(a.group) - ORDER.indexOf(b.group) || since(b.session) - since(a.session) || a.key.localeCompare(b.key));
+    .sort((a, b) => ORDER.indexOf(a.group) - ORDER.indexOf(b.group) || byStatusTime(a.session, b.session) || a.key.localeCompare(b.key));
   const counts = { needs: 0, unread: 0, working: 0 };
   for (const r of all) counts[r.group as keyof typeof counts] += 1;
   const waiting = all.filter((r) => r.group !== 'working');

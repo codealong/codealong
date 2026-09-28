@@ -24,14 +24,17 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     line for each agent that needs you, is working or just finished, which you select, open
     or right-click as you would a row. An agent is listed under the worktree it's working
     in, where most of its latest commands ran and edits landed, even if it started somewhere
-    else; resuming it still happens where it started. Within a status, the worktree and the
-    agent you last sent a prompt come first, so rows hold still while agents work. Stuck
+    else; resuming it still happens where it started. Needs you is a queue: the worktree and
+    the agent that have waited longest come first, so newer ones can't keep an old one down
+    (worktrees that need you only for their PR, or only through snoozed agents, come after).
+    Within the other statuses, the worktree and the agent you last sent a prompt come first,
+    so rows hold still while agents work. Stuck
     agents (busy but silent for 30 minutes) show in Needs you with the command they're stuck
     on. The Inbox filters narrow each worktree to the agents they're about. Pin a worktree
     with `p` or the right-click menu of the worktree or one of its agents, and reorder pins
     by dragging or with ⌥↑ ⌥↓; a pinned worktree stays whatever the age filter says.
   - **Sessions**: every session, pinned ones first in your order (drag or ⌥↑ ⌥↓), then Needs
-    you, Your turn and Working as the floating bar groups them, newest status first, then the
+    you, Your turn and Working as the floating bar groups them and orders them, then the
     rest by day, the one you last sent a prompt first. Sessions are pinned
     here, with `p` or the right-click menu, and their pins show only here. Archive a session
     with `a` or its right-click menu; Codex threads are archived in Codex itself. Mark a
@@ -133,8 +136,8 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   moment, and `move_pointer` moves the pointer to it.
 - **Quick panel** (⌥⌘/ from any app, over full-screen ones too; ⌘N, the title bar, the
   inspector, or a worktree's or session's right-click menu in Codealong): one input, and below
-  it what you can do next. With nothing typed it lists the sessions that need you, then the
-  ones whose turn ended (the working ones when nothing waits on you), and under them the first
+  it what you can do next. With nothing typed it lists the sessions that need you, the
+  longest wait first as on the floating bar, then the ones whose turn ended (the working ones when nothing waits on you), and under them the first
   three todos ready to start, in your order. Typed words find
   sessions by title, account, worktree, branch, repo, project or PR, then by what was said in
   them (your prompts and the agents' replies, for sessions active in the last `[search] days`,
@@ -261,7 +264,9 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   it; the snoozed pill lists it with when it's back, to open or wake it early. When the time
   comes it's back as it is then, and one with nothing new (its turn already seen, or its
   process gone) comes back as Your turn, so a snooze always brings its session back. A running
-  session stays in Working while snoozed, and sending a session a prompt ends its snooze. Pills that
+  session stays in Working while snoozed, and sending a session a prompt ends its snooze.
+  Needs you is a queue, the longest wait first, so a new one joins the end instead of pushing
+  an old one down; Your turn and Working are the newest first. Pills that
   don't fit fold into one per group that lists them. The mark brings Codealong forward; drag
   the bar by it or by its gaps. The capsule button at the top right of the window turns it on
   and off, as do Window › Floating bar and the bar's own right-click menu.

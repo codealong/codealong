@@ -50,7 +50,8 @@ pub struct BarFeed {
     pub terminal: String,
     /// The projects, in your order, for the bar's project menu.
     pub projects: Vec<String>,
-    /// In bar order: by group, then the newest status first.
+    /// In bar order: by group, then Needs you the longest wait first and the others the newest
+    /// status first.
     pub items: Vec<BarItem>,
     /// The other sessions started in the last day (by their last activity when the start isn't
     /// known), the newest status first, as the quick panel lists them.
@@ -167,7 +168,12 @@ pub fn feed(board: &Board) -> BarFeed {
             }
         }
     }
-    items.sort_by(|(a_at, a), (b_at, b)| a.group.cmp(&b.group).then(b_at.cmp(a_at)).then_with(|| a.key.cmp(&b.key)));
+    // Needs you is a queue, the longest wait first, so a new one can't keep an old one waiting
+    // (and it joins the end, where the group folds). The others read as a feed, newest first.
+    items.sort_by(|(a_at, a), (b_at, b)| {
+        let by_time = if a.group == Group::Needs { a_at.cmp(b_at) } else { b_at.cmp(a_at) };
+        a.group.cmp(&b.group).then(by_time).then_with(|| a.key.cmp(&b.key))
+    });
     recent.sort_by(|(a_at, a), (b_at, b)| b_at.cmp(a_at).then_with(|| a.key.cmp(&b.key)));
     recent.truncate(RECENT_MAX);
     snoozed.sort_by(|(a_at, a), (b_at, b)| a_at.cmp(b_at).then_with(|| a.key.cmp(&b.key)));
@@ -246,7 +252,7 @@ mod tests {
     }
 
     #[test]
-    fn lists_what_needs_you_then_finished_turns_then_running_agents_newest_first() {
+    fn lists_what_needs_you_longest_wait_first_then_finished_turns_then_running_agents_newest_first() {
         let b = board(
             vec![
                 lane("/a", vec![session("w1", Status::Working, NOW - 50), session("i1", Status::Idle, NOW), session("u1", Status::Unread, NOW - 10)], false),
@@ -255,7 +261,7 @@ mod tests {
             vec![],
         );
         let got: Vec<(String, Group)> = feed(&b).items.into_iter().map(|i| (i.key, i.group)).collect();
-        let want = [("e1", Group::Needs), ("n1", Group::Needs), ("u1", Group::Unread), ("w2", Group::Working), ("w1", Group::Working)];
+        let want = [("n1", Group::Needs), ("e1", Group::Needs), ("u1", Group::Unread), ("w2", Group::Working), ("w1", Group::Working)];
         assert_eq!(got, want.map(|(k, g)| (k.to_string(), g)));
     }
 

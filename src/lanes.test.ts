@@ -97,6 +97,23 @@ describe('buildBays', () => {
     expect(buildBays([a, b])[0].rows.map((r) => r.key)).toEqual(['/r/b', '/r/a']);
     expect([old, recent, done].sort(bySession).map((s) => s.key)).toEqual(['recent', 'old', 'done']);
   });
+
+  it('lists Needs you as a queue, the longest wait first, as the engine does', () => {
+    const waiting = (key: string, since: number, prompt: number, extra: Partial<Session> = {}) => ({ ...session(key, 'needs', since, prompt), statusSince: since, ...extra });
+    // You prompted `fresh` last, but `waited` has waited longer.
+    const waited = waiting('waited', NOW - 3_600_000, NOW - 4_000_000);
+    const fresh = waiting('fresh', NOW - 60_000, NOW - 120_000);
+    expect([fresh, waited].sort(bySession).map((s) => s.key)).toEqual(['waited', 'fresh']);
+    const at = (id: string, sessions: Session[], p: Pr | null = null) => ({ ...lane(sessions, p), id, lastActivity: NOW }) as Lane;
+    const lanes = [
+      at('/r/new', [fresh]),
+      // Needs you for its PR alone, or only through a snoozed agent: after those waiting.
+      at('/r/pr', [session('p', 'idle', NOW - 60_000, NOW - 60_000)], pr('open', 1)),
+      at('/r/snoozed', [waiting('z', NOW - 7_200_000, NOW - 7_300_000, { snoozedUntil: NOW + 60_000 })]),
+      at('/r/old', [session('b', 'working', NOW, NOW), waited]),
+    ];
+    expect(buildBays(lanes)[0].rows.map((r) => r.key)).toEqual(['/r/old', '/r/new', '/r/pr', '/r/snoozed']);
+  });
 });
 
 describe('narrowed', () => {
