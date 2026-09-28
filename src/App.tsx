@@ -1290,6 +1290,26 @@ export function App() {
     setSelectedKey(hasLine ? `${lane.id}::${session.key}` : boardRowKey(lane));
   };
 
+  /** Shows a session in its own panel, from the sidebar: its card on the canvas, else its row in
+   *  Sessions with the cursor in its box, as a click there does. */
+  const showSession = (lane: Lane, session: Session) => {
+    if (view === 'canvas') {
+      showOnCanvas('session', session.key);
+      return;
+    }
+    // Sessions lists it once, under the worktree it runs in: a visitor here is a row there, and
+    // that worktree can be in another project.
+    const home = lanes.find((l) => l.sessions.some((s) => s.key === session.key && !s.visitor)) ?? lane;
+    const item: SessionItem = { kind: 'agent', key: `${home.id}::${session.key}`, lane: home, session: home.sessions.find((s) => s.key === session.key) ?? session };
+    if (!inProject(home, current) && !home.hidden) pickProject(home.project);
+    // The sidebar doesn't follow the search or the Inbox filter; Sessions does.
+    if (!sessionInQuery(item, query)) setQuery('');
+    if (!sessionInFilter(item, bayFilter)) setBayFilter(null);
+    setView('sessions');
+    setSelectedKey(item.key);
+    focusBox();
+  };
+
   // The floating bar is on unless turned off here, from its own menu or from the Window menu.
   const [floatingBar, setFloatingBar] = useState(true);
   useEffect(() => {
@@ -1995,10 +2015,8 @@ export function App() {
               onSessionMenu={(lane, s) => sessionMenu(lane, s, 'worktree')}
               onSelectLane={focusLane}
               onOpenLane={(lane) => open(lane, lane.defaultTarget)}
-              onOpenSession={(lane, session) => {
-                focusSession(lane, session);
-                open(lane, session.openTarget);
-              }}
+              onShowSession={showSession}
+              onOpenSession={(lane, session) => open(lane, session.openTarget)}
             />
           </div>
           <div className="ca-side-foot">

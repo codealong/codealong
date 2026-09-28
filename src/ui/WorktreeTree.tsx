@@ -35,6 +35,9 @@ interface WorktreeTreeProps {
   onSelectLane: (lane: Lane) => void;
   /** Double-click on a worktree: opens its most recent session. */
   onOpenLane: (lane: Lane) => void;
+  /** Click on a session: shows it in its panel here. */
+  onShowSession: (lane: Lane, session: Session) => void;
+  /** Double-click on a session: opens it where it lives. */
   onOpenSession: (lane: Lane, session: Session) => void;
   /** Right-click on a worktree. */
   onLaneMenu: (lane: Lane) => void;
@@ -42,7 +45,7 @@ interface WorktreeTreeProps {
   onSessionMenu: (lane: Lane, session: Session) => void;
 }
 
-export function WorktreeTree({ groups, now, selectedLaneId, selectedSessionKey, onSelectLane, onOpenLane, onOpenSession, onLaneMenu, onSessionMenu }: WorktreeTreeProps) {
+export function WorktreeTree({ groups, now, selectedLaneId, selectedSessionKey, onSelectLane, onOpenLane, onShowSession, onOpenSession, onLaneMenu, onSessionMenu }: WorktreeTreeProps) {
   // Worktrees with an agent that needs you, is working or just finished start open; the rest
   // start closed. Toggles are remembered.
   const [overrides, setOverrides] = useState<Record<string, boolean>>(loadOverrides);
@@ -85,6 +88,7 @@ export function WorktreeTree({ groups, now, selectedLaneId, selectedSessionKey, 
                 onShowOlder={(l) => setShowOlder((had) => new Set(had).add(l.id))}
                 onSelectLane={onSelectLane}
                 onOpenLane={onOpenLane}
+                onShowSession={onShowSession}
                 onOpenSession={onOpenSession}
                 onLaneMenu={onLaneMenu}
                 onSessionMenu={onSessionMenu}
@@ -110,13 +114,14 @@ interface TreeLaneProps {
   onShowOlder: (lane: Lane) => void;
   onSelectLane: (lane: Lane) => void;
   onOpenLane: (lane: Lane) => void;
+  onShowSession: (lane: Lane, session: Session) => void;
   onOpenSession: (lane: Lane, session: Session) => void;
   onLaneMenu: (lane: Lane) => void;
   onSessionMenu: (lane: Lane, session: Session) => void;
 }
 
 /** One worktree in the tree, with its sessions when it's open. */
-const TreeLane = memoRow(function TreeLane({ lane, now, open, all, selected, selectedSessionKey, onToggle, onShowOlder, onSelectLane, onOpenLane, onOpenSession, onLaneMenu, onSessionMenu }: TreeLaneProps) {
+const TreeLane = memoRow(function TreeLane({ lane, now, open, all, selected, selectedSessionKey, onToggle, onShowOlder, onSelectLane, onOpenLane, onShowSession, onOpenSession, onLaneMenu, onSessionMenu }: TreeLaneProps) {
   const recent = currentSessions(lane, now);
   const listed = all ? lane.sessions : recent;
   const older = lane.sessions.length - recent.length;
@@ -171,11 +176,12 @@ const TreeLane = memoRow(function TreeLane({ lane, now, open, all, selected, sel
               type="button"
               role="treeitem"
               className={['ca-tree-session', s.visitor && 'is-visitor', selectedSessionKey === s.key && 'is-active'].filter(Boolean).join(' ')}
-              title={`${s.account} · ${s.title}${s.visitor ? ` (${s.visitor})` : ''}. Click to open it where it lives.`}
-              // A double-click here is two clicks: open once, not in two terminals.
+              title={`${s.account} · ${s.title}${s.visitor ? ` (${s.visitor})` : ''}\nClick to show it here · double-click to open it where it lives`}
+              // A double-click's second click shows it again for nothing: its first did.
               onClick={(e) => {
-                if (e.detail < 2) onOpenSession(lane, s);
+                if (e.detail < 2) onShowSession(lane, s);
               }}
+              onDoubleClick={() => onOpenSession(lane, s)}
               onContextMenu={(e) => {
                 e.preventDefault();
                 onSessionMenu(lane, s);

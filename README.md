@@ -47,6 +47,8 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     skipped one comes round again after the rest. A line at the top of the panel says how many
     more wait on you and how the last one went. Clicking a session puts the cursor in its box;
     moving along the list with the keys leaves them there, and Escape in the box gives them back.
+    Clicking a session in the sidebar's tree of worktrees, from any view, shows it here the same
+    way; double-clicking it opens it where it lives.
   - **Worktrees**: each worktree once, pinned ones first in your order, then the rest by
     status: Needs you, Working, Your turn, In review, Idle, Merged. A worktree's row has a
     line for each agent that needs you, is working or just finished, which you select, open
@@ -113,9 +115,9 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     for the rest, select one for its panel on the right (a session's shows its whole
     conversation and takes messages; the rest are the ones their own views show), type in the
     filter at the top or pick an Inbox row to fade what doesn't match (an Inbox row, or
-    Return in the filter, also zooms to what does; a worktree in the sidebar selects its
-    card), double-click to open it where it lives, right-click for its usual menu. What's on
-    it is set in two places. Tidy (its panel, or Tidy up in a right-click) lays the canvas out
+    Return in the filter, also zooms to what does; a worktree or session in the sidebar
+    selects its card), double-click to open it where it lives, right-click for its usual
+    menu. What's on it is set in two places. Tidy (its panel, or Tidy up in a right-click) lays the canvas out
     once, holding what its own settings say, each kind on or off: sessions active in the last
     1h to 7d or all (24h at first) and any that's working or needs you; open todos changed or
     worked on in the last 7 or 30 days, or all of them; recent worktrees even with nothing on
