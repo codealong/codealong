@@ -5478,6 +5478,11 @@ html.is-quick body {
 }
 .ca-groupby {
   margin-left: auto;
+  flex-shrink: 0;
+}
+/* Its label is bare text, which wraps where the other controls' labels don't. */
+.ca-groupby button {
+  white-space: nowrap;
 }
 .ca-groupby + .ca-agefilter {
   margin-left: 8px;
