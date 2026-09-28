@@ -1,22 +1,26 @@
 # Plan: an installer, releases and automatic updates
 
-Status: the installer is built (`scripts/release.sh`, 2026-09-28) and was checked on this Mac with
-a stand-in certificate: the signatures verify, both architectures run from the image, and the
-window draws as designed in light mode. It isn't notarized yet, and it waits on the Developer ID
-below. Everything after it is a plan. The decisions come first, because each is baked into the
+Status: the installer is built (`scripts/release.sh`, 2026-09-28) and signed with Gordon
+Hempton's Developer ID: the signatures verify, both architectures run from the image, and the
+window draws as designed in light mode. It isn't notarized yet, which waits on a notarization key
+(below). Everything after it is a plan. The decisions come first, because each is baked into the
 first copy anyone installs.
 
 ## Decided: whose name is on it
 
 Codealong is Gordon L. Hempton's, not a company's, and nothing in it names another company.
 Releases are signed by his own Apple developer team, "Gordon Hempton" (team N3347S68VA), an
-individual membership that's already paid: its provisioning profile runs a year, which a free
-team's doesn't. `scripts/release.sh` signs with that team's Developer ID only (`CODEALONG_TEAM_ID`
-changes it, for a fork) and refuses any other certificate in the keychain.
+individual membership. `scripts/release.sh` signs with that team's Developer ID only
+(`CODEALONG_TEAM_ID` changes it, for a fork) and refuses any other certificate in the keychain.
 
-- **To do once:** as the account holder, make a Developer ID Application certificate at
-  developer.apple.com (Certificates, +, Developer ID Application), and open the downloaded file
-  on the Mac that builds releases. macOS will then show the developer as Gordon Hempton.
+- **The certificate:** "Developer ID Application: Gordon Hempton (N3347S68VA)", made 2026-09-28
+  from Apple's G2 intermediate, good until 2031-09-17. Its key was made on the Mac that builds
+  releases and lives only in that Mac's login keychain; Apple can't send it again. A copy
+  exported from Keychain Access (My Certificates, Export, a .p12 with a password) belongs in
+  1Password, and is how another Mac, or CI, signs.
+- **The membership renews every year.** It had lapsed by 2026-09-28 and was renewed that day. A
+  lapsed membership doesn't stop signed copies from running, but Apple won't notarize or issue
+  certificates until it's renewed.
 - **If Codealong becomes a company:** Apple converts an individual membership to an organization
   on request (Membership details, Convert to Organization; a D-U-N-S number, up to three weeks).
   The team ID, certificates and apps carry over and only the name changes, so installed copies
