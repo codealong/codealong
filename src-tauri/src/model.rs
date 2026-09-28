@@ -217,7 +217,7 @@ pub struct SessionInsight {
     /// How likely it is that the command a quiet session runs waits for typing.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub waits_for_input: Option<f64>,
-    /// What a command left running in the background does: polling, job or stalled.
+    /// What a command left running in the background does: polling, job, server or stalled.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub background: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

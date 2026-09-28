@@ -45,7 +45,16 @@ pub struct Quiet<'a> {
     /// The command its shell is running, from the process table: for a quiet busy session, and
     /// for one whose turn left a command running in the background.
     pub running: Option<&'a str>,
+    /// The last time the processes of a command left running in the background were seen doing
+    /// something (starting processes, using CPU); None when nobody has looked.
+    pub background_active_at: Option<i64>,
 }
+
+/// A command left running in the background that has done nothing for this long is left
+/// sitting there: a dev server, a sign-in waiting on a browser, `tail -f`. Its session's turn
+/// is over, and it wakes only if the command ends, so it isn't Working. Polls start a process
+/// or use CPU well within this; `sleep 600` loops are the rare exception.
+pub const BACKGROUND_QUIET_MS: i64 = 15 * 60 * 1000;
 const MAX_SESSIONS_PER_LANE: usize = 30;
 /// How a session from another lane is labeled in the worktree it made. One that only worked
 /// there is labeled "worked here".
@@ -125,13 +134,15 @@ pub fn claude_session(
         .map(|t| t.max(quiet.subagent_at.unwrap_or(0)))
         .filter(|t| now - t > CLAUDE_STALL_MS);
     let background = reg.is_some_and(|r| r.status == "shell");
+    let left_running = background && quiet.background_active_at.is_some_and(|t| now - t >= BACKGROUND_QUIET_MS);
     let status = match reg {
         None => Status::Stopped,
         Some(_) if stalled_since.is_some() => Status::Needs,
         Some(r) => match r.status.as_str() {
-            "busy" | "shell" => Status::Working,
+            "shell" if !left_running => Status::Working,
+            "busy" => Status::Working,
             "waiting" | "blocked" => Status::Needs,
-            "idle" if r.status_updated_at.unwrap_or(0) > seen_at => Status::Unread,
+            "idle" | "shell" if r.status_updated_at.unwrap_or(0) > seen_at => Status::Unread,
             _ => Status::Idle,
         },
     };
@@ -166,6 +177,10 @@ pub fn claude_session(
             })
         }
         Status::Needs => tr.and_then(|t| t.pending_tool.clone()),
+        _ if left_running => Some(match quiet.running {
+            Some(cmd) => format!("Left running · {}", code(&truncate(&one_line(cmd, 200), 80))),
+            None => "Left a command running".to_string(),
+        }),
         Status::Working if background => Some(match quiet.running {
             Some(cmd) => format!("Working in the background · {}", code(&truncate(&one_line(cmd, 200), 80))),
             None => "Working in the background".to_string(),
@@ -679,6 +694,8 @@ pub const ASKS_YOU: f64 = 0.7;
 pub const WAITS_FOR_INPUT: f64 = 0.3;
 /// A background command is stuck when Jev is this sure.
 pub const BACKGROUND_STALLED: f64 = 0.7;
+/// A background command is a server or watcher left running when Jev is this sure.
+pub const BACKGROUND_LEFT_RUNNING: f64 = 0.7;
 /// A session counts as finished for its worktree from this sure.
 pub const FINISHED: f64 = 0.8;
 
@@ -696,8 +713,9 @@ pub fn last_sentence(text: &str) -> String {
 /// - a finished turn whose reply asks you something is Needs you, with the question;
 /// - a busy session gone quiet on a command that isn't waiting for typing is working on it,
 ///   not stuck;
-/// - a command left running in the background says whether it polls or runs a job, and is
-///   stuck when it looks stuck.
+/// - a command left running in the background says whether it polls or runs a job, is left
+///   running when it's a server or watcher (the turn is over; the engine makes that *Your
+///   turn* when you haven't seen it), and is stuck when it looks stuck.
 pub fn apply_insight(s: &mut Session, i: &SessionInsight) {
     s.insight = Some(i.clone());
     if s.status == Status::Unread && i.asks_you.unwrap_or(0.0) >= ASKS_YOU {
@@ -720,11 +738,19 @@ pub fn apply_insight(s: &mut Session, i: &SessionInsight) {
     if let (Some(cmd), Some(kind)) = (s.background.clone(), i.background.as_deref()) {
         let shown = code(&truncate(&one_line(&cmd, 200), 80));
         match kind {
+            // Once its processes have sat still for a while, what the command looks like is moot.
+            "polling" | "job" if s.status != Status::Working => {}
             "polling" => {
                 let waits = s.reply_tail.as_deref().map(last_sentence).filter(|q| !q.is_empty());
                 s.excerpt = Some(format!("Polling in the background · {}", waits.unwrap_or(shown)));
             }
             "job" => s.excerpt = Some(format!("Running in the background · {shown}")),
+            "server" if i.background_p.unwrap_or(0.0) >= BACKGROUND_LEFT_RUNNING => {
+                if s.status == Status::Working {
+                    s.status = Status::Idle;
+                }
+                s.excerpt = Some(format!("Left running · {shown}"));
+            }
             "stalled" if i.background_p.unwrap_or(0.0) >= BACKGROUND_STALLED => {
                 s.status = Status::Needs;
                 s.stalled_since = Some(s.status_since.unwrap_or(s.last_activity));
@@ -1529,7 +1555,7 @@ mod tests {
         let mut t = tr();
         t.last_ts = NOW - 3 * DAY_MS;
         let r = reg("busy", NOW - 3 * DAY_MS);
-        let stuck = claude_session(&a, Some(&r), Some(&t), 0, NOW, &Quiet { subagent_at: None, running: Some("gcloud auth login") }).unwrap();
+        let stuck = claude_session(&a, Some(&r), Some(&t), 0, NOW, &Quiet { subagent_at: None, running: Some("gcloud auth login"), ..Default::default() }).unwrap();
         assert_eq!(stuck.status, Status::Needs);
         assert_eq!(stuck.stalled_since, Some(NOW - 3 * DAY_MS));
         assert_eq!(stuck.excerpt.as_deref(), Some(format!("Stuck on `gcloud auth login` for {{for:{}}}", NOW - 3 * DAY_MS).as_str()));
@@ -1537,7 +1563,7 @@ mod tests {
         let silent = claude_session(&a, Some(&r), Some(&t), 0, NOW, &Quiet::default()).unwrap();
         assert!(silent.excerpt.as_deref().unwrap_or_default().starts_with("No activity for {for:"));
         // A subagent still writing its log keeps the session working.
-        let sub = claude_session(&a, Some(&r), Some(&t), 0, NOW, &Quiet { subagent_at: Some(NOW - 60_000), running: None }).unwrap();
+        let sub = claude_session(&a, Some(&r), Some(&t), 0, NOW, &Quiet { subagent_at: Some(NOW - 60_000), running: None, ..Default::default() }).unwrap();
         assert_eq!(sub.status, Status::Working);
         // So does a transcript that's still moving.
         t.last_ts = NOW - 60_000;
@@ -1590,7 +1616,7 @@ mod tests {
         let a = acct("claude2");
         let mut t = tr();
         t.last_ts = NOW - 3 * DAY_MS;
-        let quiet = Quiet { subagent_at: None, running: Some("cargo build --release") };
+        let quiet = Quiet { subagent_at: None, running: Some("cargo build --release"), ..Default::default() };
         let mut s = claude_session(&a, Some(&reg("busy", NOW - 3 * DAY_MS)), Some(&t), 0, NOW, &quiet).unwrap();
         let mut login = s.clone();
         apply_insight(&mut login, &insight(|i| i.waits_for_input = Some(0.8)));
@@ -1603,7 +1629,7 @@ mod tests {
     #[test]
     fn a_background_command_polls_runs_or_is_stuck() {
         let a = acct("claude2");
-        let quiet = Quiet { subagent_at: None, running: Some("while true; do sleep 60; gh pr view 1054; done") };
+        let quiet = Quiet { subagent_at: None, running: Some("while true; do sleep 60; gh pr view 1054; done"), ..Default::default() };
         let mut s = claude_session(&a, Some(&reg("shell", NOW - DAY_MS)), Some(&tr()), 0, NOW, &quiet).unwrap();
         s.reply_tail = Some("I'll keep checking. Waiting for the reviewer to approve #1054.".into());
         let mut poll = s.clone();
@@ -1648,13 +1674,49 @@ mod tests {
         t.last_ts = NOW - 3 * DAY_MS;
         let r = reg("shell", NOW - 3 * DAY_MS);
         let poll = "while true; do sleep 60; gh pr view 1054 --json reviewDecision; done";
-        let s = claude_session(&a, Some(&r), Some(&t), 0, NOW, &Quiet { subagent_at: None, running: Some(poll) }).unwrap();
+        let s = claude_session(&a, Some(&r), Some(&t), 0, NOW, &Quiet { subagent_at: None, running: Some(poll), ..Default::default() }).unwrap();
         assert_eq!((s.status, s.stalled_since), (Status::Working, None));
         assert!(s.excerpt.as_deref().unwrap().starts_with("Working in the background · `while true; do sleep 60;"), "{:?}", s.excerpt);
         assert_eq!(s.background.as_deref(), Some(poll));
         let unknown = claude_session(&a, Some(&r), Some(&t), 0, NOW, &Quiet::default()).unwrap();
         assert_eq!((unknown.status, unknown.excerpt.as_deref()), (Status::Working, Some("Working in the background")));
         assert_eq!(claude_busy_since(Some(&r), Some(&t)), None);
+    }
+
+    #[test]
+    fn a_background_command_that_sits_still_is_left_running() {
+        let a = acct("claude2");
+        let r = reg("shell", NOW - DAY_MS);
+        let login = "northwind login --host https://app.northwind.com";
+        let at = |active_at| Quiet { subagent_at: None, running: Some(login), background_active_at: Some(active_at) };
+        let busy = claude_session(&a, Some(&r), Some(&tr()), 0, NOW, &at(NOW - 60_000)).unwrap();
+        assert_eq!(busy.status, Status::Working);
+        let left = claude_session(&a, Some(&r), Some(&tr()), 0, NOW, &at(NOW - BACKGROUND_QUIET_MS)).unwrap();
+        assert_eq!((left.status, left.excerpt.as_deref()), (Status::Unread, Some("Left running · `northwind login --host https://app.northwind.com`")));
+        assert_eq!(left.background.as_deref(), Some(login));
+        let seen = claude_session(&a, Some(&r), Some(&tr()), NOW, NOW, &at(NOW - BACKGROUND_QUIET_MS)).unwrap();
+        assert_eq!(seen.status, Status::Idle);
+        // Jev can still say it waits on you, and a poll's name doesn't wake it.
+        let mut stuck = left.clone();
+        apply_insight(&mut stuck, &insight(|i| (i.background, i.background_p) = (Some("stalled".into()), Some(0.9))));
+        assert_eq!(stuck.status, Status::Needs);
+        let mut poll = left.clone();
+        apply_insight(&mut poll, &insight(|i| (i.background, i.background_p) = (Some("polling".into()), Some(0.9))));
+        assert_eq!((poll.status, poll.excerpt), (Status::Unread, left.excerpt.clone()));
+    }
+
+    #[test]
+    fn jev_takes_a_server_out_of_working() {
+        let a = acct("claude2");
+        let quiet = Quiet { subagent_at: None, running: Some("npm run dev"), ..Default::default() };
+        let s = claude_session(&a, Some(&reg("shell", NOW - 60_000)), Some(&tr()), 0, NOW, &quiet).unwrap();
+        assert_eq!(s.status, Status::Working);
+        let mut server = s.clone();
+        apply_insight(&mut server, &insight(|i| (i.background, i.background_p) = (Some("server".into()), Some(0.9))));
+        assert_eq!((server.status, server.excerpt.as_deref()), (Status::Idle, Some("Left running · `npm run dev`")));
+        let mut unsure = s.clone();
+        apply_insight(&mut unsure, &insight(|i| (i.background, i.background_p) = (Some("server".into()), Some(0.5))));
+        assert_eq!(unsure.status, Status::Working);
     }
 
     #[test]

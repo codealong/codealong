@@ -224,7 +224,9 @@ Claude Code
   transcript or subagent logs for 30 minutes is stuck, not working. `shell` is a turn that
   ended with a command left running in the background (a poll for a review, say, for hours): it
   runs detached, can't wait for typing, and wakes the session when it finishes, so it's never
-  stuck.
+  stuck. It can sit there forever, though (a dev server, a sign-in waiting on a browser): the
+  command's processes are the shells under the session's process with `eval '…'` in their
+  arguments (its MCP servers aren't), and `procs::command_trees` reads what they use.
 - Transcripts: `<home>/projects/<encoded cwd>/<session>.jsonl`; subagents log to
   `<session>/subagents/agent-*.jsonl`. `ai-title` lines (the terminal tab's title) and
   `gitBranch` fields repeat through the file, so the tail has the current ones. Claude Code

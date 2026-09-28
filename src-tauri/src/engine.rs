@@ -49,6 +49,17 @@ const USAGE_EVERY: Duration = Duration::from_secs(2 * 60);
 const JEV_RETRY: Duration = Duration::from_secs(5 * 60);
 /// After the usage endpoint says to slow down.
 const USAGE_BACKOFF: Duration = Duration::from_secs(10 * 60);
+/// How often the commands Claude sessions left running in the background are looked at.
+const BACKGROUND_EVERY: Duration = Duration::from_secs(60);
+
+/// A command a Claude session left running in the background, as last seen.
+struct BackgroundWatch {
+    /// The registry's status time: a new turn that leaves a command running starts afresh.
+    since: i64,
+    tree: procs::CommandTree,
+    /// When its processes were last seen starting a process or using CPU.
+    active_at: i64,
+}
 
 pub enum Msg {
     Fs(Vec<PathBuf>),
@@ -520,6 +531,10 @@ struct Engine {
     app_records_at: Option<Instant>,
     /// (pid, status time) → the command a stuck Claude session's shell is running.
     stuck: Mutex<HashMap<(u32, i64), Option<String>>>,
+    /// Claude sessions whose turn left a command running in the background, by pid: when
+    /// their processes last did something, from a look at them every minute.
+    background: HashMap<u32, BackgroundWatch>,
+    background_at: Option<Instant>,
     usage_inflight: bool,
     usage_last: Option<Instant>,
     usage_backoff: bool,
@@ -609,6 +624,8 @@ impl Engine {
             app_records: claudeapp::Records::default(),
             app_records_at: None,
             stuck: Mutex::new(HashMap::new()),
+            background: HashMap::new(),
+            background_at: None,
             usage_inflight: false,
             usage_last: None,
             usage_backoff: false,
@@ -797,6 +814,10 @@ impl Engine {
             let Some((_, signature)) = crate::insights::ask(s, now) else { continue };
             if let Some(i) = self.insights.for_session(&s.key, &signature) {
                 board::apply_insight(s, &i.clone());
+                // A turn that left a server running is over: Your turn until you've seen it.
+                if s.status == Status::Idle && s.background.is_some() && s.status_since.unwrap_or(0) > self.seen.seen_at(&s.key) {
+                    s.status = Status::Unread;
+                }
             }
         }
         sessions
@@ -1523,6 +1544,39 @@ impl Engine {
         }
     }
 
+    /// Looks at what the commands Claude sessions left running in the background are doing,
+    /// once a minute and only while there are some: one `ps` for all of them.
+    fn watch_background(&mut self, now: i64) {
+        if self.background_at.is_some_and(|t| t.elapsed() < BACKGROUND_EVERY) {
+            return;
+        }
+        self.background_at = Some(Instant::now());
+        let shells: Vec<(u32, i64)> = self.registry.values().flatten().filter(|r| r.status == "shell").map(|r| (r.pid, r.status_updated_at.unwrap_or(0))).collect();
+        self.background.retain(|pid, _| shells.iter().any(|(p, _)| p == pid));
+        if shells.is_empty() {
+            return;
+        }
+        let pids: Vec<u32> = shells.iter().map(|(p, _)| *p).collect();
+        let mut trees = procs::command_trees(&pids);
+        for (pid, since) in shells {
+            let Some(tree) = trees.remove(&pid) else { continue };
+            match self.background.get_mut(&pid) {
+                Some(w) if w.since == since => {
+                    if tree.active_since(&w.tree) {
+                        w.active_at = now;
+                    }
+                    w.tree = tree;
+                }
+                _ => {
+                    // Seen for the first time, perhaps long after the turn ended (the app just
+                    // started): give it a few looks to show it's doing something.
+                    let active_at = since.max(now - board::BACKGROUND_QUIET_MS + 3 * BACKGROUND_EVERY.as_millis() as i64);
+                    self.background.insert(pid, BackgroundWatch { since, tree, active_at });
+                }
+            }
+        }
+    }
+
     fn tick(&mut self) {
         let claude_accounts: Vec<String> = self.cfg.accounts.iter().filter(|a| a.harness == "claude").map(|a| a.name.clone()).collect();
         for a in claude_accounts {
@@ -1530,6 +1584,7 @@ impl Engine {
                 self.dirty = true;
             }
         }
+        self.watch_background(now_ms());
         self.poll_codex();
         if self.refresh_opencode_terminals() | self.refresh_codex_terminals() {
             self.dirty = true;
@@ -2022,7 +2077,8 @@ impl Engine {
                             }
                             _ => (None, None),
                         };
-                        let quiet = board::Quiet { subagent_at, running: running.as_deref() };
+                        let background_active_at = background.and_then(|r| self.background.get(&r.pid)).filter(|w| Some(w.since) == background.and_then(|r| r.status_updated_at)).map(|w| w.active_at);
+                        let quiet = board::Quiet { subagent_at, running: running.as_deref(), background_active_at };
                         if let Some(mut s) = board::claude_session(a, reg, info, self.seen.seen_at(&key), now, &quiet) {
                             // Archived here until it's active again, or archived in the Claude app.
                             let here = self.seen.archived_at(&key).map(|at| s.last_activity <= at).unwrap_or(false);

@@ -414,7 +414,7 @@ export interface SessionInsight {
   /** 0 reads only … 3 destructive. */
   risk?: number;
   waitsForInput?: number;
-  background?: 'polling' | 'job' | 'stalled';
+  background?: 'polling' | 'job' | 'server' | 'stalled';
   backgroundP?: number;
 }
 

@@ -168,8 +168,9 @@ pub fn request(s: &Session, kind: Kind, model: &str) -> Value {
                     "instructions": "What is `background command` doing?",
                     "criteria": {
                         "polling": "Checks again and again for something outside to happen: a review or approval, CI, a deploy, a file or URL appearing.",
-                        "job": "Runs one long piece of work: a build, tests, a server, a download, a migration.",
-                        "stalled": "Looks stuck, or waits on something that won't happen without the user.",
+                        "job": "Runs one long piece of work that ends by itself: a build, tests, a download, a migration.",
+                        "server": "Keeps running until someone stops it, and nothing waits for it to end: a dev server, a file watcher, `tail -f`, a tunnel.",
+                        "stalled": "Looks stuck, or waits on something that won't happen without the user: a sign-in in a browser, a password, a question on the terminal.",
                     },
                 },
             })

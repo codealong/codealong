@@ -147,11 +147,16 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   Jev reads the end of the last reply and the command a session runs or waits on. A reply
   that asks you something turns *Your turn* into *Needs you*, with the question; a busy session
   quiet on a long build stays *Working* instead of *stuck*; a command left running in the
-  background says whether it polls for something or runs a job. Rows show how far the work
+  background says whether it polls for something, runs a job, is a server or watcher left
+  running (no longer *Working*), or waits on you (a sign-in, a password). Rows show how far the work
   got (Landed, Pushed, Committed, Not committed, Blocked) and how risky a command waiting for
   approval looks; a worktree whose sessions all read as done says *Looks finished*. Answers are
-  kept in insights.json, so a turn is asked about once. Without Jev, a Claude session whose turn
-  left a command running in the background (registry status `shell`) is always *Working*.
+  kept in insights.json, so a turn is asked about once.
+- **Commands left running**: a Claude session whose turn left a command running in the
+  background (registry status `shell`) is *Working* while that command does something. The
+  engine looks at the command's processes once a minute; when none has started or used CPU for
+  15 minutes (a dev server, a sign-in waiting on a browser, `tail -f`), the turn is over and the
+  row says *Left running*.
 - **Suggestions in the quick panel** (optional; Settings › Jev, `[jev] quick_panel` in config.toml):
   once you pause typing, TypeSafe's Jev reads what you wrote against the project's sessions and
   worktrees and the panel leads with up to three suggestions, each with how likely it is: send
