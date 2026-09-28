@@ -1122,7 +1122,7 @@ export function App() {
           reviewInCodex(pr.url).catch((e: unknown) => setToast(String(e)));
           return;
         }
-        const spec = { laneId: at.lane.id, account: pick.account, place: pick.place, prompt: reviewPrompt(pr, at.checkedOut), model: null, worktree: false, todos: [] };
+        const spec = { laneId: at.lane.id, account: pick.account, place: pick.place, prompt: reviewPrompt(pr, at.checkedOut), model: null, effort: null, worktree: false, todos: [] };
         track(`Starting a review of #${pr.number} on ${pick.account}…`, startSession(spec))
           .then((started) => {
             if (started?.message) setToast(started.message);

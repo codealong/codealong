@@ -1194,6 +1194,12 @@ Options:
           A model for a terminal or background start: fable, opus, sonnet, haiku, or a
           full name
 
+      --effort <EFFORT>
+          How hard Claude Code thinks (`claude --effort`); without it, the account's own
+          setting. xhigh is what Claude Code's picker calls Extra
+          
+          [possible values: low, medium, high, xhigh, max]
+
       --dry-run
           Print what the start would do (the command and environment, or the link)
           without starting anything

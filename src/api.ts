@@ -286,6 +286,12 @@ export async function startOptions(): Promise<StartOptions> {
   return res.ok ? ((await res.json()) as StartOptions) : { accounts: [], codexProjects: [], claudeModels: [] };
 }
 
+/** Where each account on another of your devices can start a session, asked of that device. */
+export async function deviceStartOptions(device: string): Promise<StartOptions> {
+  if (inTauri) return invoke<StartOptions>('device_start_options', { device });
+  return startOptions();
+}
+
 /** Starts a session in a worktree: in the terminal, or in the Claude or Codex app. */
 export async function startSession(spec: StartSpec): Promise<Started | null> {
   if (!inTauri) throw new Error('Starting a session needs the app.');

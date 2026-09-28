@@ -206,9 +206,13 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
 - **New session**, the panel's last row: pick the worktree (⌘T; it starts at whatever's
   selected in Codealong: a worktree, a session's, a PR's, or for a PR with none here its repo's
   main checkout; pinned ones first), the account and model in one menu (⌘L, every account on
-  every model it can start on, with its limits), and where it runs. Ghostty starts Claude Code
+  every model it can start on, with its limits, and the effort under them: Default, Low,
+  Medium, High, Extra or Max, ← → to change it), and where it runs. With other Macs linked,
+  ⌘D picks the Mac too: its worktrees and accounts are listed, and the session starts there
+  (it needs remote control on over there). Ghostty starts Claude Code
   on your prompt, on the account's default model or the one you picked (Fable, Opus, Sonnet,
-  Haiku, 1M context, Opus Plan Mode), and with New worktree Claude Code makes a fresh worktree
+  Haiku, 1M context, Opus Plan Mode) at the effort you picked (`--effort`; Haiku takes none,
+  and Default is the account's `effortLevel`), and with New worktree Claude Code makes a fresh worktree
   for it (`claude --worktree`: its folder, branch and base are Claude Code's choice).
   Background starts it the same way under Claude Code's background service (`claude --bg`),
   with no terminal: it shows on the board like any other, takes prompts from Codealong, and
@@ -502,7 +506,7 @@ light scan (no git, PRs or visitors).
 | `src-tauri/src/launch.rs` | App profiles: Ghostty (AppleScript, exact tab focus), Cursor (CLI), deep links |
 | `src-tauri/src/flash.rs` | Outlines a focused terminal that came forward on another screen |
 | `src-tauri/src/idle.rs`, `src/ui/CloseIdleDialog.tsx` | Close idle terminals: which sessions' tabs can close and why (pure, tested), and closing them |
-| `src-tauri/src/start.rs`, `src/start.ts` | New sessions: where each account can start one, the launch it makes, the agent menu (every account on every model) and Auto's pick |
+| `src-tauri/src/start.rs`, `src/start.ts` | New sessions: where each account can start one, the launch it makes, the agent menu (every account on every model, and the effort levels) and Auto's pick |
 | `src-tauri/src/quick.rs`, `src/quick.ts`, `src/ui/Quick.tsx` | The quick panel: its window (a panel that takes the keyboard over any app), its shortcut, and its page (what needs you, finding sessions, starting one) |
 | `src-tauri/src/harness.rs` | The interface each harness implements (`Adapter`): a session's record, its conversation, what it waits on you to allow and answering it; CLAUDE.md's "Adding a harness" says what else a new one needs |
 | `src-tauri/src/transcript.rs`, `src/ui/SessionPanel.tsx`, `src/ui/SessionThread.tsx`, `src/ui/SessionReply.tsx` | A session's conversation, read a page at a time from its own record, the panel that shows it, and the box that sends it messages or answers what it waits on |

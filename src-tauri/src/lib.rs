@@ -347,9 +347,13 @@ fn fit_quick(app: tauri::AppHandle, height: f64) {
 }
 
 /// Starts a session from the quick panel, which has already hidden itself, then asks macOS to
-/// bring the app it started in forward: the panel never makes Codealong the active app.
+/// bring the app it started in forward: the panel never makes Codealong the active app. A
+/// worktree on another device starts there, where whatever it opens comes forward.
 #[tauri::command(async)]
-fn start_from_quick(app: tauri::AppHandle, engine: State<'_, engine::Handle>, spec: start::StartSpec) -> Result<start::Started, String> {
+fn start_from_quick(app: tauri::AppHandle, engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, spec: start::StartSpec) -> Result<start::Started, String> {
+    if let Some((device, lane)) = peerfeed::split_remote(&spec.lane_id) {
+        return start_on_device(&peers, device, lane, &spec);
+    }
     let started = start_and_link(&engine, &spec)?;
     if let Some(bundle) = quick::start_app(spec.place, &engine.board().apps.terminal_id) {
         bar::bring_forward(&app, bundle);
@@ -782,14 +786,26 @@ fn start_options() -> Result<start::StartOptions, String> {
 #[tauri::command(async)]
 fn start_session(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, spec: start::StartSpec) -> Result<start::Started, String> {
     if let Some((device, lane)) = peerfeed::split_remote(&spec.lane_id) {
-        // Its todos are this device's; the other device has its own list.
-        let spec = start::StartSpec { lane_id: lane.to_string(), todos: Vec::new(), ..spec.clone() };
-        let got = peers.ask(device, api::START, serde_json::json!({ "spec": spec }), ASK_ACT)?;
-        let mut started: start::Started = serde_json::from_value(got).map_err(|e| e.to_string())?;
-        started.key = started.key.map(|k| peerfeed::remote_key(device, &k));
-        return Ok(started);
+        return start_on_device(&peers, device, lane, &spec);
     }
     start_and_link(&engine, &spec)
+}
+
+/// Starts a session in a worktree of another device, which runs it with its own accounts.
+fn start_on_device(peers: &peers::Peers, device: &str, lane: &str, spec: &start::StartSpec) -> Result<start::Started, String> {
+    // Its todos are this device's; the other device has its own list.
+    let spec = start::StartSpec { lane_id: lane.to_string(), todos: Vec::new(), ..spec.clone() };
+    let got = peers.ask(device, api::START, serde_json::json!({ "spec": spec }), ASK_ACT)?;
+    let mut started: start::Started = serde_json::from_value(got).map_err(|e| e.to_string())?;
+    started.key = started.key.map(|k| peerfeed::remote_key(device, &k));
+    Ok(started)
+}
+
+/// Where each account on another device can start a session, asked of that device.
+#[tauri::command(async)]
+fn device_start_options(peers: State<'_, peers::Peers>, device: String) -> Result<start::StartOptions, String> {
+    let got = peers.ask(&device, api::START_OPTIONS, serde_json::json!({}), ASK_READ)?;
+    serde_json::from_value(got).map_err(|e| e.to_string())
 }
 
 /// Starts a session and links it to its todos; the socket (server.rs) does the same for the
@@ -1124,7 +1140,7 @@ pub fn run() {
             peek::on_window_event(window, event);
         })
         .register_asynchronous_uri_scheme_protocol("codealong-image", |_ctx, request, responder| serve_image(request, responder))
-        .invoke_handler(tauri::generate_handler![get_board, idle_terminals, close_idle_terminals, open_target, open_config, mark_seen, snooze_sessions, refresh, refresh_usage, set_pinned, set_pinned_worktrees, archive_session, pr_detail, pr_comment_asks, approve_pr, review_in_codex, open_url, get_accounts, save_accounts, set_preferred, found_accounts, get_config, save_config, save_config_text, sign_in, agents_status, install_agents, start_options, start_session, todo_op, canvas_load, canvas_save, save_attachment, import_attachment, open_attachment, expand_attachments, set_theme, open_project_window, fit_bar, show_main, peek_open, peek_ready, peek_fit, peek_focus, peek_hide, bar_feed, bar_on, set_bar_on, open_from_bar, show_quick, hide_quick, quick_ready, fit_quick, start_from_quick, route_quick, search_text, search_devices, devices, set_device_color, link_device, answer_link, unlink_device, device_link_code, link_code_qr, link_with_code, session_page, session_newer, session_pending, session_answer, session_stream, session_cancel, send_to_session, suggest_todo, dismiss_todo_hint, jev_key, set_jev_key, test_jev, quick_shortcut, pause_quick_shortcut, perf_mark, popup_menu])
+        .invoke_handler(tauri::generate_handler![get_board, idle_terminals, close_idle_terminals, open_target, open_config, mark_seen, snooze_sessions, refresh, refresh_usage, set_pinned, set_pinned_worktrees, archive_session, pr_detail, pr_comment_asks, approve_pr, review_in_codex, open_url, get_accounts, save_accounts, set_preferred, found_accounts, get_config, save_config, save_config_text, sign_in, agents_status, install_agents, start_options, device_start_options, start_session, todo_op, canvas_load, canvas_save, save_attachment, import_attachment, open_attachment, expand_attachments, set_theme, open_project_window, fit_bar, show_main, peek_open, peek_ready, peek_fit, peek_focus, peek_hide, bar_feed, bar_on, set_bar_on, open_from_bar, show_quick, hide_quick, quick_ready, fit_quick, start_from_quick, route_quick, search_text, search_devices, devices, set_device_color, link_device, answer_link, unlink_device, device_link_code, link_code_qr, link_with_code, session_page, session_newer, session_pending, session_answer, session_stream, session_cancel, send_to_session, suggest_todo, dismiss_todo_hint, jev_key, set_jev_key, test_jev, quick_shortcut, pause_quick_shortcut, perf_mark, popup_menu])
         .build(tauri::generate_context!())
         .expect("error while running Codealong")
         .run(|app, event| {
@@ -1244,7 +1260,7 @@ pub fn snapshot_cli(args: &[String]) -> i32 {
         return 0;
     }
     if let Some(i) = args.iter().position(|a| a == "--start-plan") {
-        let help = "usage: codealong --snapshot --start-plan <folder> <account> <terminal|background|claude-app|codex-app> [prompt] [--model <model>] [--worktree]";
+        let help = "usage: codealong --snapshot --start-plan <folder> <account> <terminal|background|claude-app|codex-app> [prompt] [--model <model>] [--effort <level>] [--worktree]";
         let (Some(folder), Some(name), Some(place)) = (args.get(i + 1), args.get(i + 2), args.get(i + 3)) else {
             eprintln!("{help}");
             return 2;
@@ -1259,9 +1275,10 @@ pub fn snapshot_cli(args: &[String]) -> i32 {
             return 1;
         };
         let model = args.iter().position(|a| a == "--model").and_then(|j| args.get(j + 1)).cloned();
+        let effort = args.iter().position(|a| a == "--effort").and_then(|j| args.get(j + 1)).cloned();
         let prompt = args.get(i + 4).filter(|p| !p.starts_with("--")).cloned().unwrap_or_default();
         let worktree = args.iter().any(|a| a == "--worktree");
-        let plan = start::plan(account, place, &util::expand(folder), &prompt, &start::new_session_id(), model.as_deref(), worktree);
+        let plan = start::plan(account, place, &util::expand(folder), &prompt, &start::new_session_id(), model.as_deref(), effort.as_deref(), worktree);
         println!("{}", serde_json::to_string_pretty(&plan).unwrap_or_default());
         return 0;
     }

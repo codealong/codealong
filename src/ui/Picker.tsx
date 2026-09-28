@@ -1,6 +1,7 @@
 // A menu that drops from a button in the quick panel: a filter field, then the options in
-// sections. It's made for the keyboard: typing filters, ↑ ↓ move, ⏎ picks, Escape closes it
-// and leaves the panel open. Native menus aren't used here: the panel doesn't activate
+// sections, and below them a setting that goes with whatever is picked (the agent menu's effort).
+// It's made for the keyboard: typing filters, ↑ ↓ move, ⏎ picks, ← → change the setting while
+// the filter is empty, and Escape closes it and leaves the panel open. Native menus aren't used here: the panel doesn't activate
 // Codealong, and a menu can't show usage meters or filter.
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -34,6 +35,10 @@ interface PickerProps {
   /** Said when the filter leaves nothing. */
   empty?: string;
   className?: string;
+  /** A setting under the options, which stays put while they're filtered. */
+  foot?: ReactNode;
+  /** ← or → while the filter is empty, for the setting below. */
+  onStep?: (delta: -1 | 1) => void;
 }
 
 /** Every filter word in the option's text. */
@@ -42,7 +47,7 @@ function matches(o: PickerOption, words: string[]): boolean {
   return words.every((w) => t.includes(w));
 }
 
-export function Picker({ sections, value, placeholder, onPick, onClose, empty = 'Nothing matches.', className }: PickerProps) {
+export function Picker({ sections, value, placeholder, onPick, onClose, empty = 'Nothing matches.', className, foot, onStep }: PickerProps) {
   const [filter, setFilter] = useState('');
   const words = useMemo(() => filter.toLowerCase().split(/\s+/).filter(Boolean), [filter]);
   const shown = useMemo(() => sections.map((s) => ({ ...s, options: s.options.filter((o) => matches(o, words)) })).filter((s) => s.options.length > 0), [sections, words]);
@@ -106,6 +111,9 @@ export function Picker({ sections, value, placeholder, onPick, onClose, empty = 
             onClose();
           } else if (e.key === 'Tab') {
             onClose();
+          } else if (onStep && !filter && (e.key === 'ArrowLeft' || e.key === 'ArrowRight') && !e.metaKey && !e.altKey && !e.shiftKey) {
+            e.preventDefault();
+            onStep(e.key === 'ArrowLeft' ? -1 : 1);
           }
         }}
       />
@@ -138,6 +146,7 @@ export function Picker({ sections, value, placeholder, onPick, onClose, empty = 
           </div>
         ))}
       </div>
+      {foot && <div className="ca-picker-foot">{foot}</div>}
     </div>
   );
 }

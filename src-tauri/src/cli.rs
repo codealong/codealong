@@ -433,6 +433,9 @@ struct StartArgs {
     /// A model for a terminal or background start: fable, opus, sonnet, haiku, or a full name.
     #[arg(long)]
     model: Option<String>,
+    /// How hard Claude Code thinks (`claude --effort`); without it, the account's own setting. xhigh is what Claude Code's picker calls Extra.
+    #[arg(long, value_parser = clap::builder::PossibleValuesParser::new(start::effort_levels()))]
+    effort: Option<String>,
     /// Print what the start would do (the command and environment, or the link) without starting anything.
     #[arg(long)]
     dry_run: bool,
@@ -2372,11 +2375,11 @@ fn start_cmd(c: &mut Client, a: &StartArgs, json: bool) -> Result<()> {
             places.first().copied().ok_or_else(|| anyhow!("{account} can't start a session from here."))?
         }
     };
-    let spec = StartSpec { lane_id, account, place, prompt, model: a.model.clone(), worktree: a.new_worktree, todos: todo_ids };
+    let spec = StartSpec { lane_id, account, place, prompt, model: a.model.clone(), effort: a.effort.clone(), worktree: a.new_worktree, todos: todo_ids };
     if a.dry_run {
         let cfg = c.cfg().clone();
         let account = cfg.accounts.iter().find(|x| x.name == spec.account).ok_or_else(|| anyhow!("There's no account named {}.", spec.account))?;
-        let plan = start::plan(account, spec.place, Path::new(&spec.lane_id), &spec.prompt, &start::new_session_id(), spec.model.as_deref(), spec.worktree);
+        let plan = start::plan(account, spec.place, Path::new(&spec.lane_id), &spec.prompt, &start::new_session_id(), spec.model.as_deref(), spec.effort.as_deref(), spec.worktree);
         if json {
             return print_json(&serde_json::json!({ "spec": spec, "plan": plan }));
         }

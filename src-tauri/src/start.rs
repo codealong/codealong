@@ -40,6 +40,11 @@ const CLAUDE_MODELS: [(&str, &str); 8] = [
     ("opusplan", "Opus Plan Mode: Opus to plan, Sonnet to build"),
 ];
 
+/// The effort levels a Claude Code start can ask for, as `--effort` takes them, named the way
+/// Claude Code's own picker names them (2.1.284: `xhigh` is Extra). A model that doesn't take
+/// a level gets the nearest it does (`max` and `xhigh` become `high`), and Haiku takes none.
+const CLAUDE_EFFORTS: [(&str, &str); 5] = [("low", "Low"), ("medium", "Medium"), ("high", "High"), ("xhigh", "Extra"), ("max", "Max")];
+
 /// What a start asks for and gets back goes between devices too (a phone starts sessions on your
 /// Macs), so those types are in codealong-peer.
 pub use codealong_peer::api::{ModelOption, Place, PlaceOption, StartAccount, StartOptions, StartSpec, Started};
@@ -59,7 +64,7 @@ pub enum Plan {
     /// A link the Codex app opens.
     CodexApp { url: String },
     /// A session Codealong runs over the account's ACP adapter, on `prompt`.
-    Hosted { account: String, cwd: PathBuf, prompt: String, model: Option<String> },
+    Hosted { account: String, cwd: PathBuf, prompt: String, model: Option<String>, effort: Option<String> },
 }
 
 fn harness_of(a: &AccountCfg) -> Harness {
@@ -132,8 +137,8 @@ pub fn options(accounts: &[AccountCfg], terminal: &str, codex_projects: Vec<Stri
             StartAccount { name: a.name.clone(), harness, places, chosen, unavailable, default_model, preferred: a.preferred }
         })
         .collect();
-    let claude_models = CLAUDE_MODELS.iter().map(|(id, label)| ModelOption { id: id.to_string(), label: label.to_string() }).collect();
-    StartOptions { accounts, codex_projects, claude_models }
+    let listed = |list: &[(&str, &str)]| list.iter().map(|(id, label)| ModelOption { id: id.to_string(), label: label.to_string() }).collect();
+    StartOptions { accounts, codex_projects, claude_models: listed(&CLAUDE_MODELS), claude_efforts: listed(&CLAUDE_EFFORTS) }
 }
 
 /// Why Auto starts the account it does: its weekly limit resets soonest, so its room is the
@@ -263,6 +268,16 @@ pub fn valid_model(m: &str) -> bool {
     !m.is_empty() && m.len() <= 80 && m.chars().all(|c| c.is_ascii_alphanumeric() || "-._:[]".contains(c))
 }
 
+/// Whether `--effort` takes this level.
+pub fn valid_effort(e: &str) -> bool {
+    effort_levels().any(|id| id == e)
+}
+
+/// The levels `--effort` takes, lowest first.
+pub fn effort_levels() -> impl Iterator<Item = &'static str> {
+    CLAUDE_EFFORTS.iter().map(|(id, _)| *id)
+}
+
 /// The sheet's options for the accounts in `cfg`.
 pub fn options_for(cfg: &Config) -> StartOptions {
     let codex_projects = cfg.accounts.iter().filter(|a| a.harness == "codex").flat_map(|a| codex::app_project_roots(&a.home_path())).collect();
@@ -280,12 +295,17 @@ pub fn options_for(cfg: &Config) -> StartOptions {
 /// Attachments in the prompt (`images/…`, `files/…`) go to Claude Code as file mentions, with
 /// their folders added so it can read them without asking; `--add-dir` takes several folders,
 /// so each comes before `--session-id`, which ends it. The apps get the paths.
-pub fn plan(account: &AccountCfg, place: Place, folder: &Path, prompt: &str, session_id: &str, model: Option<&str>, worktree: bool) -> Plan {
-    plan_in(account, place, folder, prompt, session_id, model, worktree, (&attachments::images_dir(), &attachments::files_dir()))
+///
+/// `model` and `effort` go only to Claude Code (`--model`, `--effort`, or its adapter's options);
+/// the apps and the other agents pick their own.
+#[allow(clippy::too_many_arguments)]
+pub fn plan(account: &AccountCfg, place: Place, folder: &Path, prompt: &str, session_id: &str, model: Option<&str>, effort: Option<&str>, worktree: bool) -> Plan {
+    plan_in(account, place, folder, prompt, session_id, model, effort, worktree, (&attachments::images_dir(), &attachments::files_dir()))
 }
 
 #[allow(clippy::too_many_arguments)]
-fn plan_in(account: &AccountCfg, place: Place, folder: &Path, prompt: &str, session_id: &str, model: Option<&str>, worktree: bool, (images_dir, files_dir): (&Path, &Path)) -> Plan {
+fn plan_in(account: &AccountCfg, place: Place, folder: &Path, prompt: &str, session_id: &str, model: Option<&str>, effort: Option<&str>, worktree: bool, (images_dir, files_dir): (&Path, &Path)) -> Plan {
+    let effort = effort.filter(|e| valid_effort(e) && harness_of(account) == Harness::Claude);
     let (has_images, has_files) = attachments::kinds(prompt);
     let prompt_in = prompt;
     // OpenCode and Codex have no --add-dir; they get plain paths.
@@ -333,6 +353,9 @@ fn plan_in(account: &AccountCfg, place: Place, folder: &Path, prompt: &str, sess
             if let Some(m) = model.filter(|m| valid_model(m) && !opencode) {
                 input.push_str(&format!(" --model '{m}'"));
             }
+            if let Some(e) = effort {
+                input.push_str(&format!(" --effort {e}"));
+            }
             if !prompt.is_empty() {
                 input.push_str(if opencode { " --prompt" } else { "" });
                 input.push_str(&format!(" \"${PROMPT_VAR}\""));
@@ -356,6 +379,9 @@ fn plan_in(account: &AccountCfg, place: Place, folder: &Path, prompt: &str, sess
             if let Some(m) = model.filter(|m| valid_model(m)) {
                 command.push_str(&format!(" --model '{m}'"));
             }
+            if let Some(e) = effort {
+                command.push_str(&format!(" --effort {e}"));
+            }
             if !prompt.is_empty() {
                 command.push_str(&format!(" {}", sh_quote(&as_argument(prompt))));
             }
@@ -369,6 +395,7 @@ fn plan_in(account: &AccountCfg, place: Place, folder: &Path, prompt: &str, sess
             cwd: folder.to_path_buf(),
             prompt: attachments::expand_in(prompt_in, images_dir, files_dir, Style::Path).trim().to_string(),
             model: model.filter(|m| valid_model(m)).map(String::from),
+            effort: effort.map(String::from),
         },
     }
 }
@@ -499,13 +526,17 @@ pub fn start(board: &Board, cfg: &Config, spec: &StartSpec) -> Result<Started> {
     // Codealong hands a Claude Code session's model to its adapter, which takes the same names.
     let claude_hosted = spec.place == Place::Codealong && harness_of(account) == Harness::Claude;
     let model = spec.model.as_deref().map(str::trim).filter(|m| !m.is_empty() && (claude_terminal || claude_hosted));
+    let effort = spec.effort.as_deref().map(str::trim).filter(|e| !e.is_empty() && (claude_terminal || claude_hosted));
     let worktree = spec.worktree && claude_terminal;
     if let Some(m) = model.filter(|m| !valid_model(m)) {
         bail!("{m:?} isn't a model name Codealong can pass to Claude Code.");
     }
+    if let Some(e) = effort.filter(|e| !valid_effort(e)) {
+        bail!("{e:?} isn't an effort level; Claude Code takes {}.", effort_levels().collect::<Vec<_>>().join(", "));
+    }
     let id = new_session_id();
     let prompted = !spec.prompt.trim().is_empty();
-    match plan(account, spec.place, folder, &spec.prompt, &id, model, worktree) {
+    match plan(account, spec.place, folder, &spec.prompt, &id, model, effort, worktree) {
         Plan::Terminal { cwd, input, env } => {
             let near = crate::board::terminal_neighbours(&board.lanes, folder);
             launch::terminal_run(&cfg.apps.terminal, launch::Placement { new_terminal: cfg.apps.new_terminal, near: &near }, &cwd, &input, &env)?;
@@ -532,8 +563,8 @@ pub fn start(board: &Board, cfg: &Config, spec: &StartSpec) -> Result<Started> {
             };
             Ok(Started { key: None, message: Some(message) })
         }
-        Plan::Hosted { cwd, prompt, model, .. } => {
-            let key = crate::acp::start(account, &cwd, &prompt, model.as_deref())?;
+        Plan::Hosted { cwd, prompt, model, effort, .. } => {
+            let key = crate::acp::start(account, &cwd, &prompt, model.as_deref(), effort.as_deref())?;
             Ok(Started { key: Some(key), message: None })
         }
         Plan::CodexApp { url } => {
@@ -738,16 +769,41 @@ mod tests {
     fn asks_claude_code_for_a_model_in_quotes() {
         let a = account("claude2", "claude", "~/.claude2", Some("claude2"));
         let id = "0b7c2a4e-1d2f-4e3a-9b8c-7d6e5f4a3b2c";
-        let Plan::Terminal { input, .. } = plan(&a, Place::Terminal, Path::new("/r/x"), "Fix it", id, Some("fable[1m]"), false) else { panic!() };
+        let Plan::Terminal { input, .. } = plan(&a, Place::Terminal, Path::new("/r/x"), "Fix it", id, Some("fable[1m]"), None, false) else { panic!() };
         assert_eq!(input, format!("claude2 --session-id {id} --model 'fable[1m]' \"$CODEALONG_PROMPT\"\n"));
         // Nothing that could leave the quotes is ever typed.
-        let Plan::Terminal { input, .. } = plan(&a, Place::Terminal, Path::new("/r/x"), "", id, Some("opus'; rm -rf ~ '"), false) else { panic!() };
+        let Plan::Terminal { input, .. } = plan(&a, Place::Terminal, Path::new("/r/x"), "", id, Some("opus'; rm -rf ~ '"), None, false) else { panic!() };
         assert_eq!(input, format!("claude2 --session-id {id}\n"));
         assert!(valid_model("claude-opus-5-5") && valid_model("sonnet[1m]") && valid_model("opusplan"));
         assert!(!valid_model("") && !valid_model("opus fable") && !valid_model("$(x)") && !valid_model("a'b"));
         // The apps take no model.
         let claude = account("claude", "claude", "~/.claude", Some("claude"));
-        assert_eq!(plan(&claude, Place::ClaudeApp, Path::new("/r/x"), "", id, Some("opus"), false), Plan::ClaudeApp { url: "claude://code/new?folder=%2Fr%2Fx".into() });
+        assert_eq!(plan(&claude, Place::ClaudeApp, Path::new("/r/x"), "", id, Some("opus"), None, false), Plan::ClaudeApp { url: "claude://code/new?folder=%2Fr%2Fx".into() });
+    }
+
+    #[test]
+    fn asks_claude_code_for_an_effort_level_it_knows() {
+        let a = account("claude2", "claude", "~/.claude2", Some("claude2"));
+        let id = "0b7c2a4e-1d2f-4e3a-9b8c-7d6e5f4a3b2c";
+        let Plan::Terminal { input, .. } = plan(&a, Place::Terminal, Path::new("/r/x"), "Fix it", id, Some("opus"), Some("xhigh"), false) else { panic!() };
+        assert_eq!(input, format!("claude2 --session-id {id} --model 'opus' --effort xhigh \"$CODEALONG_PROMPT\"\n"));
+        let Plan::Background { command, .. } = plan(&a, Place::Background, Path::new("/r/x"), "", id, None, Some("low"), false) else { panic!() };
+        assert_eq!(command, "claude2 --bg --effort low");
+        let Plan::Hosted { effort, .. } = plan(&a, Place::Codealong, Path::new("/r/x"), "Fix it", id, None, Some("max"), false) else { panic!() };
+        assert_eq!(effort.as_deref(), Some("max"));
+        // Only the levels Claude Code takes are typed.
+        let Plan::Terminal { input, .. } = plan(&a, Place::Terminal, Path::new("/r/x"), "", id, None, Some("high; rm -rf ~"), false) else { panic!() };
+        assert_eq!(input, format!("claude2 --session-id {id}\n"));
+        assert!(valid_effort("medium") && !valid_effort("ultracode") && !valid_effort(""));
+        // The other agents choose their own.
+        let o = account("opencode", "opencode", "~/.local/share/opencode", Some("opencode"));
+        let Plan::Terminal { input, .. } = plan(&o, Place::Terminal, Path::new("/r/x"), "", id, None, Some("high"), false) else { panic!() };
+        assert_eq!(input, "opencode\n");
+        let cx = account("codex", "codex", "~/.codex", Some("codex"));
+        let Plan::Terminal { input, .. } = plan(&cx, Place::Terminal, Path::new("/r/x"), "", id, None, Some("high"), false) else { panic!() };
+        assert_eq!(input, "codex\n");
+        let o = options(&[a], "Ghostty", Vec::new(), Path::new("/Users/me"), |_| None);
+        assert_eq!(o.claude_efforts.iter().map(|e| e.id.as_str()).collect::<Vec<_>>(), ["low", "medium", "high", "xhigh", "max"]);
     }
 
     #[test]
@@ -755,16 +811,16 @@ mod tests {
         let a = account("claude2", "claude", "~/.claude2", Some("claude2"));
         let id = "0b7c2a4e-1d2f-4e3a-9b8c-7d6e5f4a3b2c";
         let prompt = "Fix the \"flaky\" test\nthen run `npm test` and $(say done)";
-        let Plan::Terminal { cwd, input, env } = plan(&a, Place::Terminal, Path::new("/r/atlas-app4"), &format!("  {prompt}\n"), id, None, false) else { panic!() };
+        let Plan::Terminal { cwd, input, env } = plan(&a, Place::Terminal, Path::new("/r/atlas-app4"), &format!("  {prompt}\n"), id, None, None, false) else { panic!() };
         assert_eq!(cwd, PathBuf::from("/r/atlas-app4"));
         assert_eq!(input, format!("claude2 --session-id {id} \"$CODEALONG_PROMPT\"\n"));
         let session = (SESSION_VAR.to_string(), format!("claude:claude2:{id}"));
         assert_eq!(env, vec![session.clone(), (PROMPT_VAR.to_string(), prompt.to_string())]);
-        let Plan::Terminal { input, env, .. } = plan(&a, Place::Terminal, Path::new("/r/x"), "  ", id, None, false) else { panic!() };
+        let Plan::Terminal { input, env, .. } = plan(&a, Place::Terminal, Path::new("/r/x"), "  ", id, None, None, false) else { panic!() };
         assert_eq!(input, format!("claude2 --session-id {id}\n"));
         assert_eq!(env, vec![session]);
         let custom = account("claude3", "claude", "~/.claude3", Some("CLAUDE_CONFIG_DIR=~/.claude3 claude"));
-        let Plan::Terminal { input, .. } = plan(&custom, Place::Terminal, Path::new("/r/x"), "", id, None, false) else { panic!() };
+        let Plan::Terminal { input, .. } = plan(&custom, Place::Terminal, Path::new("/r/x"), "", id, None, None, false) else { panic!() };
         assert_eq!(input, format!("CLAUDE_CONFIG_DIR=~/.claude3 claude --session-id {id}\n"));
     }
 
@@ -774,7 +830,7 @@ mod tests {
         let id = "0b7c2a4e-1d2f-4e3a-9b8c-7d6e5f4a3b2c";
         let (images, files) = (Path::new("/Users/me/Library/Application Support/Codealong/images"), Path::new("/f"));
         let prompt = "Don't break $HOME or `this`\n![image](images/0123456789abcdef.png)";
-        let Plan::Background { cwd, command } = plan_in(&a, Place::Background, Path::new("/r/x"), prompt, id, Some("fable[1m]"), true, (images, files)) else { panic!() };
+        let Plan::Background { cwd, command } = plan_in(&a, Place::Background, Path::new("/r/x"), prompt, id, Some("fable[1m]"), None, true, (images, files)) else { panic!() };
         assert_eq!(cwd, PathBuf::from("/r/x"));
         // --worktree first (it takes an optional name), --add-dir before --bg (it takes several
         // folders), and no --session-id, which --bg ignores.
@@ -782,10 +838,10 @@ mod tests {
             command,
             format!("claude2 --worktree --add-dir '{}' --bg --model 'fable[1m]' 'Don'\\''t break $HOME or `this`\n@\"{}/0123456789abcdef.png\"'", images.display(), images.display())
         );
-        let Plan::Background { command, .. } = plan(&a, Place::Background, Path::new("/r/x"), "  ", id, None, false) else { panic!() };
+        let Plan::Background { command, .. } = plan(&a, Place::Background, Path::new("/r/x"), "  ", id, None, None, false) else { panic!() };
         assert_eq!(command, "claude2 --bg");
         // A one-word prompt keeps its padding, so it isn't read as a command.
-        let Plan::Background { command, .. } = plan(&a, Place::Background, Path::new("/r/x"), "update", id, None, false) else { panic!() };
+        let Plan::Background { command, .. } = plan(&a, Place::Background, Path::new("/r/x"), "update", id, None, None, false) else { panic!() };
         assert_eq!(command, "claude2 --bg 'update '");
     }
 
@@ -810,7 +866,7 @@ mod tests {
         let folder = PathBuf::from(std::env::var("CODEALONG_TEST_FOLDER").expect("CODEALONG_TEST_FOLDER"));
         let a = account("claude", "claude", "~/.claude", Some("claude"));
         let prompt = "Reply with just ok. Don't expand $HOME or `this` or $(say nope) -v";
-        let Plan::Background { cwd, command } = plan(&a, Place::Background, &folder, prompt, "unused", Some("haiku"), false) else { panic!() };
+        let Plan::Background { cwd, command } = plan(&a, Place::Background, &folder, prompt, "unused", Some("haiku"), None, false) else { panic!() };
         let (job, id) = start_background(&a, &cwd, &command).unwrap();
         let id = id.expect("the roster names the session");
         assert!(id.starts_with(&job));
@@ -835,10 +891,10 @@ mod tests {
     fn starts_opencode_on_its_own_terms() {
         let a = account("opencode", "opencode", "~/.local/share/opencode", Some("opencode"));
         let id = "0b7c2a4e-1d2f-4e3a-9b8c-7d6e5f4a3b2c";
-        let Plan::Terminal { input, env, .. } = plan(&a, Place::Terminal, Path::new("/r/x"), "Fix it", id, Some("opus"), true) else { panic!() };
+        let Plan::Terminal { input, env, .. } = plan(&a, Place::Terminal, Path::new("/r/x"), "Fix it", id, Some("opus"), None, true) else { panic!() };
         assert_eq!(input, "opencode --prompt \"$CODEALONG_PROMPT\"\n");
         assert_eq!(env, vec![(PROMPT_VAR.to_string(), "Fix it".to_string())]);
-        let Plan::Terminal { input, env, .. } = plan(&a, Place::Terminal, Path::new("/r/x"), "", id, None, false) else { panic!() };
+        let Plan::Terminal { input, env, .. } = plan(&a, Place::Terminal, Path::new("/r/x"), "", id, None, None, false) else { panic!() };
         assert_eq!(input, "opencode\n");
         assert!(env.is_empty());
     }
@@ -849,7 +905,7 @@ mod tests {
         let id = "0b7c2a4e-1d2f-4e3a-9b8c-7d6e5f4a3b2c";
         let dir = Path::new("/Users/me/Library/Application Support/Codealong/images");
         let prompt = "Match this:\n![image](images/0123456789abcdef.png)";
-        let Plan::Terminal { input, env, .. } = plan_in(&a, Place::Terminal, Path::new("/r/x"), prompt, id, Some("opus"), false, (dir, Path::new("/f"))) else { panic!() };
+        let Plan::Terminal { input, env, .. } = plan_in(&a, Place::Terminal, Path::new("/r/x"), prompt, id, Some("opus"), None, false, (dir, Path::new("/f"))) else { panic!() };
         assert_eq!(input, format!("claude2 --add-dir \"$CODEALONG_IMAGES\" --session-id {id} --model 'opus' \"$CODEALONG_PROMPT\"\n"));
         assert_eq!(
             env,
@@ -860,24 +916,24 @@ mod tests {
             ]
         );
         // Without images, nothing changes.
-        let Plan::Terminal { input, .. } = plan_in(&a, Place::Terminal, Path::new("/r/x"), "Fix it", id, None, false, (dir, Path::new("/f"))) else { panic!() };
+        let Plan::Terminal { input, .. } = plan_in(&a, Place::Terminal, Path::new("/r/x"), "Fix it", id, None, None, false, (dir, Path::new("/f"))) else { panic!() };
         assert_eq!(input, format!("claude2 --session-id {id} \"$CODEALONG_PROMPT\"\n"));
         // The Codex CLI gets the image with -i as well as its path, `--` before the prompt.
         let cx2 = account("codex2", "codex", "~/.codex2", Some("CODEX_HOME=~/.codex2 codex"));
-        let Plan::Terminal { input, env, .. } = plan_in(&cx2, Place::Terminal, Path::new("/r/x"), prompt, id, Some("opus"), true, (dir, Path::new("/f"))) else { panic!() };
+        let Plan::Terminal { input, env, .. } = plan_in(&cx2, Place::Terminal, Path::new("/r/x"), prompt, id, Some("opus"), None, true, (dir, Path::new("/f"))) else { panic!() };
         assert_eq!(input, format!("CODEX_HOME=~/.codex2 codex -i '{}/0123456789abcdef.png' -- \"$CODEALONG_PROMPT\"\n", dir.display()));
         assert_eq!(env, vec![(PROMPT_VAR.to_string(), format!("Match this:\n![image]({}/0123456789abcdef.png)", dir.display()))]);
-        let Plan::Terminal { input, env, .. } = plan_in(&cx2, Place::Terminal, Path::new("/r/x"), "", id, None, false, (dir, Path::new("/f"))) else { panic!() };
+        let Plan::Terminal { input, env, .. } = plan_in(&cx2, Place::Terminal, Path::new("/r/x"), "", id, None, None, false, (dir, Path::new("/f"))) else { panic!() };
         assert_eq!((input.as_str(), env.len()), ("CODEX_HOME=~/.codex2 codex\n", 0));
         // Codex opens the path; the Claude app gets the same mention the terminal does.
         let codex = account("codex", "codex", "~/.codex", None);
-        let Plan::CodexApp { url } = plan_in(&codex, Place::CodexApp, Path::new("/r/x"), prompt, id, None, false, (dir, Path::new("/f"))) else { panic!() };
+        let Plan::CodexApp { url } = plan_in(&codex, Place::CodexApp, Path::new("/r/x"), prompt, id, None, None, false, (dir, Path::new("/f"))) else { panic!() };
         assert!(url.ends_with(&urlencoding::encode(&format!("Match this:\n![image]({}/0123456789abcdef.png)", dir.display())).to_string()));
         let claude = account("claude", "claude", "~/.claude", Some("claude"));
-        let Plan::ClaudeApp { url } = plan_in(&claude, Place::ClaudeApp, Path::new("/r/x"), prompt, id, None, false, (dir, Path::new("/f"))) else { panic!() };
+        let Plan::ClaudeApp { url } = plan_in(&claude, Place::ClaudeApp, Path::new("/r/x"), prompt, id, None, None, false, (dir, Path::new("/f"))) else { panic!() };
         assert!(url.contains(&urlencoding::encode("@\"/Users/me/Library").to_string()));
         // In a new worktree, the images folder comes after --worktree, which takes an optional name.
-        let Plan::Terminal { input, .. } = plan_in(&a, Place::Terminal, Path::new("/r/x"), prompt, id, None, true, (dir, Path::new("/f"))) else { panic!() };
+        let Plan::Terminal { input, .. } = plan_in(&a, Place::Terminal, Path::new("/r/x"), prompt, id, None, None, true, (dir, Path::new("/f"))) else { panic!() };
         assert_eq!(input, format!("claude2 --worktree --add-dir \"$CODEALONG_IMAGES\" --session-id {id} \"$CODEALONG_PROMPT\"\n"));
     }
 
@@ -887,17 +943,17 @@ mod tests {
         let id = "0b7c2a4e-1d2f-4e3a-9b8c-7d6e5f4a3b2c";
         let (images, files) = (Path::new("/i"), Path::new("/Users/me/Library/Application Support/Codealong/files"));
         let prompt = "Why does this fail?\n[crash.log](files/0123456789abcdef/crash.log)";
-        let Plan::Terminal { input, env, .. } = plan_in(&a, Place::Terminal, Path::new("/r/x"), prompt, id, None, false, (images, files)) else { panic!() };
+        let Plan::Terminal { input, env, .. } = plan_in(&a, Place::Terminal, Path::new("/r/x"), prompt, id, None, None, false, (images, files)) else { panic!() };
         assert_eq!(input, format!("claude2 --add-dir \"$CODEALONG_FILES\" --session-id {id} \"$CODEALONG_PROMPT\"\n"));
         assert_eq!(env[0], (FILES_VAR.to_string(), files.to_string_lossy().to_string()));
         assert_eq!(env[2].1, format!("Why does this fail?\n@\"{}/0123456789abcdef/crash.log\"", files.display()));
         // With an image too, both folders, each its own --add-dir.
         let both = format!("{prompt}\n![image](images/fedcba9876543210.png)");
-        let Plan::Terminal { input, .. } = plan_in(&a, Place::Terminal, Path::new("/r/x"), &both, id, None, false, (images, files)) else { panic!() };
+        let Plan::Terminal { input, .. } = plan_in(&a, Place::Terminal, Path::new("/r/x"), &both, id, None, None, false, (images, files)) else { panic!() };
         assert_eq!(input, format!("claude2 --add-dir \"$CODEALONG_IMAGES\" --add-dir \"$CODEALONG_FILES\" --session-id {id} \"$CODEALONG_PROMPT\"\n"));
         // OpenCode gets the path, and no folders it has no option for.
         let o = account("opencode", "opencode", "~/.local/share/opencode", Some("opencode"));
-        let Plan::Terminal { input, env, .. } = plan_in(&o, Place::Terminal, Path::new("/r/x"), prompt, id, None, false, (images, files)) else { panic!() };
+        let Plan::Terminal { input, env, .. } = plan_in(&o, Place::Terminal, Path::new("/r/x"), prompt, id, None, None, false, (images, files)) else { panic!() };
         assert_eq!(input, "opencode --prompt \"$CODEALONG_PROMPT\"\n");
         assert_eq!(env[0].1, format!("Why does this fail?\n[crash.log]({}/0123456789abcdef/crash.log)", files.display()));
     }
@@ -906,12 +962,12 @@ mod tests {
     fn asks_claude_code_for_a_new_worktree_before_anything_it_could_take_as_its_name() {
         let a = account("claude2", "claude", "~/.claude2", Some("claude2"));
         let id = "0b7c2a4e-1d2f-4e3a-9b8c-7d6e5f4a3b2c";
-        let Plan::Terminal { cwd, input, .. } = plan(&a, Place::Terminal, Path::new("/r/atlas"), "Fix it", id, Some("opus"), true) else { panic!() };
+        let Plan::Terminal { cwd, input, .. } = plan(&a, Place::Terminal, Path::new("/r/atlas"), "Fix it", id, Some("opus"), None, true) else { panic!() };
         assert_eq!(cwd, PathBuf::from("/r/atlas"));
         assert_eq!(input, format!("claude2 --worktree --session-id {id} --model 'opus' \"$CODEALONG_PROMPT\"\n"));
         // The apps choose their own worktrees.
         let claude = account("claude", "claude", "~/.claude", Some("claude"));
-        assert_eq!(plan(&claude, Place::ClaudeApp, Path::new("/r/x"), "", id, None, true), Plan::ClaudeApp { url: "claude://code/new?folder=%2Fr%2Fx".into() });
+        assert_eq!(plan(&claude, Place::ClaudeApp, Path::new("/r/x"), "", id, None, None, true), Plan::ClaudeApp { url: "claude://code/new?folder=%2Fr%2Fx".into() });
     }
 
     #[test]
@@ -928,12 +984,12 @@ mod tests {
         let codex = account("codex", "codex", "~/.codex", None);
         let folder = Path::new("/Users/me/My Repo");
         assert_eq!(
-            plan(&claude, Place::ClaudeApp, folder, "Fix it & ship\nnow", "id", None, false),
+            plan(&claude, Place::ClaudeApp, folder, "Fix it & ship\nnow", "id", None, None, false),
             Plan::ClaudeApp { url: "claude://code/new?folder=%2FUsers%2Fme%2FMy%20Repo&q=Fix%20it%20%26%20ship%0Anow".into() }
         );
-        assert_eq!(plan(&claude, Place::ClaudeApp, folder, "", "id", None, false), Plan::ClaudeApp { url: "claude://code/new?folder=%2FUsers%2Fme%2FMy%20Repo".into() });
+        assert_eq!(plan(&claude, Place::ClaudeApp, folder, "", "id", None, None, false), Plan::ClaudeApp { url: "claude://code/new?folder=%2FUsers%2Fme%2FMy%20Repo".into() });
         assert_eq!(
-            plan(&codex, Place::CodexApp, folder, "Review #12", "id", None, false),
+            plan(&codex, Place::CodexApp, folder, "Review #12", "id", None, None, false),
             Plan::CodexApp { url: "codex://threads/new?path=%2FUsers%2Fme%2FMy%20Repo&prompt=Review%20%2312".into() }
         );
     }

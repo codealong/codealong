@@ -108,7 +108,7 @@ window.__TAURI_INTERNALS__ = {
         return all[0];
       });
     }
-    var file = { get_accounts: './accounts.json', found_accounts: './found.json', get_config: './config.json', pr_detail: './pr-detail.json', start_options: './start-options.json', bar_feed: './bar-feed.json' }[cmd];
+    var file = { get_accounts: './accounts.json', found_accounts: './found.json', get_config: './config.json', pr_detail: './pr-detail.json', start_options: './start-options.json', device_start_options: './start-options.json', bar_feed: './bar-feed.json' }[cmd];
     if (file) return fetch(file).then(function (r) { return r.ok ? r.json() : Promise.reject(new Error(file + ' is missing')); });
     if (cmd === 'plugin:menu|new') return Promise.resolve([window.__calls.length, 'menu-' + window.__calls.length]);
     // A listener's id is where its call sits in __calls, counted from 1, so an unlisten can

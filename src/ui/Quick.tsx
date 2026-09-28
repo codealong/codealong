@@ -5,8 +5,9 @@
 // chosen at the bottom.
 //
 // ⏎ does the selected row and ⌘⏎ always starts. ⌥⏎ shows the session in Codealong, ⌘1 to ⌘9
-// open a row, ⌘P picks the project and ⌥⌘1 to ⌥⌘9 switch to one (⌥⌘0 to all of them), ⌘T picks
-// the worktree and ⌘L the agent, ↑ in the empty input brings back the last draft and earlier
+// open a row, ⌘P picks the project and ⌥⌘1 to ⌥⌘9 switch to one (⌥⌘0 to all of them), ⌘D picks
+// the Mac (with others linked), ⌘T the worktree and ⌘L the agent, whose menu has the effort
+// under its models (← → there), ↑ in the empty input brings back the last draft and earlier
 // prompts, and Escape closes. (⌘M is the Window menu's Minimize, which may take the key before
 // the page sees it.)
 //
@@ -21,11 +22,14 @@ import { reuse } from '../reuse';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import {
+  deviceStartOptions,
   fitQuick,
   getBoard,
+  getDevices,
   hideQuick,
   inPreview,
   onBoard,
+  onDevices,
   onQuickHidden,
   openFromBar,
   openUrl,
@@ -42,6 +46,7 @@ import {
 } from '../api';
 import { archiveAhead, boardAhead, boardView, observe, seenAhead, sendAhead, useAhead } from '../ahead';
 import { filesToAttach, keepFiles, useFileDrop } from '../attachInput';
+import { deviceLabel, shortOf } from '../devices';
 import { useKeyPerf, usePerf } from '../perf';
 import { below, showContextMenu } from '../contextMenu';
 import { ago, agoPhrase, resetsPhrase, tildePath } from '../format';
@@ -59,6 +64,7 @@ import {
   initialChoice,
   isAuto,
   preferredNames,
+  modelFamily,
   modelName,
   parseAgent,
   placesFor,
@@ -71,7 +77,7 @@ import {
 } from '../start';
 import { duplicateOf, rankedBy, suggestions, sureness, todoTitle, worthRouting, type Suggestion } from '../route';
 import { attachmentsIn, blockedBy, insertAttachments, newTodo, sessionHomes, snippet, todoItem, todoPrompt, todosPrompt, withoutAttachment } from '../todos';
-import type { Attachment, Board, Lane, Meter, PrItem, Route, Session, StartOptions, StartPlace, StartSpec, TextFound } from '../types';
+import type { Attachment, Board, DevicesView, Lane, Meter, PrItem, Route, Session, StartOptions, StartPlace, StartSpec, TextFound } from '../types';
 import { AttachmentStrip } from './DescriptionEditor';
 import { sessionWhy } from './PanelSession';
 import { Picker, type PickerOption, type PickerSection } from './Picker';
@@ -102,10 +108,14 @@ const INPUT_LINES = 8;
 const COMPOSE = 'compose';
 /** How long a read of where accounts can start is used without waiting for a new one. */
 const OPTIONS_FOR_MS = 60_000;
+/** How long after another Mac didn't say where its accounts can start it's asked again. */
+const RETRY_MS = 5_000;
+/** The device menu's id for this Mac; the others go by their short ids, which are hex. */
+const HERE = 'here';
 /** The tallest the card gets while it answers a session; the conversation scrolls inside. */
 const REPLY_HEIGHT = 640;
 
-type PickerKind = 'project' | 'worktree' | 'agent';
+type PickerKind = 'project' | 'device' | 'worktree' | 'agent';
 
 const GROUP_WORD: Record<RowGroup, string> = { suggested: 'Suggested', needs: 'Needs you', unread: 'Your turn', working: 'Working', found: 'Sessions', todos: 'Todos', prs: 'PRs', ready: 'Ready todos', recent: 'Last 24 hours' };
 
@@ -214,7 +224,14 @@ export function Quick() {
   const [laneId, setLaneId] = useState<string | null>(null);
   // The agent menu's choice; null is the first it offers, Auto where there's one.
   const [agent, setAgent] = useState<string | null>(null);
+  // `--effort` for the agent chosen; null is the account's own.
+  const [effort, setEffort] = useState<string | null>(null);
   const [place, setPlace] = useState<StartPlace | null>(null);
+  // The Mac a new session starts on, by its short id; null is this one.
+  const [device, setDevice] = useState<string | null>(null);
+  const [devices, setDevices] = useState<DevicesView | null>(null);
+  // Where accounts can start on your other Macs, asked of each once it's chosen.
+  const [remoteOptions, setRemoteOptions] = useState<Record<string, { at: number; options: StartOptions | null; error: string | null }>>({});
   const [newWorktree, setNewWorktree] = useState(false);
   // The todos a new session is for: one, or several started together on one prompt.
   const [todoIds, setTodoIds] = useState<string[]>([]);
@@ -305,7 +322,9 @@ export function Quick() {
         setText(ctx.prompt ?? '');
         setRecall(null);
         setAgent(null);
+        setEffort(null);
         setPlace(null);
+        setDevice(ctx.laneId ? shortOf(ctx.laneId) : null);
         setNewWorktree(false);
         setActiveKey(null);
         setReplyKey(ctx.reply ?? null);
@@ -328,8 +347,14 @@ export function Quick() {
       setShown(true);
       setOpens((n) => n + 1);
     };
-    const refresh = () => {
+    const refresh = (b: Board | null) => {
       if (!cachedOptions.current || Date.now() - cachedOptions.current.at >= OPTIONS_FOR_MS) readOptions();
+      // Your other Macs, for starting there, when there are any; while the panel is up it
+      // follows them.
+      if (b?.devices?.enabled)
+        getDevices()
+          .then((d) => d && setDevices(d))
+          .catch(() => {});
     };
     const openNow = (by: 'script' | 'page', ctx: QuickOpen, b: Board | null) => {
       opening.current = by;
@@ -338,7 +363,7 @@ export function Quick() {
       } finally {
         opening.current = null;
       }
-      refresh();
+      refresh(b);
     };
     // Opened by Codealong's script: laid out and measured before it returns.
     window.__quickOpen = (ctx, b) => {
@@ -385,6 +410,7 @@ export function Quick() {
         : undefined,
     [shown],
   );
+  useEffect(() => (shown ? onDevices(setDevices) : undefined), [shown]);
   usePerf(engineBoard, arrived);
   // The panel follows the board only while it's up; so does what it knows of its changes.
   useEffect(() => {
@@ -435,13 +461,29 @@ export function Quick() {
   };
   const counts = useMemo(() => (board ? projectCounts(board, [...projects.map((p) => p.name), ALL_PROJECTS]) : {}), [board, projects]);
 
-  // Where a session can start: the project's worktrees, and the one a window asked for.
+  // Which Mac: this one, or another linked Mac, which starts the session with its own accounts
+  // in its own worktrees. Until your devices are read, one a window asked for is taken as it is.
+  const macs = useMemo(() => (devices?.enabled ? devices.devices : []), [devices]);
+  const deviceNow = device && (!devices || macs.some((d) => d.short === device)) ? device : null;
+  const deviceInfo = macs.find((d) => d.short === deviceNow) ?? null;
+  const remote = deviceNow ? remoteOptions[deviceNow] : undefined;
+  // Where its accounts can start is asked of it, and asked again once it's a minute old.
+  useEffect(() => {
+    if (!shown || !deviceNow || (remote && Date.now() - remote.at < (remote.error ? RETRY_MS : OPTIONS_FOR_MS))) return;
+    const d = deviceNow;
+    deviceStartOptions(d)
+      .then((o) => setRemoteOptions((r) => ({ ...r, [d]: { at: Date.now(), options: o, error: null } })))
+      .catch((e: unknown) => setRemoteOptions((r) => ({ ...r, [d]: { at: Date.now(), options: r[d]?.options ?? null, error: plain(e) } })));
+  }, [shown, deviceNow, remote]);
+  const startOptionsNow = deviceNow ? (remote?.options ?? null) : options;
+
+  // Where a session can start: the project's worktrees on that Mac, and the one a window asked for.
   const lanes = useMemo(() => {
-    const all = board?.lanes ?? [];
+    const all = deviceNow ? (devices?.lanes ?? []).filter((l) => shortOf(l.id) === deviceNow) : (board?.lanes ?? []);
     const mine = all.filter((l) => inProject(l, current));
     const extra = laneId && !mine.some((l) => l.id === laneId) ? all.filter((l) => l.id === laneId) : [];
     return [...mine, ...extra];
-  }, [board?.lanes, current, laneId]);
+  }, [board?.lanes, devices?.lanes, deviceNow, current, laneId]);
   const groups = useMemo(() => laneGroups(lanes, board?.pinnedWorktrees ?? []), [lanes, board?.pinnedWorktrees]);
   // Without one asked for, the first on the list: a pinned one, else the latest.
   const lane = lanes.find((l) => l.id === laneId) ?? groups[0]?.lanes[0] ?? null;
@@ -472,10 +514,12 @@ export function Quick() {
 
   /* ---- Who ---- */
 
-  const usage = useMemo(() => board?.usage ?? [], [board?.usage]);
+  // Another Mac's usage comes with its feed.
+  const usage = useMemo(() => (deviceNow ? (deviceInfo?.usage ?? []) : (board?.usage ?? [])), [deviceNow, deviceInfo?.usage, board?.usage]);
   // Stars come with the board, which is current; where accounts can start is read less often.
-  const accounts = useMemo(() => (options?.accounts ?? []).map((a) => ({ ...a, preferred: usage.find((u) => u.account === a.name)?.preferred ?? a.preferred })), [options, usage]);
-  const models = useMemo(() => options?.claudeModels ?? [], [options]);
+  const accounts = useMemo(() => (startOptionsNow?.accounts ?? []).map((a) => ({ ...a, preferred: usage.find((u) => u.account === a.name)?.preferred ?? a.preferred })), [startOptionsNow, usage]);
+  const models = useMemo(() => startOptionsNow?.claudeModels ?? [], [startOptionsNow]);
+  const efforts = useMemo(() => startOptionsNow?.claudeEfforts ?? [], [startOptionsNow]);
   // Auto follows usage while the panel is up, and resolves when you start.
   const pick = useMemo(() => autoPick(accounts, usage, now), [accounts, usage, now]);
   const agents = useMemo(() => agentOptions(accounts, models, pick), [accounts, models, pick]);
@@ -488,10 +532,11 @@ export function Quick() {
   const harness = accountInfo?.harness ?? null;
   const autoModelPick = autoFor ? autoModel(accountInfo?.defaultModel ?? null, usage.find((u) => u.account === account)) : null;
 
-  // A model is asked for on the command line, so choosing one leaves only the terminal and the
-  // background; the apps pick their own.
+  // A model or effort is asked for on the command line (or of Codealong's adapter), so choosing
+  // one leaves only the places that take it; the apps pick their own.
   const allPlaces = placesFor(choice, accounts, pick);
-  const places = chosenModel ? allPlaces.filter((p) => placeTakesModel(p.place)) : allPlaces;
+  const tuned = !!chosenModel || (!!effort && harness === 'claude' && efforts.length > 0);
+  const places = tuned ? allPlaces.filter((p) => placeTakesModel(p.place)) : allPlaces;
   const placeNow = [place, choice ? (settledPlace(choice, accounts, pick) ?? remembered().places?.[choice]) : undefined].map((p) => places.find((x) => x.place === p)?.place).find(Boolean) ?? places[0]?.place ?? null;
   const claudeTerminal = !!placeNow && onCommandLine(placeNow) && harness === 'claude';
   // Codealong hands the model to Claude Code's adapter, which takes the same names.
@@ -514,6 +559,13 @@ export function Quick() {
       : defaultModel
         ? modelName(defaultModel, models)
         : 'default model';
+  // Claude Code starts on the model asked for, else the account's own.
+  const startsOn = claudeModel ? (modelNow ?? defaultModel) : null;
+  // The effort goes wherever the model does, except to Haiku, which takes none. A Mac whose
+  // Codealong doesn't know effort yet lists no levels.
+  const effortTaken = claudeModel && efforts.length > 0 && modelFamily(startsOn) !== 'haiku';
+  const effortNow = effortTaken ? effort : null;
+  const effortWord = efforts.find((e) => e.id === effortNow)?.label ?? null;
 
   /* ---- What for ---- */
 
@@ -605,7 +657,11 @@ export function Quick() {
   const route = routeFor && routed?.for === routeFor ? routed.route : null;
   const routeProblem = routeFor && routeError?.for === routeFor ? routeError.message : null;
   const routing = !!routeFor && !route && !routeProblem;
-  const suggested = useMemo<SuggestRow[]>(() => (board && route ? suggestions(route, board).map((sg) => ({ kind: 'suggest', key: sg.key, group: 'suggested', s: sg })) : []), [board, route]);
+  // Jev knows this Mac's worktrees, so it suggests starting only while a session would start here.
+  const suggested = useMemo<SuggestRow[]>(
+    () => (board && route ? suggestions(route, board).filter((sg) => !deviceNow || sg.kind !== 'start').map((sg) => ({ kind: 'suggest', key: sg.key, group: 'suggested', s: sg })) : []),
+    [board, route, deviceNow],
+  );
 
   // What Jev said beyond where it goes: a session that may already be on it. Jev picks where
   // work goes, never the model: that stays with the start menu and Auto.
@@ -882,14 +938,17 @@ export function Quick() {
 
   const ready = !!lane && !!account && !!placeNow;
   const terminalName = places.find((p) => p.place === 'terminal')?.label ?? 'The terminal';
-  // Claude Code starts on the model asked for, else the account's own.
-  const startsOn = claudeModel ? (modelNow ?? defaultModel) : null;
-  const onModel = startsOn ? ` on ${modelName(startsOn, models)}` : '';
+  const onModel = `${startsOn ? ` on ${modelName(startsOn, models)}` : ''}${effortWord ? ` at ${effortWord.toLowerCase()} effort` : ''}`;
   const withPrompt = prompted ? ' with this prompt' : '';
-  const happens = !lane
-    ? 'No worktrees in this project yet.'
+  const macName = deviceInfo?.name ?? 'That Mac';
+  const happensThere = !lane
+    ? deviceNow
+      ? `No worktrees in this project on ${macName}.`
+      : 'No worktrees in this project yet.'
     : !account || !placeNow
-      ? ''
+      ? deviceNow && remote?.error
+        ? `${macName} didn’t say where its accounts can start: ${remote.error}`
+        : ''
       : placeNow === 'background'
         ? inNewWorktree
           ? `Claude Code makes a new worktree of ${lane.repo} and starts ${account}${onModel} there in the background${withPrompt}. Attach a terminal any time.`
@@ -905,9 +964,10 @@ export function Quick() {
           : prompted
             ? `The Codex app starts a new thread in ${lane.callsign} on this prompt.`
             : `Codex opens a new thread in ${lane.callsign}. You write the prompt there.`;
+  const happens = deviceNow && lane && account && placeNow ? `On ${macName}: ${happensThere}` : happensThere;
   // Only the new-thread page adds the folder as a project; a thread Codealong starts on a prompt
   // shows under the app's Recents.
-  const newToCodex = placeNow === 'codex-app' && !prompted && !!lane && !!options && !options.codexProjects.includes(lane.path);
+  const newToCodex = placeNow === 'codex-app' && !prompted && !!lane && !!startOptionsNow && !startOptionsNow.codexProjects.includes(lane.path);
 
   /** Starts a session: in the worktree chosen below, or where a suggestion says. */
   const start = (over?: { lane: Lane; newWorktree: boolean }) => {
@@ -915,15 +975,16 @@ export function Quick() {
     const newTree = claudeTerminal && (over ? over.newWorktree : newWorktree);
     if (!where || !account || !placeNow) return;
     if (choice) remember(choice, placeNow);
-    const spec: StartSpec = { laneId: where.id, account, place: placeNow, prompt: text, model: modelNow, worktree: newTree, todos: forTodos.map((t) => t.id) };
+    const spec: StartSpec = { laneId: where.id, account, place: placeNow, prompt: text, model: modelNow, effort: effortNow, worktree: newTree, todos: forTodos.map((t) => t.id) };
+    const onMac = deviceInfo ? ` on ${deviceInfo.name}` : '';
     const label =
       placeNow === 'terminal' || placeNow === 'background'
-        ? `Starting ${account}${onModel} in ${newTree ? `a new worktree of ${where.repo}` : where.callsign}${placeNow === 'background' ? ' in the background' : ''}…`
+        ? `Starting ${account}${onModel} in ${newTree ? `a new worktree of ${where.repo}` : where.callsign}${placeNow === 'background' ? ' in the background' : ''}${onMac}…`
         : placeNow === 'codealong'
-          ? `Starting ${account}${onModel} in Codealong…`
+          ? `Starting ${account}${onModel} in Codealong${onMac}…`
         : placeNow === 'claude-app'
-          ? 'Opening a new session in the Claude app…'
-          : 'Opening a new thread in Codex…';
+          ? `Opening a new session in the Claude app${onMac}…`
+          : `Opening a new thread in Codex${onMac}…`;
     const id = Date.now();
     const to = opener ?? 'main';
     // The panel is fresh for next time; a failed start brings back what you had.
@@ -1113,9 +1174,9 @@ export function Quick() {
         return;
       }
       const k = e.key.toLowerCase();
-      if (k === 'p' || k === 't' || k === 'l') {
+      if (k === 'p' || k === 't' || k === 'l' || (k === 'd' && macs.length > 0)) {
         e.preventDefault();
-        togglePicker(k === 'p' ? 'project' : k === 't' ? 'worktree' : 'agent');
+        togglePicker(k === 'p' ? 'project' : k === 'd' ? 'device' : k === 't' ? 'worktree' : 'agent');
       } else if (k === 'q' || k === 'h') {
         // The menu bar is the other app's while the panel is up, so ⌘Q and ⌘H mean that app,
         // not Codealong: they close the panel instead of quitting or hiding Codealong.
@@ -1221,6 +1282,85 @@ export function Quick() {
     refocus();
   };
 
+  // The effort under the agent menu's models: a setting for whichever is chosen, so it stays
+  // while you look through them. It goes to Claude Code only, and not to Haiku.
+  const effortModel = (autoFor ? autoModelPick?.model : chosenModel) ?? defaultModel;
+  const effortSteps: (string | null)[] = [null, ...efforts.map((e) => e.id)];
+  // From the effort as it is, not as last drawn: a held key can repeat before the menu redraws.
+  const stepEffort = (delta: -1 | 1) =>
+    setEffort((e) => effortSteps[Math.min(effortSteps.length - 1, Math.max(0, Math.max(0, effortSteps.indexOf(e)) + delta))]);
+  const effortFoot =
+    efforts.length > 0 && accounts.some((a) => a.harness === 'claude') ? (
+      <>
+        <span className="ca-picker-foot-label">Effort</span>
+        <div className="ca-segctl" role="radiogroup" aria-label="Effort">
+          {[{ id: null, label: 'Default' }, ...efforts].map((e) => (
+            <button
+              key={e.id ?? 'default'}
+              type="button"
+              role="radio"
+              aria-checked={effort === e.id}
+              className={effort === e.id ? 'is-on' : undefined}
+              title={e.id === null ? 'The account’s own: settings.json’s effortLevel, else the model’s' : e.id === 'max' ? 'Deepest reasoning. It can use a great many tokens; for the hardest tasks.' : undefined}
+              // The filter keeps the keyboard.
+              onMouseDown={(ev) => ev.preventDefault()}
+              onClick={() => setEffort(e.id)}
+            >
+              {e.label}
+            </button>
+          ))}
+        </div>
+        <span className="ca-picker-foot-note">
+          {harness && harness !== 'claude' ? `${HARNESS_WORD[harness]} picks its own` : modelFamily(effortModel) === 'haiku' ? 'Haiku takes none' : <Kbd keys={['←', '→']} />}
+        </span>
+      </>
+    ) : null;
+
+  const deviceSections: PickerSection[] = useMemo(() => {
+    if (!devices) return [];
+    const count = (short: string | null) => {
+      const n = (short ? devices.lanes.filter((l) => shortOf(l.id) === short) : (board?.lanes ?? [])).filter((l) => inProject(l, current)).length;
+      return `${n} worktree${n === 1 ? '' : 's'}${current === ALL_PROJECTS ? '' : ` in ${current}`}`;
+    };
+    const here = devices.me.name || 'This Mac';
+    return [
+      {
+        key: 'macs',
+        options: [
+          { id: HERE, text: `${here} this mac`, label: here, detail: `This Mac · ${count(null)}`, lead: <Icon name="device-desktop" size={14} /> },
+          ...macs.map((d) => {
+            const away = !d.online ? (d.lastSeen ? `Away: last seen ${agoPhrase(d.lastSeen, now)}` : 'Away') : null;
+            const off = d.online && !d.remoteControl ? 'Remote control is off there' : null;
+            return {
+              id: d.short,
+              text: d.name,
+              label: d.name,
+              detail: away ?? off ?? count(d.short),
+              lead: <i className={`ca-labeldot is-${d.color}`} aria-hidden="true" />,
+              disabled: !!(away || off),
+              title: off ? `Remote control is off on ${d.name}; turn it on there in Settings › Devices to start sessions from here.` : undefined,
+            };
+          }),
+        ],
+      },
+    ];
+  }, [devices, macs, board?.lanes, current, now]);
+
+  const pickDevice = (id: string) => {
+    const d = id === HERE ? null : id;
+    if (d !== deviceNow) {
+      // Its worktrees and accounts are its own.
+      setDevice(d);
+      setLaneId(null);
+      setAgent(null);
+      setPlace(null);
+      // A Mac that didn't answer is asked again.
+      if (d) setRemoteOptions(({ [d]: _, ...rest }) => rest);
+    }
+    setPicker(null);
+    refocus();
+  };
+
   const pickPlace = (p: StartPlace) => {
     setPlace(p);
     // The apps choose their model: an account on a model becomes the account on its default.
@@ -1287,7 +1427,9 @@ export function Quick() {
     return shown;
   };
   const agentLabel = autoFor ? 'Auto' : (account ?? 'No account');
-  const agentDetail = [autoFor ? account : null, modelShown].filter(Boolean).join(' · ');
+  // Another Mac's accounts come a moment after it's picked, or not at all.
+  const noAccounts = deviceNow && !startOptionsNow ? (remote?.error ? 'Couldn’t read its accounts' : 'Reading accounts…') : 'No accounts';
+  const agentDetail = [autoFor ? account : null, modelShown, effortWord ? `${effortWord} effort` : null].filter(Boolean).join(' · ');
   const shortcut = shortcutLabel(board?.quickShortcut);
 
   /** A reply is on its way, or what it waited on was answered: the panel is done. The window that
@@ -1561,6 +1703,7 @@ export function Quick() {
                 {alreadyOn}
                 {attached.length > 0 && ` ${attached.length === 1 ? 'The attachment goes' : 'Attachments go'} as ${attached.length === 1 ? 'a file path' : 'file paths'} the agent opens.`}
                 {newToCodex && ' Codex adds this folder as a project if it isn’t one yet.'}
+                {deviceNow && forTodos.length > 0 && ` Todos are this Mac’s, so ${forTodos.length > 1 ? 'they aren’t' : 'it isn’t'} linked to the session.`}
               </span>
             </span>
             <Kbd keys={['⌘', '⏎']} />
@@ -1597,6 +1740,16 @@ export function Quick() {
           </p>
         )}
         <div className="ca-quick-bar">
+          {macs.length > 0 && (
+            <div className="ca-quick-pick">
+              <button type="button" data-picker-trigger className="ca-quick-chip" title={deviceInfo ? `On ${deviceInfo.name}\nMac (⌘D)` : 'Mac (⌘D)'} aria-haspopup="dialog" aria-expanded={picker === 'device'} onClick={() => togglePicker('device')}>
+                {deviceInfo ? <i className={`ca-labeldot is-${deviceInfo.color}`} aria-hidden="true" /> : <Icon name="device-desktop" size={14} />}
+                <span>{deviceInfo ? deviceLabel(deviceInfo.name) : 'This Mac'}</span>
+                <Icon name="chevron-down" size={12} />
+              </button>
+              {picker === 'device' && <Picker sections={deviceSections} value={deviceNow ?? HERE} placeholder="Mac" onPick={pickDevice} onClose={() => { setPicker(null); refocus(); }} />}
+            </div>
+          )}
           <div className="ca-quick-pick">
             <button type="button" data-picker-trigger className="ca-quick-chip" title={lane ? `${tildePath(lane.path)}\nWorktree (⌘T)` : 'Worktree (⌘T)'} disabled={lanes.length === 0} aria-haspopup="dialog" aria-expanded={picker === 'worktree'} onClick={() => togglePicker('worktree')}>
               <Icon name="branch" size={14} />
@@ -1613,13 +1766,13 @@ export function Quick() {
             New worktree
           </label>
           <div className="ca-quick-pick ca-quick-agent">
-            <button type="button" data-picker-trigger className="ca-quick-chip" title="Account and model (⌘L)" disabled={accounts.length === 0} aria-haspopup="dialog" aria-expanded={picker === 'agent'} onClick={() => togglePicker('agent')}>
+            <button type="button" data-picker-trigger className="ca-quick-chip" title="Account, model and effort (⌘L)" disabled={accounts.length === 0} aria-haspopup="dialog" aria-expanded={picker === 'agent'} onClick={() => togglePicker('agent')}>
               <Icon name={autoFor ? 'sparkles' : 'user'} size={14} />
-              <span>{accounts.length === 0 ? 'No accounts' : agentLabel}</span>
+              <span>{accounts.length === 0 ? noAccounts : agentLabel}</span>
               {agentDetail && <span className="ca-quick-chip-detail">{agentDetail}</span>}
               <Icon name="chevron-down" size={12} />
             </button>
-            {picker === 'agent' && <Picker className="is-wide" sections={agentSections} value={agentNow} placeholder="Account or model" onPick={pickAgent} onClose={() => { setPicker(null); refocus(); }} />}
+            {picker === 'agent' && <Picker className="is-wide" sections={agentSections} value={agentNow} placeholder="Account or model" onPick={pickAgent} onClose={() => { setPicker(null); refocus(); }} foot={effortFoot} onStep={effortFoot ? stepEffort : undefined} />}
           </div>
           {places.length > 1 ? (
             <div className="ca-segctl ca-quick-places" role="radiogroup" aria-label="Opens in">

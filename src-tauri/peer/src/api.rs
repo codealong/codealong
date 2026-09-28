@@ -187,6 +187,10 @@ pub struct StartOptions {
     pub codex_projects: Vec<String>,
     /// The models a Claude Code start in the terminal can ask for.
     pub claude_models: Vec<ModelOption>,
+    /// The effort levels a Claude Code start can ask for, as `--effort` takes them. Missing from
+    /// devices that don't know `effort` yet, which start on the account's own.
+    #[serde(default)]
+    pub claude_efforts: Vec<ModelOption>,
 }
 
 /// What the sheet asks for.
@@ -201,6 +205,10 @@ pub struct StartSpec {
     /// `--model` for a terminal start; None starts on the account's default.
     #[serde(default)]
     pub model: Option<String>,
+    /// `--effort` for a Claude Code start; None starts on the account's own (settings.json's
+    /// `effortLevel`, or the model's).
+    #[serde(default)]
+    pub effort: Option<String>,
     /// A terminal start in a new worktree Claude Code makes (`--worktree`). The apps have
     /// their own worktree choice on their new-session pages.
     #[serde(default)]

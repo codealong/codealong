@@ -76,7 +76,7 @@ The engine binary doubles as a CLI for checking behavior without a window:
   panel gets it (`transcript.rs`).
 - `codealong --snapshot --start-options`: where each account can start a session.
 - `codealong --snapshot --start-plan <folder> <account> <terminal|background|claude-app|codex-app> [prompt]
-  [--model <model>] [--worktree]`: the command or link starting a session would use, without
+  [--model <model>] [--effort <level>] [--worktree]`: the command or link starting a session would use, without
   starting one.
 
 ## Checking UI changes
@@ -313,6 +313,14 @@ Claude Code
   Quote it when typing it: zsh reads `fable[1m]` as a file pattern ("no matches found"). Without
   it a session starts on `model` from the account's `settings.json` (a repo's
   `.claude/settings.json` can override that).
+- `--effort <level>` takes `low`, `medium`, `high`, `xhigh` (its picker calls it Extra) and `max`
+  (read from 2.1.284's code). Without it a session starts on `settings.json`'s
+  `modelSettings.<model>.effortLevel`, else its `effortLevel`, else the model's own default
+  (the environment's `CLAUDE_CODE_EFFORT_LEVEL` wins over those settings). A model that doesn't
+  take a level gets a lower one without a word (`max` and `xhigh` become `high`), and Haiku 4.5
+  takes none.
+  claude-agent-acp offers it as the config option `effort` (category `thought_level`), listed
+  only once the session's model takes one, so it's set after the model.
 - `-w/--worktree [name]` makes a worktree for the session (read from 2.1.282's code): folder
   `.claude/worktrees/<name>` under the checkout, branch `worktree-<name>`, a word-pair name when
   none is given, based on a freshly fetched `origin/<default branch>` (settings

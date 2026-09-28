@@ -651,6 +651,9 @@ export interface StartOptions {
   codexProjects: string[];
   /** Models a Claude Code start in the terminal can ask for, as `--model` takes them. */
   claudeModels: { id: string; label: string }[];
+  /** Effort levels a Claude Code start can ask for, lowest first, as `--effort` takes them.
+   *  Missing from devices that don't know them yet: they start on the account's own. */
+  claudeEfforts?: { id: string; label: string }[];
 }
 
 export interface StartSpec {
@@ -660,6 +663,8 @@ export interface StartSpec {
   prompt: string;
   /** `--model` for a terminal start; null starts on the account's default. */
   model: string | null;
+  /** `--effort` for a Claude Code start; null starts on the account's own. */
+  effort: string | null;
   /** A terminal start in a new worktree Claude Code makes (`--worktree`). */
   worktree: boolean;
   /** The todos the session is for, one or several on one prompt: each is linked once it starts. */

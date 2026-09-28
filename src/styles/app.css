@@ -3889,6 +3889,31 @@ html.is-quick body {
   font: 400 12px/16px var(--font-sans);
   color: var(--ink-3);
 }
+/* A setting under a menu's options (the agent menu's effort), kept while they're filtered. */
+.ca-picker-foot {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-top: 1px solid var(--line);
+}
+.ca-picker-foot-label {
+  font: 500 12px/16px var(--font-sans);
+  color: var(--ink-2);
+}
+.ca-picker-foot .ca-segctl button {
+  height: 22px;
+  padding: 0 8px;
+}
+.ca-picker-foot-note {
+  overflow: hidden;
+  margin-left: auto;
+  font: 400 11px/14px var(--font-sans);
+  color: var(--ink-3);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 /* An account's heading in the agent menu: its name, harness and plan, and its limits. */
 .ca-quick-acct {
   display: flex;

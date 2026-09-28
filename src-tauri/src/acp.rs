@@ -495,20 +495,20 @@ fn on_permission(ag: &Agent, rpc: Value, params: &Value) {
 // ---- what the app does ----
 
 /// Starts a session in `cwd` on `prompt` and returns its key. The turn runs on; the board shows it.
-pub fn start(a: &AccountCfg, cwd: &Path, prompt: &str, model: Option<&str>) -> Result<String> {
+pub fn start(a: &AccountCfg, cwd: &Path, prompt: &str, model: Option<&str>, effort: Option<&str>) -> Result<String> {
     in_app()?;
     let harness = Harness::from_config(&a.harness);
     let ag = agent(a)?;
     let r = ag.request("session/new", json!({ "cwd": cwd, "mcpServers": [] }), Some(REQUEST_TIMEOUT))?;
     let id = r.get("sessionId").and_then(Value::as_str).ok_or_else(|| anyhow!("{}'s agent made no session.", a.name))?.to_string();
-    if let Some(m) = model {
-        // Only a model the agent offers: Claude Code's aliases (opus, sonnet…) are among them.
-        let offered = r.get("configOptions").and_then(Value::as_array).and_then(|os| os.iter().find(|o| o.get("category").and_then(Value::as_str) == Some("model"))).and_then(|o| {
-            let id = o.get("id")?.as_str()?.to_string();
-            o.get("options")?.as_array()?.iter().any(|x| x.get("value").and_then(Value::as_str) == Some(m)).then_some(id)
-        });
-        if let Some(config_id) = offered {
-            ag.request("session/set_config_option", json!({ "sessionId": id, "configId": config_id, "value": m }), Some(REQUEST_TIMEOUT))?;
+    // Only what the agent offers: Claude Code's aliases (opus, sonnet…) are among its models. The
+    // effort levels are the model's, so they're looked up in the options the model's answer lists.
+    let mut options = r.get("configOptions").cloned().unwrap_or(Value::Null);
+    for (category, value) in [("model", model), ("thought_level", effort)] {
+        let Some((v, config_id)) = value.and_then(|v| Some((v, offered_option(&options, category, v)?))) else { continue };
+        let got = ag.request("session/set_config_option", json!({ "sessionId": id, "configId": config_id, "value": v }), Some(REQUEST_TIMEOUT))?;
+        if let Some(o) = got.get("configOptions") {
+            options = o.clone();
         }
     }
     let key = key_of(harness, &a.name, &id);
@@ -520,6 +520,14 @@ pub fn start(a: &AccountCfg, cwd: &Path, prompt: &str, model: Option<&str>) -> R
     }
     notify(Change::Board);
     Ok(key)
+}
+
+/// The id of a session's config option in `category` (ACP's `model`, `thought_level`) when it
+/// offers `value`.
+fn offered_option(options: &Value, category: &str, value: &str) -> Option<String> {
+    let o = options.as_array()?.iter().find(|o| o.get("category").and_then(Value::as_str) == Some(category))?;
+    let id = o.get("id")?.as_str()?.to_string();
+    o.get("options")?.as_array()?.iter().any(|x| x.get("value").and_then(Value::as_str) == Some(value)).then_some(id)
 }
 
 /// Whether Codealong runs this session (or ran it, and can again).
@@ -776,7 +784,7 @@ mod tests {
                 }
             }
         });
-        let key = start(&a, Path::new(&dir), "", None).unwrap();
+        let key = start(&a, Path::new(&dir), "", None, None).unwrap();
         println!("session {key}");
         let ag = state().agents.get(&a.name).cloned().unwrap();
         let id = state().sessions.get(&key).unwrap().id.clone();
@@ -800,6 +808,19 @@ mod tests {
         wait_until("the second turn to end", 180, || !state().sessions[&key].running);
         println!("streamed: {:?}", streamed.lock().unwrap());
         assert!(state().sessions[&key].error.is_none());
+    }
+
+    #[test]
+    fn sets_only_the_options_a_session_offers() {
+        // As claude-agent-acp lists them once a model that takes effort is chosen.
+        let options = json!([
+            { "id": "model", "category": "model", "options": [{ "value": "default" }, { "value": "opus" }] },
+            { "id": "effort", "category": "thought_level", "options": [{ "value": "low" }, { "value": "xhigh" }] },
+        ]);
+        assert_eq!(offered_option(&options, "model", "opus").as_deref(), Some("model"));
+        assert_eq!(offered_option(&options, "thought_level", "xhigh").as_deref(), Some("effort"));
+        assert_eq!(offered_option(&options, "thought_level", "max"), None);
+        assert_eq!(offered_option(&Value::Null, "model", "opus"), None);
     }
 
     #[test]
