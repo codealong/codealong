@@ -101,13 +101,17 @@ switches, what each transport is doing, the linked devices, the ones to link, an
 
 Projects line up by repo, not by name. A repo is the same on every device, while what a device
 calls its project, and where its folders are, are that device's own (the other device may even
-run as another user). So each device puts every worktree, its own and its other devices', into
-its own projects, by the same repo patterns (`project_here` in peers.rs). A worktree whose repo
-matches none goes into a project here of the name its own device gave it, or keeps that name
-and shows in the project switcher as a project of its own. Each device is consistent on its own
-terms, and nothing about projects is synced: config.toml stays each device's, and a work device
-may rightly want projects of its own. Copying one device's projects to another, to make the
-names match too, would be a button in Settings › Projects.
+run as another user). So each device puts another device's worktree where its own worktrees of
+that repo are, or else by its own repo patterns (`project_here` in peers.rs). A repo goes by the
+name its remote has and by the one GitHub gives it now: each device asks GitHub once a launch
+what its repos are called (`current_slug` in github.rs), and a worktree whose remote has an old
+name carries the new one, so a checkout from before a repo or its owner was renamed still lines
+up. A worktree whose repo matches nothing here goes into a project here of the name its own
+device gave it, or keeps that name and shows in the project switcher as a project of its own.
+Each device is consistent on its own terms, and nothing about projects is synced: config.toml
+stays each device's, and a work device may rightly want projects of its own. Copying one
+device's projects to another, to make the names match too, would be a button in Settings ›
+Projects.
 
 ## Next
 

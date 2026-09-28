@@ -1095,6 +1095,7 @@ pub fn compose(inp: Inputs) -> Board {
             targets,
             default_target,
             device: None,
+            repo_slug_now: None,
         });
     }
     lanes.sort_by_key(|l| (l.bay, Reverse(lane_prompt_at(&l.sessions, l.last_activity)), Reverse(l.last_activity)));

@@ -103,6 +103,8 @@ export interface Lane {
   project: string;
   repo: string;
   repoSlug: string | null;
+  /** What GitHub calls the repo now, when that isn't `repoSlug`: it, or its owner, was renamed. */
+  repoSlugNow?: string;
   path: string;
   callsign: string;
   origin: Origin;

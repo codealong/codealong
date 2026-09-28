@@ -250,15 +250,16 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   your devices shows the others' worktrees and sessions beside its own. Everything from another
   device wears that device's badge, a colored square and its name (pick each device's color in
   Settings › Devices); other devices' worktrees go into this device's projects by their repos,
-  whatever those devices call them; work on a device that's away stays, faded, as it was when
-  last seen; the sidebar's Devices narrow the views to one of them; and Worktrees can group by
-  device. A session on another device shows its whole conversation in its panel, and when that
-  device lets its linked devices act on its sessions (remote control, off by default) you can
-  send it a message or answer an approval from here. Devices find each other on your tailnet
-  when Tailscale runs, and reach linked devices anywhere through iroh; they talk directly,
-  encrypted end to end, with no server of Codealong's in between. You link a device once: on
-  your tailnet, both show the same six digits and you say yes on the other one; elsewhere, with
-  a link code made on one device and entered on the other.
+  whatever those devices call them, even where a checkout still has a renamed repo's old name;
+  work on a device that's away stays, faded, as it was when last seen; the sidebar's Devices
+  narrow the views to one of them; and Worktrees can group by device. A session on another
+  device shows its whole conversation in its panel, and when that device lets its linked
+  devices act on its sessions (remote control, off by default) you can send it a message or
+  answer an approval from here. Devices find each other on your tailnet when Tailscale runs,
+  and reach linked devices anywhere through iroh; they talk directly, encrypted end to end,
+  with no server of Codealong's in between. You link a device once: on your tailnet, both show
+  the same six digits and you say yes on the other one; elsewhere, with a link code made on one
+  device and entered on the other.
 
 - **For agents**: the `codealong` command and a skill that tells an agent when to use it.
   `codealong whoami` says which session runs it (found by its processes, or for the Codex app

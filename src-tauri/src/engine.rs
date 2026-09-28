@@ -43,6 +43,8 @@ const WINDOW_MS: i64 = 14 * DAY_MS;
 const GIT_WORKERS: usize = 4;
 const PUBLISH_EVERY: Duration = Duration::from_millis(300);
 const GITHUB_EVERY: Duration = Duration::from_secs(60);
+/// How long before a repo GitHub didn't give the name of is asked about again.
+const REPO_NAME_RETRY: Duration = Duration::from_secs(60 * 60);
 /// Claude usage is read this often; Codex usage updates with every Codex turn.
 const USAGE_EVERY: Duration = Duration::from_secs(2 * 60);
 /// After a question to Jev fails (no key, TypeSafe down), how long before more are asked.
@@ -67,6 +69,9 @@ pub enum Msg {
     /// An empty slug marks the end of a GitHub batch.
     GithubDone(String, std::result::Result<github::RepoPrs, String>),
     RefreshGithub,
+    /// What GitHub calls each repo now, by the slug its remote has (lowercase); None where
+    /// GitHub didn't answer.
+    RepoNames(Vec<(String, Option<String>)>),
     MarkSeen(Vec<String>),
     /// Lane path → session keys whose logs mention it.
     Visitors(HashMap<PathBuf, Vec<String>>),
@@ -523,6 +528,11 @@ struct Engine {
     gh_last: Option<Instant>,
     gh_at: Option<i64>,
     gh_login: Option<String>,
+    /// Slug a remote has (lowercase) → what GitHub calls the repo now (`github::current_slug`).
+    repo_names: HashMap<String, String>,
+    /// When each slug was last asked about, so one GitHub didn't answer is asked again later.
+    repo_names_asked: HashMap<String, Instant>,
+    repo_names_inflight: bool,
     watcher: Option<RecommendedWatcher>,
     watch_warning: Option<String>,
     /// Account folders that didn't exist at the last watch: a new account before sign-in.
@@ -621,6 +631,9 @@ impl Engine {
             gh_last: None,
             gh_at: None,
             gh_login: None,
+            repo_names: HashMap::new(),
+            repo_names_asked: HashMap::new(),
+            repo_names_inflight: false,
             watcher: None,
             watch_warning: None,
             missing_homes: Vec::new(),
@@ -1030,6 +1043,7 @@ impl Engine {
                 Ok(Msg::GitDone(path, info)) => self.on_git(path, info),
                 Ok(Msg::GithubDone(slug, result)) => self.on_github(slug, result),
                 Ok(Msg::RefreshGithub) => self.fetch_github(false),
+                Ok(Msg::RepoNames(names)) => self.on_repo_names(names),
                 Ok(Msg::Visitors(found)) => {
                     self.visitors = found;
                     self.dirty = true;
@@ -1411,6 +1425,7 @@ impl Engine {
         let live: HashSet<&PathBuf> = seeds.iter().map(|s| &s.path).collect();
         self.git.retain(|p, _| live.contains(p));
         self.seeds = seeds;
+        self.fetch_repo_names();
     }
 
     fn git_targets(&self) -> Vec<PathBuf> {
@@ -1517,6 +1532,53 @@ impl Engine {
         self.dirty = true;
     }
 
+    /// Asks GitHub what each repo is called now: once a launch for each repo, and again after
+    /// an hour for one it didn't answer for. A worktree carries the answer when it isn't the name
+    /// its remote has, so your other devices know a renamed repo for the same one (peers.rs).
+    fn fetch_repo_names(&mut self) {
+        if self.repo_names_inflight {
+            return;
+        }
+        let now = Instant::now();
+        let slugs: BTreeSet<String> = self
+            .seeds
+            .iter()
+            .filter_map(|s| s.repo_slug.as_ref().map(|slug| slug.to_lowercase()))
+            .filter(|slug| !self.repo_names.contains_key(slug))
+            .filter(|slug| self.repo_names_asked.get(slug).is_none_or(|t| now.duration_since(*t) >= REPO_NAME_RETRY))
+            .collect();
+        if slugs.is_empty() {
+            return;
+        }
+        for slug in &slugs {
+            self.repo_names_asked.insert(slug.clone(), now);
+        }
+        self.repo_names_inflight = true;
+        let tx = self.tx.clone();
+        std::thread::spawn(move || {
+            procs::utility_thread();
+            let names = slugs
+                .into_iter()
+                .map(|slug| {
+                    let name = github::current_slug(&slug);
+                    (slug, name)
+                })
+                .collect();
+            let _ = tx.send(Msg::RepoNames(names));
+        });
+    }
+
+    fn on_repo_names(&mut self, names: Vec<(String, Option<String>)>) {
+        self.repo_names_inflight = false;
+        for (slug, name) in names {
+            let Some(name) = name else { continue };
+            if !name.eq_ignore_ascii_case(&slug) {
+                self.dirty = true;
+            }
+            self.repo_names.insert(slug, name);
+        }
+    }
+
     fn refresh_registry(&mut self, account: &str) -> bool {
         let Some(a) = self.account(account) else { return false };
         let fresh = claude::read_registry(&a.home_path());
@@ -1606,6 +1668,7 @@ impl Engine {
         self.poll_opencode();
         if self.gh_last.map(|t| t.elapsed() >= GITHUB_EVERY).unwrap_or(true) {
             self.fetch_github(true);
+            self.fetch_repo_names();
         }
         let every = if self.usage_backoff { USAGE_BACKOFF } else { USAGE_EVERY };
         if self.usage_last.map(|t| t.elapsed() >= every).unwrap_or(true) {
@@ -2262,6 +2325,9 @@ impl Engine {
         board.jev = self.cfg.jev.clone();
         board.devices = self.cfg.devices.clone();
         board.project_rules = self.cfg.projects.clone();
+        for lane in &mut board.lanes {
+            lane.repo_slug_now = lane.repo_slug.as_deref().and_then(|slug| self.repo_names.get(&slug.to_lowercase()).filter(|now| !now.eq_ignore_ascii_case(slug)).cloned());
+        }
         board.perf_log = perf::enabled();
         board.todos = self.todos.todos.clone();
         board.labels = self.todos.labels.clone();
@@ -2577,6 +2643,29 @@ mod tests {
         assert!(!is_noise(Path::new("/Users/me/.local/share/opencode/opencode.db-wal")));
         assert!(is_noise(Path::new("/Users/me/.local/share/opencode/opencode.db-shm")));
         assert!(is_noise(Path::new("/Users/me/projects/app/data/cache.db-wal")));
+    }
+
+    #[test]
+    fn worktrees_carry_what_github_calls_a_renamed_repo_now() {
+        use super::*;
+
+        let (tx, _rx) = channel();
+        let mut engine = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
+        let seed = |path: &str, slug: &str| LaneSeed { repo_slug: Some(slug.into()), origin: Origin::Main, ..folder_seed(PathBuf::from(path), "P", "repo", false) };
+        engine.seeds = vec![seed("/x/atlas", "AtlasAI/atlas"), seed("/x/kestrel", "kestrelhq/kestrel")];
+        engine.on_repo_names(vec![("atlasai/atlas".into(), Some("northwindai/atlas".into())), ("kestrelhq/kestrel".into(), Some("kestrelhq/kestrel".into()))]);
+        assert!(engine.dirty, "a rename changes the board");
+        let board = engine.compose();
+        let now = |path: &str| board.lanes.iter().find(|l| l.path == path).map(|l| l.repo_slug_now.clone());
+        assert_eq!(now("/x/atlas"), Some(Some("northwindai/atlas".to_string())));
+        assert_eq!(now("/x/kestrel"), Some(None), "a repo that kept its name says nothing more");
+        // Every repo has its answer, so there's nothing to ask GitHub.
+        engine.fetch_repo_names();
+        assert!(!engine.repo_names_inflight);
+
+        engine.dirty = false;
+        engine.on_repo_names(vec![("kestrelhq/kestrel".into(), Some("kestrelhq/kestrel".into()))]);
+        assert!(!engine.dirty, "a repo that kept its name changes nothing");
     }
 
     #[test]

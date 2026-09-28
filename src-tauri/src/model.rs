@@ -286,6 +286,10 @@ pub struct Lane {
     pub repo: String,
     /// `owner/name` on GitHub.
     pub repo_slug: Option<String>,
+    /// What GitHub calls the repo now, when that isn't `repo_slug`: the repo or its owner was
+    /// renamed, and the remote still has the old name, which GitHub redirects.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repo_slug_now: Option<String>,
     pub path: String,
     pub callsign: String,
     pub origin: Origin,

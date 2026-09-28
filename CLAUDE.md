@@ -663,6 +663,10 @@ GitHub
 - Through `gh` only: one GraphQL query per repo (viewer, open and recent PRs, a
   `review-requested:@me` search); PR detail from GraphQL `bodyHTML` plus the REST files
   endpoint; approving with `gh pr review --approve`.
+- REST `repos/<owner>/<name>` answers to a repo's old names (after a rename of the repo or its
+  owner, or a transfer) with the repo as it is now; `.full_name` is its name now. The engine
+  asks once a launch per repo, so other devices line a checkout with an old remote up with the
+  repo's other worktrees (`repo_slug_now`).
 - `mergeStateStatus` (no preview header needed) is GitHub's own answer to whether a PR can
   merge: `CLEAN` (or `HAS_HOOKS`) means ready, `DIRTY` is conflicts, `BEHIND` an out-of-date
   branch the repo won't merge, `BLOCKED` a required review or check (also drafts), `UNSTABLE`

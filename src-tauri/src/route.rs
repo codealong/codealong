@@ -442,6 +442,7 @@ mod tests {
             targets: vec![],
             default_target: None,
             device: None,
+            repo_slug_now: None,
         }
     }
 

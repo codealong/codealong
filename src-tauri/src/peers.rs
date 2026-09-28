@@ -264,6 +264,8 @@ struct State {
     cfg: DevicesCfg,
     /// This device's `[[projects]]`, which other devices' worktrees are put into (`project_here`).
     projects: Vec<ProjectCfg>,
+    /// The project this device's own worktrees of each repo are in (`repos_here`).
+    repos_here: HashMap<String, String>,
     error: Option<String>,
     board_dirty: bool,
     board_at: Option<Instant>,
@@ -333,11 +335,13 @@ impl Peers {
         if cfg_changed {
             self.configure(&board.devices);
         }
+        let here = repos_here(&board.lanes);
         let mut st = self.0.lock();
         st.board_dirty = true;
         st.board_at = Some(Instant::now());
-        if st.projects != board.project_rules {
+        if st.projects != board.project_rules || st.repos_here != here {
             st.projects = board.project_rules.clone();
+            st.repos_here = here;
             st.view_dirty = true;
         }
         drop(st);
@@ -759,7 +763,7 @@ impl Inner {
                 })
                 .flatten()
                 .map(|mut lane| {
-                    project_here(&mut lane, &st.projects);
+                    project_here(&mut lane, &st.projects, &st.repos_here);
                     lane
                 })
                 .collect()
@@ -772,19 +776,38 @@ impl Inner {
 
 /// Puts another device's worktree into one of this device's projects. Projects line up by repo,
 /// not by name: a repo is the same everywhere, while what a device calls its project, and where
-/// its folders are, are that device's own. So the worktree goes by this device's own patterns,
-/// as this device's worktrees do; failing that, into a project here with the name the other
-/// device gave it; failing that, it keeps that name, and shows as a project of its own.
-fn project_here(lane: &mut Lane, projects: &[ProjectCfg]) {
-    let by_repo = lane.repo_slug.as_ref().and_then(|slug| {
-        let identity = format!("github.com/{}", slug.to_lowercase());
-        projects.iter().find(|p| p.repos.iter().any(|pat| crate::repos::matches(&identity, pat)))
-    });
-    if let Some(p) = by_repo.or_else(|| projects.iter().find(|p| p.name.eq_ignore_ascii_case(&lane.project))) {
-        lane.project = p.name.clone();
+/// its folders are, are that device's own. So the worktree goes where this device's own
+/// worktrees of that repo are; failing that, by this device's own patterns; failing that, into a
+/// project here with the name the other device gave it; failing that, it keeps that name, and
+/// shows as a project of its own. A repo goes by the name its remote has and by the one GitHub
+/// gives it now, so a checkout from before a repo, or its owner, was renamed still lines up.
+fn project_here(lane: &mut Lane, projects: &[ProjectCfg], repos_here: &HashMap<String, String>) {
+    let slugs: Vec<String> = [&lane.repo_slug, &lane.repo_slug_now].into_iter().flatten().map(|s| s.to_lowercase()).collect();
+    let by_worktrees = slugs.iter().find_map(|s| repos_here.get(s)).cloned();
+    let by_pattern = || {
+        let matches = |p: &&ProjectCfg| slugs.iter().any(|s| p.repos.iter().any(|pat| crate::repos::matches(&format!("github.com/{s}"), pat)));
+        projects.iter().find(matches).map(|p| p.name.clone())
+    };
+    let by_name = || projects.iter().find(|p| p.name.eq_ignore_ascii_case(&lane.project)).map(|p| p.name.clone());
+    let project = by_worktrees.or_else(by_pattern).or_else(by_name);
+    if let Some(project) = project {
+        lane.project = project;
         // Only worktrees in no project stay off the board; this one is in one here.
         lane.hidden = false;
     }
+}
+
+/// The project this device's worktrees of each repo are in, by every name the repo goes by
+/// (lowercase `owner/name`): its remote's, and the one GitHub gives it now. Elsewhere is no
+/// project, so it's left out.
+fn repos_here(lanes: &[Lane]) -> HashMap<String, String> {
+    let mut here = HashMap::new();
+    for lane in lanes.iter().filter(|l| l.project != crate::board::ELSEWHERE) {
+        for slug in [&lane.repo_slug, &lane.repo_slug_now].into_iter().flatten() {
+            here.entry(slug.to_lowercase()).or_insert_with(|| lane.project.clone());
+        }
+    }
+    here
 }
 
 /// Turns board changes into feeds, at most once a second, and hands the windows the view.
@@ -1542,6 +1565,7 @@ mod tests {
     fn other_devices_worktrees_go_into_this_devices_projects_by_repo() {
         let projects = vec![
             ProjectCfg { name: "Kestrel".into(), repos: vec!["github.com/kestrelhq/*".into()], folders: vec![] },
+            ProjectCfg { name: "Northwind".into(), repos: vec!["github.com/northwindai/*".into()], folders: vec![] },
             ProjectCfg { name: "Notes".into(), repos: vec![], folders: vec!["~/notes".into()] },
         ];
         let with = |slug: Option<&str>, project: &str, hidden: bool| {
@@ -1551,23 +1575,49 @@ mod tests {
             l.hidden = hidden;
             l
         };
+        let none = HashMap::new();
         // The Mac mini calls it "kestrelhq" (or has no project for it at all): here it's Kestrel.
         let mut l = with(Some("KestrelHQ/kestrel"), "kestrelhq", false);
-        project_here(&mut l, &projects);
+        project_here(&mut l, &projects, &none);
         assert_eq!(l.project, "Kestrel");
         let mut l = with(Some("kestrelhq/lumen"), "Elsewhere", true);
-        project_here(&mut l, &projects);
+        project_here(&mut l, &projects, &none);
         assert_eq!((l.project.as_str(), l.hidden), ("Kestrel", false), "out of Elsewhere, and shown");
+        // Its checkout still has the org's old name; GitHub's name for it now is Northwind's.
+        let mut l = with(Some("atlasai/atlas"), "atlasai", false);
+        project_here(&mut l, &projects, &none);
+        assert_eq!(l.project, "atlasai", "nothing here says it's the same repo");
+        l.repo_slug_now = Some("northwindai/atlas".into());
+        project_here(&mut l, &projects, &none);
+        assert_eq!(l.project, "Northwind");
+        // Where this device's own worktrees of the repo are comes first: a project that has
+        // the repo by its folder, or by the old name that this device's own checkout has.
+        let mut mine = with(Some("acme/notes"), "Notes", false);
+        let mut old = with(Some("atlasai/atlas"), "atlasai", false);
+        old.repo_slug_now = Some("northwindai/atlas".into());
+        let here = repos_here(&[mine.clone(), old, with(Some("acme/app"), "Elsewhere", true)]);
+        let mut l = with(Some("acme/notes"), "Acme", false);
+        project_here(&mut l, &projects, &here);
+        assert_eq!(l.project, "Notes");
+        let mut l = with(Some("NorthwindAI/atlas"), "Northwind", false);
+        project_here(&mut l, &[], &here);
+        assert_eq!(l.project, "atlasai", "the Mac mini's view of the MacBook's worktree");
+        // Elsewhere isn't a project: its repos go by the rest.
+        let mut l = with(Some("acme/app"), "Acme", false);
+        project_here(&mut l, &projects, &here);
+        assert_eq!(l.project, "Acme");
+        mine.project = "Elsewhere".into();
+        assert!(!repos_here(&[mine]).contains_key("acme/notes"));
         // No repo to go by: a project of the same name takes it.
         let mut l = with(None, "notes", false);
-        project_here(&mut l, &projects);
+        project_here(&mut l, &projects, &none);
         assert_eq!(l.project, "Notes");
         // Nothing here matches: it keeps the other device's project, or stays in Elsewhere.
         let mut l = with(Some("acme/app"), "Acme", false);
-        project_here(&mut l, &projects);
+        project_here(&mut l, &projects, &none);
         assert_eq!(l.project, "Acme");
         let mut l = with(Some("acme/app"), "Elsewhere", true);
-        project_here(&mut l, &projects);
+        project_here(&mut l, &projects, &none);
         assert_eq!((l.project.as_str(), l.hidden), ("Elsewhere", true));
     }
 

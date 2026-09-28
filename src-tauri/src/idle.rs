@@ -269,6 +269,7 @@ mod tests {
             targets: Vec::new(),
             default_target: None,
             device: None,
+            repo_slug_now: None,
         };
         let mut b = Board::default();
         b.lanes = vec![lane];

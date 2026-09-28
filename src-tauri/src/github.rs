@@ -74,6 +74,21 @@ pub fn display_name(owner: &str) -> Option<String> {
     (!name.is_empty()).then_some(name)
 }
 
+/// What GitHub calls a repo now (`atlasai/atlas` → `northwindai/atlas`). A repo that was
+/// renamed, or whose owner was renamed or changed, still answers to its old name, which older
+/// checkouts' remotes keep: GitHub redirects it. None when GitHub didn't answer.
+pub fn current_slug(slug: &str) -> Option<String> {
+    let out = procs::run("gh", &["api", &format!("repos/{slug}"), "--jq", ".full_name"], None, Duration::from_secs(10)).ok()?;
+    slug_of(&out)
+}
+
+fn slug_of(out: &str) -> Option<String> {
+    let name = out.trim();
+    let (owner, repo) = name.split_once('/')?;
+    let part = |s: &str| !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c));
+    (part(owner) && part(repo)).then(|| name.to_string())
+}
+
 pub fn fetch(owner: &str, name: &str) -> Result<RepoPrs> {
     let owner_arg = format!("owner={owner}");
     let name_arg = format!("name={name}");
@@ -389,6 +404,15 @@ pub fn tally(contexts: &[Value]) -> Checks {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reads_a_repos_name_now() {
+        assert_eq!(slug_of("northwindai/atlas\n").as_deref(), Some("northwindai/atlas"));
+        assert_eq!(slug_of("Kestrel-HQ/kestrel.web").as_deref(), Some("Kestrel-HQ/kestrel.web"));
+        for bad in ["", "null", "northwindai", "a/b/c", "gh: Not Found (HTTP 404)"] {
+            assert_eq!(slug_of(bad), None, "{bad}");
+        }
+    }
 
     #[test]
     fn parses_prs_and_checks() {
