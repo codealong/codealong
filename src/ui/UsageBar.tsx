@@ -1,8 +1,8 @@
 // The usage bar under the title bar: one chip per account, in config order. Each limit shows
 // how full it is and, after the clock, how long until it resets. Per-model limits, like
 // Fable's weekly limit, are marked with sparkles. Claude numbers are read every 2 minutes;
-// Codex numbers arrive with each Codex turn. The star before each name marks, and toggles, the
-// accounts Auto prefers.
+// Codex numbers arrive with each Codex turn. The accounts Auto prefers are starred in Settings ›
+// Accounts, not here.
 //
 // When the chips don't all fit, each shows only the limit it's closest to running out of, and
 // hovering it shows all of them in a card. When even those don't fit, the row scrolls sideways
@@ -118,30 +118,6 @@ interface ChipProps {
   /** The pointer or keyboard focus arrived on a collapsed chip, or left it. */
   onPeek?: (el: HTMLElement) => void;
   onUnpeek?: () => void;
-}
-
-/** A chip with the star before its name. The star is its own button beside the chip's, laid
- *  over the chip's left end, since a button can't hold another. The measuring copy has no star
- *  but keeps its room. */
-function StarredChip(props: ChipProps & { onStar?: () => void }) {
-  const { usage: u, measure, onStar } = props;
-  return (
-    <span className="ca-uchip-wrap">
-      <AccountChip {...props} />
-      {!measure && (
-        <button
-          type="button"
-          className={['ca-uchip-star', u.preferred && 'is-on'].filter(Boolean).join(' ')}
-          aria-pressed={!!u.preferred}
-          aria-label={`Preferred: ${u.account}`}
-          title={u.preferred ? `Preferred: Auto starts ${u.account} while it has room. Click to stop preferring it.` : `Prefer ${u.account}: Auto starts preferred accounts while one has room, and others only when they're all near a limit.`}
-          onClick={onStar}
-        >
-          <Icon name="star" size={13} />
-        </button>
-      )}
-    </span>
-  );
 }
 
 function AccountChip({ usage: u, now, collapsed = false, measure = false, onOpen, onSignIn, onPeek, onUnpeek }: ChipProps) {
@@ -271,11 +247,9 @@ interface UsageBarProps {
   /** Opens Settings at Accounts, at one account when given. */
   onAccounts: (account?: string) => void;
   onSignIn: (account: string) => void;
-  /** Stars an account, or takes its star away; rejects when that couldn't be saved. */
-  onStar: (account: string, preferred: boolean) => Promise<void>;
 }
 
-export function UsageBar({ usage, now, onRefresh, onAccounts, onSignIn, onStar }: UsageBarProps) {
+export function UsageBar({ usage, now, onRefresh, onAccounts, onSignIn }: UsageBarProps) {
   const reads = usage.filter((u) => u.harness === 'claude' && u.asOf).map((u) => u.asOf as number);
   const lastRead = reads.length ? Math.max(...reads) : null;
   const row = useRef<HTMLDivElement>(null);
@@ -285,24 +259,6 @@ export function UsageBar({ usage, now, onRefresh, onAccounts, onSignIn, onStar }
   const [clipped, setClipped] = useState({ start: false, end: false });
   const { peek, show, hide } = usePeek();
   const accounts = usage.map((u) => u.account).join('\n');
-  // A clicked star shows at once; the board catches up a moment later, or it goes back when the
-  // change couldn't be saved.
-  const [starred, setStarred] = useState<Record<string, boolean>>({});
-  useEffect(() => {
-    setStarred((s) => {
-      const left = Object.entries(s).filter(([name, on]) => usage.find((u) => u.account === name)?.preferred !== on && usage.some((u) => u.account === name));
-      return left.length === Object.keys(s).length ? s : Object.fromEntries(left);
-    });
-  }, [usage]);
-  const star = (account: string, on: boolean) => {
-    setStarred((s) => ({ ...s, [account]: on }));
-    onStar(account, on).catch(() =>
-      setStarred((s) => {
-        const { [account]: _, ...rest } = s;
-        return rest;
-      }),
-    );
-  };
 
   // Every chip is measured with all its limits, in a hidden copy, against the room the row has.
   useLayoutEffect(() => {
@@ -373,12 +329,11 @@ export function UsageBar({ usage, now, onRefresh, onAccounts, onSignIn, onStar }
         className={['ca-usagebar-accts', clipped.start && 'is-clip-start', clipped.end && 'is-clip-end'].filter(Boolean).join(' ')}
       >
         {usage.map((u) => (
-          <StarredChip
+          <AccountChip
             key={u.account}
-            usage={u.account in starred ? { ...u, preferred: starred[u.account] } : u}
+            usage={u}
             now={now}
             collapsed={collapsed}
-            onStar={() => star(u.account, !(starred[u.account] ?? u.preferred))}
             onOpen={() => onAccounts(u.account)}
             onSignIn={() => onSignIn(u.account)}
             onPeek={(el) => show(u.account, el)}
@@ -389,7 +344,7 @@ export function UsageBar({ usage, now, onRefresh, onAccounts, onSignIn, onStar }
       </div>
       <div ref={measure} className="ca-usagebar-measure" aria-hidden="true">
         {usage.map((u) => (
-          <StarredChip key={u.account} usage={u} now={now} measure />
+          <AccountChip key={u.account} usage={u} now={now} measure />
         ))}
       </div>
       {peeked && peek && peeked.meters.length > 0 && <UsageCard usage={peeked} now={now} anchor={peek.anchor} />}

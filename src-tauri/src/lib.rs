@@ -551,7 +551,7 @@ fn save_accounts(engine: State<'_, engine::Handle>, accounts: Vec<config::Accoun
     engine.save_accounts(accounts).map_err(|e| format!("{e:#}"))
 }
 
-/// The star on an account's chip: Auto starts preferred accounts first.
+/// The star on an account in Settings › Accounts: Auto starts preferred accounts first.
 #[tauri::command(async)]
 fn set_preferred(engine: State<'_, engine::Handle>, account: String, preferred: bool) -> Result<(), String> {
     engine.set_preferred(&account, preferred).map_err(|e| format!("{e:#}"))

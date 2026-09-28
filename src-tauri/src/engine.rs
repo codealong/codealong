@@ -1194,8 +1194,8 @@ impl Engine {
                     self.publish();
                 }
                 Ok(Msg::SetPreferred(account, preferred)) => {
-                    // Published now: the star is on the usage bar, and the watcher's reload
-                    // comes later.
+                    // Published now: the quick panel's Auto takes stars from the board, and the
+                    // watcher's reload comes later.
                     if let Some(a) = self.cfg.accounts.iter_mut().find(|a| a.name == account) {
                         a.preferred = preferred;
                     }

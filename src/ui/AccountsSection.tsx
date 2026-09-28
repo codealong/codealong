@@ -189,8 +189,8 @@ export function AccountsSection({ focus, usage, terminal, now, onSaved }: Accoun
     return () => window.removeEventListener('focus', onFocus);
   }, []);
 
-  // The star goes through the engine, which publishes it at once, so the usage bar's star
-  // changes with this one; it shows here before that.
+  // The star goes through the engine, which publishes it at once, so the quick panel's Auto
+  // goes by it straight away; it shows here before that.
   const star = async (name: string, on: boolean) => {
     setError(null);
     setAccounts((list) => list && list.map((x) => (x.name === name ? { ...x, preferred: on } : x)));
