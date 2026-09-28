@@ -310,6 +310,14 @@ mod tests {
         assert_eq!(String::from_utf8_lossy(&plist.stdout).trim(), version);
         let verify = std::process::Command::new("codesign").args(["--verify", "--deep", "--strict"]).arg(&copy).status().unwrap();
         assert!(verify.success(), "the replaced app's signature doesn't verify");
+        // The copy is now the release's own app, not what was there (which may be the same version).
+        let archive = manifest["platforms"].as_object().unwrap().values().next().unwrap()["url"].as_str().unwrap().rsplit('/').next().unwrap().to_string();
+        let unpacked = tmp.join("unpacked");
+        std::fs::create_dir_all(&unpacked).unwrap();
+        assert!(std::process::Command::new("tar").arg("-xzf").arg(dist.join(&archive)).arg("-C").arg(&unpacked).status().unwrap().success());
+        let binary = |app: &Path| std::fs::read(app.join("Contents/MacOS/codealong")).unwrap();
+        assert!(binary(&copy) == binary(&unpacked.join("Codealong.app")), "the app in place isn't the release's");
+        assert!(binary(&installed) != binary(&copy) || installed == unpacked, "the app given to replace was already this release's; give another to see a replacement");
         println!("Replaced {} with Codealong {version} from the release's own update.", copy.display());
         let _ = std::fs::remove_dir_all(&tmp);
     }

@@ -1,10 +1,10 @@
 # Plan: an installer, releases and automatic updates
 
-Status: the installer is built (`scripts/release.sh`, 2026-09-28), signed with Gordon Hempton's
-Developer ID and notarized: Gatekeeper accepts the app and the disk image as "Notarized Developer
-ID", both architectures run from the image, and the window draws as designed in light mode.
-Everything after it is a plan. The decisions come first, because each is baked into the first
-copy anyone installs.
+Status: phases 1 and 2 are built (2026-09-28). `scripts/release.sh` makes the installer, signed
+with Gordon Hempton's Developer ID and notarized (Gatekeeper accepts the app and the disk image as
+"Notarized Developer ID"), and each release's update; release builds find, install and offer it.
+The decisions below are made. What's next: the release routine's `version.sh`, the first public
+release once the repo is open source, then CI and Homebrew.
 
 ## Decided: whose name is on it
 
@@ -47,13 +47,23 @@ reads the same repo. While the repo is still private those addresses answer 404 
 else, so a copy that checks just finds no update; nothing breaks. Once it's public, building on
 GitHub's own runners is free too (phase 3).
 
-## Decide before the first release
+## Decided: the update key
 
-1. **Who keeps the update key.** `npx tauri signer generate -w ~/.tauri/codealong.key` makes the
-   key pair updates are signed with. The public half goes in `tauri.conf.json`; the private half
-   and its password go in 1Password beside the other two and, later, CI's secrets. Lose it and
-   installed copies can never update again (people reinstall by hand); leak it and whoever also
-   controls the download address can ship code to every copy.
+Updates are signed with a minisign key pair made 2026-09-28 (`npx tauri signer generate`; key ID
+6C22AE798C33F266). The public half is `plugins.updater.pubkey` in `tauri.conf.json`. The private
+half and the password that opens it are only in 1Password, "Codealong update signing key" in the
+Private vault, beside the other two; 1Password generated the password. Lose it and installed
+copies can never update again (people reinstall by hand); leak it and whoever also controls the
+download address can ship code to every copy. A release takes both straight from 1Password, with
+nothing written to disk:
+
+```bash
+TAURI_SIGNING_PRIVATE_KEY="op://Private/Codealong update signing key/codealong-updater.key" \
+TAURI_SIGNING_PRIVATE_KEY_PASSWORD="op://Private/Codealong update signing key/password" \
+CODEALONG_NOTARY_PROFILE=codealong op run -- scripts/release.sh --draft
+```
+
+`op` asks 1Password, which asks you to allow it (it times out if nobody does).
 
 Decided against:
 
@@ -103,10 +113,11 @@ Decided against:
 - Tauri only builds and signs; the script notarizes, so a keychain profile works (Tauri takes
   credentials only from variables) and no password ever goes on a command line.
 
-## Phase 2: automatic updates
+## Phase 2: automatic updates (built)
 
-Tauri's updater plugin (`tauri-plugin-updater` 2.13, read from its source): the app fetches a
-small JSON manifest, and when it names a newer version for `darwin-aarch64` or
+Tauri's updater plugin, `tauri-plugin-updater` 2.12: the newest that runs on Tauri 2.11 (2.13
+needs 2.12, and Cargo would upgrade Tauri for it without asking, so it's pinned `~2.12`). The app
+fetches a small JSON manifest, and when it names a newer version for `darwin-aarch64` or
 `darwin-x86_64`, downloads that `.app.tar.gz`, checks its signature against the public key
 compiled into the app, moves the running bundle aside and moves the new one into its place. It
 asks for an administrator's password only when the folder isn't writable. The running app keeps
@@ -115,39 +126,50 @@ running from memory; the new version starts at the next launch.
 The manifest is a release asset, `latest.json`, and the app asks
 `https://github.com/codealong/codealong/releases/latest/download/latest.json`. GitHub's
 `latest` is the newest published release that isn't a prerelease, so drafts and prereleases are
-invisible to it: publishing the draft is what ships an update. `requireSignedVersion` goes on
-from the first release: the signature then carries the version it was made for (the Tauri CLI
-in use, 2.11.5, records it), so a tampered manifest can't pair a new version number with an
-older, validly signed archive.
+invisible to it: publishing the draft is what ships an update. `requireSignedVersion` is on from
+the first release: the signature carries the version it was made for (the Tauri CLI in use,
+2.11.5, records it), so a tampered manifest can't pair a new version number with an older,
+validly signed archive.
 
-In the app:
+In the app (`updates.rs`, `src/ui/Updates.tsx`):
 
 - **When it checks.** Two minutes after launch, once the first scan is done, then every six
-  hours, and whenever asked. It downloads and installs in the background, then tells the windows
-  an update is ready, with the version and its notes. `[updates] check = false` in config.toml
-  stops the automatic checks; asking still works.
-- **Where you see it.** A quiet "Restart to update" button at the bottom of the sidebar once an
-  update is installed; "Check for updates…" in the app menu under About; a version line in
-  Settings › General ("Version 0.2.0 · Up to date", or the version waiting and a Restart
-  button); and `codealong update [--check]`, so an agent or a terminal can ask. It never
-  restarts on its own mid-work. Restarting loses nothing: the sessions run in
-  Ghostty, Claude's service and the Codex app, not in Codealong.
+  hours by the clock (so a Mac that slept catches up), and whenever asked. It downloads and
+  installs in the background, then tells the windows an update is ready, with the version and
+  its notes. `[updates] check = false` in config.toml stops the automatic checks; asking still
+  works.
+- **Where you see it.** "Restart to update to <version>" above the foot of the sidebar once an
+  update is in place; "Check for updates…" in the app menu under About (which becomes "Restart to
+  update to <version>", and opens Settings › General to show how a check goes); and in Settings ›
+  General the version, how updates stand (up to date and when, the version waiting and its
+  notes, or why it failed) with Check now or Restart to update, and "Look for updates by itself".
+  It never restarts on its own mid-work. Restarting loses nothing: the sessions run in Ghostty,
+  Claude's service and the Codex app, not in Codealong.
 - **Dev builds never update.** A build from `relaunch.sh` that found a release would replace
   itself with it. The release script builds with `CODEALONG_RELEASE=1`, read at compile time
-  (`option_env!`), and only such builds check.
-- **Moving to Applications.** Opened straight from the disk image or from Downloads, the app
-  runs from a read-only place (the image, or the random folder macOS runs a quarantined app from,
-  App Translocation) and can't replace itself, and the `codealong` command's link would point
-  into the image. At launch, a bundle under `/Volumes/` or `/AppTranslocation/` offers to move
-  itself to Applications and reopen from there.
+  (`option_env!`), and only such builds check; Settings says a development build doesn't update.
+- **Running from where it was downloaded.** Opened straight from the disk image or from
+  Downloads, the app runs from a read-only place (the image, or the random folder macOS runs a
+  quarantined app from, App Translocation) and can't replace itself. Before downloading, it
+  checks for that and says to move Codealong to Applications. Not built yet: offering to move
+  itself there and reopen at launch.
+- **For trying an update before it's released,** `CODEALONG_UPDATE_URL` points a release build at
+  another manifest (https, as release builds refuse anything else).
+- Not built yet: `codealong update [--check]`, so an agent or a terminal can ask.
 
-In `scripts/release.sh`: after stapling, `tar` the app into
-`Codealong_<version>_universal.app.tar.gz` and sign it with `npx tauri signer sign
---app-version <version>` (the private key from `TAURI_SIGNING_PRIVATE_KEY`); write `latest.json`
-with both `darwin-aarch64` and `darwin-x86_64` pointing at that one universal archive; and make a
-draft release, `gh release create v<version> --draft`, with the image (also as `Codealong.dmg`,
-so the website can link straight to `releases/latest/download/Codealong.dmg`), its checksum, the
-archive, its signature and `latest.json`.
+In `scripts/release.sh`, after stapling: the app goes into `Codealong_<version>_<arch>.app.tar.gz`
+(`tar --no-mac-metadata --no-xattrs`: the updater unpacks every entry as a file), signed with
+`npx tauri signer sign --app-version <version>`. The script checks the signature is by the key
+the app trusts (their key IDs), and that the archive unpacks to an app of this version that passes
+`codesign --verify --strict`. It writes `latest.json` with the release's platforms pointing at the
+archive and the release notes (`--notes <file>`, or the commit subjects since the last tag), and
+with `--draft` makes the draft release: the image (also as `Codealong.dmg`, so the website can
+link straight to `releases/latest/download/Codealong.dmg`), its checksum, the archive, its
+signature and `latest.json`. `--draft` refuses a version that's already tagged or released.
+
+`updates::tests::an_update_replaces_the_app` (ignored) installs a release's own update over a
+copy of an app through the updater itself, in Tauri's mock runtime: a local server hands out
+the release's `latest.json` and archive, and the key is `tauri.conf.json`'s.
 
 ## Versions and the routine
 
@@ -207,10 +229,11 @@ exact bytes, and a copy may be halfway through downloading them.
   reason); and access to other apps' data, if the shortcut check reads Maccy's sandbox container.
 - The installer window in dark mode: Finder may draw the icon names in white over the light
   background (checked in light mode only).
-- The Intel half, on an Intel Mac or under Rosetta (`arch -x86_64
-  /Applications/Codealong.app/Contents/MacOS/codealong --version`).
-- An update, end to end, from a local manifest before the first real one: the `codealong`
-  command's link still works afterwards (it points at the bundle's path, which the update keeps),
-  and the skill copies refresh (`install::refresh_installed` runs at launch).
+- The Intel half, on an Intel Mac (under Rosetta, `--version` from the image ran, 2026-09-28).
+- An update installed by a running release on a real Mac: `an_update_replaces_the_app` put the
+  first notarized release's own update in place of a copy of an app through the updater
+  (2026-09-28), but not from inside the app. Afterwards the `codealong` command's link should
+  still work (it points at the bundle's path, which the update keeps), and the skill copies
+  should refresh (`install::refresh_installed` runs at launch).
 - On a Mac that also builds Codealong: the release in Applications and a dev build share the
   socket, config and shortcut, so only one should run at a time.
