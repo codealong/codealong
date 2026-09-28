@@ -1498,9 +1498,22 @@ mod tests {
         phone.stop();
         until("the Mac to see the phone go", || mac.peers.view().phones.first().is_some_and(|p| !p.online && p.last_seen.is_some()));
 
-        // Unlinking on the phone unlinks the Mac too.
+        // A Mac that forgot the phone without saying so (its list edited): the phone still has
+        // it, and a new code links them again.
+        {
+            let mut st = mac.peers.0.lock();
+            let key = st.linked[0].key.clone();
+            mac.peers.0.forget(&mut st, &key);
+        }
         phone.connect_wire(reconnect(&mac), mac.peers.0.me.get().unwrap().key);
-        until("the phone back", || mac.peers.view().phones.first().is_some_and(|p| p.online));
+        until("the phone to hear it's forgotten", || phone.devices().first().is_some_and(|d| d.online && !d.linked_back));
+        let secret = "99887766554433221100".to_string();
+        mac.peers.0.lock().codes.push((secret.clone(), now_ms() + LINK_CODE_FOR_MS));
+        let again = Ticket { key: mac.peers.0.me.get().unwrap().key, secret }.encode();
+        assert_eq!(phone.link_wire(&again, reconnect(&mac)).unwrap(), "Mini");
+        until("linked again on both sides", || mac.peers.view().phones.first().is_some_and(|p| p.online) && phone.devices().first().is_some_and(|d| d.linked_back));
+
+        // Unlinking on the phone unlinks the Mac too.
         phone.unlink(&d.key).unwrap();
         until("the Mac to forget the phone", || mac.peers.view().phones.is_empty());
         let _ = std::fs::remove_dir_all(dir);

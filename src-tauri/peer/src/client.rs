@@ -220,12 +220,17 @@ impl Client {
         self.link_over(t, wire)
     }
 
+    /// The device's name when a code for it would change nothing: it's linked here, and a live
+    /// connection says it has this device too. Otherwise the code goes to it, since it may have
+    /// forgotten this device (its list was edited, or this device's key changed).
     fn already_linked(&self, t: &Ticket) -> std::result::Result<Option<String>, String> {
         if t.key == self.0.key {
             return Err("That's this device's own key.".into());
         }
         let hex = proto::key_hex(&t.key);
-        Ok(self.0.lock().linked.iter().find(|l| l.key == hex).map(|l| l.name.clone()))
+        let st = self.0.lock();
+        let both = st.linked.iter().any(|l| l.key == hex) && st.conns.get(&hex).is_some_and(|c| c.linked_there);
+        Ok(both.then(|| self.0.name_of(&st, &hex)))
     }
 
     fn link_over(&self, t: Ticket, wire: Wire) -> std::result::Result<String, String> {

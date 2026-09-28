@@ -770,7 +770,7 @@ fn devices_cmd(c: &mut Client, cmd: Option<DevicesCmd>, json: bool) -> Result<()
             said(if no { format!("Said no to {name}.") } else { format!("Linked with {name}.") }, json!({ "device": name, "linked": !no }))
         }
         Some(DevicesCmd::Unlink { device }) => {
-            let (key, name) = which_device(&view, &device, &["devices"])?;
+            let (key, name) = which_device(&view, &device, &["devices", "phones"])?;
             ask_app(&Request::DeviceUnlink { key })?;
             said(format!("Unlinked {name}."), json!({ "device": name, "linked": false }))
         }
@@ -822,6 +822,13 @@ fn devices_list(view: &Value, json: bool) -> Result<()> {
         let state = if online { format!("connected, {}", s(d, "via")) } else { d.get("lastSeen").and_then(Value::as_i64).map(|t| format!("last seen {} ago", ago(now_ms() - t))).unwrap_or_else(|| "not connected".into()) };
         let n = |k: &str| d.get(k).and_then(Value::as_u64).unwrap_or(0).to_string();
         rows.push(vec![s(d, "name"), s(d, "short"), state, if d.get("remoteControl").and_then(Value::as_bool).unwrap_or(false) { "on".into() } else { "off".into() }, n("worktrees"), n("sessions"), n("needs")]);
+    }
+    // Phones only watch: no worktrees, and remote control is this device's to give, not theirs.
+    for p in view.get("phones").and_then(Value::as_array).into_iter().flatten() {
+        let online = p.get("online").and_then(Value::as_bool).unwrap_or(false);
+        let kind = if s(p, "kind") == "tablet" { "tablet" } else { "phone" };
+        let state = if online { format!("{kind}, connected") } else { p.get("lastSeen").and_then(Value::as_i64).map(|t| format!("{kind}, last seen {} ago", ago(now_ms() - t))).unwrap_or_else(|| format!("{kind}, not connected")) };
+        rows.push(vec![s(p, "name"), s(p, "short"), state, String::new(), String::new(), String::new(), String::new()]);
     }
     for f in view.get("found").and_then(Value::as_array).into_iter().flatten() {
         let asking = f.get("asking").and_then(Value::as_bool).unwrap_or(false);
@@ -2726,6 +2733,7 @@ mod tests {
     fn devices_are_named_by_name_short_id_or_key() {
         let view = json!({
             "devices": [{ "key": "9f8e7d6c5b4a3928", "short": "9f8e7d6c5b", "name": "Mac mini" }],
+            "phones": [{ "key": "b7c6d5e4f3a29180", "short": "b7c6d5e4f3", "name": "Sam's iPhone", "kind": "phone" }],
             "found": [{ "key": "7c6b5a4938271605", "short": "7c6b5a4938", "name": "iMac" }, { "key": "7c6b00000000", "short": "7c6b000000", "name": "iMac Pro" }]
         });
         assert_eq!(which_device(&view, "mac MINI", &["devices"]).unwrap().1, "Mac mini");
@@ -2733,6 +2741,8 @@ mod tests {
         assert_eq!(which_device(&view, "7c6b5a", &["found"]).unwrap().1, "iMac");
         assert!(which_device(&view, "7c6b", &["found"]).is_err(), "two keys start that way");
         assert!(which_device(&view, "iMac", &["devices"]).is_err(), "only the lists asked for");
+        // Unlinking takes a phone too.
+        assert_eq!(which_device(&view, "sam's iphone", &["devices", "phones"]).unwrap().0, "b7c6d5e4f3a29180");
     }
 
     #[test]
