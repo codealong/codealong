@@ -4835,6 +4835,10 @@ html.is-quick body {
 .ca-sessinsp-head .ca-insp-branch {
   margin-top: 0;
 }
+/* A grid item stretches across the column; a chip keeps its own width. */
+.ca-sessinsp-head > .ca-chip {
+  justify-self: start;
+}
 .ca-sessinsp .ca-insp-title .ca-tag {
   margin-left: 0;
 }
