@@ -2,7 +2,8 @@
 // that answers it at the bottom (SessionReply.tsx). The floating bar's peek shows it for the pill
 // under the pointer, and the quick panel's reply view for the session picked there. Both give its
 // header a way to mark a finished turn seen or archive the session, off the list it came from, and
-// the peek one to snooze it off the bar.
+// a way to snooze it off the bar. Answering from the quick panel's list, a strip above the header
+// says how the last one went and what's left: the view goes on to the next as each one's done.
 
 import type { MouseEvent } from 'react';
 import { agoPhrase, duration } from '../format';
@@ -42,6 +43,10 @@ interface ReplyViewProps {
   onAnswered?: (said: string) => void;
   /** Once the conversation's first page is laid out. */
   onLoaded?: () => void;
+  /** Working through what waits on you: how many are left after this one, and the next. */
+  queue?: { left: number; next: Session | null; onNext: () => void };
+  /** How the one before went: sent, or why it didn't go. */
+  notice?: { text: string; error: boolean } | null;
 }
 
 /** The open button's words: the lane's own for the session, else where it opens. */
@@ -50,13 +55,26 @@ function openWords(lane: Lane, s: Session, terminal: string): { label: string; d
   return t ? { label: t.label, detail: t.detail, disabled: t.disabled } : { label: `Open in ${sessionPlace(s, terminal)}`, detail: null, disabled: false };
 }
 
-export function ReplyView({ lane, session: s, terminal, now, onOpen, onReveal, onBack, onSeen, onArchive, onSnooze, autoFocus, keys, onSending, onSent, onFailed, onAnswered, onLoaded }: ReplyViewProps) {
+export function ReplyView({ lane, session: s, terminal, now, onOpen, onReveal, onBack, onSeen, onArchive, onSnooze, autoFocus, keys, onSending, onSent, onFailed, onAnswered, onLoaded, queue, notice }: ReplyViewProps) {
   const open = openWords(lane, s, terminal);
   const since = s.statusSince ? (s.status === 'working' ? `for ${duration(s.statusSince, now)}` : agoPhrase(s.statusSince, now)) : agoPhrase(s.lastActivity, now);
   const snoozed = s.snoozedUntil ? ` · snoozed until ${untilWords(s.snoozedUntil, now)}` : '';
   const status = (s.stalledSince ? `Quiet since ${agoPhrase(s.stalledSince, now)}` : `${s.asks ? 'Asks you' : STATUS_WORD[s.status]} ${since}`) + snoozed;
+  const next = queue?.next;
   return (
     <div className="ca-reply">
+      {(notice || next) && (
+        <div className="ca-reply-queue">
+          <span className={`ca-reply-queue-note${notice?.error ? ' is-error' : ''}`} role="status">
+            {notice ? notice.text : `${queue?.left} more waiting on you`}
+          </span>
+          {next && queue && (
+            <Button variant="ghost" size="sm" kbd={['⌘', ']']} title={`Next: ${next.title}`} onClick={queue.onNext}>
+              {notice ? `${queue.left} more` : 'Next'}
+            </Button>
+          )}
+        </div>
+      )}
       <header className="ca-reply-head">
         {onBack && <Button variant="ghost" size="sm" icon="chevron-left" aria-label="Back" title="Back to the list (Esc)" onClick={onBack} />}
         <StatusGlyph status={s.status} size={12} />

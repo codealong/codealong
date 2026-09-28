@@ -151,7 +151,12 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   shows the session, todo or PR in Codealong, ⌘1 to ⌘9 open a row, Escape closes. ⇥ on a
   session answers it in the panel: its conversation, and a box that sends it a message where it
   runs (⏎ sends and closes the panel), or what it waits on you to allow, with Allow and Deny
-  (⌘⏎ allows); Escape goes back to the list. Each open starts empty,
+  (⌘⏎ allows); Escape goes back to the list. Answered from the list with nothing typed, the
+  panel works through what waits on you: once a session is sent a message, allowed, marked
+  seen, snoozed or archived, the next one that waits on you takes its place, and a line at the
+  top says how the last one went and how many are left. ⌘] skips to the next (a skipped one
+  comes round again after the rest), and after the last one the panel closes. A message that
+  doesn't go is back in its session's box, and that session comes round again. Each open starts empty,
   so ⏎ goes to what needs you; ↑ brings back what you'd typed before closing, then earlier prompts you sent, started or saved, and ↓ goes forward again. While you type, the list doesn't shrink until you pause and the answers are in, so the panel holds still. A project picker (⌘P) narrows everything to one project. The shortcut is
   yours to change in Settings › General; Settings names shortcuts macOS and common launchers
   already use.

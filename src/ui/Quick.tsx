@@ -12,7 +12,10 @@
 //
 // ⇥ on a session answers it here: the panel shows its conversation and a box that sends it a
 // message where it runs, or what it waits on you to allow (ReplyView.tsx). ⏎ sends, and Escape
-// goes back to the list, as marking it seen or archiving it from its header does.
+// goes back to the list, as marking it seen or archiving it from its header does. Answering one
+// from the empty panel's list works through the list: once it's sent, allowed, marked seen,
+// snoozed or archived, the next that waits on you takes the view (the longest wait first), ⌘]
+// skips to it, and after the last one the panel closes.
 
 import { reuse } from '../reuse';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -40,12 +43,13 @@ import {
 import { archiveAhead, boardAhead, boardView, observe, seenAhead, sendAhead, useAhead } from '../ahead';
 import { filesToAttach, keepFiles, useFileDrop } from '../attachInput';
 import { useKeyPerf, usePerf } from '../perf';
-import { showContextMenu } from '../contextMenu';
+import { below, showContextMenu } from '../contextMenu';
 import { ago, agoPhrase, resetsPhrase, tildePath } from '../format';
 import { HARNESS_WORD, usageNote } from '../harness';
 import { useLogo } from '../logo';
 import { prPills } from '../prStatus';
-import { ALL_PROJECTS, attentionRows, findPrs, findSessions, findTodos, FOUND_SESSIONS, inProject, laneBranch, laneGroups, MAX_ROWS, projectCounts, queryWords, readyTodos, recallList, recentRows, shortcutLabel, stillSaid, TEXT_SEARCH_MIN, type PrRow, type RowGroup, type SessionRow, type TodoRow, withPrompt as historyWith } from '../quick';
+import { snoozeMenu } from '../snooze';
+import { ALL_PROJECTS, attentionRows, findPrs, findSessions, findTodos, FOUND_SESSIONS, inProject, laneBranch, laneGroups, MAX_ROWS, projectCounts, queryWords, queueAfter, queueRows, readyTodos, recallList, recentRows, shortcutLabel, stillSaid, TEXT_SEARCH_MIN, type Handled, type PrRow, type RowGroup, type SessionRow, type TodoRow, withPrompt as historyWith } from '../quick';
 import {
   accountFor,
   agentId,
@@ -219,6 +223,11 @@ export function Quick() {
   const [picker, setPicker] = useState<PickerKind | null>(null);
   // The session the panel answers in place of the list (⇥ on its row).
   const [replyKey, setReplyKey] = useState<string | null>(null);
+  // Answered from the empty list: the view goes on to the next session that waits on you as each
+  // one's done, and says how the last one went.
+  const [queued, setQueued] = useState(false);
+  const [notice, setNotice] = useState<{ text: string; error: boolean } | null>(null);
+  const handled = useRef<Handled>(new Map());
   const now = useNow(30_000);
   const input = useRef<HTMLTextAreaElement>(null);
   const inputBox = useRef<HTMLDivElement>(null);
@@ -300,6 +309,8 @@ export function Quick() {
         setNewWorktree(false);
         setActiveKey(null);
         setReplyKey(ctx.reply ?? null);
+        setQueued(false);
+        setNotice(null);
       }
       if (b) {
         setBoard(b);
@@ -444,6 +455,20 @@ export function Quick() {
     }
     return null;
   }, [board, replyKey]);
+  // What it works through, and what's left after the one showing. Snoozed ones wait their time.
+  const queue = useMemo(() => (board && queued ? queueRows(board, current).filter((r) => !r.session.snoozedUntil) : []), [board, queued, current]);
+  const queueLeft = replying && queued ? queueAfter(queue, replying.session.key, handled.current) : [];
+  // Read when a send fails, which can be long after the view went on to another session.
+  const replyKeyNow = useRef(replyKey);
+  replyKeyNow.current = replyKey;
+  const shownNow = useRef(shown);
+  shownNow.current = shown;
+  // How the last one went shows for a moment, then what's left does; why one failed stays.
+  useEffect(() => {
+    if (!notice || notice.error) return;
+    const t = window.setTimeout(() => setNotice(null), 4000);
+    return () => window.clearTimeout(t);
+  }, [notice]);
 
   /* ---- Who ---- */
 
@@ -702,6 +727,10 @@ export function Quick() {
   /** Answers a session here: its conversation, and a box for the reply. What's typed in the input
    *  stays for when you go back. */
   const replyTo = (session: Session) => {
+    const fromList = !!attention?.rows.some((r) => r.key === session.key && r.group !== 'working');
+    if (fromList) handled.current = new Map();
+    setQueued(fromList);
+    setNotice(null);
     setReplyKey(session.key);
     setPicker(null);
     setError(null);
@@ -709,13 +738,39 @@ export function Quick() {
 
   const leaveReply = () => {
     setReplyKey(null);
+    setQueued(false);
+    setNotice(null);
     refocus();
   };
 
-  /** Marks the session answered seen or archives it, and goes back to the list it's left. */
-  const dismissReply = (act: Promise<void>) => {
-    leaveReply();
-    act.catch((e: unknown) => setError(plain(e)));
+  /** Done with a session answered from the list: the next that waits on you takes the view, saying
+   *  how this one went. With none left, the panel is done. */
+  const advance = (s: Session, done: string, said: string | null = null) => {
+    handled.current.set(s.key, s.statusSince ?? s.lastActivity);
+    const next = queueAfter(queue, s.key, handled.current)[0];
+    if (!next) return replied(said);
+    setNotice({ text: `${s.title}: ${done}`, error: false });
+    setReplyKey(next.key);
+  };
+
+  /** On to the next without doing anything here: this one comes round again after the rest. */
+  const skip = () => {
+    const next = queueLeft[0];
+    if (!next) return;
+    setNotice(null);
+    setReplyKey(next.key);
+  };
+
+  /** Marks the session answered seen, snoozes or archives it, and goes on to the next that waits on
+   *  you, or back to the list it's left. */
+  const dismissReply = (s: Session, done: string, act: Promise<void>) => {
+    if (queued) advance(s, done);
+    else leaveReply();
+    act.catch((e: unknown) => {
+      const why = plain(e);
+      setError(why);
+      setNotice({ text: `${s.title}: ${why}`, error: true });
+    });
   };
 
   /** The session ⏎ opens for a todo, as in the main window: the live one, else the latest. */
@@ -1026,12 +1081,16 @@ export function Quick() {
         else void hideQuick();
         return;
       }
-      // Answering a session, only ⌘Q and ⌘H mean something here: the list's keys are for the list.
+      // Answering a session, only ⌘Q, ⌘H and ⌘] mean something here: the list's keys are for the
+      // list. ] goes by its key's code, which layouts that type it with ⌥ keep.
       if (replying) {
         const k = e.key.toLowerCase();
         if (e.metaKey && !e.ctrlKey && !e.altKey && (k === 'q' || k === 'h')) {
           e.preventDefault();
           void hideQuick();
+        } else if (e.metaKey && !e.ctrlKey && !e.shiftKey && e.code === 'BracketRight' && queued) {
+          e.preventDefault();
+          skip();
         }
         return;
       }
@@ -1235,6 +1294,8 @@ export function Quick() {
    *  opened it hears what happened. */
   const replied = (message: string | null) => {
     setReplyKey(null);
+    setQueued(false);
+    setNotice(null);
     setActiveKey(null);
     void hideQuick();
     if (message) void tellOpener(opener ?? 'main', { phase: 'end', id: Date.now(), key: null, message });
@@ -1260,18 +1321,28 @@ export function Quick() {
             onBack={leaveReply}
             onOpen={() => openSession(replying.lane, replying.session)}
             onReveal={() => revealSession(replying.lane, replying.session)}
-            onSeen={() => dismissReply(seenAhead([replying.session.key]))}
-            onArchive={() => dismissReply(archiveAhead(replying.session.key, true))}
-            onSending={() => replied(null)}
+            onSeen={() => dismissReply(replying.session, 'marked seen.', seenAhead([replying.session.key]))}
+            onArchive={() => dismissReply(replying.session, 'archived.', archiveAhead(replying.session.key, true))}
+            onSnooze={(e) => {
+              const s = replying.session;
+              void showContextMenu(snoozeMenu([s.key], Date.now(), { until: s.snoozedUntil, onDone: (act) => dismissReply(s, 'snoozed.', act) }).items, below(e.currentTarget));
+            }}
+            queue={queued ? { left: queueLeft.length, next: queueLeft[0]?.session ?? null, onNext: skip } : undefined}
+            notice={notice}
+            onSending={() => (queued ? advance(replying.session, 'sent.') : replied(null))}
             onSent={(sent) => {
               if (sent.message) void tellOpener(opener ?? 'main', { phase: 'end', id: Date.now(), key: null, message: sent.message });
             }}
-            // Back on the session, with what you wrote in the box and why it didn't go.
-            onFailed={() => {
-              const key = replying.session.key;
-              reopen(() => setReplyKey(key));
+            // Back on the session, with what you wrote in the box and why it didn't go; or, when the
+            // view went on to another, it says so, and the session is back in what's left.
+            onFailed={(why) => {
+              const s = replying.session;
+              if (shownNow.current && replyKeyNow.current && replyKeyNow.current !== s.key) {
+                handled.current.delete(s.key);
+                setNotice({ text: `Didn’t send to ${s.title}: ${why}`, error: true });
+              } else reopen(() => setReplyKey(s.key));
             }}
-            onAnswered={(said) => replied(said)}
+            onAnswered={(said) => (queued ? advance(replying.session, said, said) : replied(said))}
           />
         </div>
       )}

@@ -5122,6 +5122,31 @@ html.is-quick body {
 .ca-reply-head .ca-btn {
   flex: none;
 }
+/* Working through what waits on you: how the last one went, and what's left. */
+.ca-reply-queue {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px 4px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-sunken);
+}
+.ca-reply-queue-note {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink-3);
+  font: 400 11px/16px var(--font-sans);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ca-reply-queue-note.is-error {
+  color: var(--alert);
+}
+.ca-reply-queue .ca-btn {
+  flex: none;
+}
 .ca-reply .ca-thread {
   padding: var(--space-3) var(--space-3) var(--space-3) 14px;
 }

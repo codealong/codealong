@@ -89,6 +89,34 @@ export function attentionRows(board: Board, project: string, limit = MAX_ROWS): 
 const ORDER: RowGroup[] = ['needs', 'unread', 'working'];
 
 /**
+ * What the reply view works through when you answer a session from the empty panel's list: every
+ * session in the project that needs you, the longest wait first, then those whose turn ended, the
+ * newest first, as the list has them.
+ */
+export function queueRows(board: Board, project: string): SessionRow[] {
+  return attentionRows(board, project, Infinity).rows.filter((r) => r.group !== 'working');
+}
+
+/** Sessions you answered, marked seen, snoozed or archived from the queue, with the time of the
+ *  status each had then: one is left out until it waits on you anew. The board can take seconds
+ *  to show an answer, and an allowed tool call isn't shown ahead of it. */
+export type Handled = Map<string, number>;
+
+/**
+ * What's left to answer after the session `key`: those after it in the queue, then those before
+ * it (the ones you skipped), without it and the ones you've dealt with. The first is the one
+ * the view shows next.
+ */
+export function queueAfter(queue: SessionRow[], key: string, handled: Handled): SessionRow[] {
+  const i = queue.findIndex((r) => r.key === key);
+  const order = i < 0 ? queue : [...queue.slice(i + 1), ...queue.slice(0, i)];
+  return order.filter((r) => {
+    const at = handled.get(r.key);
+    return r.key !== key && (at === undefined || since(r.session) > at);
+  });
+}
+
+/**
  * The empty panel's last list: sessions started in the last day (by their last activity when the
  * start isn't known) that the lists above don’t show, the newest status first, as their ages read. `count`
  * is how many there are in all, for the heading.
