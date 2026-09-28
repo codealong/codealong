@@ -111,6 +111,15 @@ load average: every publish (size, how many lanes, sessions and PRs changed, com
 time, file-watcher batches and git runs since the last one), git runs, engine and main-thread
 lag, and per window the push-to-paint time, how long pointer events waited in the queue, and
 event-loop stalls. `perf.rs` has the details. Set it back to false when done; the log grows.
+
+A main thread still stuck a second after the watcher's probe is sampled while it's stuck
+(`/usr/bin/sample`, two seconds, at most every five minutes, and again at ten seconds): the log
+says where the main thread was, innermost frame first ("waiting in its event loop" means none
+of Codealong's, AppKit's or WebKit's code was running), and `stalls/` beside the log keeps the
+last 20 reports. The release build is stripped, so Codealong's own frames are offsets; a build
+of the same commit with `CARGO_PROFILE_RELEASE_STRIP=false` names them (`atos -o <binary> -l
+<load address> <address>`, the load address from the report's header).
+
 `node scripts/perf-summary.mjs` sums up the app's latest run (`--since HH:MM`, `--runs N`):
 publishes, engine lag, git runs, file-watcher batches (big ones name the folders they came
 from) and each window's push times. A window that can't be seen holds pushes and renders the

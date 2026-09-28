@@ -893,14 +893,57 @@ const CLOSE_IDLE_MENU_ID: &str = "close-idle";
 
 /// Every second while the perf log is on, posts to the main thread and logs how late it ran:
 /// the main thread carries every click and pointer move to the windows, so its lag is theirs.
+/// One still waiting after a second is stuck at that moment, so it's sampled then (a lag line
+/// comes only once it's over): the sample says what it's stuck on (perf::sample_stall).
 fn watch_main_thread(app: tauri::AppHandle) {
-    std::thread::spawn(move || loop {
-        std::thread::sleep(std::time::Duration::from_secs(1));
-        if !perf::enabled() {
-            continue;
+    use std::sync::mpsc::RecvTimeoutError;
+    use std::time::{Duration, Instant};
+    // A probe still waiting this long means the main thread is stuck right now.
+    const STUCK: Duration = Duration::from_secs(1);
+    // Stuck this long is a freeze, sampled again whenever the last sample was.
+    const HUNG: Duration = Duration::from_secs(10);
+    // Sampling costs the Mac a few seconds of work, so a stuck main thread is sampled at most
+    // this often.
+    const SAMPLE_GAP: Duration = Duration::from_secs(300);
+    std::thread::spawn(move || {
+        let mut sampled: Option<Instant> = None;
+        loop {
+            std::thread::sleep(Duration::from_secs(1));
+            if !perf::enabled() {
+                continue;
+            }
+            // One probe at a time, so a long stall is one line with its whole length.
+            let t = Instant::now();
+            let (tx, rx) = std::sync::mpsc::channel();
+            let probe = move || {
+                let _ = tx.send(t.elapsed());
+            };
+            if app.run_on_main_thread(probe).is_err() {
+                continue;
+            }
+            let waited = match rx.recv_timeout(STUCK) {
+                Ok(w) => w,
+                Err(RecvTimeoutError::Disconnected) => continue,
+                Err(RecvTimeoutError::Timeout) => {
+                    if sampled.is_none_or(|s| s.elapsed() >= SAMPLE_GAP) {
+                        sampled = Some(Instant::now());
+                        perf::sample_stall("main thread stuck for 1 s".into());
+                    }
+                    match rx.recv_timeout(HUNG - STUCK) {
+                        Ok(w) => w,
+                        Err(RecvTimeoutError::Disconnected) => continue,
+                        Err(RecvTimeoutError::Timeout) => {
+                            perf::sample_stall("main thread stuck for 10 s".into());
+                            match rx.recv() {
+                                Ok(w) => w,
+                                Err(_) => continue,
+                            }
+                        }
+                    }
+                }
+            };
+            perf::lag("main thread", waited);
         }
-        let t = std::time::Instant::now();
-        let _ = app.run_on_main_thread(move || perf::lag("main thread", t.elapsed()));
     });
 }
 

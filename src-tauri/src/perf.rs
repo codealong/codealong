@@ -3,7 +3,9 @@
 //! what changed, how long composing took), file-watcher batches, git runs, engine and
 //! main-thread lag, and what each window reports through `perf_mark`. Every line carries the
 //! wall-clock time and the one-minute load average, so a slow moment can be matched to what
-//! the Mac was doing. Off, nothing here costs more than an atomic load.
+//! the Mac was doing. A main thread stuck for a second is sampled while it's stuck
+//! (`sample_stall`), into `stalls/` beside the log. Off, nothing here costs more than an atomic
+//! load.
 
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
@@ -80,6 +82,128 @@ pub fn lag(what: &str, waited: Duration) {
     if waited >= LAG_FLOOR {
         log(&format!("{what} lag {} ms", waited.as_millis()));
     }
+}
+
+/// Where samples of a stuck main thread go.
+pub fn stalls_dir() -> PathBuf {
+    home().join("Library/Logs/Codealong/stalls")
+}
+
+/// Samples kept; the oldest go as new ones come.
+const KEEP_STALLS: usize = 20;
+
+/// Records what every thread of the app does for two seconds, with `/usr/bin/sample`, into a
+/// file in `stalls/`, and logs where the main thread spent them, after `why`. It's called while
+/// the main thread is stuck, so the main thread's stack names what it's waiting for. Off the
+/// calling thread. Codealong's own frames show as offsets (the release build is stripped); a
+/// build of the same commit with `CARGO_PROFILE_RELEASE_STRIP=false` names them, with `atos -o
+/// <that binary> -l <the report's load address> <address>`.
+pub fn sample_stall(why: String) {
+    if !enabled() {
+        return;
+    }
+    std::thread::spawn(move || {
+        let dir = stalls_dir();
+        let _ = std::fs::create_dir_all(&dir);
+        let name = format!("stall-{}.txt", file_stamp());
+        let file = dir.join(&name);
+        let pid = std::process::id().to_string();
+        let path = file.to_string_lossy().into_owned();
+        let ran = crate::procs::run("/usr/bin/sample", &[&pid, "2", "5", "-mayDie", "-file", &path], None, Duration::from_secs(120));
+        let report = std::fs::read_to_string(&file).unwrap_or_default();
+        let found = match (main_thread_path(&report), ran) {
+            (Some(p), _) => p.describe(),
+            (None, Err(e)) => format!("sample failed: {e:#}"),
+            (None, Ok(_)) => "the sample has no main thread".to_string(),
+        };
+        log(&format!("{why}: {found}; every thread in stalls/{name}"));
+        prune_stalls(&dir);
+    });
+}
+
+fn prune_stalls(dir: &std::path::Path) {
+    let mut files: Vec<PathBuf> = std::fs::read_dir(dir).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("stall-"))).collect();
+    // Their names start with the time, so they sort oldest first.
+    files.sort();
+    for old in files.iter().take(files.len().saturating_sub(KEEP_STALLS)) {
+        let _ = std::fs::remove_file(old);
+    }
+}
+
+/// The main thread's heaviest path in a `sample` report: from the thread down to the frame
+/// most of its samples were in.
+#[derive(Debug, PartialEq)]
+pub struct StallPath {
+    /// The main thread's samples in all.
+    pub total: u32,
+    /// The samples in the path's last frame.
+    pub on: u32,
+    /// Outermost first.
+    pub frames: Vec<String>,
+}
+
+impl StallPath {
+    /// Where the main thread was, innermost frame first, for the log.
+    pub fn describe(&self) -> String {
+        let share = if self.total > 0 { self.on * 100 / self.total } else { 0 };
+        let inner: Vec<&str> = self.frames.iter().rev().take(12).map(String::as_str).collect();
+        // Blocked in the event loop's own wait: nothing of Codealong's, AppKit's or WebKit's was
+        // running, so the thread was waiting for an event, or for the CPU to take one.
+        let idle = self.frames.last().is_some_and(|f| f.starts_with("mach_msg")) && self.frames.iter().any(|f| f.contains("nextEventMatchingMask"));
+        format!("{share}% of {} samples in {}{}", self.total, inner.join(" < "), if idle { " (waiting in its event loop)" } else { "" })
+    }
+}
+
+/// Finds the main thread's heaviest path in a `sample` report. The call graph lists each
+/// thread's frames as a tree whose children come heaviest first, so the path is the thread's
+/// first line and each line after it that sits deeper than the one before.
+pub fn main_thread_path(report: &str) -> Option<StallPath> {
+    let graph = report.split("Call graph:").nth(1)?;
+    let mut lines = graph.lines();
+    let (mut depth, total) = loop {
+        let (indent, count, text) = match graph_line(lines.next()?) {
+            Some(l) => l,
+            None => continue,
+        };
+        if text.ends_with(": main") || text.contains("com.apple.main-thread") {
+            break (indent, count);
+        }
+    };
+    let mut frames = Vec::new();
+    let mut on = total;
+    for line in lines {
+        let Some((indent, count, text)) = graph_line(line) else { break };
+        if indent <= depth {
+            break;
+        }
+        frames.push(frame_name(text));
+        depth = indent;
+        on = count;
+    }
+    Some(StallPath { total, on, frames })
+}
+
+/// A call-graph line: the column its count starts at (its depth), the count, and the frame.
+/// What comes before the count is indentation and the tree's own marks.
+fn graph_line(line: &str) -> Option<(usize, u32, &str)> {
+    let at = line.find(|c: char| c.is_ascii_digit())?;
+    if !line[..at].chars().all(|c| matches!(c, ' ' | '+' | '!' | ':' | '|')) {
+        return None;
+    }
+    let rest = &line[at..];
+    let end = rest.find(' ')?;
+    Some((at, rest[..end].parse().ok()?, rest[end..].trim()))
+}
+
+/// A frame's symbol, or for one without (Codealong's own) its image and offset.
+fn frame_name(text: &str) -> String {
+    let (symbol, rest) = text.split_once("  (in ").unwrap_or((text, ""));
+    if symbol != "???" {
+        return symbol.to_string();
+    }
+    let image = rest.split(')').next().unwrap_or("?");
+    let offset = rest.split(" + ").nth(1).and_then(|o| o.split_whitespace().next()).unwrap_or("?");
+    format!("{image}+{offset}")
 }
 
 /// What the engine did between two publishes, and what each publish changed.
@@ -197,6 +321,12 @@ pub(crate) fn stamp() -> String {
     format!("{} {}", date(), clock())
 }
 
+/// The local time for a file name, sorting as it reads: 2026-09-27-191005.
+fn file_stamp() -> String {
+    let (tm, _) = local_tm();
+    format!("{}-{:02}{:02}{:02}", date(), tm.tm_hour, tm.tm_min, tm.tm_sec)
+}
+
 fn date() -> String {
     let (tm, _) = local_tm();
     format!("{}-{:02}-{:02}", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday)
@@ -231,6 +361,69 @@ fn busiest_in(paths: &[PathBuf], home: &std::path::Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const BUSY: &str = "Analysis of sampling codealong (pid 1) every 5 milliseconds
+Load Address:    0x10092c000
+
+Call graph:
+    400 Thread_1001: main
+    + 400 start  (in dyld) + 6992  [0x184d804e4]
+    +   400 ???  (in codealong)  load address 0x10092c000 + 0x1054  [0x10092d054]
+    +     390 -[NSApplication run]  (in AppKit) + 368  [0x18963113c]
+    +     ! 390 -[NSApplication(NSEventRouting) sendEvent:]  (in AppKit) + 964  [0x18a1d2390]
+    +     !   385 +[NSWindow windowNumberAtPoint:belowWindowWithWindowNumber:]  (in AppKit) + 164  [0x1897cecac]
+    +     !   : 385 SLSCopyWindowRoutingRecordsForScreenLocation  (in SkyLight) + 180  [0x18bc784b8]
+    +     !   : | 385 mach_msg2_trap  (in libsystem_kernel.dylib) + 8  [0x185107c34]
+    +     !   5 objc_msgSend  (in libobjc.A.dylib) + 56  [0x184ce7038]
+    +     10 ???  (in codealong)  load address 0x10092c000 + 0x2000  [0x10092e000]
+    400 Thread_1002: com.apple.NSEventThread
+    + 400 thread_start  (in libsystem_pthread.dylib) + 8  [0x18514ab80]
+
+Total number in stack (recursive counted multiple, when >=5):
+";
+
+    #[test]
+    fn finds_where_a_stuck_main_thread_waits() {
+        let p = main_thread_path(BUSY).unwrap();
+        assert_eq!((p.total, p.on), (400, 385));
+        assert_eq!(
+            p.frames,
+            ["start", "codealong+0x1054", "-[NSApplication run]", "-[NSApplication(NSEventRouting) sendEvent:]", "+[NSWindow windowNumberAtPoint:belowWindowWithWindowNumber:]", "SLSCopyWindowRoutingRecordsForScreenLocation", "mach_msg2_trap"]
+        );
+        assert_eq!(
+            p.describe(),
+            "96% of 400 samples in mach_msg2_trap < SLSCopyWindowRoutingRecordsForScreenLocation < +[NSWindow windowNumberAtPoint:belowWindowWithWindowNumber:] < -[NSApplication(NSEventRouting) sendEvent:] < -[NSApplication run] < codealong+0x1054 < start"
+        );
+        assert_eq!(main_thread_path("no call graph here"), None);
+    }
+
+    #[test]
+    fn says_when_the_main_thread_was_only_waiting_for_events() {
+        let idle = "Call graph:
+    200 Thread_1: main
+    + 200 -[NSApplication(NSEventRouting) nextEventMatchingMask:untilDate:inMode:dequeue:]  (in AppKit) + 72  [0x18a1d3678]
+    +   200 _BlockUntilNextEventMatchingListInMode  (in HIToolbox) + 48  [0x19218014c]
+    +     200 mach_msg2_trap  (in libsystem_kernel.dylib) + 8  [0x185107c34]
+";
+        let d = main_thread_path(idle).unwrap().describe();
+        assert!(d.starts_with("100% of 200 samples in mach_msg2_trap < _BlockUntilNextEventMatchingListInMode"), "{d}");
+        assert!(d.ends_with("(waiting in its event loop)"), "{d}");
+    }
+
+    /// Samples this test process with the real `sample` and reads its main thread back, so the
+    /// report's format is checked against the tool itself: `cargo test samples_itself -- --ignored`.
+    #[test]
+    #[ignore]
+    fn samples_itself() {
+        let file = std::env::temp_dir().join(format!("codealong-sample-{}.txt", std::process::id()));
+        let pid = std::process::id().to_string();
+        crate::procs::run("/usr/bin/sample", &[&pid, "1", "5", "-mayDie", "-file", &file.to_string_lossy()], None, Duration::from_secs(120)).unwrap();
+        let report = std::fs::read_to_string(&file).unwrap();
+        let _ = std::fs::remove_file(&file);
+        let p = main_thread_path(&report).expect("a main thread");
+        assert!(p.total > 0 && !p.frames.is_empty(), "{p:?}");
+        println!("{}", p.describe());
+    }
 
     #[test]
     fn diff_counts_new_and_changed_entries_and_forgets_gone_ones() {

@@ -74,6 +74,12 @@ for (let run of runs) {
   const lag = (who) => run.filter((l) => l.includes(` ${who} lag `)).map((l) => num(/lag (\d+) ms/, l));
   console.log(`\n  engine lag (a message waiting for the engine, 50 ms and up): ${lag('engine').length} times, ${dist(lag('engine'))}`);
   console.log(`  main thread lag: ${lag('main thread').length} times, ${dist(lag('main thread'))}`);
+  // Samples of a stuck main thread: where it was, from its innermost frame.
+  const stuck = run.filter((l) => l.includes(' main thread stuck for '));
+  for (const l of stuck.slice(-5)) console.log(`    ${clock(l)} ${l.slice(l.indexOf('main thread stuck for '))}`);
+  if (stuck.length > 5) console.log(`    and ${stuck.length - 5} earlier samples`);
+  const keys = run.filter((l) => / ui\[[^\]]+\] keys: /.test(l));
+  if (keys.length) console.log(`  typed keys, from the key to its frame (worst per second): ${dist(keys.map((l) => num(/, (\d+) ms at most/, l)))}`);
 
   const git = run.filter((l) => / git \w+ \d+ ms/.test(l));
   console.log(`\n  git runs (slow ones logged): ${git.length} (${perMin(git.length)}/min), ${dist(git.map((l) => num(/git \w+ (\d+) ms/, l)))}`);
