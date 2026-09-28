@@ -16,6 +16,7 @@
 
 import { reuse } from '../reuse';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { flushSync } from 'react-dom';
 import {
   archiveSession,
   fitQuick,
@@ -25,7 +26,6 @@ import {
   markSeen,
   onBoard,
   onQuickHidden,
-  onQuickOpen,
   openFromBar,
   openUrl,
   quickReady,
@@ -41,12 +41,13 @@ import {
   type QuickOpen,
 } from '../api';
 import { filesToAttach, keepFiles, useFileDrop } from '../attachInput';
+import { useKeyPerf, usePerf } from '../perf';
 import { showContextMenu } from '../contextMenu';
 import { ago, agoPhrase, resetsPhrase, tildePath } from '../format';
 import { HARNESS_WORD, usageNote } from '../harness';
 import { useLogo } from '../logo';
 import { prPills } from '../prStatus';
-import { ALL_PROJECTS, attentionRows, findPrs, findSessions, findTodos, FOUND_SESSIONS, inProject, laneBranch, laneGroups, MAX_ROWS, projectCounts, queryWords, readyTodos, recallList, recentRows, shortcutLabel, TEXT_SEARCH_MIN, type PrRow, type RowGroup, type SessionRow, type TodoRow, withPrompt as historyWith } from '../quick';
+import { ALL_PROJECTS, attentionRows, findPrs, findSessions, findTodos, FOUND_SESSIONS, inProject, laneBranch, laneGroups, MAX_ROWS, projectCounts, queryWords, readyTodos, recallList, recentRows, shortcutLabel, stillSaid, TEXT_SEARCH_MIN, type PrRow, type RowGroup, type SessionRow, type TodoRow, withPrompt as historyWith } from '../quick';
 import {
   accountFor,
   agentId,
@@ -79,6 +80,16 @@ import { PrGlyph } from './PrsView';
 import { applyTheme } from './ThemeSwitch';
 import { TodoGlyph } from './TodoBits';
 import { UsageMeter } from './UsageBar';
+
+declare global {
+  interface Window {
+    /** Opens the panel for what Codealong asks, with the board, and returns its height once it's
+     *  laid out (quick.rs calls it). */
+    __quickOpen?: (context: QuickOpen | null, board: Board | null) => number;
+    /** An open that came before the page was up, for the page to do once it is. */
+    __quickPending?: [QuickOpen | null, Board | null];
+  }
+}
 
 /** Room around the card for its shadow. The window (quick.rs) is the card and this on each side. */
 const MARGIN = 20;
@@ -240,10 +251,37 @@ export function Quick() {
   };
   const todoIdsNow = useRef(todoIds);
   todoIdsNow.current = todoIds;
+  // While an open lays the panel out: 'script' when Codealong's script opens it (its height goes
+  // back as the script's result), 'page' when the page opened it itself (it sends its height).
+  const opening = useRef<'script' | 'page' | null>(null);
+  // The height last reported for this open, by the open or by a fit.
+  const reported = useRef(0);
+  // When a board push arrived, for the perf log.
+  const arrived = useRef<number | null>(null);
 
-  // Opening: what for, then fresh data, then the height (below), and only then the panel shows.
+  // Opening. Codealong opens the panel with a script that calls `window.__quickOpen` with what
+  // it opens for and the board, and shows the panel at the height it returns. WebKit runs that
+  // script at the page's full priority, and whatever a hidden page does after it at background
+  // priority, which a busy Mac starves for seconds (quick.rs): so the whole open, laid out and
+  // measured, happens before the script returns. Where accounts can start comes from a copy
+  // read earlier, and a stale one is read again after.
   useEffect(() => {
-    const open = (ctx: QuickOpen) => {
+    let reading = false;
+    const readOptions = () => {
+      if (reading) return;
+      reading = true;
+      startOptions()
+        .then((o) => {
+          cachedOptions.current = { at: Date.now(), options: o };
+          setOptions(o);
+        })
+        // A failed read leaves the copy there is.
+        .catch(() => {})
+        .finally(() => {
+          reading = false;
+        });
+    };
+    const apply = (ctx: QuickOpen, b: Board | null) => {
       setPicker(null);
       setRoom(ctx.room ?? null);
       if (!ctx.keep) {
@@ -262,51 +300,81 @@ export function Quick() {
         setActiveKey(null);
         setReplyKey(ctx.reply ?? null);
       }
-      // Where accounts can start rarely changes, and reading it means reading Codex's state
-      // file, so a recent copy does while a fresh one is read.
-      const fresh = startOptions().then((o) => {
-        cachedOptions.current = { at: Date.now(), options: o };
-        setOptions(o);
-        return o;
-      });
-      const recent = cachedOptions.current && Date.now() - cachedOptions.current.at < OPTIONS_FOR_MS ? cachedOptions.current.options : null;
-      // Not waited on, a failed read just leaves the recent copy.
-      if (recent) fresh.catch(() => {});
-      Promise.all([getBoard(), recent ?? fresh])
-        .then(([b, o]) => {
-          setBoard(b);
-          setOptions(o);
-          // A todo asked for without its prompt (by the floating bar, which doesn't have it)
-          // starts the way the Todo view starts it: as its prompt, in its worktree.
-          const ids = ctx.todos ?? (ctx.todo ? [ctx.todo] : []);
-          const ts = !ctx.keep && ctx.prompt === undefined ? ids.flatMap((id) => b.todos.find((x) => x.id === id) ?? []) : [];
-          if (ts.length > 0) {
-            setText(todosPrompt(ts));
-            const laneById = new Map(b.lanes.map((l) => [l.id, l]));
-            const homes = sessionHomes(b.lanes);
-            if (!ctx.laneId) setLaneId(ts.map((t) => todoItem(t, laneById, homes, new Map()).lane?.id).find(Boolean) ?? null);
-          }
-        })
-        .catch((e: unknown) => setError(plain(e)))
-        .finally(() => {
-          setShown(true);
-          setOpens((n) => n + 1);
+      if (b) {
+        setBoard(b);
+        // A todo asked for without its prompt (by the floating bar, which doesn't have it)
+        // starts the way the Todo view starts it: as its prompt, in its worktree.
+        const ids = ctx.todos ?? (ctx.todo ? [ctx.todo] : []);
+        const ts = !ctx.keep && ctx.prompt === undefined ? ids.flatMap((id) => b.todos.find((x) => x.id === id) ?? []) : [];
+        if (ts.length > 0) {
+          setText(todosPrompt(ts));
+          const laneById = new Map(b.lanes.map((l) => [l.id, l]));
+          const homes = sessionHomes(b.lanes);
+          if (!ctx.laneId) setLaneId(ts.map((t) => todoItem(t, laneById, homes, new Map()).lane?.id).find(Boolean) ?? null);
+        }
+      }
+      setShown(true);
+      setOpens((n) => n + 1);
+    };
+    const refresh = () => {
+      if (!cachedOptions.current || Date.now() - cachedOptions.current.at >= OPTIONS_FOR_MS) readOptions();
+    };
+    const openNow = (by: 'script' | 'page', ctx: QuickOpen, b: Board | null) => {
+      opening.current = by;
+      try {
+        flushSync(() => apply(ctx, b));
+      } finally {
+        opening.current = null;
+      }
+      refresh();
+    };
+    // Opened by Codealong's script: laid out and measured before it returns.
+    window.__quickOpen = (ctx, b) => {
+      openNow('script', ctx ?? {}, b);
+      return reported.current;
+    };
+    // Opened some other way (the preview, or a script that came before the page was up): the
+    // page reads the board itself if it has to, and sends its height once it's laid out.
+    const openLater = (ctx: QuickOpen, b: Board | null) => {
+      (b ? Promise.resolve(b) : getBoard())
+        .then((fresh) => openNow('page', ctx, fresh))
+        .catch((e: unknown) => {
+          setError(plain(e));
+          openNow('page', ctx, null);
         });
     };
-    const offOpen = onQuickOpen(open);
-    const offHidden = onQuickHidden(() => {
-      setShown(false);
-      setPicker(null);
-    });
+    readOptions();
+    // Within the script that says so, like an open: the board pushes stop at once, not whenever
+    // the hidden page next gets to run.
+    const offHidden = onQuickHidden(() =>
+      flushSync(() => {
+        setShown(false);
+        setPicker(null);
+      }),
+    );
+    const early = window.__quickPending;
+    delete window.__quickPending;
+    if (early) openLater(early[0] ?? {}, early[1]);
     // A browser preview has no engine to open it.
-    if (inPreview) open({});
+    else if (inPreview) openLater({}, null);
     return () => {
-      offOpen();
+      delete window.__quickOpen;
       offHidden();
     };
   }, []);
 
-  useEffect(() => (shown ? onBoard((b) => setBoard((prev) => (prev ? reuse(prev, b) : b))) : undefined), [shown]);
+  useEffect(
+    () =>
+      shown
+        ? onBoard((b) => {
+            arrived.current = performance.now();
+            setBoard((prev) => (prev ? reuse(prev, b) : b));
+          })
+        : undefined,
+    [shown],
+  );
+  usePerf(board, arrived);
+  const keyed = useKeyPerf(board?.perfLog ?? false);
 
   const theme = board?.theme ?? 'system';
   useEffect(() => applyTheme(theme), [theme]);
@@ -463,7 +531,9 @@ export function Quick() {
     };
   }, [textFor]);
   const textFound = textFor && textSearch?.for === textFor ? textSearch.found : null;
-  const said = useMemo(() => new Map((textFound?.hits ?? []).map((h) => [h.key, h] as const)), [textFound]);
+  // Until it answers, the last search's hits whose lines still have every word stay in the list.
+  const hits = useMemo(() => (textFound ? textFound.hits : textFor && textSearch ? stillSaid(textSearch.found.hits, queryWords(textFor)) : []), [textFound, textFor, textSearch]);
+  const said = useMemo(() => new Map(hits.map((h) => [h.key, h] as const)), [hits]);
   const foundSessions = useMemo(() => (board && query ? findSessions(board, current, query, FOUND_SESSIONS, said) : []), [board, current, query, said]);
   const foundTodos = useMemo(() => (board && query ? findTodos(board, current, query) : []), [board, current, query]);
   const foundPrs = useMemo(() => (board && query ? findPrs(board, current, query) : []), [board, current, query]);
@@ -534,7 +604,6 @@ export function Quick() {
     list.current?.style.setProperty('--quick-gutter', `${el ? el.offsetWidth - el.clientWidth : 0}px`);
   });
 
-  const reported = useRef(0);
   useLayoutEffect(() => {
     if (opens === 0) return;
     const h = measure();
@@ -546,7 +615,7 @@ export function Quick() {
       el.focus();
       el.setSelectionRange(el.value.length, el.value.length);
     }
-    void quickReady(h);
+    if (opening.current !== 'script') void quickReady(h);
   }, [opens, measure]);
   useLayoutEffect(() => {
     if (!shown || opens === 0) return;
@@ -856,6 +925,7 @@ export function Quick() {
   const togglePicker = (k: PickerKind) => setPicker((p) => (p === k ? null : k));
 
   const onInputKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    keyed(e);
     if (e.nativeEvent.isComposing) return;
     const el = e.currentTarget;
     // ⇥ on a session answers it here; elsewhere it moves the focus as usual.

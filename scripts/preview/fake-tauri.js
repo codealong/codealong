@@ -111,6 +111,9 @@ window.__TAURI_INTERNALS__ = {
     var file = { get_accounts: './accounts.json', found_accounts: './found.json', get_config: './config.json', pr_detail: './pr-detail.json', start_options: './start-options.json', bar_feed: './bar-feed.json' }[cmd];
     if (file) return fetch(file).then(function (r) { return r.ok ? r.json() : Promise.reject(new Error(file + ' is missing')); });
     if (cmd === 'plugin:menu|new') return Promise.resolve([window.__calls.length, 'menu-' + window.__calls.length]);
+    // A listener's id is where its call sits in __calls, counted from 1, so an unlisten can
+    // find it again.
+    if (cmd === 'plugin:event|listen') return Promise.resolve(window.__calls.length);
     // Settings › Agents: one account installed, one out of date, one edited, one not installed, one with no folder.
     if (cmd === 'agents_status' || cmd === 'install_agents') {
       return Promise.resolve({
@@ -299,10 +302,17 @@ window.__TAURI_INTERNALS__ = {
   convertFileSrc: function (p) { return p; },
   metadata: { currentWindow: { label: 'main' }, currentWebview: { label: 'main', windowLabel: 'main' } },
 };
+// Listeners the page has let go of, by id: they hear nothing more.
+var unlistened = {};
+window.__TAURI_EVENT_PLUGIN_INTERNALS__ = {
+  unregisterListener: function (event, eventId) {
+    unlistened[eventId] = true;
+  },
+};
 // Pushes an event to the page's listeners, as the engine's emit would: `window.__emit('board', b)`.
 window.__emit = function (event, payload) {
-  window.__calls.forEach(function (c) {
-    if (c[0] === 'plugin:event|listen' && c[1].event === event) window['_' + c[1].handler]({ event: event, id: 0, payload: payload });
+  window.__calls.forEach(function (c, i) {
+    if (c[0] === 'plugin:event|listen' && c[1].event === event && !unlistened[i + 1]) window['_' + c[1].handler]({ event: event, id: 0, payload: payload });
   });
 };
 window.__menu = function () {

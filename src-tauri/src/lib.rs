@@ -303,7 +303,12 @@ fn route_quick(engine: State<'_, engine::Handle>, project: String, text: String)
 #[tauri::command(async)]
 fn search_text(words: Vec<String>) -> search::Found {
     let words: Vec<String> = words.iter().map(|w| w.trim().to_lowercase()).filter(|w| !w.is_empty()).collect();
-    search::find(&words, 200)
+    let t = std::time::Instant::now();
+    let found = search::find(&words, 200);
+    if perf::enabled() {
+        perf::log(&format!("search: {} words, {} sessions in {} ms", words.len(), found.hits.len(), t.elapsed().as_millis()));
+    }
+    found
 }
 
 /// A page of a session's conversation, from its own record (transcript.rs): the newest when

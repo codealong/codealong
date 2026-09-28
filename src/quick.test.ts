@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ALL_PROJECTS, attentionRows, recallList, withPrompt, findPrs, findSessions, findTodos, laneGroups, projectCounts, readyTodos, recentRows, shortcutFromKey, shortcutLabel, TAKEN, titleMarks } from './quick';
+import { ALL_PROJECTS, attentionRows, recallList, withPrompt, findPrs, findSessions, findTodos, laneGroups, projectCounts, readyTodos, recentRows, shortcutFromKey, shortcutLabel, stillSaid, TAKEN, titleMarks } from './quick';
 import type { Board, Label, Lane, PrItem, Session, Todo } from './types';
 
 const NOW = 1_790_200_000_000;
@@ -322,5 +322,18 @@ describe('findPrs', () => {
     expect(findPrs(b, 'Northwind', '1055').map((r) => r.pr.number)).toEqual([1055]);
     expect(findPrs(b, 'Northwind', '#1055').map((r) => r.pr.number)).toEqual([1055]);
     expect(findPrs(b, 'Northwind', 'page 1055')).toEqual([]);
+  });
+});
+
+describe('stillSaid', () => {
+  const hit = (key: string, snippet: string) => ({ key, snippet, you: false, at: 0 });
+  const hits = [hit('a', '…the Quick panel opens slowly…'), hit('b', 'the bar resizes'), hit('c', 'Codealong quick fix')];
+
+  it('keeps the hits whose line has every word typed now', () => {
+    expect(stillSaid(hits, ['quick']).map((h) => h.key)).toEqual(['a', 'c']);
+    expect(stillSaid(hits, ['quick', 'panel']).map((h) => h.key)).toEqual(['a']);
+    // A word typed further along narrows what's kept; one no line has keeps nothing.
+    expect(stillSaid(hits, ['quick', 'fixes'])).toEqual([]);
+    expect(stillSaid(hits, [])).toEqual(hits);
   });
 });

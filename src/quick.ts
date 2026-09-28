@@ -159,6 +159,19 @@ export function findSessions(board: Board, project: string, query: string, limit
     .map((f) => f.row);
 }
 
+/**
+ * What the last text search found that is still found by its own line: hits whose line has every
+ * word typed now. They stay while the search for the new words runs, so a session found by what
+ * was said doesn't drop out of the list with each key and come back when the search answers. A
+ * hit whose line lacks a word waits for that answer.
+ */
+export function stillSaid(hits: TextHit[], words: string[]): TextHit[] {
+  return hits.filter((h) => {
+    const line = h.snippet.toLowerCase();
+    return words.every((w) => line.includes(w));
+  });
+}
+
 /** A todo a search found, or one ready to start under the empty panel's sessions. */
 export interface TodoRow {
   kind: 'todo';

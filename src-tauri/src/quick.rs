@@ -9,13 +9,17 @@
 //! where they were. Unlike the bar it takes the keyboard. It hides when it loses the keyboard,
 //! as Spotlight does.
 //!
-//! Opening is a handshake. Codealong tells the page what it opens for (`quick-open`); the page
-//! reads the board, lays itself out and answers with its height (`quick_ready`); only then does
-//! the panel show, so it never flashes what it showed last time.
+//! Opening is one script. Codealong runs `window.__quickOpen` in the page with what it opens for
+//! and the board; the page lays itself out and returns its height before the script ends
+//! (Quick.tsx); only then does the panel show, at that height, so it never flashes what it
+//! showed last time. It all happens in the script because WebKit runs a hidden page at
+//! background priority except while a script from the app runs in it: when the page read the
+//! board itself and drew after the script, a busy Mac held an open back for seconds (2.5 to 25 s
+//! at a load of 300, in a WKWebView set up like this one).
 
 use std::str::FromStr;
 use std::sync::Mutex;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use serde::Serialize;
@@ -25,6 +29,7 @@ use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut}
 
 use crate::bar::{Rect, Screen};
 use crate::start::Place;
+use crate::{engine, perf};
 
 pub const LABEL: &str = "quick";
 /// The window's width: the page's card and the room its shadow needs on each side.
@@ -105,6 +110,7 @@ pub fn open(app: &AppHandle, context: Value) {
         *opens += 1;
         *opens
     };
+    let t = Instant::now();
     // It opens where you are: on the screen with the pointer, centered, near the top.
     if !native::is_visible(&window) {
         if let Some(s) = native::pointer_screen() {
@@ -117,7 +123,19 @@ pub fn open(app: &AppHandle, context: Value) {
     if let Ok(mut w) = state.waiting.lock() {
         *w = Some(id);
     }
-    let _ = app.emit_to(LABEL, "quick-open", with_room(context, room(&state)));
+    let board = app.try_state::<engine::Handle>().and_then(|e| e.read(|b| serde_json::to_string(b).ok())).unwrap_or_else(|| "null".into());
+    if perf::enabled() {
+        perf::log(&format!("quick: open {id}, the board's {} KB written in {} ms", board.len() / 1024, t.elapsed().as_millis()));
+    }
+    let handle = app.clone();
+    let asked = window.eval_with_callback(open_script(&with_room(context, room(&state)), &board), move |answer| {
+        let height = answer.trim().parse::<f64>().ok().filter(|h| h.is_finite() && *h > 0.0);
+        let app = handle.clone();
+        on_main(&handle, move || answered(&app, id, height, t));
+    });
+    if let Err(e) = asked {
+        eprintln!("Couldn't open the quick panel's page: {e}");
+    }
     // A page that doesn't answer (still loading, say) doesn't keep the panel from showing.
     let handle = app.clone();
     std::thread::spawn(move || {
@@ -126,10 +144,49 @@ pub fn open(app: &AppHandle, context: Value) {
         let _ = handle.run_on_main_thread(move || {
             let waiting = app.try_state::<Quick>().and_then(|s| s.waiting.lock().ok().map(|w| *w));
             if waiting == Some(Some(id)) {
+                if perf::enabled() {
+                    perf::log(&format!("quick: open {id} had no answer after {} ms; shown as it was", t.elapsed().as_millis()));
+                }
                 ready(&app, None);
             }
         });
     });
+}
+
+/// The script that opens the page: `__quickOpen` with what for and the board, which returns the
+/// page's height once it's laid out. A page that isn't up yet keeps both for when it is, and
+/// sends its height then (`quick_ready`).
+fn open_script(context: &Value, board: &str) -> String {
+    format!(
+        "(function (context, board) {{ \
+           if (!window.__quickOpen) {{ window.__quickPending = [context, board]; return null; }} \
+           try {{ var h = window.__quickOpen(context, board); return typeof h === 'number' && isFinite(h) ? h : null; }} catch (e) {{ return null; }} \
+         }})({context}, {board})"
+    )
+}
+
+/// The page answered the script that opened it: with its height, or with nothing when it wasn't
+/// up yet or failed, and then it sends its height itself or the wait runs out. On the main thread.
+fn answered(app: &AppHandle, id: u64, height: Option<f64>, since: Instant) {
+    let Some(state) = app.try_state::<Quick>() else { return };
+    if perf::enabled() {
+        let tall = height.map_or_else(|| "no height".to_string(), |h| format!("{h} px"));
+        perf::log(&format!("quick: open {id} answered in {} ms ({tall})", since.elapsed().as_millis()));
+    }
+    let latest = state.waiting.lock().ok().and_then(|w| *w) == Some(id);
+    // A later open has the page now, or the panel was closed meanwhile.
+    if latest && height.is_some() {
+        ready(app, height);
+    }
+}
+
+/// Runs `f` on the main thread: right away when this is it.
+fn on_main(app: &AppHandle, f: impl FnOnce() + Send + 'static) {
+    if native::on_main_thread() {
+        f();
+    } else {
+        let _ = app.run_on_main_thread(f);
+    }
 }
 
 /// Where a panel opened on this screen sits: centered, its top edge `TOP` of the way down.
@@ -416,6 +473,10 @@ mod native {
         ns(w).map(|n| n.isVisible()).unwrap_or(false)
     }
 
+    pub fn on_main_thread() -> bool {
+        MainThreadMarker::new().is_some()
+    }
+
     /// Orders the panel in over every other app and gives it the keyboard, without activating
     /// Codealong. The page's webview takes the keys, so what the page focused gets them.
     pub fn present(w: &WebviewWindow) {
@@ -479,6 +540,9 @@ mod native {
     pub fn is_visible(w: &WebviewWindow) -> bool {
         w.is_visible().unwrap_or(false)
     }
+    pub fn on_main_thread() -> bool {
+        false
+    }
     pub fn present(w: &WebviewWindow) {
         let _ = w.show();
         let _ = w.set_focus();
@@ -535,6 +599,17 @@ mod tests {
         // A screen to the left of the main one, in AppKit's coordinates.
         let left = Rect { x: -1920.0, y: 25.0, w: 1920.0, h: 1055.0 };
         assert_eq!(anchor_on(left), (-1340.0, 25.0 + 1055.0 - 190.0));
+    }
+
+    #[test]
+    fn opens_in_one_script_with_the_board() {
+        let script = open_script(&serde_json::json!({ "room": 620.0 }), r#"{"lanes":[]}"#);
+        // The board is in the script once, with what the open is for.
+        assert!(script.ends_with(r#"({"room":620.0}, {"lanes":[]})"#), "{script}");
+        assert_eq!(script.matches("lanes").count(), 1);
+        // The page returns its height; a page that isn't up keeps the open for when it is.
+        assert!(script.contains("return typeof h === 'number' && isFinite(h) ? h : null;"));
+        assert!(script.contains("window.__quickPending = [context, board]; return null;"));
     }
 
     #[test]

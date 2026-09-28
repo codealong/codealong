@@ -633,7 +633,9 @@ export async function hideQuick(): Promise<void> {
   await invoke('hide_quick');
 }
 
-/** The quick panel's page is laid out for the latest open, at this height: time to show it. */
+/** The quick panel's page is laid out for the latest open, at this height: time to show it. An
+ *  open from Codealong's own script gets its height as the script's result instead (Quick.tsx);
+ *  this is for the page that opened itself. */
 export async function quickReady(height: number): Promise<void> {
   if (!inTauri) return;
   await invoke('quick_ready', { height });
@@ -643,11 +645,6 @@ export async function quickReady(height: number): Promise<void> {
 export async function fitQuick(height: number): Promise<void> {
   if (!inTauri) return;
   await invoke('fit_quick', { height });
-}
-
-/** Calls `cb` when the quick panel is asked to open, with what for. */
-export function onQuickOpen(cb: (context: QuickOpen) => void): () => void {
-  return onWindowEvent<QuickOpen | null>('quick-open', (c) => cb(c ?? {}));
 }
 
 /** Calls `cb` when the quick panel has hidden, by Escape, a click elsewhere or its shortcut. */

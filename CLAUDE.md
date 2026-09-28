@@ -117,6 +117,10 @@ most publishes are. Rows of the board and the sidebar skip rendering when nothin
 changed (`reuse.ts` keeps unchanged parts of a push as the same objects, `ui/memoRow.ts`
 compares rows); `scripts/preview/rows-check.js` checks they still update.
 
+The quick panel's open, keys and pushes are timed with `PREVIEW_WAIT=120000 scripts/preview.sh
+quick '' scripts/preview/quick-bench.js`. Chrome doesn't drop a hidden page to background
+priority as WebKit does (Tauri and macOS, below), so an open slowed by that looks fast there.
+
 Git is the engine's biggest cost and starts during load by construction, so `throttle.rs`
 spaces runs in one worktree two seconds apart, publishes git-only changes in two-second
 batches (session changes still go out at once), runs git at nice 10, and puts the engine and
@@ -602,6 +606,15 @@ Tauri and macOS (from the Tauri 2.11 and tao 0.35 sources)
 - Transparent windows need `macOSPrivateApi` in tauri.conf.json and the `macos-private-api`
   feature. `data-tauri-drag-region="deep"` drags from anywhere inside except controls.
 - WebKit holds back ResizeObserver and animation frames while a window is hidden.
+- WebKit runs a hidden page's web process at background priority (`ps -o pri` 4, where a
+  visible one is 47), `background_throttling` off or not: that setting only keeps it from being
+  suspended. While a script the app sends runs in the page (`evaluateJavaScript`: Tauri's `eval`
+  and so every event it emits) the process is at foreground priority, and the process log says
+  so (`log show --predicate 'subsystem == "com.apple.WebKit" AND category ==
+  "ProcessSuspension"'`). Work the page does after the script, such as awaiting a command's
+  reply, can wait seconds on a busy Mac: the quick panel's open took 2.5 to 25 s at a load of 300
+  in a WKWebView set up like the app's (checked 2026-09-27), and 7 to 37 ms once it did it all
+  inside its opening script.
 - WebKit hands an element's transform animation to the compositor but repaints a rotating path
   inside an SVG every frame: the working glyph turns its whole `<svg>` instead (app.css). With the
   bar's small feed, that took the bar's web process from 7.6% of a core to 0.7% (2026-09-25).
@@ -612,7 +625,8 @@ Tauri and macOS (from the Tauri 2.11 and tao 0.35 sources)
   subclass says yes to `canBecomeKeyWindow`, and showing it is `orderFrontRegardless`,
   `makeKeyWindow`, then making the WKWebView first responder, which a window made with
   `focused(false)` doesn't do by itself. Codealong stays inactive, so the app you were in keeps
-  the menu bar. The panel listens for `board` only while it's up.
+  the menu bar. The panel listens for `board` only while it's up; an open brings the board in the
+  script that opens the page (`eval_with_callback`, whose result is the page's height).
 - The bar's peek (peek.rs) is a third such panel. A hover shows it with `orderFrontRegardless`
   alone, so it never takes the keyboard; a pointerdown in its page asks for `makeKeyWindow`.
   Until then its `isKeyWindow` says yes, as the bar's does, so the page gets hover and tooltips;
