@@ -726,6 +726,14 @@ Tauri and macOS (from the Tauri 2.11 and tao 0.35 sources)
   doesn't, whatever its level or `fullScreenAuxiliary`. Tauri makes NSWindows, so `bar.rs` swaps
   the bar's class to an NSPanel subclass (NSPanel adds no storage) before it's first shown: a
   window once shown as a window stays off full-screen Spaces after the swap.
+- WebKit key-value observes its web view's window (`contentLayoutRect`), and KVO works by
+  swapping the observed object's class (`NSKVONotifying_TaoWindow`). The panel swap replaces that
+  class, so when the web view leaves the window (the window is destroyed) WebKit's
+  `removeObserver:` raises "Cannot remove an observer … because it is not registered", an
+  Objective-C exception Rust can't unwind through: the app aborts ("Rust cannot catch foreign
+  exceptions"). A panel that goes away gets its old class back first (`bar::native::unmake_panel`,
+  used by the cards pinned to the desktop; checked 2026-09-28). The bar, the peek and the quick
+  panel are never destroyed.
 - A click in a non-activating panel leaves the app inactive, and macOS may refuse an inactive
   app's request to bring another app forward, so the bar asks after opening (`bring_forward`).
 - WebKit treats a page as active only while its window answers yes to `isKeyWindow` (re-read

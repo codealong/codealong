@@ -171,7 +171,7 @@ pub fn setup(app: &AppHandle) -> Result<()> {
         .background_throttling(tauri::utils::config::BackgroundThrottlingPolicy::Disabled)
         .visible(false)
         .build()?;
-    native::make_panel(&window);
+    let _ = native::make_panel(&window);
     native::prepare(&window);
     if let Some(r) = start_frame(frame, &native::screens()) {
         native::set_frame(&window, r);
@@ -394,18 +394,25 @@ pub(crate) mod native {
         })
     }
 
+    /// The class a window had before `make_panel` swapped it.
+    pub struct Original(&'static AnyClass);
+
     /// Turns the bar's window into a non-activating panel, the only kind macOS puts on another
     /// app's full-screen Space. Tauri makes windows, so the class is swapped after the fact. WebKit
     /// asks again whether the window is key each time it's ordered on screen, which `show` does
     /// after this, so the page counts as active from the bar's first showing.
-    pub fn make_panel(w: &WebviewWindow) {
-        let Some(n) = ns(w) else { return };
+    ///
+    /// Returns the class it replaced, which a window must get back before it's destroyed
+    /// (`unmake_panel`). The bar never is.
+    pub fn make_panel(w: &WebviewWindow) -> Option<Original> {
+        let n = ns(w)?;
         let obj: &AnyObject = n;
         let panel = panel_class();
+        let original = obj.class();
         // NSPanel keeps no storage of its own beyond NSWindow's, so the swap needs no more room
         // than tao's window already has; if that ever changes, the bar stays a plain window.
-        if panel.instance_size() > obj.class().instance_size() {
-            return;
+        if panel.instance_size() > original.instance_size() {
+            return None;
         }
         // SAFETY: the object is tao's NSWindow subclass, at least as large as the panel class,
         // which only adds methods. tao reads its own ivar only when focusability changes, which
@@ -417,6 +424,20 @@ pub(crate) mod native {
         // The bar is up over other apps, so Codealong is nearly always in the background, and
         // macOS shows a background app's tooltips only in windows that allow them.
         n.setAllowsToolTipsWhenApplicationIsInactive(true);
+        Some(Original(original))
+    }
+
+    /// Takes a panel off the screen and gives its window back the class `make_panel` replaced,
+    /// so it can be destroyed. WebKit watches the window through key-value observing, which is
+    /// itself a swap of the window's class (to `NSKVONotifying_TaoWindow`) made when the page went
+    /// in; taking the page out of a window with the panel's class instead raises "Cannot remove
+    /// an observer … because it is not registered", an exception that aborts the app.
+    pub fn unmake_panel(w: &WebviewWindow, original: Original) {
+        let Some(n) = ns(w) else { return };
+        n.orderOut(None);
+        n.setStyleMask(n.styleMask() & !NSWindowStyleMask::NonactivatingPanel);
+        // SAFETY: the class the object had before, which make_panel checked is no larger than it.
+        unsafe { AnyObject::set_class(n, original.0) };
     }
 
     /// Asks the running app with this bundle ID to come forward.
@@ -495,7 +516,12 @@ pub(crate) mod native {
 
     use super::{Rect, Screen};
 
-    pub fn make_panel(_: &WebviewWindow) {}
+    pub struct Original;
+
+    pub fn make_panel(_: &WebviewWindow) -> Option<Original> {
+        None
+    }
+    pub fn unmake_panel(_: &WebviewWindow, _: Original) {}
     pub fn activate_app(_: &str) {}
     pub fn prepare(_: &WebviewWindow) {}
     pub fn show(w: &WebviewWindow) {

@@ -8,7 +8,7 @@
 //! shows cut from the board, and only when that changed, as the bar gets its feed. What's pinned
 //! and where each card was left are kept in `desktop.json` next to the config.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -90,9 +90,10 @@ struct Inner {
     cards: Vec<(String, Pin)>,
     /// The feed last sent to each card's window, as sent, so an unchanged one isn't sent again.
     sent: HashMap<String, String>,
-    /// The windows made into panels and put on screen. Until then, nothing may show one: a
-    /// window once shown as a window stays off full-screen Spaces.
-    placed: HashSet<String>,
+    /// The windows made into panels and put on screen, with the class each had before, which it
+    /// gets back before it's destroyed. Until then, nothing may show one: a window once shown as
+    /// a window stays off full-screen Spaces.
+    placed: HashMap<String, Option<native::Original>>,
     /// Numbers the windows.
     made: u64,
     /// A card moved, or what one shows got a new title, since `desktop.json` was written.
@@ -280,7 +281,7 @@ fn make_window(app: &AppHandle, label: &str) -> Result<()> {
 fn place_and_show(app: &AppHandle, label: &str) {
     let (Some(state), Some(window)) = (app.try_state::<Desktop>(), app.get_webview_window(label)) else { return };
     // A panel before it's first shown: one shown as a window stays off full-screen Spaces.
-    native::make_panel(&window);
+    let original = native::make_panel(&window);
     native::prepare(&window);
     let screens = native::screens();
     // The page may have sized the window already.
@@ -300,7 +301,7 @@ fn place_and_show(app: &AppHandle, label: &str) {
             }
         };
         pin.frame = Some(frame);
-        inner.placed.insert(label.to_string());
+        inner.placed.insert(label.to_string(), original);
         inner.save();
         frame
     };
@@ -329,7 +330,7 @@ pub fn pin(app: &AppHandle, what: Pinned) -> Result<()> {
     if let Some(label) = already {
         let handle = app.clone();
         app.run_on_main_thread(move || {
-            let placed = handle.try_state::<Desktop>().is_some_and(|s| s.inner.lock().is_ok_and(|i| i.placed.contains(&label)));
+            let placed = handle.try_state::<Desktop>().is_some_and(|s| s.inner.lock().is_ok_and(|i| i.placed.contains_key(&label)));
             if let (true, Some(w)) = (placed, handle.get_webview_window(&label)) {
                 native::show(&w);
             }
@@ -347,21 +348,26 @@ pub fn pin(app: &AppHandle, what: Pinned) -> Result<()> {
     Ok(())
 }
 
-/// Takes a card off the desktop.
+/// Takes a card off the desktop: its window goes back to being a window, then away.
 pub fn unpin(app: &AppHandle, what: &Pinned) {
     let Some(state) = app.try_state::<Desktop>() else { return };
-    let label = {
+    let (label, original) = {
         let Ok(mut inner) = state.inner.lock() else { return };
         let Some(label) = inner.label_of(what) else { return };
         inner.cards.retain(|(l, _)| l != &label);
         inner.sent.remove(&label);
-        inner.placed.remove(&label);
+        let original = inner.placed.remove(&label).flatten();
         inner.save();
-        label
+        (label, original)
     };
-    if let Some(w) = app.get_webview_window(&label) {
+    let handle = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        let Some(w) = handle.get_webview_window(&label) else { return };
+        if let Some(original) = original {
+            native::unmake_panel(&w, original);
+        }
         let _ = w.destroy();
-    }
+    });
     tell(app);
 }
 
@@ -441,7 +447,7 @@ fn keep_up(app: &AppHandle) {
         if inner.dirty {
             inner.save();
         }
-        inner.cards.iter().filter(|(l, _)| inner.placed.contains(l)).map(|(l, p)| (l.clone(), p.frame)).collect()
+        inner.cards.iter().filter(|(l, _)| inner.placed.contains_key(l)).map(|(l, p)| (l.clone(), p.frame)).collect()
     };
     for (label, frame) in &cards {
         let Some(window) = app.get_webview_window(label) else { continue };
