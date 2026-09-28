@@ -1,7 +1,7 @@
 // The selected lane: where it is, how to open it, its sessions, its PR and its git state.
 
 import { useEffect, useRef, useState } from 'react';
-import { withOtherEditors } from '../editors';
+import { useEditorIcons, withOtherEditors } from '../editors';
 import { absolute, ago, count, middleTruncate, tildePath } from '../format';
 import { HARNESS_APP } from '../harness';
 import type { Board, Lane, Origin, Session, Target, Todo } from '../types';
@@ -22,6 +22,11 @@ const ORIGIN_WORD: Record<Origin, string> = {
 };
 
 const SESSIONS_SHOWN = 8;
+
+/** A target's app icon, where it has one (an editor's), else its own. */
+function TargetIcon({ target }: { target: Target }) {
+  return target.image ? <img className="ca-appicon" src={target.image} alt="" width={16} height={16} /> : <Icon name={target.icon} size={16} />;
+}
 
 export function OpenInMenu({ targets, defaultId, onOpen }: { targets: Target[]; defaultId: string | null; onOpen: (id: string) => void }) {
   const [open, setOpen] = useState(false);
@@ -48,7 +53,7 @@ export function OpenInMenu({ targets, defaultId, onOpen }: { targets: Target[]; 
     <div className="ca-openin" ref={ref}>
       <div className="ca-split">
         <button type="button" className="ca-btn ca-btn--primary ca-btn--md ca-split-main" onClick={() => onOpen(def.id)} title={def.detail ?? undefined}>
-          <Icon name={def.icon} size={16} />
+          <TargetIcon target={def} />
           <span>{def.label}</span>
         </button>
         <button
@@ -80,7 +85,7 @@ export function OpenInMenu({ targets, defaultId, onOpen }: { targets: Target[]; 
                     onOpen(t.id);
                   }}
                 >
-                  <Icon name={t.icon} size={16} />
+                  <TargetIcon target={t} />
                   <span className="ca-menu-label">
                     <span>{t.label}</span>
                     {t.detail && <span className="ca-menu-detail">{t.detail}</span>}
@@ -166,6 +171,7 @@ interface InspectorProps {
 export function Inspector({ lane, focusKey, apps, now, onOpen, onNewSession, todos, todosFor, onShowTodo, onPrMenu, onReviewPr }: InspectorProps) {
   const [showAll, setShowAll] = useState(false);
   useEffect(() => setShowAll(false), [lane?.id]);
+  const icons = useEditorIcons(apps);
   if (!lane) {
     return (
       <aside className="ca-insp ca-insp--empty">
@@ -198,7 +204,7 @@ export function Inspector({ lane, focusKey, apps, now, onOpen, onNewSession, tod
         )}
       </header>
       <div className="ca-insp-actions">
-        <OpenInMenu targets={withOtherEditors(lane.targets, apps)} defaultId={lane.defaultTarget} onOpen={onOpen} />
+        <OpenInMenu targets={withOtherEditors(lane.targets, apps, icons)} defaultId={lane.defaultTarget} onOpen={onOpen} />
         <Button icon="plus" title="New session here (⌘N)" aria-label="New session here" onClick={onNewSession} />
         <Button icon="terminal" title={`New ${apps.terminal} terminal here`} aria-label={`New ${apps.terminal} terminal here`} onClick={() => onOpen('l|terminal')} />
         <Button icon="code" title={`Open in ${apps.editor}`} aria-label={`Open in ${apps.editor}`} onClick={() => onOpen('l|editor')} />

@@ -103,6 +103,8 @@ export interface GitInfo {
 export interface Target {
   id: string;
   icon: string;
+  /** An app's own icon (a data URL) to show in place of `icon`: the editors' in Open menus. */
+  image?: string;
   label: string;
   detail: string | null;
   kbd: string[] | null;
@@ -320,6 +322,14 @@ export type NewTerminal = 'window' | 'tab' | 'project';
 export interface Profile {
   id: string;
   name: string;
+}
+
+/** An installed editor's app icon (editors.rs): `size` pixels square, straight RGBA, top row
+ *  first. */
+export interface EditorIcon {
+  id: string;
+  size: number;
+  rgba: number[];
 }
 
 /** What Settings works from: the settings as parsed, the file as written, and its error. */
@@ -782,6 +792,10 @@ export interface DesktopFeed {
   theme: Theme;
   /** The terminal app's name, for menu items such as "Show in Ghostty". */
   terminal: string;
+  /** Your editor and the others installed, as the board has them, for the Open in menus. */
+  editor: string;
+  editorId: string;
+  editors: Profile[];
   /** The worktree's own lane; the session's; the todo's linked worktrees and its sessions'. A
    *  worktree keeps all its sessions, the others only the ones the card shows. */
   lanes: Lane[];

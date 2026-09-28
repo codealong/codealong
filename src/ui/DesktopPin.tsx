@@ -12,6 +12,7 @@ import { boardView, lanesAhead, observe, seenAhead, useAhead } from '../ahead';
 import { plain } from '../bar';
 import { showContextMenu, type MenuSpec } from '../contextMenu';
 import { shortOf } from '../devices';
+import { folderMenu, openInMenu, opensInEditor, useEditorIcons } from '../editors';
 import { sessionPlace } from '../harness';
 import { seenable } from '../lanes';
 import { snoozeMenu } from '../snooze';
@@ -108,6 +109,7 @@ export function DesktopPin() {
   }, [feed, lanes, item]);
   const sessions = listed(data);
   const terminal = feed?.terminal ?? 'Terminal';
+  const icons = useEditorIcons(feed ?? undefined);
 
   // The window follows the card's size: after every render, and on resizes renders don't cause
   // (fonts loading).
@@ -176,6 +178,7 @@ export function DesktopPin() {
         const { lane, session: s } = data;
         return [
           { label: openLabel(lane, s, terminal), run: () => openSession(lane, s) },
+          ...(feed && opensInEditor(lane) ? folderMenu(feed, icons, (id) => void openFromBar(lane.id, id).catch(fail)) : []),
           { label: 'Show in Codealong', run: () => void showMain({ kind: 'session', laneId: lane.id, key: s.key }) },
           ...(seenable(s) ? [{ label: 'Mark as seen', run: () => seenAhead([s.key]).catch(fail) }] : []),
           ...(s.archived || shortOf(s.key) ? [] : [snoozeMenu([s.key], Date.now(), { until: s.snoozedUntil, onDone: (act) => void act.catch(fail) })]),
@@ -184,9 +187,11 @@ export function DesktopPin() {
       }
       case 'worktree': {
         const l = data.lane;
-        const opens = [l.defaultTarget, 'l|editor', 'l|finder'].flatMap((id, i) => {
+        const opens = [l.defaultTarget, 'l|editor', 'l|finder'].flatMap((id, i): MenuSpec => {
           const t = l.targets.find((x) => x.id === id);
-          return t && (i === 0 || id !== l.defaultTarget) ? [{ label: t.label, enabled: !t.disabled, run: () => openFromBar(l.id, t.id).catch(fail) }] : [];
+          const item = t && (i === 0 || id !== l.defaultTarget) ? [{ label: t.label, enabled: !t.disabled, run: () => openFromBar(l.id, t.id).catch(fail) }] : [];
+          // The other editors installed here, after Open in <yours>.
+          return id === 'l|editor' && feed && opensInEditor(l) ? [...item, ...openInMenu(feed, icons, (target) => void openFromBar(l.id, target).catch(fail))] : item;
         });
         return [...opens, { label: 'Show in Codealong', run: () => void showMain({ kind: 'worktree', laneId: l.id }) }, ...off];
       }

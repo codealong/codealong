@@ -74,6 +74,8 @@ The engine binary doubles as a CLI for checking behavior without a window:
 - `codealong --snapshot --transcript <session key> [--before <cursor>]`: a page of a session's
   conversation (prompts, replies, tool calls and their output) read from its own record, as its
   panel gets it (`transcript.rs`).
+- `codealong --snapshot --editor-icons`: the installed editors' app icons, as the Open in menus
+  get them (`editors.rs`).
 - `codealong --snapshot --start-options`: where each account can start a session.
 - `codealong --snapshot --start-plan <folder> <account> <terminal|background|claude-app|codex-app> [prompt]
   [--model <model>] [--effort <level>] [--worktree]`: the command or link starting a session would use, without
@@ -733,6 +735,9 @@ Tauri and macOS (from the Tauri 2.11 and tao 0.35 sources)
 - A plain JS `listen()` hears events sent to any window with `emit_to`; listen on the window
   (`getCurrentWebviewWindow().listen`) for the ones meant for it. A window's own `emit`
   (`w.emit`) goes to every window, however it listens: send to one with `emit_to(label, …)`.
+- A menu item's icon can be raw RGBA, `{rgba, width, height}` (`JsImage::Rgba`), which needs
+  neither the `image-png` nor the `image-ico` feature; Tauri's JS types don't list that form, but
+  its `transformImage` passes it through. muda shows an item's image 18 points high.
 - `show()` orders a window front without activating the app; `set_focus()` activates it.
   Commands without `async` run on the main thread.
 - Transparent windows need `macOSPrivateApi` in tauri.conf.json and the `macos-private-api`

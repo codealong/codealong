@@ -118,6 +118,7 @@ fi
 [ "$view" = bar ] && "$bin" --snapshot --bar >"$dir/bar-feed.json" 2>/dev/null
 "$bin" --snapshot --accounts >"$dir/accounts.json" 2>/dev/null
 "$bin" --snapshot --start-options >"$dir/start-options.json" 2>/dev/null
+"$bin" --snapshot --editor-icons >"$dir/editor-icons.json" 2>/dev/null
 "$bin" --snapshot --config >"$dir/config.json" 2>/dev/null
 rm -f "$dir/transcript.json" "$dir/transcript-key.json" "$dir/pending.json"
 if [ -n "${PREVIEW_TRANSCRIPT:-}" ]; then

@@ -8,7 +8,7 @@
 
 import { useState } from 'react';
 import { below } from '../contextMenu';
-import { folderTargets, opensInEditor } from '../editors';
+import { folderTargets, opensInEditor, useEditorIcons } from '../editors';
 import { absolute, agoPhrase, duration, middleTruncate, tildePath } from '../format';
 import { HARNESS_WORD, sessionPlace } from '../harness';
 import { seenable } from '../lanes';
@@ -57,11 +57,12 @@ interface SessionPanelProps {
 
 export function SessionPanel({ lane, session: s, apps, now, onOpen, onNewSession, onShowLane, todos, onShowTodo, onMoreMenu, onSeen, device, back, onSendFailed, queue, notice, onDone, autoFocus }: SessionPanelProps) {
   const [details, setDetails] = useState(false);
+  const icons = useEditorIcons(apps);
   const own = lane.targets.filter((t) => t.id.startsWith(`s|${s.key}|`));
   // Under the ways to open the session, its worktree's folder in any editor installed here. A
   // session past the few its worktree lists opens by its own target alone.
   const place: Target = { id: s.openTarget, icon: 'arrow-up-right', label: `Open in ${sessionPlace(s, apps.terminal)}`, detail: null, kbd: null, disabled: false, group: 'session' };
-  const targets = opensInEditor(lane) ? [...(own.length > 0 ? own : [place]), ...folderTargets(apps)] : own;
+  const targets = opensInEditor(lane) ? [...(own.length > 0 ? own : [place]), ...folderTargets(apps, icons)] : own;
   const since = s.statusSince ? (s.status === 'working' ? `for ${duration(s.statusSince, now)}` : agoPhrase(s.statusSince, now)) : agoPhrase(s.lastActivity, now);
 
   return (

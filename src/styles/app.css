@@ -251,6 +251,12 @@ body.is-resizing * {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* An app's own icon in an Open menu (the editors'), where the others have a line icon. */
+.ca-appicon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
 .ca-prinsp .ca-insp-actions {
   flex-wrap: wrap;
   margin-right: 0;

@@ -158,8 +158,9 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   A worktree opens in your editor (`editor` in config.toml, ⌘2) or, from Open in in its
   right-click menu and its Open button, any other editor installed on the Mac: VS Code,
   Cursor, Windsurf, Zed, Sublime Text, Nova, BBEdit, Xcode, the JetBrains IDEs and Android
-  Studio. A session's right-click menu and Open button open its worktree's folder the same way.
-  Picking another editor there makes it yours, as Codex's Open button remembers its last.
+  Studio, each with its app's icon. A session's right-click menu and Open button, and cards
+  pinned to the desktop, open its worktree's folder the same way. Picking another editor there
+  makes it yours, as Codex's Open button remembers its last.
   A session's tab that comes forward on another screen than the pointer's is outlined for a
   moment, and `move_pointer` moves the pointer to it.
 - **Quick panel** (⌥⌘/ from any app, over full-screen ones too; ⌘N, the title bar, the

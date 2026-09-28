@@ -2,10 +2,10 @@
 // your real data. Every command the UI sends is recorded in `window.__calls`, so a scripted
 // check can click something and assert what the app would have done. Reads come from files
 // next to the page: board.json (get_board), accounts.json (get_accounts), found.json
-// (found_accounts), config.json (get_config), start-options.json (start_options), bar-feed.json
-// (bar_feed, for the floating bar) and, when present, pr-detail.json
-// (pr_detail, for any PR), todos-fixture.json (todos to show in place of the board's) and
-// usage-fixture.json (plan usage, likewise).
+// (found_accounts), config.json (get_config), start-options.json (start_options),
+// editor-icons.json (editor_icons), bar-feed.json (bar_feed, for the floating bar) and, when
+// present, pr-detail.json (pr_detail, for any PR), todos-fixture.json (todos to show in place
+// of the board's) and usage-fixture.json (plan usage, likewise).
 //
 // Native menus aren't drawn, but they're made and "shown" as if they were, so a right-click
 // runs to the end. `window.__menu()` lists the last menu's items as [label, pick] pairs;
@@ -122,7 +122,7 @@ window.__TAURI_INTERNALS__ = {
         if (!key && ref === 'worktree') key = (lanes.find(function (l) { return own(l).length > 1; }) || lanes[0] || {}).id;
         if (!key && ref === 'session') key = (lanes.flatMap(own).sort(function (a, b) { return b.lastActivity - a.lastActivity; })[0] || {}).key;
         if (!key && ref === 'todo') key = ((board.todos || [])[0] || {}).id;
-        var feed = { pin: { ref: ref, key: key }, title: null, loading: false, generatedAt: board.generatedAt, theme: board.theme, terminal: board.apps.terminal, lanes: [], todos: [], labels: [] };
+        var feed = { pin: { ref: ref, key: key }, title: null, loading: false, generatedAt: board.generatedAt, theme: board.theme, terminal: board.apps.terminal, editor: board.apps.editor, editorId: board.apps.editorId, editors: board.apps.editors || [], lanes: [], todos: [], labels: [] };
         var cut = function (l, keep) { return Object.assign({}, l, { sessions: l.sessions.filter(keep) }); };
         if (ref === 'session') {
           var home = board.lanes.find(function (l) { return l.sessions.some(function (s) { return s.key === key && !s.visitor; }); });
@@ -149,7 +149,7 @@ window.__TAURI_INTERNALS__ = {
         return feed;
       });
     }
-    var file = { get_accounts: './accounts.json', found_accounts: './found.json', get_config: './config.json', pr_detail: './pr-detail.json', start_options: './start-options.json', device_start_options: './start-options.json', bar_feed: './bar-feed.json' }[cmd];
+    var file = { get_accounts: './accounts.json', found_accounts: './found.json', get_config: './config.json', pr_detail: './pr-detail.json', start_options: './start-options.json', device_start_options: './start-options.json', bar_feed: './bar-feed.json', editor_icons: './editor-icons.json' }[cmd];
     if (file) return fetch(file).then(function (r) { return r.ok ? r.json() : Promise.reject(new Error(file + ' is missing')); });
     if (cmd === 'plugin:menu|new') return Promise.resolve([window.__calls.length, 'menu-' + window.__calls.length]);
     // A listener's id is where its call sits in __calls, counted from 1, so an unlisten can

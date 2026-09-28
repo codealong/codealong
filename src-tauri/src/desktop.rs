@@ -124,6 +124,10 @@ pub struct Feed {
     pub theme: Theme,
     /// The terminal app's name, for menu items such as "Show in Ghostty".
     pub terminal: String,
+    /// Your editor and the others installed, as the board has them, for the Open in menus.
+    pub editor: String,
+    pub editor_id: String,
+    pub editors: Vec<crate::config::Profile>,
     /// The worktree's own lane; the session's; the todo's linked worktrees and its sessions'.
     /// A worktree keeps all its sessions, the others only the ones the card shows.
     pub lanes: Vec<Lane>,
@@ -178,6 +182,9 @@ pub fn feed(board: &Board, pin: &Pinned, last_title: Option<&str>) -> Feed {
         generated_at: board.generated_at,
         theme: board.theme,
         terminal: board.apps.terminal.clone(),
+        editor: board.apps.editor.clone(),
+        editor_id: board.apps.editor_id.clone(),
+        editors: board.apps.editors.clone(),
         lanes,
         todos,
         labels,

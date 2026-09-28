@@ -4,7 +4,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { emit, emitTo, listen } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import type { Answers, DesktopFeed, DesktopPinned, DeviceFound, DevicesView, LabelColor, AccountCfg, AccountInfo, AgentsStatus, Attachment, BarFeed, BarNote, CloseOutcome, IdlePlan, Pending, HostedStream, PeekOpen, PeekShown, TranscriptPage, Board, Config, ConfigView, FoundAccount, PrDetail, Route, Sent, ShortcutStatus, TextFound, StartOptions, StartSpec, Started, Theme, TodoSuggested } from './types';
+import type { Answers, DesktopFeed, DesktopPinned, DeviceFound, EditorIcon, DevicesView, LabelColor, AccountCfg, AccountInfo, AgentsStatus, Attachment, BarFeed, BarNote, CloseOutcome, IdlePlan, Pending, HostedStream, PeekOpen, PeekShown, TranscriptPage, Board, Config, ConfigView, FoundAccount, PrDetail, Route, Sent, ShortcutStatus, TextFound, StartOptions, StartSpec, Started, Theme, TodoSuggested } from './types';
 import type { TodoOp } from './todos';
 
 export const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -40,6 +40,12 @@ export function onBoard(cb: (board: Board) => void): () => void {
     cancelled = true;
     unlisten?.();
   };
+}
+
+/** The installed editors' app icons (editors.rs), drawn once a run. */
+export async function editorIcons(): Promise<EditorIcon[]> {
+  if (!inTauri) return [];
+  return invoke<EditorIcon[]>('editor_icons');
 }
 
 export async function openTarget(laneId: string, targetId: string): Promise<void> {
