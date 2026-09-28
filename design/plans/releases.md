@@ -1,31 +1,45 @@
 # Plan: an installer, releases and automatic updates
 
-Status: the installer is built (`scripts/release.sh`, 2026-09-28) and checked on this Mac, signed
-but not yet notarized: the signatures verify, both architectures run from the image, and the
-window draws as designed in light mode. Everything after it is a plan. Four decisions come first,
-because each is baked into the first copy anyone installs.
+Status: the installer is built (`scripts/release.sh`, 2026-09-28) and was checked on this Mac with
+a stand-in certificate: the signatures verify, both architectures run from the image, and the
+window draws as designed in light mode. It isn't notarized yet, and it waits on the Developer ID
+below. Everything after it is a plan. The decisions come first, because each is baked into the
+first copy anyone installs.
+
+## Decided: whose name is on it
+
+Codealong is Gordon L. Hempton's, not a company's, and nothing in it names another company.
+Releases are signed by his own Apple developer team, "Gordon Hempton" (team N3347S68VA), an
+individual membership that's already paid: its provisioning profile runs a year, which a free
+team's doesn't. `scripts/release.sh` signs with that team's Developer ID only (`CODEALONG_TEAM_ID`
+changes it, for a fork) and refuses any other certificate in the keychain.
+
+- **To do once:** as the account holder, make a Developer ID Application certificate at
+  developer.apple.com (Certificates, +, Developer ID Application), and open the downloaded file
+  on the Mac that builds releases. macOS will then show the developer as Gordon Hempton.
+- **If Codealong becomes a company:** Apple converts an individual membership to an organization
+  on request (Membership details, Convert to Organization; a D-U-N-S number, up to three weeks).
+  The team ID, certificates and apps carry over and only the name changes, so installed copies
+  keep their permissions. A new team instead would look like a different app to macOS, which
+  would ask again for everything people allowed, controlling Ghostty first. (Keychain items
+  don't care: Codealong reaches the keychain through `/usr/bin/security`.)
+- The copyright is his too: `NOTICE`, the README's License section, and the app's About panel
+  and Get Info (`bundle.copyright` in `tauri.conf.json`).
 
 ## Decide before the first release
 
-1. **Whose name is on it.** The only Developer ID certificate on this Mac is Kestrel Corporation's (team K3STR3L000), so that's the developer macOS names when the app is first
-   opened, and the team Apple notarizes it under. The alternative is enrolling Codealong (or
-   Northwind) as an organization of its own in the Apple Developer Program: $99 a year and a D-U-N-S
-   number, which takes days to weeks. Changing teams later works, but macOS takes the new
-   signature for a different app and asks again for everything people allowed, controlling
-   Ghostty first. (Keychain items don't care: Codealong reaches the keychain through
-   `/usr/bin/security`.)
-2. **Where downloads and updates come from.** `codealong/codealong` is private, and the website's
+1. **Where downloads and updates come from.** `codealong/codealong` is private, and the website's
    Download button already points at its `releases/latest`, which only works once the repo is
-   public. The Apache-2.0 license in progress suggests that's the plan: then releases go on the
-   repo's GitHub Releases. If the source has to stay private for a while, a public
+   public. The code is now under the Apache License 2.0, which suggests that's the plan: then
+   releases go on the repo's GitHub Releases. If the source has to stay private for a while, a public
    `codealong/releases` repo can carry the binaries alone. The update address is compiled into
    every copy, so it should be one we keep: a GitHub URL is fine for years (codealong.com is
    parked at Sedo, not ours).
-3. **Notarization credentials.** An App Store Connect API key for the chosen team (App Store
+2. **Notarization credentials.** An App Store Connect API key for team N3347S68VA (App Store
    Connect › Users and Access › Integrations › Team Keys, role Developer). Save it once per Mac
    with `xcrun notarytool store-credentials codealong --key AuthKey_<ID>.p8 --key-id <ID>
    --issuer <issuer>`, then `CODEALONG_NOTARY_PROFILE=codealong scripts/release.sh`.
-4. **Who keeps the update key.** `npx tauri signer generate -w ~/.tauri/codealong.key` makes the
+3. **Who keeps the update key.** `npx tauri signer generate -w ~/.tauri/codealong.key` makes the
    key pair updates are signed with. The public half goes in `tauri.conf.json`; the private half
    and its password go in 1Password and, later, CI's secrets. Lose it and installed copies can
    never update again (people reinstall by hand); leak it and whoever also controls the download

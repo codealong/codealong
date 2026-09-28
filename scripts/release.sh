@@ -9,8 +9,8 @@
 #   scripts/release.sh --no-notarize    signed but not notarized: opens on this Mac only
 #   scripts/release.sh --allow-dirty    builds uncommitted changes too; never ship that
 #
-# Signing uses the "Developer ID Application" certificate in the keychain;
-# APPLE_SIGNING_IDENTITY picks one when there are several. Notarizing needs one of:
+# Signing uses the release team's "Developer ID Application" certificate from the keychain
+# (below; APPLE_SIGNING_IDENTITY names it exactly). Notarizing needs one of, for that team:
 #   CODEALONG_NOTARY_PROFILE  credentials saved in the keychain, once per Mac, with
 #                             `xcrun notarytool store-credentials <name> --key <AuthKey_ID.p8>
 #                             --key-id <ID> --issuer <issuer>` (or --apple-id and --team-id,
@@ -79,15 +79,19 @@ if [ "$cargo_version" != "$version" ] || [ "$npm_version" != "$version" ]; then
   fail "The version differs between tauri.conf.json ($version), Cargo.toml ($cargo_version) and package.json ($npm_version)."
 fi
 
+# Releases are signed by one Apple developer team, Gordon Hempton's own, and never by another
+# certificate that happens to be in the keychain: the team is what macOS remembers people's
+# permissions by, and the name it shows. CODEALONG_TEAM_ID names another team, for a fork.
+team="${CODEALONG_TEAM_ID:-N3347S68VA}"
 identity="${APPLE_SIGNING_IDENTITY:-}"
 if [ -z "$identity" ]; then
-  identities="$(security find-identity -v -p codesigning | sed -n 's/.*"\(Developer ID Application: .*\)"$/\1/p' | sort -u)"
-  case "$(printf '%s' "$identities" | grep -c .)" in
-    0) fail "No Developer ID Application certificate in the keychain. Make one at developer.apple.com (Certificates, type Developer ID Application) and open the downloaded file, or set APPLE_SIGNING_IDENTITY." ;;
-    1) identity="$identities" ;;
-    *) fail "$(printf 'Several Developer ID certificates are in the keychain; pick one with APPLE_SIGNING_IDENTITY:\n%s' "$identities")" ;;
-  esac
+  identity="$(security find-identity -v -p codesigning | sed -n "s/.*\"\(Developer ID Application: .* ($team)\)\"$/\1/p" | head -1)"
+  [ -n "$identity" ] || fail "No Developer ID Application certificate for team $team in the keychain. Its account holder makes one at developer.apple.com (Certificates, +, Developer ID Application) and opens the downloaded file on this Mac."
 fi
+case "$identity" in
+  "Developer ID Application: "*"($team)") ;;
+  *) fail "APPLE_SIGNING_IDENTITY is \"$identity\", which isn't a Developer ID of team $team (CODEALONG_TEAM_ID)." ;;
+esac
 
 notary=()
 if [ "$notarize" = 1 ]; then
