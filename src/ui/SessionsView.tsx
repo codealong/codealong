@@ -76,6 +76,8 @@ interface SessionsViewProps {
   onOpen: (row: SessionItem) => void;
   /** Right-click on a row. */
   onContextMenu: (row: SessionItem) => void;
+  /** Right-click on the PR of a row's worktree. */
+  onPrMenu: (row: SessionItem) => void;
   /** Moves a pinned session to insertion point `index` among the pinned ones showing. */
   onMovePinned: (key: string, index: number) => void;
   /** Archived sessions, listed under a fold at the end. */
@@ -88,7 +90,7 @@ interface SessionsViewProps {
 }
 
 export function SessionsView(props: SessionsViewProps) {
-  const { pinned, sections, now, selectedKey, domId, onSelect, onOpen, onContextMenu, onMovePinned, archived, showArchived, onToggleArchived, todosFor, onShowTodo } = props;
+  const { pinned, sections, now, selectedKey, domId, onSelect, onOpen, onContextMenu, onPrMenu, onMovePinned, archived, showArchived, onToggleArchived, todosFor, onShowTodo } = props;
 
   const row = (r: SessionItem, drag?: PinDrag) => (
     <AgentRow
@@ -102,6 +104,7 @@ export function SessionsView(props: SessionsViewProps) {
       onOpen={() => onOpen(r)}
       pinned={drag != null}
       onContextMenu={() => onContextMenu(r)}
+      onPrMenu={() => onPrMenu(r)}
       todos={todosFor?.(r.session.key)}
       onShowTodo={onShowTodo}
       {...drag}

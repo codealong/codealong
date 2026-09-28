@@ -156,9 +156,11 @@ interface InspectorProps {
   /** Todos a session is linked to. */
   todosFor?: (sessionKey: string) => Todo[] | undefined;
   onShowTodo?: (todo: Todo) => void;
+  /** Right-click on its PR: the PR's menu (open it, copy its link…). */
+  onPrMenu?: () => void;
 }
 
-export function Inspector({ lane, focusKey, apps, now, onOpen, onNewSession, todos, todosFor, onShowTodo }: InspectorProps) {
+export function Inspector({ lane, focusKey, apps, now, onOpen, onNewSession, todos, todosFor, onShowTodo, onPrMenu }: InspectorProps) {
   const [showAll, setShowAll] = useState(false);
   useEffect(() => setShowAll(false), [lane?.id]);
   if (!lane) {
@@ -233,7 +235,17 @@ export function Inspector({ lane, focusKey, apps, now, onOpen, onNewSession, tod
       {pr && (
         <section className="ca-insp-sec">
           <h4 className="ca-label">Pull request</h4>
-          <div className="ca-prcard">
+          <div
+            className="ca-prcard"
+            onContextMenu={
+              onPrMenu
+                ? (e) => {
+                    e.preventDefault();
+                    onPrMenu();
+                  }
+                : undefined
+            }
+          >
             <div className="ca-prcard-top">
               <PrChip pr={pr} />
               <span className="ca-meta" title={absolute(pr.updatedAt)}>

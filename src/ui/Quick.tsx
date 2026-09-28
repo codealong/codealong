@@ -755,6 +755,14 @@ export function Quick() {
     void showMain({ kind: 'pr', key: pr.key });
   };
 
+  /** Puts a PR's link on the clipboard and closes the panel, as opening the PR would. */
+  const copyPrLink = (pr: PrItem) => {
+    navigator.clipboard.writeText(pr.url).then(
+      () => void hideQuick(),
+      () => setError('Couldn’t copy the PR link.'),
+    );
+  };
+
   /** The latest session that worked on a PR, where it's listed. */
   const prSession = (pr: PrItem): { lane: Lane; session: Session } | null => {
     const found = pr.sessions.flatMap((x) => {
@@ -797,6 +805,8 @@ export function Quick() {
         { label: 'Open on GitHub', run: () => openPr(r.pr) },
         ...(s ? [{ label: s.session.live ? 'Open its session' : 'Open its latest session', run: () => openSession(s.lane, s.session) }] : []),
         { label: 'Show in Codealong', run: () => revealPr(r.pr) },
+        'separator',
+        { label: 'Copy link', run: () => copyPrLink(r.pr) },
       ]);
       return;
     }

@@ -53,7 +53,10 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     run In Codealong takes it at once, after its current turn).
   - **PRs**: every PR in the project's repos, with the worktree and sessions that worked on
     each: the ones that made, edited or commented on it (from their own records), the ones on
-    its branch while it was open, and any linked by hand (`codealong pr link|unlink`). Reviews asked of you come first, with one-click Approve. Colored pills say where
+    its branch while it was open, and any linked by hand (`codealong pr link|unlink`). Reviews asked of you come first, with one-click Approve.
+    A PR's right-click menu, on its row here or on its number where a worktree or session shows
+    it (and the worktree's panel), opens it on GitHub or in Codex and copies its link; a
+    worktree's own menu copies its PR's link too. Colored pills say where
     each PR stands: its review, its checks, and conflicts or an out-of-date branch, or one
     green Ready to merge when GitHub would merge it now. Rows that are your move are marked
     at the left edge: amber for a review asked of you or something to fix, red for failing
@@ -139,7 +142,8 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   title, description, label, project, or the worktrees and sessions linked to them, then PRs by
   number, title, repo, branch or author. ⏎ on a todo
   opens its session, or, when it has none, gets a session ready to start for it (its prompt,
-  its worktree, linked to it); on a PR it opens the PR on GitHub. The last row starts a new session with what you typed as its
+  its worktree, linked to it); on a PR it opens the PR on GitHub, and the PR's right-click menu
+  copies its link. The last row starts a new session with what you typed as its
   prompt. ⏎ does the selected row, ⌘⏎ always starts, ⌥⏎
   shows the session, todo or PR in Codealong, ⌘1 to ⌘9 open a row, Escape closes. ⇥ on a
   session answers it in the panel: its conversation, and a box that sends it a message where it

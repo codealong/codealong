@@ -203,11 +203,25 @@ export function HarnessChip({ session, withStatus = true, onOpen }: { session: S
   );
 }
 
-export function PrChip({ pr, compact = false }: { pr: Pr; compact?: boolean }) {
+/** A PR's number, state and checks. With `onMenu`, a right-click on it shows the PR's own menu
+ *  rather than the menu of the row it's on. */
+export function PrChip({ pr, compact = false, onMenu }: { pr: Pr; compact?: boolean; onMenu?: () => void }) {
   const c = pr.checks;
   const open = pr.state !== 'merged' && pr.state !== 'closed';
   return (
-    <span className={cx('ca-pr', `ca-pr--${pr.state}`)} title={`#${pr.number} ${PR_WORD[pr.state]}: ${pr.title}`}>
+    <span
+      className={cx('ca-pr', `ca-pr--${pr.state}`)}
+      title={`#${pr.number} ${PR_WORD[pr.state]}: ${pr.title}`}
+      onContextMenu={
+        onMenu
+          ? (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onMenu();
+            }
+          : undefined
+      }
+    >
       <Icon name={PR_ICON[pr.state]} size={12} stroke={1.75} />
       <span>#{pr.number}</span>
       {!compact && <span className="ca-pr-word">{PR_WORD[pr.state]}</span>}

@@ -1070,6 +1070,22 @@ export function App() {
     ];
   };
   const prMenu = (r: PrRowItem) => void showContextMenu(prMenuSpec(r)).catch((e: unknown) => setToast(String(e)));
+  /** The right-click menu of a worktree's PR chip: the PR's own. A PR the board doesn't list,
+   *  such as one on another Mac in a repo this one doesn't have, gets what its link allows. */
+  const lanePrMenu = (lane: Lane) => {
+    const p = lane.pr;
+    if (!p) return;
+    const item = board?.prs.find((x) => x.url === p.url);
+    const spec: MenuSpec = item
+      ? prMenuSpec(prRowOf(item))
+      : [
+          { label: 'Open on GitHub', run: () => void openUrl(p.url) },
+          { label: 'Review in Codex', run: () => void reviewInCodex(p.url) },
+          'separator',
+          { label: 'Copy link', run: () => copy(p.url, 'PR link') },
+        ];
+    void showContextMenu(spec).catch((e: unknown) => setToast(String(e)));
+  };
 
   /** Pins or unpins a worktree. Its lines keep their keys as the row moves, so what was selected stays selected. */
   const toggleLanePin = useCallback((lane: Lane) => lanePins.toggle(lane.id), [lanePins]);
@@ -1108,9 +1124,10 @@ export function App() {
   };
   const sessionMenu = (lane: Lane, s: Session, pin: 'session' | 'worktree') => void showContextMenu(sessionMenuSpec(lane, s, pin)).catch((e: unknown) => setToast(String(e)));
 
-  /** A worktree's right-click menu: open it, pin it, copy its path or branch. */
+  /** A worktree's right-click menu: open it, pin it, copy its path, branch or PR link. */
   const laneMenuSpec = (lane: Lane): MenuSpec => {
       const main = lane.targets.find((t) => t.id === lane.defaultTarget);
+      const pr = lane.pr;
       const more = ['l|editor', 'l|finder'].flatMap((id) => {
         const t = lane.targets.find((x) => x.id === id);
         return t && id !== lane.defaultTarget ? [{ label: t.label, run: () => open(lane, id) }] : [];
@@ -1126,6 +1143,7 @@ export function App() {
         'separator',
         { label: 'Copy path', run: () => copy(lane.path, 'worktree path') },
         ...(lane.branch ? [{ label: 'Copy branch name', run: () => copy(lane.branch, 'branch name') }] : []),
+        ...(pr ? [{ label: 'Copy PR link', run: () => copy(pr.url, 'PR link') }] : []),
         ...canvasItem('worktree', lane.id),
       ];
   };
@@ -1657,6 +1675,7 @@ export function App() {
       todos={lane ? todoLinks.byLane.get(lane.id) : undefined}
       todosFor={todosFor}
       onShowTodo={showTodoFromPanel}
+      onPrMenu={() => lane && lanePrMenu(lane)}
     />
   );
 
@@ -1727,6 +1746,7 @@ export function App() {
       pinned={drag != null}
       onContextMenu={() => laneMenu(r.lane)}
       onAgentMenu={(s) => sessionMenu(r.lane, s, 'worktree')}
+      onPrMenu={() => lanePrMenu(r.lane)}
       todos={todoLinks.byLane.get(r.lane.id)}
       worktreeTodos={todoLinks.byWorktree.get(r.lane.id)}
       todosFor={todosFor}
@@ -2088,6 +2108,7 @@ export function App() {
                   openRow(r);
                 }}
                 onContextMenu={(r) => sessionMenu(r.lane, r.session, 'session')}
+                onPrMenu={(r) => lanePrMenu(r.lane)}
                 onMovePinned={movePinnedSession}
                 archived={archivedItems}
                 showArchived={showArchived}

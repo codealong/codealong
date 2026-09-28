@@ -30,6 +30,8 @@ interface LaneRowProps {
   onContextMenu?: () => void;
   /** Right-click on one of its agents: the session's menu. */
   onAgentMenu?: (session: Session) => void;
+  /** Right-click on its PR: the PR's menu (open it, copy its link…). */
+  onPrMenu?: () => void;
   /** Position among pinned rows, for dragging them into a new order. */
   pinIndex?: number;
   onPointerDown?: (e: ReactPointerEvent<HTMLDivElement>) => void;
@@ -106,7 +108,7 @@ function LaneRowView(props: LaneRowProps) {
 export const LaneRow = memoRow(LaneRowView, ['domId', 'todosFor']);
 
 /** A worktree with no agent that needs you, is working or just finished: its sentence, and chips for its recent sessions. */
-function WorktreeOnlyRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpenTarget, pinned, onContextMenu, pinIndex, onPointerDown, extraClass, todos, onShowTodo }: LaneRowProps) {
+function WorktreeOnlyRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpenTarget, pinned, onContextMenu, onPrMenu, pinIndex, onPointerDown, extraClass, todos, onShowTodo }: LaneRowProps) {
   const { lane } = row;
   const chips = currentSessions(lane, now);
   const shown = chips.slice(0, 2);
@@ -171,7 +173,7 @@ function WorktreeOnlyRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpe
             <LooksFinished lane={lane} />
           </span>
           <span className="ca-lane-right">
-            {lane.pr && <PrChip pr={lane.pr} compact />}
+            {lane.pr && <PrChip pr={lane.pr} compact onMenu={onPrMenu} />}
             <Diff git={lane.git} />
           </span>
         </div>
@@ -188,7 +190,7 @@ function WorktreeOnlyRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpe
  * A worktree with agents that need you, are working or just finished: the worktree once on the
  * left, and a line for each agent, which you select, open and right-click like a row of its own.
  */
-function GroupRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpenTarget, pinned, onContextMenu, onAgentMenu, pinIndex, onPointerDown, extraClass, worktreeTodos, todosFor, onShowTodo }: LaneRowProps) {
+function GroupRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpenTarget, pinned, onContextMenu, onAgentMenu, onPrMenu, pinIndex, onPointerDown, extraClass, worktreeTodos, todosFor, onShowTodo }: LaneRowProps) {
   const { lane, agents } = row;
   const { sub, branch } = laneSub(lane);
   const listed = new Set(agents.map((a) => a.session.key));
@@ -279,7 +281,7 @@ function GroupRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpenTarget
                 <TodoChips todos={footTodos} onShow={onShowTodo} />
               </span>
               <span className="ca-lane-right">
-                {lane.pr && <PrChip pr={lane.pr} compact />}
+                {lane.pr && <PrChip pr={lane.pr} compact onMenu={onPrMenu} />}
                 <Diff git={lane.git} />
               </span>
             </span>
@@ -359,6 +361,8 @@ interface AgentRowProps {
   pinned?: boolean;
   /** Right-click: the session's menu (open, pin, archive…). */
   onContextMenu?: () => void;
+  /** Right-click on its worktree's PR: the PR's menu (open it, copy its link…). */
+  onPrMenu?: () => void;
   /** Position among pinned rows, for dragging them into a new order. */
   pinIndex?: number;
   onPointerDown?: (e: ReactPointerEvent<HTMLDivElement>) => void;
@@ -392,7 +396,7 @@ function WorktreeChip({ lane }: { lane: Lane }) {
  * One session in the Sessions view: who and what on the first line (its agent, its sentence),
  * where and why on the second (its worktree, todo and insights, and the worktree's PR and diff).
  */
-function AgentRowView({ lane, session: s, domId, now, selected, onSelect, onOpen, pinned, onContextMenu, pinIndex, onPointerDown, extraClass, todos, onShowTodo }: AgentRowProps) {
+function AgentRowView({ lane, session: s, domId, now, selected, onSelect, onOpen, pinned, onContextMenu, onPrMenu, pinIndex, onPointerDown, extraClass, todos, onShowTodo }: AgentRowProps) {
   return (
     <div
       id={domId}
@@ -436,7 +440,7 @@ function AgentRowView({ lane, session: s, domId, now, selected, onSelect, onOpen
             <InsightChips session={s} />
           </span>
           <span className="ca-lane-right">
-            {lane.pr && <PrChip pr={lane.pr} compact />}
+            {lane.pr && <PrChip pr={lane.pr} compact onMenu={onPrMenu} />}
             <Diff git={lane.git} />
           </span>
         </div>
