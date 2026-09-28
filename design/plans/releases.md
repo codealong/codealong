@@ -37,16 +37,19 @@ individual membership. `scripts/release.sh` signs with that team's Developer ID 
 - The copyright is his too: `NOTICE`, the README's License section, and the app's About panel
   and Get Info (`bundle.copyright` in `tauri.conf.json`).
 
+## Decided: releases come from codealong/codealong
+
+`codealong/codealong` goes open source, and its GitHub Releases carry every installer and update
+(decided 2026-09-28). The app asks
+`https://github.com/codealong/codealong/releases/latest/download/latest.json`, the website's
+Download button already points at `releases/latest`, and the Claude Code plugin's marketplace
+reads the same repo. While the repo is still private those addresses answer 404 to everyone
+else, so a copy that checks just finds no update; nothing breaks. Once it's public, building on
+GitHub's own runners is free too (phase 3).
+
 ## Decide before the first release
 
-1. **Where downloads and updates come from.** `codealong/codealong` is private, and the website's
-   Download button already points at its `releases/latest`, which only works once the repo is
-   public. The code is now under the Apache License 2.0, which suggests that's the plan: then
-   releases go on the repo's GitHub Releases. If the source has to stay private for a while, a
-   public `codealong/releases` repo can carry the binaries alone. The update address is compiled into
-   every copy, so it should be one we keep: a GitHub URL is fine for years (codealong.com is
-   parked at Sedo, not ours).
-2. **Who keeps the update key.** `npx tauri signer generate -w ~/.tauri/codealong.key` makes the
+1. **Who keeps the update key.** `npx tauri signer generate -w ~/.tauri/codealong.key` makes the
    key pair updates are signed with. The public half goes in `tauri.conf.json`; the private half
    and its password go in 1Password beside the other two and, later, CI's secrets. Lose it and
    installed copies can never update again (people reinstall by hand); leak it and whoever also
