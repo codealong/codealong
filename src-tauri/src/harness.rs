@@ -75,6 +75,14 @@ pub trait Adapter: Sync {
     fn runs_its_commands(&self) -> bool {
         false
     }
+
+    /// Whether the live session skips permission prompts, as its own files say. A message it
+    /// sends another session through Codealong may then claim that, as Claude Code's own
+    /// messages between sessions claim their sender's permission class (send.rs). False when
+    /// Codealong can't tell.
+    fn skips_permission_prompts(&self, _ctx: &Ctx, _session: &Session) -> bool {
+        false
+    }
 }
 
 static ADAPTERS: [&dyn Adapter; 4] = [&crate::claude::ClaudeCode, &crate::codex::Codex, &crate::opencode::OpenCode, &crate::antigravity::Antigravity];

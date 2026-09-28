@@ -482,7 +482,9 @@ fn send_to_session(engine: State<'_, engine::Handle>, peers: State<'_, peers::Pe
     serde_json::to_value(send_here(engine.inner(), &key, &text, send::Sender::You)?).map_err(|e| e.to_string())
 }
 
-fn send_here(engine: &engine::Handle, key: &str, text: &str, sender: send::Sender) -> Result<send::Sent, String> {
+/// Sends to a session on this device; the socket (server.rs) does the same for `codealong session
+/// send`.
+pub(crate) fn send_here(engine: &engine::Handle, key: &str, text: &str, sender: send::Sender) -> Result<send::Sent, String> {
     let cfg = config::load().map_err(|e| format!("{e:#}"))?.unwrap_or_default();
     send::send(&engine.board(), &cfg, key, text, sender).map_err(|e| format!("{e:#}"))
 }

@@ -57,7 +57,13 @@ pub enum Request {
     DeviceUseCode { code: String },
     /// Runs a request on a linked device, as this device's windows do, by its short id.
     DeviceAsk { device: String, request: String, params: Value },
+    /// A message to a session from an agent (`codealong session send`), sent as a window's is
+    /// (send.rs); `from` is the session that ran the command, when it found one.
+    Send { key: String, text: String, from: Option<String> },
 }
+
+/// How a reply starts when the app doesn't know the request: it's older than the command.
+pub const UNKNOWN_REQUEST: &str = "That isn't a request the app knows";
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Reply {
@@ -144,7 +150,7 @@ fn connection(stream: UnixStream, engine: &Handle, peers: &Peers) {
 pub fn handle(engine: &Handle, peers: &Peers, line: &str) -> Reply {
     let req: Request = match serde_json::from_str(line) {
         Ok(r) => r,
-        Err(e) => return Reply::err(format!("That isn't a request the app knows: {e}")),
+        Err(e) => return Reply::err(format!("{UNKNOWN_REQUEST}: {e}")),
     };
     match req {
         Request::Status => {
@@ -174,6 +180,7 @@ pub fn handle(engine: &Handle, peers: &Peers, line: &str) -> Reply {
         Request::DeviceCode => answered(peers.link_code()),
         Request::DeviceUseCode { code } => answered(peers.link_with_code(&code)),
         Request::DeviceAsk { device, request, params } => answered(peers.ask(&device, &request, params, Duration::from_secs(40))),
+        Request::Send { key, text, from } => answered(crate::send_here(engine, &key, &text, crate::send::Sender::Agent(from))),
     }
 }
 
@@ -242,6 +249,8 @@ mod tests {
         assert!(matches!(ask, Request::DeviceAsk { ref request, .. } if request == "search"));
         let answer = serde_json::to_string(&Request::DeviceAnswer { key: "k".into(), accept: true }).unwrap();
         assert!(answer.contains(r#""method":"device-answer""#), "{answer}");
+        let send: Request = serde_json::from_str(r#"{"method":"send","key":"claude:claude:abc","text":"hi","from":null}"#).unwrap();
+        assert!(matches!(send, Request::Send { ref key, from: None, .. } if key == "claude:claude:abc"));
         let reply: Reply = serde_json::from_str(r#"{"ok":false,"error":"no"}"#).unwrap();
         assert!(!reply.ok && reply.error.as_deref() == Some("no"));
     }

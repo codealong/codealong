@@ -454,6 +454,11 @@ impl crate::harness::Adapter for ClaudeCode {
         crate::send::claude_routes(s, registry.as_ref(), &home, crate::send::daemon_socket(&home).as_deref(), mode)
     }
 
+    fn skips_permission_prompts(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> bool {
+        let registry = crate::send::claude_registry(&ctx.account.home_path(), s);
+        registry.is_some() && permission_mode(registry.as_ref(), &self.records(ctx.account, s)).as_deref() == Some("bypassPermissions")
+    }
+
     fn conversation_after(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, after: u64) -> anyhow::Result<Page> {
         crate::transcript::file_newer(&record(self, ctx, s)?, conversation_items, after)
     }

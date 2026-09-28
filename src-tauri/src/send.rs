@@ -9,15 +9,24 @@
 //! A session that skips permission prompts holds such a message for you to allow unless it
 //! claims the session's own permission class, and the Claude app has no way to show a held one.
 //! What you type in Codealong's windows here is yours, as if typed in the session, so it makes
-//! that claim; from the command line or another device it doesn't, so an agent can't use
-//! Codealong to get past the hold, and a Claude app session is told nothing rather than holding
-//! a message no one will see.
+//! that claim; from another device it doesn't, and from an agent only when the agent's own
+//! session skips permission prompts too, as Claude Code's own messages between sessions claim
+//! their sender's class. So an agent can't use Codealong to get past the hold, and a Claude app
+//! session is told nothing rather than holding a message no one will see.
 //!
 //! A session that's waiting on you for a permission prompt, or stuck mid-turn, is never typed
 //! into: what's typed would answer the prompt. One whose last reply asks you something is at its
 //! prompt, so what's typed is its answer. Busy sessions are fine; each harness queues the prompt
 //! until the agent can take it.
+//!
+//! An agent's message (`codealong session send`) is never yours. It starts with who sent it, that
+//! it isn't from the session's user, and how to answer, and it goes only the ways that don't read
+//! as the user's own words or need someone at this Mac: Claude Code's socket for messages between
+//! sessions, which tells the model as much and holds the message where the session skips
+//! permission prompts, and for the harnesses that have no such socket, their terminal or service.
+//! It never resumes a session that isn't running, and never leaves a prompt for someone to send.
 
+use std::borrow::Cow;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
@@ -38,13 +47,76 @@ use crate::start;
 /// How a send went; it goes back to other devices too, so it's in codealong-peer.
 pub use codealong_peer::api::Sent;
 
-/// Who a message is from, as far as a session's own permission check goes.
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// Who a message is from: how the session is told, and which ways in it may take.
+#[derive(Debug, Clone, PartialEq)]
 pub enum Sender {
     /// You, in one of Codealong's windows on this Mac.
     You,
-    /// The command line or another device, where an agent may have written it.
+    /// Another of your devices, or the engine's `--snapshot --send`, where an agent may have
+    /// written it.
     Elsewhere,
+    /// An agent, through `codealong session send`: the key of the session that ran the command,
+    /// when the command found one.
+    Agent(Option<String>),
+}
+
+/// Who an agent's message is from, as the session it goes to reads it.
+#[derive(Debug, Clone, PartialEq)]
+struct Byline {
+    /// The line the message starts with: that it's another agent's and not the user's, whose,
+    /// and how to answer it.
+    intro: String,
+    /// The name its envelope carries on Claude Code's socket, which Claude Code shows as the
+    /// sender's.
+    name: String,
+}
+
+/// An agent's byline. `from` is the sending session's key; the board names it.
+fn byline(board: &Board, from: Option<&str>) -> Byline {
+    let Some(key) = from else {
+        return Byline {
+            intro: "This message was sent with `codealong session send` from a command line that isn't a session Codealong knows, so it may be an agent's rather than your user's.".into(),
+            name: "codealong".into(),
+        };
+    };
+    let author = board.lanes.iter().flat_map(|l| &l.sessions).find(|s| s.key == key);
+    let who = match author {
+        Some(s) => format!("{} ({} on {}, session {key})", quoted(&s.title), s.harness.word(), s.account),
+        None => format!("session {key}"),
+    };
+    Byline {
+        intro: format!("This message is from another agent, {who}, sent with `codealong session send`; it isn't from your user. To answer it, run `codealong session send {key} \"<your answer>\"`."),
+        name: author.map(|s| s.title.clone()).unwrap_or_else(|| key.to_string()),
+    }
+}
+
+/// What goes to the session: the text as it gets it, before its attachments are written out for
+/// the way in, and who it's from.
+struct Message<'a> {
+    text: Cow<'a, str>,
+    sender: &'a Sender,
+    /// An agent's: its text starts with the intro.
+    byline: Option<Byline>,
+    /// Whether its sender skips permission prompts itself, so that the message may say so to a
+    /// session that skips them too: you, or an agent whose own session does.
+    bypasses: bool,
+}
+
+impl<'a> Message<'a> {
+    fn new(board: &Board, cfg: &Config, text: &'a str, sender: &'a Sender) -> Message<'a> {
+        match sender {
+            Sender::Agent(from) => {
+                let b = byline(board, from.as_deref());
+                let bypasses = from.as_deref().and_then(|k| crate::harness::find(board, cfg, k).ok()).is_some_and(|(s, account)| s.live && crate::harness::adapter(s.harness).skips_permission_prompts(&crate::harness::Ctx { account }, s));
+                Message { text: Cow::Owned(format!("{}\n\n{}", b.intro, text.trim())), sender, byline: Some(b), bypasses }
+            }
+            _ => Message { text: Cow::Borrowed(text), sender, byline: None, bypasses: *sender == Sender::You },
+        }
+    }
+
+    fn from_agent(&self) -> bool {
+        matches!(self.sender, Sender::Agent(_))
+    }
 }
 
 /// How a prompt reaches a session, tried in order until one works.
@@ -74,7 +146,7 @@ pub enum Route {
 /// still on its way (the peek closed and opened again, and you sent what it still showed, or
 /// another window sent it too) joins that send and gets its outcome, rather than going twice.
 pub fn send(board: &Board, cfg: &Config, session_key: &str, text: &str, sender: Sender) -> Result<Sent> {
-    join(session_key, text.trim(), || send_now(board, cfg, session_key, text, sender))
+    join(session_key, text.trim(), || send_now(board, cfg, session_key, text, &sender))
 }
 
 /// A send on its way, which a send of the same text to the same session waits on.
@@ -149,7 +221,7 @@ enum Tried {
     Passed(Option<String>),
 }
 
-fn send_now(board: &Board, cfg: &Config, session_key: &str, text: &str, sender: Sender) -> Result<Sent> {
+fn send_now(board: &Board, cfg: &Config, session_key: &str, text: &str, sender: &Sender) -> Result<Sent> {
     let session = board
         .lanes
         .iter()
@@ -160,22 +232,26 @@ fn send_now(board: &Board, cfg: &Config, session_key: &str, text: &str, sender: 
         bail!("There's nothing to send.");
     }
     let account = cfg.accounts.iter().find(|a| a.name == session.account).ok_or_else(|| anyhow!("There's no account named {} in config.toml.", session.account))?;
+    let msg = Message::new(board, cfg, text, sender);
     if session.hosted {
         // Codealong runs it: the prompt goes in over its adapter, after the running turn if
         // there is one, and a question it waits on is answered from its panel.
-        let message = crate::acp::send(account, session_key, &attachments::expand(text, Style::Path))?;
+        let message = crate::acp::send(account, session_key, &attachments::expand(&msg.text, Style::Path))?;
         return Ok(Sent { message, opened: false, fell_back: false });
     }
-    ensure_not_waiting(session)?;
+    ensure_not_waiting(session, sender)?;
     // Each harness says which ways reach the session, best first (`harness::Adapter::routes`).
-    let routes = crate::harness::adapter(session.harness).routes(account, session);
+    let mut routes = crate::harness::adapter(session.harness).routes(account, session);
+    if msg.from_agent() {
+        routes = agent_routes(session, routes)?;
+    }
     let near = crate::board::terminal_neighbours(&board.lanes, Path::new(&session.cwd));
     let place = launch::Placement { new_terminal: cfg.apps.new_terminal, near: &near };
     let mut last_err = None;
     // Why typing into its terminal didn't work, for the note on the way it went instead.
     let mut untyped = None;
     for route in routes {
-        match attempt(&route, session, account, cfg, place, text, sender, untyped.as_deref()) {
+        match attempt(&route, session, account, cfg, place, &msg, untyped.as_deref()) {
             Ok(Tried::Sent(sent)) => return Ok(sent),
             // This way doesn't reach the session; the next one may.
             Ok(Tried::Passed(why)) => untyped = why.or(untyped),
@@ -188,11 +264,40 @@ fn send_now(board: &Board, cfg: &Config, session_key: &str, text: &str, sender: 
 
 /// A session waiting on you is never typed into: what's typed would answer its prompt. One that
 /// only asks you something in its reply (`Session::asks`) takes the answer like any prompt.
-fn ensure_not_waiting(session: &Session) -> Result<()> {
+fn ensure_not_waiting(session: &Session, sender: &Sender) -> Result<()> {
     if session.status == Status::Needs && !session.asks {
-        bail!("{} is waiting on you; open it to answer.", quoted(&session.title));
+        match sender {
+            Sender::Agent(_) => bail!("{} is waiting on its user to answer a prompt, so nothing was sent. Try again once they have.", quoted(&session.title)),
+            _ => bail!("{} is waiting on you; open it to answer.", quoted(&session.title)),
+        }
     }
     Ok(())
+}
+
+/// The ways in an agent's message may take, of the session's own. Claude Code takes messages from
+/// other sessions on its socket, which tells the model a message is another session's and holds
+/// it for the user where the session skips permission prompts; typed into its terminal or handed
+/// to its daemon, the message would read as its user's own words. Other harnesses have no such
+/// socket and take it typed or posted, the byline saying whose it is. A way that resumes a session
+/// or leaves the prompt for someone to send isn't for an agent.
+fn agent_routes(session: &Session, routes: Vec<Route>) -> Result<Vec<Route>> {
+    let kept: Vec<Route> = routes
+        .into_iter()
+        .filter(|r| match r {
+            Route::Peer { .. } | Route::CodexApp | Route::Opencode => true,
+            Route::Type { .. } => session.harness != Harness::Claude,
+            Route::Daemon { .. } | Route::Resume | Route::ClaudeApp | Route::Antigravity => false,
+        })
+        .collect();
+    if kept.is_empty() {
+        let title = quoted(&session.title);
+        bail!(match session.harness {
+            Harness::Antigravity => "Antigravity takes no prompts from outside; Codealong can only put one on the clipboard for someone at this Mac, so nothing was sent.".to_string(),
+            _ if !session.live => format!("{title} isn't running, and a message from another session doesn't start it again, so nothing was sent. Its user can resume it, or `codealong start` starts a new session."),
+            _ => format!("{title} doesn't take messages from other sessions (its Claude Code doesn't listen for them), and typing into its terminal would read as its user's words, so nothing was sent."),
+        });
+    }
+    Ok(kept)
 }
 
 /// Claude Code's ways in, best first, from its registry entry and whether its daemon runs.
@@ -230,8 +335,8 @@ pub fn claude_registry(home: &Path, session: &Session) -> Option<Value> {
 
 /// One way in: it went, or nothing went and the next way is tried, or it failed. `untyped` is
 /// why typing into the session's terminal didn't work, when that was tried first.
-#[allow(clippy::too_many_arguments)]
-fn attempt(route: &Route, session: &Session, account: &AccountCfg, cfg: &Config, place: launch::Placement, text: &str, sender: Sender, untyped: Option<&str>) -> Result<Tried> {
+fn attempt(route: &Route, session: &Session, account: &AccountCfg, cfg: &Config, place: launch::Placement, msg: &Message, untyped: Option<&str>) -> Result<Tried> {
+    let text: &str = &msg.text;
     let busy = session.status == Status::Working;
     let title = quoted(&session.title);
     let sent = |message: String| Ok(Tried::Sent(Sent { message, opened: false, fell_back: false }));
@@ -252,12 +357,17 @@ fn attempt(route: &Route, session: &Session, account: &AccountCfg, cfg: &Config,
         }
         Route::Peer { socket, session_id, mode } => {
             let skips = mode.as_deref() == Some("bypassPermissions");
-            if skips && sender == Sender::Elsewhere && session.surface == Surface::App {
+            let claim = (skips && msg.bypasses).then_some("bypass");
+            if skips && claim.is_none() && session.surface == Surface::App {
+                if msg.from_agent() {
+                    bail!("{title} skips permission prompts and your session doesn't, so Claude Code would hold your message for its user to allow, and the Claude app can't show that; nothing was sent.");
+                }
                 bail!("{title} skips permission prompts, so Claude Code would hold a message from here for you to allow, and the Claude app can't show that. Send it from Codealong on the Mac it runs on, or in the Claude app.");
             }
-            let claim = (skips && sender == Sender::You).then_some("bypass");
-            peer_send(socket, session_id, &attachments::expand(text, Style::Path), claim)?;
-            Ok(Tried::Sent(Sent { message: peer_note(&title, untyped, busy, skips && claim.is_none()), opened: false, fell_back: untyped.is_some() }))
+            let from = msg.byline.as_ref().map(|b| b.name.as_str());
+            peer_send(socket, session_id, &attachments::expand(text, Style::Path), claim, from)?;
+            let held = skips && claim.is_none();
+            Ok(Tried::Sent(Sent { message: peer_note(&title, untyped, busy, held, msg.from_agent()), opened: false, fell_back: untyped.is_some() }))
         }
         Route::Resume => {
             let (input, env) = resume_input(account, &session.id, text);
@@ -273,6 +383,8 @@ fn attempt(route: &Route, session: &Session, account: &AccountCfg, cfg: &Config,
             let prompt = attachments::expand(text, Style::Path);
             match codex_start_turn(&account.home_path(), &session.id, &prompt, None) {
                 Ok(()) => sent(if busy { format!("Sent to {title} in Codex; it takes it after its current turn.") } else { format!("Sent to {title} in Codex.") }),
+                // A prompt filled in for someone to send isn't a message an agent can leave.
+                Err(e) if msg.from_agent() => bail!("Codex didn't take it for {title} ({e}), so nothing was sent."),
                 Err(_) => {
                     // The app isn't running, didn't take the thread, or has changed how its
                     // windows talk: its own link fills the reply in instead.
@@ -299,17 +411,17 @@ fn attempt(route: &Route, session: &Session, account: &AccountCfg, cfg: &Config,
 /// the session's terminal, when that was tried first: a session reads a message from another
 /// session as a teammate's, not as yours, so it says it went that way, first, since the bar
 /// shows the start of it. `held`: the session skips permission prompts and the message claims
-/// no mode, so it asks you first.
-fn peer_note(title: &str, untyped: Option<&str>, busy: bool, held: bool) -> String {
+/// no mode, so it asks you (or, for an agent's, its user) first.
+fn peer_note(title: &str, untyped: Option<&str>, busy: bool, held: bool, agent: bool) -> String {
     let lead = match untyped {
         Some(why) => format!("Sent as a message from Codealong, not typed into {title}: {why}."),
         None if busy && !held => format!("Sent to {title}; it reads it as it works."),
         None => format!("Sent to {title}."),
     };
-    if held {
-        format!("{lead} It skips permission prompts, so it asks you in its terminal before taking it.")
-    } else {
-        lead
+    match (held, agent) {
+        (true, false) => format!("{lead} It skips permission prompts, so it asks you in its terminal before taking it."),
+        (true, true) => format!("{lead} It skips permission prompts, so it asks its user in its terminal before taking it."),
+        _ => lead,
     }
 }
 
@@ -378,26 +490,51 @@ fn daemon_reply(socket: &Path, key: &str, job: &str, text: &str) -> Result<()> {
 
 /// The prompt as a cross-session message. The envelope is the one Claude Code writes for its
 /// own sends (`<cross-session-message from-name="…">`, the body on lines of its own), so the
-/// session shows who it's from. `claim` is the permission class it claims (`bypass` or
+/// session shows who it's from: Codealong for what you sent, or `from`, an agent's session, whose
+/// text carries its own byline. `claim` is the permission class it claims (`bypass` or
 /// `prompting`, `from-mode`), which Claude Code compares with the session's own: a session
 /// that skips prompts holds a message that claims none, or another, for you to allow. The
 /// attributes go in the order Claude Code writes them, since it reads the envelope only when
 /// writing it again gives the same text.
-pub fn peer_content(text: &str, claim: Option<&str>) -> String {
-    let body = format!("Your user sent this to this session from Codealong:\n\n{}", text.trim()).replace("</cross-session-message", "<\\/cross-session-message");
+pub fn peer_content(text: &str, claim: Option<&str>, from: Option<&str>) -> String {
+    let (name, body) = match from {
+        Some(name) => (envelope_name(name), text.trim().to_string()),
+        None => ("Codealong".to_string(), format!("Your user sent this to this session from Codealong:\n\n{}", text.trim())),
+    };
+    let body = body.replace("</cross-session-message", "<\\/cross-session-message");
     let mode = claim.map(|m| format!(" from-mode=\"{m}\"")).unwrap_or_default();
-    format!("<cross-session-message from-name=\"Codealong\"{mode}>\n{body}\n</cross-session-message>")
+    format!("<cross-session-message from-name=\"{name}\"{mode}>\n{body}\n</cross-session-message>")
+}
+
+/// A sender's name as Claude Code writes `from-name` (2.1.284): without quotes, angle brackets,
+/// or control and format characters, trimmed, and at most 64 characters, a longer one cut with
+/// "…". Anything else would come out different when Claude Code writes the envelope again, and
+/// it would then not read it as one. This keeps letters, digits, spaces and punctuation, which
+/// come out the same.
+fn envelope_name(name: &str) -> String {
+    let kept: String = name
+        .chars()
+        .map(|c| if c.is_whitespace() { ' ' } else { c })
+        .filter(|&c| c.is_alphanumeric() || c == ' ' || (c.is_ascii_punctuation() && !matches!(c, '"' | '<' | '>')) || "“”‘’–—…·".contains(c))
+        .collect();
+    let kept = kept.split(' ').filter(|w| !w.is_empty()).collect::<Vec<_>>().join(" ");
+    let chars: Vec<char> = kept.chars().collect();
+    match chars.len() {
+        0 => "codealong".to_string(),
+        n if n > 64 => chars[..63].iter().collect::<String>().trim_end().to_string() + "…",
+        _ => kept,
+    }
 }
 
 /// The line written to a session's socket. `session_id` makes a session that has since taken
 /// over the pid drop it.
-pub fn peer_frame(session_id: &str, msg_id: &str, text: &str, claim: Option<&str>) -> String {
+pub fn peer_frame(session_id: &str, msg_id: &str, text: &str, claim: Option<&str>, from: Option<&str>) -> String {
     let frame = json!({
         "msgV": 1,
         "msg_id": msg_id,
         "type": "user",
         "session_id": session_id,
-        "message": { "role": "user", "content": peer_content(text, claim) },
+        "message": { "role": "user", "content": peer_content(text, claim, from) },
         "priority": "next",
     });
     format!("{frame}\n")
@@ -405,8 +542,8 @@ pub fn peer_frame(session_id: &str, msg_id: &str, text: &str, claim: Option<&str
 
 /// Nothing comes back on the connection, so a successful write is all there is to see. Claude
 /// Code's own sender waits a moment before closing, so the line is read before the socket goes.
-fn peer_send(socket: &str, session_id: &str, text: &str, claim: Option<&str>) -> Result<()> {
-    let frame = peer_frame(session_id, &start::new_session_id(), text, claim);
+fn peer_send(socket: &str, session_id: &str, text: &str, claim: Option<&str>, from: Option<&str>) -> Result<()> {
+    let frame = peer_frame(session_id, &start::new_session_id(), text, claim, from);
     // Claude Code caps a line at a million characters.
     if frame.len() > 1_000_000 {
         bail!("That's too long to send to another session; shorten it or put it in a file.");
@@ -646,7 +783,7 @@ mod tests {
 
     /// The ways `send` would try, with the registry and daemon given rather than read.
     fn route_for(s: &Session, registry: Option<&Value>, home: &Path, daemon: Option<&Path>) -> Result<Vec<Route>> {
-        ensure_not_waiting(s)?;
+        ensure_not_waiting(s, &Sender::You)?;
         Ok(if s.harness == Harness::Claude {
             claude_routes(s, registry, home, daemon, None)
         } else {
@@ -691,23 +828,140 @@ mod tests {
     }
 
     #[test]
-    fn claims_the_sessions_class_only_for_what_you_type_here() {
+    fn claims_the_sessions_class_only_for_a_sender_that_has_it() {
         let account: AccountCfg = serde_json::from_value(json!({ "name": "claude", "harness": "claude", "home": "/h" })).unwrap();
         let cfg = Config::default();
         let place = launch::Placement { new_terminal: cfg.apps.new_terminal, near: &[] };
         let app = session(Harness::Claude, Surface::App, Status::Unread, true, Some(42));
-        // From the command line or another device, a Claude app session that skips prompts
+        // From another device, a Claude app session that skips prompts
         // would hold it where no one sees it: nothing is sent, and the error says why.
+        let board = Board::default();
+        let msg = |sender: &'static Sender| Message::new(&board, &cfg, "hi", sender);
         let route = Route::Peer { socket: "/nonexistent/cc.sock".into(), session_id: "abc".into(), mode: Some("bypassPermissions".into()) };
-        let err = attempt(&route, &app, &account, &cfg, place, "hi", Sender::Elsewhere, None).map(|_| ()).unwrap_err();
+        let err = attempt(&route, &app, &account, &cfg, place, &msg(&Sender::Elsewhere), None).map(|_| ()).unwrap_err();
         assert!(err.to_string().contains("can't show that"), "{err}");
+        // Nor from an agent whose own session asks for permission.
+        static AGENT: Sender = Sender::Agent(None);
+        let err = attempt(&route, &app, &account, &cfg, place, &msg(&AGENT), None).map(|_| ()).unwrap_err();
+        assert!(err.to_string().contains("nothing was sent"), "{err}");
         // What you type goes to the socket (here there's none to answer).
-        let err = attempt(&route, &app, &account, &cfg, place, "hi", Sender::You, None).map(|_| ()).unwrap_err();
+        let err = attempt(&route, &app, &account, &cfg, place, &msg(&Sender::You), None).map(|_| ()).unwrap_err();
+        assert!(err.to_string().contains("socket didn't answer"), "{err}");
+        // So does an agent's whose session skips permission prompts too.
+        let bypassing = Message { bypasses: true, ..msg(&AGENT) };
+        let err = attempt(&route, &app, &account, &cfg, place, &bypassing, None).map(|_| ()).unwrap_err();
         assert!(err.to_string().contains("socket didn't answer"), "{err}");
         // A session that asks for permission takes it from anywhere.
         let route = Route::Peer { socket: "/nonexistent/cc.sock".into(), session_id: "abc".into(), mode: Some("default".into()) };
-        let err = attempt(&route, &app, &account, &cfg, place, "hi", Sender::Elsewhere, None).map(|_| ()).unwrap_err();
+        let err = attempt(&route, &app, &account, &cfg, place, &msg(&Sender::Elsewhere), None).map(|_| ()).unwrap_err();
         assert!(err.to_string().contains("socket didn't answer"), "{err}");
+        let err = attempt(&route, &app, &account, &cfg, place, &msg(&AGENT), None).map(|_| ()).unwrap_err();
+        assert!(err.to_string().contains("socket didn't answer"), "{err}");
+    }
+
+    fn board_with(s: Session) -> Board {
+        let mut lane: crate::model::Lane = serde_json::from_value(json!({
+            "id": "/w", "project": "P", "repo": "r", "repoSlug": null, "path": "/w", "callsign": "w",
+            "origin": "main", "branch": null, "detached": null, "bay": "idle", "glyph": "idle", "parked": false,
+            "hidden": false, "headline": "", "detail": null, "sessions": [], "pr": null, "git": null,
+            "lastActivity": 0, "targets": [], "defaultTarget": null
+        }))
+        .expect("a lane");
+        lane.sessions = vec![s];
+        Board { lanes: vec![lane], ..Board::default() }
+    }
+
+    #[test]
+    fn an_agents_message_says_whose_it_is_and_how_to_answer() {
+        let mut me = session(Harness::Claude, Surface::Cli, Status::Working, true, Some(7));
+        me.key = "claude:claude2:me".into();
+        me.account = "claude2".into();
+        me.title = "Review the parser".into();
+        let board = board_with(me);
+        let b = byline(&board, Some("claude:claude2:me"));
+        assert_eq!(
+            b.intro,
+            "This message is from another agent, “Review the parser” (Claude Code on claude2, session claude:claude2:me), sent with `codealong session send`; it isn't from your user. To answer it, run `codealong session send claude:claude2:me \"<your answer>\"`."
+        );
+        assert_eq!(b.name, "Review the parser");
+        // A session the board doesn't show yet is named by its key.
+        let b = byline(&board, Some("codex:codex:new"));
+        assert!(b.intro.starts_with("This message is from another agent, session codex:codex:new, sent with") && b.name == "codex:codex:new", "{b:?}");
+        // From a command line no session runs, it may be a person's or an agent's.
+        let b = byline(&board, None);
+        assert!(b.intro.contains("may be an agent's rather than your user's") && b.name == "codealong", "{b:?}");
+        // The text starts with the byline, whichever way it goes; yours goes as it is.
+        let agent = Sender::Agent(Some("claude:claude2:me".into()));
+        let msg = Message::new(&board, &Config::default(), "  Which test fails?\n", &agent);
+        assert_eq!(msg.text, format!("{}\n\nWhich test fails?", byline(&board, Some("claude:claude2:me")).intro));
+        assert_eq!(msg.byline.map(|b| b.name).as_deref(), Some("Review the parser"));
+        assert_eq!(Message::new(&board, &Config::default(), "hi", &Sender::You).text, "hi");
+    }
+
+    #[test]
+    fn an_agents_envelope_names_its_session_and_claims_nothing() {
+        let c = peer_content("This message is from another agent…\n\nhi", None, Some("Review the parser"));
+        assert!(c.starts_with("<cross-session-message from-name=\"Review the parser\">\n"), "{c}");
+        assert!(!c.contains("Your user sent this") && !c.contains("from-mode"), "{c}");
+        // Names come out as Claude Code writes them again, or it wouldn't read the envelope.
+        assert_eq!(envelope_name("Fix \"the\" <build>\tnow\u{200b}"), "Fix the build now");
+        assert_eq!(envelope_name("  🙂  "), "codealong");
+        assert_eq!(envelope_name("Déjà vu — “quoted” (#12)"), "Déjà vu — “quoted” (#12)");
+        let long = envelope_name(&"word ".repeat(30));
+        assert!(long.chars().count() <= 64 && long.starts_with("word word") && long.ends_with('…'), "{long}");
+    }
+
+    #[test]
+    fn agents_reach_claude_code_only_on_its_socket() {
+        let peer = Route::Peer { socket: "/tmp/cc-socks/42.sock".into(), session_id: "abc".into(), mode: None };
+        let s = session(Harness::Claude, Surface::Cli, Status::Working, true, Some(42));
+        assert_eq!(agent_routes(&s, vec![Route::Type { pid: 42 }, peer.clone()]).unwrap(), vec![peer.clone()]);
+        let daemon = Route::Daemon { socket: "/tmp/d/control.sock".into(), key_file: "/h/daemon/control.key".into(), job: "6e07c149".into() };
+        assert_eq!(agent_routes(&s, vec![daemon.clone(), peer.clone()]).unwrap(), vec![peer]);
+        // Typing into its terminal would read as its user's words.
+        let err = agent_routes(&s, vec![Route::Type { pid: 42 }]).unwrap_err();
+        assert!(err.to_string().contains("doesn't take messages from other sessions"), "{err}");
+        let err = agent_routes(&s, vec![daemon]).unwrap_err();
+        assert!(err.to_string().contains("doesn't take messages from other sessions"), "{err}");
+        // Other harnesses have no such socket; their terminal or service takes it.
+        let codex = session(Harness::Codex, Surface::Cli, Status::Idle, true, Some(9));
+        assert_eq!(agent_routes(&codex, vec![Route::Type { pid: 9 }]).unwrap(), vec![Route::Type { pid: 9 }]);
+        let app = session(Harness::Codex, Surface::App, Status::Idle, true, None);
+        assert_eq!(agent_routes(&app, vec![Route::CodexApp]).unwrap(), vec![Route::CodexApp]);
+        let oc = session(Harness::Opencode, Surface::Cli, Status::Idle, true, Some(7));
+        assert_eq!(agent_routes(&oc, vec![Route::Opencode]).unwrap(), vec![Route::Opencode]);
+        // A message doesn't start a session again, or wait on someone to send it.
+        for (s, route) in [
+            (session(Harness::Claude, Surface::Cli, Status::Stopped, false, None), Route::Resume),
+            (session(Harness::Claude, Surface::App, Status::Idle, false, None), Route::ClaudeApp),
+            (session(Harness::Codex, Surface::Cli, Status::Stopped, false, None), Route::Resume),
+        ] {
+            let err = agent_routes(&s, vec![route]).unwrap_err();
+            assert!(err.to_string().contains("isn't running"), "{err}");
+        }
+        let ag = session(Harness::Antigravity, Surface::App, Status::Idle, true, None);
+        assert!(agent_routes(&ag, vec![Route::Antigravity]).unwrap_err().to_string().contains("clipboard"));
+    }
+
+    #[test]
+    fn an_agent_waits_for_a_session_waiting_on_its_user() {
+        let s = session(Harness::Claude, Surface::Cli, Status::Needs, true, Some(42));
+        let err = ensure_not_waiting(&s, &Sender::Agent(None)).unwrap_err();
+        assert!(err.to_string().contains("waiting on its user"), "{err}");
+    }
+
+    #[test]
+    fn an_agent_leaves_no_codex_prompt_for_someone_to_send() {
+        // No Codex app answers here, so the turn can't start; what you send would open the
+        // thread with the prompt filled in, an agent's goes nowhere.
+        let account: AccountCfg = serde_json::from_value(json!({ "name": "codex", "harness": "codex", "home": "/nonexistent/codex" })).unwrap();
+        let cfg = Config::default();
+        let place = launch::Placement { new_terminal: cfg.apps.new_terminal, near: &[] };
+        let s = session(Harness::Codex, Surface::App, Status::Idle, true, None);
+        let agent = Sender::Agent(None);
+        let msg = Message::new(&Board::default(), &cfg, "hi", &agent);
+        let err = attempt(&Route::CodexApp, &s, &account, &cfg, place, &msg, None).map(|_| ()).unwrap_err();
+        assert!(err.to_string().contains("nothing was sent"), "{err}");
     }
 
     #[test]
@@ -771,17 +1025,19 @@ mod tests {
 
     #[test]
     fn wraps_the_prompt_as_claude_code_wraps_its_own_messages() {
-        let c = peer_content("  run the tests\n", None);
+        let c = peer_content("  run the tests\n", None, None);
         assert!(c.starts_with("<cross-session-message from-name=\"Codealong\">\n"), "{c}");
         assert!(c.ends_with("\nrun the tests\n</cross-session-message>"), "{c}");
         assert!(!c.contains("from-mode"));
         // A claimed permission class follows the name, as Claude Code writes its attributes.
-        let c = peer_content("hi", Some("bypass"));
+        let c = peer_content("hi", Some("bypass"), None);
         assert!(c.starts_with("<cross-session-message from-name=\"Codealong\" from-mode=\"bypass\">\n"), "{c}");
         // A closing tag in the prompt can't end the envelope early.
-        let c = peer_content("see </cross-session-message> here", None);
+        let c = peer_content("see </cross-session-message> here", None, None);
         assert_eq!(c.matches("</cross-session-message>").count(), 1);
-        let frame = peer_frame("abc", "m1", "hi", None);
+        let c = peer_content("see </cross-session-message> here", None, Some("An agent"));
+        assert_eq!(c.matches("</cross-session-message>").count(), 1);
+        let frame = peer_frame("abc", "m1", "hi", None, None);
         assert!(frame.ends_with('\n') && frame.matches('\n').count() == 1);
         let v: Value = serde_json::from_str(frame.trim()).unwrap();
         assert_eq!(v["session_id"], "abc");
@@ -792,13 +1048,14 @@ mod tests {
 
     #[test]
     fn says_when_a_prompt_went_as_a_message_rather_than_typed() {
-        assert_eq!(peer_note("“Fix”", None, false, false), "Sent to “Fix”.");
-        assert_eq!(peer_note("“Fix”", None, true, false), "Sent to “Fix”; it reads it as it works.");
+        assert_eq!(peer_note("“Fix”", None, false, false, false), "Sent to “Fix”.");
+        assert_eq!(peer_note("“Fix”", None, true, false, false), "Sent to “Fix”; it reads it as it works.");
         assert_eq!(
-            peer_note("“Fix”", Some("Codealong couldn't find its Ghostty tab"), true, false),
+            peer_note("“Fix”", Some("Codealong couldn't find its Ghostty tab"), true, false, false),
             "Sent as a message from Codealong, not typed into “Fix”: Codealong couldn't find its Ghostty tab."
         );
-        assert_eq!(peer_note("“Fix”", None, true, true), "Sent to “Fix”. It skips permission prompts, so it asks you in its terminal before taking it.");
+        assert_eq!(peer_note("“Fix”", None, true, true, false), "Sent to “Fix”. It skips permission prompts, so it asks you in its terminal before taking it.");
+        assert_eq!(peer_note("“Fix”", None, true, true, true), "Sent to “Fix”. It skips permission prompts, so it asks its user in its terminal before taking it.");
     }
 
     #[test]

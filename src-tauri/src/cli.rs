@@ -357,6 +357,23 @@ enum SessionsCmd {
 enum SessionCmd {
     /// One session in full.
     Show { key: String },
+    /// Send a message to another session where it runs, on any account or harness. It's never your user's word: the message starts by saying it's from another agent and not the user, which session sent it, and how to answer (`codealong session send <sender's key> "…"`), so an answer arrives in your session as a new message. Claude Code sessions get it on their socket for messages between sessions; one that skips permission prompts takes it at once only from a session that skips them too, and otherwise asks its user first (a Claude app session can't, so nothing is sent). Codex and OpenCode sessions get it as a prompt, typed into their terminal or posted to their service, and queued while they work. Nothing is sent to a session that isn't running, one waiting on its user to answer a prompt, or an Antigravity one.
+    Send(SendArgs),
+}
+
+#[derive(Args, Debug)]
+struct SendArgs {
+    /// The session: its key, its id, or a unique start of its id.
+    key: String,
+    /// The message. Or --message-file.
+    #[arg(conflicts_with = "message_file")]
+    message: Option<String>,
+    /// Read the message from a file, or from stdin with `-`.
+    #[arg(long, value_name = "FILE")]
+    message_file: Option<String>,
+    /// A file to send with it, such as a screenshot or a log: copied into Codealong's store, and the session gets its full path to open (Claude Code's Read tool shows images). Repeatable.
+    #[arg(long, value_name = "FILE")]
+    attach: Vec<String>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -644,6 +661,23 @@ impl Client {
         }
         Ok(started)
     }
+
+    /// Sends a message to a session as the agent `from` (send.rs): through the app, which does
+    /// what its windows do, or from here when it's closed or older than the command.
+    fn send(&mut self, key: &str, text: &str, from: Option<String>) -> Result<crate::send::Sent> {
+        self.note();
+        if self.app.is_some() {
+            match server::ask(&Request::Send { key: key.to_string(), text: text.to_string(), from: from.clone() }) {
+                Some(Ok(v)) => return serde_json::from_value(v).context("reading the app's reply"),
+                // An app from before `send` says it doesn't know the request.
+                Some(Err(e)) if !e.starts_with(server::UNKNOWN_REQUEST) => bail!("{e}"),
+                Some(Err(_)) => {}
+                None => bail!("The app stopped answering."),
+            }
+        }
+        let cfg = self.cfg().clone();
+        crate::send::send(self.board()?, &cfg, key, text, crate::send::Sender::Agent(from))
+    }
 }
 
 struct BoardLanes(HashMap<String, (String, String)>);
@@ -673,6 +707,7 @@ fn run(cmd: Cmd, c: &mut Client, json: bool) -> Result<()> {
             None => sessions(c, &args.filter, &[], json),
         },
         Cmd::Session { cmd: SessionCmd::Show { key } } => session_show(c, &key, json),
+        Cmd::Session { cmd: SessionCmd::Send(args) } => session_send(c, args, json),
         Cmd::Worktrees(args) => worktrees(c, &args, json),
         Cmd::Pr { cmd: PrCmd::Show { pr } } => pr_show(c, &pr, json),
         Cmd::Pr { cmd: PrCmd::Link(a) } => pr_link(c, &a, true, json),
@@ -1267,6 +1302,35 @@ fn session_show(c: &mut Client, key: &str, json: bool) -> Result<()> {
     Ok(())
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SendOut {
+    /// The session it went to.
+    to: String,
+    /// The session it says it's from: the one running this command, or null outside one.
+    from: Option<String>,
+    #[serde(flatten)]
+    sent: crate::send::Sent,
+}
+
+fn session_send(c: &mut Client, a: SendArgs, json: bool) -> Result<()> {
+    let to = resolve_session(c, &a.key)?;
+    let from = find_me(c)?.0;
+    if from.as_deref() == Some(to.as_str()) {
+        bail!("{to} is the session running this command.");
+    }
+    let text = with_attachments(read_text(a.message, a.message_file)?.unwrap_or_default(), &a.attach)?;
+    if text.trim().is_empty() {
+        bail!("Give a message, --message-file or --attach.");
+    }
+    let sent = c.send(&to, &text, from.clone())?;
+    if json {
+        return print_json(&SendOut { to, from, sent });
+    }
+    println!("{}", sent.message);
+    Ok(())
+}
+
 // ---- PRs ----
 
 /// `owner/name#number` for a PR given as its URL, that, or a number in the repo of the current
@@ -1851,7 +1915,8 @@ fn label_ids(c: &mut Client, store: &mut TodoStore, names: &[String]) -> Result<
     Ok(ids)
 }
 
-fn read_description(text: Option<String>, file: Option<String>) -> Result<Option<String>> {
+/// `text`, or the text of `file`, or of stdin when `file` is `-`.
+fn read_text(text: Option<String>, file: Option<String>) -> Result<Option<String>> {
     if let Some(t) = text {
         return Ok(Some(t));
     }
@@ -1862,6 +1927,20 @@ fn read_description(text: Option<String>, file: Option<String>) -> Result<Option
         return Ok(Some(s));
     }
     Ok(Some(std::fs::read_to_string(expand(&f)).with_context(|| format!("reading {f}"))?))
+}
+
+/// `text` with each file kept in Codealong's store and referred to on a line of its own after
+/// it, as the app's windows attach them.
+fn with_attachments(mut text: String, files: &[String]) -> Result<String> {
+    for f in files {
+        let kept = attachments::import(&expand(f))?;
+        if !text.is_empty() && !text.ends_with('\n') {
+            text.push('\n');
+        }
+        text.push_str(&kept.reference());
+        text.push('\n');
+    }
+    Ok(text)
 }
 
 fn todo(cmd: TodoCmd, c: &mut Client, json: bool) -> Result<()> {
@@ -1885,19 +1964,7 @@ fn todo(cmd: TodoCmd, c: &mut Client, json: bool) -> Result<()> {
             let mut store = c.todos()?;
             let depends_on = a.depends_on.iter().map(|d| resolve_todo(&store, d)).collect::<Result<Vec<_>>>()?;
             let labels = label_ids(c, &mut store, &a.label)?;
-            let mut description = read_description(a.description, a.description_file)?.unwrap_or_default();
-            for f in &a.attach {
-                let kept = attachments::import(&expand(f))?;
-                let reference = match kept.kind {
-                    attachments::Kind::Image => format!("![{}]({})", kept.name, kept.path),
-                    attachments::Kind::File => format!("[{}]({})", kept.name, kept.path),
-                };
-                if !description.is_empty() && !description.ends_with('\n') {
-                    description.push('\n');
-                }
-                description.push_str(&reference);
-                description.push('\n');
-            }
+            let description = with_attachments(read_text(a.description, a.description_file)?.unwrap_or_default(), &a.attach)?;
             let id = new_todo_id();
             let now = now_ms();
             let waiting = a.wait_for.map(|note| Waiting { note, since: now });
@@ -1938,7 +2005,7 @@ fn todo(cmd: TodoCmd, c: &mut Client, json: bool) -> Result<()> {
             if status == Some(TodoStatus::InProgress) {
                 warn_blocked(&store, &id, &[]);
             }
-            let patch = TodoPatch { depends_on, title: a.title, description: read_description(a.description, a.description_file)?, status, labels, project: a.project, waiting: None };
+            let patch = TodoPatch { depends_on, title: a.title, description: read_text(a.description, a.description_file)?, status, labels, project: a.project, waiting: None };
             c.apply(TodoOp::Update { id: id.clone(), patch })?;
             if let Some(s) = status {
                 link_caller(c, &id, s, json);
@@ -2573,6 +2640,13 @@ mod tests {
         assert_eq!((w.id.as_str(), w.what.as_deref()), ("t-1", Some("Graham's letter")));
         assert!(matches!(Cli::try_parse_from(["codealong", "todo", "ready", "t-1"]).unwrap().cmd, Cmd::Todo { cmd: TodoCmd::Ready { .. } }));
         assert!(Cli::try_parse_from(["codealong", "todo", "list", "--ready", "--waiting"]).is_err());
+        let cli = Cli::try_parse_from(["codealong", "session", "send", "claude:claude2:abc", "Which test fails?", "--attach", "shot.png", "--attach", "run.log"]).unwrap();
+        let Cmd::Session { cmd: SessionCmd::Send(s) } = cli.cmd else { panic!() };
+        assert_eq!((s.key.as_str(), s.message.as_deref(), s.attach.len()), ("claude:claude2:abc", Some("Which test fails?"), 2));
+        let cli = Cli::try_parse_from(["codealong", "session", "send", "abc", "--message-file", "-"]).unwrap();
+        let Cmd::Session { cmd: SessionCmd::Send(s) } = cli.cmd else { panic!() };
+        assert_eq!((s.message, s.message_file.as_deref()), (None, Some("-")));
+        assert!(Cli::try_parse_from(["codealong", "session", "send", "abc", "hi", "--message-file", "m.txt"]).is_err());
     }
 
     #[test]

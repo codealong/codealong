@@ -62,6 +62,18 @@ pub struct Attachment {
     pub name: String,
 }
 
+impl Attachment {
+    /// How text refers to it: an image as `![name](images/…)`, which shows in place, any other
+    /// file as `[name](files/…)`. What's sent or started with the text gets each one's full path
+    /// (`expand`).
+    pub fn reference(&self) -> String {
+        match self.kind {
+            Kind::Image => format!("![{}]({})", self.name, self.path),
+            Kind::File => format!("[{}]({})", self.name, self.path),
+        }
+    }
+}
+
 /// The image format a window can show, from the file's first bytes: png, jpg, gif or webp.
 pub fn image_kind(bytes: &[u8]) -> Option<&'static str> {
     if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
@@ -395,6 +407,10 @@ mod tests {
         assert_eq!(log.kind, Kind::File);
         assert!(log.path.starts_with("files/") && log.path.ends_with("/Crash-report-1-.log"), "{}", log.path);
         assert_eq!(log.name, "Crash report 1.log");
+        // Text refers to each so that it's found again, and written out in full when sent.
+        assert_eq!(shot.reference(), format!("![image.png]({})", shot.path));
+        assert_eq!(log.reference(), format!("[Crash report 1.log]({})", log.path));
+        assert_eq!(referenced(&format!("{}\n{}", shot.reference(), log.reference())), vec![shot.path.clone(), log.path.clone()]);
         assert_eq!(std::fs::read(locate_in(&images, &files, &log.path).unwrap()).unwrap(), b"line 1\nline 2\n");
         // An image a window can't show is a file like any other.
         let svg = keep_in(&images, &files, b"<svg xmlns='http://www.w3.org/2000/svg'/>", "logo.svg").unwrap();

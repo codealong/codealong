@@ -880,6 +880,17 @@ Usage: codealong session [OPTIONS] <COMMAND>
 
 Commands:
   show  One session in full
+  send  Send a message to another session where it runs, on any account or harness. It's
+        never your user's word: the message starts by saying it's from another agent and
+        not the user, which session sent it, and how to answer (`codealong session send
+        <sender's key> "…"`), so an answer arrives in your session as a new message.
+        Claude Code sessions get it on their socket for messages between sessions; one
+        that skips permission prompts takes it at once only from a session that skips
+        them too, and otherwise asks its user first (a Claude app session can't, so
+        nothing is sent). Codex and OpenCode sessions get it as a prompt, typed into
+        their terminal or posted to their service, and queued while they work. Nothing
+        is sent to a session that isn't running, one waiting on its user to answer a
+        prompt, or an Antigravity one
   help  Print this message or the help of the given subcommand(s)
 
 Options:
@@ -910,6 +921,51 @@ Arguments:
 Options:
       --json
           JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong session send
+
+```
+Send a message to another session where it runs, on any account or harness. It's never
+your user's word: the message starts by saying it's from another agent and not the user,
+which session sent it, and how to answer (`codealong session send <sender's key> "…"`),
+so an answer arrives in your session as a new message. Claude Code sessions get it on
+their socket for messages between sessions; one that skips permission prompts takes it
+at once only from a session that skips them too, and otherwise asks its user first (a
+Claude app session can't, so nothing is sent). Codex and OpenCode sessions get it as a
+prompt, typed into their terminal or posted to their service, and queued while they
+work. Nothing is sent to a session that isn't running, one waiting on its user to answer
+a prompt, or an Antigravity one
+
+Usage: codealong session send [OPTIONS] <KEY> [MESSAGE]
+
+Arguments:
+  <KEY>
+          The session: its key, its id, or a unique start of its id
+
+  [MESSAGE]
+          The message. Or --message-file
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --message-file <FILE>
+          Read the message from a file, or from stdin with `-`
+
+      --attach <FILE>
+          A file to send with it, such as a screenshot or a log: copied into Codealong's
+          store, and the session gets its full path to open (Claude Code's Read tool
+          shows images). Repeatable
 
       --table
           Tables, even when piped
