@@ -5,7 +5,7 @@
 
 import { useEffect, useState } from 'react';
 import { below, showContextMenu } from '../contextMenu';
-import { answerLink, deviceLinkCode, getDevices, linkDevice, linkWithCode, onDevices, setDeviceColor, unlinkDevice } from '../api';
+import { answerLink, deviceLinkCode, getDevices, linkCodeQr, linkDevice, linkWithCode, onDevices, setDeviceColor, unlinkDevice } from '../api';
 import { agoPhrase } from '../format';
 import { COLOR_WORD } from '../todos';
 import type { Config, DevicesCfg, DevicesView, DeviceView, LabelColor } from '../types';
@@ -25,6 +25,7 @@ export function DevicesPane({ cfg, disabled, onSave, now }: DevicesPaneProps) {
   const [view, setView] = useState<DevicesView | null>(null);
   const [name, setName] = useState(d.name);
   const [code, setCode] = useState<string | null>(null);
+  const [qr, setQr] = useState<string | null>(null);
   const [entered, setEntered] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
@@ -130,7 +131,10 @@ export function DevicesPane({ cfg, disabled, onSave, now }: DevicesPaneProps) {
           {view.devices.map((dev) => (
             <DeviceCard key={dev.key} dev={dev} now={now} busy={busy !== null} onUnlink={() => void run('unlink', () => unlinkDevice(dev.key).then(() => `Unlinked ${dev.name}.`))} />
           ))}
-          {view.devices.length === 0 && view.asks.length === 0 && <p className="ca-empty">No devices linked yet.</p>}
+          {view.phones.map((p) => (
+            <PhoneCard key={p.key} dev={p} now={now} busy={busy !== null} remoteControl={me?.remoteControl ?? false} onUnlink={() => void run('unlink', () => unlinkDevice(p.key).then(() => `Unlinked ${p.name}.`))} />
+          ))}
+          {view.devices.length === 0 && view.phones.length === 0 && view.asks.length === 0 && <p className="ca-empty">No devices linked yet.</p>}
           {view.found.map((f) => (
             <div key={f.key} className="ca-ucard ca-acct">
               <div className="ca-ucard-head">
@@ -153,9 +157,12 @@ export function DevicesPane({ cfg, disabled, onSave, now }: DevicesPaneProps) {
           {d.iroh && (
             <div className="ca-ucard ca-acct">
               <div className="ca-ucard-head">
-                <span className="ca-ucard-name ca-device-name">A device that isn&apos;t on your tailnet</span>
+                <span className="ca-ucard-name ca-device-name">Your phone, or a device that isn&apos;t on your tailnet</span>
               </div>
-              <p className="ca-acct-note">Make a link code here and enter it on the other device, or enter one made there. A code works once, for ten minutes.</p>
+              <p className="ca-acct-note">
+                Make a link code here and scan it with your phone&apos;s camera, or enter it on the other device; or enter one made there. A code works once, for ten minutes.
+              </p>
+              {qr && <img className="ca-device-qr" src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(qr)}`} alt="The link code as a QR code, for your phone's camera" />}
               {code && (
                 <div className="ca-device-linkcode">
                   <code className="ca-code" aria-label="Link code">
@@ -172,7 +179,18 @@ export function DevicesPane({ cfg, disabled, onSave, now }: DevicesPaneProps) {
                   if (c) void run('code', () => linkWithCode(c).then((who) => (setEntered(''), `Linked with ${who}.`)));
                 }}
               >
-                <Button size="sm" disabled={busy !== null} onClick={() => void run('make', () => deviceLinkCode().then((c) => (setCode(c), null)))}>
+                <Button
+                  size="sm"
+                  disabled={busy !== null}
+                  onClick={() =>
+                    void run('make', async () => {
+                      const c = await deviceLinkCode();
+                      setCode(c);
+                      setQr(await linkCodeQr(c).catch(() => null));
+                      return null;
+                    })
+                  }
+                >
                   Make a link code
                 </Button>
                 <input className="ca-device-codein" value={entered} placeholder="Or enter one from another device" spellCheck={false} aria-label="Link code from another device" onChange={(e) => setEntered(e.target.value)} />
@@ -215,6 +233,33 @@ function DeviceCard({ dev, now, busy, onUnlink }: { dev: DeviceView; now: number
         </span>
       </div>
       {!dev.linkedBack && <p className="ca-acct-note">{dev.name} doesn't have this device linked any more. Unlink it here, then link again.</p>}
+      <div className="ca-acct-actions">
+        <Button size="sm" disabled={busy} onClick={onUnlink}>
+          Unlink
+        </Button>
+        {dev.app && <span className="ca-acct-asof">Codealong {dev.app}</span>}
+      </div>
+    </div>
+  );
+}
+
+/** A linked phone or tablet: it only watches, so it has no color, worktrees or remote control of its own. */
+function PhoneCard({ dev, now, busy, remoteControl, onUnlink }: { dev: DeviceView; now: number; busy: boolean; remoteControl: boolean; onUnlink: () => void }) {
+  const where = dev.online ? 'Connected' : dev.lastSeen ? `Last seen ${agoPhrase(dev.lastSeen, now)}` : 'Not connected';
+  return (
+    <div className="ca-ucard ca-acct">
+      <div className="ca-ucard-head">
+        <span className={dev.online ? 'ca-device-dot is-on' : 'ca-device-dot'} aria-hidden="true" />
+        <span className="ca-ucard-name ca-device-name">{dev.name}</span>
+        <span className="ca-ucard-plan">
+          {dev.kind === 'tablet' ? 'Tablet' : 'Phone'} · {where}
+        </span>
+      </div>
+      <p className="ca-acct-note">
+        {remoteControl
+          ? `It sees this device's sessions and, with remote control on, can send prompts and answer approvals here.`
+          : `It sees this device's sessions and reads them. Turn on remote control above to let it send prompts and answer approvals.`}
+      </p>
       <div className="ca-acct-actions">
         <Button size="sm" disabled={busy} onClick={onUnlink}>
           Unlink

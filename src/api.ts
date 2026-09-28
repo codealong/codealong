@@ -479,6 +479,11 @@ export async function deviceLinkCode(): Promise<string> {
   return invoke<string>('device_link_code');
 }
 
+/** A link code as a QR code (SVG) of the link the phone app opens, so a phone's camera links it. */
+export async function linkCodeQr(code: string): Promise<string> {
+  return invoke<string>('link_code_qr', { code });
+}
+
 /** Links with the device that made this code. Resolves to its name. */
 export async function linkWithCode(code: string): Promise<string> {
   return invoke<string>('link_with_code', { code });

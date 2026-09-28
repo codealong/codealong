@@ -61,7 +61,7 @@ const IROH_DIAL_EVERY: Duration = Duration::from_secs(30);
 const LINK_CODE_FOR_MS: i64 = 10 * 60 * 1000;
 
 /// Requests that act on a session: they need remote control on at the device asked.
-pub const CONTROL: [&str; 3] = ["session-send", "session-answer", "start"];
+pub use codealong_peer::api::CONTROL;
 
 /// A connection to another device as the rest of this module sees it, whatever carries it.
 pub use codealong_peer::wire::Wire;
@@ -98,6 +98,18 @@ pub struct Linked {
     /// The color you gave it; none takes the one its key picks (`color_of`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color: Option<String>,
+    /// What kind of device it is, as its hello said (`peerproto::MAC`, `PHONE`, `TABLET`); none for
+    /// devices from before kinds, which are Macs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+}
+
+impl Linked {
+    /// It only watches (a phone or a tablet): it dials the devices it's linked with itself, and
+    /// has no board to show or search.
+    pub fn watches(&self) -> bool {
+        peerproto::watches(self.kind.as_deref())
+    }
 }
 
 /// The label colors a device can have, as the windows name them.
@@ -126,8 +138,10 @@ struct Cached {
 pub struct DevicesView {
     pub enabled: bool,
     pub me: MeView,
-    /// Linked devices, in the order they were linked.
+    /// Linked devices with boards of their own (Macs), in the order they were linked.
     pub devices: Vec<DeviceView>,
+    /// Linked phones and tablets, which only watch: no boards, so they're in none of the views.
+    pub phones: Vec<DeviceView>,
     /// Your devices on your tailnet running Codealong that aren't linked yet.
     pub found: Vec<FoundView>,
     /// Devices asking to be linked, waiting for your answer here.
@@ -173,6 +187,8 @@ pub struct DeviceView {
     pub linked_back: bool,
     pub loading: bool,
     pub usage: Vec<Usage>,
+    /// `mac`, `phone` or `tablet` (`peerproto::MAC`…).
+    pub kind: String,
 }
 
 #[derive(Serialize, Clone, Debug, Default)]
@@ -224,6 +240,8 @@ struct Conn {
     close: Arc<dyn Fn() + Send + Sync>,
     name: String,
     app: String,
+    /// What kind of device it is, from its hello.
+    kind: Option<String>,
     linked_there: bool,
     since: i64,
     outbox: Outbox,
@@ -544,7 +562,7 @@ impl Peers {
     pub fn search(&self, words: &[String]) -> Vec<DeviceFound> {
         let targets: Vec<(String, String)> = {
             let st = self.0.lock();
-            st.linked.iter().filter(|l| st.conns.contains_key(&l.key)).map(|l| (short_of(&l.key).to_string(), self.0.name_of(&st, &l.key))).collect()
+            st.linked.iter().filter(|l| st.conns.contains_key(&l.key) && !l.watches()).map(|l| (short_of(&l.key).to_string(), self.0.name_of(&st, &l.key))).collect()
         };
         let handles: Vec<_> = targets
             .into_iter()
@@ -552,7 +570,7 @@ impl Peers {
                 let me = self.clone();
                 let words = words.to_vec();
                 std::thread::spawn(move || {
-                    let got = me.ask(&short, "search", json!({ "words": words }), Duration::from_secs(4));
+                    let got = me.ask(&short, codealong_peer::api::SEARCH, json!({ "words": words }), Duration::from_secs(4));
                     match got.and_then(|v| serde_json::from_value::<crate::search::Found>(v).map_err(|e| e.to_string())) {
                         Ok(mut found) => {
                             for h in &mut found.hits {
@@ -621,7 +639,8 @@ impl Inner {
                 Via::Iroh => "iroh",
                 Via::Test => "test",
             };
-            st.linked.push(Linked { key: key.to_string(), name: name.to_string(), linked_at: now_ms(), via: via.into(), color: None });
+            let kind = st.conns.get(key).and_then(|c| c.kind.clone());
+            st.linked.push(Linked { key: key.to_string(), name: name.to_string(), linked_at: now_ms(), via: via.into(), color: None, kind });
             save_linked(&self.dir, &st.linked);
         }
         if let Some(c) = st.conns.get_mut(key) {
@@ -688,10 +707,7 @@ impl Inner {
             remote_control: st.cfg.remote_control,
             error: st.error.clone().or_else(|| st.tailnet_error.clone()),
         };
-        let devices = st
-            .linked
-            .iter()
-            .map(|l| {
+        let view_of = |l: &Linked| {
                 let conn = st.conns.get(&l.key);
                 let cached = st.replicas.get(&l.key);
                 DeviceView {
@@ -708,9 +724,11 @@ impl Inner {
                     linked_back: conn.is_none_or(|c| c.linked_there),
                     loading: cached.is_some_and(|c| c.replica.device.loading),
                     usage: cached.map(|c| c.replica.usage.clone()).unwrap_or_default(),
+                    kind: l.kind.clone().unwrap_or_else(|| peerproto::MAC.into()),
                 }
-            })
-            .collect();
+            };
+        let devices = st.linked.iter().filter(|l| !l.watches()).map(view_of).collect();
+        let phones = st.linked.iter().filter(|l| l.watches()).map(view_of).collect();
         let my_key = self.me.get().map(|m| m.key);
         let mut found: Vec<FoundView> = st
             .conns
@@ -732,6 +750,7 @@ impl Inner {
         let lanes = if st.cfg.enabled {
             st.linked
                 .iter()
+                .filter(|l| !l.watches())
                 .filter_map(|l| {
                     let c = st.replicas.get(&l.key)?;
                     let tag = DeviceTag { name: self.name_of(st, &l.key), short: short_of(&l.key).to_string(), color: color_of(l), online: st.conns.contains_key(&l.key), last_seen: Some(c.last_seen).filter(|t| *t > 0) };
@@ -746,7 +765,7 @@ impl Inner {
         } else {
             Vec::new()
         };
-        DevicesView { enabled: st.cfg.enabled, me, devices, found, asks, lanes }
+        DevicesView { enabled: st.cfg.enabled, me, devices, phones, found, asks, lanes }
     }
 }
 
@@ -871,9 +890,9 @@ fn run(inner: Arc<Inner>, wire: Wire, via: Via, dialed: bool, expect: Option<Pub
     set_timeout(Some(HANDSHAKE_TIMEOUT));
     let my_nonce = peerproto::nonce();
     let my_name = inner.my_name(&inner.lock());
-    let _ = tx.send(Msg::Hello { v: VERSION, key: me.hex.clone(), name: my_name, app: APP.into(), nonce: my_nonce.clone() });
-    let shook = (|| -> std::result::Result<(PublicKey, String, String), String> {
-        let Ok(Some(Msg::Hello { v, key, name, app, nonce })) = peerproto::read_msg(&mut reader) else { return Err("no hello".into()) };
+    let _ = tx.send(Msg::Hello { v: VERSION, key: me.hex.clone(), name: my_name, app: APP.into(), nonce: my_nonce.clone(), kind: Some(peerproto::MAC.into()) });
+    let shook = (|| -> std::result::Result<(PublicKey, String, String, Option<String>), String> {
+        let Ok(Some(Msg::Hello { v, key, name, app, nonce, kind })) = peerproto::read_msg(&mut reader) else { return Err("no hello".into()) };
         if v != VERSION {
             return Err(format!("{name} speaks version {v} of Codealong's protocol; update Codealong on both devices."));
         }
@@ -884,9 +903,9 @@ fn run(inner: Arc<Inner>, wire: Wire, via: Via, dialed: bool, expect: Option<Pub
         let _ = tx.send(Msg::Proof { sig: peerproto::prove(&me.secret, &nonce, &key).map_err(|e| e.to_string())? });
         let Ok(Some(Msg::Proof { sig })) = peerproto::read_msg(&mut reader) else { return Err("no proof".into()) };
         peerproto::check_proof(&key, &sig, &my_nonce, &me.key).map_err(|e| e.to_string())?;
-        Ok((key, name, app))
+        Ok((key, name, app, kind))
     })();
-    let Ok((key, name, app)) = shook else {
+    let Ok((key, name, app, kind)) = shook else {
         drop(tx);
         close();
         return;
@@ -916,14 +935,15 @@ fn run(inner: Arc<Inner>, wire: Wire, via: Via, dialed: bool, expect: Option<Pub
         }
         let linked = Inner::is_linked(&st, &hex);
         if linked {
-            if let Some(l) = st.linked.iter_mut().find(|l| l.key == hex).filter(|l| l.name != name) {
+            if let Some(l) = st.linked.iter_mut().find(|l| l.key == hex).filter(|l| l.name != name || l.kind != kind) {
                 l.name = name.clone();
+                l.kind = kind.clone();
                 save_linked(&inner.dir, &st.linked);
             }
             st.board_dirty = true;
             st.board_at = None;
         }
-        st.conns.insert(hex.clone(), Conn { serial, dialed, via, peer_user, addr, tx: tx.clone(), close: close.clone(), name: name.clone(), app, linked_there: false, since: now_ms(), outbox: Outbox::default() });
+        st.conns.insert(hex.clone(), Conn { serial, dialed, via, peer_user, addr, tx: tx.clone(), close: close.clone(), name: name.clone(), app, kind, linked_there: false, since: now_ms(), outbox: Outbox::default() });
         st.view_dirty = true;
         let _ = tx.send(Msg::Standing { linked });
         if let Some(secret) = ask_link {
@@ -942,8 +962,9 @@ fn run(inner: Arc<Inner>, wire: Wire, via: Via, dialed: bool, expect: Option<Pub
         st.conns.remove(&hex);
         st.asks.retain(|a| a.key != hex);
         st.asking.remove(&hex);
-        if let Some(c) = st.replicas.get_mut(&hex) {
-            c.last_seen = now_ms();
+        // A phone sends no feed, so all that's kept for it is when it was last here.
+        if Inner::is_linked(&st, &hex) {
+            st.replicas.entry(hex.clone()).or_default().last_seen = now_ms();
             st.cache_dirty = true;
         }
         let gone: Vec<u64> = st.pending.iter().filter(|(_, (k, _))| *k == hex).map(|(id, _)| *id).collect();
@@ -1066,7 +1087,7 @@ fn handle(inner: &Arc<Inner>, key: &str, serial: u64, tx: &Sender<Msg>, msg: Msg
             let _ = tx.send(Msg::Pong);
             return;
         }
-        Msg::Pong | Msg::Hello { .. } | Msg::Proof { .. } => return,
+        Msg::Pong | Msg::Hello { .. } | Msg::Proof { .. } | Msg::Unknown => return,
     }
     inner.wake.notify_all();
 }
@@ -1235,7 +1256,7 @@ fn iroh_loop(inner: Arc<Inner>, gen: u64) {
         }
         let todo: Vec<String> = {
             let st = inner.lock();
-            st.linked.iter().filter(|l| !st.conns.contains_key(&l.key)).map(|l| l.key.clone()).collect()
+            st.linked.iter().filter(|l| !st.conns.contains_key(&l.key) && !l.watches()).map(|l| l.key.clone()).collect()
         };
         for hex in todo {
             if wait.get(&hex).is_some_and(|(at, d)| at.elapsed() < *d) {
@@ -1429,6 +1450,15 @@ mod tests {
     /// The phone's client (codealong-peer's device that only watches) links with a Mac's link
     /// code, gets its feed, reads through the Mac's own functions, and is refused what needs
     /// remote control there.
+    /// A loopback connection to `mac`, as a phone's reconnect through iroh would reach it.
+    fn reconnect(mac: &Device) -> Wire {
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let dialer = TcpStream::connect(("127.0.0.1", l.local_addr().unwrap().port())).unwrap();
+        let (accepted, _) = l.accept().unwrap();
+        mac.peers.attach(Wire::tcp(accepted).unwrap(), Via::Test, false, None, None, None);
+        Wire::tcp(dialer).unwrap()
+    }
+
     #[test]
     fn a_watching_device_links_with_a_code_and_reads() {
         let mac = device("Mini", vec![lane("/Users/sam/app", vec![session("claude:claude:s2", Status::Needs)])]);
@@ -1438,7 +1468,7 @@ mod tests {
         let code = Ticket { key: mac.peers.0.me.get().unwrap().key, secret }.encode();
 
         let dir = mac.dir.with_extension("phone");
-        let phone = codealong_peer::client::Client::new(dir.clone(), SecretKey::generate(), "iPhone".into(), "0.1.0".into(), Box::new(|| {}));
+        let phone = codealong_peer::client::Client::new(dir.clone(), SecretKey::generate(), "iPhone".into(), "0.1.0".into(), peerproto::PHONE, Box::new(|| {}));
         let l = TcpListener::bind("127.0.0.1:0").unwrap();
         let dialer = TcpStream::connect(("127.0.0.1", l.local_addr().unwrap().port())).unwrap();
         let (accepted, _) = l.accept().unwrap();
@@ -1446,21 +1476,33 @@ mod tests {
         mac.peers.attach(Wire::tcp(accepted).unwrap(), Via::Test, false, None, None, None);
         assert_eq!(phone.link_wire(&code, Wire::tcp(dialer).unwrap()).unwrap(), "Mini");
 
-        until("the Mac to list the phone", || mac.peers.view().devices.iter().any(|d| d.name == "iPhone" && d.online));
+        // Listed as a phone, apart from the devices whose boards the views show.
+        until("the Mac to list the phone", || mac.peers.view().phones.iter().any(|d| d.name == "iPhone" && d.online && d.kind == "phone"));
+        assert!(mac.peers.view().devices.is_empty());
+        assert!(mac.peers.0.lock().linked[0].watches(), "devices.json remembers it's a phone");
         until("the Mac's feed", || phone.with_feeds(|f| f.first().is_some_and(|(_, r)| r.lanes.len() == 1)));
         let d = phone.devices().remove(0);
         assert!(d.online && d.linked_back && !d.remote_control, "{d:?}");
         assert_eq!(d.name, "Mini");
         assert_eq!(phone.with_feeds(|f| f[0].1.lanes[0].sessions[0].status), Status::Needs);
 
-        let page = phone.ask(&d.short, "session-page", json!({ "key": "claude:claude:s2" }), Duration::from_secs(5)).unwrap();
-        assert_eq!(page["key"], "claude:claude:s2");
-        let refused = phone.ask(&d.short, "session-send", json!({ "key": "claude:claude:s2", "text": "hi" }), Duration::from_secs(5)).unwrap_err();
+        let page = phone.page(&d.short, "claude:claude:s2", None).unwrap();
+        assert!(page.items.is_empty() && page.before.is_none());
+        assert_eq!(mac.asked.lock().unwrap().last().unwrap().1["key"], "claude:claude:s2");
+        let refused = phone.send(&d.short, "claude:claude:s2", "hi").unwrap_err();
         assert!(refused.contains("Remote control is off on Mini"), "{refused}");
+        // A phone has nothing to search, so a search on the Mac doesn't ask it.
+        assert!(mac.peers.search(&["webhook".into()]).is_empty());
+
+        // Gone, it's remembered with when it was last here.
+        phone.stop();
+        until("the Mac to see the phone go", || mac.peers.view().phones.first().is_some_and(|p| !p.online && p.last_seen.is_some()));
 
         // Unlinking on the phone unlinks the Mac too.
+        phone.connect_wire(reconnect(&mac), mac.peers.0.me.get().unwrap().key);
+        until("the phone back", || mac.peers.view().phones.first().is_some_and(|p| p.online));
         phone.unlink(&d.key).unwrap();
-        until("the Mac to forget the phone", || mac.peers.view().devices.is_empty());
+        until("the Mac to forget the phone", || mac.peers.view().phones.is_empty());
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -1637,7 +1679,7 @@ mod tests {
 
     #[test]
     fn devices_have_a_color_their_key_picks_until_you_choose() {
-        let l = |key: &str, color: Option<&str>| Linked { key: key.into(), name: "d".into(), linked_at: 0, via: String::new(), color: color.map(str::to_string) };
+        let l = |key: &str, color: Option<&str>| Linked { key: key.into(), name: "d".into(), linked_at: 0, via: String::new(), color: color.map(str::to_string), kind: None };
         // The same key picks the same color everywhere, never red or gray.
         assert_eq!(color_of(&l("00ab", None)), "purple");
         assert_eq!(color_of(&l("01ab", None)), "teal");

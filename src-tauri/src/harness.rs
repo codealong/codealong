@@ -14,34 +14,14 @@
 use std::path::PathBuf;
 
 use anyhow::{bail, Result};
-use serde::Serialize;
 
 use crate::config::{AccountCfg, Config};
 use crate::model::{Harness, Session};
 use crate::transcript::Page;
 
-/// What a session waits on you for, when it's a tool call you can allow or deny.
-#[derive(Debug, Clone, Serialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct Pending {
-    /// The request's own id: the tool call's (Claude Code) or the permission request's (OpenCode).
-    /// An answer names it, so a request that changed meanwhile isn't answered by mistake.
-    pub id: String,
-    /// The tool call as a line, e.g. "Bash · `rm -rf build`".
-    pub label: String,
-    /// All of it: the command, the file and the change.
-    pub input: Option<String>,
-    /// Why Codealong can't answer it here, when it can't; the panel then offers to open it.
-    pub cannot: Option<String>,
-}
-
-/// Your answer to a pending request.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Answer {
-    Allow,
-    Deny,
-}
+/// What a session waits on you for, and your answer: they go between devices too, so they're in
+/// codealong-peer.
+pub use codealong_peer::api::{Answer, Pending};
 
 /// What an adapter gets to work with besides the session: the account it's on.
 pub struct Ctx<'a> {

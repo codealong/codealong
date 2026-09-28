@@ -234,8 +234,10 @@ export interface DeviceTag {
 export interface DevicesView {
   enabled: boolean;
   me: DevicesMe;
-  /** Linked devices, in the order they were linked. */
+  /** Linked devices with boards of their own (Macs), in the order they were linked. */
   devices: DeviceView[];
+  /** Linked phones and tablets: they only watch, so they have no worktrees and are in no view. */
+  phones: DeviceView[];
   /** Your devices on your tailnet running Codealong that aren't linked yet. */
   found: FoundDevice[];
   /** Devices asking to link, waiting for your answer here. */
@@ -273,6 +275,7 @@ export interface DeviceView {
   linkedBack: boolean;
   loading: boolean;
   usage: Usage[];
+  kind: 'mac' | 'phone' | 'tablet';
 }
 
 export interface FoundDevice {

@@ -43,6 +43,8 @@ tauri-plugin-global-shortcut = "2"
 codealong-peer = { path = "peer" }
 iroh = "1"
 data-encoding = "2"
+# Link codes as QR codes, for the phone app to scan (Settings › Devices).
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 
 # The floating bar, the quick panel and the focus outline (flash.rs): panels, window occlusion, placement and Spaces, which
 # Tauri doesn't expose.

@@ -236,6 +236,18 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
 
+    /// A page goes to other devices as it is; the phone app reads it with codealong-peer's `Page`.
+    #[test]
+    fn pages_read_back_on_other_devices() {
+        let item = |kind: &'static str, id: Option<&str>, output: Option<&str>| Item { at: 7, kind, text: format!("{kind} text"), id: id.map(String::from), input: output.map(|_| "cargo test".to_string()), output: output.map(String::from), failed: kind == "result", cursor: 40, n: 2 };
+        let page = Page { items: vec![item("you", None, None), item("agent", None, None), item("tool", Some("t1"), None), item("result", Some("t1"), Some("ok")), item("note", None, None)], before: Some(12), after: 900 };
+        let theirs: codealong_peer::api::Page = serde_json::from_value(serde_json::to_value(&page).unwrap()).unwrap();
+        assert_eq!((theirs.before, theirs.after, theirs.items.len()), (Some(12), 900, 5));
+        let r = &theirs.items[3];
+        assert_eq!((r.kind.as_str(), r.id.as_deref(), r.output.as_deref(), r.failed, r.cursor, r.n), ("result", Some("t1"), Some("ok"), true, 40, 2));
+        assert_eq!(serde_json::to_value(&theirs).unwrap(), serde_json::to_value(&page).unwrap(), "nothing lost on the way");
+    }
+
     fn write(lines: &[&str]) -> PathBuf {
         // Tests run at once: each gets a folder of its own.
         static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);

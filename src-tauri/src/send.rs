@@ -24,7 +24,6 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, bail, Result};
-use serde::Serialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
@@ -35,14 +34,8 @@ use crate::model::{Board, Harness, Session, Status, Surface};
 use crate::procs;
 use crate::start;
 
-#[derive(Serialize, Debug, Clone, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct Sent {
-    /// One sentence for the panel: where the prompt went, or what to do next.
-    pub message: String,
-    /// The session or its app was opened for you to send it there, rather than sent.
-    pub opened: bool,
-}
+/// How a send went; it goes back to other devices too, so it's in codealong-peer.
+pub use codealong_peer::api::Sent;
 
 /// Who a message is from, as far as a session's own permission check goes.
 #[derive(Debug, Clone, Copy, PartialEq)]

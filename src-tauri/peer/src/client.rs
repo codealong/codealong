@@ -23,8 +23,9 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use anyhow::Result;
 use iroh::{PublicKey, SecretKey};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
 
+use crate::api;
 use crate::feed::Replica;
 use crate::net::{Iroh, Ticket};
 use crate::proto::{self, Msg, VERSION};
@@ -40,6 +41,10 @@ const DIAL_FIRST: Duration = Duration::from_secs(2);
 const DIAL_MAX: Duration = Duration::from_secs(60);
 const LINK_WAIT: Duration = Duration::from_secs(20);
 const SAVE_EVERY: Duration = Duration::from_secs(30);
+/// How long a read may take, and a request that acts on a session, which can type into a
+/// terminal or wait on the Codex app.
+const READ_WAIT: Duration = Duration::from_secs(15);
+const ACT_WAIT: Duration = Duration::from_secs(40);
 
 /// A device this one is linked with, as `devices.json` keeps it.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -114,6 +119,8 @@ struct Inner {
     hex: String,
     name: String,
     app: String,
+    /// `proto::PHONE` or `proto::TABLET`: Macs don't dial a device that only watches, or ask it to search.
+    kind: String,
     dir: PathBuf,
     on_change: Box<dyn Fn() + Send + Sync>,
     st: Mutex<State>,
@@ -127,13 +134,13 @@ struct Inner {
 pub struct Client(Arc<Inner>);
 
 impl Client {
-    /// A client with this device's key, its name and app version as the other devices see them,
-    /// keeping its files in `dir`. `on_change` is called, on some thread, whenever what `devices`
-    /// and `with_feeds` give may have changed.
-    pub fn new(dir: PathBuf, secret: SecretKey, name: String, app: String, on_change: Box<dyn Fn() + Send + Sync>) -> Client {
+    /// A client with this device's key, its name, app version and kind (`proto::PHONE` or
+    /// `proto::TABLET`) as the other devices see them, keeping its files in `dir`. `on_change` is
+    /// called, on some thread, whenever what `devices` and `with_feeds` give may have changed.
+    pub fn new(dir: PathBuf, secret: SecretKey, name: String, app: String, kind: &str, on_change: Box<dyn Fn() + Send + Sync>) -> Client {
         let key = secret.public();
         let st = State { linked: load_linked(&dir), replicas: load_cache(&dir), ..Default::default() };
-        Client(Arc::new(Inner { hex: proto::key_hex(&key), key, secret, name, app, dir, on_change, st: Mutex::new(st), gen: AtomicU64::new(0), ids: AtomicU64::new(1), iroh: Mutex::new(None) }))
+        Client(Arc::new(Inner { hex: proto::key_hex(&key), key, secret, name, app, kind: kind.to_string(), dir, on_change, st: Mutex::new(st), gen: AtomicU64::new(0), ids: AtomicU64::new(1), iroh: Mutex::new(None) }))
     }
 
     /// This device's key, as hex.
@@ -290,6 +297,41 @@ impl Client {
         }
     }
 
+    /// A page of a session's conversation on `device`, back from `before` (from the newest when
+    /// none). `key` is the session's key there.
+    pub fn page(&self, device: &str, key: &str, before: Option<u64>) -> std::result::Result<api::Page, String> {
+        read(self.ask(device, api::SESSION_PAGE, json!({ "key": key, "before": before }), READ_WAIT)?)
+    }
+
+    /// What a session on `device` said and did after `after`.
+    pub fn newer(&self, device: &str, key: &str, after: u64) -> std::result::Result<api::Page, String> {
+        read(self.ask(device, api::SESSION_NEWER, json!({ "key": key, "after": after }), READ_WAIT)?)
+    }
+
+    /// What a session on `device` waits on you to allow, when it's a tool call it can answer.
+    pub fn pending(&self, device: &str, key: &str) -> std::result::Result<Option<api::Pending>, String> {
+        read(self.ask(device, api::SESSION_PENDING, json!({ "key": key }), READ_WAIT)?)
+    }
+
+    /// Allows or denies tool call `id`, if it's still the one the session waits on. Says how it went.
+    pub fn answer(&self, device: &str, key: &str, id: &str, answer: api::Answer) -> std::result::Result<String, String> {
+        read(self.ask(device, api::SESSION_ANSWER, json!({ "key": key, "id": id, "answer": answer }), ACT_WAIT)?)
+    }
+
+    /// Sends a session on `device` a prompt, where it runs there.
+    pub fn send(&self, device: &str, key: &str, text: &str) -> std::result::Result<api::Sent, String> {
+        read(self.ask(device, api::SESSION_SEND, json!({ "key": key, "text": text }), ACT_WAIT)?)
+    }
+
+    pub fn archive(&self, device: &str, key: &str, archived: bool) -> std::result::Result<(), String> {
+        self.ask(device, api::SESSION_ARCHIVE, json!({ "key": key, "archived": archived }), ACT_WAIT).map(|_| ())
+    }
+
+    /// Marks sessions on `device` seen, so Your turn clears there and everywhere else.
+    pub fn mark_seen(&self, device: &str, keys: &[String]) -> std::result::Result<(), String> {
+        self.ask(device, api::MARK_SEEN, json!({ "keys": keys }), ACT_WAIT).map(|_| ())
+    }
+
     /// The linked devices, in the order they were linked.
     pub fn devices(&self) -> Vec<Device> {
         let st = self.0.lock();
@@ -306,6 +348,11 @@ impl Client {
         }).collect();
         f(&pairs)
     }
+}
+
+/// An answer read as what the request returns.
+fn read<T: serde::de::DeserializeOwned>(v: Value) -> std::result::Result<T, String> {
+    serde_json::from_value(v).map_err(|e| format!("The other device's answer didn't read: {e}"))
 }
 
 /// A key's short id: its first five bytes, as hex.
@@ -450,9 +497,9 @@ fn run(inner: Arc<Inner>, wire: Wire, expect: PublicKey, secret: Option<String>,
     let mut reader = BufReader::with_capacity(64 * 1024, reader);
     set_timeout(Some(HANDSHAKE_TIMEOUT));
     let my_nonce = proto::nonce();
-    let _ = tx.send(Msg::Hello { v: VERSION, key: inner.hex.clone(), name: inner.name.clone(), app: inner.app.clone(), nonce: my_nonce.clone() });
+    let _ = tx.send(Msg::Hello { v: VERSION, key: inner.hex.clone(), name: inner.name.clone(), app: inner.app.clone(), nonce: my_nonce.clone(), kind: Some(inner.kind.clone()) });
     let shook = (|| -> std::result::Result<(String, String), String> {
-        let Ok(Some(Msg::Hello { v, key, name, app, nonce })) = proto::read_msg(&mut reader) else { return Err("The other device didn't say hello.".into()) };
+        let Ok(Some(Msg::Hello { v, key, name, app, nonce, .. })) = proto::read_msg(&mut reader) else { return Err("The other device didn't say hello.".into()) };
         if v != VERSION {
             return Err(format!("{name} speaks version {v} of Codealong's protocol; update Codealong there or here."));
         }
@@ -597,7 +644,7 @@ fn handle(inner: &Arc<Inner>, key: &str, serial: u64, tx: &Sender<Msg>, msg: Msg
             let _ = tx.send(Msg::Pong);
             return;
         }
-        Msg::Pong | Msg::Hello { .. } | Msg::Proof { .. } => return,
+        Msg::Pong | Msg::Hello { .. } | Msg::Proof { .. } | Msg::Unknown => return,
     }
     drop(st);
     inner.changed();
@@ -642,14 +689,14 @@ mod tests {
         replica.device.remote_control = true;
         write_json(&dir.join("device-feeds.json"), &HashMap::from([(hex.clone(), Cached { last_seen: 5, replica })]));
 
-        let c = Client::new(dir.clone(), SecretKey::generate(), "iPhone".into(), "0.1.0".into(), Box::new(|| {}));
+        let c = Client::new(dir.clone(), SecretKey::generate(), "iPhone".into(), "0.1.0".into(), proto::PHONE, Box::new(|| {}));
         let d = c.devices();
         assert_eq!(d.len(), 1);
         assert_eq!((d[0].name.as_str(), d[0].online, d[0].remote_control, d[0].last_seen), ("Gordon's Mac mini", false, true, Some(5)));
         assert_eq!(d[0].short, &hex[..10]);
         assert!(c.ask(&hex[..10], "session-page", Value::Null, Duration::from_millis(10)).unwrap_err().contains("isn't connected"));
         c.unlink(&hex).unwrap();
-        assert!(Client::new(dir.clone(), SecretKey::generate(), "iPhone".into(), "0.1.0".into(), Box::new(|| {})).devices().is_empty());
+        assert!(Client::new(dir.clone(), SecretKey::generate(), "iPhone".into(), "0.1.0".into(), proto::PHONE, Box::new(|| {})).devices().is_empty());
         let _ = std::fs::remove_dir_all(dir);
     }
 }

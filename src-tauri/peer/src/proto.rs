@@ -36,6 +36,10 @@ pub enum Msg {
         app: String,
         /// 32 random bytes, as hex, for the other side to sign.
         nonce: String,
+        /// What kind of device it is (`MAC`, `PHONE`, `TABLET`); devices from before kinds send
+        /// none, and they're Macs.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        kind: Option<String>,
     },
     /// The sender's signature over the receiver's nonce and both keys (`proof_message`).
     Proof { sig: String },
@@ -68,6 +72,22 @@ pub enum Msg {
     Unlinked,
     Ping,
     Pong,
+    /// A message from a newer device that this one doesn't know. It's skipped; devices from before
+    /// this ended the connection on one, so new messages go only to devices that say they know them.
+    #[serde(other)]
+    Unknown,
+}
+
+/// A Mac: it has a board, sends it to the devices it's linked with, and answers their requests.
+pub const MAC: &str = "mac";
+/// A phone or a tablet running an app that only watches (client.rs): no board, answers nothing,
+/// and it dials the devices it's linked with itself, while it's open.
+pub const PHONE: &str = "phone";
+pub const TABLET: &str = "tablet";
+
+/// Whether a device of this kind only watches.
+pub fn watches(kind: Option<&str>) -> bool {
+    matches!(kind, Some(PHONE | TABLET))
 }
 
 impl Msg {
@@ -199,7 +219,8 @@ mod tests {
     #[test]
     fn messages_round_trip_as_lines() {
         let msgs = [
-            Msg::Hello { v: 1, key: "ab".into(), name: "Mac mini".into(), app: "0.1.0".into(), nonce: "00".into() },
+            Msg::Hello { v: 1, key: "ab".into(), name: "Mac mini".into(), app: "0.1.0".into(), nonce: "00".into(), kind: None },
+            Msg::Hello { v: 1, key: "cd".into(), name: "iPhone".into(), app: "0.1.0".into(), nonce: "01".into(), kind: Some(PHONE.into()) },
             Msg::Req { id: 7, method: "search".into(), params: serde_json::json!({"words": ["webhook"]}) },
             Msg::Res { id: 7, ok: false, result: None, error: Some("no".into()) },
             Msg::LinkAsk { secret: None },
@@ -214,6 +235,17 @@ mod tests {
         }
         assert!(Msg::LinkAnswer { accepted: true }.line().contains(r#""t":"link-answer""#));
         assert!(Msg::Ping.line().contains(r#"{"t":"ping"}"#));
+    }
+
+    #[test]
+    fn messages_from_newer_devices_are_skipped() {
+        let mut r = std::io::BufReader::new("{\"t\":\"stream\",\"key\":\"k\",\"text\":\"hi\"}\n{\"t\":\"ping\"}\n".as_bytes());
+        assert!(matches!(read_msg(&mut r).unwrap(), Some(Msg::Unknown)));
+        assert!(matches!(read_msg(&mut r).unwrap(), Some(Msg::Ping)));
+        // A hello from before kinds is a Mac's.
+        let old: Msg = serde_json::from_str(r#"{"t":"hello","v":1,"key":"ab","name":"Mini","app":"0.1.0","nonce":"00"}"#).unwrap();
+        assert!(matches!(old, Msg::Hello { kind: None, .. }));
+        assert!(watches(Some(PHONE)) && watches(Some(TABLET)) && !watches(Some(MAC)) && !watches(None) && !watches(Some("linux")));
     }
 
     #[test]

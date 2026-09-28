@@ -5312,6 +5312,16 @@ html.is-quick body {
   flex: 1;
   min-width: 0;
 }
+/* The link code as a QR code for a phone's camera: black on white in either theme, since that's
+   what cameras read best. */
+.ca-device-qr {
+  display: block;
+  width: 176px;
+  height: 176px;
+  margin: var(--space-2) 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+}
 /* Where the reply box would be, for a session on another Mac that can't take one from here. */
 .ca-sessinsp-remote {
   margin: 0;

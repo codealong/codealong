@@ -200,11 +200,16 @@ some work is, answer with one.
 - What goes between devices is codealong-peer (`src-tauri/peer/`, a second package in the
   engine's Cargo workspace): the messages and key proofs (`proto`, re-exported as
   `crate::peerproto`), link codes and iroh (`net`, as `crate::irohnet`), feeds (`feed`), the
-  connection (`wire`), a device that only watches (`client`), and the worktree and session model
-  their feeds carry (`model`; the engine's `model.rs` re-exports it and keeps the board). So a new
-  field on a session or lane goes in `peer/src/model.rs`. The iPhone app (codealong-ios) builds
-  on the crate at a pinned `origin/main` commit and talks to Macs of other builds: a message a
-  peer doesn't know ends its connection, so new messages go only to peers that say they know them.
+  connection (`wire`), what devices ask each other for and get back (`api`: the request names,
+  `Pending`, `Answer` and `Sent`, which harness.rs and send.rs re-export), a device that only
+  watches (`client`), and the worktree and session model their feeds carry (`model`; the
+  engine's `model.rs` re-exports it and keeps the board). So a new field on a session or lane
+  goes in `peer/src/model.rs`. Phones and tablets are linked devices that only watch
+  (`peerproto::watches`): Macs list them apart (`DevicesView.phones`), don't dial them and don't
+  ask them to search. The iPhone app (codealong-ios) builds on the crate at a pinned
+  `origin/main` commit and talks to Macs of other builds: a message a peer doesn't know is
+  skipped now, but ended the connection on builds before 2026-09-28, so new messages go only to
+  peers that say they know them.
 - `src-tauri/src/board.rs` holds the model's rules as pure functions with tests; the engine
   gathers inputs and calls them. `src/lanes.ts` mirrors `bay_of`, the agent bays'
   headlines and the order of sessions and lanes (`sort_sessions`, `lane_prompt_at`) for the

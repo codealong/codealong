@@ -173,6 +173,18 @@ impl Ticket {
     }
 }
 
+/// A link code as a link the phone app opens (a QR code of it, scanned with the phone's camera):
+/// `codealong://link/<code>`.
+pub fn link_url(code: &str) -> String {
+    format!("codealong://link/{}", code.trim())
+}
+
+/// The link code in a link made by `link_url`, or the text itself when it isn't one.
+pub fn code_in(text: &str) -> &str {
+    let t = text.trim();
+    t.strip_prefix("codealong://link/").unwrap_or(t)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -187,6 +199,9 @@ mod tests {
         let messy = format!(" {} \n", code.to_uppercase().chars().collect::<Vec<_>>().chunks(8).map(|c| c.iter().collect::<String>()).collect::<Vec<_>>().join(" "));
         assert_eq!(Ticket::decode(&messy).unwrap(), t);
         assert!(Ticket::decode(&code[..code.len() - 4]).is_err());
+        // As a link, for the phone's camera, it reads back too.
+        assert_eq!(Ticket::decode(code_in(&link_url(&code))).unwrap(), t);
+        assert_eq!(code_in(&code), code);
         assert!(Ticket::decode("hello").is_err());
     }
 

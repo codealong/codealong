@@ -7,8 +7,10 @@
 //! - `model`: the worktrees and sessions themselves, as the board shows them.
 //! - `net`: link codes, and reaching a device anywhere through iroh by its key.
 //! - `wire`: a connection, whatever carries it.
+//! - `api`: what devices ask each other for, and what comes back.
 //! - `client`: a device that only watches: it links, keeps feeds and asks, and answers nothing.
 
+pub mod api;
 pub mod client;
 pub mod feed;
 pub mod model;

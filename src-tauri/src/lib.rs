@@ -35,6 +35,7 @@ mod logo;
 mod model;
 mod peerfeed;
 use codealong_peer::proto as peerproto;
+use codealong_peer::api;
 mod peers;
 mod perf;
 mod prasks;
@@ -165,7 +166,7 @@ fn mark_seen(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, 
     for (device, keys) in by_device {
         let peers = peers.inner().clone();
         std::thread::spawn(move || {
-            let _ = peers.ask(&device, "mark-seen", serde_json::json!({ "keys": keys }), ASK_ACT);
+            let _ = peers.ask(&device, api::MARK_SEEN, serde_json::json!({ "keys": keys }), ASK_ACT);
         });
     }
 }
@@ -325,7 +326,7 @@ fn search_text(words: Vec<String>) -> search::Found {
 #[tauri::command(async)]
 fn session_page(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, before: Option<u64>) -> Result<serde_json::Value, String> {
     if let Some((device, key)) = peerfeed::split_remote(&key) {
-        return peers.ask(device, "session-page", serde_json::json!({ "key": key, "before": before }), ASK_READ);
+        return peers.ask(device, api::SESSION_PAGE, serde_json::json!({ "key": key, "before": before }), ASK_READ);
     }
     page_here(engine.inner(), &key, before)
 }
@@ -341,7 +342,7 @@ fn page_here(engine: &engine::Handle, key: &str, before: Option<u64>) -> Result<
 #[tauri::command(async)]
 fn session_pending(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String) -> Result<serde_json::Value, String> {
     if let Some((device, key)) = peerfeed::split_remote(&key) {
-        return peers.ask(device, "session-pending", serde_json::json!({ "key": key }), ASK_READ);
+        return peers.ask(device, api::SESSION_PENDING, serde_json::json!({ "key": key }), ASK_READ);
     }
     pending_here(engine.inner(), &key)
 }
@@ -360,7 +361,7 @@ fn pending_here(engine: &engine::Handle, key: &str) -> Result<serde_json::Value,
 #[tauri::command(async)]
 fn session_answer(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, id: String, answer: harness::Answer) -> Result<String, String> {
     if let Some((device, key)) = peerfeed::split_remote(&key) {
-        let said = peers.ask(device, "session-answer", serde_json::json!({ "key": key, "id": id, "answer": answer }), ASK_ACT)?;
+        let said = peers.ask(device, api::SESSION_ANSWER, serde_json::json!({ "key": key, "id": id, "answer": answer }), ASK_ACT)?;
         return Ok(said.as_str().unwrap_or_default().to_string());
     }
     answer_here(engine.inner(), &key, &id, answer)
@@ -380,7 +381,7 @@ fn answer_here(engine: &engine::Handle, key: &str, id: &str, answer: harness::An
 #[tauri::command(async)]
 fn session_newer(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, after: u64) -> Result<serde_json::Value, String> {
     if let Some((device, key)) = peerfeed::split_remote(&key) {
-        return peers.ask(device, "session-newer", serde_json::json!({ "key": key, "after": after }), ASK_READ);
+        return peers.ask(device, api::SESSION_NEWER, serde_json::json!({ "key": key, "after": after }), ASK_READ);
     }
     newer_here(engine.inner(), &key, after)
 }
@@ -408,7 +409,7 @@ fn session_cancel(key: String) -> Result<(), String> {
 #[tauri::command(async)]
 fn send_to_session(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, text: String) -> Result<serde_json::Value, String> {
     if let Some((device, key)) = peerfeed::split_remote(&key) {
-        return peers.ask(device, "session-send", serde_json::json!({ "key": key, "text": text }), ASK_ACT);
+        return peers.ask(device, api::SESSION_SEND, serde_json::json!({ "key": key, "text": text }), ASK_ACT);
     }
     serde_json::to_value(send_here(engine.inner(), &key, &text, send::Sender::You)?).map_err(|e| e.to_string())
 }
@@ -525,7 +526,7 @@ fn open_url(url: String) -> Result<(), String> {
 #[tauri::command(async)]
 fn archive_session(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, archived: bool) -> Result<(), String> {
     if let Some((device, key)) = peerfeed::split_remote(&key) {
-        return peers.ask(device, "session-archive", serde_json::json!({ "key": key, "archived": archived }), ASK_ACT).map(|_| ());
+        return peers.ask(device, api::SESSION_ARCHIVE, serde_json::json!({ "key": key, "archived": archived }), ASK_ACT).map(|_| ());
     }
     engine.archive(&key, archived).map_err(|e| format!("{e:#}"))
 }
@@ -627,6 +628,17 @@ fn device_link_code(peers: State<'_, peers::Peers>) -> Result<String, String> {
     peers.link_code()
 }
 
+/// A link code as a QR code (SVG) of the link the phone app opens, so a phone's camera links it.
+#[tauri::command]
+fn link_code_qr(code: String) -> Result<String, String> {
+    link_qr_svg(&code)
+}
+
+fn link_qr_svg(code: &str) -> Result<String, String> {
+    let qr = qrcode::QrCode::new(irohnet::link_url(code).as_bytes()).map_err(|e| e.to_string())?;
+    Ok(qr.render::<qrcode::render::svg::Color>().min_dimensions(176, 176).dark_color(qrcode::render::svg::Color("#000000")).light_color(qrcode::render::svg::Color("#ffffff")).build())
+}
+
 /// Links with the device that made this link code; returns its name.
 #[tauri::command(async)]
 fn link_with_code(peers: State<'_, peers::Peers>, code: String) -> Result<String, String> {
@@ -651,14 +663,14 @@ fn peer_answer(engine: &engine::Handle, method: &str, p: serde_json::Value) -> R
     let key = || p.get("key").and_then(Value::as_str).map(str::to_string).ok_or_else(|| "The request names no session.".to_string());
     let text = |k: &str| p.get(k).and_then(Value::as_str).unwrap_or_default().to_string();
     match method {
-        "session-page" => page_here(engine, &key()?, p.get("before").and_then(Value::as_u64)),
-        "session-newer" => newer_here(engine, &key()?, p.get("after").and_then(Value::as_u64).unwrap_or(0)),
-        "session-pending" => pending_here(engine, &key()?),
-        "search" => {
+        api::SESSION_PAGE => page_here(engine, &key()?, p.get("before").and_then(Value::as_u64)),
+        api::SESSION_NEWER => newer_here(engine, &key()?, p.get("after").and_then(Value::as_u64).unwrap_or(0)),
+        api::SESSION_PENDING => pending_here(engine, &key()?),
+        api::SEARCH => {
             let words: Vec<String> = p.get("words").cloned().and_then(|w| serde_json::from_value(w).ok()).unwrap_or_default();
             to_value(search_text(words)).map_err(|e| e.to_string())
         }
-        "session-send" => {
+        api::SESSION_SEND => {
             let sent = send_here(engine, &key()?, &text("text"), send::Sender::Elsewhere)?;
             // Opening the session with the prompt ready to send needs someone at this device.
             if sent.opened {
@@ -666,18 +678,18 @@ fn peer_answer(engine: &engine::Handle, method: &str, p: serde_json::Value) -> R
             }
             to_value(sent).map_err(|e| e.to_string())
         }
-        "session-answer" => {
+        api::SESSION_ANSWER => {
             let answer: harness::Answer = p.get("answer").cloned().and_then(|a| serde_json::from_value(a).ok()).ok_or("The request has no answer.")?;
             answer_here(engine, &key()?, &text("id"), answer).map(Value::String)
         }
-        "session-archive" => engine.archive(&key()?, p.get("archived").and_then(Value::as_bool).unwrap_or(true)).map(|_| Value::Null).map_err(|e| format!("{e:#}")),
-        "mark-seen" => {
+        api::SESSION_ARCHIVE => engine.archive(&key()?, p.get("archived").and_then(Value::as_bool).unwrap_or(true)).map(|_| Value::Null).map_err(|e| format!("{e:#}")),
+        api::MARK_SEEN => {
             let keys: Vec<String> = p.get("keys").cloned().and_then(|k| serde_json::from_value(k).ok()).unwrap_or_default();
             engine.mark_seen(keys);
             Ok(Value::Null)
         }
-        "start-options" => to_value(start_options()?).map_err(|e| e.to_string()),
-        "start" => {
+        api::START_OPTIONS => to_value(start_options()?).map_err(|e| e.to_string()),
+        api::START => {
             let spec: start::StartSpec = p.get("spec").cloned().and_then(|s| serde_json::from_value(s).ok()).ok_or("The request has no start.")?;
             to_value(start_and_link(engine, &spec)?).map_err(|e| e.to_string())
         }
@@ -699,7 +711,7 @@ fn start_session(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peer
     if let Some((device, lane)) = peerfeed::split_remote(&spec.lane_id) {
         // Its todos are this device's; the other device has its own list.
         let spec = start::StartSpec { lane_id: lane.to_string(), todos: Vec::new(), ..spec.clone() };
-        let got = peers.ask(device, "start", serde_json::json!({ "spec": spec }), ASK_ACT)?;
+        let got = peers.ask(device, api::START, serde_json::json!({ "spec": spec }), ASK_ACT)?;
         let mut started: start::Started = serde_json::from_value(got).map_err(|e| e.to_string())?;
         started.key = started.key.map(|k| peerfeed::remote_key(device, &k));
         return Ok(started);
@@ -1037,7 +1049,7 @@ pub fn run() {
             peek::on_window_event(window, event);
         })
         .register_asynchronous_uri_scheme_protocol("codealong-image", |_ctx, request, responder| serve_image(request, responder))
-        .invoke_handler(tauri::generate_handler![get_board, idle_terminals, close_idle_terminals, open_target, open_config, mark_seen, refresh, refresh_usage, set_pinned, set_pinned_worktrees, archive_session, pr_detail, pr_comment_asks, approve_pr, review_in_codex, open_url, get_accounts, save_accounts, set_preferred, found_accounts, get_config, save_config, save_config_text, sign_in, agents_status, install_agents, start_options, start_session, todo_op, canvas_load, canvas_save, save_attachment, import_attachment, open_attachment, expand_attachments, set_theme, open_project_window, fit_bar, show_main, peek_open, peek_ready, peek_fit, peek_focus, peek_hide, bar_feed, bar_on, set_bar_on, open_from_bar, show_quick, hide_quick, quick_ready, fit_quick, start_from_quick, route_quick, search_text, search_devices, devices, set_device_color, link_device, answer_link, unlink_device, device_link_code, link_with_code, session_page, session_newer, session_pending, session_answer, session_stream, session_cancel, send_to_session, suggest_todo, dismiss_todo_hint, jev_key, set_jev_key, test_jev, quick_shortcut, pause_quick_shortcut, perf_mark])
+        .invoke_handler(tauri::generate_handler![get_board, idle_terminals, close_idle_terminals, open_target, open_config, mark_seen, refresh, refresh_usage, set_pinned, set_pinned_worktrees, archive_session, pr_detail, pr_comment_asks, approve_pr, review_in_codex, open_url, get_accounts, save_accounts, set_preferred, found_accounts, get_config, save_config, save_config_text, sign_in, agents_status, install_agents, start_options, start_session, todo_op, canvas_load, canvas_save, save_attachment, import_attachment, open_attachment, expand_attachments, set_theme, open_project_window, fit_bar, show_main, peek_open, peek_ready, peek_fit, peek_focus, peek_hide, bar_feed, bar_on, set_bar_on, open_from_bar, show_quick, hide_quick, quick_ready, fit_quick, start_from_quick, route_quick, search_text, search_devices, devices, set_device_color, link_device, answer_link, unlink_device, device_link_code, link_code_qr, link_with_code, session_page, session_newer, session_pending, session_answer, session_stream, session_cancel, send_to_session, suggest_todo, dismiss_todo_hint, jev_key, set_jev_key, test_jev, quick_shortcut, pause_quick_shortcut, perf_mark])
         .build(tauri::generate_context!())
         .expect("error while running Codealong")
         .run(|app, event| {
@@ -1300,5 +1312,12 @@ mod tests {
         // A project whose own label looks like a second window's still gets its own.
         assert_eq!(project_window_label("Kestrel 2"), "project-kestrel-2");
         assert_ne!(another_window_label("Kestrel", |l| l == "project-kestrel"), project_window_label("Kestrel 2"));
+    }
+
+    #[test]
+    fn link_codes_draw_as_qr_codes() {
+        let code = irohnet::Ticket::new(iroh::SecretKey::generate().public()).encode();
+        let svg = link_qr_svg(&code).unwrap();
+        assert!(svg.contains("<svg") && svg.contains("#000000") && svg.contains("#ffffff"), "{svg}");
     }
 }

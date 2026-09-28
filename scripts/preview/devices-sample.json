@@ -16,7 +16,7 @@
     "me": {
       "key": "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90",
       "short": "a1b2c3d4e5",
-      "name": "Sam’s MacBook Pro",
+      "name": "Sam\u2019s MacBook Pro",
       "tailscale": "running",
       "tailnet": "sam@example.com",
       "address": "100.101.1.1:47471",
@@ -38,7 +38,8 @@
         "linkedBack": true,
         "loading": false,
         "usage": [],
-        "color": "teal"
+        "color": "teal",
+        "kind": "mac"
       },
       {
         "key": "4a3b2c1d0e5f6a7b8c9d0e1f2a3b4c5d4a3b2c1d0e5f6a7b8c9d0e1f2a3b4c5d",
@@ -53,7 +54,8 @@
         "linkedBack": true,
         "loading": false,
         "usage": [],
-        "color": "purple"
+        "color": "purple",
+        "kind": "mac"
       }
     ],
     "found": [
@@ -73,6 +75,25 @@
         "code": "731 204"
       }
     ],
-    "lanes": []
+    "lanes": [],
+    "phones": [
+      {
+        "key": "b7c6d5e4f3a2918071625344f5e6d7c8b9a0b1c2d3e4f5061728394a5b6c7d8e",
+        "short": "b7c6d5e4f3",
+        "name": "Sam's iPhone",
+        "color": "blue",
+        "online": false,
+        "via": null,
+        "since": null,
+        "lastSeen": null,
+        "lastSeenAgo": 1500000,
+        "remoteControl": false,
+        "app": "0.1.0",
+        "linkedBack": true,
+        "loading": false,
+        "usage": [],
+        "kind": "phone"
+      }
+    ]
   }
 }
