@@ -313,6 +313,7 @@ Next: the menu bar icon and popover, and notifications (the design system's *Bui
 npm install
 npm run tauri dev      # the app with hot reload
 scripts/relaunch.sh    # build the bundle, then quit and reopen the app
+scripts/release.sh     # the installer for other Macs (design/plans/releases.md)
 npm run snapshot       # print the board as a table without opening a window
 ```
 

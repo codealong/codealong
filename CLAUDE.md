@@ -18,6 +18,7 @@ npm test                                # vitest (format, lanes, pins, sections)
 (cd src-tauri && cargo test)            # engine rules, parsers, usage, config, launch scripts; codealong-peer's too
 (cd src-tauri && cargo build --release) # the engine binary; cargo test does NOT rebuild it
 scripts/relaunch.sh                     # builds the bundle, then quits and reopens the app
+scripts/release.sh                      # the installer for other Macs: universal, Developer ID, notarized
 ```
 
 Every checkout and worktree builds into one directory, `codealong-target` next to the main
