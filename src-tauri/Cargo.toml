@@ -39,6 +39,9 @@ rusqlite = { version = "0.37", features = ["bundled"] }
 clap = { version = "4", features = ["derive", "wrap_help"] }
 # The quick panel's shortcut, which works in every app (Carbon hot keys: no permission needed).
 tauri-plugin-global-shortcut = "2"
+# Automatic updates (updates.rs). 2.12 is the newest that runs on Tauri 2.11: 2.13 needs 2.12,
+# which Cargo would otherwise upgrade Tauri to without asking.
+tauri-plugin-updater = "~2.12"
 # Your other devices (peers.rs): what goes between them, iroh included, is codealong-peer; the
 # engine keeps device keys with iroh's types, and data-encoding writes them.
 codealong-peer = { path = "peer" }
@@ -53,6 +56,10 @@ qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "objc2-core-foundation", "NSApplication", "NSBitmapImageRep", "NSBox", "NSColor", "NSEvent", "NSGraphics", "NSGraphicsContext", "NSImage", "NSImageRep", "NSPanel", "NSResponder", "NSRunningApplication", "NSScreen", "NSView", "NSWindow", "NSWorkspace"] }
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSData", "NSGeometry", "NSString"] }
+
+# updates.rs's end-to-end test runs the updater in Tauri's mock runtime, which opens no window.
+[dev-dependencies]
+tauri = { version = "2", features = ["test"] }
 
 # Built for rebuild speed, not the last few percent of engine speed: no LTO (thin LTO relinks
 # the whole crate for a one-line change), incremental on, default codegen units.

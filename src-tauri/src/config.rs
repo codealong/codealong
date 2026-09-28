@@ -36,6 +36,8 @@ pub struct Config {
     #[serde(default)]
     pub devices: DevicesCfg,
     #[serde(default)]
+    pub updates: UpdatesCfg,
+    #[serde(default)]
     pub debug: DebugCfg,
 }
 
@@ -52,6 +54,7 @@ impl Default for Config {
             router: None,
             search: SearchCfg::default(),
             devices: DevicesCfg::default(),
+            updates: UpdatesCfg::default(),
             debug: DebugCfg::default(),
         }
     }
@@ -180,6 +183,21 @@ fn default_devices_port() -> u16 {
 
 fn yes() -> bool {
     true
+}
+
+/// Automatic updates (updates.rs). Only release builds update themselves.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct UpdatesCfg {
+    /// Look for a newer release now and then, and put it in place for the next launch. Asking
+    /// (the app menu's Check for updates…) works either way.
+    #[serde(default = "yes")]
+    pub check: bool,
+}
+
+impl Default for UpdatesCfg {
+    fn default() -> Self {
+        UpdatesCfg { check: true }
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
@@ -372,6 +390,12 @@ pub fn quick_shortcut() -> String {
     load().ok().flatten().map(|c| c.shortcuts.quick_panel).unwrap_or_else(default_quick_panel)
 }
 
+/// Whether config.toml lets Codealong look for updates by itself: yes when there's no file yet or
+/// it has an error.
+pub fn updates_check() -> bool {
+    load().ok().flatten().map(|c| c.updates.check).unwrap_or(true)
+}
+
 /// Writes config.toml afresh. Returns the text written.
 pub fn write(cfg: &Config) -> Result<String> {
     std::fs::create_dir_all(support_dir())?;
@@ -469,6 +493,7 @@ const APPEARANCE_COMMENT: &str = "# Light or dark. \"system\" follows macOS. The
 const JEV_COMMENT: &str = "# What Codealong asks TypeSafe's Jev, feature by feature (Settings › Jev says what each one sends).\n# The API key is kept in the login keychain; set it in Settings.\n";
 const SEARCH_COMMENT: &str = "# The quick panel and `codealong sessions find` search what was said in sessions active in the\n# last `days` days, not just their titles. 0 turns it off; 14, the board's reach, is the most.\n";
 const DEVICES_COMMENT: &str = "# Your other devices: Codealong on each shows the others' sessions and can read and search them.\n# tailscale finds them on your tailnet; iroh reaches devices you link with a code, anywhere.\n# remote_control lets your linked devices send prompts, answer approvals and start sessions here.\n";
+const UPDATES_COMMENT: &str = "# check: look for a newer Codealong now and then, and put it in place for the next launch.\n# The app menu's Check for updates… works either way.\n";
 const DEBUG_COMMENT: &str = "# Timings for finding what makes the app slow, in ~/Library/Logs/Codealong/perf.log.\n";
 const SHORTCUTS_COMMENT: &str = "# Shortcuts that work in any app, such as \"Option+Cmd+/\" or \"Cmd+Ctrl+K\". \"\" turns one off.\n# quick_panel opens the quick panel: find a session, or start one.\n";
 
@@ -733,6 +758,18 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
         }
     }
 
+    // Like [search]: only a file that has the table or turns checking off gets it.
+    if cfg.updates != UpdatesCfg::default() || doc.get("updates").is_some() {
+        if !doc.get("updates").is_some_and(toml_edit::Item::is_table_like) {
+            let mut t = Table::new();
+            t.decor_mut().set_prefix(format!("\n{UPDATES_COMMENT}"));
+            doc.insert("updates", Item::Table(t));
+            let after = ["devices", "search", "jev", "shortcuts"].into_iter().find(|k| doc.get(k).is_some()).unwrap_or("shortcuts");
+            place_after(&mut doc, "updates", after);
+        }
+        set_value(&mut doc["updates"]["check"], Value::from(cfg.updates.check));
+    }
+
     ensure_table(&mut doc, "debug", DEBUG_COMMENT);
     set_value(&mut doc["debug"]["perf_log"], Value::from(cfg.debug.perf_log));
 
@@ -879,6 +916,12 @@ pub fn render(cfg: &Config) -> String {
             s.push_str(&format!("port = {}\n", d.port));
         }
     }
+    if cfg.updates != UpdatesCfg::default() {
+        s.push('\n');
+        s.push_str(UPDATES_COMMENT);
+        s.push_str("[updates]\n");
+        s.push_str(&format!("check = {}\n", cfg.updates.check));
+    }
     s.push_str("\n# Harness accounts. `name` is what you type and what the board shows.\n# `start` is where new sessions start: \"terminal\", \"background\", \"claude-app\", \"codex-app\" or \"codealong\".\n# `acp`: the command that runs the account's Agent Client Protocol adapter, for sessions Codealong runs itself.\n# `preferred = true`: Auto starts this account over ones without it while it has room.\n");
     for a in &cfg.accounts {
         s.push_str("\n[[accounts]]\n");
@@ -936,6 +979,7 @@ mod tests {
             router: None,
             search: SearchCfg { days: 7 },
             devices: DevicesCfg { enabled: true, name: "Studio".into(), tailscale: true, iroh: false, remote_control: true, port: 47000 },
+            updates: UpdatesCfg { check: false },
             debug: DebugCfg::default(),
         };
         let parsed: Config = toml::from_str(&render(&cfg)).unwrap();
@@ -1087,8 +1131,26 @@ mod tests {
             router: None,
             search: SearchCfg::default(),
             devices: DevicesCfg::default(),
+            updates: UpdatesCfg::default(),
             debug: DebugCfg { perf_log: true },
         }
+    }
+
+    #[test]
+    fn updates_are_on_unless_the_file_turns_them_off() {
+        assert!(toml::from_str::<Config>("").unwrap().updates.check);
+        let old = render(&full());
+        assert!(!old.contains("[updates]"), "{old}");
+        assert!(!with_config(&old, &full()).unwrap().contains("[updates]"));
+        let mut off = full();
+        off.updates.check = false;
+        let out = with_config(&old, &off).unwrap();
+        assert!(out.contains(&format!("{UPDATES_COMMENT}[updates]\ncheck = false")), "{out}");
+        assert!(out.find("[updates]").unwrap() < out.find("[[accounts]]").unwrap(), "{out}");
+        assert!(!toml::from_str::<Config>(&out).unwrap().updates.check);
+        // Turned back on, the table stays, saying so.
+        let on = with_config(&out, &full()).unwrap();
+        assert!(on.contains("[updates]\ncheck = true"), "{on}");
     }
 
     #[test]

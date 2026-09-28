@@ -11,7 +11,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSPr
 import { below, showContextMenu, type MenuAction, type MenuSpec } from './contextMenu';
 import { folderMenu, openInMenu, opensInEditor, useEditorIcons } from './editors';
 import { AGENT_BAY, BAYS, buildBays, filterByAge, inboxCounts, lanePromptAt, narrowed, prNeedsWork, rowItems, seenable, worktreeRow, type BoardRow, type Filter, type WorktreeRow } from './lanes';
-import { answerLink, approvePr, barOn, desktopPins, getDevices, onDevices, dismissTodoHint, expandAttachments, getBoard, onBarOn, onBoard, onCloseIdle, onDesktopPins, onNewWindow, onQuickStart, onReveal, onSettings, openConfig, openProjectWindow, openTarget, openUrl, pinToDesktop, refresh, refreshUsage, reviewInCodex, setBarOn, startOptions, startSession, forkSession, setPinned, setPinnedWorktrees, setTheme, showQuick, signIn, unpinFromDesktop, windowLabel, type Reveal } from './api';
+import { answerLink, approvePr, barOn, desktopPins, getDevices, onDevices, dismissTodoHint, expandAttachments, getBoard, onBarOn, onBoard, onCloseIdle, onDesktopPins, onNewWindow, onQuickStart, onReveal, onSettings, onCheckUpdates, openConfig, openProjectWindow, openTarget, openUrl, pinToDesktop, refresh, refreshUsage, reviewInCodex, setBarOn, startOptions, startSession, forkSession, setPinned, setPinnedWorktrees, setTheme, showQuick, signIn, unpinFromDesktop, windowLabel, type Reveal } from './api';
 import { agoPhrase, middleTruncate } from './format';
 import { usePerf } from './perf';
 import { archiveAhead, boardAhead, boardView, lanesAhead, observe, seenAhead, useAhead } from './ahead';
@@ -46,6 +46,7 @@ import { CanvasView } from './ui/CanvasView';
 import { entitiesOf, homeLane, refId, type RefItem, type RefKind } from './canvas/model';
 import { useCanvas } from './canvas/useCanvas';
 import { applyTheme, ThemeSwitch } from './ui/ThemeSwitch';
+import { RestartToUpdate } from './ui/Updates';
 import { UsageBar } from './ui/UsageBar';
 import { WorktreeTree, type TreeGroup } from './ui/WorktreeTree';
 
@@ -282,6 +283,8 @@ export function App() {
     if (settings) lastSection.current = settings.section;
   }, [settings]);
   useEffect(() => onSettings(() => openSettings()), [openSettings]);
+  // The app menu's Check for updates…: Settings › General says how it goes.
+  useEffect(() => onCheckUpdates(() => openSettings('general')), [openSettings]);
   // File › Close idle terminals… (ui/CloseIdleDialog.tsx).
   const [closeIdle, setCloseIdle] = useState(false);
   useEffect(() => onCloseIdle(() => setCloseIdle(true)), []);
@@ -2034,6 +2037,7 @@ export function App() {
               onOpenSession={(lane, session) => open(lane, session.openTarget)}
             />
           </div>
+          <RestartToUpdate />
           <div className="ca-side-foot">
             <button type="button" className="ca-linkbtn ca-side-config" title="Settings (⌘,)" onClick={() => openSettings()}>
               <Icon name="settings" size={14} />

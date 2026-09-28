@@ -31,6 +31,15 @@
       "csp": "default-src 'self' ipc: http://ipc.localhost; style-src 'self' 'unsafe-inline'; img-src 'self' data: codealong-image: https://*.githubusercontent.com https://github.com; font-src 'self' data:"
     }
   },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDZDMjJBRTc5OEMzM0YyNjYKUldSbThqT01lYTRpYkRTSUhBem5kOXlQOHV5NjIwR3E3RElXTGN3MFFWT3lQM0JDZFFMdWdtSEEK",
+      "endpoints": [
+        "https://github.com/codealong/codealong/releases/latest/download/latest.json"
+      ],
+      "requireSignedVersion": true
+    }
+  },
   "bundle": {
     "active": true,
     "targets": [

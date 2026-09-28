@@ -386,6 +386,30 @@ body.is-resizing * {
   align-items: center;
   gap: 6px;
 }
+/* Restart to update: above the foot of the sidebar once a newer version is in place. */
+.ca-side-update {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 calc(-1 * var(--space-2));
+  padding: 7px var(--space-3) 7px var(--space-4);
+  border: 0;
+  border-top: 1px solid var(--line);
+  background: var(--surface-hover);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+}
+.ca-side-update:hover {
+  background: var(--surface-selected);
+}
+.ca-side-update:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--focus);
+}
 /* The theme switch: icons only, smaller than the view switch above the board. */
 .ca-theme button {
   height: 20px;
@@ -1272,6 +1296,14 @@ body.is-resizing * {
 }
 .ca-settings-theme {
   justify-self: start;
+}
+/* Settings › General's version line: the version, then Check now or Restart to update. */
+.ca-settings-version {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font: 400 13px/18px var(--font-sans);
+  color: var(--ink);
 }
 .ca-settings-broken {
   display: flex;

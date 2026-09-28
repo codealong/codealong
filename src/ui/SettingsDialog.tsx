@@ -10,6 +10,7 @@ import type { Config, ConfigView, JevCfg, NewTerminal, Profile, ProjectCfg, Shor
 import { AccountsSection } from './AccountsSection';
 import { AgentsSection } from './AgentsSection';
 import { DevicesPane } from './DevicesSection';
+import { UpdatesFields } from './Updates';
 import { Button, Icon, NavItem } from './primitives';
 
 export type SettingsSection = 'general' | 'accounts' | 'agents' | 'devices' | 'projects' | 'jev' | 'advanced' | 'file';
@@ -126,7 +127,7 @@ export function SettingsDialog({ section, onSection, focus, usage, apps, theme, 
   } else if (view === null) {
     pane = error ? <p className="ca-form-error">{error}</p> : <p className="ca-empty">Reading settings…</p>;
   } else if (section === 'general' && cfg) {
-    pane = <GeneralPane cfg={cfg} view={view} theme={theme} onPickTheme={onPickTheme} disabled={!!broken} onSave={save} />;
+    pane = <GeneralPane cfg={cfg} view={view} theme={theme} onPickTheme={onPickTheme} disabled={!!broken} onSave={save} now={now} />;
   } else if (section === 'devices' && cfg) {
     pane = <DevicesPane cfg={cfg} disabled={!!broken} onSave={save} now={now} />;
   } else if (section === 'projects' && cfg) {
@@ -188,7 +189,7 @@ interface PaneProps {
   onSave: (next: Config) => Promise<boolean>;
 }
 
-function GeneralPane({ cfg, view, theme, onPickTheme, disabled, onSave }: PaneProps & { view: ConfigView; theme: Theme; onPickTheme: (t: Theme) => void }) {
+function GeneralPane({ cfg, view, theme, onPickTheme, disabled, onSave, now }: PaneProps & { view: ConfigView; theme: Theme; onPickTheme: (t: Theme) => void; now: number }) {
   const searchDays = cfg.search?.days ?? MAX_SEARCH_DAYS;
   return (
     <>
@@ -252,6 +253,7 @@ function GeneralPane({ cfg, view, theme, onPickTheme, disabled, onSave }: PanePr
           </div>
           <small>Every window follows, and so do the window chrome and menus.</small>
         </div>
+        <UpdatesFields cfg={cfg} onSave={(next) => void onSave(next)} now={now} />
       </fieldset>
     </>
   );

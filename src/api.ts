@@ -4,7 +4,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { emit, emitTo, listen } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import type { Answers, DesktopFeed, DesktopPinned, DeviceFound, EditorIcon, DevicesView, LabelColor, AccountCfg, AccountInfo, AgentsStatus, Attachment, BarFeed, BarNote, CloseOutcome, IdlePlan, Pending, HostedStream, PeekOpen, PeekShown, TranscriptPage, Board, Config, ConfigView, FoundAccount, PrDetail, Route, Sent, ShortcutStatus, TextFound, StartOptions, StartSpec, Started, Theme, TodoSuggested } from './types';
+import type { Answers, DesktopFeed, DesktopPinned, DeviceFound, EditorIcon, DevicesView, LabelColor, AccountCfg, AccountInfo, AgentsStatus, Attachment, BarFeed, BarNote, CloseOutcome, UpdateView, IdlePlan, Pending, HostedStream, PeekOpen, PeekShown, TranscriptPage, Board, Config, ConfigView, FoundAccount, PrDetail, Route, Sent, ShortcutStatus, TextFound, StartOptions, StartSpec, Started, Theme, TodoSuggested } from './types';
 import type { TodoOp } from './todos';
 
 export const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -248,6 +248,54 @@ export async function saveConfig(config: Config): Promise<void> {
 export async function saveConfigText(text: string): Promise<void> {
   if (!inTauri) throw new Error('Saving settings needs the app.');
   await invoke('save_config_text', { text });
+}
+
+/** Where automatic updates stand; `null` outside the app. */
+export async function updateStatus(): Promise<UpdateView | null> {
+  if (!inTauri) return null;
+  return invoke<UpdateView>('update_status');
+}
+
+/** Looks for a newer release now; `onUpdateStatus` hears how it goes. */
+export async function checkForUpdates(): Promise<void> {
+  if (inTauri) await invoke('check_for_updates');
+}
+
+/** Quits and opens the version an update put in place. */
+export async function restartToUpdate(): Promise<void> {
+  if (inTauri) await invoke('restart_to_update');
+}
+
+/** Calls `cb` whenever where updates stand changes. */
+export function onUpdateStatus(cb: (view: UpdateView) => void): () => void {
+  if (!inTauri) return () => {};
+  let cancelled = false;
+  let unlisten: (() => void) | undefined;
+  void listen<UpdateView>('update-status', (e) => cb(e.payload)).then((u) => {
+    if (cancelled) u();
+    else unlisten = u;
+  });
+  return () => {
+    cancelled = true;
+    unlisten?.();
+  };
+}
+
+/** Calls `cb` when the app menu's Check for updates… asks this window to show how it goes. */
+export function onCheckUpdates(cb: () => void): () => void {
+  if (!inTauri) return () => {};
+  let cancelled = false;
+  let unlisten: (() => void) | undefined;
+  void getCurrentWebviewWindow()
+    .listen('check-updates', () => cb())
+    .then((u) => {
+      if (cancelled) u();
+      else unlisten = u;
+    });
+  return () => {
+    cancelled = true;
+    unlisten?.();
+  };
 }
 
 /** Calls `cb` when the app menu's Settings… asks this window to open Settings. */

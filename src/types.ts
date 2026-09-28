@@ -211,8 +211,21 @@ export interface Config {
   search?: { days: number };
   /** Your other Macs. Older files have none: off. */
   devices?: DevicesCfg;
+  /** Automatic updates. Older files have none: on. */
+  updates?: { check: boolean };
   debug: { perf_log: boolean };
 }
+
+/** Where automatic updates stand (src-tauri/src/updates.rs): this copy's version, and a state. */
+export type UpdateView = { current: string } & (
+  | { state: 'off' } // a development build, which never updates itself
+  | { state: 'idle' }
+  | { state: 'checking' }
+  | { state: 'upToDate'; checkedAt: number }
+  | { state: 'installing'; version: string }
+  | { state: 'ready'; version: string; notes: string | null } // starts at the next launch
+  | { state: 'failed'; error: string; at: number }
+);
 
 /** `[devices]` in config.toml: Codealong on your other devices (src-tauri/src/peers.rs). */
 export interface DevicesCfg {

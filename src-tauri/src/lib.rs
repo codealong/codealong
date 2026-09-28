@@ -57,6 +57,7 @@ mod throttle;
 mod todojev;
 mod todos;
 mod transcript;
+mod updates;
 mod usage;
 mod util;
 
@@ -686,6 +687,24 @@ fn save_config(engine: State<'_, engine::Handle>, config: config::Config) -> Res
     engine.save_config(&config).map_err(|e| format!("{e:#}"))
 }
 
+/// Where automatic updates stand, for Settings and the sidebar (updates.rs).
+#[tauri::command]
+fn update_status(app: tauri::AppHandle) -> updates::View {
+    updates::view(&app)
+}
+
+/// Looks for a newer release now; `update-status` events say how it goes.
+#[tauri::command]
+fn check_for_updates(app: tauri::AppHandle) {
+    updates::check_soon(&app);
+}
+
+/// Quits and opens the version an update put in place.
+#[tauri::command]
+fn restart_to_update(app: tauri::AppHandle) {
+    app.restart();
+}
+
 /// Saves config.toml as typed in Settings, once it parses.
 #[tauri::command(async)]
 fn save_config_text(engine: State<'_, engine::Handle>, text: String) -> Result<(), String> {
@@ -1189,9 +1208,11 @@ pub fn run() {
             if let Err(e) = add_new_window_menu(app.handle()) {
                 eprintln!("Couldn't add New window to the menu: {e:#}");
             }
+            updates::setup(app.handle());
             watch_main_thread(app.handle().clone());
             Ok(())
         })
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_global_shortcut::Builder::new().with_handler(|app, _, event| {
             if event.state == tauri_plugin_global_shortcut::ShortcutState::Pressed {
                 quick::toggle(app);
@@ -1204,7 +1225,7 @@ pub fn run() {
             desktop::on_window_event(window, event);
         })
         .register_asynchronous_uri_scheme_protocol("codealong-image", |_ctx, request, responder| serve_image(request, responder))
-        .invoke_handler(tauri::generate_handler![get_board, idle_terminals, close_idle_terminals, open_target, open_config, editor_icons, mark_seen, snooze_sessions, refresh, refresh_usage, set_pinned, set_pinned_worktrees, archive_session, pr_detail, pr_comment_asks, approve_pr, review_in_codex, open_url, get_accounts, save_accounts, set_preferred, found_accounts, get_config, save_config, save_config_text, sign_in, agents_status, install_agents, start_options, device_start_options, start_session, fork_session, todo_op, canvas_load, canvas_save, save_attachment, import_attachment, open_attachment, expand_attachments, set_theme, open_project_window, fit_bar, show_main, peek_open, peek_ready, peek_fit, peek_focus, peek_hide, bar_feed, bar_on, set_bar_on, open_from_bar, desktop_pins, pin_to_desktop, unpin_from_desktop, desktop_feed, fit_desktop, show_quick, hide_quick, quick_ready, fit_quick, start_from_quick, route_quick, search_text, search_devices, devices, set_device_color, link_device, answer_link, unlink_device, device_link_code, link_code_qr, link_with_code, session_page, session_newer, session_pending, session_answer, session_stream, session_cancel, send_to_session, suggest_todo, dismiss_todo_hint, jev_key, set_jev_key, test_jev, quick_shortcut, pause_quick_shortcut, perf_mark, popup_menu])
+        .invoke_handler(tauri::generate_handler![get_board, idle_terminals, close_idle_terminals, open_target, open_config, editor_icons, mark_seen, snooze_sessions, refresh, refresh_usage, set_pinned, set_pinned_worktrees, archive_session, pr_detail, pr_comment_asks, approve_pr, review_in_codex, open_url, get_accounts, save_accounts, set_preferred, found_accounts, get_config, save_config, save_config_text, sign_in, agents_status, install_agents, start_options, device_start_options, start_session, fork_session, todo_op, canvas_load, canvas_save, save_attachment, import_attachment, open_attachment, expand_attachments, set_theme, open_project_window, fit_bar, show_main, peek_open, peek_ready, peek_fit, peek_focus, peek_hide, bar_feed, bar_on, set_bar_on, open_from_bar, desktop_pins, pin_to_desktop, unpin_from_desktop, desktop_feed, fit_desktop, show_quick, hide_quick, quick_ready, fit_quick, start_from_quick, route_quick, search_text, search_devices, devices, set_device_color, link_device, answer_link, unlink_device, device_link_code, link_code_qr, link_with_code, session_page, session_newer, session_pending, session_answer, session_stream, session_cancel, send_to_session, suggest_todo, dismiss_todo_hint, jev_key, set_jev_key, test_jev, quick_shortcut, pause_quick_shortcut, perf_mark, popup_menu, update_status, check_for_updates, restart_to_update])
         .build(tauri::generate_context!())
         .expect("error while running Codealong")
         .run(|app, event| {
