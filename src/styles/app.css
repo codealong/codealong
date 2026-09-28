@@ -2502,7 +2502,8 @@ html.is-peek body {
   box-shadow: var(--shadow-popover);
   color: var(--ink);
 }
-.ca-peek .ca-composer {
+/* The box, at the card's foot; what the session waits on sits above it. */
+.ca-peek .ca-composer:last-child {
   border-radius: 0 0 var(--radius-lg) var(--radius-lg);
 }
 
@@ -3628,7 +3629,7 @@ html.is-quick body {
 .ca-quick.is-reply {
   overflow: hidden;
 }
-.ca-quick.is-reply .ca-composer {
+.ca-quick.is-reply .ca-composer:last-child {
   border-radius: 0 0 var(--radius-lg) var(--radius-lg);
 }
 /* The last row: a new session. A line sets it apart from the sessions above. */

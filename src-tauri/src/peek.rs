@@ -7,8 +7,10 @@
 //! and leaves the app you're in active. Hovering never gives it the keyboard, so passing the
 //! pointer over the bar can't take what you're typing elsewhere; a click in it does. Until then it
 //! closes once the pointer has been off both its pill and the peek for a moment, and hovering
-//! another pill switches it to that session. With the keyboard it stays until you send, press
-//! Escape, or click somewhere else.
+//! another pill switches it to that session. With the keyboard it stays on its session until you
+//! send, press Escape, click somewhere else or bring up another of Codealong's windows, whatever
+//! the bar does meanwhile. Should another app take the keyboard while the pointer is still on the
+//! peek, it goes back to how a hover has it rather than closing under you.
 //!
 //! Opening is the quick panel's handshake: Codealong tells the page which session (`peek-open`),
 //! the page reads the conversation and answers with its height (`peek_ready`), and only then does
@@ -362,8 +364,40 @@ fn look(app: &AppHandle, n: u64) {
     }
 }
 
-/// Window events for the peek: it has the keyboard once it's the key window, hides when another
-/// window or app takes the keyboard, and closing it (⌘W) only hides it. On the main thread.
+/// The peek lost the keyboard, and Codealong's window events come after the change is made, so
+/// what has it now can be asked. A click somewhere else puts the peek away, as does another of
+/// Codealong's windows taking the keyboard. But the keyboard can go without you going anywhere,
+/// to an app that brings a window of its own forward, so while the pointer is still on the peek or
+/// its pill the peek stays up as a hover has it: a click in it takes the keyboard back, and it
+/// closes once the pointer has left. On the main thread.
+fn lost_keys(app: &AppHandle) {
+    let (Some(state), Some(window)) = (app.try_state::<Peek>(), app.get_webview_window(LABEL)) else { return };
+    let n = {
+        let Ok(mut s) = state.inner.lock() else { return };
+        // Hiding it takes the keyboard too, and a peek up from a hover never had it.
+        if !s.visible || !s.engaged {
+            return;
+        }
+        let on = native::pointer().zip(native::frame(&window)).is_some_and(|(p, f)| over(p, f, s.pill));
+        if !on || native::other_is_key(&window) {
+            drop(s);
+            hide(app);
+            return;
+        }
+        s.engaged = false;
+        s.away_since = None;
+        s.watch += 1;
+        s.watch
+    };
+    // Ordered in again as a hover shows it, saying it's key, so the page gets the pointer again.
+    native::show(&window, false);
+    watch_pointer(app, n);
+    tell(app);
+}
+
+/// Window events for the peek: it has the keyboard once it's the key window, lets go of it when
+/// another window or app takes it (`lost_keys`), and closing it (⌘W) only hides it. On the main
+/// thread.
 pub fn on_window_event(window: &Window, event: &WindowEvent) {
     if window.label() != LABEL {
         return;
@@ -384,7 +418,7 @@ pub fn on_window_event(window: &Window, event: &WindowEvent) {
                 tell(app);
             }
         }
-        WindowEvent::Focused(false) => hide(app),
+        WindowEvent::Focused(false) => lost_keys(app),
         WindowEvent::CloseRequested { api, .. } => {
             api.prevent_close();
             hide(app);
@@ -400,7 +434,7 @@ mod native {
 
     use objc2::runtime::{AnyClass, AnyObject, Bool, ClassBuilder, Sel};
     use objc2::{msg_send, sel, ClassType, MainThreadMarker};
-    use objc2_app_kit::{NSEvent, NSPanel, NSResponder, NSScreen, NSStatusWindowLevel, NSWindow, NSWindowCollectionBehavior, NSWindowStyleMask};
+    use objc2_app_kit::{NSApplication, NSEvent, NSPanel, NSResponder, NSScreen, NSStatusWindowLevel, NSWindow, NSWindowCollectionBehavior, NSWindowStyleMask};
     use objc2_foundation::{NSPoint, NSRect, NSSize};
     use tauri::WebviewWindow;
 
@@ -549,6 +583,13 @@ mod native {
         let p = NSEvent::mouseLocation();
         Some((p.x, p.y))
     }
+
+    /// Another of Codealong's windows has the keyboard: the quick panel, a board window. While
+    /// another app has it, Codealong has no key window.
+    pub fn other_is_key(w: &WebviewWindow) -> bool {
+        let (Some(mtm), Some(n)) = (MainThreadMarker::new(), ns(w)) else { return false };
+        NSApplication::sharedApplication(mtm).keyWindow().is_some_and(|k| !std::ptr::eq(&*k, n))
+    }
 }
 
 /// Elsewhere the peek is an ordinary window.
@@ -580,6 +621,9 @@ mod native {
     }
     pub fn pointer() -> Option<(f64, f64)> {
         None
+    }
+    pub fn other_is_key(_: &WebviewWindow) -> bool {
+        false
     }
 }
 

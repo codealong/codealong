@@ -1,12 +1,15 @@
 // The floating bar's peek (peek.rs has its window): the session whose pill is under the pointer,
 // its conversation, and the box that answers it (ReplyView.tsx). A click in it gives it the
 // keyboard; ⏎ sends, and once a message or an answer went through the peek closes, so the app
-// you were in has the keyboard back. Escape closes it too, and what you'd typed stays for next
-// time. Its header's ✓ marks a finished turn seen and its archive button archives the session,
-// either of which takes it off the bar. While it's up, the session follows the board.
+// you were in has the keyboard back; after an answer it stays while the box holds something for
+// you to send next. Escape closes it too, and what you'd typed stays with the session (drafts.ts),
+// here and in its panels, until you send it. Its header's ✓ marks a finished turn seen and its
+// archive button archives the session, either of which takes it off the bar. While it's up, the
+// session follows the board, and the peek stays on it as its pill moves along the bar.
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { archiveSession, barNote, getBoard, markSeen, inPreview, onBoard, onPeekHidden, onPeekOpen, onPeekShown, openFromBar, peekFit, peekFocus, peekHide, peekReady, showMain } from '../api';
+import { readDraft } from '../drafts';
 import { attentionRows, ALL_PROJECTS } from '../quick';
 import type { Lane, PeekOpen, Session, Theme } from '../types';
 import { useKeyPerf } from '../perf';
@@ -229,7 +232,10 @@ export function Peek() {
             if (sent.opened) void barNote({ key: session.key, message: sent.message, tone: 'info' });
             void peekHide();
           }}
-          onAnswered={() => void peekHide()}
+          onAnswered={() => {
+            // What you wrote while it waited is likely what you'd send next.
+            if (!readDraft(session.key)) void peekHide();
+          }}
         />
       </div>
     </div>

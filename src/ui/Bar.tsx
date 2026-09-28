@@ -7,7 +7,7 @@
 // Peek.tsx), its conversation and a box to answer it; clicking the pill opens the session where
 // it lives, right-clicking shows its menu, and the mark brings Codealong forward.
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { fitBar, getBarFeed, markSeen, onBarFeed, onBarNote, onPeekShown, openFromBar, peekHide, peekOpen, setBarOn, showMain, showQuick, type PillRect } from '../api';
 import { elsewhereWaits, fitGroups, GROUPS, plain, projectWaits, type Group, type GroupFit, type WaitCounts } from '../bar';
@@ -92,7 +92,8 @@ interface SessionPillProps {
   peeked?: boolean;
   onOpen?: () => void;
   onMenu?: () => void;
-  onHover?: (el: HTMLElement) => void;
+  /** The pointer came onto the pill or moved on it. */
+  onHover?: (e: PointerEvent<HTMLElement>) => void;
   onLeave?: () => void;
   measure?: boolean;
 }
@@ -106,7 +107,8 @@ function SessionPill({ item, now, peeked, onOpen, onMenu, onHover, onLeave, meas
       data-pill={measure ? item.group : undefined}
       data-key={measure ? undefined : item.key}
       onClick={onOpen}
-      onPointerEnter={onHover ? (e) => onHover(e.currentTarget) : undefined}
+      onPointerEnter={onHover}
+      onPointerMove={onHover}
       onPointerLeave={onLeave}
       onContextMenu={
         onMenu
@@ -287,6 +289,10 @@ export function Bar() {
   const peekedNow = useRef(peeked);
   peekedNow.current = peeked;
   const hoverTimer = useRef<number | null>(null);
+  // The session a pending hover is for.
+  const hoverFor = useRef<string | null>(null);
+  // Where the pointer last moved on the bar, in screen points.
+  const pointerAt = useRef<{ x: number; y: number } | null>(null);
   // Fonts load after the first layout; pills are measured again once they have.
   const [fontsReady, setFontsReady] = useState(false);
   const [project, setProject] = useState(storedProject);
@@ -401,6 +407,7 @@ export function Bar() {
   const stopHover = () => {
     if (hoverTimer.current != null) window.clearTimeout(hoverTimer.current);
     hoverTimer.current = null;
+    hoverFor.current = null;
   };
 
   /** Where a pill is in the window, for the peek to open by. */
@@ -410,15 +417,22 @@ export function Bar() {
     return { x: r.left, y: r.top, w: r.width, h: r.height };
   };
 
-  /** The pointer rests on a session's pill: after a moment the peek shows it, sooner when the peek
-   *  is already up. While you're typing in the peek, it stays on its session. */
-  const hover = (i: BarItem, el: HTMLElement) => {
+  /** The pointer came onto a session's pill or moved on it: after a moment the peek shows it,
+   *  sooner when the peek is already up. While you're typing in the peek, it stays on its session.
+   *  Only a pointer that moved points at a pill: when sessions change groups the pills shift, and
+   *  the one that slides under a still pointer doesn't take the peek. */
+  const hover = (i: BarItem, e: PointerEvent<HTMLElement>) => {
+    const at = pointerAt.current;
+    if ((at && at.x === e.screenX && at.y === e.screenY) || hoverFor.current === i.key) return;
     stopHover();
     const p = peekedNow.current;
     if (p.key === i.key || (p.engaged && p.key)) return;
+    const el = e.currentTarget;
+    hoverFor.current = i.key;
     hoverTimer.current = window.setTimeout(
       () => {
         hoverTimer.current = null;
+        hoverFor.current = null;
         void peekOpen(i.key, rectOf(el)).catch(() => {});
       },
       p.key ? PEEK_SWITCH_MS : PEEK_AFTER_MS,
@@ -559,7 +573,7 @@ export function Bar() {
           failed?.anchor === i.key ? (
             failedPill()
           ) : (
-            <SessionPill key={i.key} item={i} now={now} peeked={peeked.key === i.key} onOpen={() => open(i)} onMenu={() => sessionMenu(i)} onHover={(el) => hover(i, el)} onLeave={stopHover} />
+            <SessionPill key={i.key} item={i} now={now} peeked={peeked.key === i.key} onOpen={() => open(i)} onMenu={() => sessionMenu(i)} onHover={(e) => hover(i, e)} onLeave={stopHover} />
           ),
         ),
         ...(folded.length
@@ -597,6 +611,13 @@ export function Bar() {
         onContextMenu={(e) => {
           e.preventDefault();
           barMenu();
+        }}
+        // After the pills' own handlers, which compare with where it was before.
+        onPointerMove={(e) => {
+          pointerAt.current = { x: e.screenX, y: e.screenY };
+        }}
+        onPointerLeave={() => {
+          pointerAt.current = null;
         }}
       >
         <button

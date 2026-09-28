@@ -40,12 +40,15 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     of calls fold into one line. It opens at the newest and loads older pages as you scroll up,
     and follows the session as it goes. The box at the bottom sends it a message where it runs,
     as the quick panel does; paste a screenshot or a file into it and the agent gets its path,
-    and what you'd written to a session and not sent stays with that session. A session whose
-    last reply asks you something (Jev's read) takes your answer there like any message. When a
-    session waits on you to allow a tool call, the bottom of the panel
-    shows the call with Allow and Deny: OpenCode's are answered through its service, Claude
+    and what you'd written to a session and not sent stays with that session until you send
+    it, in every window (the panel, the floating bar's peek, the quick panel) and across
+    restarts. A session whose last reply asks you something (Jev's read) takes your answer there
+    like any message. When a session waits on you to allow a tool call, the call shows above the
+    box with Allow and Deny: OpenCode's are answered through its service, Claude
     Code's by a keypress in its Ghostty or tmux tab, only while its own record says the prompt
-    is up for that call. Others open where they run to be answered.
+    is up for that call. Others open where they run to be answered. The box stays meanwhile,
+    keeping what you'd written, and Send works again once the session isn't waiting (a session
+    run In Codealong takes it at once, after its current turn).
   - **PRs**: every PR in the project's repos, with the worktree and sessions that worked on
     each: the ones that made, edited or commented on it (from their own records), the ones on
     its branch while it was open, and any linked by hand (`codealong pr link|unlink`). Reviews asked of you come first, with one-click Approve. Colored pills say where
@@ -235,9 +238,12 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   conversation, as its panel shows it, and a box to answer it. The peek never takes the keyboard
   by itself, so passing over the bar can't take what you're typing elsewhere; click in it to
   type, and ⏎ sends where the session runs and puts it away (Escape does too, keeping what you
-  wrote). A session waiting on you to allow a tool call shows it with Allow and Deny. Until you
-  click in it, the peek follows the pointer from pill to pill and closes once the pointer leaves
-  it. Click a pill to open the session where it lives; right-click it to reply in the peek,
+  wrote with the session). A session waiting on you to allow a tool call shows it with Allow
+  and Deny above the box. Until you click in it, the peek follows the pointer from pill to pill
+  and closes once the pointer leaves it; pills that shift under a still pointer as sessions
+  change groups don't move it. Once you've clicked in it, it stays on its session whatever the
+  bar does, until you send, press Escape or click somewhere else. Click a pill to open the
+  session where it lives; right-click it to reply in the peek,
   show it in Codealong or mark it seen. The todos pill opens the quick panel ready to start a
   session for a todo (its menu picks which). Pills that
   don't fit fold into one per group that lists them. The mark brings Codealong forward; drag

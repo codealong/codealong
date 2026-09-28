@@ -1,16 +1,21 @@
-// Answering a session from Codealong: a box that sends it a message where it runs (send.rs), or,
-// when it waits on you to allow a tool call, that call with Allow and Deny, if its harness can be
-// answered from here (harness.rs: OpenCode through its service, Claude Code by a keypress in its
-// Ghostty or tmux tab, once its own record says the prompt is up). Otherwise it offers to open the
-// session to answer there. The session panel, the floating bar's peek and the quick panel's reply
-// view all end with it.
+// Answering a session from Codealong: a box that sends it a message where it runs (send.rs), and,
+// when it waits on you to allow a tool call, that call above the box with Allow and Deny, if its
+// harness can be answered from here (harness.rs: OpenCode through its service, Claude Code by a
+// keypress in its Ghostty or tmux tab, once its own record says the prompt is up). Otherwise it
+// offers to open the session to answer there. The session panel, the floating bar's peek and the
+// quick panel's reply view all end with it.
+//
+// The box stays while the session waits on you, so a session that starts waiting as you type
+// doesn't take what you wrote away; you can send it once the session is no longer waiting. What
+// you wrote is kept per session, for every window (drafts.ts), until you send it.
 //
 // A session that needs you only because its last reply asks you something sits at its prompt, so
-// it gets the box: what you type is the answer.
+// what you type is the answer.
 
 import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent } from 'react';
 import { sendToSession, sessionAnswer, sessionCancel, sessionPending } from '../api';
 import { filesToAttach, keepFiles } from '../attachInput';
+import { onDraftChange, readDraft, writeDraft } from '../drafts';
 import { sessionPlace } from '../harness';
 import { attachmentsIn, insertAttachments, withoutAttachment } from '../todos';
 import type { Pending, Sent, Session } from '../types';
@@ -20,10 +25,6 @@ import { Button, Icon, Rich } from './primitives';
 
 /** The box grows to this many lines, then scrolls. */
 const LINES = 8;
-
-/** What you wrote to each session and haven't sent, by session: going to another session and
- *  back, or closing the peek, keeps it. */
-const drafts = new Map<string, string>();
 
 function plain(e: unknown): string {
   return String(e).replace(/^Error: /, '');
@@ -51,12 +52,14 @@ interface ComposerProps {
   terminal: string;
   /** Puts the cursor in the box as it shows. */
   autoFocus?: boolean;
+  /** The session waits on you (Approval above says for what): what you write waits too. */
+  waiting?: boolean;
   /** After a message went through, with what happened. */
   onSent?: (sent: Sent) => void;
 }
 
-function Composer({ session: s, terminal, autoFocus, onSent }: ComposerProps) {
-  const [text, setTextNow] = useState(() => drafts.get(s.key) ?? '');
+function Composer({ session: s, terminal, autoFocus, waiting, onSent }: ComposerProps) {
+  const [text, setTextNow] = useState(() => readDraft(s.key));
   const [sending, setSending] = useState(false);
   const [note, setNote] = useState<{ text: string; error: boolean } | null>(null);
   const box = useRef<HTMLTextAreaElement>(null);
@@ -67,9 +70,18 @@ function Composer({ session: s, terminal, autoFocus, onSent }: ComposerProps) {
   const setText = (t: string) => {
     setTextNow(t);
     latest.current = t;
-    if (t) drafts.set(s.key, t);
-    else drafts.delete(s.key);
+    writeDraft(s.key, t);
   };
+
+  // Another window wrote to this session too, or sent what was written.
+  useEffect(
+    () =>
+      onDraftChange(s.key, (t) => {
+        setTextNow(t);
+        latest.current = t;
+      }),
+    [s.key],
+  );
 
   useLayoutEffect(() => {
     const el = box.current;
@@ -89,7 +101,7 @@ function Composer({ session: s, terminal, autoFocus, onSent }: ComposerProps) {
 
   const send = () => {
     const t = text.trim();
-    if (!t || sending) return;
+    if (!t || sending || waiting) return;
     setSending(true);
     setNote(null);
     sendToSession(s.key, t)
@@ -136,10 +148,11 @@ function Composer({ session: s, terminal, autoFocus, onSent }: ComposerProps) {
           if (note && !note.error) setNote(null);
         }}
         onKeyDown={(e) => {
-          if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-            e.preventDefault();
-            send();
-          }
+          if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing) return;
+          // While it waits on you ⏎ sends nothing, and ⌘⏎ goes on to Allow (the quick panel's).
+          if (waiting && e.metaKey) return;
+          e.preventDefault();
+          send();
         }}
         onPaste={paste}
         aria-label={`Message to ${s.title}`}
@@ -147,13 +160,15 @@ function Composer({ session: s, terminal, autoFocus, onSent }: ComposerProps) {
       />
       {attached.length > 0 && <AttachmentStrip items={attached} onRemove={(a) => setText(withoutAttachment(latest.current, a.path))} />}
       <div className="ca-composer-foot">
-        <span className={['ca-composer-note', note?.error && 'is-error'].filter(Boolean).join(' ')}>{sending ? 'Sending…' : (note?.text ?? '⏎ sends · ⇧⏎ new line')}</span>
+        <span className={['ca-composer-note', note?.error && 'is-error'].filter(Boolean).join(' ')}>
+          {sending ? 'Sending…' : (note?.text ?? (waiting ? 'Send this once it isn’t waiting on you' : '⏎ sends · ⇧⏎ new line'))}
+        </span>
         {s.hosted && s.status === 'working' && (
           <Button size="sm" icon="pause" disabled={stopping} onClick={stop}>
             Stop
           </Button>
         )}
-        <Button variant="primary" size="sm" icon="send" disabled={!text.trim() || sending} onClick={send}>
+        <Button variant="primary" size="sm" icon="send" disabled={!text.trim() || sending || waiting} onClick={send}>
           Send
         </Button>
       </div>
@@ -268,8 +283,16 @@ export interface ReplyProps {
   onAnswered?: (said: string) => void;
 }
 
-/** The bottom of a session's panel: the box that sends it a message, or what it waits on you for. */
+/** The bottom of a session's panel: what it waits on you for, if anything, and the box that sends
+ *  it a message. The box is the same one throughout, so it keeps what's in it as the session
+ *  starts and stops waiting. */
 export function Reply({ session, terminal, onOpen, autoFocus, keys, onSent, onAnswered }: ReplyProps) {
-  if (!takesReply(session)) return <Approval key={session.key} session={session} terminal={terminal} onOpen={onOpen} onAnswered={onAnswered} keys={keys} />;
-  return <Composer key={session.key} session={session} terminal={terminal} autoFocus={autoFocus} onSent={onSent} />;
+  const waiting = !takesReply(session);
+  return (
+    <>
+      {waiting && <Approval key={`wait:${session.key}`} session={session} terminal={terminal} onOpen={onOpen} onAnswered={onAnswered} keys={keys} />}
+      {/* A session Codealong runs takes a message while it waits, after its current turn. */}
+      <Composer key={`box:${session.key}`} session={session} terminal={terminal} autoFocus={autoFocus} waiting={waiting && !session.hosted} onSent={onSent} />
+    </>
+  );
 }
