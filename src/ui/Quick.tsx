@@ -654,6 +654,14 @@ export function Quick() {
     setActiveKey(keys[Math.max(0, Math.min(keys.length - 1, i + delta))]);
   };
 
+  /** Brings the panel back as you left it, with why what you asked failed. What's put back is
+   *  drawn first: the script that reopens the panel lays out the open's own changes at once, and
+   *  changes made outside the page's events would come a moment after (`opening`, above). */
+  const reopen = (restore: () => void) => {
+    flushSync(restore);
+    void showQuick({ keep: true });
+  };
+
   /** Opens a session where it lives. The search that found it is done with. */
   const openSession = (lane: Lane, session: Session) => {
     const target = lane.targets.find((t) => t.id === session.openTarget);
@@ -666,11 +674,12 @@ export function Quick() {
     setActiveKey(null);
     setError(null);
     void hideQuick();
-    openFromBar(lane.id, session.openTarget).catch((e: unknown) => {
-      setText(kept);
-      setError(plain(e));
-      void showQuick({ keep: true });
-    });
+    openFromBar(lane.id, session.openTarget).catch((e: unknown) =>
+      reopen(() => {
+        setText(kept);
+        setError(plain(e));
+      }),
+    );
   };
 
   const revealSession = (lane: Lane, session: Session) => {
@@ -731,10 +740,7 @@ export function Quick() {
   /** A PR opens on GitHub, as it does in the PRs view. */
   const openPr = (pr: PrItem) => {
     void hideQuick();
-    openUrl(pr.url).catch((e: unknown) => {
-      setError(plain(e));
-      void showQuick({ keep: true });
-    });
+    openUrl(pr.url).catch((e: unknown) => reopen(() => setError(plain(e))));
   };
 
   const revealPr = (pr: PrItem) => {
@@ -853,11 +859,12 @@ export function Quick() {
       .then((started) => tellOpener(to, { phase: 'end', id, key: started?.key ?? null, message: started?.message ?? null }))
       .catch((e: unknown) => {
         void tellOpener(to, { phase: 'end', id, key: null, message: null });
-        setText(kept.text);
-        setTodoIds(kept.todoIds);
-        setNewWorktree(kept.newWorktree);
-        setError(plain(e));
-        void showQuick({ keep: true });
+        reopen(() => {
+          setText(kept.text);
+          setTodoIds(kept.todoIds);
+          setNewWorktree(kept.newWorktree);
+          setError(plain(e));
+        });
       });
   };
 
@@ -877,9 +884,10 @@ export function Quick() {
       .then((sent) => tellOpener(to, { phase: 'end', id, key: null, message: sent.message }))
       .catch((e: unknown) => {
         void tellOpener(to, { phase: 'end', id, key: null, message: null });
-        setText(prompt);
-        setError(plain(e));
-        void showQuick({ keep: true });
+        reopen(() => {
+          setText(prompt);
+          setError(plain(e));
+        });
       });
   };
 
@@ -896,11 +904,12 @@ export function Quick() {
     void hideQuick();
     todoOp({ op: 'create', todo: t })
       .then(() => tellOpener(to, { phase: 'end', id: Date.now(), key: null, message: `Saved “${title}” as a todo in ${where.project}.` }))
-      .catch((e: unknown) => {
-        setText(prompt);
-        setError(plain(e));
-        void showQuick({ keep: true });
-      });
+      .catch((e: unknown) =>
+        reopen(() => {
+          setText(prompt);
+          setError(plain(e));
+        }),
+      );
   };
 
   const suggest = (sg: Suggestion, alt: boolean) => {
