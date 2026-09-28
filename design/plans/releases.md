@@ -1,10 +1,10 @@
 # Plan: an installer, releases and automatic updates
 
-Status: the installer is built (`scripts/release.sh`, 2026-09-28) and signed with Gordon
-Hempton's Developer ID: the signatures verify, both architectures run from the image, and the
-window draws as designed in light mode. It isn't notarized yet, which waits on a notarization key
-(below). Everything after it is a plan. The decisions come first, because each is baked into the
-first copy anyone installs.
+Status: the installer is built (`scripts/release.sh`, 2026-09-28), signed with Gordon Hempton's
+Developer ID and notarized: Gatekeeper accepts the app and the disk image as "Notarized Developer
+ID", both architectures run from the image, and the window draws as designed in light mode.
+Everything after it is a plan. The decisions come first, because each is baked into the first
+copy anyone installs.
 
 ## Decided: whose name is on it
 
@@ -15,9 +15,16 @@ individual membership. `scripts/release.sh` signs with that team's Developer ID 
 
 - **The certificate:** "Developer ID Application: Gordon Hempton (N3347S68VA)", made 2026-09-28
   from Apple's G2 intermediate, good until 2031-09-17. Its key was made on the Mac that builds
-  releases and lives only in that Mac's login keychain; Apple can't send it again. A copy
-  exported from Keychain Access (My Certificates, Export, a .p12 with a password) belongs in
-  1Password, and is how another Mac, or CI, signs.
+  releases and is in that Mac's login keychain; Apple can't send it again. The backup is in his
+  1Password Private vault, "Codealong Developer ID signing key (Gordon Hempton, N3347S68VA)": the
+  .p12 attached, opened by the item's password (which 1Password generated). That's how another
+  Mac, or CI, signs.
+- **Notarizing:** an App Store Connect API key, "Codealong notarization" (Developer role), made
+  2026-09-28. The Mac that builds releases keeps it as notarytool's keychain profile `codealong`,
+  so a release is `CODEALONG_NOTARY_PROFILE=codealong scripts/release.sh`. Apple lets the key
+  file be downloaded once: it's in the same vault, "Codealong notarization key (App Store Connect
+  API)", with its key ID and issuer ID, for another Mac (`xcrun notarytool store-credentials
+  codealong --key AuthKey_<ID>.p8 --key-id <ID> --issuer <issuer>`) or CI.
 - **The membership renews every year.** It had lapsed by 2026-09-28 and was renewed that day. A
   lapsed membership doesn't stop signed copies from running, but Apple won't notarize or issue
   certificates until it's renewed.
@@ -35,19 +42,15 @@ individual membership. `scripts/release.sh` signs with that team's Developer ID 
 1. **Where downloads and updates come from.** `codealong/codealong` is private, and the website's
    Download button already points at its `releases/latest`, which only works once the repo is
    public. The code is now under the Apache License 2.0, which suggests that's the plan: then
-   releases go on the repo's GitHub Releases. If the source has to stay private for a while, a public
-   `codealong/releases` repo can carry the binaries alone. The update address is compiled into
+   releases go on the repo's GitHub Releases. If the source has to stay private for a while, a
+   public `codealong/releases` repo can carry the binaries alone. The update address is compiled into
    every copy, so it should be one we keep: a GitHub URL is fine for years (codealong.com is
    parked at Sedo, not ours).
-2. **Notarization credentials.** An App Store Connect API key for team N3347S68VA (App Store
-   Connect › Users and Access › Integrations › Team Keys, role Developer). Save it once per Mac
-   with `xcrun notarytool store-credentials codealong --key AuthKey_<ID>.p8 --key-id <ID>
-   --issuer <issuer>`, then `CODEALONG_NOTARY_PROFILE=codealong scripts/release.sh`.
-3. **Who keeps the update key.** `npx tauri signer generate -w ~/.tauri/codealong.key` makes the
+2. **Who keeps the update key.** `npx tauri signer generate -w ~/.tauri/codealong.key` makes the
    key pair updates are signed with. The public half goes in `tauri.conf.json`; the private half
-   and its password go in 1Password and, later, CI's secrets. Lose it and installed copies can
-   never update again (people reinstall by hand); leak it and whoever also controls the download
-   address can ship code to every copy.
+   and its password go in 1Password beside the other two and, later, CI's secrets. Lose it and
+   installed copies can never update again (people reinstall by hand); leak it and whoever also
+   controls the download address can ship code to every copy.
 
 Decided against:
 
