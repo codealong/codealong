@@ -34,8 +34,9 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     you, Your turn and Working as the floating bar groups them, newest status first, then the
     rest by day, the one you last sent a prompt first. Sessions are pinned
     here, with `p` or the right-click menu, and their pins show only here. Archive a session
-    with `a` or its right-click menu; Codex threads are archived in Codex itself. The
-    selected session's panel shows its whole conversation, read from the session's own
+    with `a` or its right-click menu; Codex threads are archived in Codex itself. Mark a
+    finished turn seen, which makes it idle and takes it off the floating bar, with `e`, the
+    check at the top of its panel or its right-click menu. The selected session's panel shows its whole conversation, read from the session's own
     record (Claude Code's transcript, Codex's rollout, OpenCode's database): your prompts, the
     agent's replies as Markdown, and every tool call, which opens to its input and output; runs
     of calls fold into one line. It opens at the newest and loads older pages as you scroll up,

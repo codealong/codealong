@@ -39,6 +39,12 @@ export function bySession(a: Session, b: Session): number {
   return URGENCY[a.status] - URGENCY[b.status] || b.lastPromptAt - a.lastPromptAt || b.lastActivity - a.lastActivity;
 }
 
+/** A finished turn waiting on you to read it: Your turn, or a reply that asks you something.
+ *  Marking it seen makes it idle, which takes it off the bar and out of its bay. */
+export function seenable(s: Session): boolean {
+  return s.status === 'unread' || !!s.asks;
+}
+
 /** When you last sent a prompt to one of a worktree's own agents; with none, when anything last happened in it. */
 export function lanePromptAt(lane: Lane): number {
   const own = lane.sessions.filter((s) => !s.visitor && !s.archived);

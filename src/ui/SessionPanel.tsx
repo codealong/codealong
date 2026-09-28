@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { below } from '../contextMenu';
 import { absolute, agoPhrase, duration, middleTruncate, tildePath } from '../format';
 import { HARNESS_WORD, sessionPlace } from '../harness';
+import { seenable } from '../lanes';
 import type { Board, DeviceView, Lane, Session, Todo } from '../types';
 import { STATUS_WORD as TODO_WORD } from '../todos';
 import { InsightChips } from './InsightBits';
@@ -29,13 +30,16 @@ interface SessionPanelProps {
   onShowTodo?: (todo: Todo) => void;
   /** The session's right-click menu, from its ⋯ button. */
   onMoreMenu: (at: { x: number; y: number }) => void;
+  /** Marks a finished turn seen, as the bar's peek does: the header offers it for Your turn and a
+   *  reply that asks you something. */
+  onSeen: () => void;
   /** The device it's on, when that's another of yours: it opens there, and a message goes there. */
   device?: DeviceView | null;
   /** Shown from another panel (a PR's, a todo's): the way back to it. */
   back?: { label: string; onBack: () => void };
 }
 
-export function SessionPanel({ lane, session: s, apps, now, onOpen, onNewSession, onShowLane, todos, onShowTodo, onMoreMenu, device, back }: SessionPanelProps) {
+export function SessionPanel({ lane, session: s, apps, now, onOpen, onNewSession, onShowLane, todos, onShowTodo, onMoreMenu, onSeen, device, back }: SessionPanelProps) {
   const [details, setDetails] = useState(false);
   const targets = lane.targets.filter((t) => t.id.startsWith(`s|${s.key}|`));
   const since = s.statusSince ? (s.status === 'working' ? `for ${duration(s.statusSince, now)}` : agoPhrase(s.statusSince, now)) : agoPhrase(s.lastActivity, now);
@@ -52,6 +56,7 @@ export function SessionPanel({ lane, session: s, apps, now, onOpen, onNewSession
         <div className="ca-insp-title">
           <StatusGlyph status={s.status} size={14} />
           <span className="ca-tag">{HARNESS_WORD[s.harness]}</span>
+          {seenable(s) && <Button variant="ghost" size="sm" icon="check" aria-label="Mark as seen" title="Mark as seen: it goes idle and leaves the bar" className="ca-sessinsp-seen" onClick={onSeen} />}
           <Button variant="ghost" size="sm" icon="dots" aria-label="More" title="Pin, archive, copy and more" className="ca-todoinsp-more" onClick={(e) => onMoreMenu(below(e.currentTarget))} />
         </div>
         <h3 className="ca-sessinsp-title">{s.title}</h3>

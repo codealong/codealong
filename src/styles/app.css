@@ -4774,6 +4774,12 @@ html.is-quick body {
 .ca-sessinsp .ca-todoinsp-more {
   margin-left: auto;
 }
+.ca-sessinsp .ca-sessinsp-seen {
+  margin-left: auto;
+}
+.ca-sessinsp .ca-sessinsp-seen + .ca-todoinsp-more {
+  margin-left: 0;
+}
 .ca-sessinsp-title {
   margin: 0;
   font: 600 17px/22px var(--font-sans);

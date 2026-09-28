@@ -5,6 +5,7 @@
 
 import { agoPhrase, duration } from '../format';
 import { sessionPlace } from '../harness';
+import { seenable } from '../lanes';
 import type { Lane, Sent, Session } from '../types';
 import { Button, Rich, STATUS_WORD, StatusGlyph } from './primitives';
 import { Reply } from './SessionReply';
@@ -57,7 +58,7 @@ export function ReplyView({ lane, session: s, terminal, now, onOpen, onReveal, o
             {s.account} · {lane.callsign} · {status}
           </div>
         </div>
-        {onSeen && (s.status === 'unread' || s.asks) && <Button variant="ghost" size="sm" icon="check" aria-label="Mark as seen" title="Mark as seen: it leaves the list" onClick={onSeen} />}
+        {onSeen && seenable(s) && <Button variant="ghost" size="sm" icon="check" aria-label="Mark as seen" title="Mark as seen: it leaves the list" onClick={onSeen} />}
         {onArchive && (
           <Button
             variant="ghost"

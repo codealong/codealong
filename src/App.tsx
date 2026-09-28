@@ -9,7 +9,7 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { showContextMenu, type MenuSpec } from './contextMenu';
-import { AGENT_BAY, BAYS, buildBays, failingPr, filterByAge, inboxCounts, lanePromptAt, narrowed, rowItems, worktreeRow, type BoardRow, type Filter, type WorktreeRow } from './lanes';
+import { AGENT_BAY, BAYS, buildBays, failingPr, filterByAge, inboxCounts, lanePromptAt, narrowed, rowItems, seenable, worktreeRow, type BoardRow, type Filter, type WorktreeRow } from './lanes';
 import { answerLink, approvePr, archiveSession, barOn, getDevices, onDevices, dismissTodoHint, expandAttachments, getBoard, markSeen, onBarOn, onBoard, onCloseIdle, onNewWindow, onQuickStart, onReveal, onSettings, openConfig, openProjectWindow, openTarget, openUrl, refresh, refreshUsage, reviewInCodex, setBarOn, setPinned, setPinnedWorktrees, setPreferred, setTheme, showQuick, signIn, windowLabel, type Reveal } from './api';
 import { agoPhrase, middleTruncate } from './format';
 import { usePerf } from './perf';
@@ -1074,12 +1074,14 @@ export function App() {
   const toggleLanePin = useCallback((lane: Lane) => lanePins.toggle(lane.id), [lanePins]);
 
   /**
-   * A session's right-click menu: open it, pin it, archive it, copy its ID. Each list pins what
+   * A session's right-click menu: open it, mark it seen, pin it, archive it, copy its ID. Each list pins what
    * it shows: Sessions pins the session; the board and the sidebar, lists of worktrees, pin the
    * session's worktree.
    */
   const todoItemsRef = useRef(todoMenuItems);
   todoItemsRef.current = todoMenuItems;
+  /** Marks a finished turn seen: it goes idle, and leaves Your turn and the bar. */
+  const seen = (s: Session) => void markSeen([s.key]).catch((e: unknown) => setToast(String(e)));
   const sessionMenuSpec = (lane: Lane, s: Session, pin: 'session' | 'worktree'): MenuSpec => {
       const target = lane.targets.find((t) => t.id === s.openTarget);
       const pinItem =
@@ -1092,6 +1094,7 @@ export function App() {
         'separator',
         ...todoItemsRef.current(lane.project, { session: s.key }, { session: s.key, worktree: lane.id, label: `${s.account} in ${lane.callsign}` }, s.title),
         'separator',
+        ...(seenable(s) ? [{ label: 'Mark as seen', run: () => seen(s) }] : []),
         ...(s.archived ? [] : [pinItem]),
         { label: s.archived ? 'Unarchive' : s.harness === 'codex' ? 'Archive in Codex' : 'Archive', run: () => setArchived(s.key, !s.archived, s.title) },
         'separator',
@@ -1418,7 +1421,7 @@ export function App() {
         copy(lane?.branch, 'branch name');
       } else if (key === 'e' && !mod) {
         const sessions = selected?.kind === 'agent' ? [selected.session] : selected?.kind === 'todo' ? (pickedRows.length > 0 ? pickedRows : [selected]).flatMap((r) => r.sessions.map((x) => x.session)) : (lane?.sessions ?? []);
-        void markSeen(sessions.filter((s) => s.status === 'unread').map((s) => s.key));
+        void markSeen(sessions.filter(seenable).map((s) => s.key));
       } else if (key === 'g' && !mod) {
         gPending.current = true;
         window.setTimeout(() => (gPending.current = false), 1200);
@@ -1668,6 +1671,7 @@ export function App() {
       todos={todoLinks.bySession.get(session.key)}
       onShowTodo={showTodoFromPanel}
       onMoreMenu={(at) => void showContextMenu(sessionMenuSpec(lane, session, 'session'), at).catch((err: unknown) => setToast(String(err)))}
+      onSeen={() => seen(session)}
       device={deviceOf(devices, session.key)}
       back={back}
     />
