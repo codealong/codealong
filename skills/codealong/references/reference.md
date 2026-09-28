@@ -22,8 +22,10 @@ Commands:
   status     Whether the app is running, and where the data lives
   accounts   The configured accounts: harness, sign-in, and with --usage how much of
              each plan limit is used
-  whoami     Which session runs this command, its worktree, and its open todos: the ones
-             linked to the session, then the worktree's when no other live session works
+  whoami     Which session runs this command, its worktree, the other agents running in
+             that worktree now (`others`: none means no other agent shares the checkout,
+             however many sessions worked there before), and its open todos: the ones
+             linked to the session, then the worktree's when no other agent is running
              there (in a checkout several agents share, those are the others' work). Run
              it first
   todo       Todos: work meant for an agent. Each has a title, a description, labels, a
@@ -33,8 +35,11 @@ Commands:
              it works. Lists by default; `find` searches
   session    One session in full: status, excerpt, folder, branch, PR, how to resume it,
              and where its own records are
-  worktrees  Worktrees the board knows: each with its branch, PR, status and the agents
-             in it
+  worktrees  Worktrees the board knows: each with its branch, PR, status, and the agents
+             running in it now (`agents`: sessions a process has open, or that are
+             working or waiting on you; `working`: those working or waiting on you).
+             `sessions` counts every session that worked there, running or not: it's
+             history, not who's there
   pr         A PR and the sessions that worked on it, and linking a session to a PR by
              hand. A session is linked by itself when its records show it made, edited
              or commented on the PR (`gh pr create` and the like), or when it worked in
@@ -119,9 +124,11 @@ Options:
 ## codealong whoami
 
 ```
-Which session runs this command, its worktree, and its open todos: the ones linked to
-the session, then the worktree's when no other live session works there (in a checkout
-several agents share, those are the others' work). Run it first
+Which session runs this command, its worktree, the other agents running in that worktree
+now (`others`: none means no other agent shares the checkout, however many sessions
+worked there before), and its open todos: the ones linked to the session, then the
+worktree's when no other agent is running there (in a checkout several agents share,
+those are the others' work). Run it first
 
 Usage: codealong whoami [OPTIONS]
 
@@ -917,7 +924,10 @@ Options:
 ## codealong worktrees
 
 ```
-Worktrees the board knows: each with its branch, PR, status and the agents in it
+Worktrees the board knows: each with its branch, PR, status, and the agents running in
+it now (`agents`: sessions a process has open, or that are working or waiting on you;
+`working`: those working or waiting on you). `sessions` counts every session that worked
+there, running or not: it's history, not who's there
 
 Usage: codealong worktrees [OPTIONS]
 

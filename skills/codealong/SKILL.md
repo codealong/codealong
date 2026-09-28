@@ -15,12 +15,13 @@ has the same text.
 ## Start here
 
 Run `codealong whoami` once at the start of a task. It says which session you are (key like
-`claude:claude2:<uuid>`), which worktree you're in, and your open todos: the ones linked to
-your session, and the worktree's when no other live session works there. In a checkout several
-agents share, a todo linked only to the worktree is another agent's. `me` and `.` in other
-commands mean that session and that worktree. If it finds no session, todo commands still
-work, and `todo start` and `todo done` say on stderr that no session was linked; give a session
-key when you want one linked.
+`claude:claude2:<uuid>`), which worktree you're in, the other agents running there now
+(`others`), and your open todos: the ones linked to your session, and the worktree's when no
+other agent is running there. An empty `others` means no other agent shares your checkout,
+however many sessions worked there before. In a checkout several agents share, a todo linked
+only to the worktree is another agent's. `me` and `.` in other commands mean that session and
+that worktree. If it finds no session, todo commands still work, and `todo start` and `todo
+done` say on stderr that no session was linked; give a session key when you want one linked.
 
 ## Todos
 
@@ -60,8 +61,9 @@ key when you want one linked.
 ## Sessions and worktrees
 
 - `codealong sessions` lists sessions from the last 7 days: status (`needs` means it's
-  waiting on the user, `working`, `unread` means its turn ended and nobody looked, `idle`),
-  account, worktree, title and what it's doing now. Filter with `--account`, `--status`,
+  waiting on the user, `working`, `unread` means its turn ended and nobody looked, `idle`,
+  `stopped` means its process ended), `live` (a process has it open now), account, worktree,
+  title and what it's doing now. Filter with `--account`, `--status`,
   `--project`, `--worktree .`, `--live`, `--since 24h|3d|all`.
 - `codealong sessions find <words>` searches titles, excerpts, worktrees, branches and PRs.
   Use it before re-deriving what another agent did in this repo.
@@ -70,7 +72,10 @@ key when you want one linked.
   Code and Codex records are JSONL you can grep; OpenCode's and Antigravity's are SQLite
   databases. Codealong doesn't search transcripts itself.
 - `codealong worktrees` lists worktrees with branch, PR state, bay (`needs`, `working`,
-  `unread`, `review`, `idle`, `merged`) and how many agents are in each.
+  `unread`, `review`, `idle`, `merged`) and `agents`, how many are running in each now
+  (`working` of them working or waiting on the user). `sessions` counts every session that
+  worked there, running or not: a long-lived worktree has dozens, and they aren't agents
+  there now.
 
 ## PRs
 

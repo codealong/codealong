@@ -61,7 +61,7 @@ enum Cmd {
         #[arg(long)]
         usage: bool,
     },
-    /// Which session runs this command, its worktree, and its open todos: the ones linked to the session, then the worktree's when no other live session works there (in a checkout several agents share, those are the others' work). Run it first.
+    /// Which session runs this command, its worktree, the other agents running in that worktree now (`others`: none means no other agent shares the checkout, however many sessions worked there before), and its open todos: the ones linked to the session, then the worktree's when no other agent is running there (in a checkout several agents share, those are the others' work). Run it first.
     Whoami {
         /// Plain text for a session-start hook, even when piped: a line or two when a session or todo is found, nothing otherwise.
         #[arg(long)]
@@ -79,7 +79,7 @@ enum Cmd {
         #[command(subcommand)]
         cmd: SessionCmd,
     },
-    /// Worktrees the board knows: each with its branch, PR, status and the agents in it.
+    /// Worktrees the board knows: each with its branch, PR, status, and the agents running in it now (`agents`: sessions a process has open, or that are working or waiting on you; `working`: those working or waiting on you). `sessions` counts every session that worked there, running or not: it's history, not who's there.
     Worktrees(WorktreesArgs),
     /// A PR and the sessions that worked on it, and linking a session to a PR by hand. A session is linked by itself when its records show it made, edited or commented on the PR (`gh pr create` and the like), or when it worked in a worktree on the PR's branch while the PR was open.
     Pr {
@@ -1377,11 +1377,30 @@ struct LaneRow {
     pr: Option<u64>,
     pr_state: Option<String>,
     pr_title: Option<String>,
+    /// Agents running in it now (`agents_in`).
     agents: usize,
+    /// Of those, the ones working or waiting on you.
+    working: usize,
+    /// Every session that worked in it and isn't archived, running or not.
+    sessions: usize,
     last_activity: i64,
     pinned: bool,
     /// Ids of todos linked to it.
     todos: Vec<String>,
+}
+
+/// Whether a session is running now: a process has it open (a terminal, the Claude app, a
+/// background job), or it's in a turn or waiting on you to go on. A long-lived worktree
+/// gathers dozens of sessions that ended days ago; counted as its agents, they made it look
+/// crowded to an agent deciding whether to share it.
+fn running(s: &Session) -> bool {
+    s.live || matches!(s.status, Status::Working | Status::Needs)
+}
+
+/// The agents running in a worktree: its own sessions (not visitors from other worktrees)
+/// that are running and not archived.
+fn agents_in(l: &Lane) -> impl Iterator<Item = &Session> {
+    l.sessions.iter().filter(|s| s.visitor.is_none() && !s.archived && running(s))
 }
 
 fn lane_row(l: &Lane, board: &Board) -> LaneRow {
@@ -1397,7 +1416,9 @@ fn lane_row(l: &Lane, board: &Board) -> LaneRow {
         pr: l.pr.as_ref().map(|p| p.number),
         pr_state: l.pr.as_ref().map(|p| lower_debug(&p.state)),
         pr_title: l.pr.as_ref().map(|p| p.title.clone()),
-        agents: l.sessions.iter().filter(|s| s.visitor.is_none() && !s.archived).count(),
+        agents: agents_in(l).count(),
+        working: agents_in(l).filter(|s| matches!(s.status, Status::Working | Status::Needs)).count(),
+        sessions: l.sessions.iter().filter(|s| s.visitor.is_none() && !s.archived).count(),
         last_activity: l.last_activity,
         pinned: board.pinned_worktrees.contains(&l.id),
         todos: board.todos.iter().filter(|t| t.worktrees.contains(&l.id)).map(|t| t.id.clone()).collect(),
@@ -1436,8 +1457,11 @@ struct Whoami {
     how: Option<String>,
     session: Option<SessionRow>,
     worktree: Option<LaneRow>,
+    /// The other agents running in the worktree now (`agents_in`), this session aside. None
+    /// means no other agent shares the checkout, however many sessions worked there before.
+    others: Vec<SessionRow>,
     /// Open todos linked to the session, then open ones linked to the worktree when no other
-    /// live session works there (`my_todos`).
+    /// agent is running there (`my_todos`).
     todos: Vec<TodoRow>,
 }
 
@@ -1534,6 +1558,7 @@ fn whoami(c: &mut Client, context: bool, json: bool) -> Result<()> {
         how: session.and(how).map(str::to_string),
         session: session.map(|(s, l)| session_row(s, l, &board.todos)),
         worktree: lane.map(|l| lane_row(l, board)),
+        others: lane.map(|l| others_in(l, key.as_deref()).map(|s| session_row(s, l, &board.todos)).collect()).unwrap_or_default(),
         todos: my_todos(board, key.as_deref(), lane).into_iter().map(|t| todo_row(t, &store_of(board), false)).collect(),
     };
     // Before JSON: a hook reads the command's output through a pipe.
@@ -1557,6 +1582,7 @@ fn whoami(c: &mut Client, context: bool, json: bool) -> Result<()> {
     }
     if let Some(w) = &out.worktree {
         println!("Worktree {} ({}{}){}", tilde(Path::new(&w.id)), w.callsign, w.branch.as_deref().map(|b| format!(", {b}")).unwrap_or_default(), w.pr.map(|n| format!(", PR #{n}")).unwrap_or_default());
+        println!("{}", others_text(&out.others, w.sessions.saturating_sub(w.agents)));
     }
     for t in &out.todos {
         let mine = key.as_deref().is_some_and(|k| t.sessions.iter().any(|s| s == k));
@@ -1565,14 +1591,33 @@ fn whoami(c: &mut Client, context: bool, json: bool) -> Result<()> {
     Ok(())
 }
 
+/// The agents running in a worktree other than the caller.
+fn others_in<'a>(l: &'a Lane, key: Option<&'a str>) -> impl Iterator<Item = &'a Session> {
+    agents_in(l).filter(move |s| Some(s.key.as_str()) != key)
+}
+
+/// `whoami`'s line under the worktree: the other agents running there, or that there are none
+/// and how many sessions there have ended.
+fn others_text(others: &[SessionRow], ended: usize) -> String {
+    if others.is_empty() {
+        let before = match ended {
+            0 => String::new(),
+            1 => " (1 earlier session has ended)".to_string(),
+            n => format!(" ({n} earlier sessions have ended)"),
+        };
+        return format!("No other agent is running here{before}.");
+    }
+    others.iter().map(|s| format!("Also running here: {} ({} on {}, {}) {}", s.key, s.harness, s.account, s.status, s.title)).collect::<Vec<_>>().join("\n")
+}
+
 /// The todos `whoami` names: the open ones linked to the session, then the open ones linked to
-/// its worktree when no other live session has that worktree as its own. In a checkout several
-/// agents share, the worktree's todos are the others' work. When the caller isn't known, one
-/// live session there may be the caller itself.
+/// its worktree when no other agent is running there. In a checkout several agents share, the
+/// worktree's todos are the others' work. When the caller isn't known, one agent running there
+/// may be the caller itself.
 fn my_todos<'a>(board: &'a Board, key: Option<&str>, lane: Option<&Lane>) -> Vec<&'a Todo> {
     let open = |t: &&Todo| t.status != TodoStatus::Done;
     let mut out: Vec<&Todo> = board.todos.iter().filter(open).filter(|t| key.is_some_and(|k| t.sessions.iter().any(|s| s == k))).collect();
-    let alone = lane.filter(|l| l.sessions.iter().filter(|s| s.visitor.is_none() && s.live && Some(s.key.as_str()) != key).count() <= usize::from(key.is_none()));
+    let alone = lane.filter(|l| others_in(l, key).count() <= usize::from(key.is_none()));
     if let Some(l) = alone {
         let more: Vec<&Todo> = board.todos.iter().filter(open).filter(|t| t.worktrees.contains(&l.id) && !out.iter().any(|x| x.id == t.id)).collect();
         out.extend(more);
@@ -2653,12 +2698,43 @@ mod tests {
     }
 
     #[test]
+    fn a_worktrees_agents_are_the_sessions_running_in_it_not_every_one_that_worked_there() {
+        let with = |key: &str, status: &str, live: bool| Session { status: serde_json::from_value(json!(status)).unwrap(), ..session(key, live, None) };
+        let long_lived = |sessions: Vec<Session>| {
+            let mut all = vec![with("me", "working", true), with("ended", "stopped", false), with("seen", "idle", false)];
+            all.extend(sessions);
+            // Put away, and a session from another worktree that worked here too.
+            all.push(Session { archived: true, ..with("put-away", "idle", true) });
+            all.push(session("visitor", true, Some("worked here")));
+            Board { lanes: vec![lane("/r/long", all)], todos: vec![todo("t", TodoStatus::Todo, &[], &["/r/long"])], ..Board::default() }
+        };
+        // Alone in a checkout where sessions ended long ago: none of them is an agent there.
+        let b = long_lived(vec![]);
+        let l = &b.lanes[0];
+        let row = lane_row(l, &b);
+        assert_eq!((row.agents, row.working, row.sessions), (1, 1, 3));
+        assert_eq!(others_in(l, Some("me")).count(), 0);
+        assert_eq!(others_text(&[], row.sessions - row.agents), "No other agent is running here (2 earlier sessions have ended).");
+        assert_eq!(others_text(&[], 0), "No other agent is running here.");
+        assert_eq!(my_todos(&b, Some("me"), Some(l)).len(), 1, "the worktree's todo is this session's to see");
+        // A terminal left open between turns, and a Codex thread waiting on an approval, whose
+        // app has no process for it: both share the checkout.
+        let b = long_lived(vec![with("open", "idle", true), with("asking", "needs", false)]);
+        let l = &b.lanes[0];
+        let row = lane_row(l, &b);
+        assert_eq!((row.agents, row.working, row.sessions), (3, 2, 5));
+        let others: Vec<SessionRow> = others_in(l, Some("me")).map(|s| session_row(s, l, &b.todos)).collect();
+        assert_eq!(others_text(&others, row.sessions - row.agents), "Also running here: open (claude on claude, idle) Title open\nAlso running here: asking (claude on claude, needs) Title asking");
+        assert!(my_todos(&b, Some("me"), Some(l)).is_empty(), "the worktree's todo may be theirs");
+    }
+
+    #[test]
     fn a_starting_session_is_told_which_todos_are_its_own() {
         let b = shared_and_own(false);
         let (main, store) = (&b.lanes[0], store_of(&b));
         let rows = |ids: &[&str]| ids.iter().map(|id| todo_row(b.todos.iter().find(|t| t.id == *id).unwrap(), &store, false)).collect::<Vec<_>>();
         let me = &main.sessions[0];
-        let out = Whoami { found: true, how: Some("process".into()), session: Some(session_row(me, main, &b.todos)), worktree: Some(lane_row(main, &b)), todos: rows(&["a", "c"]) };
+        let out = Whoami { found: true, how: Some("process".into()), session: Some(session_row(me, main, &b.todos)), worktree: Some(lane_row(main, &b)), others: vec![], todos: rows(&["a", "c"]) };
         assert_eq!(
             context_text(&out, Some("me")),
             "This is Codealong session me (claude on claude), in worktree /r/main.\n\
@@ -2666,9 +2742,9 @@ mod tests {
              Todo c \"C\" is linked to this worktree (in-progress). If you take it on, `codealong todo start c` links this session to it.\n"
         );
         // A session the app just started isn't on the board yet, but its todo is its own.
-        let out = Whoami { found: false, how: None, session: None, worktree: Some(lane_row(main, &b)), todos: rows(&["a"]) };
+        let out = Whoami { found: false, how: None, session: None, worktree: Some(lane_row(main, &b)), others: vec![], todos: rows(&["a"]) };
         assert!(context_text(&out, Some("me")).starts_with("Todo a \"A\" is linked to this session"));
-        let out = Whoami { found: false, how: None, session: None, worktree: None, todos: vec![] };
+        let out = Whoami { found: false, how: None, session: None, worktree: None, others: vec![], todos: vec![] };
         assert_eq!(context_text(&out, None), "");
     }
 
