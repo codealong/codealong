@@ -425,6 +425,10 @@ light scan (no git, PRs or visitors).
 
 - The first time Codealong opens or focuses a terminal session, macOS asks whether it may
   control Ghostty (Automation). Without it, Codealong can still open plain Ghostty windows.
+- A worktree or session folder on a removable volume, or in Documents, Desktop or Downloads,
+  makes macOS ask whether Codealong may access it, and again after each update. Until someone
+  answers, the board shows those worktrees without git and, after 10 seconds or so, names the
+  folders it's waiting to open; everything else loads as usual.
 - Codealong only reads: it never creates, resets or removes worktrees, never changes
   branches, and never types into a live session. Close idle terminals ends idle sessions'
   processes and closes their tabs, but only the ones you tick. Git runs with `GIT_OPTIONAL_LOCKS=0`.
@@ -449,6 +453,7 @@ light scan (no git, PRs or visitors).
 | `src-tauri/src/opencode.rs`, `antigravity.rs` | Harness adapters: OpenCode's database and background service, Antigravity's conversation summaries |
 | `src-tauri/src/acp.rs` | Sessions Codealong runs itself: an Agent Client Protocol adapter process per account, turns, permission requests, the streamed reply |
 | `src-tauri/src/repos.rs`, `git.rs`, `github.rs` | Repo discovery, callsigns, worktrees, git status, PRs |
+| `src-tauri/src/held.rs` | The repo scan's reads of folders it doesn't own, each on a thread of its own, so one macOS holds for a privacy prompt holds up only that folder |
 | `src-tauri/src/launch.rs` | App profiles: Ghostty (AppleScript, exact tab focus), Cursor (CLI), deep links |
 | `src-tauri/src/flash.rs` | Outlines a focused terminal that came forward on another screen |
 | `src-tauri/src/idle.rs`, `src/ui/CloseIdleDialog.tsx` | Close idle terminals: which sessions' tabs can close and why (pure, tested), and closing them |

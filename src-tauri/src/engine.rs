@@ -23,6 +23,7 @@ use crate::config::{self, AccountCfg, Config, Theme};
 use crate::detect;
 use crate::git;
 use crate::github::{self, PrRaw};
+use crate::held::Held;
 use crate::jev;
 use crate::todojev;
 use crate::launch;
@@ -36,7 +37,7 @@ use crate::throttle::{self, GitQueue, Verdict};
 use crate::todos::{self, TodoOp, TodoStore};
 use crate::attachments;
 use crate::usage;
-use crate::util::{expand, file_name, home, mtime_ms, now_ms, read_first_line, DAY_MS};
+use crate::util::{expand, file_name, home, mtime_ms, now_ms, read_first_line, tilde, DAY_MS};
 
 /// How far back sessions are read.
 const WINDOW_MS: i64 = 14 * DAY_MS;
@@ -53,6 +54,17 @@ const JEV_RETRY: Duration = Duration::from_secs(5 * 60);
 const USAGE_BACKOFF: Duration = Duration::from_secs(10 * 60);
 /// How often the commands Claude sessions left running in the background are looked at.
 const BACKGROUND_EVERY: Duration = Duration::from_secs(60);
+/// How long the repo scan waits for folders' files before going on without the ones still out,
+/// which macOS may be holding for a privacy prompt (held.rs). At a load of 600, this Mac's 66
+/// session folders and 123 worktrees were all read within 170 ms.
+const HELD_WAIT: Duration = Duration::from_secs(1);
+/// How long it waits for a scan root's walk, which reads many folders (330 ms at that load): one
+/// that came in late would leave the board without the root's repos for a moment.
+const ROOT_WAIT: Duration = Duration::from_secs(10);
+/// Reads out this long are said on the board: a slow disk is back by then.
+const HELD_WARN_AFTER: Duration = Duration::from_secs(10);
+/// Reads that land within this of each other are used by one scan.
+const LANDED_QUIET: Duration = Duration::from_millis(150);
 
 /// A command a Claude session left running in the background, as last seen.
 struct BackgroundWatch {
@@ -105,6 +117,8 @@ pub enum Msg {
     DismissTodoHint(String),
     /// A session Codealong runs changed in a way the board shows (acp.rs).
     Hosted,
+    /// A read of a folder's files came back after the scan that asked for it went on (held.rs).
+    Landed,
 }
 
 /// What the UI talks to. Cheap to clone.
@@ -464,6 +478,47 @@ enum RepoEvent {
     Ignore,
 }
 
+/// Everything the repo scan reads in folders it doesn't own, one kind of read each. macOS can
+/// hold any of these reads for a privacy prompt, so each holds up only its own folder (held.rs).
+struct RepoReads {
+    /// The checkouts under each scan root.
+    roots: Held<Vec<Checkout>>,
+    /// The worktree and main checkout each session's folder is in.
+    folders: Held<Option<(PathBuf, PathBuf)>>,
+    /// Checkouts outside the scan roots that sessions worked in.
+    checkouts: Held<Option<Checkout>>,
+    /// Each worktree's `.git` file and `.gitignore`.
+    worktrees: Held<WorktreeFiles>,
+}
+
+impl RepoReads {
+    fn new(tx: &Sender<Msg>) -> RepoReads {
+        let landed = || {
+            let tx = tx.clone();
+            move || {
+                let _ = tx.send(Msg::Landed);
+            }
+        };
+        RepoReads {
+            roots: Held::new("scan root", |root| repos::discover(&[root.to_path_buf()], 3), landed()),
+            folders: Held::new("session folder", repos::locate, landed()),
+            checkouts: Held::new("checkout", repos::load_checkout, landed()),
+            worktrees: Held::new("worktree", read_worktree, landed()),
+        }
+    }
+
+    /// The folders whose reads have been out at least `wait`, in order.
+    fn out_for(&self, wait: Duration) -> Vec<PathBuf> {
+        let mut out = self.roots.out_for(wait);
+        out.extend(self.folders.out_for(wait));
+        out.extend(self.checkouts.out_for(wait));
+        out.extend(self.worktrees.out_for(wait));
+        out.sort();
+        out.dedup();
+        out
+    }
+}
+
 struct Engine {
     emit: Box<dyn Fn(&Board) + Send>,
     tx: Sender<Msg>,
@@ -509,6 +564,13 @@ struct Engine {
     antigravity: HashMap<String, Vec<antigravity::Conversation>>,
     /// Session folders that aren't in any repo, so they're not looked up again.
     not_repos: HashSet<PathBuf>,
+    /// The repo scan's reads of files in folders it doesn't own, which macOS can hold.
+    reads: RepoReads,
+    /// When a held read last landed: the repos are read again once they stop landing.
+    landed_at: Option<Instant>,
+    /// Worktrees whose files the last scan couldn't read. Git would wait on them too, so it
+    /// runs there once a scan has read them.
+    held_worktrees: HashSet<PathBuf>,
     /// Hash of the last published board, to skip publishing when nothing changed.
     last_hash: u64,
     /// Lane path → sessions from other lanes whose logs show they worked there.
@@ -588,6 +650,7 @@ struct Engine {
 impl Engine {
     fn new(emit: Box<dyn Fn(&Board) + Send>, tx: Sender<Msg>, board: Arc<RwLock<Board>>) -> Engine {
         let git_jobs = spawn_git_workers(tx.clone());
+        let reads = RepoReads::new(&tx);
         let back = tx.clone();
         let jev_jobs = jev::worker(move |id, answer| {
             let _ = back.send(Msg::JevDone(id, answer));
@@ -621,6 +684,9 @@ impl Engine {
             opencode_last: None,
             antigravity: HashMap::new(),
             not_repos: HashSet::new(),
+            reads,
+            landed_at: None,
+            held_worktrees: HashSet::new(),
             last_hash: 0,
             visitors: HashMap::new(),
             needles: Vec::new(),
@@ -874,8 +940,8 @@ impl Engine {
         self.poll_opencode();
         self.watch();
         // The scan read config.toml and todos.json before the watcher started, and can take
-        // minutes (a permission dialog holds it up): an edit made meanwhile is read now, as the
-        // watcher would have, rather than when the file next changes.
+        // minutes on a busy Mac: an edit made meanwhile is read now, as the watcher would have,
+        // rather than when the file next changes.
         if config::read_text().ok().flatten() != self.config_text {
             self.reload();
         }
@@ -1033,7 +1099,7 @@ impl Engine {
         let mut last_databases = Instant::now();
         loop {
             let now = Instant::now();
-            let mut wait = if !pending.is_empty() || self.dirty { Duration::from_millis(50) } else { Duration::from_secs(2) };
+            let mut wait = if !pending.is_empty() || self.dirty || self.landed_at.is_some() { Duration::from_millis(50) } else { Duration::from_secs(2) };
             // Wake for a git batch that's due, or a held git run.
             if self.dirty_git {
                 let due = self.last_publish.map(|t| (t + throttle::GIT_PUBLISH_EVERY).saturating_duration_since(now)).unwrap_or_default();
@@ -1144,6 +1210,8 @@ impl Engine {
                 }
                 Ok(Msg::JevDone(id, answer)) => self.on_jev(id, answer),
                 Ok(Msg::DismissTodoHint(id)) => self.dismiss_todo_hint(id),
+                // A prompt answered lands many reads at once; they're used together.
+                Ok(Msg::Landed) => self.landed_at = Some(Instant::now()),
                 Ok(Msg::TodoStarted { ids, lane, session, pending }) => {
                     let lanes = self.lane_index();
                     let _lock = todos::lock().map_err(|e| eprintln!("{e:#}")).ok();
@@ -1190,6 +1258,10 @@ impl Engine {
                     self.apply_fs(batch);
                     self.perf.fs(n, t.elapsed(), busiest);
                 }
+            }
+            if self.landed_at.is_some_and(|t| t.elapsed() >= LANDED_QUIET) {
+                self.landed_at = None;
+                self.rescan_repos();
             }
             for path in self.git_queue.due(Instant::now()) {
                 self.send_git(path);
@@ -1325,20 +1397,23 @@ impl Engine {
         out
     }
 
+    /// The checkouts and their worktrees, as seeds for lanes. Files in folders the scan doesn't
+    /// own are read through `self.reads`: one macOS holds for a privacy prompt leaves out only
+    /// its own repo or session folder, or shows its worktree as `git worktree list` gives it, and
+    /// is filled in once the read lands.
     fn load_repos(&mut self) {
         let h = home();
         let roots: Vec<PathBuf> = self.cfg.scan.iter().map(|s| expand(s)).collect();
-        let mut found = repos::discover(&roots, 3);
+        let mut walked = self.reads.roots.read(roots.clone(), ROOT_WAIT);
+        let mut found: Vec<Checkout> = roots.iter().filter_map(|r| walked.remove(r)).flatten().collect();
+        found.sort_by(|a, b| a.root.cmp(&b.root));
+        found.dedup_by(|a, b| a.root == b.root);
         let known: HashSet<PathBuf> = found.iter().map(|c| c.root.clone()).collect();
-        let mut extra = BTreeSet::new();
-        for cwd in self.session_cwds() {
-            if let Some((_, main)) = repos::locate(Path::new(&cwd)) {
-                if !known.contains(&main) {
-                    extra.insert(main);
-                }
-            }
-        }
-        found.extend(extra.iter().filter_map(|r| repos::load_checkout(r)));
+        let cwds = self.session_cwds();
+        let located = self.reads.folders.read(cwds.iter().map(PathBuf::from), HELD_WAIT);
+        let extra: BTreeSet<PathBuf> = located.values().flatten().map(|(_, main)| main.clone()).filter(|main| !known.contains(main)).collect();
+        let mut loaded = self.reads.checkouts.read(extra.iter().cloned(), HELD_WAIT);
+        found.extend(extra.iter().filter_map(|r| loaded.remove(r).flatten()));
 
         self.checkouts.clear();
         for c in found {
@@ -1363,15 +1438,24 @@ impl Engine {
         )
         .into_iter()
         .collect();
+        // Each worktree's `.git` file and `.gitignore`. One whose files are held shows as `git
+        // worktree list` gives it (git only looks its path up) and gets git once they land.
+        let paths: Vec<PathBuf> = listed.values().flat_map(|(wts, _)| wts.iter().map(|w| w.path.clone())).collect();
+        let mut files = self.reads.worktrees.read(paths.iter().cloned(), HELD_WAIT);
+        self.held_worktrees = paths.into_iter().filter(|p| !files.contains_key(p)).collect();
+        self.ignores.clear();
         for (project, c) in &self.checkouts {
             let Some((worktrees, base)) = listed.get(&c.root).cloned() else { continue };
             self.default_branch.insert(c.root.clone(), base.clone());
             let default_name = base.as_ref().map(|b| b.split_once('/').map(|(_, n)| n.to_string()).unwrap_or_else(|| b.clone()));
             let repo_name = c.github.as_ref().map(|(_, n)| n.clone()).unwrap_or_else(|| c.name.clone());
             for wt in worktrees {
-                if wt.path != c.root {
-                    if let Some(gitdir) = linked_gitdir(&wt.path) {
+                if let Some(f) = files.remove(&wt.path) {
+                    if let Some(gitdir) = f.gitdir {
                         self.gitdir_to_lane.insert(gitdir, wt.path.clone());
+                    }
+                    if let Some(gi) = f.ignore {
+                        self.ignores.insert(wt.path.clone(), gi);
                     }
                 }
                 self.lane_base.insert(wt.path.clone(), base.clone());
@@ -1403,18 +1487,20 @@ impl Engine {
         // Elsewhere: repos your agents worked in that belong to no project. Plain folders
         // (Codex chat folders, app threads) aren't lanes.
         let mut elsewhere = BTreeSet::new();
-        for cwd in self.session_cwds() {
-            let p = Path::new(&cwd);
+        for cwd in &cwds {
+            let p = Path::new(cwd);
             if self.not_repos.contains(p) || board::best_seed(&seeds, p).is_some() || !p.is_dir() {
                 continue;
             }
-            match repos::locate(p) {
-                Some((wt, _)) => {
-                    elsewhere.insert(wt);
+            match located.get(p) {
+                Some(Some((wt, _))) => {
+                    elsewhere.insert(wt.clone());
                 }
-                None => {
+                Some(None) => {
                     self.not_repos.insert(p.to_path_buf());
                 }
+                // Held: looked at again once it lands.
+                None => {}
             }
         }
         for root in elsewhere {
@@ -1422,16 +1508,6 @@ impl Engine {
             seeds.push(folder_seed(root, ELSEWHERE, &name, true));
         }
 
-        self.ignores.clear();
-        for s in &seeds {
-            if s.origin != Origin::Folder && !s.elsewhere {
-                let mut b = GitignoreBuilder::new(&s.path);
-                b.add(s.path.join(".gitignore"));
-                if let Ok(gi) = b.build() {
-                    self.ignores.insert(s.path.clone(), gi);
-                }
-            }
-        }
         let live: HashSet<&PathBuf> = seeds.iter().map(|s| &s.path).collect();
         self.git.retain(|p, _| live.contains(p));
         self.seeds = seeds;
@@ -1439,7 +1515,7 @@ impl Engine {
     }
 
     fn git_targets(&self) -> Vec<PathBuf> {
-        self.seeds.iter().filter(|s| !s.elsewhere && s.origin != Origin::Folder).map(|s| s.path.clone()).collect()
+        self.seeds.iter().filter(|s| !s.elsewhere && s.origin != Origin::Folder && !self.held_worktrees.contains(&s.path)).map(|s| s.path.clone()).collect()
     }
 
     fn base_for(&self, path: &Path) -> Option<String> {
@@ -1449,6 +1525,9 @@ impl Engine {
     /// Asks for git in a worktree. Runs at once when it's been quiet, otherwise once the
     /// current run ends or the spacing allows, whichever is later.
     fn queue_git(&mut self, path: PathBuf) {
+        if self.held_worktrees.contains(&path) {
+            return;
+        }
         if let Verdict::Run = self.git_queue.request(path.clone(), Instant::now()) {
             self.send_git(path);
         }
@@ -1694,6 +1773,10 @@ impl Engine {
         if self.missing_homes.iter().any(|p| p.exists()) {
             self.reload();
         }
+        // Reads still out after a while are said on the board (held_warning).
+        if !self.reads.out_for(HELD_WARN_AFTER).is_empty() {
+            self.dirty = true;
+        }
     }
 
     fn classify_repo_path(&self, p: &Path) -> RepoEvent {
@@ -1888,26 +1971,34 @@ impl Engine {
             sessions_changed |= self.reread_database(&a);
             self.dirty = true;
         }
-        // A new session may have started somewhere no lane covers yet.
+        // A new session may have started somewhere no lane covers yet. Its folder is only looked
+        // up here, as reading it could wait on a privacy prompt; one whose read is held is looked
+        // at again once it lands.
         let unplaced = sessions_changed
             && self.session_cwds().into_iter().any(|cwd| {
                 let p = Path::new(&cwd);
-                !self.not_repos.contains(p) && board::best_seed(&self.seeds, p).is_none() && p.is_dir() && repos::locate(p).is_some()
+                !self.not_repos.contains(p) && board::best_seed(&self.seeds, p).is_none() && !self.reads.folders.is_out(p) && p.is_dir() && repos::in_repo(p)
             });
         if reload_repos || unplaced {
-            let before: HashSet<PathBuf> = self.seeds.iter().map(|s| s.path.clone()).collect();
-            self.load_repos();
-            let added: Vec<PathBuf> = self.git_targets().into_iter().filter(|p| !before.contains(p)).collect();
-            for p in added {
-                self.queue_git(p);
-            }
-            self.watch();
-            self.refresh_visitors(false);
-            self.dirty = true;
+            self.rescan_repos();
         }
         for l in lanes {
             self.queue_git(l);
         }
+    }
+
+    /// Reads the repos again: worktrees came or went, a session started where no lane covers,
+    /// or reads macOS held landed. Git runs in the worktrees that are new or readable now.
+    fn rescan_repos(&mut self) {
+        let before: HashSet<PathBuf> = self.git_targets().into_iter().collect();
+        self.load_repos();
+        let added: Vec<PathBuf> = self.git_targets().into_iter().filter(|p| !before.contains(p)).collect();
+        for p in added {
+            self.queue_git(p);
+        }
+        self.watch();
+        self.refresh_visitors(false);
+        self.dirty = true;
     }
 
     /// Worktrees an agent made from somewhere else (temporary folders, Codex worktrees, a
@@ -2313,7 +2404,8 @@ impl Engine {
             new_terminal: self.cfg.apps.new_terminal,
         };
         let order: Vec<String> = self.cfg.projects.iter().map(|p| p.name.clone()).collect();
-        let warnings = [&self.config_warning, &self.gh_warning, &self.watch_warning, &self.todos_warning, &self.pr_links_warning].into_iter().flatten().cloned().collect();
+        let held = held_warning(&self.reads.out_for(HELD_WARN_AFTER));
+        let warnings = [&self.config_warning, &self.gh_warning, &self.watch_warning, &self.todos_warning, &self.pr_links_warning].into_iter().flatten().cloned().chain(held).collect();
         let (worked, unlinked) = prlinks::resolve(&self.pr_marks, &self.pr_store);
         let pr_links = board::PrLinks { worked, unlinked };
         let mut board = board::compose(board::Inputs {
@@ -2417,6 +2509,18 @@ impl todos::Lanes for LaneIndex {
 /// What every worktree of a repo shares: its GitHub slug, else its project and name.
 fn repo_identity(l: &Lane) -> String {
     l.repo_slug.clone().unwrap_or_else(|| format!("{}/{}", l.project, l.repo))
+}
+
+/// Says which folders the scan has been waiting a while to open: most likely macOS is asking
+/// whether Codealong may, and nobody has answered yet.
+fn held_warning(paths: &[PathBuf]) -> Option<String> {
+    let first = tilde(paths.first()?);
+    let (what, them) = match paths.len() {
+        1 => (first, "it"),
+        2 => (format!("{first} and 1 more folder"), "them"),
+        n => (format!("{first} and {} more folders", n - 1), "them"),
+    };
+    Some(format!("Waiting to open {what}. If macOS is asking whether Codealong may access {them}, answer on this Mac."))
 }
 
 /// Which lanes a file shows work in, each with when that work first appears.
@@ -2572,6 +2676,22 @@ fn folder_seed(path: PathBuf, project: &str, name: &str, elsewhere: bool) -> Lan
     }
 }
 
+/// What the repo scan reads inside a worktree.
+struct WorktreeFiles {
+    /// Its git folder in the main checkout, for telling which worktree a change there is for.
+    /// None for a main checkout.
+    gitdir: Option<PathBuf>,
+    ignore: Option<Gitignore>,
+}
+
+fn read_worktree(path: &Path) -> WorktreeFiles {
+    // A linked worktree's `.git` is a file that names its git folder; a main checkout's is that folder.
+    let gitdir = if path.join(".git").is_file() { linked_gitdir(path) } else { None };
+    let mut b = GitignoreBuilder::new(path);
+    b.add(path.join(".gitignore"));
+    WorktreeFiles { gitdir, ignore: b.build().ok() }
+}
+
 /// `<main>/.git/worktrees/<name>` for a linked worktree, from its `.git` file.
 fn linked_gitdir(worktree: &Path) -> Option<PathBuf> {
     let text = std::fs::read_to_string(worktree.join(".git")).ok()?;
@@ -2631,18 +2751,19 @@ fn first_run_config() -> Config {
             _ => {}
         }
     }
+    // A folder macOS holds for a privacy prompt is left out rather than waited on (held.rs).
+    let located = Held::new("session folder", repos::locate, || {}).read(cwds.iter().map(PathBuf::from), HELD_WAIT);
     let mut per_repo: BTreeMap<PathBuf, usize> = BTreeMap::new();
-    for cwd in cwds {
-        if let Some((_, main)) = repos::locate(Path::new(&cwd)) {
-            *per_repo.entry(main).or_default() += 1;
+    for cwd in &cwds {
+        if let Some(Some((_, main))) = located.get(Path::new(cwd)) {
+            *per_repo.entry(main.clone()).or_default() += 1;
         }
     }
+    per_repo.retain(|_, n| *n >= 2);
+    let mut loaded = Held::new("checkout", repos::load_checkout, || {}).read(per_repo.keys().cloned(), HELD_WAIT);
     let mut owners: BTreeMap<String, usize> = BTreeMap::new();
     for (root, n) in per_repo {
-        if n < 2 {
-            continue;
-        }
-        if let Some((owner, _)) = repos::load_checkout(&root).and_then(|c| c.github) {
+        if let Some((owner, _)) = loaded.remove(&root).flatten().and_then(|c| c.github) {
             *owners.entry(owner).or_default() += n;
         }
     }
@@ -2793,6 +2914,127 @@ mod tests {
         assert!(engine.cfg.devices.enabled);
         assert!(engine.compose().devices.enabled);
         std::fs::write(home().join("ran"), "").unwrap();
+    }
+
+    /// macOS holds `open()` in a folder it protects until someone answers its privacy prompt,
+    /// which on a Mac nobody sits at can be hours. A worktree whose files never read doesn't hold
+    /// up the first scan: the board goes out with it as `git worktree list` gives it, git runs
+    /// everywhere else, and a worktree whose read lands later is filled in. Runs in a copy of
+    /// this test binary with a home of its own, as the scan reads and writes there.
+    #[test]
+    fn the_first_scan_publishes_while_a_worktree_read_is_held() {
+        use super::*;
+
+        let Some(own) = std::env::var_os("CODEALONG_TEST_HOME") else {
+            let home = std::env::temp_dir().join(format!("codealong-held-scan-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&home);
+            std::fs::create_dir_all(&home).unwrap();
+            // As git reports paths: /private/var, not /var.
+            let home = std::fs::canonicalize(&home).unwrap();
+            let run = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["engine::tests::the_first_scan_publishes_while_a_worktree_read_is_held", "--exact", "--nocapture"])
+                .env("HOME", &home)
+                .env("CODEALONG_TEST_HOME", &home)
+                .output()
+                .unwrap();
+            let ran = home.join("ran").exists();
+            std::fs::remove_dir_all(&home).unwrap();
+            assert!(run.status.success() && ran, "{}{}", String::from_utf8_lossy(&run.stdout), String::from_utf8_lossy(&run.stderr));
+            return;
+        };
+        assert_eq!(home(), PathBuf::from(own), "never the real home folder");
+        // Fails rather than hangs when the scan waits on the read that never returns.
+        std::thread::spawn(|| {
+            std::thread::sleep(Duration::from_secs(60));
+            eprintln!("The scan waited on a read that never returns.");
+            std::process::exit(1);
+        });
+
+        let git = |dir: &Path, args: &[&str]| {
+            let out = std::process::Command::new("git").arg("-C").arg(dir).args(["-c", "user.name=t", "-c", "user.email=t@t"]).args(args).output().unwrap();
+            assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+        };
+        let projects = home().join("projects");
+        let main = projects.join("repo");
+        std::fs::create_dir_all(&main).unwrap();
+        git(&main, &["init", "-q", "-b", "main"]);
+        git(&main, &["remote", "add", "origin", "git@example.com:team/repo.git"]);
+        std::fs::write(main.join(".gitignore"), "build/\n").unwrap();
+        git(&main, &["add", "."]);
+        git(&main, &["commit", "-qm", "init"]);
+        let path = |name: &str| projects.join(format!("repo-{name}"));
+        for name in ["stuck", "late", "plain"] {
+            git(&main, &["worktree", "add", "-q", &path(name).to_string_lossy(), "-b", name]);
+        }
+        let project = crate::config::ProjectCfg { name: "Team".into(), repos: vec!["example.com/team/*".into()], folders: vec![] };
+        config::write(&Config { scan: vec!["~/projects".into()], projects: vec![project], ..Config::default() }).unwrap();
+
+        let boards: Arc<Mutex<Vec<Board>>> = Arc::default();
+        let emitted = boards.clone();
+        let (tx, rx) = channel();
+        let mut engine = Engine::new(Box::new(move |b: &Board| emitted.lock().unwrap().push(b.clone())), tx.clone(), Arc::new(RwLock::new(Board::default())));
+        // The stuck worktree's files never read; the late one's read once it's let go.
+        let (release, gate) = channel::<()>();
+        let gate = Mutex::new(gate);
+        engine.reads.worktrees = Held::new(
+            "worktree",
+            move |p: &Path| {
+                if p.ends_with("repo-stuck") {
+                    loop {
+                        std::thread::park();
+                    }
+                }
+                if p.ends_with("repo-late") {
+                    let _ = gate.lock().unwrap().recv();
+                }
+                read_worktree(p)
+            },
+            move || {
+                let _ = tx.send(Msg::Landed);
+            },
+        );
+        let started = Instant::now();
+        engine.full_scan();
+        assert!(started.elapsed() < Duration::from_secs(30), "the scan waited on the held reads");
+
+        let first = boards.lock().unwrap().first().cloned().expect("the first scan published a board");
+        assert!(!first.loading);
+        let branch = |b: &Board, p: &Path| b.lanes.iter().find(|l| Path::new(&l.path) == p).map(|l| l.branch.clone());
+        assert_eq!(branch(&first, &main), Some(Some("main".to_string())));
+        for name in ["stuck", "late", "plain"] {
+            assert_eq!(branch(&first, &path(name)), Some(Some(name.to_string())), "{name} is on the board as git worktree list gives it");
+        }
+        let targets = engine.git_targets();
+        assert!(targets.contains(&main) && targets.contains(&path("plain")));
+        assert!(!targets.contains(&path("stuck")) && !targets.contains(&path("late")), "no git where the files are held");
+        assert!(engine.ignores.contains_key(&path("plain")) && !engine.ignores.contains_key(&path("late")));
+
+        // The late read lands while the engine runs as the app's does: the next board has git there.
+        std::thread::spawn(move || engine.run(rx));
+        release.send(()).unwrap();
+        let has_git = |b: &Board, p: &Path| b.lanes.iter().any(|l| Path::new(&l.path) == p && l.git.is_some());
+        let until = Instant::now() + Duration::from_secs(20);
+        let filled = loop {
+            if let Some(b) = boards.lock().unwrap().iter().find(|b| has_git(b, &path("late"))) {
+                break b.clone();
+            }
+            assert!(Instant::now() < until, "the late worktree never got git");
+            std::thread::sleep(Duration::from_millis(50));
+        };
+        assert!(has_git(&filled, &path("plain")) && !has_git(&filled, &path("stuck")));
+        std::fs::write(home().join("ran"), "").unwrap();
+    }
+
+    #[test]
+    fn the_board_says_which_folders_it_waits_to_open() {
+        use super::*;
+        assert_eq!(held_warning(&[]), None);
+        assert_eq!(
+            held_warning(&[PathBuf::from("/Volumes/T7/wt")]).as_deref(),
+            Some("Waiting to open /Volumes/T7/wt. If macOS is asking whether Codealong may access it, answer on this Mac.")
+        );
+        let three = held_warning(&["/Volumes/T7/a", "/Volumes/T7/b", "/Volumes/T7/c"].map(PathBuf::from)).unwrap();
+        assert!(three.starts_with("Waiting to open /Volumes/T7/a and 2 more folders. "), "{three}");
     }
 
     fn usage(error: Option<&str>, needs_sign_in: bool, percent: f64) -> Usage {

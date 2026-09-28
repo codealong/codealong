@@ -21,6 +21,7 @@ mod engine;
 mod flash;
 mod git;
 mod harness;
+mod held;
 mod idle;
 mod github;
 mod install;

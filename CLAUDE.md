@@ -704,6 +704,24 @@ Tauri and macOS (from the Tauri 2.11 and tao 0.35 sources)
   and the one before is put back, which takes the keyboard from the quick panel and hides it.
   `screencapture -l <window id>` captures a window of Codealong's alone, even ordered out.
 
+macOS privacy prompts (TCC; macOS 26.6, checked 2026-09-27)
+
+- In a folder macOS protects, `open()` and `opendir()` wait until its prompt ("Codealong would
+  like to access…") is answered, hours on a Mac nobody sits at, while stat, access, realpath,
+  chdir and an FSEvents watch there return at once. Checked in `~/Documents` (Desktop and
+  Downloads are protected the same way); a USB drive held the engine in `open()` on a Mac mini.
+  `git worktree list` only looks worktree paths up, so it doesn't wait. Each build is signed
+  afresh, so macOS asks again after every update. The repo scan reads such folders through
+  `held.rs`.
+- A process started from a terminal or an agent's shell gets that app's permissions. To see a
+  prompt, start it as its own responsible process: `posix_spawn` with
+  `responsibility_spawnattrs_setdisclaim(&attr, 1)` (looked up with `dlsym`), as Claude.app's
+  `disclaimer` helper starts Claude Code. A file symlinked into `~/Documents` makes a read
+  wait on the prompt, which gives a test a held folder anywhere. A read-only disk image mounted
+  with `hdiutil` asked for nothing, though `diskutil` calls it removable.
+- tccd logs each request: `log show --predicate 'process == "tccd"'` has `AUTHREQ_PROMPTING`
+  and `AUTHREQ_RESULT` (authValue 2 allowed, 0 denied; authReason 2 is a person's answer).
+
 TypeSafe (Jev, from docs.typesafe.ai, 2026-09-25)
 
 - `POST https://api.typesafe.ai/v1/systemone`, `Authorization: Bearer`, body `{model, state,
