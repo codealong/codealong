@@ -3008,6 +3008,10 @@ html.is-notch body {
     animation: none;
   }
 }
+/* A pill whose session's card is being dragged onto the desktop. */
+.ca-hud-pill.is-dragged {
+  opacity: 0.45;
+}
 /* The pill the peek shows, while it's up. */
 .ca-hud-pill.is-peeked {
   box-shadow: inset 0 0 0 1.5px var(--line-strong);

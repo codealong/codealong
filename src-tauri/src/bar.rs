@@ -468,6 +468,12 @@ pub fn peek_frame(app: &AppHandle) -> Option<Rect> {
     }
 }
 
+/// Whether a point on the screen is on the bar: the floating bar's card, or the docked shape.
+/// On the main thread.
+pub fn covers(app: &AppHandle, p: (f64, f64)) -> bool {
+    is_on(app) && peek_frame(app).is_some_and(|f| Rect { x: f.x + CARD_MARGIN, y: f.y + CARD_MARGIN, w: f.w - 2.0 * CARD_MARGIN, h: f.h - 2.0 * CARD_MARGIN }.contains(p))
+}
+
 /// A docked shape, given in its window's points from the top left, on the screen with the
 /// floating card's margin around it.
 pub fn shape_frame(window: Rect, shape: Rect) -> Rect {
@@ -801,6 +807,11 @@ pub(crate) mod native {
         let p = NSEvent::mouseLocation();
         Some((p.x, p.y))
     }
+
+    /// The mouse's main button is down, whichever app has the click.
+    pub fn button_down() -> bool {
+        NSEvent::pressedMouseButtons() & 1 != 0
+    }
 }
 
 /// Elsewhere the bar is an ordinary always-on-top window, left where it opens.
@@ -839,6 +850,9 @@ pub(crate) mod native {
     }
     pub fn pointer() -> Option<(f64, f64)> {
         None
+    }
+    pub fn button_down() -> bool {
+        false
     }
 }
 

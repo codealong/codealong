@@ -5,13 +5,14 @@
 // show (barfeed.rs); the page sizes the window to itself. Pills that don't fit fold into one per
 // group that lists them. Hovering a session's pill shows it in the peek under the bar (peek.rs,
 // Peek.tsx), its conversation and a box to answer it; clicking the pill shows the session in
-// Codealong and double-clicking opens it where it lives, right-clicking shows its menu, and the
-// mark brings Codealong forward. Docked in the
+// Codealong and double-clicking opens it where it lives, dragging it off the bar pins its card to
+// the desktop where you let go (desktop.rs), right-clicking shows its menu, and the mark brings
+// Codealong forward. Docked in the
 // notch (bar.rs), the same pills show below the notch when it opens (Notch.tsx), dark.
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { barMode, fitBar, getBarFeed, onBarFeed, onBarMode, onBarNote, onPeekShown, openFromBar, peekHide, peekOpen, setBarMode, showMain, showQuick, type BarModeView, type PillRect } from '../api';
+import { barMode, desktopPins, dragToDesktop, fitBar, getBarFeed, onBarDragEnd, onBarFeed, onBarMode, onBarNote, onDesktopPins, onPeekShown, openFromBar, peekHide, peekOpen, pinToDesktop, setBarMode, showMain, showQuick, unpinFromDesktop, type BarModeView, type PillRect } from '../api';
 import { CLICK_WAIT_MS, elsewhereWaits, fitGroups, GROUPS, plain, projectWaits, type Group, type GroupFit, type WaitCounts } from '../bar';
 import { showContextMenu, type MenuAction, type MenuSpec } from '../contextMenu';
 import { ago } from '../format';
@@ -19,7 +20,7 @@ import { usePerf } from '../perf';
 import { barAhead, barView, observe, seenAhead, snoozeAhead, useAhead } from '../ahead';
 import { ALL_PROJECTS, inProject } from '../quick';
 import { snoozeMenu, untilWords } from '../snooze';
-import type { BarFeed, BarItem, BarRecent, BarReview, BarSnoozed, BarTodo, PeekShown, Status } from '../types';
+import type { BarFeed, BarItem, BarRecent, BarReview, BarSnoozed, BarTodo, DesktopPinned, PeekShown, Status } from '../types';
 import { Icon, Mark, STATUS_WORD, StatusGlyph } from './primitives';
 import { applyTheme } from './ThemeSwitch';
 import { NotchShell } from './Notch';
@@ -43,6 +44,9 @@ const PROJECT_KEY = 'codealong.bar.project';
  *  to another pill once it's up: long enough that passing over the bar doesn't open it. */
 const PEEK_AFTER_MS = 300;
 const PEEK_SWITCH_MS = 90;
+/** How far a session's pill moves with the button down before it's dragged off the bar rather
+ *  than clicked. */
+const DRAG_AFTER = 6;
 
 const GROUP_GLYPH: Record<Group, Status> = { needs: 'needs', unread: 'unread', working: 'working' };
 const GROUP_WORD: Record<Group, string> = { needs: 'need you', unread: 'your turn', working: 'working' };
@@ -100,20 +104,29 @@ interface SessionPillProps {
   /** The pointer came onto the pill or moved on it. */
   onHover?: (e: PointerEvent<HTMLElement>) => void;
   onLeave?: () => void;
+  /** The button went down on the pill, and the pointer moved with it down: a drag off the bar. */
+  onPress?: (e: PointerEvent<HTMLElement>) => void;
+  onDrag?: (e: PointerEvent<HTMLElement>) => void;
+  /** Being dragged off the bar. */
+  dragged?: boolean;
   measure?: boolean;
 }
 
-function SessionPill({ item, now, peeked, onOpen, onMenu, onHover, onLeave, measure }: SessionPillProps) {
+function SessionPill({ item, now, peeked, onOpen, onMenu, onHover, onLeave, onPress, onDrag, dragged, measure }: SessionPillProps) {
   return (
     <button
       type="button"
-      className={['ca-hud-pill', tone(item.status), peeked && 'is-peeked'].filter(Boolean).join(' ')}
+      className={['ca-hud-pill', tone(item.status), peeked && 'is-peeked', dragged && 'is-dragged'].filter(Boolean).join(' ')}
       aria-label={measure ? undefined : sessionLabel(item, now)}
       data-pill={measure ? item.group : undefined}
       data-key={measure ? undefined : item.key}
       onClick={onOpen}
+      onPointerDown={onPress}
       onPointerEnter={onHover}
-      onPointerMove={onHover}
+      onPointerMove={(e) => {
+        onDrag?.(e);
+        onHover?.(e);
+      }}
       onPointerLeave={onLeave}
       onContextMenu={
         onMenu
@@ -328,6 +341,19 @@ export function Bar() {
   const hoverTimer = useRef<number | null>(null);
   // A click on a pill waiting to see whether it's the first of two.
   const clickTimer = useRef<number | null>(null);
+  // Where the button went down on a session's pill, and whether it has been dragged off the bar
+  // since: then the click it ends in isn't one.
+  const press = useRef<{ key: string; x: number; y: number; dragged: boolean } | null>(null);
+  // The session whose card is being dragged onto the desktop (desktop.rs `drag_out`).
+  const [dragging, setDragging] = useState<string | null>(null);
+  useEffect(() => onBarDragEnd(() => setDragging(null)), []);
+  // The sessions pinned to the desktop, for the pill menu's Pin to desktop.
+  const [onDesktop, setOnDesktop] = useState<Set<string>>(() => new Set());
+  useEffect(() => {
+    const take = (pins: DesktopPinned[]) => setOnDesktop(new Set(pins.filter((p) => p.ref === 'session').map((p) => p.key)));
+    void desktopPins().then(take);
+    return onDesktopPins(take);
+  }, []);
   useEffect(() => () => {
     if (clickTimer.current != null) window.clearTimeout(clickTimer.current);
   }, []);
@@ -484,6 +510,8 @@ export function Bar() {
    *  Only a pointer that moved points at a pill: when sessions change groups the pills shift, and
    *  the one that slides under a still pointer doesn't take the peek. */
   const hover = (i: BarItem, e: PointerEvent<HTMLElement>) => {
+    // A pill pressed is on its way to a click or a drag, not a look.
+    if (e.buttons & 1) return;
     const at = pointerAt.current;
     if ((at && at.x === e.screenX && at.y === e.screenY) || hoverFor.current === i.key) return;
     stopHover();
@@ -533,6 +561,9 @@ export function Bar() {
     if (clickTimer.current != null) window.clearTimeout(clickTimer.current);
     clickTimer.current = null;
     stopHover();
+    const p = press.current;
+    press.current = null;
+    if (p?.dragged) return;
     if (e.detail >= 2) {
       open(i);
       return;
@@ -541,6 +572,27 @@ export function Bar() {
       clickTimer.current = null;
       reveal(i);
     }, CLICK_WAIT_MS);
+  };
+
+  const pressPill = (i: BarItem, e: PointerEvent<HTMLElement>) => {
+    press.current = e.button === 0 ? { key: i.key, x: e.screenX, y: e.screenY, dragged: false } : null;
+  };
+
+  /** A pill moved far enough with the button down comes off the bar: its session's card follows
+   *  the pointer onto the desktop, pinned where you let go, or put back if that's on the bar. */
+  const dragPill = (i: BarItem, e: PointerEvent<HTMLElement>) => {
+    const p = press.current;
+    if (!p || p.key !== i.key || p.dragged || !(e.buttons & 1) || Math.abs(e.screenX - p.x) + Math.abs(e.screenY - p.y) < DRAG_AFTER) return;
+    p.dragged = true;
+    stopHover();
+    if (clickTimer.current != null) window.clearTimeout(clickTimer.current);
+    clickTimer.current = null;
+    if (peekedNow.current.key) void peekHide();
+    setDragging(i.key);
+    dragToDesktop(i.key).catch((err: unknown) => {
+      setDragging(null);
+      setFailed({ anchor: i.key, message: String(err).replace(/^Error: /, '') });
+    });
   };
 
   /** Snoozing or waking takes the sessions off the bar or puts them back; the peek goes away
@@ -565,8 +617,15 @@ export function Bar() {
       { label: 'Reply here', run: () => reply(i) },
       ...(i.status === 'unread' ? [{ label: 'Mark as seen', run: () => markSeen([i.key], i.key) }] : []),
       snoozeMenu([i.key], Date.now(), { until: i.snoozedUntil, onDone: snoozeDone([i.key], i.key) }),
+      'separator',
+      onDesktop.has(i.key)
+        ? { label: 'Remove from desktop', run: () => void unpinFromDesktop({ ref: 'session', key: i.key }).catch(failedOn(i.key)) }
+        : { label: 'Pin to desktop', run: () => void pinToDesktop({ ref: 'session', key: i.key }).catch(failedOn(i.key)) },
     ]);
   };
+
+  /** Shows what went wrong on the pill it came from. */
+  const failedOn = (anchor: string) => (e: unknown) => setFailed({ anchor, message: String(e).replace(/^Error: /, '') });
 
   const foldMenu = (group: Group, folded: BarItem[], e: MouseEvent<HTMLButtonElement>) => {
     const menu: MenuSpec = folded.map((i) => ({ label: `${i.title} · ${i.callsign}`, run: () => reveal(i) }));
@@ -703,7 +762,7 @@ export function Bar() {
           failed?.anchor === i.key ? (
             failedPill()
           ) : (
-            <SessionPill key={i.key} item={i} now={now} peeked={peeked.key === i.key} onOpen={(e) => clickPill(i, e)} onMenu={() => sessionMenu(i)} onHover={(e) => hover(i, e)} onLeave={stopHover} />
+            <SessionPill key={i.key} item={i} now={now} peeked={peeked.key === i.key} dragged={dragging === i.key} onOpen={(e) => clickPill(i, e)} onMenu={() => sessionMenu(i)} onHover={(e) => hover(i, e)} onLeave={stopHover} onPress={(e) => pressPill(i, e)} onDrag={(e) => dragPill(i, e)} />
           ),
         ),
         ...(folded.length
@@ -758,7 +817,7 @@ export function Bar() {
           counts={{ needs: byGroup.needs.length, unread: byGroup.unread.length, working: byGroup.working.length }}
           room={Math.min(MAX_WIDTH, window.screen.availWidth - SCREEN_ROOM)}
           project={picking ? <ProjectButton name={current} others={others} open={projectMenuOpen} onOpen={projectMenu} /> : null}
-          held={peeked.key !== null || projectMenuOpen || menusUp > 0}
+          held={peeked.key !== null || projectMenuOpen || menusUp > 0 || dragging !== null}
           onMark={() => void showMain()}
           onMenu={barMenu}
         >

@@ -3,6 +3,10 @@
 //! floating bar does (DesktopPin.tsx draws it). You drag a card where you want it, a click opens
 //! what it shows, and its own right-click menu takes it off the desktop.
 //!
+//! A session can also be dragged off the bar's pills (floating or in the notch) onto the desktop:
+//! its card is pinned as the drag starts and follows the pointer until the button comes up
+//! (`drag_out`).
+//!
 //! Each card is its own window, made the way the bar is (bar.rs): a non-activating panel, so a
 //! click in one leaves the app you're in active and never takes the keyboard. It gets what it
 //! shows cut from the board, and only when that changed, as the bar gets its feed. What's pinned
@@ -28,6 +32,11 @@ const START: (f64, f64) = (304.0, 80.0);
 /// How often cards are put back up if macOS left them off the Space in front, and where they
 /// were moved to is written down.
 const CHECK_EVERY: Duration = Duration::from_secs(1);
+/// Where the pointer holds a card it drags off the bar, from the window's top left: on the card's
+/// first line, a little in from its left edge.
+const GRAB: (f64, f64) = (36.0, 26.0);
+/// How often a dragged card follows the pointer.
+const DRAG_EVERY: Duration = Duration::from_millis(16);
 
 /// What a card shows.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -82,6 +91,23 @@ impl Saved {
 #[derive(Default)]
 struct Desktop {
     inner: Mutex<Inner>,
+    drag: Mutex<Drag>,
+}
+
+/// A session being dragged off the bar, while the mouse button is down.
+#[derive(Default)]
+struct Drag {
+    /// Counts drags, so an old one's watch stops.
+    n: u64,
+    what: Option<Pinned>,
+    /// The card's window once it's there, and whether the drag made it.
+    card: Option<(String, bool)>,
+    /// Where a card pinned before was, for a drag that ends back on the bar.
+    before: Option<Rect>,
+    /// Where the pointer was last.
+    last: Option<(f64, f64)>,
+    /// The button came up before the card was made: on the bar (true) or off it.
+    ended: Option<bool>,
 }
 
 #[derive(Default)]
@@ -323,21 +349,22 @@ fn remember_frame(app: &AppHandle, label: &str) {
     };
 }
 
-/// Pins a thing to the desktop, or brings its card up if it's there already.
-pub fn pin(app: &AppHandle, what: Pinned) -> Result<()> {
+/// Pins a thing to the desktop, or brings its card up if it's there already. `at` is where a new
+/// card goes (a session dragged off the bar); without it, a free spot. Returns the card's window.
+pub fn pin(app: &AppHandle, what: Pinned, at: Option<Rect>) -> Result<String> {
     let state = app.try_state::<Desktop>().ok_or_else(|| anyhow!("Desktop pins aren't ready yet."))?;
     let already = state.inner.lock().map_err(|_| anyhow!("Desktop pins are unavailable."))?.label_of(&what);
     if let Some(label) = already {
-        let handle = app.clone();
+        let (handle, shown) = (app.clone(), label.clone());
         app.run_on_main_thread(move || {
-            let placed = handle.try_state::<Desktop>().is_some_and(|s| s.inner.lock().is_ok_and(|i| i.placed.contains_key(&label)));
-            if let (true, Some(w)) = (placed, handle.get_webview_window(&label)) {
+            let placed = handle.try_state::<Desktop>().is_some_and(|s| s.inner.lock().is_ok_and(|i| i.placed.contains_key(&shown)));
+            if let (true, Some(w)) = (placed, handle.get_webview_window(&shown)) {
                 native::show(&w);
             }
         })?;
-        return Ok(());
+        return Ok(label);
     }
-    let label = add(app, Pin { what, title: None, frame: None });
+    let label = add(app, Pin { what, title: None, frame: at });
     if let Err(e) = make_window(app, &label) {
         if let Ok(mut inner) = state.inner.lock() {
             inner.cards.retain(|(l, _)| l != &label);
@@ -345,7 +372,153 @@ pub fn pin(app: &AppHandle, what: Pinned) -> Result<()> {
         return Err(e);
     }
     tell(app);
-    Ok(())
+    Ok(label)
+}
+
+/// A card's window frame held by the pointer at `p`, at the window's size.
+pub fn held_at(p: (f64, f64), (w, h): (f64, f64)) -> Rect {
+    Rect { x: p.0 - GRAB.0, y: p.1 + GRAB.1 - h, w, h }
+}
+
+/// Starts dragging a session's card off the bar: pinned now if it isn't (off the main thread,
+/// which making a window waits on), then moved with the pointer (`follow_drag`). The bar's page
+/// starts it once a pill has moved with the button down; the pointer is followed from here since
+/// the bar's window hears nothing of it once it leaves, and docked lets the clicks through. On the
+/// main thread.
+pub fn drag_out(app: &AppHandle, what: Pinned) {
+    let Some(state) = app.try_state::<Desktop>() else { return };
+    let Some(p) = native::pointer() else { return };
+    let existing = state.inner.lock().ok().and_then(|i| i.cards.iter().find(|(_, pin)| pin.what == what).map(|(l, pin)| (l.clone(), pin.frame)));
+    let make = existing.is_none();
+    let n = {
+        let Ok(mut d) = state.drag.lock() else { return };
+        let n = d.n + 1;
+        let (card, before) = existing.map_or((None, None), |(l, f)| (Some((l, false)), f));
+        *d = Drag { n, what: Some(what.clone()), card, before, last: Some(p), ended: None };
+        n
+    };
+    if make {
+        let handle = app.clone();
+        std::thread::spawn(move || {
+            let made = pin(&handle, what, Some(held_at(p, START)));
+            let app = handle.clone();
+            let _ = handle.run_on_main_thread(move || made_for_drag(&app, n, made.ok()));
+        });
+    }
+    let handle = app.clone();
+    std::thread::spawn(move || loop {
+        std::thread::sleep(DRAG_EVERY);
+        let going = handle.try_state::<Desktop>().is_some_and(|s| s.drag.lock().is_ok_and(|d| d.n == n && d.what.is_some() && d.ended.is_none()));
+        if !going {
+            break;
+        }
+        let app = handle.clone();
+        if handle.run_on_main_thread(move || follow_drag(&app, n)).is_err() {
+            break;
+        }
+    });
+}
+
+/// The card a drag pinned is there: it follows the pointer from now on, or if the button came up
+/// meanwhile, is dropped where the pointer last was. On the main thread.
+fn made_for_drag(app: &AppHandle, n: u64, label: Option<String>) {
+    let Some(state) = app.try_state::<Desktop>() else { return };
+    let (what, last, on_bar) = {
+        let Ok(mut d) = state.drag.lock() else { return };
+        if d.n != n {
+            return;
+        }
+        let Some(label) = label.clone() else {
+            d.what = None;
+            return;
+        };
+        let Some(on_bar) = d.ended else {
+            d.card = Some((label, true));
+            return;
+        };
+        (d.what.take(), d.last, on_bar)
+    };
+    let Some(label) = label else { return };
+    if let Some(p) = last {
+        move_card(app, &label, p);
+    }
+    drop_card(app, what, &label, true, None, on_bar);
+}
+
+/// Moves the dragged card to the pointer, or once the button is up leaves it there, unless
+/// that's back on the bar. On the main thread.
+fn follow_drag(app: &AppHandle, n: u64) {
+    let Some(state) = app.try_state::<Desktop>() else { return };
+    let Some(p) = native::pointer() else { return };
+    let down = native::button_down();
+    let on_bar = !down && crate::bar::covers(app, p);
+    let dropped = {
+        let Ok(mut d) = state.drag.lock() else { return };
+        if d.n != n || d.what.is_none() || d.ended.is_some() {
+            return;
+        }
+        d.last = Some(p);
+        if down {
+            d.card.clone().map(|(label, _)| (label, None))
+        } else {
+            d.ended = Some(on_bar);
+            // A card still being made is dropped by its maker (`made_for_drag`).
+            d.card.take().map(|(label, made)| (label, Some((made, d.what.take(), d.before.take()))))
+        }
+    };
+    match dropped {
+        Some((label, None)) => move_card(app, &label, p),
+        Some((label, Some((made, what, before)))) => drop_card(app, what, &label, made, before, on_bar),
+        None => {}
+    }
+    if !down {
+        let _ = app.emit_to(crate::bar::LABEL, "bar-drag-end", ());
+    }
+}
+
+/// Moves a card so the pointer at `p` holds it. On the main thread.
+fn move_card(app: &AppHandle, label: &str, p: (f64, f64)) {
+    let (Some(state), Some(window)) = (app.try_state::<Desktop>(), app.get_webview_window(label)) else { return };
+    let size = native::frame(&window).map_or(START, |f| (f.w, f.h));
+    let frame = held_at(p, size);
+    let placed = {
+        let Ok(mut inner) = state.inner.lock() else { return };
+        if let Some((_, pin)) = inner.cards.iter_mut().find(|(l, _)| l == label) {
+            pin.frame = Some(frame);
+        }
+        inner.dirty = true;
+        inner.placed.contains_key(label)
+    };
+    // Until it's placed, the frame it's placed at is the one just written down.
+    if placed {
+        native::set_frame(&window, frame);
+    }
+}
+
+/// Where a drag leaves its card: back on the bar, a card it made goes, and one pinned before goes
+/// back where it was; anywhere else it stays, kept on its screen. On the main thread.
+fn drop_card(app: &AppHandle, what: Option<Pinned>, label: &str, made: bool, before: Option<Rect>, on_bar: bool) {
+    if on_bar {
+        match (made, what, before) {
+            (true, Some(what), _) => unpin(app, &what),
+            (false, _, Some(before)) => {
+                if let Some(w) = app.get_webview_window(label) {
+                    native::set_frame(&w, before);
+                }
+                remember_frame(app, label);
+            }
+            _ => {}
+        }
+        return;
+    }
+    let Some(window) = app.get_webview_window(label) else { return };
+    let Some(frame) = native::frame(&window) else { return };
+    let Some(screen) = screen_for(frame, &native::screens()) else { return };
+    let kept = clamp(frame, screen);
+    if kept != frame {
+        native::set_frame(&window, kept);
+    }
+    remember_frame(app, label);
 }
 
 /// Takes a card off the desktop: its window goes back to being a window, then away.
@@ -502,6 +675,14 @@ mod tests {
         // No room anywhere: the corner, over the others.
         let wall = r(0.0, 0.0, 1500.0, 900.0);
         assert_eq!(new_frame(300.0, 80.0, SCREEN, &[wall]), r(1192.0, 814.0, 300.0, 80.0));
+    }
+
+    #[test]
+    fn a_dragged_card_hangs_from_the_pointer_by_its_first_line() {
+        // The pointer is 36 in from the window's left and 26 down from its top (y grows up).
+        assert_eq!(held_at((500.0, 400.0), (304.0, 80.0)), r(464.0, 346.0, 304.0, 80.0));
+        let f = held_at((500.0, 400.0), (304.0, 180.0));
+        assert_eq!((f.x, f.top()), (464.0, 426.0));
     }
 
     #[test]

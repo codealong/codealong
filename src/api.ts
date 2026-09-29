@@ -577,6 +577,18 @@ export async function pinToDesktop(pin: DesktopPinned): Promise<void> {
   await invoke('pin_to_desktop', { pin });
 }
 
+/** A session's pill on the bar is being dragged off it: its card follows the pointer onto the
+ *  desktop until the button comes up (desktop.rs `drag_out`). */
+export async function dragToDesktop(key: string): Promise<void> {
+  if (!inTauri) return;
+  await invoke('drag_to_desktop', { key });
+}
+
+/** Calls `cb` when a drag off the bar is over, dropped or not. */
+export function onBarDragEnd(cb: () => void): () => void {
+  return onWindowEvent<null>('bar-drag-end', () => cb());
+}
+
 /** Takes a card off the desktop. */
 export async function unpinFromDesktop(pin: DesktopPinned): Promise<void> {
   if (!inTauri) return;

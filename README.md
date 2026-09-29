@@ -314,7 +314,9 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   change groups don't move it. Once you've clicked in it, it stays on its session whatever the
   bar does, until you send, press Escape or click somewhere else. Click a pill to show its
   session in Codealong, as a click on its row there does, and double-click it to open the
-  session where it lives; right-click it to reply in the peek, mark it seen or snooze it. The todos pill opens the quick panel ready to start a
+  session where it lives; drag it off the bar (floating or in the notch) to pin its card to the
+  desktop where you let go; right-click it to reply in the peek, mark it seen, snooze it or pin it
+  to the desktop. The todos pill opens the quick panel ready to start a
   session for a todo (its menu picks which).
   **Snooze** (a session's menu on the bar or in Codealong, the peek's zzz button, or a folded
   pill's menu for all of its sessions): for 15 minutes, an hour, three hours or until 9 the
@@ -339,7 +341,7 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   in the notch, and picking the one that's on turns it off, as do Window › Floating bar and Bar
   in the notch and the bar's own right-click menu.
 - **Pin to desktop** (a session's, worktree's or todo's right-click menu, in any view or on the
-  canvas): puts its card, the one the Canvas view shows, on the desktop, floating over every
+  canvas, or a session's pill dragged off the bar): puts its card, the one the Canvas view shows, on the desktop, floating over every
   window, on every Space and over full-screen apps as the floating bar does. A worktree's card
   lists its sessions that are running or waiting on you, and a todo's its sessions. Drag a card
   where you want it; it stays there across launches. Click a session (its card, a session line,
