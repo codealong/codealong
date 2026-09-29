@@ -1,9 +1,50 @@
 // Just enough Markdown for what agents write back: headings, lists, quotes, fenced code, tables,
 // and **bold**, *italics*, `code` and [links](url) inside lines. Built as React elements, never as
-// HTML, so nothing in a transcript can put markup on the page. Links show as their text.
+// HTML, so nothing in a transcript can put markup on the page. Web links, written as links or bare,
+// open in the browser; any other link shows as its text.
 
 import { Fragment, memo, type ReactNode } from 'react';
+import { openUrl } from '../api';
 import { CodeBlock } from './CopyButton';
+
+const WEB = /^https?:\/\//i;
+/** A bare web link in text, without the punctuation that ends a sentence around it. */
+const BARE = /https?:\/\/[^\s<>()`]+[^\s<>()`.,;:!?'"*_]/g;
+
+/** A web link that opens in the browser, never in the app's own window. */
+function Link({ url, children }: { url: string; children: ReactNode }) {
+  return (
+    <a
+      className="ca-md-a"
+      href={url}
+      title={url}
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        void openUrl(url);
+      }}
+    >
+      {children}
+    </a>
+  );
+}
+
+/** Plain text with its bare web links made links. */
+function bare(text: string, key: number): ReactNode[] {
+  const out: ReactNode[] = [];
+  let last = 0;
+  for (const m of text.matchAll(BARE)) {
+    if (m.index > last) out.push(text.slice(last, m.index));
+    out.push(
+      <Link key={`${key}-${m.index}`} url={m[0]}>
+        {m[0]}
+      </Link>,
+    );
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) out.push(text.slice(last));
+  return out;
+}
 
 type Block =
   | { kind: 'heading'; level: number; text: string }
@@ -117,22 +158,42 @@ export function blocks(src: string): Block[] {
   return out;
 }
 
-/** A line's inline marks as elements: code first, so nothing inside backticks is read as a mark. */
-export function inline(text: string): ReactNode[] {
+/** A line's inline marks as elements: code first, so nothing inside backticks is read as a mark.
+ *  Inside a link (`links` false) nothing more becomes a link, since links can't nest. */
+export function inline(text: string, links = true): ReactNode[] {
   const out: ReactNode[] = [];
-  const re = /`([^`]+)`|\*\*([^*]+)\*\*|__([^_]+)__|\[([^\]]+)\]\([^)]+\)|\*([^*\s][^*]*)\*/g;
+  const re = /`([^`]+)`|\*\*([^*]+)\*\*|__([^_]+)__|\[([^\]]+)\]\(([^)\s]+)[^)]*\)|<(https?:\/\/[^\s>]+)>|\*([^*\s][^*]*)\*/g;
   let last = 0;
   let m: RegExpExecArray | null;
   let n = 0;
   while ((m = re.exec(text))) {
-    if (m.index > last) out.push(text.slice(last, m.index));
+    if (m.index > last) out.push(...(links ? bare(text.slice(last, m.index), n++) : [text.slice(last, m.index)]));
     if (m[1] != null) out.push(<code key={n++} className="ca-ic">{m[1]}</code>);
-    else if (m[2] != null || m[3] != null) out.push(<strong key={n++}>{inline(m[2] ?? m[3])}</strong>);
-    else if (m[4] != null) out.push(<Fragment key={n++}>{inline(m[4])}</Fragment>);
-    else out.push(<em key={n++}>{inline(m[5])}</em>);
+    else if (m[2] != null || m[3] != null) out.push(<strong key={n++}>{inline(m[2] ?? m[3], links)}</strong>);
+    else if (m[4] != null)
+      out.push(
+        links && WEB.test(m[5]) ? (
+          <Link key={n++} url={m[5]}>
+            {inline(m[4], false)}
+          </Link>
+        ) : (
+          <Fragment key={n++}>{inline(m[4], links)}</Fragment>
+        ),
+      );
+    else if (m[6] != null)
+      out.push(
+        links ? (
+          <Link key={n++} url={m[6]}>
+            {m[6]}
+          </Link>
+        ) : (
+          m[6]
+        ),
+      );
+    else out.push(<em key={n++}>{inline(m[7], links)}</em>);
     last = m.index + m[0].length;
   }
-  if (last < text.length) out.push(text.slice(last));
+  if (last < text.length) out.push(...(links ? bare(text.slice(last), n++) : [text.slice(last)]));
   return out;
 }
 

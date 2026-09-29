@@ -5893,6 +5893,17 @@ html.is-quick body {
 .ca-md .ca-md-h:first-child {
   margin-top: 0;
 }
+.ca-md a.ca-md-a {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--line-strong);
+  text-underline-offset: 2px;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.ca-md a.ca-md-a:hover {
+  text-decoration-color: currentColor;
+}
 .ca-md .ca-md-h1 {
   font-size: 15px;
 }
