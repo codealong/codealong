@@ -707,6 +707,19 @@ export function onBarMode(cb: (view: BarModeView) => void): () => void {
   };
 }
 
+/** Tells Codealong the shape the docked bar shows, in its window's points from the top left:
+ *  the window takes clicks only on it (bar.rs). */
+export async function notchShape(x: number, y: number, w: number, h: number): Promise<void> {
+  if (!inTauri) return;
+  await invoke('notch_shape', { x, y, w, h });
+}
+
+/** Calls `cb` when the pointer comes onto the docked bar's shape or leaves it: its window lets the
+ *  pointer through elsewhere, so the page hears nothing of it itself. */
+export function onNotchPointer(cb: (on: boolean) => void): () => void {
+  return onWindowEvent<boolean>('notch-pointer', cb);
+}
+
 /** Calls `cb` whenever the floating bar is turned on or off, from any window or menu. */
 export function onBarOn(cb: (on: boolean) => void): () => void {
   if (!inTauri) return () => {};

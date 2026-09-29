@@ -741,10 +741,13 @@ Tauri and macOS (from the Tauri 2.11 and tao 0.35 sources)
   32, and `auxiliaryTopLeftArea` / `…RightArea` the menu bar on either side of the camera, 771
   and 772 points wide on a 1728-point screen, so the notch is 185 wide and half a point right of
   the middle; the menu bar is 33 tall (`frame` top less `visibleFrame` top). A screen without one
-  has a safe area of 0 and empty sides. A web view takes the clicks on its clear parts, so the
-  notch apps' one large transparent window (clicks falling through, or `ignoresMouseEvents`
-  switched as the pointer moves) doesn't carry over: the docked bar's window is sized to its
-  shape, grown before it opens and shrunk after it closes.
+  has a safe area of 0 and empty sides. A web view takes the clicks on its clear parts, and a
+  window resized as its page animates shows, for a frame, its old picture pinned to the new
+  window's corner (WebKit draws in a process of its own): opening the docked bar that way looked
+  glitchy. So its window keeps the size it opens to, the page shows the shape through an animated
+  clip, and bar.rs looks at the pointer every 40 ms while it's docked, letting clicks through
+  (`setIgnoresMouseEvents`) off the shape the page reports, and telling the page when the pointer
+  comes onto the shape and leaves it, which a window letting clicks through doesn't.
 - Only a non-activating NSPanel goes onto another app's full-screen Space; an ordinary window
   doesn't, whatever its level or `fullScreenAuxiliary`. Tauri makes NSWindows, so `bar.rs` swaps
   the bar's class to an NSPanel subclass (NSPanel adds no storage) before it's first shown: a

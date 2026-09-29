@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { barWidth, elsewhereWaits, fitGroups, NOTCH, notchCount, notchSizes, plain, projectWaits, type Metrics } from './bar';
+import { barWidth, elsewhereWaits, fitGroups, NOTCH, notchClip, notchCount, notchSizes, plain, projectWaits, type Metrics } from './bar';
 import { ALL_PROJECTS } from './quick';
 import type { BarItem } from './types';
 
@@ -116,23 +116,37 @@ describe('project counts', () => {
 });
 
 describe('the bar docked in the notch', () => {
-  // A 14-inch MacBook Pro's notch.
+  // A 14-inch MacBook Pro's notch, and room for pills 900 wide.
   const notch = { width: 185, height: 32 };
+  const room = 900;
 
-  it('is the notch with a side on each hand while closed, its window the shape and its corners', () => {
-    const s = notchSizes(notch, { w: 600, h: 24 }, 60);
-    expect(s.closed).toEqual({ w: 185 + 2 * NOTCH.wing, h: 32 });
-    expect(s.closedWindow).toEqual({ w: 185 + 2 * NOTCH.wing + 2 * NOTCH.ear.closed, h: 32 });
+  it('is the notch with a side on each hand while closed', () => {
+    expect(notchSizes(notch, { w: 600, h: 24 }, 60, room).closed).toEqual({ w: 185 + 2 * NOTCH.wing, h: 32 });
   });
 
   it('opens as wide as the pills or the sides need, never narrower than closed', () => {
-    expect(notchSizes(notch, { w: 600, h: 24 }, 60).open).toEqual({ w: 600 + 2 * NOTCH.pad, h: 32 + 24 + NOTCH.pad });
+    expect(notchSizes(notch, { w: 600, h: 24 }, 60, room).open).toEqual({ w: 600 + 2 * NOTCH.pad, h: 32 + 24 + NOTCH.pad });
     // Wide sides beside the camera: room for each on its hand.
-    expect(notchSizes(notch, { w: 100, h: 24 }, 200).open.w).toBe(185 + 2 * (200 + NOTCH.pad));
+    expect(notchSizes(notch, { w: 100, h: 24 }, 200, room).open.w).toBe(185 + 2 * (200 + NOTCH.pad));
     // Nothing below yet: at least the closed width.
-    expect(notchSizes(notch, { w: 0, h: 0 }, 0).open.w).toBe(185 + 2 * NOTCH.wing);
-    const s = notchSizes(notch, { w: 600, h: 24 }, 60);
-    expect(s.openWindow).toEqual({ w: s.open.w + 2 * NOTCH.ear.open, h: s.open.h + NOTCH.bottom });
+    expect(notchSizes(notch, { w: 0, h: 0 }, 0, room).open.w).toBe(185 + 2 * NOTCH.wing);
+  });
+
+  it('keeps one window whatever the pills, as wide as they can get and as tall as it opens', () => {
+    const a = notchSizes(notch, { w: 300, h: 24 }, 60, room);
+    const b = notchSizes(notch, { w: 700, h: 24 }, 60, room);
+    expect(a.window).toEqual(b.window);
+    expect(a.window).toEqual({ w: room + 2 * NOTCH.pad + 2 * NOTCH.ear.open, h: a.open.h + NOTCH.bottom });
+  });
+
+  it('shows the notch and its sides through the clip, a little wider under the pointer, and all of it open', () => {
+    const s = notchSizes(notch, { w: 600, h: 24 }, 60, room);
+    const closed = notchClip(s, 'closed');
+    expect(s.open.w - 2 * closed.side).toBe(s.closed.w);
+    expect(s.open.h - closed.bottom).toBe(s.closed.h);
+    expect(closed.radius).toBe(NOTCH.radius.closed);
+    expect(s.open.w - 2 * notchClip(s, 'hover').side).toBe(s.closed.w + 2 * NOTCH.hover);
+    expect(notchClip(s, 'open')).toEqual({ side: 0, bottom: 0, radius: NOTCH.radius.open });
   });
 
   it('shows the most urgent group beside the camera, in the bar’s order', () => {

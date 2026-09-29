@@ -2480,9 +2480,10 @@ html.is-bar body {
   pointer-events: none;
 }
 /* ---- The bar docked in the notch (Notch.tsx): one black shape with the hardware notch, flush
-   with the top of the screen and always dark. Its window is sized to it, so it's placed at the
-   window's top center. Closed it's the notch with a side on each hand; open it grows down into
-   the bar's pills. The corners where it meets the menu bar curve outward into it. ---- */
+   with the top of the screen and always dark. It's laid out at its open size and shown through a
+   clip, so opening and closing move the clip and the corners alone: nothing inside lays out
+   again or moves. The corners where it meets the menu bar curve outward into it. Its window
+   keeps one size and takes clicks only on the shape (bar.rs). ---- */
 html.is-notch,
 html.is-notch body {
   overflow: hidden;
@@ -2490,59 +2491,59 @@ html.is-notch body {
 .ca-notch {
   position: fixed;
   top: 0;
-  left: 50%;
-  transform: translateX(-50%);
-  box-sizing: border-box;
-  border-radius: 0 0 var(--notch-radius) var(--notch-radius);
+  filter: drop-shadow(0 0 0 transparent);
+  transition: filter 0.2s ease-out;
+}
+.ca-notch.is-open {
+  filter: drop-shadow(var(--shadow-notch));
+  transition: filter 0.3s ease-out 0.1s;
+}
+.ca-notch-shape {
+  position: absolute;
+  inset: 0;
   background: var(--notch);
   color: var(--ink);
   cursor: default;
-  /* Closing: no overshoot, which would show the hardware notch's edges. */
-  transition:
-    width 0.32s cubic-bezier(0.4, 0, 0.2, 1),
-    height 0.32s cubic-bezier(0.4, 0, 0.2, 1),
-    border-radius 0.32s cubic-bezier(0.4, 0, 0.2, 1),
-    box-shadow 0.2s ease-out;
 }
-.ca-notch.is-open {
-  box-shadow: var(--shadow-notch);
+/* Closing has no overshoot, which would show the hardware notch's edges; pointing at it grows it
+   a little, quickly; opening springs. */
+.ca-notch-shape,
+.ca-notch-ear {
   transition:
-    width 0.42s cubic-bezier(0.16, 1, 0.3, 1),
-    height 0.42s cubic-bezier(0.16, 1, 0.3, 1),
-    border-radius 0.42s cubic-bezier(0.16, 1, 0.3, 1),
-    box-shadow 0.3s ease-out;
+    clip-path 0.32s cubic-bezier(0.4, 0, 0.2, 1),
+    transform 0.32s cubic-bezier(0.4, 0, 0.2, 1);
 }
+.ca-notch.is-hover .ca-notch-shape,
+.ca-notch.is-hover .ca-notch-ear {
+  transition:
+    clip-path 0.18s ease-out,
+    transform 0.18s ease-out;
+}
+.ca-notch.is-open .ca-notch-shape,
+.ca-notch.is-open .ca-notch-ear {
+  transition:
+    clip-path 0.42s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.42s cubic-bezier(0.16, 1, 0.3, 1);
+}
+/* The corners, drawn at their open size and scaled down closed, from the corner that meets the
+   shape; the page puts each at the shape's edge. */
 .ca-notch-ear {
   position: absolute;
   top: 0;
-  width: var(--notch-ear);
-  height: var(--notch-ear);
-  transition:
-    width 0.32s cubic-bezier(0.4, 0, 0.2, 1),
-    height 0.32s cubic-bezier(0.4, 0, 0.2, 1);
-}
-.ca-notch.is-open .ca-notch-ear {
-  transition:
-    width 0.42s cubic-bezier(0.16, 1, 0.3, 1),
-    height 0.42s cubic-bezier(0.16, 1, 0.3, 1);
+  left: 0;
+  width: 14px;
+  height: 14px;
 }
 .ca-notch-ear.is-left {
-  right: 100%;
+  transform-origin: 100% 0;
   background: radial-gradient(circle farthest-side at 0 100%, transparent 96%, var(--notch) 100%);
 }
 .ca-notch-ear.is-right {
-  left: 100%;
+  transform-origin: 0 0;
   background: radial-gradient(circle farthest-side at 100% 100%, transparent 96%, var(--notch) 100%);
 }
-/* What's inside the shape, clipped to it as it grows and shrinks; the corners stay outside. */
-.ca-notch-clip {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-  border-radius: inherit;
-}
 /* The notch's own height across the top: a side on each hand of the camera, their content
-   pinned to the camera's edges so it stays put as the shape opens. */
+   pinned to the camera's edges, so what shows closed is where it stays open. */
 .ca-notch-top {
   display: flex;
   height: var(--notch-h);
@@ -2571,12 +2572,14 @@ html.is-notch body {
 .ca-notch-side.is-left .ca-notch-side-in {
   flex-direction: row-reverse;
 }
-.ca-notch-mark {
-  display: inline-flex;
-  width: 24px;
-  height: 24px;
-  align-items: center;
-  justify-content: center;
+/* What shows only open: the project beside the mark, the counts after the first. */
+.ca-notch-extra {
+  opacity: 0;
+  transition: opacity 0.12s ease-out;
+}
+.ca-notch.is-open .ca-notch-extra {
+  opacity: 1;
+  transition: opacity 0.2s ease-out 0.12s;
 }
 .ca-notch-count {
   display: inline-flex;
@@ -2600,13 +2603,11 @@ html.is-notch body {
     transform: scale(1);
   }
 }
-/* What opens below the notch: the bar's pills, laid out at their own width and faded in once
-   the shape has room for them. */
+/* What opens below the notch: the bar's pills, at their own width, faded in once the shape has
+   room for them. */
 .ca-notch-body {
   position: absolute;
   top: var(--notch-h);
-  left: 50%;
-  transform: translateX(-50%);
   display: flex;
   align-items: center;
   gap: 4px;
@@ -2622,8 +2623,11 @@ html.is-notch body {
 }
 @media (prefers-reduced-motion: reduce) {
   .ca-notch,
-  .ca-notch.is-open,
+  .ca-notch-shape,
   .ca-notch-ear,
+  .ca-notch.is-hover .ca-notch-shape,
+  .ca-notch.is-hover .ca-notch-ear,
+  .ca-notch.is-open .ca-notch-shape,
   .ca-notch.is-open .ca-notch-ear {
     transition: none;
   }

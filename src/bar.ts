@@ -111,12 +111,14 @@ export function elsewhereWaits(waits: Record<string, WaitCounts>, projects: stri
 
 // ---- The bar docked in the notch (Notch.tsx) ----
 
-/** The docked bar's measures, in points: each side beside the camera while it's closed; the
- *  concave corners where it meets the menu bar and its bottom corners, closed and open; the
- *  padding around what opens below; and the room under the open shape for its shadow, which the
- *  peek counts on to open under it (peek.rs `BAR_MARGIN`). */
+/** The docked bar's measures, in points: each side beside the camera while it's closed, and how
+ *  much wider it grows while the pointer is on it; the concave corners where it meets the menu
+ *  bar and its bottom corners, closed and open; the padding around what opens below; and the room
+ *  under the open shape for its shadow, which the peek counts on to open under it (peek.rs
+ *  `BAR_MARGIN`). */
 export const NOTCH = {
   wing: 44,
+  hover: 4,
   ear: { closed: 6, open: 14 },
   radius: { closed: 12, open: 22 },
   pad: 10,
@@ -128,21 +130,27 @@ export interface Size {
   h: number;
 }
 
-/** The docked bar's shape, closed and open, and its window for each: the shape with room for
- *  the corners at its top, and open, for the shadow under it. Open, it's as wide as the pills
- *  below it or the sides beside the camera need, and never narrower than closed. */
-export function notchSizes(notch: { width: number; height: number }, body: Size, side: number): { closed: Size; open: Size; closedWindow: Size; openWindow: Size } {
+/** The docked bar's shape, closed and open, and its window. Open, it's as wide as the pills
+ *  below it or the sides beside the camera need, never narrower than closed. The window is as
+ *  wide as the pills can get (`room`) and as tall as it opens, with room for the corners and the
+ *  shadow, so it keeps its size as the shape opens and closes. */
+export function notchSizes(notch: { width: number; height: number }, body: Size, side: number, room: number): { closed: Size; open: Size; window: Size } {
   const closed = { w: notch.width + 2 * NOTCH.wing, h: notch.height };
   const open = {
     w: Math.ceil(Math.max(closed.w, body.w + 2 * NOTCH.pad, notch.width + 2 * (side + NOTCH.pad))),
     h: Math.ceil(notch.height + body.h + NOTCH.pad),
   };
-  return {
-    closed,
-    open,
-    closedWindow: { w: closed.w + 2 * NOTCH.ear.closed, h: closed.h },
-    openWindow: { w: open.w + 2 * NOTCH.ear.open, h: open.h + NOTCH.bottom },
-  };
+  return { closed, open, window: { w: Math.ceil(Math.max(open.w, room + 2 * NOTCH.pad)) + 2 * NOTCH.ear.open, h: open.h + NOTCH.bottom } };
+}
+
+export type NotchState = 'closed' | 'hover' | 'open';
+
+/** How much of the open shape shows: its insets from the sides and the bottom, and the radius of
+ *  its bottom corners. Closed it's the notch and its sides, a little wider under the pointer. */
+export function notchClip(s: { closed: Size; open: Size }, state: NotchState): { side: number; bottom: number; radius: number } {
+  if (state === 'open') return { side: 0, bottom: 0, radius: NOTCH.radius.open };
+  const side = Math.max(0, (s.open.w - s.closed.w) / 2 - (state === 'hover' ? NOTCH.hover : 0));
+  return { side, bottom: s.open.h - s.closed.h, radius: NOTCH.radius.closed };
 }
 
 /** What the closed notch shows beside the camera: the most urgent group with anything in it, in

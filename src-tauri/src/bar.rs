@@ -6,9 +6,12 @@
 //! It floats where you put it, or docks in the notch: at the top of the screen, around the
 //! camera, as one black shape with the notch that shows the mark and what needs you most, and
 //! opens down into the bar's pills when you point at it (Bar.tsx). A screen without a notch gets
-//! one drawn at the top center of its menu bar. Docked, the window sits above the menu bar
-//! (`NOTCH_LEVEL`) and is sized to the shape as it opens and closes: a web page takes the clicks
-//! on its clear parts too, so a window any bigger would block the menu bar under it.
+//! one drawn at the top center of its menu bar. Docked, the window sits above the menu bar and
+//! stays at the size the shape opens to, so opening and closing are the page's animation alone:
+//! a window resized as it opens shows its old picture for a frame at the wrong place, since
+//! WebKit draws in a process of its own. A web page takes the clicks on its clear parts too, so
+//! the window takes clicks only while the pointer is on the shape the page says it shows
+//! (`notch_shape`); elsewhere they go through to the menu bar and the apps under it.
 //!
 //! It's a non-activating panel: macOS lets only those onto another app's full-screen Space. So a
 //! click in the bar doesn't make Codealong the active app, and it never takes the keyboard. After
@@ -34,6 +37,8 @@ const MENU_ID: &str = "floating-bar";
 const NOTCH_MENU_ID: &str = "notch-bar";
 /// How often the bar checks that it's up (when on) and writes down where it was moved to.
 const CHECK_EVERY: Duration = Duration::from_secs(1);
+/// How often the pointer is looked at while the bar is docked, to take clicks on the shape only.
+const POINTER_EVERY: Duration = Duration::from_millis(40);
 /// The bar's size before its page has measured itself.
 const START: (f64, f64) = (240.0, 48.0);
 /// Space between a newly placed bar and the menu bar.
@@ -220,13 +225,27 @@ struct Bar {
     notch_item: Mutex<Option<CheckMenuItem<Wry>>>,
     /// The notch the page was last told of, while docked.
     notch: Mutex<Option<Notch>>,
+    /// The shape the docked bar shows, in its window's points from the top left (`notch_shape`),
+    /// and whether the pointer was last on it.
+    shape: Mutex<Option<Rect>>,
+    on_shape: AtomicBool,
 }
 
 /// Makes the bar, shows it unless it's turned off, and adds Window › Floating bar.
 pub fn setup(app: &AppHandle) -> Result<()> {
     let saved = Saved::load();
     let (mode, frame) = (saved.mode(), saved.frame);
-    app.manage(Bar { saved: Mutex::new(saved), sent: Mutex::new(String::new()), moved: AtomicBool::new(false), item: Mutex::new(None), notch_item: Mutex::new(None), notch: Mutex::new(None) });
+    app.manage(Bar {
+        saved: Mutex::new(saved),
+        sent: Mutex::new(String::new()),
+        moved: AtomicBool::new(false),
+        item: Mutex::new(None),
+        notch_item: Mutex::new(None),
+        notch: Mutex::new(None),
+        shape: Mutex::new(None),
+        // A new window takes clicks everywhere: the first look lets them through off the shape.
+        on_shape: AtomicBool::new(true),
+    });
 
     let window = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("index.html".into()))
         .title("Codealong bar")
@@ -290,7 +309,52 @@ pub fn setup(app: &AppHandle) -> Result<()> {
             break;
         }
     })?;
+    let handle = app.clone();
+    std::thread::Builder::new().name("codealong-notch".into()).spawn(move || loop {
+        std::thread::sleep(POINTER_EVERY);
+        if mode_of(&handle) != Mode::Notch {
+            continue;
+        }
+        let app = handle.clone();
+        if handle.run_on_main_thread(move || watch_pointer(&app)).is_err() {
+            break;
+        }
+    })?;
     Ok(())
+}
+
+/// Whether a point on the screen is on the docked bar's shape, given where its window is and
+/// the shape in the window's points from its top left.
+pub fn on_shape(p: (f64, f64), window: Rect, shape: Rect) -> bool {
+    let (x, y) = (p.0 - window.x, window.top() - p.1);
+    x >= shape.x && x <= shape.x + shape.w && y >= shape.y && y <= shape.y + shape.h
+}
+
+/// Docked: the window takes clicks while the pointer is on the shape and lets them through
+/// elsewhere, and the page hears when the pointer comes onto the shape and leaves it, since a
+/// window letting clicks through tells its page nothing. On the main thread.
+fn watch_pointer(app: &AppHandle) {
+    let (Some(bar), Some(state)) = (app.get_webview_window(LABEL), app.try_state::<Bar>()) else {
+        return;
+    };
+    let (Some(frame), Some(p), Some(shape)) = (native::frame(&bar), native::pointer(), state.shape.lock().ok().and_then(|s| *s)) else {
+        return;
+    };
+    let on = on_shape(p, frame, shape);
+    if state.on_shape.swap(on, Ordering::Relaxed) != on {
+        native::set_clickable(&bar, on);
+        let _ = app.emit_to(LABEL, "notch-pointer", on);
+    }
+}
+
+/// The shape the docked bar's page shows now, in the window's points from its top left.
+pub fn set_shape(app: &AppHandle, shape: Rect) {
+    let Some(state) = app.try_state::<Bar>() else { return };
+    if let Ok(mut s) = state.shape.lock() {
+        *s = Some(shape);
+    }
+    let handle = app.clone();
+    let _ = app.run_on_main_thread(move || watch_pointer(&handle));
 }
 
 /// Puts the bar back up if it's on but not on screen, and writes down where it is after a move (a
@@ -437,6 +501,14 @@ pub fn set_mode(app: &AppHandle, mode: Mode) {
     let handle = app.clone();
     let _ = app.run_on_main_thread(move || {
         let Some(bar) = handle.get_webview_window(LABEL) else { return };
+        // Floating, the bar takes every click; docked, the pointer watch decides.
+        if let Some(state) = handle.try_state::<Bar>() {
+            state.on_shape.store(true, Ordering::Relaxed);
+            if let Ok(mut s) = state.shape.lock() {
+                *s = None;
+            }
+        }
+        native::set_clickable(&bar, true);
         match mode {
             Mode::Off => {
                 let _ = bar.hide();
@@ -652,6 +724,13 @@ pub(crate) mod native {
         }
     }
 
+    /// Whether the window takes the pointer's clicks and moves or lets them through to what's under it.
+    pub fn set_clickable(w: &WebviewWindow, clickable: bool) {
+        if let Some(n) = ns(w) {
+            n.setIgnoresMouseEvents(!clickable);
+        }
+    }
+
     /// The notch the bar docks into: the first screen's with one, else one drawn on the screen with
     /// the menu bar.
     pub fn notch() -> Option<Notch> {
@@ -716,6 +795,7 @@ pub(crate) mod native {
         None
     }
     pub fn set_level(_: &WebviewWindow, _: bool) {}
+    pub fn set_clickable(_: &WebviewWindow, _: bool) {}
     pub fn notch() -> Option<super::Notch> {
         None
     }
@@ -827,6 +907,17 @@ mod tests {
         assert_eq!(drawn, Notch { x: 2792.0, top: 1440.0, width: DRAWN_NOTCH_WIDTH, height: 25.0, real: false });
         // Its menu bar hidden: the usual height.
         assert_eq!(notch_of(ext, ext, 0.0, None).height, DRAWN_NOTCH_HEIGHT);
+    }
+
+    #[test]
+    fn the_pointer_is_on_the_shape_only_within_it() {
+        // A window at the top of a 1117-point screen, the shape 285 by 32 centered in its 735.
+        let window = r(496.0, 1039.0, 735.0, 78.0);
+        let shape = r(225.0, 0.0, 285.0, 32.0);
+        assert!(on_shape((863.0, 1110.0), window, shape));
+        assert!(on_shape((721.0, 1117.0), window, shape), "its top left corner");
+        assert!(!on_shape((863.0, 1080.0), window, shape), "under it, in the window");
+        assert!(!on_shape((600.0, 1110.0), window, shape), "beside it, over the menu bar");
     }
 
     #[test]
