@@ -107,7 +107,7 @@ function ToolLine({ item, result, state, onOpen }: { item: TranscriptItem; resul
   );
 }
 
-function ToolRun({ calls, stateOf, onOpen }: { calls: { item: TranscriptItem; result?: TranscriptItem }[]; stateOf: (it: TranscriptItem) => 'done' | 'running' | 'asks' | 'open'; onOpen: () => void }) {
+function ToolRun({ calls, stateOf, onOpen }: { calls: { item: TranscriptItem; result?: TranscriptItem }[]; stateOf: (it: TranscriptItem) => 'done' | 'running' | 'asks' | 'open'; onOpen?: () => void }) {
   const [open, setOpen] = useState(false);
   const last = calls[calls.length - 1];
   const earlier = calls.slice(0, -1);
@@ -188,9 +188,12 @@ interface SessionThreadProps {
   fallback: ReactNode;
   /** Once the first page is laid out, or the record couldn't be read: the peek shows then. */
   onLoaded?: () => void;
+  /** The panel's reply area shows what the session waits on (Allow and Deny, or where to answer
+   *  it), so the thread only marks the call and doesn't ask again. */
+  answeredBelow?: boolean;
 }
 
-export function SessionThread({ session: s, now, onOpen, fallback, onLoaded }: SessionThreadProps) {
+export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, answeredBelow }: SessionThreadProps) {
   const [items, setItems] = useState<TranscriptItem[]>([]);
   const [before, setBefore] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -334,6 +337,7 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded }: S
     return keyOf(last);
   }, [items]);
   const busy: Status[] = ['needs', 'working'];
+  const askHere = answeredBelow ? undefined : onOpen;
   const stateOf = (it: TranscriptItem): 'done' | 'running' | 'asks' | 'open' => {
     if (keyOf(it) !== pending || !busy.includes(s.status)) return 'done';
     return s.status === 'needs' ? 'asks' : 'running';
@@ -353,9 +357,9 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded }: S
       {loaded && before == null && items.length > 0 && <div className="ca-thread-start">The start of the session</div>}
       {loaded && before != null && <div className="ca-thread-start">Loading earlier…</div>}
       {rows.map((r) => {
-        if (r.kind === 'tools') return <ToolRun key={keyOf(r.calls[0].item)} calls={r.calls} stateOf={stateOf} onOpen={onOpen} />;
+        if (r.kind === 'tools') return <ToolRun key={keyOf(r.calls[0].item)} calls={r.calls} stateOf={stateOf} onOpen={askHere} />;
         const it = r.item;
-        if (it.kind === 'tool') return <ToolLine key={keyOf(it)} item={it} result={r.result} state={stateOf(it)} onOpen={onOpen} />;
+        if (it.kind === 'tool') return <ToolLine key={keyOf(it)} item={it} result={r.result} state={stateOf(it)} onOpen={askHere} />;
         if (it.kind === 'note') {
           return (
             <div key={keyOf(it)} className="ca-thread-note">
@@ -382,7 +386,7 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded }: S
               <Rich text={s.excerpt} now={now} />
             </span>
             {/* A question in its reply is answered in the box below; anything else where it runs. */}
-            {!s.asks && (
+            {!s.asks && !answeredBelow && (
               <button type="button" className="ca-btn ca-btn--secondary ca-btn--sm" onClick={onOpen}>
                 <Icon name="arrow-up-right" size={13} />
                 <span>Open to answer</span>

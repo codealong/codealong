@@ -181,6 +181,7 @@ export function SessionPanel({ lane, session: s, apps, now, onOpen, onNewSession
         session={s}
         now={now}
         onOpen={() => onOpen(s.openTarget)}
+        answeredBelow={!device || (device.online && device.remoteControl)}
         fallback={
           s.excerpt ? (
             <p className="ca-sessinsp-now">

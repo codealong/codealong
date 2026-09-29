@@ -134,6 +134,7 @@ export function ReplyView({ lane, session: s, terminal, now, onOpen, onReveal, o
         now={now}
         onOpen={onOpen}
         onLoaded={onLoaded}
+        answeredBelow
         fallback={
           s.excerpt ? (
             <p className="ca-sessinsp-now">
