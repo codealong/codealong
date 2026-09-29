@@ -199,8 +199,8 @@ uncommitted there goes into their commits and builds.
    changes, and `-d` a branch that isn't in `origin/main` (step 1's branch tracks it). Leave
    a worktree whose work hasn't landed, one another session made or works in, and one your
    harness made for your session (Claude Code's `.claude/worktrees/<name>`), which is the
-   harness's to clean up when the session ends. Codealong drops the worktree at its next scan, and your session shows
-   where its latest commands ran.
+   harness's to clean up when the session ends. Codealong takes the worktree off the board as
+   it goes, and your session shows where its latest commands ran, or where it started.
 6. If a Codealong todo started the work, mark it done: `codealong todo done <id>`.
 
 - No AI attribution in commits or PRs: no `Co-Authored-By: Claude` trailer, no "Generated

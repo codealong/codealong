@@ -1945,10 +1945,16 @@ impl Engine {
                 let mut comps = rel.components().map(|c| c.as_os_str().to_string_lossy().into_owned());
                 return match comps.next().as_deref() {
                     Some("worktrees") => match comps.next() {
-                        Some(name) => match self.gitdir_to_lane.get(&c.git_dir.join("worktrees").join(&name)) {
-                            Some(lane) => RepoEvent::Lane(lane.clone()),
-                            None => RepoEvent::Worktrees,
-                        },
+                        Some(name) => {
+                            let admin = c.git_dir.join("worktrees").join(&name);
+                            match self.gitdir_to_lane.get(&admin) {
+                                // `git worktree remove` deletes the worktree's folder, then its
+                                // folder here: a lane with either gone is gone, and only a rescan
+                                // takes it off the board.
+                                Some(lane) if admin.exists() && lane.exists() => RepoEvent::Lane(lane.clone()),
+                                _ => RepoEvent::Worktrees,
+                            }
+                        }
                         None => RepoEvent::Worktrees,
                     },
                     Some("refs") | Some("packed-refs") | Some("FETCH_HEAD") => RepoEvent::Checkout(c.root.clone()),
@@ -1961,6 +1967,11 @@ impl Engine {
         let seed = &self.seeds[i];
         if seed.elsewhere || seed.origin == Origin::Folder {
             return RepoEvent::Ignore;
+        }
+        // A worktree deleted without git (`rm -rf`) leaves its folder in `.git/worktrees`, where
+        // nothing changes: its own files going are the only sign.
+        if !seed.path.exists() {
+            return RepoEvent::Worktrees;
         }
         if p.components().any(|c| c.as_os_str() == "node_modules" || c.as_os_str() == ".git") {
             return RepoEvent::Ignore;
@@ -3082,6 +3093,41 @@ mod tests {
         assert!(opens_in(&apps, "cursor"));
         assert!(opens_in(&apps, "zed"));
         assert!(!opens_in(&apps, "Terminal"));
+    }
+
+    #[test]
+    fn a_removed_worktree_rescans_the_repos() {
+        use super::*;
+
+        let dir = std::env::temp_dir().join(format!("codealong-gone-worktree-{}", std::process::id()));
+        let root = dir.join("repo");
+        let git_dir = root.join(".git");
+        let admin = git_dir.join("worktrees/topic");
+        let wt = dir.join("repo-topic");
+        std::fs::create_dir_all(&admin).unwrap();
+        std::fs::create_dir_all(&wt).unwrap();
+        let (tx, _rx) = channel();
+        let mut engine = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
+        let checkout = repos::Checkout { root: root.clone(), git_dir: git_dir.clone(), name: "repo".into(), identity: None, github: None, github_owners: Vec::new() };
+        engine.checkouts = vec![("P".into(), checkout)];
+        engine.gitdir_to_lane.insert(admin.clone(), wt.clone());
+        let seed = |path: &Path, origin: Origin| LaneSeed { origin, ..folder_seed(path.to_path_buf(), "P", "repo", false) };
+        engine.seeds = vec![seed(&root, Origin::Main), seed(&wt, Origin::Other)];
+        let is_lane = |e: RepoEvent, lane: &Path| matches!(e, RepoEvent::Lane(l) if l == lane);
+
+        // While it's there, a change in it or its folder in `.git/worktrees` runs git in it.
+        assert!(is_lane(engine.classify_repo_path(&wt.join("src/main.rs")), &wt));
+        assert!(is_lane(engine.classify_repo_path(&admin.join("HEAD")), &wt));
+        // `git worktree remove` deletes both.
+        std::fs::remove_dir_all(&wt).unwrap();
+        assert!(matches!(engine.classify_repo_path(&wt.join("src/main.rs")), RepoEvent::Worktrees), "its own files going");
+        assert!(matches!(engine.classify_repo_path(&admin.join("HEAD")), RepoEvent::Worktrees), "its worktree gone");
+        std::fs::create_dir_all(&wt).unwrap();
+        std::fs::remove_dir_all(&admin).unwrap();
+        assert!(matches!(engine.classify_repo_path(&admin), RepoEvent::Worktrees), "its folder in .git gone");
+        // The main checkout's own changes are still its own.
+        assert!(is_lane(engine.classify_repo_path(&root.join("src/lib.rs")), &root));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
