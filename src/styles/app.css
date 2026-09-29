@@ -1829,37 +1829,52 @@ body.is-resizing * {
   gap: 4px;
 }
 
-/* Worktree rows. The left column is the worktree: its name, its repo and branch, and where it
-   stands against the default branch (commits ahead and behind, lines added and removed,
-   uncommitted files). The right is what's happening: its sentence, its agents, todo, app and PR.
-   The column grows with the board, so a long name shows more of itself. */
+/* Worktree rows. On the left, shaded as one block, the worktree: its name over its repo and
+   branch, then a column of where it stands against the default branch, lines over commits, its
+   rows in step with the name's. The name's column grows with the board, so a long name shows
+   more of itself. A narrow board drops the delta column: the panel has the same counts. */
 .ca-lane.is-worktree {
-  grid-template-columns: 32px clamp(168px, 26%, 232px) minmax(0, 1fr) 52px;
-}
-.ca-lane.is-worktree .ca-seg-call {
-  gap: 1px;
-  padding-top: 6px;
-  padding-bottom: 6px;
+  grid-template-columns: 32px clamp(160px, 24%, 220px) 92px minmax(0, 1fr) 52px;
 }
 .ca-lane.is-worktree .ca-seg-main {
   overflow: hidden;
 }
-.ca-lane-delta {
-  display: flex;
-  gap: 6px;
-  min-width: 0;
-  overflow: hidden;
+.ca-lane.is-worktree .ca-seg-lines {
+  grid-column: 4 / 6;
+}
+.ca-seg-delta {
+  align-items: flex-end;
+  padding-left: 0;
+  border-left: 0;
+}
+.ca-delta-row {
+  display: grid;
+  grid-template-columns: 5ch 5ch 6px;
+  column-gap: 5px;
+  justify-items: end;
   font: 500 11px/14px var(--font-mono);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   color: var(--ink-3);
 }
-/* Commits only this branch has read stronger than the ones it's missing. */
-.ca-lane-ahead {
+/* Level with the name, whose line is taller. */
+.ca-delta-row.is-lines {
+  line-height: 20px;
+}
+/* What only this branch has reads stronger than what it lacks. */
+.ca-delta-row > .is-gain {
   color: var(--ink-2);
 }
-.ca-lane-lines {
-  margin-left: 4px;
+@container board (max-width: 600px) {
+  .ca-lane.is-worktree {
+    grid-template-columns: 32px 160px minmax(0, 1fr) 52px;
+  }
+  .ca-lane.is-worktree .ca-seg-delta {
+    display: none;
+  }
+  .ca-lane.is-worktree .ca-seg-lines {
+    grid-column: 3 / 5;
+  }
 }
 /* The second line: the worktree's agents, todo and notes (the lead), then its app and PR at the
    right. It never wraps. Short of room, the app's address gives way first, down to its globe;
@@ -1871,7 +1886,7 @@ body.is-resizing * {
 .ca-lane-lead > .ca-chip--more.is-narrow {
   display: none;
 }
-@container board (max-width: 600px) {
+@container board (max-width: 680px) {
   .ca-lane-lead > .ca-chip.is-extra,
   .ca-lane-lead > .ca-chip--more.is-wide {
     display: none;

@@ -1,6 +1,5 @@
-// One worktree as a flight strip: status; the worktree on the left, with its repo, branch, and
-// commits and lines against the default branch; what's happening, its agents, todo, app and PR on
-// the right; age. Each agent that needs you, is working or just finished gets a line of its own
+// One worktree as a flight strip: status; the worktree, with its repo and branch; its lines and
+// commits against the default branch; what's happening, its agents, todo, app and PR; age. Each agent that needs you, is working or just finished gets a line of its own
 // on its worktree's row, so a worktree shows once however many agents run in it.
 
 import { deviceLabel } from '../devices';
@@ -78,42 +77,56 @@ function Diff({ git: g }: { git: GitInfo | null }) {
   );
 }
 
-/** A count in a few characters: `9,876`, `12k`. Tooltips have it exactly. */
+/** A count in at most five characters with its sign: `987`, `5.4k`, `12k`. Tooltips have it
+ *  exactly. */
 function shortCount(n: number): string {
-  return n < 10_000 ? n.toLocaleString('en-US') : `${Math.round(n / 1000).toLocaleString('en-US')}k`;
+  if (n < 1000) return String(n);
+  if (n < 10_000) return `${(n / 1000).toFixed(1).replace(/\.0$/, '')}k`;
+  if (n < 1_000_000) return `${Math.round(n / 1000)}k`;
+  return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
 }
 
-/** Where the worktree stands against the default branch, under its name: commits ahead and
- *  behind, lines added and removed, and a dot for uncommitted files. */
-function GitDelta({ git: g }: { git: GitInfo | null }) {
-  if (!g) return null;
-  const ahead = g.baseAhead ?? 0;
-  const behind = g.baseBehind ?? 0;
-  const added = g.added ?? 0;
-  const removed = g.removed ?? 0;
+/**
+ * Where the worktree stands against the default branch, in a column beside its name: lines added
+ * and removed (with a dot for uncommitted files) over commits ahead and behind. What the branch
+ * adds lines up in one column and what it lacks in the next, so rows read as a table.
+ */
+function DeltaSeg({ git: g, onMouseDown, onDoubleClick }: { git: GitInfo | null; onMouseDown?: () => void; onDoubleClick?: () => void }) {
+  const ahead = g?.baseAhead ?? 0;
+  const behind = g?.baseBehind ?? 0;
+  const added = g?.added ?? 0;
+  const removed = g?.removed ?? 0;
+  const dirty = g?.dirty ?? 0;
   const lines = added > 0 || removed > 0;
-  if (ahead === 0 && behind === 0 && !lines && g.dirty === 0) return null;
-  const words = [
-    driftWords(g),
-    lines ? `${count(added, 'line')} added and ${removed.toLocaleString('en-US')} removed against ${g.base ?? 'the default branch'}` : null,
-    g.dirty > 0 ? count(g.dirty, 'uncommitted file') : null,
-  ].filter(Boolean);
+  const words = g
+    ? [
+        lines ? `${count(added, 'line')} added and ${removed.toLocaleString('en-US')} removed against ${g.base ?? 'the default branch'}, uncommitted changes included` : null,
+        dirty > 0 ? `${count(dirty, 'uncommitted file')}` : null,
+        driftWords(g),
+      ].filter(Boolean)
+    : [];
   return (
-    <span className="ca-lane-delta" title={`${words.join('. ')}.`}>
-      {ahead > 0 && <span className="ca-lane-ahead">↑{shortCount(ahead)}</span>}
-      {behind > 0 && <span>↓{shortCount(behind)}</span>}
-      {lines && (
-        <span className="ca-lane-lines">
-          +{shortCount(added)} −{shortCount(removed)}
-        </span>
+    <div className="ca-seg ca-seg-call ca-seg-delta" title={words.length ? `${words.join('. ')}.` : undefined} onMouseDown={onMouseDown} onDoubleClick={onDoubleClick}>
+      {words.length > 0 && (
+        <>
+          <span className="ca-delta-row is-lines">
+            <span className="is-gain">{added > 0 ? `+${shortCount(added)}` : ''}</span>
+            <span>{removed > 0 ? `−${shortCount(removed)}` : ''}</span>
+            <span>{dirty > 0 ? '●' : ''}</span>
+          </span>
+          <span className="ca-delta-row">
+            <span className="is-gain">{ahead > 0 ? `↑${shortCount(ahead)}` : ''}</span>
+            <span>{behind > 0 ? `↓${shortCount(behind)}` : ''}</span>
+            <span />
+          </span>
+        </>
       )}
-      {g.dirty > 0 && <span>●</span>}
-    </span>
+    </div>
   );
 }
 
-/** The worktree's column: its name, its repo and branch, and where it stands against the default
- *  branch. `titled` gives the name a tooltip of its own, where the column has none. */
+/** The worktree's column: its name, and its repo and branch. `titled` gives the name a tooltip
+ *  of its own, where the column has none. */
 function WorktreeCell({ lane, now, titled }: { lane: Lane; now: number; titled: boolean }) {
   const { sub, branch } = laneSub(lane);
   return (
@@ -125,7 +138,6 @@ function WorktreeCell({ lane, now, titled }: { lane: Lane; now: number; titled: 
         {lane.device && <DeviceBadge device={lane.device} now={now} />}
         {sub}
       </span>
-      <GitDelta git={lane.git} />
     </>
   );
 }
@@ -206,6 +218,7 @@ function WorktreeOnlyRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpe
       <div className="ca-seg ca-seg-call">
         <WorktreeCell lane={lane} now={now} titled />
       </div>
+      <DeltaSeg git={lane.git} />
       <div className="ca-seg ca-seg-main">
         <div className="ca-lane-line1">
           <span className="ca-lane-headline">
@@ -297,6 +310,7 @@ function GroupRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpenTarget
       <div className="ca-seg ca-seg-call" onMouseDown={selectFirst} onDoubleClick={() => onOpen(lane)} title={`${lane.path}. Double-click to open its most recent session.`}>
         <WorktreeCell lane={lane} now={now} titled={false} />
       </div>
+      <DeltaSeg git={lane.git} onMouseDown={selectFirst} onDoubleClick={() => onOpen(lane)} />
       <div className="ca-seg-lines">
         {agents.map((a, i) => (
           <AgentLine
