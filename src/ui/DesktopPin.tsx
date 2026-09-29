@@ -1,13 +1,14 @@
 // A card pinned to the desktop: a session, worktree or todo, pinned from its right-click menu, in a
 // window of its own that floats over every other as the floating bar does (desktop.rs). It shows
-// what its Canvas card shows, and under a worktree or a todo its sessions. A click opens it where
-// it lives (a session line, that session), dragging moves it, and its right-click menu has the
-// rest, with Remove from desktop. The engine sends it what it shows, and only when that changed;
-// the page sizes the window to itself.
+// what its Canvas card shows, and under a worktree or a todo its sessions. A click on a session
+// (the card's own, a session line, or a todo's) shows it in the bar's peek beside the card, its
+// conversation and a box to answer it (peek.rs, Peek.tsx); a double-click opens it where it lives.
+// Dragging moves the card, and its right-click menu has the rest, with Remove from desktop. The
+// engine sends it what it shows, and only when that changed; the page sizes the window to itself.
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { fitDesktop, getDesktopFeed, onDesktopFeed, openFromBar, showMain, showQuick, unpinFromDesktop } from '../api';
+import { fitDesktop, getDesktopFeed, onDesktopFeed, onPeekShown, openFromBar, peekHide, peekOpen, showMain, showQuick, unpinFromDesktop, type PillRect } from '../api';
 import { boardView, lanesAhead, observe, seenAhead, useAhead } from '../ahead';
 import { plain } from '../bar';
 import { showContextMenu, type MenuSpec } from '../contextMenu';
@@ -17,7 +18,7 @@ import { sessionPlace } from '../harness';
 import { seenable } from '../lanes';
 import { snoozeMenu } from '../snooze';
 import { sessionHomes } from '../todos';
-import type { DesktopFeed, Label, Lane, Session } from '../types';
+import type { DesktopFeed, Label, Lane, PeekShown, Session } from '../types';
 import { cardData, CardFace, SessionLine, sessionLine, type CardData } from './CanvasCard';
 import { STATUS_WORD } from './primitives';
 import { applyTheme } from './ThemeSwitch';
@@ -28,6 +29,9 @@ const MARGIN = 12;
 const SESSIONS = 4;
 /** How far the pointer moves with the button down before it drags the card rather than clicks it. */
 const DRAG_AFTER = 4;
+/** How long a click waits for a second one before it opens the peek, so a double-click opens the
+ *  session where it lives without the peek showing first. */
+const CLICK_WAIT_MS = 250;
 
 function useNow(everyMs: number): number {
   const [now, setNow] = useState(() => Date.now());
@@ -53,19 +57,25 @@ function listed(d: CardData | null): { lane: Lane; session: Session }[] {
 }
 
 /** What the card's tooltip says: what it leaves out, and what a click does. */
-function tooltip(d: CardData | null, now: number, terminal: string): string {
+function tooltip(d: CardData | null, now: number, terminal: string, lines: number): string {
   switch (d?.ref) {
     case 'session': {
       const s = d.session;
-      return [s.title, `${STATUS_WORD[s.status]} · ${d.lane.callsign} · ${s.account}`, plain(sessionLine(s), now), `Click to open in ${sessionPlace(s, terminal)}`].filter(Boolean).join('\n');
+      return [s.title, `${STATUS_WORD[s.status]} · ${d.lane.callsign} · ${s.account}`, plain(sessionLine(s), now), `Click to read and answer it, double-click to open it in ${sessionPlace(s, terminal)}`].filter(Boolean).join('\n');
     }
     case 'worktree':
-      return [d.lane.callsign, d.lane.branch && d.lane.branch !== d.lane.callsign ? d.lane.branch : '', plain(d.lane.headline, now)].filter(Boolean).join('\n');
+      return [d.lane.callsign, d.lane.branch && d.lane.branch !== d.lane.callsign ? d.lane.branch : '', plain(d.lane.headline, now), lines ? 'Click a session to read and answer it, double-click to open it' : ''].filter(Boolean).join('\n');
     case 'todo':
-      return [d.todo.title || 'Untitled', d.sessions.length ? 'Click to open its session' : 'Click to start a session for it'].join('\n');
+      return [d.todo.title || 'Untitled', d.sessions.length ? 'Click to read and answer its session, double-click to open it' : 'Double-click to start a session for it'].join('\n');
     default:
       return '';
   }
+}
+
+/** Where an element is in the window, for the peek to open by. */
+function rectOf(el: Element): PillRect {
+  const r = el.getBoundingClientRect();
+  return { x: r.left, y: r.top, w: r.width, h: r.height };
 }
 
 export function DesktopPin() {
@@ -73,7 +83,18 @@ export function DesktopPin() {
   const [failed, setFailed] = useState<string | null>(null);
   const now = useNow(30_000);
   const root = useRef<HTMLDivElement>(null);
+  const card = useRef<HTMLDivElement>(null);
   const drag = useRef<{ x: number; y: number; moved: boolean } | null>(null);
+  // A click waiting to see whether it's the first of two.
+  const clickTimer = useRef<number | null>(null);
+  // The session the peek shows, wherever it was opened from.
+  const [peeked, setPeeked] = useState<PeekShown>({ key: null, engaged: false });
+  const peekedNow = useRef(peeked);
+  peekedNow.current = peeked;
+  useEffect(() => onPeekShown(setPeeked), []);
+  useEffect(() => () => {
+    if (clickTimer.current != null) window.clearTimeout(clickTimer.current);
+  }, []);
 
   useEffect(() => {
     const stop = onDesktopFeed(setFeed);
@@ -226,23 +247,55 @@ export function DesktopPin() {
     d.moved = true;
     void getCurrentWindow().startDragging();
   };
+  /** The session a click shows in the peek, and what it opens by: the session line clicked, else
+   *  the card's own session, or a todo's live or latest one. */
+  const clicked = (target: Element): { lane: Lane; session: Session; el: Element } | null => {
+    const line = target.closest<HTMLElement>('[data-session]');
+    const s = line && sessions.find((x) => x.session.key === line.dataset.session);
+    if (line && s) return { ...s, el: line };
+    const el = card.current;
+    if (!el) return null;
+    if (data?.ref === 'session') return { lane: data.lane, session: data.session, el };
+    const t = data?.ref === 'todo' ? (data.sessions.find((x) => x.session.live) ?? data.sessions[0]) : null;
+    return t ? { ...t, el } : null;
+  };
+
+  /** Shows a session in the peek beside the card, ready to answer; clicked again, puts it away. */
+  const peek = (key: string, at: PillRect) => {
+    if (peekedNow.current.key === key) void peekHide();
+    else peekOpen(key, at, true).catch(fail);
+  };
+
   const onClick = (e: MouseEvent) => {
     const moved = drag.current?.moved;
     drag.current = null;
     if (moved || !data) return;
-    const line = (e.target as Element).closest<HTMLElement>('[data-session]');
-    const s = line && sessions.find((x) => x.session.key === line.dataset.session);
-    if (s) openSession(s.lane, s.session);
-    else openIt();
+    if (clickTimer.current != null) window.clearTimeout(clickTimer.current);
+    clickTimer.current = null;
+    const hit = clicked(e.target as Element);
+    // The second click of a double-click: where it lives. The peek goes if the first opened it.
+    if (e.detail >= 2) {
+      if (peekedNow.current.key) void peekHide();
+      if (hit && hit.el !== card.current) openSession(hit.lane, hit.session);
+      else openIt();
+      return;
+    }
+    if (!hit) return;
+    const at = rectOf(hit.el);
+    clickTimer.current = window.setTimeout(() => {
+      clickTimer.current = null;
+      peek(hit.session.key, at);
+    }, CLICK_WAIT_MS);
   };
 
   const waiting = !feed || (feed.loading && !data);
   return (
     <div ref={root} className="ca-desk" onContextMenu={onContextMenu}>
       <div
-        className="ca-desk-card"
+        ref={card}
+        className={['ca-desk-card', data?.ref === 'session' && peeked.key === data.session.key && 'is-peeked'].filter(Boolean).join(' ')}
         role="button"
-        title={tooltip(data, now, terminal) || undefined}
+        title={tooltip(data, now, terminal, sessions.length) || undefined}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onClick={onClick}
@@ -256,7 +309,7 @@ export function DesktopPin() {
             {sessions.length > 0 && (
               <div className="ca-desk-sessions">
                 {sessions.slice(0, SESSIONS).map(({ session }) => (
-                  <div key={session.key} className="ca-desk-session" data-session={session.key}>
+                  <div key={session.key} className={['ca-desk-session', peeked.key === session.key && 'is-peeked'].filter(Boolean).join(' ')} data-session={session.key}>
                     <SessionLine s={session} now={now} />
                   </div>
                 ))}

@@ -2696,6 +2696,13 @@ html.is-desktop body {
 .ca-desk-session:hover {
   background: var(--surface-hover);
 }
+/* The session the peek shows, as the bar marks its pill. */
+.ca-desk-card.is-peeked .ca-cv-card.is-desk {
+  border-color: var(--unread-solid);
+}
+.ca-desk-session.is-peeked {
+  box-shadow: inset 0 0 0 1.5px var(--line-strong);
+}
 /* What went wrong opening it. A click clears it. */
 .ca-desk-note {
   appearance: none;

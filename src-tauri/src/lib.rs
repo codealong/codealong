@@ -296,11 +296,14 @@ fn open_from_bar(app: tauri::AppHandle, engine: State<'_, engine::Handle>, lane_
     Ok(())
 }
 
-/// Shows a session in the floating bar's peek: for a hover over its pill (where the bar's page
-/// measured it), or with `focus` ready to type into (peek.rs).
+/// Shows a session in the floating bar's peek: for a hover over its pill or a click on a card on
+/// the desktop (where the window's page measured it), or with `focus` ready to type into
+/// (peek.rs).
 #[tauri::command]
-fn peek_open(app: tauri::AppHandle, engine: State<'_, engine::Handle>, key: String, pill: Option<bar::Rect>, focus: Option<bool>) -> Result<(), String> {
+fn peek_open(app: tauri::AppHandle, window: tauri::WebviewWindow, engine: State<'_, engine::Handle>, key: String, pill: Option<bar::Rect>, focus: Option<bool>) -> Result<(), String> {
     let target = engine.read(|b| peek::target(b, &key)).ok_or_else(|| "That session isn't on the board any more.".to_string())?;
+    // The pill is in the window that asked: the bar, or a card on the desktop.
+    let pill = pill.and_then(|p| bar::native::frame(&window).map(|host| (host, p)));
     peek::open(&app, target, pill, focus.unwrap_or(false)).map_err(|e| e.to_string())
 }
 

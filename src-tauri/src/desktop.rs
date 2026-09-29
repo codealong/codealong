@@ -376,6 +376,11 @@ pub fn pinned(app: &AppHandle) -> Vec<Pinned> {
     app.try_state::<Desktop>().and_then(|s| s.inner.lock().ok().map(|i| i.cards.iter().map(|(_, p)| p.what.clone()).collect())).unwrap_or_default()
 }
 
+/// The cards' windows.
+pub fn labels(app: &AppHandle) -> Vec<String> {
+    app.try_state::<Desktop>().and_then(|s| s.inner.lock().ok().map(|i| i.cards.iter().map(|(l, _)| l.clone()).collect())).unwrap_or_default()
+}
+
 /// Tells every window what's pinned, for their menus.
 fn tell(app: &AppHandle) {
     let _ = app.emit("desktop-pins", pinned(app));

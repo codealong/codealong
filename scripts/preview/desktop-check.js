@@ -1,9 +1,12 @@
 // Checks cards pinned to the desktop (DesktopPin.tsx) and the menu items that pin them (App.tsx).
-// In the desktop view, on a worktree's card: it sizes its window, a click opens the worktree and
-// a session line that session, its menu shows it in Codealong and takes it off the desktop, and
-// once the board has lost it only Remove is left. In the sessions view: a session's menu pins it,
+// In the desktop view, on a worktree's card: it sizes its window, a click on a session line shows
+// that session in the peek and a second click puts it away, a double-click opens the worktree or
+// the line's session where it lives without the peek opening first, its menu shows it in
+// Codealong and takes it off the desktop, and once the board has lost it only Remove is left. On a
+// session's card, a click shows it in the peek. In the sessions view: a session's menu pins it,
 // and once it's pinned takes it off.
 //   PREVIEW_WAIT=60000 PREVIEW_PIN=worktree scripts/preview.sh desktop '' scripts/preview/desktop-check.js
+//   PREVIEW_WAIT=60000 PREVIEW_PIN=session scripts/preview.sh desktop '' scripts/preview/desktop-check.js
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/desktop-check.js
 // Every step should say ok.
 (function () {
@@ -25,11 +28,48 @@
   var find = function (items, text) { return items.filter(function (i) { return i.text === text; })[0]; };
   var pick = function (item) { window['_' + item.handler.id]({ index: 0, message: item.id }); };
   var right = function (el) { el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })); };
+  // A click as the n-th of a run, as WebKit counts them.
+  var click = function (el, n) { el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: n })); };
+  var twice = function (el) { click(el, 1); click(el, 2); };
   var done = function () { say('done: ' + out.join(' · ')); };
   var failed = function (e) { out.push('FAIL ' + e); done(); };
 
+  if (window.__CODEALONG_DESKTOP__ && window.__CODEALONG_PIN__ === 'session') {
+    say('desktop check: waiting for the card');
+    var key = null;
+    until(function () { return document.querySelector('.ca-desk .ca-cv-card.is-session'); }, 20000)
+      .then(function () { return window.__TAURI_INTERNALS__.invoke('desktop_feed'); })
+      .then(function (f) {
+        key = f.pin.key;
+        click(document.querySelector('.ca-desk .ca-cv-l1'), 1);
+        check('a click waits a moment for a second one', calls('peek_open').length === 0);
+        return wait(500);
+      })
+      .then(function () {
+        var p = last('peek_open');
+        check("then shows the card's session in the peek, ready to answer", p && p.key === key && p.focus === true && p.pill && p.pill.w > 200, JSON.stringify(p));
+        window.__emit('peek', { key: key, engaged: true });
+        return wait(100);
+      })
+      .then(function () {
+        check('the card shows it', document.querySelector('.ca-desk-card').classList.contains('is-peeked'));
+        var opens = calls('open_from_bar').length;
+        twice(document.querySelector('.ca-desk .ca-cv-l1'));
+        check('a double-click puts the peek away and opens it where it lives', calls('peek_hide').length === 1 && calls('open_from_bar').length === opens + 1 && last('open_from_bar').targetId.indexOf(key) >= 0, JSON.stringify(last('open_from_bar')));
+        return wait(500);
+      })
+      .then(function () {
+        check('without the peek opening again', calls('peek_open').length === 1, String(calls('peek_open').length));
+        done();
+      })
+      .catch(failed);
+    return;
+  }
+
   if (window.__CODEALONG_DESKTOP__) {
     var feed = null;
+    var line = null;
+    var s = null;
     say('desktop check: waiting for the card');
     until(function () { return document.querySelector('.ca-desk .ca-desk-session') && calls('fit_desktop').length; }, 20000)
       .then(function () { return window.__TAURI_INTERNALS__.invoke('desktop_feed'); })
@@ -38,18 +78,39 @@
         var lane = f.lanes[0];
         var fit = last('fit_desktop');
         check('the window fits the card and its shadow', fit && fit.width === 304 && fit.height > 100, JSON.stringify(fit));
-        document.querySelector('.ca-desk .ca-cv-l1').click();
+        twice(document.querySelector('.ca-desk .ca-cv-l1'));
         var opened = lane.defaultTarget ? last('open_from_bar') : last('show_main');
-        check('a click opens the worktree', lane.defaultTarget ? opened && opened.laneId === lane.id && opened.targetId === lane.defaultTarget : opened && opened.reveal.kind === 'worktree', JSON.stringify(opened));
-        var line = document.querySelector('.ca-desk .ca-desk-session');
-        var s = lane.sessions.find(function (x) { return x.key === line.dataset.session; });
-        line.querySelector('.ca-cvp-session-title').click();
-        var o = last('open_from_bar');
-        check('a session line opens that session', o && o.laneId === lane.id && o.targetId === s.openTarget, JSON.stringify(o));
-        right(document.querySelector('.ca-desk-card'));
-        return wait(200);
+        check('a double-click opens the worktree', lane.defaultTarget ? opened && opened.laneId === lane.id && opened.targetId === lane.defaultTarget : opened && opened.reveal.kind === 'worktree', JSON.stringify(opened));
+        line = document.querySelector('.ca-desk .ca-desk-session');
+        s = lane.sessions.find(function (x) { return x.key === line.dataset.session; });
+        click(line.querySelector('.ca-cvp-session-title'), 1);
+        return wait(500);
       })
       .then(function () {
+        var p = last('peek_open');
+        var r = line.getBoundingClientRect();
+        check('a click on a session line shows that session in the peek, by the line', p && p.key === s.key && p.focus === true && p.pill && Math.round(p.pill.y) === Math.round(r.top), JSON.stringify(p));
+        check('a click on the worktree itself shows nothing', calls('peek_open').length === 1, String(calls('peek_open').length));
+        window.__emit('peek', { key: s.key, engaged: true });
+        return wait(100);
+      })
+      .then(function () {
+        check('the line shows it', line.classList.contains('is-peeked'));
+        click(line, 1);
+        return wait(500);
+      })
+      .then(function () {
+        check('a second click puts it away', calls('peek_hide').length === 1 && calls('peek_open').length === 1, String(calls('peek_hide').length));
+        window.__emit('peek', { key: null, engaged: false });
+        var opens = calls('open_from_bar').length;
+        twice(line);
+        var o = last('open_from_bar');
+        check('a double-click on a line opens that session where it lives', calls('open_from_bar').length === opens + 1 && o.laneId === feed.lanes[0].id && o.targetId === s.openTarget, JSON.stringify(o));
+        right(document.querySelector('.ca-desk-card'));
+        return wait(500);
+      })
+      .then(function () {
+        check('and the peek stays shut', calls('peek_open').length === 1, String(calls('peek_open').length));
         var menu = lastMenu();
         var t = texts(menu);
         check('its menu ends in Remove from desktop', t[t.length - 1] === 'Remove from desktop' && t[t.length - 2] === '-', t.join('|'));

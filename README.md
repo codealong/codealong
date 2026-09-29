@@ -320,10 +320,12 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   canvas): puts its card, the one the Canvas view shows, on the desktop, floating over every
   window, on every Space and over full-screen apps as the floating bar does. A worktree's card
   lists its sessions that are running or waiting on you, and a todo's its sessions. Drag a card
-  where you want it; it stays there across launches. Click it to open what it shows where it
-  lives (a session line opens that session, a todo without one starts one in the quick panel),
-  and right-click it to show it in Codealong, mark it seen or snooze it, or Remove from desktop,
-  which its menu in Codealong also offers once it's pinned.
+  where you want it; it stays there across launches. Click a session (its card, a session line,
+  or a todo's card) to open its peek beside the card, as the bar's pills do, with the keyboard in
+  its box; click again to put it away. Double-click to open what it shows where it lives (a todo
+  without a session starts one in the quick panel). Right-click it to show it in Codealong, mark
+  it seen or snooze it, or Remove from desktop, which its menu in Codealong also offers once it's
+  pinned.
 - **New window** (File › New window, ⌘⇧N): one more window on the project you're looking at.
   Closing the main window hides it; New window, the Dock icon or the bar brings it back, and
   ⌘Q quits.

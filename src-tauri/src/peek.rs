@@ -40,7 +40,8 @@ const WIDTH: f64 = 480.0 + 2.0 * MARGIN;
 const MAX_HEIGHT: f64 = 580.0 + MARGIN + NEAR;
 /// With less room than this under the bar, the peek opens over it when there's more room there.
 const MIN_ROOM: f64 = 360.0;
-/// The bar's page leaves this much room around its card (Bar.tsx).
+/// The bar's page leaves this much room around its card (Bar.tsx), as a desktop card's page does
+/// (DesktopPin.tsx).
 const BAR_MARGIN: f64 = 12.0;
 /// Space between the bar's card and the peek's: no less than `NEAR`, so the peek's window starts
 /// where the bar's card ends.
@@ -78,13 +79,15 @@ impl Place {
     }
 }
 
-/// A pill the bar's page measured (CSS pixels from the top left of its window) on the screen.
-pub fn pill_on_screen(bar: Rect, pill: Rect) -> Rect {
-    Rect { x: bar.x + pill.x, y: bar.top() - pill.y - pill.h, w: pill.w, h: pill.h }
+/// A pill the page of the bar or of a desktop card measured (CSS pixels from the top left of its
+/// window) on the screen.
+pub fn pill_on_screen(host: Rect, pill: Rect) -> Rect {
+    Rect { x: host.x + pill.x, y: host.top() - pill.y - pill.h, w: pill.w, h: pill.h }
 }
 
-/// Where the peek goes for a pill: under the bar's card, centered on the pill and kept on the
-/// screen, or over the bar when there's too little room under it and more over it.
+/// Where the peek goes for a pill: under the bar's card (`bar` is its window, or a desktop card's),
+/// centered on the pill and kept on the screen, or over it when there's too little room under it
+/// and more over it.
 pub fn place(bar: Rect, pill: Rect, screen: Rect) -> Place {
     let below_edge = bar.y + BAR_MARGIN - GAP + NEAR;
     let above_edge = bar.top() - BAR_MARGIN + GAP - NEAR;
@@ -141,6 +144,8 @@ struct Peek {
 struct Inner {
     /// The session shown, or about to be.
     key: Option<String>,
+    /// The window its pill is in: the bar, or a card pinned to the desktop (desktop.rs).
+    host: Option<Rect>,
     /// Its pill on the screen.
     pill: Option<Rect>,
     place: Option<Place>,
@@ -198,13 +203,14 @@ pub fn target(board: &Board, key: &str) -> Option<Target> {
     Some(Target { lane, session, terminal: board.apps.terminal.clone(), theme: board.theme })
 }
 
-/// Shows a session in the peek, for a hover over its pill (`pill`, as the bar's page measured
-/// it) or, with `focus`, ready to type into. Without a pill it opens where it last was. A hover
-/// doesn't take the peek from a session you're typing to. On the main thread.
-pub fn open(app: &AppHandle, target: Target, pill: Option<Rect>, focus: bool) -> Result<()> {
+/// Shows a session in the peek, for a hover over its pill (`pill`: the window it's in, the bar or
+/// a card on the desktop, and the pill as that window's page measured it) or, with `focus`, ready
+/// to type into. Without a pill it opens where it last was. A hover doesn't take the peek from a
+/// session you're typing to. On the main thread.
+pub fn open(app: &AppHandle, target: Target, pill: Option<(Rect, Rect)>, focus: bool) -> Result<()> {
     let Some(state) = app.try_state::<Peek>() else { return Ok(()) };
     let bar = crate::bar::frame(app);
-    let pill = pill.zip(bar).map(|(p, b)| pill_on_screen(b, p));
+    let pill = pill.map(|(host, p)| (host, pill_on_screen(host, p)));
     let key = target.session.key.clone();
     let (id, room, below) = {
         let mut s = state.inner.lock().map_err(|_| anyhow!("The peek is unavailable."))?;
@@ -212,7 +218,8 @@ pub fn open(app: &AppHandle, target: Target, pill: Option<Rect>, focus: bool) ->
         if s.visible && s.engaged && !focus && !same {
             return Ok(());
         }
-        if let Some(p) = pill {
+        if let Some((host, p)) = pill {
+            s.host = Some(host);
             s.pill = Some(p);
         }
         if s.visible && same && !focus {
@@ -220,10 +227,11 @@ pub fn open(app: &AppHandle, target: Target, pill: Option<Rect>, focus: bool) ->
             return Ok(());
         }
         let screens = native::screens();
-        let anchor = s.pill.or(bar);
+        let host = s.host.or(bar);
+        let anchor = s.pill.or(host);
         let screen = anchor.and_then(|a| screens.iter().find(|x| x.frame.contains(a.center())).or(screens.first()).map(|x| x.visible));
-        if let (Some(b), Some(a), Some(sc)) = (bar, anchor, screen) {
-            s.place = Some(place(b, a, sc));
+        if let (Some(h), Some(a), Some(sc)) = (host, anchor, screen) {
+            s.place = Some(place(h, a, sc));
         }
         s.opens += 1;
         s.waiting = Some(s.opens);
@@ -317,10 +325,14 @@ pub fn hide(app: &AppHandle) {
     }
 }
 
-/// Tells the bar (which marks the pill) and the page what the peek shows.
+/// Tells the bar and the cards on the desktop (which mark the pill or card) and the page what the
+/// peek shows.
 fn tell(app: &AppHandle) {
     let Some(state) = app.try_state::<Peek>() else { return };
     let Some(shown) = state.inner.lock().ok().map(|s| Shown { key: s.key.clone().filter(|_| s.visible), engaged: s.engaged }) else { return };
+    for label in crate::desktop::labels(app) {
+        let _ = app.emit_to(label.as_str(), "peek", shown.clone());
+    }
     let _ = app.emit_to(crate::bar::LABEL, "peek", shown.clone());
     let _ = app.emit_to(LABEL, "peek", shown);
 }
