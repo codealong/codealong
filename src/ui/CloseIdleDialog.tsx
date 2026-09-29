@@ -1,7 +1,7 @@
-// File › Close idle terminals…: the Ghostty tabs of sessions that sat idle and want nothing from
-// you, each with why, ticked to close. It says first what would close and closes only when you
-// press the button; the engine checks each one again before closing it (idle.rs). The agent's
-// process ends, and its conversation stays to resume.
+// File › Close idle terminals…: the Ghostty, iTerm2 and Terminal tabs of sessions that sat idle
+// and want nothing from you, each with why, ticked to close. It says first what would close and
+// closes only when you press the button; the engine checks each one again before closing it
+// (idle.rs). The agent's process ends, and its conversation stays to resume.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { closeIdleTerminals, idleTerminals } from '../api';
@@ -165,7 +165,7 @@ export function CloseIdleDialog({ onClose, onDone }: Props) {
           <Button variant="ghost" size="sm" icon="x" aria-label="Close" onClick={onClose} disabled={closing} />
         </header>
         <p className="ca-dialog-lede">
-          Ghostty tabs whose sessions are idle and whose last reply asks you nothing. Closing ends the agent’s process; the conversation stays and resumes like any
+          Terminal tabs in Ghostty, iTerm2 or Terminal whose sessions are idle and whose last reply asks you nothing. Closing ends the agent’s process; the conversation stays and resumes like any
           other.
         </p>
         {!failed && (

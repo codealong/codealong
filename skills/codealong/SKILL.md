@@ -162,7 +162,7 @@ comments and order, and change only what you were asked to.
 scan = ["~/projects"]              # folders searched for repos, three levels deep
 
 [apps]
-terminal = "ghostty"               # profile ids; `codealong config show --json` lists them
+terminal = "ghostty"               # "ghostty", "iterm2" or "terminal"; `codealong config show --json` lists those installed
 editor = "cursor"
 new_terminal = "project"           # project (a tab beside the same repo or project), tab or window
 

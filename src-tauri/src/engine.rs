@@ -362,7 +362,9 @@ pub fn open_on(board: &Board, lane_id: &str, target_id: &str) -> Result<Option<S
                 "focus" => {
                     let pid = s.pid.ok_or_else(|| anyhow!("That session isn't running any more."))?;
                     if !launch::terminal_focus_session(&apps.terminal_id, pid, &s.title, &cwd)? {
-                        bail!("Couldn't find {}'s terminal in {}. It's running as pid {pid}.", s.account, apps.terminal);
+                        // It's looked for in the app it runs under, whatever config.toml names.
+                        let app = launch::terminal_kind(pid).filter(|k| k.bundle().is_some()).map_or(apps.terminal.as_str(), |k| k.name());
+                        bail!("Couldn't find {}'s terminal in {app}. It's running as pid {pid}.", s.account);
                     }
                 }
                 "attach" => {

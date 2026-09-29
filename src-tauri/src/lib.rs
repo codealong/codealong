@@ -126,18 +126,29 @@ fn open_target(app: tauri::AppHandle, engine: State<'_, engine::Handle>, lane_id
     }
     let from = flash::pointer();
     engine.open(&lane_id, &target_id).map_err(|e| e.to_string())?;
-    flash_focused(&app, &engine, &target_id, from);
+    flash_focused(&app, &engine, &lane_id, &target_id, from);
     Ok(())
 }
 
 /// After a session's terminal came forward, shows where when it's on another screen (flash.rs).
-fn flash_focused(app: &tauri::AppHandle, engine: &engine::Handle, target_id: &str, from: Option<(f64, f64)>) {
+fn flash_focused(app: &tauri::AppHandle, engine: &engine::Handle, lane_id: &str, target_id: &str, from: Option<(f64, f64)>) {
     if !target_id.ends_with("|focus") {
         return;
     }
-    if let Some(bundle) = bar::target_app(target_id, &engine.board().apps.terminal_id) {
+    if let Some(bundle) = target_app(engine, lane_id, target_id) {
         flash::after_focus(app, from, bundle);
     }
+}
+
+/// The app an open target lands in (`bar::target_app`): for a session's terminal, the app its
+/// process runs under, whichever terminal config.toml names.
+fn target_app(engine: &engine::Handle, lane_id: &str, target_id: &str) -> Option<&'static str> {
+    let board = engine.board();
+    let host = target_id.strip_prefix("s|").and_then(|t| t.rsplit_once('|')).and_then(|(key, _)| {
+        let pid = board.lanes.iter().find(|l| l.id == lane_id)?.sessions.iter().find(|s| s.key == key)?.pid?;
+        launch::terminal_kind(pid)?.bundle()
+    });
+    bar::target_app(target_id, &board.apps.terminal_id, host)
 }
 
 #[tauri::command(async)]
@@ -310,10 +321,10 @@ fn open_from_bar(app: tauri::AppHandle, engine: State<'_, engine::Handle>, lane_
     }
     let from = flash::pointer();
     engine.open(&lane_id, &target_id).map_err(|e| e.to_string())?;
-    if let Some(bundle) = bar::target_app(&target_id, &engine.board().apps.terminal_id) {
+    if let Some(bundle) = target_app(&engine, &lane_id, &target_id) {
         bar::bring_forward(&app, bundle);
     }
-    flash_focused(&app, &engine, &target_id, from);
+    flash_focused(&app, &engine, &lane_id, &target_id, from);
     Ok(())
 }
 

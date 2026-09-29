@@ -3,6 +3,6 @@
 <plist version="1.0">
 <dict>
   <key>NSAppleEventsUsageDescription</key>
-  <string>Codealong opens terminal sessions in Ghostty and brings the right window to the front.</string>
+  <string>Codealong opens terminal sessions in Ghostty, iTerm2 or Terminal and brings the right window to the front.</string>
 </dict>
 </plist>

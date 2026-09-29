@@ -3,8 +3,9 @@
 <plist version="1.0">
 <dict>
   <!-- A build signed with a Developer ID runs under the hardened runtime, which lets the app send
-       Apple Events only with this. Codealong scripts Ghostty (through osascript, its child) to
-       open, focus and type into sessions; macOS still asks the person once. -->
+       Apple Events only with this. Codealong scripts Ghostty, iTerm2 and Terminal (through
+       osascript, its child) to open, focus and type into sessions; macOS still asks the person
+       once for each. -->
   <key>com.apple.security.automation.apple-events</key>
   <true/>
 </dict>

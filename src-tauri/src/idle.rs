@@ -101,8 +101,9 @@ pub fn verdict(s: &Session, now: i64, after_ms: i64) -> Result<String, String> {
 
 /// What would close: every live terminal session on the board, grouped by process (one
 /// terminal can show several OpenCode sessions), closing only where all of them agree.
-/// `in_ghostty` says whether a process runs in a Ghostty tab.
-pub fn plan(board: &Board, now: i64, after_ms: i64, in_ghostty: impl Fn(u32) -> bool) -> Plan {
+/// `closable` says whether a process runs in a tab Codealong can close: Ghostty's, iTerm2's or
+/// Terminal's.
+pub fn plan(board: &Board, now: i64, after_ms: i64, closable: impl Fn(u32) -> bool) -> Plan {
     let mut seen = HashSet::new();
     let mut by_pid: BTreeMap<u32, Vec<(&Session, &crate::model::Lane)>> = BTreeMap::new();
     for lane in &board.lanes {
@@ -118,8 +119,8 @@ pub fn plan(board: &Board, now: i64, after_ms: i64, in_ghostty: impl Fn(u32) -> 
     let mut out = Plan { after_ms, ..Plan::default() };
     for (pid, sessions) in by_pid {
         let kept = |s: &Session, why: String| Kept { key: s.key.clone(), title: s.title.clone(), account: s.account.clone(), why };
-        if !in_ghostty(pid) {
-            out.kept.extend(sessions.iter().map(|(s, _)| kept(s, "not in a Ghostty tab".into())));
+        if !closable(pid) {
+            out.kept.extend(sessions.iter().map(|(s, _)| kept(s, "not in a Ghostty, iTerm2 or Terminal tab".into())));
             continue;
         }
         let verdicts: Vec<_> = sessions.iter().map(|(s, _)| verdict(s, now, after_ms)).collect();
@@ -146,9 +147,10 @@ pub fn plan(board: &Board, now: i64, after_ms: i64, in_ghostty: impl Fn(u32) -> 
     out
 }
 
-/// The plan for the board as it is now, with Ghostty's processes asked of the kernel.
+/// The plan for the board as it is now, with where each process runs asked of the kernel.
 pub fn plan_now(board: &Board, after_ms: i64) -> Plan {
-    plan(board, crate::util::now_ms(), after_ms, |pid| crate::launch::runs_under(pid, "ghostty"))
+    use crate::launch::HostKind;
+    plan(board, crate::util::now_ms(), after_ms, |pid| matches!(crate::launch::terminal_kind(pid), Some(HostKind::Ghostty | HostKind::ITerm2 | HostKind::Terminal)))
 }
 
 /// Closes the terminals of `keys` that the board, looked at again now, still says can close.
@@ -156,7 +158,7 @@ pub fn close(board: &Board, keys: &[String], after_ms: i64) -> Vec<Outcome> {
     let fresh = plan_now(board, after_ms);
     let chosen: Vec<&Idle> = keys.iter().filter_map(|k| fresh.close.iter().find(|c| &c.key == k)).collect();
     let targets: Vec<(u32, &std::path::Path)> = chosen.iter().map(|c| (c.pid, std::path::Path::new(c.cwd.as_str()))).collect();
-    let results = crate::launch::close_session_terminals(&board.apps.terminal_id, &targets);
+    let results = crate::launch::close_session_terminals(&targets);
     keys.iter()
         .map(|key| {
             if let Some(n) = chosen.iter().position(|c| &c.key == key) {
@@ -325,7 +327,7 @@ mod tests {
         let p = plan(&b, NOW, day, |pid| pid != 3);
         assert_eq!(p.close.iter().map(|c| c.key.as_str()).collect::<Vec<_>>(), ["old"]);
         let kept: Vec<(&str, &str)> = p.kept.iter().map(|k| (k.key.as_str(), k.why.as_str())).collect();
-        assert_eq!(kept, [("shared-old", "working"), ("shared-busy", "working"), ("tmux", "not in a Ghostty tab")]);
+        assert_eq!(kept, [("shared-old", "working"), ("shared-busy", "working"), ("tmux", "not in a Ghostty, iTerm2 or Terminal tab")]);
     }
 
     /// What would close on this Mac now, closing nothing:

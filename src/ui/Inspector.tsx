@@ -102,9 +102,9 @@ export function OpenInMenu({ targets, defaultId, onOpen }: { targets: Target[]; 
   );
 }
 
-function SessionRow({ session: s, now, focused, onOpen, todos, onShowTodo }: { session: Session; now: number; focused: boolean; onOpen: (id: string) => void; todos?: Todo[]; onShowTodo?: (todo: Todo) => void }) {
+function SessionRow({ session: s, terminal, now, focused, onOpen, todos, onShowTodo }: { session: Session; terminal: string; now: number; focused: boolean; onOpen: (id: string) => void; todos?: Todo[]; onShowTodo?: (todo: Todo) => void }) {
   const verb = s.stalledSince ? 'Open' : s.status === 'needs' ? 'Respond' : s.status === 'stopped' ? 'Resume' : 'Open';
-  const where = s.surface === 'cli' ? 'Ghostty' : s.harness === 'claude' ? 'the Claude app' : HARNESS_APP[s.harness];
+  const where = s.surface === 'cli' ? terminal : s.harness === 'claude' ? 'the Claude app' : HARNESS_APP[s.harness];
   const open = () => onOpen(s.openTarget);
   return (
     <div
@@ -237,7 +237,7 @@ export function Inspector({ lane, focusKey, apps, now, onOpen, onNewSession, tod
         ) : (
           <div className="ca-srows">
             {sessions.map((s) => (
-              <SessionRow key={s.key} session={s} now={now} focused={s.key === focusKey} onOpen={onOpen} todos={todosFor?.(s.key)} onShowTodo={onShowTodo} />
+              <SessionRow key={s.key} session={s} terminal={apps.terminal} now={now} focused={s.key === focusKey} onOpen={onOpen} todos={todosFor?.(s.key)} onShowTodo={onShowTodo} />
             ))}
           </div>
         )}

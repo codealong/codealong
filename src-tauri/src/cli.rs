@@ -347,7 +347,7 @@ enum SessionsCmd {
         #[command(flatten)]
         filter: SessionFilter,
     },
-    /// Close the Ghostty tabs of sessions that sat idle and want nothing from you: idle or unread, quiet for --after, nothing left running in the background, and a last reply that asks nothing (Jev's read with `[jev] sessions` on, else no question mark at its end). A tab closes only when every session in it qualifies. Its agent's process ends; the conversation stays and resumes as usual. Lists what it would close with --dry-run; run that first.
+    /// Close the Ghostty, iTerm2 and Terminal tabs of sessions that sat idle and want nothing from you: idle or unread, quiet for --after, nothing left running in the background, and a last reply that asks nothing (Jev's read with `[jev] sessions` on, else no question mark at its end). A tab closes only when every session in it qualifies. Its agent's process ends; the conversation stays and resumes as usual. Lists what it would close with --dry-run; run that first.
     CloseIdle {
         /// How long a session has been quiet: 90m, 24h, 3d, 1w.
         #[arg(long, default_value = "24h")]

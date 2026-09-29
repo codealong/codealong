@@ -351,7 +351,7 @@ fn default_scan() -> Vec<String> {
     vec!["~/projects".to_string()]
 }
 fn default_terminal() -> String {
-    "ghostty".to_string()
+    crate::launch::default_terminal().to_string()
 }
 fn default_editor() -> String {
     "cursor".to_string()
@@ -493,7 +493,7 @@ fn set_accounts(doc: &mut toml_edit::DocumentMut, accounts: &[AccountCfg]) {
     set_tables(doc, "accounts", rows);
 }
 
-const APPS_COMMENT: &str = "# Where Codealong opens things. terminal: \"ghostty\". editor: \"vscode\", \"cursor\", \"zed\", \"xcode\" and the others\n# Settings lists, or any app's name. Picking another editor from an Open in menu sets it here.\n# new_terminal: \"window\", \"tab\" (in the front window), or \"project\" (a tab beside the same repo or project).\n# move_pointer: move the pointer to a terminal Codealong brings forward on another screen.\n";
+const APPS_COMMENT: &str = "# Where Codealong opens things. terminal: \"ghostty\", \"iterm2\" or \"terminal\". editor: \"vscode\", \"cursor\", \"zed\", \"xcode\" and the others\n# Settings lists, or any app's name. Picking another editor from an Open in menu sets it here.\n# new_terminal: \"window\", \"tab\" (in the front window), or \"project\" (a tab beside the same repo or project).\n# move_pointer: move the pointer to a terminal Codealong brings forward on another screen.\n";
 const APPEARANCE_COMMENT: &str = "# Light or dark. \"system\" follows macOS. The buttons at the foot of the sidebar set this too.\n";
 const JEV_COMMENT: &str = "# What Codealong asks TypeSafe's Jev, feature by feature (Settings › Jev says what each one sends).\n# The API key is kept in the login keychain; set it in Settings.\n";
 const SEARCH_COMMENT: &str = "# The quick panel and `codealong sessions find` search what was said in sessions active in the\n# last `days` days, not just their titles. 0 turns it off; 14, the board's reach, is the most.\n";
@@ -591,10 +591,10 @@ pub struct Profile {
     pub name: String,
 }
 
-/// What the Settings form offers for `[apps]`: the built-in terminal profiles (see launch.rs),
-/// and the editors installed here (editors.rs).
+/// What the Settings form offers for `[apps]`: the terminal profiles installed here (see
+/// launch.rs), and the editors installed here (editors.rs).
 pub fn terminal_profiles() -> Vec<Profile> {
-    vec![Profile { id: "ghostty".into(), name: "Ghostty".into() }]
+    crate::launch::TERMINALS.iter().filter(|t| t.installed()).map(|t| Profile { id: t.id.into(), name: t.name.into() }).collect()
 }
 pub fn editor_profiles() -> Vec<Profile> {
     crate::editors::installed()
@@ -672,6 +672,9 @@ pub fn check(cfg: &Config) -> std::result::Result<(), String> {
     }
     if cfg.apps.terminal.trim().is_empty() || cfg.apps.editor.trim().is_empty() {
         return Err("The terminal and editor need a profile name.".into());
+    }
+    if crate::launch::terminal_app(&cfg.apps.terminal).is_none() {
+        return Err(format!("[apps] terminal is {:?}; use \"ghostty\", \"iterm2\" or \"terminal\".", cfg.apps.terminal));
     }
     crate::quick::parse_shortcut(&cfg.shortcuts.quick_panel).map_err(|e| format!("[shortcuts] quick_panel: {e}"))?;
     Ok(())
@@ -1042,7 +1045,8 @@ mod tests {
     #[test]
     fn fills_defaults() {
         let cfg: Config = toml::from_str("").unwrap();
-        assert_eq!(cfg.apps.terminal, "ghostty");
+        // The first terminal installed here; Terminal comes with macOS.
+        assert_eq!(cfg.apps.terminal, crate::launch::default_terminal());
         assert_eq!(cfg.apps.editor, "cursor");
         assert_eq!(cfg.apps.new_terminal, NewTerminal::Project);
         assert_eq!(cfg.scan, vec!["~/projects".to_string()]);

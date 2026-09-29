@@ -577,13 +577,12 @@ fn place_for(app: &AppHandle, bar: &tauri::WebviewWindow, mode: Mode) {
 }
 
 /// The app an open target lands in, by bundle ID: the terminal for terminal sessions, else the
-/// Claude or Codex app. `terminal` is the terminal's profile in config.toml.
-pub fn target_app(target_id: &str, terminal: &str) -> Option<&'static str> {
+/// Claude or Codex app. `terminal` is the terminal's profile in config.toml, where new terminals
+/// open; `host` is the app a live session's terminal is in, which is where focusing it goes.
+pub fn target_app(target_id: &str, terminal: &str, host: Option<&'static str>) -> Option<&'static str> {
     match target_id.rsplit('|').next()? {
-        "focus" | "attach" | "resume" => match terminal {
-            "ghostty" => Some("com.mitchellh.ghostty"),
-            _ => None,
-        },
+        "focus" => host.or_else(|| crate::launch::bundle_id(terminal)),
+        "attach" | "resume" => crate::launch::bundle_id(terminal),
         "claude-app" => Some("com.anthropic.claudefordesktop"),
         "codex" => Some("com.openai.codex"),
         _ => None,
@@ -902,12 +901,14 @@ mod tests {
 
     #[test]
     fn knows_which_app_a_target_lands_in() {
-        assert_eq!(target_app("s|claude:claude:1|focus", "ghostty"), Some("com.mitchellh.ghostty"));
-        assert_eq!(target_app("s|claude:claude2:1|resume", "ghostty"), Some("com.mitchellh.ghostty"));
-        assert_eq!(target_app("s|claude:claude:1|claude-app", "ghostty"), Some("com.anthropic.claudefordesktop"));
-        assert_eq!(target_app("s|codex:codex:1|codex", "ghostty"), Some("com.openai.codex"));
-        assert_eq!(target_app("s|claude:claude:1|focus", "iterm"), None);
-        assert_eq!(target_app("l|editor", "ghostty"), None);
+        assert_eq!(target_app("s|claude:claude:1|focus", "ghostty", None), Some("com.mitchellh.ghostty"));
+        assert_eq!(target_app("s|claude:claude:1|focus", "ghostty", Some("com.googlecode.iterm2")), Some("com.googlecode.iterm2"));
+        assert_eq!(target_app("s|claude:claude2:1|resume", "ghostty", Some("com.googlecode.iterm2")), Some("com.mitchellh.ghostty"));
+        assert_eq!(target_app("s|claude:claude2:1|resume", "terminal", None), Some("com.apple.Terminal"));
+        assert_eq!(target_app("s|claude:claude:1|claude-app", "ghostty", None), Some("com.anthropic.claudefordesktop"));
+        assert_eq!(target_app("s|codex:codex:1|codex", "ghostty", None), Some("com.openai.codex"));
+        assert_eq!(target_app("s|claude:claude:1|focus", "kitty", None), None);
+        assert_eq!(target_app("l|editor", "ghostty", None), None);
     }
 
     #[test]

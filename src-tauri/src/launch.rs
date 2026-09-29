@@ -1,7 +1,10 @@
-//! Opening things where they live: the terminal profile (Ghostty through AppleScript) and the
-//! Claude and Codex deep links. Editors are in editors.rs. See *Apps*.
+//! Opening things where they live: the terminal profiles (Ghostty, iTerm2 and Terminal, through
+//! AppleScript) and the Claude and Codex deep links. Editors are in editors.rs. See *Apps*.
 
-use std::path::Path;
+mod iterm;
+mod terminal_app;
+
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
@@ -12,11 +15,52 @@ use crate::config::NewTerminal;
 use crate::procs;
 use crate::util::home;
 
-pub fn terminal_name(id: &str) -> String {
-    match id {
-        "ghostty" => "Ghostty".to_string(),
-        other => other.to_string(),
+/// A terminal app Codealong opens sessions in, finds their tabs in and types into: the profiles
+/// `[apps] terminal` names.
+#[derive(Debug, PartialEq, Eq)]
+pub struct TerminalApp {
+    pub id: &'static str,
+    pub name: &'static str,
+    pub bundle: &'static str,
+    /// The app bundle's name in /Applications or ~/Applications.
+    app: &'static str,
+}
+
+impl TerminalApp {
+    /// Terminal comes with macOS; the others are wherever apps get installed.
+    pub fn installed(&self) -> bool {
+        self.id == "terminal" || [PathBuf::from("/Applications"), home().join("Applications")].iter().any(|d| d.join(self.app).is_dir())
     }
+}
+
+/// The terminal profiles, in the order Settings lists them and a new config.toml picks the first
+/// one installed.
+pub const TERMINALS: [TerminalApp; 3] = [
+    TerminalApp { id: "ghostty", name: "Ghostty", bundle: "com.mitchellh.ghostty", app: "Ghostty.app" },
+    TerminalApp { id: "iterm2", name: "iTerm2", bundle: "com.googlecode.iterm2", app: "iTerm.app" },
+    TerminalApp { id: "terminal", name: "Terminal", bundle: "com.apple.Terminal", app: "Terminal.app" },
+];
+
+pub fn terminal_app(id: &str) -> Option<&'static TerminalApp> {
+    TERMINALS.iter().find(|t| t.id == id)
+}
+
+pub fn terminal_name(id: &str) -> String {
+    terminal_app(id).map_or_else(|| id.to_string(), |t| t.name.to_string())
+}
+
+/// The bundle ID of a terminal profile's app, to bring it forward.
+pub fn bundle_id(profile: &str) -> Option<&'static str> {
+    terminal_app(profile).map(|t| t.bundle)
+}
+
+/// The profile a config.toml without one uses: the first terminal installed here.
+pub fn default_terminal() -> &'static str {
+    TERMINALS.iter().find(|t| t.installed()).map_or("terminal", |t| t.id)
+}
+
+fn unknown_profile(profile: &str) -> anyhow::Error {
+    anyhow!("There's no terminal profile called {profile:?}. Use \"ghostty\", \"iterm2\" or \"terminal\" in config.toml.")
 }
 
 /// Arguments: where it goes (`window`, `front` for a tab in the front window, or `beside` for a
@@ -198,22 +242,111 @@ const GHOSTTY_MARK_WAIT_SECS: &str = "8";
 /// reported failures for windows that then opened.
 const OSASCRIPT_TIMEOUT: Duration = Duration::from_secs(60);
 
-/// What `osascript` says when macOS hasn't let Codealong control Ghostty.
-const NOT_ALLOWED: &str = "Codealong isn't allowed to control Ghostty. Turn it on in System Settings → Privacy & Security → Automation.";
+/// What `osascript` says when macOS hasn't let Codealong control a terminal app.
+#[derive(Debug)]
+struct NotAllowed(&'static str);
+
+impl std::fmt::Display for NotAllowed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Codealong isn't allowed to control {}. Turn it on in System Settings → Privacy & Security → Automation.", self.0)
+    }
+}
+
+impl std::error::Error for NotAllowed {}
 
 fn osascript(script: &str, args: &[&str]) -> Result<String> {
+    osascript_in("Ghostty", script, args)
+}
+
+/// Runs a script that talks to `app` (its name, for what goes wrong).
+fn osascript_in(app: &'static str, script: &str, args: &[&str]) -> Result<String> {
     let mut full = vec!["-"];
     full.extend_from_slice(args);
     procs::run_stdin("/usr/bin/osascript", &full, script, OSASCRIPT_TIMEOUT).map_err(|e| {
         let msg = e.to_string();
         if msg.contains("-1743") || msg.contains("Not authorized") {
-            anyhow!(NOT_ALLOWED)
+            anyhow::Error::new(NotAllowed(app))
         } else if msg.contains("timed out") {
-            anyhow!("Ghostty didn't answer within a minute. It may still open the window; if macOS asked whether Codealong may control Ghostty, allow it and try again.")
+            anyhow!("{app} didn't answer within a minute. It may still open the window; if macOS asked whether Codealong may control {app}, allow it and try again.")
         } else {
-            anyhow!("Ghostty didn't respond: {msg}")
+            anyhow!("{app} didn't respond: {msg}")
         }
     })
+}
+
+/// `s` in single quotes for the shell, each quote in it closed, escaped and reopened.
+fn sh_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
+}
+
+/// A line to type, without the newline that ends it: iTerm2 and Terminal press Return after it.
+fn typed_line(input: &str) -> &str {
+    input.strip_suffix('\n').unwrap_or(input)
+}
+
+/// A line to type into a new tab's shell, led by Ctrl-U, which clears what's on the line first in
+/// zsh, bash and fish, and in a terminal with no line editor. A window that comes forward takes
+/// the keyboard, and keys typed meanwhile went in ahead of the line (`ree exec /bin/sh …`).
+fn fresh_line(line: &str) -> String {
+    format!("\x15{line}")
+}
+
+/// The login shell, as the user database has it: what a terminal app starts in a new tab.
+fn login_shell() -> String {
+    // SAFETY: getpwuid_r fills `pw` with pointers into `buf`, which outlives their use here.
+    let from_db = unsafe {
+        let mut pw: libc::passwd = std::mem::zeroed();
+        let mut found: *mut libc::passwd = std::ptr::null_mut();
+        let mut buf = vec![0 as libc::c_char; 4096];
+        let r = libc::getpwuid_r(libc::getuid(), &mut pw, buf.as_mut_ptr(), buf.len(), &mut found);
+        (r == 0 && !found.is_null() && !pw.pw_shell.is_null()).then(|| std::ffi::CStr::from_ptr(pw.pw_shell).to_string_lossy().into_owned())
+    };
+    from_db.filter(|s| Path::new(s).is_file()).unwrap_or_else(|| "/bin/zsh".to_string())
+}
+
+/// Where the next launcher goes, one number per launch so two at once never share a file.
+static LAUNCHES: AtomicU64 = AtomicU64::new(0);
+
+/// Launchers older than this never ran (their terminal didn't open), so they're swept away.
+const STALE_LAUNCHER: Duration = Duration::from_secs(600);
+
+/// A script that sets up a new tab's shell as Ghostty's window configuration does: its folder
+/// and environment, which iTerm2 and Terminal don't take from a script. /bin/sh runs it whatever
+/// the user's shell, so its quoting is sh's; it deletes itself first (it can hold a prompt), then
+/// becomes the login shell, which keeps the environment and reads its startup files as a new
+/// tab's would. It's in the per-user temporary folder, readable only by you.
+fn launcher(dir: &Path, env: &[(String, String)]) -> Result<PathBuf> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    let tmp = std::env::temp_dir();
+    sweep_launchers(&tmp);
+    let n = LAUNCHES.fetch_add(1, Ordering::SeqCst);
+    let path = tmp.join(format!("codealong-launch-{}-{}-{n}.sh", std::process::id(), crate::util::now_ms()));
+    let text = launcher_text(&path, dir, env, &login_shell());
+    let mut f = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&path)?;
+    f.write_all(text.as_bytes())?;
+    Ok(path)
+}
+
+fn launcher_text(path: &Path, dir: &Path, env: &[(String, String)], shell: &str) -> String {
+    let mut s = format!("rm -f {}\ncd {} 2>/dev/null\n", sh_quote(&path.to_string_lossy()), sh_quote(&dir.to_string_lossy()));
+    for (k, v) in env {
+        // Names come from Codealong; anything else couldn't be exported anyway.
+        if !k.is_empty() && k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') && !k.starts_with(|c: char| c.is_ascii_digit()) {
+            s.push_str(&format!("export {k}={}\n", sh_quote(v)));
+        }
+    }
+    s.push_str(&format!("exec {} -l\n", sh_quote(shell)));
+    s
+}
+
+fn sweep_launchers(tmp: &Path) {
+    let Ok(entries) = std::fs::read_dir(tmp) else { return };
+    for e in entries.flatten().filter(|e| e.file_name().to_string_lossy().starts_with("codealong-launch-")) {
+        if e.metadata().and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).is_some_and(|age| age > STALE_LAUNCHER) {
+            let _ = std::fs::remove_file(e.path());
+        }
+    }
 }
 
 /// Where a new terminal goes: `[apps] new_terminal`, and the folders it belongs beside, nearest
@@ -226,6 +359,7 @@ pub struct Placement<'a> {
 
 /// Opens a new terminal at `path`, optionally typing `input` (a command plus return).
 pub fn terminal_open(profile: &str, place: Placement, path: &Path, input: Option<&str>) -> Result<()> {
+    installed(profile)?;
     match profile {
         "ghostty" => {
             let dir = path.to_string_lossy();
@@ -240,13 +374,17 @@ pub fn terminal_open(profile: &str, place: Placement, path: &Path, input: Option
                 Err(e) => Err(e),
             }
         }
-        other => bail!("There's no terminal profile called {other:?} yet. Use \"ghostty\" in config.toml."),
+        "iterm2" => iterm::open(place, path, input.unwrap_or(""), &[]),
+        // Terminal can't open a tab from a script: always a window.
+        "terminal" => terminal_app::open(path, input.unwrap_or(""), &[]),
+        other => Err(unknown_profile(other)),
     }
 }
 
 /// Opens a new terminal at `path` with `env` set in its shell, and types `input` (a command
 /// plus return). The shell expands variables in `input` from `env`.
 pub fn terminal_run(profile: &str, place: Placement, path: &Path, input: &str, env: &[(String, String)]) -> Result<()> {
+    installed(profile)?;
     match profile {
         "ghostty" => {
             let dir = path.to_string_lossy();
@@ -256,18 +394,33 @@ pub fn terminal_run(profile: &str, place: Placement, path: &Path, input: &str, e
             args.extend(entries.iter().map(String::as_str));
             osascript(GHOSTTY_NEW, &args).map(|_| ())
         }
-        other => bail!("There's no terminal profile called {other:?} yet. Use \"ghostty\" in config.toml."),
+        "iterm2" => iterm::open(place, path, input, env),
+        "terminal" => terminal_app::open(path, input, env),
+        other => Err(unknown_profile(other)),
     }
 }
 
-/// GHOSTTY_NEW's first two arguments. For `project`, the terminals already in the nearest
-/// folders that have any; with none, or Ghostty not answering the question, a window.
+/// Says so when a profile's app isn't here, rather than letting AppleScript ask where it is.
+fn installed(profile: &str) -> Result<()> {
+    match terminal_app(profile) {
+        Some(app) if !app.installed() => bail!("{} isn't installed. Install it, or pick another terminal in Settings.", app.name),
+        _ => Ok(()),
+    }
+}
+
 fn ghostty_placement(place: Placement) -> (&'static str, String) {
+    placement(place, ghostty_terminals)
+}
+
+/// The first two arguments of a script that opens a terminal: where it goes, and the tabs it
+/// goes beside. For `project`, the tabs already in the nearest folders that have any; with none,
+/// or the app not answering the question, a window.
+fn placement(place: Placement, tabs: impl FnOnce() -> Result<Vec<Tab>>) -> (&'static str, String) {
     match place.new_terminal {
         NewTerminal::Window => ("window", String::new()),
         NewTerminal::Tab => ("front", String::new()),
         NewTerminal::Project => {
-            let beside = ghostty_terminals().map(|ts| terminals_beside(&ts, place.near)).unwrap_or_default();
+            let beside = tabs().map(|ts| terminals_beside(&ts, place.near)).unwrap_or_default();
             if beside.is_empty() {
                 ("window", String::new())
             } else {
@@ -278,7 +431,7 @@ fn ghostty_placement(place: Placement) -> (&'static str, String) {
 }
 
 /// The ids of the terminals working in the nearest group of folders that has any.
-fn terminals_beside(terminals: &[GhosttyTerminal], near: &[Vec<String>]) -> Vec<String> {
+fn terminals_beside(terminals: &[Tab], near: &[Vec<String>]) -> Vec<String> {
     near.iter()
         .map(|group| {
             terminals.iter().filter(|t| group.iter().any(|f| Path::new(&t.cwd).starts_with(f))).map(|t| t.id.clone()).collect::<Vec<_>>()
@@ -287,19 +440,21 @@ fn terminals_beside(terminals: &[GhosttyTerminal], near: &[Vec<String>]) -> Vec<
         .unwrap_or_default()
 }
 
+/// A terminal as its app lists it: the id Codealong addresses it by (Ghostty's terminal id,
+/// iTerm2's TTY), its folder and its title.
 #[derive(Debug, Clone, PartialEq)]
-pub struct GhosttyTerminal {
+pub struct Tab {
     pub id: String,
     pub cwd: String,
     pub name: String,
 }
 
-fn ghostty_terminals() -> Result<Vec<GhosttyTerminal>> {
+fn ghostty_terminals() -> Result<Vec<Tab>> {
     Ok(osascript(GHOSTTY_LIST, &[])?
         .lines()
         .filter_map(|line| {
             let mut parts = line.splitn(3, '\t');
-            Some(GhosttyTerminal { id: parts.next()?.to_string(), cwd: parts.next()?.to_string(), name: parts.next().unwrap_or("").to_string() })
+            Some(Tab { id: parts.next()?.to_string(), cwd: parts.next()?.to_string(), name: parts.next().unwrap_or("").to_string() })
         })
         .filter(|t| !t.id.is_empty())
         .collect())
@@ -333,20 +488,55 @@ impl Turns {
 
 static FOCUS_TURNS: Turns = Turns::new();
 
+/// How long a new tab's shell gets to be ready for typing (`wait_for_shell`).
+const SHELL_READY_WAIT: Duration = Duration::from_secs(15);
+
+/// Waits for a new tab's shell to take typing: its launcher gone (the launcher deletes itself
+/// once it runs) and its terminal out of canonical mode, which a shell's line editor (zsh's,
+/// bash's readline, fish's) switches off while it waits for a line. A line typed then arrives as
+/// yours would, rather than sitting in the terminal while the shell reads its startup files, and
+/// in Terminal it's how Codealong knows its setup line ran before typing a command after it.
+/// False when the wait ran out.
+fn wait_for_shell(tty: &str, launcher: Option<&Path>) -> bool {
+    let started = std::time::Instant::now();
+    loop {
+        if launcher.map_or(true, |l| !l.exists()) && line_editor_waiting(Path::new(tty)) {
+            return true;
+        }
+        if started.elapsed() > SHELL_READY_WAIT {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// Whether a program on the terminal reads it a key at a time, as a shell's line editor does
+/// while it waits for you: canonical mode off. Asked of the terminal device; nothing is written.
+fn line_editor_waiting(tty: &Path) -> bool {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::OpenOptionsExt;
+    let Ok(f) = std::fs::OpenOptions::new().write(true).custom_flags(libc::O_NOCTTY | libc::O_NONBLOCK).open(tty) else { return false };
+    // SAFETY: tcgetattr fills a plain-old-data struct for an open descriptor.
+    unsafe {
+        let mut t: libc::termios = std::mem::zeroed();
+        libc::tcgetattr(f.as_raw_fd(), &mut t) == 0 && t.c_lflag & libc::ICANON == 0
+    }
+}
+
 /// Where the unique folders Codealong reports on a session's TTY start.
 const MARK_PREFIX: &str = "/tmp/codealong-";
 
-/// Focuses the terminal tab a live session runs in. `Ok(false)` when there's no such tab.
+/// Focuses the terminal tab a live session runs in, in whichever app it runs in. `Ok(false)` when
+/// there's no such tab.
 ///
-/// The tab is found exactly: Codealong reports a unique folder (OSC 7) on the session's TTY,
-/// finds the Ghostty terminal showing that folder, selects its tab, then reports the real
-/// folder again. Claude Code rewrites tab titles as it works but never the folder, so the mark
-/// holds. Where that can't work (tmux, a session outside Ghostty), the tab is matched by title,
-/// then by folder, but only when that finds just one.
+/// iTerm2 and Terminal list each tab's TTY, so the tab is the one on the session's. Ghostty has
+/// no such property, so there it's found exactly another way: Codealong reports a unique folder
+/// (OSC 7) on the session's TTY, finds the Ghostty terminal showing that folder, selects its tab,
+/// then reports the real folder again. Claude Code rewrites tab titles as it works but never the
+/// folder, so the mark holds. Where neither can work (tmux, a terminal Codealong doesn't script),
+/// the tab is matched by title in `profile`'s app, then by folder, but only when that finds just
+/// one.
 pub fn terminal_focus_session(profile: &str, pid: u32, title: &str, cwd: &Path) -> Result<bool> {
-    if profile != "ghostty" {
-        bail!("There's no terminal profile called {profile:?} yet.");
-    }
     let ticket = FOCUS_TURNS.ticket();
     let Some(tty) = tty_of(pid) else {
         bail!("This session runs in the background, so it has no terminal tab.");
@@ -355,12 +545,19 @@ pub fn terminal_focus_session(profile: &str, pid: u32, title: &str, cwd: &Path) 
         // Clicked again while this one waited: the newer click decides what comes forward.
         return Ok(true);
     };
+    match terminal_kind(pid) {
+        Some(HostKind::Ghostty) => ghostty_focus_session(pid, &tty, title, cwd),
+        Some(HostKind::ITerm2) => iterm::focus(&tty.to_string_lossy()),
+        Some(HostKind::Terminal) => terminal_app::focus(&tty.to_string_lossy()),
+        Some(HostKind::Tmux) | None => focus_by_title(profile, title, cwd),
+    }
+}
+
+fn ghostty_focus_session(pid: u32, tty: &Path, title: &str, cwd: &Path) -> Result<bool> {
     let terminals = ghostty_terminals()?;
-    // A session Ghostty didn't start (tmux, another terminal) can't show the mark: don't wait.
-    let in_ghostty = runs_under(pid, "ghostty");
     let mark = format!("{MARK_PREFIX}{pid}-{}", crate::util::now_ms());
     let mut failed = None;
-    if in_ghostty && write_osc7(&tty, &mark).is_ok() {
+    if write_osc7(tty, &mark).is_ok() {
         let found = osascript(GHOSTTY_FOCUS, &["tag", &mark, GHOSTTY_MARK_WAIT_SECS]);
         let id = found.as_deref().map(str::trim).unwrap_or_default().to_string();
         let real = terminals
@@ -370,7 +567,7 @@ pub fn terminal_focus_session(profile: &str, pid: u32, title: &str, cwd: &Path) 
             // A mark left over (the app quit halfway through) isn't the folder to put back.
             .filter(|c| !c.is_empty() && !c.starts_with(MARK_PREFIX))
             .unwrap_or_else(|| cwd.to_string_lossy().into_owned());
-        let _ = write_osc7(&tty, &real);
+        let _ = write_osc7(tty, &real);
         match found {
             Ok(_) if !id.is_empty() => return Ok(true),
             Ok(_) => {}
@@ -381,6 +578,22 @@ pub fn terminal_focus_session(profile: &str, pid: u32, title: &str, cwd: &Path) 
     match pick_by_title(&terminals, title, cwd) {
         Some(id) => Ok(!osascript(GHOSTTY_FOCUS, &["id", &id])?.trim().is_empty()),
         None => failed.map_or(Ok(false), Err),
+    }
+}
+
+/// The one tab in `profile`'s app titled like the session (see `pick_by_title`). Terminal lists
+/// no titles or folders of its tabs, so it has none.
+fn focus_by_title(profile: &str, title: &str, cwd: &Path) -> Result<bool> {
+    match profile {
+        "ghostty" => match pick_by_title(&ghostty_terminals()?, title, cwd) {
+            Some(id) => Ok(!osascript(GHOSTTY_FOCUS, &["id", &id])?.trim().is_empty()),
+            None => Ok(false),
+        },
+        "iterm2" => match pick_by_title(&iterm::sessions()?, title, cwd) {
+            Some(tty) => iterm::focus(&tty),
+            None => Ok(false),
+        },
+        _ => Ok(false),
     }
 }
 
@@ -395,21 +608,24 @@ pub enum Typed {
 }
 
 /// Types `text` into the terminal a session's process runs in and presses Return: Ghostty
-/// (found by an OSC 7 mark, since it has no TTY or PID property) or tmux (by the pane's TTY).
-/// An error means typing started and failed, so the text may be in the terminal already:
-/// Ghostty carries out what it was asked even after Codealong stopped waiting on it.
-pub fn terminal_type_session(profile: &str, pid: u32, cwd: &Path, text: &str) -> Result<Typed> {
-    match terminal_kind(pid) {
+/// (found by an OSC 7 mark, since it has no TTY or PID property), iTerm2 or Terminal (by the
+/// tab's TTY), or tmux (by the pane's TTY). An error means typing started and failed, so the
+/// text may be in the terminal already: the apps carry out what they were asked even after
+/// Codealong stopped waiting on them.
+pub fn terminal_type_session(pid: u32, cwd: &Path, text: &str) -> Result<Typed> {
+    let kind = terminal_kind(pid);
+    let tty = || tty_of(pid).map(|t| t.to_string_lossy().into_owned());
+    match kind {
         Some(HostKind::Tmux) => match tmux_pane_of(pid) {
             Some(pane) => tmux_type(&pane, text).map(|_| Typed::Into("tmux")),
             None => Ok(Typed::Nowhere("Codealong couldn't find its tmux pane".into())),
         },
-        Some(HostKind::Ghostty) if profile == "ghostty" => {
+        Some(HostKind::Ghostty) => {
             let id = match ghostty_terminal_of(pid, cwd) {
                 Ok(Some(id)) => id,
                 Ok(None) => return Ok(Typed::Nowhere("Codealong couldn't find its Ghostty tab".into())),
                 // Nothing was typed yet, so another way can take it; say why this one didn't.
-                Err(e) if e.to_string() == NOT_ALLOWED => return Ok(Typed::Nowhere("Codealong isn't allowed to control Ghostty (System Settings → Privacy & Security → Automation)".into())),
+                Err(e) if e.is::<NotAllowed>() => return Ok(Typed::Nowhere(not_allowed_why("Ghostty"))),
                 Err(_) => return Ok(Typed::Nowhere("Ghostty didn't answer in time".into())),
             };
             if osascript(GHOSTTY_TYPE, &[&id, text])?.trim().is_empty() {
@@ -418,9 +634,25 @@ pub fn terminal_type_session(profile: &str, pid: u32, cwd: &Path, text: &str) ->
             }
             Ok(Typed::Into("Ghostty"))
         }
-        Some(HostKind::Ghostty) => Ok(Typed::Nowhere(format!("there's no terminal profile called {profile:?}"))),
-        None => Ok(Typed::Nowhere("it isn't in a Ghostty or tmux tab".into())),
+        Some(k @ (HostKind::ITerm2 | HostKind::Terminal)) => {
+            let name = k.name();
+            let Some(tty) = tty() else { return Ok(Typed::Nowhere(format!("Codealong couldn't find its {name} tab"))) };
+            let typed = if k == HostKind::ITerm2 { iterm::type_text(&tty, text) } else { terminal_app::type_text(&tty, text) };
+            match typed {
+                Ok(true) => Ok(Typed::Into(name)),
+                // The script finds the tab before typing, so a missing one got nothing.
+                Ok(false) => Ok(Typed::Nowhere(format!("Codealong couldn't find its {name} tab"))),
+                // macOS refused the whole script: nothing went in.
+                Err(e) if e.is::<NotAllowed>() => Ok(Typed::Nowhere(not_allowed_why(name))),
+                Err(e) => Err(e),
+            }
+        }
+        None => Ok(Typed::Nowhere("it isn't in a Ghostty, iTerm2, Terminal or tmux tab".into())),
     }
+}
+
+fn not_allowed_why(app: &str) -> String {
+    format!("Codealong isn't allowed to control {app} (System Settings → Privacy & Security → Automation)")
 }
 
 /// The Ghostty terminal a process runs in, found by writing a unique folder report to its TTY
@@ -474,20 +706,93 @@ on run argv
 end run
 "#;
 
-/// Ends sessions' processes and closes the Ghostty terminals they ran in (idle.rs), all at once:
-/// with dozens of tabs on a busy Mac, one tab at a time took minutes. Every process's TTY gets
-/// its own mark, one look at Ghostty finds them all, the processes get a hangup (as they would
-/// from the tab closing), and the terminals whose process exited close in one script: Ghostty
-/// asks before closing a terminal with a program still running, and doesn't once only the
-/// shell is left at its prompt. One result per `(pid, folder)`, in order.
-pub fn close_session_terminals(profile: &str, sessions: &[(u32, &Path)]) -> Vec<Result<()>> {
-    if profile != "ghostty" {
-        return sessions.iter().map(|_| Err(anyhow!("Closing terminals works in Ghostty only."))).collect();
+/// Ends sessions' processes and closes the terminal tabs they ran in (idle.rs), all at once for
+/// each app: with dozens of tabs on a busy Mac, one tab at a time took minutes. The processes get
+/// a hangup (as they would from the tab closing), and the tabs whose process exited close in one
+/// script: the apps ask before closing a tab with a program still running, and don't once only
+/// the shell is left at its prompt. One result per `(pid, folder)`, in order.
+pub fn close_session_terminals(sessions: &[(u32, &Path)]) -> Vec<Result<()>> {
+    let mut out: Vec<Option<Result<()>>> = sessions.iter().map(|_| None).collect();
+    let kinds: Vec<Option<HostKind>> = sessions.iter().map(|(pid, _)| terminal_kind(*pid)).collect();
+    for kind in [HostKind::Ghostty, HostKind::ITerm2, HostKind::Terminal] {
+        let at: Vec<usize> = (0..sessions.len()).filter(|&i| kinds[i] == Some(kind)).collect();
+        if at.is_empty() {
+            continue;
+        }
+        let group: Vec<(u32, &Path)> = at.iter().map(|&i| sessions[i]).collect();
+        let results = match kind {
+            HostKind::Ghostty => close_ghostty_terminals(&group),
+            HostKind::ITerm2 => close_tty_terminals(&group, "iTerm2", iterm::ttys, iterm::in_front, iterm::close),
+            _ => close_tty_terminals(&group, "Terminal", terminal_app::ttys, terminal_app::in_front, terminal_app::close),
+        };
+        let results = results.unwrap_or_else(|e| group.iter().map(|_| Err(anyhow!("{e}"))).collect());
+        for (i, r) in at.into_iter().zip(results) {
+            out[i] = Some(r);
+        }
     }
-    match close_ghostty_terminals(sessions) {
-        Ok(out) => out,
-        Err(e) => sessions.iter().map(|_| Err(anyhow!("{e}"))).collect(),
+    out.into_iter().map(|r| r.unwrap_or_else(|| Err(anyhow!("It isn't in a Ghostty, iTerm2 or Terminal tab.")))).collect()
+}
+
+/// Closing where each tab has a TTY (iTerm2, Terminal): the tabs the app lists that hold these
+/// processes, each process hung up, then the tabs whose process exited closed in one script.
+fn close_tty_terminals(
+    sessions: &[(u32, &Path)],
+    app: &str,
+    ttys: fn() -> Result<Vec<String>>,
+    in_front: fn() -> Result<String>,
+    close: fn(&[&str]) -> Result<()>,
+) -> Result<Vec<Result<()>>> {
+    let listed = ttys()?;
+    let front = in_front().unwrap_or_default();
+    let mut out: Vec<Result<()>> = Vec::new();
+    // (index, tty) of the ones to end.
+    let mut ending = Vec::new();
+    for (i, (pid, _)) in sessions.iter().enumerate() {
+        match tty_of(*pid).map(|t| t.to_string_lossy().into_owned()) {
+            None => out.push(Err(anyhow!("It has no terminal tab."))),
+            Some(tty) if !listed.contains(&tty) => out.push(Err(anyhow!("Couldn't find its {app} tab."))),
+            Some(tty) if tty == front => out.push(Err(anyhow!("It's the tab you're in."))),
+            Some(tty) => {
+                out.push(Ok(()));
+                ending.push((i, tty));
+            }
+        }
     }
+    let exited = hang_up(&ending.iter().map(|(i, _)| sessions[*i].0).collect::<Vec<_>>());
+    let mut closing = Vec::new();
+    for ((i, tty), gone) in ending.iter().zip(exited) {
+        if gone {
+            closing.push(tty.as_str());
+        } else {
+            out[*i] = Err(anyhow!("Its process (pid {}) didn't exit, so the tab stays.", sessions[*i].0));
+        }
+    }
+    if !closing.is_empty() {
+        // A moment for the shells to draw their prompts, which tells the app it's safe to close.
+        std::thread::sleep(Duration::from_millis(500));
+        if let Err(e) = close(&closing) {
+            for (i, tty) in &ending {
+                if closing.contains(&tty.as_str()) {
+                    out[*i] = Err(anyhow!("Its process ended, but the tab didn't close: {e}"));
+                }
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// Hangs up each process, as its tab closing would, and waits up to ten seconds for them to
+/// exit. Whether each one did, in order.
+fn hang_up(pids: &[u32]) -> Vec<bool> {
+    let alive = |pid: u32| unsafe { libc::kill(pid as libc::pid_t, 0) } == 0;
+    for pid in pids {
+        unsafe { libc::kill(*pid as libc::pid_t, libc::SIGHUP) };
+    }
+    let started = std::time::Instant::now();
+    while pids.iter().any(|p| alive(*p)) && started.elapsed() < Duration::from_secs(10) {
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    pids.iter().map(|p| !alive(*p)).collect()
 }
 
 fn close_ghostty_terminals(sessions: &[(u32, &Path)]) -> Result<Vec<Result<()>>> {
@@ -544,21 +849,13 @@ fn close_ghostty_terminals(sessions: &[(u32, &Path)]) -> Result<Vec<Result<()>>>
             Some(id) => ending.push((*i, id.clone())),
         }
     }
-    let alive = |pid: u32| unsafe { libc::kill(pid as libc::pid_t, 0) } == 0;
-    for (i, _) in &ending {
-        unsafe { libc::kill(sessions[*i].0 as libc::pid_t, libc::SIGHUP) };
-    }
-    let started = std::time::Instant::now();
-    while ending.iter().any(|(i, _)| alive(sessions[*i].0)) && started.elapsed() < Duration::from_secs(10) {
-        std::thread::sleep(Duration::from_millis(100));
-    }
+    let exited = hang_up(&ending.iter().map(|(i, _)| sessions[*i].0).collect::<Vec<_>>());
     let mut closing = Vec::new();
-    for (i, id) in &ending {
-        let pid = sessions[*i].0;
-        if alive(pid) {
-            out[*i] = Err(anyhow!("Its process (pid {pid}) didn't exit, so the tab stays."));
-        } else {
+    for ((i, id), gone) in ending.iter().zip(exited) {
+        if gone {
             closing.push(id.as_str());
+        } else {
+            out[*i] = Err(anyhow!("Its process (pid {}) didn't exit, so the tab stays.", sessions[*i].0));
         }
     }
     if !closing.is_empty() {
@@ -579,30 +876,90 @@ fn close_ghostty_terminals(sessions: &[(u32, &Path)]) -> Result<Vec<Result<()>>>
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HostKind {
     Ghostty,
+    ITerm2,
+    Terminal,
     Tmux,
 }
 
-pub fn terminal_kind(pid: u32) -> Option<HostKind> {
-    if runs_under(pid, "ghostty") {
-        Some(HostKind::Ghostty)
-    } else if runs_under(pid, "tmux") && tmux_bin().is_some() {
-        Some(HostKind::Tmux)
-    } else {
-        None
+impl HostKind {
+    /// The app's name, the way messages say it.
+    pub fn name(self) -> &'static str {
+        match self {
+            HostKind::Ghostty => "Ghostty",
+            HostKind::ITerm2 => "iTerm2",
+            HostKind::Terminal => "Terminal",
+            HostKind::Tmux => "tmux",
+        }
+    }
+
+    /// The app it's in, to bring forward; tmux runs in whatever terminal its client does.
+    pub fn bundle(self) -> Option<&'static str> {
+        match self {
+            HostKind::Ghostty => bundle_id("ghostty"),
+            HostKind::ITerm2 => bundle_id("iterm2"),
+            HostKind::Terminal => bundle_id("terminal"),
+            HostKind::Tmux => None,
+        }
+    }
+
+    /// Whether Codealong can press a single key there. Terminal presses Return after whatever
+    /// a script types, and Claude Code takes "1" and Return arriving together as typed text, not
+    /// as the digit that answers its prompt.
+    pub fn presses_keys(self) -> bool {
+        self != HostKind::Terminal
     }
 }
 
-/// A terminal to press keys in: a Ghostty terminal by id, or a tmux pane.
+/// The terminals Codealong can press keys in, for messages.
+pub const PRESSES_KEYS_IN: &str = "Ghostty, iTerm2 or tmux";
+
+pub fn terminal_kind(pid: u32) -> Option<HostKind> {
+    kind_by(pid, procs::parent_and_name).filter(|k| *k != HostKind::Tmux || tmux_bin().is_some())
+}
+
+/// The nearest of a process's ancestors that's a terminal, with `step` giving each process's
+/// parent and name. Ghostty and Terminal start a login shell per tab (claude → zsh → login →
+/// ghostty); iTerm2 starts them under a server of its own (`iTermServer-3.7.3`), which carries on
+/// if iTerm2 restarts. tmux's server leaves the terminal it started in, so nothing above it is.
+fn kind_by(pid: u32, step: impl Fn(u32) -> Option<(u32, String)>) -> Option<HostKind> {
+    let mut at = pid;
+    for _ in 0..16 {
+        let (ppid, name) = step(at)?;
+        let kind = match name.as_str() {
+            "ghostty" => Some(HostKind::Ghostty),
+            "iTerm2" => Some(HostKind::ITerm2),
+            n if n.starts_with("iTermServer") => Some(HostKind::ITerm2),
+            "Terminal" => Some(HostKind::Terminal),
+            "tmux" => Some(HostKind::Tmux),
+            _ => None,
+        };
+        if kind.is_some() {
+            return kind;
+        }
+        if ppid <= 1 {
+            return None;
+        }
+        at = ppid;
+    }
+    None
+}
+
+/// A terminal to press keys in: a Ghostty terminal by id, an iTerm2 session by its TTY, or a
+/// tmux pane.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TerminalHost {
     Ghostty(String),
+    ITerm2(String),
     Tmux(String),
 }
 
-/// The terminal a session's process runs in, found (for Ghostty, marked) now.
+/// The terminal a session's process runs in, found (for Ghostty, marked) now, to press keys in.
+/// An error for Terminal, which can't press one key alone.
 pub fn terminal_host(pid: u32, cwd: &Path) -> Result<Option<TerminalHost>> {
     Ok(match terminal_kind(pid) {
         Some(HostKind::Ghostty) => ghostty_terminal_of(pid, cwd)?.map(TerminalHost::Ghostty),
+        Some(HostKind::ITerm2) => tty_of(pid).map(|t| TerminalHost::ITerm2(t.to_string_lossy().into_owned())),
+        Some(HostKind::Terminal) => bail!("Terminal can't press a single key for Codealong. Open it to answer."),
         Some(HostKind::Tmux) => tmux_pane_of(pid).map(TerminalHost::Tmux),
         None => None,
     })
@@ -630,6 +987,7 @@ pub fn press_key(host: &TerminalHost, key: Key) -> Result<()> {
             };
             Ok(())
         }
+        TerminalHost::ITerm2(tty) => iterm::press(tty, key),
         TerminalHost::Tmux(pane) => {
             let name = match key {
                 Key::Digit1 => "1",
@@ -693,28 +1051,6 @@ fn tmux_type(pane: &str, text: &str) -> Result<()> {
     Ok(())
 }
 
-/// Whether `pid` runs inside the app whose executable is named `exe`, asked of the kernel
-/// (procs.rs). Ghostty starts a login shell per tab: claude → zsh → login → ghostty.
-pub fn runs_under(pid: u32, exe: &str) -> bool {
-    runs_under_by(pid, exe, procs::parent_and_name)
-}
-
-/// `runs_under`, with `step` giving each process's parent and name.
-fn runs_under_by(pid: u32, exe: &str, step: impl Fn(u32) -> Option<(u32, String)>) -> bool {
-    let mut at = pid;
-    for _ in 0..16 {
-        let Some((ppid, name)) = step(at) else { return false };
-        if name == exe {
-            return true;
-        }
-        if ppid <= 1 {
-            return false;
-        }
-        at = ppid;
-    }
-    false
-}
-
 /// The terminal device a process writes to, or None for a background process.
 fn tty_of(pid: u32) -> Option<std::path::PathBuf> {
     procs::tty(pid)
@@ -748,17 +1084,17 @@ fn tab_title(name: &str) -> &str {
 /// The one tab titled like the session (the one in its folder, when several are); else the one
 /// tab in its folder. None when that still leaves more than one: a guess puts another agent's
 /// terminal in front, and what's typed there goes to the wrong session.
-pub fn pick_by_title(terminals: &[GhosttyTerminal], title: &str, cwd: &Path) -> Option<String> {
+pub fn pick_by_title(terminals: &[Tab], title: &str, cwd: &Path) -> Option<String> {
     let dir = cwd.to_string_lossy();
-    let only = |ts: Vec<&GhosttyTerminal>| match ts.as_slice() {
+    let only = |ts: Vec<&Tab>| match ts.as_slice() {
         [t] => Some(t.id.clone()),
         _ => None,
     };
-    let titled: Vec<&GhosttyTerminal> = terminals.iter().filter(|t| !title.is_empty() && tab_title(&t.name) == title).collect();
+    let titled: Vec<&Tab> = terminals.iter().filter(|t| !title.is_empty() && tab_title(&t.name) == title).collect();
     if titled.is_empty() {
         return only(terminals.iter().filter(|t| t.cwd == dir).collect());
     }
-    let here: Vec<&GhosttyTerminal> = titled.iter().copied().filter(|t| t.cwd == dir).collect();
+    let here: Vec<&Tab> = titled.iter().copied().filter(|t| t.cwd == dir).collect();
     only(titled).or_else(|| only(here))
 }
 
@@ -844,15 +1180,19 @@ mod tests {
     }
 
     #[test]
-    fn ghostty_scripts_compile() {
-        // osacompile checks the scripts against Ghostty's dictionary without running them.
-        if !Path::new("/Applications/Ghostty.app").exists() {
-            return;
-        }
-        for (i, script) in [GHOSTTY_NEW, GHOSTTY_LIST, GHOSTTY_FOCUS, GHOSTTY_FIND, GHOSTTY_TYPE, GHOSTTY_IN_FRONT, GHOSTTY_CLOSE].iter().enumerate() {
-            let out = std::env::temp_dir().join(format!("codealong-test-{i}.scpt"));
-            let r = procs::run_stdin("/usr/bin/osacompile", &["-o", &out.to_string_lossy()], script, Duration::from_secs(20));
-            assert!(r.is_ok(), "script {i} failed to compile: {r:?}");
+    fn terminal_scripts_compile() {
+        // osacompile checks the scripts against each app's dictionary without running them.
+        let ghostty = [GHOSTTY_NEW, GHOSTTY_LIST, GHOSTTY_FOCUS, GHOSTTY_FIND, GHOSTTY_TYPE, GHOSTTY_IN_FRONT, GHOSTTY_CLOSE, GHOSTTY_KEY, GHOSTTY_ACTION].map(String::from).to_vec();
+        for (app, scripts) in [("ghostty", ghostty), ("iterm2", iterm::scripts()), ("terminal", terminal_app::scripts())] {
+            if !terminal_app(app).unwrap().installed() {
+                continue;
+            }
+            for (i, script) in scripts.iter().enumerate() {
+                let out = std::env::temp_dir().join(format!("codealong-test-{app}-{i}-{}.scpt", std::process::id()));
+                let r = procs::run_stdin("/usr/bin/osacompile", &["-o", &out.to_string_lossy()], script, Duration::from_secs(20));
+                let _ = std::fs::remove_file(&out);
+                assert!(r.is_ok(), "{app} script {i} failed to compile: {r:?}");
+            }
         }
     }
 
@@ -887,6 +1227,160 @@ mod tests {
         let got = std::fs::read_to_string(&out).expect("the shell wrote nothing");
         let _ = std::fs::remove_file(&out);
         assert_eq!(got.strip_suffix('\n').unwrap_or(&got), prompt);
+    }
+
+    /// Waits up to ten seconds for a file to have something in it, and returns what.
+    fn written(path: &Path) -> Option<String> {
+        for _ in 0..100 {
+            if std::fs::metadata(path).map(|m| m.len() > 0).unwrap_or(false) {
+                std::thread::sleep(Duration::from_millis(200));
+                return std::fs::read_to_string(path).ok();
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        None
+    }
+
+    /// Opens a window in iTerm2 or Terminal whose shell writes its folder and the prompt it was
+    /// handed to a file, then closes it: what a started session gets from the launcher and the
+    /// line typed after it. Opt in: `cargo test tty_apps_hand_over -- --ignored`. These tests'
+    /// windows come forward and take the keyboard: what you type meanwhile lands in their shells.
+    #[test]
+    #[ignore]
+    fn tty_apps_hand_over_the_folder_and_environment() {
+        let dir = std::fs::canonicalize(std::env::temp_dir()).unwrap().join(format!("codealong-hand {}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let prompt = "Fix the \"flaky\" test\n\tthen run `npm test` and $(say nope) 'quoted' -v";
+        let apps: [(&str, fn() -> Result<Vec<String>>, fn(&[&str]) -> Result<()>); 2] = [("iterm2", iterm::ttys, iterm::close), ("terminal", terminal_app::ttys, terminal_app::close)];
+        for (profile, ttys, close) in apps {
+            let out = dir.join(format!("{profile}.txt"));
+            let input = format!("pwd > '{0}'; printenv CODEALONG_PROMPT >> '{0}'\n", out.display());
+            let place = Placement { new_terminal: NewTerminal::Window, near: &[] };
+            let before = ttys().unwrap();
+            terminal_run(profile, place, &dir, &input, &[("CODEALONG_PROMPT".to_string(), prompt.to_string())]).unwrap();
+            let got = written(&out);
+            let opened: Vec<String> = ttys().unwrap().into_iter().filter(|t| !before.contains(t)).collect();
+            let _ = close(&opened.iter().map(String::as_str).collect::<Vec<_>>());
+            assert_eq!(got.unwrap_or_else(|| panic!("{profile}'s shell wrote nothing")), format!("{}\n{prompt}\n", dir.display()), "{profile}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// For each of iTerm2 and Terminal: a window whose shell records the bytes that reach it, raw
+    /// and with bracketed paste on as Claude Code runs, typed into as a send does. The text comes
+    /// as a paste and then Return; in iTerm2, 1 and Escape, as answering a permission prompt does,
+    /// come as typed keys. Opt in: `cargo test tty_apps_type -- --ignored`.
+    #[test]
+    #[ignore]
+    fn tty_apps_type_as_a_send_does() {
+        let dir = std::env::temp_dir();
+        for profile in ["iterm2", "terminal"] {
+            let out = dir.join(format!("codealong-typed-{profile}-{}", std::process::id()));
+            let ready = dir.join(format!("codealong-typed-{profile}-{}.pid", std::process::id()));
+            let _ = std::fs::remove_file(&out);
+            let _ = std::fs::remove_file(&ready);
+            let want: &[u8] = if profile == "iterm2" { b"\x1b[200~ab\ncd\x1b[201~\r1\x1b" } else { b"\x1b[200~ab\ncd\x1b[201~\r" };
+            let input = format!("stty raw -echo; printf '\\033[?2004h'; echo $$ > '{}'; dd bs=1 count={} of='{}' 2>/dev/null; stty sane\n", ready.display(), want.len(), out.display());
+            terminal_run(profile, Placement { new_terminal: NewTerminal::Window, near: &[] }, &dir, &input, &[]).unwrap();
+            let pid: u32 = written(&ready).and_then(|p| p.trim().parse().ok()).unwrap_or_else(|| panic!("{profile}'s shell never started"));
+            let kind = terminal_kind(pid);
+            let typed = terminal_type_session(pid, &dir, "ab\ncd").unwrap();
+            if profile == "iterm2" {
+                let host = terminal_host(pid, &dir).unwrap().expect("iTerm2 presses keys");
+                press_key(&host, Key::Digit1).and_then(|_| press_key(&host, Key::Escape)).unwrap();
+            } else {
+                assert!(terminal_host(pid, &dir).is_err(), "Terminal can't press a key alone");
+            }
+            let mut got = Vec::new();
+            for _ in 0..50 {
+                got = std::fs::read(&out).unwrap_or_default();
+                if got.len() >= want.len() {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            let _ = std::fs::remove_file(&out);
+            let _ = std::fs::remove_file(&ready);
+            if let Some(tty) = tty_of(pid) {
+                let tty = tty.to_string_lossy();
+                let _ = if profile == "iterm2" { iterm::close(&[&tty]) } else { terminal_app::close(&[&tty]) };
+            }
+            assert_eq!(kind.and_then(HostKind::bundle), bundle_id(profile), "{profile}");
+            assert_eq!(typed, Typed::Into(terminal_app(profile).unwrap().name), "{profile}");
+            assert_eq!(got, want, "{profile}'s program got {:?}", String::from_utf8_lossy(&got));
+        }
+    }
+
+    /// For each of iTerm2 and Terminal: a window running a long `sleep`, a plain window in front of
+    /// it, then the first closed as Close idle terminals would (hangup, then close). Opt in:
+    /// `cargo test tty_apps_close -- --ignored`.
+    #[test]
+    #[ignore]
+    fn tty_apps_close_a_session_terminal() {
+        let dir = std::env::temp_dir();
+        let apps: [(&str, fn() -> Result<Vec<String>>, fn(&[&str]) -> Result<()>); 2] = [("iterm2", iterm::ttys, iterm::close), ("terminal", terminal_app::ttys, terminal_app::close)];
+        for (profile, ttys, close) in apps {
+            let place = Placement { new_terminal: NewTerminal::Window, near: &[] };
+            let secs = 7000 + std::process::id() % 1000 + if profile == "terminal" { 1 } else { 0 };
+            terminal_open(profile, place, &dir, Some(&format!("sleep {secs}\n"))).unwrap();
+            let mut pid = None;
+            for _ in 0..100 {
+                let out = procs::run("/usr/bin/pgrep", &["-f", &format!("^sleep {secs}$")], None, Duration::from_secs(3)).unwrap_or_default();
+                pid = out.trim().lines().next().and_then(|p| p.parse::<u32>().ok());
+                if pid.is_some() {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            let pid = pid.unwrap_or_else(|| panic!("the sleep never started in {profile}"));
+            let tty = tty_of(pid).unwrap().to_string_lossy().into_owned();
+            let before = ttys().unwrap();
+            terminal_open(profile, place, &dir, None).unwrap();
+            std::thread::sleep(Duration::from_secs(1));
+            let front: Vec<String> = ttys().unwrap().into_iter().filter(|t| !before.contains(t)).collect();
+            let result = close_session_terminals(&[(pid, dir.as_path())]).remove(0);
+            std::thread::sleep(Duration::from_millis(500));
+            let still = ttys().unwrap().contains(&tty);
+            let _ = close(&front.iter().map(String::as_str).collect::<Vec<_>>());
+            result.unwrap_or_else(|e| panic!("{profile}: {e}"));
+            assert!(!still, "{profile}'s tab is still open");
+        }
+    }
+
+    /// For each of iTerm2 and Terminal: three windows, the one furthest back focused by its TTY,
+    /// and it's the one in front. It moves windows about, so it's opt in: `cargo test
+    /// tty_apps_focus -- --ignored`.
+    #[test]
+    #[ignore]
+    fn tty_apps_focus_a_window_behind_others() {
+        const ITERM_FRONT: &str = r#"tell application "iTerm" to return tty of current session of current window"#;
+        const TERMINAL_FRONT: &str = r#"tell application "Terminal" to return tty of selected tab of front window"#;
+        let dir = std::env::temp_dir();
+        let apps: [(&str, fn() -> Result<Vec<String>>, fn(&[&str]) -> Result<()>, fn(&str) -> Result<bool>, &str); 2] =
+            [("iterm2", iterm::ttys, iterm::close, iterm::focus, ITERM_FRONT), ("terminal", terminal_app::ttys, terminal_app::close, terminal_app::focus, TERMINAL_FRONT)];
+        for (profile, ttys, close, focus, front) in apps {
+            let place = Placement { new_terminal: NewTerminal::Window, near: &[] };
+            let mut opened = Vec::new();
+            for _ in 0..3 {
+                let before = ttys().unwrap();
+                terminal_open(profile, place, &dir, None).unwrap();
+                for _ in 0..50 {
+                    if let Some(t) = ttys().unwrap().into_iter().find(|t| !before.contains(t)) {
+                        opened.push(t);
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(100));
+                }
+            }
+            let back = opened[0].clone();
+            let focused = focus(&back);
+            std::thread::sleep(Duration::from_millis(500));
+            let now = osascript_in("test", front, &[]).unwrap_or_default();
+            let _ = close(&opened.iter().map(String::as_str).collect::<Vec<_>>());
+            assert_eq!(opened.len(), 3, "{profile} didn't open three windows");
+            assert!(focused.unwrap(), "{profile} didn't find {back}");
+            assert_eq!(now.trim(), back, "{profile}");
+        }
     }
 
     /// Opens a Ghostty window running a long `sleep` and a plain window in front of it, closes the
@@ -938,7 +1432,7 @@ end run
             }
             std::thread::sleep(Duration::from_millis(100));
         }
-        let result = pid.ok_or_else(|| anyhow!("the sleep never started")).and_then(|pid| close_session_terminals("ghostty", &[(pid, dir.as_path())]).remove(0));
+        let result = pid.ok_or_else(|| anyhow!("the sleep never started")).and_then(|pid| close_session_terminals(&[(pid, dir.as_path())]).remove(0));
         let still = osascript(EXISTS, &[&sleeper]).unwrap_or_default();
         let _ = osascript(CLOSE, &[&front]);
         let _ = osascript(CLOSE, &[&sleeper]);
@@ -1104,16 +1598,107 @@ end run
         assert_eq!(osc7("/Users/me/My Repo"), "\x1b]7;file://localhost/Users/me/My%20Repo\x07");
     }
 
+    /// Whether `pid` runs inside the app whose executable is named `exe`, with `step` giving each
+    /// process's parent and name.
+    fn runs_under_by(pid: u32, exe: &str, step: impl Fn(u32) -> Option<(u32, String)>) -> bool {
+        let mut at = pid;
+        for _ in 0..16 {
+            let Some((ppid, name)) = step(at) else { return false };
+            if name == exe {
+                return true;
+            }
+            if ppid <= 1 {
+                return false;
+            }
+            at = ppid;
+        }
+        false
+    }
+
+    fn runs_under(pid: u32, exe: &str) -> bool {
+        runs_under_by(pid, exe, procs::parent_and_name)
+    }
+
     #[test]
-    fn knows_a_session_ghostty_started() {
-        // (pid, parent, name) as the kernel has them.
-        let table = [(849, 1, "ghostty"), (958, 849, "login"), (997, 958, "zsh"), (68277, 997, "claude"), (4100, 1, "tmux"), (4101, 4100, "zsh"), (4102, 4101, "claude"), (5000, 1, "Google Chrome")];
+    fn knows_which_terminal_a_session_runs_in() {
+        // (pid, parent, name) as the kernel has them, from this Mac.
+        let table = [
+            (849, 1, "ghostty"),
+            (958, 849, "login"),
+            (997, 958, "zsh"),
+            (68277, 997, "claude"),
+            (4100, 1, "tmux"),
+            (4101, 4100, "zsh"),
+            (4102, 4101, "claude"),
+            (39227, 1, "iTerm2"),
+            (39607, 39227, "iTermServer-3.7."),
+            (41265, 39607, "login"),
+            (41266, 41265, "zsh"),
+            (41300, 41266, "2.1.284"),
+            // iTerm2 restarted: its server carries on under launchd.
+            (39700, 1, "iTermServer-3.7."),
+            (39701, 39700, "zsh"),
+            (51103, 1, "Terminal"),
+            (41595, 51103, "login"),
+            (41602, 41595, "zsh"),
+            (41700, 41602, "codex"),
+            (5000, 1, "Google Chrome"),
+        ];
         let step = |pid: u32| table.iter().find(|r| r.0 == pid).map(|r| (r.1, r.2.to_string()));
-        assert!(runs_under_by(68277, "ghostty", step));
-        assert!(!runs_under_by(4102, "ghostty", step));
-        assert!(runs_under_by(4102, "tmux", step));
-        assert!(!runs_under_by(5000, "ghostty", step));
-        assert!(!runs_under_by(999_999, "ghostty", step));
+        assert_eq!(kind_by(68277, step), Some(HostKind::Ghostty));
+        assert_eq!(kind_by(4102, step), Some(HostKind::Tmux));
+        assert_eq!(kind_by(41300, step), Some(HostKind::ITerm2));
+        assert_eq!(kind_by(39701, step), Some(HostKind::ITerm2));
+        assert_eq!(kind_by(41700, step), Some(HostKind::Terminal));
+        assert_eq!(kind_by(5000, step), None);
+        assert_eq!(kind_by(999_999, step), None);
+    }
+
+    #[test]
+    fn knows_the_terminal_profiles() {
+        assert_eq!(terminal_name("iterm2"), "iTerm2");
+        assert_eq!(terminal_name("terminal"), "Terminal");
+        assert_eq!(terminal_name("kitty"), "kitty");
+        assert_eq!(bundle_id("ghostty"), Some("com.mitchellh.ghostty"));
+        assert_eq!(bundle_id("kitty"), None);
+        // Terminal comes with macOS, so a config.toml always has a terminal that's here.
+        assert!(terminal_app("terminal").unwrap().installed());
+        assert!(terminal_app(default_terminal()).unwrap().installed());
+        assert!(terminal_open("kitty", Placement { new_terminal: NewTerminal::Window, near: &[] }, Path::new("/"), None).unwrap_err().to_string().contains("\"iterm2\""));
+    }
+
+    #[test]
+    fn a_launcher_sets_up_the_shell_in_sh_whatever_the_prompt() {
+        let text = launcher_text(
+            Path::new("/tmp/codealong-launch-1.sh"),
+            Path::new("/Users/me/My Repo's"),
+            &[("CODEALONG_PROMPT".into(), "Fix the 'flaky' test\n$(say nope) `x`".into()), ("BAD NAME".into(), "x".into()), ("1X".into(), "x".into())],
+            "/opt/homebrew/bin/fish",
+        );
+        assert_eq!(
+            text,
+            "rm -f '/tmp/codealong-launch-1.sh'\ncd '/Users/me/My Repo'\\''s' 2>/dev/null\nexport CODEALONG_PROMPT='Fix the '\\''flaky'\\'' test\n$(say nope) `x`'\nexec '/opt/homebrew/bin/fish' -l\n"
+        );
+        assert_eq!(typed_line("claude2 --session-id x\n"), "claude2 --session-id x");
+        assert_eq!(fresh_line(" exec x"), "\u{15} exec x");
+        assert_eq!(typed_line(""), "");
+    }
+
+    /// The launcher runs: its folder and environment reach the shell it becomes, and it's gone.
+    #[test]
+    fn a_launcher_hands_over_the_folder_and_environment() {
+        let dir = std::env::temp_dir().join(format!("codealong-launch-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let prompt = "Fix the \"flaky\" test\n\tthen run `npm test` and $(say nope) 'quoted' -v";
+        let path = launcher(&dir, &[("CODEALONG_PROMPT".to_string(), prompt.to_string())]).unwrap();
+        // The login shell is swapped for one that prints what it was handed, then exits.
+        let text = std::fs::read_to_string(&path).unwrap();
+        let body = text.lines().filter(|l| !l.starts_with("exec ")).collect::<Vec<_>>().join("\n");
+        std::fs::write(&path, format!("{body}\npwd; printenv CODEALONG_PROMPT\n")).unwrap();
+        let out = procs::run("/bin/sh", &[&path.to_string_lossy()], None, Duration::from_secs(10)).unwrap();
+        assert!(!path.exists(), "the launcher is still there");
+        assert_eq!(out, format!("{}\n{prompt}\n", dir.display()));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -1152,6 +1737,7 @@ end run
             let want = tty.starts_with("tty").then(|| Path::new("/dev").join(tty));
             assert_eq!(procs::tty(pid), want, "pid {pid}");
             assert_eq!(runs_under(pid, "ghostty"), runs_under_by(pid, "ghostty", by_ps), "pid {pid}");
+            assert_eq!(kind_by(pid, procs::parent_and_name), kind_by(pid, by_ps), "pid {pid}");
             checked += 1;
         }
         assert!(checked > 10, "only {checked} processes checked");
@@ -1162,7 +1748,7 @@ end run
 
     #[test]
     fn puts_a_new_tab_beside_the_nearest_folder_with_terminals() {
-        let t = |id: &str, cwd: &str| GhosttyTerminal { id: id.into(), cwd: cwd.into(), name: String::new() };
+        let t = |id: &str, cwd: &str| Tab { id: id.into(), cwd: cwd.into(), name: String::new() };
         let tabs = vec![t("a", "/r/app"), t("b", "/r/app-pins/src"), t("c", "/r/kestrel"), t("d", ""), t("e", "/r/app-pins")];
         let groups = |g: &[&[&str]]| g.iter().map(|g| g.iter().map(|f| f.to_string()).collect()).collect::<Vec<Vec<String>>>();
         assert_eq!(terminals_beside(&tabs, &groups(&[&["/r/app-pins"], &["/r/app"]])), vec!["b", "e"]);
@@ -1174,7 +1760,7 @@ end run
 
     #[test]
     fn matches_tabs_by_title_then_folder() {
-        let t = |id: &str, cwd: &str, name: &str| GhosttyTerminal { id: id.into(), cwd: cwd.into(), name: name.into() };
+        let t = |id: &str, cwd: &str, name: &str| Tab { id: id.into(), cwd: cwd.into(), name: name.into() };
         let tabs = vec![
             t("a", "/r/app4", "✳ RLS work and other tables"),
             t("b", "/r/app2", "✳ Cloud agent execution regressions"),

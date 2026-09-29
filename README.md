@@ -5,8 +5,8 @@
 A Mac app that keeps track of every coding agent you have running: Claude Code on two
 accounts (`claude`, `claude2`), the Codex app, OpenCode and Antigravity. It sorts them by
 project, worktree, branch and PR, shows what each one is doing, and opens any session where
-it lives: Ghostty for terminal sessions, the Claude app, Codex, Antigravity, or the folder in
-your editor (VS Code, Cursor, Zed, Xcode and others).
+it lives: its tab in Ghostty, iTerm2 or Terminal, the Claude app, Codex, Antigravity, or the
+folder in your editor (VS Code, Cursor, Zed, Xcode and others).
 
 **Every agent runs in a worktree, and every worktree is a lane.**
 
@@ -45,7 +45,7 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     Code's through the Codealong plugin's `PermissionRequest` hook when the account has the
     plugin (wherever the session runs: any terminal, the Claude app), with Always too where
     Claude Code offers to allow calls like it from now on (its button says what that adds),
-    and otherwise by a keypress in its Ghostty or tmux tab, only while its own record says the
+    and otherwise by a keypress in its Ghostty, iTerm2 or tmux tab, only while its own record says the
     prompt is up for that call. Questions a Claude Code session asks you (its `AskUserQuestion`)
     show the same way through the plugin, with their choices and a box for your own answer, and
     Answer sends your picks. Claude Code's own prompt stays up all the while, and whichever
@@ -161,11 +161,13 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     follow Figma: scroll or Space-drag to pan, pinch or ⌘-scroll to zoom, ⇧1 fit all, ⇧2 the
     selection, ⇧0 100%. Zoomed out, cards become blocks in their status color drawn by the
     GPU (WebGL2).
-- **Open where it lives**: the session's own Ghostty tab, the Claude app session, the Codex
+- **Open where it lives**: the session's own terminal tab (Ghostty, iTerm2 or Terminal, whichever
+  it runs in), the Claude app session, the Codex
   thread (a CLI thread's terminal, or `codex resume` in a new one), an OpenCode session in its terminal (or resumed in a new one with `--session`),
   Antigravity brought forward (it has no link to a conversation), a background job attached
-  in a new terminal, or the folder in your editor. A new terminal opens as a tab in the Ghostty
-  window already showing that worktree, repo or project (`new_terminal` in config.toml).
+  in a new terminal, or the folder in your editor. A new terminal opens in the terminal app
+  config.toml names, as a tab in the window already showing that worktree, repo or project
+  (`new_terminal` in config.toml; Terminal can't open tabs for another app, so there it's a window).
   A worktree opens in your editor (`editor` in config.toml, ⌘2) or, from Open in in its
   right-click menu and its Open button, any other editor installed on the Mac: VS Code,
   Cursor, Windsurf, Zed, Sublime Text, Nova, BBEdit, Xcode, the JetBrains IDEs and Android
@@ -240,7 +242,7 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   says whether a running session may already be doing it (start rows say so, and sending to it
   is offered), and puts the sessions it thinks you mean first among the search results. Jev
   never picks the model: a new session starts on the one the start menu shows. Sending goes the
-  way each harness takes a prompt: pasted into the session's Ghostty tab, Claude Code's daemon
+  way each harness takes a prompt: pasted into the session's Ghostty, iTerm2, Terminal or tmux tab, Claude Code's daemon
   for a background job, OpenCode's service, a turn started by the Codex app itself (opening
   the thread there first when no window has it; else it opens with the prompt filled in), and Claude Code's cross-session socket for Claude
   app sessions, which read it as a message from another session (what you type in Codealong
@@ -257,7 +259,7 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   every model it can start on, with its limits, and the effort under them: Default, Low,
   Medium, High, Extra or Max, ← → to change it), and where it runs. With other Macs linked,
   ⌘D picks the Mac too: its worktrees and accounts are listed, and the session starts there
-  (it needs remote control on over there). Ghostty starts Claude Code
+  (it needs remote control on over there). Your terminal (Ghostty, iTerm2 or Terminal) starts Claude Code
   on your prompt, on the account's default model or the one you picked (Fable, Opus, Sonnet,
   Haiku, 1M context, Opus Plan Mode) at the effort you picked (`--effort`; Haiku takes none,
   and Default is the account's `effortLevel`), and with New worktree Claude Code makes a fresh worktree
@@ -268,7 +270,7 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   Claude app opens a new session with the prompt filled in, and you send it there (its own
   model and worktree choices included). The Codex app runs the new thread on your prompt:
   Codealong makes the thread, opens it in the app and has the app send the prompt, on the
-  account's default model; without a prompt it opens the app's new-thread page. OpenCode starts in Ghostty on your prompt
+  account's default model; without a prompt it opens the app's new-thread page. OpenCode starts in your terminal on your prompt
   (`--prompt`), and so does the Codex CLI, for any Codex account (`codex -- <prompt>`, images
   with `-i`); Antigravity starts conversations only in its own window. **In Codealong** runs
   the session in Codealong itself, for any Claude Code, Codex or OpenCode account, through the
@@ -284,8 +286,8 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   unused, else the one with the most room. It starts on
   that default model, or the next best (Opus, then Sonnet) when the default's own weekly limit
   is nearly used up. Codealong only launches: the session shows on the board like any other,
-  and one started in Ghostty is selected as soon as it appears. Paste or drop screenshots and
-  other files into the prompt: Claude Code in Ghostty gets them as file mentions (attached
+  and one started in a terminal is selected as soon as it appears. Paste or drop screenshots and
+  other files into the prompt: Claude Code in a terminal gets them as file mentions (attached
   when they're 256 KB or less, read otherwise, with their folders added so it doesn't ask),
   and the apps and OpenCode get their paths.
 - **Usage** for every account in a bar across the top: 5-hour and weekly limits, per-model
@@ -368,7 +370,7 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
 - **New window** (File › New window, ⌘⇧N): one more window on the project you're looking at.
   Closing the main window hides it; New window, the Dock icon or the bar brings it back, and
   ⌘Q quits.
-- **Close idle terminals** (File › Close idle terminals…): lists the Ghostty tabs of sessions
+- **Close idle terminals** (File › Close idle terminals…): lists the Ghostty, iTerm2 and Terminal tabs of sessions
   that sat idle for a day or more (12 hours to a week, you choose) and asked you nothing in
   their last reply, by Jev's read where it has one, else by it not ending in a question. It
   says why for each, and closes the ones you leave ticked. Nothing closes by itself. Closing
@@ -421,7 +423,7 @@ Next: the menu bar icon and popover, and notifications (the design system's *Bui
 - macOS 13 or later
 - Rust (`rustup`), Node 20+
 - `gh` signed in (`gh auth login`) for PRs
-- Ghostty 1.3+ (swappable later through app profiles)
+- A terminal: Ghostty 1.3+, iTerm2 or Terminal (a new config.toml picks the first of those installed)
 
 ## Develop
 
@@ -441,7 +443,7 @@ Builds go to `codealong-target` next to the main checkout, one directory shared 
 checkout and worktree (`.cargo/config.toml`); `scripts/target-dir.sh` prints it and has
 worktrees inside the checkout build there too. Tests: `npm test` (vitest),
 `npm run typecheck`, and `cargo test` in `src-tauri`
-(model rules, parsers, git and GitHub parsing, usage, config writes, deep links, Ghostty
+(model rules, parsers, git and GitHub parsing, usage, config writes, deep links, terminal
 scripts). `scripts/preview.sh` renders the UI in headless Chrome against your real data with
 Tauri's IPC stubbed. CLAUDE.md has the rest of the working notes.
 
@@ -466,7 +468,7 @@ Found on this Mac. Settings (⌘,) edits it as a form, or as text:
 scan = ["~/projects"]          # where repos are found, three levels deep
 
 [apps]
-terminal = "ghostty"
+terminal = "ghostty"           # or "iterm2", "terminal"
 editor = "cursor"              # or "vscode", "zed", "xcode"… (Settings lists those installed), or an app's name
 new_terminal = "project"       # a tab beside the same worktree, repo or project; or "tab", "window"
 move_pointer = false           # move the pointer to a terminal brought forward on another screen
@@ -575,7 +577,8 @@ light scan (no git, PRs or visitors).
 ## Permissions and safety
 
 - The first time Codealong opens or focuses a terminal session, macOS asks whether it may
-  control Ghostty (Automation). Without it, Codealong can still open plain Ghostty windows.
+  control Ghostty, iTerm2 or Terminal (Automation). Without it, Codealong can still open plain
+  Ghostty windows.
 - A worktree or session folder on a removable volume, or in Documents, Desktop or Downloads,
   makes macOS ask whether Codealong may access it, and again after each update. Until someone
   answers, the board shows those worktrees without git and, after 10 seconds or so, names the
@@ -586,8 +589,10 @@ light scan (no git, PRs or visitors).
 - A session started In Codealong runs as a child of the app, through the agent's ACP adapter;
   what it's allowed to do is the agent's own permission setting for the account, and what it
   asks is answered only by you, in its panel. Its processes end when Codealong quits.
-- Starting a session types the account's command into a new Ghostty window; the prompt goes in
+- Starting a session types the account's command into a new terminal window; the prompt goes in
   the window's environment (`CODEALONG_PROMPT`), so nothing in it is typed or needs quoting.
+  Ghostty takes the folder and environment with the window; iTerm2 and Terminal get them from a
+  short script in your temporary folder that sets them, deletes itself and becomes your login shell.
 - Transcripts stay on the Mac; only titles, statuses and short excerpts are kept in memory.
   With Devices on, the devices you've linked get those too, and read a conversation or search
   what was said only by asking this device, directly. With remote control on, they can also send
@@ -605,7 +610,7 @@ light scan (no git, PRs or visitors).
 | `src-tauri/src/acp.rs` | Sessions Codealong runs itself: an Agent Client Protocol adapter process per account, turns, permission requests, the streamed reply |
 | `src-tauri/src/repos.rs`, `git.rs`, `github.rs` | Repo discovery, callsigns, worktrees, git status, PRs |
 | `src-tauri/src/held.rs` | The repo scan's reads of folders it doesn't own, each on a thread of its own, so one macOS holds for a privacy prompt holds up only that folder |
-| `src-tauri/src/launch.rs` | App profiles: Ghostty (AppleScript, exact tab focus), deep links |
+| `src-tauri/src/launch.rs`, `launch/iterm.rs`, `launch/terminal_app.rs` | Terminal profiles: Ghostty, iTerm2 and Terminal through AppleScript (a session's tab found exactly, typing, closing), deep links |
 | `src-tauri/src/editors.rs`, `src/editors.ts` | The editors a folder opens in: the ones Codealong knows, found where Mac apps are installed, and the Open in menus |
 | `src-tauri/src/flash.rs` | Outlines a focused terminal that came forward on another screen |
 | `src-tauri/src/caret.rs`, `src/caret.ts` | A text cursor WebKit stopped drawing in a window you type in: typing into a page that says it isn't focused hands it its focus again, and the perf log says what macOS said of the window |

@@ -58,7 +58,7 @@ export interface Session {
   resumeCommand: string | null;
   /** The Claude app is signed into this session's account. */
   appAccount: boolean;
-  /** Opens this session where it lives: Ghostty, the Claude app, Codex, or Antigravity. */
+  /** Opens this session where it lives: its terminal tab, the Claude app, Codex, or Antigravity. */
   openTarget: string;
   /** Why a session from another lane shows here: "made this worktree" or "worked here". */
   visitor: string | null;

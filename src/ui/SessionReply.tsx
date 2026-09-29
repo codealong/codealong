@@ -1,7 +1,7 @@
 // Answering a session from Codealong: a box that sends it a message where it runs (send.rs), and,
 // when it waits on you to allow a tool call, that call above the box with Allow and Deny, if its
 // harness can be answered from here (harness.rs: OpenCode through its service, Claude Code by a
-// keypress in its Ghostty or tmux tab, once its own record says the prompt is up). Otherwise it
+// keypress in its Ghostty, iTerm2 or tmux tab, once its own record says the prompt is up). Otherwise it
 // offers to open the session to answer there. The session panel, the floating bar's peek and the
 // quick panel's reply view all end with it.
 //

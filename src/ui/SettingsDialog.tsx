@@ -231,7 +231,11 @@ function GeneralPane({ cfg, view, theme, onPickTheme, disabled, onSave, now }: P
               );
             })}
           </div>
-          <small>{NEW_TERMINALS.find((t) => t.id === (cfg.apps.new_terminal ?? 'project'))?.says}</small>
+          <small>
+            {cfg.apps.terminal === 'terminal'
+              ? 'Terminal can’t open a tab for another app, so new terminals always open as windows there.'
+              : NEW_TERMINALS.find((t) => t.id === (cfg.apps.new_terminal ?? 'project'))?.says}
+          </small>
         </div>
         <label className="ca-field ca-settings-check">
           <input type="checkbox" checked={cfg.apps.move_pointer ?? false} onChange={(e) => void onSave({ ...cfg, apps: { ...cfg.apps, move_pointer: e.target.checked } })} />

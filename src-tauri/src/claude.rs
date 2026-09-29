@@ -556,8 +556,9 @@ impl crate::harness::Adapter for ClaudeCode {
         }
         let (call, _) = waiting_call(self, ctx, s)?;
         let cannot = match crate::launch::terminal_kind(s.pid?) {
-            Some(_) => None,
-            None => Some("It isn't in a terminal Codealong can press keys in (Ghostty or tmux).".to_string()),
+            Some(k) if k.presses_keys() => None,
+            Some(k) => Some(format!("{} can't press a single key for Codealong. Open it to answer.", k.name())),
+            None => Some(format!("It isn't in a terminal Codealong can press keys in ({}).", crate::launch::PRESSES_KEYS_IN)),
         };
         // Not every prompt has "Yes, and always allow" as its second choice, and a 2 pressed at
         // one without it is something else, so Always isn't offered in a terminal.
@@ -596,7 +597,7 @@ impl crate::harness::Adapter for ClaudeCode {
             crate::harness::Answer::Always => anyhow::bail!("Claude Code's prompt in a terminal is answered here with Allow or Deny only."),
         };
         let Some(host) = crate::launch::terminal_host(pid, Path::new(&s.cwd))? else {
-            anyhow::bail!("It isn't in a terminal Codealong can press keys in (Ghostty or tmux). Open it to answer.");
+            anyhow::bail!("It isn't in a terminal Codealong can press keys in ({}). Open it to answer.", crate::launch::PRESSES_KEYS_IN);
         };
         crate::launch::press_key(&host, key)?;
         Ok(match answer {

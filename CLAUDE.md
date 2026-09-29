@@ -731,6 +731,64 @@ Google Chrome (154, for previews' profiles, chrome.rs; checked 2026-09-29)
   profile's session). Started from the binary instead, a Chrome that wasn't running would be
   Codealong's child.
 
+iTerm2 (3.7.3, from its AppleScript dictionary and a program recording its input, 2026-09-29)
+
+- `/Applications/iTerm.app`, bundle id `com.googlecode.iterm2`, scripted as `application
+  "iTerm"`. Windows (front to back, `id`), tabs (no id; `select`), sessions (`id` a UUID, `tty`,
+  `name`, `variable named "session.path"` its folder, `"session.jobPid"`). A tab's shell runs
+  under `iTermServer-<version>` (zsh → login → iTermServer-3.7. → iTerm2 in `ps`), which carries
+  on under launchd when iTerm2 restarts: `launch::kind_by` takes either name.
+- `tty of every session of every tab of window id <w>` answers in one event (lists of lists);
+  `whose` on nested elements doesn't. Inside the tell `contents of x` asks iTerm2 for a
+  session's contents, so lists are walked by index.
+- `create window with default profile command <cmd>` / `create tab …` (in a `tell window id`)
+  run the command in place of the profile's shell, with no `login` in between, and return at
+  once with the session's `tty` known. There's no folder or environment option:
+  `launch::launcher` is that command.
+- `write text <t>` sends exactly `<t>` then `\r`; `newline no` drops the `\r`. Nothing is
+  bracketed, so a paste is wrapped in `ESC[200~ … ESC[201~` by Codealong, and `1` or Escape
+  alone arrive as typed keys.
+- `select` on a window brings it to the front (with `activate`); on a tab or session selects it.
+  `close` on a session closes it without asking, even with a job running.
+- A closed window stays in `windows`, invisible, for good (`visible` false, not minimized): scripts
+  take `every window whose visible is true or miniaturized is true`, and a new tab can get a
+  closed one's TTY.
+
+Terminal (2.15 on macOS 26.6, from its AppleScript dictionary and a program recording its input,
+2026-09-29)
+
+- `/System/Applications/Utilities/Terminal.app`, `com.apple.Terminal`. Tabs have `tty`,
+  `processes` (names), `busy`, `selected`, `custom title`; no folder. A tab's shell runs under
+  `login` → `Terminal`.
+- `do script <t>` opens a new window whose shell gets `<t>` typed; `do script <t> in <tab>` types
+  into that tab. It always sends `\r` after `<t>` (`\n` inside stays `\n`), and nothing is
+  bracketed: no single keypress, so Codealong can't answer a permission prompt there (a `1` with
+  its `\r` reaches Claude Code as text). A bracketed paste followed at once by `\r` reached
+  Claude Code 2.1.284 as one prompt, sent.
+- No tabs from a script: `make new tab` fails ("AppleEvent handler failed"), and a tab doesn't
+  take `close`, only a window does. New terminals are always windows; closing a tab that shares
+  its window types `exit` in it.
+- Focus: `set selected of tab i of window id w to true`, `set index of window id w to 1`,
+  `activate`.
+- A closed window stays in `windows` (invisible), like iTerm2's. A tab whose shell exited stays
+  when its profile says so ("When the shell exits: Don't close the window",
+  `shellExitAction = 2`), with its TTY and no `processes`; a new tab can get that TTY, so only
+  tabs with processes count. `contents of <tab>` in AppleScript is the tab itself (the
+  keyword wins); `history of <tab>` is its text.
+
+Starting a session in iTerm2 or Terminal (launch.rs, checked 2026-09-29)
+
+- The launcher is a `/bin/sh` script in `$TMPDIR` (mode 600) that deletes itself, `cd`s, exports
+  the environment and `exec`s the login shell (`getpwuid`) with `-l`. iTerm2 runs it as the
+  session's command; Terminal types ` exec /bin/sh '<launcher>'` into the new window's shell
+  (the leading space keeps it out of history where `HIST_IGNORE_SPACE` or fish's rule applies).
+- Codealong types the next line only once the shell reads a key at a time: the launcher gone and
+  the TTY out of canonical mode (`tcgetattr`, `ICANON` off), which zsh's line editor, readline
+  and fish set while they wait for a line. A window that comes forward takes the keyboard, so
+  keys typed on the Mac meanwhile land in its shell ahead of the line (`ree exec /bin/sh …`, while
+  someone typed during the opt-in `tty_apps_*` tests): each line typed into a new shell starts
+  with Ctrl-U, which clears the line in zsh, bash, fish and a terminal with no line editor.
+
 Agent Client Protocol (hosted sessions, acp.rs; schema v1, adapters checked 2026-09-27)
 
 - JSON-RPC 2.0, one message a line, on the adapter's stdin and stdout. `initialize`
@@ -944,7 +1002,9 @@ test that unarchives and re-archives a thread that's already archived:
 `CODEALONG_TEST_THREAD=<id> cargo test appserver -- --ignored`. Starting sessions
 is checked without starting one: `--snapshot --start-plan` prints the launch, and
 `cargo test ghostty_hands_over -- --ignored` opens a real Ghostty window that echoes
-a tricky prompt back through its environment, then closes.
+a tricky prompt back through its environment, then closes. `cargo test tty_apps -- --ignored
+--test-threads=1` does the same in iTerm2 and Terminal, and types, presses keys, focuses and
+closes there, on windows of its own; don't type on the Mac while it runs.
 
 Your other devices are tested with two in the same process over loopback (`cargo test peers`):
 linking, feeds, requests and remote control's refusal. By hand, `cargo test iroh_connects --

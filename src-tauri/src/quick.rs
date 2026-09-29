@@ -304,7 +304,7 @@ pub fn on_window_event(window: &Window, event: &WindowEvent) {
 /// `terminal` is the terminal's profile in config.toml.
 pub fn start_app(place: Place, terminal: &str) -> Option<&'static str> {
     match place {
-        Place::Terminal => (terminal == "ghostty").then_some("com.mitchellh.ghostty"),
+        Place::Terminal => crate::launch::bundle_id(terminal),
         // Nothing opens: the session runs with no window.
         Place::Background => None,
         Place::ClaudeApp => Some("com.anthropic.claudefordesktop"),
@@ -627,7 +627,8 @@ mod tests {
     #[test]
     fn starts_bring_their_app_forward() {
         assert_eq!(start_app(Place::Terminal, "ghostty"), Some("com.mitchellh.ghostty"));
-        assert_eq!(start_app(Place::Terminal, "iterm"), None);
+        assert_eq!(start_app(Place::Terminal, "iterm2"), Some("com.googlecode.iterm2"));
+        assert_eq!(start_app(Place::Terminal, "kitty"), None);
         assert_eq!(start_app(Place::ClaudeApp, "ghostty"), Some("com.anthropic.claudefordesktop"));
         assert_eq!(start_app(Place::CodexApp, "ghostty"), Some("com.openai.codex"));
     }
