@@ -2883,10 +2883,11 @@ html.is-notch body {
   --takes: 0.32s;
   transition:
     clip-path var(--takes) var(--ease),
-    transform var(--takes) var(--ease),
     left var(--takes) var(--ease),
     right var(--takes) var(--ease),
     bottom var(--takes) var(--ease),
+    width var(--takes) var(--ease),
+    height var(--takes) var(--ease),
     border-radius var(--takes) var(--ease),
     opacity 0.2s ease-out;
 }
@@ -2902,27 +2903,21 @@ html.is-notch body {
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
   --takes: 0.42s;
 }
-/* The corners, drawn at their open size and scaled down closed, from the corner that meets the
-   shape; the page puts each at the shape's edge. Each reaches 3 points past the curve, under the
-   shape, so no seam shows between them as they move. */
+/* The corners: the page places and sizes each at the shape's edge, the curve its height square
+   and 3 points past it under the shape, so no seam shows between them as they move. */
 .ca-notch-ear {
   position: absolute;
   top: 0;
-  left: 0;
-  width: 17px;
-  height: 14px;
 }
 .ca-notch-ear.is-left {
-  transform-origin: 14px 0;
   background:
-    radial-gradient(circle farthest-side at 0 100%, transparent 96%, var(--notch) 100%) 0 0 / 14px 14px no-repeat,
-    linear-gradient(var(--notch), var(--notch)) 14px 0 / 3px 14px no-repeat;
+    radial-gradient(circle farthest-side at 0 100%, transparent 96%, var(--notch) 100%) 0 0 / calc(100% - 3px) 100% no-repeat,
+    linear-gradient(var(--notch), var(--notch)) 100% 0 / 3px 100% no-repeat;
 }
 .ca-notch-ear.is-right {
-  transform-origin: 3px 0;
   background:
-    radial-gradient(circle farthest-side at 100% 100%, transparent 96%, var(--notch) 100%) 3px 0 / 14px 14px no-repeat,
-    linear-gradient(var(--notch), var(--notch)) 0 0 / 3px 14px no-repeat;
+    radial-gradient(circle farthest-side at 100% 100%, transparent 96%, var(--notch) 100%) 100% 0 / calc(100% - 3px) 100% no-repeat,
+    linear-gradient(var(--notch), var(--notch)) 0 0 / 3px 100% no-repeat;
 }
 /* The notch's own height across the top: a side on each hand of the camera, their content
    pinned to the camera's edges, so what shows closed is where it stays open. */

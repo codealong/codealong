@@ -135,11 +135,11 @@ export function NotchShell({ notch, logoStatus, counts, room, project, held, onM
   useEffect(() => clear, []);
 
   const shown = ORDER.filter((g) => counts[g] > 0);
-  const earScale = (open ? NOTCH.ear.open : NOTCH.ear.closed) / NOTCH.ear.open;
-  // Each corner reaches 3 points under the shape's edge (a point and more, scaled down closed):
-  // where two antialiased edges meet at a fraction of a pixel as they move, the menu bar would
-  // show through between them.
-  const ear = NOTCH.ear.open;
+  // The corners move and grow by their place and size, as the clip does, not by a transform:
+  // WebKit runs a transform's animation apart from the page's, and the corners fell out of step
+  // with the shape. Each reaches 3 points under the shape's edge: where two antialiased edges
+  // meet at a fraction of a pixel as they move, the menu bar would show through between them.
+  const ear = open ? NOTCH.ear.open : NOTCH.ear.closed;
   const under = 3;
 
   return (
@@ -152,8 +152,8 @@ export function NotchShell({ notch, logoStatus, counts, room, project, held, onM
         aria-hidden="true"
         style={{ left: clip.side, right: clip.side, bottom: clip.bottom, borderRadius: `0 0 ${clip.radius}px ${clip.radius}px` }}
       />
-      <span className="ca-notch-ear is-left" aria-hidden="true" style={{ transform: `translateX(${clip.side - ear}px) scale(${earScale})` }} />
-      <span className="ca-notch-ear is-right" aria-hidden="true" style={{ transform: `translateX(${sizes.open.w - clip.side - under}px) scale(${earScale})` }} />
+      <span className="ca-notch-ear is-left" aria-hidden="true" style={{ left: clip.side - ear, width: ear + under, height: ear }} />
+      <span className="ca-notch-ear is-right" aria-hidden="true" style={{ left: sizes.open.w - clip.side - under, width: ear + under, height: ear }} />
       <div
         className="ca-notch-shape"
         style={{ clipPath: `inset(0 ${clip.side}px ${clip.bottom}px ${clip.side}px round 0 0 ${clip.radius}px ${clip.radius}px)` }}

@@ -53,7 +53,8 @@
       check('not open at once', !isOpen());
       check('grows a little under the pointer', lastShape().w === closedW + 8, JSON.stringify(lastShape()));
       // Sample the clip as it opens: it only ever narrows its inset, the window stays put, and the
-      // left corner always reaches under the shape's edge, so no seam shows between them.
+      // left corner reaches the same 3 points under the shape's edge every frame: it moves in step
+      // with the shape, and no seam shows between them.
       var samples = [];
       var overlaps = [];
       var sampler = setInterval(function () {
@@ -70,7 +71,8 @@
           check('opens smoothly, never jumping back', back === 0 && samples[samples.length - 1] === 0, back + ' backward steps in ' + samples.length + ', last ' + samples[samples.length - 1]);
           check('never resizes its window', fits().slice(fitsAtStart).every(function (f) { return f === windowAtStart; }), windowAtStart + ' then ' + fits().slice(fitsAtStart).join(' '));
           var least = Math.min.apply(null, overlaps);
-          check('the corner reaches under the shape throughout', least >= 0.4, 'least overlap ' + least.toFixed(2));
+          var most = Math.max.apply(null, overlaps);
+          check('the corner reaches under the shape, in step with it throughout', least >= 2.5 && most - least < 0.5, 'overlap ' + least.toFixed(2) + ' to ' + most.toFixed(2));
           check('the shadow shows open', getComputedStyle(document.querySelector('.ca-notch-shadow')).opacity === '1');
           check('says its open shape', lastShape().w > closedW && lastShape().h > 32, JSON.stringify(lastShape()));
           check('pills below', notch().querySelectorAll('.ca-notch-body .ca-hud-pill').length > 0);

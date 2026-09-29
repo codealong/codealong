@@ -315,13 +315,15 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   **Snooze** (a session's menu on the bar or in Codealong, the peek's zzz button, or a folded
   pill's menu for all of its sessions): for 15 minutes, an hour, three hours or until 9 the
   next morning. A snoozed session leaves Needs you and Your turn, and the mark stops counting
-  it; the snoozed pill lists it with when it's back, to open or wake it early. When the time
+  it; the snoozed pill lists it with when it's back, to show it in Codealong, open it or wake it
+  early. When the time
   comes it's back as it is then, and one with nothing new (its turn already seen, or its
   process gone) comes back as Your turn, so a snooze always brings its session back. A running
   session stays in Working while snoozed, and sending a session a prompt ends its snooze.
   Needs you is a queue, the longest wait first, so a new one joins the end instead of pushing
   an old one down; Your turn and Working are the newest first. Pills that
-  don't fit fold into one per group that lists them. The mark brings Codealong forward; drag
+  don't fit fold into one per group that lists them, and a session picked from that list, or
+  from the recent pill's, shows in Codealong's window. The mark brings Codealong forward; drag
   the bar by it or by its gaps. **In the notch**, the bar docks at the top of the screen instead:
   one black shape with the notch, dark whatever the theme, showing the mark on the camera's
   left and, on its right, the most urgent group and how many (Needs you, then Your turn, then

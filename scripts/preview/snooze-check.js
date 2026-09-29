@@ -69,12 +69,12 @@
         check('its menu lists each with when it is back', entries.length === 3 && entries.every(function (e) { return / · until .+/.test(e.text); }), JSON.stringify(texts(menu)));
         check('and wakes them all', texts(menu).slice(-2).join('|') === '-|Wake all', JSON.stringify(texts(menu)));
         var first = entries[0];
-        check('each opens, shows, wakes or snoozes again', /^(Show|Attach|Resume|Open|Respond).*\|Show in Codealong\|-\|Wake now\|Snooze instead$/.test(texts(first.items).join('|')), texts(first.items).join('|'));
+        check('each shows in Codealong first, then opens, wakes or snoozes again', /^Show in Codealong\|(Show|Attach|Resume|Open|Respond).*\|-\|Wake now\|Snooze instead$/.test(texts(first.items).join('|')), texts(first.items).join('|'));
         pick(find(first.items, 'Wake now'));
         return wait(100).then(function () {
           var s = snoozes().pop();
           check('Wake now wakes that one', s && s.keys.length === 1 && s.until === null, JSON.stringify(s));
-          pick(first.items[0]);
+          pick(first.items[1]);
           return wait(300);
         }).then(function () {
           var s = snoozes().pop();

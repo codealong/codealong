@@ -512,7 +512,11 @@ export function Bar() {
     openFromBar(i.laneId, i.openTarget).catch((e: unknown) => setFailed({ anchor, message: String(e).replace(/^Error: /, '') }));
   };
 
-  const reveal = (i: BarItem | BarSnoozed) => void showMain({ kind: 'session', laneId: i.laneId, key: i.key });
+  /** Shows the session in Codealong's window: what an item in the bar's menus does. */
+  const reveal = (i: BarItem | BarRecent | BarSnoozed) => {
+    stopHover();
+    void showMain({ kind: 'session', laneId: i.laneId, key: i.key });
+  };
 
   /** Snoozing or waking takes the sessions off the bar or puts them back; the peek goes away
    *  from a session leaving it. What goes wrong shows where the menu came from. */
@@ -540,7 +544,7 @@ export function Bar() {
   };
 
   const foldMenu = (group: Group, folded: BarItem[], e: MouseEvent<HTMLButtonElement>) => {
-    const menu: MenuSpec = folded.map((i) => ({ label: `${i.title} · ${i.callsign}`, run: () => open(i, `fold:${group}`) }));
+    const menu: MenuSpec = folded.map((i) => ({ label: `${i.title} · ${i.callsign}`, run: () => reveal(i) }));
     const keys = folded.map((i) => i.key);
     if (group !== 'working') menu.push('separator');
     if (group === 'unread') menu.push({ label: 'Mark these as seen', run: () => markSeen(keys, `fold:${group}`) });
@@ -561,8 +565,8 @@ export function Bar() {
     const menu: MenuSpec = snoozed.map((i) => ({
       label: `${i.title} · ${i.callsign} · until ${untilWords(i.snoozedUntil, t)}`,
       items: [
-        { label: openLabel(i, terminal), run: () => wakeAndOpen(i) },
         { label: 'Show in Codealong', run: () => reveal(i) },
+        { label: openLabel(i, terminal), run: () => wakeAndOpen(i) },
         'separator',
         { label: 'Wake now', run: () => snoozeDone([i.key], 'snoozed')(snoozeAhead([i.key], null)) },
         snoozeMenu([i.key], t, { label: 'Snooze instead', onDone: snoozeDone([i.key], 'snoozed') }),
@@ -577,7 +581,7 @@ export function Bar() {
 
   const recentMenu = (e: MouseEvent<HTMLButtonElement>) => {
     void popup(
-      recent.map((i) => ({ label: `${i.title} · ${i.callsign} · ${ago(i.since, now)}`, run: () => open(i, 'recent') })),
+      recent.map((i) => ({ label: `${i.title} · ${i.callsign} · ${ago(i.since, now)}`, run: () => reveal(i) })),
       below(e),
     );
   };
