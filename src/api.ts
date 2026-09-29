@@ -702,6 +702,8 @@ export interface Notch {
 export interface BarModeView {
   mode: BarMode;
   notch: Notch | null;
+  /** Docked, it stays open rather than opening under the pointer. */
+  keepOpen?: boolean;
 }
 
 /** Where the bar shows, with the notch it docks into. Outside the app it floats, unless a
@@ -709,6 +711,12 @@ export interface BarModeView {
 export async function barMode(): Promise<BarModeView> {
   if (!inTauri) return (window as { __BAR_MODE__?: BarModeView }).__BAR_MODE__ ?? { mode: 'floating', notch: null };
   return invoke<BarModeView>('bar_mode');
+}
+
+/** Keeps the bar docked in the notch open, or lets it close when the pointer leaves. */
+export async function setNotchOpen(keep: boolean): Promise<void> {
+  if (!inTauri) return;
+  await invoke('set_notch_open', { keep });
 }
 
 /** Floats the bar, docks it in the notch, or turns it off. */

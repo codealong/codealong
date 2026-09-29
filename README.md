@@ -353,7 +353,8 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   Working; a new one that needs you pulses). Rest the pointer on it for a moment, or click it,
   and it opens down into the bar's pills, the peek opening under them as on the floating bar;
   it closes a moment after the pointer leaves, and stays open while the peek or one of its
-  menus is up. A screen without a notch (an external display) gets one drawn at the top center
+  menus is up. The pin at the end of its right side, or Keep the notch open in its right-click
+  menu, keeps it open until you unpin it, across launches. A screen without a notch (an external display) gets one drawn at the top center
   of its menu bar. The pair of buttons at the top right of the window floats the bar or puts it
   in the notch, and picking the one that's on turns it off, as do Window › Floating bar and Bar
   in the notch and the bar's own right-click menu.

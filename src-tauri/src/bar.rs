@@ -18,8 +18,8 @@
 //! it opens a session, Codealong asks macOS to bring that app forward (`bring_forward`).
 //!
 //! Closing the main window hides it and the app keeps running with the bar; the Dock icon and the
-//! bar's mark bring it back. Whether the bar is on and where you left it are kept in `bar.json`
-//! next to the config.
+//! bar's mark bring it back. Whether the bar is on, where you left it and whether it stays open
+//! in the notch are kept in `bar.json` next to the config.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
@@ -78,6 +78,8 @@ pub struct Notch {
 pub struct ModeView {
     pub mode: Mode,
     pub notch: Option<Notch>,
+    /// Docked, it stays open.
+    pub keep_open: bool,
 }
 
 /// A screen's notch: between the parts of the menu bar AppKit gives on either side of the camera
@@ -187,6 +189,9 @@ struct Saved {
     /// Docked in the notch rather than floating; kept while it's off, for when it's back on.
     #[serde(default)]
     notch: bool,
+    /// Docked, it stays open rather than opening under the pointer.
+    #[serde(default)]
+    keep_open: bool,
     /// Where the bar was last.
     #[serde(default)]
     frame: Option<Rect>,
@@ -374,7 +379,7 @@ fn keep_up(app: &AppHandle) {
         let before = state.notch.lock().ok().and_then(|n| *n);
         if now != before {
             place_for(app, &bar, Mode::Notch);
-            let _ = app.emit_to(LABEL, "bar-mode", ModeView { mode, notch: now });
+            let _ = app.emit_to(LABEL, "bar-mode", ModeView { notch: now, ..mode_view(app) });
         }
     }
     if state.moved.swap(false, Ordering::Relaxed) {
@@ -493,7 +498,23 @@ pub fn mode_of(app: &AppHandle) -> Mode {
 /// Where the bar shows, with the notch it docks into when it does. On the main thread.
 pub fn mode_view(app: &AppHandle) -> ModeView {
     let mode = mode_of(app);
-    ModeView { mode, notch: (mode == Mode::Notch).then(native::notch).flatten() }
+    let keep_open = app.try_state::<Bar>().and_then(|s| s.saved.lock().ok().map(|s| s.keep_open)).unwrap_or(false);
+    ModeView { mode, notch: (mode == Mode::Notch).then(native::notch).flatten(), keep_open }
+}
+
+/// Keeps the docked bar open, or lets it close again once the pointer is off it, and tells every
+/// window.
+pub fn set_keep_open(app: &AppHandle, keep: bool) {
+    let Some(state) = app.try_state::<Bar>() else { return };
+    if let Ok(mut saved) = state.saved.lock() {
+        saved.keep_open = keep;
+        saved.save();
+    }
+    let handle = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        let view = mode_view(&handle);
+        let _ = handle.emit("bar-mode", view);
+    });
 }
 
 /// Turns the bar on or off; on, it shows where it last did.
@@ -922,6 +943,9 @@ mod tests {
         assert_eq!(s.frame, Some(r(1.0, 2.0, 3.0, 4.0)));
         let s: Saved = serde_json::from_str(r#"{"notch":true}"#).unwrap();
         assert_eq!(s.mode(), Mode::Notch);
+        assert!(!s.keep_open);
+        let s: Saved = serde_json::from_str(r#"{"notch":true,"keepOpen":true}"#).unwrap();
+        assert!(s.keep_open);
         assert_eq!(serde_json::to_value(Mode::Notch).unwrap(), "notch");
     }
 

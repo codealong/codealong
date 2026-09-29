@@ -12,7 +12,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { barMode, desktopPins, dragToDesktop, fitBar, getBarFeed, onBarDragEnd, onBarFeed, onBarMode, onBarNote, onDesktopPins, onPeekShown, openFromBar, peekHide, peekOpen, pinToDesktop, setBarMode, showMain, showQuick, unpinFromDesktop, type BarModeView, type PillRect } from '../api';
+import { barMode, desktopPins, dragToDesktop, fitBar, getBarFeed, onBarDragEnd, onBarFeed, onBarMode, onBarNote, onDesktopPins, onPeekShown, openFromBar, peekHide, peekOpen, pinToDesktop, setBarMode, setNotchOpen, showMain, showQuick, unpinFromDesktop, type BarModeView, type PillRect } from '../api';
 import { CLICK_WAIT_MS, elsewhereWaits, fitGroups, GROUPS, plain, projectWaits, type Group, type GroupFit, type WaitCounts } from '../bar';
 import { showContextMenu, type MenuAction, type MenuSpec } from '../contextMenu';
 import { ago } from '../format';
@@ -378,6 +378,12 @@ export function Bar() {
     return onBarMode(setPlace);
   }, []);
   const notch = place?.mode === 'notch' ? place.notch : null;
+  const keepOpen = place?.keepOpen ?? false;
+  /** Pins the docked bar open or lets it close; it shows at once, and Codealong saves it. */
+  const pinOpen = (keep: boolean) => {
+    setPlace((p) => (p ? { ...p, keepOpen: keep } : p));
+    void setNotchOpen(keep);
+  };
   const now = useNow(30_000);
   const hud = useRef<HTMLDivElement>(null);
   const measure = useRef<HTMLDivElement>(null);
@@ -725,6 +731,7 @@ export function Bar() {
       { label: 'Show Codealong', run: () => void showMain() },
       ...(unread.length ? [{ label: 'Mark all as seen', run: () => markSeen(unread.map((i) => i.key), 'fold:unread') }] : []),
       'separator',
+      ...(docked ? [{ label: 'Keep the notch open', checked: keepOpen, run: () => pinOpen(!keepOpen) }] : []),
       docked ? { label: 'Float the bar instead', run: () => void setBarMode('floating') } : { label: 'Put the bar in the notch', run: () => void setBarMode('notch') },
       { label: docked ? 'Hide the bar' : 'Hide floating bar', run: () => void setBarMode('off') },
     ]);
@@ -819,6 +826,8 @@ export function Bar() {
           room={Math.min(MAX_WIDTH, window.screen.availWidth - SCREEN_ROOM)}
           project={picking ? <ProjectButton name={current} others={others} open={projectMenuOpen} onOpen={projectMenu} /> : null}
           held={peeked.key !== null || projectMenuOpen || menusUp > 0 || dragging !== null}
+          keepOpen={keepOpen}
+          onKeepOpen={pinOpen}
           onMark={() => void showMain()}
           onMenu={barMenu}
         >

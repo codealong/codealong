@@ -2,7 +2,7 @@
 // screen, always dark whatever the theme. Closed, it's the notch with a side on each hand: the
 // mark on the left, and on the right the most urgent group and how many. Pointing at it for a
 // moment, or clicking it, opens it down into the bar's pills; it closes a moment after the
-// pointer leaves, unless the peek or a menu is up.
+// pointer leaves, unless the peek or a menu is up, or its pin keeps it open.
 //
 // The shape is laid out once at its open size and shown through a clip, so opening and closing
 // animate the clip and the corners alone: nothing inside moves or lays out again, and the window
@@ -14,7 +14,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProp
 import { fitBar, notchShape, onNotchPointer, type Notch } from '../api';
 import { NOTCH, notchClip, notchSizes, type Group, type NotchState, type Size } from '../bar';
 import type { LogoStatus, Status } from '../types';
-import { Mark, StatusGlyph } from './primitives';
+import { Icon, Mark, StatusGlyph } from './primitives';
 
 /** How long the pointer rests on the closed notch before it opens, and is off it before it
  *  closes. */
@@ -35,19 +35,24 @@ export interface NotchShellProps {
   project: ReactNode;
   /** Keeps it open: the peek is up, or a menu. */
   held: boolean;
+  /** Kept open until it's unpinned, whatever the pointer does. */
+  keepOpen: boolean;
+  onKeepOpen: (keep: boolean) => void;
   onMark: () => void;
   onMenu: () => void;
   /** The bar's pills, shown below while it's open. */
   children: ReactNode;
 }
 
-export function NotchShell({ notch, logoStatus, counts, room, project, held, onMark, onMenu, children }: NotchShellProps) {
-  const [open, setOpen] = useState(false);
+export function NotchShell({ notch, logoStatus, counts, room, project, held, keepOpen, onKeepOpen, onMark, onMenu, children }: NotchShellProps) {
+  const [open, setOpen] = useState(keepOpen);
   // The pointer is on the shape.
   const [on, setOn] = useState(false);
   const onNow = useRef(false);
   const heldNow = useRef(held);
   heldNow.current = held;
+  const keepNow = useRef(keepOpen);
+  keepNow.current = keepOpen;
   const timer = useRef<number | null>(null);
   const body = useRef<HTMLDivElement>(null);
   const left = useRef<HTMLDivElement>(null);
@@ -102,7 +107,7 @@ export function NotchShell({ notch, logoStatus, counts, room, project, held, onM
     clear();
     timer.current = window.setTimeout(() => {
       timer.current = null;
-      if (!onNow.current && !heldNow.current) setOpen(false);
+      if (!onNow.current && !heldNow.current && !keepNow.current) setOpen(false);
     }, CLOSE_AFTER_MS);
   }, []);
 
@@ -127,10 +132,14 @@ export function NotchShell({ notch, logoStatus, counts, room, project, held, onM
   // Codealong says where the pointer is; in a preview, the page's own events do.
   useEffect(() => onNotchPointer((isOn) => (isOn ? enter() : leave())), [enter, leave]);
 
-  // The peek or a menu going away with the pointer elsewhere closes it too.
+  // The peek or a menu going away, or the pin coming out, with the pointer elsewhere closes it
+  // too; pinned, it opens at once.
   useEffect(() => {
-    if (!held && open && !onNow.current) leaveSoon();
-  }, [held, open, leaveSoon]);
+    if (keepOpen) {
+      clear();
+      setOpen(true);
+    } else if (!held && open && !onNow.current) leaveSoon();
+  }, [held, keepOpen, open, leaveSoon]);
 
   useEffect(() => clear, []);
 
@@ -185,6 +194,22 @@ export function NotchShell({ notch, logoStatus, counts, room, project, held, onM
               {shown.map((g, i) => (
                 <Count key={i === 0 ? `${g}-${counts[g]}` : g} group={g} n={counts[g]} extra={i > 0} pulse={i === 0 && g === 'needs'} />
               ))}
+              <button
+                type="button"
+                className={['ca-notch-pin', 'ca-notch-extra', keepOpen && 'is-on'].filter(Boolean).join(' ')}
+                title={keepOpen ? 'Let it close' : 'Keep it open'}
+                aria-label={keepOpen ? 'Let the notch close' : 'Keep the notch open'}
+                aria-pressed={keepOpen}
+                tabIndex={open ? 0 : -1}
+                onClick={(e) => {
+                  // Closed, it's out of sight: the click opens the notch, as anywhere on it.
+                  if (!open) return;
+                  e.stopPropagation();
+                  onKeepOpen(!keepOpen);
+                }}
+              >
+                <Icon name={keepOpen ? 'pinned' : 'pin'} size={14} />
+              </button>
             </div>
           </div>
         </div>

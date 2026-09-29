@@ -3138,6 +3138,29 @@ html.is-notch body {
     transform: scale(1);
   }
 }
+/* The pin that keeps the notch open, at the end of its right side. */
+.ca-notch-pin {
+  appearance: none;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--ink-3);
+  cursor: default;
+}
+.ca-notch-pin:hover {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+.ca-notch-pin.is-on {
+  color: var(--ink);
+}
 /* What opens below the notch: the bar's pills, at their own width, faded in once the shape has
    room for them. */
 .ca-notch-body {
