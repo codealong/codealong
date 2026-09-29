@@ -44,9 +44,9 @@ describe('ageFiltered', () => {
   });
 
   it('takes the headline from the agent that sets the new status', () => {
-    const done = { ...session('done', 'unread', NOW - 3_600_000), headline: '`claude` finished · Fix it', detail: 'Pushed the fix' } as Session;
+    const done = { ...session('done', 'unread', NOW - 3_600_000), headline: '`claude` · Fix it', detail: 'Pushed the fix' } as Session;
     const l = ageFiltered(lane([stuck, done], pr('merged')), NOW - DAY, 'in the last 24 hours');
-    expect([l.bay, l.headline, l.detail]).toEqual(['unread', '`claude` finished · Fix it', 'Pushed the fix']);
+    expect([l.bay, l.headline, l.detail]).toEqual(['unread', '`claude` · Fix it', 'Pushed the fix']);
   });
 
   it('leaves a lane alone when nothing in it is filtered out', () => {
@@ -168,7 +168,7 @@ describe('inboxCounts', () => {
 describe('withoutAccount', () => {
   it('drops the account the chip already shows', () => {
     expect(withoutAccount('`claude` · Fix the test')).toBe('Fix the test');
-    expect(withoutAccount('`claude2` finished · Fix the test')).toBe('finished · Fix the test');
+    expect(withoutAccount('`claude2` is stuck · Fix the test')).toBe('is stuck · Fix the test');
     expect(withoutAccount('`codex` asks for approval · Fix the test')).toBe('asks for approval · Fix the test');
     expect(withoutAccount('Checks failing on #7')).toBe('Checks failing on #7');
   });
@@ -183,6 +183,10 @@ describe('sessionHeadline', () => {
     expect(sessionHeadline(s({ harness: 'codex', excerpt: 'Bash · `make`' }))[0]).toBe('`claude2` asks for approval · Fix the test');
     expect(sessionHeadline(s({}))).toEqual(['`claude2` needs you · Fix the test', null]);
     expect(sessionHeadline(s({ status: 'error', excerpt: 'API error' }))[0]).toBe('`claude2` stopped with an error · Fix the test');
+  });
+
+  it('leaves a finished turn its title alone, which its glyph and bay already say finished', () => {
+    expect(sessionHeadline(s({ status: 'unread', excerpt: 'Pushed the fix' }))).toEqual(['`claude2` · Fix the test', 'Pushed the fix']);
   });
 
   it('says a session whose reply asks you something asks you, not that it waits for approval', () => {

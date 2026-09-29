@@ -162,7 +162,8 @@ export function sessionHeadline(s: Session): [string, string | null] {
       return [`${acct} · ${s.title}`, detail];
     }
     case 'unread':
-      return [`${acct} finished · ${s.title}`, s.excerpt];
+      // Its glyph and bay already say it finished, so the title stands alone, as a working one's does.
+      return [`${acct} · ${s.title}`, s.excerpt];
     case 'idle':
       return [`${acct} · ${s.title}`, `last turn {ago:${s.lastActivity}}`];
     case 'stopped':
@@ -305,7 +306,7 @@ export function inboxCounts(lanes: Lane[]): { needs: number; working: number; un
 
 /**
  * A session's sentence without the account it starts with, which the chip beside it shows:
- * "`claude` finished · Fix the test" reads "finished · Fix the test".
+ * "`claude` asks you · Fix the test" reads "asks you · Fix the test".
  */
 export function withoutAccount(headline: string): string {
   return headline.replace(/^`[^`]*`\s*(?:·\s*)?/, '');

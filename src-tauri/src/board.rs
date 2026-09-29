@@ -870,7 +870,9 @@ pub fn session_headline(s: &Session) -> (String, Option<String>) {
             };
             (format!("{acct} · {}", s.title), detail)
         }
-        Status::Unread => (format!("{acct} finished · {}", s.title), s.excerpt.clone()),
+        // Its glyph and its bay (Your turn) already say it finished, and the word on every row
+        // there was noise: the title stands alone, as a working session's does.
+        Status::Unread => (format!("{acct} · {}", s.title), s.excerpt.clone()),
         Status::Idle => (format!("{acct} · {}", s.title), Some(format!("last turn {{ago:{}}}", s.last_activity))),
         Status::Stopped => (format!("{acct} · {}", s.title), Some(format!("stopped {{ago:{}}}", s.last_activity))),
     }
@@ -2123,6 +2125,9 @@ mod tests {
         assert_eq!(session_headline(&held), ("`claude2` asks you · Quarry daily log + photo sync".into(), Some("Which color?".into())));
         // Needs you with nothing to say: the title is in the headline, nothing under it.
         assert_eq!(session_headline(&Session { excerpt: None, ..needs.clone() }), ("`claude2` needs you · Quarry daily log + photo sync".to_string(), None));
+        // A finished turn is its title alone: its glyph and bay say it finished.
+        let done = Session { status: Status::Unread, excerpt: Some("Pushed the fix".into()), ..needs.clone() };
+        assert_eq!(session_headline(&done), ("`claude2` · Quarry daily log + photo sync".to_string(), Some("Pushed the fix".to_string())));
         assert_eq!(
             headline(Bay::Needs, &[needs], None, None),
             ("`claude2` is waiting for approval · Quarry daily log + photo sync".to_string(), Some("Bash · `yarn mikro-orm migration:up`".to_string()))
