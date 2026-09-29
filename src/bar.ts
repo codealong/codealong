@@ -108,3 +108,46 @@ export function elsewhereWaits(waits: Record<string, WaitCounts>, projects: stri
   }
   return out;
 }
+
+// ---- The bar docked in the notch (Notch.tsx) ----
+
+/** The docked bar's measures, in points: each side beside the camera while it's closed; the
+ *  concave corners where it meets the menu bar and its bottom corners, closed and open; the
+ *  padding around what opens below; and the room under the open shape for its shadow, which the
+ *  peek counts on to open under it (peek.rs `BAR_MARGIN`). */
+export const NOTCH = {
+  wing: 44,
+  ear: { closed: 6, open: 14 },
+  radius: { closed: 12, open: 22 },
+  pad: 10,
+  bottom: 12,
+};
+
+export interface Size {
+  w: number;
+  h: number;
+}
+
+/** The docked bar's shape, closed and open, and its window for each: the shape with room for
+ *  the corners at its top, and open, for the shadow under it. Open, it's as wide as the pills
+ *  below it or the sides beside the camera need, and never narrower than closed. */
+export function notchSizes(notch: { width: number; height: number }, body: Size, side: number): { closed: Size; open: Size; closedWindow: Size; openWindow: Size } {
+  const closed = { w: notch.width + 2 * NOTCH.wing, h: notch.height };
+  const open = {
+    w: Math.ceil(Math.max(closed.w, body.w + 2 * NOTCH.pad, notch.width + 2 * (side + NOTCH.pad))),
+    h: Math.ceil(notch.height + body.h + NOTCH.pad),
+  };
+  return {
+    closed,
+    open,
+    closedWindow: { w: closed.w + 2 * NOTCH.ear.closed, h: closed.h },
+    openWindow: { w: open.w + 2 * NOTCH.ear.open, h: open.h + NOTCH.bottom },
+  };
+}
+
+/** What the closed notch shows beside the camera: the most urgent group with anything in it, in
+ *  the bar's order, and how many; none when nothing needs you, waits for you or runs. */
+export function notchCount(counts: Record<Group, number>): { group: Group; n: number } | null {
+  const group = GROUPS.find((g) => counts[g] > 0);
+  return group ? { group, n: counts[group] } : null;
+}

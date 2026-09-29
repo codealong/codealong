@@ -11,7 +11,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSPr
 import { below, showContextMenu, type MenuAction, type MenuSpec } from './contextMenu';
 import { folderMenu, openInMenu, opensInEditor, useEditorIcons } from './editors';
 import { AGENT_BAY, BAYS, buildBays, filterByAge, inboxCounts, lanePromptAt, narrowed, prNeedsWork, rowItems, seenable, worktreeRow, type BoardRow, type Filter, type WorktreeRow } from './lanes';
-import { answerLink, approvePr, barOn, desktopPins, getDevices, onDevices, dismissTodoHint, expandAttachments, getBoard, onBarOn, onBoard, onCloseIdle, onDesktopPins, onNewWindow, onQuickStart, onReveal, onSettings, onCheckUpdates, openConfig, openProjectWindow, openTarget, openUrl, pinToDesktop, refresh, refreshUsage, reviewInCodex, setBarOn, startOptions, startSession, forkSession, setPinned, setPinnedWorktrees, setTheme, showQuick, signIn, unpinFromDesktop, windowLabel, type Reveal } from './api';
+import { answerLink, approvePr, barMode, desktopPins, getDevices, onDevices, dismissTodoHint, expandAttachments, getBoard, onBarMode, onBoard, onCloseIdle, onDesktopPins, onNewWindow, onQuickStart, onReveal, onSettings, onCheckUpdates, openConfig, openProjectWindow, openTarget, openUrl, pinToDesktop, refresh, refreshUsage, reviewInCodex, setBarMode, startOptions, startSession, forkSession, setPinned, setPinnedWorktrees, setTheme, showQuick, signIn, unpinFromDesktop, windowLabel, type BarMode, type Reveal } from './api';
 import { agoPhrase, middleTruncate } from './format';
 import { usePerf } from './perf';
 import { archiveAhead, boardAhead, boardView, lanesAhead, observe, seenAhead, useAhead } from './ahead';
@@ -1328,17 +1328,19 @@ export function App() {
     focusBox();
   };
 
-  // The floating bar is on unless turned off here, from its own menu or from the Window menu.
-  const [floatingBar, setFloatingBar] = useState(true);
+  // Where the bar shows: floating, docked in the notch, or off; changed here, from its own menu or
+  // from the Window menu. Picking the place it's in turns it off.
+  const [barPlace, setBarPlace] = useState<BarMode>('floating');
   useEffect(() => {
-    void barOn().then(setFloatingBar);
-    return onBarOn(setFloatingBar);
+    void barMode().then((v) => setBarPlace(v.mode));
+    return onBarMode((v) => setBarPlace(v.mode));
   }, []);
-  const toggleFloatingBar = () => {
-    const on = !floatingBar;
-    setFloatingBar(on);
-    setBarOn(on).catch((e: unknown) => {
-      setFloatingBar(!on);
+  const pickBarPlace = (picked: Exclude<BarMode, 'off'>) => {
+    const before = barPlace;
+    const next = before === picked ? 'off' : picked;
+    setBarPlace(next);
+    setBarMode(next).catch((e: unknown) => {
+      setBarPlace(before);
       setToast(String(e));
     });
   };
@@ -1965,16 +1967,28 @@ export function App() {
           )}
         </label>
         <div className="ca-bar-tools" data-tauri-drag-region>
-          <button
-            type="button"
-            className={['ca-btn', 'ca-btn--ghost', 'ca-btn--sm', 'is-icon', 'ca-bartoggle', floatingBar && 'is-on'].filter(Boolean).join(' ')}
-            aria-pressed={floatingBar}
-            aria-label="Floating bar"
-            title={floatingBar ? 'Hide the floating bar' : 'Show the floating bar: the agents that need you, on top of every window'}
-            onClick={toggleFloatingBar}
-          >
-            <Icon name="capsule-horizontal" size={16} />
-          </button>
+          <div className="ca-segctl ca-barplace" role="group" aria-label="Agents bar">
+            <button
+              type="button"
+              className={barPlace === 'floating' ? 'is-on' : undefined}
+              aria-pressed={barPlace === 'floating'}
+              aria-label="Floating bar"
+              title={barPlace === 'floating' ? 'Hide the floating bar' : 'Floating bar: the agents that need you, on top of every window, where you put it'}
+              onClick={() => pickBarPlace('floating')}
+            >
+              <Icon name="capsule-horizontal" size={15} />
+            </button>
+            <button
+              type="button"
+              className={barPlace === 'notch' ? 'is-on' : undefined}
+              aria-pressed={barPlace === 'notch'}
+              aria-label="Bar in the notch"
+              title={barPlace === 'notch' ? 'Hide the bar in the notch' : 'In the notch: the agents that need you, around the notch at the top of the screen, opening when you point at it'}
+              onClick={() => pickBarPlace('notch')}
+            >
+              <Icon name="notch" size={15} />
+            </button>
+          </div>
         </div>
         <Button
           size="sm"

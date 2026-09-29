@@ -1,7 +1,14 @@
 //! The floating bar: a small window, on top of every other and on every Space, that shows the
 //! agents that need you and the ones running, PRs to review and todos ready to start. It's up
 //! unless you turn it off, from the toggle at the top right of the board, the bar's own menu, or
-//! Window › Floating bar.
+//! the Window menu.
+//!
+//! It floats where you put it, or docks in the notch: at the top of the screen, around the
+//! camera, as one black shape with the notch that shows the mark and what needs you most, and
+//! opens down into the bar's pills when you point at it (Bar.tsx). A screen without a notch gets
+//! one drawn at the top center of its menu bar. Docked, the window sits above the menu bar
+//! (`NOTCH_LEVEL`) and is sized to the shape as it opens and closes: a web page takes the clicks
+//! on its clear parts too, so a window any bigger would block the menu bar under it.
 //!
 //! It's a non-activating panel: macOS lets only those onto another app's full-screen Space. So a
 //! click in the bar doesn't make Codealong the active app, and it never takes the keyboard. After
@@ -24,6 +31,7 @@ use crate::config::support_dir;
 
 pub const LABEL: &str = "bar";
 const MENU_ID: &str = "floating-bar";
+const NOTCH_MENU_ID: &str = "notch-bar";
 /// How often the bar checks that it's up (when on) and writes down where it was moved to.
 const CHECK_EVERY: Duration = Duration::from_secs(1);
 /// The bar's size before its page has measured itself.
@@ -32,6 +40,62 @@ const START: (f64, f64) = (240.0, 48.0);
 pub(crate) const TOP_GAP: f64 = 6.0;
 /// Room kept at the sides of the screen.
 pub(crate) const EDGE: f64 = 8.0;
+/// The width of the notch drawn on a screen without one: about the hardware's on a 14-inch
+/// MacBook Pro (185 points).
+const DRAWN_NOTCH_WIDTH: f64 = 180.0;
+/// The drawn notch's height where the menu bar is hidden and says nothing of its own.
+const DRAWN_NOTCH_HEIGHT: f64 = 24.0;
+
+/// Where the bar shows: floating where you put it, docked in the notch, or not at all.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Mode {
+    Off,
+    Floating,
+    Notch,
+}
+
+/// The notch the bar docks into, in screen points: its center, the top of its screen, its size,
+/// and whether the screen has one or the bar draws it.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Notch {
+    pub x: f64,
+    pub top: f64,
+    pub width: f64,
+    pub height: f64,
+    pub real: bool,
+}
+
+/// What the bar's page is told: where it shows, and the notch it docks into.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModeView {
+    pub mode: Mode,
+    pub notch: Option<Notch>,
+}
+
+/// A screen's notch: between the parts of the menu bar AppKit gives on either side of the camera
+/// (`auxiliaryTopLeftArea` and `…RightArea`), as tall as the safe area it keeps from the top. A
+/// screen without one gets one drawn at the top center, as tall as its menu bar.
+pub fn notch_of(frame: Rect, visible: Rect, safe_top: f64, sides: Option<(f64, f64)>) -> Notch {
+    match sides.filter(|(l, r)| safe_top > 0.0 && *l > 0.0 && *r > 0.0) {
+        Some((left, right)) => {
+            let (from, to) = (frame.x + left, frame.right() - right);
+            Notch { x: (from + to) / 2.0, top: frame.top(), width: to - from, height: safe_top, real: true }
+        }
+        None => {
+            let menu = frame.top() - visible.top();
+            let height = if menu > 5.0 { menu } else { DRAWN_NOTCH_HEIGHT };
+            Notch { x: frame.x + frame.w / 2.0, top: frame.top(), width: DRAWN_NOTCH_WIDTH, height, real: false }
+        }
+    }
+}
+
+/// The docked bar's frame at a size: centered on the notch, its top at the top of the screen.
+pub fn notch_frame(n: Notch, w: f64, h: f64) -> Rect {
+    Rect { x: (n.x - w / 2.0).round(), y: n.top - h, w, h }
+}
 
 /// A rectangle in screen points as AppKit gives them: the origin at the bottom left of the main
 /// screen, y growing up.
@@ -115,12 +179,23 @@ struct Saved {
     /// Turned off from the bar's menu or the Window menu.
     #[serde(default)]
     off: bool,
+    /// Docked in the notch rather than floating; kept while it's off, for when it's back on.
+    #[serde(default)]
+    notch: bool,
     /// Where the bar was last.
     #[serde(default)]
     frame: Option<Rect>,
 }
 
 impl Saved {
+    fn mode(&self) -> Mode {
+        match (self.off, self.notch) {
+            (true, _) => Mode::Off,
+            (false, true) => Mode::Notch,
+            (false, false) => Mode::Floating,
+        }
+    }
+
     fn load() -> Saved {
         std::fs::read_to_string(support_dir().join("bar.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
     }
@@ -140,15 +215,18 @@ struct Bar {
     sent: Mutex<String>,
     /// The bar moved since `bar.json` was written.
     moved: AtomicBool,
-    /// Window › Floating bar.
+    /// Window › Floating bar and Window › Bar in the notch.
     item: Mutex<Option<CheckMenuItem<Wry>>>,
+    notch_item: Mutex<Option<CheckMenuItem<Wry>>>,
+    /// The notch the page was last told of, while docked.
+    notch: Mutex<Option<Notch>>,
 }
 
 /// Makes the bar, shows it unless it's turned off, and adds Window › Floating bar.
 pub fn setup(app: &AppHandle) -> Result<()> {
     let saved = Saved::load();
-    let (off, frame) = (saved.off, saved.frame);
-    app.manage(Bar { saved: Mutex::new(saved), sent: Mutex::new(String::new()), moved: AtomicBool::new(false), item: Mutex::new(None) });
+    let (mode, frame) = (saved.mode(), saved.frame);
+    app.manage(Bar { saved: Mutex::new(saved), sent: Mutex::new(String::new()), moved: AtomicBool::new(false), item: Mutex::new(None), notch_item: Mutex::new(None), notch: Mutex::new(None) });
 
     let window = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("index.html".into()))
         .title("Codealong bar")
@@ -176,24 +254,32 @@ pub fn setup(app: &AppHandle) -> Result<()> {
     if let Some(r) = start_frame(frame, &native::screens()) {
         native::set_frame(&window, r);
     }
-    if !off {
+    if mode != Mode::Off {
+        place_for(app, &window, mode);
         native::show(&window);
     }
 
-    let item = CheckMenuItem::with_id(app, MENU_ID, "Floating bar", true, !off, None::<&str>)?;
+    let item = CheckMenuItem::with_id(app, MENU_ID, "Floating bar", true, mode == Mode::Floating, None::<&str>)?;
+    let notch_item = CheckMenuItem::with_id(app, NOTCH_MENU_ID, "Bar in the notch", true, mode == Mode::Notch, None::<&str>)?;
     if let Some(MenuItemKind::Submenu(menu)) = app.menu().and_then(|m| m.get(WINDOW_SUBMENU_ID)) {
         menu.append(&PredefinedMenuItem::separator(app)?)?;
         menu.append(&item)?;
+        menu.append(&notch_item)?;
     }
     if let Ok(mut slot) = app.state::<Bar>().item.lock() {
         *slot = Some(item);
     }
+    if let Ok(mut slot) = app.state::<Bar>().notch_item.lock() {
+        *slot = Some(notch_item);
+    }
     app.on_menu_event(|app, event| {
-        if event.id().as_ref() == MENU_ID {
-            // The menu has already flipped the check mark.
-            let on = app.state::<Bar>().item.lock().ok().and_then(|i| i.as_ref().and_then(|i| i.is_checked().ok())).unwrap_or(true);
-            set_on(app, on);
-        }
+        // Picking the checked place turns the bar off; picking the other moves it there.
+        let picked = match event.id().as_ref() {
+            MENU_ID => Mode::Floating,
+            NOTCH_MENU_ID => Mode::Notch,
+            _ => return,
+        };
+        set_mode(app, if mode_of(app) == picked { Mode::Off } else { picked });
     });
 
     let handle = app.clone();
@@ -213,9 +299,19 @@ fn keep_up(app: &AppHandle) {
     let (Some(bar), Some(state)) = (app.get_webview_window(LABEL), app.try_state::<Bar>()) else {
         return;
     };
-    let on = state.saved.lock().map(|s| !s.off).unwrap_or(false);
-    if on && !native::on_screen(&bar) {
+    let mode = state.saved.lock().map(|s| s.mode()).unwrap_or(Mode::Off);
+    if mode != Mode::Off && !native::on_screen(&bar) {
         native::show(&bar);
+    }
+    // Docked, the bar follows the notch: a display plugged in or out, the lid closed, the menu
+    // bar's height changed.
+    if mode == Mode::Notch {
+        let now = native::notch();
+        let before = state.notch.lock().ok().and_then(|n| *n);
+        if now != before {
+            place_for(app, &bar, Mode::Notch);
+            let _ = app.emit_to(LABEL, "bar-mode", ModeView { mode, notch: now });
+        }
     }
     if state.moved.swap(false, Ordering::Relaxed) {
         if let Ok(saved) = state.saved.lock() {
@@ -236,6 +332,10 @@ pub fn on_window_event(window: &Window, event: &WindowEvent) {
             let (Some(state), Some(bar)) = (window.try_state::<Bar>(), window.app_handle().get_webview_window(LABEL)) else {
                 return;
             };
+            // Where it floats is what's remembered; docked, it's where the notch is.
+            if state.saved.lock().map(|s| s.mode() != Mode::Floating).unwrap_or(true) {
+                return;
+            }
             let Some(frame) = native::frame(&bar) else { return };
             if let Ok(mut saved) = state.saved.lock() {
                 saved.frame = Some(frame);
@@ -252,8 +352,13 @@ pub fn fit(app: &AppHandle, width: f64, height: f64) {
     let _ = app.run_on_main_thread(move || {
         let Some(bar) = handle.get_webview_window(LABEL) else { return };
         let Some(current) = native::frame(&bar) else { return };
-        let Some(screen) = screen_for(current, &native::screens()) else { return };
-        let next = place(current, width.ceil(), height.ceil(), screen);
+        let next = match (mode_of(&handle), native::notch()) {
+            (Mode::Notch, Some(n)) => notch_frame(n, width.ceil(), height.ceil()),
+            _ => {
+                let Some(screen) = screen_for(current, &native::screens()) else { return };
+                place(current, width.ceil(), height.ceil(), screen)
+            }
+        };
         if next != current {
             native::set_frame(&bar, next);
         }
@@ -286,28 +391,90 @@ pub fn frame(app: &AppHandle) -> Option<Rect> {
 
 /// Whether the bar is on.
 pub fn is_on(app: &AppHandle) -> bool {
-    app.try_state::<Bar>().and_then(|s| s.saved.lock().ok().map(|s| !s.off)).unwrap_or(false)
+    mode_of(app) != Mode::Off
 }
 
-/// Turns the bar on or off, and tells every window, so the toggle at the top right and Window ›
-/// Floating bar stay in step with wherever it was changed.
+/// Where the bar shows.
+pub fn mode_of(app: &AppHandle) -> Mode {
+    app.try_state::<Bar>().and_then(|s| s.saved.lock().ok().map(|s| s.mode())).unwrap_or(Mode::Off)
+}
+
+/// Where the bar shows, with the notch it docks into when it does. On the main thread.
+pub fn mode_view(app: &AppHandle) -> ModeView {
+    let mode = mode_of(app);
+    ModeView { mode, notch: (mode == Mode::Notch).then(native::notch).flatten() }
+}
+
+/// Turns the bar on or off; on, it shows where it last did.
 pub fn set_on(app: &AppHandle, on: bool) {
+    let notch = app.try_state::<Bar>().and_then(|s| s.saved.lock().ok().map(|s| s.notch)).unwrap_or(false);
+    set_mode(app, match (on, notch) {
+        (false, _) => Mode::Off,
+        (true, true) => Mode::Notch,
+        (true, false) => Mode::Floating,
+    });
+}
+
+/// Moves the bar to the notch or back to where it floated, or turns it off, and tells every
+/// window, so the toggle at the top right and the Window menu stay in step with wherever it was
+/// changed.
+pub fn set_mode(app: &AppHandle, mode: Mode) {
     let Some(state) = app.try_state::<Bar>() else { return };
-    if let Ok(mut saved) = state.saved.lock() {
-        saved.off = !on;
+    let floating_frame = {
+        let Ok(mut saved) = state.saved.lock() else { return };
+        saved.off = mode == Mode::Off;
+        if mode != Mode::Off {
+            saved.notch = mode == Mode::Notch;
+        }
         saved.save();
-    }
-    if let Some(item) = state.item.lock().ok().and_then(|i| i.clone()) {
-        let _ = item.set_checked(on);
-    }
-    if let Some(bar) = app.get_webview_window(LABEL) {
-        if on {
-            native::show(&bar);
-        } else {
-            let _ = bar.hide();
+        saved.frame
+    };
+    for (item, checked) in [(&state.item, mode == Mode::Floating), (&state.notch_item, mode == Mode::Notch)] {
+        if let Some(item) = item.lock().ok().and_then(|i| i.clone()) {
+            let _ = item.set_checked(checked);
         }
     }
-    let _ = app.emit("floating-bar", on);
+    let handle = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        let Some(bar) = handle.get_webview_window(LABEL) else { return };
+        match mode {
+            Mode::Off => {
+                let _ = bar.hide();
+            }
+            Mode::Floating => {
+                native::set_level(&bar, false);
+                if let Some(r) = start_frame(floating_frame, &native::screens()) {
+                    native::set_frame(&bar, r);
+                }
+                native::show(&bar);
+            }
+            Mode::Notch => {
+                place_for(&handle, &bar, Mode::Notch);
+                native::show(&bar);
+            }
+        }
+        let view = mode_view(&handle);
+        let _ = handle.emit("bar-mode", view);
+        let _ = handle.emit("floating-bar", mode != Mode::Off);
+    });
+}
+
+/// Puts the bar at its level and place for how it shows: docked, centered on the notch at the
+/// size it has (the page sizes it to its shape), and the notch remembered. On the main thread.
+fn place_for(app: &AppHandle, bar: &tauri::WebviewWindow, mode: Mode) {
+    native::set_level(bar, mode == Mode::Notch);
+    if mode != Mode::Notch {
+        return;
+    }
+    let notch = native::notch();
+    if let (Some(n), Some(current)) = (notch, native::frame(bar)) {
+        native::set_frame(bar, notch_frame(n, current.w, current.h));
+    }
+    if let Some(state) = app.try_state::<Bar>() {
+        if let Ok(mut slot) = state.notch.lock() {
+            *slot = notch;
+        }
+    }
 }
 
 /// The app an open target lands in, by bundle ID: the terminal for terminal sessions, else the
@@ -349,11 +516,11 @@ pub(crate) mod native {
 
     use objc2::runtime::{AnyClass, AnyObject, Bool, ClassBuilder, Sel};
     use objc2::{sel, ClassType, MainThreadMarker};
-    use objc2_app_kit::{NSApplicationActivationOptions, NSEvent, NSPanel, NSRunningApplication, NSScreen, NSStatusWindowLevel, NSWindow, NSWindowCollectionBehavior, NSWindowOcclusionState, NSWindowStyleMask};
+    use objc2_app_kit::{NSApplicationActivationOptions, NSEvent, NSMainMenuWindowLevel, NSPanel, NSRunningApplication, NSScreen, NSStatusWindowLevel, NSWindow, NSWindowCollectionBehavior, NSWindowOcclusionState, NSWindowStyleMask};
     use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
     use tauri::WebviewWindow;
 
-    use super::{Rect, Screen};
+    use super::{Notch, Rect, Screen};
 
     /// The window's NSWindow, on the main thread only.
     fn ns(w: &WebviewWindow) -> Option<&NSWindow> {
@@ -378,6 +545,11 @@ pub(crate) mod native {
             extern "C" fn yes(_: &AnyObject, _: Sel) -> Bool {
                 Bool::YES
             }
+            // Where it's put is where it goes: docked, the bar sits over the menu bar, which
+            // AppKit would otherwise keep a window below.
+            extern "C" fn as_asked(_: &AnyObject, _: Sel, frame: NSRect, _: *const AnyObject) -> NSRect {
+                frame
+            }
             match ClassBuilder::new(c"CodealongBarPanel", NSPanel::class()) {
                 Some(mut builder) => {
                     // SAFETY: the overrides match NSWindow's `- (BOOL)canBecome…Window` and
@@ -386,6 +558,7 @@ pub(crate) mod native {
                         builder.add_method(sel!(canBecomeKeyWindow), no as extern "C" fn(_, _) -> _);
                         builder.add_method(sel!(canBecomeMainWindow), no as extern "C" fn(_, _) -> _);
                         builder.add_method(sel!(isKeyWindow), yes as extern "C" fn(_, _) -> _);
+                        builder.add_method(sel!(constrainFrameRect:toScreen:), as_asked as extern "C" fn(_, _, _, _) -> _);
                     }
                     builder.register()
                 }
@@ -471,6 +644,27 @@ pub(crate) mod native {
         }
     }
 
+    /// Docked in the notch the bar sits over the menu bar (level 24) and its status items (25), as
+    /// the notch apps do; floating, at the status item level like other apps' floating panels.
+    pub fn set_level(w: &WebviewWindow, docked: bool) {
+        if let Some(n) = ns(w) {
+            n.setLevel(if docked { NSMainMenuWindowLevel + 2 } else { NSStatusWindowLevel });
+        }
+    }
+
+    /// The notch the bar docks into: the first screen's with one, else one drawn on the screen with
+    /// the menu bar.
+    pub fn notch() -> Option<Notch> {
+        let mtm = MainThreadMarker::new()?;
+        let all = NSScreen::screens(mtm);
+        let screens: Vec<_> = (0..all.count()).map(|i| all.objectAtIndex(i)).collect();
+        let of = |s: &NSScreen| {
+            let (left, right) = (s.auxiliaryTopLeftArea().size.width, s.auxiliaryTopRightArea().size.width);
+            super::notch_of(rect(s.frame()), rect(s.visibleFrame()), s.safeAreaInsets().top, Some((left, right)))
+        };
+        screens.iter().map(|s| of(s)).find(|n| n.real).or_else(|| screens.first().map(|s| of(s)))
+    }
+
     /// Brings the bar up without making it key or activating Codealong, whichever app is in front.
     pub fn show(w: &WebviewWindow) {
         if let Some(n) = ns(w) {
@@ -519,6 +713,10 @@ pub(crate) mod native {
     pub struct Original;
 
     pub fn make_panel(_: &WebviewWindow) -> Option<Original> {
+        None
+    }
+    pub fn set_level(_: &WebviewWindow, _: bool) {}
+    pub fn notch() -> Option<super::Notch> {
         None
     }
     pub fn unmake_panel(_: &WebviewWindow, _: Original) {}
@@ -601,8 +799,40 @@ mod tests {
     fn saved_state_reads_old_and_partial_files() {
         let s: Saved = serde_json::from_str("{}").unwrap();
         assert_eq!(s, Saved::default());
+        assert_eq!(s.mode(), Mode::Floating);
         let s: Saved = serde_json::from_str(r#"{"off":true,"frame":{"x":1,"y":2,"w":3,"h":4}}"#).unwrap();
         assert!(s.off);
+        assert_eq!(s.mode(), Mode::Off);
         assert_eq!(s.frame, Some(r(1.0, 2.0, 3.0, 4.0)));
+        let s: Saved = serde_json::from_str(r#"{"notch":true}"#).unwrap();
+        assert_eq!(s.mode(), Mode::Notch);
+        assert_eq!(serde_json::to_value(Mode::Notch).unwrap(), "notch");
+    }
+
+    #[test]
+    fn finds_the_notch_between_the_menu_bars_two_sides() {
+        // A 14-inch MacBook Pro at its default size: 1512 by 982 points, 185 of them the notch's.
+        let frame = r(0.0, 0.0, 1512.0, 982.0);
+        let visible = r(0.0, 0.0, 1512.0, 950.0);
+        let n = notch_of(frame, visible, 32.0, Some((663.5, 663.5)));
+        assert_eq!(n, Notch { x: 756.0, top: 982.0, width: 185.0, height: 32.0, real: true });
+        // A 16-inch one as it read on this Mac (2026-09-28): the notch sits half a point right
+        // of the middle.
+        let n16 = notch_of(r(0.0, 0.0, 1728.0, 1117.0), r(0.0, 0.0, 1728.0, 1084.0), 32.0, Some((771.0, 772.0)));
+        assert_eq!(n16, Notch { x: 863.5, top: 1117.0, width: 185.0, height: 32.0, real: true });
+        assert_eq!(notch_frame(n16, 285.0, 32.0), r(721.0, 1085.0, 285.0, 32.0));
+        // An external display: none, so one is drawn as tall as its menu bar.
+        let ext = r(1512.0, 0.0, 2560.0, 1440.0);
+        let drawn = notch_of(ext, r(1512.0, 0.0, 2560.0, 1415.0), 0.0, Some((0.0, 0.0)));
+        assert_eq!(drawn, Notch { x: 2792.0, top: 1440.0, width: DRAWN_NOTCH_WIDTH, height: 25.0, real: false });
+        // Its menu bar hidden: the usual height.
+        assert_eq!(notch_of(ext, ext, 0.0, None).height, DRAWN_NOTCH_HEIGHT);
+    }
+
+    #[test]
+    fn docks_centered_on_the_notch_at_the_top_of_the_screen() {
+        let n = Notch { x: 756.0, top: 982.0, width: 185.0, height: 32.0, real: true };
+        assert_eq!(notch_frame(n, 281.0, 32.0), r(616.0, 950.0, 281.0, 32.0));
+        assert_eq!(notch_frame(n, 600.0, 120.0), r(456.0, 862.0, 600.0, 120.0));
     }
 }

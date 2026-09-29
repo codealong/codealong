@@ -660,6 +660,53 @@ export async function setBarOn(on: boolean): Promise<void> {
   await invoke('set_bar_on', { on });
 }
 
+/** Where the bar shows: floating where you put it, docked in the notch, or not at all. */
+export type BarMode = 'off' | 'floating' | 'notch';
+
+/** The notch the bar docks into, in screen points (bar.rs); `real` is false where the screen has
+ *  none and the bar draws one. */
+export interface Notch {
+  x: number;
+  top: number;
+  width: number;
+  height: number;
+  real: boolean;
+}
+
+export interface BarModeView {
+  mode: BarMode;
+  notch: Notch | null;
+}
+
+/** Where the bar shows, with the notch it docks into. Outside the app it floats, unless a
+ *  preview says otherwise (`window.__BAR_MODE__`). */
+export async function barMode(): Promise<BarModeView> {
+  if (!inTauri) return (window as { __BAR_MODE__?: BarModeView }).__BAR_MODE__ ?? { mode: 'floating', notch: null };
+  return invoke<BarModeView>('bar_mode');
+}
+
+/** Floats the bar, docks it in the notch, or turns it off. */
+export async function setBarMode(mode: BarMode): Promise<void> {
+  if (!inTauri) return;
+  await invoke('set_bar_mode', { mode });
+}
+
+/** Calls `cb` whenever the bar moves between floating, the notch and off, or the notch it docks
+ *  into changes (a display plugged in or out). */
+export function onBarMode(cb: (view: BarModeView) => void): () => void {
+  if (!inTauri) return () => {};
+  let cancelled = false;
+  let unlisten: (() => void) | undefined;
+  void listen<BarModeView>('bar-mode', (e) => cb(e.payload)).then((u) => {
+    if (cancelled) u();
+    else unlisten = u;
+  });
+  return () => {
+    cancelled = true;
+    unlisten?.();
+  };
+}
+
 /** Calls `cb` whenever the floating bar is turned on or off, from any window or menu. */
 export function onBarOn(cb: (on: boolean) => void): () => void {
   if (!inTauri) return () => {};

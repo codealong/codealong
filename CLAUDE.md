@@ -734,7 +734,17 @@ Tauri and macOS (from the Tauri 2.11 and tao 0.35 sources)
   objc2) does: visible means some part is on screen, so not minimized, hidden, on another Space
   or fully covered.
 - `always_on_top` is AppKit's floating level, where other apps' panels can cover a window; the
-  floating bar sets the status item level (still under menus) through objc2.
+  floating bar sets the status item level (still under menus) through objc2. Docked in the notch
+  it's at `NSMainMenuWindowLevel + 2` (26), above the menu bar (24) and status items (25), as
+  CodeIsland does.
+- The notch (read on this Mac, a 16-inch MacBook Pro, 2026-09-28): `NSScreen.safeAreaInsets.top`
+  32, and `auxiliaryTopLeftArea` / `…RightArea` the menu bar on either side of the camera, 771
+  and 772 points wide on a 1728-point screen, so the notch is 185 wide and half a point right of
+  the middle; the menu bar is 33 tall (`frame` top less `visibleFrame` top). A screen without one
+  has a safe area of 0 and empty sides. A web view takes the clicks on its clear parts, so the
+  notch apps' one large transparent window (clicks falling through, or `ignoresMouseEvents`
+  switched as the pointer moves) doesn't carry over: the docked bar's window is sized to its
+  shape, grown before it opens and shrunk after it closes.
 - Only a non-activating NSPanel goes onto another app's full-screen Space; an ordinary window
   doesn't, whatever its level or `fullScreenAuxiliary`. Tauri makes NSWindows, so `bar.rs` swaps
   the bar's class to an NSPanel subclass (NSPanel adds no storage) before it's first shown: a

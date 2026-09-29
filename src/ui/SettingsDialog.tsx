@@ -720,7 +720,7 @@ function AdvancedPane({ cfg, view, disabled, onSave }: PaneProps & { view: Confi
             <dd className="ca-code">{view.path}</dd>
             <dt>Seen, pinned, archived</dt>
             <dd className="ca-code">{dir}/state.json</dd>
-            <dt>Floating bar</dt>
+            <dt>Bar, floating or in the notch</dt>
             <dd className="ca-code">{dir}/bar.json</dd>
           </dl>
         </div>

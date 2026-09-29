@@ -5,11 +5,12 @@
 // show (barfeed.rs); the page sizes the window to itself. Pills that don't fit fold into one per
 // group that lists them. Hovering a session's pill shows it in the peek under the bar (peek.rs,
 // Peek.tsx), its conversation and a box to answer it; clicking the pill opens the session where
-// it lives, right-clicking shows its menu, and the mark brings Codealong forward.
+// it lives, right-clicking shows its menu, and the mark brings Codealong forward. Docked in the
+// notch (bar.rs), the same pills show below the notch when it opens (Notch.tsx), dark.
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { fitBar, getBarFeed, onBarFeed, onBarNote, onPeekShown, openFromBar, peekHide, peekOpen, setBarOn, showMain, showQuick, type PillRect } from '../api';
+import { barMode, fitBar, getBarFeed, onBarFeed, onBarMode, onBarNote, onPeekShown, openFromBar, peekHide, peekOpen, setBarMode, showMain, showQuick, type BarModeView, type PillRect } from '../api';
 import { elsewhereWaits, fitGroups, GROUPS, plain, projectWaits, type Group, type GroupFit, type WaitCounts } from '../bar';
 import { showContextMenu, type MenuAction, type MenuSpec } from '../contextMenu';
 import { ago } from '../format';
@@ -20,6 +21,7 @@ import { snoozeMenu, untilWords } from '../snooze';
 import type { BarFeed, BarItem, BarRecent, BarReview, BarSnoozed, BarTodo, PeekShown, Status } from '../types';
 import { Icon, Mark, STATUS_WORD, StatusGlyph } from './primitives';
 import { applyTheme } from './ThemeSwitch';
+import { NotchShell } from './Notch';
 import { LOGO_LABEL, useLogo } from '../logo';
 
 /** Room around the bar for its shadow: the window is this much bigger on every side. */
@@ -331,6 +333,19 @@ export function Bar() {
   const [fontsReady, setFontsReady] = useState(false);
   const [project, setProject] = useState(storedProject);
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
+  // How many of the bar's menus are up: docked in the notch, it stays open under them.
+  const [menusUp, setMenusUp] = useState(0);
+  const popup = (spec: MenuSpec, at?: { x: number; y: number }) => {
+    setMenusUp((n) => n + 1);
+    return showContextMenu(spec, at).finally(() => setMenusUp((n) => n - 1));
+  };
+  // Floating, or docked in the notch (bar.rs), with the notch's size.
+  const [place, setPlace] = useState<BarModeView | null>(null);
+  useEffect(() => {
+    void barMode().then((v) => setPlace((current) => current ?? v));
+    return onBarMode(setPlace);
+  }, []);
+  const notch = place?.mode === 'notch' ? place.notch : null;
   const now = useNow(30_000);
   const hud = useRef<HTMLDivElement>(null);
   const measure = useRef<HTMLDivElement>(null);
@@ -366,7 +381,12 @@ export function Bar() {
   // The theme from config.toml, as in the board's windows.
   const theme = feed?.theme ?? 'system';
   const logoStatus = useLogo(feed?.logoStatus);
-  useEffect(() => applyTheme(theme), [theme]);
+  // Docked in the notch it's dark whatever the theme, as the notch is.
+  const docked = notch !== null;
+  useEffect(() => {
+    applyTheme(docked ? 'dark' : theme);
+    document.documentElement.classList.toggle('is-notch', docked);
+  }, [theme, docked]);
 
   useEffect(() => {
     if (!failed) return;
@@ -508,7 +528,7 @@ export function Bar() {
   };
 
   const sessionMenu = (i: BarItem) => {
-    void showContextMenu([
+    void popup([
       { label: `${i.title} · ${i.callsign}`, run: () => {}, enabled: false },
       'separator',
       { label: openLabel(i, feed?.terminal ?? 'Terminal'), run: () => open(i) },
@@ -525,7 +545,7 @@ export function Bar() {
     if (group !== 'working') menu.push('separator');
     if (group === 'unread') menu.push({ label: 'Mark these as seen', run: () => markSeen(keys, `fold:${group}`) });
     if (group !== 'working') menu.push(snoozeMenu(keys, Date.now(), { label: 'Snooze these', onDone: snoozeDone(keys, `fold:${group}`) }));
-    void showContextMenu(menu, below(e));
+    void popup(menu, below(e));
   };
 
   /** Wakes a snoozed session and opens it: you're taking it up now, so it doesn't come back later.
@@ -552,11 +572,11 @@ export function Bar() {
       const keys = snoozed.map((i) => i.key);
       menu.push('separator', { label: 'Wake all', run: () => snoozeDone(keys, 'snoozed')(snoozeAhead(keys, null)) });
     }
-    void showContextMenu(menu, below(e));
+    void popup(menu, below(e));
   };
 
   const recentMenu = (e: MouseEvent<HTMLButtonElement>) => {
-    void showContextMenu(
+    void popup(
       recent.map((i) => ({ label: `${i.title} · ${i.callsign} · ${ago(i.since, now)}`, run: () => open(i, 'recent') })),
       below(e),
     );
@@ -567,7 +587,7 @@ export function Bar() {
       void showMain({ kind: 'pr', key: reviews[0].key });
       return;
     }
-    void showContextMenu(
+    void popup(
       reviews.map((p) => ({ label: `#${p.number} ${p.title} · ${p.repo}`, run: () => void showMain({ kind: 'pr', key: p.key }) })),
       below(e),
     );
@@ -577,7 +597,7 @@ export function Bar() {
   const startTodo = (t: BarTodo) => void showQuick({ todo: t.id, project: t.project || null });
 
   const todosMenu = (e: MouseEvent<HTMLButtonElement>) => {
-    void showContextMenu(
+    void popup(
       [
         ...todos.map((t) => ({ label: todoLabel(t), run: () => startTodo(t) })),
         'separator',
@@ -608,16 +628,17 @@ export function Bar() {
       return { label: [name, ...said].join(' · '), checked: name === current, run: () => pickProject(name) };
     };
     setProjectMenuOpen(true);
-    void showContextMenu([...projects.map(item), 'separator', item(ALL_PROJECTS)], below(e)).finally(() => setProjectMenuOpen(false));
+    void popup([...projects.map(item), 'separator', item(ALL_PROJECTS)], below(e)).finally(() => setProjectMenuOpen(false));
   };
 
   const barMenu = () => {
     const unread = byGroup.unread;
-    void showContextMenu([
+    void popup([
       { label: 'Show Codealong', run: () => void showMain() },
       ...(unread.length ? [{ label: 'Mark all as seen', run: () => markSeen(unread.map((i) => i.key), 'fold:unread') }] : []),
       'separator',
-      { label: 'Hide floating bar', run: () => void setBarOn(false) },
+      docked ? { label: 'Float the bar instead', run: () => void setBarMode('floating') } : { label: 'Put the bar in the notch', run: () => void setBarMode('notch') },
+      { label: docked ? 'Hide the bar' : 'Hide floating bar', run: () => void setBarMode('off') },
     ]);
   };
 
@@ -683,6 +704,41 @@ export function Bar() {
   }
   if (failed && !failedShown) sections.push([failedPill()]);
 
+  const measured = (
+    <div ref={measure} className="ca-hud-measure" aria-hidden="true">
+      {items.map((i) => (
+        <SessionPill key={i.key} item={i} now={now} measure />
+      ))}
+      {GROUPS.map((g) => (
+        <FoldPill key={g} group={g} label={FOLD_SAMPLE} measure />
+      ))}
+      {snoozed.length > 0 && <SnoozedPill items={snoozed} now={now} measure />}
+      {recent.length > 0 && <RecentPill items={recent} now={now} measure />}
+      {reviews.length > 0 && <ReviewsPill prs={reviews} measure />}
+      {todos.length > 0 && <TodosPill todos={todos} measure />}
+      {picking && <ProjectButton name={current} others={others} measure />}
+    </div>
+  );
+
+  if (notch) {
+    return (
+      <>
+        <NotchShell
+          notch={notch}
+          logoStatus={logoStatus}
+          counts={{ needs: byGroup.needs.length, unread: byGroup.unread.length, working: byGroup.working.length }}
+          project={picking ? <ProjectButton name={current} others={others} open={projectMenuOpen} onOpen={projectMenu} /> : null}
+          held={peeked.key !== null || projectMenuOpen || menusUp > 0}
+          onMark={() => void showMain()}
+          onMenu={barMenu}
+        >
+          {sections.flatMap((section, i) => [...(i > 0 ? [<span key={`divider-${i}`} className="ca-hud-divider" aria-hidden="true" />] : []), ...section])}
+        </NotchShell>
+        {measured}
+      </>
+    );
+  }
+
   return (
     <>
       <div
@@ -726,19 +782,7 @@ export function Bar() {
         {picking && <ProjectButton name={current} others={others} open={projectMenuOpen} onOpen={projectMenu} />}
         {sections.flatMap((section, i) => [<span key={`divider-${i}`} className="ca-hud-divider" aria-hidden="true" />, ...section])}
       </div>
-      <div ref={measure} className="ca-hud-measure" aria-hidden="true">
-        {items.map((i) => (
-          <SessionPill key={i.key} item={i} now={now} measure />
-        ))}
-        {GROUPS.map((g) => (
-          <FoldPill key={g} group={g} label={FOLD_SAMPLE} measure />
-        ))}
-        {snoozed.length > 0 && <SnoozedPill items={snoozed} now={now} measure />}
-        {recent.length > 0 && <RecentPill items={recent} now={now} measure />}
-        {reviews.length > 0 && <ReviewsPill prs={reviews} measure />}
-        {todos.length > 0 && <TodosPill todos={todos} measure />}
-        {picking && <ProjectButton name={current} others={others} measure />}
-      </div>
+      {measured}
     </>
   );
 }

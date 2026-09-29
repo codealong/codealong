@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { barWidth, elsewhereWaits, fitGroups, plain, projectWaits, type Metrics } from './bar';
+import { barWidth, elsewhereWaits, fitGroups, NOTCH, notchCount, notchSizes, plain, projectWaits, type Metrics } from './bar';
 import { ALL_PROJECTS } from './quick';
 import type { BarItem } from './types';
 
@@ -112,5 +112,33 @@ describe('project counts', () => {
     expect(elsewhereWaits(waits, projects, 'Northwind')).toEqual({ needs: 3, unread: 1 });
     expect(elsewhereWaits(waits, projects, 'Kestrel')).toEqual({ needs: 2, unread: 2 });
     expect(elsewhereWaits(waits, projects, ALL_PROJECTS)).toEqual({ needs: 0, unread: 0 });
+  });
+});
+
+describe('the bar docked in the notch', () => {
+  // A 14-inch MacBook Pro's notch.
+  const notch = { width: 185, height: 32 };
+
+  it('is the notch with a side on each hand while closed, its window the shape and its corners', () => {
+    const s = notchSizes(notch, { w: 600, h: 24 }, 60);
+    expect(s.closed).toEqual({ w: 185 + 2 * NOTCH.wing, h: 32 });
+    expect(s.closedWindow).toEqual({ w: 185 + 2 * NOTCH.wing + 2 * NOTCH.ear.closed, h: 32 });
+  });
+
+  it('opens as wide as the pills or the sides need, never narrower than closed', () => {
+    expect(notchSizes(notch, { w: 600, h: 24 }, 60).open).toEqual({ w: 600 + 2 * NOTCH.pad, h: 32 + 24 + NOTCH.pad });
+    // Wide sides beside the camera: room for each on its hand.
+    expect(notchSizes(notch, { w: 100, h: 24 }, 200).open.w).toBe(185 + 2 * (200 + NOTCH.pad));
+    // Nothing below yet: at least the closed width.
+    expect(notchSizes(notch, { w: 0, h: 0 }, 0).open.w).toBe(185 + 2 * NOTCH.wing);
+    const s = notchSizes(notch, { w: 600, h: 24 }, 60);
+    expect(s.openWindow).toEqual({ w: s.open.w + 2 * NOTCH.ear.open, h: s.open.h + NOTCH.bottom });
+  });
+
+  it('shows the most urgent group beside the camera, in the bar’s order', () => {
+    expect(notchCount({ needs: 2, unread: 1, working: 5 })).toEqual({ group: 'needs', n: 2 });
+    expect(notchCount({ needs: 0, unread: 1, working: 5 })).toEqual({ group: 'unread', n: 1 });
+    expect(notchCount({ needs: 0, unread: 0, working: 5 })).toEqual({ group: 'working', n: 5 });
+    expect(notchCount({ needs: 0, unread: 0, working: 0 })).toBeNull();
   });
 });

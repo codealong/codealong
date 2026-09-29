@@ -4,9 +4,9 @@
 #
 #   scripts/preview.sh [view] [project] [check.js]
 #
-#   view     worktrees | sessions | prs | todo | canvas, bar for the floating bar, peek for the
-#            bar's peek, quick for the quick panel, or desktop for a card pinned to the desktop
-#            (default worktrees)
+#   view     worktrees | sessions | prs | todo | canvas, bar for the floating bar, notch for the
+#            bar docked in the notch, peek for the bar's peek, quick for the quick panel, or
+#            desktop for a card pinned to the desktop (default worktrees)
 #   project  the project to show (default: the first one)
 #   check.js optional script run in the page; whatever it puts in document.title is printed
 #            (use it to click things and read window.__calls). Without it, a screenshot is
@@ -20,6 +20,9 @@
 #
 # PREVIEW_SCHEME=dark renders as if macOS were in dark mode (the screenshot is <view>-dark.png).
 # Under theme = "system" the page follows it; "light" and "dark" in config.toml win over it.
+# The notch view renders the bar docked in a 14-inch MacBook Pro's notch (185 by 32 points),
+# closed, on a stand-in screen top with its menu bar (default 1512,320); PREVIEW_INIT can point
+# at it to open it. PREVIEW_NOTCH=drawn gives it an external display's drawn notch instead.
 # PREVIEW_SIZE sets the window size (default 1440,900). The bar renders on a stand-in desktop
 # of that size (default 1100,64, which is also the screen width it fits itself to), and so does
 # the quick panel (default 760,640: its window's width). The panel opens as the shortcut opens
@@ -115,7 +118,7 @@ if [ -d "$images" ]; then
 fi
 "$bin" --snapshot >"$dir/board.json" 2>/dev/null
 # The floating bar gets its own small feed from the engine, not the board.
-[ "$view" = bar ] && "$bin" --snapshot --bar >"$dir/bar-feed.json" 2>/dev/null
+{ [ "$view" = bar ] || [ "$view" = notch ]; } && "$bin" --snapshot --bar >"$dir/bar-feed.json" 2>/dev/null
 "$bin" --snapshot --accounts >"$dir/accounts.json" 2>/dev/null
 "$bin" --snapshot --start-options >"$dir/start-options.json" 2>/dev/null
 "$bin" --snapshot --editor-icons >"$dir/editor-icons.json" 2>/dev/null
@@ -139,6 +142,18 @@ if [ "$view" = bar ]; then
   size="${PREVIEW_SIZE:-1100,64}"
   # Headless Chrome's screen is 800 wide whatever the window; the bar fits itself to the screen.
   setup="$setup window.__CODEALONG_BAR__=true;Object.defineProperty(screen,'availWidth',{value:${size%%,*}});</script><style>html.is-bar{background:linear-gradient(135deg,rgb(93,111,134),rgb(169,182,196))!important}</style><script>"
+fi
+if [ "$view" = notch ]; then
+  size="${PREVIEW_SIZE:-1512,320}"
+  width="${size%%,*}"
+  if [ "${PREVIEW_NOTCH:-}" = drawn ]; then
+    notch="{x:$((width / 2)),top:1440,width:180,height:25,real:false}"
+    menu=25
+  else
+    notch="{x:$((width / 2)),top:982,width:185,height:32,real:true}"
+    menu=32
+  fi
+  setup="$setup window.__CODEALONG_BAR__=true; window.__BAR_MODE__={mode:'notch',notch:$notch};Object.defineProperty(screen,'availWidth',{value:$width});</script><style>html.is-bar{background:linear-gradient(rgba(236,236,238,0.82) 0 ${menu}px,transparent ${menu}px),linear-gradient(135deg,rgb(93,111,134),rgb(169,182,196))!important}</style><script>"
 fi
 if [ "$view" = quick ]; then
   size="${PREVIEW_SIZE:-760,640}"

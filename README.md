@@ -306,8 +306,16 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   Needs you is a queue, the longest wait first, so a new one joins the end instead of pushing
   an old one down; Your turn and Working are the newest first. Pills that
   don't fit fold into one per group that lists them. The mark brings Codealong forward; drag
-  the bar by it or by its gaps. The capsule button at the top right of the window turns it on
-  and off, as do Window › Floating bar and the bar's own right-click menu.
+  the bar by it or by its gaps. **In the notch**, the bar docks at the top of the screen instead:
+  one black shape with the notch, dark whatever the theme, showing the mark on the camera's
+  left and, on its right, the most urgent group and how many (Needs you, then Your turn, then
+  Working; a new one that needs you pulses). Rest the pointer on it for a moment, or click it,
+  and it opens down into the bar's pills, the peek opening under them as on the floating bar;
+  it closes a moment after the pointer leaves, and stays open while the peek or one of its
+  menus is up. A screen without a notch (an external display) gets one drawn at the top center
+  of its menu bar. The pair of buttons at the top right of the window floats the bar or puts it
+  in the notch, and picking the one that's on turns it off, as do Window › Floating bar and Bar
+  in the notch and the bar's own right-click menu.
 - **Pin to desktop** (a session's, worktree's or todo's right-click menu, in any view or on the
   canvas): puts its card, the one the Canvas view shows, on the desktop, floating over every
   window, on every Space and over full-screen apps as the floating bar does. A worktree's card
@@ -474,8 +482,8 @@ folders = []
 ```
 
 What you've seen (for Your turn), what you've pinned, snoozed and archived in Codealong are
-kept in `state.json` next to it; whether the floating bar is on, and where you left it, in
-`bar.json`; what's pinned to the desktop, and where each card was left, in `desktop.json`; each project's canvas in `canvas.json`; sessions linked to PRs or unlinked from
+kept in `state.json` next to it; whether the bar is on, floating or in the notch, and where you
+left it floating, in `bar.json`; what's pinned to the desktop, and where each card was left, in `desktop.json`; each project's canvas in `canvas.json`; sessions linked to PRs or unlinked from
 them by hand in `pr-links.json`. Todos and labels are in `todos.json`, which is watched, so an
 agent or an editor can add to it. Attachments are kept by their content: images in `images/`,
 other files in `files/<hash>/<name>`; ones no todo uses are cleared after 30 days. The devices
@@ -582,9 +590,9 @@ light scan (no git, PRs or visitors).
 | `src-tauri/src/config.rs`, `state.rs` | `config.toml` (accounts saved in place) and `state.json` (seen, pinned, archived, account folders already read) |
 | `src-tauri/src/prlinks.rs` | Sessions tied to PRs other than by branch: what their records show they did to a PR, and links made by hand (`pr-links.json`) |
 | `src-tauri/src/detect.rs` | The harness accounts on this device: folders, sign-ins, and the wrappers and aliases that run them |
-| `src-tauri/src/bar.rs`, `barfeed.rs` | The floating bar's window (a panel over every app, where it sits, Window › Floating bar) and the small feed of what it shows, sent only when that changes |
+| `src-tauri/src/bar.rs`, `barfeed.rs` | The bar's window (a panel over every app, floating where you put it or docked in the notch, found from the screen's sides of the menu bar, Window › Floating bar and Bar in the notch) and the small feed of what it shows, sent only when that changes |
 | `src-tauri/src/desktop.rs`, `src/ui/DesktopPin.tsx` | Cards pinned to the desktop: a window each, made as the bar's is, where a new one goes, `desktop.json`, and what each shows, cut from the board and sent only when it changes; the page draws the Canvas view's card (`ui/CanvasCard.tsx`) |
-| `src/` | The React UI, built from the design system's components and tokens; `lanes.ts` groups the board and mirrors the engine's status rules for the age filter; `pins.ts` keeps the pinned lists; `ahead.ts` shows sessions marked seen, archived or sent a message at once, in every window, until a board shows it; `prStatus.ts` and `ui/PrPills.tsx` say where a PR stands and which PRs are your move; `bar.ts` and `ui/Bar.tsx` lay out the floating bar; `ui/Picker.tsx` is the quick panel's filterable menus; `ui/SettingsDialog.tsx` and `ui/AccountsSection.tsx` are Settings |
+| `src/` | The React UI, built from the design system's components and tokens; `lanes.ts` groups the board and mirrors the engine's status rules for the age filter; `pins.ts` keeps the pinned lists; `ahead.ts` shows sessions marked seen, archived or sent a message at once, in every window, until a board shows it; `prStatus.ts` and `ui/PrPills.tsx` say where a PR stands and which PRs are your move; `bar.ts`, `ui/Bar.tsx` and `ui/Notch.tsx` lay out the bar, floating or in the notch; `ui/Picker.tsx` is the quick panel's filterable menus; `ui/SettingsDialog.tsx` and `ui/AccountsSection.tsx` are Settings |
 | `scripts/preview.sh` | Headless preview against real data, for screenshots and scripted checks |
 | `design/tokens.json` | Design tokens; `npm run tokens` regenerates `src/styles/tokens.css` |
 
