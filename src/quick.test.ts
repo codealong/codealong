@@ -345,11 +345,12 @@ describe('findPrs', () => {
     expect(findPrs(b, 'Northwind', '')).toEqual([]);
   });
 
-  it('finds a PR by its number whatever the project', () => {
+  it('finds a PR by its number only in its own project', () => {
     const b = withPrs([pr(1055, 'Page one', { project: 'Other' }), pr(2, 'Page two')]);
-    expect(findPrs(b, 'Northwind', '1055').map((r) => r.pr.number)).toEqual([1055]);
-    expect(findPrs(b, 'Northwind', '#1055').map((r) => r.pr.number)).toEqual([1055]);
-    expect(findPrs(b, 'Northwind', 'page 1055')).toEqual([]);
+    expect(findPrs(b, 'Northwind', '1055')).toEqual([]);
+    expect(findPrs(b, 'Northwind', '#2').map((r) => r.pr.number)).toEqual([2]);
+    expect(findPrs(b, 'Other', '#1055').map((r) => r.pr.number)).toEqual([1055]);
+    expect(findPrs(b, ALL_PROJECTS, '1055').map((r) => r.pr.number)).toEqual([1055]);
   });
 });
 

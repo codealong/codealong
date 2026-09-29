@@ -548,9 +548,11 @@ const WORK_WINDOW: usize = 5;
 /// another (`cd ../repo-fix && …`), so it's where most of the last few commands ran and edits
 /// landed, the latest winning a tie, and a stray command elsewhere doesn't move it. Work
 /// outside every worktree doesn't count, nor work in a folder that's a lane only because a
-/// session started there. With none, where the session was started.
+/// session started there: a plain folder, or an app's chats, where a chat that was later given
+/// a folder or went to work in a repo still runs its shell. With none, where the session was
+/// started.
 pub fn session_seed(seeds: &[LaneSeed], s: &Session) -> Option<usize> {
-    let recent: Vec<usize> = s.work.iter().rev().filter_map(|p| best_seed(seeds, Path::new(p)).filter(|&i| !seeds[i].exact)).take(WORK_WINDOW).collect();
+    let recent: Vec<usize> = s.work.iter().rev().filter_map(|p| best_seed(seeds, Path::new(p)).filter(|&i| !seeds[i].exact && !seeds[i].chats)).take(WORK_WINDOW).collect();
     let votes = |i: usize| recent.iter().filter(|&&j| j == i).count();
     // Oldest first: of the lanes tied for most, `max_by_key` keeps the last, the latest.
     recent.iter().rev().copied().max_by_key(|&i| votes(i)).or_else(|| best_seed(seeds, Path::new(&s.cwd)))
@@ -2189,6 +2191,24 @@ mod tests {
         assert_eq!(at(&s).as_deref(), Some("/r/codealong"), "work there doesn't count");
         s.cwd = "/Users/me".into();
         assert_eq!(at(&s).as_deref(), Some("/Users/me"));
+    }
+
+    #[test]
+    fn work_in_an_apps_chats_does_not_keep_a_session_there() {
+        let root = "/Users/me/Library/Application Support/Claude/scratch-workspaces";
+        let chats = LaneSeed { project: ELSEWHERE.into(), origin: Origin::Folder, elsewhere: true, chats: true, ..seed(root, "main") };
+        let seeds = vec![seed("/r/atlas-infra", "main"), chats];
+        let scratch = format!("{root}/a/b/scratch-2026-09-29-347017");
+        let mut s = claude_session(&acct("claude"), Some(&reg("busy", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
+        s.cwd = scratch.clone();
+        s.work = vec![scratch.clone(), scratch.clone()];
+        let at = |s: &Session| session_seed(&seeds, s).map(|i| seeds[i].path.to_string_lossy().into_owned());
+        assert_eq!(at(&s).as_deref(), Some(root), "a chat with nowhere else to be");
+        s.cwd = "/r/atlas-infra".into();
+        assert_eq!(at(&s).as_deref(), Some("/r/atlas-infra"), "given a folder, it goes there, though its shell is still in the chat's");
+        s.cwd = scratch.clone();
+        s.work.insert(0, "/r/atlas-infra".into());
+        assert_eq!(at(&s).as_deref(), Some("/r/atlas-infra"), "one that worked in a repo is about that repo");
     }
 
     #[test]
