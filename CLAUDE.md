@@ -489,7 +489,9 @@ Claude app
   `~/Library/Application Support/Claude/scratch-workspaces/<account>/<org>/scratch-<date>-<6
   hex>` (`userData` in 2.9939's code), and the app removes it once the session is gone. It's
   no repo, so the engine lists every such session in one lane, Claude app chats
-  (`engine::chat_roots`); a session with no lane would be on no list at all.
+  (`engine::chat_roots`); a session with no lane would be on no list at all. Its first prompt
+  line has two text parts: the app's `<system-reminder>` saying so, then what you typed
+  (`claude::typed_text` skips the reminder).
 
 Codex
 

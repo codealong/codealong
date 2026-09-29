@@ -950,7 +950,15 @@ pub fn typed_text(v: &Value) -> Option<String> {
     }
     let text = match v.pointer("/message/content")? {
         Value::String(s) => s.clone(),
-        Value::Array(items) => items.iter().filter(|i| i.get("type").and_then(Value::as_str) == Some("text")).filter_map(|i| i.get("text").and_then(Value::as_str)).collect::<Vec<_>>().join("\n"),
+        // The Claude app puts a system reminder of its own in front of the first prompt of a
+        // chat it started without a folder, as a part of its own: what you typed follows it.
+        Value::Array(items) => items
+            .iter()
+            .filter(|i| i.get("type").and_then(Value::as_str) == Some("text"))
+            .filter_map(|i| i.get("text").and_then(Value::as_str))
+            .filter(|t| !t.trim_start().starts_with("<system-reminder>"))
+            .collect::<Vec<_>>()
+            .join("\n"),
         _ => return None,
     };
     let t = text.trim();
@@ -1213,6 +1221,15 @@ mod tests {
 "#;
         assert_eq!(parse_lines(HEAD, old).last_prompt_at, parse_rfc3339_ms("2026-09-23T16:00:00.000Z"));
         assert_eq!(parse_lines(HEAD, "").last_prompt_at, None);
+    }
+
+    #[test]
+    fn a_prompt_behind_the_claude_apps_system_reminder_is_what_you_typed() {
+        let line = |parts: &[&str]| serde_json::json!({ "type": "user", "origin": { "kind": "human" }, "message": { "content": parts.iter().map(|t| serde_json::json!({ "type": "text", "text": t })).collect::<Vec<_>>() } });
+        let reminder = "<system-reminder>\nThe user started this session without choosing a project folder.\n</system-reminder>\n\n";
+        assert_eq!(typed_text(&line(&[reminder, "Give Graham access on GitHub"])).as_deref(), Some("Give Graham access on GitHub"));
+        assert_eq!(typed_text(&line(&[reminder])), None);
+        assert_eq!(typed_text(&line(&["<command-name>/clear</command-name>"])), None);
     }
 
     #[test]
