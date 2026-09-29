@@ -247,9 +247,11 @@ interface UsageBarProps {
   /** Opens Settings at Accounts, at one account when given. */
   onAccounts: (account?: string) => void;
   onSignIn: (account: string) => void;
+  /** The board hasn't been read yet, so it lists no accounts, though config.toml may have some. */
+  loading?: boolean;
 }
 
-export function UsageBar({ usage, now, onRefresh, onAccounts, onSignIn }: UsageBarProps) {
+export function UsageBar({ usage, now, onRefresh, onAccounts, onSignIn, loading }: UsageBarProps) {
   const reads = usage.filter((u) => u.harness === 'claude' && u.asOf).map((u) => u.asOf as number);
   const lastRead = reads.length ? Math.max(...reads) : null;
   const row = useRef<HTMLDivElement>(null);
@@ -340,7 +342,7 @@ export function UsageBar({ usage, now, onRefresh, onAccounts, onSignIn }: UsageB
             onUnpeek={() => hide()}
           />
         ))}
-        {usage.length === 0 && <span className="ca-uchip-note">No accounts yet.</span>}
+        {usage.length === 0 && !loading && <span className="ca-uchip-note">No accounts yet.</span>}
       </div>
       <div ref={measure} className="ca-usagebar-measure" aria-hidden="true">
         {usage.map((u) => (

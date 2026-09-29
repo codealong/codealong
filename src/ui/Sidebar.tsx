@@ -88,6 +88,8 @@ interface SidebarProps {
   warnings: ReactNode;
   /** The rail marks warnings (config.toml that doesn't parse, say) and opens the sidebar on them. */
   hasWarnings: boolean;
+  /** This Mac's board hasn't been read yet: no counts show, since they'd be other devices' alone. */
+  loading: boolean;
 }
 
 export function Sidebar(props: SidebarProps) {
@@ -107,7 +109,7 @@ function Open(p: SidebarProps) {
       <div className="ca-side-scroll">
         <div className="ca-label ca-side-label">View</div>
         {p.views.map((v) => (
-          <NavItem key={v.id} icon={v.icon} label={v.label} count={v.count === '' ? undefined : (v.count as number)} badge={v.badge} badgeTitle={v.badgeTitle} active={p.view === v.id} title="Switch views (V)" onClick={() => p.onView(v.id)} />
+          <NavItem key={v.id} icon={v.icon} label={v.label} count={v.count === '' || p.loading ? undefined : (v.count as number)} badge={v.badge} badgeTitle={v.badgeTitle} active={p.view === v.id} title="Switch views (V)" onClick={() => p.onView(v.id)} />
         ))}
         {showDevices && p.devices && (
           <>
@@ -115,7 +117,7 @@ function Open(p: SidebarProps) {
             <DeviceRow
               lead={<Icon name="device-desktop" size={14} />}
               name={p.devices.me.name || 'This device'}
-              sub={`This Mac · ${p.deviceWorking.get(null) ?? 0} working`}
+              sub={p.loading ? 'This Mac · reading sessions…' : `This Mac · ${p.deviceWorking.get(null) ?? 0} working`}
               needs={p.deviceNeeds.get(null) ?? 0}
               active={p.deviceFilter.includes('here')}
               onClick={() => p.onDevice('here')}
@@ -166,7 +168,7 @@ function Open(p: SidebarProps) {
             <button key={s.id} type="button" className={cx('ca-side-chip', p.filter.includes(s.id) && 'is-on')} aria-pressed={p.filter.includes(s.id)} title={s.title} onClick={() => p.onFilter(s.id)}>
               {s.glyph ? <StatusGlyph status={s.glyph} size={9} title="" /> : s.icon ? <Icon name={s.icon} size={12} /> : null}
               <span>{s.label}</span>
-              <span className={cx('ca-side-chip-count', s.tone && s.count > 0 && `is-${s.tone}`)}>{s.count}</span>
+              {!p.loading && <span className={cx('ca-side-chip-count', s.tone && s.count > 0 && `is-${s.tone}`)}>{s.count}</span>}
             </button>
           ))}
           {p.label && (
@@ -258,7 +260,7 @@ function DeviceRow({ lead, name, sub, title, needs, away, active, onClick }: { l
 
 function Rail(p: SidebarProps) {
   const showDevices = !!p.devices?.enabled && p.devices.devices.length > 0;
-  const needs = p.statuses.find((s) => s.id === 'needs')?.count ?? 0;
+  const needs = p.loading ? 0 : (p.statuses.find((s) => s.id === 'needs')?.count ?? 0);
   const filtered = p.filters.length > 0;
   return (
     <nav className="ca-rail" aria-label="Sidebar">

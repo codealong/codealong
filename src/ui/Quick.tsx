@@ -447,7 +447,8 @@ export function Quick() {
   /* ---- Where ---- */
 
   const projects = useMemo(() => board?.projects ?? [], [board?.projects]);
-  const current = project === ALL_PROJECTS || projects.some((p) => p.name === project) ? project : ALL_PROJECTS;
+  // The board lists no projects until it's read, so the one picked holds until then.
+  const current = project === ALL_PROJECTS || projects.some((p) => p.name === project) || !board || board.loading ? project : ALL_PROJECTS;
   const pickProject = (name: string) => {
     setProject(name);
     setActiveKey(null);
@@ -944,7 +945,9 @@ export function Quick() {
   const happensThere = !lane
     ? deviceNow
       ? `No worktrees in this project on ${macName}.`
-      : 'No worktrees in this project yet.'
+      : !board || board.loading
+        ? 'Reading worktrees…'
+        : 'No worktrees in this project yet.'
     : !account || !placeNow
       ? deviceNow && remote?.error
         ? `${macName} didn’t say where its accounts can start: ${remote.error}`
@@ -1536,7 +1539,7 @@ export function Quick() {
         </div>
         <div ref={list} className="ca-quick-list" role="listbox" aria-label="What to do next">
           <div ref={scroller} className="ca-quick-scroll">
-            {!board ? (
+            {!board || board.loading ? (
               <p className="ca-quick-note">{error ? '' : 'Reading sessions…'}</p>
             ) : (
               <>

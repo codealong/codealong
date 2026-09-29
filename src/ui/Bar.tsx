@@ -738,7 +738,8 @@ export function Bar() {
     failedShown = true;
     return <NotePill key="failed" message={failed?.message ?? ''} tone={failed?.tone ?? 'error'} onDismiss={() => setFailed(null)} />;
   };
-  if (!feed) {
+  // Until the engine's first scan has finished, its feed has no sessions yet.
+  if (!feed || feed.loading) {
     sections.push([
       <span key="note" className="ca-hud-note">
         Reading sessions…

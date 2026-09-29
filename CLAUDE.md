@@ -54,7 +54,10 @@ Don't open a second copy of the app where the user can see it. Opened the usual 
 theirs; a bare binary from a build folder shows up beside it as a second Codealong. Check UI with
 `scripts/preview.sh` and behavior with `--snapshot`. A copy you must run to debug gets a home of
 its own (`HOME=<your scratchpad>/home …`: its own settings, todos and socket, so it leaves the
-user's app alone), you say so, and you quit it when you're done.
+user's app alone), you say so, and you quit it when you're done. Its own home doesn't keep it off
+the screen: its bar and any cards it pins float over every app as the real ones do, and the user
+takes them for their own app misbehaving (a drag test's cards "one" and "three", "No longer on
+the board", 2026-09-29).
 
 The engine binary is also the `codealong` command for agents and people (`cli.rs`; `main.rs`
 runs it for any first argument that's one of its subcommands, and starts the app otherwise):
@@ -118,7 +121,8 @@ which has no Claude numbers, and `PREVIEW_TRANSCRIPT=<session key>` that
 session's real conversation in its panel (others get placeholders), and `PREVIEW_FOUND=scripts/preview/found-sample.json` sample accounts
 under Settings › Accounts › Found on this Mac, and `PREVIEW_DEVICES=scripts/preview/devices-sample.json` other devices
 (Settings › Devices, the sidebar's devices, a link ask, and a few of your worktrees shown as if on those devices), and `PREVIEW_CANVAS=<file>` opens the Canvas view on a saved
-document (one project's from canvas.json) in place of a fresh tidy. In check mode Chrome runs on virtual time, which stands still while scripts run (`performance.now()` too), and draws no frames, so scroll events never
+document (one project's from canvas.json) in place of a fresh tidy, and `PREVIEW_LOADING=1` shows the windows as
+they are at launch, before the engine's first scan has finished. In check mode Chrome runs on virtual time, which stands still while scripts run (`performance.now()` too), and draws no frames, so scroll events never
 arrive; and it resizes the page just before a screenshot, which closes whatever closes on resize.
 `PREVIEW_WAIT=<ms>` runs a check on the real clock with frames instead, and prints its title once
 it starts with `done: ` (or the wait runs out).

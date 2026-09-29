@@ -84,9 +84,20 @@ function withInsights(board, fixture) {
 function optionalJson(file) {
   return fetch(file).then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; });
 }
+// The board and the bar's feed as the engine hands them out before its first scan finishes
+// (PREVIEW_LOADING in preview.sh): loading, with nothing read yet but the settings. Other
+// devices (PREVIEW_DEVICES) still show, as their feeds kept from last time do.
+function loadingBoard(board) {
+  return Object.assign(board, { loading: true, generatedAt: 0, projects: [], lanes: [], warnings: [], githubAt: null, usage: [], pinned: [], pinnedWorktrees: [], prs: [], githubLogin: null, todos: [], labels: [], todoHints: {} });
+}
+function loadingFeed(feed) {
+  return Object.assign(feed, { loading: true, generatedAt: 0, projects: [], items: [], recent: [], snoozed: [], reviews: [], todos: [] });
+}
 window.__TAURI_INTERNALS__ = {
   invoke: function (cmd, args, options) {
     window.__calls.push([cmd, args, options]);
+    if (cmd === 'get_board' && window.__PREVIEW_LOADING__) return fetch('./board.json').then(function (r) { return r.json(); }).then(loadingBoard);
+    if (cmd === 'bar_feed' && window.__PREVIEW_LOADING__) return fetch('./bar-feed.json').then(function (r) { return r.json(); }).then(loadingFeed);
     if (cmd === 'get_board') {
       return Promise.all([
         fetch('./board.json').then(function (r) { return r.json(); }),

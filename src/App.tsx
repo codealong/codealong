@@ -83,6 +83,14 @@ const VIEWS: { id: View; label: string; icon: string }[] = [
   { id: 'todo', label: 'Todo', icon: 'list-check' },
   { id: 'canvas', label: 'Canvas', icon: 'layout-grid' },
 ];
+/** What each view says until the engine has read this Mac's board once. */
+const READING: Record<View, string> = {
+  sessions: 'Reading sessions…',
+  worktrees: 'Reading worktrees…',
+  prs: 'Reading repos…',
+  todo: 'Reading todos…',
+  canvas: 'Reading sessions…',
+};
 /** How recently a worktree or session must have been active to show. */
 type Age = '1d' | '3d' | '7d' | 'all';
 const AGES: { id: Age; label: string; title: string; ms: number }[] = [
@@ -259,6 +267,10 @@ export function App() {
     return onDevices(show);
   }, []);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // Until the engine's first scan has finished, the board has none of this Mac's sessions,
+  // worktrees, todos or PRs: the views say they're being read rather than show nothing, or only
+  // the other devices' worktrees, which come in first from what their feeds kept.
+  const loading = !loadError && (!engineBoard || engineBoard.loading);
   const [project, setProject] = useState<string | null>(() => WINDOW_PROJECT ?? storedProject());
   const [bayFilter, setBayFilter] = useState<readonly Filter[]>([]);
   const [query, setQuery] = useState('');
@@ -443,7 +455,8 @@ export function App() {
     const last = here.length > 0 && here[here.length - 1].name === ELSEWHERE ? here.length - 1 : here.length;
     return [...here.slice(0, last), ...extra, ...here.slice(last)];
   }, [board?.projects, deviceLanes]);
-  const known = project === ALL_PROJECTS || projects.some((p) => p.name === project);
+  // The board lists no projects until it's read, so the one you left it on holds until then.
+  const known = project === ALL_PROJECTS || projects.some((p) => p.name === project) || (loading && !!project);
   const current = known && project ? project : (projects.find((p) => p.name !== ELSEWHERE)?.name ?? ALL_PROJECTS);
   projectNow.current = current;
 
@@ -628,7 +641,7 @@ export function App() {
     () => entitiesOf(board, projectLanes, todoStore.todos, (p) => current === ALL_PROJECTS || p === current),
     [board, projectLanes, todoStore.todos, current],
   );
-  const canvas = useCanvas(current, view === 'canvas', canvasEntities, now, lanePins.set);
+  const canvas = useCanvas(current, view === 'canvas', !loading, canvasEntities, now, lanePins.set);
   const [canvasFocus, setCanvasFocus] = useState<{ id: string; n: number } | null>(null);
   const canvasKeys = useRef<(e: KeyboardEvent) => boolean>(() => false);
   // The one card selected on the canvas: its panel shows on the right, and ⌘N starts in its worktree.
@@ -670,7 +683,9 @@ export function App() {
     () => [...pinnedRows, ...sessionSections.flatMap((s) => s.rows), ...(showArchived ? archivedItems : [])],
     [pinnedRows, sessionSections, showArchived, archivedItems],
   );
-  const visible = view === 'sessions' ? sessionRows : view === 'prs' ? prVisible : view === 'todo' ? todoVisible : view === 'canvas' ? [] : worktreeItems;
+  // Nothing is listed until the board is read, so nothing can be selected: not the other devices'
+  // rows that come first.
+  const visible = loading ? [] : view === 'sessions' ? sessionRows : view === 'prs' ? prVisible : view === 'todo' ? todoVisible : view === 'canvas' ? [] : worktreeItems;
   // When the selected agent's line goes (you marked it seen, it stopped), the selection stays
   // on its worktree rather than jumping to the top. A todo that leaves the list (marked done
   // while Done is folded, or no longer matching the search or a filter) stays in the panel: the
@@ -2126,6 +2141,7 @@ export function App() {
       </div>
       <UsageBar
         usage={board?.usage ?? []}
+        loading={loading}
         now={now}
         onRefresh={() => void refreshUsage()}
         onAccounts={(account) => openSettings('accounts', account ?? null)}
@@ -2169,6 +2185,7 @@ export function App() {
           filters={sideFilters}
           onSettings={() => openSettings()}
           hasWarnings={(board?.warnings.length ?? 0) > 0}
+          loading={loading}
           foot={
             <div className="ca-side-foot">
               <button type="button" className="ca-linkbtn ca-side-config" title="Settings (⌘,)" onClick={() => openSettings()}>
@@ -2222,7 +2239,12 @@ export function App() {
             </div>
           )}
           {loadError && <div className="ca-board-empty">{loadError}</div>}
-          {!loadError && (!board || (board.loading && lanes.length === 0)) && <div className="ca-board-empty">Reading sessions…</div>}
+          {loading && (
+            <div className="ca-board-empty ca-board-loading" role="status">
+              <StatusGlyph status="working" size={12} title="" />
+              <span>{READING[view]}</span>
+            </div>
+          )}
           {board && !board.loading && view === 'sessions' && sessionRows.length === 0 && (
             <div className="ca-board-empty">
               {query
@@ -2247,7 +2269,7 @@ export function App() {
                     : 'No worktrees yet. Codealong looks for repos under the folders in config.toml and for the agents working in them.'}
             </div>
           )}
-          {view === 'canvas' && board && canvas.doc && (
+          {view === 'canvas' && board && canvas.doc && !loading && (
             <CanvasView
               doc={canvas.doc}
               update={canvas.update}
@@ -2272,7 +2294,7 @@ export function App() {
               fitMatches={canvasFit}
             />
           )}
-          {view !== 'canvas' && (
+          {view !== 'canvas' && !loading && (
           <div
             role="listbox"
             aria-label={view === 'sessions' ? 'Sessions' : view === 'prs' ? 'Pull requests' : view === 'todo' ? 'Todos' : 'Agents and worktrees'}
@@ -2440,7 +2462,7 @@ export function App() {
             todoPanel(selected)
           ) : (
             <aside className="ca-insp ca-insp--empty">
-              <p>{projectTodos.length ? 'Select a todo to see its description, labels and the sessions on it.' : 'Todos are work you mean to hand an agent. Add one on the left.'}</p>
+              <p>{projectTodos.length || loading ? 'Select a todo to see its description, labels and the sessions on it.' : 'Todos are work you mean to hand an agent. Add one on the left.'}</p>
             </aside>
           )
         ) : view === 'prs' ? (

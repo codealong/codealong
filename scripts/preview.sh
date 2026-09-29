@@ -58,6 +58,8 @@
 # PREVIEW_FOUND=<file> lists the accounts in it under Settings › Accounts › Found on this Mac
 # (scripts/preview/found-sample.json has some) in place of the ones this Mac has but config.toml
 # doesn't list, which are often none.
+# PREVIEW_LOADING=1 shows every window as it is at launch, before the engine's first scan has
+# finished: nothing read yet, and other devices' worktrees (PREVIEW_DEVICES) already in.
 #
 # Needs a release build of the engine (cargo build --release in src-tauri) for the snapshot;
 # it's found through scripts/target-dir.sh.
@@ -137,6 +139,7 @@ fi
 
 setup="localStorage.setItem('codealong.view','$view');localStorage.setItem('codealong.age','all');"
 [ -n "$project" ] && setup="$setup localStorage.setItem('codealong.project','$project');"
+[ -n "${PREVIEW_LOADING:-}" ] && setup="$setup window.__PREVIEW_LOADING__=true;"
 size="${PREVIEW_SIZE:-1440,900}"
 if [ "$view" = bar ]; then
   size="${PREVIEW_SIZE:-1100,64}"

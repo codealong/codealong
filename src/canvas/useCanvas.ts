@@ -29,7 +29,9 @@ function seed(e: Entities, now: number, pinned: Set<string>): CanvasDoc {
   return tidy(emptyDoc(), e, now, pinned);
 }
 
-export function useCanvas(project: string, shown: boolean, e: Entities, now: number, pinned: Set<string>): CanvasHandle {
+/** `read` is false until the engine's first scan has finished: the board has only other devices'
+ *  worktrees then, and a first tidy of those would leave out this Mac's. */
+export function useCanvas(project: string, shown: boolean, read: boolean, e: Entities, now: number, pinned: Set<string>): CanvasHandle {
   const [held, setHeld] = useState<Held | null>(null);
   const loaded = held?.project === project;
   const ctx = useRef({ e, now, pinned });
@@ -74,7 +76,7 @@ export function useCanvas(project: string, shown: boolean, e: Entities, now: num
 
   // Brought up to date with the board as it changes, once the canvas exists.
   useEffect(() => {
-    if (!held || held.project !== project) return;
+    if (!held || held.project !== project || !read) return;
     if (!held.doc) {
       if (!shown || e.lanes.size === 0) return;
       const doc = seed(e, now, pinned);
@@ -87,7 +89,7 @@ export function useCanvas(project: string, shown: boolean, e: Entities, now: num
       setHeld({ project, doc: next });
       save(project, next);
     }
-  }, [held, project, shown, e, now, pinned, save]);
+  }, [held, project, shown, read, e, now, pinned, save]);
 
   const update = useCallback(
     (fn: (doc: CanvasDoc) => CanvasDoc) => {
