@@ -44,6 +44,8 @@ const SAVE_EVERY: Duration = Duration::from_secs(30);
 /// How long a read may take, and a request that acts on a session, which can type into a
 /// terminal or wait on the Codex app.
 const READ_WAIT: Duration = Duration::from_secs(15);
+/// Jev answers in a second or two, but the Mac may be busy.
+const ROUTE_WAIT: Duration = Duration::from_secs(20);
 const ACT_WAIT: Duration = Duration::from_secs(40);
 
 /// A device this one is linked with, as `devices.json` keeps it.
@@ -310,6 +312,17 @@ impl Client {
     /// none). `key` is the session's key there.
     pub fn page(&self, device: &str, key: &str, before: Option<u64>) -> std::result::Result<api::Page, String> {
         read(self.ask(device, api::SESSION_PAGE, json!({ "key": key, "before": before }), READ_WAIT)?)
+    }
+
+    /// Sessions on `device` whose prompts and replies have every word. Keys are the device's own.
+    pub fn search(&self, device: &str, words: &[String]) -> std::result::Result<api::Found, String> {
+        read(self.ask(device, api::SEARCH, json!({ "words": words }), READ_WAIT)?)
+    }
+
+    /// Where `text` goes on `device`'s board, as its quick panel would suggest (`api::Route`), in
+    /// `project` (its name there; empty for all). Session keys and lane ids are the device's own.
+    pub fn route(&self, device: &str, project: &str, text: &str) -> std::result::Result<api::Route, String> {
+        read(self.ask(device, api::ROUTE, json!({ "project": project, "text": text }), ROUTE_WAIT)?)
     }
 
     /// What a session on `device` said and did after `after`.

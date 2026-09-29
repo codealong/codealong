@@ -447,11 +447,16 @@ fn start_from_quick(app: tauri::AppHandle, engine: State<'_, engine::Handle>, pe
 /// Where what's typed in the quick panel should go, from Jev (route.rs).
 #[tauri::command(async)]
 fn route_quick(engine: State<'_, engine::Handle>, project: String, text: String) -> Result<route::Route, String> {
+    route_here(&engine, &project, &text)
+}
+
+/// Where typed text goes on this Mac's board, for its quick panel or a linked phone's.
+fn route_here(engine: &engine::Handle, project: &str, text: &str) -> Result<route::Route, String> {
     let cfg = config::load().map_err(|e| format!("{e:#}"))?.unwrap_or_default();
     if !cfg.jev.quick_panel {
         return Err("Suggestions in the quick panel are off.".into());
     }
-    route::route(&engine.board(), &cfg, &project, &text).map_err(|e| format!("{e:#}"))
+    route::route(&engine.board(), &cfg, project, text).map_err(|e| format!("{e:#}"))
 }
 
 /// Sessions whose prompts and replies have every word (search.rs), for the quick panel.
@@ -901,6 +906,10 @@ fn peer_answer(engine: &engine::Handle, method: &str, p: serde_json::Value) -> R
             to_value(start_and_link(engine, &spec)?).map_err(|e| e.to_string())
         }
         api::SESSION_STREAM => to_value(acp::stream(&key()?)).map_err(|e| e.to_string()),
+        api::ROUTE => {
+            let project = p.get("project").and_then(Value::as_str).filter(|p| !p.is_empty()).unwrap_or(route::ALL_PROJECTS);
+            to_value(route_here(engine, project, &text("text"))?).map_err(|e| e.to_string())
+        }
         api::SESSION_CANCEL => acp::cancel(&key()?).map(|_| Value::Null).map_err(|e| format!("{e:#}")),
         _ => Err(format!("Codealong on this device doesn't know how to {method} yet; update it here.")),
     }

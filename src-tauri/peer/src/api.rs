@@ -25,6 +25,9 @@ pub const SESSION_STREAM: &str = "session-stream";
 pub const SESSION_WATCH: &str = "session-watch";
 /// Stops the turn a session Codealong runs is taking.
 pub const SESSION_CANCEL: &str = "session-cancel";
+/// Where what you typed goes, as the quick panel suggests it: Jev's answer about this device's
+/// board (`Route`). Macs before 2026-09-29 refuse it as a request they don't know.
+pub const ROUTE: &str = "route";
 
 /// Requests that act on a session: they need remote control on at the device asked.
 pub const CONTROL: [&str; 4] = [SESSION_SEND, SESSION_ANSWER, START, SESSION_CANCEL];
@@ -315,3 +318,90 @@ mod tests {
         assert_eq!(serde_json::to_value(Answer::Allow).unwrap(), "allow");
     }
 }
+
+// ---- the quick panel: what was said, and where typed text goes ----
+
+/// A session whose text has every word.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Hit {
+    pub key: String,
+    /// The message that matched best, cut to a line around the first match.
+    pub snippet: String,
+    /// You wrote it; otherwise the agent did.
+    pub you: bool,
+    pub at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Found {
+    pub hits: Vec<Hit>,
+    /// Still reading sessions for the first time, so more may match soon.
+    pub building: bool,
+    /// Searching text is turned off (`days = 0`).
+    pub off: bool,
+}
+
+
+// Routing, as the Mac's route.rs reads it from Jev.
+
+/// What Jev thinks you want done with what you typed.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum Action {
+    /// Send it to a session that's already going.
+    Send,
+    /// Start a new session with it.
+    Start,
+    /// It names a session to open.
+    Find,
+    /// Keep it as a todo.
+    Todo,
+}
+
+impl Action {
+    pub fn key(self) -> &'static str {
+        match self {
+            Action::Send => "send",
+            Action::Start => "start",
+            Action::Find => "find",
+            Action::Todo => "todo",
+        }
+    }
+    pub const ALL: [Action; 4] = [Action::Send, Action::Start, Action::Find, Action::Todo];
+}
+
+/// One option Jev weighed, with its probability.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct Pick {
+    pub id: String,
+    pub p: f64,
+}
+
+/// The suggestion, with the runners-up, for the panel to show.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct Route {
+    pub action: Action,
+    /// How likely each action is, most likely first.
+    pub actions: Vec<(Action, f64)>,
+    /// Session keys, most likely first; those Jev gives any real chance, for ranking the search.
+    pub sessions: Vec<Pick>,
+    /// How likely it is that no listed session is meant.
+    pub no_session: f64,
+    /// Worktrees (lane ids), most likely first; the top ones only.
+    pub lanes: Vec<Pick>,
+    /// Repos, the worktrees' probabilities added up: which repo is clearer than which worktree.
+    pub repos: Vec<Pick>,
+    /// How likely it is that new work wants a worktree of its own.
+    pub own_worktree: f64,
+    /// A live session that may already be doing this work, when Jev thinks one is.
+    pub duplicate: Option<Pick>,
+    /// The versioned model that answered, such as `jev-1.13.0`.
+    pub model: String,
+    pub ms: u64,
+    pub input_tokens: u64,
+}
+

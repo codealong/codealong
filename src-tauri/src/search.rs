@@ -16,7 +16,6 @@ use std::sync::mpsc::{channel, Sender};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::config::AccountCfg;
@@ -90,27 +89,7 @@ struct Index {
     ready: bool,
 }
 
-/// A session whose text has every word.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Hit {
-    pub key: String,
-    /// The message that matched best, cut to a line around the first match.
-    pub snippet: String,
-    /// You wrote it; otherwise the agent did.
-    pub you: bool,
-    pub at: i64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Found {
-    pub hits: Vec<Hit>,
-    /// Still reading sessions for the first time, so more may match soon.
-    pub building: bool,
-    /// Searching text is turned off (`days = 0`).
-    pub off: bool,
-}
+pub use codealong_peer::api::{Found, Hit};
 
 fn index() -> &'static Mutex<Index> {
     static INDEX: OnceLock<Mutex<Index>> = OnceLock::new();
