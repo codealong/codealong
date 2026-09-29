@@ -3226,8 +3226,9 @@ html.is-desktop body {
 }
 
 /* ---- The floating bar's peek: its own window (peek.rs), transparent. The card fills it but for
-   room for its shadow (Peek.tsx sets it: less on the side toward the bar), and the page sizes
-   the window to the card. ---- */
+   room for its shadow (Peek.tsx sets it: more on the side away from the bar, less toward it), and
+   the page sizes the window to the card. The shadow is drawn to fit that room and falls away from
+   the bar, so no edge of it is cut off. ---- */
 html.is-peek,
 html.is-peek body {
   background: transparent;
@@ -3242,8 +3243,11 @@ html.is-peek body {
   overflow: hidden;
   background: var(--surface-raised);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-popover);
+  box-shadow: var(--shadow-peek);
   color: var(--ink);
+}
+.ca-peek-root.is-over .ca-peek {
+  box-shadow: var(--shadow-peek-over);
 }
 /* The box, at the card's foot; what the session waits on sits above it. */
 .ca-peek .ca-composer:last-child {

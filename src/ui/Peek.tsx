@@ -20,10 +20,11 @@ import { useKeyPerf } from '../perf';
 import { ReplyView } from './ReplyView';
 import { applyTheme } from './ThemeSwitch';
 
-/** Room around the card for its shadow: the window (peek.rs) is the card, this on its sides and
- *  the side away from the bar, and `NEAR` on the side toward the bar, where it mustn't cover the
- *  bar's pills. */
+/** Room around the card for its shadow (`--shadow-peek`, which falls away from the bar): the
+ *  window (peek.rs) is the card, this on its sides, `FAR` on the side away from the bar, and
+ *  `NEAR` on the side toward the bar, where it mustn't cover the bar's pills. */
 const MARGIN = 20;
+const FAR = 32;
 const NEAR = 8;
 /** How long an open waits for the conversation before showing what it has. */
 const LOAD_WAIT_MS = 250;
@@ -53,7 +54,7 @@ async function previewOpen(): Promise<PeekOpen | null> {
   const lane = board.lanes.find((l) => l.sessions.some((s) => s.key === key));
   const session = lane?.sessions.find((s) => s.key === key);
   if (!lane || !session) return null;
-  return { id: 1, lane, session, terminal: board.apps.terminal, theme: board.theme, room: 608, below: true, focus: false };
+  return { id: 1, lane, session, terminal: board.apps.terminal, theme: board.theme, room: 580 + FAR + NEAR, below: true, focus: false };
 }
 
 export function Peek() {
@@ -117,7 +118,7 @@ export function Peek() {
   const theme = live?.theme ?? open?.theme ?? 'system';
   useEffect(() => applyTheme(theme), [theme]);
 
-  const measure = () => Math.ceil((card.current?.getBoundingClientRect().height ?? 0) + MARGIN + NEAR);
+  const measure = () => Math.ceil((card.current?.getBoundingClientRect().height ?? 0) + FAR + NEAR);
 
   /** Answers the open with the page's height, once: when the conversation is laid out, or after a
    *  moment without it. */
@@ -205,8 +206,8 @@ export function Peek() {
 
   return (
     <div
-      className="ca-peek-root"
-      style={{ padding: open.below ? `${NEAR}px ${MARGIN}px ${MARGIN}px` : `${MARGIN}px ${MARGIN}px ${NEAR}px` }}
+      className={open.below ? 'ca-peek-root' : 'ca-peek-root is-over'}
+      style={{ padding: open.below ? `${NEAR}px ${MARGIN}px ${FAR}px` : `${FAR}px ${MARGIN}px ${NEAR}px` }}
       onMouseDown={(e) => {
         // The shadow around the card is part of the window; a click there is a click outside.
         if (e.target === e.currentTarget) void peekHide();
@@ -215,7 +216,7 @@ export function Peek() {
       <div
         ref={card}
         className="ca-peek"
-        style={{ maxHeight: open.room - MARGIN - NEAR }}
+        style={{ maxHeight: open.room - FAR - NEAR }}
         onPointerDown={() => {
           // Hovering never gives the peek the keyboard; a click does.
           if (!engaged) void peekFocus();

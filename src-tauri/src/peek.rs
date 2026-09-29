@@ -28,16 +28,18 @@ use crate::config::Theme;
 use crate::model::{Board, Lane, Session};
 
 pub const LABEL: &str = "peek";
-/// Room around the card for its shadow: the window is this much bigger on its sides and on the
-/// side away from the bar (Peek.tsx).
+/// Room around the card for its shadow (`--shadow-peek`, drawn to fit it): the window is this
+/// much bigger on its sides (Peek.tsx).
 const MARGIN: f64 = 20.0;
+/// And this much on the side away from the bar, where the shadow falls.
+const FAR: f64 = 32.0;
 /// On the side toward the bar the window is only this much bigger, so it never covers the bar's
 /// pills (a window takes the clicks on its clear parts too). The shadow falls away from there.
 const NEAR: f64 = 8.0;
 /// The window's width: the card and its margins.
 const WIDTH: f64 = 480.0 + 2.0 * MARGIN;
 /// The tallest the window gets.
-const MAX_HEIGHT: f64 = 580.0 + MARGIN + NEAR;
+const MAX_HEIGHT: f64 = 580.0 + FAR + NEAR;
 /// With less room than this under the bar, the peek opens over it when there's more room there.
 const MIN_ROOM: f64 = 360.0;
 /// The bar's page leaves this much room around its card (Bar.tsx), as a desktop card's page does
@@ -263,6 +265,14 @@ pub fn ready(app: &AppHandle, id: u64, height: Option<f64>) {
     let (frame, focus, watch) = {
         let Ok(mut s) = state.inner.lock() else { return };
         if s.waiting != Some(id) {
+            // The page answered after the peek showed without it (`READY_WAIT`), at the height the
+            // window had for the session before. The page won't say its height again until it
+            // changes, so the peek takes it now, or it stays cut off (or too tall).
+            let late = s.opens == id && s.visible;
+            drop(s);
+            if let Some(h) = height.filter(|_| late) {
+                fit(app, h);
+            }
             return;
         }
         let height = height.or_else(|| native::frame(&window).map(|f| f.h)).unwrap_or(320.0);
@@ -697,6 +707,30 @@ mod tests {
         let short = Rect { h: 500.0, ..SCREEN };
         assert!(place(r(500.0, 250.0, 600.0, 56.0), r(600.0, 267.0, 120.0, 22.0), short).below);
         assert!(!place(r(500.0, 200.0, 600.0, 56.0), r(600.0, 217.0, 120.0, 22.0), short).below);
+    }
+
+    #[test]
+    fn the_shadow_fits_the_window() {
+        // A box shadow reaches past the card by its offset, spread and blur; the window keeps that
+        // much room on every side, or the shadow ends in a hard edge. Under the bar the far side is
+        // the bottom (CSS's y grows down), over it the top.
+        let tokens: serde_json::Value = serde_json::from_str(include_str!("../../design/tokens.json")).unwrap();
+        let shadows = tokens["shadow"]["tokens"].as_array().unwrap();
+        for (name, top, bottom) in [("shadow-peek", NEAR, FAR), ("shadow-peek-over", FAR, NEAR)] {
+            let token = shadows.iter().find(|t| t["name"] == name).unwrap();
+            for scheme in ["light", "dark"] {
+                let value = token["value"][scheme].as_str().unwrap();
+                for layer in value.split("),") {
+                    let n: Vec<f64> = layer.split("rgba").next().unwrap().split_whitespace().map(|v| v.trim_end_matches("px").parse().unwrap()).collect();
+                    let (x, y, blur, spread) = (n[0], n[1], n.get(2).copied().unwrap_or(0.0), n.get(3).copied().unwrap_or(0.0));
+                    let reach = |offset: f64| offset + spread + blur;
+                    let what = format!("{name} ({scheme}): {layer}");
+                    assert!(reach(x.abs()) <= MARGIN, "{what} reaches past the sides");
+                    assert!(reach(-y) <= top, "{what} reaches past the top");
+                    assert!(reach(y) <= bottom, "{what} reaches past the bottom");
+                }
+            }
+        }
     }
 
     #[test]
