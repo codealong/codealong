@@ -40,7 +40,7 @@ function snoozedApart(s: Session): s is Session & { snoozedUntil: number } {
 }
 
 /**
- * What a session's panel works through with ⌘⏎ and ⌘]: the sessions listed that wait on you,
+ * What a session's panel works through with ⌘⏎, `e` and ⌘]: the sessions listed that wait on you,
  * pinned ones too, Needs you the longest wait first, then Your turn the newest first, as their
  * sections list them. Snoozed ones wait their time.
  */

@@ -5447,6 +5447,27 @@ html.is-quick body {
 .ca-sessinsp .ca-sessinsp-seen + .ca-todoinsp-more {
   margin-left: 0;
 }
+.ca-sessinsp .ca-sessinsp-max {
+  margin-left: auto;
+}
+.ca-sessinsp .ca-sessinsp-seen + .ca-sessinsp-max,
+.ca-sessinsp .ca-sessinsp-max + .ca-todoinsp-more {
+  margin-left: 0;
+}
+/* Expanded to the whole window (F): the sidebar and the list step aside, and the panel's parts
+   keep to a readable width in the middle, their backgrounds and lines still reaching the edges. */
+.ca-win--app .ca-win-body.is-panel-max {
+  grid-template-columns: minmax(0, 1fr);
+}
+.ca-win--app .ca-win-body.is-panel-max > :not(.ca-sessinsp) {
+  display: none;
+}
+.ca-win--app .ca-win-body.is-panel-max .ca-insp.ca-sessinsp {
+  border-left: 0;
+}
+.ca-win-body.is-panel-max .ca-sessinsp > * {
+  padding-inline: max(var(--space-4), (100% - 860px) / 2);
+}
 .ca-sessinsp-title {
   margin: 0;
   font: 600 17px/22px var(--font-sans);

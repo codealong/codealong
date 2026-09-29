@@ -3,8 +3,10 @@
 // sends it a message where it runs, or what it waits on you to allow (SessionReply.tsx).
 //
 // In Sessions it works through what waits on you: ⌘⏎ in the box sends (or allows the call the
-// session waits on) and goes on to the next, ⌘] skips to it, and a strip above the header says how
-// many more there are and how the last one went (ReplyView.tsx's).
+// session waits on) and goes on to the next, the check (`e` on the list, ⌘E in the box) marks a
+// finished turn seen and goes on, ⌘] skips to it, and a strip above the header says how many more
+// there are and how the last one went (ReplyView.tsx's). F expands it to the whole window, so the
+// list is out of the way while you do.
 
 import { useState } from 'react';
 import { below } from '../contextMenu';
@@ -54,9 +56,12 @@ interface SessionPanelProps {
   onDone?: (done: string) => void;
   /** Puts the cursor in the box, for a session gone on to from the one before. */
   autoFocus?: boolean;
+  /** In Sessions: whether the panel takes the whole window, and the way to switch. */
+  maximized?: boolean;
+  onMaximize?: () => void;
 }
 
-export function SessionPanel({ lane, session: s, apps, now, onOpen, onNewSession, onShowLane, todos, onShowTodo, onMoreMenu, onSeen, device, back, onSendFailed, queue, notice, onDone, autoFocus }: SessionPanelProps) {
+export function SessionPanel({ lane, session: s, apps, now, onOpen, onNewSession, onShowLane, todos, onShowTodo, onMoreMenu, onSeen, device, back, onSendFailed, queue, notice, onDone, autoFocus, maximized, onMaximize }: SessionPanelProps) {
   const [details, setDetails] = useState(false);
   const icons = useEditorIcons(apps);
   const own = lane.targets.filter((t) => t.id.startsWith(`s|${s.key}|`));
@@ -79,7 +84,19 @@ export function SessionPanel({ lane, session: s, apps, now, onOpen, onNewSession
         <div className="ca-insp-title">
           <StatusGlyph status={s.status} size={14} />
           <span className="ca-tag">{HARNESS_WORD[s.harness]}</span>
-          {seenable(s) && <Button variant="ghost" size="sm" icon="check" aria-label="Mark as seen" title="Mark as seen: it goes idle and leaves the bar" className="ca-sessinsp-seen" onClick={onSeen} />}
+          {seenable(s) && <Button variant="ghost" size="sm" icon="check" aria-label="Mark as seen" title={queue?.next ? 'Mark as seen and go on to the next (E)' : 'Mark as seen: it goes idle and leaves the bar'} className="ca-sessinsp-seen" onClick={onSeen} />}
+          {onMaximize && (
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={maximized ? 'minimize' : 'maximize'}
+              aria-label={maximized ? 'Show the list' : 'Expand to the window'}
+              aria-pressed={maximized}
+              title={maximized ? 'Show the list again (F)' : 'Expand to the whole window (F)'}
+              className="ca-sessinsp-max"
+              onClick={onMaximize}
+            />
+          )}
           <Button variant="ghost" size="sm" icon="dots" aria-label="More" title="Pin, archive, copy and more" className="ca-todoinsp-more" onClick={(e) => onMoreMenu(below(e.currentTarget))} />
         </div>
         <h3 className="ca-sessinsp-title">{s.title}</h3>

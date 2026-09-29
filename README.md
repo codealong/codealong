@@ -54,8 +54,13 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     run In Codealong takes it at once, after its current turn). To work through what waits on
     you, ⌘⏎ in the box sends and goes on to the next session listed that waits on you (Needs
     you the longest wait first, then Your turn), or, while the session waits on a call that can
-    be allowed here, allows it and goes on; ⏎ sends and stays. ⌘] skips to the next, and a
-    skipped one comes round again after the rest. A line at the top of the panel says how many
+    be allowed here, allows it and goes on; ⏎ sends and stays. `e` on the list (⌘E in the box,
+    or the check at the top of the panel) marks a finished turn seen and goes on, and the keys
+    stay where they were, so `e` works down the list. ⌘] skips to the next, and a
+    skipped one comes round again after the rest. `f` (or the button beside the check) expands
+    the panel to the whole window, the list and sidebar out of the way while you work through
+    them, and stays so until you press it again; Escape in the box then leaves the keys with the
+    window. A line at the top of the panel says how many
     more wait on you and how the last one went. Clicking a session puts the cursor in its box;
     moving along the list with the keys leaves them there, and Escape in the box gives them back.
   - **Worktrees**: each worktree once, pinned ones first in your order, then the rest by

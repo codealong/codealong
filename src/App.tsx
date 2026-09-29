@@ -72,6 +72,7 @@ const INSPECTOR_WIDTH_KEY = 'codealong.inspectorWidth';
 const PR_PANEL_WIDTH_KEY = 'codealong.prPanelWidth';
 const TODO_PANEL_WIDTH_KEY = 'codealong.todoPanelWidth';
 const SESSION_PANEL_WIDTH_KEY = 'codealong.sessionPanelWidth';
+const SESSION_PANEL_MAX_KEY = 'codealong.sessionPanelMax';
 const DAY = 24 * 60 * 60 * 1000;
 
 type View = 'worktrees' | 'sessions' | 'prs' | 'todo' | 'canvas';
@@ -282,6 +283,25 @@ export function App() {
         // It still folds for this window; it just isn't remembered.
       }
       return !c;
+    });
+  }, []);
+  // A session's panel in Sessions can take the whole window (F), for working through sessions one
+  // after another with the list out of the way; it stays as you left it.
+  const [panelMax, setPanelMax] = useState(() => {
+    try {
+      return window.localStorage.getItem(SESSION_PANEL_MAX_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+  const togglePanelMax = useCallback(() => {
+    setPanelMax((m) => {
+      try {
+        window.localStorage.setItem(SESSION_PANEL_MAX_KEY, m ? '0' : '1');
+      } catch {
+        // It still expands for this window; it just isn't remembered.
+      }
+      return !m;
     });
   }, []);
   const [savedViews, setSavedViews] = useState<SavedView[]>(loadSaved);
@@ -789,9 +809,10 @@ export function App() {
   );
 
   // Working through what waits on you from a session's panel in Sessions: ⌘⏎ in its box sends (or
-  // allows the call it waits on) and goes on to the next listed that waits on you, and ⌘] skips to
-  // it; a skipped one comes round again after the rest. The ones dealt with stay out until they
-  // wait on you anew, since an allowed call isn't shown ahead of the board.
+  // allows the call it waits on) and goes on to the next listed that waits on you, `e` (⌘E from the
+  // box) marks a finished turn seen and goes on, and ⌘] skips to it; a skipped one comes round
+  // again after the rest. The ones dealt with stay out until they wait on you anew, since an
+  // allowed call isn't shown ahead of the board.
   const waitingRows = useMemo(() => waitingQueue(shownSessions), [shownSessions]);
   const handled = useRef<Handled>(new Map());
   // How the last one went, on the panel of the one gone on to, for a moment.
@@ -804,15 +825,25 @@ export function App() {
   const selectedNow = useRef(selected?.key);
   selectedNow.current = selected?.key;
   /** On from the session in row `from` to the next that waits on you, with what was done to it, or
-   *  none for a skip. With nothing left, the panel stays where it is. */
-  const goOn = (from: string, s: Session, done: string | null) => {
+   *  none for a skip. With nothing left, the panel stays where it is. The next one's box takes the
+   *  cursor unless `box` says to leave the keyboard where it is. */
+  const goOn = (from: string, s: Session, done: string | null, box = true) => {
     if (view !== 'sessions' || selectedNow.current !== from) return;
     if (done) handled.current.set(s.key, statusTime(s));
     const next = queueAfter(waitingNow.current, s.key, handled.current)[0];
     if (!next) return;
     setQueueNote(done ? { key: next.key, text: `${s.title}: ${done}` } : null);
-    setBoxFocus(next.key);
+    if (box) setBoxFocus(next.key);
     setSelectedKey(next.key);
+  };
+  /** Marks a finished turn seen and, when it was waiting on you, goes on to the next that is. The
+   *  keyboard stays where it was: on the list, `e` works down it; from a box, the next one's box
+   *  takes the cursor. */
+  const seenAndOn = (from: string, s: Session, box: boolean) => {
+    if (!seenable(s)) return;
+    const waiting = waitingNow.current.some((r) => r.session.key === s.key);
+    markSeen([s.key]);
+    if (waiting) goOn(from, s, 'marked seen.', box);
   };
   useEffect(() => {
     if (!queueNote) return;
@@ -1468,14 +1499,15 @@ export function App() {
       const mod = e.metaKey;
       const key = e.key.toLowerCase();
       // Escape in a session panel's box gives the list its keys back (a click on a row put them
-      // there).
+      // there). With the panel expanded there's no list to give them to, so the window has them.
       if (e.key === 'Escape' && !e.isComposing && view === 'sessions' && document.activeElement?.closest('.ca-sessinsp .ca-composer')) {
         e.preventDefault();
-        listRef.current?.focus();
+        if (panelMax) (document.activeElement as HTMLElement).blur();
+        else listRef.current?.focus();
         return;
       }
       // So does a text field, a todo's title or description say, but for the window's own ⌘ keys.
-      if (inField(document.activeElement, searchRef.current) && !(mod && (key === 'k' || key === 'p' || e.key === ',' || (e.code === 'BracketRight' && view === 'sessions') || (e.altKey && /^Digit\d$/.test(e.code))))) return;
+      if (inField(document.activeElement, searchRef.current) && !(mod && (key === 'k' || key === 'p' || e.key === ',' || ((e.code === 'BracketRight' || key === 'e') && view === 'sessions') || (e.altKey && /^Digit\d$/.test(e.code))))) return;
       if (mod && e.key === ',') {
         e.preventDefault();
         openSettings();
@@ -1488,6 +1520,12 @@ export function App() {
       if (mod && !e.ctrlKey && !e.shiftKey && e.code === 'BracketRight' && view === 'sessions') {
         e.preventDefault();
         if (selected?.kind === 'agent') goOn(selected.key, selected.session, null);
+        return;
+      }
+      // ⌘E marks a finished turn seen and goes on, as `e` does on the list, from the box too.
+      if (mod && !e.ctrlKey && !e.shiftKey && !e.altKey && key === 'e' && view === 'sessions') {
+        e.preventDefault();
+        if (selected?.kind === 'agent') seenAndOn(selected.key, selected.session, !!document.activeElement?.closest('.ca-sessinsp .ca-composer'));
         return;
       }
       if (mod && key === 'k') {
@@ -1556,6 +1594,10 @@ export function App() {
         return;
       }
       if (todoKeys.current(e, key)) return;
+      if (key === 'f' && !mod && view === 'sessions' && selected?.kind === 'agent') {
+        togglePanelMax();
+        return;
+      }
       // P pins what the view lists: worktrees on the board, sessions in Sessions.
       if (key === 'p' && !mod && selected && selected.kind !== 'pr' && selected.kind !== 'todo') {
         if (view === 'worktrees') toggleLanePin(selected.lane);
@@ -1624,6 +1666,8 @@ export function App() {
       } else if (mod && key === 'c' && !window.getSelection()?.toString()) {
         e.preventDefault();
         copy(lane?.branch, 'branch name');
+      } else if (key === 'e' && !mod && view === 'sessions') {
+        if (selected?.kind === 'agent') seenAndOn(selected.key, selected.session, false);
       } else if (key === 'e' && !mod) {
         const sessions = selected?.kind === 'agent' ? [selected.session] : selected?.kind === 'todo' ? (pickedRows.length > 0 ? pickedRows : [selected]).flatMap((r) => r.sessions.map((x) => x.session)) : (lane?.sessions ?? []);
         markSeen(sessions.filter(seenable).map((s) => s.key));
@@ -1634,7 +1678,7 @@ export function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [visible, selected, pickedRows, selectedLane, startLaneId, move, open, openRow, copy, settings, previewFor, openSettings, newSession, view, setView, toggleLanePin, sessionPins, lanePins, pinnedRows, pinnedLaneRows, shownBays, movePinnedSession, movePinnedLane, current, setArchived, projects, toggleSidebar]);
+  }, [visible, selected, pickedRows, selectedLane, startLaneId, move, open, openRow, copy, settings, previewFor, openSettings, newSession, view, setView, toggleLanePin, sessionPins, lanePins, pinnedRows, pinnedLaneRows, shownBays, movePinnedSession, movePinnedLane, current, setArchived, projects, toggleSidebar, panelMax, togglePanelMax]);
 
   // Starts this window asked the quick panel for. A spinner shows while the harness takes the
   // session; then what's next, and the session is selected when it shows up if Codealong chose
@@ -1873,7 +1917,7 @@ export function App() {
         todos={todoLinks.bySession.get(session.key)}
         onShowTodo={showTodoFromPanel}
         onMoreMenu={(at) => void showContextMenu(sessionMenuSpec(lane, session, 'session'), at).catch((err: unknown) => setToast(String(err)))}
-        onSeen={() => seen(session)}
+        onSeen={() => (row !== undefined ? seenAndOn(row, session, false) : seen(session))}
         device={deviceOf(devices, session.key)}
         back={back}
         onSendFailed={(why) => {
@@ -1885,6 +1929,8 @@ export function App() {
         notice={note}
         onDone={row !== undefined ? (done) => goOn(row, session, done) : undefined}
         autoFocus={row !== undefined && boxFocus === row}
+        maximized={row !== undefined && panelMax}
+        onMaximize={row !== undefined ? togglePanelMax : undefined}
       />
     );
   };
@@ -2086,7 +2132,7 @@ export function App() {
         onSignIn={startSignIn}
       />
       <div
-        className={['ca-win-body', sideCollapsed && 'is-railed', panelKind === 'pr' && 'is-prs', panelKind === 'todo' && 'is-todo', panelKind === 'session' && 'is-session', view === 'canvas' && 'is-canvas', view === 'canvas' && canvasPanel && 'has-panel'].filter(Boolean).join(' ')}
+        className={['ca-win-body', sideCollapsed && 'is-railed', panelKind === 'pr' && 'is-prs', panelKind === 'todo' && 'is-todo', panelKind === 'session' && 'is-session', panelKind === 'session' && panelMax && 'is-panel-max', view === 'canvas' && 'is-canvas', view === 'canvas' && canvasPanel && 'has-panel'].filter(Boolean).join(' ')}
         style={{ '--sidebar-w': widthVar(sidebarWidth), '--panel-w': widthVar(panelKind ? panelWidth[panelKind] : null) } as CSSProperties}
       >
         <Sidebar
