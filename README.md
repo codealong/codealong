@@ -66,7 +66,10 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   - **Worktrees**: each worktree once, pinned ones first in your order, then the rest by
     status: Needs you, Working, Your turn, In review, Idle, Merged. A worktree's row has a
     line for each agent that needs you, is working or just finished, which you select, open
-    or right-click as you would a row. An agent is listed under the worktree it's working
+    or right-click as you would a row. Its left column is the worktree: its name, repo and
+    branch, and where it stands against the default branch (commits ahead and behind, lines
+    added and removed, a dot for uncommitted files); the rest says what's happening, with its
+    agents, todo, app and PR. An agent is listed under the worktree it's working
     in, where most of its latest commands ran and edits landed, even if it started somewhere
     else; resuming it still happens where it started. Sessions outside your projects are
     listed under Elsewhere, in the repo or folder each ran in, and show in All projects only

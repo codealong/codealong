@@ -169,7 +169,7 @@ export function Button({ variant = 'secondary', size = 'md', icon, kbd, children
   );
 }
 
-export function HarnessChip({ session, withStatus = true, onOpen }: { session: Session; withStatus?: boolean; onOpen?: () => void }) {
+export function HarnessChip({ session, withStatus = true, onOpen, className }: { session: Session; withStatus?: boolean; onOpen?: () => void; className?: string }) {
   const where = sessionPlace(session, 'terminal');
   const title = `${session.account} · ${session.title} · ${STATUS_WORD[session.status]}`;
   const inner = (
@@ -181,7 +181,7 @@ export function HarnessChip({ session, withStatus = true, onOpen }: { session: S
   );
   if (!onOpen) {
     return (
-      <span className="ca-chip" title={title}>
+      <span className={cx('ca-chip', className)} title={title}>
         {inner}
       </span>
     );
@@ -189,7 +189,7 @@ export function HarnessChip({ session, withStatus = true, onOpen }: { session: S
   return (
     <button
       type="button"
-      className="ca-chip ca-chip--button"
+      className={cx('ca-chip', 'ca-chip--button', className)}
       title={`${title}. Click to open in ${where}.`}
       onMouseDown={(e) => e.stopPropagation()}
       onDoubleClick={(e) => e.stopPropagation()}

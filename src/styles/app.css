@@ -1829,6 +1829,110 @@ body.is-resizing * {
   gap: 4px;
 }
 
+/* Worktree rows. The left column is the worktree: its name, its repo and branch, and where it
+   stands against the default branch (commits ahead and behind, lines added and removed,
+   uncommitted files). The right is what's happening: its sentence, its agents, todo, app and PR.
+   The column grows with the board, so a long name shows more of itself. */
+.ca-lane.is-worktree {
+  grid-template-columns: 32px clamp(168px, 26%, 232px) minmax(0, 1fr) 52px;
+}
+.ca-lane.is-worktree .ca-seg-call {
+  gap: 1px;
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+.ca-lane.is-worktree .ca-seg-main {
+  overflow: hidden;
+}
+.ca-lane-delta {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  font: 500 11px/14px var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--ink-3);
+}
+/* Commits only this branch has read stronger than the ones it's missing. */
+.ca-lane-ahead {
+  color: var(--ink-2);
+}
+.ca-lane-lines {
+  margin-left: 4px;
+}
+/* The second line: the worktree's agents, todo and notes (the lead), then its app and PR at the
+   right. It never wraps. Short of room, the app's address gives way first, down to its globe;
+   then the lead's pieces give way from the end. A board too narrow for two agents' chips shows
+   one and counts the rest. The PR always shows. */
+.ca-lane-lead {
+  flex: 1 1 auto;
+}
+.ca-lane-lead > .ca-chip--more.is-narrow {
+  display: none;
+}
+@container board (max-width: 600px) {
+  .ca-lane-lead > .ca-chip.is-extra,
+  .ca-lane-lead > .ca-chip--more.is-wide {
+    display: none;
+  }
+  .ca-lane-lead > .ca-chip--more.is-narrow {
+    display: inline-flex;
+  }
+}
+/* On an agent's line, what it's doing or said last gives way first (it only takes the room that's
+   left), then its todo and Jev's read, then its title. The text's own box would count what it's
+   doing as room the title needs, so its pieces sit on the line itself. */
+.ca-agentline-main > .ca-agentline-text {
+  display: contents;
+}
+.ca-agentline-tags {
+  flex: 0 100 auto;
+}
+.ca-agentline-tags:empty {
+  display: none;
+}
+/* Pieces that show whole or not at all: one that doesn't fit wraps onto a line that's cut off.
+   The empty first piece, a line high, lets the real first one wrap away too. A todo's title
+   counts as about ten characters when that's decided, then grows into the room that's left. The
+   padding, which the margin takes back, leaves room for a chip's focus ring, and the row gap
+   keeps the second line out of it. */
+.ca-lane-lead,
+.ca-agentline-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  align-items: center;
+  gap: 8px 4px;
+  min-width: 0;
+  height: 20px;
+  margin: -4px;
+  padding: 4px;
+  overflow: clip;
+}
+.ca-lane-lead::before,
+.ca-agentline-tags::before {
+  content: '';
+  height: 20px;
+  margin-right: -4px;
+}
+.ca-lane-lead > .ca-none {
+  flex: none;
+  margin-right: 4px;
+  white-space: nowrap;
+}
+.ca-lane-lead > .ca-chip.ca-todochip,
+.ca-agentline-tags > .ca-chip.ca-todochip {
+  flex: 1000 1 100px;
+  min-width: 0;
+  max-width: max-content;
+  overflow: hidden;
+}
+.ca-lane-lead > .ca-todochip .ca-todochip-title,
+.ca-agentline-tags > .ca-todochip .ca-todochip-title {
+  max-width: 156px;
+}
+
 /* A worktree's row with a line for each agent that needs you, is working or just finished:
    the worktree once on the left, its agents stacked on the right, each with its own age. You
    select, open and right-click a line as you would a row. */
@@ -3265,13 +3369,6 @@ html.is-peek body {
 }
 .ca-srow-meta .ca-todochip {
   max-width: 100%;
-}
-/* On an agent's line the todo gives way before the agent's title does, down to its glyph. */
-.ca-agentline-main .ca-chip.ca-todochip {
-  flex: 0 100 auto;
-  min-width: 24px;
-  max-width: 180px;
-  overflow: hidden;
 }
 
 /* Todo rows: no worktree column; the worktree shows on the right of the second line. */
