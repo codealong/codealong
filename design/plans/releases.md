@@ -235,5 +235,6 @@ exact bytes, and a copy may be halfway through downloading them.
   (2026-09-28), but not from inside the app. Afterwards the `codealong` command's link should
   still work (it points at the bundle's path, which the update keeps), and the skill copies
   should refresh (`install::refresh_installed` runs at launch).
-- On a Mac that also builds Codealong: the release in Applications and a dev build share the
-  socket, config and shortcut, so only one should run at a time.
+- On a Mac that also builds Codealong: builds of the repo are Codealong Dev (relaunch.sh, its own
+  id and light icon), the release is Codealong, and they share settings and todos, so the one
+  opened last quits the other and the `codealong` command follows it (built 2026-09-28).

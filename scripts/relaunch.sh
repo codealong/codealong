@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
-# Hands a change to the user: builds the bundle, quits the running Codealong and opens the new
-# one. One bundle build at a time on this Mac; a build started from another worktree waits.
-# The running app is matched by its own path, anchored, so a shell whose command line mentions
-# that path (another session's build, say) is never killed. The app stays up during the build.
+# Hands a change to the user: builds Codealong Dev, quits the running one and opens the new one.
+# Codealong Dev (src-tauri/tauri.dev.conf.json) is this repo's build: an id, name and light icon of
+# its own beside the Codealong installed in Applications, the same settings and todos, and the
+# last of the two opened wins (server::take_over). One bundle build at a time on this Mac; a build
+# started from another worktree waits. The running app is matched by its own path, anchored, so a
+# shell whose command line mentions that path (another session's build, say) is never killed. The
+# app stays up during the build.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 export PATH="$HOME/.cargo/bin:$PATH"
@@ -10,7 +13,9 @@ target="$(scripts/target-dir.sh)"
 # From any checkout, cargo and tauri build in the shared directory, which holds the lock below
 # and the app that gets opened.
 export CARGO_TARGET_DIR="$target"
-app="$target/release/bundle/macos/Codealong.app"
+bundles="$target/release/bundle/macos"
+app="$bundles/Codealong Dev.app"
+lsregister=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
 lock="$target/relaunch.lock"
 mkdir -p "$target"
 
@@ -42,14 +47,29 @@ fi
 # times: a build another checkout made since this one's files last changed would pass for this
 # checkout's. Touched, they compile from here.
 touch src-tauri/src/lib.rs src-tauri/peer/src/lib.rs
-npx tauri build
-pkill -f 'Codealong\.app/Contents/MacOS/codeal[o]ng$' || true
+npx tauri build --config src-tauri/tauri.dev.conf.json
+# What runs from the shared bundle folder is a build of this repo, and relaunch's own to quit. The
+# Codealong in Applications is left alone: the new build asks it to quit as it opens.
+running="^$(printf '%s' "$bundles" | sed 's/[][\.*^$()+?{}|]/\\&/g')/[^/]+\.app/Contents/MacOS/codeal[o]ng$"
+pkill -f "$running" || true
 # macOS won't open an app while its last copy is still quitting (error -600), so wait for it to
 # go, then open, trying once more if the first open is turned away.
 for _ in $(seq 1 50); do
-  pgrep -f 'Codealong\.app/Contents/MacOS/codeal[o]ng$' >/dev/null || break
+  pgrep -f "$running" >/dev/null || break
   sleep 0.2
 done
+# Builds before Codealong Dev were Codealong.app, here. Gone, it can't be opened from Spotlight or
+# a link as if it were the app in Applications, and the command's link moves to Codealong Dev.
+old="$bundles/Codealong.app"
+if [ -d "$old" ]; then
+  for link in /usr/local/bin/codealong "$HOME/.local/bin/codealong"; do
+    if [ "$(readlink "$link" 2>/dev/null)" = "$old/Contents/MacOS/codealong" ]; then
+      ln -sfn "$app/Contents/MacOS/codealong" "$link" 2>/dev/null || true
+    fi
+  done
+  "$lsregister" -u "$old" 2>/dev/null || true
+  rm -rf "$old"
+fi
 open "$app" || { sleep 2; open "$app"; }
 
 # Names what was launched, for the agent reporting it: the commit, where it stands against
@@ -65,4 +85,4 @@ else
   where="not in origin/main"
 fi
 clean || where="$where, with uncommitted changes"
-echo "Relaunched Codealong from $(git rev-parse --short HEAD) ($where)"
+echo "Relaunched Codealong Dev from $(git rev-parse --short HEAD) ($where)"

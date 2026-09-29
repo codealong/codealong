@@ -379,10 +379,14 @@ Next: the menu bar icon and popover, and notifications (the design system's *Bui
 ```bash
 npm install
 npm run tauri dev      # the app with hot reload
-scripts/relaunch.sh    # build the bundle, then quit and reopen the app
+scripts/relaunch.sh    # build Codealong Dev, then quit and reopen it
 scripts/release.sh     # the installer for other Macs (design/plans/releases.md)
 npm run snapshot       # print the board as a table without opening a window
 ```
+
+Builds from `relaunch.sh` are Codealong Dev: a light icon and an id of their own, so they never
+pass for the Codealong installed in Applications. Both use your settings and todos; whichever you
+open last quits the other, and the `codealong` command follows it.
 
 Builds go to `codealong-target` next to the main checkout, one directory shared by every
 checkout and worktree (`.cargo/config.toml`); `scripts/target-dir.sh` prints it and has

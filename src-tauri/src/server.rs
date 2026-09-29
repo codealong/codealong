@@ -29,6 +29,9 @@ pub fn path() -> PathBuf {
 pub enum Request {
     /// Is the app up, and which one.
     Status,
+    /// Quits, for another copy of Codealong that's opening: the last one opened wins
+    /// (`take_over`). The reply is this app's pid.
+    Quit,
     /// The board as the windows have it.
     Board,
     /// A change to a todo or the labels; the reply is the time of the board that shows it.
@@ -174,6 +177,14 @@ fn handle_request(engine: &Handle, peers: &Peers, req: serde_json::Result<Reques
             Reply::ok(Status { version: env!("CARGO_PKG_VERSION").to_string(), pid: std::process::id(), generated_at: b.generated_at, loading: b.loading })
         }
         Request::Board => Reply::ok(engine.board()),
+        Request::Quit => {
+            // After the reply is on its way.
+            std::thread::spawn(|| {
+                std::thread::sleep(Duration::from_millis(200));
+                std::process::exit(0);
+            });
+            Reply::ok(std::process::id())
+        }
         Request::TodoApply { op } => match engine.todo_within(op, Duration::from_secs(90)) {
             Ok(at) => Reply::ok(at),
             Err(e) => Reply::err(e),
@@ -262,8 +273,12 @@ pub fn ask_permission(hook: &Value, pid: Option<u32>, home: &std::path::Path) ->
 
 /// One request to the running app, or None when no app answers on the socket.
 pub fn ask(req: &Request) -> Option<Result<Value, String>> {
+    ask_within(req, Duration::from_secs(120))
+}
+
+fn ask_within(req: &Request, wait: Duration) -> Option<Result<Value, String>> {
     let mut stream = UnixStream::connect(path()).ok()?;
-    let _ = stream.set_read_timeout(Some(Duration::from_secs(120)));
+    let _ = stream.set_read_timeout(Some(wait));
     let _ = stream.set_write_timeout(Some(Duration::from_secs(5)));
     let mut text = serde_json::to_string(req).ok()?;
     text.push('\n');
@@ -281,9 +296,56 @@ pub fn ask(req: &Request) -> Option<Result<Value, String>> {
     Some(if reply.ok { Ok(reply.result.unwrap_or(Value::Null)) } else { Err(reply.error.unwrap_or_else(|| "The app said no.".into())) })
 }
 
+/// Whether the app was opened as an app is (Finder, the Dock, Spotlight, `open`, a restart): no
+/// arguments, or only the process serial number older macOS passes. main.rs starts the app for
+/// any argument that isn't a command too, which is a typo in a terminal.
+pub fn opened_plainly(args: &[String]) -> bool {
+    args.iter().skip(1).all(|a| a.starts_with("-psn_"))
+}
+
+/// The last Codealong opened wins. One already answering on the socket (the one in Applications,
+/// or Codealong Dev, a build of this repo) holds the socket, the shortcut and the floating bar, so
+/// a copy opened after it asks it to quit and waits for it to go; one from before `quit` gets
+/// SIGTERM, as relaunch.sh sends. A copy started with arguments that aren't a command leaves the
+/// running one be and says why instead.
+pub fn take_over(opened_plainly: bool) -> Result<(), String> {
+    let Some(Ok(status)) = ask_within(&Request::Status, Duration::from_secs(3)) else { return Ok(()) };
+    let Some(pid) = status.get("pid").and_then(Value::as_u64).map(|p| p as libc::pid_t) else { return Ok(()) };
+    if !opened_plainly {
+        return Err(format!("Codealong is already running (pid {pid}), and that isn't a codealong command: see codealong --help."));
+    }
+    if !matches!(ask_within(&Request::Quit, Duration::from_secs(3)), Some(Ok(_))) {
+        unsafe { libc::kill(pid, libc::SIGTERM) };
+    }
+    // Five seconds to quit, then SIGTERM; three more, then SIGKILL: a copy that hangs on quitting
+    // would otherwise keep this one from ever opening.
+    for tenth in 0..100 {
+        if unsafe { libc::kill(pid, 0) } != 0 {
+            return Ok(());
+        }
+        match tenth {
+            50 => unsafe { libc::kill(pid, libc::SIGTERM) },
+            80 => unsafe { libc::kill(pid, libc::SIGKILL) },
+            _ => 0,
+        };
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_a_plain_open_takes_over() {
+        let args = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert!(opened_plainly(&args(&["/Applications/Codealong.app/Contents/MacOS/codealong"])));
+        assert!(opened_plainly(&args(&["codealong", "-psn_0_1234567"])));
+        assert!(!opened_plainly(&args(&["codealong", "todos"])));
+        let quit: Request = serde_json::from_str(r#"{"method":"quit"}"#).unwrap();
+        assert!(matches!(quit, Request::Quit));
+    }
 
     #[test]
     fn requests_round_trip_as_json_lines() {

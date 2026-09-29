@@ -17,14 +17,14 @@ npm run typecheck                       # tsc
 npm test                                # vitest (format, lanes, pins, sections)
 (cd src-tauri && cargo test)            # engine rules, parsers, usage, config, launch scripts; codealong-peer's too
 (cd src-tauri && cargo build --release) # the engine binary; cargo test does NOT rebuild it
-scripts/relaunch.sh                     # builds the bundle, then quits and reopens the app
+scripts/relaunch.sh                     # builds Codealong Dev, then quits and reopens it
 scripts/release.sh                      # the installer for other Macs: universal, Developer ID, notarized
 ```
 
 Every checkout and worktree builds into one directory, `codealong-target` next to the main
 checkout (`.cargo/config.toml`), so dependencies compile once and concurrent builds queue on
 cargo's lock instead of fighting for cores. `scripts/target-dir.sh` prints it; the engine binary
-is `<dir>/release/codealong` and the bundle `<dir>/release/bundle/macos/Codealong.app`. Cargo
+is `<dir>/release/codealong` and the bundle `<dir>/release/bundle/macos/Codealong Dev.app`. Cargo
 resolves `../codealong-target` against the checkout it runs in, so a worktree inside another
 (Claude Code's `.claude/worktrees/<name>`) gets `.claude/worktrees/codealong-target`: the
 scripts that build pass the shared directory to cargo as `CARGO_TARGET_DIR`, and
@@ -42,6 +42,19 @@ comes it fast-forwards a clean checkout that `origin/main` has moved past: an ol
 replaces a newer one. Its last line says which commit it launched and how that stands against
 `origin/main`. Don't `pkill` the app by hand; a pattern that contains
 the app's path also matches other sessions' shells, and kills their builds.
+
+What `relaunch.sh` builds is Codealong Dev (`src-tauri/tauri.dev.conf.json`: the id
+`app.codealong.desktop.dev`, its own name and a light icon, in the Dock too), so a build of this
+repo never passes for Codealong, the app `scripts/release.sh` builds and people install in
+Applications. They use the same data folder (config.toml, todos, the socket), so one runs at a
+time: a copy opened the usual way asks the running one to quit (`server::take_over`), and the
+`codealong` command's link follows the copy that opened (`install::follow_command_link`).
+
+Don't open a second copy of the app where the user can see it. Opened the usual way it quits
+theirs; a bare binary from a build folder shows up beside it as a second Codealong. Check UI with
+`scripts/preview.sh` and behavior with `--snapshot`. A copy you must run to debug gets a home of
+its own (`HOME=<your scratchpad>/home …`: its own settings, todos and socket, so it leaves the
+user's app alone), you say so, and you quit it when you're done.
 
 The engine binary is also the `codealong` command for agents and people (`cli.rs`; `main.rs`
 runs it for any first argument that's one of its subcommands, and starts the app otherwise):

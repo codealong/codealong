@@ -246,6 +246,41 @@ pub fn link_command(dir: Option<PathBuf>) -> Result<PathBuf> {
     Ok(link)
 }
 
+/// The `codealong` command follows the app that's running. A link Codealong made, to the binary
+/// inside a Codealong bundle, that points at another copy (the one in Applications, or Codealong
+/// Dev) is pointed at this one when it opens: the command and the app it talks to are then the
+/// same build. A link of anyone else's making is left as it is, and so is everything when this
+/// binary isn't in a bundle (cargo run, tests).
+pub fn follow_command_link() {
+    let Ok(exe) = this_binary() else { return };
+    follow_links_in(&[PathBuf::from("/usr/local/bin"), home().join(".local/bin")], &exe);
+}
+
+fn follow_links_in(dirs: &[PathBuf], exe: &Path) {
+    if !in_a_bundle(exe) {
+        return;
+    }
+    for dir in dirs {
+        let link = dir.join("codealong");
+        let Ok(target) = std::fs::read_link(&link) else { continue };
+        if target == exe || !in_a_bundle(&target) {
+            continue;
+        }
+        // Made beside it and renamed over it, so the command is never missing in between.
+        let next = dir.join(".codealong-link");
+        let _ = std::fs::remove_file(&next);
+        if std::os::unix::fs::symlink(exe, &next).is_err() || std::fs::rename(&next, &link).is_err() {
+            let _ = std::fs::remove_file(&next);
+            eprintln!("Couldn't point {} at {}", link.display(), exe.display());
+        }
+    }
+}
+
+/// `…/<name>.app/Contents/MacOS/codealong`.
+fn in_a_bundle(exe: &Path) -> bool {
+    exe.ends_with("Contents/MacOS/codealong") && exe.ancestors().nth(3).and_then(Path::extension).is_some_and(|e| e == "app")
+}
+
 fn writable(dir: &Path) -> bool {
     let probe = dir.join(format!(".codealong-probe-{}", std::process::id()));
     match std::fs::File::create(&probe) {
@@ -623,6 +658,31 @@ pub fn install(command: bool, accounts: &[String]) -> Result<AgentsStatus> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_command_link_follows_the_app_that_opens() {
+        let tmp = std::env::temp_dir().join(format!("codealong-link-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let (bin, other_bin) = (tmp.join("bin"), tmp.join("other"));
+        std::fs::create_dir_all(&bin).unwrap();
+        std::fs::create_dir_all(&other_bin).unwrap();
+        let dev = tmp.join("Codealong Dev.app/Contents/MacOS/codealong");
+        let installed = tmp.join("Codealong.app/Contents/MacOS/codealong");
+        std::os::unix::fs::symlink(&installed, bin.join("codealong")).unwrap();
+        // Someone's own link, to a script of theirs: not Codealong's to move.
+        std::os::unix::fs::symlink(tmp.join("my-wrapper.sh"), other_bin.join("codealong")).unwrap();
+
+        follow_links_in(&[bin.clone(), other_bin.clone()], &dev);
+        assert_eq!(std::fs::read_link(bin.join("codealong")).unwrap(), dev);
+        assert_eq!(std::fs::read_link(other_bin.join("codealong")).unwrap(), tmp.join("my-wrapper.sh"));
+
+        // A binary outside a bundle (cargo run) never claims it.
+        follow_links_in(&[bin.clone()], &tmp.join("target/debug/codealong"));
+        assert_eq!(std::fs::read_link(bin.join("codealong")).unwrap(), dev);
+        assert!(!in_a_bundle(Path::new("/Users/me/codealong-target/release/codealong")));
+        assert!(in_a_bundle(Path::new("/Applications/Codealong.app/Contents/MacOS/codealong")));
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
 
     #[test]
     fn a_folder_is_on_path_only_as_an_entry() {

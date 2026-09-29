@@ -1109,6 +1109,11 @@ fn watch_main_thread(app: tauri::AppHandle) {
 
 pub fn run() {
     perf::arm();
+    let args: Vec<String> = std::env::args().collect();
+    if let Err(e) = server::take_over(server::opened_plainly(&args)) {
+        eprintln!("{e}");
+        std::process::exit(2);
+    }
     tauri::Builder::default()
         .setup(|app| {
             // Set before the page loads, so a window never opens in the wrong theme.
@@ -1186,7 +1191,10 @@ pub fn run() {
             // After the first scan and the first git runs, which have the Mac to themselves.
             search::spawn_warmer(std::time::Duration::from_secs(20));
             app.manage(engine);
-            std::thread::spawn(install::refresh_installed);
+            std::thread::spawn(|| {
+                install::follow_command_link();
+                install::refresh_installed();
+            });
             if let Err(e) = bar::setup(app.handle()) {
                 eprintln!("Couldn't make the floating bar: {e:#}");
             }
@@ -1235,6 +1243,12 @@ pub fn run() {
                 let _ = bar::show_main(app, None);
             }
         });
+}
+
+/// Whether this is Codealong Dev: a build of this repo from relaunch.sh (tauri.dev.conf.json),
+/// which goes by an id and icon of its own beside the Codealong in Applications.
+pub(crate) fn is_dev_build(app: &tauri::AppHandle) -> bool {
+    app.config().identifier.ends_with(".dev")
 }
 
 /// `codealong <subcommand>`: the command for agents and people (cli.rs).
