@@ -78,11 +78,38 @@ button {
 .ca-search:focus-within {
   box-shadow: var(--shadow-focus);
 }
-/* The title bar's right end, as wide as the project switcher so the search stays centered. */
+/* The title bar's right end, as wide as the sidebar's toggle and the project switcher so the
+   search stays centered. */
 .ca-bar-tools {
   display: flex;
   justify-content: flex-end;
-  min-width: 190px;
+  min-width: 226px;
+}
+/* The sidebar's toggle, beside the traffic lights as in the Finder. */
+.ca-sidetoggle {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin-right: calc(-1 * var(--space-2));
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+.ca-sidetoggle:hover {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+.ca-sidetoggle.is-on {
+  color: var(--ink-2);
+}
+.ca-sidetoggle:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--focus);
 }
 /* The floating bar's toggle: muted while it's off. */
 /* Where the agents bar shows, at the top right: floating, or in the notch. Neither picked is off. */
@@ -1498,35 +1525,258 @@ body.is-resizing * {
   min-width: 0;
 }
 
-/* Failing PR checks: in the Inbox count and on a worktree in the tree. */
+/* A count in a sidebar row that's about something failing. */
 .ca-nav-count.is-alert {
   color: var(--alert);
 }
-.ca-tree-fail {
-  display: inline-flex;
-  align-items: center;
-  gap: 1px;
+
+/* ---- The sidebar (Sidebar.tsx): the view and what narrows it ---- */
+.ca-nav-badge {
   flex: none;
-  font: 500 11px/14px var(--font-mono);
-  color: var(--alert);
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  box-sizing: border-box;
+  border-radius: var(--radius-pill);
+  background: var(--attn-solid);
+  color: var(--on-attn);
+  font: 600 10px/16px var(--font-mono);
+  text-align: center;
   font-variant-numeric: tabular-nums;
 }
-
-/* ---- Views: Worktrees and Sessions, above the board ---- */
-.ca-board-head {
-  position: sticky;
-  top: 0;
-  z-index: 2;
+/* A device: its name, and under it what it's doing or when it was last seen. */
+.ca-nav.ca-side-devrow {
+  height: auto;
+  min-height: 36px;
+  padding-top: 3px;
+  padding-bottom: 3px;
+}
+.ca-side-devrow.is-static,
+.ca-side-devrow.is-static:hover {
+  background: transparent;
+  cursor: default;
+}
+.ca-side-dev {
+  flex: 1;
+  min-width: 0;
   display: flex;
+  flex-direction: column;
+}
+.ca-side-dev-name,
+.ca-side-dev-sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ca-side-dev-sub {
+  font: 400 11px/14px var(--font-sans);
+  color: var(--ink-3);
+}
+.ca-segctl.ca-side-ages {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 2px 8px 0;
+}
+.ca-side-ages button {
+  justify-content: center;
+  padding: 0;
+}
+.ca-side-ages.is-off {
+  opacity: 0.5;
+}
+.ca-side-ages button:disabled {
+  cursor: default;
+}
+.ca-side-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 2px 8px 0;
+}
+.ca-side-chip {
+  display: inline-flex;
   align-items: center;
-  gap: var(--space-3);
-  height: 44px;
-  padding: 0 var(--space-3);
-  background: var(--ground);
+  gap: 6px;
+  height: 24px;
+  padding: 0 9px;
+  box-sizing: border-box;
+  border: 1px solid color-mix(in srgb, var(--line-strong) 45%, transparent);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--ink-2);
+  font: 500 12px/16px var(--font-sans);
+  cursor: pointer;
 }
-.ca-board .ca-board-cols {
-  top: 44px;
+.ca-side-chip:hover {
+  background: var(--surface-hover);
+  color: var(--ink);
 }
+.ca-side-chip.is-on {
+  border-color: var(--ink);
+  background: var(--surface);
+  color: var(--ink);
+}
+.ca-side-chip:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--focus);
+}
+.ca-side-chip-count {
+  font: 500 11px/14px var(--font-mono);
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+.ca-side-chip-count.is-attn {
+  color: var(--attn);
+}
+.ca-side-chip-count.is-alert {
+  color: var(--alert);
+}
+.ca-switch {
+  flex: none;
+  position: relative;
+  width: 26px;
+  height: 16px;
+  border-radius: var(--radius-pill);
+  background: var(--line-strong);
+  transition: background var(--dur-fast) ease-out;
+}
+.ca-switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--surface);
+  transition: transform var(--dur-fast) ease-out;
+}
+.ca-switch.is-on {
+  background: var(--ink);
+}
+.ca-switch.is-on::after {
+  transform: translateX(10px);
+}
+.ca-side-save {
+  color: var(--ink-3);
+}
+.ca-side-name {
+  flex: none;
+  height: 28px;
+  margin: 0 2px;
+  padding: 0 8px;
+  box-sizing: border-box;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font: 400 13px/18px var(--font-sans);
+  outline: none;
+}
+.ca-side-name:focus {
+  box-shadow: var(--shadow-focus);
+}
+/* Collapsed: a rail of the views and devices. Its filter button carries a badge while a filter
+   narrows the view, since the sidebar that says which is folded away. */
+.ca-win--app .ca-win-body.is-railed {
+  grid-template-columns: 52px 0 minmax(auto, 1fr) 0 minmax(auto, var(--panel-w));
+}
+.ca-win--app .ca-win-body.is-railed.is-canvas:not(.has-panel) {
+  grid-template-columns: 52px 0 minmax(0, 1fr);
+}
+.ca-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-height: 0;
+  padding: var(--space-2) 0;
+  box-sizing: border-box;
+  overflow: hidden auto;
+  background: var(--surface-sunken);
+  border-right: 1px solid var(--line);
+}
+.ca-rail-btn {
+  position: relative;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.ca-rail-btn:hover {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+.ca-rail-btn.is-on {
+  background: var(--surface-selected);
+  color: var(--ink);
+}
+.ca-rail-btn:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--focus);
+}
+.ca-rail-btn.is-away {
+  opacity: 0.55;
+}
+.ca-rail-btn.is-alert {
+  color: var(--alert);
+}
+.ca-rail-badge {
+  position: absolute;
+  top: 1px;
+  right: 0;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  box-sizing: border-box;
+  border-radius: var(--radius-pill);
+  font: 600 9px/14px var(--font-mono);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.ca-rail-badge.is-attn {
+  background: var(--attn-solid);
+  color: var(--on-attn);
+}
+.ca-rail-badge.is-ink {
+  background: var(--fill-strong);
+  color: var(--on-fill-strong);
+  box-shadow: 0 0 0 2px var(--surface-sunken);
+}
+/* With nothing to count (an update waiting), a dot. */
+.ca-rail-badge:empty {
+  top: 5px;
+  right: 6px;
+  min-width: 8px;
+  height: 8px;
+  padding: 0;
+}
+.ca-labeldot.ca-rail-dot {
+  position: absolute;
+  right: 7px;
+  bottom: 7px;
+  width: 7px;
+  height: 7px;
+  box-shadow: 0 0 0 1.5px var(--surface-sunken);
+}
+.ca-rail-sep {
+  flex: none;
+  width: 24px;
+  height: 1px;
+  margin: 6px 0;
+  background: var(--line);
+}
+.ca-rail-fill {
+  flex: 1;
+}
+
 .ca-segctl button {
   display: inline-flex;
   align-items: center;
@@ -4682,7 +4932,7 @@ html.is-quick body {
 .ca-cv-l2 .ca-labeldot {
   flex: none;
 }
-/* A stripe down the left edge in the status's color, as the Inbox colors them. */
+/* A stripe down the left edge in the status's color, as the status glyphs color them. */
 .ca-cv-card.st-needs {
   box-shadow: inset 3px 0 0 var(--attn-solid), var(--shadow-lift);
   background: color-mix(in srgb, var(--attn-tint) 55%, var(--surface));
@@ -5808,8 +6058,7 @@ html.is-quick body {
 
 /* Session rows: no worktree column. The first line says who and what (the agent's chip, its
    sentence); the second where and why, starting with the worktree as a chip. */
-.ca-lane.is-agent,
-.ca-board-cols.is-sessions {
+.ca-lane.is-agent {
   grid-template-columns: 32px minmax(0, 1fr) 52px;
 }
 .ca-lane.is-agent .ca-seg-main {

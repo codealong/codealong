@@ -10,7 +10,7 @@ import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent }
 import { absolute, ago, agoPhrase, middleTruncate, untilShort } from '../format';
 import { withoutAccount, type AgentItem, type WorktreeRow } from '../lanes';
 import { untilWords } from '../snooze';
-import type { GitInfo, Lane, Pr, Session, Todo } from '../types';
+import type { GitInfo, Lane, Session, Todo } from '../types';
 import { Drift, driftWords, HarnessChip, Icon, LaneGlyph, PrChip, Rich, StatusGlyph } from './primitives';
 import { InsightChips, LooksFinished } from './InsightBits';
 import { PreviewChip } from './PreviewBits';
@@ -49,12 +49,6 @@ interface LaneRowProps {
 }
 
 const DAY = 86_400_000;
-
-/** `#1044: 1 failing (unit-test)`. */
-export function failingTitle(pr: Pr): string {
-  const names = pr.checks.failing.slice(0, 3).join(', ');
-  return `#${pr.number}: ${pr.checks.failed} failing${names ? ` (${names})` : ''}`;
-}
 
 /** Sessions worth showing at a glance: live ones, ones with news, and anything from the last
  *  day. The inspector lists every session from the last 14 days. */

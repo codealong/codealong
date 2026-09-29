@@ -56,8 +56,6 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     skipped one comes round again after the rest. A line at the top of the panel says how many
     more wait on you and how the last one went. Clicking a session puts the cursor in its box;
     moving along the list with the keys leaves them there, and Escape in the box gives them back.
-    Clicking a session in the sidebar's tree of worktrees, from any view, shows it here the same
-    way; double-clicking it opens it where it lives.
   - **Worktrees**: each worktree once, pinned ones first in your order, then the rest by
     status: Needs you, Working, Your turn, In review, Idle, Merged. A worktree's row has a
     line for each agent that needs you, is working or just finished, which you select, open
@@ -67,11 +65,11 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     the agent that have waited longest come first, so newer ones can't keep an old one down
     (worktrees that need you only through snoozed agents come after). Needs you, Working and
     Your turn are about agents: a worktree whose PR has failing checks or changes requested
-    stays in In review, and the Inbox's PR needs work lists it.
+    stays in In review, and the sidebar's PR needs work lists it.
     Within the other statuses, the worktree and the agent you last sent a prompt come first,
     so rows hold still while agents work. Stuck
     agents (busy but silent for 30 minutes) show in Needs you with the command they're stuck
-    on. The Inbox filters narrow each worktree to the agents they're about. Pin a worktree
+    on. The sidebar's statuses narrow each worktree to the agents they're about. Pin a worktree
     with `p` or the right-click menu of the worktree or one of its agents, and reorder pins
     by dragging or with ⌥↑ ⌥↓; a pinned worktree stays whatever the age filter says. Beside
     its line diff, a row shows how far the worktree has moved from the default branch on the
@@ -90,7 +88,7 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     description, reviews, checks, comments (with `[jev] pull_requests`, the ones asking the
     author for a change or an answer are marked and listed first) and changed files with their
     diffs, and under On this Mac
-    the worktrees and sessions behind it, drawn like the sidebar's tree: whether the worktree
+    the worktrees and sessions behind it, drawn as a small tree: whether the worktree
     has anything GitHub doesn't, and the agents that worked on the PR, including one that made
     the worktree from another folder. Clicking one of those sessions, here or in a todo's
     panel, shows it in the panel (its conversation, a box to answer it) with a link back;
@@ -125,9 +123,8 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     sessions, todos and PRs are compact cards (status, title, where it stands); hover one
     for the rest, select one for its panel on the right (a session's shows its whole
     conversation and takes messages; the rest are the ones their own views show), type in the
-    filter at the top or pick an Inbox row to fade what doesn't match (an Inbox row, or
-    Return in the filter, also zooms to what does; a worktree or session in the sidebar
-    selects its card), double-click to open it where it lives, right-click for its usual
+    filter at the top or pick a status in the sidebar to fade what doesn't match (a status, or
+    Return in the filter, also zooms to what does), double-click to open it where it lives, right-click for its usual
     menu. What's on it is set in two places. Tidy (its panel, or Tidy up in a right-click) lays the canvas out
     once, holding what its own settings say, each kind on or off: sessions active in the last
     1h to 7d or all (24h at first) and any that's working or needs you; open todos changed or
@@ -287,8 +284,13 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   its place in the file, so comments and order stay as you wrote them. The config.toml section
   edits the file itself, for anything the form doesn't cover, and says what's wrong when it
   doesn't parse.
-- **Filters**: the Inbox (Needs you, Working, Your turn, In review, PR needs work), search,
-  and how recently things were active (24h, 3d, 7d, all).
+- **Sidebar**: picks the view (Sessions, Worktrees, PRs, Todo, Canvas) and narrows it: to one
+  device, to what was active in the last 24h, 3d or 7d, and to a status (Needs you, Your turn,
+  Working, In review, PR needs work). Save the view as it is under a name to come back to it;
+  right-click a saved view to update or delete it (they're kept per Mac, not in config.toml).
+  ⌃⌘S, or the button beside the traffic lights, folds it to a rail of the views and devices
+  whose filter button carries a badge while a filter narrows the view. The search at the top
+  narrows every view too.
 - **Light or dark**: follows macOS unless you pick light or dark with the buttons at the foot
   of the sidebar. The choice is saved in config.toml, and every window follows it.
 - **Resizable panels**: drag the inner edge of the sidebar or the panel on the right, and
@@ -596,6 +598,7 @@ light scan (no git, PRs or visitors).
 | `src-tauri/peer/` | codealong-peer, what goes between devices: the protocol (each side proves its device key), link codes and iroh, feeds, the requests and their answers, the worktree and session model, and a device that only watches. The iPhone app ([codealong-ios](https://github.com/codealong/codealong-ios)) builds on it; `design/plans/ios.md` has the plan |
 | `src-tauri/src/tailnet.rs`, `devicekey.rs` | Reaching them on your tailnet through Tailscale's command (iroh is in codealong-peer), and this device's key in the keychain |
 | `src/devices.ts`, `src/ui/DevicesSection.tsx` | Other devices' worktrees in the views, and Settings › Devices |
+| `src/ui/Sidebar.tsx`, `src/savedViews.ts` | The sidebar: the view and what narrows it, open or folded to a rail, and saved views |
 | `src-tauri/src/cli.rs`, `server.rs`, `install.rs` | The `codealong` command (clap; JSON or tables; the app over its socket, else the files), the app's socket, and putting the skill and the command where agents find them |
 | `src-tauri/src/todos.rs`, `src/todos.ts` | Todos: the store and its changes, linking sessions started from a todo; the list's sections, filters and prompt |
 | `src-tauri/src/canvas.rs`, `src/canvas/`, `src/ui/CanvasView.tsx`, `src/ui/CanvasCard.tsx` | The Canvas view: its documents (what's on it, where; kept in sync with the board; Tidy's layouts), the WebGL layer (grid, links, zoomed-out blocks) and the HTML cards, notes and frames on top |

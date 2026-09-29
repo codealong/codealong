@@ -1,6 +1,6 @@
 // Todos: work you mean to hand an agent. The engine keeps them in todos.json
 // (src-tauri/src/todos.rs) and publishes them with the board. This file has the list's rules:
-// its sections (In progress, Ready, Waiting, Done), search and the Inbox filters, the worktrees and sessions each todo is linked
+// its sections (In progress, Ready, Waiting, Done), search and the status filters, the worktrees and sessions each todo is linked
 // to, the prompt a todo starts a session with, and the copy of each change a window shows
 // until the engine's board has it.
 
@@ -373,7 +373,7 @@ export function todoInQuery(r: TodoItem, q: string): boolean {
   return hay.some((h) => h.toLowerCase().includes(needle));
 }
 
-/** The Inbox filters, applied to a todo through its sessions and worktrees. */
+/** The status filters, applied to a todo through its sessions and worktrees. */
 export function todoInFilter(r: TodoItem, f: string | null): boolean {
   const has = (...st: Session['status'][]) => r.sessions.some(({ session }) => st.includes(session.status));
   switch (f) {

@@ -9,7 +9,7 @@ import { LOGO_LABEL } from '../logo';
 import { ICONS } from './icons';
 import { MARK_PATHS, MARK_VIEW_BOX } from './brand';
 
-const cx = (...parts: (string | false | null | undefined)[]) => parts.filter(Boolean).join(' ');
+export const cx = (...parts: (string | false | null | undefined)[]) => parts.filter(Boolean).join(' ');
 
 export const STATUS_WORD: Record<Status, string> = {
   needs: 'Needs you',
@@ -331,16 +331,38 @@ interface NavItemProps {
   tone?: 'attn' | 'alert';
   /** Drawn where the glyph or icon goes, for a mark of its own (a device's color). */
   lead?: ReactNode;
+  /** A count that asks for you, in a solid badge before the plain count. */
+  badge?: number;
+  badgeTitle?: string;
   className?: string;
   title?: string;
   onClick?: () => void;
+  onContextMenu?: () => void;
 }
 
-export function NavItem({ label, icon, glyph, count, active, child, tone, lead, className, title, onClick }: NavItemProps) {
+export function NavItem({ label, icon, glyph, count, active, child, tone, lead, badge, badgeTitle, className, title, onClick, onContextMenu }: NavItemProps) {
   return (
-    <button type="button" className={cx('ca-nav', active && 'is-active', child && 'is-child', className)} aria-pressed={active} title={title} onClick={onClick}>
+    <button
+      type="button"
+      className={cx('ca-nav', active && 'is-active', child && 'is-child', className)}
+      aria-pressed={active}
+      title={title}
+      onClick={onClick}
+      onContextMenu={
+        onContextMenu &&
+        ((e) => {
+          e.preventDefault();
+          onContextMenu();
+        })
+      }
+    >
       {lead ?? (glyph ? <StatusGlyph status={glyph} size={10} title="" /> : icon ? <Icon name={icon} size={14} /> : null)}
       <span className="ca-nav-label">{label}</span>
+      {badge ? (
+        <span className="ca-nav-badge" title={badgeTitle}>
+          {badge}
+        </span>
+      ) : null}
       {count != null && <span className={cx('ca-nav-count', tone && count > 0 && `is-${tone}`)}>{count}</span>}
     </button>
   );

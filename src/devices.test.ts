@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { byDevice, deviceLabel, deviceOf, needsOn, shortOf, withDevices } from './devices';
+import { byDevice, deviceLabel, deviceOf, needsOn, shortOf, withDevices, workingOn } from './devices';
 import type { DevicesView, Lane, Session } from './types';
 
 const session = (key: string, status: Session['status']): Session => ({ key, status, visitor: null, archived: false }) as unknown as Session;
@@ -31,11 +31,13 @@ describe('your other devices', () => {
     expect(withDevices(here, [], null)).toBe(here);
   });
 
-  it('counts what needs you on each device', () => {
+  it('counts what needs you and what works on each device', () => {
     const lanes = [lane('/a', [session('s1', 'needs'), session('s2', 'working')]), lane('@m1:/b', [session('@m1:s3', 'error'), session('@m1:s4', 'needs')])];
     expect(needsOn(lanes, null)).toBe(1);
     expect(needsOn(lanes, 'm1')).toBe(2);
     expect(needsOn(lanes, 'm2')).toBe(0);
+    expect(workingOn(lanes, null)).toBe(1);
+    expect(workingOn(lanes, 'm1')).toBe(0);
   });
 
   it('names a device without its owner', () => {

@@ -1,4 +1,4 @@
-// Lanes on the board: grouped into bays, seen through the age and Inbox filters, and sorted.
+// Lanes on the board: grouped into bays, seen through the age and status filters, and sorted.
 // The engine sets a lane's bay and headline from all of its sessions; when a filter hides some
 // of them, the lane's status and sentence are worked out again from what's left, with the same
 // rules as the engine (board.rs, `bay_of` and `headline`).
@@ -6,7 +6,7 @@
 import type { Bay, Lane, Pr, Session, Status } from './types';
 
 export const BAYS: Bay[] = ['needs', 'working', 'unread', 'review', 'idle', 'merged'];
-/** The Inbox state an agent is in, for the statuses that have one. */
+/** The status filter an agent falls under, for the statuses that have one. */
 export const AGENT_BAY: Partial<Record<Status, Bay>> = { needs: 'needs', error: 'needs', working: 'working', unread: 'unread' };
 /** How urgent a status is, as the engine ranks it. Idle and stopped rank the same: a Codex
  *  thread is never stopped, so telling them apart would only sort the harnesses apart. */
@@ -27,7 +27,7 @@ export interface WorktreeRow {
   lane: Lane;
   agents: AgentItem[];
 }
-/** What the Inbox narrows the board to: one bay, or worktrees whose PR needs work. */
+/** What the sidebar's status filter narrows the board to: one bay, or worktrees whose PR needs work. */
 export type Filter = Bay | 'work';
 
 /** When a session began waiting on you, for one that needs you, as the engine has it
@@ -98,7 +98,7 @@ export function failingPr(lane: Lane): Pr | null {
   return pr && prOpen(pr) && pr.checks.failed > 0 ? pr : null;
 }
 
-/** Whether an open PR needs work: failing checks or changes requested. The Inbox's PR needs
+/** Whether an open PR needs work: failing checks or changes requested. The sidebar's PR needs
  *  work, for worktrees, sessions, PRs and todos alike. */
 export function prNeedsWork(pr: Pick<Pr, 'state' | 'checks'> | null | undefined): boolean {
   return !!pr && prOpen(pr) && (pr.checks.failed > 0 || pr.state === 'changes');
@@ -260,7 +260,7 @@ export function buildBays(lanes: Lane[]): { bay: Bay; rows: WorktreeRow[] }[] {
 }
 
 /**
- * A worktree as an Inbox filter shows it, or null when the filter leaves it out. Needs you,
+ * A worktree as a status filter shows it, or null when the filter leaves it out. Needs you,
  * Working and Your turn narrow it to its agents in that state, and it moves to that state's
  * bay, as it does under the age filter; In review and PR needs work are about its PR and keep
  * it whole.
@@ -279,7 +279,7 @@ export function narrowed(lane: Lane, f: Filter | null, since: string): Lane | nu
 }
 
 /**
- * The Inbox's counts: agents that need you, are working or just finished, and worktrees whose
+ * The status filters' counts: agents that need you, are working or just finished, and worktrees whose
  * PR is in review or needs work.
  */
 export function inboxCounts(lanes: Lane[]): { needs: number; working: number; unread: number; review: number; work: number } {

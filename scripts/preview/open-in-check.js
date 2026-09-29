@@ -1,6 +1,7 @@
-// Checks the Open in menus (editors.ts, App.tsx): a worktree's right-click menu has Open in
-// <your editor> and an Open in submenu of the other editors installed, a session's has Open
-// folder in with every one, yours first, and the worktree's Open button lists them too, each
+// Checks the Open in menus (editors.ts, App.tsx): a worktree's right-click menu on the board has
+// Open in <your editor> and an Open in submenu of the other editors installed, a session's in
+// Sessions has Open folder in with every one, yours first, and the worktree's Open button lists
+// them too, each
 // with its app's icon. Picking one opens the folder there (`l|editor|<id>`). Needs two or more editors installed, and a
 // PREVIEW_BIN built with editors.rs if the shared build predates it.
 //   PREVIEW_BIN=<engine> scripts/preview.sh worktrees '' scripts/preview/open-in-check.js
@@ -27,18 +28,20 @@
   localStorage.setItem('codealong.project', 'All projects');
   localStorage.setItem('codealong.view', 'worktrees');
 
-  say('open-in check: waiting for the tree');
+  var down = function (el) { el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 })); };
+
+  say('open-in check: waiting for the board');
   fetch('board.json')
     .then(function (r) { return r.json(); })
     .then(function (b) {
       board = b.apps;
       check('the board lists the editors installed here', (board.editors || []).length >= 2, JSON.stringify(board.editors));
       // The icons come a moment after the board: a menu shown before has none yet.
-      return until(function () { return document.querySelector('.ca-tree-node') && window.__calls.some(function (c) { return c[0] === 'editor_icons'; }); }, 20000).then(function () { return wait(500); });
+      return until(function () { return document.querySelector('.ca-board .ca-lane') && window.__calls.some(function (c) { return c[0] === 'editor_icons'; }); }, 20000).then(function () { return wait(500); });
     })
     .then(function () {
       var others = board.editors.filter(function (e) { return e.id !== board.editorId; });
-      right(document.querySelector('.ca-tree-node'));
+      right(document.querySelector('.ca-board .ca-lane'));
       return wait(200).then(function () {
         var l = labels();
         check('a worktree opens in your editor', l.indexOf('Open in ' + board.editor) >= 0, l.slice(0, 6).join(' | '));
@@ -54,12 +57,28 @@
       });
     })
     .then(function () {
-      var toggle = document.querySelector('.ca-tree-toggle:not([disabled])');
-      if (!document.querySelector('.ca-tree-session') && toggle) toggle.click();
-      return until(function () { return document.querySelector('.ca-tree-session'); }, 5000);
+      // The worktree's panel: its Open button's menu has them after Open in <yours>.
+      down(document.querySelector('.ca-board .ca-lane .ca-seg-call'));
+      return until(function () { return document.querySelector('.ca-insp .ca-split-caret'); }, 5000).then(function () {
+        document.querySelector('.ca-insp .ca-split-caret').click();
+        return wait(100).then(function () {
+          var items = Array.prototype.map.call(document.querySelectorAll('.ca-openin .ca-menu-item .ca-menu-label > span:first-child'), function (e) { return e.textContent; });
+          var at = items.indexOf('Open in ' + board.editor);
+          var next = items.slice(at + 1, at + board.editors.length);
+          check('the Open button lists the other editors after yours', at >= 0 && next.every(function (x) { return x.indexOf('Open in ') === 0; }) && next.length === board.editors.length - 1, items.join(' | '));
+          var imgs = document.querySelectorAll('.ca-openin .ca-menu-item img.ca-appicon');
+          check('with their app icons', imgs.length === board.editors.length && Array.prototype.every.call(imgs, function (i) { return i.src.indexOf('data:image/png') === 0; }), imgs.length + ' icons');
+        });
+      });
     })
     .then(function () {
-      right(document.querySelector('.ca-tree-session'));
+      // A session: its row in Sessions, picked in the sidebar.
+      var nav = Array.prototype.filter.call(document.querySelectorAll('.ca-side .ca-nav'), function (b) { return b.textContent.indexOf('Sessions') === 0; })[0];
+      nav.click();
+      return until(function () { return document.querySelector('.ca-board .ca-lane.is-agent'); }, 5000);
+    })
+    .then(function () {
+      right(document.querySelector('.ca-board .ca-lane.is-agent'));
       return wait(200).then(function () {
         var l = labels();
         var sub = l.filter(function (x) { return x.indexOf('Open folder in › ') === 0; });
@@ -70,22 +89,6 @@
         return wait(100).then(function () {
           var last = board.editors.filter(function (e) { return e.name === all[all.length - 1]; })[0];
           check('it opens there', opens().pop() === 'l|editor|' + (last && last.id), opens().join());
-        });
-      });
-    })
-    .then(function () {
-      // The worktree's panel: its Open button's menu has them after Open in <yours>.
-      var node = document.querySelector('.ca-tree-node');
-      node.click();
-      return until(function () { return document.querySelector('.ca-insp .ca-split-caret'); }, 5000).then(function () {
-        document.querySelector('.ca-insp .ca-split-caret').click();
-        return wait(100).then(function () {
-          var items = Array.prototype.map.call(document.querySelectorAll('.ca-openin .ca-menu-item .ca-menu-label > span:first-child'), function (e) { return e.textContent; });
-          var at = items.indexOf('Open in ' + board.editor);
-          var next = items.slice(at + 1, at + board.editors.length);
-          check('the Open button lists the other editors after yours', at >= 0 && next.every(function (x) { return x.indexOf('Open in ') === 0; }) && next.length === board.editors.length - 1, items.join(' | '));
-          var imgs = document.querySelectorAll('.ca-openin .ca-menu-item img.ca-appicon');
-          check('with their app icons', imgs.length === board.editors.length && Array.prototype.every.call(imgs, function (i) { return i.src.indexOf('data:image/png') === 0; }), imgs.length + ' icons');
         });
       });
     })

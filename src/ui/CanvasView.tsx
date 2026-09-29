@@ -86,7 +86,7 @@ export interface CanvasViewProps {
   keys: MutableRefObject<(e: KeyboardEvent) => boolean>;
   /** The filter at the top of the window: cards and notes that don't match it fade. Empty for none. */
   query: string;
-  /** Whether the text filter or an Inbox filter is on. */
+  /** Whether the text filter or a status filter is on. */
   filtering: boolean;
   /** Whether a card matches them, as its row would in its own view. */
   matches: (it: RefItem) => boolean;

@@ -1,5 +1,6 @@
 // The main window. One project at a time, picked in the switcher at top left. The sidebar
-// lists that project's worktrees. The main area has five views: Sessions lists every session,
+// picks the view and narrows it: device, how recently active, status, and views you saved
+// (Sidebar.tsx); it collapses to a rail. The main area has five views: Sessions lists every session,
 // pinned ones first in your order; Worktrees lists pinned worktrees in your order, then every
 // other worktree once, in Needs you, Working, Your turn, In review, Idle or Merged, with a line
 // for each agent that needs you, is working or just finished; PRs lists the project's pull
@@ -10,9 +11,9 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { below, showContextMenu, type MenuAction, type MenuSpec } from './contextMenu';
 import { folderMenu, openInMenu, opensInEditor, useEditorIcons } from './editors';
-import { AGENT_BAY, BAYS, buildBays, filterByAge, inboxCounts, lanePromptAt, narrowed, prNeedsWork, rowItems, seenable, worktreeRow, type BoardRow, type Filter, type WorktreeRow } from './lanes';
+import { AGENT_BAY, buildBays, filterByAge, inboxCounts, narrowed, prNeedsWork, rowItems, seenable, worktreeRow, type BoardRow, type Filter, type WorktreeRow } from './lanes';
 import { answerLink, approvePr, barMode, desktopPins, getDevices, onDevices, dismissTodoHint, expandAttachments, getBoard, onBarMode, onBoard, onCloseIdle, onDesktopPins, onNewWindow, onQuickStart, onReveal, onSettings, onCheckUpdates, openConfig, openProjectWindow, openTarget, openUrl, pinToDesktop, refresh, refreshUsage, reviewInCodex, setBarMode, startOptions, startSession, forkSession, setPinned, setPinnedWorktrees, setTheme, showQuick, signIn, unpinFromDesktop, windowLabel, type BarMode, type Reveal } from './api';
-import { agoPhrase, middleTruncate } from './format';
+import { middleTruncate } from './format';
 import { usePerf } from './perf';
 import { archiveAhead, boardAhead, boardView, lanesAhead, observe, seenAhead, useAhead } from './ahead';
 import { reuse } from './reuse';
@@ -21,7 +22,7 @@ import { reviewLane, reviewPicks, reviewPrompt } from './review';
 import { remembered } from './start';
 import { blockedBy, COLOR_WORD, depsOf, newTodo, pickTo, pickToggle, sectionOf, sessionHomes, snippet, STATUSES, STATUS_WORD, todoIndex, todoInFilter, todoInQuery, todoItem, todoPrompt, todosPrompt, todoSections, useTodoStore, type TodoItem, type TodoPick, type TodoSectionId } from './todos';
 import type { Bay, Board, DesktopPinned, DevicesView, Label, Lane, Pr, PrItem, Session, StartOptions, Theme, Todo, TodoStatus } from './types';
-import { byDevice, deviceOf, needsOn, shortOf, withDevices, type DeviceFilter } from './devices';
+import { byDevice, deviceOf, needsOn, shortOf, withDevices, workingOn, type DeviceFilter } from './devices';
 import { snoozeMenu } from './snooze';
 import { queueAfter, statusTime, type Handled } from './quick';
 import { DeviceBadge } from './ui/DeviceBadge';
@@ -33,23 +34,22 @@ import { Inspector } from './ui/Inspector';
 import { SessionPanel } from './ui/SessionPanel';
 import { LaneRow } from './ui/LaneRow';
 import { PinnedSection, type PinDrag } from './ui/PinnedSection';
-import { BayHeader, Button, Icon, Kbd, NavItem, StatusGlyph } from './ui/primitives';
+import { BayHeader, Button, Icon, Kbd, StatusGlyph } from './ui/primitives';
 import { ALL_PROJECTS, openSwitcher, projectForDigit, ProjectSwitcher, type ActionCounts } from './ui/ProjectSwitcher';
 import { useLogo } from './logo';
 import { PrInspector } from './ui/PrInspector';
 import { prIsOpen, prPlaces, prSections, PrsView, type PrRowItem } from './ui/PrsView';
 import { Resizer, usePanelWidth } from './ui/Resizer';
 import { SessionsView, timeSections, waitingQueue, type SessionItem } from './ui/SessionsView';
-import { LabelDot } from './ui/TodoBits';
 import { TodoPanel, TodoPickPanel } from './ui/TodoPanel';
 import { TodoComposer, TodoView, type ComposerContext, type SelectHow } from './ui/TodoView';
 import { CanvasView } from './ui/CanvasView';
 import { entitiesOf, homeLane, refId, type RefItem, type RefKind } from './canvas/model';
 import { useCanvas } from './canvas/useCanvas';
 import { applyTheme, ThemeSwitch } from './ui/ThemeSwitch';
-import { RestartToUpdate } from './ui/Updates';
 import { UsageBar } from './ui/UsageBar';
-import { WorktreeTree, type TreeGroup } from './ui/WorktreeTree';
+import { Sidebar, type SideStatus } from './ui/Sidebar';
+import { loadSaved, newSavedId, onSavedChange, sameView, storeSaved, suggestName, type SavedView, type ViewState } from './savedViews';
 
 const ELSEWHERE = 'Elsewhere';
 
@@ -67,6 +67,7 @@ const VIEW_KEY = 'codealong.view';
 const AGE_KEY = 'codealong.age';
 const GROUP_KEY = 'codealong.byDevice';
 const SIDEBAR_WIDTH_KEY = 'codealong.sidebarWidth';
+const SIDEBAR_COLLAPSED_KEY = 'codealong.sidebarCollapsed';
 const INSPECTOR_WIDTH_KEY = 'codealong.inspectorWidth';
 const PR_PANEL_WIDTH_KEY = 'codealong.prPanelWidth';
 const TODO_PANEL_WIDTH_KEY = 'codealong.todoPanelWidth';
@@ -74,12 +75,12 @@ const SESSION_PANEL_WIDTH_KEY = 'codealong.sessionPanelWidth';
 const DAY = 24 * 60 * 60 * 1000;
 
 type View = 'worktrees' | 'sessions' | 'prs' | 'todo' | 'canvas';
-const VIEWS: { id: View; label: string }[] = [
-  { id: 'sessions', label: 'Sessions' },
-  { id: 'worktrees', label: 'Worktrees' },
-  { id: 'prs', label: 'PRs' },
-  { id: 'todo', label: 'Todo' },
-  { id: 'canvas', label: 'Canvas' },
+const VIEWS: { id: View; label: string; icon: string }[] = [
+  { id: 'sessions', label: 'Sessions', icon: 'terminal' },
+  { id: 'worktrees', label: 'Worktrees', icon: 'branch' },
+  { id: 'prs', label: 'PRs', icon: 'pr' },
+  { id: 'todo', label: 'Todo', icon: 'list-check' },
+  { id: 'canvas', label: 'Canvas', icon: 'layout-grid' },
 ];
 /** How recently a worktree or session must have been active to show. */
 type Age = '1d' | '3d' | '7d' | 'all';
@@ -113,7 +114,7 @@ function sessionInQuery(r: SessionItem, q: string): boolean {
   return hay.some((h) => h.toLowerCase().includes(needle));
 }
 
-/** The Inbox filters, applied to one session. */
+/** The status filters, applied to one session. */
 function sessionInFilter(r: SessionItem, f: Filter | null): boolean {
   const pr = r.lane.pr;
   switch (f) {
@@ -145,7 +146,7 @@ function prInQuery(p: PrItem, q: string): boolean {
   return [String(p.number), p.title, p.author ?? '', p.head, p.repoSlug].some((h) => h.toLowerCase().includes(needle));
 }
 
-/** The Inbox filters, applied to a PR and the sessions that worked on it. */
+/** The status filters, applied to a PR and the sessions that worked on it. */
 function prInFilter(r: PrRowItem, f: Filter | null): boolean {
   const p = r.pr;
   switch (f) {
@@ -261,6 +262,30 @@ export function App() {
   const [age, setAgeState] = useState<Age>(storedAge);
   // Panel widths as you last dragged them. The PR panel has its own: it starts out wider.
   const [sidebarWidth, setSidebarWidth] = usePanelWidth(SIDEBAR_WIDTH_KEY);
+  // The sidebar folds to a rail of the views and devices (⌃⌘S), and stays as you left it.
+  const [sideCollapsed, setSideCollapsed] = useState(() => {
+    try {
+      return window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+  const toggleSidebar = useCallback(() => {
+    setSideCollapsed((c) => {
+      try {
+        window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, c ? '0' : '1');
+      } catch {
+        // It still folds for this window; it just isn't remembered.
+      }
+      return !c;
+    });
+  }, []);
+  const [savedViews, setSavedViews] = useState<SavedView[]>(loadSaved);
+  useEffect(() => onSavedChange(setSavedViews), []);
+  const keepSaved = (next: SavedView[]) => {
+    setSavedViews(next);
+    storeSaved(next);
+  };
   const [inspectorWidth, setInspectorWidth] = usePanelWidth(INSPECTOR_WIDTH_KEY);
   const [prPanelWidth, setPrPanelWidth] = usePanelWidth(PR_PANEL_WIDTH_KEY);
   const [todoPanelWidth, setTodoPanelWidth] = usePanelWidth(TODO_PANEL_WIDTH_KEY);
@@ -442,6 +467,10 @@ export function App() {
     const all = withDevices(board?.lanes ?? [], deviceLanes, null);
     return new Map<string | null, number>([null, ...(devices?.devices ?? []).map((d) => d.short)].map((m) => [m, needsOn(all, m)]));
   }, [board?.lanes, deviceLanes, devices?.devices]);
+  const deviceWorking = useMemo(() => {
+    const all = withDevices(board?.lanes ?? [], deviceLanes, null);
+    return new Map<string | null, number>([null, ...(devices?.devices ?? []).map((d) => d.short)].map((m) => [m, workingOn(all, m)]));
+  }, [board?.lanes, deviceLanes, devices?.devices]);
   const lanes = useMemo(() => rawLanes.map((l) => (l.sessions.some((s) => s.archived) ? { ...l, sessions: l.sessions.filter((s) => !s.archived) } : l)), [rawLanes]);
   const projectLanes = useMemo(() => lanes.filter((l) => inProject(l, current)), [lanes, current]);
   const archivedItems = useMemo(
@@ -488,7 +517,7 @@ export function App() {
     return sessionPins.keys.flatMap((k) => byKey.get(k) ?? []);
   }, [shownSessions, sessionPins.keys]);
   const sessionSections = useMemo(() => timeSections(shownSessions.filter((r) => !sessionPins.set.has(r.session.key)), now), [shownSessions, sessionPins.set, now]);
-  // Pinned worktrees that match the search and the Inbox filter, in your order. Each shows at the
+  // Pinned worktrees that match the search and the status filter, in your order. Each shows at the
   // top of the board and leaves the bays below.
   const pinnedLaneRows = useMemo(() => {
     const byId = new Map(recentLanes.map((l) => [l.id, l]));
@@ -498,7 +527,7 @@ export function App() {
       return shown ? [worktreeRow(shown)] : [];
     });
   }, [recentLanes, lanePins.keys, query, bayFilter, since]);
-  // Every other worktree once, in the bay its status puts it in. The Inbox filter narrows each to
+  // Every other worktree once, in the bay its status puts it in. The status filter narrows each to
   // what it's about, which can move it to that bay.
   const bayRows = useCallback((ls: Lane[]) => buildBays(ls.flatMap((l) => (inQuery(l, query) && !lanePins.set.has(l.id) ? (narrowed(l, bayFilter, since) ?? []) : []))), [query, lanePins.set, bayFilter, since]);
   const bays = useMemo(() => bayRows(recentLanes), [bayRows, recentLanes]);
@@ -1314,26 +1343,6 @@ export function App() {
     setSelectedKey(hasLine ? `${lane.id}::${session.key}` : boardRowKey(lane));
   };
 
-  /** Shows a session in its own panel, from the sidebar: its card on the canvas, else its row in
-   *  Sessions with the cursor in its box, as a click there does. */
-  const showSession = (lane: Lane, session: Session) => {
-    if (view === 'canvas') {
-      showOnCanvas('session', session.key);
-      return;
-    }
-    // Sessions lists it once, under the worktree it runs in: a visitor here is a row there, and
-    // that worktree can be in another project.
-    const home = lanes.find((l) => l.sessions.some((s) => s.key === session.key && !s.visitor)) ?? lane;
-    const item: SessionItem = { kind: 'agent', key: `${home.id}::${session.key}`, lane: home, session: home.sessions.find((s) => s.key === session.key) ?? session };
-    if (!inProject(home, current) && !home.hidden) pickProject(home.project);
-    // The sidebar doesn't follow the search or the Inbox filter; Sessions does.
-    if (!sessionInQuery(item, query)) setQuery('');
-    if (!sessionInFilter(item, bayFilter)) setBayFilter(null);
-    setView('sessions');
-    setSelectedKey(item.key);
-    focusBox();
-  };
-
   // Where the bar shows: floating, docked in the notch, or off; changed here, from its own menu or
   // from the Window menu. Picking the place it's in turns it off.
   const [barPlace, setBarPlace] = useState<BarMode>('floating');
@@ -1488,6 +1497,11 @@ export function App() {
         openSwitcher();
         return;
       }
+      if (mod && e.ctrlKey && key === 's') {
+        e.preventDefault();
+        toggleSidebar();
+        return;
+      }
       // ⌥⌘ digits switch projects. ⌥ changes the character, so they go by the key's code.
       const digit = /^Digit(\d)$/.exec(e.code);
       if (mod && e.altKey && !e.shiftKey && digit) {
@@ -1616,7 +1630,7 @@ export function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [visible, selected, pickedRows, selectedLane, startLaneId, move, open, openRow, copy, settings, previewFor, openSettings, newSession, view, setView, toggleLanePin, sessionPins, lanePins, pinnedRows, pinnedLaneRows, shownBays, movePinnedSession, movePinnedLane, current, setArchived, projects]);
+  }, [visible, selected, pickedRows, selectedLane, startLaneId, move, open, openRow, copy, settings, previewFor, openSettings, newSession, view, setView, toggleLanePin, sessionPins, lanePins, pinnedRows, pinnedLaneRows, shownBays, movePinnedSession, movePinnedLane, current, setArchived, projects, toggleSidebar]);
 
   // Starts this window asked the quick panel for. A spinner shows while the harness takes the
   // session; then what's next, and the session is selected when it shows up if Codealong chose
@@ -1679,20 +1693,6 @@ export function App() {
     signIn(account).catch((e: unknown) => setToast(String(e)));
   };
 
-  // The sidebar's worktrees: pinned ones first in your order, then the rest grouped by repo,
-  // active ones first and parked ones last.
-  const worktrees = useMemo((): TreeGroup[] => {
-    const byId = new Map(recentLanes.map((l) => [l.id, l]));
-    const pinned = lanePins.keys.flatMap((id) => byId.get(id) ?? []);
-    const byRepo = new Map<string, Lane[]>();
-    for (const l of recentLanes) if (!lanePins.set.has(l.id)) byRepo.set(l.repo, [...(byRepo.get(l.repo) ?? []), l]);
-    const rank = (l: Lane) => (l.parked ? 9 : BAYS.indexOf(l.bay));
-    const repos = [...byRepo.entries()]
-      .sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]))
-      .map(([repo, ls]) => ({ repo, lanes: ls.sort((a, b) => rank(a) - rank(b) || lanePromptAt(b) - lanePromptAt(a) || b.lastActivity - a.lastActivity) }));
-    return pinned.length > 0 ? [{ repo: '', lanes: pinned, pinned: true }, ...repos] : repos;
-  }, [recentLanes, lanePins]);
-
   /** Opens a card on the canvas where it lives, as a double-click on its row would. */
   const openCard = (it: RefItem) => {
     const e = canvasEntities;
@@ -1710,7 +1710,7 @@ export function App() {
     }
   };
 
-  /** Whether a card matches the filter at the top and the Inbox filter, as its row would in its own view. */
+  /** Whether a card matches the filter at the top and the status filter, as its row would in its own view. */
   const canvasMatches = useCallback(
     (it: RefItem) => {
       const e = canvasEntities;
@@ -1736,7 +1736,7 @@ export function App() {
     },
     [canvasEntities, todoItems, query, bayFilter, since],
   );
-  // Picking an Inbox filter, or pressing Return in the filter, brings what matches into view.
+  // Picking a status, or pressing Return in the filter, brings what matches into view.
   const [canvasFit, setCanvasFit] = useState(0);
 
   /** A card's right-click menu: the one its row has in the other views. */
@@ -1947,9 +1947,70 @@ export function App() {
   // The worktree the preview URL sheet is for, as the latest board has it.
   const previewLane = previewFor ? board?.lanes.find((l) => l.id === previewFor) : undefined;
 
+  // The sidebar: the views with their counts, the statuses to narrow them to, and what narrows
+  // the view now, for the collapsed rail's badge.
+  const sideViews = VIEWS.map((v) => ({
+    id: v.id,
+    label: v.label,
+    icon: v.icon,
+    count: v.id === 'worktrees' ? recentLanes.length : v.id === 'sessions' ? shownSessionCount : v.id === 'todo' ? openTodoCount : v.id === 'canvas' ? (canvas.doc?.items.filter((it) => it.kind === 'ref').length ?? '') : openPrCount,
+    badge: v.id === 'prs' && requestedCount > 0 ? requestedCount : undefined,
+    badgeTitle: v.id === 'prs' ? `${requestedCount} want your review` : undefined,
+  }));
+  const sideStatuses: SideStatus[] = [
+    { id: 'needs', label: 'Needs you', glyph: 'needs', count: counts.needs, tone: 'attn' },
+    { id: 'unread', label: 'Your turn', glyph: 'unread', count: counts.unread },
+    { id: 'working', label: 'Working', glyph: 'working', count: counts.working },
+    { id: 'review', label: 'In review', icon: 'pr', count: counts.review },
+    { id: 'work', label: 'PR needs work', glyph: 'error', count: counts.work, tone: 'alert', title: 'Open PRs with failing checks or changes requested' },
+  ];
+  const ageApplies = view !== 'todo' && view !== 'canvas';
+  const shownLabel = view === 'todo' && labelFilter ? (labelById.get(labelFilter) ?? null) : null;
+  const sideFilters = [
+    ageApplies && age !== 'all' ? (AGES.find((a) => a.id === age)?.title.replace(/^Active in the /, '') ?? age) : null,
+    bayFilter ? (sideStatuses.find((x) => x.id === bayFilter)?.label ?? bayFilter) : null,
+    shownLabel ? `label ${shownLabel.name}` : null,
+  ].filter((x): x is string => !!x);
+  const viewNow: ViewState = { view, project: current, device: deviceFilter, age, filter: bayFilter };
+  const savedOn = savedViews.find((v) => sameView(v, viewNow))?.id ?? null;
+  const deviceName = (f: DeviceFilter) => (f === null ? null : f === 'here' ? devices?.me.name || 'This device' : (devices?.devices.find((d) => d.short === f)?.name ?? null));
+  const viewSuggestion = suggestName([
+    VIEWS.find((v) => v.id === view)?.label,
+    current === ALL_PROJECTS ? null : current,
+    deviceName(deviceFilter),
+    bayFilter ? sideStatuses.find((x) => x.id === bayFilter)?.label : null,
+    ageApplies && age !== 'all' ? AGES.find((a) => a.id === age)?.label : null,
+  ]);
+  const applySaved = (v: SavedView) => {
+    // Every field is checked against what exists now: a project or device can be gone since.
+    if (v.project !== current && (v.project === ALL_PROJECTS || projects.some((p) => p.name === v.project))) pickProject(v.project);
+    const known = VIEWS.find((x) => x.id === v.view);
+    if (known) setView(known.id);
+    setDeviceFilter(v.device === null || v.device === 'here' || devices?.devices.some((d) => d.short === v.device) ? v.device : null);
+    const a = AGES.find((x) => x.id === v.age);
+    if (a) setAge(a.id);
+    setBayFilter(v.filter);
+  };
+  const savedMenu = (v: SavedView) =>
+    void showContextMenu([
+      { label: 'Update to this view', enabled: savedOn === null, run: () => keepSaved(savedViews.map((x) => (x.id === v.id ? { ...x, ...viewNow } : x))) },
+      'separator',
+      { label: 'Delete', run: () => keepSaved(savedViews.filter((x) => x.id !== v.id)) },
+    ]).catch((e: unknown) => setToast(String(e)));
+
   return (
     <div className="ca-win ca-win--app">
       <div className="ca-win-bar" data-tauri-drag-region>
+        <button
+          type="button"
+          className={sideCollapsed ? 'ca-sidetoggle' : 'ca-sidetoggle is-on'}
+          aria-label={sideCollapsed ? 'Show sidebar' : 'Hide sidebar'}
+          aria-pressed={!sideCollapsed}
+          title={`${sideCollapsed ? 'Show' : 'Hide'} the sidebar (⌃⌘S)`}
+          onClick={toggleSidebar}
+        >
+          <Icon name="layout-sidebar" size={16} />
+        </button>
         <ProjectSwitcher logoStatus={logoStatus} projects={projects} current={current} total={totalLanes} actions={actions} onPick={pickProject} onOpenWindow={switcherWindow} onEditProjects={() => openSettings('projects')} />
         <label className="ca-search">
           <Icon name="search" size={14} />
@@ -2019,77 +2080,73 @@ export function App() {
         onSignIn={startSignIn}
       />
       <div
-        className={['ca-win-body', panelKind === 'pr' && 'is-prs', panelKind === 'todo' && 'is-todo', panelKind === 'session' && 'is-session', view === 'canvas' && 'is-canvas', view === 'canvas' && canvasPanel && 'has-panel'].filter(Boolean).join(' ')}
+        className={['ca-win-body', sideCollapsed && 'is-railed', panelKind === 'pr' && 'is-prs', panelKind === 'todo' && 'is-todo', panelKind === 'session' && 'is-session', view === 'canvas' && 'is-canvas', view === 'canvas' && canvasPanel && 'has-panel'].filter(Boolean).join(' ')}
         style={{ '--sidebar-w': widthVar(sidebarWidth), '--panel-w': widthVar(panelKind ? panelWidth[panelKind] : null) } as CSSProperties}
       >
-        <nav className="ca-side" aria-label="Sidebar">
-          <div className="ca-label ca-side-label">Inbox</div>
-          <NavItem glyph="needs" label="Needs you" count={counts.needs} tone="attn" active={bayFilter === 'needs'} onClick={() => toggleBay('needs')} />
-          <NavItem glyph="working" label="Working" count={counts.working} active={bayFilter === 'working'} onClick={() => toggleBay('working')} />
-          <NavItem glyph="unread" label="Your turn" count={counts.unread} active={bayFilter === 'unread'} onClick={() => toggleBay('unread')} />
-          <NavItem icon="pr" label="In review" count={counts.review} active={bayFilter === 'review'} onClick={() => toggleBay('review')} />
-          <NavItem glyph="error" label="PR needs work" count={counts.work} tone="alert" active={bayFilter === 'work'} title="Open PRs with failing checks or changes requested" onClick={() => toggleBay('work')} />
-          {devices?.enabled && devices.devices.length > 0 && (
-            <>
-              <div className="ca-label ca-side-label">Devices</div>
-              <NavItem icon="device-desktop" label={devices.me.name || 'This device'} count={deviceNeeds.get(null) || undefined} tone="attn" active={deviceFilter === 'here'} onClick={() => setDeviceFilter(deviceFilter === 'here' ? null : 'here')} />
-              {devices.devices.map((d) => (
-                <NavItem
-                  key={d.key}
-                  lead={<i className={`ca-labeldot ca-side-devdot is-${d.color}`} aria-hidden="true" />}
-                  label={d.online ? d.name : `${d.name} · away`}
-                  className={d.online ? undefined : 'is-away'}
-                  title={d.online ? `Connected ${d.via === 'iroh' ? 'through iroh' : 'on your tailnet'}` : d.lastSeen ? `Away: last seen ${agoPhrase(d.lastSeen, now)}` : 'Away'}
-                  count={deviceNeeds.get(d.short) || undefined}
-                  tone="attn"
-                  active={deviceFilter === d.short}
-                  onClick={() => setDeviceFilter(deviceFilter === d.short ? null : d.short)}
-                />
-              ))}
-            </>
-          )}
-          <div className="ca-label ca-side-label">Worktrees · {recentLanes.length}</div>
-          <div className="ca-side-scroll">
-            <WorktreeTree
-              groups={worktrees}
-              now={now}
-              selectedLaneId={view === 'canvas' ? canvasLane : (selectedLane?.id ?? null)}
-              selectedSessionKey={view === 'canvas' ? (canvasSel?.ref === 'session' ? canvasSel.key : null) : selected?.kind === 'agent' ? selected.session.key : null}
-              onLaneMenu={laneMenu}
-              onSessionMenu={(lane, s) => sessionMenu(lane, s, 'worktree')}
-              onSelectLane={focusLane}
-              onOpenLane={(lane) => open(lane, lane.defaultTarget)}
-              onShowSession={showSession}
-              onOpenSession={(lane, session) => open(lane, session.openTarget)}
-            />
-          </div>
-          <RestartToUpdate />
-          <div className="ca-side-foot">
-            <button type="button" className="ca-linkbtn ca-side-config" title="Settings (⌘,)" onClick={() => openSettings()}>
-              <Icon name="settings" size={14} />
-              <span>Settings</span>
-            </button>
-            <ThemeSwitch theme={theme} onPick={pickTheme} />
-          </div>
-          {board && board.warnings.length > 0 && (
-            <div className="ca-side-warnings" role="status">
-              {board.warnings.map((w) =>
-                w.includes('config.toml') ? (
-                  <button key={w} type="button" className="ca-warning is-link" title="Open config.toml in Settings" onClick={() => openSettings('file')}>
-                    <Icon name="alert" size={14} />
-                    <span>{w}</span>
-                  </button>
-                ) : (
-                  <div key={w} className="ca-warning">
-                    <Icon name="alert" size={14} />
-                    <span>{w}</span>
-                  </div>
-                ),
-              )}
+        <Sidebar
+          collapsed={sideCollapsed}
+          onExpand={toggleSidebar}
+          now={now}
+          views={sideViews}
+          view={view}
+          onView={(id) => setView(id as View)}
+          devices={devices}
+          deviceFilter={deviceFilter}
+          onDevice={setDeviceFilter}
+          deviceNeeds={deviceNeeds}
+          deviceWorking={deviceWorking}
+          groupByDevice={view === 'worktrees' && devices?.enabled && devices.lanes.length > 0 && deviceFilter === null ? groupByDevice : null}
+          onGroupByDevice={toggleGroupByDevice}
+          ages={AGES}
+          age={age}
+          ageApplies={ageApplies}
+          onAge={(id) => setAge(id as Age)}
+          statuses={sideStatuses}
+          filter={bayFilter}
+          onFilter={toggleBay}
+          label={shownLabel}
+          onClearLabel={() => setLabelFilter(null)}
+          saved={savedViews}
+          savedOn={savedOn}
+          onApplySaved={applySaved}
+          onSavedMenu={savedMenu}
+          suggestion={viewSuggestion}
+          onSave={(name) => keepSaved([...savedViews, { id: newSavedId(), name, ...viewNow }])}
+          filters={sideFilters}
+          onSettings={() => openSettings()}
+          hasWarnings={(board?.warnings.length ?? 0) > 0}
+          foot={
+            <div className="ca-side-foot">
+              <button type="button" className="ca-linkbtn ca-side-config" title="Settings (⌘,)" onClick={() => openSettings()}>
+                <Icon name="settings" size={14} />
+                <span>Settings</span>
+              </button>
+              <ThemeSwitch theme={theme} onPick={pickTheme} />
             </div>
-          )}
-        </nav>
-        <Resizer panel="before" cssVar="--sidebar-w" onResize={setSidebarWidth} />
+          }
+          warnings={
+            <>
+              {board && board.warnings.length > 0 && (
+                <div className="ca-side-warnings" role="status">
+                  {board.warnings.map((w) =>
+                    w.includes('config.toml') ? (
+                      <button key={w} type="button" className="ca-warning is-link" title="Open config.toml in Settings" onClick={() => openSettings('file')}>
+                        <Icon name="alert" size={14} />
+                        <span>{w}</span>
+                      </button>
+                    ) : (
+                      <div key={w} className="ca-warning">
+                        <Icon name="alert" size={14} />
+                        <span>{w}</span>
+                      </div>
+                    ),
+                  )}
+                </div>
+              )}
+            </>
+          }
+        />
+        {sideCollapsed ? <span aria-hidden="true" /> : <Resizer panel="before" cssVar="--sidebar-w" onResize={setSidebarWidth} />}
         <main className={view === 'canvas' ? 'ca-board is-canvas' : 'ca-board'} aria-label={VIEWS.find((v) => v.id === view)?.label}>
           {devices?.asks.map((a) => (
             <div key={a.key} className="ca-device-banner" role="alert">
@@ -2105,60 +2162,6 @@ export function App() {
               </Button>
             </div>
           ))}
-          <div className="ca-board-head">
-            <div className="ca-segctl" role="tablist" aria-label="View">
-              {VIEWS.map((v) => (
-                <button
-                  key={v.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={view === v.id}
-                  className={view === v.id ? 'is-on' : undefined}
-                  title={v.id === 'prs' && requestedCount > 0 ? `${requestedCount} PRs want your review. Switch views (V)` : 'Switch views (V)'}
-                  onClick={() => setView(v.id)}
-                >
-                  {v.label}
-                  <span className="ca-segctl-count">{v.id === 'worktrees' ? recentLanes.length : v.id === 'sessions' ? shownSessionCount : v.id === 'todo' ? openTodoCount : v.id === 'canvas' ? (canvas.doc?.items.filter((it) => it.kind === 'ref').length ?? '') : openPrCount}</span>
-                  {v.id === 'prs' && requestedCount > 0 && <span className="ca-segctl-badge">{requestedCount}</span>}
-                </button>
-              ))}
-            </div>
-            {view === 'todo' ? (
-              <div className="ca-agefilter ca-todofilter">
-                {labelFilter && labelById.get(labelFilter) && (
-                  <button type="button" className="ca-labelchip ca-labelchip--button ca-labelfilter" title="Show every label" onClick={() => setLabelFilter(null)}>
-                    <LabelDot label={labelById.get(labelFilter) as Label} />
-                    <span>{labelById.get(labelFilter)?.name}</span>
-                    <Icon name="x" size={10} stroke={2.25} />
-                  </button>
-                )}
-              </div>
-            ) : view === 'canvas' ? null : (
-              <>
-              {view === 'worktrees' && devices?.enabled && devices.lanes.length > 0 && deviceFilter === null && (
-                <div className="ca-segctl ca-groupby">
-                  <button type="button" aria-pressed={groupByDevice} className={groupByDevice ? 'is-on' : undefined} title="Group worktrees by the device they're on" onClick={toggleGroupByDevice}>
-                    By device
-                  </button>
-                </div>
-              )}
-              <div className="ca-segctl ca-agefilter" role="radiogroup" aria-label="Active in">
-                {AGES.map((a) => (
-                  <button key={a.id} type="button" role="radio" aria-checked={age === a.id} className={age === a.id ? 'is-on' : undefined} title={a.title} onClick={() => setAge(a.id)}>
-                    {a.label}
-                  </button>
-                ))}
-              </div>
-              </>
-            )}
-          </div>
-          {view !== 'prs' && view !== 'todo' && view !== 'canvas' && (
-            <div className={`ca-board-cols ca-label${view === 'sessions' ? ' is-sessions' : ''}`} aria-hidden="true">
-              <span />
-              {view === 'sessions' ? <span>Session</span> : <><span>Worktree</span><span>Now</span></>}
-              <span className="ca-board-cols-age">Age</span>
-            </div>
-          )}
           {board && !board.loading && view === 'prs' && prRows.length === 0 && (
             <div className="ca-board-empty">
               {query ? `No PRs in ${current} match “${query}”.` : board.githubAt ? 'No PRs here right now.' : 'Loading PRs from GitHub…'}

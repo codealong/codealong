@@ -2,7 +2,7 @@
 // `@<short>:` in front of every lane id and session key, so which device something is on can be
 // read off its key, and a click on it goes back to that device.
 
-import type { DeviceView, DevicesView, Lane } from './types';
+import type { DeviceView, DevicesView, Lane, Session } from './types';
 
 /** The short id of the device a lane id or session key is on; null when it's this device's. */
 export function shortOf(key: string): string | null {
@@ -30,7 +30,16 @@ export function withDevices(here: Lane[], there: Lane[], filter: DeviceFilter): 
 
 /** How many of a device's sessions need you, for its row in the sidebar. */
 export function needsOn(lanes: Lane[], short: string | null): number {
-  return lanes.filter((l) => shortOf(l.id) === short).reduce((n, l) => n + l.sessions.filter((s) => !s.visitor && !s.archived && (s.status === 'needs' || s.status === 'error')).length, 0);
+  return countOn(lanes, short, (s) => s.status === 'needs' || s.status === 'error');
+}
+
+/** How many of a device's sessions are working, for its row in the sidebar. */
+export function workingOn(lanes: Lane[], short: string | null): number {
+  return countOn(lanes, short, (s) => s.status === 'working');
+}
+
+function countOn(lanes: Lane[], short: string | null, counts: (s: Session) => boolean): number {
+  return lanes.filter((l) => shortOf(l.id) === short).reduce((n, l) => n + l.sessions.filter((s) => !s.visitor && !s.archived && counts(s)).length, 0);
 }
 
 /** A device's name as its badge shows it: without its owner's name in front, so "Sam’s MacBook

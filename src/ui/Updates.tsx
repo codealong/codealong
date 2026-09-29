@@ -27,9 +27,18 @@ export function useUpdates(): UpdateView | null {
 
 /** Above the foot of the sidebar once a newer version is in place. The next launch runs it
  *  anyway; this is for now. */
-export function RestartToUpdate() {
+export function RestartToUpdate({ compact }: { compact?: boolean }) {
   const view = useUpdates();
   if (view?.state !== 'ready') return null;
+  // In the collapsed sidebar: its icon alone, marked.
+  if (compact) {
+    return (
+      <button type="button" className="ca-rail-btn is-update" aria-label={`Restart to update to ${view.version}`} title={`Restart to update to ${view.version}`} onClick={() => void restartToUpdate()}>
+        <Icon name="refresh" size={18} />
+        <span className="ca-rail-badge is-ink" aria-hidden="true" />
+      </button>
+    );
+  }
   return (
     <button type="button" className="ca-side-update" title={view.notes ?? `Codealong ${view.version} is ready`} onClick={() => void restartToUpdate()}>
       <Icon name="refresh" size={14} />
