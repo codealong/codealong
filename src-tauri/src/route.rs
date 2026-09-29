@@ -223,10 +223,10 @@ pub fn request(board: &Board, project: &str, text: &str, model: &str, now: i64) 
             },
             "own_worktree": {
                 "type": "noul",
-                "instructions": "Does `message` ask for a self-contained code change, such as a feature, a fix or a refactor, that should get a new branch of its own?",
+                "instructions": "Does `message` ask for its work to be kept apart on a new branch or in a new worktree, rather than done in one of the worktrees listed?",
                 "criteria": {
-                    "true": "A change that would be committed on its own branch.",
-                    "false": "A question, an investigation, a review, a small tweak to work already under way, or no code change.",
+                    "true": "It says so: a new branch, a new worktree, in parallel, separately, without touching the work already under way.",
+                    "false": "It says nothing about branches or worktrees. Most features, fixes, refactors, questions and reviews are done in a listed worktree.",
                 },
             },
         },
@@ -301,6 +301,8 @@ pub fn read(req: &Request, response: &Value, ms: u64) -> Result<Route> {
         lanes: lanes.into_iter().take(TOP).collect(),
         repos: repos.into_iter().take(TOP).collect(),
         own_worktree: answers["own_worktree"]["noul"].as_f64().unwrap_or(0.0),
+        own_worktree_asked: answers["own_worktree"]["noul"].as_f64().unwrap_or(0.0),
+        habit: Default::default(),
         duplicate,
         model: response["model"].as_str().unwrap_or_default().to_string(),
         ms,
@@ -313,7 +315,16 @@ pub fn route(board: &Board, cfg: &crate::config::Config, project: &str, text: &s
     let req = request(board, project, text, cfg.jev.model.trim(), crate::util::now_ms())?;
     let started = Instant::now();
     let response = crate::jev::ask(&req.body)?;
-    read(&req, &response, started.elapsed().as_millis() as u64)
+    let route = read(&req, &response, started.elapsed().as_millis() as u64)?;
+    let habit = route.repos.first().map(|r| crate::starts::habit(&r.id)).unwrap_or_default();
+    Ok(with_habit(route, habit))
+}
+
+/// Weighs Jev's guess at a new worktree by how you've started work in the likeliest repo.
+fn with_habit(mut route: Route, habit: crate::starts::Habit) -> Route {
+    route.own_worktree = crate::starts::weigh(route.own_worktree_asked, habit);
+    route.habit = habit;
+    route
 }
 
 #[cfg(test)]
@@ -492,6 +503,16 @@ mod tests {
         let r = read(&req, &answer(&[("send", 0.55), ("start", 0.45)], &[("s1", 0.2), ("none", 0.7)], &[("w1", 1.0)], 0.9), 1).unwrap();
         assert_eq!(r.action, Action::Start);
         assert_eq!(r.own_worktree, 0.9);
+    }
+
+    #[test]
+    fn a_habit_of_existing_worktrees_outweighs_jevs_yes() {
+        let b = board();
+        let req = request(&b, "Acme", "add a settings page", "jev-latest", NOW).unwrap();
+        let r = read(&req, &answer(&[("start", 1.0)], &[("none", 1.0)], &[("w1", 1.0)], 0.9), 1).unwrap();
+        let r = with_habit(r, crate::starts::Habit { new: 1, of: 20 });
+        assert_eq!(r.own_worktree_asked, 0.9);
+        assert!(r.own_worktree < 0.5);
     }
 
     #[test]

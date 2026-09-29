@@ -380,6 +380,13 @@ pub struct Pick {
     pub p: f64,
 }
 
+/// A repo's latest starts from the quick panel: how many went into a new worktree, of how many.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug, Default)]
+pub struct Habit {
+    pub new: usize,
+    pub of: usize,
+}
+
 /// The suggestion, with the runners-up, for the panel to show.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -395,8 +402,15 @@ pub struct Route {
     pub lanes: Vec<Pick>,
     /// Repos, the worktrees' probabilities added up: which repo is clearer than which worktree.
     pub repos: Vec<Pick>,
-    /// How likely it is that new work wants a worktree of its own.
+    /// How likely it is that new work wants a worktree of its own: Jev's answer weighed by how
+    /// you've started work in the likeliest repo (the engine's starts.rs).
     pub own_worktree: f64,
+    /// Jev's answer before that. Macs of earlier builds don't send it.
+    #[serde(default)]
+    pub own_worktree_asked: f64,
+    /// Your latest starts in that repo.
+    #[serde(default)]
+    pub habit: Habit,
     /// A live session that may already be doing this work, when Jev thinks one is.
     pub duplicate: Option<Pick>,
     /// The versioned model that answered, such as `jev-1.13.0`.

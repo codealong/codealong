@@ -16,6 +16,8 @@ const route = (r: Partial<Route>): Route => ({
   lanes: [],
   repos: [],
   ownWorktree: 0,
+  ownWorktreeAsked: 0,
+  habit: { new: 0, of: 0 },
   duplicate: null,
   model: 'jev-1.13.0',
   ms: 200,

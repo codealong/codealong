@@ -506,6 +506,12 @@ fn uuid_v4(mut b: [u8; 16]) -> String {
     format!("{}-{}-{}-{}-{}", &hex[..8], &hex[8..12], &hex[12..16], &hex[16..20], &hex[20..])
 }
 
+/// Whether a start could go into a new worktree: only Claude Code makes one, started in a
+/// terminal or in the background.
+pub fn offers_worktree(cfg: &Config, spec: &StartSpec) -> bool {
+    matches!(spec.place, Place::Terminal | Place::Background) && cfg.accounts.iter().any(|a| a.name == spec.account && harness_of(a) == Harness::Claude)
+}
+
 /// Starts a session: checks the choice against the board and the config, then hands it to the
 /// terminal or the app.
 pub fn start(board: &Board, cfg: &Config, spec: &StartSpec) -> Result<Started> {

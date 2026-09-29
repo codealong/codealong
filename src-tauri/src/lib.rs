@@ -54,6 +54,7 @@ mod route;
 mod search;
 mod server;
 mod start;
+mod starts;
 mod state;
 mod tailnet;
 mod throttle;
@@ -438,10 +439,26 @@ fn start_from_quick(app: tauri::AppHandle, engine: State<'_, engine::Handle>, pe
         return start_on_device(&peers, device, lane, &spec);
     }
     let started = start_and_link(&engine, &spec)?;
+    note_start(&engine, &spec);
     if let Some(bundle) = quick::start_app(spec.place, &engine.board().apps.terminal_id) {
         bar::bring_forward(&app, bundle);
     }
     Ok(started)
+}
+
+/// Keeps whether a start went into a new worktree, where one was on offer, for Jev's next
+/// suggestion in that repo (starts.rs).
+fn note_start(engine: &engine::Handle, spec: &start::StartSpec) {
+    let cfg = config::load().ok().flatten().unwrap_or_default();
+    if !start::offers_worktree(&cfg, spec) {
+        return;
+    }
+    let Some(repo) = engine.board().lanes.iter().find(|l| l.id == spec.lane_id).map(|l| format!("{}/{}", l.project, l.repo)) else {
+        return;
+    };
+    if let Err(e) = starts::record(&repo, spec.worktree) {
+        eprintln!("codealong: couldn't note the start in starts.json: {e:#}");
+    }
 }
 
 /// Where what's typed in the quick panel should go, from Jev (route.rs).

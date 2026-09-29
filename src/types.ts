@@ -554,7 +554,12 @@ export interface Route {
   noSession: number;
   lanes: RoutePick[];
   repos: RoutePick[];
+  /** How likely new work wants a worktree of its own: Jev's answer weighed by your habit. */
   ownWorktree: number;
+  /** Jev's answer alone. */
+  ownWorktreeAsked: number;
+  /** Your latest starts in the likeliest repo: how many went into a new worktree, of how many. */
+  habit: { new: number; of: number };
   /** A live session that may already be doing this work. */
   duplicate: RoutePick | null;
   model: string;
