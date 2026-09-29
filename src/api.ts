@@ -21,6 +21,12 @@ export function perfMark(line: string): void {
   if (inTauri) void invoke('perf_mark', { line });
 }
 
+/** Hands the page its focus again, after a key typed into a text field while WebKit had the page
+ *  as unfocused, which hides the text cursor (caret.ts). */
+export async function pageUnfocused(): Promise<void> {
+  if (inTauri) await invoke('page_unfocused');
+}
+
 /** Pops up a menu made with `Menu.new` at `at` (logical window coordinates) or the pointer, and
  *  resolves when it has closed. */
 export async function popupMenu(rid: number, at?: { x: number; y: number }): Promise<void> {

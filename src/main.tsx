@@ -1,6 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
+import { watchCaret } from './caret';
 import { Bar } from './ui/Bar';
 import { DesktopPin } from './ui/DesktopPin';
 import { Peek } from './ui/Peek';
@@ -34,6 +35,8 @@ if (isPeek) document.documentElement.classList.add('is-peek');
 if (isDesktop) document.documentElement.classList.add('is-desktop');
 
 createRoot(document.getElementById('root')!).render(<StrictMode>{isBar ? <Bar /> : isQuick ? <Quick /> : isPeek ? <Peek /> : isDesktop ? <DesktopPin /> : <App />}</StrictMode>);
+
+watchCaret();
 
 // Right-click shows Codealong's own menus; the webview's (Reload, Back…) doesn't belong in an
 // app. Text fields keep theirs, for copy and paste.

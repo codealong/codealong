@@ -144,14 +144,17 @@ function truncate(s: string, max: number): string {
 export function sessionHeadline(s: Session): [string, string | null] {
   const acct = code(s.account);
   if (s.stalledSince != null) return [`${acct} is stuck · ${s.title}`, s.excerpt];
+  // Every headline names the session: its title after what it's doing.
   switch (s.status) {
     case 'needs':
-      if (s.excerpt == null) return [`${acct} needs you`, s.title];
-      if (s.harness === 'claude') return [`${acct} is waiting for approval`, s.excerpt];
-      if (s.harness === 'codex' || s.harness === 'opencode') return [`${acct} asks for approval`, s.excerpt];
-      return [`${acct} needs you`, s.excerpt];
+      // A question, from its reply or held through the plugin, leaves the question itself below.
+      if (s.asks || s.excerpt?.startsWith('Asks you')) return [`${acct} asks you · ${s.title}`, s.excerpt?.startsWith('Asks you · ') ? s.excerpt.slice('Asks you · '.length) : null];
+      if (s.excerpt == null) return [`${acct} needs you · ${s.title}`, null];
+      if (s.harness === 'claude') return [`${acct} is waiting for approval · ${s.title}`, s.excerpt];
+      if (s.harness === 'codex' || s.harness === 'opencode') return [`${acct} asks for approval · ${s.title}`, s.excerpt];
+      return [`${acct} needs you · ${s.title}`, s.excerpt];
     case 'error':
-      return [`${acct} stopped with an error`, s.excerpt];
+      return [`${acct} stopped with an error · ${s.title}`, s.excerpt];
     case 'working': {
       // How long it has worked on what you last asked, as the engine counts it.
       const since = s.statusSince != null ? Math.max(s.statusSince, s.lastPromptAt) : null;

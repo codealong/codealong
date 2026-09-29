@@ -10,7 +10,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { fitDesktop, getDesktopFeed, onDesktopFeed, onPeekShown, openFromBar, peekHide, peekOpen, showMain, showQuick, unpinFromDesktop, type PillRect } from '../api';
 import { boardView, lanesAhead, observe, seenAhead, useAhead } from '../ahead';
-import { plain } from '../bar';
+import { CLICK_WAIT_MS, plain } from '../bar';
 import { showContextMenu, type MenuSpec } from '../contextMenu';
 import { shortOf } from '../devices';
 import { folderMenu, openInMenu, opensInEditor, useEditorIcons } from '../editors';
@@ -29,9 +29,6 @@ const MARGIN = 12;
 const SESSIONS = 4;
 /** How far the pointer moves with the button down before it drags the card rather than clicks it. */
 const DRAG_AFTER = 4;
-/** How long a click waits for a second one before it opens the peek, so a double-click opens the
- *  session where it lives without the peek showing first. */
-const CLICK_WAIT_MS = 250;
 
 function useNow(everyMs: number): number {
   const [now, setNow] = useState(() => Date.now());

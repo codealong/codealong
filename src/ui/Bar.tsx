@@ -4,14 +4,15 @@
 // picked beside the mark or in all of them. The engine keeps the window up and sends it what to
 // show (barfeed.rs); the page sizes the window to itself. Pills that don't fit fold into one per
 // group that lists them. Hovering a session's pill shows it in the peek under the bar (peek.rs,
-// Peek.tsx), its conversation and a box to answer it; clicking the pill opens the session where
-// it lives, right-clicking shows its menu, and the mark brings Codealong forward. Docked in the
+// Peek.tsx), its conversation and a box to answer it; clicking the pill shows the session in
+// Codealong and double-clicking opens it where it lives, right-clicking shows its menu, and the
+// mark brings Codealong forward. Docked in the
 // notch (bar.rs), the same pills show below the notch when it opens (Notch.tsx), dark.
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { barMode, fitBar, getBarFeed, onBarFeed, onBarMode, onBarNote, onPeekShown, openFromBar, peekHide, peekOpen, setBarMode, showMain, showQuick, type BarModeView, type PillRect } from '../api';
-import { elsewhereWaits, fitGroups, GROUPS, plain, projectWaits, type Group, type GroupFit, type WaitCounts } from '../bar';
+import { CLICK_WAIT_MS, elsewhereWaits, fitGroups, GROUPS, plain, projectWaits, type Group, type GroupFit, type WaitCounts } from '../bar';
 import { showContextMenu, type MenuAction, type MenuSpec } from '../contextMenu';
 import { ago } from '../format';
 import { usePerf } from '../perf';
@@ -94,7 +95,7 @@ interface SessionPillProps {
   now: number;
   /** The peek shows this session. */
   peeked?: boolean;
-  onOpen?: () => void;
+  onOpen?: (e: MouseEvent<HTMLButtonElement>) => void;
   onMenu?: () => void;
   /** The pointer came onto the pill or moved on it. */
   onHover?: (e: PointerEvent<HTMLElement>) => void;
@@ -325,6 +326,11 @@ export function Bar() {
   const peekedNow = useRef(peeked);
   peekedNow.current = peeked;
   const hoverTimer = useRef<number | null>(null);
+  // A click on a pill waiting to see whether it's the first of two.
+  const clickTimer = useRef<number | null>(null);
+  useEffect(() => () => {
+    if (clickTimer.current != null) window.clearTimeout(clickTimer.current);
+  }, []);
   // The session a pending hover is for.
   const hoverFor = useRef<string | null>(null);
   // Where the pointer last moved on the bar, in screen points.
@@ -512,10 +518,29 @@ export function Bar() {
     openFromBar(i.laneId, i.openTarget).catch((e: unknown) => setFailed({ anchor, message: String(e).replace(/^Error: /, '') }));
   };
 
-  /** Shows the session in Codealong's window: what an item in the bar's menus does. */
+  /** Shows the session in Codealong's window: what a click on its pill, or an item in the bar's
+   *  menus, does. */
   const reveal = (i: BarItem | BarRecent | BarSnoozed) => {
     stopHover();
+    if (peekedNow.current.key) void peekHide();
     void showMain({ kind: 'session', laneId: i.laneId, key: i.key });
+  };
+
+  /** A click on a session's pill shows it in Codealong, as a click on its row there selects it; a
+   *  double-click opens it where it lives. The first click waits for a second, so a double-click
+   *  doesn't bring Codealong forward on its way. */
+  const clickPill = (i: BarItem, e: MouseEvent<HTMLButtonElement>) => {
+    if (clickTimer.current != null) window.clearTimeout(clickTimer.current);
+    clickTimer.current = null;
+    stopHover();
+    if (e.detail >= 2) {
+      open(i);
+      return;
+    }
+    clickTimer.current = window.setTimeout(() => {
+      clickTimer.current = null;
+      reveal(i);
+    }, CLICK_WAIT_MS);
   };
 
   /** Snoozing or waking takes the sessions off the bar or puts them back; the peek goes away
@@ -535,9 +560,9 @@ export function Bar() {
     void popup([
       { label: `${i.title} · ${i.callsign}`, run: () => {}, enabled: false },
       'separator',
+      { label: 'Show in Codealong', run: () => reveal(i) },
       { label: openLabel(i, feed?.terminal ?? 'Terminal'), run: () => open(i) },
       { label: 'Reply here', run: () => reply(i) },
-      { label: 'Show in Codealong', run: () => reveal(i) },
       ...(i.status === 'unread' ? [{ label: 'Mark as seen', run: () => markSeen([i.key], i.key) }] : []),
       snoozeMenu([i.key], Date.now(), { until: i.snoozedUntil, onDone: snoozeDone([i.key], i.key) }),
     ]);
@@ -678,7 +703,7 @@ export function Bar() {
           failed?.anchor === i.key ? (
             failedPill()
           ) : (
-            <SessionPill key={i.key} item={i} now={now} peeked={peeked.key === i.key} onOpen={() => open(i)} onMenu={() => sessionMenu(i)} onHover={(e) => hover(i, e)} onLeave={stopHover} />
+            <SessionPill key={i.key} item={i} now={now} peeked={peeked.key === i.key} onOpen={(e) => clickPill(i, e)} onMenu={() => sessionMenu(i)} onHover={(e) => hover(i, e)} onLeave={stopHover} />
           ),
         ),
         ...(folded.length

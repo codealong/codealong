@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ageFiltered, bayOf, buildBays, bySession, filterByAge, inboxCounts, narrowed, rowItems, withoutAccount } from './lanes';
+import { ageFiltered, bayOf, buildBays, bySession, filterByAge, inboxCounts, narrowed, rowItems, sessionHeadline, withoutAccount } from './lanes';
 import type { Lane, Pr, Session } from './types';
 
 const NOW = 1_790_200_000_000;
@@ -169,7 +169,25 @@ describe('withoutAccount', () => {
   it('drops the account the chip already shows', () => {
     expect(withoutAccount('`claude` · Fix the test')).toBe('Fix the test');
     expect(withoutAccount('`claude2` finished · Fix the test')).toBe('finished · Fix the test');
-    expect(withoutAccount('`codex` asks for approval')).toBe('asks for approval');
+    expect(withoutAccount('`codex` asks for approval · Fix the test')).toBe('asks for approval · Fix the test');
     expect(withoutAccount('Checks failing on #7')).toBe('Checks failing on #7');
+  });
+});
+
+describe('sessionHeadline', () => {
+  const base = session('a', 'needs', NOW);
+  const s = (over: Partial<Session>): Session => ({ ...base, account: 'claude2', harness: 'claude', title: 'Fix the test', excerpt: null, ...over });
+
+  it('names the session on every status, as the engine does', () => {
+    expect(sessionHeadline(s({ excerpt: 'Bash · `rm -rf build`' }))[0]).toBe('`claude2` is waiting for approval · Fix the test');
+    expect(sessionHeadline(s({ harness: 'codex', excerpt: 'Bash · `make`' }))[0]).toBe('`claude2` asks for approval · Fix the test');
+    expect(sessionHeadline(s({}))).toEqual(['`claude2` needs you · Fix the test', null]);
+    expect(sessionHeadline(s({ status: 'error', excerpt: 'API error' }))[0]).toBe('`claude2` stopped with an error · Fix the test');
+  });
+
+  it('says a session whose reply asks you something asks you, not that it waits for approval', () => {
+    expect(sessionHeadline(s({ asks: true, excerpt: 'Asks you · Want the PR?' }))).toEqual(['`claude2` asks you · Fix the test', 'Want the PR?']);
+    // A question held through the plugin, which what you type doesn't answer.
+    expect(sessionHeadline(s({ asks: false, excerpt: 'Asks you · Which color?' }))).toEqual(['`claude2` asks you · Fix the test', 'Which color?']);
   });
 });

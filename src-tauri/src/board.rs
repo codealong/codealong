@@ -844,14 +844,21 @@ pub fn session_headline(s: &Session) -> (String, Option<String>) {
     if s.stalled_since.is_some() {
         return (format!("{acct} is stuck · {}", s.title), s.excerpt.clone());
     }
+    let title = &s.title;
     match s.status {
+        // Every headline names the session: its title after what it's doing. A question, whether
+        // its reply ends in one or it's held through the plugin (`claude::asked_label`), says so
+        // up front and leaves the question itself below.
+        Status::Needs if s.asks || s.excerpt.as_deref().is_some_and(|e| e.starts_with("Asks you")) => {
+            (format!("{acct} asks you · {title}"), s.excerpt.as_deref().and_then(|e| e.strip_prefix("Asks you · ")).map(str::to_string))
+        }
         Status::Needs => match (&s.excerpt, s.harness) {
-            (Some(ex), Harness::Claude) => (format!("{acct} is waiting for approval"), Some(ex.clone())),
-            (Some(ex), Harness::Codex | Harness::Opencode) => (format!("{acct} asks for approval"), Some(ex.clone())),
-            (Some(ex), Harness::Antigravity) => (format!("{acct} needs you"), Some(ex.clone())),
-            (None, _) => (format!("{acct} needs you"), Some(s.title.clone())),
+            (Some(ex), Harness::Claude) => (format!("{acct} is waiting for approval · {title}"), Some(ex.clone())),
+            (Some(ex), Harness::Codex | Harness::Opencode) => (format!("{acct} asks for approval · {title}"), Some(ex.clone())),
+            (Some(ex), Harness::Antigravity) => (format!("{acct} needs you · {title}"), Some(ex.clone())),
+            (None, _) => (format!("{acct} needs you · {title}"), None),
         },
-        Status::Error => (format!("{acct} stopped with an error"), s.excerpt.clone()),
+        Status::Error => (format!("{acct} stopped with an error · {title}"), s.excerpt.clone()),
         Status::Working => {
             // How long it has worked on what you last asked. Claude Code doesn't restart a busy
             // session's clock for a message sent while it works, but that message is a new ask.
@@ -1965,7 +1972,7 @@ mod tests {
         busy.pending.insert("ses_abc1234567".into(), "Bash · `npm install`".into());
         let s = opencode_session(&a, &row, Some(&busy), None, 0, NOW);
         assert_eq!((s.status, s.excerpt.as_deref()), (Status::Needs, Some("Bash · `npm install`")));
-        assert_eq!(session_headline(&s).0, "`opencode` asks for approval");
+        assert_eq!(session_headline(&s).0, format!("`opencode` asks for approval · {}", s.title));
         // A run that ended is news until seen here or viewed in OpenCode.
         row.idle_at = Some(NOW - 500);
         row.outcome = Some("succeeded".into());
@@ -2009,7 +2016,7 @@ mod tests {
         c.status = "waiting".into();
         let s = antigravity_session(&a, &c, 0, NOW);
         assert_eq!((s.status, s.excerpt.as_deref()), (Status::Needs, Some("waiting")));
-        assert_eq!(session_headline(&s).0, "`antigravity` needs you");
+        assert_eq!(session_headline(&s).0, format!("`antigravity` needs you · {}", s.title));
         c.killed = true;
         assert_eq!(antigravity_session(&a, &c, 0, NOW).status, Status::Idle);
     }
@@ -2107,9 +2114,18 @@ mod tests {
     fn writes_headlines() {
         let a = acct("claude2");
         let needs = claude_session(&a, Some(&reg("waiting", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
+        // One whose reply asks you something asks you; it isn't waiting for approval.
+        let asking = Session { asks: true, excerpt: Some("Asks you · Want the PR?".into()), ..needs.clone() };
+        assert_eq!(session_headline(&asking), ("`claude2` asks you · Quarry daily log + photo sync".into(), Some("Want the PR?".into())));
+        // So does one whose question is held through the plugin, though what you type doesn't
+        // answer it.
+        let held = Session { asks: false, excerpt: Some("Asks you · Which color?".into()), ..needs.clone() };
+        assert_eq!(session_headline(&held), ("`claude2` asks you · Quarry daily log + photo sync".into(), Some("Which color?".into())));
+        // Needs you with nothing to say: the title is in the headline, nothing under it.
+        assert_eq!(session_headline(&Session { excerpt: None, ..needs.clone() }), ("`claude2` needs you · Quarry daily log + photo sync".to_string(), None));
         assert_eq!(
             headline(Bay::Needs, &[needs], None, None),
-            ("`claude2` is waiting for approval".to_string(), Some("Bash · `yarn mikro-orm migration:up`".to_string()))
+            ("`claude2` is waiting for approval · Quarry daily log + photo sync".to_string(), Some("Bash · `yarn mikro-orm migration:up`".to_string()))
         );
         let working = claude_session(&a, Some(&reg("busy", NOW - 5_000)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
         let (h, d) = headline(Bay::Working, &[working], None, None);
@@ -2437,7 +2453,7 @@ mod tests {
         assert_eq!(board.lanes[1].bay, Bay::Idle, "a visitor doesn't change the bay");
         assert_eq!(board.lanes[1].sessions[0].visitor.as_deref(), Some("worked here"));
         assert_eq!(board.lanes[1].headline, "Worked on by `claude2` · Quarry daily log + photo sync");
-        assert_eq!(board.lanes[0].sessions[0].headline, "`claude2` is waiting for approval");
+        assert_eq!(board.lanes[0].sessions[0].headline, "`claude2` is waiting for approval · Quarry daily log + photo sync");
         assert_eq!(board.projects[0].lanes, 2);
     }
 

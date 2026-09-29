@@ -308,9 +308,9 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   and Deny above the box. Until you click in it, the peek follows the pointer from pill to pill
   and closes once the pointer leaves it; pills that shift under a still pointer as sessions
   change groups don't move it. Once you've clicked in it, it stays on its session whatever the
-  bar does, until you send, press Escape or click somewhere else. Click a pill to open the
-  session where it lives; right-click it to reply in the peek,
-  show it in Codealong, mark it seen or snooze it. The todos pill opens the quick panel ready to start a
+  bar does, until you send, press Escape or click somewhere else. Click a pill to show its
+  session in Codealong, as a click on its row there does, and double-click it to open the
+  session where it lives; right-click it to reply in the peek, mark it seen or snooze it. The todos pill opens the quick panel ready to start a
   session for a todo (its menu picks which).
   **Snooze** (a session's menu on the bar or in Codealong, the peek's zzz button, or a folded
   pill's menu for all of its sessions): for 15 minutes, an hour, three hours or until 9 the
@@ -586,6 +586,7 @@ light scan (no git, PRs or visitors).
 | `src-tauri/src/launch.rs` | App profiles: Ghostty (AppleScript, exact tab focus), deep links |
 | `src-tauri/src/editors.rs`, `src/editors.ts` | The editors a folder opens in: the ones Codealong knows, found where Mac apps are installed, and the Open in menus |
 | `src-tauri/src/flash.rs` | Outlines a focused terminal that came forward on another screen |
+| `src-tauri/src/caret.rs`, `src/caret.ts` | A text cursor WebKit stopped drawing in a window you type in: typing into a page that says it isn't focused hands it its focus again, and the perf log says what macOS said of the window |
 | `src-tauri/src/previews.rs`, `src/ui/PreviewBits.tsx` | Previews: each worktree's URL (`previews.json`), the servers listening in worktrees' folders (`procs::listeners`, the kernel's socket lists), their front pages read once, a kqueue for their exits; the row's chip, the panel's section and the URL sheet |
 | `src-tauri/src/idle.rs`, `src/ui/CloseIdleDialog.tsx` | Close idle terminals: which sessions' tabs can close and why (pure, tested), and closing them |
 | `src-tauri/src/start.rs`, `src/start.ts` | New sessions: where each account can start one, the launch it makes, the agent menu (every account on every model, and the effort levels) and Auto's pick |
