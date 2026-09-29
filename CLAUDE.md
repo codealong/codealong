@@ -485,6 +485,11 @@ Claude app
   `ssh_host`, `ssh_port`, `ssh_folder` and `source` are taken too. `file` is only logged, so a
   new Code session can't be handed images (`claude://cowork/new?file=` does take files). The
   Code tab takes images only from its own input box.
+- A Code session started without a folder runs in a scratch workspace the app makes for it,
+  `~/Library/Application Support/Claude/scratch-workspaces/<account>/<org>/scratch-<date>-<6
+  hex>` (`userData` in 2.9939's code), and the app removes it once the session is gone. It's
+  no repo, so the engine lists every such session in one lane, Claude app chats
+  (`engine::chat_roots`); a session with no lane would be on no list at all.
 
 Codex
 
@@ -564,6 +569,14 @@ Codex
   `-i/--image <FILE>...` attaches images to its first prompt (prompt first, or after `--`). A folder the app has no project for becomes a new project. Its projects are
   in `<CODEX_HOME>/.codex-global-state.json` (`local-projects[].rootPaths`,
   `electron-saved-workspace-roots`), a file of several megabytes.
+- A thread started outside a project (a "projectless chat") runs in a folder the app makes for
+  it, `~/Documents/Codex/<date>/<slug from its first words>` (26.924's code; the same file lists
+  them in `projectless-thread-ids`). The engine lists them all in one lane, Codex chats.
+- The app's unread dots are in that file too, `electron-thread-read-state-v1.unreadByIdentity.
+  <account hash>.<host key>`: the ids of threads with a turn you haven't looked at, rewritten as
+  one changes. Only the app's own threads and their subagents were ever in it (none from the
+  CLI, `exec` or Codealong), and every thread on the board was read there while Codealong still
+  called ten of them Your turn (checked 2026-09-28). Codealong doesn't read it yet.
 - Actions go through its app-server: `<the app's CLI> app-server --listen stdio://` with `CODEX_HOME` set, JSON lines: `initialize {clientInfo}`,
   then `{"method":"initialized"}`, then e.g. `thread/archive {threadId}`. No shared daemon runs,
   so `codex app-server proxy` fails. `codex app-server generate-json-schema --out <dir>` dumps

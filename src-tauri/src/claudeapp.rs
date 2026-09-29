@@ -15,6 +15,12 @@ pub fn records_dir() -> PathBuf {
     home().join("Library/Application Support/Claude/claude-code-sessions")
 }
 
+/// Where the app makes a folder for each Code session started without one
+/// (`<account>/<org>/scratch-<date>-<hex>`), removed once the session is.
+pub fn scratch_dir() -> PathBuf {
+    home().join("Library/Application Support/Claude/scratch-workspaces")
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Record {
     /// The app's own ID, `local_…`.

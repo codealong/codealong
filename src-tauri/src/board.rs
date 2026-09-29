@@ -75,8 +75,15 @@ pub struct LaneSeed {
     pub head: Option<String>,
     /// The default branch name without the remote, e.g. `main`.
     pub default_branch: Option<String>,
-    /// Lanes for sessions outside every project; hidden unless they need you.
+    /// Lanes for sessions outside every project; hidden unless they need you, or hold chats.
     pub elsewhere: bool,
+    /// The folder an app keeps its chats in, a folder for each (`engine::chat_roots`): listed
+    /// like your projects' worktrees, since you started those sessions yourself.
+    pub chats: bool,
+    /// Only sessions started in this very folder are listed in it, not ones in folders inside
+    /// it, and work there doesn't count: a plain folder outside your projects can be your home
+    /// folder, which would take in everything.
+    pub exact: bool,
 }
 
 pub struct Inputs<'a> {
@@ -521,12 +528,13 @@ pub fn antigravity_session(account: &AccountCfg, c: &Conversation, seen_at: i64,
     }
 }
 
-/// Index of the seed whose path is the longest prefix of `cwd`.
+/// Index of the seed whose path is the longest prefix of `cwd`; an exact seed only for its own
+/// folder.
 pub fn best_seed(seeds: &[LaneSeed], cwd: &Path) -> Option<usize> {
     seeds
         .iter()
         .enumerate()
-        .filter(|(_, s)| cwd.starts_with(&s.path))
+        .filter(|(_, s)| if s.exact { cwd == s.path } else { cwd.starts_with(&s.path) })
         .max_by_key(|(_, s)| s.path.components().count())
         .map(|(i, _)| i)
 }
@@ -537,9 +545,10 @@ const WORK_WINDOW: usize = 5;
 /// The lane a session is working in. Agents often start in one worktree and then work in
 /// another (`cd ../repo-fix && …`), so it's where most of the last few commands ran and edits
 /// landed, the latest winning a tie, and a stray command elsewhere doesn't move it. Work
-/// outside every worktree doesn't count. With none, where the session was started.
+/// outside every worktree doesn't count, nor work in a folder that's a lane only because a
+/// session started there. With none, where the session was started.
 pub fn session_seed(seeds: &[LaneSeed], s: &Session) -> Option<usize> {
-    let recent: Vec<usize> = s.work.iter().rev().filter_map(|p| best_seed(seeds, Path::new(p))).take(WORK_WINDOW).collect();
+    let recent: Vec<usize> = s.work.iter().rev().filter_map(|p| best_seed(seeds, Path::new(p)).filter(|&i| !seeds[i].exact)).take(WORK_WINDOW).collect();
     let votes = |i: usize| recent.iter().filter(|&&j| j == i).count();
     // Oldest first: of the lanes tied for most, `max_by_key` keeps the last, the latest.
     recent.iter().rev().copied().max_by_key(|&i| votes(i)).or_else(|| best_seed(seeds, Path::new(&s.cwd)))
@@ -876,11 +885,12 @@ pub fn apply_insight(s: &mut Session, i: &SessionInsight) {
     }
 }
 
-/// Whether a worktree looks finished: not the main checkout, no PR that says where it stands
-/// already (a merged or closed one has its own bay), nothing running or waiting, and every
-/// session of its own read by Jev as finished.
+/// Whether a worktree looks finished: not the main checkout or a plain folder (an app's chats
+/// among them), which aren't cleaned up, no PR that says where it stands already (a merged or
+/// closed one has its own bay), nothing running or waiting, and every session of its own read
+/// by Jev as finished.
 pub fn looks_finished(origin: Origin, pr: Option<&Pr>, sessions: &[Session]) -> bool {
-    if origin == Origin::Main || pr.is_some_and(|p| !p.state.is_open()) {
+    if matches!(origin, Origin::Main | Origin::Folder) || pr.is_some_and(|p| !p.state.is_open()) {
         return false;
     }
     let own: Vec<&Session> = sessions.iter().filter(|s| s.visitor.is_none() && !s.archived).collect();
@@ -1215,6 +1225,9 @@ pub fn compose(inp: Inputs) -> Board {
             headline = format!("{verb} {} · {}", code(&g.account), g.title);
             detail = Some(format!("last turn {{ago:{}}}", g.last_activity));
         }
+        // A lane outside your projects shows while it needs you; an app's chats while there are
+        // any you haven't archived.
+        let hidden = seed.elsewhere && bay != Bay::Needs && !(seed.chats && !sessions.is_empty());
         sessions.extend(guests);
         let set = previews.set.iter().find(|e| Path::new(&e.worktree) == seed.path);
         let servers: Vec<&crate::previews::Server> = previews.servers.iter().filter(|s| s.lane == seed.path).collect();
@@ -1243,7 +1256,7 @@ pub fn compose(inp: Inputs) -> Board {
             bay,
             glyph,
             parked,
-            hidden: seed.elsewhere && bay != Bay::Needs,
+            hidden,
             headline,
             detail,
             sessions,
@@ -1331,14 +1344,14 @@ pub fn logo_status(lanes: &[Lane], prs: &[PrItem]) -> LogoStatus {
 /// The folders a new terminal at `path` belongs beside, nearest first: its worktree, the other
 /// worktrees of its repo, then the rest of its project. `[apps] new_terminal = "project"` opens
 /// it as a tab in a window already showing the nearest of them. A folder elsewhere (a project of
-/// its own that isn't one) has only itself for company.
+/// its own that isn't one, or an app's chats) has only itself for company.
 pub fn terminal_neighbours(lanes: &[Lane], path: &Path) -> Vec<Vec<String>> {
     let within = |l: &&Lane| path.starts_with(&l.path);
     let Some(home) = lanes.iter().filter(within).max_by_key(|l| l.path.len()) else {
         return vec![vec![path.to_string_lossy().into_owned()]];
     };
     let mut groups = vec![vec![home.path.clone()]];
-    if home.origin == Origin::Other {
+    if home.origin == Origin::Other || home.project == ELSEWHERE {
         return groups;
     }
     let others = |same: &dyn Fn(&Lane) -> bool| -> Vec<String> {
@@ -1403,6 +1416,8 @@ mod tests {
             head: Some("0ef4ed2".into()),
             default_branch: Some("main".into()),
             elsewhere: false,
+            chats: false,
+            exact: false,
         }
     }
 
@@ -2153,6 +2168,49 @@ mod tests {
     }
 
     #[test]
+    fn a_plain_folder_elsewhere_takes_in_only_the_sessions_started_there() {
+        let home = LaneSeed { project: ELSEWHERE.into(), origin: Origin::Folder, elsewhere: true, exact: true, ..seed("/Users/me", "main") };
+        let seeds = vec![seed("/r/codealong", "main"), home];
+        assert_eq!(best_seed(&seeds, Path::new("/Users/me")), Some(1));
+        assert_eq!(best_seed(&seeds, Path::new("/Users/me/Downloads")), None, "a folder inside it has a lane of its own");
+        let mut s = claude_session(&acct("claude"), Some(&reg("busy", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
+        s.cwd = "/r/codealong".into();
+        s.work = vec!["/Users/me".into(), "/Users/me".into(), "/Users/me/.claude/plans/x.md".into()];
+        let at = |s: &Session| session_seed(&seeds, s).map(|i| seeds[i].path.to_string_lossy().into_owned());
+        assert_eq!(at(&s).as_deref(), Some("/r/codealong"), "work there doesn't count");
+        s.cwd = "/Users/me".into();
+        assert_eq!(at(&s).as_deref(), Some("/Users/me"));
+    }
+
+    #[test]
+    fn an_apps_chats_show_like_worktrees_and_other_folders_elsewhere_while_they_need_you() {
+        let apps = AppNames::default();
+        let root = "/Users/me/Library/Application Support/Claude/scratch-workspaces";
+        let elsewhere = |path: &str, chats: bool| LaneSeed { project: ELSEWHERE.into(), origin: Origin::Folder, elsewhere: true, chats, exact: !chats, ..seed(path, "main") };
+        let seeds = vec![elsewhere(root, true), elsewhere("/Users/me/notes", false)];
+        let a = acct("claude");
+        let session_in = |id: &str, cwd: &str, status: &str| {
+            let mut s = claude_session(&a, Some(&reg(status, NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
+            (s.id, s.key, s.cwd) = (id.into(), format!("claude:claude:{id}"), cwd.into());
+            s
+        };
+        let chat = session_in("chat", &format!("{root}/a/b/scratch-2026-09-28-045217"), "idle");
+        let (git, prs, visitors) = (HashMap::new(), HashMap::new(), HashMap::new());
+        let order = vec!["Northwind".to_string()];
+        let hidden = |sessions: Vec<Session>| {
+            let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions, visitors: &visitors, git: &git, prs: &prs, project_order: &order, warnings: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default() });
+            let lane = |p: &str| board.lanes.iter().find(|l| l.path == p).unwrap().clone();
+            assert!(!lane(root).looks_finished);
+            (lane(root).hidden, lane("/Users/me/notes").hidden)
+        };
+        let notes = session_in("notes", "/Users/me/notes", "idle");
+        assert_eq!(hidden(vec![chat.clone(), notes]), (false, true), "a chat whose turn ended shows; a folder elsewhere waits until it needs you");
+        let archived = Session { archived: true, ..chat };
+        let waiting = session_in("notes", "/Users/me/notes", "waiting");
+        assert_eq!(hidden(vec![archived, waiting]), (true, false), "archived chats don't hold the lane up");
+    }
+
+    #[test]
     fn a_session_working_in_another_worktree_puts_it_in_working() {
         let apps = AppNames::default();
         let seeds = vec![seed("/r/codealong", "main"), seed("/r/codealong-pins", "pins")];
@@ -2569,13 +2627,15 @@ mod tests {
         other_repo.repo = "kestrel".into();
         let mut elsewhere = seed("/tmp/scratch", "main");
         (elsewhere.project, elsewhere.origin) = ("Elsewhere".into(), Origin::Other);
-        let seeds = vec![seed("/r/atlas", "main"), seed("/r/atlas-pins", "pins"), other_repo, elsewhere];
+        let folder = |path: &str, chats: bool| LaneSeed { project: ELSEWHERE.into(), origin: Origin::Folder, elsewhere: true, chats, exact: !chats, ..seed(path, "main") };
+        let seeds = vec![seed("/r/atlas", "main"), seed("/r/atlas-pins", "pins"), other_repo, elsewhere, folder("/Users/me/Documents/Codex", true), folder("/Users/me/notes", false)];
         let (git, prs, visitors) = (HashMap::new(), HashMap::new(), HashMap::new());
         let order = vec!["Northwind".to_string()];
         let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![], visitors: &visitors, git: &git, prs: &prs, project_order: &order, warnings: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default() });
         let near = |p: &str| terminal_neighbours(&board.lanes, Path::new(p));
         assert_eq!(near("/r/atlas-pins/src"), vec![vec!["/r/atlas-pins".to_string()], vec!["/r/atlas".to_string()], vec!["/r/kestrel".to_string()]]);
         assert_eq!(near("/tmp/scratch"), vec![vec!["/tmp/scratch".to_string()]]);
+        assert_eq!(near("/Users/me/Documents/Codex/2026-09-27/can-you"), vec![vec!["/Users/me/Documents/Codex".to_string()]], "other folders elsewhere aren't company");
         assert_eq!(near("/Users/me"), vec![vec!["/Users/me".to_string()]]);
     }
 }

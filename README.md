@@ -61,7 +61,11 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     line for each agent that needs you, is working or just finished, which you select, open
     or right-click as you would a row. An agent is listed under the worktree it's working
     in, where most of its latest commands ran and edits landed, even if it started somewhere
-    else; resuming it still happens where it started. Needs you is a queue: the worktree and
+    else; resuming it still happens where it started. Sessions outside your projects are
+    listed under Elsewhere, in the repo or folder each ran in, and show in All projects only
+    while they need you. Chats you start without a folder in the Claude app, or outside a
+    project in the Codex app, are one worktree for each app, Claude app chats and Codex chats,
+    shown like your projects' worktrees. Needs you is a queue: the worktree and
     the agent that have waited longest come first, so newer ones can't keep an old one down
     (worktrees that need you only through snoozed agents come after). Needs you, Working and
     Your turn are about agents: a worktree whose PR has failing checks or changes requested

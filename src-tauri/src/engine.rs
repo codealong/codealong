@@ -647,8 +647,6 @@ struct Engine {
     opencode_last: Option<Instant>,
     /// Antigravity conversations by account, newest first.
     antigravity: HashMap<String, Vec<antigravity::Conversation>>,
-    /// Session folders that aren't in any repo, so they're not looked up again.
-    not_repos: HashSet<PathBuf>,
     /// The repo scan's reads of files in folders it doesn't own, which macOS can hold.
     reads: RepoReads,
     /// When a held read last landed: the repos are read again once they stop landing.
@@ -773,7 +771,6 @@ impl Engine {
             opencode_inflight: false,
             opencode_last: None,
             antigravity: HashMap::new(),
-            not_repos: HashSet::new(),
             reads,
             landed_at: None,
             held_worktrees: HashSet::new(),
@@ -1546,7 +1543,10 @@ impl Engine {
         found.dedup_by(|a, b| a.root == b.root);
         let known: HashSet<PathBuf> = found.iter().map(|c| c.root.clone()).collect();
         let cwds = self.session_cwds();
-        let located = self.reads.folders.read(cwds.iter().map(PathBuf::from), HELD_WAIT);
+        let chats = chat_roots();
+        // A chat's folder is never one of your repos, and the Codex app keeps its chats in
+        // Documents, where a read can wait on a privacy prompt: they aren't looked up.
+        let located = self.reads.folders.read(cwds.iter().map(PathBuf::from).filter(|p| chat_root(&chats, p).is_none()), HELD_WAIT);
         let extra: BTreeSet<PathBuf> = located.values().flatten().map(|(_, main)| main.clone()).filter(|main| !known.contains(main)).collect();
         let mut loaded = self.reads.checkouts.read(extra.iter().cloned(), HELD_WAIT);
         found.extend(extra.iter().filter_map(|r| loaded.remove(r).flatten()));
@@ -1608,6 +1608,8 @@ impl Engine {
                     head: wt.head,
                     default_branch: default_name.clone(),
                     elsewhere: false,
+                    chats: false,
+                    exact: false,
                 });
             }
         }
@@ -1620,29 +1622,20 @@ impl Engine {
                 }
             }
         }
-        // Elsewhere: repos your agents worked in that belong to no project. Plain folders
-        // (Codex chat folders, app threads) aren't lanes.
-        let mut elsewhere = BTreeSet::new();
-        for cwd in &cwds {
-            let p = Path::new(cwd);
-            if self.not_repos.contains(p) || board::best_seed(&seeds, p).is_some() || !p.is_dir() {
-                continue;
+        // Elsewhere: every folder a session ran in outside your projects.
+        let found = |p: &Path| {
+            if !p.is_dir() {
+                return Found::Gone;
             }
             match located.get(p) {
-                Some(Some((wt, _))) => {
-                    elsewhere.insert(wt.clone());
-                }
-                Some(None) => {
-                    self.not_repos.insert(p.to_path_buf());
-                }
+                Some(Some((wt, _))) => Found::Repo(wt.clone()),
+                Some(None) => Found::Plain,
                 // Held: looked at again once it lands.
-                None => {}
+                None => Found::Held,
             }
-        }
-        for root in elsewhere {
-            let name = if root == h { "home".to_string() } else { file_name(&root) };
-            seeds.push(folder_seed(root, ELSEWHERE, &name, true));
-        }
+        };
+        let strays = stray_seeds(&seeds, &cwds, &chats, &h, found);
+        seeds.extend(strays);
 
         let live: HashSet<&PathBuf> = seeds.iter().map(|s| &s.path).collect();
         self.git.retain(|p, _| live.contains(p));
@@ -2132,14 +2125,16 @@ impl Engine {
             sessions_changed |= self.reread_database(&a);
             self.dirty = true;
         }
-        // A new session may have started somewhere no lane covers yet. Its folder is only looked
-        // up here, as reading it could wait on a privacy prompt; one whose read is held is looked
-        // at again once it lands.
-        let unplaced = sessions_changed
-            && self.session_cwds().into_iter().any(|cwd| {
+        // A new session may have started somewhere no lane covers yet: a chat, or a folder or repo
+        // outside your projects. Its folder is only looked up here, as reading it could wait on
+        // a privacy prompt; one whose read is held is looked at again once it lands.
+        let unplaced = sessions_changed && {
+            let chats = chat_roots();
+            self.session_cwds().into_iter().any(|cwd| {
                 let p = Path::new(&cwd);
-                !self.not_repos.contains(p) && board::best_seed(&self.seeds, p).is_none() && !self.reads.folders.is_out(p) && p.is_dir() && repos::in_repo(p)
-            });
+                board::best_seed(&self.seeds, p).is_none() && (chat_root(&chats, p).is_some() || (!self.reads.folders.is_out(p) && p.is_dir()))
+            })
+        };
         if reload_repos || unplaced {
             self.rescan_repos();
         }
@@ -2852,7 +2847,73 @@ fn folder_seed(path: PathBuf, project: &str, name: &str, elsewhere: bool) -> Lan
         head: None,
         default_branch: None,
         elsewhere,
+        chats: false,
+        exact: false,
     }
+}
+
+/// The folders apps keep their chats in, a folder for each, and the name of the lane that holds
+/// them: the Claude app's Code sessions started without a folder, and the Codex app's threads
+/// that belong to no project.
+fn chat_roots() -> Vec<(PathBuf, &'static str)> {
+    vec![(claudeapp::scratch_dir(), "Claude app chats"), (codex::chats_dir(), "Codex chats")]
+}
+
+/// Which of `roots` holds `path`.
+fn chat_root(roots: &[(PathBuf, &'static str)], path: &Path) -> Option<usize> {
+    roots.iter().position(|(root, _)| path.starts_with(root))
+}
+
+/// What a folder a session ran in turned out to be, for `stray_seeds`.
+enum Found {
+    /// In a repo: the root of its worktree.
+    Repo(PathBuf),
+    Plain,
+    /// Its read is waiting on macOS.
+    Held,
+    Gone,
+}
+
+/// Lanes for the folders sessions ran in that no lane covers, so no session goes unlisted: one
+/// for all of an app's chats (a chat whose folder the app has removed too), one for each repo
+/// outside your projects, and one for each other folder, which takes in only the sessions
+/// started there. A folder that's gone, or whose read is held, has none.
+fn stray_seeds(seeds: &[LaneSeed], cwds: &BTreeSet<String>, chats: &[(PathBuf, &'static str)], home: &Path, found: impl Fn(&Path) -> Found) -> Vec<LaneSeed> {
+    let mut roots = BTreeSet::new();
+    let mut repos = BTreeSet::new();
+    let mut folders = BTreeSet::new();
+    for cwd in cwds {
+        let p = Path::new(cwd);
+        if board::best_seed(seeds, p).is_some() {
+            continue;
+        }
+        if let Some(i) = chat_root(chats, p) {
+            roots.insert(i);
+            continue;
+        }
+        match found(p) {
+            Found::Repo(wt) => {
+                repos.insert(wt);
+            }
+            Found::Plain => {
+                folders.insert(p.to_path_buf());
+            }
+            Found::Held | Found::Gone => {}
+        }
+    }
+    let name = |p: &Path| if p == home { "home".to_string() } else { file_name(p) };
+    let mut out = Vec::new();
+    for i in roots {
+        let (root, lane) = &chats[i];
+        out.push(LaneSeed { origin: Origin::Folder, chats: true, ..folder_seed(root.clone(), ELSEWHERE, lane, true) });
+    }
+    for root in repos {
+        out.push(folder_seed(root.clone(), ELSEWHERE, &name(&root), true));
+    }
+    for folder in folders {
+        out.push(LaneSeed { origin: Origin::Folder, exact: true, ..folder_seed(folder.clone(), ELSEWHERE, &name(&folder), true) });
+    }
+    out
 }
 
 /// What the repo scan reads inside a worktree.
@@ -2957,6 +3018,50 @@ mod tests {
         assert!(!is_noise(Path::new("/Users/me/.local/share/opencode/opencode.db-wal")));
         assert!(is_noise(Path::new("/Users/me/.local/share/opencode/opencode.db-shm")));
         assert!(is_noise(Path::new("/Users/me/projects/app/data/cache.db-wal")));
+    }
+
+    #[test]
+    fn every_session_folder_that_can_be_shown_gets_a_lane() {
+        use super::*;
+        let home = PathBuf::from("/Users/me");
+        let scratch = "/Users/me/Library/Application Support/Claude/scratch-workspaces";
+        let chats = vec![(PathBuf::from(scratch), "Claude app chats"), (PathBuf::from("/Users/me/Documents/Codex"), "Codex chats")];
+        let seeds = vec![folder_seed(PathBuf::from("/Users/me/projects/app"), "App", "app", false)];
+        let cwds: BTreeSet<String> = [
+            "/Users/me/projects/app/src".to_string(),
+            format!("{scratch}/a/b/scratch-2026-09-28-045217"),
+            format!("{scratch}/a/b/scratch-2026-09-26-c8bd6b"),
+            "/Users/me/Documents/Codex/2026-09-27/can-you".to_string(),
+            "/Users/me/projects/other/web".to_string(),
+            "/Users/me".to_string(),
+            "/Users/me/Downloads".to_string(),
+            "/Users/me/Documents/held".to_string(),
+            "/tmp/gone".to_string(),
+        ]
+        .into_iter()
+        .collect();
+        // Chats aren't looked up, so one whose folder the app removed still has its lane.
+        let found = |p: &Path| match p.to_str().unwrap() {
+            "/Users/me/projects/other/web" => Found::Repo(PathBuf::from("/Users/me/projects/other")),
+            "/Users/me" | "/Users/me/Downloads" => Found::Plain,
+            "/Users/me/Documents/held" => Found::Held,
+            "/tmp/gone" => Found::Gone,
+            p => panic!("{p} was looked up"),
+        };
+        let mut all = seeds.clone();
+        all.extend(stray_seeds(&seeds, &cwds, &chats, &home, found));
+        let lane = |cwd: &str| board::best_seed(&all, Path::new(cwd)).map(|i| (all[i].callsign.as_str(), all[i].chats, all[i].exact));
+        assert_eq!(lane("/Users/me/projects/app/src"), Some(("app", false, false)));
+        assert_eq!(lane(&format!("{scratch}/a/b/scratch-2026-09-28-045217")), Some(("Claude app chats", true, false)));
+        assert_eq!(lane(&format!("{scratch}/a/b/scratch-2026-09-26-c8bd6b")), Some(("Claude app chats", true, false)));
+        assert_eq!(lane("/Users/me/Documents/Codex/2026-09-27/can-you"), Some(("Codex chats", true, false)));
+        assert_eq!(lane("/Users/me/projects/other/web"), Some(("other", false, false)));
+        assert_eq!(lane("/Users/me"), Some(("home", false, true)));
+        assert_eq!(lane("/Users/me/Downloads"), Some(("Downloads", false, true)));
+        assert_eq!(lane("/Users/me/Desktop"), None, "your home folder's lane doesn't take in the folders in it");
+        assert_eq!((lane("/Users/me/Documents/held"), lane("/tmp/gone")), (None, None));
+        assert_eq!(all.len(), 6, "one lane for each app's chats");
+        assert!(all[1..].iter().all(|s| s.elsewhere && s.project == ELSEWHERE));
     }
 
     #[test]

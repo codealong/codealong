@@ -131,6 +131,12 @@ pub fn app_project_roots(codex_home: &Path) -> Vec<String> {
     out
 }
 
+/// Where the app starts a thread that belongs to no project, its "projectless chat": each in a
+/// folder of its own made from the date and its first words (`<date>/<slug>`).
+pub fn chats_dir() -> PathBuf {
+    crate::util::home().join("Documents/Codex")
+}
+
 /// Rollout files modified since `since_ms`, plus any whose thread is in `keep` (pinned ones),
 /// however old.
 pub fn rollout_files(codex_home: &Path, since_ms: i64, keep: &HashSet<String>) -> Vec<(PathBuf, i64)> {

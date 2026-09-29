@@ -117,12 +117,6 @@ pub fn locate(path: &Path) -> Option<(PathBuf, PathBuf)> {
     None
 }
 
-/// Whether `path` is in a git worktree, from whether it or a folder above it has a `.git`. It
-/// only looks paths up, which macOS never holds for a privacy prompt as it does reading them.
-pub fn in_repo(path: &Path) -> bool {
-    path.ancestors().any(|d| d.join(".git").exists())
-}
-
 pub fn parse_remotes(config: &str) -> Vec<(String, String)> {
     let mut out = Vec::new();
     let mut current: Option<String> = None;
