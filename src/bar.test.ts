@@ -125,7 +125,9 @@ describe('the bar docked in the notch', () => {
   });
 
   it('opens as wide as the pills or the sides need, never narrower than closed', () => {
-    expect(notchSizes(notch, { w: 600, h: 24 }, 60, room).open).toEqual({ w: 600 + 2 * NOTCH.pad, h: 32 + 24 + NOTCH.pad });
+    // 620 across, but as much wider on each side in whole points: 621, the closed 273 and 174 a side.
+    expect(notchSizes(notch, { w: 600, h: 24 }, 60, room).open).toEqual({ w: 621, h: 32 + 24 + NOTCH.pad });
+    expect(notchSizes(notch, { w: 601, h: 24 }, 60, room).open.w).toBe(621);
     // Wide sides beside the camera: room for each on its hand.
     expect(notchSizes(notch, { w: 100, h: 24 }, 200, room).open.w).toBe(185 + 2 * (200 + NOTCH.pad));
     // Nothing below yet: at least the closed width.
@@ -136,13 +138,15 @@ describe('the bar docked in the notch', () => {
     const a = notchSizes(notch, { w: 300, h: 24 }, 60, room);
     const b = notchSizes(notch, { w: 700, h: 24 }, 60, room);
     expect(a.window).toEqual(b.window);
-    expect(a.window).toEqual({ w: room + 2 * NOTCH.pad + 2 * NOTCH.ear.open, h: a.open.h + NOTCH.bottom });
+    // Room for the corners and the shadow, whichever reaches further.
+    expect(a.window).toEqual({ w: room + 2 * NOTCH.pad + 2 * Math.max(NOTCH.ear.open, NOTCH.shadow.side), h: a.open.h + NOTCH.shadow.bottom });
   });
 
   it('shows the notch and its sides through the clip, a little wider under the pointer, and all of it open', () => {
     const s = notchSizes(notch, { w: 600, h: 24 }, 60, room);
     const closed = notchClip(s, 'closed');
     expect(s.open.w - 2 * closed.side).toBe(s.closed.w);
+    expect(Number.isInteger(closed.side)).toBe(true);
     expect(s.open.h - closed.bottom).toBe(s.closed.h);
     expect(closed.radius).toBe(NOTCH.radius.closed);
     expect(s.open.w - 2 * notchClip(s, 'hover').side).toBe(s.closed.w + 2 * NOTCH.hover);

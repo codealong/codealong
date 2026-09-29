@@ -114,15 +114,15 @@ export function elsewhereWaits(waits: Record<string, WaitCounts>, projects: stri
 /** The docked bar's measures, in points: each side beside the camera while it's closed, and how
  *  much wider it grows while the pointer is on it; the concave corners where it meets the menu
  *  bar and its bottom corners, closed and open; the padding around what opens below; and the room
- *  under the open shape for its shadow, which the peek counts on to open under it (peek.rs
- *  `BAR_MARGIN`). */
+ *  the window keeps beside and under the open shape for its shadow (app.css `--shadow-notch`
+ *  reaches 16 beside it and 30 under it). */
 export const NOTCH = {
   wing: 44,
   hover: 4,
   ear: { closed: 6, open: 14 },
   radius: { closed: 12, open: 22 },
   pad: 10,
-  bottom: 12,
+  shadow: { side: 20, bottom: 32 },
 };
 
 export interface Size {
@@ -133,14 +133,15 @@ export interface Size {
 /** The docked bar's shape, closed and open, and its window. Open, it's as wide as the pills
  *  below it or the sides beside the camera need, never narrower than closed. The window is as
  *  wide as the pills can get (`room`) and as tall as it opens, with room for the corners and the
- *  shadow, so it keeps its size as the shape opens and closes. */
+ *  shadow, so it keeps its size as the shape opens and closes and never cuts the shadow off. */
 export function notchSizes(notch: { width: number; height: number }, body: Size, side: number, room: number): { closed: Size; open: Size; window: Size } {
   const closed = { w: notch.width + 2 * NOTCH.wing, h: notch.height };
-  const open = {
-    w: Math.ceil(Math.max(closed.w, body.w + 2 * NOTCH.pad, notch.width + 2 * (side + NOTCH.pad))),
-    h: Math.ceil(notch.height + body.h + NOTCH.pad),
-  };
-  return { closed, open, window: { w: Math.ceil(Math.max(open.w, room + 2 * NOTCH.pad)) + 2 * NOTCH.ear.open, h: open.h + NOTCH.bottom } };
+  const wide = Math.max(closed.w, body.w + 2 * NOTCH.pad, notch.width + 2 * (side + NOTCH.pad));
+  // As much wider than closed on each side, in whole points: the clip's edges then fall on whole
+  // points, where they're sharp.
+  const open = { w: closed.w + 2 * Math.ceil((wide - closed.w) / 2), h: Math.ceil(notch.height + body.h + NOTCH.pad) };
+  const margin = Math.max(NOTCH.ear.open, NOTCH.shadow.side);
+  return { closed, open, window: { w: Math.ceil(Math.max(open.w, room + 2 * NOTCH.pad)) + 2 * margin, h: open.h + NOTCH.shadow.bottom } };
 }
 
 export type NotchState = 'closed' | 'hover' | 'open';

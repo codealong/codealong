@@ -136,14 +136,24 @@ export function NotchShell({ notch, logoStatus, counts, room, project, held, onM
 
   const shown = ORDER.filter((g) => counts[g] > 0);
   const earScale = (open ? NOTCH.ear.open : NOTCH.ear.closed) / NOTCH.ear.open;
+  // Each corner reaches 3 points under the shape's edge (a point and more, scaled down closed):
+  // where two antialiased edges meet at a fraction of a pixel as they move, the menu bar would
+  // show through between them.
+  const ear = NOTCH.ear.open;
+  const under = 3;
 
   return (
     <div
       className={['ca-notch', `is-${state}`, !notch.real && 'is-drawn'].filter(Boolean).join(' ')}
       style={{ left: x, width: sizes.open.w, height: sizes.open.h, '--notch-w': `${notch.width}px`, '--notch-h': `${notch.height}px` } as CSSProperties}
     >
-      <span className="ca-notch-ear is-left" aria-hidden="true" style={{ transform: `translateX(${clip.side - NOTCH.ear.open}px) scale(${earScale})` }} />
-      <span className="ca-notch-ear is-right" aria-hidden="true" style={{ transform: `translateX(${sizes.open.w - clip.side}px) scale(${earScale})` }} />
+      <span
+        className="ca-notch-shadow"
+        aria-hidden="true"
+        style={{ left: clip.side, right: clip.side, bottom: clip.bottom, borderRadius: `0 0 ${clip.radius}px ${clip.radius}px` }}
+      />
+      <span className="ca-notch-ear is-left" aria-hidden="true" style={{ transform: `translateX(${clip.side - ear}px) scale(${earScale})` }} />
+      <span className="ca-notch-ear is-right" aria-hidden="true" style={{ transform: `translateX(${sizes.open.w - clip.side - under}px) scale(${earScale})` }} />
       <div
         className="ca-notch-shape"
         style={{ clipPath: `inset(0 ${clip.side}px ${clip.bottom}px ${clip.side}px round 0 0 ${clip.radius}px ${clip.radius}px)` }}

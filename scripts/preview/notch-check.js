@@ -52,9 +52,16 @@
     .then(function () {
       check('not open at once', !isOpen());
       check('grows a little under the pointer', lastShape().w === closedW + 8, JSON.stringify(lastShape()));
-      // Sample the clip as it opens: it only ever narrows its inset, and the window stays put.
+      // Sample the clip as it opens: it only ever narrows its inset, the window stays put, and the
+      // left corner always reaches under the shape's edge, so no seam shows between them.
       var samples = [];
-      var sampler = setInterval(function () { samples.push(inset()); }, 16);
+      var overlaps = [];
+      var sampler = setInterval(function () {
+        var i = inset();
+        samples.push(i);
+        var ear = document.querySelector('.ca-notch-ear.is-left').getBoundingClientRect().right;
+        overlaps.push(ear - (notch().getBoundingClientRect().left + i));
+      }, 16);
       return until(isOpen, 1500)
         .then(function () { return wait(600); })
         .then(function () {
@@ -62,6 +69,9 @@
           var back = samples.filter(function (v, i) { return i > 0 && v > samples[i - 1] + 0.5; }).length;
           check('opens smoothly, never jumping back', back === 0 && samples[samples.length - 1] === 0, back + ' backward steps in ' + samples.length + ', last ' + samples[samples.length - 1]);
           check('never resizes its window', fits().slice(fitsAtStart).every(function (f) { return f === windowAtStart; }), windowAtStart + ' then ' + fits().slice(fitsAtStart).join(' '));
+          var least = Math.min.apply(null, overlaps);
+          check('the corner reaches under the shape throughout', least >= 0.4, 'least overlap ' + least.toFixed(2));
+          check('the shadow shows open', getComputedStyle(document.querySelector('.ca-notch-shadow')).opacity === '1');
           check('says its open shape', lastShape().w > closedW && lastShape().h > 32, JSON.stringify(lastShape()));
           check('pills below', notch().querySelectorAll('.ca-notch-body .ca-hud-pill').length > 0);
         });

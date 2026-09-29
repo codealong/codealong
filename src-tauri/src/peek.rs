@@ -41,8 +41,9 @@ const MAX_HEIGHT: f64 = 580.0 + MARGIN + NEAR;
 /// With less room than this under the bar, the peek opens over it when there's more room there.
 const MIN_ROOM: f64 = 360.0;
 /// The bar's page leaves this much room around its card (Bar.tsx), as a desktop card's page does
-/// (DesktopPin.tsx).
-const BAR_MARGIN: f64 = 12.0;
+/// (DesktopPin.tsx); docked in the notch, the frame the peek goes by has it around the shape
+/// (`bar::peek_frame`).
+const BAR_MARGIN: f64 = crate::bar::CARD_MARGIN;
 /// Space between the bar's card and the peek's: no less than `NEAR`, so the peek's window starts
 /// where the bar's card ends.
 const GAP: f64 = 8.0;
@@ -230,7 +231,10 @@ pub fn open(app: &AppHandle, target: Target, pill: Option<(Rect, Rect)>, focus: 
         let host = s.host.or(bar);
         let anchor = s.pill.or(host);
         let screen = anchor.and_then(|a| screens.iter().find(|x| x.frame.contains(a.center())).or(screens.first()).map(|x| x.visible));
-        if let (Some(h), Some(a), Some(sc)) = (host, anchor, screen) {
+        // The bar docked in the notch keeps room in its window for the shape's shadow, so the peek
+        // goes by the shape (`bar::peek_frame`).
+        let by = if host.is_some() && host == bar { crate::bar::peek_frame(app) } else { host };
+        if let (Some(h), Some(a), Some(sc)) = (by, anchor, screen) {
             s.place = Some(place(h, a, sc));
         }
         s.opens += 1;

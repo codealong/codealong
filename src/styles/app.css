@@ -2491,12 +2491,17 @@ html.is-notch body {
 .ca-notch {
   position: fixed;
   top: 0;
-  filter: drop-shadow(0 0 0 transparent);
-  transition: filter 0.2s ease-out;
 }
-.ca-notch.is-open {
-  filter: drop-shadow(var(--shadow-notch));
-  transition: filter 0.3s ease-out 0.1s;
+/* The open shape's shadow, on a box shaped as the clip is (a filter's would be cut off at the
+   element's box), faded in as it opens. */
+.ca-notch-shadow {
+  position: absolute;
+  top: 0;
+  box-shadow: var(--shadow-notch);
+  opacity: 0;
+}
+.ca-notch.is-open .ca-notch-shadow {
+  opacity: 1;
 }
 .ca-notch-shape {
   position: absolute;
@@ -2508,39 +2513,52 @@ html.is-notch body {
 /* Closing has no overshoot, which would show the hardware notch's edges; pointing at it grows it
    a little, quickly; opening springs. */
 .ca-notch-shape,
-.ca-notch-ear {
+.ca-notch-ear,
+.ca-notch-shadow {
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --takes: 0.32s;
   transition:
-    clip-path 0.32s cubic-bezier(0.4, 0, 0.2, 1),
-    transform 0.32s cubic-bezier(0.4, 0, 0.2, 1);
+    clip-path var(--takes) var(--ease),
+    transform var(--takes) var(--ease),
+    left var(--takes) var(--ease),
+    right var(--takes) var(--ease),
+    bottom var(--takes) var(--ease),
+    border-radius var(--takes) var(--ease),
+    opacity 0.2s ease-out;
 }
 .ca-notch.is-hover .ca-notch-shape,
-.ca-notch.is-hover .ca-notch-ear {
-  transition:
-    clip-path 0.18s ease-out,
-    transform 0.18s ease-out;
+.ca-notch.is-hover .ca-notch-ear,
+.ca-notch.is-hover .ca-notch-shadow {
+  --ease: ease-out;
+  --takes: 0.18s;
 }
 .ca-notch.is-open .ca-notch-shape,
-.ca-notch.is-open .ca-notch-ear {
-  transition:
-    clip-path 0.42s cubic-bezier(0.16, 1, 0.3, 1),
-    transform 0.42s cubic-bezier(0.16, 1, 0.3, 1);
+.ca-notch.is-open .ca-notch-ear,
+.ca-notch.is-open .ca-notch-shadow {
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --takes: 0.42s;
 }
 /* The corners, drawn at their open size and scaled down closed, from the corner that meets the
-   shape; the page puts each at the shape's edge. */
+   shape; the page puts each at the shape's edge. Each reaches 3 points past the curve, under the
+   shape, so no seam shows between them as they move. */
 .ca-notch-ear {
   position: absolute;
   top: 0;
   left: 0;
-  width: 14px;
+  width: 17px;
   height: 14px;
 }
 .ca-notch-ear.is-left {
-  transform-origin: 100% 0;
-  background: radial-gradient(circle farthest-side at 0 100%, transparent 96%, var(--notch) 100%);
+  transform-origin: 14px 0;
+  background:
+    radial-gradient(circle farthest-side at 0 100%, transparent 96%, var(--notch) 100%) 0 0 / 14px 14px no-repeat,
+    linear-gradient(var(--notch), var(--notch)) 14px 0 / 3px 14px no-repeat;
 }
 .ca-notch-ear.is-right {
-  transform-origin: 0 0;
-  background: radial-gradient(circle farthest-side at 100% 100%, transparent 96%, var(--notch) 100%);
+  transform-origin: 3px 0;
+  background:
+    radial-gradient(circle farthest-side at 100% 100%, transparent 96%, var(--notch) 100%) 3px 0 / 14px 14px no-repeat,
+    linear-gradient(var(--notch), var(--notch)) 0 0 / 3px 14px no-repeat;
 }
 /* The notch's own height across the top: a side on each hand of the camera, their content
    pinned to the camera's edges, so what shows closed is where it stays open. */
@@ -2622,14 +2640,10 @@ html.is-notch body {
   transition: opacity 0.2s ease-out 0.12s;
 }
 @media (prefers-reduced-motion: reduce) {
-  .ca-notch,
   .ca-notch-shape,
   .ca-notch-ear,
-  .ca-notch.is-hover .ca-notch-shape,
-  .ca-notch.is-hover .ca-notch-ear,
-  .ca-notch.is-open .ca-notch-shape,
-  .ca-notch.is-open .ca-notch-ear {
-    transition: none;
+  .ca-notch-shadow {
+    transition: none !important;
   }
   .ca-notch-count.is-pulse {
     animation: none;

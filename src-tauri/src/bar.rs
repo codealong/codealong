@@ -453,6 +453,27 @@ pub fn frame(app: &AppHandle) -> Option<Rect> {
     native::frame(&app.get_webview_window(LABEL)?)
 }
 
+/// The room the floating bar's page leaves around its card, for its shadow (Bar.tsx `MARGIN`).
+pub(crate) const CARD_MARGIN: f64 = 12.0;
+
+/// The frame the peek opens by (peek.rs `place`): the floating bar's window, whose card sits
+/// `CARD_MARGIN` inside it; docked, the shape the page shows with that margin around it, since
+/// the window keeps room for the shape's shadow as well. On the main thread.
+pub fn peek_frame(app: &AppHandle) -> Option<Rect> {
+    let frame = frame(app)?;
+    let shape = app.try_state::<Bar>().and_then(|s| s.shape.lock().ok().and_then(|s| *s));
+    match (mode_of(app), shape) {
+        (Mode::Notch, Some(s)) => Some(shape_frame(frame, s)),
+        _ => Some(frame),
+    }
+}
+
+/// A docked shape, given in its window's points from the top left, on the screen with the
+/// floating card's margin around it.
+pub fn shape_frame(window: Rect, shape: Rect) -> Rect {
+    Rect { x: window.x + shape.x - CARD_MARGIN, y: window.top() - shape.y - shape.h - CARD_MARGIN, w: shape.w + 2.0 * CARD_MARGIN, h: shape.h + 2.0 * CARD_MARGIN }
+}
+
 /// Whether the bar is on.
 pub fn is_on(app: &AppHandle) -> bool {
     mode_of(app) != Mode::Off
@@ -918,6 +939,16 @@ mod tests {
         assert!(on_shape((721.0, 1117.0), window, shape), "its top left corner");
         assert!(!on_shape((863.0, 1080.0), window, shape), "under it, in the window");
         assert!(!on_shape((600.0, 1110.0), window, shape), "beside it, over the menu bar");
+    }
+
+    #[test]
+    fn the_peek_opens_by_the_shape_not_the_window() {
+        // The window keeps room for the shadow under the shape; the peek goes by the shape.
+        let window = r(390.0, 1007.0, 948.0, 110.0);
+        let f = shape_frame(window, r(108.0, 0.0, 731.0, 66.0));
+        assert_eq!(f, r(486.0, 1039.0, 755.0, 90.0));
+        // Its card's bottom, as peek.rs finds it, is the shape's.
+        assert_eq!(f.y + CARD_MARGIN, 1117.0 - 66.0);
     }
 
     #[test]
