@@ -374,11 +374,13 @@ export function todoInQuery(r: TodoItem, q: string): boolean {
 }
 
 /** The status filters, applied to a todo through its sessions and worktrees. */
-export function todoInFilter(r: TodoItem, f: string | null): boolean {
+export function todoInFilter(r: TodoItem, fs: readonly string[]): boolean {
+  return fs.length === 0 || fs.some((f) => todoIn(r, f));
+}
+
+function todoIn(r: TodoItem, f: string): boolean {
   const has = (...st: Session['status'][]) => r.sessions.some(({ session }) => st.includes(session.status));
   switch (f) {
-    case null:
-      return true;
     case 'needs':
       return has('needs', 'error');
     case 'working':

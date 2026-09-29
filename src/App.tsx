@@ -114,12 +114,14 @@ function sessionInQuery(r: SessionItem, q: string): boolean {
   return hay.some((h) => h.toLowerCase().includes(needle));
 }
 
-/** The status filters, applied to one session. */
-function sessionInFilter(r: SessionItem, f: Filter | null): boolean {
+/** The status filters, applied to one session: any of them. */
+function sessionInFilter(r: SessionItem, fs: readonly Filter[]): boolean {
+  return fs.length === 0 || fs.some((f) => sessionIn(r, f));
+}
+
+function sessionIn(r: SessionItem, f: Filter): boolean {
   const pr = r.lane.pr;
   switch (f) {
-    case null:
-      return true;
     case 'needs':
       return r.session.status === 'needs' || r.session.status === 'error';
     case 'working':
@@ -146,12 +148,14 @@ function prInQuery(p: PrItem, q: string): boolean {
   return [String(p.number), p.title, p.author ?? '', p.head, p.repoSlug].some((h) => h.toLowerCase().includes(needle));
 }
 
-/** The status filters, applied to a PR and the sessions that worked on it. */
-function prInFilter(r: PrRowItem, f: Filter | null): boolean {
+/** The status filters, applied to a PR and the sessions that worked on it: any of them. */
+function prInFilter(r: PrRowItem, fs: readonly Filter[]): boolean {
+  return fs.length === 0 || fs.some((f) => prIn(r, f));
+}
+
+function prIn(r: PrRowItem, f: Filter): boolean {
   const p = r.pr;
   switch (f) {
-    case null:
-      return true;
     case 'needs':
     case 'working':
     case 'unread':
@@ -228,7 +232,7 @@ export function App() {
   // Your other devices (src-tauri/src/peers.rs): their worktrees join this device's in every view,
   // the sidebar's Devices narrow the views to one of them, and Worktrees can group by device.
   const [devices, setDevices] = useState<DevicesView | null>(null);
-  const [deviceFilter, setDeviceFilter] = useState<DeviceFilter>(null);
+  const [deviceFilter, setDeviceFilter] = useState<DeviceFilter>([]);
   const [groupByDevice, setGroupByDevice] = useState(() => {
     try {
       return window.localStorage.getItem(GROUP_KEY) === '1';
@@ -255,7 +259,7 @@ export function App() {
   }, []);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [project, setProject] = useState<string | null>(() => WINDOW_PROJECT ?? storedProject());
-  const [bayFilter, setBayFilter] = useState<Filter | null>(null);
+  const [bayFilter, setBayFilter] = useState<readonly Filter[]>([]);
   const [query, setQuery] = useState('');
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [view, setViewState] = useState<View>(storedView);
@@ -425,7 +429,7 @@ export function App() {
 
   const pickProject = (name: string) => {
     setProject(name);
-    setBayFilter(null);
+    setBayFilter([]);
     setShowParked(false);
     setSelectedKey(null);
     // A project window keeps its choice to itself; the main window's is remembered.
@@ -464,11 +468,11 @@ export function App() {
   const rawLanes = useMemo(() => withDevices(board?.lanes ?? [], deviceLanes, deviceFilter), [board?.lanes, deviceLanes, deviceFilter]);
   // What needs you on each device, for the sidebar, whichever device the views show.
   const deviceNeeds = useMemo(() => {
-    const all = withDevices(board?.lanes ?? [], deviceLanes, null);
+    const all = withDevices(board?.lanes ?? [], deviceLanes, []);
     return new Map<string | null, number>([null, ...(devices?.devices ?? []).map((d) => d.short)].map((m) => [m, needsOn(all, m)]));
   }, [board?.lanes, deviceLanes, devices?.devices]);
   const deviceWorking = useMemo(() => {
-    const all = withDevices(board?.lanes ?? [], deviceLanes, null);
+    const all = withDevices(board?.lanes ?? [], deviceLanes, []);
     return new Map<string | null, number>([null, ...(devices?.devices ?? []).map((d) => d.short)].map((m) => [m, workingOn(all, m)]));
   }, [board?.lanes, deviceLanes, devices?.devices]);
   const lanes = useMemo(() => rawLanes.map((l) => (l.sessions.some((s) => s.archived) ? { ...l, sessions: l.sessions.filter((s) => !s.archived) } : l)), [rawLanes]);
@@ -532,7 +536,7 @@ export function App() {
   const bayRows = useCallback((ls: Lane[]) => buildBays(ls.flatMap((l) => (inQuery(l, query) && !lanePins.set.has(l.id) ? (narrowed(l, bayFilter, since) ?? []) : []))), [query, lanePins.set, bayFilter, since]);
   const bays = useMemo(() => bayRows(recentLanes), [bayRows, recentLanes]);
   // Grouped by device, each device's worktrees get bays of their own: this device's first.
-  const grouped = groupByDevice && deviceFilter === null && (devices?.enabled ?? false) && (devices?.lanes.length ?? 0) > 0;
+  const grouped = groupByDevice && deviceFilter.length !== 1 && (devices?.enabled ?? false) && (devices?.lanes.length ?? 0) > 0;
   const deviceGroups = useMemo(() => (grouped ? byDevice(recentLanes, devices).map((g) => ({ short: g.short, bays: bayRows(g.lanes) })) : null), [grouped, recentLanes, devices, bayRows]);
   const foldParked = !showParked && !query;
   const fold = useCallback((bs: typeof bays) => bs.map((b) => ({ ...b, rows: b.rows.filter((r) => !foldParked || !r.lane.parked) })), [foldParked]);
@@ -875,7 +879,7 @@ export function App() {
     const home = t.project && projects.some((p) => p.name === t.project) ? t.project : ALL_PROJECTS;
     if (current !== ALL_PROJECTS && current !== home) pickProject(home);
     setView('todo');
-    setBayFilter(null);
+    setBayFilter([]);
     setLabelFilter(null);
     setQuery('');
     if (t.status === 'done') setShowDoneTodos(true);
@@ -905,7 +909,7 @@ export function App() {
   /** Opens the Todo view with the box at the top ready for a todo linked to `context`. */
   const newTodoFrom = (context: ComposerContext, title = '') => {
     setView('todo');
-    setBayFilter(null);
+    setBayFilter([]);
     setComposer({ text: title, context });
     setComposerFocus((n) => n + 1);
   };
@@ -1323,14 +1327,14 @@ export function App() {
       return;
     }
     setView('worktrees');
-    setBayFilter(null);
+    setBayFilter([]);
     if (lane.parked) setShowParked(true);
     setSelectedKey(boardRowKey(lane));
   };
 
   /** Selects a session: in Sessions its own row; on the board its line on its worktree's row, else the worktree. */
   const focusSession = (lane: Lane, session: Session) => {
-    setBayFilter(null);
+    setBayFilter([]);
     if (view === 'sessions') {
       const item = sessionItems.find((r) => r.session.key === session.key);
       if (item) {
@@ -1383,12 +1387,12 @@ export function App() {
       // A session Codealong runs is read and answered in its panel, which Sessions shows.
       if (session.hosted) setView('sessions');
       else if (view === 'prs' || view === 'todo') setView('worktrees');
-      setBayFilter(null);
+      setBayFilter([]);
       // Its own row in Sessions, its line on its worktree's row on the board.
       setSelectedKey(`${lane.id}::${session.key}`);
     } else if (pr) {
       setView('prs');
-      setBayFilter(null);
+      setBayFilter([]);
       setSelectedKey(`pr:${pr.key}`);
     }
   };
@@ -1673,9 +1677,10 @@ export function App() {
   }, [lanes, pendingSession]);
 
   const toggleBay = (f: Filter) => {
-    setBayFilter(bayFilter === f ? null : f);
-    if (view === 'canvas' && bayFilter !== f) setCanvasFit((n) => n + 1);
+    setBayFilter((fs) => (fs.includes(f) ? fs.filter((x) => x !== f) : [...fs, f]));
+    if (view === 'canvas' && !bayFilter.includes(f)) setCanvasFit((n) => n + 1);
   };
+  const toggleDevice = (id: string) => setDeviceFilter((d) => (d.includes(id) ? d.filter((x) => x !== id) : [...d, id]));
   const openWindow = (name: string, another = false) => {
     openProjectWindow(name, another).catch((e: unknown) => setToast(String(e)));
   };
@@ -1968,17 +1973,18 @@ export function App() {
   const shownLabel = view === 'todo' && labelFilter ? (labelById.get(labelFilter) ?? null) : null;
   const sideFilters = [
     ageApplies && age !== 'all' ? (AGES.find((a) => a.id === age)?.title.replace(/^Active in the /, '') ?? age) : null,
-    bayFilter ? (sideStatuses.find((x) => x.id === bayFilter)?.label ?? bayFilter) : null,
+    ...bayFilter.map((f) => sideStatuses.find((x) => x.id === f)?.label ?? f),
     shownLabel ? `label ${shownLabel.name}` : null,
   ].filter((x): x is string => !!x);
   const viewNow: ViewState = { view, project: current, device: deviceFilter, age, filter: bayFilter };
   const savedOn = savedViews.find((v) => sameView(v, viewNow))?.id ?? null;
-  const deviceName = (f: DeviceFilter) => (f === null ? null : f === 'here' ? devices?.me.name || 'This device' : (devices?.devices.find((d) => d.short === f)?.name ?? null));
+  const deviceName = (id: string) => (id === 'here' ? devices?.me.name || 'This device' : (devices?.devices.find((d) => d.short === id)?.name ?? null));
+  const either = (words: (string | null | undefined)[]) => words.filter(Boolean).join(' + ') || null;
   const viewSuggestion = suggestName([
     VIEWS.find((v) => v.id === view)?.label,
     current === ALL_PROJECTS ? null : current,
-    deviceName(deviceFilter),
-    bayFilter ? sideStatuses.find((x) => x.id === bayFilter)?.label : null,
+    either(deviceFilter.map(deviceName)),
+    either(bayFilter.map((f) => sideStatuses.find((x) => x.id === f)?.label)),
     ageApplies && age !== 'all' ? AGES.find((a) => a.id === age)?.label : null,
   ]);
   const applySaved = (v: SavedView) => {
@@ -1986,7 +1992,7 @@ export function App() {
     if (v.project !== current && (v.project === ALL_PROJECTS || projects.some((p) => p.name === v.project))) pickProject(v.project);
     const known = VIEWS.find((x) => x.id === v.view);
     if (known) setView(known.id);
-    setDeviceFilter(v.device === null || v.device === 'here' || devices?.devices.some((d) => d.short === v.device) ? v.device : null);
+    setDeviceFilter(v.device.filter((id) => id === 'here' || devices?.devices.some((d) => d.short === id)));
     const a = AGES.find((x) => x.id === v.age);
     if (a) setAge(a.id);
     setBayFilter(v.filter);
@@ -2092,10 +2098,11 @@ export function App() {
           onView={(id) => setView(id as View)}
           devices={devices}
           deviceFilter={deviceFilter}
-          onDevice={setDeviceFilter}
+          onDevice={toggleDevice}
+          onClearDevices={() => setDeviceFilter([])}
           deviceNeeds={deviceNeeds}
           deviceWorking={deviceWorking}
-          groupByDevice={view === 'worktrees' && devices?.enabled && devices.lanes.length > 0 && deviceFilter === null ? groupByDevice : null}
+          groupByDevice={view === 'worktrees' && devices?.enabled && devices.lanes.length > 0 && deviceFilter.length !== 1 ? groupByDevice : null}
           onGroupByDevice={toggleGroupByDevice}
           ages={AGES}
           age={age}
@@ -2104,6 +2111,7 @@ export function App() {
           statuses={sideStatuses}
           filter={bayFilter}
           onFilter={toggleBay}
+          onClearFilters={() => setBayFilter([])}
           label={shownLabel}
           onClearLabel={() => setLabelFilter(null)}
           saved={savedViews}
@@ -2173,7 +2181,7 @@ export function App() {
             <div className="ca-board-empty">
               {query
                 ? `No sessions in ${current} match “${query}”.`
-                : bayFilter
+                : bayFilter.length > 0
                   ? 'No sessions here right now.'
                   : cutoff > 0
                     ? `No sessions ${AGES.find((a) => a.id === age)?.title.toLowerCase()}.`
@@ -2184,9 +2192,9 @@ export function App() {
             <div className="ca-board-empty">
               {query
                 ? `Nothing in ${current} matches “${query}”.`
-                : bayFilter === 'work'
+                : bayFilter.length === 1 && bayFilter[0] === 'work'
                   ? 'No PRs need work: no failing checks or changes requested.'
-                  : bayFilter
+                  : bayFilter.length > 0
                     ? 'Nothing here right now.'
                   : cutoff > 0
                     ? `No worktrees ${AGES.find((a) => a.id === age)?.title.toLowerCase()}.`
@@ -2213,7 +2221,7 @@ export function App() {
               keys={canvasKeys}
               onSelectItem={setCanvasSel}
               query={query}
-              filtering={!!query.trim() || bayFilter != null}
+              filtering={!!query.trim() || bayFilter.length > 0}
               matches={canvasMatches}
               fitMatches={canvasFit}
             />

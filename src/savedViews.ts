@@ -4,13 +4,13 @@
 import type { DeviceFilter } from './devices';
 import type { Filter } from './lanes';
 
-/** What a window shows: its view, project, device, how recently active, and status. */
+/** What a window shows: its view, project, devices, how recently active, and statuses. */
 export interface ViewState {
   view: string;
   project: string;
   device: DeviceFilter;
   age: string;
-  filter: Filter | null;
+  filter: readonly Filter[];
 }
 
 export interface SavedView extends ViewState {
@@ -21,7 +21,8 @@ export interface SavedView extends ViewState {
 const KEY = 'codealong.savedViews';
 
 const text = (v: unknown): v is string => typeof v === 'string';
-const orNull = (v: unknown): v is string | null => v === null || typeof v === 'string';
+/** A list of picks: saved before several could be picked, it was one or none. */
+const picks = (v: unknown): string[] | null => (v === null ? [] : typeof v === 'string' ? [v] : Array.isArray(v) && v.every(text) ? v : null);
 
 /** The saved views in stored text; anything that doesn't read as one is left out. */
 export function parseSaved(raw: string | null): SavedView[] {
@@ -35,9 +36,11 @@ export function parseSaved(raw: string | null): SavedView[] {
   if (!Array.isArray(v)) return [];
   return v.flatMap((x: Record<string, unknown> | null): SavedView[] => {
     if (!x || typeof x !== 'object') return [];
-    const { id, name, view, project, device, age, filter } = x;
-    if (!text(id) || !text(name) || !text(view) || !text(project) || !orNull(device) || !text(age) || !orNull(filter)) return [];
-    return [{ id, name, view, project, device, age, filter: filter as Filter | null }];
+    const { id, name, view, project, age } = x;
+    const device = picks(x.device);
+    const filter = picks(x.filter);
+    if (!text(id) || !text(name) || !text(view) || !text(project) || !device || !text(age) || !filter) return [];
+    return [{ id, name, view, project, device, age, filter: filter as Filter[] }];
   });
 }
 
@@ -66,9 +69,10 @@ export function onSavedChange(f: (views: SavedView[]) => void): () => void {
   return () => window.removeEventListener('storage', listen);
 }
 
-/** Whether two states show the same thing. */
+/** Whether two states show the same thing: the same picks, in whatever order. */
 export function sameView(a: ViewState, b: ViewState): boolean {
-  return a.view === b.view && a.project === b.project && a.device === b.device && a.age === b.age && a.filter === b.filter;
+  const same = (x: readonly string[], y: readonly string[]) => x.length === y.length && x.every((v) => y.includes(v));
+  return a.view === b.view && a.project === b.project && same(a.device, b.device) && a.age === b.age && same(a.filter, b.filter);
 }
 
 /** A name for a view as it is, offered when you save it: the view, then what narrows it. */

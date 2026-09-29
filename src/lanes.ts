@@ -27,7 +27,8 @@ export interface WorktreeRow {
   lane: Lane;
   agents: AgentItem[];
 }
-/** What the sidebar's status filter narrows the board to: one bay, or worktrees whose PR needs work. */
+/** A status the sidebar narrows the board to: agents in one state, or worktrees whose PR is in
+ *  review or needs work. Several narrow it to what's in any of them; none, to nothing. */
 export type Filter = Bay | 'work';
 
 /** When a session began waiting on you, for one that needs you, as the engine has it
@@ -260,23 +261,26 @@ export function buildBays(lanes: Lane[]): { bay: Bay; rows: WorktreeRow[] }[] {
 }
 
 /**
- * A worktree as a status filter shows it, or null when the filter leaves it out. Needs you,
- * Working and Your turn narrow it to its agents in that state, and it moves to that state's
- * bay, as it does under the age filter; In review and PR needs work are about its PR and keep
- * it whole.
+ * A worktree as the status filters show it, or null when they leave it out. In review and PR
+ * needs work are about its PR and keep it whole. Needs you, Working and Your turn narrow it to
+ * its agents in those states, and it moves to the bay they put it in, as it does under the age
+ * filter. No filter keeps every worktree.
  */
-export function narrowed(lane: Lane, f: Filter | null, since: string): Lane | null {
-  if (!f) return lane;
-  if (f === 'work') return prNeedsWork(lane.pr) ? lane : null;
-  if (f !== 'needs' && f !== 'working' && f !== 'unread') return lane.bay === f ? lane : null;
-  const sessions = lane.sessions.filter((s) => !s.visitor && AGENT_BAY[s.status] === f);
+export function narrowed(lane: Lane, fs: readonly Filter[], since: string): Lane | null {
+  if (fs.length === 0) return lane;
+  const forPr = fs.some((f) => (f === 'work' ? prNeedsWork(lane.pr) : !AGENT_FILTERS.has(f) && lane.bay === f));
+  if (forPr) return lane;
+  const sessions = lane.sessions.filter((s) => !s.visitor && fs.includes(AGENT_BAY[s.status] as Filter));
   if (sessions.length === 0) return null;
-  // It shows in the filter's bay even when its other agents put it elsewhere: one working and
-  // one finished shows under Your turn.
-  const glyph: Status = f === 'needs' ? (sessions.some((s) => s.status === 'needs') ? 'needs' : 'error') : f;
-  const [headline, detail] = headlineFor(f, sessions, lane.pr, since);
-  return { ...lane, sessions, bay: f, glyph, headline, detail };
+  // It shows in its agents' bay even when its other agents put it elsewhere: one working and one
+  // finished shows under Your turn when that's what you picked.
+  const [bay, glyph] = bayOf(sessions, lane.pr);
+  const [headline, detail] = headlineFor(bay, sessions, lane.pr, since);
+  return { ...lane, sessions, bay, glyph, headline, detail };
 }
+
+/** The statuses that are about agents, not a worktree's PR. */
+const AGENT_FILTERS = new Set<Filter>(['needs', 'working', 'unread']);
 
 /**
  * The status filters' counts: agents that need you, are working or just finished, and worktrees whose

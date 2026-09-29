@@ -21,14 +21,16 @@ describe('your other devices', () => {
     expect(deviceOf(null, '@a1b2c3d4e5:x')).toBeNull();
   });
 
-  it('shows every device, this one, or one other', () => {
+  it('shows every device, or the ones picked', () => {
     const here = [lane('/a')];
     const there = [lane('@m1:/b'), lane('@m2:/c')];
-    expect(withDevices(here, there, null).map((l) => l.id)).toEqual(['/a', '@m1:/b', '@m2:/c']);
-    expect(withDevices(here, there, 'here').map((l) => l.id)).toEqual(['/a']);
-    expect(withDevices(here, there, 'm2').map((l) => l.id)).toEqual(['@m2:/c']);
+    expect(withDevices(here, there, []).map((l) => l.id)).toEqual(['/a', '@m1:/b', '@m2:/c']);
+    expect(withDevices(here, there, ['here']).map((l) => l.id)).toEqual(['/a']);
+    expect(withDevices(here, there, ['m2']).map((l) => l.id)).toEqual(['@m2:/c']);
+    expect(withDevices(here, there, ['here', 'm2']).map((l) => l.id)).toEqual(['/a', '@m2:/c']);
+    expect(withDevices(here, there, ['here'])).toBe(here);
     // With no other device's lanes, this device's list is handed back as it is.
-    expect(withDevices(here, [], null)).toBe(here);
+    expect(withDevices(here, [], [])).toBe(here);
   });
 
   it('counts what needs you and what works on each device', () => {

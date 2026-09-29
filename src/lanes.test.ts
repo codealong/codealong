@@ -123,25 +123,34 @@ describe('narrowed', () => {
 
   it('narrows a worktree to the agents a filter is about, in that bay', () => {
     expect(mixed.bay).toBe('working');
-    const yours = narrowed(mixed, 'unread', '')!;
+    const yours = narrowed(mixed, ['unread'], '')!;
     expect([yours.bay, yours.sessions.map((s) => s.key)]).toEqual(['unread', ['u']]);
-    expect(narrowed(mixed, 'working', '')!.sessions.map((s) => s.key)).toEqual(['w']);
-    expect(narrowed(mixed, null, '')).toBe(mixed);
+    expect(narrowed(mixed, ['working'], '')!.sessions.map((s) => s.key)).toEqual(['w']);
+    expect(narrowed(mixed, [], '')).toBe(mixed);
+  });
+
+  it('narrows to the agents in any of several statuses, in the bay they put it in', () => {
+    const both = narrowed(mixed, ['unread', 'working'], '')!;
+    expect([both.bay, both.sessions.map((s) => s.key)]).toEqual(['working', ['w', 'u']]);
+    const idle = { ...lane([session('i', 'idle', NOW)], pr('open')), id: '/r/idle' } as Lane;
+    expect(narrowed(idle, ['needs', 'working'], '')).toBeNull();
+    // A PR status keeps the worktree whole, whatever else is picked.
+    expect(narrowed(idle, ['needs', 'review'], '')).toBe(idle);
   });
 
   it('keeps a worktree whole for its PR; Needs you is only about its agents', () => {
-    expect(narrowed(mixed, 'work', '')).toBe(mixed);
-    expect(narrowed(mixed, 'review', '')).toBeNull();
-    expect(narrowed(mixed, 'needs', '')).toBeNull();
+    expect(narrowed(mixed, ['work'], '')).toBe(mixed);
+    expect(narrowed(mixed, ['review'], '')).toBeNull();
+    expect(narrowed(mixed, ['needs'], '')).toBeNull();
     const failing = { ...lane([session('u', 'unread', NOW)], pr('open', 2)), id: '/r/failing' } as Lane;
     expect(failing.bay).toBe('unread');
-    expect(narrowed(failing, 'needs', '')).toBeNull();
-    expect(narrowed(failing, 'work', '')).toBe(failing);
+    expect(narrowed(failing, ['needs'], '')).toBeNull();
+    expect(narrowed(failing, ['work'], '')).toBe(failing);
     const changes = { ...lane([session('c', 'idle', NOW)], pr('changes')), id: '/r/changes' } as Lane;
-    expect([narrowed(changes, 'review', ''), narrowed(changes, 'work', '')]).toEqual([changes, changes]);
+    expect([narrowed(changes, ['review'], ''), narrowed(changes, ['work'], '')]).toEqual([changes, changes]);
     const inReview = { ...lane([session('c', 'idle', NOW)], pr('open')), id: '/r/review' } as Lane;
-    expect(narrowed(inReview, 'review', '')).toBe(inReview);
-    expect(narrowed(inReview, 'work', '')).toBeNull();
+    expect(narrowed(inReview, ['review'], '')).toBe(inReview);
+    expect(narrowed(inReview, ['work'], '')).toBeNull();
   });
 });
 

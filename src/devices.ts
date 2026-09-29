@@ -18,14 +18,16 @@ export function deviceOf(devices: DevicesView | null | undefined, key: string): 
   return devices.devices.find((d) => d.short === short) ?? null;
 }
 
-/** Which devices' work the views show: all of them, this one, or one other by its short id. */
-export type DeviceFilter = null | 'here' | string;
+/** Which devices' work the views show: the ones picked, `here` for this one and the others by
+ *  short id. None picked shows every device's. */
+export type DeviceFilter = readonly string[];
 
 /** This device's worktrees and the linked devices', as the filter says. */
-export function withDevices(here: Lane[], there: Lane[], filter: DeviceFilter): Lane[] {
-  if (filter === 'here') return here;
-  if (filter === null) return there.length === 0 ? here : here.concat(there);
-  return there.filter((l) => shortOf(l.id) === filter);
+export function withDevices(here: Lane[], there: Lane[], picked: DeviceFilter): Lane[] {
+  if (picked.length === 0) return there.length === 0 ? here : here.concat(there);
+  const mine = picked.includes('here') ? here : [];
+  const theirs = there.filter((l) => picked.includes(shortOf(l.id) ?? ''));
+  return theirs.length === 0 ? mine : mine.concat(theirs);
 }
 
 /** How many of a device's sessions need you, for its row in the sidebar. */

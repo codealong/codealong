@@ -284,9 +284,10 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   its place in the file, so comments and order stay as you wrote them. The config.toml section
   edits the file itself, for anything the form doesn't cover, and says what's wrong when it
   doesn't parse.
-- **Sidebar**: picks the view (Sessions, Worktrees, PRs, Todo, Canvas) and narrows it: to one
-  device, to what was active in the last 24h, 3d or 7d, and to a status (Needs you, Your turn,
-  Working, In review, PR needs work). Save the view as it is under a name to come back to it;
+- **Sidebar**: picks the view (Sessions, Worktrees, PRs, Todo, Canvas) and narrows it: to the
+  devices you pick, to what was active in the last 24h, 3d or 7d, and to the statuses you pick
+  (Needs you, Your turn, Working, In review, PR needs work; any of them). Devices and statuses
+  toggle; none picked shows all, and Clear unpicks them. Save the view as it is under a name to come back to it;
   right-click a saved view to update or delete it (they're kept per Mac, not in config.toml).
   ⌃⌘S, or the button beside the traffic lights, folds it to a rail of the views and devices
   whose filter button carries a badge while a filter narrows the view. The search at the top
@@ -357,7 +358,7 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   Settings › Devices); other devices' worktrees go into this device's projects by their repos,
   whatever those devices call them, even where a checkout still has a renamed repo's old name;
   work on a device that's away stays, faded, as it was when last seen; the sidebar's Devices
-  narrow the views to one of them; and Worktrees can group by device. A session on another
+  narrow the views to the ones you pick; and Worktrees can group by device. A session on another
   device shows its whole conversation in its panel, and when that device lets its linked
   devices act on its sessions (remote control, off by default) you can send it a message or
   answer an approval from here. Devices find each other on your tailnet when Tailscale runs,

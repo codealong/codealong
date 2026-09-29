@@ -1,7 +1,8 @@
-// Checks the sidebar (Sidebar.tsx, App.tsx): a status chip narrows the view, the view saves
-// under a name and comes back when picked, ⌃⌘S folds the sidebar to a rail whose filter button
-// counts the filters on and opens it again, and a saved view's menu deletes it.
-//   scripts/preview.sh sessions '' scripts/preview/sidebar-check.js
+// Checks the sidebar (Sidebar.tsx, App.tsx): it never scrolls sideways; statuses and devices
+// toggle, several at once, and Clear unpicks them; the view saves under a name and comes back
+// when picked; ⌃⌘S folds the sidebar to a rail whose filter button counts the filters on and
+// opens it again; and a saved view's menu deletes it.
+//   PREVIEW_DEVICES=scripts/preview/devices-sample.json scripts/preview.sh sessions '' scripts/preview/sidebar-check.js
 // Every step should say ok.
 (function () {
   var out = [];
@@ -24,9 +25,45 @@
   var saved = function () { return JSON.parse(localStorage.getItem('codealong.savedViews') || '[]'); };
   var ageOn = function () { var on = document.querySelector('.ca-side-ages button.is-on'); return on && on.textContent !== 'All'; };
   var expected;
+  var devRows = function () { return Array.prototype.slice.call(document.querySelectorAll('.ca-side button.ca-side-devrow')); };
+  var clear = function (label) {
+    var head = Array.prototype.filter.call(document.querySelectorAll('.ca-side-label--row'), function (h) { return h.firstChild.textContent === label; })[0];
+    return head && head.querySelector('.ca-side-clear');
+  };
 
   say('sidebar check: waiting for the sidebar');
   until(function () { return nav('Sessions') && chip('Your turn'); }, 20000)
+    .then(function () {
+      var box = document.querySelector('.ca-side-scroll');
+      check('the sidebar never scrolls sideways', box.scrollWidth <= box.clientWidth && getComputedStyle(box).overflowX === 'hidden', box.scrollWidth + ' in ' + box.clientWidth);
+      check('with no All devices row', !nav('All devices'));
+      chip('Your turn').click();
+      chip('Needs you').click();
+      return wait(50);
+    })
+    .then(function () {
+      check('two statuses pick together', chip('Your turn').getAttribute('aria-pressed') === 'true' && chip('Needs you').getAttribute('aria-pressed') === 'true');
+      clear('Status').click();
+      return wait(50);
+    })
+    .then(function () {
+      check('Clear unpicks them', chip('Your turn').getAttribute('aria-pressed') === 'false' && chip('Needs you').getAttribute('aria-pressed') === 'false' && !clear('Status'));
+      var rows = devRows();
+      if (rows.length < 2) {
+        check('devices (run with PREVIEW_DEVICES)', false, rows.length + ' device rows');
+        return wait(0);
+      }
+      rows[0].click();
+      rows[1].click();
+      return wait(50).then(function () {
+        var on = devRows().filter(function (b) { return b.getAttribute('aria-pressed') === 'true'; }).length;
+        check('two devices pick together', on === 2, on + ' on');
+        clear('Devices').click();
+        return wait(50);
+      }).then(function () {
+        check('and Clear shows every device again', devRows().every(function (b) { return b.getAttribute('aria-pressed') === 'false'; }));
+      });
+    })
     .then(function () {
       chip('Your turn').click();
       return wait(50);
@@ -47,7 +84,7 @@
     .then(function () {
       var v = nav('My turns');
       check('the saved view is listed, as the one showing', !!v && v.classList.contains('is-active'));
-      check('and stored', saved().length === 1 && saved()[0].filter === 'unread' && saved()[0].view === 'sessions', JSON.stringify(saved()));
+      check('and stored', saved().length === 1 && saved()[0].filter.join() === 'unread' && saved()[0].view === 'sessions', JSON.stringify(saved()));
       check('Save this view goes while a saved view shows', !document.querySelector('.ca-side-save'));
       chip('Your turn').click();
       return wait(50);

@@ -197,15 +197,20 @@ body.is-resizing * {
   text-align: left;
   cursor: pointer;
 }
+/* The sidebar scrolls up and down only: its rows fit its width, and a long name is cut short. */
 .ca-side-scroll {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 1px;
-  overflow: auto;
+  overflow: hidden auto;
   margin: 0 calc(-1 * var(--space-2));
   padding: 0 var(--space-2) var(--space-3);
+}
+.ca-side .ca-nav {
+  box-sizing: border-box;
+  min-width: 0;
 }
 .ca-side-warnings {
   display: grid;
@@ -1543,6 +1548,31 @@ body.is-resizing * {
   font: 600 10px/16px var(--font-mono);
   text-align: center;
   font-variant-numeric: tabular-nums;
+}
+/* A section's heading, and Clear while anything in it is picked. */
+.ca-side-label--row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.ca-side-clear {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink-3);
+  font: 400 11px/14px var(--font-sans);
+  letter-spacing: 0;
+  text-transform: none;
+  cursor: pointer;
+}
+.ca-side-clear:hover {
+  color: var(--ink);
+  text-decoration: underline;
+}
+.ca-side-clear:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--focus);
+  border-radius: 2px;
 }
 /* A device: its name, and under it what it's doing or when it was last seen. */
 .ca-nav.ca-side-devrow {

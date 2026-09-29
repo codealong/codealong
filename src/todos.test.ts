@@ -126,9 +126,9 @@ describe('the list', () => {
     expect(item.lane?.id).toBe('/r/app3');
     expect(item.labels).toEqual([bug]);
     expect(item.lastActivity).toBe(NOW);
-    expect(todoInFilter(item, 'working')).toBe(true);
-    expect(todoInFilter(item, 'work')).toBe(true);
-    expect(todoInFilter(item, 'needs')).toBe(false);
+    expect(todoInFilter(item, ['working'])).toBe(true);
+    expect(todoInFilter(item, ['work'])).toBe(true);
+    expect(todoInFilter(item, ['needs'])).toBe(false);
     expect(todoInQuery(item, 'bug')).toBe(true);
     expect(todoInQuery(item, 'app3')).toBe(true);
     expect(todoInQuery(item, 'nothing like it')).toBe(false);

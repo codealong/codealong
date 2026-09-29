@@ -1,7 +1,8 @@
-// The sidebar: what the window shows and what narrows it. The view, the device, how recently
-// things were active, their status and views you saved, above Settings. Collapsed it's a rail of
-// the views and devices, whose filter button carries a badge while a filter narrows the view.
-// The project stays in the switcher at top left.
+// The sidebar: what the window shows and what narrows it. The view, the devices, how recently
+// things were active, their statuses and views you saved, above Settings. Devices and statuses
+// toggle, any number of each: none picked shows all. Collapsed it's a rail of the views and
+// devices, whose filter button carries a badge while a filter narrows the view. The project
+// stays in the switcher at top left.
 
 import { useState, type ReactNode } from 'react';
 import type { DeviceFilter } from '../devices';
@@ -48,8 +49,11 @@ interface SidebarProps {
   onView: (id: string) => void;
   /** Linked devices; the device filter shows only with at least one. */
   devices: DevicesView | null | undefined;
+  /** The devices picked: `here` for this one, the others by short id. */
   deviceFilter: DeviceFilter;
-  onDevice: (f: DeviceFilter) => void;
+  /** Picks a device, or unpicks it. */
+  onDevice: (id: string) => void;
+  onClearDevices: () => void;
   deviceNeeds: Map<string | null, number>;
   deviceWorking: Map<string | null, number>;
   /** Group by device, offered in Worktrees across devices; null where it isn't. */
@@ -61,8 +65,10 @@ interface SidebarProps {
   ageApplies: boolean;
   onAge: (id: string) => void;
   statuses: SideStatus[];
-  filter: Filter | null;
+  filter: readonly Filter[];
+  /** Picks a status, or unpicks it. */
   onFilter: (f: Filter) => void;
+  onClearFilters: () => void;
   /** The label Todo is narrowed to, if any. */
   label: Label | null;
   onClearLabel: () => void;
@@ -105,15 +111,14 @@ function Open(p: SidebarProps) {
         ))}
         {showDevices && p.devices && (
           <>
-            <div className="ca-label ca-side-label">Device</div>
-            <NavItem icon="stack" label="All devices" active={p.deviceFilter === null} onClick={() => p.onDevice(null)} />
+            <SideLabel label="Devices" onClear={p.deviceFilter.length > 0 ? p.onClearDevices : undefined} />
             <DeviceRow
               lead={<Icon name="device-desktop" size={14} />}
               name={p.devices.me.name || 'This device'}
               sub={`This Mac · ${p.deviceWorking.get(null) ?? 0} working`}
               needs={p.deviceNeeds.get(null) ?? 0}
-              active={p.deviceFilter === 'here'}
-              onClick={() => p.onDevice(p.deviceFilter === 'here' ? null : 'here')}
+              active={p.deviceFilter.includes('here')}
+              onClick={() => p.onDevice('here')}
             />
             {p.devices.devices.map((d) => (
               <DeviceRow
@@ -124,8 +129,8 @@ function Open(p: SidebarProps) {
                 title={d.online ? `Connected ${d.via === 'iroh' ? 'through iroh' : 'on your tailnet'}` : undefined}
                 away={!d.online}
                 needs={p.deviceNeeds.get(d.short) ?? 0}
-                active={p.deviceFilter === d.short}
-                onClick={() => p.onDevice(p.deviceFilter === d.short ? null : d.short)}
+                active={p.deviceFilter.includes(d.short)}
+                onClick={() => p.onDevice(d.short)}
               />
             ))}
             {p.devices.phones.map((d) => (
@@ -155,10 +160,10 @@ function Open(p: SidebarProps) {
             </button>
           ))}
         </div>
-        <div className="ca-label ca-side-label">Status</div>
+        <SideLabel label="Status" onClear={p.filter.length > 0 ? p.onClearFilters : undefined} />
         <div className="ca-side-chips">
           {p.statuses.map((s) => (
-            <button key={s.id} type="button" className={cx('ca-side-chip', p.filter === s.id && 'is-on')} aria-pressed={p.filter === s.id} title={s.title} onClick={() => p.onFilter(s.id)}>
+            <button key={s.id} type="button" className={cx('ca-side-chip', p.filter.includes(s.id) && 'is-on')} aria-pressed={p.filter.includes(s.id)} title={s.title} onClick={() => p.onFilter(s.id)}>
               {s.glyph ? <StatusGlyph status={s.glyph} size={9} title="" /> : s.icon ? <Icon name={s.icon} size={12} /> : null}
               <span>{s.label}</span>
               <span className={cx('ca-side-chip-count', s.tone && s.count > 0 && `is-${s.tone}`)}>{s.count}</span>
@@ -174,7 +179,7 @@ function Open(p: SidebarProps) {
         </div>
         <div className="ca-label ca-side-label">Saved views</div>
         {p.saved.map((v) => (
-          <NavItem key={v.id} icon="star" label={v.name} active={p.savedOn === v.id} title="Right-click to delete" onClick={() => p.onApplySaved(v)} onContextMenu={() => p.onSavedMenu(v)} />
+          <NavItem key={v.id} icon="star" label={v.name} active={p.savedOn === v.id} title="Right-click to update or delete it" onClick={() => p.onApplySaved(v)} onContextMenu={() => p.onSavedMenu(v)} />
         ))}
         {naming !== null ? (
           <input
@@ -209,6 +214,20 @@ function Open(p: SidebarProps) {
       {p.foot}
       {p.warnings}
     </nav>
+  );
+}
+
+/** A section's heading, with a way to unpick everything picked in it. */
+function SideLabel({ label, onClear }: { label: string; onClear?: () => void }) {
+  return (
+    <div className="ca-label ca-side-label ca-side-label--row">
+      <span>{label}</span>
+      {onClear && (
+        <button type="button" className="ca-side-clear" onClick={onClear}>
+          Clear
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -249,8 +268,7 @@ function Rail(p: SidebarProps) {
       {showDevices && p.devices && (
         <>
           <span className="ca-rail-sep" aria-hidden="true" />
-          <RailButton icon="stack" label="All devices" active={p.deviceFilter === null} onClick={() => p.onDevice(null)} />
-          <RailButton icon="device-desktop" label={`${p.devices.me.name || 'This device'} · this Mac`} active={p.deviceFilter === 'here'} badge={p.deviceNeeds.get(null)} onClick={() => p.onDevice(p.deviceFilter === 'here' ? null : 'here')} />
+          <RailButton icon="device-desktop" label={`${p.devices.me.name || 'This device'} · this Mac`} active={p.deviceFilter.includes('here')} badge={p.deviceNeeds.get(null)} onClick={() => p.onDevice('here')} />
           {p.devices.devices.map((d) => (
             <RailButton
               key={d.key}
@@ -258,9 +276,9 @@ function Rail(p: SidebarProps) {
               dot={d.color}
               away={!d.online}
               label={d.online ? d.name : `${d.name} · away`}
-              active={p.deviceFilter === d.short}
+              active={p.deviceFilter.includes(d.short)}
               badge={p.deviceNeeds.get(d.short)}
-              onClick={() => p.onDevice(p.deviceFilter === d.short ? null : d.short)}
+              onClick={() => p.onDevice(d.short)}
             />
           ))}
         </>
