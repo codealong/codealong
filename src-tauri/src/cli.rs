@@ -87,7 +87,7 @@ enum Cmd {
         #[command(subcommand)]
         cmd: PrCmd,
     },
-    /// A worktree's app, to open in the browser: the URL set for it, and whether a server in its folder serves it now. Set the URL when you know where the worktree's app opens (you started its dev server, or the repo's instructions say where it's served): the worktree's row in the app links to it and shows whether it's running.
+    /// A worktree's app, to open in the browser: the URL set for it, the Chrome profile it opens in, and whether a server in its folder serves it now. Set the URL when you know where the worktree's app opens (you started its dev server, or the repo's instructions say where it's served): the worktree's row in the app links to it and shows whether it's running.
     Preview {
         #[command(subcommand)]
         cmd: PreviewCmd,
@@ -411,9 +411,9 @@ struct PrLinkArgs {
 
 #[derive(Subcommand, Debug)]
 enum PreviewCmd {
-    /// A worktree's preview: where it opens, whether that URL was set or found, and the server serving it now. `running` false means nothing listening in the worktree's folder serves it: its app isn't running.
+    /// A worktree's preview: where it opens, whether that URL was set or found, the server serving it now, and the Chrome profile it opens in. `running` false means nothing listening in the worktree's folder serves it: its app isn't running.
     Show(PreviewAt),
-    /// Set the URL a worktree's app opens at. It's linked to the server listening in the worktree's folder: the one on --port, else the port a localhost URL names, else the one that serves a page.
+    /// Set the URL a worktree's app opens at, or the Chrome profile it opens in. It's linked to the server listening in the worktree's folder: the one on --port, else the port a localhost URL names, else the one that serves a page. A project's `chrome_profile` in config.toml opens all its worktrees' previews in that profile; --chrome-profile sets one worktree's own.
     Set(PreviewSetArgs),
     /// Take a worktree's URL away. A page a server in its folder serves still shows, at localhost.
     Clear(PreviewAt),
@@ -428,11 +428,17 @@ struct PreviewAt {
 
 #[derive(Args, Debug)]
 struct PreviewSetArgs {
-    /// Where the app opens: `https://feature.app.test`, `localhost:5173/admin`, or a port alone. Without a scheme, local names take http and others https.
-    url: String,
+    /// Where the app opens: `https://feature.app.test`, `localhost:5173/admin`, or a port alone. Without a scheme, local names take http and others https. Leave it out to keep the URL (and port) already set and change only the Chrome profile.
+    url: Option<String>,
     /// Which of the worktree's servers is the app, when more than one serves a page (a dev server and Storybook, say), or when a proxy's URL names none.
     #[arg(long)]
     port: Option<u16>,
+    /// The Chrome profile it opens in, over its project's: the name Chrome's profile picker shows, the Google account signed in to it, or its folder (`Profile 2`). Kept when the URL changes.
+    #[arg(long, value_name = "NAME")]
+    chrome_profile: Option<String>,
+    /// Open it in its project's Chrome profile again (or the default browser, when the project names none), not one of its own.
+    #[arg(long, conflicts_with = "chrome_profile")]
+    no_chrome_profile: bool,
     #[command(flatten)]
     at: PreviewAt,
 }
@@ -764,7 +770,10 @@ fn run(cmd: Cmd, c: &mut Client, json: bool) -> Result<()> {
         Cmd::Pr { cmd: PrCmd::Link(a) } => pr_link(c, &a, true, json),
         Cmd::Pr { cmd: PrCmd::Unlink(a) } => pr_link(c, &a, false, json),
         Cmd::Preview { cmd: PreviewCmd::Show(a) } => preview_show(c, &a.worktree, json),
-        Cmd::Preview { cmd: PreviewCmd::Set(a) } => preview_set(c, &a.at.worktree, Some((&a.url, a.port)), json),
+        Cmd::Preview { cmd: PreviewCmd::Set(a) } => {
+            let profile = if a.no_chrome_profile { Some(None) } else { a.chrome_profile.as_deref().map(Some) };
+            preview_set(c, &a.at.worktree, Some(PreviewTo { url: a.url.as_deref(), port: a.port, profile }), json)
+        }
         Cmd::Preview { cmd: PreviewCmd::Clear(a) } => preview_set(c, &a.worktree, None, json),
         Cmd::Start(args) => start_cmd(c, &args, json),
         Cmd::Config { cmd } => config_cmd(cmd, json),
@@ -1597,6 +1606,10 @@ struct PreviewOut {
     /// A server in the worktree's folder serves it now.
     running: bool,
     server: Option<PreviewServer>,
+    /// The Chrome profile it opens in; none opens it in the default browser.
+    chrome_profile: Option<String>,
+    /// The profile was set for the worktree, not taken from its project's `chrome_profile`.
+    chrome_profile_set: bool,
 }
 
 fn preview_show(c: &mut Client, worktree: &str, json: bool) -> Result<()> {
@@ -1610,6 +1623,8 @@ fn preview_show(c: &mut Client, worktree: &str, json: bool) -> Result<()> {
         port: p.and_then(|p| p.port),
         running: p.is_some_and(|p| p.server.is_some()),
         server: p.and_then(|p| p.server.clone()),
+        chrome_profile: p.and_then(|p| p.chrome_profile.clone()),
+        chrome_profile_set: p.is_some_and(|p| p.chrome_profile_set),
     };
     if json {
         return print_json(&out);
@@ -1623,6 +1638,11 @@ fn preview_show(c: &mut Client, worktree: &str, json: bool) -> Result<()> {
         Some(s) => println!("Running: {} on port {}, pid {}, for {}{}", s.name, s.port, s.pid, ago(now_ms() - s.started_at), s.title.as_deref().map(|t| format!(" · {t}")).unwrap_or_default()),
         None => println!("Not running: nothing listening in {} serves it{}.", tilde(Path::new(&id)), p.port.map(|n| format!(" on port {n}")).unwrap_or_default()),
     }
+    match &p.chrome_profile {
+        Some(c) if p.chrome_profile_set => println!("Opens in Chrome's {c} profile, set for this worktree."),
+        Some(c) => println!("Opens in Chrome's {c} profile, set for {} in config.toml.", lane.project),
+        None => println!("Opens in the default browser."),
+    }
     Ok(())
 }
 
@@ -1632,31 +1652,59 @@ struct PreviewSetOut {
     worktree: String,
     url: Option<String>,
     port: Option<u16>,
+    /// The worktree's own Chrome profile; none opens it in its project's, or the default browser.
+    chrome_profile: Option<String>,
     /// False when it already was so.
     changed: bool,
 }
 
-/// Sets a worktree's URL, or clears it with none. The app watches the file.
-fn preview_set(c: &mut Client, worktree: &str, to: Option<(&str, Option<u16>)>, json: bool) -> Result<()> {
+/// What `preview set` changes. A URL left out keeps the one set, and its port unless one is
+/// given; a profile left out keeps the worktree's own (`Some(None)` takes it away).
+struct PreviewTo<'a> {
+    url: Option<&'a str>,
+    port: Option<u16>,
+    profile: Option<Option<&'a str>>,
+}
+
+/// Sets a worktree's URL and Chrome profile, or clears them with none. The app watches the file.
+fn preview_set(c: &mut Client, worktree: &str, to: Option<PreviewTo>, json: bool) -> Result<()> {
     let id = resolve_worktree(c, worktree)?;
-    let url = to.map(|(u, _)| crate::previews::normalize_url(u)).transpose()?;
-    let port = to.and_then(|(_, p)| p);
+    let url = to.as_ref().and_then(|t| t.url).map(crate::previews::normalize_url).transpose()?;
+    // Checked before the lock: Chrome's profiles are its own file, and the name kept is the one
+    // Chrome shows.
+    let profile = match to.as_ref().and_then(|t| t.profile) {
+        Some(Some(p)) => Some(Some(crate::chrome::resolve(p)?.id)),
+        Some(None) => Some(None),
+        None => None,
+    };
     let mut changed = false;
-    crate::previews::change(|store| {
-        changed = match &url {
-            Some(url) => store.set(&id, url, port, now_ms()),
-            None => store.clear(&id),
+    let mut result = Ok(());
+    let store = crate::previews::change(|store| {
+        let Some(to) = &to else {
+            changed = store.clear(&id);
+            return changed;
         };
+        let had = store.get(&id).cloned();
+        let Some(url) = url.clone().or_else(|| had.as_ref().map(|e| e.url.clone())) else {
+            result = Err(anyhow!("{} has no preview URL yet; give one: `codealong preview set <url>`.", tilde(Path::new(&id))));
+            return false;
+        };
+        let port = if to.url.is_some() || to.port.is_some() { to.port } else { had.as_ref().and_then(|e| e.port) };
+        let profile = profile.clone().unwrap_or_else(|| had.as_ref().and_then(|e| e.chrome_profile.clone()));
+        changed = store.set(&id, &url, port, profile.as_deref(), now_ms());
         changed
     })?;
-    let out = PreviewSetOut { worktree: id, url, port, changed };
+    result?;
+    let e = store.get(&id);
+    let out = PreviewSetOut { worktree: id.clone(), url: e.map(|e| e.url.clone()), port: e.and_then(|e| e.port), chrome_profile: e.and_then(|e| e.chrome_profile.clone()), changed };
     if json {
         return print_json(&out);
     }
     let at = tilde(Path::new(&out.worktree));
+    let profile = out.chrome_profile.as_deref().map(|p| format!(", in Chrome's {p} profile")).unwrap_or_default();
     match (&out.url, changed) {
-        (Some(u), true) => println!("{at} opens at {u}{}.", port.map(|p| format!(", served on port {p}")).unwrap_or_default()),
-        (Some(u), false) => println!("{at} already opens at {u}."),
+        (Some(u), true) => println!("{at} opens at {u}{}{profile}.", out.port.map(|p| format!(", served on port {p}")).unwrap_or_default()),
+        (Some(u), false) => println!("{at} already opens at {u}{profile}."),
         (None, true) => println!("Took the preview URL off {at}."),
         (None, false) => println!("{at} had no preview URL."),
     }

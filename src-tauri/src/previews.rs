@@ -4,7 +4,8 @@
 //! `previews.json` next to the config; the command writes it under a lock and the engine
 //! watches it. A URL set by hand is what opens: a project's dev proxy may serve the app at a
 //! name of its own (`https://feature.app.test`), where `localhost:<port>` would fail its
-//! cookies and sign-in.
+//! cookies and sign-in. For the same reason a worktree can name the Chrome profile it opens
+//! in, over its project's (chrome.rs).
 //!
 //! Servers are found, not polled: a thread looks at the ports your processes listen on
 //! (`procs::listeners`, a few milliseconds for every worktree at once), keeps the ones whose
@@ -47,6 +48,9 @@ pub struct Entry {
     /// Which of the worktree's servers is the app, when more than one serves a page.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub port: Option<u16>,
+    /// The Chrome profile it opens in, over its project's `chrome_profile`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chrome_profile: Option<String>,
     pub at: i64,
 }
 
@@ -61,13 +65,14 @@ impl Store {
         self.previews.iter().find(|e| e.worktree == worktree)
     }
 
-    /// Sets a worktree's URL, replacing the one it had. False when it already had this one.
-    pub fn set(&mut self, worktree: &str, url: &str, port: Option<u16>, at: i64) -> bool {
-        if self.get(worktree).is_some_and(|e| e.url == url && e.port == port) {
+    /// Sets a worktree's URL, port and Chrome profile, replacing what it had. False when it
+    /// already had these.
+    pub fn set(&mut self, worktree: &str, url: &str, port: Option<u16>, chrome_profile: Option<&str>, at: i64) -> bool {
+        if self.get(worktree).is_some_and(|e| e.url == url && e.port == port && e.chrome_profile.as_deref() == chrome_profile) {
             return false;
         }
         self.previews.retain(|e| e.worktree != worktree);
-        self.previews.push(Entry { worktree: worktree.to_string(), url: url.to_string(), port, at });
+        self.previews.push(Entry { worktree: worktree.to_string(), url: url.to_string(), port, chrome_profile: chrome_profile.map(str::to_string), at });
         true
     }
 
@@ -500,11 +505,14 @@ mod tests {
     #[test]
     fn a_worktree_keeps_one_url() {
         let mut s = Store::default();
-        assert!(s.set("/w/a", "https://a.test", None, 1));
-        assert!(!s.set("/w/a", "https://a.test", None, 2));
-        assert!(s.set("/w/a", "https://a.test", Some(5180), 3));
+        assert!(s.set("/w/a", "https://a.test", None, None, 1));
+        assert!(!s.set("/w/a", "https://a.test", None, None, 2));
+        assert!(s.set("/w/a", "https://a.test", Some(5180), None, 3));
+        assert!(s.set("/w/a", "https://a.test", Some(5180), Some("Work"), 4));
+        assert!(!s.set("/w/a", "https://a.test", Some(5180), Some("Work"), 5));
         assert_eq!(s.previews.len(), 1);
         assert_eq!(s.get("/w/a").unwrap().port, Some(5180));
+        assert_eq!(s.get("/w/a").unwrap().chrome_profile.as_deref(), Some("Work"));
         assert!(s.clear("/w/a"));
         assert!(!s.clear("/w/a"));
     }

@@ -114,6 +114,8 @@ pub struct Inputs<'a> {
 pub struct Previews {
     pub set: Vec<crate::previews::Entry>,
     pub servers: Vec<crate::previews::Server>,
+    /// The Chrome profile each project's previews open in, by project name (config.toml).
+    pub chrome_profiles: HashMap<String, String>,
 }
 
 /// Sessions tied to PRs other than by branch (prlinks.rs), by PR key (`owner/name#number`, in
@@ -1031,8 +1033,9 @@ fn latest_session(sessions: &[Session]) -> Option<&Session> {
 /// the port given with the URL, or the port a local URL names; with neither, the one serving a
 /// page (the lowest port, when several do). With no URL set, a page served in the worktree is
 /// its app, at `localhost`. The session is the one whose command started the server: one of its
-/// parent processes is the session's.
-pub fn lane_preview(set: Option<&crate::previews::Entry>, servers: &[&crate::previews::Server], sessions: &[Session]) -> Option<Preview> {
+/// parent processes is the session's. It opens in the Chrome profile set for the worktree, or
+/// else in its project's.
+pub fn lane_preview(set: Option<&crate::previews::Entry>, servers: &[&crate::previews::Server], sessions: &[Session], project_profile: Option<&str>) -> Option<Preview> {
     let port = set.and_then(|e| e.port.or_else(|| crate::previews::local_port(&e.url)));
     let server = match port {
         Some(p) => servers.iter().find(|s| s.port == p),
@@ -1046,9 +1049,12 @@ pub fn lane_preview(set: Option<&crate::previews::Entry>, servers: &[&crate::pre
         started_at: s.started_ms,
         session: sessions.iter().find(|x| x.pid.is_some_and(|p| s.ancestors.contains(&p))).map(|x| x.key.clone()),
     });
+    let own = set.and_then(|e| e.chrome_profile.clone());
+    let chrome_profile_set = own.is_some();
+    let chrome_profile = own.or_else(|| project_profile.map(str::to_string));
     match set {
-        Some(e) => Some(Preview { url: e.url.clone(), set: true, port: e.port, server }),
-        None => server.map(|s| Preview { url: format!("http://localhost:{}", s.port), set: false, port: None, server: Some(s) }),
+        Some(e) => Some(Preview { url: e.url.clone(), set: true, port: e.port, server, chrome_profile, chrome_profile_set }),
+        None => server.map(|s| Preview { url: format!("http://localhost:{}", s.port), set: false, port: None, server: Some(s), chrome_profile, chrome_profile_set }),
     }
 }
 
@@ -1144,10 +1150,13 @@ pub fn targets(seed: &LaneSeed, sessions: &[Session], pr: Option<&Pr>, preview: 
     t.push(target("l|editor".into(), "code", format!("Open in {editor}"), None, Some(&["⌘", "2"]), false, "lane"));
     if let Some(p) = preview {
         let at = crate::previews::short_url(&p.url);
-        let detail = match &p.server {
+        let mut detail = match &p.server {
             Some(s) => format!("{at} · {} on port {}", s.name, s.port),
             None => format!("{at} · not running"),
         };
+        if let Some(profile) = &p.chrome_profile {
+            detail.push_str(&format!(" · Chrome's {profile} profile"));
+        }
         t.push(target("l|preview".into(), "world", "Open preview".into(), Some(detail), Some(&["⌘", "5"]), false, "lane"));
     }
     t.push(target("l|finder".into(), "folder", "Reveal in Finder".into(), None, None, false, "lane"));
@@ -1231,7 +1240,7 @@ pub fn compose(inp: Inputs) -> Board {
         sessions.extend(guests);
         let set = previews.set.iter().find(|e| Path::new(&e.worktree) == seed.path);
         let servers: Vec<&crate::previews::Server> = previews.servers.iter().filter(|s| s.lane == seed.path).collect();
-        let preview = lane_preview(set, &servers, &sessions);
+        let preview = lane_preview(set, &servers, &sessions, previews.chrome_profiles.get(&seed.project).map(String::as_str));
         let (targets, default_target) = targets(seed, &sessions, pr.as_ref(), preview.as_ref(), apps);
         let last_activity = sessions
             .iter()
@@ -2331,30 +2340,30 @@ mod tests {
         };
         let (api, app, storybook) = (server(3040, false, vec![3040, 900]), server(5210, true, vec![5210, 900]), server(6006, true, vec![6006, 1]));
         let servers = [&api, &app, &storybook];
-        let entry = |url: &str, port: Option<u16>| crate::previews::Entry { worktree: "/r/atlas-quarry".into(), url: url.into(), port, at: NOW };
+        let entry = |url: &str, port: Option<u16>| crate::previews::Entry { worktree: "/r/atlas-quarry".into(), url: url.into(), port, chrome_profile: None, at: NOW };
         let port_of = |p: &Option<Preview>| p.as_ref().and_then(|p| p.server.as_ref()).map(|s| s.port);
 
         // A URL a proxy serves opens on the worktree's page, the lowest port when two serve one.
-        let proxied = lane_preview(Some(&entry("https://quarry.app.test", None)), &servers, &[]);
+        let proxied = lane_preview(Some(&entry("https://quarry.app.test", None)), &servers, &[], None);
         assert_eq!(port_of(&proxied), Some(5210));
         assert!(proxied.as_ref().is_some_and(|p| p.set && p.url == "https://quarry.app.test"));
         // The port given with it, or the one a local URL names, picks the server, page or not.
-        assert_eq!(port_of(&lane_preview(Some(&entry("https://quarry.app.test", Some(3040))), &servers, &[])), Some(3040));
-        assert_eq!(port_of(&lane_preview(Some(&entry("http://localhost:6006", None)), &servers, &[])), Some(6006));
+        assert_eq!(port_of(&lane_preview(Some(&entry("https://quarry.app.test", Some(3040))), &servers, &[], None)), Some(3040));
+        assert_eq!(port_of(&lane_preview(Some(&entry("http://localhost:6006", None)), &servers, &[], None)), Some(6006));
         // Nothing listening: set, not running.
-        let down = lane_preview(Some(&entry("https://quarry.app.test", None)), &[], &[]).unwrap();
+        let down = lane_preview(Some(&entry("https://quarry.app.test", None)), &[], &[], None).unwrap();
         assert!(down.set && down.server.is_none());
-        assert!(lane_preview(Some(&entry("https://quarry.app.test", Some(5299))), &servers, &[]).unwrap().server.is_none());
+        assert!(lane_preview(Some(&entry("https://quarry.app.test", Some(5299))), &servers, &[], None).unwrap().server.is_none());
         // With no URL set, a page served there opens at localhost; an API alone isn't an app.
-        let found = lane_preview(None, &servers, &[]).unwrap();
+        let found = lane_preview(None, &servers, &[], None).unwrap();
         assert_eq!((found.url.as_str(), found.set), ("http://localhost:5210", false));
-        assert_eq!(lane_preview(None, &[&api], &[]), None);
-        assert_eq!(lane_preview(None, &[], &[]), None);
+        assert_eq!(lane_preview(None, &[&api], &[], None), None);
+        assert_eq!(lane_preview(None, &[], &[], None), None);
         // The session whose command started it: its process is one of the server's parents.
         let a = acct("claude2");
         let mut started = claude_session(&a, Some(&reg("shell", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
         started.pid = Some(900);
-        let found = lane_preview(None, &servers, &[started.clone()]).unwrap();
+        let found = lane_preview(None, &servers, &[started.clone()], None).unwrap();
         assert_eq!(found.server.unwrap().session.as_deref(), Some(started.key.as_str()));
         // It's opened from the worktree's menus, and says where and whether it runs.
         let apps = AppNames { editor: "Cursor".into(), ..Default::default() };
@@ -2364,6 +2373,18 @@ mod tests {
         assert_eq!(default.as_deref(), Some("l|terminal"));
         let (t, _) = targets(&seed("/r/atlas-quarry", "quarry"), &[], None, Some(&down), &apps);
         assert_eq!(t.iter().find(|x| x.id == "l|preview").unwrap().detail.as_deref(), Some("quarry.app.test · not running"));
+
+        // It opens in the project's Chrome profile unless the worktree names its own.
+        let mut own = entry("https://quarry.app.test", None);
+        let project = lane_preview(Some(&own), &servers, &[], Some("Work")).unwrap();
+        assert_eq!((project.chrome_profile.as_deref(), project.chrome_profile_set), (Some("Work"), false));
+        own.chrome_profile = Some("Dev".into());
+        let mine = lane_preview(Some(&own), &servers, &[], Some("Work")).unwrap();
+        assert_eq!((mine.chrome_profile.as_deref(), mine.chrome_profile_set), (Some("Dev"), true));
+        assert_eq!(lane_preview(None, &servers, &[], Some("Work")).unwrap().chrome_profile.as_deref(), Some("Work"));
+        assert_eq!(lane_preview(None, &servers, &[], None).unwrap().chrome_profile, None);
+        let (t, _) = targets(&seed("/r/atlas-quarry", "quarry"), &[], None, Some(&mine), &apps);
+        assert_eq!(t.iter().find(|x| x.id == "l|preview").unwrap().detail.as_deref(), Some("quarry.app.test · node on port 5210 · Chrome's Dev profile"));
     }
 
     #[test]

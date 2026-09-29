@@ -1733,9 +1733,9 @@ mod tests {
     #[test]
     fn other_devices_worktrees_go_into_this_devices_projects_by_repo() {
         let projects = vec![
-            ProjectCfg { name: "Kestrel".into(), repos: vec!["github.com/kestrelhq/*".into()], folders: vec![] },
-            ProjectCfg { name: "Northwind".into(), repos: vec!["github.com/northwindai/*".into()], folders: vec![] },
-            ProjectCfg { name: "Notes".into(), repos: vec![], folders: vec!["~/notes".into()] },
+            ProjectCfg { name: "Kestrel".into(), repos: vec!["github.com/kestrelhq/*".into()], folders: vec![], chrome_profile: None },
+            ProjectCfg { name: "Northwind".into(), repos: vec!["github.com/northwindai/*".into()], folders: vec![], chrome_profile: None },
+            ProjectCfg { name: "Notes".into(), repos: vec![], folders: vec!["~/notes".into()], chrome_profile: None },
         ];
         let with = |slug: Option<&str>, project: &str, hidden: bool| {
             let mut l = lane("/x", vec![]);

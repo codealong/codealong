@@ -15,6 +15,7 @@ use crate::board::{self, LaneSeed, ELSEWHERE};
 use crate::antigravity;
 use crate::appserver;
 use crate::claude::{self, RegistryEntry, TranscriptInfo};
+use crate::chrome;
 use crate::claudeapp;
 use crate::prlinks;
 use crate::previews;
@@ -216,14 +217,16 @@ impl Handle {
 
     /// Sets a worktree's preview URL, or clears it with none, and returns the time of the board
     /// that shows it, as `mark_seen_shown` does. `port` picks which of the worktree's servers is
-    /// the app, when more than one serves a page.
-    pub fn set_preview(&self, lane_id: &str, url: Option<&str>, port: Option<u16>) -> Result<Option<i64>> {
+    /// the app, when more than one serves a page, and `chrome_profile` the Chrome profile it
+    /// opens in over its project's.
+    pub fn set_preview(&self, lane_id: &str, url: Option<&str>, port: Option<u16>, chrome_profile: Option<&str>) -> Result<Option<i64>> {
         if !self.read(|b| b.lanes.iter().any(|l| l.id == lane_id && l.device.is_none())) {
             bail!("That worktree just changed. Try again.");
         }
         let url = url.map(previews::normalize_url).transpose()?;
+        let profile = chrome_profile.map(str::trim).filter(|p| !p.is_empty()).map(|p| chrome::resolve(p).map(|p| p.id)).transpose()?;
         previews::change(|store| match &url {
-            Some(url) => store.set(lane_id, url, port, now_ms()),
+            Some(url) => store.set(lane_id, url, port, profile.as_deref(), now_ms()),
             None => store.clear(lane_id),
         })?;
         let (tx, rx) = channel();
@@ -389,7 +392,14 @@ pub fn open_on(board: &Board, lane_id: &str, target_id: &str) -> Result<Option<S
             if !preview.url.starts_with("http://") && !preview.url.starts_with("https://") {
                 bail!("{} isn't a web address.", preview.url);
             }
-            launch::open_url(&preview.url)?
+            match &preview.chrome_profile {
+                Some(name) => {
+                    let whose = if preview.chrome_profile_set { "this worktree".to_string() } else { format!("{} in config.toml", lane.project) };
+                    let profile = chrome::resolve(name).map_err(|e| anyhow!("{e} It's set for {whose}."))?;
+                    chrome::open(&preview.url, &profile)?
+                }
+                None => launch::open_url(&preview.url)?,
+            }
         }
         ["p", which] => {
             let pr = lane.pr.as_ref().ok_or_else(|| anyhow!("This lane has no PR."))?;
@@ -1441,6 +1451,7 @@ impl Engine {
                 }
             }
         }
+        self.previews.chrome_profiles = self.cfg.projects.iter().filter_map(|p| Some((p.name.clone(), p.chrome_profile.clone()?))).collect();
         perf::set_enabled(self.cfg.debug.perf_log);
         search::configure(search::Scope { accounts: self.cfg.accounts.clone(), days: self.cfg.search.days });
     }
@@ -3259,7 +3270,7 @@ mod tests {
         for name in ["stuck", "late", "plain"] {
             git(&main, &["worktree", "add", "-q", &path(name).to_string_lossy(), "-b", name]);
         }
-        let project = crate::config::ProjectCfg { name: "Team".into(), repos: vec!["example.com/team/*".into()], folders: vec![] };
+        let project = crate::config::ProjectCfg { name: "Team".into(), repos: vec!["example.com/team/*".into()], folders: vec![], chrome_profile: None };
         config::write(&Config { scan: vec!["~/projects".into()], projects: vec![project], ..Config::default() }).unwrap();
 
         let boards: Arc<Mutex<Vec<Board>>> = Arc::default();

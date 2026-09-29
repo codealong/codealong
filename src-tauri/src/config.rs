@@ -340,6 +340,11 @@ pub struct ProjectCfg {
     /// Folders that aren't repos but belong to the project.
     #[serde(default)]
     pub folders: Vec<String>,
+    /// The Chrome profile its worktrees' previews open in (chrome.rs): the name Chrome's
+    /// profile picker shows, the account signed in to it, or its folder. None opens them in the
+    /// default browser.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chrome_profile: Option<String>,
 }
 
 fn default_scan() -> Vec<String> {
@@ -596,7 +601,8 @@ pub fn editor_profiles() -> Vec<Profile> {
 }
 
 /// What Settings works from: the settings as parsed, the file as written, and why it couldn't
-/// be parsed, if it couldn't (then `config` is the defaults and the form stays read-only).
+/// be parsed, if it couldn't (then `config` is the defaults and the form stays read-only), and
+/// the profiles the pickers offer.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConfigView {
@@ -606,6 +612,8 @@ pub struct ConfigView {
     pub error: Option<String>,
     pub terminals: Vec<Profile>,
     pub editors: Vec<Profile>,
+    /// Chrome's profiles, for a project's `chrome_profile` and a worktree's preview.
+    pub chrome_profiles: Vec<crate::chrome::Profile>,
 }
 
 pub fn view() -> ConfigView {
@@ -619,7 +627,7 @@ fn view_of(text: &str, path: &str) -> ConfigView {
         Ok(c) => (c, None),
         Err(e) => (Config::default(), Some(e.to_string().trim().to_string())),
     };
-    ConfigView { config, text: text.to_string(), path: path.to_string(), error, terminals: terminal_profiles(), editors: editor_profiles() }
+    ConfigView { config, text: text.to_string(), path: path.to_string(), error, terminals: terminal_profiles(), editors: editor_profiles(), chrome_profiles: crate::chrome::profiles() }
 }
 
 /// Why a list of projects can't be saved, in words.
@@ -635,6 +643,9 @@ pub fn check_projects(projects: &[ProjectCfg]) -> std::result::Result<(), String
         }
         if p.repos.iter().chain(&p.folders).any(|s| s.trim().is_empty()) {
             return Err(format!("{name} has an empty repo or folder entry."));
+        }
+        if p.chrome_profile.as_deref().is_some_and(|c| c.trim().is_empty()) {
+            return Err(format!("{name}'s chrome_profile is empty; take the line out to open its previews in the default browser."));
         }
     }
     Ok(())
@@ -783,6 +794,9 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
             t["name"] = Item::Value(Value::from(p.name.trim()));
             t["repos"] = Item::Value(strings(&p.repos));
             t["folders"] = Item::Value(strings(&p.folders));
+            if let Some(c) = p.chrome_profile.as_deref().map(str::trim).filter(|c| !c.is_empty()) {
+                t["chrome_profile"] = Item::Value(Value::from(c));
+            }
             t
         })
         .collect();
@@ -852,6 +866,7 @@ pub fn suggest_projects(owners: &BTreeMap<String, usize>, display_name: impl Fn(
             name: display_name(owner).map(|n| n.trim().to_string()).filter(|n| !n.is_empty()).unwrap_or_else(|| owner.clone()),
             repos: vec![format!("github.com/{owner}/*")],
             folders: vec![],
+            chrome_profile: None,
         })
         .collect()
 }
@@ -947,6 +962,9 @@ pub fn render(cfg: &Config) -> String {
         s.push_str(&format!("name = {}\n", q(&p.name)));
         s.push_str(&format!("repos = {}\n", list(&p.repos)));
         s.push_str(&format!("folders = {}\n", list(&p.folders)));
+        if let Some(c) = &p.chrome_profile {
+            s.push_str(&format!("chrome_profile = {}\n", q(c)));
+        }
     }
     s.push('\n');
     s.push_str(DEBUG_COMMENT);
@@ -974,6 +992,7 @@ mod tests {
                 name: "Northwind".into(),
                 repos: vec!["github.com/northwindai/*".into()],
                 folders: vec!["~/projects/atlasai/osprey".into()],
+                chrome_profile: Some("Work".into()),
             }],
             jev: JevCfg { model: "jev-1.13.0".into(), quick_panel: true, sessions: false, todos: true, pull_requests: false },
             router: None,
@@ -990,7 +1009,7 @@ mod tests {
     fn saving_accounts_keeps_the_rest_of_the_file() {
         let text = render(&Config {
             accounts: vec![AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: Some("claude".into()), start: None, preferred: false, acp: None }],
-            projects: vec![ProjectCfg { name: "Northwind".into(), repos: vec!["github.com/northwindai/*".into()], folders: vec![] }],
+            projects: vec![ProjectCfg { name: "Northwind".into(), repos: vec!["github.com/northwindai/*".into()], folders: vec![], chrome_profile: None }],
             ..Config::default()
         });
         let text = text.replace("[apps]\n", "[apps]\n# my editor of choice\n");
@@ -1043,7 +1062,7 @@ mod tests {
         // A file written before there was a theme: no [appearance] table.
         let text = render(&Config {
             accounts: vec![AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: Some("claude".into()), start: None, preferred: false, acp: None }],
-            projects: vec![ProjectCfg { name: "Northwind".into(), repos: vec!["github.com/northwindai/*".into()], folders: vec![] }],
+            projects: vec![ProjectCfg { name: "Northwind".into(), repos: vec!["github.com/northwindai/*".into()], folders: vec![], chrome_profile: None }],
             ..Config::default()
         });
         let start = text.find(APPEARANCE_COMMENT).unwrap();
@@ -1124,8 +1143,8 @@ mod tests {
                 AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: None, start: None, preferred: false, acp: None },
             ],
             projects: vec![
-                ProjectCfg { name: "Northwind".into(), repos: vec!["github.com/northwindai/*".into()], folders: vec!["~/projects/atlasai/osprey".into()] },
-                ProjectCfg { name: "Kestrel".into(), repos: vec!["github.com/kestrelhq/*".into()], folders: vec![] },
+                ProjectCfg { name: "Northwind".into(), repos: vec!["github.com/northwindai/*".into()], folders: vec!["~/projects/atlasai/osprey".into()], chrome_profile: None },
+                ProjectCfg { name: "Kestrel".into(), repos: vec!["github.com/kestrelhq/*".into()], folders: vec![], chrome_profile: None },
             ],
             jev: JevCfg::default(),
             router: None,
@@ -1208,7 +1227,8 @@ mod tests {
         next.debug.perf_log = false;
         next.accounts.pop();
         next.projects[1].folders.push("~/extra".into());
-        next.projects.push(ProjectCfg { name: "Codealong".into(), repos: vec!["github.com/codealong/*".into()], folders: vec![] });
+        next.projects[0].chrome_profile = Some("Work".into());
+        next.projects.push(ProjectCfg { name: "Codealong".into(), repos: vec!["github.com/codealong/*".into()], folders: vec![], chrome_profile: None });
         let out = with_config(&text, &next).unwrap();
         assert_eq!(toml::from_str::<Config>(&out).unwrap(), next);
         for kept in ["# my editor of choice", "# roots", "# Harness accounts.", "# Projects group repos", APPS_COMMENT, DEBUG_COMMENT] {
@@ -1240,6 +1260,9 @@ mod tests {
         let mut bad = full();
         bad.projects[0].repos.push(" ".into());
         assert!(check(&bad).unwrap_err().contains("empty"));
+        let mut bad = full();
+        bad.projects[0].chrome_profile = Some(" ".into());
+        assert!(check(&bad).unwrap_err().contains("chrome_profile is empty"));
         let mut bad = full();
         bad.scan.push(String::new());
         assert!(check(&bad).is_err());

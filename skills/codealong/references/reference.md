@@ -44,11 +44,11 @@ Commands:
              hand. A session is linked by itself when its records show it made, edited
              or commented on the PR (`gh pr create` and the like), or when it worked in
              a worktree on the PR's branch while the PR was open
-  preview    A worktree's app, to open in the browser: the URL set for it, and whether a
-             server in its folder serves it now. Set the URL when you know where the
-             worktree's app opens (you started its dev server, or the repo's
-             instructions say where it's served): the worktree's row in the app links to
-             it and shows whether it's running
+  preview    A worktree's app, to open in the browser: the URL set for it, the Chrome
+             profile it opens in, and whether a server in its folder serves it now. Set
+             the URL when you know where the worktree's app opens (you started its dev
+             server, or the repo's instructions say where it's served): the worktree's
+             row in the app links to it and shows whether it's running
   start      Start a session for a todo (or several, on one prompt) or on a prompt, the
              way the app's New session does, and link it to the todos
   config     Codealong's own settings (config.toml): show them as the app reads them,
@@ -1146,20 +1146,24 @@ Options:
 ## codealong preview
 
 ```
-A worktree's app, to open in the browser: the URL set for it, and whether a server in
-its folder serves it now. Set the URL when you know where the worktree's app opens (you
-started its dev server, or the repo's instructions say where it's served): the
-worktree's row in the app links to it and shows whether it's running
+A worktree's app, to open in the browser: the URL set for it, the Chrome profile it
+opens in, and whether a server in its folder serves it now. Set the URL when you know
+where the worktree's app opens (you started its dev server, or the repo's instructions
+say where it's served): the worktree's row in the app links to it and shows whether it's
+running
 
 Usage: codealong preview [OPTIONS] <COMMAND>
 
 Commands:
-  show   A worktree's preview: where it opens, whether that URL was set or found, and
-         the server serving it now. `running` false means nothing listening in the
-         worktree's folder serves it: its app isn't running
-  set    Set the URL a worktree's app opens at. It's linked to the server listening in
-         the worktree's folder: the one on --port, else the port a localhost URL names,
-         else the one that serves a page
+  show   A worktree's preview: where it opens, whether that URL was set or found, the
+         server serving it now, and the Chrome profile it opens in. `running` false
+         means nothing listening in the worktree's folder serves it: its app isn't
+         running
+  set    Set the URL a worktree's app opens at, or the Chrome profile it opens in. It's
+         linked to the server listening in the worktree's folder: the one on --port,
+         else the port a localhost URL names, else the one that serves a page. A
+         project's `chrome_profile` in config.toml opens all its worktrees' previews in
+         that profile; --chrome-profile sets one worktree's own
   clear  Take a worktree's URL away. A page a server in its folder serves still shows,
          at localhost
   help   Print this message or the help of the given subcommand(s)
@@ -1181,9 +1185,9 @@ Options:
 ## codealong preview show
 
 ```
-A worktree's preview: where it opens, whether that URL was set or found, and the server
-serving it now. `running` false means nothing listening in the worktree's folder serves
-it: its app isn't running
+A worktree's preview: where it opens, whether that URL was set or found, the server
+serving it now, and the Chrome profile it opens in. `running` false means nothing
+listening in the worktree's folder serves it: its app isn't running
 
 Usage: codealong preview show [OPTIONS]
 
@@ -1209,16 +1213,19 @@ Options:
 ## codealong preview set
 
 ```
-Set the URL a worktree's app opens at. It's linked to the server listening in the
-worktree's folder: the one on --port, else the port a localhost URL names, else the one
-that serves a page
+Set the URL a worktree's app opens at, or the Chrome profile it opens in. It's linked to
+the server listening in the worktree's folder: the one on --port, else the port a
+localhost URL names, else the one that serves a page. A project's `chrome_profile` in
+config.toml opens all its worktrees' previews in that profile; --chrome-profile sets one
+worktree's own
 
-Usage: codealong preview set [OPTIONS] <URL>
+Usage: codealong preview set [OPTIONS] [URL]
 
 Arguments:
-  <URL>
+  [URL]
           Where the app opens: `https://feature.app.test`, `localhost:5173/admin`, or a
-          port alone. Without a scheme, local names take http and others https
+          port alone. Without a scheme, local names take http and others https. Leave it
+          out to keep the URL (and port) already set and change only the Chrome profile
 
 Options:
       --json
@@ -1228,16 +1235,25 @@ Options:
           Which of the worktree's servers is the app, when more than one serves a page
           (a dev server and Storybook, say), or when a proxy's URL names none
 
+      --chrome-profile <NAME>
+          The Chrome profile it opens in, over its project's: the name Chrome's profile
+          picker shows, the Google account signed in to it, or its folder (`Profile 2`).
+          Kept when the URL changes
+
       --table
           Tables, even when piped
+
+      --no-chrome-profile
+          Open it in its project's Chrome profile again (or the default browser, when
+          the project names none), not one of its own
+
+      --verbose
+          Say on stderr whether the app or the files answered
 
       --worktree <WORKTREE>
           The worktree: its path, or `.` for the one the current folder is in
           
           [default: .]
-
-      --verbose
-          Say on stderr whether the app or the files answered
 
   -h, --help
           Print help

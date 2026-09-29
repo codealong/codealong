@@ -708,6 +708,20 @@ Ghostty (1.3, AppleScript dictionary in the app bundle)
   carries out an Apple event after `osascript` is killed, so `launch.rs` waits a minute rather
   than report a failure for a window that then opens.
 
+Google Chrome (154, for previews' profiles, chrome.rs; checked 2026-09-29)
+
+- Profiles are listed in `~/Library/Application Support/Google/Chrome/Local State` (JSON):
+  `profile.info_cache` keyed by folder (`Default`, `Profile 12`), each with `name` (what the
+  profile picker shows) and `user_name` (the Google account, empty when none), and
+  `profile.profiles_order` for the picker's order. It's rewritten while Chrome runs, not at
+  once: a profile made a moment ago can be missing from it.
+- `open -a`/`-b` with `--args` gives a running app nothing, so a page opens in a profile with
+  `open -n -b com.google.Chrome --args --profile-directory=<folder> <url>`: the new copy hands
+  the URL to the running Chrome, which opens it in that profile's window, and quits (checked
+  with a Chrome on a scratch `--user-data-dir`: one main process after, the page in that
+  profile's session). Started from the binary instead, a Chrome that wasn't running would be
+  Codealong's child.
+
 Agent Client Protocol (hosted sessions, acp.rs; schema v1, adapters checked 2026-09-27)
 
 - JSON-RPC 2.0, one message a line, on the adapter's stdin and stdout. `initialize`

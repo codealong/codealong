@@ -8,6 +8,7 @@ mod bar;
 mod barfeed;
 mod board;
 mod canvas;
+mod chrome;
 mod caret;
 mod claude;
 mod claudeapp;
@@ -216,14 +217,15 @@ fn set_pinned(engine: State<'_, engine::Handle>, keys: Vec<String>) {
     engine.set_pinned(keys);
 }
 
-/// Sets a worktree's preview URL, or clears it with none. Returns the time of the board that
-/// shows it, when the engine says in time.
+/// Sets a worktree's preview URL, and the Chrome profile it opens in over its project's, or
+/// clears them with no URL. Returns the time of the board that shows it, when the engine says
+/// in time.
 #[tauri::command(async)]
-fn set_preview(engine: State<'_, engine::Handle>, lane_id: String, url: Option<String>, port: Option<u16>) -> Result<Option<i64>, String> {
+fn set_preview(engine: State<'_, engine::Handle>, lane_id: String, url: Option<String>, port: Option<u16>, chrome_profile: Option<String>) -> Result<Option<i64>, String> {
     if peerfeed::split_remote(&lane_id).is_some() {
         return Err("That worktree is on another device; set its preview there.".into());
     }
-    engine.set_preview(&lane_id, url.as_deref(), port).map_err(|e| format!("{e:#}"))
+    engine.set_preview(&lane_id, url.as_deref(), port, chrome_profile.as_deref()).map_err(|e| format!("{e:#}"))
 }
 
 #[tauri::command]

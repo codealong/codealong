@@ -6,10 +6,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getConfig, onQuickShortcut, openUrl, pauseQuickShortcut, quickShortcut, jevKey, saveConfig, saveConfigText, setJevKey, testJev } from '../api';
 import { shortcutFromKey, shortcutLabel, TAKEN } from '../quick';
-import type { Config, ConfigView, JevCfg, NewTerminal, Profile, ProjectCfg, ShortcutStatus, Theme, Usage } from '../types';
+import type { ChromeProfile, Config, ConfigView, JevCfg, NewTerminal, Profile, ProjectCfg, ShortcutStatus, Theme, Usage } from '../types';
 import { AccountsSection } from './AccountsSection';
 import { AgentsSection } from './AgentsSection';
 import { DevicesPane } from './DevicesSection';
+import { ChromeProfileSelect } from './PreviewBits';
 import { UpdatesFields } from './Updates';
 import { Button, Icon, NavItem } from './primitives';
 
@@ -131,7 +132,7 @@ export function SettingsDialog({ section, onSection, focus, usage, apps, theme, 
   } else if (section === 'devices' && cfg) {
     pane = <DevicesPane cfg={cfg} disabled={!!broken} onSave={save} now={now} />;
   } else if (section === 'projects' && cfg) {
-    pane = <ProjectsPane cfg={cfg} disabled={!!broken} onSave={save} />;
+    pane = <ProjectsPane cfg={cfg} chromeProfiles={view.chromeProfiles ?? []} disabled={!!broken} onSave={save} />;
   } else if (section === 'jev' && cfg) {
     pane = <JevPane jev={{ ...JEV_OFF, ...cfg.jev }} disabled={!!broken} onChange={(jev) => void save({ ...cfg, jev })} />;
   } else if (section === 'advanced' && cfg) {
@@ -559,9 +560,11 @@ interface ProjectDraft {
   name: string;
   repos: string[];
   folders: string[];
+  /** '' opens its previews in the default browser. */
+  chromeProfile: string;
 }
 
-function ProjectsPane({ cfg, disabled, onSave }: PaneProps) {
+function ProjectsPane({ cfg, chromeProfiles, disabled, onSave }: PaneProps & { chromeProfiles: ChromeProfile[] }) {
   const [draft, setDraft] = useState<ProjectDraft | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -575,7 +578,7 @@ function ProjectsPane({ cfg, disabled, onSave }: PaneProps) {
 
   const submit = async () => {
     if (!draft) return;
-    const entry: ProjectCfg = { name: draft.name.trim(), repos: draft.repos, folders: draft.folders };
+    const entry: ProjectCfg = { name: draft.name.trim(), repos: draft.repos, folders: draft.folders, ...(draft.chromeProfile.trim() ? { chrome_profile: draft.chromeProfile.trim() } : {}) };
     const next = draft.original ? cfg.projects.map((p) => (p.name === draft.original ? entry : p)) : [...cfg.projects, entry];
     if (await commit(next)) setDraft(null);
   };
@@ -612,6 +615,13 @@ function ProjectsPane({ cfg, disabled, onSave }: PaneProps) {
         <ListField items={draft.folders} placeholder="~/projects/notes" addLabel="Add folder" onChange={(folders) => setDraft({ ...draft, folders })} />
         <small>Folders that aren't repos but belong to the project.</small>
       </div>
+      {(chromeProfiles.length > 0 || draft.chromeProfile) && (
+        <label className="ca-field">
+          <span>Chrome profile</span>
+          <ChromeProfileSelect value={draft.chromeProfile} profiles={chromeProfiles} none="None: the default browser" onChange={(chromeProfile) => setDraft({ ...draft, chromeProfile })} />
+          <small>Its worktrees’ previews open in this profile, with its sign-in and cookies. A worktree can pick its own in its Preview URL sheet.</small>
+        </label>
+      )}
       <div className="ca-acct-actions">
         <Button variant="primary" size="sm" type="submit" disabled={busy || !draft.name.trim()}>
           {draft.original ? 'Save' : 'Add project'}
@@ -642,6 +652,12 @@ function ProjectsPane({ cfg, disabled, onSave }: PaneProps) {
                 <dd className="ca-code">{p.repos.length ? p.repos.join(', ') : 'None'}</dd>
                 <dt>Folders</dt>
                 <dd className="ca-code">{p.folders.length ? p.folders.join(', ') : 'None'}</dd>
+                {p.chrome_profile && (
+                  <>
+                    <dt>Previews</dt>
+                    <dd>Chrome · {p.chrome_profile}</dd>
+                  </>
+                )}
               </dl>
               {removing === p.name ? (
                 <div className="ca-acct-confirm" role="alert">
@@ -662,7 +678,7 @@ function ProjectsPane({ cfg, disabled, onSave }: PaneProps) {
                     size="sm"
                     onClick={() => {
                       setRemoving(null);
-                      setDraft({ original: p.name, name: p.name, repos: p.repos, folders: p.folders });
+                      setDraft({ original: p.name, name: p.name, repos: p.repos, folders: p.folders, chromeProfile: p.chrome_profile ?? '' });
                     }}
                   >
                     Edit
@@ -683,7 +699,7 @@ function ProjectsPane({ cfg, disabled, onSave }: PaneProps) {
               icon="plus"
               onClick={() => {
                 setRemoving(null);
-                setDraft({ original: null, name: '', repos: [], folders: [] });
+                setDraft({ original: null, name: '', repos: [], folders: [], chromeProfile: '' });
               }}
             >
               Add project

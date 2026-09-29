@@ -363,6 +363,13 @@ pub struct Preview {
     /// The server that serves it, while one listens in the worktree's folder; none when the app
     /// isn't running.
     pub server: Option<PreviewServer>,
+    /// The Chrome profile it opens in: the worktree's own, or else its project's
+    /// (`chrome_profile` in config.toml). None opens it in the default browser.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chrome_profile: Option<String>,
+    /// The profile was set for the worktree, not taken from its project.
+    #[serde(default)]
+    pub chrome_profile_set: bool,
 }
 
 /// A process listening on a TCP port, whose folder is in the worktree.

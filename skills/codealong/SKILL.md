@@ -79,6 +79,17 @@ done` say on stderr that no session was linked; give a session key when you want
   picks the server when more than one serves a page. `codealong preview show` says where it
   opens and what serves it now (`running: false` means the app isn't running); `clear` takes
   the URL away.
+- A preview opens in a Chrome profile when one is named, so the app has that profile's
+  sign-in and cookies: a project's `chrome_profile` in config.toml (in its `[[projects]]`
+  table) covers all its worktrees, and `codealong preview set --chrome-profile <name>` gives one
+  worktree its own. A name is what Chrome's profile picker shows, the Google account signed in
+  to it, or its folder (`Profile 2`); `codealong config show --json` lists them
+  (`chromeProfiles`), and a name Chrome doesn't have is refused with the ones it does. The
+  worktree's profile is kept when its URL changes, `--chrome-profile` alone changes only it,
+  and `--no-chrome-profile` goes back to the project's; `preview show` says which it opens in.
+  With neither, it opens in the default browser. Set one when the user asks, or when the
+  repo's instructions say which account the app signs in with; for a whole project, edit its
+  table in config.toml and run `codealong config check`.
 - `codealong worktrees` lists worktrees with branch, PR state, bay (`needs`, `working`,
   `unread`, `review`, `idle`, `merged`) and `agents`, how many are running in each now
   (`working` of them working or waiting on the user). `sessions` counts every session that

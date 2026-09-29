@@ -161,6 +161,11 @@ export interface Preview {
   port: number | null;
   /** The server serving it; null when its app isn't running. */
   server: PreviewServer | null;
+  /** The Chrome profile it opens in: the worktree's own, or else its project's. Missing opens
+   *  it in the default browser. */
+  chromeProfile?: string;
+  /** The profile was set for the worktree, not taken from its project. */
+  chromeProfileSet: boolean;
 }
 
 /** A process listening on a TCP port, whose folder is in the worktree. */
@@ -226,6 +231,9 @@ export interface ProjectCfg {
   repos: string[];
   /** Folders that aren't repos but belong to the project. */
   folders: string[];
+  /** The Chrome profile its worktrees' previews open in; missing opens them in the default
+   *  browser. */
+  chrome_profile?: string;
 }
 
 /** config.toml, as the engine parses it (src-tauri/src/config.rs). Keys are the file's own. */
@@ -386,6 +394,19 @@ export interface ConfigView {
   error: string | null;
   terminals: Profile[];
   editors: Profile[];
+  /** Chrome's profiles, in its profile picker's order; empty when Chrome isn't set up here. */
+  chromeProfiles: ChromeProfile[];
+}
+
+/** A Chrome profile (src-tauri/src/chrome.rs). */
+export interface ChromeProfile {
+  /** What config.toml names it by: its name, or its folder when another profile has that name. */
+  id: string;
+  name: string;
+  /** Its folder in Chrome's data folder: `Default`, `Profile 12`. */
+  dir: string;
+  /** The Google account signed in to it. */
+  email: string | null;
 }
 
 export interface AccountInfo extends AccountCfg {

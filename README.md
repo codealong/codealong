@@ -179,7 +179,12 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   localhost URL names, or else the one whose front page is a page, not an API or a debugger.
   The chip is green while that server runs and outlined when it doesn't; the panel says which
   process serves it, for how long, its page's title, and the session whose command started it.
-  A worktree with no URL set that serves a page shows it at `localhost`. Servers are found from
+  A worktree with no URL set that serves a page shows it at `localhost`.
+  A preview can open in a Chrome profile, with that profile's sign-in and cookies: a project's
+  `chrome_profile` (Settings › Projects) covers its worktrees, and a worktree can pick its own
+  in its Preview URL sheet or with `codealong preview set --chrome-profile <name>`. Profiles
+  are named as Chrome's profile picker shows them, by the account signed in to them, or by
+  folder, and are read from Chrome's `Local State`. Servers are found from
   the kernel's list of your processes' listening ports every 10 seconds (a few milliseconds for
   every worktree at once), each new one is asked for its front page once, and the kernel says
   the moment one exits, so nothing is polled over HTTP. Only worktrees in projects are looked
@@ -512,6 +517,7 @@ home = "~/.gemini/antigravity" # its app data folder, with conversation_summarie
 name = "Northwind"
 repos = ["github.com/northwindai/*"]
 folders = []
+chrome_profile = "Work"        # its worktrees' previews open in this Chrome profile; without it, the default browser
 ```
 
 What you've seen (for Your turn), what you've pinned, snoozed and archived in Codealong are
@@ -600,7 +606,7 @@ light scan (no git, PRs or visitors).
 | `src-tauri/src/editors.rs`, `src/editors.ts` | The editors a folder opens in: the ones Codealong knows, found where Mac apps are installed, and the Open in menus |
 | `src-tauri/src/flash.rs` | Outlines a focused terminal that came forward on another screen |
 | `src-tauri/src/caret.rs`, `src/caret.ts` | A text cursor WebKit stopped drawing in a window you type in: typing into a page that says it isn't focused hands it its focus again, and the perf log says what macOS said of the window |
-| `src-tauri/src/previews.rs`, `src/ui/PreviewBits.tsx` | Previews: each worktree's URL (`previews.json`), the servers listening in worktrees' folders (`procs::listeners`, the kernel's socket lists), their front pages read once, a kqueue for their exits; the row's chip, the panel's section and the URL sheet |
+| `src-tauri/src/previews.rs`, `src-tauri/src/chrome.rs`, `src/ui/PreviewBits.tsx` | Previews: each worktree's URL and Chrome profile (`previews.json`), the servers listening in worktrees' folders (`procs::listeners`, the kernel's socket lists), their front pages read once, a kqueue for their exits; Chrome's profiles and opening a page in one; the row's chip, the panel's section and the URL sheet |
 | `src-tauri/src/idle.rs`, `src/ui/CloseIdleDialog.tsx` | Close idle terminals: which sessions' tabs can close and why (pure, tested), and closing them |
 | `src-tauri/src/start.rs`, `src/start.ts` | New sessions: where each account can start one, the launch it makes, the agent menu (every account on every model, and the effort levels) and Auto's pick |
 | `src-tauri/src/quick.rs`, `src/quick.ts`, `src/ui/Quick.tsx` | The quick panel: its window (a panel that takes the keyboard over any app), its shortcut, and its page (what needs you, finding sessions, starting one) |
