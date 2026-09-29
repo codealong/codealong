@@ -331,6 +331,10 @@ pub struct Hit {
     /// You wrote it; otherwise the agent did.
     pub you: bool,
     pub at: i64,
+    /// How well that message matched (the engine's `search::match_score`): higher is better.
+    /// Devices of earlier builds don't send it.
+    #[serde(default)]
+    pub score: u8,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -38,7 +38,8 @@ struct Entry {
     at: i64,
     you: bool,
     text: String,
-    /// `text` lowercased, for matching.
+    /// `text` lowercased with its runs of whitespace made single spaces, for matching words and
+    /// the phrase they make.
     lower: String,
 }
 
@@ -51,7 +52,7 @@ impl Entry {
             }
             text.truncate(cut);
         }
-        let lower = text.to_lowercase();
+        let lower = text.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
         Entry { at, you, text, lower }
     }
 }
@@ -259,20 +260,56 @@ impl Index {
                 }
             }
         }
-        hits.sort_by(|a, b| b.at.cmp(&a.at).then_with(|| a.key.cmp(&b.key)));
+        // The best matches first, so a common word's hundreds of passing mentions don't push the
+        // session that said the phrase past the limit.
+        hits.sort_by(|a, b| b.score.cmp(&a.score).then(b.at.cmp(&a.at)).then_with(|| a.key.cmp(&b.key)));
         hits.truncate(limit);
         hits
     }
 }
 
-/// The session's hit when every word is somewhere in what was said: the message with the most
-/// of them, the latest among equals.
+/// The session's hit when every word is somewhere in what was said: the message that matched
+/// best, the latest among equals.
 fn hit<'a>(key: &str, entries: impl Iterator<Item = &'a Entry> + Clone, words: &[String]) -> Option<Hit> {
-    if !words.iter().all(|w| entries.clone().any(|e| e.lower.contains(w.as_str()))) {
+    if !words.iter().all(|w| entries.clone().any(|e| has_word(&e.lower, w, words.len()))) {
         return None;
     }
-    let best = entries.max_by_key(|e| (words.iter().filter(|w| e.lower.contains(w.as_str())).count(), e.at))?;
-    Some(Hit { key: key.to_string(), snippet: snippet(&best.text, words), you: best.you, at: best.at })
+    let (score, _, best) = entries.map(|e| (match_score(e, words), words.iter().filter(|w| has_word(&e.lower, w, words.len())).count(), e)).max_by_key(|(s, n, e)| (*s, *n, e.at))?;
+    Some(Hit { key: key.to_string(), snippet: snippet(&best.text, words), you: best.you, at: best.at, score })
+}
+
+/// How well one message matches: the words as typed, in order, beat all of them apart, which
+/// beat only some; and where a message has them all, what you wrote beats what the agent did.
+/// Among messages with only some, the latest stands for the session.
+fn match_score(e: &Entry, words: &[String]) -> u8 {
+    let short = |w: &String| w.chars().count() <= 2;
+    let level = if words.len() > 1 && has_edged(&e.lower, &words.join(" "), short(&words[0]), short(&words[words.len() - 1])) {
+        3
+    } else if words.iter().all(|w| has_word(&e.lower, w, words.len())) {
+        2
+    } else if words.iter().any(|w| has_word(&e.lower, w, words.len())) {
+        1
+    } else {
+        0
+    };
+    level * 2 + u8::from(e.you && level >= 2)
+}
+
+/// Whether `text` has `word`. Among other words, a word of one or two letters counts only
+/// whole ("class c" shouldn't match every message with a c in it); alone it's a search as you
+/// type and matches anywhere. The same rule as `hasWord` in src/quick.ts.
+pub fn has_word(text: &str, word: &str, of: usize) -> bool {
+    let whole = of > 1 && word.chars().count() <= 2;
+    has_edged(text, word, whole, whole)
+}
+
+/// Whether `text` has `needle`, starting a word when `start` and ending one when `end`.
+fn has_edged(text: &str, needle: &str, start: bool, end: bool) -> bool {
+    if !start && !end {
+        return text.contains(needle);
+    }
+    let edge = |c: Option<char>| !c.is_some_and(char::is_alphanumeric);
+    text.match_indices(needle).any(|(i, _)| (!start || edge(text[..i].chars().next_back())) && (!end || edge(text[i + needle.len()..].chars().next())))
 }
 
 /// One line of `text` around the first of `words` in it, with an ellipsis where it's cut.
@@ -421,6 +458,24 @@ mod tests {
         let entries: Vec<Entry> = lines.iter().filter_map(|l| entry_of(l.as_bytes(), Kind::Codex)).collect();
         assert_eq!(entries.len(), 3);
         assert!(entries[0].you && !entries[1].you);
+    }
+
+    #[test]
+    fn short_words_count_whole_and_phrases_rank_first() {
+        let e = |you: bool, t: &str| Entry::new(0, you, t.to_string());
+        let scattered = [e(true, "Which class is it?"), e(false, "Claude checked it.")];
+        assert!(hit("a", scattered.iter(), &words("class c")).is_none(), "the c in Claude isn't the word c");
+        assert!(has_word("co", "co", 1), "alone, a short word matches anywhere");
+        assert!(has_word("see claude", "c", 1));
+
+        let apart = [e(false, "C is for the class of service."), e(true, "Plan the merge")];
+        let phrase = [e(true, "Check our class\nC status and plan")];
+        let a = hit("a", apart.iter(), &words("class c")).unwrap();
+        let p = hit("p", phrase.iter(), &words("class c")).unwrap();
+        assert!(p.score > a.score);
+        assert!(p.you && p.snippet.contains("class C status"));
+        let cleanup = [e(true, "the class cleanup, c too")];
+        assert!(hit("c", cleanup.iter(), &words("class c")).unwrap().score < p.score, "class cleanup isn't the phrase class c");
     }
 
     #[test]

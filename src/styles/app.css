@@ -4380,6 +4380,14 @@ html.is-quick body {
   font: 400 12px/16px var(--font-sans);
   color: var(--ink-3);
 }
+/* The row under a search's first sessions that lists the rest. */
+.ca-quick-row.is-more .ca-quick-row-title {
+  color: var(--ink-2);
+}
+.ca-quick-row.is-more .ca-quick-plus {
+  background: transparent;
+  color: var(--ink-3);
+}
 /* A line of what was said, for a session found by its conversation. */
 .ca-quick-row-why.is-said mark {
   background: transparent;

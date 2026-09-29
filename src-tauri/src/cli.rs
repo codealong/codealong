@@ -1191,7 +1191,7 @@ fn sessions(c: &mut Client, f: &SessionFilter, query: &[String], json: bool) -> 
                 && since.map_or(true, |ms| now - s.last_activity <= ms)
                 && (words.is_empty() || {
                     let hay = [s.title.as_str(), s.account.as_str(), s.excerpt.as_deref().unwrap_or(""), lane.callsign.as_str(), lane.repo.as_str(), lane.branch.as_deref().unwrap_or(""), &lane.pr.as_ref().map(|p| format!("#{} {}", p.number, p.title)).unwrap_or_default()].join(" ").to_lowercase();
-                    words.iter().all(|w| hay.contains(w)) || said.contains_key(&s.key)
+                    words.iter().all(|w| search::has_word(&hay, w, words.len())) || said.contains_key(&s.key)
                 })
         })
         .collect();

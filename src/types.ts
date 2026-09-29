@@ -931,6 +931,9 @@ export interface TextHit {
   /** You wrote it; otherwise the agent did. */
   you: boolean;
   at: number;
+  /** How well that message matched: the words as typed beat them apart, what you wrote beats
+   *  the agent's. Higher is better; missing from an app of an earlier build. */
+  score?: number;
 }
 
 export interface TextFound {

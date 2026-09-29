@@ -127,7 +127,18 @@ interface SuggestRow {
   s: Suggestion;
 }
 
-type Row = SessionRow | TodoRow | PrRow | SuggestRow;
+/** Under a search's first few sessions, the rest of them, a click away. */
+interface MoreRow {
+  kind: 'more';
+  key: string;
+  group: 'found';
+  count: number;
+}
+
+type Row = SessionRow | TodoRow | PrRow | SuggestRow | MoreRow;
+
+/** The most sessions a search lists once you ask for all of them. */
+const FOUND_ALL = 40;
 
 /** How long typing has to pause before what's typed goes to Jev. */
 const ROUTE_AFTER_MS = 350;
@@ -624,7 +635,11 @@ export function Quick() {
   // Until it answers, the last search's hits whose lines still have every word stay in the list.
   const hits = useMemo(() => (textFound ? textFound.hits : textFor && textSearch ? stillSaid(textSearch.found.hits, queryWords(textFor)) : []), [textFound, textFor, textSearch]);
   const said = useMemo(() => new Map(hits.map((h) => [h.key, h] as const)), [hits]);
-  const foundSessions = useMemo(() => (board && query ? findSessions(board, current, query, FOUND_SESSIONS, said) : []), [board, current, query, said]);
+  const foundSessions = useMemo(() => (board && query ? findSessions(board, current, query, FOUND_ALL, said) : []), [board, current, query, said]);
+  // A search lists its first few sessions, so todos and PRs fit below; a row under them lists
+  // the rest, until what's typed changes.
+  const [allFor, setAllFor] = useState<string | null>(null);
+  const showAll = allFor === query;
   const foundTodos = useMemo(() => (board && query ? findTodos(board, current, query) : []), [board, current, query]);
   const foundPrs = useMemo(() => (board && query ? findPrs(board, current, query) : []), [board, current, query]);
 
@@ -734,7 +749,9 @@ export function Quick() {
     return () => observer.disconnect();
   }, [replyingKey, shown, opens, measure]);
 
-  const rows: Row[] = query ? [...suggested, ...rankedBy(foundSessions, route), ...foundTodos, ...foundPrs] : [...(attention?.rows ?? []), ...(readyList?.rows ?? []), ...(recent?.rows ?? [])];
+  const ranked = rankedBy(foundSessions, route);
+  const moreRow: MoreRow[] = !showAll && ranked.length > FOUND_SESSIONS ? [{ kind: 'more', key: 'more:found', group: 'found', count: ranked.length - FOUND_SESSIONS }] : [];
+  const rows: Row[] = query ? [...suggested, ...(showAll ? ranked : ranked.slice(0, FOUND_SESSIONS)), ...moreRow, ...foundTodos, ...foundPrs] : [...(attention?.rows ?? []), ...(readyList?.rows ?? []), ...(recent?.rows ?? [])];
   const keys = [...rows.map((r) => r.key), COMPOSE];
   const recallable = useMemo(() => recallList(draft?.text ?? null, history), [draft, history]);
   const active = activeKey && keys.includes(activeKey) ? activeKey : keys[0];
@@ -891,6 +908,7 @@ export function Quick() {
   };
 
   const rowMenu = (r: Row) => {
+    if (r.kind === 'more') return;
     if (r.kind === 'suggest') {
       const sg = r.s;
       if (sg.kind === 'send' || sg.kind === 'open') {
@@ -1071,7 +1089,11 @@ export function Quick() {
     else if (row.kind === 'suggest') suggest(row.s, alt);
     else if (row.kind === 'todo') (alt ? revealTodo : openTodo)(row);
     else if (row.kind === 'pr') (alt ? revealPr : openPr)(row.pr);
-    else (alt ? revealSession : openSession)(row.lane, row.session);
+    else if (row.kind === 'more') {
+      // The first of those it adds takes its place.
+      setAllFor(query);
+      setActiveKey(ranked[FOUND_SESSIONS]?.key ?? null);
+    } else (alt ? revealSession : openSession)(row.lane, row.session);
   };
 
   /* ---- Keys ---- */
@@ -1427,6 +1449,7 @@ export function Quick() {
     if (g === 'ready') return readyList?.count ?? shown;
     if (g === 'recent') return recent?.count ?? shown;
     if (g === 'needs' || g === 'unread' || g === 'working') return attention?.counts[g] ?? shown;
+    if (g === 'found') return foundSessions.length;
     return shown;
   };
   const agentLabel = autoFor ? 'Auto' : (account ?? 'No account');
@@ -1622,6 +1645,27 @@ export function Quick() {
                             </span>
                             <span className="ca-quick-row-where">{r.item.lane?.callsign ?? (t.project || 'No worktree')}</span>
                             <span className="ca-quick-row-age">{ago(r.item.lastActivity, now)}</span>
+                            {n <= 9 && <Kbd keys={['⌘', String(n)]} />}
+                          </div>
+                        );
+                      }
+                      if (r.kind === 'more') {
+                        return (
+                          <div
+                            key={r.key}
+                            role="option"
+                            aria-selected={active === r.key}
+                            className={['ca-quick-row', 'is-more', active === r.key && 'is-active'].filter(Boolean).join(' ')}
+                            {...handlers}
+                          >
+                            <span className="ca-quick-plus">
+                              <Icon name="chevron-down" size={13} stroke={2} />
+                            </span>
+                            <span className="ca-quick-row-main">
+                              <span className="ca-quick-row-title">
+                                {r.count} more {r.count === 1 ? 'session' : 'sessions'}
+                              </span>
+                            </span>
                             {n <= 9 && <Kbd keys={['⌘', String(n)]} />}
                           </div>
                         );

@@ -201,9 +201,11 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   three todos ready to start, in your order. Typed words find
   sessions by title, account, worktree, branch, repo, project or PR, then by what was said in
   them (your prompts and the agents' replies, for sessions active in the last `[search] days`,
-  with the matching line shown), and under them todos by
+  with the matching line shown; the words as you typed them rank first), six at first and the
+  rest a row away, and under them todos by
   title, description, label, project, or the worktrees and sessions linked to them, then PRs by
-  number, title, repo, branch or author. ⏎ on a todo
+  number, title, repo, branch or author. A word of one or two letters among others counts only
+  as a whole word, so "class c" doesn't find everything with a c in it. ⏎ on a todo
   opens its session, or, when it has none, gets a session ready to start for it (its prompt,
   its worktree, linked to it); on a PR it opens the PR on GitHub, and the PR's right-click menu
   copies its link. The last row starts a new session with what you typed as its

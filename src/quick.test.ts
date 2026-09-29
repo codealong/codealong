@@ -130,6 +130,25 @@ describe('findSessions', () => {
     expect(rows[3].said).toEqual({ text: 'The login retries are in auth.ts', you: false, marks: [[4, 9]] });
   });
 
+  it('ranks what was said by how well it matched before status', () => {
+    const said = new Map([
+      ['s4', { key: 's4', snippet: 'a checkout, and a class of tests', you: false, at: NOW, score: 4 }],
+      ['s1', { key: 's1', snippet: 'against our class C status', you: true, at: NOW, score: 7 }],
+    ]);
+    // s4 needs you, but s1 said the words as typed.
+    expect(findSessions(b, ALL_PROJECTS, 'class c', 9, said).map((r) => r.key)).toEqual(['s1', 's4']);
+  });
+
+  it('takes a short word among others only whole', () => {
+    // Every session's account is claude, which has a c; none has the word c.
+    expect(findSessions(b, ALL_PROJECTS, 'login c')).toEqual([]);
+    expect(findSessions(b, ALL_PROJECTS, 'c').length).toBe(4);
+    expect(titleMarks('Class C audit', ['class', 'c'])).toEqual([
+      [0, 5],
+      [6, 7],
+    ]);
+  });
+
   it('marks where the words are in the title', () => {
     expect(findSessions(b, ALL_PROJECTS, 'login flake')[0].marks).toEqual([
       [8, 13],

@@ -136,11 +136,31 @@ export function queryWords(query: string): string[] {
   return query.toLowerCase().split(/\s+/).filter(Boolean);
 }
 
+/**
+ * Where `word` first appears in `text` (lowercased), or -1. Among other words, a word of one or
+ * two letters counts only whole: "class c" shouldn't find every session with a c in it (every
+ * `claude` account has one). Alone it's a search as you type and matches anywhere. The engine's
+ * text search has the same rule (`search::has_word`).
+ */
+export function wordAt(text: string, word: string, of: number): number {
+  if (of < 2 || word.length > 2) return text.indexOf(word);
+  const edge = (c: string | undefined) => !c || !/[\p{L}\p{N}]/u.test(c);
+  for (let i = text.indexOf(word); i >= 0; i = text.indexOf(word, i + 1)) {
+    if (edge(text[i - 1]) && edge(text[i + word.length])) return i;
+  }
+  return -1;
+}
+
+/** Whether `hay` has every word, by `wordAt`'s rule. */
+export function hasWords(hay: string, words: string[]): boolean {
+  return words.every((w) => wordAt(hay, w, words.length) >= 0);
+}
+
 /** Where each word first appears in the title, merged where they overlap. */
 export function titleMarks(title: string, words: string[]): [number, number][] {
   const t = title.toLowerCase();
   const spans = words
-    .map((w) => [t.indexOf(w), w.length] as const)
+    .map((w) => [wordAt(t, w, words.length), w.length] as const)
     .filter(([at]) => at >= 0)
     .map(([at, n]) => [at, at + n] as [number, number])
     .sort((a, b) => a[0] - b[0]);
@@ -161,8 +181,9 @@ export const TEXT_SEARCH_MIN = 3;
 /**
  * Sessions with every typed word somewhere in what describes them, or in what was said in them
  * (`said`, the text search's hits by session key), best first: those whose title has them all,
- * then the rest of what describes them, then what was said; within each by status (needs you,
- * your turn, working, the rest), then the most recently active. Archived sessions are left out.
+ * then the rest of what describes them, then what was said, the best match first there (the
+ * words as typed beat them apart); within each by status (needs you, your turn, working, the
+ * rest), then the most recently active. Archived sessions are left out.
  */
 export function findSessions(board: Board, project: string, query: string, limit = MAX_ROWS, said: Map<string, TextHit> = new Map()): SessionRow[] {
   const words = queryWords(query);
@@ -172,16 +193,17 @@ export function findSessions(board: Board, project: string, query: string, limit
     const hay = [s.title, s.account, lane.callsign, lane.repo, lane.branch ?? '', s.branch ?? '', lane.project, pr].join('\n').toLowerCase();
     const title = s.title.toLowerCase();
     const row: SessionRow = { kind: 'session', key: s.key, group: 'found', lane, session: s, marks: titleMarks(s.title, words) };
-    if (words.every((w) => title.includes(w))) return [{ row, tier: 0 }];
-    if (words.every((w) => hay.includes(w))) return [{ row, tier: 1 }];
+    if (hasWords(title, words)) return [{ row, tier: 0, score: 0 }];
+    if (hasWords(hay, words)) return [{ row, tier: 1, score: 0 }];
     const hit = said.get(s.key);
     if (!hit) return [];
-    return [{ row: { ...row, said: { text: hit.snippet, you: hit.you, marks: titleMarks(hit.snippet, words) } }, tier: 2 }];
+    return [{ row: { ...row, said: { text: hit.snippet, you: hit.you, marks: titleMarks(hit.snippet, words) } }, tier: 2, score: hit.score ?? 0 }];
   });
   return found
     .sort(
       (a, b) =>
         a.tier - b.tier ||
+        b.score - a.score ||
         STATUS_RANK[a.row.session.status] - STATUS_RANK[b.row.session.status] ||
         b.row.session.lastActivity - a.row.session.lastActivity ||
         a.row.key.localeCompare(b.row.key),
@@ -198,8 +220,7 @@ export function findSessions(board: Board, project: string, query: string, limit
  */
 export function stillSaid(hits: TextHit[], words: string[]): TextHit[] {
   return hits.filter((h) => {
-    const line = h.snippet.toLowerCase();
-    return words.every((w) => line.includes(w));
+    return hasWords(h.snippet.toLowerCase(), words);
   });
 }
 
@@ -242,11 +263,11 @@ export function findTodos(board: Board, project: string, query: string, limit = 
       ]
         .join('\n')
         .toLowerCase();
-      if (!words.every((w) => hay.includes(w))) return [];
+      if (!hasWords(hay, words)) return [];
       const section = sectionOf(t, todos);
       const title = t.title.toLowerCase();
       const row: TodoRow = { kind: 'todo', key: `todo:${t.id}`, group: 'todos', item, waiting: section === 'waiting', marks: titleMarks(t.title, words) };
-      return [{ row, inTitle: words.every((w) => title.includes(w)), rank: SECTION_RANK[section] }];
+      return [{ row, inTitle: hasWords(title, words), rank: SECTION_RANK[section] }];
     });
   return found
     .sort((a, b) => Number(b.inTitle) - Number(a.inTitle) || a.rank - b.rank || b.row.item.lastActivity - a.row.item.lastActivity || a.row.key.localeCompare(b.row.key))
@@ -277,10 +298,10 @@ export function findPrs(board: Board, project: string, query: string, limit = FO
     .filter((p) => project === ALL_PROJECTS || p.project === project)
     .flatMap((p) => {
       const hay = [`#${p.number}`, p.title, p.repo, p.repoSlug, p.head, p.author ?? '', p.project].join('\n').toLowerCase();
-      if (!words.every((w) => hay.includes(w))) return [];
+      if (!hasWords(hay, words)) return [];
       const title = p.title.toLowerCase();
       const row: PrRow = { kind: 'pr', key: `pr:${p.key}`, group: 'prs', pr: p, marks: titleMarks(p.title, words) };
-      return [{ row, inTitle: words.every((w) => title.includes(w)), rank: PR_STATE_RANK[p.state] * 2 + (prFlag(p) ? 0 : 1) }];
+      return [{ row, inTitle: hasWords(title, words), rank: PR_STATE_RANK[p.state] * 2 + (prFlag(p) ? 0 : 1) }];
     });
   return found
     .sort((a, b) => Number(b.inTitle) - Number(a.inTitle) || a.rank - b.rank || b.row.pr.updatedAt - a.row.pr.updatedAt || a.row.key.localeCompare(b.row.key))
