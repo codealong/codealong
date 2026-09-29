@@ -331,6 +331,7 @@ mod tests {
             branch: None,
             archived: false,
             attach_command: None,
+            continues: None,
             stalled_since: None,
             background: None,
             insight: None,

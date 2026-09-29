@@ -24,6 +24,9 @@ pub struct RegistryEntry {
     pub kind: Option<String>,
     /// Set on a background job (`kind: "bg"`): what `claude attach` takes.
     pub job_id: Option<String>,
+    /// Set on a window whose conversation moved to that background job: until you go back to
+    /// it, the window shows Claude Code's list of agents and runs no session.
+    pub parked_job: Option<String>,
     pub entrypoint: Option<String>,
     pub name: Option<String>,
     pub name_source: Option<String>,
@@ -40,6 +43,7 @@ struct RawRegistry {
     status: Option<String>,
     kind: Option<String>,
     job_id: Option<String>,
+    parked_job_id: Option<String>,
     entrypoint: Option<String>,
     name: Option<String>,
     name_source: Option<String>,
@@ -56,6 +60,7 @@ pub fn parse_registry(text: &str) -> Option<RegistryEntry> {
         status: raw.status.unwrap_or_else(|| "idle".into()),
         kind: raw.kind,
         job_id: raw.job_id,
+        parked_job: raw.parked_job_id,
         entrypoint: raw.entrypoint,
         name: raw.name,
         name_source: raw.name_source,
@@ -65,7 +70,8 @@ pub fn parse_registry(text: &str) -> Option<RegistryEntry> {
 }
 
 /// Live sessions for one account. Entries whose process is gone, or whose pid now belongs
-/// to a newer process, are dropped.
+/// to a newer process, are dropped, and so are windows whose conversation moved to the
+/// background: the job it moved to runs it now (`board::claude_moves`).
 pub fn read_registry(home: &Path) -> Vec<RegistryEntry> {
     let Ok(entries) = std::fs::read_dir(home.join("sessions")) else { return vec![] };
     let mut out = Vec::new();
@@ -76,7 +82,7 @@ pub fn read_registry(home: &Path) -> Vec<RegistryEntry> {
         }
         let Ok(text) = std::fs::read_to_string(&path) else { continue };
         let Some(entry) = parse_registry(&text) else { continue };
-        if !procs::pid_alive(entry.pid) {
+        if entry.parked_job.is_some() || !procs::pid_alive(entry.pid) {
             continue;
         }
         if let (Some(proc_start), Some(started)) = (procs::proc_start_ms(entry.pid), entry.started_at) {
@@ -135,6 +141,9 @@ pub struct TranscriptInfo {
     pub last_text_tail: Option<String>,
     /// Where its latest commands ran and edits landed, oldest first.
     pub work: Vec<String>,
+    /// The session the conversation went on in when it moved to the background (a
+    /// `continued-in` line), while nothing has been said here since.
+    pub continued_in: Option<String>,
 }
 
 /// Transcript files modified since `since_ms`, one level below `<home>/projects`.
@@ -502,14 +511,21 @@ impl crate::harness::Adapter for ClaudeCode {
         crate::model::Harness::Claude
     }
 
-    /// Its transcript, looked up by id under every project folder.
+    /// Its transcript, looked up by id under every project folder: for a job that has written
+    /// none of its own yet, the one of the conversation it goes on from.
     fn records(&self, account: &crate::config::AccountCfg, s: &crate::model::Session) -> Vec<PathBuf> {
         let Ok(dirs) = std::fs::read_dir(account.home_path().join("projects")) else { return Vec::new() };
-        dirs.flatten().map(|d| d.path().join(format!("{}.jsonl", s.id))).filter(|p| p.is_file()).collect()
+        let id = s.continues.as_deref().unwrap_or(&s.id);
+        dirs.flatten().map(|d| d.path().join(format!("{id}.jsonl"))).filter(|p| p.is_file()).collect()
     }
 
     fn conversation(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, before: Option<u64>, limit: usize) -> anyhow::Result<Page> {
-        crate::transcript::file_page(&record(self, ctx, s)?, conversation_items, before, limit)
+        match record(self, ctx, s) {
+            Ok(path) => crate::transcript::file_page(&path, conversation_items, before, limit),
+            // A live session writes its transcript at its first prompt.
+            Err(_) if s.live => Ok(Page { items: Vec::new(), before: None, after: 0 }),
+            Err(e) => Err(e),
+        }
     }
 
     fn routes(&self, account: &crate::config::AccountCfg, s: &crate::model::Session) -> Vec<crate::send::Route> {
@@ -525,7 +541,11 @@ impl crate::harness::Adapter for ClaudeCode {
     }
 
     fn conversation_after(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, after: u64) -> anyhow::Result<Page> {
-        crate::transcript::file_newer(&record(self, ctx, s)?, conversation_items, after)
+        match record(self, ctx, s) {
+            Ok(path) => crate::transcript::file_newer(&path, conversation_items, after),
+            Err(_) if s.live => Ok(Page { items: Vec::new(), before: None, after }),
+            Err(e) => Err(e),
+        }
     }
 
     fn pending(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> Option<crate::harness::Pending> {
@@ -607,7 +627,8 @@ impl crate::harness::Adapter for ClaudeCode {
     }
 
     fn fork(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> anyhow::Result<crate::harness::Fork> {
-        Ok(fork_as(ctx.account, &s.id, &crate::start::new_session_id()))
+        // A job with no transcript of its own yet has the conversation it goes on from, so far.
+        Ok(fork_as(ctx.account, s.continues.as_deref().unwrap_or(&s.id), &crate::start::new_session_id()))
     }
 }
 
@@ -779,14 +800,23 @@ pub fn apply_tail(info: &mut TranscriptInfo, state: &mut TailState, tail: &str) 
     let open_tools = &mut state.open_tools;
     for line in tail.lines() {
         let Ok(v) = serde_json::from_str::<Value>(line) else { continue };
-        if let Some(ts) = str_of(&v, "timestamp").as_deref().and_then(parse_rfc3339_ms) {
+        let kind = v.get("type").and_then(Value::as_str);
+        // Moving the conversation to the background isn't something it did.
+        if let Some(ts) = str_of(&v, "timestamp").as_deref().and_then(parse_rfc3339_ms).filter(|_| kind != Some("continued-in")) {
             info.last_ts = info.last_ts.max(ts);
         }
         // Sessions switch branches; the latest line says which one it's on now.
         if let Some(b) = str_of(&v, "gitBranch").filter(|b| !b.is_empty() && b != "HEAD") {
             info.git_branch = Some(b);
         }
-        match v.get("type").and_then(Value::as_str) {
+        // A conversation that goes on here after it moved is back here.
+        if matches!(kind, Some("user") | Some("assistant")) {
+            info.continued_in = None;
+        }
+        match kind {
+            Some("continued-in") => {
+                info.continued_in = str_of(&v, "continuedInSessionId").filter(|id| !id.is_empty());
+            }
             Some("custom-title") => {
                 if let Some(t) = str_of(&v, "customTitle").filter(|t| !t.trim().is_empty()) {
                     info.title = Some(one_line(&t, 90));
@@ -1220,7 +1250,38 @@ mod tests {
         let e = parse_registry(r#"{"pid":22303,"sessionId":"9f62","cwd":"/x","status":"busy","kind":"interactive","entrypoint":"cli","name":"atlas-app4-4b","nameSource":"derived","startedAt":1,"statusUpdatedAt":2}"#).unwrap();
         assert_eq!(e.status, "busy");
         assert_eq!(e.name.as_deref(), Some("atlas-app4-4b"));
+        assert_eq!(e.parked_job, None);
         assert!(parse_registry(r#"{"pid":1}"#).is_none());
+    }
+
+    #[test]
+    fn a_window_whose_conversation_moved_to_the_background_runs_no_session() {
+        let home = std::env::temp_dir().join(format!("codealong-parked-{}", std::process::id()));
+        std::fs::create_dir_all(home.join("sessions")).unwrap();
+        let (pid, now) = (std::process::id(), crate::util::now_ms());
+        let entry = |id: &str, extra: &str| format!(r#"{{"pid":{pid},"sessionId":"{id}","cwd":"/x","status":"idle","kind":"interactive","startedAt":{now}{extra}}}"#);
+        std::fs::write(home.join("sessions/1.json"), entry("b664dd38", r#","parkedJobId":"398f3533""#)).unwrap();
+        std::fs::write(home.join("sessions/2.json"), entry("c1456f74", "")).unwrap();
+        assert_eq!(parse_registry(&entry("b664dd38", r#","parkedJobId":"398f3533""#)).unwrap().parked_job.as_deref(), Some("398f3533"));
+        let live: Vec<String> = read_registry(&home).into_iter().map(|e| e.session_id).collect();
+        assert_eq!(live, vec!["c1456f74"]);
+        std::fs::remove_dir_all(&home).unwrap();
+    }
+
+    #[test]
+    fn a_conversation_moved_to_the_background_says_where_it_went() {
+        // Moving it writes where it went, after the last turn's lines; that isn't activity.
+        let moved = r#"{"type":"assistant","timestamp":"2026-09-28T18:38:00.000Z","message":{"content":[{"type":"text","text":"Landed."}]}}
+{"type":"system","subtype":"turn_duration","timestamp":"2026-09-28T18:38:07.260Z"}
+{"type":"cost-state","sessionId":"b664dd38"}
+{"type":"continued-in","timestamp":"2026-09-29T02:27:21.233Z","sessionId":"b664dd38","continuedInSessionId":"398f3533-73b3-4089-af4e-06603a870e04"}
+"#;
+        let info = parse_lines(HEAD, moved);
+        assert_eq!(info.continued_in.as_deref(), Some("398f3533-73b3-4089-af4e-06603a870e04"));
+        assert_eq!(info.last_ts, parse_rfc3339_ms("2026-09-28T18:38:07.260Z").unwrap());
+        // Taken back to its window and talked to, it's here again.
+        let back = format!("{moved}{}\n", r#"{"type":"user","timestamp":"2026-09-29T02:30:00.000Z","origin":{"kind":"human"},"message":{"content":"One more thing"}}"#);
+        assert_eq!(parse_lines(HEAD, &back).continued_in, None);
     }
 
     #[test]

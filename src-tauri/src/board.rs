@@ -127,6 +127,52 @@ fn short_id(id: &str) -> String {
     id.chars().take(7).collect()
 }
 
+/// Claude Code sessions whose conversation moved to the background, and the jobs it moved to.
+///
+/// Moving a conversation to the background starts a job with a session of its own that goes on
+/// from it, and the old transcript says where it went (`TranscriptInfo::continued_in`). The job
+/// writes nothing until its next prompt, and then starts its transcript with a copy of the
+/// conversation; the window it left shows Claude Code's list of agents meanwhile and runs no
+/// session (`claude::read_registry`). So the conversation shows once, as the job, which reads
+/// the old transcript until it has one of its own.
+#[derive(Debug, Default, PartialEq)]
+pub struct ClaudeMoves {
+    /// A job with no transcript of its own yet, and the session it goes on from.
+    pub from: HashMap<String, String>,
+    /// A session left behind, and the one it went on in: it doesn't show.
+    pub moved: HashMap<String, String>,
+}
+
+/// `live` has the sessions a process runs, and `transcripts` the ones whose transcript says
+/// something, by id.
+pub fn claude_moves(live: &HashSet<&str>, transcripts: &HashMap<&str, &TranscriptInfo>) -> ClaudeMoves {
+    let mut out = ClaudeMoves::default();
+    for (&id, t) in transcripts {
+        let Some(to) = t.continued_in.as_deref() else { continue };
+        let talked = transcripts.contains_key(to);
+        if !talked {
+            out.from.insert(to.to_string(), id.to_string());
+        }
+        // Taken back to its window it's its own again, and a job that went before a word was
+        // said to it leaves the conversation here.
+        if !live.contains(id) && (talked || live.contains(to)) {
+            out.moved.insert(id.to_string(), to.to_string());
+        }
+    }
+    out
+}
+
+/// A job going on from another session's conversation, dated as that conversation: started
+/// when it did, and at rest since its last word, so moving it doesn't make it new or unread.
+pub fn moved_registry(r: &RegistryEntry, from: &TranscriptInfo) -> RegistryEntry {
+    let mut r = r.clone();
+    r.started_at = from.started_at.or(r.started_at);
+    if r.status == "idle" {
+        r.status_updated_at = Some(from.last_ts);
+    }
+    r
+}
+
 /// A Claude Code session from its registry entry (when live) and transcript.
 pub fn claude_session(
     account: &AccountCfg,
@@ -242,6 +288,7 @@ pub fn claude_session(
         branch: tr.and_then(|t| t.git_branch.clone()),
         archived: false,
         attach_command,
+        continues: None,
         stalled_since,
         background: background.then(|| quiet.running.unwrap_or_default().to_string()),
         app_account: account.home_path() == crate::util::home().join(".claude"),
@@ -327,6 +374,7 @@ pub fn codex_session(account: &AccountCfg, th: &ThreadInfo, name: Option<&str>, 
         branch: th.branch.clone(),
         archived: false,
         attach_command: None,
+        continues: None,
         stalled_since: None,
         background: None,
         insight: None,
@@ -396,6 +444,7 @@ pub fn opencode_session(account: &AccountCfg, row: &SessionRow, live: Option<&Li
         branch: None,
         archived: row.archived_at.is_some(),
         attach_command: None,
+        continues: None,
         stalled_since: None,
         background: None,
         insight: None,
@@ -462,6 +511,7 @@ pub fn antigravity_session(account: &AccountCfg, c: &Conversation, seen_at: i64,
         branch: None,
         archived: false,
         attach_command: None,
+        continues: None,
         stalled_since: None,
         background: None,
         insight: None,
@@ -1318,6 +1368,7 @@ mod tests {
             status: status.into(),
             kind: Some("interactive".into()),
             job_id: None,
+            parked_job: None,
             entrypoint: Some("cli".into()),
             name: Some("atlas-quarry-8f".into()),
             name_source: Some("derived".into()),
@@ -1679,6 +1730,55 @@ mod tests {
         let s = claude_session(&a, Some(&r), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
         assert_eq!(s.attach_command.as_deref(), Some("claude2 attach 6e07c149"));
         assert_eq!(s.open_target, "s|claude:claude2:abc1234567|attach");
+    }
+
+    #[test]
+    fn a_conversation_moved_to_the_background_shows_once_as_its_job() {
+        let mut old = tr();
+        old.continued_in = Some("398f3533-73b3".into());
+        let moves = |live: &[&str], talked: bool| {
+            let job = TranscriptInfo { session_id: "398f3533-73b3".into(), ..tr() };
+            let mut transcripts: HashMap<&str, &TranscriptInfo> = HashMap::from([("abc1234567", &old)]);
+            if talked {
+                transcripts.insert("398f3533-73b3", &job);
+            }
+            claude_moves(&live.iter().copied().collect(), &transcripts)
+        };
+        // Before its next prompt the job reads the old transcript, which doesn't show.
+        let running = moves(&["398f3533-73b3"], false);
+        assert_eq!(running.from, HashMap::from([("398f3533-73b3".to_string(), "abc1234567".to_string())]));
+        assert_eq!(running.moved, HashMap::from([("abc1234567".to_string(), "398f3533-73b3".to_string())]));
+        // After it, the job's own transcript has the conversation.
+        let talked = moves(&["398f3533-73b3"], true);
+        assert!(talked.from.is_empty());
+        assert_eq!(talked.moved.len(), 1);
+        assert_eq!(moves(&[], true).moved.len(), 1);
+        // A job that went before a word was said to it leaves the conversation where it was.
+        assert!(moves(&[], false).moved.is_empty());
+        // So does taking it back to its window.
+        assert!(moves(&["abc1234567", "398f3533-73b3"], false).moved.is_empty());
+    }
+
+    #[test]
+    fn a_moved_conversation_keeps_its_place_and_what_you_saw() {
+        let a = acct("claude2");
+        let old = TranscriptInfo { started_at: Some(NOW - 5 * 3_600_000), last_prompt_at: Some(NOW - 2 * 3_600_000), last_ts: NOW - 3_600_000, ..tr() };
+        let mut job = reg("idle", NOW - 60_000);
+        job.session_id = "398f3533-73b3".into();
+        job.kind = Some("bg".into());
+        job.job_id = Some("398f3533".into());
+        job.started_at = Some(NOW - 61_000);
+        let moved = moved_registry(&job, &old);
+        // You saw its last reply before it moved: it isn't new.
+        let s = claude_session(&a, Some(&moved), Some(&old), NOW - 30 * 60_000, NOW, &Quiet::default()).unwrap();
+        assert_eq!(s.status, Status::Idle);
+        assert_eq!((s.started_at, s.last_prompt_at, s.last_activity), (Some(NOW - 5 * 3_600_000), NOW - 2 * 3_600_000, NOW - 3_600_000));
+        assert_eq!(s.excerpt.as_deref(), Some("Done."));
+        assert_eq!(s.attach_command.as_deref(), Some("claude2 attach 398f3533"));
+        // One you hadn't seen still is.
+        assert_eq!(claude_session(&a, Some(&moved), Some(&old), NOW - 2 * 3_600_000, NOW, &Quiet::default()).unwrap().status, Status::Unread);
+        // Once it's working the job's own times hold.
+        assert_eq!(moved_registry(&reg("busy", NOW - 1_000), &old).status_updated_at, Some(NOW - 1_000));
     }
 
     #[test]

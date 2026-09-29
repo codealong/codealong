@@ -224,50 +224,58 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded }: S
   }, [s.key, s.hosted]);
   const streaming = s.hosted && s.status === 'working' && stream ? stream : null;
 
+  // Each read from the start: cursors are places in one record, and a job that went on from
+  // another session's conversation writes its own at its next prompt, so the view reads from
+  // the start again then, and pages still coming from the last read are dropped.
+  const reading = useRef(0);
+  // The read whose first page is in, which `after` is a place in.
+  const landed = useRef(0);
   useEffect(() => {
-    let live = true;
+    const read = ++reading.current;
     setItems([]);
+    setBefore(null);
     setLoaded(false);
     setError(null);
     loading.current = true;
     sessionPage(s.key, null)
       .then((p) => {
-        if (!live) return;
+        if (read !== reading.current) return;
         anchor.current = { kind: 'end' };
         setItems(p.items);
         setBefore(p.before);
         after.current = p.after;
+        landed.current = read;
         setLoaded(true);
       })
-      .catch((e: unknown) => live && (setError(String(e).replace(/^Error: /, '')), setLoaded(true)))
-      .finally(() => (loading.current = false));
-    return () => {
-      live = false;
-    };
-  }, [s.key]);
+      .catch((e: unknown) => read === reading.current && (setError(String(e).replace(/^Error: /, '')), setLoaded(true)))
+      .finally(() => read === reading.current && (loading.current = false));
+  }, [s.key, s.continues]);
 
   const loadOlder = useCallback(() => {
     if (loading.current || before == null) return;
     loading.current = true;
+    const read = reading.current;
     const el = scroller.current;
     sessionPage(s.key, before)
       .then((p) => {
+        if (read !== reading.current) return;
         anchor.current = { kind: 'keep', fromEnd: el ? el.scrollHeight - el.scrollTop : 0 };
         setItems((old) => [...p.items, ...old]);
         setBefore(p.before);
       })
       .catch(() => {})
-      .finally(() => (loading.current = false));
+      .finally(() => read === reading.current && (loading.current = false));
   }, [s.key, before]);
 
   // As the session goes on: what's new since the last read. OpenCode rereads a message still
   // streaming, so an item already here is replaced by its place.
   useEffect(() => {
-    if (!loaded || error) return;
+    const read = reading.current;
+    if (!loaded || error || landed.current !== read) return;
     let live = true;
     sessionNewer(s.key, after.current)
       .then((p) => {
-        if (!live || p.items.length === 0) return;
+        if (!live || read !== reading.current || p.items.length === 0) return;
         after.current = p.after;
         if (atEnd.current) anchor.current = { kind: 'end' };
         const fresh = new Set(p.items.map((it) => it.cursor));

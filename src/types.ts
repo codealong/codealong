@@ -38,6 +38,10 @@ export interface Session {
   archived: boolean;
   /** A background job's `claude attach <job>`: it has no terminal tab of its own. */
   attachCommand: string | null;
+  /** The session whose record holds this one's conversation until it writes its own: a Claude
+   *  Code conversation moved to the background goes on in a job that writes nothing until its
+   *  next prompt, and then starts its own with a copy of the conversation. */
+  continues?: string;
   /** Busy but silent for a long while: stuck mid-turn. When it went quiet. */
   stalledSince: number | null;
   /** Jev's read of how its turn ended, when `[jev] sessions` is on (insights.rs). */

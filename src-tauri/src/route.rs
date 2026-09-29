@@ -410,6 +410,7 @@ mod tests {
             branch: Some("feature".into()),
             archived: false,
             attach_command: None,
+            continues: None,
             stalled_since: None,
             background: None,
             insight: None,

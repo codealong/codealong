@@ -2400,8 +2400,21 @@ impl Engine {
                             }
                         }
                     }
-                    for (id, (reg, tr)) in by_id {
+                    let live: HashSet<&str> = by_id.iter().filter(|(_, (r, _))| r.is_some()).map(|(id, _)| *id).collect();
+                    let said: HashMap<&str, &TranscriptInfo> = by_id.iter().filter_map(|(id, (_, t))| t.map(|(_, t)| (*id, t))).collect();
+                    let moves = board::claude_moves(&live, &said);
+                    for (&id, &(reg, tr)) in &by_id {
+                        // Its conversation went on in a job, which shows it.
+                        if moves.moved.contains_key(id) {
+                            continue;
+                        }
                         let key = format!("claude:{}:{}", a.name, id);
+                        // A job that hasn't written its own transcript yet shows the one it goes on from.
+                        let from = moves.from.get(id).and_then(|f| Some((f, by_id.get(f.as_str())?.1?)));
+                        let tr = tr.or(from.map(|(_, t)| t));
+                        let moved = reg.zip(from).map(|(r, (_, (_, t)))| board::moved_registry(r, t));
+                        let reg = moved.as_ref().or(reg);
+                        let seen_at = from.map(|(f, _)| self.seen.seen_at(&format!("claude:{}:{f}", a.name))).unwrap_or(0).max(self.seen.seen_at(&key));
                         let info = tr.map(|(_, t)| t);
                         // Only a busy session that's gone quiet costs a look outside its transcript,
                         // and one whose turn left a command running in the background (read once
@@ -2418,10 +2431,11 @@ impl Engine {
                         };
                         let background_active_at = background.and_then(|r| self.background.get(&r.pid)).filter(|w| Some(w.since) == background.and_then(|r| r.status_updated_at)).map(|w| w.active_at);
                         let quiet = board::Quiet { subagent_at, running: running.as_deref(), background_active_at };
-                        if let Some(mut s) = board::claude_session(a, reg, info, self.seen.seen_at(&key), now, &quiet) {
+                        if let Some(mut s) = board::claude_session(a, reg, info, seen_at, now, &quiet) {
                             // Archived here until it's active again, or archived in the Claude app.
                             let here = self.seen.archived_at(&key).map(|at| s.last_activity <= at).unwrap_or(false);
                             s.archived = here || app_archived.contains(id);
+                            s.continues = from.map(|(f, _)| f.clone());
                             out.push(s);
                         }
                     }

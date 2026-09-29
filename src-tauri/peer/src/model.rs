@@ -179,6 +179,11 @@ pub struct Session {
     pub archived: bool,
     /// A background job has no terminal tab; this opens it in a new one (`claude attach <job>`).
     pub attach_command: Option<String>,
+    /// The session whose record holds this one's conversation until it writes its own: a
+    /// Claude Code conversation moved to the background goes on in a job that writes nothing
+    /// until its next prompt (`board::claude_moves`). Its panel reads again when this changes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub continues: Option<String>,
     /// Set when the session says it's busy but nothing has happened for a long while: it's stuck
     /// mid-turn, usually on a command waiting for input. When it went quiet.
     pub stalled_since: Option<i64>,

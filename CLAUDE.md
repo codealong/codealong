@@ -359,6 +359,20 @@ Claude Code
   started the service, so variables set for one start don't reach it (and a stale
   `CODEALONG_SESSION` can): `start.rs` quotes everything in the command instead. `stop <job>`
   keeps the conversation; `rm <job>` removes it and its worktree once nothing holds the lock.
+- `/background` (`/bg`, optional prompt) moves a terminal's conversation to a background job
+  with a session of its own (checked on 2.1.284, 2026-09-29): the roster's
+  `workers.<job>.dispatch` says `source: "slash"`, `launch: {mode: "resume", fork: true,
+  sessionId: <the old transcript's path>}`. The old transcript gets a last line
+  `{"type":"continued-in","continuedInSessionId":<the job's session>}`, and the window's
+  registry entry `parkedJobId: <job>` while it shows Claude Code's list of agents ("Your
+  conversation moved to the background — enter opens it · esc returns to it"); leaving the list
+  clears it. A conversation taken back to its window goes on in the old transcript after that
+  line (one on this Mac did). The job's transcript has only its `ai-title` and `agent-name`
+  lines until its next prompt, which writes a copy of the conversation (the same message
+  uuids) ahead of it. Claude Code's `/resume` hides a transcript whose continuation has
+  messages. A window that hadn't been told anything moves as a fresh job (`mode: "prompt"`, no
+  transcript at all). Codealong shows the conversation once, as the job, reading the old
+  transcript until the job has its own (`board::claude_moves`).
 - Every live session (terminal, Claude app, background) listens on a Unix socket, the registry's
   `messagingSocketPath` (`/tmp/cc-socks/<pid>.sock`), for other sessions' messages
   (`peerProtocol: 1`, from 2.1.282's code). One JSON line per connection, nothing comes back on
