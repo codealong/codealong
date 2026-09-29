@@ -34,6 +34,8 @@ interface LaneRowProps {
   onAgentMenu?: (session: Session) => void;
   /** Right-click on its PR: the PR's menu (open it, copy its link…). */
   onPrMenu?: () => void;
+  /** A click on its PR: opens it on GitHub. */
+  onPrOpen?: () => void;
   /** Position among pinned rows, for dragging them into a new order. */
   pinIndex?: number;
   onPointerDown?: (e: ReactPointerEvent<HTMLDivElement>) => void;
@@ -191,7 +193,7 @@ function LaneRowView(props: LaneRowProps) {
 export const LaneRow = memoRow(LaneRowView, ['domId', 'todosFor']);
 
 /** A worktree with no agent that needs you, is working or just finished: its sentence, and chips for its recent sessions. */
-function WorktreeOnlyRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpenTarget, pinned, onContextMenu, onPrMenu, pinIndex, onPointerDown, extraClass, todos, onShowTodo }: LaneRowProps) {
+function WorktreeOnlyRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpenTarget, pinned, onContextMenu, onPrMenu, onPrOpen, pinIndex, onPointerDown, extraClass, todos, onShowTodo }: LaneRowProps) {
   const { lane } = row;
   const chips = currentSessions(lane, now);
   const selected = selectedKey === lane.id;
@@ -248,7 +250,7 @@ function WorktreeOnlyRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpe
             <TodoChips todos={todos} onShow={onShowTodo} />
             <LooksFinished lane={lane} />
           </span>
-          <LaneLinks lane={lane} now={now} onOpenTarget={onOpenTarget} onPrMenu={onPrMenu} />
+          <LaneLinks lane={lane} now={now} onOpenTarget={onOpenTarget} onPrMenu={onPrMenu} onPrOpen={onPrOpen} />
         </div>
       </div>
       <div className="ca-seg ca-seg-age" title={lane.lastActivity ? absolute(lane.lastActivity) : undefined}>
@@ -260,13 +262,13 @@ function WorktreeOnlyRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpe
 }
 
 /** The worktree's app and PR, at the right end of its line, after its agents and todo. */
-function LaneLinks({ lane, now, onOpenTarget, onPrMenu }: { lane: Lane; now: number; onOpenTarget: (lane: Lane, targetId: string) => void; onPrMenu?: () => void }) {
+function LaneLinks({ lane, now, onOpenTarget, onPrMenu, onPrOpen }: { lane: Lane; now: number; onOpenTarget: (lane: Lane, targetId: string) => void; onPrMenu?: () => void; onPrOpen?: () => void }) {
   return (
     <>
       <PreviewChip preview={lane.preview} now={now} onOpen={() => onOpenTarget(lane, 'l|preview')} />
       {lane.pr && (
         <span className="ca-lane-right">
-          <PrChip pr={lane.pr} compact onMenu={onPrMenu} />
+          <PrChip pr={lane.pr} compact onMenu={onPrMenu} onOpen={onPrOpen} />
         </span>
       )}
     </>
@@ -277,7 +279,7 @@ function LaneLinks({ lane, now, onOpenTarget, onPrMenu }: { lane: Lane; now: num
  * A worktree with agents that need you, are working or just finished: the worktree once on the
  * left, and a line for each agent, which you select, open and right-click like a row of its own.
  */
-function GroupRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpenTarget, pinned, onContextMenu, onAgentMenu, onPrMenu, pinIndex, onPointerDown, extraClass, worktreeTodos, todosFor, onShowTodo }: LaneRowProps) {
+function GroupRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpenTarget, pinned, onContextMenu, onAgentMenu, onPrMenu, onPrOpen, pinIndex, onPointerDown, extraClass, worktreeTodos, todosFor, onShowTodo }: LaneRowProps) {
   const { lane, agents } = row;
   const listed = new Set(agents.map((a) => a.session.key));
   // Recent sessions without a line of their own: finished a while ago, or visiting.
@@ -341,7 +343,7 @@ function GroupRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpenTarget
                 />
                 <TodoChips todos={footTodos} onShow={onShowTodo} />
               </span>
-              <LaneLinks lane={lane} now={now} onOpenTarget={onOpenTarget} onPrMenu={onPrMenu} />
+              <LaneLinks lane={lane} now={now} onOpenTarget={onOpenTarget} onPrMenu={onPrMenu} onPrOpen={onPrOpen} />
             </span>
             <span className="ca-agentline-age" />
           </div>
@@ -435,6 +437,8 @@ interface AgentRowProps {
   onContextMenu?: () => void;
   /** Right-click on its worktree's PR: the PR's menu (open it, copy its link…). */
   onPrMenu?: () => void;
+  /** A click on its worktree's PR: opens it on GitHub. */
+  onPrOpen?: () => void;
   /** Position among pinned rows, for dragging them into a new order. */
   pinIndex?: number;
   onPointerDown?: (e: ReactPointerEvent<HTMLDivElement>) => void;
@@ -481,7 +485,7 @@ function SnoozeChip({ session: s, now }: { session: Session; now: number }) {
  * waits on you for, and what it's doing or said last), where and why on the second (its worktree,
  * todo and insights, and the worktree's PR and diff).
  */
-function AgentRowView({ lane, session: s, domId, now, selected, onSelect, onOpen, pinned, onContextMenu, onPrMenu, pinIndex, onPointerDown, extraClass, todos, onShowTodo }: AgentRowProps) {
+function AgentRowView({ lane, session: s, domId, now, selected, onSelect, onOpen, pinned, onContextMenu, onPrMenu, onPrOpen, pinIndex, onPointerDown, extraClass, todos, onShowTodo }: AgentRowProps) {
   return (
     <div
       id={domId}
@@ -517,7 +521,7 @@ function AgentRowView({ lane, session: s, domId, now, selected, onSelect, onOpen
             <InsightChips session={s} />
           </span>
           <span className="ca-lane-right">
-            {lane.pr && <PrChip pr={lane.pr} compact onMenu={onPrMenu} />}
+            {lane.pr && <PrChip pr={lane.pr} compact onMenu={onPrMenu} onOpen={onPrOpen} />}
             <Diff git={lane.git} />
           </span>
         </div>

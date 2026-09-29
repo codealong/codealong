@@ -6,7 +6,7 @@ import { memo, type CSSProperties, type ReactNode } from 'react';
 import { absolute, agoPhrase, ago, duration, tildePath } from '../format';
 import { HARNESS_WORD, sessionPlace } from '../harness';
 import { blockedBy, sectionOf, SECTION_WORD, snippet } from '../todos';
-import type { Label, Lane, PrItem, Session, Todo } from '../types';
+import type { Label, Lane, Pr, PrItem, Session, Todo } from '../types';
 import { CARD_H, CARD_W, type Entities, type RefItem } from '../canvas/model';
 import { BranchLabel, Drift, HarnessChip, Icon, LaneGlyph, PR_ICON, PR_WORD, PrChip, Rich, STATUS_WORD, StatusGlyph } from './primitives';
 import { LabelChip, LabelDot, TodoGlyph } from './TodoBits';
@@ -61,11 +61,12 @@ export function cardSig(d: CardData | null, now: number): string {
   switch (d.ref) {
     case 'worktree': {
       const l = d.lane;
-      return `w|${l.glyph}|${l.bay}|${l.callsign}|${l.branch}|${l.headline}|${l.repo}|${l.pr?.number}|${l.pr?.state}|${l.pr?.checks.failed}|${l.pr?.checks.pending}|${l.git?.baseAhead}|${l.git?.baseBehind}|${l.lastActivity}|${l.device?.color}|${l.device?.online}|${minute}`;
+      return `w|${l.glyph}|${l.bay}|${l.callsign}|${l.branch}|${l.headline}|${l.repo}|${l.pr?.number}|${l.pr?.state}|${l.pr?.checks.failed}|${l.pr?.checks.pending}|${l.pr?.checks.passed}|${l.git?.baseAhead}|${l.git?.baseBehind}|${l.lastActivity}|${l.device?.color}|${l.device?.online}|${minute}`;
     }
     case 'session': {
       const s = d.session;
-      return `s|${s.status}|${s.title}|${sessionLine(s)}|${s.account}|${s.surface}|${s.lastActivity}|${s.statusSince}|${d.lane.callsign}|${d.lane.device?.color}|${d.lane.device?.online}|${minute}`;
+      const pr = d.lane.pr;
+      return `s|${s.status}|${s.title}|${sessionLine(s)}|${s.account}|${s.surface}|${s.lastActivity}|${s.statusSince}|${d.lane.callsign}|${d.lane.device?.color}|${d.lane.device?.online}|${pr?.number}|${pr?.state}|${pr?.checks.failed}|${pr?.checks.pending}|${pr?.checks.passed}|${minute}`;
     }
     case 'todo': {
       const t = d.todo;
@@ -107,12 +108,15 @@ interface CardFaceProps {
   className?: string;
   /** Drawn under the card's two lines: a desktop card's sessions. */
   children?: ReactNode;
+  /** A click on the worktree's PR chip opens the PR: on the desktop, where a card takes clicks. */
+  onPrOpen?: (pr: Pr) => void;
 }
 
 /** A card's face: placed on the canvas, or pinned to the desktop (DesktopPin.tsx). */
-export function CardFace({ item, data, now, style, className, children }: CardFaceProps) {
+export function CardFace({ item, data, now, style, className, children, onPrOpen }: CardFaceProps) {
   const cls = (kind: string, extra?: string | false) => cx('ca-cv-card', `is-${kind}`, className, extra);
   const id = `${item.ref}:${item.key}`;
+  const prChip = (pr: Pr | null | undefined) => pr && <PrChip pr={pr} compact onOpen={onPrOpen && (() => onPrOpen(pr))} />;
   if (!data) {
     return (
       <div className={cls(item.ref, 'is-gone')} style={style} data-id={id}>
@@ -135,7 +139,7 @@ export function CardFace({ item, data, now, style, className, children }: CardFa
             {(l.bay === 'review' || l.bay === 'merged') && l.pr ? <LaneGlyph lane={l} /> : <Icon name="folder" size={14} />}
             <span className="ca-cv-title ca-cv-callsign">{l.callsign}</span>
             {l.device && <DeviceBadge device={l.device} now={now} />}
-            {l.pr && <PrChip pr={l.pr} compact />}
+            {prChip(l.pr)}
           </div>
           <div className="ca-cv-l2">
             {l.branch && l.branch !== l.callsign ? (
@@ -170,6 +174,7 @@ export function CardFace({ item, data, now, style, className, children }: CardFa
             <span className="ca-cv-headline">
               <Rich text={sessionLine(s)} now={now} />
             </span>
+            {prChip(data.lane.pr)}
           </div>
           {children}
         </div>
@@ -331,6 +336,12 @@ export function CardDetail({ item, data, now, terminal, todos }: { item: RefItem
               {data.lane.callsign}
               {s.branch && s.branch !== data.lane.callsign ? ` · ${s.branch}` : ''}
             </Row>
+            {data.lane.pr && (
+              <div className="ca-cvp-row">
+                <PrChip pr={data.lane.pr} />
+                <span className="ca-cvp-clip">{data.lane.pr.title}</span>
+              </div>
+            )}
             <Row icon="clock">
               Last prompt {agoPhrase(s.lastPromptAt, now)}
               {s.startedAt ? ` · started ${absolute(s.startedAt)}` : ''}

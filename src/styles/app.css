@@ -391,6 +391,21 @@ body.is-resizing * {
   outline: none;
   box-shadow: var(--shadow-focus);
 }
+/* A PR chip that opens the PR: it keeps its state's colors and rings itself in them under the
+   pointer. */
+.ca-pr--button {
+  appearance: none;
+  margin: 0;
+  border: 0;
+  cursor: pointer;
+}
+.ca-pr--button:hover {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 45%, transparent);
+}
+.ca-pr--button:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
 /* A worktree's app: green while a server in its folder runs it. It sits with the PR and diff on
    the right, and on a crowded row its name gives way before the agents' chips do, down to the
    globe. */
@@ -5102,6 +5117,10 @@ html.is-quick body {
 }
 .ca-cv-l2 .ca-labeldot {
   flex: none;
+}
+/* A session's PR, after what it said last: as tall as the line, so the card keeps its height. */
+.ca-cv-l2 .ca-pr {
+  height: 16px;
 }
 /* A stripe down the left edge in the status's color, as the status glyphs color them. */
 .ca-cv-card.st-needs {

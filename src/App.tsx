@@ -1252,6 +1252,12 @@ export function App() {
     ];
   };
   const prMenu = (r: PrRowItem) => void showContextMenu(prMenuSpec(r)).catch((e: unknown) => setToast(String(e)));
+  /** Opens a worktree's PR on GitHub: a click on its chip, or Open PR in a menu. */
+  const openLanePr = (lane: Lane) => {
+    if (lane.pr) openUrl(lane.pr.url).catch((e: unknown) => setToast(String(e)));
+  };
+  /** A menu's item for opening the worktree's PR on GitHub, when it has one. */
+  const openPrItem = (lane: Lane): MenuSpec => (lane.pr ? [{ label: `Open PR #${lane.pr.number} on GitHub`, run: () => openLanePr(lane) }] : []);
   /** The right-click menu of a worktree's PR chip: the PR's own. A PR the board doesn't list,
    *  such as one on another Mac in a repo this one doesn't have, gets what its link allows. */
   const lanePrMenu = (lane: Lane) => {
@@ -1306,6 +1312,7 @@ export function App() {
         { label: 'New session here…', run: () => newSession({ laneId: lane.id }) },
         // Forks open in a terminal, where only sessions that resume in one can go.
         ...(s.resumeCommand ? [{ label: 'Fork in terminal', run: () => void fork(s) }] : []),
+        ...openPrItem(lane),
         'separator',
         ...todoItemsRef.current(lane.project, { session: s.key }, { session: s.key, worktree: lane.id, label: `${s.account} in ${lane.callsign}` }, s.title),
         'separator',
@@ -1338,6 +1345,7 @@ export function App() {
         ...item('l|preview'),
         { label: 'New session here…', run: () => newSession({ laneId: lane.id }) },
         ...(lane.device ? [] : [{ label: lane.preview?.set ? 'Change preview URL…' : 'Set preview URL…', run: () => setPreviewFor(lane.id) }]),
+        ...openPrItem(lane),
         'separator',
         ...todoItemsRef.current(lane.project, { worktree: lane.id }, { worktree: lane.id, label: lane.callsign }),
         'separator',
@@ -1998,6 +2006,7 @@ export function App() {
       onContextMenu={() => laneMenu(r.lane)}
       onAgentMenu={(s) => sessionMenu(r.lane, s, 'worktree')}
       onPrMenu={() => lanePrMenu(r.lane)}
+      onPrOpen={() => openLanePr(r.lane)}
       todos={todoLinks.byLane.get(r.lane.id)}
       worktreeTodos={todoLinks.byWorktree.get(r.lane.id)}
       todosFor={todosFor}
@@ -2390,6 +2399,7 @@ export function App() {
                 }}
                 onContextMenu={(r) => sessionMenu(r.lane, r.session, 'session')}
                 onPrMenu={(r) => lanePrMenu(r.lane)}
+                onPrOpen={(r) => openLanePr(r.lane)}
                 onMovePinned={movePinnedSession}
                 archived={archivedItems}
                 showArchived={showArchived}

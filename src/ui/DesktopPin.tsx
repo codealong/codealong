@@ -3,12 +3,13 @@
 // what its Canvas card shows, and under a worktree or a todo its sessions. A click on a session
 // (the card's own, a session line, or a todo's) shows it in the bar's peek beside the card, its
 // conversation and a box to answer it (peek.rs, Peek.tsx); a double-click opens it where it lives.
+// A click on the worktree's PR chip opens the PR on GitHub.
 // Dragging moves the card, and its right-click menu has the rest, with Remove from desktop. The
 // engine sends it what it shows, and only when that changed; the page sizes the window to itself.
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { fitDesktop, getDesktopFeed, onDesktopFeed, onPeekShown, openFromBar, peekHide, peekOpen, showMain, showQuick, unpinFromDesktop, type PillRect } from '../api';
+import { fitDesktop, getDesktopFeed, onDesktopFeed, onPeekShown, openFromBar, openUrl, peekHide, peekOpen, showMain, showQuick, unpinFromDesktop, type PillRect } from '../api';
 import { boardView, lanesAhead, observe, seenAhead, useAhead } from '../ahead';
 import { CLICK_WAIT_MS, plain } from '../bar';
 import { showContextMenu, type MenuSpec } from '../contextMenu';
@@ -18,7 +19,7 @@ import { sessionPlace } from '../harness';
 import { seenable } from '../lanes';
 import { snoozeMenu } from '../snooze';
 import { sessionHomes } from '../todos';
-import type { DesktopFeed, Label, Lane, PeekShown, Session } from '../types';
+import type { DesktopFeed, Label, Lane, PeekShown, Pr, Session } from '../types';
 import { cardData, CardFace, SessionLine, sessionLine, type CardData } from './CanvasCard';
 import { STATUS_WORD } from './primitives';
 import { applyTheme } from './ThemeSwitch';
@@ -189,6 +190,17 @@ export function DesktopPin() {
     if (feed) unpinFromDesktop(feed.pin).catch(fail);
   };
 
+  /** Opens the worktree's PR on GitHub: a click on its chip, unless the press dragged the card. */
+  const openPr = (pr: Pr) => {
+    const moved = drag.current?.moved;
+    drag.current = null;
+    if (!moved) openUrl(pr.url).catch(fail);
+  };
+  const prItem = (lane: Lane): MenuSpec => {
+    const pr = lane.pr;
+    return pr ? [{ label: `Open PR #${pr.number} on GitHub`, run: () => openUrl(pr.url).catch(fail) }] : [];
+  };
+
   const menu = (): MenuSpec => {
     const off: MenuSpec = ['separator', { label: 'Remove from desktop', run: remove }];
     switch (data?.ref) {
@@ -197,6 +209,7 @@ export function DesktopPin() {
         return [
           { label: openLabel(lane, s, terminal), run: () => openSession(lane, s) },
           ...(feed && opensInEditor(lane) ? folderMenu(feed, icons, (id) => void openFromBar(lane.id, id).catch(fail)) : []),
+          ...prItem(lane),
           { label: 'Show in Codealong', run: () => void showMain({ kind: 'session', laneId: lane.id, key: s.key }) },
           ...(seenable(s) ? [{ label: 'Mark as seen', run: () => seenAhead([s.key]).catch(fail) }] : []),
           ...(s.archived || shortOf(s.key) ? [] : [snoozeMenu([s.key], Date.now(), { until: s.snoozedUntil, onDone: (act) => void act.catch(fail) })]),
@@ -205,13 +218,14 @@ export function DesktopPin() {
       }
       case 'worktree': {
         const l = data.lane;
-        const opens = [l.defaultTarget, 'l|editor', 'l|finder'].flatMap((id, i): MenuSpec => {
+        // Its default open, its editors, Finder, then its app in the browser.
+        const opens = [l.defaultTarget, 'l|editor', 'l|finder', 'l|preview'].flatMap((id, i): MenuSpec => {
           const t = l.targets.find((x) => x.id === id);
           const item = t && (i === 0 || id !== l.defaultTarget) ? [{ label: t.label, enabled: !t.disabled, run: () => openFromBar(l.id, t.id).catch(fail) }] : [];
           // The other editors installed here, after Open in <yours>.
           return id === 'l|editor' && feed && opensInEditor(l) ? [...item, ...openInMenu(feed, icons, (target) => void openFromBar(l.id, target).catch(fail))] : item;
         });
-        return [...opens, { label: 'Show in Codealong', run: () => void showMain({ kind: 'worktree', laneId: l.id }) }, ...off];
+        return [...opens, ...prItem(l), { label: 'Show in Codealong', run: () => void showMain({ kind: 'worktree', laneId: l.id }) }, ...off];
       }
       case 'todo': {
         const t = data.todo;
@@ -302,7 +316,7 @@ export function DesktopPin() {
             <div className="ca-cv-l2">Reading sessions…</div>
           </div>
         ) : (
-          <CardFace item={item} data={data} now={now} className="is-desk">
+          <CardFace item={item} data={data} now={now} className="is-desk" onPrOpen={openPr}>
             {sessions.length > 0 && (
               <div className="ca-desk-sessions">
                 {sessions.slice(0, SESSIONS).map(({ session }) => (
