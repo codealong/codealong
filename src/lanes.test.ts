@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ageFiltered, bayOf, buildBays, bySession, filterByAge, inboxCounts, narrowed, rowItems, sessionHeadline, withoutAccount } from './lanes';
+import { ageFiltered, bayOf, buildBays, bySession, filterByAge, inboxCounts, narrowed, rowItems, sessionFlag, sessionHeadline, withoutAccount } from './lanes';
 import type { Lane, Pr, Session } from './types';
 
 const NOW = 1_790_200_000_000;
@@ -193,5 +193,28 @@ describe('sessionHeadline', () => {
     expect(sessionHeadline(s({ asks: true, excerpt: 'Asks you · Want the PR?' }))).toEqual(['`claude2` asks you · Fix the test', 'Want the PR?']);
     // A question held through the plugin, which what you type doesn't answer.
     expect(sessionHeadline(s({ asks: false, excerpt: 'Asks you · Which color?' }))).toEqual(['`claude2` asks you · Fix the test', 'Which color?']);
+  });
+});
+
+describe('sessionFlag', () => {
+  const base = session('a', 'needs', NOW);
+  const s = (over: Partial<Session>): Session => ({ ...base, account: 'claude2', harness: 'claude', title: 'Fix the test', excerpt: null, ...over });
+  const flag = (over: Partial<Session>) => sessionFlag(s(over))?.label ?? null;
+
+  it('labels what a session waits on you for, which its headline said before its title', () => {
+    expect(flag({ excerpt: 'Bash · `rm -rf build`' })).toBe('Needs approval');
+    expect(flag({ harness: 'codex', excerpt: 'Run · `make`' })).toBe('Needs approval');
+    expect(flag({ harness: 'opencode', excerpt: 'Bash · `npm install`' })).toBe('Needs approval');
+    expect(flag({ asks: true, excerpt: 'Asks you · Want the PR?' })).toBe('Asks you');
+    // A question held through the plugin, which what you type doesn't answer.
+    expect(flag({ excerpt: 'Asks you · Which color?' })).toBe('Asks you');
+    expect(flag({ stalledSince: NOW - 3_600_000, excerpt: 'No activity for {for:1}' })).toBe('Stuck');
+    expect(sessionFlag(s({ status: 'error', excerpt: 'API error' }))).toMatchObject({ label: 'Error', tone: 'bad' });
+  });
+
+  it('leaves out what the glyph and bay already say', () => {
+    expect(flag({})).toBeNull();
+    expect(flag({ harness: 'antigravity', excerpt: 'waiting' })).toBeNull();
+    for (const status of ['working', 'unread', 'idle', 'stopped'] as const) expect(flag({ status, excerpt: 'Pushed the fix' })).toBeNull();
   });
 });

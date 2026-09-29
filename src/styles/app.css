@@ -1892,12 +1892,30 @@ body.is-resizing * {
   min-width: 0;
   padding: 0 var(--space-3);
 }
+/* A session's title, the label for what it waits on you for, and what it's doing or said last.
+   The line fills what's left and pushes a worktree line's todo and insight to its end; the
+   detail gives way first, then the title. */
 .ca-agentline-text {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1 1 auto;
+  min-width: 0;
+  font: 400 13px/18px var(--font-sans);
+}
+.ca-agentline-title,
+.ca-agentline-detail {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font: 400 13px/18px var(--font-sans);
+}
+.ca-agentline-title {
+  flex: 0 1 auto;
+}
+.ca-agentline-detail {
+  flex: 1 1 0;
+  margin-left: 0;
 }
 .ca-agentline-age {
   display: flex;
@@ -3242,10 +3260,12 @@ html.is-peek body {
 .ca-srow-meta .ca-todochip {
   max-width: 100%;
 }
-/* On an agent's line the todo gives way before the agent's sentence does. */
+/* On an agent's line the todo gives way before the agent's title does, down to its glyph. */
 .ca-agentline-main .ca-chip.ca-todochip {
-  flex: 0 1 auto;
+  flex: 0 100 auto;
+  min-width: 24px;
   max-width: 180px;
+  overflow: hidden;
 }
 
 /* Todo rows: no worktree column; the worktree shows on the right of the second line. */

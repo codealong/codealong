@@ -3,6 +3,7 @@
 // of them, the lane's status and sentence are worked out again from what's left, with the same
 // rules as the engine (board.rs, `bay_of` and `headline`).
 
+import type { InsightLabel } from './insights';
 import type { Bay, Lane, Pr, Session, Status } from './types';
 
 export const BAYS: Bay[] = ['needs', 'working', 'unread', 'review', 'idle', 'merged'];
@@ -169,6 +170,21 @@ export function sessionHeadline(s: Session): [string, string | null] {
     case 'stopped':
       return [`${acct} · ${s.title}`, `stopped {ago:${s.lastActivity}}`];
   }
+}
+
+/**
+ * What a session waits on you for, as a label beside its title: the words its headline puts
+ * before the title. A session's row leads with its title, and its glyph and bay already say it
+ * needs you, so only the kind of need gets a label (none for a need with nothing more to say).
+ */
+export function sessionFlag(s: Session): InsightLabel | null {
+  if (s.stalledSince != null) return { label: 'Stuck', tone: 'warn', title: 'It says it’s busy, but nothing has happened for a while. It may be waiting on something.' };
+  if (s.status === 'error') return { label: 'Error', tone: 'bad', title: 'It stopped with an error.' };
+  if (s.status !== 'needs') return null;
+  if (s.asks) return { label: 'Asks you', tone: 'warn', title: 'Its last reply asks you something.' };
+  if (s.excerpt?.startsWith('Asks you')) return { label: 'Asks you', tone: 'warn', title: 'It’s waiting for your answer to its question.' };
+  if (s.excerpt != null && s.harness !== 'antigravity') return { label: 'Needs approval', tone: 'warn', title: 'It’s waiting for you to allow what it wants to run.' };
+  return null;
 }
 
 /** An idle lane's sentence, as the engine words it: its latest own session, else the session that

@@ -144,16 +144,17 @@
   // when it ticks (every 15 s), so a push it ticked through is tried again.
   var target = null;
   var update = function (attempt) {
-    var headline = 'Pushed headline ' + attempt;
+    // A session's row leads with its title, so a new title is what shows.
+    var title = 'Pushed title ' + attempt;
     var from = counts();
     var ticked = ticks;
     target = 'rows-check-target-' + attempt;
     push(function (b) {
       var s = sessionIn(b);
-      s.headline = headline;
+      s.title = title;
       s.openTarget = target;
     });
-    return until(function () { var el = row(); return el && el.textContent.indexOf(headline) >= 0; }, 5000).then(
+    return until(function () { var el = row(); return el && el.textContent.indexOf(title) >= 0; }, 5000).then(
       function () {
         return wait(500).then(function () {
           if (ticks !== ticked && attempt < 5) return update(attempt + 1);

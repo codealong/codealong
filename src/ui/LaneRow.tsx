@@ -8,11 +8,11 @@ import { DeviceBadge } from './DeviceBadge';
 import { memoRow } from './memoRow';
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
 import { absolute, ago, agoPhrase, middleTruncate, untilShort } from '../format';
-import { withoutAccount, type AgentItem, type WorktreeRow } from '../lanes';
+import type { AgentItem, WorktreeRow } from '../lanes';
 import { untilWords } from '../snooze';
 import type { GitInfo, Lane, Session, Todo } from '../types';
 import { Drift, driftWords, HarnessChip, Icon, LaneGlyph, PrChip, Rich, StatusGlyph } from './primitives';
-import { InsightChips, LooksFinished } from './InsightBits';
+import { FlagChip, InsightChips, LooksFinished } from './InsightBits';
 import { PreviewChip } from './PreviewBits';
 import { TodoChips } from './TodoBits';
 
@@ -277,6 +277,26 @@ function GroupRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpenTarget
   );
 }
 
+/**
+ * A session's line: its title first, then a label for what it waits on you for, then what it's
+ * doing or said last, which gives way first when the line is short.
+ */
+function SessionText({ s, now }: { s: Session; now: number }) {
+  return (
+    <span className="ca-agentline-text">
+      <span className="ca-lane-headline ca-agentline-title">
+        <Rich text={s.title} now={now} />
+      </span>
+      <FlagChip session={s} />
+      {s.detail && (
+        <span className="ca-lane-detail ca-agentline-detail">
+          <Rich text={s.detail} now={now} />
+        </span>
+      )}
+    </span>
+  );
+}
+
 interface AgentLineProps {
   item: AgentItem;
   now: number;
@@ -292,7 +312,8 @@ interface AgentLineProps {
   onShowTodo?: (todo: Todo) => void;
 }
 
-/** One agent on its worktree's row: its chip (click to open), its todo, its sentence, and its age. */
+/** One agent on its worktree's row: its chip (click to open), its title and what it's doing, its
+ *  todo and Jev's read at the end of the line, and its age. */
 function AgentLine({ item, now, domId, selected, pinned, onSelect, onOpen, onContextMenu, todos, onShowTodo }: AgentLineProps) {
   const s = item.session;
   return (
@@ -313,18 +334,9 @@ function AgentLine({ item, now, domId, selected, pinned, onSelect, onOpen, onCon
             onOpen();
           }}
         />
+        <SessionText s={s} now={now} />
         <TodoChips todos={todos} onShow={onShowTodo} />
         <InsightChips session={s} />
-        <span className="ca-agentline-text">
-          <span className="ca-lane-headline">
-            <Rich text={withoutAccount(s.headline)} now={now} />
-          </span>
-          {s.detail && (
-            <span className="ca-lane-detail">
-              <Rich text={s.detail} now={now} />
-            </span>
-          )}
-        </span>
       </span>
       <span className="ca-agentline-age" title={`Last active ${absolute(s.lastActivity)}. You last sent it a prompt ${agoPhrase(s.lastPromptAt, now)}, which sets its place in the list.`}>
         {ago(s.lastActivity, now)}
@@ -389,8 +401,9 @@ function SnoozeChip({ session: s, now }: { session: Session; now: number }) {
 }
 
 /**
- * One session in the Sessions view: who and what on the first line (its agent, its sentence),
- * where and why on the second (its worktree, todo and insights, and the worktree's PR and diff).
+ * One session in the Sessions view: who and what on the first line (its agent, its title, what it
+ * waits on you for, and what it's doing or said last), where and why on the second (its worktree,
+ * todo and insights, and the worktree's PR and diff).
  */
 function AgentRowView({ lane, session: s, domId, now, selected, onSelect, onOpen, pinned, onContextMenu, onPrMenu, pinIndex, onPointerDown, extraClass, todos, onShowTodo }: AgentRowProps) {
   return (
@@ -418,16 +431,7 @@ function AgentRowView({ lane, session: s, domId, now, selected, onSelect, onOpen
       <div className="ca-seg ca-seg-main">
         <div className="ca-agentrow-line1">
           <HarnessChip session={s} withStatus={false} onOpen={onOpen} />
-          <span className="ca-agentline-text">
-            <span className="ca-lane-headline">
-              <Rich text={withoutAccount(s.headline)} now={now} />
-            </span>
-            {s.detail && (
-              <span className="ca-lane-detail">
-                <Rich text={s.detail} now={now} />
-              </span>
-            )}
-          </span>
+          <SessionText s={s} now={now} />
         </div>
         <div className="ca-lane-line2">
           <span className="ca-lane-agents">

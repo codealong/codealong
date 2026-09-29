@@ -1,7 +1,9 @@
-// Chips for Jev's read of a session and a worktree (insights.ts): how far the work got, how risky
-// a waiting command looks, and a worktree that looks finished.
+// Label chips for a session and a worktree: what a session waits on you for (lanes.ts), and Jev's
+// read of them (insights.ts): how far the work got, how risky a waiting command looks, and a
+// worktree that looks finished.
 
 import { landingLabel, riskLabel, type InsightLabel } from '../insights';
+import { sessionFlag } from '../lanes';
 import type { Lane, Session } from '../types';
 
 function Chip({ l }: { l: InsightLabel }) {
@@ -10,6 +12,12 @@ function Chip({ l }: { l: InsightLabel }) {
       {l.label}
     </span>
   );
+}
+
+/** What the session waits on you for: asks you, needs approval, stuck, or an error. */
+export function FlagChip({ session }: { session: Session }) {
+  const l = sessionFlag(session);
+  return l ? <Chip l={l} /> : null;
 }
 
 /** The session's risk while it waits on you, else how far its work got. */
