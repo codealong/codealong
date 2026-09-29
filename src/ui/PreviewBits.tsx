@@ -1,0 +1,214 @@
+// A worktree's app: a chip on its row that opens it, a section in its panel, and the dialog that
+// sets its URL. The engine finds the server behind it (previews.rs): a process listening on a
+// port whose folder is in the worktree.
+
+import { useEffect, useState } from 'react';
+import { setPreview } from '../api';
+import { absolute, duration } from '../format';
+import type { Lane, Preview } from '../types';
+import { Button, Icon } from './primitives';
+
+/** A URL as rows show it: `feature.app.test`, `localhost:5173/admin`. */
+export function previewHost(url: string): string {
+  return url.replace(/^[a-z][a-z0-9+.-]*:\/\//i, '').replace(/\/$/, '');
+}
+
+/** Whether it runs, in a sentence: its chip's tooltip. */
+export function previewState(p: Preview, now: number): string {
+  const s = p.server;
+  if (!s) return p.port != null ? `Not running: nothing in this worktree listens on port ${p.port}.` : 'Not running: nothing in this worktree’s folder serves it.';
+  return `Running: ${s.name} on port ${s.port}, for ${duration(s.startedAt, now)}.`;
+}
+
+/** A worktree's app on its row: where it opens, green while it runs. A click opens it. */
+export function PreviewChip({ preview: p, now, onOpen }: { preview: Preview | undefined; now: number; onOpen: () => void }) {
+  if (!p) return null;
+  return (
+    <button
+      type="button"
+      className={['ca-chip', 'ca-chip--button', 'ca-previewchip', p.server ? 'is-up' : 'is-down'].join(' ')}
+      title={`${p.url}. ${previewState(p, now)} Click to open it.`}
+      onMouseDown={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
+      // A double-click on a row often lands here: open once, not twice.
+      onClick={(e) => {
+        if (e.detail < 2) onOpen();
+      }}
+    >
+      <Icon name="world" size={12} />
+      <span className="ca-previewchip-host">{previewHost(p.url)}</span>
+    </button>
+  );
+}
+
+/** A worktree's app in a panel's header, under its folder: where it opens, green while it runs.
+ *  A click opens it. */
+export function PreviewLink({ preview: p, now, onOpen }: { preview: Preview | undefined; now: number; onOpen: () => void }) {
+  if (!p) return null;
+  return (
+    <button type="button" className={['ca-insp-path', 'ca-previewlink', p.server ? 'is-up' : 'is-down'].join(' ')} title={`Open ${p.url}. ${previewState(p, now)}`} onClick={onOpen}>
+      <Icon name="world" size={12} />
+      <span>{previewHost(p.url)}</span>
+      {!p.server && <span className="ca-previewlink-state">not running</span>}
+    </button>
+  );
+}
+
+/** The worktree's app in its panel: where it opens, what serves it, and who started that. */
+export function PreviewSection({ lane, now, onOpen, onEdit }: { lane: Lane; now: number; onOpen: () => void; onEdit: () => void }) {
+  const p = lane.preview;
+  if (!p) return null;
+  const s = p.server;
+  const by = s?.session ? lane.sessions.find((x) => x.key === s.session) : undefined;
+  return (
+    <section className="ca-insp-sec">
+      <h4 className="ca-label">Preview</h4>
+      <dl className="ca-kv">
+        <dt>Opens at</dt>
+        <dd>
+          <button type="button" className="ca-preview-url" title={`Open ${p.url}`} onClick={onOpen}>
+            {previewHost(p.url)}
+          </button>
+          {!p.set && <span className="ca-meta"> · found</span>}
+        </dd>
+        <dt>Server</dt>
+        <dd className={s ? 'ca-preview-up' : 'ca-preview-down'}>
+          {s ? (
+            <>
+              <span className="ca-code">{s.name}</span> on port {s.port}, pid {s.pid}
+            </>
+          ) : p.port != null ? (
+            `Not running · port ${p.port}`
+          ) : (
+            'Not running'
+          )}
+        </dd>
+        {s && (
+          <>
+            <dt>Up for</dt>
+            <dd title={`Started ${absolute(s.startedAt)}`}>{duration(s.startedAt, now)}</dd>
+          </>
+        )}
+        {s?.title && (
+          <>
+            <dt>Page</dt>
+            <dd>{s.title}</dd>
+          </>
+        )}
+        {by && (
+          <>
+            <dt>Started by</dt>
+            <dd title={by.title}>
+              {by.account} · {by.title}
+            </dd>
+          </>
+        )}
+      </dl>
+      <div className="ca-preview-actions">
+        <Button variant="ghost" size="sm" icon="world" onClick={onOpen}>
+          Open
+        </Button>
+        <Button variant="ghost" size="sm" onClick={onEdit}>
+          {p.set ? 'Change URL…' : 'Set URL…'}
+        </Button>
+      </div>
+    </section>
+  );
+}
+
+/** Sets where a worktree's app opens, and which of its servers is the app. */
+export function PreviewDialog({ lane, onClose }: { lane: Lane; onClose: () => void }) {
+  const p = lane.preview;
+  const [url, setUrl] = useState(p?.set ? p.url : '');
+  const [port, setPort] = useState(p?.port != null ? String(p.port) : '');
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !e.defaultPrevented && !saving) {
+        e.preventDefault();
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose, saving]);
+
+  const save = async (clear: boolean) => {
+    const n = port.trim() === '' ? null : Number(port.trim());
+    if (!clear) {
+      if (url.trim() === '') return setError('Give the URL the worktree’s app opens at.');
+      if (n !== null && !(Number.isInteger(n) && n > 0 && n < 65536)) return setError('A port is a whole number from 1 to 65535.');
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      await setPreview(lane.id, clear ? null : url.trim(), clear ? null : n);
+      onClose();
+    } catch (e) {
+      setError(String(e).replace(/^Error: /, ''));
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div
+      className="ca-scrim"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget && !saving) onClose();
+      }}
+    >
+      <form
+        className="ca-dialog ca-previewdlg"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="ca-previewdlg-title"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void save(false);
+        }}
+      >
+        <header className="ca-dialog-head">
+          <h2 id="ca-previewdlg-title">Preview URL</h2>
+          <Button variant="ghost" size="sm" icon="x" aria-label="Close" onClick={onClose} disabled={saving} />
+        </header>
+        <p className="ca-dialog-lede">Where {lane.callsign}’s app opens in the browser. Its row shows whether a server in the worktree’s folder is running it.</p>
+        <div className="ca-dialog-body">
+          <label className="ca-field">
+            <span>URL</span>
+            <input value={url} autoFocus spellCheck={false} autoCapitalize="off" autoCorrect="off" placeholder="https://feature.app.test or localhost:5173" onChange={(e) => setUrl(e.target.value)} />
+            <small>Without a scheme, localhost takes http and other names https.</small>
+          </label>
+          <label className="ca-field ca-previewdlg-port">
+            <span>Port (optional)</span>
+            <input value={port} inputMode="numeric" spellCheck={false} placeholder={p?.server ? String(p.server.port) : '5173'} onChange={(e) => setPort(e.target.value)} />
+            <small>Which of the worktree’s servers runs the app. Leave it empty to use the one that serves a page, or the port a localhost URL names.</small>
+          </label>
+          {error && (
+            <p className="ca-form-error" role="alert">
+              {error}
+            </p>
+          )}
+        </div>
+        <footer className="ca-dialog-foot">
+          <span>
+            {p?.set && (
+              <Button variant="ghost" size="sm" onClick={() => void save(true)} disabled={saving}>
+                Clear URL
+              </Button>
+            )}
+          </span>
+          <span className="ca-previewdlg-actions">
+            <Button variant="ghost" size="sm" onClick={onClose} disabled={saving}>
+              Cancel
+            </Button>
+            <Button variant="primary" size="sm" type="submit" disabled={saving}>
+              {saving ? 'Saving…' : 'Save'}
+            </Button>
+          </span>
+        </footer>
+      </form>
+    </div>
+  );
+}

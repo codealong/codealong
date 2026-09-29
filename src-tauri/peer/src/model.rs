@@ -338,6 +338,42 @@ pub struct Lane {
     /// device's own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub device: Option<DeviceTag>,
+    /// The app it serves, to open in the browser: the URL set for it, or a page a server in its
+    /// folder serves. Only this device's own, since the link only opens here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preview: Option<Preview>,
+}
+
+/// A worktree's app: where it opens, and the server behind it while one runs.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Preview {
+    /// The URL set for the worktree (`codealong preview set`, or its menu), or
+    /// `http://localhost:<port>` for a page a server in its folder serves.
+    pub url: String,
+    /// The URL was set for it; false when it's a page found serving there.
+    pub set: bool,
+    /// The port given with the URL: which of the worktree's servers is the app.
+    pub port: Option<u16>,
+    /// The server that serves it, while one listens in the worktree's folder; none when the app
+    /// isn't running.
+    pub server: Option<PreviewServer>,
+}
+
+/// A process listening on a TCP port, whose folder is in the worktree.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PreviewServer {
+    pub pid: u32,
+    pub port: u16,
+    /// The process's name, such as `node`.
+    pub name: String,
+    /// The page's `<title>`.
+    pub title: Option<String>,
+    /// When the process started.
+    pub started_at: i64,
+    /// The key of the session whose command started it.
+    pub session: Option<String>,
 }
 
 /// Which of your other devices a lane is on, as the windows mark it: its name, its short id, the

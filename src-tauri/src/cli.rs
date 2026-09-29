@@ -20,7 +20,7 @@ use crate::attachments;
 use crate::board;
 use crate::config::{self, AccountCfg, Config};
 use crate::engine;
-use crate::model::{Board, Lane, Session, Status};
+use crate::model::{Board, Lane, PreviewServer, Session, Status};
 use crate::procs;
 use crate::search;
 use crate::server::{self, Request};
@@ -86,6 +86,11 @@ enum Cmd {
     Pr {
         #[command(subcommand)]
         cmd: PrCmd,
+    },
+    /// A worktree's app, to open in the browser: the URL set for it, and whether a server in its folder serves it now. Set the URL when you know where the worktree's app opens (you started its dev server, or the repo's instructions say where it's served): the worktree's row in the app links to it and shows whether it's running.
+    Preview {
+        #[command(subcommand)]
+        cmd: PreviewCmd,
     },
     /// Start a session for a todo (or several, on one prompt) or on a prompt, the way the app's New session does, and link it to the todos.
     Start(StartArgs),
@@ -402,6 +407,34 @@ struct PrLinkArgs {
     /// A session key, id, or `me`.
     #[arg(long, default_value = "me")]
     session: String,
+}
+
+#[derive(Subcommand, Debug)]
+enum PreviewCmd {
+    /// A worktree's preview: where it opens, whether that URL was set or found, and the server serving it now. `running` false means nothing listening in the worktree's folder serves it: its app isn't running.
+    Show(PreviewAt),
+    /// Set the URL a worktree's app opens at. It's linked to the server listening in the worktree's folder: the one on --port, else the port a localhost URL names, else the one that serves a page.
+    Set(PreviewSetArgs),
+    /// Take a worktree's URL away. A page a server in its folder serves still shows, at localhost.
+    Clear(PreviewAt),
+}
+
+#[derive(Args, Debug)]
+struct PreviewAt {
+    /// The worktree: its path, or `.` for the one the current folder is in.
+    #[arg(long, default_value = ".")]
+    worktree: String,
+}
+
+#[derive(Args, Debug)]
+struct PreviewSetArgs {
+    /// Where the app opens: `https://feature.app.test`, `localhost:5173/admin`, or a port alone. Without a scheme, local names take http and others https.
+    url: String,
+    /// Which of the worktree's servers is the app, when more than one serves a page (a dev server and Storybook, say), or when a proxy's URL names none.
+    #[arg(long)]
+    port: Option<u16>,
+    #[command(flatten)]
+    at: PreviewAt,
 }
 
 #[derive(Args, Debug)]
@@ -730,6 +763,9 @@ fn run(cmd: Cmd, c: &mut Client, json: bool) -> Result<()> {
         Cmd::Pr { cmd: PrCmd::Show { pr } } => pr_show(c, &pr, json),
         Cmd::Pr { cmd: PrCmd::Link(a) } => pr_link(c, &a, true, json),
         Cmd::Pr { cmd: PrCmd::Unlink(a) } => pr_link(c, &a, false, json),
+        Cmd::Preview { cmd: PreviewCmd::Show(a) } => preview_show(c, &a.worktree, json),
+        Cmd::Preview { cmd: PreviewCmd::Set(a) } => preview_set(c, &a.at.worktree, Some((&a.url, a.port)), json),
+        Cmd::Preview { cmd: PreviewCmd::Clear(a) } => preview_set(c, &a.worktree, None, json),
         Cmd::Start(args) => start_cmd(c, &args, json),
         Cmd::Config { cmd } => config_cmd(cmd, json),
         Cmd::Install(args) => install(c, &args, json),
@@ -1473,6 +1509,9 @@ struct LaneRow {
     pinned: bool,
     /// Ids of todos linked to it.
     todos: Vec<String>,
+    /// Where its app opens (`codealong preview`), and whether a server in its folder serves it now.
+    preview: Option<String>,
+    preview_running: Option<bool>,
 }
 
 /// Whether a session is running now: a process has it open (a terminal, the Claude app, a
@@ -1508,6 +1547,8 @@ fn lane_row(l: &Lane, board: &Board) -> LaneRow {
         last_activity: l.last_activity,
         pinned: board.pinned_worktrees.contains(&l.id),
         todos: board.todos.iter().filter(|t| t.worktrees.contains(&l.id)).map(|t| t.id.clone()).collect(),
+        preview: l.preview.as_ref().map(|p| p.url.clone()),
+        preview_running: l.preview.as_ref().map(|p| p.server.is_some()),
     }
 }
 
@@ -1523,11 +1564,102 @@ fn worktrees(c: &mut Client, a: &WorktreesArgs, json: bool) -> Result<()> {
         return print_json(&rows);
     }
     let now = now_ms();
+    // A column for previews only when a worktree has one.
+    let previews = rows.iter().any(|r| r.preview.is_some());
     let table: Vec<Vec<String>> = rows
         .iter()
-        .map(|r| vec![r.bay.clone(), r.callsign.clone(), r.branch.clone().unwrap_or_default(), r.pr.map(|n| format!("#{n} {}", r.pr_state.clone().unwrap_or_default())).unwrap_or_default(), r.agents.to_string(), ago(now - r.last_activity), truncate(&r.headline, 60), tilde(Path::new(&r.id))])
+        .map(|r| {
+            let mut row = vec![r.bay.clone(), r.callsign.clone(), r.branch.clone().unwrap_or_default(), r.pr.map(|n| format!("#{n} {}", r.pr_state.clone().unwrap_or_default())).unwrap_or_default(), r.agents.to_string(), ago(now - r.last_activity), truncate(&r.headline, 60)];
+            if previews {
+                row.push(r.preview.as_deref().map(|u| format!("{}{}", crate::previews::short_url(u), if r.preview_running == Some(true) { "" } else { " (not running)" })).unwrap_or_default());
+            }
+            row.push(tilde(Path::new(&r.id)));
+            row
+        })
         .collect();
-    print!("{}", table_text(&["BAY", "WORKTREE", "BRANCH", "PR", "AGENTS", "AGO", "HEADLINE", "PATH"], table));
+    let head: &[&str] = if previews { &["BAY", "WORKTREE", "BRANCH", "PR", "AGENTS", "AGO", "HEADLINE", "PREVIEW", "PATH"] } else { &["BAY", "WORKTREE", "BRANCH", "PR", "AGENTS", "AGO", "HEADLINE", "PATH"] };
+    print!("{}", table_text(head, table));
+    Ok(())
+}
+
+// ---- preview ----
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PreviewOut {
+    worktree: String,
+    /// Where it opens; none when no URL is set and nothing in the worktree serves a page.
+    url: Option<String>,
+    /// The URL was set by hand; false when it's a page found serving there.
+    set: bool,
+    /// The port set with the URL.
+    port: Option<u16>,
+    /// A server in the worktree's folder serves it now.
+    running: bool,
+    server: Option<PreviewServer>,
+}
+
+fn preview_show(c: &mut Client, worktree: &str, json: bool) -> Result<()> {
+    let id = resolve_worktree(c, worktree)?;
+    let lane = c.board()?.lanes.iter().find(|l| l.id == id).ok_or_else(|| anyhow!("That worktree just changed. Try again."))?;
+    let p = lane.preview.as_ref();
+    let out = PreviewOut {
+        worktree: id.clone(),
+        url: p.map(|p| p.url.clone()),
+        set: p.is_some_and(|p| p.set),
+        port: p.and_then(|p| p.port),
+        running: p.is_some_and(|p| p.server.is_some()),
+        server: p.and_then(|p| p.server.clone()),
+    };
+    if json {
+        return print_json(&out);
+    }
+    let Some(p) = p else {
+        println!("{} has no preview: no URL is set (`codealong preview set <url>`) and nothing in its folder serves a page.", tilde(Path::new(&id)));
+        return Ok(());
+    };
+    println!("{}{}", p.url, if p.set { "" } else { " (found: a page served in the worktree)" });
+    match &p.server {
+        Some(s) => println!("Running: {} on port {}, pid {}, for {}{}", s.name, s.port, s.pid, ago(now_ms() - s.started_at), s.title.as_deref().map(|t| format!(" · {t}")).unwrap_or_default()),
+        None => println!("Not running: nothing listening in {} serves it{}.", tilde(Path::new(&id)), p.port.map(|n| format!(" on port {n}")).unwrap_or_default()),
+    }
+    Ok(())
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PreviewSetOut {
+    worktree: String,
+    url: Option<String>,
+    port: Option<u16>,
+    /// False when it already was so.
+    changed: bool,
+}
+
+/// Sets a worktree's URL, or clears it with none. The app watches the file.
+fn preview_set(c: &mut Client, worktree: &str, to: Option<(&str, Option<u16>)>, json: bool) -> Result<()> {
+    let id = resolve_worktree(c, worktree)?;
+    let url = to.map(|(u, _)| crate::previews::normalize_url(u)).transpose()?;
+    let port = to.and_then(|(_, p)| p);
+    let mut changed = false;
+    crate::previews::change(|store| {
+        changed = match &url {
+            Some(url) => store.set(&id, url, port, now_ms()),
+            None => store.clear(&id),
+        };
+        changed
+    })?;
+    let out = PreviewSetOut { worktree: id, url, port, changed };
+    if json {
+        return print_json(&out);
+    }
+    let at = tilde(Path::new(&out.worktree));
+    match (&out.url, changed) {
+        (Some(u), true) => println!("{at} opens at {u}{}.", port.map(|p| format!(", served on port {p}")).unwrap_or_default()),
+        (Some(u), false) => println!("{at} already opens at {u}."),
+        (None, true) => println!("Took the preview URL off {at}."),
+        (None, false) => println!("{at} had no preview URL."),
+    }
     Ok(())
 }
 

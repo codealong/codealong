@@ -17,6 +17,7 @@ import { STATUS_WORD as TODO_WORD } from '../todos';
 import { InsightChips } from './InsightBits';
 import { QueueStrip, type Notice, type Queue } from './ReplyView';
 import { OpenInMenu } from './Inspector';
+import { PreviewLink } from './PreviewBits';
 import { BranchLabel, Button, HarnessChip, Icon, Rich, STATUS_WORD, StatusGlyph } from './primitives';
 import { Reply } from './SessionReply';
 import { DeviceBadge } from './DeviceBadge';
@@ -89,6 +90,7 @@ export function SessionPanel({ lane, session: s, apps, now, onOpen, onNewSession
             {lane.callsign} · {middleTruncate(tildePath(lane.path), 36)}
           </span>
         </button>
+        <PreviewLink preview={lane.preview} now={now} onOpen={() => onOpen('l|preview')} />
         {(s.branch ?? lane.branch) && (
           <div className="ca-insp-branch">
             <BranchLabel branch={(s.branch ?? lane.branch) as string} />

@@ -130,6 +130,145 @@ pub fn ancestors(pid: u32) -> Vec<u32> {
     out
 }
 
+/// A TCP port one of your processes listens on.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Listener {
+    pub pid: u32,
+    pub port: u16,
+    /// Where to reach it on this Mac: the address it's bound to, or loopback when it listens on
+    /// every address.
+    pub addr: std::net::IpAddr,
+    /// The executable's short name (`node`), as `ps -c` has it.
+    pub name: String,
+    /// The folder it runs in.
+    pub cwd: std::path::PathBuf,
+    pub started_ms: i64,
+}
+
+/// Every TCP port your processes listen on, from the kernel: one pass over the process table
+/// and each process's sockets, starting no `lsof`. With 730 of your processes holding 1,400
+/// sockets it took 4 to 6 ms, at a load of 15 to 25 (2026-09-28). The kernel doesn't answer
+/// for other users' processes, so they're left out.
+pub fn listeners() -> Vec<Listener> {
+    // `struct socket_fdinfo` (sys/proc_info.h) is 792 bytes on 64-bit macOS; these are the
+    // offsets of the fields read, from the SDK's layout. `listeners_are_found` checks them
+    // against a port the test opens.
+    const PROC_PIDFDSOCKETINFO: libc::c_int = 3;
+    const SIZE: usize = 792;
+    const SOI_KIND: usize = 256;
+    const SOCKINFO_TCP: i32 = 2;
+    const INSI_LPORT: usize = 268;
+    const INSI_VFLAG: usize = 288;
+    const INI_IPV6: u8 = 2;
+    const INSI_LADDR: usize = 312;
+    const TCPSI_STATE: usize = 344;
+    const TSI_S_LISTEN: i32 = 1;
+
+    // SAFETY: getuid can't fail.
+    let me = unsafe { libc::getuid() };
+    // SAFETY: with no buffer, proc_listallpids says how many processes there are.
+    let count = unsafe { libc::proc_listallpids(std::ptr::null_mut(), 0) }.max(0) as usize;
+    let mut pids = vec![0 as libc::c_int; count + 64];
+    // SAFETY: proc_listallpids writes at most the buffer's size in pids, and says how many.
+    let n = unsafe { libc::proc_listallpids(pids.as_mut_ptr() as *mut libc::c_void, (pids.len() * std::mem::size_of::<libc::c_int>()) as libc::c_int) }.max(0) as usize;
+    pids.truncate(n.min(pids.len()));
+    let mut fds: Vec<libc::proc_fdinfo> = Vec::with_capacity(256);
+    let mut buf = [0u64; SIZE / 8];
+    let mut out: Vec<Listener> = Vec::new();
+    for pid in pids.into_iter().filter(|&p| p > 0) {
+        // SAFETY: proc_pidinfo fills a plain-old-data struct of the size we pass.
+        let short = unsafe {
+            let mut info: libc::proc_bsdshortinfo = std::mem::zeroed();
+            let size = std::mem::size_of::<libc::proc_bsdshortinfo>() as libc::c_int;
+            let got = libc::proc_pidinfo(pid, libc::PROC_PIDT_SHORTBSDINFO, 0, &mut info as *mut _ as *mut libc::c_void, size);
+            (got == size).then_some(info)
+        };
+        let Some(short) = short.filter(|i| i.pbsi_uid == me) else { continue };
+        let mut listed = 0usize;
+        loop {
+            // SAFETY: proc_pidinfo writes at most the capacity's worth of `proc_fdinfo`s and
+            // says how many bytes it wrote; `set_len` covers only those.
+            let got = unsafe {
+                let bytes = (fds.capacity() * std::mem::size_of::<libc::proc_fdinfo>()) as libc::c_int;
+                let got = libc::proc_pidinfo(pid, libc::PROC_PIDLISTFDS, 0, fds.as_mut_ptr() as *mut libc::c_void, bytes);
+                fds.set_len(0);
+                if got <= 0 {
+                    break;
+                }
+                got as usize / std::mem::size_of::<libc::proc_fdinfo>()
+            };
+            if got < fds.capacity() {
+                // SAFETY: proc_pidinfo just wrote `got` entries.
+                unsafe { fds.set_len(got) };
+                listed = got;
+                break;
+            }
+            // Full: there may be more than fit.
+            fds.reserve(fds.capacity() * 2);
+        }
+        let mut ports: Vec<(u16, std::net::IpAddr)> = Vec::new();
+        for fd in &fds[..listed] {
+            if fd.proc_fdtype as libc::c_int != libc::PROX_FDTYPE_SOCKET {
+                continue;
+            }
+            // SAFETY: proc_pidfdinfo writes at most SIZE bytes into `buf`, which holds that many.
+            let got = unsafe { libc::proc_pidfdinfo(pid, fd.proc_fd, PROC_PIDFDSOCKETINFO, buf.as_mut_ptr() as *mut libc::c_void, SIZE as libc::c_int) };
+            if got as usize != SIZE {
+                continue;
+            }
+            // SAFETY: the bytes of the buffer just filled.
+            let b = unsafe { std::slice::from_raw_parts(buf.as_ptr() as *const u8, SIZE) };
+            let int = |at: usize| i32::from_ne_bytes([b[at], b[at + 1], b[at + 2], b[at + 3]]);
+            if int(SOI_KIND) != SOCKINFO_TCP || int(TCPSI_STATE) != TSI_S_LISTEN {
+                continue;
+            }
+            // The port is kept as the socket has it, in network order.
+            let port = u16::from_be_bytes([b[INSI_LPORT], b[INSI_LPORT + 1]]);
+            let addr: std::net::IpAddr = if b[INSI_VFLAG] & INI_IPV6 != 0 {
+                let mut a = [0u8; 16];
+                a.copy_from_slice(&b[INSI_LADDR..INSI_LADDR + 16]);
+                let a = std::net::Ipv6Addr::from(a);
+                if a.is_unspecified() { std::net::Ipv6Addr::LOCALHOST.into() } else { a.into() }
+            } else {
+                let a = std::net::Ipv4Addr::new(b[INSI_LADDR + 12], b[INSI_LADDR + 13], b[INSI_LADDR + 14], b[INSI_LADDR + 15]);
+                if a.is_unspecified() { std::net::Ipv4Addr::LOCALHOST.into() } else { a.into() }
+            };
+            match ports.iter_mut().find(|(p, _)| *p == port) {
+                // Listening on both families: IPv4 is reached the same way everywhere.
+                Some(have) if have.1.is_ipv6() && addr.is_ipv4() => have.1 = addr,
+                Some(_) => {}
+                None => ports.push((port, addr)),
+            }
+        }
+        if ports.is_empty() {
+            continue;
+        }
+        let pid = pid as u32;
+        let comm = short.pbsi_comm.iter().take_while(|&&c| c != 0).map(|&c| c as u8).collect::<Vec<u8>>();
+        let name = String::from_utf8_lossy(&comm).into_owned();
+        let cwd = cwd_of(pid).unwrap_or_default();
+        let started_ms = proc_start_ms(pid).unwrap_or(0);
+        out.extend(ports.into_iter().map(|(port, addr)| Listener { pid, port, addr, name: name.clone(), cwd: cwd.clone(), started_ms }));
+    }
+    out
+}
+
+/// The folder one of your processes runs in, from the kernel; None once it's gone.
+pub fn cwd_of(pid: u32) -> Option<std::path::PathBuf> {
+    // SAFETY: proc_pidinfo fills a plain-old-data struct of the size we pass; the path in it
+    // ends in a NUL.
+    unsafe {
+        let mut info: libc::proc_vnodepathinfo = std::mem::zeroed();
+        let size = std::mem::size_of::<libc::proc_vnodepathinfo>() as libc::c_int;
+        if libc::proc_pidinfo(pid as libc::c_int, libc::PROC_PIDVNODEPATHINFO, 0, &mut info as *mut _ as *mut libc::c_void, size) != size {
+            return None;
+        }
+        let path = std::ffi::CStr::from_ptr(info.pvi_cdir.vip_path.as_ptr() as *const libc::c_char);
+        let path = path.to_string_lossy();
+        (!path.is_empty()).then(|| std::path::PathBuf::from(path.as_ref()))
+    }
+}
+
 /// The PATH as the login shell sets it, with none of Codealong's own additions: what a
 /// command typed in a terminal can find. None when the shell didn't answer.
 pub fn login_path() -> Option<&'static str> {
@@ -420,6 +559,23 @@ mod tests {
         let start = proc_start_ms(pid).expect("start time");
         assert!(start > 1_700_000_000_000);
         assert!(!pid_alive(0));
+    }
+
+    #[test]
+    fn listeners_are_found() {
+        let v4 = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let v6 = std::net::TcpListener::bind("[::1]:0").unwrap();
+        let any = std::net::TcpListener::bind("0.0.0.0:0").unwrap();
+        let found = listeners();
+        let mine = |port: u16| found.iter().find(|l| l.pid == std::process::id() && l.port == port).cloned();
+        let l = mine(v4.local_addr().unwrap().port()).expect("the IPv4 port");
+        assert_eq!(l.addr, std::net::IpAddr::from([127, 0, 0, 1]));
+        assert_eq!(l.cwd, std::env::current_dir().unwrap());
+        assert!(!l.name.is_empty());
+        assert!(l.started_ms > 1_700_000_000_000);
+        assert_eq!(mine(v6.local_addr().unwrap().port()).expect("the IPv6 port").addr, std::net::IpAddr::from(std::net::Ipv6Addr::LOCALHOST));
+        // Every address is reached through loopback.
+        assert_eq!(mine(any.local_addr().unwrap().port()).expect("the port on every address").addr, std::net::IpAddr::from([127, 0, 0, 1]));
     }
 
     #[test]

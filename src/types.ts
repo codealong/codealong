@@ -141,6 +141,34 @@ export interface Lane {
   defaultTarget: string | null;
   /** The device it's on, when that's another of your devices; missing for this device's own. */
   device?: DeviceTag;
+  /** Its app, to open in the browser: the URL set for it, or a page a server in its folder
+   *  serves. This device's worktrees only. */
+  preview?: Preview;
+}
+
+/** A worktree's app: where it opens, and the server behind it while one runs. */
+export interface Preview {
+  /** The URL set for it (`codealong preview set`, or its menu), or `http://localhost:<port>`
+   *  for a page a server in its folder serves. */
+  url: string;
+  /** The URL was set; false when it's a page found serving there. */
+  set: boolean;
+  /** The port set with the URL: which of the worktree's servers is the app. */
+  port: number | null;
+  /** The server serving it; null when its app isn't running. */
+  server: PreviewServer | null;
+}
+
+/** A process listening on a TCP port, whose folder is in the worktree. */
+export interface PreviewServer {
+  pid: number;
+  port: number;
+  /** The process's name, such as `node`. */
+  name: string;
+  title: string | null;
+  startedAt: number;
+  /** The key of the session whose command started it. */
+  session: string | null;
 }
 
 export interface ProjectSummary {

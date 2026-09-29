@@ -17,6 +17,7 @@ use crate::appserver;
 use crate::claude::{self, RegistryEntry, TranscriptInfo};
 use crate::claudeapp;
 use crate::prlinks;
+use crate::previews;
 use crate::codex::{self, ThreadInfo};
 use crate::opencode;
 use crate::config::{self, AccountCfg, Config, Theme};
@@ -128,6 +129,11 @@ pub enum Msg {
     Hosted,
     /// A read of a folder's files came back after the scan that asked for it went on (held.rs).
     Landed,
+    /// The servers listening in worktrees changed (previews.rs).
+    Servers(Vec<previews::Server>),
+    /// A worktree's preview URL was set or cleared; the reply is the time of the board that
+    /// shows it.
+    Previews(Sender<i64>),
 }
 
 /// What the UI talks to. Cheap to clone.
@@ -206,6 +212,25 @@ impl Handle {
         let (tx, rx) = channel();
         self.tx.send(Msg::Todo(op, tx)).map_err(|_| "Codealong's engine stopped.".to_string())?;
         rx.recv_timeout(wait).map_err(|_| "Codealong is busy; the change will show when it catches up.".to_string())?
+    }
+
+    /// Sets a worktree's preview URL, or clears it with none, and returns the time of the board
+    /// that shows it, as `mark_seen_shown` does. `port` picks which of the worktree's servers is
+    /// the app, when more than one serves a page.
+    pub fn set_preview(&self, lane_id: &str, url: Option<&str>, port: Option<u16>) -> Result<Option<i64>> {
+        if !self.read(|b| b.lanes.iter().any(|l| l.id == lane_id && l.device.is_none())) {
+            bail!("That worktree just changed. Try again.");
+        }
+        let url = url.map(previews::normalize_url).transpose()?;
+        previews::change(|store| match &url {
+            Some(url) => store.set(lane_id, url, port, now_ms()),
+            None => store.clear(lane_id),
+        })?;
+        let (tx, rx) = channel();
+        if self.tx.send(Msg::Previews(tx)).is_err() {
+            bail!("Codealong's engine stopped.");
+        }
+        Ok(rx.recv_timeout(SHOWN_WAIT).ok())
     }
 
     /// "Looks done" was wrong for this todo, for now.
@@ -358,6 +383,14 @@ pub fn open_on(board: &Board, lane_id: &str, target_id: &str) -> Result<Option<S
         ["l", "editor"] => editors::open(&apps.editor_id, &path)?,
         ["l", "editor", id] if opens_in(&apps, id) => editors::open(id, &path)?,
         ["l", "finder"] => launch::reveal(&path)?,
+        ["l", "preview"] => {
+            let preview = lane.preview.as_ref().ok_or_else(|| anyhow!("This worktree has no preview URL."))?;
+            // Only a web page: the URL was checked when it was set, and a found one is localhost.
+            if !preview.url.starts_with("http://") && !preview.url.starts_with("https://") {
+                bail!("{} isn't a web address.", preview.url);
+            }
+            launch::open_url(&preview.url)?
+        }
         ["p", which] => {
             let pr = lane.pr.as_ref().ok_or_else(|| anyhow!("This lane has no PR."))?;
             match *which {
@@ -393,7 +426,9 @@ pub fn start(emit: impl Fn(&Board) + Send + 'static) -> Handle {
         .name("codealong-engine".into())
         .spawn(move || {
             procs::utility_thread();
+            let back = tx.clone();
             let mut engine = Engine::new(Box::new(emit), tx, board);
+            engine.servers = previews::watch(move |servers| back.send(Msg::Servers(servers)).is_ok());
             engine.full_scan();
             engine.run(rx);
         })
@@ -422,6 +457,9 @@ pub fn snapshot(with_github: bool, with_usage: bool) -> Board {
     e.load_pr_links();
     e.scan_pr_marks(true);
     lap("pr marks", &t);
+    e.load_previews();
+    e.previews.servers = previews::scan_once(&e.server_roots());
+    lap("previews", &t);
     e.loading = false;
     let _ = e.compose();
     lap("1st paint", &t);
@@ -470,6 +508,8 @@ pub fn light_snapshot() -> Board {
     e.app_records.refresh(&claudeapp::records_dir());
     e.scan_sessions();
     e.load_repos();
+    e.load_previews();
+    e.previews.servers = previews::scan_once(&e.server_roots());
     e.loading = false;
     e.compose()
 }
@@ -629,6 +669,11 @@ struct Engine {
     /// Links to PRs made or taken away by hand (`pr-links.json`).
     pr_store: prlinks::LinkStore,
     pr_links_warning: Option<String>,
+    /// Worktrees' preview URLs (`previews.json`) and the servers in their folders.
+    previews: board::Previews,
+    previews_warning: Option<String>,
+    /// The thread that finds servers, told which worktrees to look in; none in a snapshot.
+    servers: Option<previews::Watcher>,
     git: HashMap<PathBuf, GitInfo>,
     git_jobs: Sender<(PathBuf, Option<String>)>,
     /// Which worktrees git runs in, and which wait their turn (see throttle.rs).
@@ -739,6 +784,9 @@ impl Engine {
             pr_marks: HashMap::new(),
             pr_store: prlinks::LinkStore::default(),
             pr_links_warning: None,
+            previews: board::Previews::default(),
+            previews_warning: None,
+            servers: None,
             git: HashMap::new(),
             git_jobs,
             git_queue: GitQueue::default(),
@@ -1006,6 +1054,7 @@ impl Engine {
         self.refresh_visitors(false);
         self.load_pr_links();
         self.scan_pr_marks(false);
+        self.load_previews();
     }
 
     /// Asks each OpenCode account's background service what's running and what it's waiting
@@ -1273,6 +1322,16 @@ impl Engine {
                 Ok(Msg::DismissTodoHint(id)) => self.dismiss_todo_hint(id),
                 // A prompt answered lands many reads at once; they're used together.
                 Ok(Msg::Landed) => self.landed_at = Some(Instant::now()),
+                Ok(Msg::Servers(servers)) => {
+                    self.previews.servers = servers;
+                    self.dirty = true;
+                }
+                Ok(Msg::Previews(reply)) => {
+                    self.load_previews();
+                    // Now rather than on the next tick: the window waits for it.
+                    self.publish();
+                    let _ = reply.send(self.board.read().map(|b| b.generated_at).unwrap_or(0));
+                }
                 Ok(Msg::TodoStarted { ids, lane, session, pending }) => {
                     let lanes = self.lane_index();
                     let _lock = todos::lock().map_err(|e| eprintln!("{e:#}")).ok();
@@ -1588,7 +1647,27 @@ impl Engine {
         let live: HashSet<&PathBuf> = seeds.iter().map(|s| &s.path).collect();
         self.git.retain(|p, _| live.contains(p));
         self.seeds = seeds;
+        if let Some(w) = &self.servers {
+            w.set_roots(self.server_roots());
+        }
         self.fetch_repo_names();
+    }
+
+    /// The worktrees whose servers are looked for: those in projects. A folder outside them can
+    /// be your home folder, where every app's own server would be taken for the worktree's.
+    fn server_roots(&self) -> Vec<PathBuf> {
+        let h = home();
+        self.seeds.iter().filter(|s| !s.elsewhere && s.path != h).map(|s| s.path.clone()).collect()
+    }
+
+    fn load_previews(&mut self) {
+        match previews::load() {
+            Ok(store) => {
+                self.previews.set = store.previews;
+                self.previews_warning = None;
+            }
+            Err(e) => self.previews_warning = Some(format!("{e:#}")),
+        }
     }
 
     fn git_targets(&self) -> Vec<PathBuf> {
@@ -1916,6 +1995,11 @@ impl Engine {
             }
             if p == prlinks::path() {
                 self.load_pr_links();
+                self.dirty = true;
+                continue;
+            }
+            if p == previews::path() {
+                self.load_previews();
                 self.dirty = true;
                 continue;
             }
@@ -2485,7 +2569,7 @@ impl Engine {
         };
         let order: Vec<String> = self.cfg.projects.iter().map(|p| p.name.clone()).collect();
         let held = held_warning(&self.reads.out_for(HELD_WARN_AFTER));
-        let warnings = [&self.config_warning, &self.gh_warning, &self.watch_warning, &self.todos_warning, &self.pr_links_warning].into_iter().flatten().cloned().chain(held).collect();
+        let warnings = [&self.config_warning, &self.gh_warning, &self.watch_warning, &self.todos_warning, &self.pr_links_warning, &self.previews_warning].into_iter().flatten().cloned().chain(held).collect();
         let (worked, unlinked) = prlinks::resolve(&self.pr_marks, &self.pr_store);
         let pr_links = board::PrLinks { worked, unlinked };
         let mut board = board::compose(board::Inputs {
@@ -2503,6 +2587,7 @@ impl Engine {
             pinned: &self.seen.pinned,
             github_login: self.gh_login.as_deref(),
             pr_links: &pr_links,
+            previews: &self.previews,
         });
         board.usage = self.compose_usage(now);
         board.pinned_worktrees = self.seen.pinned_worktrees.clone();

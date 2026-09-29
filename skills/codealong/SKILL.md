@@ -72,6 +72,13 @@ done` say on stderr that no session was linked; give a session key when you want
   command that resumes it, linked todos, and `records`: the paths of its own files. Claude
   Code and Codex records are JSONL you can grep; OpenCode's and Antigravity's are SQLite
   databases.
+- `codealong preview set <url>` sets where the current worktree's app opens in the browser,
+  when you know it: you started its dev server, or the repo's instructions say where each
+  worktree is served (a dev proxy's `https://<name>.app.test`, say). The user's worktree row
+  links to it and shows whether a server in the worktree's folder is running it. `--port`
+  picks the server when more than one serves a page. `codealong preview show` says where it
+  opens and what serves it now (`running: false` means the app isn't running); `clear` takes
+  the URL away.
 - `codealong worktrees` lists worktrees with branch, PR state, bay (`needs`, `working`,
   `unread`, `review`, `idle`, `merged`) and `agents`, how many are running in each now
   (`working` of them working or waiting on the user). `sessions` counts every session that

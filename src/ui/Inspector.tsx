@@ -7,6 +7,7 @@ import { HARNESS_APP } from '../harness';
 import type { Board, Lane, Origin, Session, Target, Todo } from '../types';
 import { InsightChips } from './InsightBits';
 import { BranchLabel, Button, driftWords, HarnessChip, Icon, Kbd, LaneGlyph, PrChip, Rich, StatusGlyph } from './primitives';
+import { PreviewLink, PreviewSection } from './PreviewBits';
 import { TodoChips, TodoGlyph } from './TodoBits';
 import { STATUS_WORD } from '../todos';
 
@@ -166,9 +167,11 @@ interface InspectorProps {
   onPrMenu?: () => void;
   /** Drops Review with… for its PR from the button. */
   onReviewPr?: (button: Element) => void;
+  /** Opens the sheet that sets where its app opens; this device's worktrees only. */
+  onSetPreview?: () => void;
 }
 
-export function Inspector({ lane, focusKey, apps, now, onOpen, onNewSession, todos, todosFor, onShowTodo, onPrMenu, onReviewPr }: InspectorProps) {
+export function Inspector({ lane, focusKey, apps, now, onOpen, onNewSession, todos, todosFor, onShowTodo, onPrMenu, onReviewPr, onSetPreview }: InspectorProps) {
   const [showAll, setShowAll] = useState(false);
   useEffect(() => setShowAll(false), [lane?.id]);
   const icons = useEditorIcons(apps);
@@ -197,6 +200,7 @@ export function Inspector({ lane, focusKey, apps, now, onOpen, onNewSession, tod
           <Icon name="folder" size={12} />
           <span>{middleTruncate(tildePath(lane.path), 48)}</span>
         </button>
+        <PreviewLink preview={lane.preview} now={now} onOpen={() => onOpen('l|preview')} />
         {branch && (
           <div className="ca-insp-branch">
             <BranchLabel branch={branch} ahead={g?.ahead} behind={g?.behind} dirty={g?.dirty} />
@@ -209,6 +213,7 @@ export function Inspector({ lane, focusKey, apps, now, onOpen, onNewSession, tod
         <Button icon="terminal" title={`New ${apps.terminal} terminal here`} aria-label={`New ${apps.terminal} terminal here`} onClick={() => onOpen('l|terminal')} />
         <Button icon="code" title={`Open in ${apps.editor}`} aria-label={`Open in ${apps.editor}`} onClick={() => onOpen('l|editor')} />
         {pr && <Button icon="external" title={`Open #${pr.number} on GitHub`} aria-label={`Open #${pr.number} on GitHub`} onClick={() => onOpen('p|github')} />}
+        {!lane.preview && onSetPreview && !lane.device && <Button icon="world" title="Set preview URL…" aria-label="Set preview URL" onClick={onSetPreview} />}
       </div>
       {todos && todos.length > 0 && (
         <section className="ca-insp-sec">
@@ -224,6 +229,7 @@ export function Inspector({ lane, focusKey, apps, now, onOpen, onNewSession, tod
           </div>
         </section>
       )}
+      <PreviewSection lane={lane} now={now} onOpen={() => onOpen('l|preview')} onEdit={() => onSetPreview?.()} />
       <section className="ca-insp-sec">
         <h4 className="ca-label">Sessions · {lane.sessions.length}</h4>
         {lane.sessions.length === 0 ? (

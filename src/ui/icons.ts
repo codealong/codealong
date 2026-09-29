@@ -103,6 +103,13 @@ export const ICONS: Record<string, string[]> = {
   "M11 13l9 -9",
   "M15 4h5v5"
  ],
+ "world": [
+  "M3 12a9 9 0 1 0 18 0a9 9 0 0 0 -18 0",
+  "M3.6 9h16.8",
+  "M3.6 15h16.8",
+  "M11.5 3a17 17 0 0 0 0 18",
+  "M12.5 3a17 17 0 0 1 0 18"
+ ],
  "arrow-up-right": [
   "M17 7l-10 10",
   "M8 7l9 0l0 9"

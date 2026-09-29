@@ -44,6 +44,11 @@ Commands:
              hand. A session is linked by itself when its records show it made, edited
              or commented on the PR (`gh pr create` and the like), or when it worked in
              a worktree on the PR's branch while the PR was open
+  preview    A worktree's app, to open in the browser: the URL set for it, and whether a
+             server in its folder serves it now. Set the URL when you know where the
+             worktree's app opens (you started its dev server, or the repo's
+             instructions say where it's served): the worktree's row in the app links to
+             it and shows whether it's running
   start      Start a session for a todo (or several, on one prompt) or on a prompt, the
              way the app's New session does, and link it to the todos
   config     Codealong's own settings (config.toml): show them as the app reads them,
@@ -1127,6 +1132,133 @@ Options:
           A session key, id, or `me`
           
           [default: me]
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong preview
+
+```
+A worktree's app, to open in the browser: the URL set for it, and whether a server in
+its folder serves it now. Set the URL when you know where the worktree's app opens (you
+started its dev server, or the repo's instructions say where it's served): the
+worktree's row in the app links to it and shows whether it's running
+
+Usage: codealong preview [OPTIONS] <COMMAND>
+
+Commands:
+  show   A worktree's preview: where it opens, whether that URL was set or found, and
+         the server serving it now. `running` false means nothing listening in the
+         worktree's folder serves it: its app isn't running
+  set    Set the URL a worktree's app opens at. It's linked to the server listening in
+         the worktree's folder: the one on --port, else the port a localhost URL names,
+         else the one that serves a page
+  clear  Take a worktree's URL away. A page a server in its folder serves still shows,
+         at localhost
+  help   Print this message or the help of the given subcommand(s)
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong preview show
+
+```
+A worktree's preview: where it opens, whether that URL was set or found, and the server
+serving it now. `running` false means nothing listening in the worktree's folder serves
+it: its app isn't running
+
+Usage: codealong preview show [OPTIONS]
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --worktree <WORKTREE>
+          The worktree: its path, or `.` for the one the current folder is in
+          
+          [default: .]
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong preview set
+
+```
+Set the URL a worktree's app opens at. It's linked to the server listening in the
+worktree's folder: the one on --port, else the port a localhost URL names, else the one
+that serves a page
+
+Usage: codealong preview set [OPTIONS] <URL>
+
+Arguments:
+  <URL>
+          Where the app opens: `https://feature.app.test`, `localhost:5173/admin`, or a
+          port alone. Without a scheme, local names take http and others https
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --port <PORT>
+          Which of the worktree's servers is the app, when more than one serves a page
+          (a dev server and Storybook, say), or when a proxy's URL names none
+
+      --table
+          Tables, even when piped
+
+      --worktree <WORKTREE>
+          The worktree: its path, or `.` for the one the current folder is in
+          
+          [default: .]
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong preview clear
+
+```
+Take a worktree's URL away. A page a server in its folder serves still shows, at
+localhost
+
+Usage: codealong preview clear [OPTIONS]
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --worktree <WORKTREE>
+          The worktree: its path, or `.` for the one the current folder is in
+          
+          [default: .]
 
       --table
           Tables, even when piped

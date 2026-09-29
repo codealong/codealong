@@ -13,6 +13,7 @@ import { untilWords } from '../snooze';
 import type { GitInfo, Lane, Pr, Session, Todo } from '../types';
 import { Drift, driftWords, HarnessChip, Icon, LaneGlyph, PrChip, Rich, StatusGlyph } from './primitives';
 import { InsightChips, LooksFinished } from './InsightBits';
+import { PreviewChip } from './PreviewBits';
 import { TodoChips } from './TodoBits';
 
 interface LaneRowProps {
@@ -174,6 +175,7 @@ function WorktreeOnlyRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpe
             <TodoChips todos={todos} onShow={onShowTodo} />
             <LooksFinished lane={lane} />
           </span>
+          <PreviewChip preview={lane.preview} now={now} onOpen={() => onOpenTarget(lane, 'l|preview')} />
           <span className="ca-lane-right">
             {lane.pr && <PrChip pr={lane.pr} compact onMenu={onPrMenu} />}
             <Drift git={lane.git} />
@@ -205,7 +207,7 @@ function GroupRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpenTarget
   // The worktree's own todos, less the ones its agents' lines already show.
   const onLines = new Set(agents.flatMap((a) => todosFor?.(a.session.key) ?? []));
   const footTodos = (worktreeTodos ?? []).filter((t) => !onLines.has(t));
-  const foot = shown.length > 0 || footTodos.length > 0 || lane.pr != null || driftWords(lane.git) != null || (lane.git != null && ((lane.git.added ?? 0) > 0 || (lane.git.removed ?? 0) > 0 || lane.git.dirty > 0));
+  const foot = shown.length > 0 || footTodos.length > 0 || lane.pr != null || lane.preview != null || driftWords(lane.git) != null || (lane.git != null && ((lane.git.added ?? 0) > 0 || (lane.git.removed ?? 0) > 0 || lane.git.dirty > 0));
   const selectFirst = () => onSelect(agents[0].key);
   return (
     <div
@@ -266,6 +268,7 @@ function GroupRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpenTarget
                 {extra > 0 && <span className="ca-chip ca-chip--more">+{extra}</span>}
                 <TodoChips todos={footTodos} onShow={onShowTodo} />
               </span>
+              <PreviewChip preview={lane.preview} now={now} onOpen={() => onOpenTarget(lane, 'l|preview')} />
               <span className="ca-lane-right">
                 {lane.pr && <PrChip pr={lane.pr} compact onMenu={onPrMenu} />}
                 <Drift git={lane.git} />

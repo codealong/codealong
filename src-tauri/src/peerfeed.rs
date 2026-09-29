@@ -2,7 +2,7 @@
 //! worktrees, sessions and plan usage, cut from each board the engine publishes as barfeed.rs
 //! cuts the bar's. Only what changed goes out: each worktree is hashed, and a feed carries the
 //! ones that changed and the ids of the ones that left. What only works on this device stays here:
-//! open targets, process ids, and resume and attach commands.
+//! open targets, process ids, preview URLs, and resume and attach commands.
 //!
 //! The receiving device keeps a `Replica` of each linked device's feed, and hands its windows the
 //! worktrees with `@<short>:` in front of every lane id and session key (`for_windows`), so a
@@ -51,6 +51,8 @@ pub fn shareable(lane: &Lane) -> Lane {
     let mut l = lane.clone();
     l.targets.clear();
     l.default_target = None;
+    // Its URL opens here: localhost, or a name a proxy on this Mac serves.
+    l.preview = None;
     for s in &mut l.sessions {
         s.pid = None;
         s.resume_command = None;

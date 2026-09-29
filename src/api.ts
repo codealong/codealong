@@ -196,6 +196,13 @@ export async function setPinned(keys: string[]): Promise<void> {
 }
 
 /** Saves the whole list of pinned worktrees (lane ids), in order. */
+/** Sets a worktree's preview URL, or clears it with null. Resolves with the time of the board
+ *  that shows it, or null when the engine didn't say in time. */
+export async function setPreview(laneId: string, url: string | null, port: number | null): Promise<number | null> {
+  if (!inTauri) return null;
+  return invoke<number | null>('set_preview', { laneId, url, port });
+}
+
 export async function setPinnedWorktrees(ids: string[]): Promise<void> {
   if (!inTauri) return;
   await invoke('set_pinned_worktrees', { ids });

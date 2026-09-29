@@ -163,6 +163,19 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   makes it yours, as Codex's Open button remembers its last.
   A session's tab that comes forward on another screen than the pointer's is outlined for a
   moment, and `move_pointer` moves the pointer to it.
+- **Previews**: a worktree's app opens in the browser (⌘5, the chip on its row, the link under
+  its folder in its panel and in its sessions' panels, or its right-click menu). Its URL is set there (Set preview URL…) or with `codealong preview set
+  <url>`, which a repo's own dev scripts or instructions can run, since only they know where a
+  dev proxy serves each worktree's app (`https://feature.app.test`). A server listening in the
+  worktree's folder is linked to it: the one on the port given with the URL, the port a
+  localhost URL names, or else the one whose front page is a page, not an API or a debugger.
+  The chip is green while that server runs and outlined when it doesn't; the panel says which
+  process serves it, for how long, its page's title, and the session whose command started it.
+  A worktree with no URL set that serves a page shows it at `localhost`. Servers are found from
+  the kernel's list of your processes' listening ports every 10 seconds (a few milliseconds for
+  every worktree at once), each new one is asked for its front page once, and the kernel says
+  the moment one exits, so nothing is polled over HTTP. Only worktrees in projects are looked
+  at, and only on this device.
 - **Quick panel** (⌥⌘/ from any app, over full-screen ones too; ⌘N, the title bar, the
   inspector, or a worktree's or session's right-click menu in Codealong): one input, and below
   it what you can do next. With nothing typed it lists the sessions that need you, the
@@ -568,6 +581,7 @@ light scan (no git, PRs or visitors).
 | `src-tauri/src/launch.rs` | App profiles: Ghostty (AppleScript, exact tab focus), deep links |
 | `src-tauri/src/editors.rs`, `src/editors.ts` | The editors a folder opens in: the ones Codealong knows, found where Mac apps are installed, and the Open in menus |
 | `src-tauri/src/flash.rs` | Outlines a focused terminal that came forward on another screen |
+| `src-tauri/src/previews.rs`, `src/ui/PreviewBits.tsx` | Previews: each worktree's URL (`previews.json`), the servers listening in worktrees' folders (`procs::listeners`, the kernel's socket lists), their front pages read once, a kqueue for their exits; the row's chip, the panel's section and the URL sheet |
 | `src-tauri/src/idle.rs`, `src/ui/CloseIdleDialog.tsx` | Close idle terminals: which sessions' tabs can close and why (pure, tested), and closing them |
 | `src-tauri/src/start.rs`, `src/start.ts` | New sessions: where each account can start one, the launch it makes, the agent menu (every account on every model, and the effort levels) and Auto's pick |
 | `src-tauri/src/quick.rs`, `src/quick.ts`, `src/ui/Quick.tsx` | The quick panel: its window (a panel that takes the keyboard over any app), its shortcut, and its page (what needs you, finding sessions, starting one) |

@@ -445,6 +445,7 @@ mod tests {
             default_target: None,
             device: None,
             repo_slug_now: None,
+            preview: None,
         }
     }
 

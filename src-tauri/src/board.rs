@@ -98,6 +98,15 @@ pub struct Inputs<'a> {
     pub github_login: Option<&'a str>,
     /// Sessions tied to PRs other than by branch.
     pub pr_links: &'a PrLinks,
+    /// Worktrees' app URLs and the servers in their folders.
+    pub previews: &'a Previews,
+}
+
+/// Worktrees' app URLs set by hand, and the servers listening in their folders (previews.rs).
+#[derive(Default, Debug)]
+pub struct Previews {
+    pub set: Vec<crate::previews::Entry>,
+    pub servers: Vec<crate::previews::Server>,
 }
 
 /// Sessions tied to PRs other than by branch (prlinks.rs), by PR key (`owner/name#number`, in
@@ -949,7 +958,32 @@ fn latest_session(sessions: &[Session]) -> Option<&Session> {
 }
 
 /// Everywhere a lane can open, the default first. See *Surfaces*, Open where it lives.
-pub fn targets(seed: &LaneSeed, sessions: &[Session], pr: Option<&Pr>, apps: &AppNames) -> (Vec<Target>, Option<String>) {
+/// A worktree's app: the URL set for it and the server that serves it. The server is the one on
+/// the port given with the URL, or the port a local URL names; with neither, the one serving a
+/// page (the lowest port, when several do). With no URL set, a page served in the worktree is
+/// its app, at `localhost`. The session is the one whose command started the server: one of its
+/// parent processes is the session's.
+pub fn lane_preview(set: Option<&crate::previews::Entry>, servers: &[&crate::previews::Server], sessions: &[Session]) -> Option<Preview> {
+    let port = set.and_then(|e| e.port.or_else(|| crate::previews::local_port(&e.url)));
+    let server = match port {
+        Some(p) => servers.iter().find(|s| s.port == p),
+        None => servers.iter().filter(|s| s.page).min_by_key(|s| s.port),
+    };
+    let server = server.map(|s| PreviewServer {
+        pid: s.pid,
+        port: s.port,
+        name: s.name.clone(),
+        title: s.title.clone(),
+        started_at: s.started_ms,
+        session: sessions.iter().find(|x| x.pid.is_some_and(|p| s.ancestors.contains(&p))).map(|x| x.key.clone()),
+    });
+    match set {
+        Some(e) => Some(Preview { url: e.url.clone(), set: true, port: e.port, server }),
+        None => server.map(|s| Preview { url: format!("http://localhost:{}", s.port), set: false, port: None, server: Some(s) }),
+    }
+}
+
+pub fn targets(seed: &LaneSeed, sessions: &[Session], pr: Option<&Pr>, preview: Option<&Preview>, apps: &AppNames) -> (Vec<Target>, Option<String>) {
     let term = &apps.terminal;
     let editor = &apps.editor;
     let mut t = Vec::new();
@@ -1039,6 +1073,14 @@ pub fn targets(seed: &LaneSeed, sessions: &[Session], pr: Option<&Pr>, apps: &Ap
     let here = tilde(&seed.path);
     t.push(target("l|terminal".into(), "terminal", format!("New {term} terminal here"), Some(here), Some(&["⌘", "1"]), false, "lane"));
     t.push(target("l|editor".into(), "code", format!("Open in {editor}"), None, Some(&["⌘", "2"]), false, "lane"));
+    if let Some(p) = preview {
+        let at = crate::previews::short_url(&p.url);
+        let detail = match &p.server {
+            Some(s) => format!("{at} · {} on port {}", s.name, s.port),
+            None => format!("{at} · not running"),
+        };
+        t.push(target("l|preview".into(), "world", "Open preview".into(), Some(detail), Some(&["⌘", "5"]), false, "lane"));
+    }
     t.push(target("l|finder".into(), "folder", "Reveal in Finder".into(), None, None, false, "lane"));
     if let Some(pr) = pr {
         t.push(target("p|github".into(), "external", format!("Open #{} on GitHub", pr.number), None, Some(&["⌘", "O"]), false, "pr"));
@@ -1054,7 +1096,7 @@ pub fn targets(seed: &LaneSeed, sessions: &[Session], pr: Option<&Pr>, apps: &Ap
 }
 
 pub fn compose(inp: Inputs) -> Board {
-    let Inputs { now, apps, seeds, mut sessions, visitors, git, prs, project_order, warnings, loading, github_at, pinned, github_login, pr_links } = inp;
+    let Inputs { now, apps, seeds, mut sessions, visitors, git, prs, project_order, warnings, loading, github_at, pinned, github_login, pr_links, previews } = inp;
     for s in &mut sessions {
         let (h, d) = session_headline(s);
         s.headline = h;
@@ -1115,7 +1157,10 @@ pub fn compose(inp: Inputs) -> Board {
             detail = Some(format!("last turn {{ago:{}}}", g.last_activity));
         }
         sessions.extend(guests);
-        let (targets, default_target) = targets(seed, &sessions, pr.as_ref(), apps);
+        let set = previews.set.iter().find(|e| Path::new(&e.worktree) == seed.path);
+        let servers: Vec<&crate::previews::Server> = previews.servers.iter().filter(|s| s.lane == seed.path).collect();
+        let preview = lane_preview(set, &servers, &sessions);
+        let (targets, default_target) = targets(seed, &sessions, pr.as_ref(), preview.as_ref(), apps);
         let last_activity = sessions
             .iter()
             .map(|s| s.last_activity)
@@ -1151,6 +1196,7 @@ pub fn compose(inp: Inputs) -> Board {
             default_target,
             device: None,
             repo_slug_now: None,
+            preview,
         });
     }
     lanes.sort_by(lane_order);
@@ -1341,6 +1387,7 @@ mod tests {
             pinned: &[],
             github_login: Some("ghempton"),
             pr_links: &PrLinks::default(),
+            previews: &Previews::default(),
         })
     }
 
@@ -1446,6 +1493,7 @@ mod tests {
             pinned: &[],
             github_login: Some("ghempton"),
             pr_links: &PrLinks::default(),
+            previews: &Previews::default(),
         });
         assert_eq!(board.prs.len(), 1);
         let p = &board.prs[0];
@@ -1489,6 +1537,7 @@ mod tests {
             pinned: &[],
             github_login: None,
             pr_links: &PrLinks::default(),
+            previews: &Previews::default(),
         });
         assert_eq!(board.prs[0].sessions, vec![PrSession { key: s.key, lane: "/r/atlas-quarry".into() }]);
     }
@@ -1531,6 +1580,7 @@ mod tests {
             pinned: &[],
             github_login: None,
             pr_links: &PrLinks::default(),
+            previews: &Previews::default(),
         });
         let get = |n: u64| board.prs.iter().find(|p| p.number == n).unwrap();
         let listed = |key: &str| PrSession { key: key.into(), lane: "/r/atlas-quarry".into() };
@@ -1579,6 +1629,7 @@ mod tests {
                 pinned: &[],
                 github_login: None,
                 pr_links: &PrLinks::default(),
+                previews: &Previews::default(),
             })
         };
         let listed = |key: &str| PrSession { key: key.into(), lane: scratch.into() };
@@ -2001,7 +2052,7 @@ mod tests {
         s.work = vec!["/r/codealong-pins".into(); 3];
         let (git, prs, visitors) = (HashMap::new(), HashMap::new(), HashMap::new());
         let order = vec!["Northwind".to_string()];
-        let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![s], visitors: &visitors, git: &git, prs: &prs, project_order: &order, warnings: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default() });
+        let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![s], visitors: &visitors, git: &git, prs: &prs, project_order: &order, warnings: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default() });
         let lane = |p: &str| board.lanes.iter().find(|l| l.path == p).unwrap();
         assert_eq!(lane("/r/codealong-pins").bay, Bay::Working);
         assert_eq!(lane("/r/codealong-pins").sessions.len(), 1);
@@ -2087,20 +2138,70 @@ mod tests {
     }
 
     #[test]
+    fn a_worktrees_url_opens_on_the_server_it_names() {
+        let server = |port: u16, page: bool, ancestors: Vec<u32>| crate::previews::Server {
+            lane: PathBuf::from("/r/atlas-quarry"),
+            pid: port as u32,
+            port,
+            name: "node".into(),
+            cwd: PathBuf::from("/r/atlas-quarry/apps/app"),
+            started_ms: NOW - 60_000,
+            page,
+            title: page.then(|| "Northwind".to_string()),
+            ancestors,
+        };
+        let (api, app, storybook) = (server(3040, false, vec![3040, 900]), server(5210, true, vec![5210, 900]), server(6006, true, vec![6006, 1]));
+        let servers = [&api, &app, &storybook];
+        let entry = |url: &str, port: Option<u16>| crate::previews::Entry { worktree: "/r/atlas-quarry".into(), url: url.into(), port, at: NOW };
+        let port_of = |p: &Option<Preview>| p.as_ref().and_then(|p| p.server.as_ref()).map(|s| s.port);
+
+        // A URL a proxy serves opens on the worktree's page, the lowest port when two serve one.
+        let proxied = lane_preview(Some(&entry("https://quarry.app.test", None)), &servers, &[]);
+        assert_eq!(port_of(&proxied), Some(5210));
+        assert!(proxied.as_ref().is_some_and(|p| p.set && p.url == "https://quarry.app.test"));
+        // The port given with it, or the one a local URL names, picks the server, page or not.
+        assert_eq!(port_of(&lane_preview(Some(&entry("https://quarry.app.test", Some(3040))), &servers, &[])), Some(3040));
+        assert_eq!(port_of(&lane_preview(Some(&entry("http://localhost:6006", None)), &servers, &[])), Some(6006));
+        // Nothing listening: set, not running.
+        let down = lane_preview(Some(&entry("https://quarry.app.test", None)), &[], &[]).unwrap();
+        assert!(down.set && down.server.is_none());
+        assert!(lane_preview(Some(&entry("https://quarry.app.test", Some(5299))), &servers, &[]).unwrap().server.is_none());
+        // With no URL set, a page served there opens at localhost; an API alone isn't an app.
+        let found = lane_preview(None, &servers, &[]).unwrap();
+        assert_eq!((found.url.as_str(), found.set), ("http://localhost:5210", false));
+        assert_eq!(lane_preview(None, &[&api], &[]), None);
+        assert_eq!(lane_preview(None, &[], &[]), None);
+        // The session whose command started it: its process is one of the server's parents.
+        let a = acct("claude2");
+        let mut started = claude_session(&a, Some(&reg("shell", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
+        started.pid = Some(900);
+        let found = lane_preview(None, &servers, &[started.clone()]).unwrap();
+        assert_eq!(found.server.unwrap().session.as_deref(), Some(started.key.as_str()));
+        // It's opened from the worktree's menus, and says where and whether it runs.
+        let apps = AppNames { editor: "Cursor".into(), ..Default::default() };
+        let (t, default) = targets(&seed("/r/atlas-quarry", "quarry"), &[], None, proxied.as_ref(), &apps);
+        let open = t.iter().find(|x| x.id == "l|preview").unwrap();
+        assert_eq!((open.label.as_str(), open.detail.as_deref()), ("Open preview", Some("quarry.app.test · node on port 5210")));
+        assert_eq!(default.as_deref(), Some("l|terminal"));
+        let (t, _) = targets(&seed("/r/atlas-quarry", "quarry"), &[], None, Some(&down), &apps);
+        assert_eq!(t.iter().find(|x| x.id == "l|preview").unwrap().detail.as_deref(), Some("quarry.app.test · not running"));
+    }
+
+    #[test]
     fn builds_targets_with_app_names() {
         let apps = AppNames { terminal: "Ghostty".into(), terminal_id: "ghostty".into(), editor: "Cursor".into(), editor_id: "cursor".into(), ..Default::default() };
         let a = acct("claude2");
         let live = claude_session(&a, Some(&reg("waiting", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
-        let (t, default) = targets(&seed("/r/atlas-quarry", "quarry"), &[live], None, &apps);
+        let (t, default) = targets(&seed("/r/atlas-quarry", "quarry"), &[live], None, None, &apps);
         assert_eq!(t[0].label, "Respond in Ghostty");
         assert_eq!(default.as_deref(), Some("s|claude:claude2:abc1234567|focus"));
         assert!(t.iter().all(|x| !x.id.ends_with("|claude-app")), "claude2 isn't the Claude app's account");
         assert!(t.iter().any(|x| x.label == "Open in Cursor"));
         let main = AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: None, start: None, preferred: false, acp: None };
         let mine = claude_session(&main, Some(&reg("waiting", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
-        let (t, _) = targets(&seed("/r/atlas-quarry", "quarry"), &[mine], None, &apps);
+        let (t, _) = targets(&seed("/r/atlas-quarry", "quarry"), &[mine], None, None, &apps);
         assert!(t[1].disabled && t[1].id.ends_with("|claude-app"), "live elsewhere, so offered but disabled");
-        let (none, default) = targets(&seed("/r/x", "x"), &[], None, &apps);
+        let (none, default) = targets(&seed("/r/x", "x"), &[], None, None, &apps);
         assert_eq!(default.as_deref(), Some("l|terminal"));
         assert_eq!(none.len(), 3);
     }
@@ -2117,7 +2218,7 @@ mod tests {
         newer.open_target = format!("s|{}|resume", newer.key);
         newer.last_activity = NOW - 60_000;
         // The lane lists the one that needs you first, but opening the lane resumes the newer one.
-        let (t, default) = targets(&lane, &[needs.clone(), newer.clone()], None, &apps);
+        let (t, default) = targets(&lane, &[needs.clone(), newer.clone()], None, None, &apps);
         assert_eq!(default.as_deref(), Some(newer.open_target.as_str()));
         assert_eq!(t[0].id, newer.open_target);
         assert_eq!(t[0].kbd, Some(vec!["⏎".to_string()]));
@@ -2125,7 +2226,7 @@ mod tests {
         assert_eq!(other.kbd, None);
         // A tie goes to the more urgent one, listed first.
         newer.last_activity = needs.last_activity;
-        let (_, default) = targets(&lane, &[needs.clone(), newer.clone()], None, &apps);
+        let (_, default) = targets(&lane, &[needs.clone(), newer.clone()], None, None, &apps);
         assert_eq!(default.as_deref(), Some(needs.open_target.as_str()));
         // A session from another lane that worked here more recently doesn't beat the lane's own,
         // but opens a lane that has none.
@@ -2134,9 +2235,9 @@ mod tests {
         guest.open_target = format!("s|{}|resume", guest.key);
         guest.visitor = Some("worked here".into());
         guest.last_activity = NOW;
-        let (_, default) = targets(&lane, &[needs.clone(), guest.clone()], None, &apps);
+        let (_, default) = targets(&lane, &[needs.clone(), guest.clone()], None, None, &apps);
         assert_eq!(default.as_deref(), Some(needs.open_target.as_str()));
-        let (_, default) = targets(&lane, &[guest.clone()], None, &apps);
+        let (_, default) = targets(&lane, &[guest.clone()], None, None, &apps);
         assert_eq!(default.as_deref(), Some(guest.open_target.as_str()));
     }
 
@@ -2220,7 +2321,7 @@ mod tests {
         maker.cwd = "/r/osprey".into();
         let (git, prs, order) = (HashMap::new(), HashMap::new(), vec!["Northwind".to_string()]);
         let visitors = HashMap::new();
-        let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![maker], visitors: &visitors, git: &git, prs: &prs, project_order: &order, warnings: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default() });
+        let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![maker], visitors: &visitors, git: &git, prs: &prs, project_order: &order, warnings: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default() });
         let lane = board.lanes.iter().find(|l| l.path == scratch).unwrap();
         assert_eq!(lane.sessions.len(), 1);
         assert_eq!(lane.sessions[0].visitor.as_deref(), Some("made this worktree"));
@@ -2254,6 +2355,7 @@ mod tests {
             pinned: &[],
             github_login: None,
             pr_links: &PrLinks::default(),
+            previews: &Previews::default(),
         });
         let lane = &board.lanes[0];
         assert_eq!(lane.bay, Bay::Idle);
@@ -2294,6 +2396,7 @@ mod tests {
             pinned: &pinned,
             github_login: None,
             pr_links: &PrLinks::default(),
+            previews: &Previews::default(),
         });
         let lane = &board.lanes[0];
         assert_eq!(lane.sessions.len(), MAX_SESSIONS_PER_LANE + 1);
@@ -2326,6 +2429,7 @@ mod tests {
             pinned: &[],
             github_login: None,
             pr_links: &PrLinks::default(),
+            previews: &Previews::default(),
         });
         assert_eq!(board.lanes.len(), 2);
         assert_eq!(board.lanes[0].bay, Bay::Needs);
@@ -2347,7 +2451,7 @@ mod tests {
         let seeds = vec![seed("/r/atlas", "main"), seed("/r/atlas-pins", "pins"), other_repo, elsewhere];
         let (git, prs, visitors) = (HashMap::new(), HashMap::new(), HashMap::new());
         let order = vec!["Northwind".to_string()];
-        let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![], visitors: &visitors, git: &git, prs: &prs, project_order: &order, warnings: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default() });
+        let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![], visitors: &visitors, git: &git, prs: &prs, project_order: &order, warnings: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default() });
         let near = |p: &str| terminal_neighbours(&board.lanes, Path::new(p));
         assert_eq!(near("/r/atlas-pins/src"), vec![vec!["/r/atlas-pins".to_string()], vec!["/r/atlas".to_string()], vec!["/r/kestrel".to_string()]]);
         assert_eq!(near("/tmp/scratch"), vec![vec!["/tmp/scratch".to_string()]]);

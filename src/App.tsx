@@ -28,6 +28,7 @@ import { DeviceBadge } from './ui/DeviceBadge';
 import { LABEL_COLORS } from './types';
 import { SettingsDialog, type SettingsSection } from './ui/SettingsDialog';
 import { CloseIdleDialog } from './ui/CloseIdleDialog';
+import { PreviewDialog } from './ui/PreviewBits';
 import { Inspector } from './ui/Inspector';
 import { SessionPanel } from './ui/SessionPanel';
 import { LaneRow } from './ui/LaneRow';
@@ -287,6 +288,8 @@ export function App() {
   useEffect(() => onCheckUpdates(() => openSettings('general')), [openSettings]);
   // File › Close idle terminals… (ui/CloseIdleDialog.tsx).
   const [closeIdle, setCloseIdle] = useState(false);
+  // The worktree whose preview URL is being set (ui/PreviewBits.tsx), by id.
+  const [previewFor, setPreviewFor] = useState<string | null>(null);
   useEffect(() => onCloseIdle(() => setCloseIdle(true)), []);
   // New session opens the quick panel (ui/Quick.tsx) at a worktree, maybe for a todo, in the
   // project this window shows. The panel tells this window how the start goes.
@@ -1253,7 +1256,9 @@ export function App() {
         ...item('l|editor'),
         ...(board && opensInEditor(lane) ? openInMenu(board.apps, editorIcons, (id) => open(lane, id)) : []),
         ...item('l|finder'),
+        ...item('l|preview'),
         { label: 'New session here…', run: () => newSession({ laneId: lane.id }) },
+        ...(lane.device ? [] : [{ label: lane.preview?.set ? 'Change preview URL…' : 'Set preview URL…', run: () => setPreviewFor(lane.id) }]),
         'separator',
         ...todoItemsRef.current(lane.project, { worktree: lane.id }, { worktree: lane.id, label: lane.callsign }),
         'separator',
@@ -1263,6 +1268,7 @@ export function App() {
         { label: 'Copy path', run: () => copy(lane.path, 'worktree path') },
         ...(lane.branch ? [{ label: 'Copy branch name', run: () => copy(lane.branch, 'branch name') }] : []),
         ...(pr ? [{ label: 'Copy PR link', run: () => copy(pr.url, 'PR link') }] : []),
+        ...(lane.preview ? [{ label: 'Copy preview URL', run: () => copy(lane.preview?.url, 'preview URL') }] : []),
         ...canvasItem('worktree', lane.id),
       ];
   };
@@ -1462,8 +1468,8 @@ export function App() {
         openSettings();
         return;
       }
-      // Settings has the keyboard while it's open.
-      if (settings) return;
+      // Settings has the keyboard while it's open, as the preview URL sheet does.
+      if (settings || previewFor) return;
       // ⌘] skips to the next session that waits on you, from the panel's box too. ] goes by its
       // key's code, which layouts that type it with ⌥ keep.
       if (mod && !e.ctrlKey && !e.shiftKey && e.code === 'BracketRight' && view === 'sessions') {
@@ -1587,6 +1593,9 @@ export function App() {
       } else if (mod && key === '4') {
         e.preventDefault();
         open(lane, lane?.targets.find((t) => t.id.endsWith('|codex') && !t.disabled)?.id);
+      } else if (mod && key === '5') {
+        e.preventDefault();
+        if (lane?.preview) open(lane, 'l|preview');
       } else if (mod && key === 'o') {
         e.preventDefault();
         if (selected?.kind === 'pr') openRow(selected);
@@ -1607,7 +1616,7 @@ export function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [visible, selected, pickedRows, selectedLane, startLaneId, move, open, openRow, copy, settings, openSettings, newSession, view, setView, toggleLanePin, sessionPins, lanePins, pinnedRows, pinnedLaneRows, shownBays, movePinnedSession, movePinnedLane, current, setArchived, projects]);
+  }, [visible, selected, pickedRows, selectedLane, startLaneId, move, open, openRow, copy, settings, previewFor, openSettings, newSession, view, setView, toggleLanePin, sessionPins, lanePins, pinnedRows, pinnedLaneRows, shownBays, movePinnedSession, movePinnedLane, current, setArchived, projects]);
 
   // Starts this window asked the quick panel for. A spinner shows while the harness takes the
   // session; then what's next, and the session is selected when it shows up if Codealong chose
@@ -1835,6 +1844,7 @@ export function App() {
       onShowTodo={showTodoFromPanel}
       onPrMenu={() => lane && lanePrMenu(lane)}
       onReviewPr={lane?.pr ? (el) => lane.pr && reviewMenuFrom(reviewedPr(lane, lane.pr), el) : undefined}
+      onSetPreview={lane && !lane.device ? () => setPreviewFor(lane.id) : undefined}
     />
   );
 
@@ -1934,6 +1944,8 @@ export function App() {
   const panelKind = view === 'canvas' ? (canvasPanel?.kind ?? null) : view === 'prs' ? 'pr' : view === 'todo' ? 'todo' : view === 'sessions' && selected?.kind === 'agent' ? 'session' : 'lane';
   const panelWidth = { pr: prPanelWidth, todo: todoPanelWidth, session: sessionPanelWidth, lane: inspectorWidth };
   const setPanelWidth = { pr: setPrPanelWidth, todo: setTodoPanelWidth, session: setSessionPanelWidth, lane: setInspectorWidth };
+  // The worktree the preview URL sheet is for, as the latest board has it.
+  const previewLane = previewFor ? board?.lanes.find((l) => l.id === previewFor) : undefined;
 
   return (
     <div className="ca-win ca-win--app">
@@ -2403,6 +2415,7 @@ export function App() {
         />
       )}
       {closeIdle && <CloseIdleDialog onClose={() => setCloseIdle(false)} onDone={setToast} />}
+      {previewLane && <PreviewDialog lane={previewLane} onClose={() => setPreviewFor(null)} />}
       {busy.length > 0 && !toast && (
         <div className="ca-toast is-busy" role="status" aria-live="polite">
           <StatusGlyph status="working" size={14} title="In progress" />
