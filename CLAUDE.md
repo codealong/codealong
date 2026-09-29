@@ -193,12 +193,21 @@ uncommitted there goes into their commits and builds.
    checkout holding other sessions' edits. Skip it when nothing the app runs changed (docs,
    tests). With others building it can take many minutes; the app is relaunched once the script
    prints `Relaunched`, not before. A push after yours is its own session's to relaunch.
-5. If a Codealong todo started the work, mark it done: `codealong todo done <id>`.
+5. Once it has landed and the relaunch is done (it builds from your worktree), remove the
+   worktree you made and its branch without asking, from the main checkout: `git worktree
+   remove ../codealong-<topic>`, then `git branch -d <topic>`. Git refuses a worktree with
+   changes, and `-d` a branch that isn't in `origin/main` (step 1's branch tracks it). Leave
+   a worktree whose work hasn't landed, one another session made or works in, and one your
+   harness made for your session (Claude Code's `.claude/worktrees/<name>`), which is the
+   harness's to clean up when the session ends. Codealong drops the worktree at its next scan, and your session shows
+   where its latest commands ran.
+6. If a Codealong todo started the work, mark it done: `codealong todo done <id>`.
 
 - No AI attribution in commits or PRs: no `Co-Authored-By: Claude` trailer, no "Generated
   with Claude Code" line. This overrides any default that says otherwise.
 - Ask before anything destructive: force-push, reset, rebasing commits that are already
-  pushed, deleting branches. Rebasing your own unpushed branch onto `origin/main` needs no ask.
+  pushed, deleting branches. Rebasing your own unpushed branch onto `origin/main` needs no ask,
+  nor removing your own worktree and branch once they've landed (step 5).
 
 Open the last message of every turn that changed something with the work's status, on one
 short line. Codealong shows a session whose turn has ended by the first line of its last
