@@ -92,7 +92,7 @@ enum Cmd {
         #[command(subcommand)]
         cmd: PreviewCmd,
     },
-    /// Whether a worktree is reusable: it takes one piece of work after another, where others are kept for one piece of work each. Jev suggests new work only in reusable worktrees. A main checkout is reusable unless it's marked otherwise. The app's worktree menu has the same switch (Reuse for new work).
+    /// Whether a worktree is reusable: it takes one piece of work after another, where others are kept for one piece of work each. Jev suggests new work only in reusable worktrees. A main checkout, and a worktree that has taken new work three times or more (its reflog), are reusable unless marked otherwise. The app's worktree menu has the same switch (Reuse for new work).
     Reuse {
         #[command(subcommand)]
         cmd: ReuseCmd,
@@ -1795,7 +1795,15 @@ fn reuse_out(c: &mut Client, id: &str) -> Result<ReuseOut> {
 fn print_reuse(out: &ReuseOut, lane: Option<&Lane>) {
     let at = tilde(Path::new(&out.worktree));
     match lane.and_then(|l| l.reuse) {
-        Some(state) => println!("{at} is reusable{} and {}.", if out.marked.is_none() { " (a main checkout is, unless marked otherwise)" } else { "" }, reuse_words(state)),
+        Some(state) => {
+            // Not marked, it's reusable by default: a main checkout, or one that has been reused.
+            let why = match (out.marked, lane) {
+                (Some(_), _) => String::new(),
+                (None, Some(l)) if l.origin == Origin::Main => " (a main checkout is, unless marked otherwise)".into(),
+                (None, l) => format!(" (it has taken new work {} times, so it is unless marked otherwise)", l.and_then(|l| l.git.as_ref()).and_then(|g| g.new_work_count).unwrap_or(0)),
+            };
+            println!("{at} is reusable{why} and {}.", reuse_words(state))
+        }
         None if out.marked == Some(true) => println!("{at} is marked reusable, but only a repo's worktree in one of your projects can be."),
         None => println!("{at} is kept for its own piece of work: Jev doesn't suggest new work there."),
     }

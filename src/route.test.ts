@@ -143,11 +143,28 @@ describe('new work in reusable worktrees', () => {
     expect(suggestions(start([{ id: '/atlas-quarry', p: 0.6 }, { id: '/atlas-app2', p: 0.3 }]), repo)[0].key).toBe('start:/atlas-app2');
   });
 
-  it('starts in a reusable worktree Jev picks, joining the work under way there', () => {
-    expect(suggestions(start([{ id: '/atlas', p: 0.9 }]), repo)[0]).toMatchObject({ key: 'start:/atlas', newWorktree: false });
+  it('is as sure of a worktree chosen in the repo as of the repo', () => {
+    const r = { ...start([{ id: '/atlas-quarry', p: 0.3 }]), repos: [{ id: 'P/atlas', p: 0.9 }] };
+    expect(suggestions(r, repo)[0]).toMatchObject({ key: 'start:/atlas-app4', p: 0.9 });
+    // In the worktree Jev picked, as sure as of it.
+    expect(suggestions({ ...r, lanes: [{ id: '/atlas-app3', p: 0.3 }] }, repo)[0]).toMatchObject({ key: 'start:/atlas-app3', p: 0.3 });
   });
 
-  it('makes a new worktree from the main checkout when the repo has no reusable one free', () => {
+  it('joins the work under way in a reusable worktree only when Jev is sure of it, and never in the main worktree', () => {
+    const busy = board([...repo.lanes, kept('/atlas-app5', 'atlas', { reuse: 'review', lastActivity: 9 })]);
+    expect(suggestions(start([{ id: '/atlas-app5', p: 0.8 }]), busy)[0]).toMatchObject({ key: 'start:/atlas-app5', newWorktree: false });
+    // Less sure, Jev matched the repo more than the work: a free one.
+    expect(suggestions(start([{ id: '/atlas-app5', p: 0.4 }]), busy)[0].key).toBe('start:/atlas-app4');
+    // The main worktree with work under way is the repo, not the work.
+    expect(suggestions(start([{ id: '/atlas', p: 0.9 }]), repo)[0].key).toBe('start:/atlas-app4');
+  });
+
+  it('starts in the main worktree when none is free, and in a new worktree only where there is no reusable one', () => {
+    const none = board(repo.lanes.filter((l) => l.reuse !== 'free' && l.reuse !== 'landed'));
+    expect(suggestions(start([{ id: '/atlas-quarry', p: 0.9 }]), none)[0]).toMatchObject({ key: 'start:/atlas', newWorktree: false });
+  });
+
+  it('makes a new worktree from the main worktree when the repo has no reusable one', () => {
     const s = suggestions(start([{ id: '/infra-tls', p: 0.9 }]), repo);
     expect(s[0]).toMatchObject({ key: 'start:new:P/infra', newWorktree: true });
     expect(s[0].lane.id).toBe('/infra');

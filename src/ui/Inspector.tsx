@@ -13,7 +13,7 @@ import { TodoChips, TodoGlyph } from './TodoBits';
 import { STATUS_WORD } from '../todos';
 
 const ORIGIN_WORD: Record<Origin, string> = {
-  main: 'Main checkout',
+  main: 'Main worktree',
   script: 'Worktree',
   codex: 'Made by Codex',
   'claude-app': 'Made by Claude',

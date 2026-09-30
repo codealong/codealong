@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getConfig, onQuickShortcut, openUrl, pauseQuickShortcut, quickShortcut, jevKey, saveConfig, saveConfigText, setJevKey, setReusable, testJev } from '../api';
 import { shortcutFromKey, shortcutLabel, TAKEN } from '../quick';
+import { worktreeName } from '../lanes';
 import { REUSE_WORDS } from '../reusable';
 import type { ChromeProfile, Config, ConfigView, JevCfg, Lane, NewTerminal, Profile, ProjectCfg, Reuse, ShortcutStatus, Theme, Usage } from '../types';
 import { AccountsSection } from './AccountsSection';
@@ -741,14 +742,17 @@ function ReusableWorktrees({ lanes }: { lanes: Lane[] }) {
     }
     setBusy(false);
   };
-  const name = (l: Lane) => (l.callsign === l.repo ? l.repo : `${l.repo} · ${l.callsign}`);
+  const name = (l: Lane) => `${l.repo} · ${worktreeName(l)}`;
+  // Why one is reusable: a main worktree and one that has been reused are unless marked
+  // otherwise (board::reusable); the rest were marked.
+  const why = (l: Lane) => (l.origin === 'main' ? 'main worktree' : (l.git?.newWorkCount ?? 0) >= 3 ? `reused ${l.git?.newWorkCount} times` : 'marked');
   return (
     <>
       <div className="ca-settings-intro">
         <h3>Reusable worktrees</h3>
         <p>
-          A reusable worktree takes one piece of work after another; the rest are kept for one piece of work each. Jev suggests new work only in reusable worktrees. A main checkout is reusable unless
-          you turn it off. A worktree's right-click menu has Reuse for new work.
+          A reusable worktree takes one piece of work after another; the rest are kept for one piece of work each. Jev suggests new work only in reusable worktrees, the ones free of work first.
+          Main worktrees, and worktrees that have taken new work three times or more, are reusable unless you turn them off: a worktree's right-click menu has Reuse for new work.
         </p>
       </div>
       <div className="ca-settings-cards">
@@ -762,7 +766,7 @@ function ReusableWorktrees({ lanes }: { lanes: Lane[] }) {
             <div className="ca-ucard-head">
               <span className="ca-ucard-name">These look reusable</span>
             </div>
-            <p className="ca-acct-note">Each has taken one piece of work after another: reset or switched to new work several times, or on a branch that has carried several merged PRs.</p>
+            <p className="ca-acct-note">Their branches have carried several merged PRs, one after another.</p>
             {suggested.map((l) => (
               <div key={l.id} className="ca-reuse-row">
                 <span className="ca-code" title={l.path}>
@@ -791,7 +795,7 @@ function ReusableWorktrees({ lanes }: { lanes: Lane[] }) {
                   {name(l)}
                 </span>
                 <span className="ca-meta" title={l.reuse ? REUSE_WORDS[l.reuse] : undefined}>
-                  {l.reuse ? REUSE_STATE[l.reuse] : ''}
+                  {l.reuse ? `${REUSE_STATE[l.reuse]} · ${why(l)}` : ''}
                 </span>
               </div>
             ))}

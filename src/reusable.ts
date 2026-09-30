@@ -1,6 +1,6 @@
 // Reusable worktrees: ones that take one piece of work after another, where others are kept for
 // one piece of work each (reusable.rs; board.rs `reuse_of` says what one holds). What each state
-// says, and which worktree new work goes to when Jev picks one that isn't reusable (route.ts).
+// says, and which worktree new work goes to from the one Jev picked (route.ts).
 
 import type { Lane, Reuse, RoutePick } from './types';
 
@@ -23,24 +23,36 @@ function sameRepo(a: Lane, b: Lane): boolean {
   return a.project === b.project && a.repo === b.repo && (a.device?.short ?? null) === (b.device?.short ?? null);
 }
 
+/** How sure Jev must be of a reusable worktree with work under way for new work to join that
+ *  work: less sure, it matched the repo more than the work. */
+export const JOIN_AT = 0.5;
+
 /**
- * Where new work Jev placed in a worktree kept for its own work goes instead: a reusable worktree
- * of the same repo that holds no work, the one Jev ranked highest first, then free before landed
- * (which waits on its reset), then the latest active. Null when the repo has none free, and the
- * work wants a new worktree.
+ * Where new work goes from the worktree Jev picked, at Jev's probability `p`:
+ * - a reusable worktree that holds no work, as picked;
+ * - one with work under way, joining that work, when Jev is sure of it (`JOIN_AT`) and it isn't
+ *   the main worktree, which is where any of the repo's work may be under way;
+ * - otherwise the repo's reusable worktree that holds no work: the one Jev ranked highest, then
+ *   free before landed (which waits on its reset), then the latest active;
+ * - with none free, the main worktree, where work starts when there's nowhere else, if it's
+ *   reusable; then the repo's reusable worktree Jev ranked highest.
+ * Null when the repo has no reusable worktree at all.
  */
-export function reusableFor(lane: Lane, lanes: Lane[], ranked: RoutePick[]): Lane | null {
+export function newWorkIn(picked: Lane, p: number, lanes: Lane[], ranked: RoutePick[]): Lane | null {
+  if (takesNewWork(picked)) return picked;
+  if (picked.reuse && picked.origin !== 'main' && p >= JOIN_AT) return picked;
   const rank = (l: Lane) => {
-    const i = ranked.findIndex((p) => p.id === l.id);
+    const i = ranked.findIndex((r) => r.id === l.id);
     return i < 0 ? Infinity : i;
   };
+  const byRank = (a: Lane, b: Lane) => rank(a) - rank(b) || b.lastActivity - a.lastActivity;
+  const repo = lanes.filter((l) => l.reuse && sameRepo(l, picked));
   const order = (l: Lane) => (l.reuse === 'free' ? 0 : 1);
-  const open = lanes.filter((l) => l.id !== lane.id && sameRepo(l, lane) && takesNewWork(l));
-  open.sort((a, b) => rank(a) - rank(b) || order(a) - order(b) || b.lastActivity - a.lastActivity);
-  return open[0] ?? null;
+  const free = repo.filter(takesNewWork).sort((a, b) => rank(a) - rank(b) || order(a) - order(b) || b.lastActivity - a.lastActivity);
+  return free[0] ?? repo.find((l) => l.origin === 'main') ?? repo.sort(byRank)[0] ?? null;
 }
 
-/** The repo's main checkout, where a new worktree is made from: Claude Code makes one under the
+/** The repo's main worktree, where a new worktree is made from: Claude Code makes one under the
  *  checkout it starts in. */
 export function mainCheckoutOf(lane: Lane, lanes: Lane[]): Lane | null {
   if (lane.origin === 'main') return lane;

@@ -122,6 +122,13 @@ export function liveOrLatest<T extends { session: Session }>(list: T[]): T | nul
   return list.reduce<T | null>((best, x) => (!best || better(x.session, best.session) ? x : best), null);
 }
 
+/** A worktree's name beside its repo: `main` for the repo's main worktree, as git calls it, else
+ *  its callsign. Where the repo isn't beside it, the callsign (the repo's own name, for the main
+ *  worktree) says more. */
+export function worktreeName(lane: Lane): string {
+  return lane.origin === 'main' ? 'main' : lane.callsign;
+}
+
 /** When you last sent a prompt to one of a worktree's own agents; with none, when anything last happened in it. */
 export function lanePromptAt(lane: Lane): number {
   const own = lane.sessions.filter((s) => !s.visitor && !s.archived);

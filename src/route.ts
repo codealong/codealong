@@ -4,7 +4,7 @@
 // have tests.
 
 import { homeOf } from './lanes';
-import { mainCheckoutOf, reusableFor } from './reusable';
+import { mainCheckoutOf, newWorkIn } from './reusable';
 import type { Board, Lane, Route, RoutePick, Session } from './types';
 
 /** How likely a suggestion is, as the panel says it. */
@@ -46,10 +46,11 @@ function findSession(board: Board, key: string): { lane: Lane; session: Session 
  * waits on you for a prompt is opened, never sent to: what's typed would answer the prompt. One
  * whose reply asks you something is sent to: what's typed is its answer.
  *
- * New work starts only in a reusable worktree (reusable.ts): Jev matches it to the worktree it's
- * about, and when that one is kept for its own work, it goes to one of the repo's reusable
- * worktrees that holds no work, else to a new worktree. A reusable one with work under way takes
- * it as Jev picked it: the new work belongs with that work.
+ * New work starts only in a reusable worktree (reusable.ts `newWorkIn`): Jev matches it to a
+ * worktree of the repo it's about, and it goes to one of the repo's reusable worktrees that holds
+ * no work, or joins the work under way in the one Jev picked when Jev is sure of it. A new
+ * worktree only where you often start in one (route.rs `with_habit`), or when the repo has no
+ * reusable worktree at all.
  */
 export function suggestions(route: Route, board: Board): Suggestion[] {
   const prob = (a: string) => route.actions.find(([x]) => x === a)?.[1] ?? 0;
@@ -68,14 +69,19 @@ export function suggestions(route: Route, board: Board): Suggestion[] {
     const open = find || (found.session.status === 'needs' && !found.session.asks);
     return { kind: open ? 'open' : 'send', key: `${open ? 'open' : 'send'}:${found.session.key}`, ...found, p };
   };
-  const startIn = (pick: RoutePick | undefined, p: number): Suggestion | null => {
+  /** Starting new work from Jev's worktree pick, `actionP` as likely as the action. In the very
+   *  worktree Jev picked, it's as likely as that worktree; one chosen for it in the repo, or a new
+   *  worktree, as likely as the repo. */
+  const startIn = (pick: RoutePick | undefined, actionP: number): Suggestion | null => {
     const picked = laneOf(pick);
-    if (!picked) return null;
-    const reusable = picked.reuse ? picked : reusableFor(picked, board.lanes, route.lanes);
+    if (!picked || !pick) return null;
+    const reusable = newWorkIn(picked, pick.p, board.lanes, route.lanes);
     const newWorktree = route.ownWorktree >= OWN_WORKTREE || !reusable;
-    // A new worktree is made from the repo's main checkout, so two of its worktrees make the
+    // A new worktree is made from the repo's main worktree, so two of its worktrees make the
     // same row.
     const lane = newWorktree ? (mainCheckoutOf(picked, board.lanes) ?? picked) : (reusable ?? picked);
+    const repoP = route.repos.find((r) => r.id === `${picked.project}/${picked.repo}`)?.p;
+    const p = actionP * (!newWorktree && lane.id === picked.id ? pick.p : (repoP ?? pick.p));
     return { kind: 'start', key: newWorktree ? `start:new:${lane.project}/${lane.repo}` : `start:${lane.id}`, lane, newWorktree, p };
   };
   const [s1, s2] = route.sessions;
@@ -89,24 +95,24 @@ export function suggestions(route: Route, board: Board): Suggestion[] {
       const p = prob(route.action);
       add(toSession(s1, p * sessionP(s1), find));
       if (sessionP(s2) >= RUNNER_UP) add(toSession(s2, p * sessionP(s2), find));
-      if (prob('start') >= RUNNER_UP || route.noSession >= RUNNER_UP) add(startIn(l1, Math.max(prob('start'), route.noSession) * sessionP(l1)));
+      if (prob('start') >= RUNNER_UP || route.noSession >= RUNNER_UP) add(startIn(l1, Math.max(prob('start'), route.noSession)));
       break;
     }
     case 'start': {
       const p = prob('start');
-      add(startIn(l1, p * sessionP(l1)));
+      add(startIn(l1, p));
       // The session that may already be doing it comes next: sending there may be what's meant.
       // Its likelihood is that of sending at all, times that of this session doing the work, so
       // it reads on the same scale as the rows around it (the start row carries the warning).
       if (route.duplicate) add(toSession(route.duplicate, prob('send') * route.duplicate.p, false));
-      if (sessionP(l2) >= RUNNER_UP) add(startIn(l2, p * sessionP(l2)));
+      if (sessionP(l2) >= RUNNER_UP) add(startIn(l2, p));
       if (prob('send') >= RUNNER_UP && sessionP(s1) >= RUNNER_UP) add(toSession(s1, prob('send') * sessionP(s1), false));
       break;
     }
     case 'todo': {
       const lane = laneOf(l1);
       if (lane) add({ kind: 'todo', key: `todo:${lane.id}`, lane, p: prob('todo') * sessionP(l1) });
-      add(startIn(l1, prob('start') * sessionP(l1)));
+      add(startIn(l1, prob('start')));
       break;
     }
   }

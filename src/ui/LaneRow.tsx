@@ -8,7 +8,7 @@ import { DeviceBadge } from './DeviceBadge';
 import { memoRow } from './memoRow';
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
 import { absolute, ago, agoPhrase, count, middleTruncate, untilShort } from '../format';
-import type { AgentItem, WorktreeRow } from '../lanes';
+import { worktreeName, type AgentItem, type WorktreeRow } from '../lanes';
 import { untilWords } from '../snooze';
 import type { GitInfo, Lane, Session, Todo } from '../types';
 import { driftWords, HarnessChip, Icon, LaneGlyph, PrChip, Rich, StatusGlyph } from './primitives';
@@ -59,10 +59,10 @@ export function currentSessions(lane: Lane, now: number) {
   return lane.sessions.filter((s) => !s.earlier && (s.live || s.status === 'needs' || s.status === 'error' || s.status === 'working' || s.status === 'unread' || now - s.lastActivity < DAY));
 }
 
-/** `atlas · quarry`: the repo, and the branch when the callsign doesn't already say it. */
+/** `atlas · quarry`: the repo, and the branch when the worktree's name doesn't already say it. */
 function laneSub(lane: Lane): { sub: string; branch: string | null } {
   const branch = lane.branch ?? (lane.detached ? `detached @ ${lane.detached}` : null);
-  return { branch, sub: branch && branch !== lane.callsign ? `${lane.repo} · ${middleTruncate(branch, 26)}` : lane.repo };
+  return { branch, sub: branch && branch !== worktreeName(lane) ? `${lane.repo} · ${middleTruncate(branch, 26)}` : lane.repo };
 }
 
 /** A worktree on another of your devices, a device that's away included: its rows are dimmed. */
@@ -135,8 +135,8 @@ function WorktreeCell({ lane, now, titled }: { lane: Lane; now: number; titled: 
   const { sub, branch } = laneSub(lane);
   return (
     <>
-      <span className="ca-lane-call" title={titled ? lane.callsign : undefined}>
-        {lane.callsign}
+      <span className="ca-lane-call" title={titled ? (lane.origin === 'main' ? `The main worktree of ${lane.repo}` : lane.callsign) : undefined}>
+        {worktreeName(lane)}
       </span>
       <span className="ca-lane-sub" title={branch ?? lane.path}>
         {lane.device && <DeviceBadge device={lane.device} now={now} />}
@@ -478,7 +478,8 @@ interface AgentRowProps {
  *  its own, and after its device, in that device's color, when it's on another of yours. */
 function WorktreeChip({ lane }: { lane: Lane }) {
   const { branch } = laneSub(lane);
-  const own = lane.callsign !== lane.repo;
+  const name = worktreeName(lane);
+  const own = name !== lane.repo;
   return (
     <span className="ca-chip ca-wtchip" title={`${lane.device ? `On ${lane.device.name}: ` : ''}${lane.path}${branch ? `\nOn ${branch}` : ''}`}>
       <Icon name="folder" size={12} />
@@ -489,7 +490,7 @@ function WorktreeChip({ lane }: { lane: Lane }) {
         </span>
       )}
       {own && <span className="ca-wtchip-part">{lane.repo}</span>}
-      <span className="ca-wtchip-name">{lane.callsign}</span>
+      <span className="ca-wtchip-name">{name}</span>
     </span>
   );
 }

@@ -66,6 +66,17 @@ fn habit_in(file: &File, repo: &str) -> Habit {
     Habit { new: list.iter().filter(|b| **b).count(), of: list.len() }
 }
 
+/// Starts in a repo that make a habit of new worktrees: at least this many, and at least half of
+/// the latest starts there.
+const FREQUENT: usize = 3;
+
+/// Whether you often start new work in a new worktree in a repo. Only then does the quick panel
+/// suggest one: elsewhere new work goes to a reusable worktree (src/route.ts), and the panel's
+/// New worktree box is there for the time you want one.
+pub fn frequent(h: Habit) -> bool {
+    h.new >= FREQUENT && h.new * 2 >= h.of
+}
+
 /// Jev's probability that new work wants a worktree of its own, weighed by the habit: its odds
 /// times the odds of your rate, the rate counted as if you'd also made one start each way, so a
 /// repo you've never started in leaves Jev's answer as it is and a few starts move it a little.
@@ -91,6 +102,15 @@ mod tests {
         assert_eq!(habit_in(&f, "p/web"), Habit { new: 0, of: KEEP });
         assert_eq!(habit_in(&f, "p/api"), Habit { new: 1, of: 1 });
         assert_eq!(habit_in(&f, "p/none"), Habit::default());
+    }
+
+    #[test]
+    fn a_habit_is_three_new_worktrees_and_half_the_starts() {
+        assert!(!frequent(Habit::default()));
+        assert!(!frequent(Habit { new: 2, of: 2 }));
+        assert!(frequent(Habit { new: 3, of: 5 }));
+        assert!(frequent(Habit { new: 3, of: 6 }));
+        assert!(!frequent(Habit { new: 3, of: 7 }));
     }
 
     #[test]

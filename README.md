@@ -231,16 +231,19 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   at, and only on this device.
 - **Reusable worktrees**: a worktree that takes one piece of work after another (its
   right-click menu's Reuse for new work, or `codealong reuse on`), where others are kept for
-  one piece of work each. A main checkout is reusable unless it's turned off. Its row shows a
+  one piece of work each. A repo's main worktree (named `main` on its row, as git calls it) and
+  a worktree that has taken new work three times or more (another branch checked out, or its
+  branch reset, as its HEAD's reflog says) are reusable unless turned off. Its row shows a
   repeat mark before its repo, and Free while it holds no work: nothing uncommitted or
   unlanded, and no agent at work (otherwise work under way, in review, or landed once its PR
-  merged). Jev suggests new work only in reusable worktrees: for work it matches to a worktree
-  kept for its own work, the quick panel offers the repo's free reusable worktree, or a new
-  worktree when none is free. When a reusable worktree takes new work (another branch checked
-  out, or its branch reset, as its HEAD's reflog says), the sessions from before move to
-  Earlier work in its panel, off its row and out of its status. Settings › Projects lists
-  them, and suggests worktrees that look reused: reset or switched to new work three times or
-  more, or on a branch that has carried several merged PRs.
+  merged). Jev suggests new work only in reusable worktrees: the repo's free or landed ones
+  first, joining the work under way in one only when Jev is sure the work belongs there, else
+  the main worktree. A new worktree is suggested only in a repo where you often start in one
+  from the quick panel (three or more, and half your latest starts there), and a repo named in
+  what you type keeps other repos' worktrees out of the suggestions. When a reusable worktree
+  takes new work, the sessions from before move to Earlier work in its panel, off its row and
+  out of its status. Settings › Projects lists them, and suggests worktrees whose branch has
+  carried several merged PRs.
 - **Quick panel** (⌥⌘/ from any app, over full-screen ones too; ⌘N, the title bar, the
   inspector, or a worktree's or session's right-click menu in Codealong): one input, and below
   it what you can do next. With nothing typed it lists the sessions that need you, the

@@ -9,7 +9,7 @@
 //!
 //! The request goes through jev.rs, which holds the key.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::time::Instant;
 
 use anyhow::{anyhow, bail, Result};
@@ -42,6 +42,8 @@ pub struct Request {
     running: Vec<bool>,
     lanes: Vec<String>,
     lane_repos: Vec<String>,
+    /// The repos what's typed names (`named_repos`), by `<project>/<repo>`.
+    named: Vec<String>,
 }
 
 /// Sessions that could already be doing the work: running, and not waiting on you.
@@ -151,6 +153,22 @@ fn lane_card(l: &Lane, now: i64) -> Value {
     Value::Object(card)
 }
 
+/// The repos what's typed names, by `<project>/<repo>`: a word that is a repo's name, or a
+/// project's (all its repos). Words split at anything but letters, digits, `-`, `_` and `.`, so
+/// `atlas-infra` doesn't name `atlas`.
+fn named_repos(text: &str, lanes: &[&Lane]) -> Vec<String> {
+    let words: HashSet<String> = text
+        .split(|c: char| !(c.is_alphanumeric() || matches!(c, '-' | '_' | '.')))
+        .map(|w| w.trim_matches('.').to_lowercase())
+        .filter(|w| !w.is_empty())
+        .collect();
+    let names = |l: &Lane| words.contains(&l.repo.to_lowercase()) || (l.project != ELSEWHERE && words.contains(&l.project.to_lowercase()));
+    let mut out: Vec<String> = lanes.iter().filter(|l| names(l)).map(|l| format!("{}/{}", l.project, l.repo)).collect();
+    out.sort();
+    out.dedup();
+    out
+}
+
 /// The sessions and worktrees to offer, in the panel's project. Each session once, from the
 /// lane it runs in; archived ones and long-stopped ones stay out.
 fn candidates<'a>(board: &'a Board, project: &str, now: i64) -> (Vec<(&'a Lane, &'a Session)>, Vec<&'a Lane>) {
@@ -254,6 +272,7 @@ pub fn request(board: &Board, project: &str, text: &str, model: &str, now: i64) 
         running: sessions.iter().map(|(_, s)| s.live).collect(),
         lanes: lanes.iter().map(|l| l.id.clone()).collect(),
         lane_repos: lanes.iter().map(|l| format!("{}/{}", l.project, l.repo)).collect(),
+        named: named_repos(text, &lanes),
     })
 }
 
@@ -316,7 +335,6 @@ pub fn read(req: &Request, response: &Value, ms: u64) -> Result<Route> {
     let top_session = picked.iter().map(|(p, _)| p.p).fold(0.0, f64::max);
     let sessions = ranked(favor_running(picked));
     let no_session = session_p.get("none").copied().unwrap_or(if req.sessions.is_empty() { 1.0 } else { 0.0 });
-    let lanes = ranked(lane_p.iter().filter_map(|(k, p)| Some(Pick { id: at(k, 'w', &req.lanes)?, p: *p })).collect());
     let mut repo_sum: BTreeMap<String, f64> = BTreeMap::new();
     for (k, p) in &lane_p {
         if let Some(repo) = at(k, 'w', &req.lane_repos) {
@@ -324,6 +342,19 @@ pub fn read(req: &Request, response: &Value, ms: u64) -> Result<Route> {
         }
     }
     let repos = ranked(repo_sum.into_iter().map(|(id, p)| Pick { id, p }).collect());
+    // A repo named in what's typed, when it's Jev's likeliest, keeps the others out: "in
+    // atlas" leaves no row for a worktree of another repo Jev gave a little to. When Jev
+    // leans elsewhere, the word may not mean the repo, and nothing is left out.
+    let named = |repo: &str| req.named.iter().any(|n| n == repo);
+    let only_named = repos.first().is_some_and(|top| named(&top.id));
+    let repos: Vec<Pick> = repos.into_iter().filter(|r| !only_named || named(&r.id)).collect();
+    let lanes = ranked(
+        lane_p
+            .iter()
+            .filter(|(k, _)| !only_named || at(k, 'w', &req.lane_repos).is_some_and(|r| named(&r)))
+            .filter_map(|(k, p)| Some(Pick { id: at(k, 'w', &req.lanes)?, p: *p }))
+            .collect(),
+    );
 
     let duplicate = ranked(probabilities(&answers["duplicate"]).iter().filter_map(|(k, p)| Some(Pick { id: at(k, 's', &req.sessions)?, p: *p })).collect())
         .into_iter()
@@ -362,9 +393,12 @@ pub fn route(board: &Board, cfg: &crate::config::Config, project: &str, text: &s
     Ok(with_habit(route, habit))
 }
 
-/// Weighs Jev's guess at a new worktree by how you've started work in the likeliest repo.
+/// Weighs Jev's guess at a new worktree by how you've started work in the likeliest repo. A new
+/// worktree is suggested only in a repo where you often start in one (`starts::frequent`):
+/// prompts read as features and fixes, which Jev takes for work of its own, and elsewhere new
+/// work goes to a reusable worktree.
 fn with_habit(mut route: Route, habit: crate::starts::Habit) -> Route {
-    route.own_worktree = crate::starts::weigh(route.own_worktree_asked, habit);
+    route.own_worktree = if crate::starts::frequent(habit) { crate::starts::weigh(route.own_worktree_asked, habit) } else { 0.0 };
     route.habit = habit;
     route
 }
@@ -580,6 +614,34 @@ mod tests {
         let r = with_habit(r, crate::starts::Habit { new: 1, of: 20 });
         assert_eq!(r.own_worktree_asked, 0.9);
         assert!(r.own_worktree < 0.5);
+    }
+
+    #[test]
+    fn a_new_worktree_only_where_you_often_start_in_one() {
+        let b = board();
+        let req = request(&b, "Acme", "add a settings page", "jev-latest", NOW).unwrap();
+        let r = read(&req, &answer(&[("start", 1.0)], &[("none", 1.0)], &[("w1", 1.0)], 0.9), 1).unwrap();
+        // No habit yet: Jev's yes isn't enough.
+        assert_eq!(with_habit(r.clone(), crate::starts::Habit::default()).own_worktree, 0.0);
+        assert!(with_habit(r, crate::starts::Habit { new: 4, of: 6 }).own_worktree > 0.8);
+    }
+
+    #[test]
+    fn a_repo_named_in_the_message_keeps_the_others_out_when_jev_agrees() {
+        let b = board();
+        // "web" is a repo; "web-app" or "webby" wouldn't be.
+        let req = request(&b, "Acme", "Add a pricing section to web.", "m", NOW).unwrap();
+        assert_eq!(req.named, vec!["Acme/web"]);
+        let web = req.lanes.iter().position(|l| l == "/p/web").unwrap() + 1;
+        let api = req.lanes.iter().position(|l| l == "/p/api").unwrap() + 1;
+        let (w, a) = (format!("w{web}"), format!("w{api}"));
+        let r = read(&req, &answer(&[("start", 1.0)], &[("none", 1.0)], &[(&w, 0.7), (&a, 0.3)], 0.0), 1).unwrap();
+        assert_eq!(r.lanes.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(), vec!["/p/web"]);
+        assert_eq!(r.repos.len(), 1);
+        // When Jev leans to another repo, the word may mean something else: nothing is left out.
+        let r = read(&req, &answer(&[("start", 1.0)], &[("none", 1.0)], &[(&w, 0.3), (&a, 0.7)], 0.0), 1).unwrap();
+        assert_eq!(r.lanes.len(), 2);
+        assert!(request(&b, "Acme", "tidy the web-app and webby", "m", NOW).unwrap().named.is_empty());
     }
 
     #[test]

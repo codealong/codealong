@@ -916,29 +916,32 @@ pub fn can_reuse(seed: &LaneSeed) -> bool {
     !seed.elsewhere && !seed.chats && seed.origin != Origin::Folder
 }
 
-/// Whether a worktree takes one piece of work after another: as marked (its menu's Reuse for
-/// new work, reusable.rs), else a main checkout does, being where work starts when there's no
-/// other, and the rest don't.
-pub fn reusable(seed: &LaneSeed, marks: &HashMap<String, bool>) -> bool {
-    can_reuse(seed) && marks.get(seed.path.to_string_lossy().as_ref()).copied().unwrap_or(seed.origin == Origin::Main)
+/// How many times a worktree must have taken new work to count as reused: once when it was
+/// made, maybe once more when its work was redone.
+const REUSED_AT: u32 = 3;
+
+/// Whether a worktree has been reused: it took new work (another branch, or its branch reset)
+/// three times or more, as far back as its reflog goes (`git::new_work`).
+pub fn reused(git: Option<&GitInfo>) -> bool {
+    git.and_then(|g| g.new_work_count).is_some_and(|n| n >= REUSED_AT)
 }
 
-/// How many times a worktree must have taken new work for Settings to suggest reusing it: once
-/// when it was made, maybe once more when its work was redone.
-const LOOKS_REUSED_AT: u32 = 3;
+/// Whether a worktree takes one piece of work after another: as marked (its menu's Reuse for
+/// new work, reusable.rs), else a main checkout does, being where work starts when there's no
+/// other, and so does one that has been reused; the rest are kept for one piece of work each.
+pub fn reusable(seed: &LaneSeed, marks: &HashMap<String, bool>, git: Option<&GitInfo>) -> bool {
+    can_reuse(seed) && marks.get(seed.path.to_string_lossy().as_ref()).copied().unwrap_or(seed.origin == Origin::Main || reused(git))
+}
 
 /// A worktree Settings suggests making reusable: marked neither way and not reusable already,
-/// that has taken new work again and again (its reflog), or whose branch has carried two or more
-/// merged PRs among the repo's recent ones. A branch that goes on from one merged PR to the next
-/// is a worktree taking one piece of work after another (atlas's `app2`, reset onto
-/// `origin/main` after each). PRs from anyone's fork count: a teammate's `app2` says the repo's
+/// whose branch has carried two or more merged PRs among the repo's recent ones. A branch that
+/// goes on from one merged PR to the next is a worktree taking one piece of work after another
+/// (atlas's `app2`, reset onto `origin/main` after each), though a fresh clone's reflog
+/// doesn't show it yet. PRs from anyone's fork count: a teammate's `app2` says the repo's
 /// people name reused worktrees so.
 pub fn looks_reusable(seed: &LaneSeed, marked: bool, git: Option<&GitInfo>, prs: &HashMap<String, Vec<PrRaw>>) -> bool {
-    if marked || !can_reuse(seed) || seed.origin == Origin::Main {
+    if marked || !can_reuse(seed) || seed.origin == Origin::Main || reused(git) {
         return false;
-    }
-    if git.and_then(|g| g.new_work_count).is_some_and(|n| n >= LOOKS_REUSED_AT) {
-        return true;
     }
     let (Some(slug), Some(branch)) = (seed.repo_slug.as_ref(), seed.branch.as_ref()) else { return false };
     if seed.default_branch.as_ref() == Some(branch) {
@@ -1304,7 +1307,7 @@ pub fn compose(inp: Inputs) -> Board {
     let mut lanes = Vec::with_capacity(seeds.len());
     for ((seed, sessions), guests) in seeds.iter().zip(by_lane).zip(guests) {
         let g = git.get(&seed.path).cloned();
-        let reuse_on = reusable(seed, marks);
+        let reuse_on = reusable(seed, marks, g.as_ref());
         // Archived sessions stay in the lane's list, last, and out of its status. In a reusable
         // worktree so do the ones from before its latest work, ahead of the archived ones.
         let (mut sessions, archived): (Vec<Session>, Vec<Session>) = sessions.into_iter().partition(|s| !s.archived);
@@ -1699,20 +1702,25 @@ mod tests {
     }
 
     #[test]
-    fn a_main_checkout_is_reusable_unless_marked_and_other_worktrees_only_when_marked() {
+    fn main_checkouts_and_reused_worktrees_are_reusable_unless_marked_otherwise() {
         let main = LaneSeed { origin: Origin::Main, ..seed("/r/atlas", "app") };
         let wt = seed("/r/atlas-app3", "app3");
         let none = HashMap::new();
-        assert!(reusable(&main, &none));
-        assert!(!reusable(&wt, &none));
+        assert!(reusable(&main, &none, None));
+        assert!(!reusable(&wt, &none, None));
         let marks = HashMap::from([("/r/atlas".to_string(), false), ("/r/atlas-app3".to_string(), true)]);
-        assert!(!reusable(&main, &marks));
-        assert!(reusable(&wt, &marks));
+        assert!(!reusable(&main, &marks, None));
+        assert!(reusable(&wt, &marks, None));
+        // One that took new work three times or more has been reused, unless marked otherwise.
+        let git = |n: u32| GitInfo { new_work_count: Some(n), ..Default::default() };
+        assert!(reusable(&wt, &none, Some(&git(3))));
+        assert!(!reusable(&wt, &none, Some(&git(2))));
+        assert!(!reusable(&wt, &HashMap::from([("/r/atlas-app3".to_string(), false)]), Some(&git(9))));
         // A plain folder, an app's chats and a repo outside your projects never are.
         let all = HashMap::from([("/r/notes".to_string(), true)]);
-        assert!(!reusable(&LaneSeed { origin: Origin::Folder, ..seed("/r/notes", "x") }, &all));
-        assert!(!reusable(&LaneSeed { chats: true, ..seed("/r/notes", "x") }, &all));
-        assert!(!reusable(&LaneSeed { elsewhere: true, ..seed("/r/notes", "x") }, &all));
+        assert!(!reusable(&LaneSeed { origin: Origin::Folder, ..seed("/r/notes", "x") }, &all, None));
+        assert!(!reusable(&LaneSeed { chats: true, ..seed("/r/notes", "x") }, &all, None));
+        assert!(!reusable(&LaneSeed { elsewhere: true, ..seed("/r/notes", "x") }, &all, None));
     }
 
     #[test]
@@ -1726,10 +1734,10 @@ mod tests {
         assert!(looks_reusable(&wt, false, None, &prs(vec![merged(1, "ghempton"), merged(2, "someone")])));
         // One merged PR is a branch's usual life, and an open one hasn't landed.
         assert!(!looks_reusable(&wt, false, None, &prs(vec![merged(1, "ghempton"), PrRaw { state: PrState::Open, ..merged(2, "ghempton") }])));
-        // A worktree that took new work again and again looks reused, PRs or not.
+        // One that has been reused is reusable already, so it isn't suggested.
         let git = |n: u32| GitInfo { new_work_count: Some(n), ..Default::default() };
-        assert!(looks_reusable(&wt, false, Some(&git(3)), &HashMap::new()));
-        assert!(!looks_reusable(&wt, false, Some(&git(2)), &HashMap::new()));
+        assert!(!looks_reusable(&wt, false, Some(&git(3)), &two));
+        assert!(looks_reusable(&wt, false, Some(&git(2)), &two));
         // Marked either way, or reusable already, it isn't suggested; nor is the default branch.
         assert!(!looks_reusable(&wt, true, Some(&git(9)), &two));
         assert!(!looks_reusable(&LaneSeed { origin: Origin::Main, ..wt.clone() }, false, Some(&git(9)), &two));
