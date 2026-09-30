@@ -39,7 +39,26 @@ describe('blocks', () => {
     expect(b.map((x) => x.kind)).toEqual(['para', 'heading', 'list', 'list', 'code', 'quote', 'rule', 'para']);
     expect(b[2]).toEqual({ kind: 'list', ordered: false, items: ['**One** thing wraps on', '`two`'] });
     expect(b[3]).toMatchObject({ ordered: true, items: ['first', 'second'] });
-    expect(b[4]).toEqual({ kind: 'code', text: 'cargo test' });
+    expect(b[4]).toEqual({ kind: 'code', text: 'cargo test', shell: false });
+  });
+
+  it('reads a code block in a list as code, and the list going on after it', () => {
+    const b = blocks('Then:\n1. Run this:\n   ```bash\n   cd app &&\n     npm test\n   ```\n2. Check the output.');
+    expect(b).toEqual([
+      { kind: 'para', text: 'Then:' },
+      { kind: 'list', ordered: true, items: ['Run this:'], start: 1 },
+      { kind: 'code', text: 'cd app &&\n  npm test', shell: true },
+      { kind: 'list', ordered: true, items: ['Check the output.'], start: 2 },
+    ]);
+  });
+
+  it('marks finished shell blocks, which can run, and no others', () => {
+    const shell = (src: string) => blocks(src).map((b) => b.kind === 'code' && b.shell);
+    expect(shell('```bash\nnpm test\n```')).toEqual([true]);
+    expect(shell('  ```sh title="build"\n  make\n  ```')).toEqual([true]);
+    expect(shell('```\nnpm test\n```\n\n```ts\nconst a = 1;\n```\n\n```console\n$ ls\na.txt\n```')).toEqual([false, false, false]);
+    // Still being written: the reply streams in.
+    expect(blocks('Run:\n```bash\nnpm te')).toEqual([{ kind: 'para', text: 'Run:' }, { kind: 'code', text: 'npm te', shell: false }]);
   });
 
   it('reads tables, with alignment, ragged rows and pipes in code', () => {

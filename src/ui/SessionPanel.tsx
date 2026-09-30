@@ -8,8 +8,9 @@
 // there are and how the last one went (ReplyView.tsx's). F expands it to the whole window, so the
 // list is out of the way while you do.
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { below } from '../contextMenu';
+import { shortOf } from '../devices';
 import { folderTargets, opensInEditor, useEditorIcons } from '../editors';
 import { absolute, agoPhrase, duration, middleTruncate, tildePath } from '../format';
 import { HARNESS_WORD, sessionPlace } from '../harness';
@@ -21,6 +22,7 @@ import { QueueStrip, type Notice, type Queue } from './ReplyView';
 import { OpenInMenu } from './Inspector';
 import { PreviewLink } from './PreviewBits';
 import { BranchLabel, Button, HarnessChip, Icon, Rich, STATUS_WORD, StatusGlyph } from './primitives';
+import { runFolder } from './RunButton';
 import { Reply } from './SessionReply';
 import { DeviceBadge } from './DeviceBadge';
 import { SessionThread } from './SessionThread';
@@ -70,6 +72,8 @@ export function SessionPanel({ lane, session: s, apps, now, onOpen, onNewSession
   const place: Target = { id: s.openTarget, icon: 'arrow-up-right', label: `Open in ${sessionPlace(s, apps.terminal)}`, detail: null, kbd: null, disabled: false, group: 'session' };
   const targets = opensInEditor(lane) ? [...(own.length > 0 ? own : [place]), ...folderTargets(apps, icons)] : own;
   const since = s.statusSince ? (s.status === 'working' ? `for ${duration(s.statusSince, now)}` : agoPhrase(s.statusSince, now)) : agoPhrase(s.lastActivity, now);
+  // Its shell blocks run in a terminal here, so not for a session on another device.
+  const run = useMemo(() => (shortOf(s.key) ? undefined : { folder: runFolder(lane, s), terminal: apps.terminal }), [s.key, s.cwd, lane.path, apps.terminal]);
 
   return (
     <aside className="ca-insp ca-sessinsp" aria-label={`${s.title} details`}>
@@ -182,6 +186,7 @@ export function SessionPanel({ lane, session: s, apps, now, onOpen, onNewSession
         now={now}
         onOpen={() => onOpen(s.openTarget)}
         answeredBelow={!device || (device.online && device.remoteControl)}
+        run={run}
         fallback={
           s.excerpt ? (
             <p className="ca-sessinsp-now">

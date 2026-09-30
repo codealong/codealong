@@ -11,7 +11,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 
 use crate::procs;
-use crate::transcript::{clip_input, clip_output, item, text_of, Item, Page};
+use crate::transcript::{clip_input, clip_output, item, kept_whole, text_of, Item, Page};
 use crate::util::{code, command_dir, file_name, mtime_ms, note_work, one_line, parse_rfc3339_ms, read_head, resolve, scan_lines_back, without_cd};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -411,7 +411,16 @@ pub fn conversation_items(v: &Value, at: i64) -> Vec<Item> {
                     Some("tool_use") => {
                         let name = p.get("name").and_then(Value::as_str).unwrap_or("Tool");
                         let input = p.get("input").cloned().unwrap_or(Value::Null);
-                        out.push(Item { id: p.get("id").and_then(Value::as_str).map(String::from), input: Some(clip_input(&claude_input(name, &input))), ..item(at, "tool", tool_request(name, &input)) });
+                        let whole = claude_input(name, &input);
+                        let shell = name == "Bash" && !whole.trim().is_empty() && kept_whole(&whole);
+                        out.push(Item {
+                            id: p.get("id").and_then(Value::as_str).map(String::from),
+                            input: Some(clip_input(&whole)),
+                            shell,
+                            // The line's folder is the shell's, where the command ran.
+                            cwd: shell.then(|| v.get("cwd").and_then(Value::as_str).map(String::from)).flatten(),
+                            ..item(at, "tool", tool_request(name, &input))
+                        });
                     }
                     _ => {}
                 }

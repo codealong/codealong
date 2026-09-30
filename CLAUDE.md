@@ -676,7 +676,10 @@ Ghostty (1.3, AppleScript dictionary in the app bundle)
 
 - Windows, tabs and terminals with `id`, `name`, `working directory`; `focus`, `select tab`,
   `activate window`; `new window with configuration {initial working directory, initial input,
-  environment variables}`, the last a list of `KEY=VALUE` set in the window's shell.
+  environment variables}`, the last a list of `KEY=VALUE` set in the window's shell. `initial
+  input` is written to the new terminal's pty as it starts, before the shell reads it, byte for
+  byte (it goes through a Zig string literal, so control characters pass): each newline is a
+  Return to the shell, which reads it a line at a time (1.3.1's `embedded.zig`).
 - `input text <text> to terminal id <id>` pastes (bracketed when the program asked for that,
   as Claude Code and Codex do; otherwise each newline is a Return), and `send key "enter" to
   terminal id <id>` presses Return. Neither needs the terminal in front. `send.rs` types only
@@ -788,6 +791,11 @@ Starting a session in iTerm2 or Terminal (launch.rs, checked 2026-09-29)
   keys typed on the Mac meanwhile land in its shell ahead of the line (`ree exec /bin/sh …`, while
   someone typed during the opt-in `tty_apps_*` tests): each line typed into a new shell starts
   with Ctrl-U, which clears the line in zsh, bash, fish and a terminal with no line editor.
+- zsh takes `#` on a typed line as a comment only with `interactive_comments` set, which is off
+  unless a startup file sets it: `echo b > b.txt # note` typed into `zsh -f` wrote `b # note`.
+  bash's interactive shells take comments. So Run on a code block (runcode.rs) types a block's
+  commands without their comments, one line each; lines typed before the shell is up (Ghostty's
+  initial input) or after (iTerm2, Terminal) ran alike in zsh 5.9 and bash 3.2 on a pty.
 
 Agent Client Protocol (hosted sessions, acp.rs; schema v1, adapters checked 2026-09-27)
 

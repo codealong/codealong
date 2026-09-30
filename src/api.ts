@@ -115,6 +115,13 @@ export async function openUrl(url: string): Promise<void> {
   await invoke('open_url', { url });
 }
 
+/** Types a block of shell commands from a session's conversation into a new terminal in `cwd`
+ *  (runcode.rs): what it runs leaves out the comments. */
+export async function runInTerminal(cwd: string, text: string): Promise<void> {
+  if (!inTauri) throw new Error('Running a command needs the app.');
+  await invoke('run_in_terminal', { cwd, text });
+}
+
 /** Opens a project in a window of its own, or brings that window forward; with `another`
  *  (File › New window), always opens one more. */
 export async function openProjectWindow(project: string, another = false): Promise<void> {

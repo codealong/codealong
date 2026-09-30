@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
-use crate::transcript::{clip_input, clip_output, item, text_of, Item, Page};
+use crate::transcript::{clip_input, clip_output, item, kept_whole, text_of, Item, Page};
 use crate::util::{code, command_dir, file_name, mtime_ms, note_work, one_line, parse_rfc3339_ms, read_first_line, resolve, scan_lines_back, without_cd};
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -569,11 +569,21 @@ pub fn conversation_items(v: &Value, at: i64) -> Vec<Item> {
                         Some(Value::String(c)) => c.clone(),
                         _ => String::new(),
                     };
+                    // A script a shell ran, not words joined from some other program's arguments.
+                    let scripted = match it.get("command") {
+                        Some(Value::Array(a)) => a.len() >= 3 && matches!(a[1].as_str(), Some("-c" | "-lc")),
+                        Some(Value::String(_)) => true,
+                        _ => false,
+                    };
+                    let shell = scripted && !script.trim().is_empty() && kept_whole(&script);
                     let exit = it.get("exit_code").and_then(Value::as_i64);
                     vec![Item {
                         input: Some(clip_input(&script)),
                         output: Some(clip_output(&s("aggregated_output"))),
                         failed: exit.is_some_and(|c| c != 0),
+                        shell,
+                        // The folder the agent chose for it, often another worktree than the thread's.
+                        cwd: shell.then(|| it.get("cwd").and_then(Value::as_str).map(file_path_of)).flatten(),
                         ..item(at, "tool", format!("Shell · {}", code(&one_line(without_cd(&script), 80))))
                     }]
                 }

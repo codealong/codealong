@@ -49,15 +49,20 @@ function bare(text: string, key: number): ReactNode[] {
 type Block =
   | { kind: 'heading'; level: number; text: string }
   | { kind: 'para'; text: string }
-  | { kind: 'list'; ordered: boolean; items: string[] }
+  /** `start`: an ordered list's first number, which goes on after a code block in the list. */
+  | { kind: 'list'; ordered: boolean; items: string[]; start?: number }
   | { kind: 'quote'; text: string }
-  | { kind: 'code'; text: string }
+  /** `shell`: a finished block of shell commands, which can run in a new terminal. */
+  | { kind: 'code'; text: string; shell: boolean }
   | { kind: 'table'; align: Align[]; head: string[]; rows: string[][] }
   | { kind: 'rule' };
 
 type Align = 'left' | 'center' | 'right' | null;
 
 const ITEM = /^\s*(?:[-*+]|(\d+)[.)])\s+(.*)$/;
+/** A fence's languages for shell commands. A console session isn't one: it holds prompts and
+ *  output, and a block with no language is as often output or a path as a command. */
+const SHELLS = new Set(['bash', 'sh', 'zsh', 'fish', 'ksh', 'shell']);
 /** A table's delimiter row, under its header: `| --- | :-: |`. */
 const DELIM = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
 
@@ -99,11 +104,16 @@ export function blocks(src: string): Block[] {
       continue;
     }
     if (/^\s*```/.test(line)) {
+      const lang = line.trim().slice(3).trim().split(/\s+/)[0].toLowerCase();
+      // A fence in a list is indented with the list, and so are the lines inside it.
+      const indent = line.length - line.trimStart().length;
       const body: string[] = [];
       i++;
-      while (i < lines.length && !/^\s*```/.test(lines[i])) body.push(lines[i++]);
+      while (i < lines.length && !/^\s*```/.test(lines[i])) body.push(lines[i++].replace(/^ +/, (sp) => sp.slice(indent)));
+      // A block still being written (a reply as it streams) has no closing fence yet.
+      const closed = i < lines.length;
       i++;
-      out.push({ kind: 'code', text: body.join('\n') });
+      out.push({ kind: 'code', text: body.join('\n'), shell: closed && SHELLS.has(lang) });
       continue;
     }
     const h = /^(#{1,6})\s+(.*)$/.exec(line);
@@ -137,12 +147,12 @@ export function blocks(src: string): Block[] {
       while (i < lines.length) {
         const m = ITEM.exec(lines[i]);
         if (m) items.push(m[2]);
-        // A wrapped line continues the item before it.
-        else if (lines[i].trim() && /^\s{2,}/.test(lines[i]) && items.length) items[items.length - 1] += ` ${lines[i].trim()}`;
+        // A wrapped line continues the item before it; a fence under it is a code block of its own.
+        else if (lines[i].trim() && /^\s{2,}/.test(lines[i]) && !/^\s*```/.test(lines[i]) && items.length) items[items.length - 1] += ` ${lines[i].trim()}`;
         else break;
         i++;
       }
-      out.push({ kind: 'list', ordered, items });
+      out.push(ordered ? { kind: 'list', ordered, items, start: Number(item[1]) } : { kind: 'list', ordered, items });
       continue;
     }
     if (/^\s*>/.test(line)) {
@@ -214,7 +224,7 @@ export const Markdown = memo(function Markdown({ text, className }: { text: stri
           case 'list': {
             const Tag = b.ordered ? 'ol' : 'ul';
             return (
-              <Tag key={i}>
+              <Tag key={i} start={b.start != null && b.start !== 1 ? b.start : undefined}>
                 {b.items.map((it, j) => (
                   <li key={j}>{inline(it)}</li>
                 ))}
@@ -224,7 +234,7 @@ export const Markdown = memo(function Markdown({ text, className }: { text: stri
           case 'quote':
             return <blockquote key={i}>{inline(b.text)}</blockquote>;
           case 'code':
-            return <CodeBlock key={i} text={b.text} />;
+            return <CodeBlock key={i} text={b.text} run={b.shell ? {} : undefined} />;
           case 'table':
             return (
               <div key={i} className="ca-md-table">

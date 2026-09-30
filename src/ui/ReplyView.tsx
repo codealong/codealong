@@ -5,13 +5,15 @@
 // a way to snooze it off the bar. Answering from the quick panel's list, a strip above the header
 // says how the last one went and what's left: the view goes on to the next as each one's done.
 
-import type { MouseEvent } from 'react';
+import { useMemo, type MouseEvent } from 'react';
+import { shortOf } from '../devices';
 import { agoPhrase, duration } from '../format';
 import { sessionPlace } from '../harness';
 import { seenable } from '../lanes';
 import { untilWords } from '../snooze';
 import type { Lane, Sent, Session } from '../types';
 import { Button, Rich, STATUS_WORD, StatusGlyph } from './primitives';
+import { runFolder } from './RunButton';
 import { Reply } from './SessionReply';
 import { SessionThread } from './SessionThread';
 
@@ -87,6 +89,8 @@ export function ReplyView({ lane, session: s, terminal, now, onOpen, onReveal, o
   const since = s.statusSince ? (s.status === 'working' ? `for ${duration(s.statusSince, now)}` : agoPhrase(s.statusSince, now)) : agoPhrase(s.lastActivity, now);
   const snoozed = s.snoozedUntil ? ` · snoozed until ${untilWords(s.snoozedUntil, now)}` : '';
   const status = (s.stalledSince ? `Quiet since ${agoPhrase(s.stalledSince, now)}` : `${s.asks ? 'Asks you' : STATUS_WORD[s.status]} ${since}`) + snoozed;
+  // Its shell blocks run in a terminal here, so not for a session on another device.
+  const run = useMemo(() => (shortOf(s.key) ? undefined : { folder: runFolder(lane, s), terminal }), [s.key, s.cwd, lane.path, terminal]);
   return (
     <div className="ca-reply">
       <QueueStrip queue={queue} notice={notice} />
@@ -135,6 +139,7 @@ export function ReplyView({ lane, session: s, terminal, now, onOpen, onReveal, o
         onOpen={onOpen}
         onLoaded={onLoaded}
         answeredBelow
+        run={run}
         fallback={
           s.excerpt ? (
             <p className="ca-sessinsp-now">

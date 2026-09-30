@@ -45,6 +45,13 @@ pub struct Item {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output: Option<String>,
     pub failed: bool,
+    /// A shell command's call whose `input` is the whole command: its panel can run it again in
+    /// a new terminal (runcode.rs).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub shell: bool,
+    /// The folder a shell command ran in, when its record says.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
     /// Where its line starts (or its message number); with `n`, unique in the session.
     pub cursor: u64,
     pub n: u32,
@@ -188,7 +195,7 @@ fn items_of(line: &[u8], parse: Parse, cursor: u64) -> Vec<Item> {
 }
 
 pub fn item(at: i64, kind: &'static str, text: impl Into<String>) -> Item {
-    Item { at, kind, text: text.into(), id: None, input: None, output: None, failed: false, cursor: 0, n: 0 }
+    Item { at, kind, text: text.into(), id: None, input: None, output: None, failed: false, shell: false, cwd: None, cursor: 0, n: 0 }
 }
 
 /// The tool calls among `items` that have no result yet, oldest first, for records that keep a
@@ -222,6 +229,11 @@ pub fn clip_input(s: &str) -> String {
     truncate(s.trim(), INPUT_MAX)
 }
 
+/// Whether `clip_input` keeps all of `s`: a command cut short isn't one to run.
+pub fn kept_whole(s: &str) -> bool {
+    s.trim().chars().count() <= INPUT_MAX
+}
+
 /// The text of a content value: a string, or text blocks joined.
 pub fn text_of(v: &Value) -> String {
     match v {
@@ -239,13 +251,17 @@ mod tests {
     /// A page goes to other devices as it is; the phone app reads it with codealong-peer's `Page`.
     #[test]
     fn pages_read_back_on_other_devices() {
-        let item = |kind: &'static str, id: Option<&str>, output: Option<&str>| Item { at: 7, kind, text: format!("{kind} text"), id: id.map(String::from), input: output.map(|_| "cargo test".to_string()), output: output.map(String::from), failed: kind == "result", cursor: 40, n: 2 };
+        let item = |kind: &'static str, id: Option<&str>, output: Option<&str>| Item { at: 7, kind, text: format!("{kind} text"), id: id.map(String::from), input: output.map(|_| "cargo test".to_string()), output: output.map(String::from), failed: kind == "result", shell: false, cwd: None, cursor: 40, n: 2 };
         let page = Page { items: vec![item("you", None, None), item("agent", None, None), item("tool", Some("t1"), None), item("result", Some("t1"), Some("ok")), item("note", None, None)], before: Some(12), after: 900 };
         let theirs: codealong_peer::api::Page = serde_json::from_value(serde_json::to_value(&page).unwrap()).unwrap();
         assert_eq!((theirs.before, theirs.after, theirs.items.len()), (Some(12), 900, 5));
         let r = &theirs.items[3];
         assert_eq!((r.kind.as_str(), r.id.as_deref(), r.output.as_deref(), r.failed, r.cursor, r.n), ("result", Some("t1"), Some("ok"), true, 40, 2));
         assert_eq!(serde_json::to_value(&theirs).unwrap(), serde_json::to_value(&page).unwrap(), "nothing lost on the way");
+        // A command runs again only on the Mac it ran on, so the other devices read past its folder.
+        let command = Item { shell: true, cwd: Some("/Users/me/app".into()), ..item("tool", Some("t2"), Some("ok")) };
+        let theirs: codealong_peer::api::Page = serde_json::from_value(serde_json::to_value(Page { items: vec![command], before: None, after: 0 }).unwrap()).unwrap();
+        assert_eq!(theirs.items[0].input.as_deref(), Some("cargo test"));
     }
 
     fn write(lines: &[&str]) -> PathBuf {
@@ -260,7 +276,7 @@ mod tests {
     }
 
     const PROMPT: &str = r#"{"type":"user","origin":{"kind":"human"},"timestamp":"2026-09-26T10:00:00Z","message":{"role":"user","content":"Run the tests"}}"#;
-    const CALL: &str = r#"{"type":"assistant","timestamp":"2026-09-26T10:00:01Z","message":{"content":[{"type":"text","text":"Running them."},{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"cargo test"}}]}}"#;
+    const CALL: &str = r#"{"type":"assistant","cwd":"/Users/me/app","timestamp":"2026-09-26T10:00:01Z","message":{"content":[{"type":"text","text":"Running them."},{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"cargo test"}}]}}"#;
     const RESULT: &str = r#"{"type":"user","timestamp":"2026-09-26T10:00:05Z","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"test result: ok","is_error":false}]}}"#;
     const REPLY: &str = r#"{"type":"assistant","timestamp":"2026-09-26T10:00:06Z","message":{"content":[{"type":"text","text":"All pass."}]}}"#;
 
@@ -272,6 +288,9 @@ mod tests {
         assert_eq!(kinds, ["you", "agent", "tool", "result", "agent"]);
         assert_eq!(page.items[2].text, "Bash · `cargo test`");
         assert_eq!(page.items[2].input.as_deref(), Some("cargo test"));
+        // A command can run again where it ran: the line's folder is the shell's.
+        assert_eq!((page.items[2].shell, page.items[2].cwd.as_deref()), (true, Some("/Users/me/app")));
+        assert_eq!((page.items[1].shell, page.items[1].cwd.as_deref()), (false, None));
         assert_eq!((page.items[3].id.as_deref(), page.items[3].output.as_deref()), (Some("t1"), Some("test result: ok")));
         assert_eq!(page.before, None);
         assert_eq!(page.after, std::fs::metadata(&p).unwrap().len());
@@ -364,6 +383,28 @@ mod tests {
         assert_eq!(page.items.len(), 1);
         let it = &page.items[0];
         assert_eq!((it.kind, it.text.as_str(), it.output.as_deref(), it.failed), ("tool", "Shell · `npm test`", Some("1 failed"), true));
+    }
+
+    /// Only a whole command a shell ran can run again, in the folder the agent chose for it.
+    #[test]
+    fn commands_that_can_run_again_say_where_they_ran() {
+        let codex = |command: &str| format!(r#"{{"timestamp":"2026-09-26T10:00:00Z","type":"event_msg","payload":{{"type":"item_completed","item":{{"type":"CommandExecution","command":{command},"cwd":"file:///Users/me/my%20app","exit_code":0}}}}}}"#);
+        let long = format!(r#"["/bin/zsh","-lc","echo {}"]"#, "x".repeat(INPUT_MAX));
+        let lines = [codex(r#"["/bin/zsh","-lc","npm test"]"#), codex(r#"["git","status","--short"]"#), codex(&long)];
+        let p = write(&lines.iter().map(String::as_str).collect::<Vec<_>>());
+        let page = file_page(&p, crate::codex::conversation_items, None, 10).unwrap();
+        let got: Vec<(bool, Option<&str>)> = page.items.iter().map(|i| (i.shell, i.cwd.as_deref())).collect();
+        assert_eq!(got, [(true, Some("/Users/me/my app")), (false, None), (false, None)]);
+        let bash = |command: &str| serde_json::json!({"type":"assistant","cwd":"/Users/me/app","message":{"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":command}}]}});
+        assert!(!crate::claude::conversation_items(&bash(&"x".repeat(INPUT_MAX + 1)), 0)[0].shell, "cut short");
+        assert!(!crate::claude::conversation_items(&bash("  "), 0)[0].shell, "empty");
+        let message = serde_json::json!({"content":[
+            {"type":"tool","name":"shell","state":{"status":"completed","input":{"command":"ls -la"},"output":"ok"}},
+            {"type":"tool","name":"read","state":{"status":"completed","input":{"filePath":"/a.rs"}}},
+        ]});
+        let items = crate::opencode::conversation_items(&message, 3, 0);
+        let got: Vec<(bool, Option<&str>)> = items.iter().map(|i| (i.shell, i.cwd.as_deref())).collect();
+        assert_eq!(got, [(true, None), (false, None)]);
     }
 
     #[test]

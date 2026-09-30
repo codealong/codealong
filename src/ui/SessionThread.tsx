@@ -18,6 +18,7 @@ import { CodeBlock } from './CopyButton';
 import { DescriptionView } from './DescriptionEditor';
 import { Markdown } from './Markdown';
 import { Icon, Rich, StatusGlyph } from './primitives';
+import { RunContext, type RunPlace } from './RunButton';
 
 /** Loads the page before once you're this close to the top. */
 const NEAR_TOP = 240;
@@ -99,7 +100,7 @@ function ToolLine({ item, result, state, onOpen }: { item: TranscriptItem; resul
       )}
       {open && (
         <div className="ca-thread-tooldetail">
-          {item.input && <CodeBlock text={item.input} className="ca-thread-in" />}
+          {item.input && <CodeBlock text={item.input} className="ca-thread-in" run={item.shell && state !== 'asks' ? { folder: item.cwd } : undefined} />}
           {output && <CodeBlock text={output} className={['ca-thread-out', failed && 'is-failed'].filter(Boolean).join(' ')} />}
         </div>
       )}
@@ -191,9 +192,11 @@ interface SessionThreadProps {
   /** The panel's reply area shows what the session waits on (Allow and Deny, or where to answer
    *  it), so the thread only marks the call and doesn't ask again. */
   answeredBelow?: boolean;
+  /** Where its shell commands run, for a session on this Mac: its blocks get a Run button. */
+  run?: RunPlace;
 }
 
-export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, answeredBelow }: SessionThreadProps) {
+export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, answeredBelow, run }: SessionThreadProps) {
   const [items, setItems] = useState<TranscriptItem[]>([]);
   const [before, setBefore] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -352,49 +355,51 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
     );
   }
   return (
-    <div className="ca-thread" ref={scroller} onScroll={onScroll}>
-      {!loaded && <p className="ca-empty">Reading the conversation…</p>}
-      {loaded && before == null && items.length > 0 && <div className="ca-thread-start">The start of the session</div>}
-      {loaded && before != null && <div className="ca-thread-start">Loading earlier…</div>}
-      {rows.map((r) => {
-        if (r.kind === 'tools') return <ToolRun key={keyOf(r.calls[0].item)} calls={r.calls} stateOf={stateOf} onOpen={askHere} />;
-        const it = r.item;
-        if (it.kind === 'tool') return <ToolLine key={keyOf(it)} item={it} result={r.result} state={stateOf(it)} onOpen={askHere} />;
-        if (it.kind === 'note') {
-          return (
-            <div key={keyOf(it)} className="ca-thread-note">
-              {it.text}
-            </div>
-          );
-        }
-        return <Said key={keyOf(it)} item={it} now={now} label={it.kind === 'you' ? 'You' : s.account} />;
-      })}
-      {showing.map((a) => (
-        <Unsaid key={a.id} ahead={a} onOpen={onOpen} />
-      ))}
-      {streaming?.text && <Said item={{ at: now, kind: 'agent', text: streaming.text, failed: false, cursor: 0, n: 0 }} now={now} label={`${s.account} · writing`} />}
-      {streaming && !streaming.text && streaming.tool && !pending && (
-        <div className="ca-thread-note">
-          <Rich text={`Running \`${streaming.tool.replace(/`/g, '')}\``} now={now} />
-        </div>
-      )}
-      {loaded && items.length === 0 && showing.length === 0 && !streaming?.text && <p className="ca-empty">Nothing said yet.</p>}
-      {s.status === 'needs' && !pending && s.excerpt && (
-        <div className="ca-thread-tool is-asks">
-          <div className="ca-thread-askrow">
-            <span>
-              <Rich text={s.excerpt} now={now} />
-            </span>
-            {/* A question in its reply is answered in the box below; anything else where it runs. */}
-            {!s.asks && !answeredBelow && (
-              <button type="button" className="ca-btn ca-btn--secondary ca-btn--sm" onClick={onOpen}>
-                <Icon name="arrow-up-right" size={13} />
-                <span>Open to answer</span>
-              </button>
-            )}
+    <RunContext.Provider value={run ?? null}>
+      <div className="ca-thread" ref={scroller} onScroll={onScroll}>
+        {!loaded && <p className="ca-empty">Reading the conversation…</p>}
+        {loaded && before == null && items.length > 0 && <div className="ca-thread-start">The start of the session</div>}
+        {loaded && before != null && <div className="ca-thread-start">Loading earlier…</div>}
+        {rows.map((r) => {
+          if (r.kind === 'tools') return <ToolRun key={keyOf(r.calls[0].item)} calls={r.calls} stateOf={stateOf} onOpen={askHere} />;
+          const it = r.item;
+          if (it.kind === 'tool') return <ToolLine key={keyOf(it)} item={it} result={r.result} state={stateOf(it)} onOpen={askHere} />;
+          if (it.kind === 'note') {
+            return (
+              <div key={keyOf(it)} className="ca-thread-note">
+                {it.text}
+              </div>
+            );
+          }
+          return <Said key={keyOf(it)} item={it} now={now} label={it.kind === 'you' ? 'You' : s.account} />;
+        })}
+        {showing.map((a) => (
+          <Unsaid key={a.id} ahead={a} onOpen={onOpen} />
+        ))}
+        {streaming?.text && <Said item={{ at: now, kind: 'agent', text: streaming.text, failed: false, cursor: 0, n: 0 }} now={now} label={`${s.account} · writing`} />}
+        {streaming && !streaming.text && streaming.tool && !pending && (
+          <div className="ca-thread-note">
+            <Rich text={`Running \`${streaming.tool.replace(/`/g, '')}\``} now={now} />
           </div>
-        </div>
-      )}
-    </div>
+        )}
+        {loaded && items.length === 0 && showing.length === 0 && !streaming?.text && <p className="ca-empty">Nothing said yet.</p>}
+        {s.status === 'needs' && !pending && s.excerpt && (
+          <div className="ca-thread-tool is-asks">
+            <div className="ca-thread-askrow">
+              <span>
+                <Rich text={s.excerpt} now={now} />
+              </span>
+              {/* A question in its reply is answered in the box below; anything else where it runs. */}
+              {!s.asks && !answeredBelow && (
+                <button type="button" className="ca-btn ca-btn--secondary ca-btn--sm" onClick={onOpen}>
+                  <Icon name="arrow-up-right" size={13} />
+                  <span>Open to answer</span>
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </RunContext.Provider>
   );
 }

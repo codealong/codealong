@@ -38,7 +38,10 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     record (Claude Code's transcript, Codex's rollout, OpenCode's database): your prompts, the
     agent's replies as Markdown, and every tool call, which opens to its input and output; runs
     of calls fold into one line. It opens at the newest and loads older pages as you scroll up,
-    and follows the session as it goes. The box at the bottom sends it a message where it runs,
+    and follows the session as it goes. Code blocks have Copy on hover, and a shell block in a
+    reply (`bash`, `sh`, `zsh`…) or a command the agent ran has Run beside it: that opens a new
+    terminal where the session works, or where the command ran, and types the commands there
+    without their comments. The box at the bottom sends it a message where it runs,
     as the quick panel does; paste a screenshot or a file into it and the agent gets its path,
     and what you'd written to a session and not sent stays with that session until you send
     it, in every window (the panel, the floating bar's peek, the quick panel) and across
@@ -633,6 +636,7 @@ light scan (no git, PRs or visitors).
 | `src-tauri/src/route.rs`, `src-tauri/src/starts.rs`, `src/route.ts` | Suggestions in the quick panel: the request to Jev and reading its answer back, the key in the keychain, how your past starts weigh a new worktree, and which suggestions the panel shows |
 | `src-tauri/src/todojev.rs` | Jev on todos: which todo a new session is for, whether a todo's work looks done, and a todo's suggested project, labels and dependencies |
 | `src-tauri/src/send.rs` | Sending a prompt to a session that's already going, the way its harness takes one |
+| `src-tauri/src/runcode.rs`, `src/ui/RunButton.tsx` | Run on a code block: the lines of a shell block to type into a new terminal (comments out, here-documents and quoted text whole), and the button |
 | `src-tauri/src/peers.rs`, `peerfeed.rs` | Your other devices: links, connections, and the feed of worktrees and sessions sent a change at a time; `design/plans/devices.md` has the reasoning |
 | `src-tauri/peer/` | codealong-peer, what goes between devices: the protocol (each side proves its device key), link codes and iroh, feeds, the requests and their answers, the worktree and session model, and a device that only watches. The iPhone app ([codealong-ios](https://github.com/codealong/codealong-ios)) builds on it; `design/plans/ios.md` has the plan |
 | `src-tauri/src/tailnet.rs`, `devicekey.rs` | Reaching them on your tailnet through Tailscale's command (iroh is in codealong-peer), and this device's key in the keychain |

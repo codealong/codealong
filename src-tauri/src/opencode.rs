@@ -12,7 +12,7 @@ use rusqlite::{Connection, OpenFlags};
 use serde_json::Value;
 
 use crate::procs;
-use crate::transcript::{clip_input, clip_output, item, Item, Page};
+use crate::transcript::{clip_input, clip_output, item, kept_whole, Item, Page};
 use crate::util::{code, home, one_line, truncate};
 
 /// A session as the database has it, with the latest message each way.
@@ -547,6 +547,9 @@ pub fn conversation_items(v: &Value, seq: u64, at: i64) -> Vec<Item> {
                 });
                 let failed = state.and_then(|s| s.get("status")).and_then(Value::as_str) == Some("error");
                 let command = input.and_then(|i| i.get("command")).and_then(Value::as_str);
+                // Its shell tool (`bash` before 2.0) runs in the session's folder, which the record
+                // doesn't repeat.
+                let shell = matches!(name, "shell" | "bash") && command.is_some_and(|c| !c.trim().is_empty() && kept_whole(c));
                 // OpenCode names its tools in lower case; the panel names them as the others do.
                 let name = title_case(name);
                 let label = match command {
@@ -557,6 +560,7 @@ pub fn conversation_items(v: &Value, seq: u64, at: i64) -> Vec<Item> {
                     input: input.map(|i| clip_input(&command.map(String::from).unwrap_or_else(|| serde_json::to_string_pretty(i).unwrap_or_default()))),
                     output: output.map(|o| clip_output(&o)),
                     failed,
+                    shell,
                     ..item(at, "tool", label)
                 });
             }

@@ -954,6 +954,10 @@ export interface TranscriptItem {
   input?: string;
   output?: string;
   failed: boolean;
+  /** A shell command's call whose `input` is the whole command: it can run again in a new terminal. */
+  shell?: boolean;
+  /** The folder a shell command ran in, when its record says. */
+  cwd?: string;
   /** Where its line starts (or its message number in OpenCode); with `n`, unique in the session. */
   cursor: number;
   n: number;
