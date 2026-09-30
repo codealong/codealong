@@ -736,6 +736,7 @@ impl Client {
         }
         let cfg = self.cfg().clone();
         let started = start::start(self.board()?, &cfg, spec)?;
+        crate::origins::started(spec.from.as_deref(), started.key.as_deref(), &spec.lane_id, &spec.account);
         if !spec.todos.is_empty() {
             let pending = match (&started.key, spec.place) {
                 (Some(_), _) => None,
@@ -2837,7 +2838,9 @@ fn start_cmd(c: &mut Client, a: &StartArgs, json: bool) -> Result<()> {
             places.first().copied().ok_or_else(|| anyhow!("{account} can't start a session from here."))?
         }
     };
-    let spec = StartSpec { lane_id, account, place, prompt, model: a.model.clone(), effort: a.effort.clone(), worktree: a.new_worktree, todos: todo_ids };
+    // Run by an agent, the new session was started by that agent's.
+    let from = find_me(c)?.0;
+    let spec = StartSpec { lane_id, account, place, prompt, model: a.model.clone(), effort: a.effort.clone(), worktree: a.new_worktree, todos: todo_ids, from };
     if a.dry_run {
         let cfg = c.cfg().clone();
         let account = cfg.accounts.iter().find(|x| x.name == spec.account).ok_or_else(|| anyhow!("There's no account named {}.", spec.account))?;

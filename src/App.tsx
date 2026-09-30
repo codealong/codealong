@@ -34,7 +34,8 @@ import { CloseIdleDialog } from './ui/CloseIdleDialog';
 import { PreviewDialog } from './ui/PreviewBits';
 import { RenameDialog } from './ui/RenameDialog';
 import { Inspector } from './ui/Inspector';
-import { SessionPanel } from './ui/SessionPanel';
+import { SessionPanel, type Lineage } from './ui/SessionPanel';
+import { cameOf } from './lineage';
 import { LaneRow } from './ui/LaneRow';
 import { PinnedSection, type PinDrag } from './ui/PinnedSection';
 import { BayHeader, Button, Icon, Kbd, StatusGlyph } from './ui/primitives';
@@ -1840,6 +1841,18 @@ export function App() {
     if (view === 'canvas' && canvas.has('worktree', lane.id)) setCanvasFocus((f) => ({ id: refId('worktree', lane.id), n: (f?.n ?? 0) + 1 }));
     else focusLane(lane);
   };
+  const showSessionFromPanel = (lane: Lane, session: Session) => {
+    if (view === 'canvas' && canvas.has('session', session.key)) setCanvasFocus((f) => ({ id: refId('session', session.key), n: (f?.n ?? 0) + 1 }));
+    else reveal.current({ kind: 'session', laneId: lane.id, key: session.key });
+  };
+  /** Where a session came from and what came of it, as far as the board has them. */
+  const lineageOf = (session: Session): Lineage => {
+    const from = session.origin ? homes.get(session.origin.key) : undefined;
+    return {
+      from: from && session.origin ? { ...from, how: session.origin.how } : null,
+      to: cameOf(session.key, homes.values()).map((p) => ({ ...p, how: p.session.origin?.how ?? 'started' })),
+    };
+  };
   const showTodoFromPanel = (t: Todo) => {
     if (view === 'canvas' && canvas.has('todo', t.id)) setCanvasFocus((f) => ({ id: refId('todo', t.id), n: (f?.n ?? 0) + 1 }));
     else showTodo(t);
@@ -1941,6 +1954,8 @@ export function App() {
         onPrMenu={(p) => prChipMenu(lane, p)}
         todos={todoLinks.bySession.get(session.key)}
         onShowTodo={showTodoFromPanel}
+        lineage={lineageOf(session)}
+        onShowSession={showSessionFromPanel}
         onMoreMenu={(at) => void showContextMenu(sessionMenuSpec(lane, session, 'session'), at).catch((err: unknown) => setToast(String(err)))}
         onSeen={() => (row !== undefined ? seenAndOn(row, session, false) : markSeen([session.key]))}
         device={deviceOf(devices, session.key)}

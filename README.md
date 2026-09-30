@@ -454,6 +454,14 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   without a session starts one in the quick panel). Right-click it, or a session line in it, for
   that session's (Rename… renames it in its peek), worktree's or todo's menu, where Remove from
   desktop takes the card off; the menu in Codealong also offers that once it's pinned.
+- **Where a session came from**: a fork of another session, or one another session's agent
+  started. Codealong reads what the harnesses record (Claude Code's `/fork`, `/background` and
+  forked background jobs; Codex's forks and the threads its app makes for an agent; OpenCode's
+  forks) and notes what they don't: a session started by an agent's `codealong start`, and a
+  fork into a terminal made from Codealong. A session's panel says what it was forked from or
+  started by and what came of it, each a click away. On the canvas, hovering or selecting a
+  session draws a line from the session it came from and to the ones that came of it, and a
+  session's card on the desktop does the same to the cards of those sessions pinned there.
 - **New window** (File › New window, ⌘⇧N): one more window on the project you're looking at.
   Closing the main window hides it; New window, the Dock icon or the bar brings it back, and
   ⌘Q quits.
@@ -615,7 +623,7 @@ chrome_profile = "Work"        # its worktrees' previews open in this Chrome pro
 
 What you've seen (for Your turn), what you've pinned, snoozed and archived in Codealong are
 kept in `state.json` next to it; whether the bar is on, floating or in the notch, and where you
-left it floating, in `bar.json`; what's pinned to the desktop, and where each card was left, in `desktop.json`; each project's canvas in `canvas.json`; whether your latest quick-panel starts in each repo went into a new worktree, in `starts.json`; sessions linked to PRs or unlinked from
+left it floating, in `bar.json`; what's pinned to the desktop, and where each card was left, in `desktop.json`; each project's canvas in `canvas.json`; which session started or was forked into which, where the harness doesn't say, in `origins.json`; whether your latest quick-panel starts in each repo went into a new worktree, in `starts.json`; sessions linked to PRs or unlinked from
 them by hand in `pr-links.json`; worktrees marked reusable or not in `worktrees.json`. Todos and labels are in `todos.json`, which is watched, so an
 agent or an editor can add to it. Attachments are kept by their content: images in `images/`,
 other files in `files/<hash>/<name>`; ones no todo uses are cleared after 30 days. The devices
@@ -734,6 +742,7 @@ light scan (no git, PRs or visitors).
 | `src-tauri/src/chrometabs.rs` | The Chrome tabs a Claude Code session drove through Claude in Chrome, read from its transcript; which profile they're in (the extension's storage, then History); bringing its tab forward by AppleScript, or its last page again in that profile |
 | `src-tauri/src/detect.rs` | The harness accounts on this device: folders, sign-ins, and the wrappers and aliases that run them |
 | `src-tauri/src/bar.rs`, `barfeed.rs` | The bar's window (a panel over every app, floating where you put it or docked in the notch, found from the screen's sides of the menu bar, where it takes clicks only on the shape it shows; Window › Floating bar and Bar in the notch) and the small feed of what it shows, sent only when that changes |
+| `src-tauri/src/origins.rs`, `src/lineage.ts`, `src-tauri/src/lineage.rs`, `src/ui/DesktopLines.tsx` | Where sessions came from: Codealong's own record of starts and forks (`origins.json`), the line drawn between them on the canvas and between desktop cards, and the clear window under the cards that draws it there |
 | `src-tauri/src/desktop.rs`, `src/ui/DesktopPin.tsx` | Cards pinned to the desktop: a window each, made as the bar's is, where a new one goes, `desktop.json`, and what each shows, cut from the board and sent only when it changes; the page draws the Canvas view's card (`ui/CanvasCard.tsx`) |
 | `src/` | The React UI, built from the design system's components and tokens; `lanes.ts` groups the board and mirrors the engine's status rules for the age filter; `pins.ts` keeps the pinned lists; `ahead.ts` shows sessions marked seen, archived, renamed or sent a message at once, in every window, until a board shows it; `prStatus.ts` and `ui/PrPills.tsx` say where a PR stands and which PRs are your move; `bar.ts`, `ui/Bar.tsx` and `ui/Notch.tsx` lay out the bar, floating or in the notch; `ui/Picker.tsx` is the quick panel's filterable menus; `ui/SettingsDialog.tsx` and `ui/AccountsSection.tsx` are Settings |
 | `scripts/preview.sh` | Headless preview against real data, for screenshots and scripted checks |

@@ -40,6 +40,8 @@ pub struct SessionRow {
     pub last_tool: Option<String>,
     /// The newest write to the session or its messages.
     pub last_ts: i64,
+    /// The session it's a fork of (`fork_session_id`), which OpenCode's fork copies it from.
+    pub fork_of: Option<String>,
 }
 
 impl SessionRow {
@@ -123,6 +125,16 @@ fn read_sessions_from(db: &Connection, since_ms: i64, keep: &HashSet<String>) ->
     }
     for row in by_id.values_mut() {
         row.last_ts = row.updated_at.max(row.created_at);
+    }
+    // Asked apart: databases from before forks have no such column, and still read.
+    if let Ok(mut stmt) = db.prepare("SELECT id, fork_session_id FROM session_v2 WHERE fork_session_id IS NOT NULL AND fork_session_id != ''") {
+        if let Ok(rows) = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))) {
+            for (id, from) in rows.flatten() {
+                if let Some(row) = by_id.get_mut(&id) {
+                    row.fork_of = Some(from);
+                }
+            }
+        }
     }
     // The newest user and assistant message of each session; `seq` counts up within a session.
     let mut stmt = db.prepare(
@@ -797,6 +809,21 @@ mod tests {
         ));
         assert_eq!(open_calls_in(&db, "ses_a"), vec![r#"{"command":"codealong whoami"}"#.to_string(), r#"{"command":"sleep 1"}"#.to_string()]);
         assert!(open_calls_in(&db, "ses_c").is_empty());
+    }
+
+    #[test]
+    fn reads_what_a_session_was_forked_from_when_the_database_says() {
+        let rows = |db: &Connection| read_sessions_from(db, 0, &HashSet::new()).unwrap().into_iter().map(|r| (r.id, r.fork_of)).collect::<HashMap<_, _>>();
+        let before = db_with("INSERT INTO session_v2 (id, directory, time_created, time_updated) VALUES ('ses_a', '/r', 1, 1);");
+        assert_eq!(rows(&before)["ses_a"], None);
+        let forked = db_with(
+            "ALTER TABLE session_v2 ADD COLUMN fork_session_id TEXT;\
+             INSERT INTO session_v2 (id, directory, time_created, time_updated) VALUES ('ses_a', '/r', 1, 1);\
+             INSERT INTO session_v2 (id, directory, time_created, time_updated, fork_session_id) VALUES ('ses_b', '/r', 2, 2, 'ses_a');",
+        );
+        let got = rows(&forked);
+        assert_eq!(got["ses_a"], None);
+        assert_eq!(got["ses_b"].as_deref(), Some("ses_a"));
     }
 
     #[test]

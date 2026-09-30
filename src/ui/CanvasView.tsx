@@ -22,6 +22,7 @@ import {
   contains,
   itemId,
   links,
+  originLinks,
   overlaps,
   rectOf,
   refId,
@@ -41,6 +42,7 @@ import {
   type TidyOptions,
   type TidyPlan,
 } from '../canvas/model';
+import { arrowhead, connector, polyline } from '../lineage';
 import { COLOR_WORD, newId } from '../todos';
 import { LABEL_COLORS, type Label, type LabelColor, type Theme, type Todo } from '../types';
 import { CanvasCard, CardDetail, cardData, cardSig } from './CanvasCard';
@@ -102,6 +104,7 @@ function readColors() {
   return {
     grid: v('--line-strong', 0.28),
     line: v('--ink-3', 0.55),
+    lineage: v('--label-purple', 0.85),
     needs: v('--attn-solid'),
     error: v('--alert-solid'),
     working: v('--logo-working'),
@@ -154,6 +157,8 @@ export function CanvasView(props: CanvasViewProps) {
   const notes = useMemo(() => items.filter((it): it is NoteItem => it.kind === 'note'), [items]);
   const data = useMemo(() => new Map(refs.map((it) => [itemId(it), cardData(entities, it, labels)])), [refs, entities, labels]);
   const pairs = useMemo(() => links(entities, new Set(refs.map(itemId))), [entities, refs]);
+  // Sessions that came of others, from the one they came from.
+  const lineage = useMemo(() => originLinks(entities, new Set(refs.map(itemId))), [entities, refs]);
 
   // What's tied to the hovered or selected cards, for the lines and the cards' highlight.
   const related = useMemo(() => {
@@ -161,13 +166,13 @@ export function CanvasView(props: CanvasViewProps) {
     if (hover) from.add(hover);
     const out = new Set<string>();
     if (from.size === 0) return out;
-    for (const [a, b] of pairs) {
+    for (const [a, b] of [...pairs, ...lineage]) {
       if (from.has(a)) out.add(b);
       if (from.has(b)) out.add(a);
     }
     for (const id of from) out.delete(id);
     return out;
-  }, [pairs, selection, hover]);
+  }, [pairs, lineage, selection, hover]);
 
   // What the filters fade: cards that don't match, and notes unless their text has what's typed.
   const faded = useMemo(() => {
@@ -360,9 +365,21 @@ export function CanvasView(props: CanvasViewProps) {
       const pb = rectOf(rb);
       lines.push({ x1: pa.x + pa.w / 2, y1: pa.y + pa.h / 2, x2: pb.x + pb.w / 2, y2: pb.y + pb.h / 2, color: liveColors.line, width: 1.5 });
     }
+    // From the session it came from to the one that came of it, around the cards, with an arrowhead.
+    for (const [a, b] of lineage) {
+      if (!from.has(a) && !from.has(b)) continue;
+      const ra = byId.get(a);
+      const rb = byId.get(b);
+      if (!ra || !rb) continue;
+      const curve = connector(rectOf(ra), rectOf(rb));
+      const color = liveColors.lineage;
+      const pts = polyline(curve);
+      for (let i = 1; i < pts.length; i++) lines.push({ x1: pts[i - 1].x, y1: pts[i - 1].y, x2: pts[i].x, y2: pts[i].y, color, width: 2 });
+      for (const barb of arrowhead(curve)) lines.push({ x1: curve.b.x, y1: curve.b.y, x2: barb.x, y2: barb.y, color, width: 2 });
+    }
     g.setLines(lines);
     g.request(() => cam.current, () => cam.current.zoom < NEAR);
-  }, [pairs, selection, hover, byId, liveColors]);
+  }, [pairs, lineage, selection, hover, byId, liveColors]);
 
   /* ---- Hit testing ---- */
 

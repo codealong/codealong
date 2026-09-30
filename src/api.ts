@@ -4,7 +4,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { emit, emitTo, listen } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import type { AccountCfg, AccountInfo, AgentsStatus, Answers, Attachment, BarFeed, BarNote, Board, CloseOutcome, Config, ConfigView, DesktopFeed, DesktopPinned, DeviceFound, DevicesView, EditorIcon, FoundAccount, HostedStream, IdlePlan, LabelColor, Lane, PeekOpen, PeekShown, Pending, PrDetail, PrItem, Route, Sent, Session, ShortcutStatus, Started, StartOptions, StartSpec, TextFound, Theme, TodoSuggested, TranscriptPage, UpdateView, Way } from './types';
+import type { AccountCfg, AccountInfo, AgentsStatus, Answers, Attachment, BarFeed, BarNote, Board, CloseOutcome, Config, ConfigView, DesktopFeed, DesktopPinned, DeviceFound, LineageFeed, DevicesView, EditorIcon, FoundAccount, HostedStream, IdlePlan, LabelColor, Lane, PeekOpen, PeekShown, Pending, PrDetail, PrItem, Route, Sent, Session, ShortcutStatus, Started, StartOptions, StartSpec, TextFound, Theme, TodoSuggested, TranscriptPage, UpdateView, Way } from './types';
 import type { TodoOp } from './todos';
 
 export const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -653,6 +653,24 @@ export function onDesktopFeed(cb: (feed: DesktopFeed) => void): () => void {
 export async function fitDesktop(width: number, height: number): Promise<void> {
   if (!inTauri) return;
   await invoke('fit_desktop', { width, height });
+}
+
+/** The pointer came onto this desktop card, or left it: a session's card shows lines to the cards
+ *  of the sessions it came from or that came of it. */
+export async function desktopHover(on: boolean): Promise<void> {
+  if (!inTauri) return;
+  await invoke('desktop_hover', { on });
+}
+
+/** What the window of lines between desktop cards draws now (lineage.rs). */
+export async function getLineageFeed(): Promise<LineageFeed | null> {
+  if (!inTauri) return null;
+  return invoke<LineageFeed>('lineage_feed');
+}
+
+/** Calls `cb` with what the window of lines between desktop cards draws, as it changes. */
+export function onLineageFeed(cb: (feed: LineageFeed) => void): () => void {
+  return onWindowEvent<LineageFeed>('lineage-feed', cb);
 }
 
 /* ---- Your other devices (src-tauri/src/peers.rs) ---- */

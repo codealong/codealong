@@ -18,8 +18,9 @@ import { shortOf } from '../devices';
 import { folderTargets, opensInEditor, useEditorIcons } from '../editors';
 import { absolute, agoPhrase, duration, middleTruncate, tildePath } from '../format';
 import { HARNESS_WORD, sessionPlace } from '../harness';
-import { seenable } from '../lanes';
-import type { Board, DeviceView, Lane, Pr, Session, Target, Todo } from '../types';
+import { seenable, type Placed } from '../lanes';
+import { originWord } from '../lineage';
+import type { Board, DeviceView, Lane, Pr, Session, SessionOrigin, Target, Todo } from '../types';
 import { panelTodos, STATUS_WORD as TODO_WORD } from '../todos';
 import { InsightChips } from './InsightBits';
 import { QueueStrip, type Notice, type Queue } from './ReplyView';
@@ -35,6 +36,17 @@ import { TodoGlyph } from './TodoBits';
 
 /** PRs shown before a "+N": a long session can have made many. */
 const PRS_SHOWN = 3;
+/** Sessions that came of this one shown before a "+N": an agent can start many. */
+const CAME_OF_SHOWN = 1;
+
+/** A session on the board and how it came of another. */
+export type Kin = Placed & { how: SessionOrigin['how'] };
+
+/** Where a session came from and what came of it, each showing its own panel. */
+export interface Lineage {
+  from: Kin | null;
+  to: Kin[];
+}
 
 interface SessionPanelProps {
   lane: Lane;
@@ -50,6 +62,9 @@ interface SessionPanelProps {
   onPrMenu?: (pr: Pr) => void;
   todos?: Todo[];
   onShowTodo?: (todo: Todo) => void;
+  /** The session it came from and the ones that came of it (`Session.origin`), those on the board. */
+  lineage?: Lineage;
+  onShowSession?: (lane: Lane, session: Session) => void;
   /** The session's right-click menu, from its ⋯ button. */
   onMoreMenu: (at: { x: number; y: number }) => void;
   /** Marks a finished turn seen, as the bar's peek does: the header offers it for Your turn and a
@@ -74,10 +89,12 @@ interface SessionPanelProps {
   onMaximize?: () => void;
 }
 
-export function SessionPanel({ lane, session: s, apps, now, onOpen, onShowLane, prs = [], onOpenPr, onPrMenu, todos, onShowTodo, onMoreMenu, onSeen, device, back, onSendFailed, queue, notice, onDone, autoFocus, maximized, onMaximize }: SessionPanelProps) {
+export function SessionPanel({ lane, session: s, apps, now, onOpen, onShowLane, prs = [], onOpenPr, onPrMenu, todos, onShowTodo, lineage, onShowSession, onMoreMenu, onSeen, device, back, onSendFailed, queue, notice, onDone, autoFocus, maximized, onMaximize }: SessionPanelProps) {
   const [details, setDetails] = useState(false);
   const [allPrs, setAllPrs] = useState(false);
   const [allTodos, setAllTodos] = useState(false);
+  const [allKin, setAllKin] = useState(false);
+  const cameOf = lineage?.to ?? [];
   const listed = useMemo(() => panelTodos(todos ?? []), [todos]);
   // The todo it's on: one in progress, else one still to do. Done ones wait behind "+N".
   const current = listed.find((t) => t.status !== 'done');
@@ -152,6 +169,23 @@ export function SessionPanel({ lane, session: s, apps, now, onOpen, onShowLane, 
         </div>
         {/* Hidden when it has nothing to show (app.css), Jev's chip included. */}
         <div className="ca-sessinsp-links">
+          {lineage?.from && <KinChip kin={lineage.from} phrase={originWord(lineage.from.how)} onShow={onShowSession} />}
+          {(allKin ? cameOf : cameOf.slice(0, CAME_OF_SHOWN)).map((k) => (
+            <KinChip key={k.session.key} kin={k} phrase={k.how === 'fork' ? 'Forked into' : 'Started'} onShow={onShowSession} />
+          ))}
+          {!allKin && cameOf.length > CAME_OF_SHOWN && (
+            <button
+              type="button"
+              className="ca-linkbtn ca-sessinsp-more"
+              title={cameOf
+                .slice(CAME_OF_SHOWN)
+                .map((k) => `${k.how === 'fork' ? 'Forked into' : 'Started'} ${k.session.title}`)
+                .join('\n')}
+              onClick={() => setAllKin(true)}
+            >
+              +{cameOf.length - CAME_OF_SHOWN}
+            </button>
+          )}
           {(allPrs ? prs : prs.slice(0, PRS_SHOWN)).map((pr) => (
             <PrChipCard key={pr.url} pr={pr} onOpen={() => onOpenPr?.(pr)} onMenu={onPrMenu && (() => onPrMenu(pr))} />
           ))}
@@ -267,5 +301,18 @@ export function SessionPanel({ lane, session: s, apps, now, onOpen, onShowLane, 
         <Reply session={s} terminal={apps.terminal} onOpen={() => onOpen(s.openTarget)} onFailed={onSendFailed} autoFocus={autoFocus} onNext={queue?.next ? onDone : undefined} />
       )}
     </aside>
+  );
+}
+
+/** A session this one came from or that came of it: the phrase and its title, showing its panel. */
+function KinChip({ kin, phrase, onShow }: { kin: Kin; phrase: string; onShow?: (lane: Lane, session: Session) => void }) {
+  const t = kin.session;
+  return (
+    <button type="button" className="ca-sessinsp-todo ca-sessinsp-kin" title={`${phrase} ${t.title}, in ${kin.lane.callsign}. Show it.`} onClick={() => onShow?.(kin.lane, t)}>
+      <Icon name={kin.how === 'fork' ? 'git-fork' : 'arrow-up-right'} size={12} />
+      <span>
+        <span className="ca-sessinsp-kin-phrase">{phrase}</span> {t.title}
+      </span>
+    </button>
   );
 }

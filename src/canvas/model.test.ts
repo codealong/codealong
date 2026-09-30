@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { newTodo } from '../todos';
 import type { Lane, Session, Todo } from '../types';
-import { addRef, FRAME_GAP, settleDrop, CARD_H, clearDoc, CARD_W, COLUMN_MAX, emptyDoc, entitiesOf, freeSpot, itemId, links, overlaps, readDoc, rectOf, DEFAULT_SCOPE, DEFAULT_TIDY, DEFAULT_INCLUDE, refId, sync, tidy, tidyPlan, type CanvasDoc, type FrameItem, type RefItem } from './model';
+import { addRef, FRAME_GAP, settleDrop, CARD_H, clearDoc, CARD_W, COLUMN_MAX, emptyDoc, entitiesOf, freeSpot, itemId, links, originLinks, overlaps, readDoc, rectOf, DEFAULT_SCOPE, DEFAULT_TIDY, DEFAULT_INCLUDE, refId, sync, tidy, tidyPlan, type CanvasDoc, type FrameItem, type RefItem } from './model';
 
 const NOW = 1_790_000_000_000;
 const DAY = 24 * 60 * 60 * 1000;
@@ -428,6 +428,17 @@ describe('readDoc and links', () => {
       ['session:s1', 'worktree:a'],
       ['todo:t1', 'session:s1'],
       ['todo:t1', 'todo:t2'],
+    ]);
+  });
+
+  it('ties a session to the one it came from, when both are on the canvas', () => {
+    const e = ents([lane('a', [session('boss'), session('fork', { origin: { key: 'boss', how: 'fork' } }), session('sent', { origin: { key: 'boss', how: 'started' } }), session('lost', { origin: { key: 'gone', how: 'fork' } })])], []);
+    const on = new Set(['boss', 'fork', 'lost'].map((k) => refId('session', k)));
+    expect(originLinks(e, on)).toEqual([['session:boss', 'session:fork']]);
+    on.add(refId('session', 'sent'));
+    expect(originLinks(e, on)).toEqual([
+      ['session:boss', 'session:fork'],
+      ['session:boss', 'session:sent'],
     ]);
   });
 });

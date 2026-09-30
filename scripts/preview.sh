@@ -6,7 +6,8 @@
 #
 #   view     worktrees | sessions | prs | todo | canvas, bar for the floating bar, notch for the
 #            bar docked in the notch, peek for the bar's peek, quick for the quick panel, or
-#            desktop for a card pinned to the desktop (default worktrees)
+#            desktop for a card pinned to the desktop, lineage for the lines between desktop
+#            cards over stand-ins for them (default worktrees)
 #   project  the project to show (default: the first one)
 #   check.js optional script run in the page; whatever it puts in document.title is printed
 #            (use it to click things and read window.__calls). Without it, a screenshot is
@@ -165,6 +166,11 @@ fi
 if [ "$view" = desktop ]; then
   size="${PREVIEW_SIZE:-360,300}"
   setup="$setup window.__CODEALONG_DESKTOP__=true; window.__CODEALONG_PIN__='${PREVIEW_PIN:-session}';</script><style>html.is-desktop{background:linear-gradient(135deg,rgb(93,111,134),rgb(169,182,196))!important}</style><script>"
+fi
+if [ "$view" = lineage ]; then
+  size="${PREVIEW_SIZE:-1440,420}"
+  cp scripts/preview/lineage-desk.js "$dir/"
+  setup="$setup</script><script src=\"./lineage-desk.js\"></script><script>"
 fi
 if [ "$view" = peek ]; then
   size="${PREVIEW_SIZE:-520,640}"

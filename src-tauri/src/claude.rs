@@ -1,7 +1,7 @@
 //! Claude Code: the live session registry (`<home>/sessions/<pid>.json`) and transcripts
 //! (`<home>/projects/<encoded-cwd>/<session>.jsonl`). See *Harness adapters*.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
@@ -94,6 +94,67 @@ pub fn resumed_from(roster: &Value, job: &str) -> Option<String> {
     let from = Path::new(launch.get("sessionId")?.as_str()?).file_stem()?.to_str()?.to_string();
     let own = worker.get("sessionId").and_then(Value::as_str);
     (!from.is_empty() && own != Some(from.as_str())).then_some(from)
+}
+
+/// A record newer than this may not name what it forked from yet, so it's read again.
+const JOB_SETTLES_MS: i64 = 60_000;
+
+/// What background jobs were forked from, from their records (`<home>/jobs/<job>/state.json`):
+/// `forkParentSessionId` names the session whose conversation a job copied, for `/fork`,
+/// `/background` and `claude --bg --resume <id> --fork-session`. A record names it as the job
+/// starts and never changes it, and the records stay after a job ends, so each is read once.
+#[derive(Default, Debug)]
+pub struct Forks {
+    /// Job folders read, so they aren't read again.
+    read: HashSet<String>,
+    /// By the job's session id, the one it was forked from.
+    parents: HashMap<String, String>,
+}
+
+impl Forks {
+    /// Reads the records of jobs not read yet. Returns whether it learned of a fork.
+    pub fn refresh(&mut self, home: &Path, now: i64) -> bool {
+        let Ok(entries) = std::fs::read_dir(home.join("jobs")) else { return false };
+        let mut changed = false;
+        for e in entries.flatten() {
+            let name = e.file_name().to_string_lossy().into_owned();
+            if self.read.contains(&name) {
+                continue;
+            }
+            let path = e.path().join("state.json");
+            let Ok(bytes) = std::fs::read(&path) else { continue };
+            let Some((id, parent)) = parse_job_state(&bytes) else { continue };
+            match parent {
+                Some(parent) => {
+                    self.parents.insert(id, parent);
+                    changed = true;
+                }
+                None if now - mtime_ms(&path).unwrap_or(0) < JOB_SETTLES_MS => continue,
+                None => {}
+            }
+            self.read.insert(name);
+        }
+        changed
+    }
+
+    /// The session a job's session was forked from.
+    pub fn parent_of(&self, id: &str) -> Option<&str> {
+        self.parents.get(id).map(String::as_str)
+    }
+}
+
+/// A job's session and the session it was forked from, from its record.
+pub fn parse_job_state(bytes: &[u8]) -> Option<(String, Option<String>)> {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Raw {
+        session_id: Option<String>,
+        fork_parent_session_id: Option<String>,
+    }
+    let raw: Raw = serde_json::from_slice(bytes).ok()?;
+    let id = raw.session_id.filter(|id| !id.is_empty())?;
+    let parent = raw.fork_parent_session_id.filter(|p| !p.is_empty() && p != &id);
+    Some((id, parent))
 }
 
 /// Live sessions for one account. Entries whose process is gone, or whose pid now belongs
@@ -2061,6 +2122,39 @@ mod tests {
         assert_eq!(resumed_from(&roster, "77777777"), None);
         assert_eq!(resumed_from(&roster, "d3d3cd21"), None);
         assert_eq!(resumed_from(&roster, "00000000"), None);
+    }
+
+    #[test]
+    fn reads_what_each_job_was_forked_from_once() {
+        let home = std::env::temp_dir().join(format!("codealong-job-forks-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        let job = |name: &str, state: &str| {
+            std::fs::create_dir_all(home.join("jobs").join(name)).unwrap();
+            std::fs::write(home.join("jobs").join(name).join("state.json"), state).unwrap();
+        };
+        job("fdfea444", r#"{"state":"done","sessionId":"fdfea444-5c75","forkSessionId":"fdfea444-5c75","forkParentSessionId":"b887d77f-c07e","intent":"x"}"#);
+        job("f905c97d", r#"{"state":"stopped","sessionId":"f905c97d-d6fc","intent":""}"#);
+        job("starting", r#"{"state":"starting"}"#);
+        std::fs::write(home.join("jobs").join("pins.json"), "{}").unwrap();
+        let later = crate::util::now_ms() + JOB_SETTLES_MS + 1;
+        let mut forks = Forks::default();
+        assert!(forks.refresh(&home, later));
+        assert_eq!(forks.parent_of("fdfea444-5c75"), Some("b887d77f-c07e"));
+        assert_eq!(forks.parent_of("f905c97d-d6fc"), None);
+        assert_eq!(forks.parent_of("b887d77f-c07e"), None);
+        // Read once: a record that changes afterwards isn't read again.
+        job("fdfea444", r#"{"sessionId":"fdfea444-5c75","forkParentSessionId":"someone-else"}"#);
+        assert!(!forks.refresh(&home, later));
+        assert_eq!(forks.parent_of("fdfea444-5c75"), Some("b887d77f-c07e"));
+        // One without a session yet, or just written without a parent, is read again later.
+        job("starting", r#"{"sessionId":"aaaa","forkParentSessionId":"bbbb"}"#);
+        job("fresh", r#"{"sessionId":"cccc"}"#);
+        assert!(forks.refresh(&home, crate::util::now_ms()));
+        assert_eq!(forks.parent_of("aaaa"), Some("bbbb"));
+        job("fresh", r#"{"sessionId":"cccc","forkParentSessionId":"dddd"}"#);
+        assert!(forks.refresh(&home, crate::util::now_ms()));
+        assert_eq!(forks.parent_of("cccc"), Some("dddd"));
+        let _ = std::fs::remove_dir_all(&home);
     }
 
     #[test]

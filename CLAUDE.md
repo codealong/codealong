@@ -123,7 +123,8 @@ check that runs for a while should set its title on an interval. Native menus, w
 can't be seen this way; say so rather than claiming they were checked.
 `scripts/preview.sh quick` renders the quick panel as its shortcut opens it (a `PREVIEW_INIT`
 can type into it or click its menus open).
-`scripts/preview.sh bar` renders the floating bar on a stand-in desktop (`PREVIEW_SIZE=1600,64` for
+`scripts/preview.sh lineage` renders the lines between desktop cards (lineage.rs) over stand-ins
+for the cards, from `scripts/preview/lineage-desk.js`. `scripts/preview.sh bar` renders the floating bar on a stand-in desktop (`PREVIEW_SIZE=1600,64` for
 a wider screen), from the feed `--snapshot --bar` prints. The engine the preview runs is whatever
 was last built into the shared directory, possibly another session's: `PREVIEW_BIN=<a copy of
 your build>` uses yours. `PREVIEW_TODOS=scripts/preview/todos-sample.json scripts/preview.sh todo` shows
@@ -297,7 +298,8 @@ it waits on you to allow and how to answer. Adding one:
    `build_sessions`; a `board::*_session` constructor for its status rules; `board::targets`
    and `engine::open_on` for opening; `start.rs`'s plans for starting; a new `send::Route` if it
    takes prompts some new way; `usage.rs` for limits read from somewhere of its own;
-   `search.rs` for text search. These match on the harness's config string with a fallback, so
+   `search.rs` for text search; where a session came from (`Session::origin`: what it's a fork of,
+   or which session started it) when its records say. These match on the harness's config string with a fallback, so
    the compiler won't list them: search for an existing harness's name.
 
 ## Harness facts
@@ -359,6 +361,14 @@ Claude Code
   where it started. `board::session_seed` lists an agent where most of its last five
   commands and edits worked; `util::command_dir` has the rule for commands.
 - Background jobs (`kind: bg`) have no terminal; `<account command> attach <jobId>` opens one.
+- Each background job has a record, `<home>/jobs/<job>/state.json` (`sessionId`, `state`,
+  `intent`, `name`…), kept after the job ends. A job that copied a conversation (`/fork`,
+  `/background`, `--bg --resume <id> --fork-session`) names the session it copied in
+  `forkParentSessionId`, with `forkBoundaryAt` and `forkSourceAlive` (checked on 2.1.286,
+  2026-09-30). A fork into a terminal (`--resume --fork-session` without `--bg`) records nothing
+  of the kind: its transcript's lines are copies (the same uuids) with no mark, so Codealong notes
+  the ones it makes (origins.rs). A `claude` started from another session's Bash tool inherits
+  `CLAUDE_CODE_SESSION_ID` and `CLAUDE_CODE_CHILD_SESSION=1`, but nothing on disk says so.
 - From 2.1.286 the account's background service keeps a warm spare: a background session started
   ahead of time (roster `dispatch.source: "spare"`, empty `seed.intent`), which the next
   background start takes over. Until then its registry entry says `"spare": true`, `kind: bg`,
@@ -627,6 +637,12 @@ Codex
   a string literal, `tools.exec_command({cmd:\"…\"})`) or `function_call` (`arguments` as
   JSON), answered by a `*_output` with its `call_id`. `codealong` finds the thread that runs it
   from these (`Adapter::open_calls`); a terminal's thread runs its commands under its `codex`.
+- A forked thread's `session_meta` has `forked_from_id` (the thread it copied). A thread the app
+  made for an agent (its `create_thread` tool, `codex_app` namespace) says `thread_source:
+  "agent_created_thread"`, and its first turn opens with that tool's output, `<codex_delegation>
+  <source_thread_id>…</source_thread_id><input>…</input></codex_delegation>`, a few lines in
+  (after the app's instructions, tens of KB). Subagents (`source.subagent.thread_spawn.
+  parent_thread_id`) aren't threads of their own on the board.
 - Each turn's `token_count` event carries `rate_limits` (`primary`/`secondary` windows with
   `used_percent`, `window_minutes`, `resets_at`; `limit_id` `codex` or per model; `plan_type`).
 - The desktop app is `/Applications/ChatGPT.app` (bundle id `com.openai.codex`; an older
@@ -742,6 +758,8 @@ OpenCode (2.0.16, from its source at that tag and its files here)
   `{interrupted}`, false for one that was idle; the row gets `idle_outcome` `interrupted`.
   `?resume=true`, which the TUI's double Escape sends, goes straight on with a message steering
   it (checked 2026-09-29).
+- A fork's row says what it copied: `fork_session_id` and `fork_boundary` in `session_v2`, from
+  2.0.16's schema; older databases have no such columns.
 - `POST /api/session/<id>/fork` with `{}` copies a session's history into a new session (`{before:
   <message id>}` copies what came before it) and answers `{data: {id, title, fork: {sessionID,
   boundary}}}`. The copy has no `parent_id`, so it lists as a session of its own, titled `<title>

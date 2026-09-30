@@ -333,6 +333,10 @@ pub struct StartSpec {
     /// started together on one prompt. Older windows and commands send one as `todo`.
     #[serde(default, alias = "todo", deserialize_with = "one_or_more")]
     pub todos: Vec<String>,
+    /// The session that asked for it, by key: `codealong start` run by an agent. The new session
+    /// is marked as started by it (`Session::origin`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from: Option<String>,
 }
 
 /// A list of todo ids, or the one id (or null) that `todo` held.

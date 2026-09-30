@@ -42,6 +42,8 @@ export interface Session {
    *  Code conversation moved to the background goes on in a job that writes nothing until its
    *  next prompt, and then starts its own with a copy of the conversation. */
   continues?: string;
+  /** The session it came from, when its harness or Codealong wrote that down. */
+  origin?: SessionOrigin;
   /** Busy but silent for a long while: stuck mid-turn. When it went quiet. */
   stalledSince: number | null;
   /** Jev's read of how its turn ended, when `[jev] sessions` is on (insights.rs). */
@@ -806,6 +808,13 @@ export interface StartOptions {
   claudeEfforts?: { id: string; label: string }[];
 }
 
+/** Where a session came from: a fork of another session (its conversation copied as far as it
+ *  went), or started by another session's agent (`codealong start`, Codex's `create_thread`). */
+export interface SessionOrigin {
+  key: string;
+  how: 'fork' | 'started';
+}
+
 export interface StartSpec {
   laneId: string;
   account: string;
@@ -819,6 +828,8 @@ export interface StartSpec {
   worktree: boolean;
   /** The todos the session is for, one or several on one prompt: each is linked once it starts. */
   todos: string[];
+  /** The session that asked for the start, by key: the new one is marked as started by it. */
+  from?: string | null;
 }
 
 /** The quick panel's shortcut, and why it isn't working when it isn't (src-tauri/src/quick.rs). */
@@ -922,6 +933,13 @@ export interface BarTodo {
 export interface DesktopPinned {
   ref: 'session' | 'worktree' | 'todo';
   key: string;
+}
+
+/** Lines between the cards of sessions pinned to the desktop, one of which came of the other,
+ *  drawn while one is hovered (lineage.rs): each card in the window's points, y down. */
+export interface LineageFeed {
+  theme: Theme;
+  lines: { from: { x: number; y: number; w: number; h: number }; to: { x: number; y: number; w: number; h: number }; side: 'left' | 'right' }[];
 }
 
 /** What a card pinned to the desktop shows, cut from the board: the engine sends it instead of

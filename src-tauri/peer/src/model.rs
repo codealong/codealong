@@ -184,6 +184,10 @@ pub struct Session {
     /// until its next prompt (`board::claude_moves`). Its panel reads again when this changes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub continues: Option<String>,
+    /// The session it came from, when its harness or Codealong wrote that down: a fork of it,
+    /// or started by it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<SessionOrigin>,
     /// Set when the session says it's busy but nothing has happened for a long while: it's stuck
     /// mid-turn, usually on a command waiting for input. When it went quiet.
     pub stalled_since: Option<i64>,
@@ -219,6 +223,27 @@ pub struct Session {
     /// The Chrome tabs it drives through Claude in Chrome (chrometabs.rs), to bring back.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chrome: Option<ChromeTabs>,
+}
+
+/// Where a session came from: the session it was forked from or started by.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionOrigin {
+    /// That session's key.
+    pub key: String,
+    pub how: OriginHow,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum OriginHow {
+    /// A copy of that session's conversation as far as it went, going on by itself: Claude
+    /// Code's `/fork` and `/background` (a job's `forkParentSessionId`), Codex's `fork`
+    /// (`forked_from_id`), OpenCode's (`fork_session_id`), and Codealong's Fork.
+    Fork,
+    /// That session's agent started it: `codealong start` run from it, or a thread the Codex app
+    /// made for it (`create_thread`).
+    Started,
 }
 
 /// A session's tabs in Chrome, as its record last listed them.

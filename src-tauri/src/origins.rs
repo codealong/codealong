@@ -1,0 +1,273 @@
+//! Where sessions came from, as Codealong saw it happen: a session whose agent ran `codealong
+//! start`, and a fork made from Codealong. The harnesses write most forks down themselves
+//! (claude.rs's `Forks`, Codex's `forked_from_id`, OpenCode's `fork_session_id`), but nothing
+//! records which session ran the command that started another, nor Claude Code's fork into a
+//! terminal (`--resume --fork-session`), whose transcript doesn't say. Kept in `origins.json`
+//! next to the config; the engine reads it again when it changes (`current`).
+
+use std::collections::{BTreeMap, HashSet};
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+
+use anyhow::Result;
+use serde::{Deserialize, Serialize};
+
+use crate::config::support_dir;
+use crate::model::{OriginHow, SessionOrigin};
+use crate::todos::Lanes;
+
+/// How long a start whose session wasn't known waits for it to show up.
+const PENDING_MS: i64 = 30 * 60 * 1000;
+/// A session that says it started a little before the start was asked for can still be it.
+const PENDING_SLACK_MS: i64 = 60 * 1000;
+/// Entries are kept this long. Claude Code deletes transcripts after about 30 days.
+const KEEP_MS: i64 = 90 * 24 * 60 * 60 * 1000;
+
+static WRITING: Mutex<()> = Mutex::new(());
+
+#[derive(Serialize, Deserialize, Default, Debug, Clone, PartialEq)]
+pub struct Store {
+    /// By the key of the session that came from another.
+    #[serde(default)]
+    pub sessions: BTreeMap<String, Entry>,
+    /// Starts whose session's key wasn't known as they started (an app or OpenCode picks it),
+    /// waiting for the first new session of theirs to show up (`resolve`).
+    #[serde(default)]
+    pub pending: Vec<Pending>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct Entry {
+    pub from: String,
+    pub how: OriginHow,
+    pub at: i64,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Pending {
+    pub from: String,
+    pub how: OriginHow,
+    /// The worktree it started in.
+    pub lane: String,
+    pub account: String,
+    pub at: i64,
+}
+
+impl Store {
+    /// Where the session with this key came from.
+    pub fn origin_of(&self, key: &str) -> Option<SessionOrigin> {
+        self.sessions.get(key).map(|e| SessionOrigin { key: e.from.clone(), how: e.how })
+    }
+
+    fn prune(&mut self, now: i64) {
+        self.sessions.retain(|_, e| now - e.at < KEEP_MS);
+        self.pending.retain(|p| now - p.at < PENDING_MS);
+    }
+}
+
+/// A session on the board, as pending starts are matched against it.
+pub struct Candidate<'a> {
+    pub key: &'a str,
+    /// The lane it's listed under as its own.
+    pub lane: &'a str,
+    pub account: &'a str,
+    /// When it started, or its first activity.
+    pub started: i64,
+}
+
+/// Gives each pending start the first session of its account that started after it, in its
+/// worktree, else in another worktree of the same repo (the apps can make their own), that came
+/// from nowhere yet. Returns whether anything changed.
+pub fn resolve(store: &mut Store, sessions: &[Candidate], lanes: &dyn Lanes, now: i64) -> bool {
+    if store.pending.is_empty() {
+        return false;
+    }
+    let mut changed = false;
+    let mut taken: HashSet<String> = store.sessions.keys().cloned().collect();
+    let mut waiting = Vec::new();
+    for p in std::mem::take(&mut store.pending) {
+        if now - p.at > PENDING_MS {
+            changed = true;
+            continue;
+        }
+        let repo = lanes.repo_of(&p.lane);
+        let pick = sessions
+            .iter()
+            .filter(|s| s.account == p.account && s.started >= p.at - PENDING_SLACK_MS && s.key != p.from && !taken.contains(s.key))
+            .filter(|s| s.lane == p.lane || (repo.is_some() && lanes.repo_of(s.lane) == repo))
+            .min_by_key(|s| (s.lane != p.lane, s.started));
+        match pick {
+            Some(s) => {
+                taken.insert(s.key.to_string());
+                store.sessions.insert(s.key.to_string(), Entry { from: p.from, how: p.how, at: p.at });
+                changed = true;
+            }
+            None => waiting.push(p),
+        }
+    }
+    store.pending = waiting;
+    changed
+}
+
+pub fn path() -> PathBuf {
+    support_dir().join("origins.json")
+}
+
+fn read() -> Store {
+    std::fs::read_to_string(path()).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
+}
+
+/// Reads the file, changes it and writes it back in one step, unless `f` says nothing changed.
+fn change(f: impl FnOnce(&mut Store) -> bool) -> Result<()> {
+    let _held = WRITING.lock().unwrap_or_else(|e| e.into_inner());
+    let mut store = read();
+    if !f(&mut store) {
+        return Ok(());
+    }
+    store.prune(crate::util::now_ms());
+    std::fs::create_dir_all(support_dir())?;
+    let p = path();
+    let tmp = p.with_extension("json.tmp");
+    std::fs::write(&tmp, serde_json::to_string_pretty(&store)?)?;
+    std::fs::rename(&tmp, &p)?;
+    Ok(())
+}
+
+/// Notes that the session `key` came from `from`. A session never comes from itself.
+pub fn record(key: &str, from: &str, how: OriginHow) {
+    if key == from || key.is_empty() || from.is_empty() {
+        return;
+    }
+    let now = crate::util::now_ms();
+    if let Err(e) = change(|s| {
+        let entry = Entry { from: from.to_string(), how, at: now };
+        s.sessions.insert(key.to_string(), entry).is_none_or(|old| old.from != from || old.how != how)
+    }) {
+        eprintln!("Couldn't note where {key} came from: {e:#}");
+    }
+}
+
+/// Notes a start from `from` whose session isn't known yet: the next one of `account` in `lane`.
+pub fn record_pending(from: &str, how: OriginHow, lane: &str, account: &str) {
+    let p = Pending { from: from.to_string(), how, lane: lane.to_string(), account: account.to_string(), at: crate::util::now_ms() };
+    if let Err(e) = change(|s| {
+        s.pending.push(p);
+        true
+    }) {
+        eprintln!("Couldn't note a start from {from}: {e:#}");
+    }
+}
+
+/// Notes where a start came from: the session that asked for it (`StartSpec::from`), by the new
+/// session's key when the start knew it, else by the next session of its account in its worktree.
+pub fn started(from: Option<&str>, key: Option<&str>, lane: &str, account: &str) {
+    let Some(from) = from.filter(|f| !f.is_empty()) else { return };
+    match key {
+        Some(key) => record(key, from, OriginHow::Started),
+        None => record_pending(from, OriginHow::Started, lane, account),
+    }
+}
+
+/// Matches pending starts to the sessions on the board and writes down what matched.
+pub fn resolve_pending(sessions: &[Candidate], lanes: &dyn Lanes, now: i64) -> bool {
+    if current().pending.is_empty() {
+        return false;
+    }
+    let mut changed = false;
+    if let Err(e) = change(|s| {
+        changed = resolve(s, sessions, lanes, now);
+        changed
+    }) {
+        eprintln!("Couldn't note where new sessions came from: {e:#}");
+    }
+    changed
+}
+
+/// The file as last read, read again when it changed on disk.
+pub fn current() -> Arc<Store> {
+    static CACHE: Mutex<Option<((i64, u64), Arc<Store>)>> = Mutex::new(None);
+    let stamp = std::fs::metadata(path()).ok().map(|m| (crate::util::mtime_ms(&path()).unwrap_or(0), m.len())).unwrap_or((0, 0));
+    let mut slot = CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((at, store)) = slot.as_ref() {
+        if *at == stamp {
+            return store.clone();
+        }
+    }
+    let store = Arc::new(if stamp == (0, 0) { Store::default() } else { read() });
+    *slot = Some((stamp, store.clone()));
+    store
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct Repos;
+    impl Lanes for Repos {
+        fn project_of(&self, _: &str) -> Option<String> {
+            None
+        }
+        fn repo_of(&self, lane: &str) -> Option<String> {
+            lane.strip_prefix("/r/").map(|l| l.split('-').next().unwrap_or(l).to_string())
+        }
+    }
+
+    fn pending(from: &str, lane: &str, account: &str, at: i64) -> Pending {
+        Pending { from: from.into(), how: OriginHow::Started, lane: lane.into(), account: account.into(), at }
+    }
+
+    #[test]
+    fn a_pending_start_takes_the_first_new_session_of_its_account_in_its_worktree() {
+        let mut store = Store { pending: vec![pending("claude:claude:boss", "/r/app", "opencode", 1_000_000)], ..Default::default() };
+        let c = |key: &'static str, lane: &'static str, account: &'static str, started: i64| Candidate { key, lane, account, started };
+        let sessions = [
+            // Before the start, another account, and the one that asked: none of them.
+            c("opencode:opencode:old", "/r/app", "opencode", 1_000_000 - 2 * PENDING_SLACK_MS),
+            c("codex:codex:other", "/r/app", "codex", 1_000_100),
+            c("claude:claude:boss", "/r/app", "opencode", 1_000_100),
+            // In another worktree of the repo, and later in its own: its own wins.
+            c("opencode:opencode:elsewhere", "/r/app-two", "opencode", 1_000_050),
+            c("opencode:opencode:new", "/r/app", "opencode", 1_000_200),
+        ];
+        assert!(resolve(&mut store, &sessions, &Repos, 1_000_300));
+        assert!(store.pending.is_empty());
+        assert_eq!(store.origin_of("opencode:opencode:new"), Some(SessionOrigin { key: "claude:claude:boss".into(), how: OriginHow::Started }));
+        assert_eq!(store.origin_of("opencode:opencode:elsewhere"), None);
+        // A second start doesn't take the session the first did.
+        store.pending.push(Pending { how: OriginHow::Fork, ..pending("claude:claude:boss", "/r/app", "opencode", 1_000_150) });
+        assert!(resolve(&mut store, &sessions, &Repos, 1_000_300));
+        assert_eq!(store.origin_of("opencode:opencode:new").map(|o| o.how), Some(OriginHow::Started));
+        assert_eq!(store.origin_of("opencode:opencode:elsewhere").map(|o| o.how), Some(OriginHow::Fork));
+        // Without one in its worktree, another worktree of the repo's.
+        let mut store = Store { pending: vec![pending("claude:claude:boss", "/r/app", "opencode", 1_000_000)], ..Default::default() };
+        assert!(resolve(&mut store, &sessions[..4], &Repos, 1_000_300));
+        assert_eq!(store.origin_of("opencode:opencode:elsewhere").map(|o| o.key), Some("claude:claude:boss".into()));
+    }
+
+    #[test]
+    fn a_pending_start_stops_waiting_after_a_while() {
+        let mut store = Store { pending: vec![pending("claude:claude:boss", "/r/app", "opencode", 0)], ..Default::default() };
+        assert!(resolve(&mut store, &[], &Repos, PENDING_MS + 1));
+        assert!(store.pending.is_empty());
+        let mut store = Store { pending: vec![pending("claude:claude:boss", "/r/app", "opencode", 0)], ..Default::default() };
+        assert!(!resolve(&mut store, &[], &Repos, PENDING_MS - 1));
+        assert_eq!(store.pending.len(), 1);
+    }
+
+    #[test]
+    fn old_entries_are_let_go() {
+        let mut store = Store::default();
+        store.sessions.insert("a".into(), Entry { from: "x".into(), how: OriginHow::Fork, at: 0 });
+        store.sessions.insert("b".into(), Entry { from: "x".into(), how: OriginHow::Fork, at: KEEP_MS });
+        store.prune(KEEP_MS + 1);
+        assert_eq!(store.sessions.keys().collect::<Vec<_>>(), vec!["b"]);
+    }
+
+    #[test]
+    fn reads_what_older_and_newer_files_hold() {
+        let store: Store = serde_json::from_str(r#"{"sessions":{"codex:codex:b":{"from":"claude:claude:a","how":"started","at":5}},"later":true}"#).unwrap();
+        assert_eq!(store.origin_of("codex:codex:b"), Some(SessionOrigin { key: "claude:claude:a".into(), how: OriginHow::Started }));
+        assert_eq!(serde_json::from_str::<Store>("{}").unwrap(), Store::default());
+    }
+}

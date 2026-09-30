@@ -873,3 +873,16 @@ export function links(e: Entities, on: Set<string>): [string, string][] {
   for (const p of e.prs.values()) for (const l of p.lanes) add(refId('pr', p.key), refId('worktree', l));
   return out;
 }
+
+/** Pairs of sessions on the canvas where one came from the other (`Session.origin`): the one it
+ *  came from first. */
+export function originLinks(e: Entities, on: Set<string>): [string, string][] {
+  const out: [string, string][] = [];
+  for (const { session } of e.sessions.values()) {
+    if (!session.origin) continue;
+    const from = refId('session', session.origin.key);
+    const to = refId('session', session.key);
+    if (from !== to && on.has(from) && on.has(to)) out.push([from, to]);
+  }
+  return out;
+}

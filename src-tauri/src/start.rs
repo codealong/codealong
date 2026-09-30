@@ -645,6 +645,10 @@ pub fn fork(board: &Board, cfg: &Config, key: &str) -> Result<Started> {
     launch::terminal_run(&cfg.apps.terminal, launch::Placement { new_terminal: cfg.apps.new_terminal, near: &near }, &cwd, &fork.input, &fork.env)?;
     // One whose harness names the copy shows on the board once it's written.
     let message = fork.key.is_none().then(|| format!("{} is opening a fork of {} in {}.", s.harness.word(), s.title, lane.callsign));
+    // Claude Code's transcript doesn't say what a fork into a terminal copied.
+    if let Some(copy) = &fork.key {
+        crate::origins::record(copy, key, crate::model::OriginHow::Fork);
+    }
     Ok(Started { key: fork.key, message })
 }
 
@@ -659,6 +663,9 @@ pub fn fork_background(board: &Board, cfg: &Config, key: &str, prompt: &str) -> 
     } else {
         format!("Forked in the background: the copy of “{}” is on it.", s.title)
     };
+    if let Some(copy) = &copy {
+        crate::origins::record(copy, key, crate::model::OriginHow::Fork);
+    }
     Ok(Started { key: copy, message: Some(message) })
 }
 

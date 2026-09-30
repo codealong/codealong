@@ -23,6 +23,7 @@ use crate::previews;
 use crate::reusable;
 use crate::codex::{self, ThreadInfo};
 use crate::opencode;
+use crate::origins;
 use crate::config::{self, AccountCfg, Config, Theme};
 use crate::detect;
 use crate::editors;
@@ -719,6 +720,8 @@ struct Engine {
     gitdir_to_lane: HashMap<PathBuf, PathBuf>,
     ignores: HashMap<PathBuf, Gitignore>,
     registry: HashMap<String, Vec<RegistryEntry>>,
+    /// What each account's background jobs were forked from, read from their records.
+    claude_forks: HashMap<String, claude::Forks>,
     transcripts: HashMap<PathBuf, (String, claude::Parsed)>,
     codex_index: HashMap<String, HashMap<String, (String, i64)>>,
     /// `None` marks a thread that's never shown (a guardian review, a subagent), so its
@@ -864,6 +867,7 @@ impl Engine {
             gitdir_to_lane: HashMap::new(),
             ignores: HashMap::new(),
             registry: HashMap::new(),
+            claude_forks: HashMap::new(),
             transcripts: HashMap::new(),
             codex_index: HashMap::new(),
             rollouts: HashMap::new(),
@@ -1112,6 +1116,20 @@ impl Engine {
                     s.status = Status::Unread;
                 }
             }
+        }
+        sessions
+    }
+
+    /// Where sessions came from by Codealong's own record (origins.rs): started by an agent's
+    /// `codealong start`, or forked from Codealong where the harness doesn't say. What the
+    /// harness recorded comes first.
+    fn with_origins(&self, mut sessions: Vec<Session>) -> Vec<Session> {
+        let store = origins::current();
+        if store.sessions.is_empty() {
+            return sessions;
+        }
+        for s in sessions.iter_mut().filter(|s| s.origin.is_none()) {
+            s.origin = store.origin_of(&s.key);
         }
         sessions
     }
@@ -1629,6 +1647,7 @@ impl Engine {
             match a.harness.as_str() {
                 "claude" => {
                     self.registry.insert(a.name.clone(), claude::read_registry(&home));
+                    self.claude_forks.entry(a.name.clone()).or_default().refresh(&home, now_ms());
                     let files = claude::transcript_files(&home, since, &self.seen.pinned_ids("claude", &a.name));
                     for (path, parsed) in parallel_map(files, |(p, m)| claude::parse_transcript(&p, m, None).map(|r| (p, r))) {
                         self.transcripts.insert(path, (a.name.clone(), parsed));
@@ -2028,10 +2047,13 @@ impl Engine {
 
     fn refresh_registry(&mut self, account: &str) -> bool {
         let Some(a) = self.account(account) else { return false };
-        let fresh = claude::read_registry(&a.home_path());
+        let home = a.home_path();
+        let fresh = claude::read_registry(&home);
         let changed = self.registry.get(account) != Some(&fresh);
         self.registry.insert(account.to_string(), fresh);
-        changed
+        // A new job shows in the registry as it starts, and its record says what it's a fork of.
+        let forked = self.claude_forks.entry(account.to_string()).or_default().refresh(&home, now_ms());
+        changed || forked
     }
 
     /// FSEvents can hold back appends until a writer closes its file. Codex keeps rollouts
@@ -2726,6 +2748,10 @@ impl Engine {
                             let here = self.seen.archived_at(&key).map(|at| s.last_activity <= at).unwrap_or(false);
                             s.archived = here || app_archived.contains(id);
                             s.continues = from.map(|(f, _)| f.clone());
+                            // A job's record says what it's a fork of; the roster says for a
+                            // running one whose record hasn't been read yet.
+                            let parent = self.claude_forks.get(&a.name).and_then(|f| f.parent_of(id)).or(reg.and_then(|r| r.resumes.as_deref()));
+                            s.origin = parent.filter(|p| *p != id).map(|p| SessionOrigin { key: format!("claude:{}:{p}", a.name), how: OriginHow::Fork });
                             out.push(s);
                         }
                     }
@@ -2862,6 +2888,22 @@ impl Engine {
         changed
     }
 
+    /// Notes where sessions came from that starts from other sessions were waiting for.
+    fn link_origins(&self, board: &Board) -> bool {
+        if origins::current().pending.is_empty() {
+            return false;
+        }
+        let sessions: Vec<origins::Candidate> = board
+            .lanes
+            .iter()
+            .flat_map(|l| {
+                l.sessions.iter().filter(|s| s.visitor.is_none()).map(move |s| origins::Candidate { key: &s.key, lane: &l.id, account: &s.account, started: s.started_at.unwrap_or(s.last_activity) })
+            })
+            .collect();
+        let lanes = LaneIndex(board.lanes.iter().map(|l| (l.id.clone(), (l.project.clone(), repo_identity(l)))).collect());
+        origins::resolve_pending(&sessions, &lanes, now_ms())
+    }
+
     fn compose(&self) -> Board {
         let now = now_ms();
         let apps = AppNames {
@@ -2881,7 +2923,7 @@ impl Engine {
             now,
             apps: &apps,
             seeds: &self.seeds,
-            sessions: self.with_snoozes(self.with_insights(self.with_chrome(self.build_sessions(now)), now), now),
+            sessions: self.with_snoozes(self.with_insights(self.with_chrome(self.with_origins(self.build_sessions(now))), now), now),
             git: &self.git,
             prs: &self.prs,
             project_order: &order,
@@ -2938,6 +2980,10 @@ impl Engine {
         let mut board = self.compose();
         if self.link_pending(&board) {
             board.todos = self.todos.todos.clone();
+        }
+        // Rare, so the board is composed again rather than patched.
+        if self.link_origins(&board) {
+            board = self.compose();
         }
         self.jev_look(&board);
         let composed = t.elapsed();

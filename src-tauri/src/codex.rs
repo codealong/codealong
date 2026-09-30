@@ -38,6 +38,12 @@ pub struct ThreadInfo {
     pub work: Vec<String>,
     /// Started in the Codex CLI (`codex` in a terminal), not the app.
     pub cli: bool,
+    /// The thread it's a fork of (`forked_from_id`): `codex fork`, or the app's Fork.
+    pub forked_from: Option<String>,
+    /// The thread whose agent made it (`thread_source: agent_created_thread`): the app's
+    /// `create_thread` tool answers the new thread's first turn with a `<codex_delegation>` that
+    /// names it in `<source_thread_id>`.
+    pub started_by: Option<String>,
 }
 
 /// A tool call without its output yet.
@@ -204,6 +210,9 @@ pub fn parse_rollout(path: &Path, mtime: i64, prev: Option<(ThreadInfo, u64)>) -
                 info.id = thread_id_of(path)?;
             }
             let floor = first.len() as u64;
+            if info.started_by.is_some() {
+                info.started_by = delegated_by(path, floor, len);
+            }
             let start = len.saturating_sub(256 * 1024).max(floor);
             let text = read_range(path, start, len)?;
             (info, start, text, Some(floor))
@@ -297,6 +306,9 @@ pub fn parse_meta(first_line: &str) -> Option<ThreadInfo> {
         branch: p.pointer("/git/branch").and_then(Value::as_str).map(String::from),
         // The app writes "Codex Desktop"; the terminal UI "codex-tui" (and "codex_cli_rs" before).
         cli: matches!(p.get("originator").and_then(Value::as_str), Some("codex-tui" | "codex_cli_rs")),
+        forked_from: p.get("forked_from_id").and_then(Value::as_str).filter(|id| !id.is_empty()).map(String::from),
+        // Found in the lines after this one (`delegated_by`); marked here so they're read.
+        started_by: (source == Some("agent_created_thread")).then(String::new),
         started_at: p
             .get("timestamp")
             .and_then(Value::as_str)
@@ -304,6 +316,18 @@ pub fn parse_meta(first_line: &str) -> Option<ThreadInfo> {
             .and_then(parse_rfc3339_ms),
         ..Default::default()
     })
+}
+
+/// How far into a thread its delegation is looked for: it answers the first turn's first call,
+/// after the app's instructions (tens of KB).
+const DELEGATION_WITHIN: u64 = 512 * 1024;
+
+/// The thread whose agent made this one, from the `<source_thread_id>` in the delegation that
+/// opens it. Read once, on a thread's first parse.
+fn delegated_by(path: &Path, floor: u64, len: u64) -> Option<String> {
+    let text = read_range(path, floor, len.min(floor + DELEGATION_WITHIN))?;
+    let id = element(&text, "source_thread_id")?.trim();
+    (!id.is_empty() && id.chars().all(|c| c.is_ascii_hexdigit() || c == '-')).then(|| id.to_string())
 }
 
 fn parse_events(text: &str) -> Vec<Value> {
@@ -989,6 +1013,30 @@ mod tests {
         assert!(parse_meta(guardian).is_none());
         let spawned = r#"{"type":"session_meta","payload":{"id":"x","cwd":"/x","source":{"subagent":{"thread_spawn":{}}},"thread_source":"subagent"}}"#;
         assert!(parse_meta(spawned).is_none());
+    }
+
+    #[test]
+    fn reads_what_a_thread_was_forked_from_or_made_by() {
+        assert_eq!(parse_meta(META_USER).unwrap().forked_from, None);
+        let fork = r#"{"type":"session_meta","payload":{"id":"01a0c53b","cwd":"/x","source":"vscode","thread_source":"user","forked_from_id":"01a09b67-284e"}}"#;
+        assert_eq!(parse_meta(fork).unwrap().forked_from.as_deref(), Some("01a09b67-284e"));
+        // A thread the app made for another's agent names it in the delegation that opens it.
+        let dir = std::env::temp_dir().join(format!("codealong-codex-delegated-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("rollout-2026-09-09T14-07-39-01a087ff-6e3e-7832-bf7b-5caaae87716b.jsonl");
+        let lines = [
+            r#"{"timestamp":"2026-09-09T21:07:39.237Z","type":"session_meta","payload":{"id":"01a087ff-6e3e-7832-bf7b-5caaae87716b","cwd":"/x","originator":"Codex Desktop","source":"vscode","thread_source":"agent_created_thread"}}"#,
+            r#"{"timestamp":"2026-09-09T21:07:40.000Z","type":"event_msg","payload":{"type":"task_started","turn_id":"t1"}}"#,
+            r#"{"timestamp":"2026-09-09T21:07:41.000Z","type":"response_item","payload":{"type":"function_call_output","name":"create_thread","namespace":"codex_app","output":"<codex_delegation>\n  <source_thread_id>01a082d2-9712-7c01-a365-9bccbc10f876</source_thread_id>\n  <input>Enable passkeys</input>\n</codex_delegation>"}}"#,
+        ];
+        std::fs::write(&path, lines.join("\n") + "\n").unwrap();
+        let (info, _) = parse_rollout(&path, 0, None).unwrap();
+        assert_eq!(info.started_by.as_deref(), Some("01a082d2-9712-7c01-a365-9bccbc10f876"));
+        assert_eq!(info.forked_from, None);
+        // One you started names no one.
+        std::fs::write(&path, format!("{META_USER}\n{}\n", lines[2])).unwrap();
+        assert_eq!(parse_rollout(&path, 0, None).unwrap().0.started_by, None);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

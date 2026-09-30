@@ -9,7 +9,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { fitDesktop, getDesktopFeed, onDesktopFeed, onPeekShown, openUrl, peekHide, peekOpen, showMain, showQuick, unpinFromDesktop, type PillRect } from '../api';
+import { desktopHover, fitDesktop, getDesktopFeed, onDesktopFeed, onPeekShown, openUrl, peekHide, peekOpen, showMain, showQuick, unpinFromDesktop, type PillRect } from '../api';
 import { boardView, lanesAhead, observe, useAhead } from '../ahead';
 import { CLICK_WAIT_MS, plain } from '../bar';
 import { showContextMenu, type MenuSpec } from '../contextMenu';
@@ -288,6 +288,9 @@ export function DesktopPin() {
         title={tooltip(data, now, terminal, sessions.length) || undefined}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
+        // A session's card shows lines to the cards of the sessions it came from or that came of it.
+        onPointerEnter={data?.ref === 'session' ? () => void desktopHover(true) : undefined}
+        onPointerLeave={data?.ref === 'session' ? () => void desktopHover(false) : undefined}
         onClick={onClick}
       >
         {waiting ? (

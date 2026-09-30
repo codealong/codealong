@@ -136,6 +136,8 @@ window.__TAURI_INTERNALS__ = {
         return all[0];
       });
     }
+    // The window of lines between desktop cards (preview.sh lineage): lineage-desk.js's sample.
+    if (cmd === 'lineage_feed') return Promise.resolve(window.__LINEAGE_FEED__ || { theme: 'system', lines: [] });
     // A card pinned to the desktop (preview.sh desktop): PREVIEW_PIN's session, worktree or todo
     // (`<ref>:<key>`), cut from the board as desktop.rs cuts it. A ref alone takes the latest
     // worktree with sessions, the latest session, or the first todo.

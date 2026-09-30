@@ -140,6 +140,10 @@ pub fn for_windows(short: &str, tag: &DeviceTag, replica: &Replica) -> Vec<Lane>
             l.device = Some(tag.clone());
             for s in &mut l.sessions {
                 s.key = remote_key(short, &s.key);
+                // It came from a session on that device too.
+                if let Some(o) = &mut s.origin {
+                    o.key = remote_key(short, &o.key);
+                }
             }
             l
         })

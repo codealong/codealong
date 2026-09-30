@@ -455,6 +455,7 @@ mod tests {
             archived: false,
             attach_command: None,
             continues: None,
+            origin: None,
             stalled_since: None,
             background: None,
             insight: None,

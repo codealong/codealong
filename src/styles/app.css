@@ -3224,6 +3224,38 @@ html.is-desktop,
 html.is-desktop body {
   background: transparent;
 }
+/* Lines between cards whose sessions came one of the other (DesktopLines.tsx), in a clear window
+   under the cards that lets clicks through. */
+html.is-lineage,
+html.is-lineage body {
+  background: transparent;
+  overflow: hidden;
+}
+.ca-lineage {
+  position: fixed;
+  inset: 0;
+}
+.ca-lineage-line,
+.ca-lineage-halo {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.ca-lineage-line {
+  stroke: var(--label-purple);
+  stroke-width: 2;
+}
+.ca-lineage-halo {
+  stroke: var(--ground);
+  stroke-opacity: 0.7;
+  stroke-width: 6;
+}
+.ca-lineage-dot {
+  fill: var(--label-purple);
+  stroke: var(--ground);
+  stroke-opacity: 0.7;
+  stroke-width: 2;
+}
 .ca-desk {
   position: fixed;
   top: 12px;
@@ -7020,4 +7052,12 @@ html.is-quick body {
 .ca-devcolor:focus-visible {
   outline: none;
   box-shadow: var(--shadow-focus);
+}
+
+/* Where a session came from and what came of it, beside its PRs: the phrase quieter than the title. */
+.ca-sessinsp-kin-phrase {
+  color: var(--ink-3);
+}
+.ca-sessinsp-kin:hover .ca-sessinsp-kin-phrase {
+  color: var(--ink-2);
 }

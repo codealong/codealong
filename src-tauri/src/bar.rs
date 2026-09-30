@@ -779,6 +779,20 @@ pub(crate) mod native {
         }
     }
 
+    /// Just under the cards pinned to the desktop (and the floating bar), over other apps' windows.
+    pub fn set_under_cards(w: &WebviewWindow) {
+        if let Some(n) = ns(w) {
+            n.setLevel(NSStatusWindowLevel - 1);
+        }
+    }
+
+    /// Takes the window off the screen.
+    pub fn hide(w: &WebviewWindow) {
+        if let Some(n) = ns(w) {
+            n.orderOut(None);
+        }
+    }
+
     /// The notch the bar docks into: the first screen's with one, else one drawn on the screen with
     /// the menu bar.
     pub fn notch() -> Option<Notch> {
@@ -849,6 +863,10 @@ pub(crate) mod native {
     }
     pub fn set_level(_: &WebviewWindow, _: bool) {}
     pub fn set_clickable(_: &WebviewWindow, _: bool) {}
+    pub fn set_under_cards(_: &WebviewWindow) {}
+    pub fn hide(w: &WebviewWindow) {
+        let _ = w.hide();
+    }
     pub fn notch() -> Option<super::Notch> {
         None
     }

@@ -554,6 +554,13 @@ pub fn labels(app: &AppHandle) -> Vec<String> {
     app.try_state::<Desktop>().and_then(|s| s.inner.lock().ok().map(|i| i.cards.iter().map(|(l, _)| l.clone()).collect())).unwrap_or_default()
 }
 
+/// The cards that show a session: each one's window and the session's key.
+pub fn session_cards(app: &AppHandle) -> Vec<(String, String)> {
+    let Some(state) = app.try_state::<Desktop>() else { return Vec::new() };
+    let Ok(inner) = state.inner.lock() else { return Vec::new() };
+    inner.cards.iter().filter(|(l, p)| p.what.kind == Kind::Session && inner.placed.contains_key(l)).map(|(l, p)| (l.clone(), p.what.key.clone())).collect()
+}
+
 /// Tells every window what's pinned, for their menus.
 fn tell(app: &AppHandle) {
     let _ = app.emit("desktop-pins", pinned(app));

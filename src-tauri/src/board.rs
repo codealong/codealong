@@ -300,6 +300,7 @@ pub fn claude_session(
         archived: false,
         attach_command,
         continues: None,
+        origin: None,
         stalled_since,
         background: background.then(|| quiet.running.unwrap_or_default().to_string()),
         app_account: account.home_path() == crate::util::home().join(".claude"),
@@ -319,6 +320,16 @@ pub fn claude_session(
 fn codex_unanswered(th: &ThreadInfo, now: i64) -> Option<String> {
     let call = th.pending_calls.iter().find(|c| now - c.at > c.limit_ms)?;
     (th.turn_open && now - th.last_ts < DAY_MS).then(|| format!("Waiting for approval? · {}", call.what))
+}
+
+/// Where a Codex thread came from: a fork of a thread, or made by a thread's agent.
+fn codex_origin(account: &AccountCfg, th: &ThreadInfo) -> Option<SessionOrigin> {
+    let (id, how) = match (&th.forked_from, &th.started_by) {
+        (Some(id), _) => (id, OriginHow::Fork),
+        (None, Some(id)) => (id, OriginHow::Started),
+        (None, None) => return None,
+    };
+    (id != &th.id).then(|| SessionOrigin { key: format!("codex:{}:{id}", account.name), how })
 }
 
 /// A Codex thread. Threads have no process of their own, so they are never Stopped.
@@ -389,6 +400,7 @@ pub fn codex_session(account: &AccountCfg, th: &ThreadInfo, name: Option<&str>, 
         archived: false,
         attach_command: None,
         continues: None,
+        origin: codex_origin(account, th),
         stalled_since: None,
         background: None,
         insight: None,
@@ -462,6 +474,7 @@ pub fn opencode_session(account: &AccountCfg, row: &SessionRow, live: Option<&Li
         archived: row.archived_at.is_some(),
         attach_command: None,
         continues: None,
+        origin: row.fork_of.as_ref().map(|id| SessionOrigin { key: format!("opencode:{}:{id}", account.name), how: OriginHow::Fork }),
         stalled_since: None,
         background: None,
         insight: None,
@@ -532,6 +545,7 @@ pub fn antigravity_session(account: &AccountCfg, c: &Conversation, seen_at: i64,
         archived: false,
         attach_command: None,
         continues: None,
+        origin: None,
         stalled_since: None,
         background: None,
         insight: None,
