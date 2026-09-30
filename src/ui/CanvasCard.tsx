@@ -3,6 +3,7 @@
 // popover with the rest: the whole headline, the last message, what it's linked to.
 
 import { memo, type CSSProperties, type ReactNode } from 'react';
+import { dayKey, dueWords } from '../due';
 import { absolute, agoPhrase, ago, duration, tildePath } from '../format';
 import { HARNESS_WORD, sessionPlace } from '../harness';
 import { blockedBy, sectionOf, SECTION_WORD, snippet } from '../todos';
@@ -70,7 +71,8 @@ export function cardSig(d: CardData | null, now: number): string {
     }
     case 'todo': {
       const t = d.todo;
-      return `t|${t.status}|${t.title}|${!!t.waiting}|${t.labels.join()}|${d.labels.map((l) => l.color + l.name).join()}|${d.sessions.map((s) => s.session.key + s.session.status).join()}|${t.updatedAt}`;
+      // A due date reads by the day, so the card redraws when the day turns.
+      return `t|${t.status}|${t.title}|${!!t.waiting}|${t.labels.join()}|${d.labels.map((l) => l.color + l.name).join()}|${d.sessions.map((s) => s.session.key + s.session.status).join()}|${t.updatedAt}|${t.due ? `${t.due}@${dayKey(now)}` : ''}`;
     }
     case 'pr': {
       const p = d.pr;
@@ -182,6 +184,7 @@ export function CardFace({ item, data, now, style, className, children, onPrOpen
     }
     case 'todo': {
       const t = data.todo;
+      const due = t.due && t.status !== 'done' ? dueWords(t.due, now) : null;
       return (
         <div className={cls('todo', `td-${t.status}`)} style={style} data-id={id}>
           <div className="ca-cv-l1">
@@ -192,6 +195,11 @@ export function CardFace({ item, data, now, style, className, children, onPrOpen
             {data.labels.slice(0, 4).map((l) => (
               <LabelDot key={l.id} label={l} />
             ))}
+            {due && (
+              <span className={`ca-cv-due is-${due.tone}`} title={`Due ${due.long}`}>
+                {due.text}
+              </span>
+            )}
             <span className="ca-cv-headline">
               {data.sessions.length > 0
                 ? `${data.sessions.length} ${data.sessions.length === 1 ? 'session' : 'sessions'}${data.lane ? ` · ${data.lane.callsign}` : ''}`
@@ -360,6 +368,7 @@ export function CardDetail({ item, data, now, terminal, todos }: { item: RefItem
     case 'todo': {
       const t = data.todo;
       const section = sectionOf(t, todos);
+      const due = t.due && t.status !== 'done' ? dueWords(t.due, now) : null;
       const blocked = t.status === 'todo' ? blockedBy(t, todos) : [];
       const text = t.description.replace(/!\[[^\]]*\]\([^)]*\)/g, '').trim();
       return (
@@ -370,6 +379,7 @@ export function CardDetail({ item, data, now, terminal, todos }: { item: RefItem
           </div>
           <div className="ca-cvp-status">
             {SECTION_WORD[section]}
+            {due ? ` · ${due.text[0].toLowerCase()}${due.text.slice(1)}` : ''}
             {t.waiting?.note ? ` · ${t.waiting.note}` : ''}
             {blocked.length > 0 ? ` · waits on “${snippet(blocked[0].title || 'Untitled', 40)}”${blocked.length > 1 ? ` and ${blocked.length - 1} more` : ''}` : ''}
           </div>

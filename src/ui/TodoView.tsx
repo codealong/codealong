@@ -1,7 +1,8 @@
 // The Todo view: work you mean to hand an agent. In progress, Ready and Waiting come in your
 // order (drag, or ⌃⌘↑ ⌃⌘↓, to reorder), then Done under a fold. Waiting holds the todos marked as
-// waiting and the ones not started that wait on a todo that isn't done. A row shows the todo's
-// labels, what it waits on, the sessions on it with their status, and the worktree it's in.
+// waiting and the ones not started that wait on a todo that isn't done. A row shows when the todo
+// is due, its labels, what it waits on, the sessions on it with their status, and the worktree
+// it's in.
 // Type in the box at the top and press Return to add one. ⌘-click and ⇧-click pick several, to
 // start in one session.
 
@@ -10,7 +11,7 @@ import { absolute, ago, middleTruncate } from '../format';
 import { attachmentsIn, blockedBy, SECTION_WORD, snippet, todoPr, type TodoItem, type TodoSection, type TodoSectionId } from '../todos';
 import type { Label, Lane, Session, Todo, TodoHint, TodoStatus } from '../types';
 import { HarnessChip, Icon, Kbd, PrChip } from './primitives';
-import { LabelChip, TodoGlyph } from './TodoBits';
+import { DueChip, LabelChip, TodoGlyph } from './TodoBits';
 import { useDragOrder, type DragProps } from './useDragOrder';
 
 /** Where a new todo will be linked, when it's made from a worktree or a session. */
@@ -147,6 +148,7 @@ function TodoRow({ item, section, domId, now, selected, showProject, onSelect, o
         <div className="ca-lane-line2">
           <span className="ca-lane-agents">
             {showProject && todo.project && <span className="ca-tag">{todo.project}</span>}
+            <DueChip todo={todo} now={now} />
             {item.labels.map((l) => (
               <LabelChip key={l.id} label={l} title={`Show only “${l.name}”`} onClick={() => onFilterLabel(l)} />
             ))}

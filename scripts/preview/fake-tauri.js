@@ -13,8 +13,8 @@
 window.__CODEALONG_PREVIEW__ = true;
 window.__calls = [];
 // Todos from todos-fixture.json (PREVIEW_TODOS in preview.sh) in place of the board's own, with
-// "$lane:N" and "$session:N" as the project's Nth most recent worktree and session, and a
-// wait's `sinceAgo` in minutes.
+// "$lane:N" and "$session:N" as the project's Nth most recent worktree and session, a wait's
+// `sinceAgo` in minutes, and `dueIn` as a due date that many days from today.
 function withFixture(board, fixture) {
   var shown = null;
   try {
@@ -43,9 +43,16 @@ function withFixture(board, fixture) {
       sessions: (t.sessions || []).map(at).filter(Boolean),
       doneAt: t.status === 'done' ? now - 7200e3 : null,
       waiting: t.waiting ? { note: t.waiting.note || '', since: now - (t.waiting.sinceAgo || 0) * 60e3 } : null,
+      due: t.dueIn == null ? t.due || null : dayFrom(now, t.dueIn),
     });
   });
   return board;
+}
+// The day `days` from `now`'s, as a due date is written.
+function dayFrom(now, days) {
+  var d = new Date(now);
+  d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + days);
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 }
 // Plan usage from usage-fixture.json (PREVIEW_USAGE in preview.sh) in place of the snapshot's,
 // which has no Claude numbers unless it's taken with --usage. Times in it are minutes from now:

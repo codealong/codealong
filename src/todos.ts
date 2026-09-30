@@ -11,8 +11,9 @@ import type { Attachment, Board, Label, LabelColor, Lane, Pr, Session, Todo, Tod
 import { LABEL_COLORS } from './types';
 import { errorText } from './report';
 
-/** `dependsOn` replaces the whole list. `waiting: null` says it's ready. */
-export type TodoPatch = Partial<Pick<Todo, 'title' | 'description' | 'status' | 'labels' | 'project' | 'dependsOn' | 'waiting'>>;
+/** `dependsOn` replaces the whole list. `waiting: null` says it's ready; `due: null` takes the
+ *  due date off. */
+export type TodoPatch = Partial<Pick<Todo, 'title' | 'description' | 'status' | 'labels' | 'project' | 'dependsOn' | 'waiting' | 'due'>>;
 
 /** A change, as the engine takes it (`TodoOp` in todos.rs). */
 export type TodoOp =
@@ -63,6 +64,7 @@ export function newTodo(fields: Partial<Todo>, now: number): Todo {
     pending: [],
     dependsOn: [],
     waiting: null,
+    due: null,
     ...fields,
   };
 }

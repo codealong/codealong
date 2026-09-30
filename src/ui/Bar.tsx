@@ -30,6 +30,7 @@ import { LOGO_LABEL, useLogo } from '../logo';
 import { useNow } from './useNow';
 import { errorText, type Report } from '../report';
 import { openWhere, openWords } from '../open';
+import { dueWords } from '../due';
 
 /** Room around the bar for its shadow: the window is this much bigger on every side. */
 const MARGIN = 12;
@@ -249,10 +250,12 @@ function TodosPill({ todos, onOpen, onMenu, measure }: { todos: BarTodo[]; onOpe
   );
 }
 
-/** A todo as its menu item and tooltip line say it: its title, then where it starts. */
+/** A todo as its menu item and tooltip line say it: its title, where it starts, and when it's
+ *  due. */
 function todoLabel(t: BarTodo): string {
   const where = t.callsign ?? t.project;
-  return `${t.title || 'Untitled'}${where ? ` · ${where}` : ''}`;
+  const due = t.due ? dueWords(t.due, Date.now())?.text : undefined;
+  return [t.title || 'Untitled', where, due && due[0].toLowerCase() + due.slice(1)].filter(Boolean).join(' · ');
 }
 
 /** The project the bar shows, beside the mark. Other projects' sessions that need you badge it,

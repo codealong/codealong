@@ -77,6 +77,7 @@ import {
   type AutoPick,
 } from '../start';
 import { duplicateOf, rankedBy, suggestions, sureness, todoTitle, worthRouting, type Suggestion } from '../route';
+import { dueWords } from '../due';
 import { liveOrLatest, sessionHomes } from '../lanes';
 import { attachmentsIn, blockedBy, insertAttachments, newTodo, snippet, todoItem, todoPrompt, todosPrompt, withoutAttachment } from '../todos';
 import type { Attachment, Board, DevicesView, Lane, Meter, PrItem, Route, Session, StartOptions, StartPlace, StartSpec, TextFound } from '../types';
@@ -179,9 +180,15 @@ function autoWhy(p: AutoPick, spent: Meter | null, fallback: boolean, now: numbe
   return p.reason === 'room' ? 'most room' : '';
 }
 
-/** What a found todo's row says under its title: what it waits for, else the start of its
- *  description, else how many sessions it has. */
-function todoWhy(r: TodoRow): string {
+/** What a found todo's row says under its title: when it's due, then what it waits for, else the
+ *  start of its description, else how many sessions it has. */
+function todoWhy(r: TodoRow, now: number): string {
+  const t = r.item.todo;
+  const due = t.due && t.status !== 'done' ? dueWords(t.due, now)?.text : undefined;
+  return [due, todoState(r)].filter(Boolean).join(' · ');
+}
+
+function todoState(r: TodoRow): string {
   const t = r.item.todo;
   if (t.waiting) return t.waiting.note ? `Waiting for ${t.waiting.note}` : 'Waiting';
   const live = r.item.sessions.find((x) => x.session.live);
@@ -1708,7 +1715,7 @@ export function Quick() {
                               <span className="ca-quick-row-title">
                                 <Marked text={t.title || 'Untitled'} marks={r.marks} />
                               </span>
-                              <span className="ca-quick-row-why">{todoWhy(r)}</span>
+                              <span className="ca-quick-row-why">{todoWhy(r, now)}</span>
                             </span>
                             <span className="ca-quick-row-where">{r.item.lane?.callsign ?? (t.project || 'No worktree')}</span>
                             <span className="ca-quick-row-age">{ago(r.item.lastActivity, now)}</span>

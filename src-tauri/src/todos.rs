@@ -12,6 +12,10 @@
 //! An open todo is Ready or Waiting. It waits on the todos it depends on until they're done,
 //! and on anything else once you mark it as waiting (a person's answer, a release), until you
 //! say it's ready, start a session from it, or finish it.
+//!
+//! A todo can have a due date: a day on the calendar, with no time or zone, so it's the same
+//! day wherever you read it. It only says when you mean it done by: the list keeps your order,
+//! and nothing moves or changes status when the day comes.
 
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -20,6 +24,7 @@ use anyhow::{bail, Result};
 use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::config::support_dir;
+use crate::util::{civil_from_days, days_from_civil};
 
 /// How long a start in an app waits for its session to show up before it's forgotten.
 pub const PENDING_MS: i64 = 30 * 60 * 1000;
@@ -93,6 +98,117 @@ fn waiting_change<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Option<Waiti
     waiting_field(d).map(Some)
 }
 
+/// A due date made usable: `2026-10-03` (`2026-10-3` too), or a time on that day
+/// (`2026-10-03T09:00:00Z`) as the day. Anything else, or a day the calendar doesn't have, is
+/// none.
+pub fn clean_due(s: &str) -> Option<String> {
+    let day = s.trim().split(['T', ' ']).next()?;
+    let mut parts = day.split('-').map(|p| p.parse::<i64>().ok().filter(|_| !p.is_empty() && p.len() <= 4));
+    let (y, m, d) = (parts.next()??, parts.next()??, parts.next()??);
+    if parts.next().is_some() || !(1970..=9999).contains(&y) || !(1..=12).contains(&m) || d < 1 {
+        return None;
+    }
+    // A day past the month's end comes back as a day of the next month.
+    if civil_from_days(days_from_civil(y, m, d)) != (y, m, d) {
+        return None;
+    }
+    Some(format!("{y:04}-{m:02}-{d:02}"))
+}
+
+/// A due date as days since 1970-01-01, to compare with `util::today_local`.
+pub fn due_day(due: &str) -> Option<i64> {
+    let day = clean_due(due)?;
+    let n = |r: std::ops::Range<usize>| day[r].parse::<i64>().ok();
+    Some(days_from_civil(n(0..4)?, n(5..7)?, n(8..10)?))
+}
+
+/// A day as a due date is written.
+pub fn day_text(days: i64) -> String {
+    let (y, m, d) = civil_from_days(days);
+    format!("{y:04}-{m:02}-{d:02}")
+}
+
+const WEEKDAYS: [&str; 7] = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+
+/// 0 for Sunday through 6 for Saturday. 1970-01-01 was a Thursday.
+fn weekday(days: i64) -> i64 {
+    (days + 4).rem_euclid(7)
+}
+
+/// A due date from what someone types: a date (`2026-10-03`), `today`, `tomorrow`, a weekday
+/// (`fri`, `friday`: the next one after today), `next week` (next Monday), or days and weeks
+/// from today (`3d`, `2w`, `in 10 days`). `today` is days since 1970-01-01.
+pub fn due_from_words(text: &str, today: i64) -> Result<String> {
+    let words = text.trim().to_lowercase();
+    let words = words.split_whitespace().collect::<Vec<_>>().join(" ");
+    if let Some(day) = clean_due(&words) {
+        return Ok(day);
+    }
+    let ahead_to = |wd: i64| match (wd - weekday(today)).rem_euclid(7) {
+        0 => 7,
+        n => n,
+    };
+    let days = match words.as_str() {
+        "today" => Some(0),
+        "tomorrow" => Some(1),
+        "next week" => Some(ahead_to(1)),
+        w => WEEKDAYS
+            .iter()
+            .position(|d| w.len() >= 3 && d.starts_with(w))
+            .map(|i| ahead_to(i as i64))
+            .or_else(|| {
+                let w = w.strip_prefix("in ").or_else(|| w.strip_prefix('+')).unwrap_or(w).trim();
+                let split = w.find(|c: char| !c.is_ascii_digit()).unwrap_or(w.len());
+                let n: i64 = w[..split].parse().ok().filter(|n| *n <= 3650)?;
+                match w[split..].trim() {
+                    "d" | "day" | "days" => Some(n),
+                    "w" | "wk" | "week" | "weeks" => Some(n * 7),
+                    _ => None,
+                }
+            }),
+    };
+    match days {
+        Some(n) => Ok(day_text(today + n)),
+        None => bail!("\"{}\" isn't a day Codealong reads. Give a date (2026-10-03), today, tomorrow, a weekday, next week, or 3d / 2w from today.", text.trim()),
+    }
+}
+
+/// How far off a due date is, from `today`: `today`, `tomorrow`, `in 3 days`, `yesterday`,
+/// `3 days ago`.
+pub fn due_phrase(due: &str, today: i64) -> String {
+    match due_day(due).map(|d| d - today) {
+        None => due.to_string(),
+        Some(0) => "today".into(),
+        Some(1) => "tomorrow".into(),
+        Some(-1) => "yesterday".into(),
+        Some(n) if n > 0 => format!("in {n} days"),
+        Some(n) => format!("{} days ago", -n),
+    }
+}
+
+/// A todo's `due` as it's read: any date `clean_due` takes, and nothing for anything else, so a
+/// list written by hand never fails to read for its dates.
+fn due_field<'de, D: Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
+    Ok(Option::<serde_json::Value>::deserialize(d)?.as_ref().and_then(|v| v.as_str()).and_then(clean_due))
+}
+
+/// A change's `due`: missing leaves it, null or empty takes it off, and anything else is checked
+/// when the change is applied, so a date that doesn't read is refused rather than dropped.
+fn due_change<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Option<String>>, D::Error> {
+    Ok(Some(Option::<String>::deserialize(d)?))
+}
+
+/// A change's due date as the todo keeps it, or why it can't.
+fn checked_due(due: Option<&str>) -> Result<Option<String>> {
+    match due.map(str::trim) {
+        None | Some("") => Ok(None),
+        Some(d) => match clean_due(d) {
+            Some(day) => Ok(Some(day)),
+            None => bail!("A due date is a day, written 2026-10-03, not \"{d}\"."),
+        },
+    }
+}
+
 /// A start in the Claude or Codex app, waiting for its session to show up.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -147,6 +263,9 @@ pub struct Todo {
     /// Marked as waiting, on something outside the list. Left out when it isn't.
     #[serde(default, deserialize_with = "waiting_field", skip_serializing_if = "Option::is_none")]
     pub waiting: Option<Waiting>,
+    /// The day it's due, as `2026-10-03`. A done todo keeps it. Left out when it has none.
+    #[serde(default, deserialize_with = "due_field", skip_serializing_if = "Option::is_none")]
+    pub due: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
@@ -187,6 +306,10 @@ pub struct TodoPatch {
     /// time it began if it already was. Left out when it doesn't change, since null means ready.
     #[serde(default, deserialize_with = "waiting_change", skip_serializing_if = "Option::is_none")]
     pub waiting: Option<Option<Waiting>>,
+    /// `Some(None)` (null) takes the due date off; `Some(Some(day))` sets it. Left out when it
+    /// doesn't change.
+    #[serde(default, deserialize_with = "due_change", skip_serializing_if = "Option::is_none")]
+    pub due: Option<Option<String>>,
 }
 
 /// A change from the UI. Changes are small and specific, so one made in a window never undoes
@@ -429,6 +552,7 @@ impl TodoStore {
                     return Ok(false);
                 }
                 let depends_on = self.checked_dependencies(&todo.id, &todo.depends_on)?;
+                let due = checked_due(todo.due.as_deref())?;
                 let mut seen = HashSet::new();
                 let mut t = Todo {
                     id: todo.id.clone(),
@@ -445,6 +569,7 @@ impl TodoStore {
                     pending: Vec::new(),
                     depends_on,
                     waiting: None,
+                    due,
                 };
                 set_status(&mut t, todo.status, now);
                 // The engine keeps the clock: a new todo's wait begins now.
@@ -461,6 +586,10 @@ impl TodoStore {
             TodoOp::Update { id, patch } => {
                 let depends_on = match &patch.depends_on {
                     Some(d) => Some(self.checked_dependencies(&id, d)?),
+                    None => None,
+                };
+                let due = match &patch.due {
+                    Some(d) => Some(checked_due(d.as_deref())?),
                     None => None,
                 };
                 let Some(t) = self.todos.iter_mut().find(|t| t.id == id) else { bail!("That todo is gone.") };
@@ -490,6 +619,9 @@ impl TodoStore {
                 }
                 if let Some(w) = patch.waiting {
                     set_waiting(t, w, now);
+                }
+                if let Some(d) = due {
+                    t.due = d;
                 }
                 let changed = *t != before;
                 if changed {
@@ -739,6 +871,7 @@ mod tests {
             pending: vec![],
             depends_on: vec![],
             waiting: None,
+            due: None,
         }
     }
 
@@ -836,6 +969,98 @@ mod tests {
             let text = serde_json::to_string(&TodoOp::Update { id: "a".into(), patch: patch.clone() }).unwrap();
             let TodoOp::Update { patch: back, .. } = serde_json::from_str(&text).unwrap() else { panic!() };
             assert_eq!(back.waiting, patch.waiting, "{text}");
+        }
+    }
+
+    #[test]
+    fn due_dates_are_days() {
+        assert_eq!(clean_due("2026-10-03").as_deref(), Some("2026-10-03"));
+        assert_eq!(clean_due(" 2026-10-3 ").as_deref(), Some("2026-10-03"));
+        assert_eq!(clean_due("2026-10-03T23:30:00-07:00").as_deref(), Some("2026-10-03"));
+        assert_eq!(clean_due("2028-02-29").as_deref(), Some("2028-02-29"));
+        for bad in ["2026-02-29", "2026-13-01", "2026-10-00", "Oct 3", "2026-10", "10-03-2026", "", "2026--10-03"] {
+            assert_eq!(clean_due(bad), None, "{bad}");
+        }
+        let today = days_from_civil(2026, 9, 30);
+        assert_eq!(due_day("2026-10-03"), Some(today + 3));
+        assert_eq!(day_text(today), "2026-09-30");
+        let phrases: Vec<String> = [0, 1, -1, 5, -9].iter().map(|n| due_phrase(&day_text(today + n), today)).collect();
+        assert_eq!(phrases, vec!["today", "tomorrow", "yesterday", "in 5 days", "9 days ago"]);
+    }
+
+    #[test]
+    fn due_dates_read_from_words() {
+        // 2026-09-30 is a Wednesday.
+        let today = days_from_civil(2026, 9, 30);
+        let read = |w: &str| due_from_words(w, today).unwrap();
+        assert_eq!(read("today"), "2026-09-30");
+        assert_eq!(read(" Tomorrow "), "2026-10-01");
+        assert_eq!(read("fri"), "2026-10-02");
+        assert_eq!(read("Friday"), "2026-10-02");
+        // A weekday is the next one after today: today's name is a week off.
+        assert_eq!(read("wed"), "2026-10-07");
+        assert_eq!(read("next week"), "2026-10-05");
+        assert_eq!(read("3d"), "2026-10-03");
+        assert_eq!(read("+2w"), "2026-10-14");
+        assert_eq!(read("in 10 days"), "2026-10-10");
+        assert_eq!(read("2026-12-01"), "2026-12-01");
+        for bad in ["someday", "t", "next friday", "3 months", "2026-02-30"] {
+            assert!(due_from_words(bad, today).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn a_due_date_is_set_changed_and_taken_off() {
+        let mut s = store(&["a"]);
+        let due = |d: Option<&str>| TodoPatch { due: Some(d.map(String::from)), ..Default::default() };
+        assert!(update(&mut s, "a", due(Some("2026-10-3")), 20));
+        assert_eq!(s.todos[0].due.as_deref(), Some("2026-10-03"));
+        assert!(!update(&mut s, "a", due(Some("2026-10-03")), 30));
+        // One that doesn't read is refused, and the date it had stays.
+        let err = s.apply(TodoOp::Update { id: "a".into(), patch: due(Some("soon")) }, &lanes(), 40).unwrap_err();
+        assert!(err.to_string().contains("2026-10-03"), "{err}");
+        assert_eq!(s.todos[0].due.as_deref(), Some("2026-10-03"));
+        // A done todo keeps it: whether it was done in time is still worth knowing.
+        update(&mut s, "a", TodoPatch { status: Some(TodoStatus::Done), ..Default::default() }, 50);
+        assert_eq!(s.todos[0].due.as_deref(), Some("2026-10-03"));
+        // Other changes leave it; null or empty takes it off.
+        update(&mut s, "a", TodoPatch { title: Some("T".into()), ..Default::default() }, 60);
+        assert!(s.todos[0].due.is_some());
+        assert!(update(&mut s, "a", due(None), 70));
+        assert_eq!(s.todos[0].due, None);
+        update(&mut s, "a", due(Some("2026-11-01")), 80);
+        assert!(update(&mut s, "a", due(Some("")), 90));
+        assert_eq!(s.todos[0].due, None);
+        // A new todo can have one from the start.
+        let mut t = todo("b");
+        t.due = Some("2026-12-24".into());
+        s.apply(TodoOp::Create { todo: t }, &lanes(), 100).unwrap();
+        assert_eq!(s.todos[0].due.as_deref(), Some("2026-12-24"));
+    }
+
+    #[test]
+    fn due_dates_read_as_written_by_hand_and_changes_travel_intact() {
+        let hand: TodoStore = serde_json::from_str(
+            r#"{"todos":[{"id":"a","due":"2026-10-03"},{"id":"b","due":"next week"},{"id":"c","due":20261003},{"id":"d","due":null},{"id":"e","due":"2026-10-03T09:00:00Z"}]}"#,
+        )
+        .unwrap();
+        let dues: Vec<Option<&str>> = hand.todos.iter().map(|t| t.due.as_deref()).collect();
+        assert_eq!(dues, vec![Some("2026-10-03"), None, None, None, Some("2026-10-03")]);
+        // Only a todo with a due date carries the field.
+        let text = serde_json::to_string(&hand).unwrap();
+        assert_eq!(text.matches("\"due\"").count(), 2, "{text}");
+        let op = |json: &str| match serde_json::from_str::<TodoOp>(json).unwrap() {
+            TodoOp::Update { patch, .. } => patch.due,
+            _ => panic!("not an update"),
+        };
+        assert_eq!(op(r#"{"op":"update","id":"a","patch":{"title":"T"}}"#), None);
+        assert_eq!(op(r#"{"op":"update","id":"a","patch":{"due":null}}"#), Some(None));
+        assert_eq!(op(r#"{"op":"update","id":"a","patch":{"due":"2026-10-03"}}"#), Some(Some("2026-10-03".into())));
+        for due in [None, Some(None), Some(Some("2026-10-03".to_string()))] {
+            let patch = TodoPatch { due: due.clone(), ..Default::default() };
+            let text = serde_json::to_string(&TodoOp::Update { id: "a".into(), patch }).unwrap();
+            let TodoOp::Update { patch: back, .. } = serde_json::from_str(&text).unwrap() else { panic!() };
+            assert_eq!(back.due, due, "{text}");
         }
     }
 

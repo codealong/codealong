@@ -126,6 +126,8 @@ pub struct BarTodo {
     /// The worktree a session for it starts in, as the Todo view picks it: the first one linked
     /// to it, else its latest session's.
     pub callsign: Option<String>,
+    /// The day it's due, as `2026-10-03`.
+    pub due: Option<String>,
 }
 
 /// The bar's feed. Status times don't move while a status lasts, so ordering by them keeps pills
@@ -225,7 +227,7 @@ fn bar_todo(board: &Board, t: &todos::Todo) -> BarTodo {
             .min_by_key(|(at, _)| std::cmp::Reverse(*at))
             .map(|(_, l)| l)
     };
-    BarTodo { id: t.id.clone(), title: t.title.clone(), project: t.project.clone(), callsign: linked.or_else(latest).map(|l| l.callsign.clone()) }
+    BarTodo { id: t.id.clone(), title: t.title.clone(), project: t.project.clone(), callsign: linked.or_else(latest).map(|l| l.callsign.clone()), due: t.due.clone() }
 }
 
 #[cfg(test)]

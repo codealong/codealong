@@ -27,7 +27,7 @@ use crate::server::{self, Request};
 use crate::start::{self, Place, StartSpec};
 use crate::todos::{self, Label, Todo, TodoOp, TodoPatch, TodoStatus, TodoStore, Waiting, LABEL_COLORS};
 use crate::usage;
-use crate::util::{expand, now_ms, one_line, tilde, truncate};
+use crate::util::{self, expand, now_ms, one_line, tilde, truncate};
 
 const ABOUT: &str = "Codealong from the command line: the todo list, every agent session on this Mac, the worktrees they run in, and the accounts they run on.";
 const LONG_ABOUT: &str = "Codealong from the command line: the todo list, every agent session on this Mac, the worktrees they run in, and the accounts they run on.
@@ -207,6 +207,9 @@ struct TodoListArgs {
     /// Only todos under Waiting: marked as waiting, or not started and waiting on a todo that isn't done.
     #[arg(long)]
     waiting: bool,
+    /// Only todos due by this day, overdue ones included: a date (2026-10-03), today, tomorrow, a weekday, next week, or 3d / 2w from today.
+    #[arg(long, value_name = "WHEN")]
+    due_by: Option<String>,
 }
 
 #[derive(Args, Debug)]
@@ -240,6 +243,9 @@ struct TodoAddArgs {
     /// Mark it as waiting from the start, on this: a person's answer, a release, a date.
     #[arg(long, value_name = "WHAT")]
     wait_for: Option<String>,
+    /// The day it's due: a date (2026-10-03), today, tomorrow, a weekday (the next one), next week, or 3d / 2w from today.
+    #[arg(long, value_name = "WHEN")]
+    due: Option<String>,
 }
 
 #[derive(Args, Debug)]
@@ -270,6 +276,12 @@ struct TodoUpdateArgs {
     /// Stop waiting on a todo. Repeatable.
     #[arg(long, value_name = "ID")]
     remove_dependency: Vec<String>,
+    /// The day it's due: a date (2026-10-03), today, tomorrow, a weekday (the next one), next week, or 3d / 2w from today.
+    #[arg(long, value_name = "WHEN", conflicts_with = "no_due")]
+    due: Option<String>,
+    /// Take its due date off.
+    #[arg(long)]
+    no_due: bool,
 }
 
 #[derive(Args, Debug)]
@@ -2128,12 +2140,16 @@ fn context_text(out: &Whoami, key: Option<&str>) -> String {
     lines.into_iter().map(|l| l + "\n").collect()
 }
 
-/// A todo's status for a line of text, with what it's marked as waiting for.
+/// A todo's status for a line of text, with what it's marked as waiting for and when it's due.
 fn status_text(r: &TodoRow) -> String {
-    match &r.waiting {
+    let status = match &r.waiting {
         Some(w) if w.note.is_empty() => format!("{}, marked as waiting", r.status),
         Some(w) => format!("{}, waiting for {}", r.status, w.note),
         None => r.status.clone(),
+    };
+    match &r.due {
+        Some(due) => format!("{status}, due {} ({due})", todos::due_phrase(due, util::today_local())),
+        None => status,
     }
 }
 
@@ -2193,6 +2209,10 @@ struct TodoRow {
     waiting: Option<Waiting>,
     /// Where the app lists it: in-progress, ready, waiting or done.
     section: &'static str,
+    /// The day it's due, as 2026-10-03, and how many days off that is on this Mac's clock:
+    /// 0 today, below 0 once it's past. Null when it has none.
+    due: Option<String>,
+    due_in_days: Option<i64>,
     created_at: i64,
     updated_at: i64,
     done_at: Option<i64>,
@@ -2241,6 +2261,8 @@ fn todo_row(t: &Todo, store: &TodoStore, full: bool) -> TodoRow {
         blocked_by: store.blocked_by(t).iter().map(|x| x.id.clone()).collect(),
         waiting: t.waiting.clone(),
         section: section_of(store, t),
+        due: t.due.clone(),
+        due_in_days: t.due.as_deref().and_then(todos::due_day).map(|d| d - util::today_local()),
         created_at: t.created_at,
         updated_at: t.updated_at,
         done_at: t.done_at,
@@ -2384,7 +2406,8 @@ fn todo(cmd: TodoCmd, c: &mut Client, json: bool) -> Result<()> {
             let id = new_todo_id();
             let now = now_ms();
             let waiting = a.wait_for.map(|note| Waiting { note, since: now });
-            let todo = Todo { id: id.clone(), project: a.project.unwrap_or_default(), title: a.title, description, status: TodoStatus::Todo, labels, worktrees: vec![], sessions: vec![], created_at: now, updated_at: now, done_at: None, pending: vec![], depends_on, waiting };
+            let due = a.due.as_deref().map(|w| todos::due_from_words(w, util::today_local())).transpose()?;
+            let todo = Todo { id: id.clone(), project: a.project.unwrap_or_default(), title: a.title, description, status: TodoStatus::Todo, labels, worktrees: vec![], sessions: vec![], created_at: now, updated_at: now, done_at: None, pending: vec![], depends_on, waiting, due };
             c.apply(TodoOp::Create { todo })?;
             link(c, &id, worktree.as_deref(), session.as_deref(), true)?;
             show_after(c, &id, json)
@@ -2421,7 +2444,12 @@ fn todo(cmd: TodoCmd, c: &mut Client, json: bool) -> Result<()> {
             if status == Some(TodoStatus::InProgress) {
                 warn_blocked(&store, &id, &[]);
             }
-            let patch = TodoPatch { depends_on, title: a.title, description: read_text(a.description, a.description_file)?, status, labels, project: a.project, waiting: None };
+            let due = match (a.due.as_deref(), a.no_due) {
+                (Some(w), _) => Some(Some(todos::due_from_words(w, util::today_local())?)),
+                (None, true) => Some(None),
+                (None, false) => None,
+            };
+            let patch = TodoPatch { depends_on, title: a.title, description: read_text(a.description, a.description_file)?, status, labels, project: a.project, waiting: None, due };
             c.apply(TodoOp::Update { id: id.clone(), patch })?;
             if let Some(s) = status {
                 link_caller(c, &id, s, json);
@@ -2643,6 +2671,10 @@ fn print_todo(r: &TodoRow) {
     for n in r.needed_by.iter().flatten() {
         println!("Needed by: {} {} ({})", n.id, n.title, n.status);
     }
+    if let Some(due) = &r.due {
+        let late = r.status != "done" && r.due_in_days.is_some_and(|n| n < 0);
+        println!("Due: {due} ({}{})", todos::due_phrase(due, util::today_local()), if late { ", overdue" } else { "" });
+    }
     if let Some(w) = &r.waiting {
         let since = match w.since {
             0 => String::new(),
@@ -2674,6 +2706,8 @@ fn todo_list(c: &mut Client, a: &TodoListArgs, json: bool) -> Result<()> {
     };
     let store = c.todos()?;
     let label = a.label.as_deref().map(|n| store.labels.iter().find(|l| l.name.eq_ignore_ascii_case(n)).map(|l| l.id.clone()).ok_or_else(|| anyhow!("There's no label called {n}."))).transpose()?;
+    let today = util::today_local();
+    let due_by = a.due_by.as_deref().map(|w| todos::due_from_words(w, today)).transpose()?.and_then(|d| todos::due_day(&d));
     let rows: Vec<TodoRow> = store
         .todos
         .iter()
@@ -2688,6 +2722,7 @@ fn todo_list(c: &mut Client, a: &TodoListArgs, json: bool) -> Result<()> {
         .filter(|t| !a.mine || me.as_deref().is_some_and(|k| t.sessions.iter().any(|s| s == k)) || here.as_deref().is_some_and(|w| t.worktrees.iter().any(|x| x == w)))
         .filter(|t| !a.ready || store.is_ready(t))
         .filter(|t| !a.waiting || store.is_waiting(t))
+        .filter(|t| due_by.map_or(true, |by| t.due.as_deref().and_then(todos::due_day).is_some_and(|d| d <= by)))
         .map(|t| todo_row(t, &store, false))
         .collect();
     if !["all", "open", "todo", "in-progress", "done"].contains(&a.status.as_str()) {
@@ -2704,8 +2739,22 @@ fn todo_list(c: &mut Client, a: &TodoListArgs, json: bool) -> Result<()> {
         }
         parts.join(", ")
     };
-    let table: Vec<Vec<String>> = rows.iter().map(|r| vec![r.id.clone(), r.status.clone(), r.project.clone(), truncate(&r.title, 60), r.labels.join(", "), waits(r), r.worktrees.iter().map(|w| tilde(Path::new(w))).collect::<Vec<_>>().join(", ")]).collect();
-    print!("{}", table_text(&["ID", "STATUS", "PROJECT", "TITLE", "LABELS", "WAITS ON", "WORKTREES"], table));
+    // A due column only when something's due, so lists without dates stay as narrow as they were.
+    let dated = rows.iter().any(|r| r.due.is_some());
+    let due = |r: &TodoRow| r.due.as_deref().map(|d| format!("{d} ({})", todos::due_phrase(d, today))).unwrap_or_default();
+    let table: Vec<Vec<String>> = rows
+        .iter()
+        .map(|r| {
+            let mut row = vec![r.id.clone(), r.status.clone(), r.project.clone(), truncate(&r.title, 60), r.labels.join(", "), waits(r)];
+            if dated {
+                row.push(due(r));
+            }
+            row.push(r.worktrees.iter().map(|w| tilde(Path::new(w))).collect::<Vec<_>>().join(", "));
+            row
+        })
+        .collect();
+    let head: &[&str] = if dated { &["ID", "STATUS", "PROJECT", "TITLE", "LABELS", "WAITS ON", "DUE", "WORKTREES"] } else { &["ID", "STATUS", "PROJECT", "TITLE", "LABELS", "WAITS ON", "WORKTREES"] };
+    print!("{}", table_text(head, table));
     Ok(())
 }
 
@@ -3128,7 +3177,7 @@ mod tests {
     fn ids_are_usable_and_prefixes_resolve() {
         let id = new_todo_id();
         assert!(id.starts_with("t-") && id.len() > 8 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'));
-        let t = |id: &str| Todo { id: id.into(), project: String::new(), title: String::new(), description: String::new(), status: TodoStatus::Todo, labels: vec![], worktrees: vec![], sessions: vec![], created_at: 0, updated_at: 0, done_at: None, pending: vec![], depends_on: vec![], waiting: None };
+        let t = |id: &str| Todo { id: id.into(), project: String::new(), title: String::new(), description: String::new(), status: TodoStatus::Todo, labels: vec![], worktrees: vec![], sessions: vec![], created_at: 0, updated_at: 0, done_at: None, pending: vec![], depends_on: vec![], waiting: None, due: None };
         let store = TodoStore { todos: vec![t("t-abc1"), t("t-abd2")], labels: vec![] };
         assert_eq!(resolve_todo(&store, "t-abc").unwrap(), "t-abc1");
         assert!(resolve_todo(&store, "t-ab").unwrap_err().to_string().contains("2 todos"));
@@ -3138,7 +3187,7 @@ mod tests {
 
     #[test]
     fn several_todos_start_on_one_prompt() {
-        let t = |id: &str, title: &str, description: &str| Todo { id: id.into(), project: String::new(), title: title.into(), description: description.into(), status: TodoStatus::Todo, labels: vec![], worktrees: vec![], sessions: vec![], created_at: 0, updated_at: 0, done_at: None, pending: vec![], depends_on: vec![], waiting: None };
+        let t = |id: &str, title: &str, description: &str| Todo { id: id.into(), project: String::new(), title: title.into(), description: description.into(), status: TodoStatus::Todo, labels: vec![], worktrees: vec![], sessions: vec![], created_at: 0, updated_at: 0, done_at: None, pending: vec![], depends_on: vec![], waiting: None, due: None };
         let (a, b, c) = (t("t-a", " Fix the header ", "\nIt wraps.\n"), t("t-b", "Add a logout button", ""), t("t-c", "", "No title."));
         // The same text as `todosPrompt`'s test in src/todos.test.ts.
         let footer = "When the work on one is merged or I say it's done, mark it done with `codealong todo done <id>`.";
@@ -3176,7 +3225,7 @@ mod tests {
 
     fn todo(id: &str, status: TodoStatus, sessions: &[&str], worktrees: &[&str]) -> Todo {
         let strings = |xs: &[&str]| xs.iter().map(|x| x.to_string()).collect();
-        Todo { id: id.into(), project: String::new(), title: id.to_uppercase(), description: String::new(), status, labels: vec![], worktrees: strings(worktrees), sessions: strings(sessions), created_at: 0, updated_at: 0, done_at: None, pending: vec![], depends_on: vec![], waiting: None }
+        Todo { id: id.into(), project: String::new(), title: id.to_uppercase(), description: String::new(), status, labels: vec![], worktrees: strings(worktrees), sessions: strings(sessions), created_at: 0, updated_at: 0, done_at: None, pending: vec![], depends_on: vec![], waiting: None, due: None }
     }
 
     /// The main checkout, where this session and another live one work, and a worktree of its

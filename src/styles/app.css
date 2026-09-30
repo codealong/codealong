@@ -3762,6 +3762,66 @@ html.is-peek body {
   font: 400 11px/14px var(--font-sans);
   color: var(--ink-3);
 }
+/* When a todo is due, on its row: red once the day has passed, amber on the day, muted before. */
+.ca-chip.ca-duechip {
+  gap: 3px;
+  font-family: var(--font-sans);
+  color: var(--ink-3);
+}
+.ca-chip.ca-duechip.is-soon {
+  color: var(--ink-2);
+}
+.ca-chip.ca-duechip.is-today {
+  color: var(--attn);
+  background: var(--attn-tint);
+}
+.ca-chip.ca-duechip.is-overdue {
+  color: var(--alert);
+  background: var(--alert-tint);
+}
+/* The due date in the panel: the date opens the picker, the x takes it off. */
+.ca-labelchip.ca-duenote > .ca-duenote-show {
+  gap: 5px;
+  align-items: center;
+  margin: 0;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+}
+.ca-labelchip.ca-duenote > .ca-duenote-show:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+.ca-duenote > .ca-duenote-show .ca-icon {
+  color: var(--ink-3);
+}
+.ca-labelchip.ca-duenote.is-today {
+  color: var(--attn);
+  background: var(--attn-tint);
+}
+.ca-labelchip.ca-duenote.is-overdue {
+  color: var(--alert);
+  background: var(--alert-tint);
+}
+.ca-duenote.is-today > .ca-duenote-show .ca-icon,
+.ca-duenote.is-overdue > .ca-duenote-show .ca-icon {
+  color: inherit;
+}
+.ca-menu.ca-duepick {
+  min-width: 260px;
+}
+.ca-duepick-day {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.ca-duepick-day .ca-labelpick-input {
+  flex: 1;
+  min-width: 0;
+  margin-bottom: 0;
+  font-variant-numeric: tabular-nums;
+}
 /* The new-session sheet's note when its todo waits on one that isn't done. */
 .ca-start-blocked {
   display: flex;
@@ -5122,6 +5182,16 @@ html.is-quick body {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.ca-cv-due {
+  flex: none;
+  white-space: nowrap;
+}
+.ca-cv-due.is-today {
+  color: var(--attn);
+}
+.ca-cv-due.is-overdue {
+  color: var(--alert);
 }
 .ca-cv-l2 .ca-branch {
   flex: 1;

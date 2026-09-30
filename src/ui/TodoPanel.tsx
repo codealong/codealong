@@ -1,6 +1,6 @@
-// A todo in the right panel: its title, status and labels, what it waits on (other todos, and
-// what it's marked as waiting for), the description with its screenshots, and the worktrees and
-// sessions it's linked to, drawn like the sidebar's tree.
+// A todo in the right panel: its title, status and labels, when it's due, what it waits on (other
+// todos, and what it's marked as waiting for), the description with its screenshots, and the
+// worktrees and sessions it's linked to, drawn like the sidebar's tree.
 // Everything saves as you go. Start session opens the new-session sheet with the todo as the
 // prompt, and the session it starts is linked to the todo.
 // With `[jev] todos` on, Jev's suggestions for its project, labels and what it waits on show as
@@ -11,6 +11,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { suggestTodo } from '../api';
 import { below } from '../contextMenu';
+import { dayKey, dueChoices, dueDate, dueWords } from '../due';
 import { absolute, ago, middleTruncate } from '../format';
 import { blockedBy, cantWaitOn, dependents, depsOf, newId, nextColor, SECTION_WORD, sectionOf, STATUSES, STATUS_WORD, todoSuggestions, waitsOnTodos, worthSuggesting, type TodoItem, type TodoOp, type TodoPlace } from '../todos';
 import type { Label, Lane, Session, Todo, TodoHint, TodoSuggested } from '../types';
@@ -313,6 +314,71 @@ function WaitPicker({ todo, todos, onPick, onWaitFor, onClose }: { todo: Todo; t
   );
 }
 
+/** Pick the day a todo is due: today, tomorrow, the coming Friday or Monday, or any day in the
+ *  date field, which takes the keyboard (⏎ sets it). */
+function DuePicker({ due, now, onPick, onClose }: { due: string | null; now: number; onPick: (due: string | null) => void; onClose: () => void }) {
+  const [day, setDay] = useState(due ?? dayKey(now));
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      if (!ref.current?.parentElement?.contains(e.target as Node)) onClose();
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [onClose]);
+  const pick = (d: string | null) => {
+    onPick(d);
+    onClose();
+  };
+  return (
+    <div className="ca-menu ca-labelpick ca-duepick" ref={ref} role="dialog" aria-label="Due date">
+      <form
+        className="ca-duepick-day"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (dueDate(day)) pick(day);
+        }}
+      >
+        <input
+          type="date"
+          className="ca-labelpick-input"
+          aria-label="Due on"
+          value={day}
+          autoFocus
+          onChange={(e) => setDay(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              e.preventDefault();
+              e.stopPropagation();
+              onClose();
+            }
+          }}
+        />
+        <Button type="submit" size="sm" variant="primary" disabled={!dueDate(day) || day === due}>
+          Set
+        </Button>
+      </form>
+      <div className="ca-labelpick-list">
+        {dueChoices(now).map((c) => (
+          <button key={c.due} type="button" role="menuitemradio" aria-checked={due === c.due} className="ca-menu-item" onClick={() => pick(c.due)}>
+            <span className="ca-labelpick-check">{due === c.due && <Icon name="check" size={14} stroke={2} />}</span>
+            <span className="ca-menu-label">{c.label}</span>
+            <span className="ca-waitpick-note">{dueDate(c.due)?.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</span>
+          </button>
+        ))}
+        {due && (
+          <button type="button" className="ca-menu-item" onClick={() => pick(null)}>
+            <span className="ca-labelpick-check">
+              <Icon name="x" size={12} stroke={2} />
+            </span>
+            <span className="ca-menu-label">Remove due date</span>
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /** Another todo, as the Waits on and Needed by lines show it. Click it to show it. */
 function TodoRef({ todo, onShow, onRemove }: { todo: Todo; onShow: (t: Todo) => void; onRemove?: () => void }) {
   const title = todo.title || 'Untitled';
@@ -396,13 +462,24 @@ interface TodoPanelProps {
   suggest?: boolean;
   /** The projects a todo can be in. */
   projects?: string[];
+  /** Open the due date's picker, as Pick a date… in its menu and D in the list ask. */
+  pickDue?: boolean;
+  /** The picker opened for `pickDue`. */
+  onPickDue?: () => void;
 }
 
-export function TodoPanel({ item, todos, onShowTodo, labels, lanes, now, onRun, onStart, onShowSession, onOpenSession, onShowLane, onLaneMenu, onSessionMenu, onLinkMenu, onMoreMenu, onLabelMenu, onError, hint, onDismissHint, suggest = false, projects = [] }: TodoPanelProps) {
+export function TodoPanel({ item, todos, onShowTodo, labels, lanes, now, onRun, onStart, onShowSession, onOpenSession, onShowLane, onLaneMenu, onSessionMenu, onLinkMenu, onMoreMenu, onLabelMenu, onError, hint, onDismissHint, suggest = false, projects = [], pickDue = false, onPickDue }: TodoPanelProps) {
   const { todo } = item;
   const section = sectionOf(todo, todos);
   const [picking, setPicking] = useState(false);
   const [pickingWait, setPickingWait] = useState(false);
+  const [pickingDue, setPickingDue] = useState(false);
+  useEffect(() => {
+    if (!pickDue) return;
+    setPickingDue(true);
+    onPickDue?.();
+  }, [pickDue, onPickDue]);
+  const due = todo.due ? dueWords(todo.due, now) : null;
   const waitsOn = waitsOnTodos(todo, todos);
   const neededBy = dependents(todo, todos);
   const setDeps = (dependsOn: string[]) => update({ dependsOn });
@@ -502,6 +579,31 @@ export function TodoPanel({ item, todos, onShowTodo, labels, lanes, now, onRun, 
                 onClose={() => setPicking(false)}
               />
             )}
+          </span>
+        </div>
+      </section>
+
+      <section className="ca-insp-sec">
+        <h4 className="ca-label">Due</h4>
+        <div className="ca-todoinsp-labels">
+          <span className="ca-labelpick-anchor ca-duepick-anchor">
+            {due ? (
+              <span className={['ca-labelchip', 'ca-duenote', todo.status !== 'done' && `is-${due.tone}`].filter(Boolean).join(' ')}>
+                <button type="button" className="ca-duenote-show" aria-expanded={pickingDue} title="Change the due date (D)" onClick={() => setPickingDue(!pickingDue)}>
+                  <Icon name="calendar" size={12} />
+                  <span>{due.long}</span>
+                </button>
+                <button type="button" aria-label="Remove the due date" title="Remove the due date" onClick={() => update({ due: null })}>
+                  <Icon name="x" size={10} stroke={2.25} />
+                </button>
+              </span>
+            ) : (
+              <button type="button" className="ca-labelchip ca-labelchip--add" aria-expanded={pickingDue} title="Add a due date (D)" onClick={() => setPickingDue(!pickingDue)}>
+                <Icon name="calendar" size={12} />
+                <span>Add due date</span>
+              </button>
+            )}
+            {pickingDue && <DuePicker due={todo.due ?? null} now={now} onPick={(d) => update({ due: d })} onClose={() => setPickingDue(false)} />}
           </span>
         </div>
       </section>

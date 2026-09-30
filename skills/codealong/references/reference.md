@@ -252,6 +252,10 @@ Options:
           Only todos under Waiting: marked as waiting, or not started and waiting on a
           todo that isn't done
 
+      --due-by <WHEN>
+          Only todos due by this day, overdue ones included: a date (2026-10-03), today,
+          tomorrow, a weekday, next week, or 3d / 2w from today
+
   -h, --help
           Print help
 ```
@@ -332,6 +336,10 @@ Options:
           Mark it as waiting from the start, on this: a person's answer, a release, a
           date
 
+      --due <WHEN>
+          The day it's due: a date (2026-10-03), today, tomorrow, a weekday (the next
+          one), next week, or 3d / 2w from today
+
   -h, --help
           Print help
 ```
@@ -386,6 +394,13 @@ Options:
 
       --remove-dependency <ID>
           Stop waiting on a todo. Repeatable
+
+      --due <WHEN>
+          The day it's due: a date (2026-10-03), today, tomorrow, a weekday (the next
+          one), next week, or 3d / 2w from today
+
+      --no-due
+          Take its due date off
 
   -h, --help
           Print help

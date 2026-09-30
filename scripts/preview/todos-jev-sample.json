@@ -36,7 +36,8 @@
       ],
       "sessions": [
         "$session:0"
-      ]
+      ],
+      "dueIn": -2
     },
     {
       "id": "t-sample2",
@@ -48,7 +49,8 @@
       ],
       "sessions": [
         "$session:3"
-      ]
+      ],
+      "dueIn": 0
     },
     {
       "id": "t-sample8",
@@ -74,7 +76,8 @@
       ],
       "dependsOn": [
         "t-sample2"
-      ]
+      ],
+      "dueIn": 12
     },
     {
       "id": "t-sample4",
@@ -87,7 +90,8 @@
       ],
       "dependsOn": [
         "t-sample6"
-      ]
+      ],
+      "dueIn": 1
     },
     {
       "id": "t-sample7",
@@ -99,7 +103,8 @@
       "waiting": {
         "note": "Sam's review of the copy",
         "sinceAgo": 2880
-      }
+      },
+      "dueIn": 3
     },
     {
       "id": "t-sample5",
@@ -119,7 +124,8 @@
       ],
       "sessions": [
         "$session:5"
-      ]
+      ],
+      "dueIn": -5
     }
   ],
   "jev": {

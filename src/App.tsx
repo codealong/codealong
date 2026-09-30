@@ -13,6 +13,7 @@ import { below, showContextMenu, type MenuAction, type MenuSpec } from './contex
 import { useEditorIcons } from './editors';
 import { AGENT_BAY, buildBays, filterByAge, homeOf, inboxCounts, liveOrLatest, narrowed, prNeedsWork, rowItems, seenable, sessionPrs, worktreeRow, sessionHomes, type BoardRow, type Filter, type WorktreeRow } from './lanes';
 import { answerLink, approvePr, barMode, getDevices, onDevices, dismissTodoHint, expandAttachments, getBoard, onBarMode, onBoard, onCloseIdle, onNewWindow, onQuickStart, onReveal, onSettings, onCheckUpdates, openConfig, openProjectWindow, openUrl, refresh, refreshUsage, reviewInCodex, setBarMode, startOptions, startSession, setPinned, setPinnedWorktrees, setTheme, showQuick, signIn, windowLabel, type BarMode, type Reveal } from './api';
+import { dueChoices } from './due';
 import { middleTruncate } from './format';
 import * as menus from './menus';
 import { prRefOf } from './prLinks';
@@ -621,6 +622,9 @@ export function App() {
   const todoStore = useTodoStore(board, setToast);
   const runTodo = todoStore.run;
   const [showDoneTodos, setShowDoneTodos] = useState(false);
+  // The todo whose panel should open its due date's picker, for Pick a date… and D.
+  const [duePick, setDuePick] = useState<string | null>(null);
+  const duePicked = useCallback(() => setDuePick(null), []);
   const [labelFilter, setLabelFilter] = useState<string | null>(null);
   // Todos picked together with the selected one (⌘-click, ⇧-click, ⇧↑ ⇧↓), to start in one
   // session.
@@ -1085,6 +1089,28 @@ export function App() {
       run: () => runTodo({ op: 'update', id: t.id, patch: { labels: t.labels.includes(l.id) ? t.labels.filter((x) => x !== l.id) : [...t.labels, l.id] } }),
     }));
 
+  /** The Due date submenu: the days `dueChoices` offers, any day in the panel's picker (for one
+   *  todo), and taking it off. A day is checked when every todo is due then. */
+  const dueItems = (ts: Todo[]): MenuSpec => {
+    const set = (due: string | null) => ts.forEach((t) => runTodo({ op: 'update', id: t.id, patch: { due } }));
+    const same = ts.every((t) => t.due === ts[0].due) ? ts[0].due : null;
+    return [
+      ...dueChoices(Date.now()).map((c) => ({ label: c.label, checked: same === c.due, run: () => set(c.due) })),
+      ...(ts.length === 1
+        ? [
+            {
+              label: 'Pick a date…',
+              run: () => {
+                showTodo(ts[0]);
+                setDuePick(ts[0].id);
+              },
+            },
+          ]
+        : []),
+      ...(ts.some((t) => t.due) ? ['separator' as const, { label: ts.length === 1 ? 'Remove due date' : 'Remove due dates', run: () => set(null) }] : []),
+    ];
+  };
+
   /** The projects a todo can be in: every one but Elsewhere. */
   const todoProjects = useMemo(() => projects.filter((p) => p.name !== ELSEWHERE).map((p) => p.name), [projects]);
 
@@ -1114,6 +1140,7 @@ export function App() {
         ...STATUSES.map((st) => ({ label: STATUS_WORD[st], checked: t.status === st, run: () => setTodoStatus(t, st) })),
         ...waitingItem([t]),
         'separator',
+        { label: 'Due date', items: dueItems([t]) },
         { label: 'Labels', items: labelItems(t) },
         { label: 'Move to project', items: projectItems(t) },
       ],
@@ -1132,6 +1159,7 @@ export function App() {
       'separator',
       ...STATUSES.map((st) => ({ label: STATUS_WORD[st], checked: ts.every((t) => t.status === st), run: () => ts.forEach((t) => setTodoStatus(t, st)) })),
       ...waitingItem(ts),
+      { label: 'Due date', items: dueItems(ts) },
       'separator',
       { label: 'Copy as prompt', run: () => copyPrompt(ts) },
       { label: 'Copy todo IDs', run: () => copy(ts.map((t) => t.id).join(' '), 'todo IDs') },
@@ -1410,8 +1438,8 @@ export function App() {
   useEffect(() => onReveal((r) => reveal.current(r)), []);
 
   // The Todo view's own keys, bound fresh each render so they see the rows as they are. N adds a
-  // todo, X marks one done (or reopens it), W moves it to Waiting or out, Delete deletes it,
-  // ⌃⌘↑ ⌃⌘↓ move it. ⇧↑ ⇧↓ pick the rows above or below too; then X, W and Delete act on all of
+  // todo, X marks one done (or reopens it), W moves it to Waiting or out, D picks its due date,
+  // Delete deletes it, ⌃⌘↑ ⌃⌘↓ move it. ⇧↑ ⇧↓ pick the rows above or below too; then X, W and Delete act on all of
   // them, Return starts one session for them, and Escape goes back to one.
   const todoKeys = useRef<(e: KeyboardEvent, key: string) => boolean>(() => false);
   todoKeys.current = (e, key) => {
@@ -1459,6 +1487,11 @@ export function App() {
     }
     if (key === 'w' && !e.altKey) {
       toggleWaiting(ts);
+      return true;
+    }
+    if (key === 'd' && !e.altKey && pickedRows.length === 0) {
+      e.preventDefault();
+      setDuePick(t.id);
       return true;
     }
     // Only from the list: a button in the panel keeps the keyboard's other uses.
@@ -1838,6 +1871,8 @@ export function App() {
       onDismissHint={() => void dismissTodoHint(item.todo.id)}
       suggest={!!board?.jev?.todos}
       projects={todoProjects}
+      pickDue={duePick === item.todo.id}
+      onPickDue={duePicked}
     />
   );
   /** Several todos picked together: one session for all of them. */

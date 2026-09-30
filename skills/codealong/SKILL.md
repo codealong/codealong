@@ -56,6 +56,12 @@ done` say on stderr that no session was linked; give a session key when you want
   todo wait <id> --for "<what>"` (or `todo add … --wait-for "<what>"`). It shows under
   Waiting, with `waiting` in the JSON, until `codealong todo ready <id>`, a start, or done.
   Say it's ready only when the thing it waited for has happened or the user says so.
+- **Due dates.** When the user says when something is due, give the todo that day: `todo add
+  … --due <when>` or `todo update <id> --due <when>` (`--no-due` takes it off). `<when>` is a
+  date (`2026-10-03`), `today`, `tomorrow`, a weekday (the next one after today), `next week`,
+  or `3d` / `2w` from today. The JSON has `due` and `dueInDays` (below 0 once it's past);
+  `todo list --due-by friday` lists what's due by then, overdue included. A due date doesn't
+  reorder the list or change a status: the order is still the user's.
 - Ids look like `t-mug4eym1sir0an`; a unique prefix is enough.
 
 ## Sessions and worktrees

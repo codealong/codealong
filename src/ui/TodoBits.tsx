@@ -1,9 +1,11 @@
 // Small pieces for todos: the status box, the chip a session or worktree shows for its todo,
-// and label chips. A todo's box is square, so it never reads as a session's round status glyph;
-// a waiting todo's box is dashed.
+// label chips and the due date's chip. A todo's box is square, so it never reads as a session's
+// round status glyph; a waiting todo's box is dashed.
 
+import { dueWords } from '../due';
 import type { Label, Todo, TodoStatus } from '../types';
 import { STATUS_WORD } from '../todos';
+import { Icon } from './primitives';
 
 export function TodoGlyph({ status, waiting = false, size = 12, title }: { status: TodoStatus; waiting?: boolean; size?: number; title?: string }) {
   const word = waiting ? (status === 'in-progress' ? 'In progress, waiting' : 'Waiting') : STATUS_WORD[status];
@@ -90,5 +92,18 @@ export function TodoChips({ todos, onShow }: { todos: Todo[] | undefined; onShow
         </span>
       )}
     </>
+  );
+}
+
+/** When an open todo is due: red once the day has passed, amber on the day. A done todo's date
+ *  isn't shown: it no longer asks anything of you. */
+export function DueChip({ todo, now, className }: { todo: Todo; now: number; className?: string }) {
+  const said = todo.due && todo.status !== 'done' ? dueWords(todo.due, now) : null;
+  if (!said) return null;
+  return (
+    <span className={['ca-chip', 'ca-duechip', `is-${said.tone}`, className].filter(Boolean).join(' ')} title={`Due ${said.long}`}>
+      <Icon name="calendar" size={12} />
+      {said.text}
+    </span>
   );
 }

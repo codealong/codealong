@@ -689,6 +689,8 @@ export interface Todo {
   dependsOn: string[];
   /** Marked as waiting, on something outside the list. Missing or null when it isn't. */
   waiting?: Waiting | null;
+  /** The day it's due, as `2026-10-03` (src/due.ts). Missing or null when it has none. */
+  due?: string | null;
 }
 
 /** Light, dark, or following macOS. */
@@ -911,6 +913,8 @@ export interface BarTodo {
   project: string;
   /** The worktree a session for it starts in, when it has one. */
   callsign: string | null;
+  /** The day it's due, as `2026-10-03`. Missing on older feeds. */
+  due?: string | null;
 }
 
 /** A session, worktree or todo pinned to the desktop (desktop.rs), by its session key, lane id or
