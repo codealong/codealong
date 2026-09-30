@@ -309,6 +309,23 @@ Claude Code
   line: it's written when the turn takes it in, as a `type: "attachment"` line whose
   `attachment` is `{type: "queued_command", prompt}` (background tasks' notifications come the
   same way, as `<task-notification>…`).
+- Escape before the agent has written anything back, with the input box empty, doesn't
+  interrupt the turn (2.1.285's `auto_restore_cancel`, checked in tmux 2026-09-29): it winds the
+  conversation back to before the prompt and puts the prompt's text back in the input box. The
+  agent never sees it, and nothing in the transcript says so: the prompt and its attachments
+  stay, the registry goes idle, and the next line written has the line before the prompt as its
+  `parentUuid` (after a session's first prompt, with nothing before it, the next prompt goes on
+  from the prompt's last attachment instead). With text in the box, Escape interrupts as it
+  does later, and writes `[Request interrupted by user]`. `claude.rs` marks such a prompt
+  `withdrawn` (`fate_of`).
+- Clearing the input box from outside (2.1.285, in tmux): Ctrl+C with text there clears it, and
+  the text goes to the prompt history; in an empty box it only says to press it again to exit,
+  which a second within the next second does. Ctrl+L is bound to `chat:clearInput` but runs the
+  clear-screen handler and leaves the text; Esc Esc clears it but opens the rewind list in an
+  empty box. A key and a paste that arrive in one read are taken as one paste, control
+  characters and all (`^L^[[200~…`), so a key goes a moment before the paste. Typed into a box
+  holding a prompt Claude Code put back, a prompt is added to it and both go as one, so
+  send.rs presses Ctrl+C first then, while the session is idle.
 - Another session's message (checked on 2.1.28x) is a `user` line marked `isMeta` when it starts
   a turn, or a `queued_command` attachment when a busy turn takes it in, either with `origin:
   {kind: "peer", name, body}`: `name` is the envelope's `from-name` (older lines put it in

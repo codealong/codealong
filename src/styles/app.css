@@ -5840,6 +5840,11 @@ html.is-quick body {
 .ca-thread-said.is-unconfirmed .ca-thread-meta .ca-meta {
   color: var(--attn);
 }
+/* A prompt the session took back before its agent saw it (claude.rs): faint, and marked. */
+.ca-thread-said.is-withdrawn .ca-thread-you {
+  opacity: 0.6;
+  box-shadow: inset 2px 0 0 var(--line-strong);
+}
 
 /* The message box at the bottom of a session's panel. */
 .ca-composer {

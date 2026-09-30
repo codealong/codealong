@@ -8,10 +8,15 @@
 // A message you sent shows at the end as it goes (ahead.ts): sending, then sent, until the
 // session's record has it and it shows from there. One that went but that the session shows no
 // sign of taking, well after, says so, with a way to open the session and look.
+//
+// A prompt the session took back before its agent saw it (Claude Code does when a turn is
+// stopped before any reply, claude.rs) stays in view, faint, saying so. Claude Code puts it back
+// in its own input box, and the latest one goes back in the box below too, once.
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { delivered, dismiss, inRecord, useAhead, type Ahead } from '../ahead';
 import { onHostedStream, sessionNewer, sessionPage, sessionStream } from '../api';
+import { putBack } from '../drafts';
 import { absolute, agoPhrase } from '../format';
 import type { HostedStream, Session, Status, TranscriptItem } from '../types';
 import { CodeBlock } from './CopyButton';
@@ -129,16 +134,27 @@ function ToolRun({ calls, stateOf, onOpen }: { calls: { item: TranscriptItem; re
   );
 }
 
-function Said({ item, now, label }: { item: TranscriptItem; now: number; label: ReactNode }) {
+function Said({ item, now, label, onPutBack }: { item: TranscriptItem; now: number; label: ReactNode; onPutBack?: () => void }) {
   return (
-    <div className={`ca-thread-said is-${item.kind}`}>
+    <div className={['ca-thread-said', `is-${item.kind}`, item.withdrawn && 'is-withdrawn'].filter(Boolean).join(' ')}>
       <div className="ca-thread-meta">
         <span>{label}</span>
         <span className="ca-meta" title={absolute(item.at)}>
-          {agoPhrase(item.at, now)}
+          {item.withdrawn ? `Taken back · ${agoPhrase(item.at, now)}` : agoPhrase(item.at, now)}
         </span>
       </div>
       {item.kind === 'you' ? <YourText text={item.text} /> : <Markdown text={item.text} className="ca-thread-agent" />}
+      {item.withdrawn && (
+        <div className="ca-thread-askrow">
+          <span>The turn was stopped before a reply, so the agent never saw this.</span>
+          {onPutBack && (
+            <button type="button" className="ca-btn ca-btn--secondary ca-btn--sm" onClick={onPutBack}>
+              <Icon name="arrow-back-up" size={13} />
+              <span>Put back in the box</span>
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -332,6 +348,12 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
     if (el && showing.length > shownSends.current) el.scrollTop = el.scrollHeight;
     shownSends.current = showing.length;
   }, [showing.length]);
+  // The latest prompt the session took back goes back in the box below, as Claude Code puts it
+  // back in its own, while nothing came after it and nothing of yours is on its way.
+  const lastItem = items[items.length - 1];
+  useEffect(() => {
+    if (answeredBelow && lastItem?.kind === 'you' && lastItem.withdrawn && showing.length === 0) putBack(s.key, keyOf(lastItem), lastItem.text);
+  }, [answeredBelow, lastItem, showing.length, s.key]);
   // The last call with no answer yet is what's running, or what the session waits on you for.
   const pending = useMemo(() => {
     const answered = new Set(items.filter((it) => it.kind === 'result' && it.id).map((it) => it.id));
@@ -371,7 +393,8 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
               </div>
             );
           }
-          return <Said key={keyOf(it)} item={it} now={now} label={it.kind === 'you' ? 'You' : s.account} />;
+          const again = it.withdrawn && answeredBelow ? () => putBack(s.key, keyOf(it), it.text, true) : undefined;
+          return <Said key={keyOf(it)} item={it} now={now} label={it.kind === 'you' ? 'You' : s.account} onPutBack={again} />;
         })}
         {showing.map((a) => (
           <Unsaid key={a.id} ahead={a} onOpen={onOpen} />

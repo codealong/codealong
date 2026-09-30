@@ -6,6 +6,11 @@
 /** Each session's draft is its own item, so windows writing drafts for different sessions never
  *  write over each other's. */
 const PREFIX = 'codealong.draft.';
+/** The last prompt put back in a session's box, so each goes back once: a box you cleared of it
+ *  stays clear. */
+const PUT_BACK = 'codealong.putback.';
+/** Tells this window's boxes that a prompt was put back; other windows hear `storage`. */
+const HERE = 'codealong-draft';
 /** A draft nobody has touched for this long is dropped: its session has most likely ended. */
 const KEEP_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -76,13 +81,40 @@ export function writeDraft(key: string, text: string, store: DraftStorage | null
   else unstored.delete(key);
 }
 
-/** Drops drafts left alone for a month. */
+/** A prompt the session took back before its agent saw it, put back in its box as Claude Code
+ *  puts it back in its own (claude.rs): once for each prompt (`id` names it), and only when the
+ *  box is empty, unless you asked for it (`asked`), which adds it after what's there. Says
+ *  whether it put it there. */
+export function putBack(key: string, id: string, text: string, asked = false, store: DraftStorage | null = storage(), now = Date.now()): boolean {
+  if (!asked && store) {
+    try {
+      if (parse(store.getItem(PUT_BACK + key))?.text === id) return false;
+      store.setItem(PUT_BACK + key, JSON.stringify({ text: id, at: now } satisfies Stored));
+    } catch {
+      // Without storage it may come back once more, in another window.
+    }
+  }
+  const draft = readDraft(key, store);
+  const tell = (t: string) => typeof window !== 'undefined' && window.dispatchEvent(new CustomEvent(HERE, { detail: { key, text: t, focus: asked } }));
+  if (draft.includes(text)) {
+    // Asked for when it's there already, the box takes the cursor.
+    if (asked) tell(draft);
+    return false;
+  }
+  if (draft.trim() && !asked) return false;
+  const next = draft.trim() ? `${draft.trimEnd()}\n\n${text}` : text;
+  writeDraft(key, next, store, now);
+  tell(next);
+  return true;
+}
+
+/** Drops drafts, and notes of prompts put back, left alone for a month. */
 export function pruneDrafts(store: DraftStorage, now = Date.now()): void {
   try {
     const stale: string[] = [];
     for (let i = 0; i < store.length; i++) {
       const k = store.key(i);
-      if (!k?.startsWith(PREFIX)) continue;
+      if (!k?.startsWith(PREFIX) && !k?.startsWith(PUT_BACK)) continue;
       const v = parse(store.getItem(k));
       if (!v || now - v.at > KEEP_MS) stale.push(k);
     }
@@ -100,12 +132,21 @@ export function draftChange(key: string, e: { key: string | null; newValue: stri
   return parse(e.newValue)?.text ?? '';
 }
 
-/** Calls `cb` with a session's draft when another window changes it: adds to it, or sends it. */
-export function onDraftChange(key: string, cb: (text: string) => void): () => void {
+/** Calls `cb` with a session's draft when another window changes it (adds to it, or sends it),
+ *  or a prompt is put back in it. `focus`: you asked for it here, so the box takes the cursor. */
+export function onDraftChange(key: string, cb: (text: string, focus: boolean) => void): () => void {
   const listener = (e: StorageEvent) => {
     const text = draftChange(key, e);
-    if (text !== null) cb(text);
+    if (text !== null) cb(text, false);
+  };
+  const here = (e: Event) => {
+    const d = (e as CustomEvent<{ key: string; text: string; focus: boolean }>).detail;
+    if (d.key === key) cb(d.text, d.focus);
   };
   window.addEventListener('storage', listener);
-  return () => window.removeEventListener('storage', listener);
+  window.addEventListener(HERE, here);
+  return () => {
+    window.removeEventListener('storage', listener);
+    window.removeEventListener(HERE, here);
+  };
 }

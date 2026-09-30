@@ -53,7 +53,10 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     and what you'd written to a session and not sent stays with that session until you send
     it, in every window (the panel, the floating bar's peek, the quick panel) and across
     restarts. A session whose last reply asks you something (Jev's read) takes your answer there
-    like any message. When a session waits on you to allow a tool call, the call shows above the
+    like any message. A Claude Code turn stopped before any reply takes its prompt back, so the
+    agent never sees it: the panel shows that prompt faint, marked "Taken back", and puts it back
+    in the box, as Claude Code does in its own. The next message Codealong types into that
+    terminal clears Claude Code's copy first (not in Terminal, which can't press a single key). When a session waits on you to allow a tool call, the call shows above the
     box with Allow and Deny: OpenCode's are answered through its service, Claude
     Code's through the Codealong plugin's `PermissionRequest` hook when the account has the
     plugin (wherever the session runs: any terminal, the Claude app), with Always too where

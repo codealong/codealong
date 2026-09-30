@@ -960,6 +960,9 @@ export interface TranscriptItem {
   shell?: boolean;
   /** The folder a shell command ran in, when its record says. */
   cwd?: string;
+  /** A prompt of yours the session took back before its agent saw it: Claude Code does that when
+   *  a turn is stopped before any reply. */
+  withdrawn?: boolean;
   /** Where its line starts (or its message number in OpenCode); with `n`, unique in the session. */
   cursor: number;
   n: number;

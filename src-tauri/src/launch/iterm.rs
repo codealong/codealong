@@ -294,6 +294,7 @@ pub fn press(tty: &str, key: Key) -> Result<()> {
     let chars = match key {
         Key::Digit1 => "1",
         Key::Escape => "\x1b",
+        Key::CtrlC => "\x03",
     };
     osascript(&with_session_on(PRESS), &[tty, chars]).map(|_| ())
 }

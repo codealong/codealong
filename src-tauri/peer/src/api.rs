@@ -66,6 +66,10 @@ pub struct Item {
     pub output: Option<String>,
     #[serde(default)]
     pub failed: bool,
+    /// A prompt of yours the session took back before its agent answered, so the agent never
+    /// saw it (Claude Code, when a turn is stopped before any reply).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub withdrawn: bool,
     /// Where its line starts in the record (or its message number); with `n`, unique in the session.
     pub cursor: u64,
     pub n: u32,
@@ -308,8 +312,8 @@ mod tests {
     fn a_page_reads_back_what_it_wrote() {
         let page = Page {
             items: vec![
-                Item { at: 1, kind: "you".into(), text: "Fix the build".into(), id: None, input: None, output: None, failed: false, cursor: 0, n: 0 },
-                Item { at: 2, kind: "tool".into(), text: "Bash · `cargo test`".into(), id: Some("t1".into()), input: Some("cargo test".into()), output: Some("ok".into()), failed: false, cursor: 120, n: 1 },
+                Item { at: 1, kind: "you".into(), text: "Fix the build".into(), id: None, input: None, output: None, failed: false, withdrawn: false, cursor: 0, n: 0 },
+                Item { at: 2, kind: "tool".into(), text: "Bash · `cargo test`".into(), id: Some("t1".into()), input: Some("cargo test".into()), output: Some("ok".into()), failed: false, withdrawn: false, cursor: 120, n: 1 },
             ],
             before: Some(0),
             after: 400,

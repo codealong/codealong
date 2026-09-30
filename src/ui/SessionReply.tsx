@@ -112,12 +112,17 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
     writeDraft(s.key, t);
   };
 
-  // Another window wrote to this session too, or sent what was written.
+  // Another window wrote to this session too, or sent what was written, or a prompt the session
+  // took back was put back here.
   useEffect(
     () =>
-      onDraftChange(s.key, (t) => {
+      onDraftChange(s.key, (t, focus) => {
         setTextNow(t);
         latest.current = t;
+        const el = box.current;
+        if (!focus || !el) return;
+        el.focus();
+        window.requestAnimationFrame(() => el.setSelectionRange(t.length, t.length));
       }),
     [s.key],
   );

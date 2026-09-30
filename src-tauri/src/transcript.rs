@@ -52,6 +52,10 @@ pub struct Item {
     /// The folder a shell command ran in, when its record says.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cwd: Option<String>,
+    /// A prompt of yours the session took back before its agent answered, so the agent never
+    /// saw it: Claude Code does that when a turn is stopped before any reply (claude.rs).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub withdrawn: bool,
     /// Where its line starts (or its message number); with `n`, unique in the session.
     pub cursor: u64,
     pub n: u32,
@@ -195,7 +199,7 @@ fn items_of(line: &[u8], parse: Parse, cursor: u64) -> Vec<Item> {
 }
 
 pub fn item(at: i64, kind: &'static str, text: impl Into<String>) -> Item {
-    Item { at, kind, text: text.into(), id: None, input: None, output: None, failed: false, shell: false, cwd: None, cursor: 0, n: 0 }
+    Item { at, kind, text: text.into(), id: None, input: None, output: None, failed: false, shell: false, cwd: None, withdrawn: false, cursor: 0, n: 0 }
 }
 
 /// The tool calls among `items` that have no result yet, oldest first, for records that keep a
@@ -251,8 +255,8 @@ mod tests {
     /// A page goes to other devices as it is; the phone app reads it with codealong-peer's `Page`.
     #[test]
     fn pages_read_back_on_other_devices() {
-        let item = |kind: &'static str, id: Option<&str>, output: Option<&str>| Item { at: 7, kind, text: format!("{kind} text"), id: id.map(String::from), input: output.map(|_| "cargo test".to_string()), output: output.map(String::from), failed: kind == "result", shell: false, cwd: None, cursor: 40, n: 2 };
-        let page = Page { items: vec![item("you", None, None), item("agent", None, None), item("tool", Some("t1"), None), item("result", Some("t1"), Some("ok")), item("note", None, None)], before: Some(12), after: 900 };
+        let item = |kind: &'static str, id: Option<&str>, output: Option<&str>| Item { at: 7, kind, text: format!("{kind} text"), id: id.map(String::from), input: output.map(|_| "cargo test".to_string()), output: output.map(String::from), failed: kind == "result", shell: false, cwd: None, withdrawn: false, cursor: 40, n: 2 };
+        let page = Page { items: vec![Item { withdrawn: true, ..item("you", None, None) }, item("agent", None, None), item("tool", Some("t1"), None), item("result", Some("t1"), Some("ok")), item("note", None, None)], before: Some(12), after: 900 };
         let theirs: codealong_peer::api::Page = serde_json::from_value(serde_json::to_value(&page).unwrap()).unwrap();
         assert_eq!((theirs.before, theirs.after, theirs.items.len()), (Some(12), 900, 5));
         let r = &theirs.items[3];

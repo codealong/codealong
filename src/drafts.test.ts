@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { draftChange, pruneDrafts, readDraft, writeDraft, type DraftStorage } from './drafts';
+import { draftChange, pruneDrafts, putBack, readDraft, writeDraft, type DraftStorage } from './drafts';
 
 /** Local storage as the app's windows share it, in memory. */
 function memoryStorage(): DraftStorage & { items: Map<string, string> } {
@@ -59,6 +59,28 @@ describe('drafts', () => {
     store.setItem('codealong.bar.project', 'Codealong');
     pruneDrafts(store, now);
     expect([...store.items.keys()].sort()).toEqual(['codealong.bar.project', 'codealong.draft.claude:claude:new']);
+  });
+
+  it('puts a prompt the session took back in an empty box, once', () => {
+    const store = memoryStorage();
+    const key = 'claude:claude:a';
+    expect(putBack(key, '900:0', 'Who is the sponsor?', false, store)).toBe(true);
+    expect(readDraft(key, store)).toBe('Who is the sponsor?');
+    // Cleared, it stays clear: the same prompt doesn't come back by itself.
+    writeDraft(key, '', store);
+    expect(putBack(key, '900:0', 'Who is the sponsor?', false, store)).toBe(false);
+    expect(readDraft(key, store)).toBe('');
+    // What you're writing isn't replaced; asked for, it goes after it.
+    writeDraft(key, 'Something new', store);
+    expect(putBack(key, '1400:0', 'Another question', false, store)).toBe(false);
+    expect(readDraft(key, store)).toBe('Something new');
+    expect(putBack(key, '1400:0', 'Another question', true, store)).toBe(true);
+    expect(readDraft(key, store)).toBe('Something new\n\nAnother question');
+    // Once is enough: it's there already.
+    expect(putBack(key, '1400:0', 'Another question', true, store)).toBe(false);
+    // Its note goes when drafts do.
+    pruneDrafts(store, Date.now() + 31 * DAY);
+    expect(store.items.size).toBe(0);
   });
 
   it('hears another window change a session’s draft', () => {

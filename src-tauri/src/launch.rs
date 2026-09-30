@@ -213,16 +213,21 @@ on run argv
 end run
 "#;
 
-/// `<terminal id> <text>`: pastes the text into that terminal, then presses Return. Ghostty
-/// pastes it bracketed when the program asked for that (Claude Code and Codex do), so a
+/// `<terminal id> <text> [action]`: pastes the text into that terminal, then presses Return.
+/// Ghostty pastes it bracketed when the program asked for that (Claude Code and Codex do), so a
 /// prompt of several lines arrives whole. Return comes a moment later, so the program has
-/// taken the paste as a paste before it sees the key.
+/// taken the paste as a paste before it sees the key. An action given is performed first
+/// (`GHOSTTY_CTRL_C`).
 const GHOSTTY_TYPE: &str = r#"
 on run argv
   set want to item 1 of argv
   set theText to item 2 of argv
   tell application "Ghostty"
     if not (exists terminal id want) then return ""
+    if (count of argv) > 2 then
+      perform action (item 3 of argv) on terminal id want
+      delay 0.2
+    end if
     input text theText to terminal id want
     delay 0.3
     send key "enter" to terminal id want
@@ -230,6 +235,12 @@ on run argv
   return want
 end run
 "#;
+
+/// Ghostty's action that types Ctrl+C: `text:` takes a Zig string literal.
+const GHOSTTY_CTRL_C: &str = "text:\\x03";
+
+/// How long after pressing a key before a paste, so the program reads them apart.
+const CLEAR_WAIT: Duration = Duration::from_millis(200);
 
 /// How long to wait for Ghostty to show a session's marker. It's there within a fraction of a
 /// second normally; on a Mac busy enough to fall seconds behind, a short wait reported tabs as
@@ -612,12 +623,24 @@ pub enum Typed {
 /// tab's TTY), or tmux (by the pane's TTY). An error means typing started and failed, so the
 /// text may be in the terminal already: the apps carry out what they were asked even after
 /// Codealong stopped waiting on them.
-pub fn terminal_type_session(pid: u32, cwd: &Path, text: &str) -> Result<Typed> {
+///
+/// `clear` presses Ctrl+C first, where a single key can be pressed, for an idle Claude Code
+/// whose input box may hold a prompt it took back (claude.rs): with text there it clears the box
+/// and keeps the text in its history; in an empty box it only says to press it again to exit.
+/// Ctrl+L doesn't clear it (2.1.285 binds it to clearing the screen). The key goes a moment
+/// before the paste: arriving together, Claude Code takes both for one paste.
+pub fn terminal_type_session(pid: u32, cwd: &Path, text: &str, clear: bool) -> Result<Typed> {
     let kind = terminal_kind(pid);
     let tty = || tty_of(pid).map(|t| t.to_string_lossy().into_owned());
     match kind {
         Some(HostKind::Tmux) => match tmux_pane_of(pid) {
-            Some(pane) => tmux_type(&pane, text).map(|_| Typed::Into("tmux")),
+            Some(pane) => {
+                if clear {
+                    press_key(&TerminalHost::Tmux(pane.clone()), Key::CtrlC)?;
+                    std::thread::sleep(CLEAR_WAIT);
+                }
+                tmux_type(&pane, text).map(|_| Typed::Into("tmux"))
+            }
             None => Ok(Typed::Nowhere("Codealong couldn't find its tmux pane".into())),
         },
         Some(HostKind::Ghostty) => {
@@ -628,7 +651,8 @@ pub fn terminal_type_session(pid: u32, cwd: &Path, text: &str) -> Result<Typed> 
                 Err(e) if e.is::<NotAllowed>() => return Ok(Typed::Nowhere(not_allowed_why("Ghostty"))),
                 Err(_) => return Ok(Typed::Nowhere("Ghostty didn't answer in time".into())),
             };
-            if osascript(GHOSTTY_TYPE, &[&id, text])?.trim().is_empty() {
+            let first: &[&str] = if clear { &[GHOSTTY_CTRL_C] } else { &[] };
+            if osascript(GHOSTTY_TYPE, &[&[id.as_str(), text], first].concat())?.trim().is_empty() {
                 // Its tab closed between finding it and typing: nothing went in.
                 return Ok(Typed::Nowhere("its Ghostty tab closed".into()));
             }
@@ -637,7 +661,16 @@ pub fn terminal_type_session(pid: u32, cwd: &Path, text: &str) -> Result<Typed> 
         Some(k @ (HostKind::ITerm2 | HostKind::Terminal)) => {
             let name = k.name();
             let Some(tty) = tty() else { return Ok(Typed::Nowhere(format!("Codealong couldn't find its {name} tab"))) };
-            let typed = if k == HostKind::ITerm2 { iterm::type_text(&tty, text) } else { terminal_app::type_text(&tty, text) };
+            let typed = if k == HostKind::ITerm2 {
+                // Terminal can't press a key without Return, so there the box stays as it is.
+                if clear {
+                    iterm::press(&tty, Key::CtrlC)?;
+                    std::thread::sleep(CLEAR_WAIT);
+                }
+                iterm::type_text(&tty, text)
+            } else {
+                terminal_app::type_text(&tty, text)
+            };
             match typed {
                 Ok(true) => Ok(Typed::Into(name)),
                 // The script finds the tab before typing, so a missing one got nothing.
@@ -970,6 +1003,7 @@ pub fn terminal_host(pid: u32, cwd: &Path) -> Result<Option<TerminalHost>> {
 pub enum Key {
     Digit1,
     Escape,
+    CtrlC,
 }
 
 /// Presses one key in a terminal, as if typed: no paste, no Return.
@@ -984,6 +1018,7 @@ pub fn press_key(host: &TerminalHost, key: Key) -> Result<()> {
             match key {
                 Key::Digit1 => osascript(GHOSTTY_ACTION, &[id, "text:1"])?,
                 Key::Escape => osascript(GHOSTTY_KEY, &[id, "escape"])?,
+                Key::CtrlC => osascript(GHOSTTY_ACTION, &[id, GHOSTTY_CTRL_C])?,
             };
             Ok(())
         }
@@ -992,6 +1027,7 @@ pub fn press_key(host: &TerminalHost, key: Key) -> Result<()> {
             let name = match key {
                 Key::Digit1 => "1",
                 Key::Escape => "Escape",
+                Key::CtrlC => "C-c",
             };
             let bin = tmux_bin().ok_or_else(|| anyhow!("tmux isn't installed where Codealong looks for it."))?;
             procs::run(&bin.to_string_lossy(), &["send-keys", "-t", pane, name], None, Duration::from_secs(5))?;
@@ -1284,7 +1320,7 @@ mod tests {
             terminal_run(profile, Placement { new_terminal: NewTerminal::Window, near: &[] }, &dir, &input, &[]).unwrap();
             let pid: u32 = written(&ready).and_then(|p| p.trim().parse().ok()).unwrap_or_else(|| panic!("{profile}'s shell never started"));
             let kind = terminal_kind(pid);
-            let typed = terminal_type_session(pid, &dir, "ab\ncd").unwrap();
+            let typed = terminal_type_session(pid, &dir, "ab\ncd", false).unwrap();
             if profile == "iterm2" {
                 let host = terminal_host(pid, &dir).unwrap().expect("iTerm2 presses keys");
                 press_key(&host, Key::Digit1).and_then(|_| press_key(&host, Key::Escape)).unwrap();

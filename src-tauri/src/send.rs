@@ -360,7 +360,10 @@ fn attempt(route: &Route, session: &Session, account: &AccountCfg, cfg: &Config,
         }
         Route::Type { pid } => {
             let style = if session.harness == Harness::Claude { Style::Mention } else { Style::Path };
-            match launch::terminal_type_session(*pid, Path::new(&session.cwd), &attachments::expand(text, style)) {
+            // A prompt Claude Code took back may be in its input box again, where what's typed
+            // would be added to it and both go as one prompt.
+            let clear = session.harness == Harness::Claude && crate::claude::last_prompt_taken_back(account, session);
+            match launch::terminal_type_session(*pid, Path::new(&session.cwd), &attachments::expand(text, style), clear) {
                 Ok(launch::Typed::Into(app)) => sent(if busy { format!("Typed into {title} in {app}; it takes it after its current step.") } else { format!("Typed into {title} in {app}.") }),
                 Ok(launch::Typed::Nowhere(why)) => Ok(Tried::Passed(Some(why))),
                 Err(_) => Err(MayHaveArrived(format!("Codealong started typing this into {title}, and its terminal didn't confirm it went in: look there before sending it again.")).into()),
