@@ -73,7 +73,8 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     bring your previous or next prompt to the top, from the box too (⌘↑ and ⌘↓ as well while the
     cursor isn't in a text box), reading further back as they go; the prompt behind what you're
     reading stays pinned at the top once it has scrolled off, two lines of it and more on hover,
-    and a click brings it up. Code blocks have Copy on hover, and a shell block in a
+    even when a long turn put it pages back (they're read then, and kept for scrolling up), and a
+    click brings it up. Code blocks have Copy on hover, and a shell block in a
     reply (`bash`, `sh`, `zsh`…) or a command the agent ran has Run beside it: that opens a new
     terminal where the session works, or where the command ran, and types the commands there
     without their comments. The box at the bottom sends it a message where it runs,

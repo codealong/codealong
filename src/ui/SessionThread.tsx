@@ -20,14 +20,17 @@
 // cursor isn't in a text box, where they go to its start or end. Up past what's been read reads
 // earlier pages until it finds one. The prompt behind what's in view, once it's gone off the top,
 // stays pinned there, two lines of it (more on hover), so what you asked stays in mind while you
-// read what came of it; a click brings the whole of it up.
+// read what came of it; a click brings the whole of it up. A long turn can write more than a page,
+// so when the first page doesn't start with a prompt, the pages before it are read (and kept for
+// scrolling up) until one does: it's pinned from the start.
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { delivered, dismiss, inRecord, useAhead, type Ahead } from '../ahead';
 import { onHostedStream, sessionNewer, sessionPage, sessionStream } from '../api';
 import { putBack } from '../drafts';
+import { snippet } from '../todos';
 import { absolute, agoPhrase } from '../format';
-import type { HostedStream, Question, Session, Status, TranscriptItem } from '../types';
+import type { HostedStream, Question, Session, Status, TranscriptItem, TranscriptPage } from '../types';
 import { CodeBlock } from './CopyButton';
 import { DescriptionView } from './DescriptionEditor';
 import { Markdown } from './Markdown';
@@ -40,6 +43,8 @@ import { errorText } from '../report';
 const NEAR_TOP = 240;
 /** Tool calls in a row before they fold. */
 const FOLD_AT = 3;
+/** Pages read back past the first, looking for the prompt behind it, before giving up. */
+const LOOK_BACK = 16;
 
 type Row =
   | { kind: 'item'; item: TranscriptItem; result?: TranscriptItem }
@@ -254,10 +259,25 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
   // The prompt the keys last brought up, and how far down the view it sat: the next key goes on
   // from it while it's still there, and from the top of the view once you've scrolled.
   const jumped = useRef<{ key: string; offset: number } | null>(null);
-  // Up past the pages read so far: the next page is searched as it lands.
-  const seeking = useRef(false);
+  // Up past the pages read so far, for the prompt before (null) or for one of them: the next page
+  // is searched as it lands.
+  const seeking = useRef<{ key: string | null } | null>(null);
   // Your prompt behind what's in view, once it's gone off the top.
   const [pinned, setPinned] = useState<{ key: string; text: string } | null>(null);
+  // The prompt before the pages read, when the first doesn't start with one, and the pages read
+  // looking for it, by where each ends: scrolling up takes them from here.
+  const [earlier, setEarlier] = useState<TranscriptItem | null>(null);
+  const readAhead = useRef(new Map<number, Promise<TranscriptPage>>());
+  const pageAt = useCallback((key: string, at: number) => {
+    const kept = readAhead.current;
+    let p = kept.get(at);
+    if (!p) {
+      p = sessionPage(key, at);
+      kept.set(at, p);
+      p.catch(() => kept.delete(at));
+    }
+    return p;
+  }, []);
 
   // A session Codealong runs streams its reply before its record has it: shown at the end
   // until the record catches up at the end of the message.
@@ -290,7 +310,9 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
   useEffect(() => {
     const read = ++reading.current;
     jumped.current = null;
-    seeking.current = false;
+    seeking.current = null;
+    readAhead.current = new Map();
+    setEarlier(null);
     setItems([]);
     setBefore(null);
     setLoaded(false);
@@ -305,26 +327,39 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
         after.current = p.after;
         landed.current = read;
         setLoaded(true);
+        if (p.before != null && p.items[0]?.kind !== 'you') void lookBack(read, p.before);
       })
       .catch((e: unknown) => read === reading.current && (setError(errorText(e)), setLoaded(true)))
       .finally(() => read === reading.current && (loading.current = false));
-  }, [s.key, s.continues]);
+    // The prompt before the first page, read back a page at a time.
+    const lookBack = async (read: number, at: number | null) => {
+      for (let i = 0; i < LOOK_BACK && at != null; i++) {
+        const p = await pageAt(s.key, at).catch(() => null);
+        if (!p || read !== reading.current) return;
+        const you = [...p.items].reverse().find((it) => it.kind === 'you');
+        if (you) return setEarlier(you);
+        at = p.before;
+      }
+    };
+  }, [s.key, s.continues, pageAt]);
 
   const loadOlder = useCallback(() => {
     if (loading.current || before == null) return;
     loading.current = true;
     const read = reading.current;
     const el = scroller.current;
-    sessionPage(s.key, before)
+    const at = before;
+    pageAt(s.key, at)
       .then((p) => {
         if (read !== reading.current) return;
+        readAhead.current.delete(at);
         anchor.current = { kind: 'keep', fromEnd: el ? el.scrollHeight - el.scrollTop : 0 };
         setItems((old) => [...p.items, ...old]);
         setBefore(p.before);
       })
-      .catch(() => (seeking.current = false))
+      .catch(() => (seeking.current = null))
       .finally(() => read === reading.current && (loading.current = false));
-  }, [s.key, before]);
+  }, [s.key, before, pageAt]);
 
   // As the session goes on: what's new since the last read. OpenCode rereads a message still
   // streaming, so an item already here is replaced by its place.
@@ -380,18 +415,19 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
   };
   const padOf = (el: HTMLElement) => parseFloat(getComputedStyle(el).paddingTop) || 0;
 
-  /** Pins the prompt behind what's in view once the whole of it is above the top. */
+  /** Pins the prompt behind what's in view once the whole of it is above the top: one read, or
+   *  the one before the pages read. */
   const pin = () => {
     const el = scroller.current;
     if (!el) return;
     const behind = promptsIn(el)
       .filter((p) => p.at < el.scrollTop + padOf(el) + 2)
       .pop();
-    const off = behind && behind.end < el.scrollTop + 8 ? behind : null;
-    const next = off ? { key: off.key, text: (off.el.querySelector('.ca-thread-you')?.textContent ?? '').replace(/\s+/g, ' ').trim() } : null;
+    const off = behind ? (behind.end < el.scrollTop + 8 ? behind.key : null) : earlier && keyOf(earlier);
+    const text = off && promptText.get(off);
+    const next = off && text != null ? { key: off, text } : null;
     setPinned((was) => (was?.key === next?.key && was?.text === next?.text ? was : next));
   };
-  useLayoutEffect(pin, [items, loaded]);
 
   /** Brings one of your prompts to the top of the view, and marks it for a moment. */
   const bringUp = (el: HTMLElement, to: { el: HTMLElement; key: string; at: number }) => {
@@ -401,6 +437,17 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
     to.el.classList.remove('is-landed');
     void to.el.offsetWidth;
     to.el.classList.add('is-landed');
+  };
+
+  /** Brings one of your prompts to the top, reading back to it when it's before the pages read. */
+  const goTo = (key: string) => {
+    const el = scroller.current;
+    if (!el) return;
+    const to = promptsIn(el).find((p) => p.key === key);
+    if (to) return bringUp(el, to);
+    if (before == null) return;
+    seeking.current = { key };
+    loadOlder();
   };
 
   /** Brings your previous (-1) or next (1) prompt to the top of the view. */
@@ -417,7 +464,7 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
     const to = dir < 0 ? prompts.filter((p) => p.at < from - 2).pop() : prompts.find((p) => p.at > from + 2);
     if (!to) {
       if (dir < 0 && before != null) {
-        seeking.current = true;
+        seeking.current = { key: null };
         loadOlder();
         return;
       }
@@ -429,13 +476,17 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
   };
   const jumpNow = useRef(jump);
   jumpNow.current = jump;
+  const goToNow = useRef(goTo);
+  goToNow.current = goTo;
 
   // Each page read while looking further up: searched once it's laid out and the view is back
   // where it was.
   useLayoutEffect(() => {
-    if (!seeking.current) return;
-    seeking.current = false;
-    jumpNow.current(-1);
+    const want = seeking.current;
+    if (!want) return;
+    seeking.current = null;
+    if (want.key == null) jumpNow.current(-1);
+    else goToNow.current(want.key);
   }, [items]);
 
   useEffect(() => {
@@ -466,6 +517,15 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
   const ahead = useAhead();
   const sends = useMemo(() => ahead.filter((a) => a.change.kind === 'send' && a.change.key === s.key), [ahead, s.key]);
   const { showing, found } = useMemo(() => inRecord(sends, items), [sends, items]);
+  // Your prompts' words by key, for the pin: those read, the one before them, and yours on the way.
+  const promptText = useMemo(() => {
+    const words = new Map<string, string>();
+    if (earlier) words.set(keyOf(earlier), snippet(earlier.text, 1200));
+    for (const it of items) if (it.kind === 'you') words.set(keyOf(it), snippet(it.text, 1200));
+    for (const a of showing) if (a.change.kind === 'send') words.set(`ahead:${a.id}`, snippet(a.change.text, 1200));
+    return words;
+  }, [items, earlier, showing]);
+  useLayoutEffect(pin, [items, loaded, promptText]);
   useEffect(() => {
     for (const id of found) delivered(id);
   }, [found]);
@@ -516,11 +576,7 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
               title="Go to this prompt (⌘⇧↑)"
               // The cursor stays in the box below.
               onMouseDown={(e) => e.preventDefault()}
-              onClick={() => {
-                const el = scroller.current;
-                const to = el && promptsIn(el).find((p) => p.key === pinned.key);
-                if (el && to) bringUp(el, to);
-              }}
+              onClick={() => goTo(pinned.key)}
             >
               <span className="ca-thread-pintext">{pinned.text}</span>
               <Icon name="arrow-up" size={12} />

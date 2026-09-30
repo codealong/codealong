@@ -4,7 +4,9 @@
 // then the one before; ⌘↑ in the box is the box's; from the list ⌘↑ and ⌘↓ jump and the list's
 // selection stays; up past what's read reads on through the page with no prompt to the one before
 // it; ⌘↓ past the last prompt goes to the end. In the quick panel, ⇥ opens it and the keys work
-// from its box the same way.
+// from its box the same way. A second session whose newest page has no prompt, nor the one before
+// it, pins the prompt two pages back from the start, and a click on it reads up to it with the
+// pages already read.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/prompt-jump-check.js
 //   PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/prompt-jump-check.js
 // Every step should say ok.
@@ -43,13 +45,19 @@
   tools.push(['agent', long('Middle')]);
   pages[100] = page(100, tools, 50);
   pages[50] = page(0, [['you', 'Prompt 1'], ['agent', long('One')], ['you', 'Prompt 2'], ['agent', long('Two')], ['you', 'Prompt 3'], ['agent', long('Three')]], null);
+  var pagesB = {};
+  pagesB.newest = page(900, [['tool', 'Bash · `late`', 'b1', 'late'], ['result', '', 'b1', undefined, 'ok'], ['agent', long('Late B')]], 800);
+  pagesB[800] = page(800, [['agent', long('Middle B')]], 700);
+  pagesB[700] = page(700, [['you', 'Prompt 9'], ['agent', long('Nine')]], null);
+  var pickedB = null;
 
   var real = window.__TAURI_INTERNALS__.invoke;
   window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {
-    if (cmd === 'session_page' && picked && (args || {}).key === picked.key) {
+    if (cmd === 'session_page' && ((picked && args.key === picked.key) || (pickedB && args.key === pickedB.key))) {
       window.__calls.push([cmd, args, options]);
-      var b = (args || {}).before;
-      return wait(40).then(function () { return JSON.parse(JSON.stringify(b == null ? pages.newest : pages[b])); });
+      var set = args.key === picked.key ? pages : pagesB;
+      var b = args.before;
+      return wait(40).then(function () { return JSON.parse(JSON.stringify(b == null ? set.newest : set[b])); });
     }
     var p = real(cmd, args, options);
     if (cmd !== 'get_board') return p;
@@ -57,14 +65,16 @@
       board.lanes.forEach(function (l) {
         l.sessions.forEach(function (s) {
           if (s.status === 'needs' || s.status === 'error' || s.status === 'unread' || s.status === 'working') s.status = 'idle';
-          if (picked || l.hidden || s.visitor || s.archived) return;
+          if (pickedB || l.hidden || s.visitor || s.archived) return;
           s.status = 'unread';
-          s.statusSince = now - 60e3;
-          s.lastActivity = now - 60e3;
+          // A's turn ended last, so the quick panel's ⇥ answers it first.
+          s.statusSince = now - (picked ? 120e3 : 60e3);
+          s.lastActivity = s.statusSince;
           s.hosted = false;
           s.stoppable = false;
-          s.title = 'Jump A';
-          picked = { key: s.key, lane: l.id };
+          s.title = picked ? 'Jump B' : 'Jump A';
+          if (picked) pickedB = { key: s.key, lane: l.id };
+          else picked = { key: s.key, lane: l.id };
         });
       });
       return board;
@@ -81,7 +91,7 @@
     el.dispatchEvent(e);
     return e;
   };
-  var pages_read = function () { return window.__calls.filter(function (c) { return c[0] === 'session_page'; }).map(function (c) { return String(c[1].before); }); };
+  var pages_read = function (who) { return window.__calls.filter(function (c) { return c[0] === 'session_page' && c[1].key === (who || picked).key; }).map(function (c) { return String(c[1].before); }); };
   // The prompt at the top of the view, if one sits there.
   var atTop = function () {
     var el = thread();
@@ -121,6 +131,28 @@
     });
   };
 
+  // A session whose first two pages have no prompt: the one before them is pinned from the start,
+  // and a click reads up to it with the pages already read.
+  var readBehind = function () {
+    // Only what this panel reads: the list may have shown B before.
+    var had = pages_read(pickedB).length;
+    var since = function () { return pages_read(pickedB).slice(had).join(','); };
+    document.getElementById('row-' + pickedB.lane + '::' + pickedB.key).dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    return until(function () { return title() === 'Jump B' && pinned() === 'Prompt 9'; }, 5000)
+      .catch(function () {})
+      .then(function () {
+        check('with no prompt in the first pages, the one before them is pinned', pinned() === 'Prompt 9', pinned() + ' after pages ' + since());
+        check('read back once, page by page', since() === 'null,800,700', since());
+        var p = document.querySelector('.ca-thread-pinned');
+        if (p) p.click();
+        return until(function () { return atTop() === 'Prompt 9'; }, 3000).catch(function () {});
+      })
+      .then(function () {
+        check('a click on it reads up to it', atTop() === 'Prompt 9', atTop());
+        check('from the pages already read', since() === 'null,800,700', since());
+      });
+  };
+
   // The quick panel's reply view: its box, both ways, and on to the end.
   var inQuick = function () {
     key(document.querySelector('.ca-quick-input textarea'), { key: 'Tab' });
@@ -153,7 +185,7 @@
   };
 
   say('prompt jump check: waiting for the list');
-  until(function () { return picked && (row() || document.querySelector('.ca-quick-input textarea')); }, 20000)
+  until(function () { return pickedB && (row() || document.querySelector('.ca-quick-input textarea')); }, 20000)
     .then(function () { return wait(300); })
     .then(function () {
       if (quick()) return inQuick().then(function () { throw 'quick'; });
@@ -228,6 +260,7 @@
       check('prompts it brought up are marked', landed.length > 0, String(landed.length));
       return pinChecks();
     })
+    .then(function () { return readBehind(); })
     .then(function () {
       // With Settings open (or the rename sheet) the keys are theirs.
       key(document.body, { key: ',', metaKey: true });
@@ -238,6 +271,6 @@
         });
       });
     })
-    .catch(function (e) { if (e !== 'quick') check('ran', false, String(e)); })
+    .catch(function (e) { if (e !== 'quick') check('ran', false, String(e) + ' picked ' + !!picked + ' ' + !!pickedB + ' quick ' + quick()); })
     .then(function () { say('done: ' + out.join(' | ')); });
 })();
