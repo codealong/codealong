@@ -90,6 +90,9 @@ pub enum Msg {
     /// An empty slug marks the end of a GitHub batch.
     GithubDone(String, std::result::Result<github::RepoPrs, String>),
     RefreshGithub,
+    /// A PR you approved from Codealong, by its slug on the board and its number. The reply is
+    /// the time of the board that shows it, published at once.
+    Approved(String, u64, Sender<i64>),
     /// What GitHub calls each repo now, by the slug its remote has (lowercase); None where
     /// GitHub didn't answer.
     RepoNames(Vec<(String, Option<String>)>),
@@ -184,6 +187,14 @@ impl Handle {
 
     pub fn refresh_github(&self) {
         let _ = self.tx.send(Msg::RefreshGithub);
+    }
+
+    /// A PR you've just approved stops asking for your review now, not at the next poll. Returns
+    /// the time of the board that shows it, as `mark_seen_shown` does.
+    pub fn approved(&self, slug: &str, number: u64) -> Option<i64> {
+        let (tx, rx) = channel();
+        self.tx.send(Msg::Approved(slug.to_string(), number, tx)).ok()?;
+        rx.recv_timeout(SHOWN_WAIT).ok()
     }
 
     pub fn mark_seen(&self, keys: Vec<String>) {
@@ -772,7 +783,12 @@ struct Engine {
     prs: HashMap<String, Vec<PrRaw>>,
     gh_warning: Option<String>,
     gh_inflight: bool,
+    /// Ask GitHub again once the request on its way returns (`refetch_github`).
+    gh_again: bool,
+    /// When each GitHub request was sent: the one on its way is the latest.
     gh_last: Option<Instant>,
+    /// PRs you approved here (slug, number) and when, until GitHub is asked after it.
+    approved_here: HashMap<(String, u64), Instant>,
     gh_at: Option<i64>,
     gh_login: Option<String>,
     /// Slug a remote has (lowercase) → what GitHub calls the repo now (`github::current_slug`).
@@ -886,7 +902,9 @@ impl Engine {
             prs: HashMap::new(),
             gh_warning: None,
             gh_inflight: false,
+            gh_again: false,
             gh_last: None,
+            approved_here: HashMap::new(),
             gh_at: None,
             gh_login: None,
             repo_names: HashMap::new(),
@@ -1330,6 +1348,12 @@ impl Engine {
                 Ok(Msg::GitDone(path, info)) => self.on_git(path, info),
                 Ok(Msg::GithubDone(slug, result)) => self.on_github(slug, result),
                 Ok(Msg::RefreshGithub) => self.fetch_github(false),
+                Ok(Msg::Approved(slug, number, reply)) => {
+                    self.on_approved(slug, number);
+                    // Now rather than on the next tick: the button waits for it.
+                    self.publish();
+                    let _ = reply.send(self.board.read().map(|b| b.generated_at).unwrap_or(0));
+                }
                 Ok(Msg::RepoNames(names)) => self.on_repo_names(names),
                 Ok(Msg::Visitors(found)) => {
                     self.visitors = found;
@@ -1897,13 +1921,52 @@ impl Engine {
         });
     }
 
+    /// Asks GitHub now, or as soon as the request on its way returns, which may have been
+    /// answered before a change you just made there.
+    fn refetch_github(&mut self) {
+        if self.gh_inflight {
+            self.gh_again = true;
+        } else {
+            self.fetch_github(true);
+        }
+    }
+
+    /// `gh` has approved a PR: the board stops asking you to review it, and GitHub is asked for
+    /// the rest (it may be approved now, and ready to merge).
+    fn on_approved(&mut self, slug: String, number: u64) {
+        if let Some(pr) = self.prs.get_mut(&slug).and_then(|prs| prs.iter_mut().find(|p| p.number == number)) {
+            pr.review_requested = false;
+            self.dirty = true;
+        }
+        self.approved_here.insert((slug, number), Instant::now());
+        self.refetch_github();
+    }
+
     fn on_github(&mut self, slug: String, result: std::result::Result<github::RepoPrs, String>) {
         if slug.is_empty() {
             self.gh_inflight = false;
+            if std::mem::take(&mut self.gh_again) {
+                self.fetch_github(true);
+            }
             return;
         }
         match result {
-            Ok(repo) => {
+            Ok(mut repo) => {
+                // An answer to a request sent before you approved a PR here still asks for your
+                // review; one sent after has GitHub's word on it.
+                let asked = self.gh_last;
+                self.approved_here.retain(|(s, n), at| {
+                    if *s != slug {
+                        return true;
+                    }
+                    if asked.is_some_and(|t| t >= *at) {
+                        return false;
+                    }
+                    if let Some(pr) = repo.prs.iter_mut().find(|p| p.number == *n) {
+                        pr.review_requested = false;
+                    }
+                    true
+                });
                 self.prs.insert(slug, repo.prs);
                 if repo.login.is_some() {
                     self.gh_login = repo.login;
@@ -3366,6 +3429,57 @@ mod tests {
         engine.dirty = false;
         engine.on_repo_names(vec![("kestrelhq/kestrel".into(), Some("kestrelhq/kestrel".into()))]);
         assert!(!engine.dirty, "a repo that kept its name changes nothing");
+    }
+
+    #[test]
+    fn a_pr_approved_here_stops_asking_at_once() {
+        use super::*;
+
+        let (tx, _rx) = channel();
+        let mut engine = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
+        let slug = "northwindai/atlas".to_string();
+        let pr = PrRaw {
+            number: 1089,
+            title: "Tune issue verification".into(),
+            url: "u".into(),
+            state: PrState::Open,
+            head_ref: "app4".into(),
+            head_owner: None,
+            head_oid: None,
+            updated_at: 0,
+            merged_at: None,
+            closed_at: None,
+            checks: Checks::default(),
+            merge: Merge::Clean,
+            author: Some("whather".into()),
+            base_ref: Some("main".into()),
+            created_at: 0,
+            additions: 0,
+            deletions: 0,
+            changed_files: 0,
+            review_requested: true,
+        };
+        let asked = |e: &Engine| e.prs[&slug][0].review_requested;
+        let answer = |requested: bool| Ok(github::RepoPrs { login: Some("ghempton".into()), prs: vec![PrRaw { review_requested: requested, ..pr.clone() }] });
+        engine.prs.insert(slug.clone(), vec![pr.clone()]);
+
+        // A poll is on its way when you approve.
+        engine.gh_inflight = true;
+        engine.gh_last = Some(Instant::now());
+        engine.on_approved(slug.clone(), 1089);
+        assert!(!asked(&engine), "the board stops asking at once");
+        assert!(engine.gh_again, "GitHub is asked again once the poll returns");
+        // That poll was answered before GitHub had your review.
+        engine.on_github(slug.clone(), answer(true));
+        assert!(!asked(&engine), "an answer asked for before the approval doesn't bring it back");
+        engine.on_github(String::new(), Ok(github::RepoPrs::default()));
+        assert!(!engine.gh_again);
+
+        // An answer asked for after it is GitHub's word, a new request included.
+        engine.gh_last = Some(Instant::now());
+        engine.on_github(slug.clone(), answer(true));
+        assert!(asked(&engine));
+        assert!(engine.approved_here.is_empty());
     }
 
     #[test]

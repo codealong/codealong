@@ -47,10 +47,17 @@ const QUERY: &str = r#"
 query($owner: String!, $name: String!, $requested: String!) {
   viewer { login }
   repository(owner: $owner, name: $name) {
-    open: pullRequests(states: OPEN, first: 100, orderBy: {field: UPDATED_AT, direction: DESC}) { nodes { ...pr mergeStateStatus } }
+    open: pullRequests(states: OPEN, first: 100, orderBy: {field: UPDATED_AT, direction: DESC}) { nodes { ...pr mergeStateStatus ...asked } }
     done: pullRequests(states: [MERGED, CLOSED], first: 40, orderBy: {field: UPDATED_AT, direction: DESC}) { nodes { ...pr } }
   }
   requested: search(query: $requested, type: ISSUE, first: 50) { nodes { ... on PullRequest { number } } }
+}
+"#;
+
+/// Whose reviews an open PR still waits on (`asked_of`).
+const ASKED_FIELDS: &str = r#"
+fragment asked on PullRequest {
+  reviewRequests(first: 20) { nodes { requestedReviewer { __typename ... on User { login } } } }
 }
 "#;
 
@@ -96,7 +103,7 @@ fn slug_of(out: &str) -> Option<String> {
 pub fn fetch(owner: &str, name: &str) -> Result<RepoPrs> {
     let owner_arg = format!("owner={owner}");
     let name_arg = format!("name={name}");
-    let query_arg = format!("query={QUERY}{PR_FIELDS}");
+    let query_arg = format!("query={QUERY}{PR_FIELDS}{ASKED_FIELDS}");
     let requested_arg = format!("requested=repo:{owner}/{name} is:pr is:open review-requested:@me");
     let out = procs::run(
         "gh",
@@ -165,18 +172,34 @@ pub fn parse(json: &str) -> Result<RepoPrs> {
         .flatten()
         .filter_map(|n| n.get("number").and_then(Value::as_u64))
         .collect();
+    let login = v.pointer("/data/viewer/login").and_then(Value::as_str);
     let mut prs = Vec::new();
     for key in ["open", "done"] {
         let Some(nodes) = repo.pointer(&format!("/{key}/nodes")).and_then(Value::as_array) else { continue };
         for n in nodes {
             if let Some(mut pr) = parse_pr(n) {
-                pr.review_requested = pr.state.is_open() && requested.contains(&pr.number);
+                pr.review_requested = pr.state.is_open() && asked_of(n, login, requested.contains(&pr.number));
                 prs.push(pr);
             }
         }
     }
-    let login = v.pointer("/data/viewer/login").and_then(Value::as_str).map(String::from);
-    Ok(RepoPrs { login, prs })
+    Ok(RepoPrs { login: login.map(String::from), prs })
+}
+
+/// Whether a PR still waits on your review. GitHub's search is the only place that says a team
+/// you're on was asked, but it can go on listing a PR for a while after you've reviewed it; the
+/// PR's own review requests are as they are now. So a request to you is read from the PR, and
+/// the search (`found`) counts only while the PR waits on a team, or on a reviewer you can't see.
+fn asked_of(n: &Value, login: Option<&str>, found: bool) -> bool {
+    let (Some(requests), Some(login)) = (n.pointer("/reviewRequests/nodes").and_then(Value::as_array), login) else { return found };
+    requests.iter().any(|r| {
+        let who = r.get("requestedReviewer").filter(|w| !w.is_null());
+        match who.and_then(|w| w.get("__typename")).and_then(Value::as_str) {
+            Some("User") => who.and_then(|w| w.get("login")).and_then(Value::as_str).is_some_and(|l| l.eq_ignore_ascii_case(login)),
+            Some("Team") | None => found,
+            _ => false,
+        }
+    })
 }
 
 fn parse_pr(n: &Value) -> Option<PrRaw> {
@@ -482,6 +505,18 @@ mod tests {
         assert_eq!(repo.login.as_deref(), Some("ghempton"));
         assert!(prs[0].review_requested);
         assert!(!prs[1].review_requested);
+    }
+
+    #[test]
+    fn reads_a_request_to_you_from_the_pr() {
+        // #1 you've just approved (the search hasn't caught up), #2 was just asked of you (nor
+        // has it), #3 waits on a team you're on, #4 on someone else.
+        let open = [(1, r#"[{"requestedReviewer":{"__typename":"User","login":"whather"}}]"#), (2, r#"[{"requestedReviewer":{"__typename":"User","login":"GHempton"}}]"#), (3, r#"[{"requestedReviewer":{"__typename":"Team"}}]"#), (4, r#"[{"requestedReviewer":{"__typename":"User","login":"whather"}}]"#)]
+            .map(|(n, asked)| format!(r#"{{"number":{n},"title":"t","url":"u","state":"OPEN","isDraft":false,"reviewDecision":null,"updatedAt":"2026-09-30T20:00:00Z","headRefName":"b{n}","commits":{{"nodes":[]}},"reviewRequests":{{"nodes":{asked}}}}}"#))
+            .join(",");
+        let json = format!(r#"{{"data":{{"viewer":{{"login":"ghempton"}},"requested":{{"nodes":[{{"number":1}},{{"number":3}}]}},"repository":{{"open":{{"nodes":[{open}]}},"done":{{"nodes":[]}}}}}}}}"#);
+        let asked: Vec<_> = parse(&json).unwrap().prs.iter().map(|p| (p.number, p.review_requested)).collect();
+        assert_eq!(asked, vec![(1, false), (2, true), (3, true), (4, false)]);
     }
 
     #[test]

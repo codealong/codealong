@@ -706,11 +706,12 @@ fn pr_comment_asks(title: String, comments: Vec<prasks::CommentIn>) -> Result<st
     prasks::asks(cfg.jev.model.trim(), &title, &comments).map_err(|e| format!("{e:#}"))
 }
 
-/// Approves a PR as you, then refreshes PRs so the board shows it.
+/// Approves a PR as you. It returns once the board no longer asks for your review, and PRs are
+/// read again for the rest.
 #[tauri::command(async)]
 fn approve_pr(engine: State<'_, engine::Handle>, repo: String, number: u64) -> Result<(), String> {
     github::approve(&repo, number).map_err(|e| format!("{e:#}"))?;
-    engine.refresh_github();
+    engine.approved(&repo, number);
     Ok(())
 }
 
