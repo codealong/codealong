@@ -171,7 +171,7 @@ async fn install_newer(app: &AppHandle) -> Result<Option<(String, Option<String>
 
 /// The app bundle an executable inside it belongs to: `…/Codealong.app` for
 /// `…/Codealong.app/Contents/MacOS/codealong`.
-fn bundle_of(exe: &Path) -> Option<PathBuf> {
+pub(crate) fn bundle_of(exe: &Path) -> Option<PathBuf> {
     let bundle = exe.parent()?.parent()?.parent()?;
     (bundle.extension()? == "app").then(|| bundle.to_path_buf())
 }

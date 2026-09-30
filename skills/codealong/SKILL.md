@@ -72,6 +72,11 @@ done` say on stderr that no session was linked; give a session key when you want
   command that resumes it, linked todos, and `records`: the paths of its own files. Claude
   Code and Codex records are JSONL you can grep; OpenCode's and Antigravity's are SQLite
   databases.
+- `codealong session open <key>` shows a session in the Codealong app: its window comes
+  forward on the session, with its conversation in the panel. Use it when the user asks to see
+  a session, or to put one you found (`sessions find`, `pr show`) in front of them; `me` is
+  yours. It needs the app running, and opens nothing where the session runs. Don't bring the
+  window up unasked: it covers what the user is looking at.
 - `codealong preview set <url>` sets where the current worktree's app opens in the browser,
   when you know it: you started its dev server, or the repo's instructions say where each
   worktree is served (a dev proxy's `https://<name>.app.test`, say). The user's worktree row

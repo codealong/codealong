@@ -33,8 +33,9 @@ Commands:
              it on. The app lists open ones under In progress, Ready and Waiting
   sessions   Sessions on the board: every agent, live or not, with its status and where
              it works. Lists by default; `find` searches
-  session    One session in full: status, excerpt, folder, branch, PR, how to resume it,
-             and where its own records are
+  session    One session: in full (`show`: status, excerpt, folder, branch, PR, how to
+             resume it, and where its own records are), in the Codealong app (`open`),
+             or a message to it where it runs (`send`)
   worktrees  Worktrees the board knows: each with its branch, PR, status, and the agents
              running in it now (`agents`: sessions a process has open, or that are
              working or waiting on you; `working`: those working or waiting on you).
@@ -885,13 +886,18 @@ Options:
 ## codealong session
 
 ```
-One session in full: status, excerpt, folder, branch, PR, how to resume it, and where
-its own records are
+One session: in full (`show`: status, excerpt, folder, branch, PR, how to resume it, and
+where its own records are), in the Codealong app (`open`), or a message to it where it
+runs (`send`)
 
 Usage: codealong session [OPTIONS] <COMMAND>
 
 Commands:
   show  One session in full
+  open  Show a session in the Codealong app: its window comes forward on the session's
+        row in Sessions, with its conversation in the panel beside it, as Show in
+        Codealong does in the floating bar. Nothing is opened where the session runs
+        (its terminal, the Claude or Codex app). Needs the app running
   send  Send a message to another session where it runs, on any account or harness. It's
         never your user's word: the message starts by saying it's from another agent and
         not the user, which session sent it, and how to answer (`codealong session send
@@ -929,6 +935,34 @@ Usage: codealong session show [OPTIONS] <KEY>
 Arguments:
   <KEY>
           
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong session open
+
+```
+Show a session in the Codealong app: its window comes forward on the session's row in
+Sessions, with its conversation in the panel beside it, as Show in Codealong does in the
+floating bar. Nothing is opened where the session runs (its terminal, the Claude or
+Codex app). Needs the app running
+
+Usage: codealong session open [OPTIONS] <KEY>
+
+Arguments:
+  <KEY>
+          The session: its key, its id, a unique start of its id, or `me`
 
 Options:
       --json

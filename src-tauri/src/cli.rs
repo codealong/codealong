@@ -75,7 +75,7 @@ enum Cmd {
     },
     /// Sessions on the board: every agent, live or not, with its status and where it works. Lists by default; `find` searches.
     Sessions(SessionsArgs),
-    /// One session in full: status, excerpt, folder, branch, PR, how to resume it, and where its own records are.
+    /// One session: in full (`show`: status, excerpt, folder, branch, PR, how to resume it, and where its own records are), in the Codealong app (`open`), or a message to it where it runs (`send`).
     Session {
         #[command(subcommand)]
         cmd: SessionCmd,
@@ -367,6 +367,11 @@ enum SessionsCmd {
 enum SessionCmd {
     /// One session in full.
     Show { key: String },
+    /// Show a session in the Codealong app: its window comes forward on the session's row in Sessions, with its conversation in the panel beside it, as Show in Codealong does in the floating bar. Nothing is opened where the session runs (its terminal, the Claude or Codex app). Needs the app running.
+    Open {
+        /// The session: its key, its id, a unique start of its id, or `me`.
+        key: String,
+    },
     /// Send a message to another session where it runs, on any account or harness. It's never your user's word: the message starts by saying it's from another agent and not the user, which session sent it, and how to answer (`codealong session send <sender's key> "…"`), so an answer arrives in your session as a new message. Claude Code sessions get it on their socket for messages between sessions; one that skips permission prompts takes it at once only from a session that skips them too, and otherwise asks its user first (a Claude app session can't, so nothing is sent). Codex and OpenCode sessions get it as a prompt, typed into their terminal or posted to their service, and queued while they work. Nothing is sent to a session that isn't running, one waiting on its user to answer a prompt, or an Antigravity one.
     Send(SendArgs),
     /// For the Codealong plugin's hooks, with the hook's input on stdin. `permission-request`
@@ -756,6 +761,25 @@ impl Client {
         let cfg = self.cfg().clone();
         crate::send::send(self.board()?, &cfg, key, text, crate::send::Sender::Agent(from))
     }
+
+    /// Brings the app's main window forward on a session, worktree, PR or todo (`Reveal` in
+    /// api.ts). The app shows it, then this opens the app by its bundle ID: macOS may not let an
+    /// app come forward by itself when nobody clicked in it, and an open from here is the doing of
+    /// the app this command runs in (the terminal, or the agent's app). An open by ID goes to the
+    /// copy that's running, where one by path could start a newer build of it.
+    fn show(&mut self, reveal: Value) -> Result<()> {
+        self.note();
+        let id = match server::ask(&Request::Show { reveal }) {
+            Some(Ok(v)) => v.as_str().map(str::to_string),
+            Some(Err(e)) if e.starts_with(server::UNKNOWN_REQUEST) => bail!("The Codealong that's running is older than this command and can't show a session. Update it, or quit it and open it again."),
+            Some(Err(e)) => bail!("{e}"),
+            None => bail!("Codealong isn't running, so there's no window to show it in."),
+        };
+        if let Some(id) = id {
+            let _ = procs::run("/usr/bin/open", &["-b", &id], None, std::time::Duration::from_secs(10));
+        }
+        Ok(())
+    }
 }
 
 struct BoardLanes(HashMap<String, (String, String)>);
@@ -785,6 +809,7 @@ fn run(cmd: Cmd, c: &mut Client, json: bool) -> Result<()> {
             None => sessions(c, &args.filter, &[], json),
         },
         Cmd::Session { cmd: SessionCmd::Show { key } } => session_show(c, &key, json),
+        Cmd::Session { cmd: SessionCmd::Open { key } } => session_open(c, &key, json),
         Cmd::Session { cmd: SessionCmd::Send(args) } => session_send(c, args, json),
         Cmd::Session { cmd: SessionCmd::Hook { event } } => {
             session_hook(&event);
@@ -1390,6 +1415,32 @@ fn session_show(c: &mut Client, key: &str, json: bool) -> Result<()> {
     for p in &out.prs {
         println!("Worked on: {p}");
     }
+    Ok(())
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OpenOut {
+    /// The session the app shows.
+    shown: String,
+    title: String,
+    worktree: String,
+}
+
+fn session_open(c: &mut Client, key: &str, json: bool) -> Result<()> {
+    if c.app.is_none() {
+        bail!("Codealong isn't running, so there's no window to show a session in.");
+    }
+    let key = resolve_session(c, key)?;
+    let board = c.board()?;
+    let (s, lane) = all_sessions(board).into_iter().find(|(s, _)| s.key == key).ok_or_else(|| anyhow!("There's no session {key}."))?;
+    let out = OpenOut { shown: s.key.clone(), title: session_row(s, lane, &board.todos).title, worktree: lane.path.clone() };
+    let reveal = json!({ "kind": "session", "laneId": lane.id, "key": s.key });
+    c.show(reveal)?;
+    if json {
+        return print_json(&out);
+    }
+    println!("Codealong shows {} ({}).", out.title, out.shown);
     Ok(())
 }
 

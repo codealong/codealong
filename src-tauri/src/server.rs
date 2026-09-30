@@ -63,6 +63,11 @@ pub enum Request {
     /// A message to a session from an agent (`codealong session send`), sent as a window's is
     /// (send.rs); `from` is the session that ran the command, when it found one.
     Send { key: String, text: String, from: Option<String> },
+    /// Brings the main window forward on a session, worktree, PR or todo (`Reveal` in api.ts), as
+    /// the floating bar's Show in Codealong does. The reply is the app's bundle ID, or null when
+    /// it runs outside a bundle: macOS may not let an app come forward when nobody clicked in it,
+    /// so the command opens it by that ID too.
+    Show { reveal: Value },
     /// A permission request from Claude Code's `PermissionRequest` hook, its input as the hook
     /// got it, with the session's process and account folder: the connection is held until it's
     /// answered here or where the session runs, and the reply is the decision, or null for none
@@ -113,7 +118,7 @@ pub struct Status {
 
 /// Listens on the socket for as long as the app runs. Errors are printed, not fatal: the
 /// command falls back to the files when there's no socket.
-pub fn serve(engine: Handle, peers: Peers) {
+pub fn serve(engine: Handle, peers: Peers, app: tauri::AppHandle) {
     let p = path();
     let _ = std::fs::create_dir_all(support_dir());
     // A socket file left by an app that didn't exit cleanly; a live one would have answered.
@@ -133,14 +138,14 @@ pub fn serve(engine: Handle, peers: Peers) {
         .spawn(move || {
             for stream in listener.incoming() {
                 let Ok(stream) = stream else { continue };
-                let (engine, peers) = (engine.clone(), peers.clone());
-                let _ = std::thread::Builder::new().name("socket-client".into()).spawn(move || connection(stream, &engine, &peers));
+                let (engine, peers, app) = (engine.clone(), peers.clone(), app.clone());
+                let _ = std::thread::Builder::new().name("socket-client".into()).spawn(move || connection(stream, &engine, &peers, &app));
             }
         })
         .ok();
 }
 
-fn connection(stream: UnixStream, engine: &Handle, peers: &Peers) {
+fn connection(stream: UnixStream, engine: &Handle, peers: &Peers, app: &tauri::AppHandle) {
     let _ = stream.set_read_timeout(Some(Duration::from_secs(60)));
     let mut out = match stream.try_clone() {
         Ok(s) => s,
@@ -157,7 +162,7 @@ fn connection(stream: UnixStream, engine: &Handle, peers: &Peers) {
             hold_permission_ask(engine, &hook, pid, home.as_deref(), &mut out);
             break;
         }
-        let reply = handle_request(engine, peers, req);
+        let reply = handle_request(engine, peers, app, req);
         let mut text = serde_json::to_string(&reply).unwrap_or_else(|_| r#"{"ok":false,"error":"Couldn't encode the reply."}"#.into());
         text.push('\n');
         if out.write_all(text.as_bytes()).and_then(|_| out.flush()).is_err() {
@@ -166,7 +171,7 @@ fn connection(stream: UnixStream, engine: &Handle, peers: &Peers) {
     }
 }
 
-fn handle_request(engine: &Handle, peers: &Peers, req: serde_json::Result<Request>) -> Reply {
+fn handle_request(engine: &Handle, peers: &Peers, app: &tauri::AppHandle, req: serde_json::Result<Request>) -> Reply {
     let req = match req {
         Ok(r) => r,
         Err(e) => return Reply::err(format!("{UNKNOWN_REQUEST}: {e}")),
@@ -208,6 +213,11 @@ fn handle_request(engine: &Handle, peers: &Peers, req: serde_json::Result<Reques
         Request::DeviceUseCode { code } => answered(peers.link_with_code(&code)),
         Request::DeviceAsk { device, request, params } => answered(peers.ask(&device, &request, params, Duration::from_secs(40))),
         Request::Send { key, text, from } => answered(crate::send_here(engine, &key, &text, crate::send::Sender::Agent(from))),
+        Request::Show { reveal } => match crate::bar::show_main(app, Some(reveal)) {
+            // A bare binary isn't what its ID opens: that's whichever bundle has it.
+            Ok(()) => Reply::ok(std::env::current_exe().ok().and_then(|exe| crate::updates::bundle_of(&exe)).map(|_| app.config().identifier.clone())),
+            Err(e) => Reply::err(e.to_string()),
+        },
         // Held on its connection instead (`connection`).
         Request::PermissionAsk { .. } => Reply::ok(Value::Null),
     }
@@ -362,6 +372,8 @@ mod tests {
         assert!(answer.contains(r#""method":"device-answer""#), "{answer}");
         let send: Request = serde_json::from_str(r#"{"method":"send","key":"claude:claude:abc","text":"hi","from":null}"#).unwrap();
         assert!(matches!(send, Request::Send { ref key, from: None, .. } if key == "claude:claude:abc"));
+        let show = serde_json::to_string(&Request::Show { reveal: serde_json::json!({"kind": "session", "laneId": "l", "key": "claude:claude:abc"}) }).unwrap();
+        assert!(show.contains(r#""method":"show""#) && show.contains(r#""laneId":"l""#), "{show}");
         let reply: Reply = serde_json::from_str(r#"{"ok":false,"error":"no"}"#).unwrap();
         assert!(!reply.ok && reply.error.as_deref() == Some("no"));
     }

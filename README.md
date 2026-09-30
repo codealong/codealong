@@ -489,7 +489,8 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   start now, `--waiting` what's under Waiting), and starting or finishing a todo links the
   session that ran the command; `codealong
   sessions [find <words>]`, `session show`, `worktrees` and `accounts --usage` answer what else
-  is running, what it did, where it lives, and which account has room; `codealong start
+  is running, what it did, where it lives, and which account has room; `codealong session open`
+  brings the main window up on a session's conversation; `codealong start
   --todo <id>` starts a session the way New session does (`--todo` again for several todos in
   one session); `codealong config show|check`
   prints the settings and checks an edited config.toml. With the app running, answers come

@@ -62,12 +62,12 @@ the board", 2026-09-29).
 The engine binary is also the `codealong` command for agents and people (`cli.rs`; `main.rs`
 runs it for any first argument that's one of its subcommands, and starts the app otherwise):
 `status`, `accounts [--usage]`, `whoami`, `todo list|show|add|update|move|start|done|reopen|
-wait|ready|link|unlink|delete|labels`, `sessions [find <words>]`, `session show`, `worktrees`, `reuse`, `start`,
+wait|ready|link|unlink|delete|labels`, `sessions [find <words>]`, `session show|open|send`, `worktrees`, `reuse`, `start`,
 `config show|check`, `install`. Settings are changed by editing config.toml, not through the
 command: agents edit the file well and keep its comments, and `config check` runs
 `config::parse`'s checks on the result. JSON when piped, tables in a terminal (`--table` forces them). With the app up it
 asks the app over `codealong.sock` (`server.rs`: JSON lines, `status`, `board`, `todo-apply`,
-`todo-started`, `start`); otherwise `engine::light_snapshot` and `todos::change` (under
+`todo-started`, `start`, `show`); otherwise `engine::light_snapshot` and `todos::change` (under
 `todos.json.lock`, which the engine takes for its own todo changes too). After changing
 `cli.rs`, run `scripts/skill-reference.sh`: it rewrites
 `skills/codealong/references/reference.md` from `--help`, and a cargo test fails while that
