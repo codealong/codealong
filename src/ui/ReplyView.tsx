@@ -6,13 +6,13 @@
 // says how the last one went and what's left: the view goes on to the next as each one's done.
 // Rename in a pill's or a row's menu shows it with its name ready to change.
 
-import { useMemo, useRef, useState, type MouseEvent } from 'react';
-import { below } from '../contextMenu';
+import { useMemo, useRef, useState } from 'react';
+import { below, showContextMenu } from '../contextMenu';
 import { shortOf } from '../devices';
 import { agoPhrase, duration } from '../format';
 import { sessionName } from '../harness';
+import type { SessionActions } from '../menus';
 import { openLabel } from '../open';
-import { seenable } from '../lanes';
 import { untilWords } from '../snooze';
 import type { Lane, Sent, Session } from '../types';
 import { Button, Rich, STATUS_WORD, StatusGlyph } from './primitives';
@@ -31,12 +31,9 @@ interface ReplyViewProps {
   onReveal: () => void;
   /** Back to where it was picked (the quick panel's list). */
   onBack?: () => void;
-  /** Takes it off the list it was picked from: marks a finished turn seen, which the header offers
-   *  only for Your turn and a reply that asks you something (seen, it's idle), or archives it. */
-  onSeen?: () => void;
-  onArchive?: () => void;
-  /** Drops the snooze menu from the header's button. */
-  onSnooze?: (e: MouseEvent<HTMLButtonElement>) => void;
+  /** The session's actions (menus.ts), as its menu has them: the header shows Mark as seen,
+   *  Snooze and Archive among them as buttons, when the session allows them. */
+  actions?: SessionActions;
   /** Its name is a field, ready to change; `onRename` hears the new one, or null when it's left
    *  as it was. */
   renaming?: boolean;
@@ -133,7 +130,7 @@ function NameField({ title, onDone }: { title: string; onDone: (name: string | n
   );
 }
 
-export function ReplyView({ lane, session: s, terminal, now, onOpen, onReveal, onBack, onSeen, onArchive, onSnooze, renaming, onRename, onMenu, autoFocus, keys, onSending, onSent, onFailed, onAnswered, onLoaded, queue, notice }: ReplyViewProps) {
+export function ReplyView({ lane, session: s, terminal, now, onOpen, onReveal, onBack, actions, renaming, onRename, onMenu, autoFocus, keys, onSending, onSent, onFailed, onAnswered, onLoaded, queue, notice }: ReplyViewProps) {
   const open = openWords(lane, s, terminal);
   const since = s.statusSince ? (s.status === 'working' ? `for ${duration(s.statusSince, now)}` : agoPhrase(s.statusSince, now)) : agoPhrase(s.lastActivity, now);
   const snoozed = s.snoozedUntil ? ` · snoozed until ${untilWords(s.snoozedUntil, now)}` : '';
@@ -164,8 +161,8 @@ export function ReplyView({ lane, session: s, terminal, now, onOpen, onReveal, o
           )}
           <div className="ca-reply-meta">{renaming && onRename ? '⏎ renames it · Esc keeps the old name' : `${s.account} · ${lane.callsign} · ${status}`}</div>
         </div>
-        {onSeen && seenable(s) && <Button variant="ghost" size="sm" icon="check" aria-label="Mark as seen" title="Mark as seen: it leaves the list" onClick={onSeen} />}
-        {onSnooze && (
+        {actions?.seen && <Button variant="ghost" size="sm" icon="check" aria-label="Mark as seen" title="Mark as seen: it leaves the list" onClick={actions.seen.run} />}
+        {actions?.snooze && (
           <Button
             variant="ghost"
             size="sm"
@@ -173,17 +170,17 @@ export function ReplyView({ lane, session: s, terminal, now, onOpen, onReveal, o
             aria-label={s.snoozedUntil ? 'Snoozed' : 'Snooze'}
             aria-haspopup="menu"
             title={s.snoozedUntil ? `Snoozed until ${untilWords(s.snoozedUntil, now)}: snooze it longer, or wake it now` : 'Snooze: off the bar until the time you pick, then back'}
-            onClick={onSnooze}
+            onClick={(e) => actions.snooze && void showContextMenu(actions.snooze.items, below(e.currentTarget))}
           />
         )}
-        {onArchive && (
+        {actions && !s.archived && (
           <Button
             variant="ghost"
             size="sm"
             icon="archive"
             aria-label="Archive"
             title={s.harness === 'codex' ? 'Archive: it leaves the list and the board, and Codex archives the thread' : 'Archive: it leaves the list and the board until you unarchive it'}
-            onClick={onArchive}
+            onClick={actions.archive.run}
           />
         )}
         {onMenu && <Button variant="ghost" size="sm" icon="dots" aria-label="More" aria-haspopup="menu" title="Close, fork, pin, copy and more" onClick={(e) => onMenu(below(e.currentTarget))} />}

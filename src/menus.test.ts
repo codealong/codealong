@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { MenuSpec } from './contextMenu';
-import { laneMenu, prMenu, sessionMenu, todoMenu, type SessionCan } from './menus';
+import { keyed, laneMenu, prMenu, sessionActions, sessionMenu, todoMenu, type SessionCan } from './menus';
 import { openLabel } from './open';
 import type { Report } from './report';
 import type { Lane, Session } from './types';
@@ -168,5 +168,20 @@ describe('prMenu and todoMenu', () => {
       'Copy branch name',
     ]);
     expect(labels(todoMenu('t1', { report, start: noop, session: s, desktop: new Set() }))).toEqual(['Start session…', 'Open claude: Fix login', '-', 'Pin to desktop', '-', 'Copy todo ID']);
+  });
+});
+
+describe('actions by name', () => {
+  it('shows the main window’s keys beside what they run, and runs the same action for them', () => {
+    const can: SessionCan = { ...base, keys: true, rename: noop, pin: { label: 'Pin session', run: noop } };
+    const keys = sessionMenu(lane(), session(), can).flatMap((i) => (i !== 'separator' && !('items' in i) && i.accelerator ? [`${i.label}=${i.accelerator}`] : []));
+    expect(keys).toEqual(['Rename…=R', 'Mark as seen=E', 'Pin session=P', 'Archive=A']);
+    // Elsewhere no window takes those keys, so none show.
+    expect(sessionMenu(lane(), session(), { ...can, keys: false }).some((i) => i !== 'separator' && 'accelerator' in i && i.accelerator)).toBe(false);
+    const acts = sessionActions(lane(), session(), can);
+    expect(keyed(acts, 'a')?.action).toBe(acts.archive);
+    expect(keyed(acts, 'x')).toBeNull();
+    // A key for an action that doesn't apply does nothing.
+    expect(keyed(sessionActions(lane(), session(), base), 'r')).toBeNull();
   });
 });

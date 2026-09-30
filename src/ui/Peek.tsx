@@ -12,13 +12,12 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { barNote, getBoard, inPreview, onBoard, onPeekHidden, onPeekOpen, onPeekShown, peekFit, peekFocus, peekHide, peekReady, showMain } from '../api';
-import { archiveAhead, boardView, lanesAhead, observe, renameAhead, seenAhead, useAhead } from '../ahead';
-import { below, showContextMenu } from '../contextMenu';
+import { boardView, lanesAhead, observe, renameAhead, useAhead } from '../ahead';
+import { showContextMenu } from '../contextMenu';
 import { readDraft } from '../drafts';
 import { homeOf } from '../lanes';
 import { useEditorIcons } from '../editors';
 import * as menus from '../menus';
-import { snoozeMenu } from '../snooze';
 import { attentionRows, ALL_PROJECTS } from '../quick';
 import type { Lane, PeekOpen, Session, Theme } from '../types';
 import { useKeyPerf } from '../perf';
@@ -210,7 +209,7 @@ export function Peek() {
   /** Takes the session off the bar, and puts the peek away. */
   const dismiss = (act: Promise<void>) => {
     void peekHide();
-    act.catch((e: unknown) => void barNote({ key: session.key, message: errorText(e), tone: 'error' }));
+    act.catch((e: unknown) => report.error(errorText(e)));
   };
 
   /** Renames the session, or leaves its name, and puts the peek away: that's what it opened for. */
@@ -227,20 +226,19 @@ export function Peek() {
     void showMain({ kind: 'session', laneId: lane.id, key: session.key });
   };
 
-  /** The session's menu, as every window has it (menus.ts). */
-  const menu = (at?: { x: number; y: number }) => {
-    const spec = menus.sessionMenu(lane, session, {
-      report,
-      open: openOn,
-      terminal: open.terminal,
-      reveal,
-      editors: open.apps ? { apps: open.apps, icons } : undefined,
-      desktop: onDesktop,
-      rename: () => setRenameAsked(session.key),
-      left: () => void peekHide(),
-    });
-    void showContextMenu(spec, at).catch((e: unknown) => report.error(String(e)));
+  /** What the peek can do to its session (menus.ts): its menu, and the header's buttons among
+   *  its actions. Whatever takes the session off the bar puts the peek away. */
+  const can: menus.SessionCan = {
+    report,
+    open: openOn,
+    terminal: open.terminal,
+    reveal,
+    editors: open.apps ? { apps: open.apps, icons } : undefined,
+    desktop: onDesktop,
+    rename: () => setRenameAsked(session.key),
+    left: () => void peekHide(),
   };
+  const menu = (at?: { x: number; y: number }) => void showContextMenu(menus.sessionMenu(lane, session, can), at).catch((e: unknown) => report.error(errorText(e)));
 
   return (
     <div
@@ -269,9 +267,7 @@ export function Peek() {
           autoFocus={open.focus}
           onLoaded={loaded}
           onOpen={openHere}
-          onSeen={() => dismiss(seenAhead([session.key]))}
-          onArchive={() => dismiss(archiveAhead(session.key, true))}
-          onSnooze={(e) => void showContextMenu(snoozeMenu([session.key], Date.now(), { until: session.snoozedUntil, onDone: dismiss }).items, below(e.currentTarget))}
+          actions={menus.sessionActions(lane, session, can)}
           renaming={open.rename || renameAsked === session.key}
           onRename={renamed}
           onMenu={menu}

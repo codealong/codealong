@@ -14,7 +14,6 @@ import { useEditorIcons } from './editors';
 import { AGENT_BAY, buildBays, filterByAge, homeOf, inboxCounts, liveOrLatest, narrowed, prNeedsWork, rowItems, seenable, worktreeRow, sessionHomes, type BoardRow, type Filter, type WorktreeRow } from './lanes';
 import { answerLink, approvePr, barMode, getDevices, onDevices, dismissTodoHint, expandAttachments, getBoard, onBarMode, onBoard, onCloseIdle, onNewWindow, onQuickStart, onReveal, onSettings, onCheckUpdates, openConfig, openProjectWindow, openUrl, refresh, refreshUsage, reviewInCodex, setBarMode, startOptions, startSession, setPinned, setPinnedWorktrees, setTheme, showQuick, signIn, windowLabel, type BarMode, type Reveal } from './api';
 import { middleTruncate } from './format';
-import { renames } from './harness';
 import * as menus from './menus';
 import { usePerf } from './perf';
 import { archiveAhead, boardAhead, boardView, lanesAhead, observe, seenAhead, useAhead } from './ahead';
@@ -1262,9 +1261,11 @@ export function App() {
   todoItemsRef.current = todoMenuItems;
   const editorIcons = useEditorIcons(board?.apps);
   const editors = board ? { apps: board.apps, icons: editorIcons } : undefined;
-  const sessionMenuSpec = (lane: Lane, s: Session, pin: 'session' | 'worktree'): MenuSpec =>
-    menus.sessionMenu(lane, s, {
+  /** What this window can do to a session, for its menu and its keys, which run the same
+   *  actions (menus.ts). */
+  const sessionCan = (lane: Lane, s: Session, pin: 'session' | 'worktree'): menus.SessionCan => ({
       report,
+      keys: true,
       open,
       terminal: board?.apps.terminal ?? 'Terminal',
       editors,
@@ -1280,13 +1281,14 @@ export function App() {
       rename: () => setRenaming(s.key),
       archive: (archived) => setArchived(s.key, archived, s.title),
       canvas: canvasItem('session', s.key),
-    });
+  });
+  const sessionMenuSpec = (lane: Lane, s: Session, pin: 'session' | 'worktree'): MenuSpec => menus.sessionMenu(lane, s, sessionCan(lane, s, pin));
   const sessionMenu = (lane: Lane, s: Session, pin: 'session' | 'worktree') => void showContextMenu(sessionMenuSpec(lane, s, pin)).catch((e: unknown) => setToast(String(e)));
 
   /** A worktree's right-click menu, as every window has it (menus.ts), with this window's own. */
-  const laneMenuSpec = (lane: Lane): MenuSpec =>
-    menus.laneMenu(lane, {
+  const laneCan = (lane: Lane): menus.LaneCan => ({
       report,
+      keys: true,
       open,
       editors,
       newSession: () => newSession({ laneId: lane.id }),
@@ -1295,7 +1297,11 @@ export function App() {
       pin: { label: lanePins.set.has(lane.id) ? 'Unpin worktree' : 'Pin worktree', run: () => toggleLanePin(lane) },
       desktop: onDesktop,
       canvas: canvasItem('worktree', lane.id),
-    });
+  });
+  const laneMenuSpec = (lane: Lane): MenuSpec => menus.laneMenu(lane, laneCan(lane));
+  // The keys run the same actions, as this render has them.
+  const actionsRef = useRef({ session: (lane: Lane, s: Session, pin: 'session' | 'worktree') => menus.sessionActions(lane, s, sessionCan(lane, s, pin)), lane: (lane: Lane) => menus.laneActions(lane, laneCan(lane)) });
+  actionsRef.current = { session: (lane, s, pin) => menus.sessionActions(lane, s, sessionCan(lane, s, pin)), lane: (lane) => menus.laneActions(lane, laneCan(lane)) };
   const laneMenu = (lane: Lane) => void showContextMenu(laneMenuSpec(lane)).catch((e: unknown) => setToast(String(e)));
 
   /** Moves a pinned session to insertion point `index` among the pinned ones showing. */
@@ -1558,21 +1564,18 @@ export function App() {
         togglePanelMax();
         return;
       }
-      // P pins what the view lists: worktrees on the board, sessions in Sessions.
-      if (key === 'p' && !mod && selected && selected.kind !== 'pr' && selected.kind !== 'todo') {
-        if (view === 'worktrees') toggleLanePin(selected.lane);
-        else if (selected.kind === 'agent' && !selected.session.archived) sessionPins.toggle(selected.session.key);
-        return;
-      }
-      if (key === 'a' && !mod && selected?.kind === 'agent') {
-        setArchived(selected.session.key, !selected.session.archived, selected.session.title);
-        return;
-      }
-      if (key === 'r' && !mod && selected?.kind === 'agent' && renames(selected.session)) {
-        // Not typed into the name as its field takes the keyboard.
-        e.preventDefault();
-        setRenaming(selected.session.key);
-        return;
+      // P, A and R run the selected row's menu actions (menus.ts `KEYS`), so each applies where
+      // the menu's would. P pins what the view lists: worktrees on the board, sessions in
+      // Sessions. E, below, marks seen more than one session at once.
+      if (!mod && selected && selected.kind !== 'pr' && selected.kind !== 'todo') {
+        const acts = selected.kind === 'agent' ? actionsRef.current.session(selected.lane, selected.session, view === 'worktrees' ? 'worktree' : 'session') : actionsRef.current.lane(selected.lane);
+        const found = menus.keyed(acts, key);
+        if (found && found.id !== 'seen') {
+          // Not typed into a field the action opens (Rename's).
+          e.preventDefault();
+          found.action.run();
+          return;
+        }
       }
       if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
         // Insertion points: one up is the row's own index less one; one down is two past it.

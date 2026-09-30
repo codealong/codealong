@@ -9,7 +9,7 @@
 import { useEffect, useState } from 'react';
 import { closeSession, desktopPins, forkSession, onDesktopPins, openUrl, pinToDesktop, sessionCancel, showQuick, unpinFromDesktop } from './api';
 import { archiveAhead, seenAhead } from './ahead';
-import type { MenuAction, MenuSpec } from './contextMenu';
+import type { MenuAction, MenuGroup, MenuSpec } from './contextMenu';
 import { shortOf } from './devices';
 import { folderMenu, openInMenu, opensInEditor, type AppIcons, type Apps } from './editors';
 import { renames } from './harness';
@@ -30,14 +30,14 @@ function sections(...groups: MenuSpec[]): MenuSpec {
   return groups.filter((g) => g.length > 0).flatMap((g, i): MenuSpec => (i === 0 ? g : ['separator', ...g]));
 }
 
-function copyItem(label: string, text: string | null | undefined, what: string, report: Report): MenuSpec {
-  if (!text) return [];
+function copyItem(label: string, text: string | null | undefined, what: string, report: Report): MenuAction | undefined {
+  if (!text) return undefined;
   const copy = () =>
     navigator.clipboard.writeText(text).then(
       () => report.info(`Copied the ${what}.`),
       () => report.error(`Couldn't copy the ${what}.`),
     );
-  return [{ label, run: () => void copy() }];
+  return { label, run: () => void copy() };
 }
 
 /** Pin to desktop, or Remove from desktop once it's there: a card over every window (desktop.rs). */
@@ -60,16 +60,16 @@ export function useDesktopPins(): ReadonlySet<string> {
 }
 
 /** Opens a worktree's PR on GitHub. */
-function prItem(lane: Lane, report: Report): MenuSpec {
+function prItem(lane: Lane, report: Report): MenuAction | undefined {
   const pr = lane.pr;
-  return pr ? [{ label: `Open PR #${pr.number} on GitHub`, run: () => void openUrl(pr.url).catch((e: unknown) => report.error(errorText(e))) }] : [];
+  return pr ? { label: `Open PR #${pr.number} on GitHub`, run: () => void openUrl(pr.url).catch((e: unknown) => report.error(errorText(e))) } : undefined;
 }
 
 /** New session here…: the quick panel on the worktree, from any window. The panel starts
  *  sessions on this device, so another device's worktree needs a window that says otherwise. */
-function newSessionItem(lane: Lane, run: (() => void) | undefined): MenuSpec {
-  if (!run && shortOf(lane.id)) return [];
-  return [{ label: 'New session here…', run: run ?? (() => void showQuick({ laneId: lane.id, project: lane.project })) }];
+function newSessionItem(lane: Lane, run: (() => void) | undefined): MenuAction | undefined {
+  if (!run && shortOf(lane.id)) return undefined;
+  return { label: 'New session here…', run: run ?? (() => void showQuick({ laneId: lane.id, project: lane.project })) };
 }
 
 export interface SessionCan {
@@ -105,17 +105,42 @@ export interface SessionCan {
   left?: (done: 'marked seen' | 'snoozed' | 'archived') => void;
   /** Add to canvas, where there's a canvas. */
   canvas?: MenuSpec;
+  /** Shows the main window's keys beside the actions they run (`KEYS`). */
+  keys?: boolean;
 }
 
-/**
- * A session's menu: opening it (where it lives, its folder, its PR), showing or answering it in
- * Codealong, starting from it; the window's own (todos); what it is to you (its turn stopped,
- * its name, seen, pinned, snoozed, closed, archived); copying it.
- */
-export function sessionMenu(lane: Lane, s: Session, can: SessionCan): MenuSpec {
+/** A session's actions by name, each once: the menu lays them out (`sessionMenu`), a header
+ *  shows a few as buttons (ReplyView.tsx), and the main window's keys run some (`KEYS`). An
+ *  action is missing when the window can't do it or the session doesn't allow it, so the rule for
+ *  when each applies is here and nowhere else. */
+export interface SessionActions {
+  open: MenuAction;
+  folder?: MenuAction | MenuGroup;
+  pr?: MenuAction;
+  reveal?: MenuAction;
+  reply?: MenuAction;
+  newSession?: MenuAction;
+  fork?: MenuAction;
+  stop?: MenuAction;
+  rename?: MenuAction;
+  seen?: MenuAction;
+  pin?: MenuAction;
+  desktop?: MenuAction;
+  snooze?: MenuGroup;
+  close?: MenuAction;
+  archive: MenuAction;
+  copyId: MenuAction;
+  copyResume?: MenuAction;
+}
+
+export function sessionActions(lane: Lane, s: Session, can: SessionCan): SessionActions {
   const { report } = can;
   const here = !shortOf(s.key);
   const busy = <T>(label: string, work: Promise<T>) => (report.busy ? report.busy(label, work) : work);
+  const said = (label: string, work: Promise<string | null | undefined | void>) =>
+    busy(label, work)
+      .then((words) => words && report.info(words))
+      .catch((e: unknown) => report.error(errorText(e)));
   const settle = (done: 'marked seen' | 'snoozed' | 'archived') => (act: Promise<unknown>) => {
     can.left?.(done);
     act.catch((e: unknown) => report.error(errorText(e)));
@@ -127,45 +152,51 @@ export function sessionMenu(lane: Lane, s: Session, can: SessionCan): MenuSpec {
         if (started) can.forked?.(started);
       })
       .catch((e: unknown) => report.error(errorText(e)));
-  const stop = () =>
-    busy(`Stopping ${s.title}…`, sessionCancel(s.key))
-      .then((said) => said && report.info(said))
-      .catch((e: unknown) => report.error(errorText(e)));
-  const close = () =>
-    busy(`Closing ${s.title}…`, closeSession(s.key))
-      .then((said) => said && report.info(said))
-      .catch((e: unknown) => report.error(errorText(e)));
   const archive = can.archive ?? ((archived: boolean) => (archived ? settle('archived')(archiveAhead(s.key, true)) : void archiveAhead(s.key, false).catch((e: unknown) => report.error(errorText(e)))));
-  return sections(
-    can.heading ? [{ label: `${s.title} · ${lane.callsign}`, enabled: false, run: () => {} }] : [],
-    [
-      { label: openLabel(lane, s, can.terminal), run: () => can.open(lane, s.openTarget) },
-      ...(can.editors && opensInEditor(lane) ? folderMenu(can.editors.apps, can.editors.icons, (id) => can.open(lane, id)) : []),
-      ...prItem(lane, report),
-      ...(can.reveal ? [{ label: 'Show in Codealong', run: can.reveal }] : []),
-      ...(can.reply ? [{ label: 'Reply here', run: can.reply }] : []),
-      ...newSessionItem(lane, can.newSession),
-      // Forks open in a terminal, where only sessions that resume in one can go.
-      ...(s.resumeCommand ? [{ label: 'Fork in terminal', run: () => void fork() }] : []),
-    ],
-    can.todos ?? [],
-    [
-      // The session carries on, waiting for you.
-      ...(stoppable(s) ? [{ label: 'Stop turn', run: () => void stop() }] : []),
-      ...(can.rename && renames(s) ? [{ label: 'Rename…', run: can.rename }] : []),
-      ...(seenable(s) ? [{ label: 'Mark as seen', run: () => settle('marked seen')(seenAhead([s.key])) }] : []),
-      ...(s.archived ? [] : [...(can.pin ? [can.pin] : []), ...(can.desktop ? [desktopItem('session', s.key, can.desktop, report)] : [])]),
-      // Snoozes keep sessions off the floating bar, which shows this device's only.
-      ...(s.archived || !here ? [] : [snoozeMenu([s.key], Date.now(), { until: s.snoozedUntil, onDone: settle('snoozed') })]),
-      ...(closable(s) ? [{ label: s.attachCommand ? 'End background job' : 'Close terminal', run: () => void close() }] : []),
-      { label: s.archived ? 'Unarchive' : s.harness === 'codex' ? 'Archive in Codex' : 'Archive', run: () => archive(!s.archived) },
-    ],
-    [
-      ...copyItem('Copy session ID', s.id, 'session ID', report),
-      ...copyItem('Copy resume command', s.resumeCommand, 'resume command', report),
-      ...(s.visitor ? [] : (can.canvas ?? [])),
-    ],
-  );
+  return {
+    open: { label: openLabel(lane, s, can.terminal), run: () => can.open(lane, s.openTarget) },
+    folder: can.editors && opensInEditor(lane) ? item(folderMenu(can.editors.apps, can.editors.icons, (id) => can.open(lane, id))) : undefined,
+    pr: prItem(lane, report),
+    reveal: can.reveal && { label: 'Show in Codealong', run: can.reveal },
+    reply: can.reply && { label: 'Reply here', run: can.reply },
+    newSession: newSessionItem(lane, can.newSession),
+    // Forks open in a terminal, where only sessions that resume in one can go.
+    fork: s.resumeCommand ? { label: 'Fork in terminal', run: () => void fork() } : undefined,
+    // The session carries on, waiting for you.
+    stop: stoppable(s) ? { label: 'Stop turn', run: () => void said(`Stopping ${s.title}…`, sessionCancel(s.key)) } : undefined,
+    rename: can.rename && renames(s) ? { label: 'Rename…', run: can.rename } : undefined,
+    seen: seenable(s) ? { label: 'Mark as seen', run: () => settle('marked seen')(seenAhead([s.key])) } : undefined,
+    pin: s.archived ? undefined : can.pin,
+    desktop: !s.archived && can.desktop ? desktopItem('session', s.key, can.desktop, report) : undefined,
+    // Snoozes keep sessions off the floating bar, which shows this device's only.
+    snooze: s.archived || !here ? undefined : snoozeMenu([s.key], Date.now(), { until: s.snoozedUntil, onDone: settle('snoozed') }),
+    close: closable(s) ? { label: s.attachCommand ? 'End background job' : 'Close terminal', run: () => void said(`Closing ${s.title}…`, closeSession(s.key)) } : undefined,
+    archive: { label: s.archived ? 'Unarchive' : s.harness === 'codex' ? 'Archive in Codex' : 'Archive', run: () => archive(!s.archived) },
+    copyId: copyItem('Copy session ID', s.id, 'session ID', report) as MenuAction,
+    copyResume: copyItem('Copy resume command', s.resumeCommand, 'resume command', report),
+  };
+}
+
+/** The order of a session's menu, in groups with a line between: opening it (where it lives,
+ *  its folder, its PR), showing or answering it in Codealong and starting from it; the window's
+ *  todos; what it is to you (its turn, its name, seen, pinned, snoozed, closed, archived);
+ *  copying it. */
+const SESSION_MENU = [
+  ['heading'],
+  ['open', 'folder', 'pr', 'reveal', 'reply', 'newSession', 'fork'],
+  ['todos'],
+  ['stop', 'rename', 'seen', 'pin', 'desktop', 'snooze', 'close', 'archive'],
+  ['copyId', 'copyResume', 'canvas'],
+] as const;
+
+/** A session's menu, as every window has it. */
+export function sessionMenu(lane: Lane, s: Session, can: SessionCan): MenuSpec {
+  const extras = {
+    heading: can.heading ? [{ label: `${s.title} · ${lane.callsign}`, enabled: false, run: () => {} }] : [],
+    todos: can.todos ?? [],
+    canvas: s.visitor ? [] : (can.canvas ?? []),
+  };
+  return laidOut(SESSION_MENU, sessionActions(lane, s, can), extras, can.keys);
 }
 
 export interface LaneCan {
@@ -186,41 +217,109 @@ export interface LaneCan {
   /** What's on the desktop, as `ref:key`, for Pin to desktop. */
   desktop?: ReadonlySet<string>;
   canvas?: MenuSpec;
+  /** Shows the main window's keys beside the actions they run (`KEYS`). */
+  keys?: boolean;
 }
 
-/** A worktree's menu: its default open, then its editors, Finder and app, its PR, showing it
- *  and starting a session in it; the window's own; pins; copying its path, branch and links. */
-export function laneMenu(lane: Lane, can: LaneCan): MenuSpec {
+/** A worktree's actions by name, as `SessionActions` are a session's. */
+export interface LaneActions {
+  open?: MenuAction;
+  editor?: MenuAction;
+  openIn?: MenuGroup;
+  finder?: MenuAction;
+  preview?: MenuAction;
+  pr?: MenuAction;
+  reveal?: MenuAction;
+  newSession?: MenuAction;
+  setPreview?: MenuAction;
+  pin?: MenuAction;
+  desktop?: MenuAction;
+  copyPath?: MenuAction;
+  copyBranch?: MenuAction;
+  copyPr?: MenuAction;
+  copyPreview?: MenuAction;
+}
+
+export function laneActions(lane: Lane, can: LaneCan): LaneActions {
   const { report } = can;
-  const main = lane.targets.find((t) => t.id === lane.defaultTarget);
-  const other = (id: string): MenuSpec => {
+  const target = (id: string | null | undefined, label?: string) => {
     const t = lane.targets.find((x) => x.id === id);
-    return t && id !== lane.defaultTarget ? [{ label: t.label, enabled: !t.disabled, run: () => can.open(lane, id) }] : [];
+    return id && t ? { label: label ?? t.label, enabled: !t.disabled, run: () => can.open(lane, id) } : undefined;
   };
-  const defaultTarget = lane.defaultTarget;
-  return sections(
-    [
-      ...(defaultTarget ? [{ label: main?.label ?? 'Open', run: () => can.open(lane, defaultTarget) }] : []),
-      // Open in <yours>, then the other editors installed here.
-      ...other('l|editor'),
-      ...(can.editors && opensInEditor(lane) ? openInMenu(can.editors.apps, can.editors.icons, (id) => can.open(lane, id)) : []),
-      ...other('l|finder'),
-      ...other('l|preview'),
-      ...prItem(lane, report),
-      ...(can.reveal ? [{ label: 'Show in Codealong', run: can.reveal }] : []),
-      ...newSessionItem(lane, can.newSession),
-      ...(can.setPreview && !lane.device ? [{ label: lane.preview?.set ? 'Change preview URL…' : 'Set preview URL…', run: can.setPreview }] : []),
-    ],
-    can.todos ?? [],
-    [...(can.pin ? [can.pin] : []), ...(can.desktop ? [desktopItem('worktree', lane.id, can.desktop, report)] : [])],
-    [
-      ...copyItem('Copy path', lane.path, 'worktree path', report),
-      ...copyItem('Copy branch name', lane.branch, 'branch name', report),
-      ...copyItem('Copy PR link', lane.pr?.url, 'PR link', report),
-      ...copyItem('Copy preview URL', lane.preview?.url, 'preview URL', report),
-      ...(can.canvas ?? []),
-    ],
-  );
+  // The default open first, whatever it is; the others where they aren't it.
+  const other = (id: string) => (id === lane.defaultTarget ? undefined : target(id));
+  const main = lane.defaultTarget;
+  return {
+    open: main ? { label: lane.targets.find((t) => t.id === main)?.label ?? 'Open', run: () => can.open(lane, main) } : undefined,
+    // Open in <yours>, then the other editors installed here.
+    editor: other('l|editor'),
+    openIn: can.editors && opensInEditor(lane) ? (item(openInMenu(can.editors.apps, can.editors.icons, (id) => can.open(lane, id))) as MenuGroup | undefined) : undefined,
+    finder: other('l|finder'),
+    preview: other('l|preview'),
+    pr: prItem(lane, report),
+    reveal: can.reveal && { label: 'Show in Codealong', run: can.reveal },
+    newSession: newSessionItem(lane, can.newSession),
+    setPreview: can.setPreview && !lane.device ? { label: lane.preview?.set ? 'Change preview URL…' : 'Set preview URL…', run: can.setPreview } : undefined,
+    pin: can.pin,
+    desktop: can.desktop ? desktopItem('worktree', lane.id, can.desktop, report) : undefined,
+    copyPath: copyItem('Copy path', lane.path, 'worktree path', report),
+    copyBranch: copyItem('Copy branch name', lane.branch, 'branch name', report),
+    copyPr: copyItem('Copy PR link', lane.pr?.url, 'PR link', report),
+    copyPreview: copyItem('Copy preview URL', lane.preview?.url, 'preview URL', report),
+  };
+}
+
+/** The order of a worktree's menu: opening it, its PR, showing it and starting in it; the
+ *  window's todos; pins; copying its path, branch and links. */
+const LANE_MENU = [
+  ['open', 'editor', 'openIn', 'finder', 'preview', 'pr', 'reveal', 'newSession', 'setPreview'],
+  ['todos'],
+  ['pin', 'desktop'],
+  ['copyPath', 'copyBranch', 'copyPr', 'copyPreview', 'canvas'],
+] as const;
+
+/** A worktree's menu, as every window has it. */
+export function laneMenu(lane: Lane, can: LaneCan): MenuSpec {
+  return laidOut(LANE_MENU, laneActions(lane, can), { todos: can.todos ?? [], canvas: can.canvas ?? [] }, can.keys);
+}
+
+/** The main window's keys for actions, shown beside them in its menus. */
+export const KEYS: Partial<Record<keyof SessionActions | keyof LaneActions, string>> = { seen: 'E', pin: 'P', archive: 'A', rename: 'R' };
+
+/** The action a key runs among a session's or worktree's (`KEYS`), by the key as typed, when
+ *  it applies to them now. */
+export function keyed(actions: SessionActions | LaneActions, key: string): { id: string; action: MenuAction } | null {
+  const id = Object.keys(KEYS).find((name) => KEYS[name as keyof typeof KEYS] === key.toUpperCase());
+  const it = id ? (actions as Record<string, Item | undefined>)[id] : undefined;
+  return id && it && !('items' in it) ? { id, action: it } : null;
+}
+
+type Item = MenuAction | MenuGroup;
+
+/** A menu from a layout: each group's actions that are there (or the window's extras in their
+ *  places), a line between groups that have any, and with `keys` each action's key beside it. */
+function laidOut<A extends object>(layout: readonly (readonly string[])[], actions: A, extras: Record<string, MenuSpec>, keys?: boolean): MenuSpec {
+  const byName = actions as Record<string, Item | undefined>;
+  const group = (names: readonly string[]): MenuSpec =>
+    names.flatMap((name): MenuSpec => {
+      if (name in extras) return extras[name];
+      const it = byName[name];
+      if (!it) return [];
+      const key = keys ? KEYS[name as keyof typeof KEYS] : undefined;
+      return [key && !('items' in it) ? { ...it, accelerator: key } : it];
+    });
+  return sections(...layout.map(group));
+}
+
+/** An item that may not be there, as a list of it or of nothing. */
+function some<T>(x: T | undefined): T[] {
+  return x ? [x] : [];
+}
+
+/** The one item a helper that returns a list of none or one gave. */
+function item<T extends MenuSpec[number]>(spec: T[]): Exclude<T, 'separator'> | undefined {
+  const [first] = spec;
+  return first === 'separator' ? undefined : (first as Exclude<T, 'separator'>);
 }
 
 export interface PrCan {
@@ -255,8 +354,8 @@ export function prMenu(pr: Pick<Pr, 'url' | 'number'> & { head?: string | null }
     can.approve ? [{ label: `Approve #${pr.number}`, run: can.approve }] : [],
     [
       ...(can.showLane ? [{ label: `Show worktree ${can.showLane.lane.callsign}`, run: can.showLane.run }] : []),
-      ...copyItem('Copy link', pr.url, 'PR link', report),
-      ...copyItem('Copy branch name', pr.head, 'branch name', report),
+      ...some(copyItem('Copy link', pr.url, 'PR link', report)),
+      ...some(copyItem('Copy branch name', pr.head, 'branch name', report)),
       ...(can.canvas ?? []),
     ],
   );
@@ -294,7 +393,7 @@ export function todoMenu(id: string, can: TodoCan): MenuSpec {
     ],
     can.edit ?? [],
     can.desktop ? [desktopItem('todo', id, can.desktop, report)] : [],
-    [...(can.copyPrompt ? [{ label: 'Copy as prompt', run: can.copyPrompt }] : []), ...copyItem('Copy todo ID', id, 'todo ID', report), ...(can.canvas ?? [])],
+    [...(can.copyPrompt ? [{ label: 'Copy as prompt', run: can.copyPrompt }] : []), ...some(copyItem('Copy todo ID', id, 'todo ID', report)), ...(can.canvas ?? [])],
     can.remove ? [{ label: 'Delete todo', run: can.remove }] : [],
   );
 }

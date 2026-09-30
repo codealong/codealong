@@ -43,18 +43,17 @@ import {
   todoOp,
   type QuickOpen,
 } from '../api';
-import { archiveAhead, boardAhead, boardView, observe, renameAhead, seenAhead, sendAhead, useAhead } from '../ahead';
+import { boardAhead, boardView, observe, renameAhead, sendAhead, useAhead } from '../ahead';
 import { filesToAttach, keepFiles, useFileDrop } from '../attachInput';
 import { deviceLabel, shortOf } from '../devices';
 import { useKeyPerf, usePerf } from '../perf';
-import { below, showContextMenu, type MenuSpec } from '../contextMenu';
+import { showContextMenu, type MenuSpec } from '../contextMenu';
 import { useEditorIcons } from '../editors';
 import * as menus from '../menus';
 import { ago, agoPhrase, resetsPhrase, tildePath } from '../format';
 import { HARNESS_WORD, usageNote } from '../harness';
 import { useLogo } from '../logo';
 import { prPills } from '../prStatus';
-import { snoozeMenu } from '../snooze';
 import { ALL_PROJECTS, attentionRows, findPrs, findSessions, findTodos, FOUND_SESSIONS, inProject, laneBranch, laneGroups, MAX_ROWS, projectCounts, queryWords, queueAfter, queueRows, readyTodos, recallList, recentRows, shortcutLabel, stillSaid, TEXT_SEARCH_MIN, type Handled, type PrRow, type RowGroup, type SessionRow, type TodoRow, withPrompt as historyWith } from '../quick';
 import {
   accountFor,
@@ -865,18 +864,6 @@ export function Quick() {
     setReplyKey(next.key);
   };
 
-  /** Marks the session answered seen, snoozes or archives it, and goes on to the next that waits on
-   *  you, or back to the list it's left. */
-  const dismissReply = (s: Session, done: string, act: Promise<void>) => {
-    if (queued) advance(s, done);
-    else leaveReply();
-    act.catch((e: unknown) => {
-      const why = errorText(e);
-      setError(why);
-      setNotice({ text: `${s.title}: ${why}`, error: true });
-    });
-  };
-
   /** The session ⏎ opens for a todo, as in the main window: the live one, else the latest. */
   const todoSession = (r: TodoRow) => liveOrLatest(r.item.sessions);
 
@@ -935,10 +922,13 @@ export function Quick() {
     info: (message) => (replyKeyNow.current ? setNotice({ text: message, error: false }) : setInfo(message)),
   };
 
-  /** A session's menu, as every window has it (menus.ts). */
-  const sessionMenuSpec = (lane: Lane, s: Session, left?: menus.SessionCan['left']): MenuSpec =>
-    menus.sessionMenu(lane, s, {
-      report: menuReport,
+  /** What the panel can do to a session (menus.ts): its menu, and the answer view's buttons.
+   *  Something that went wrong with one the view has gone on from says which it was. */
+  const quickCan = (lane: Lane, s: Session, left?: menus.SessionCan['left']): menus.SessionCan => ({
+      report: {
+        ...menuReport,
+        error: (message) => (replyKeyNow.current && replyKeyNow.current !== s.key ? setNotice({ text: `${s.title}: ${message}`, error: true }) : menuReport.error(message)),
+      },
       open: openHere,
       terminal: board?.apps.terminal ?? 'Terminal',
       reveal: () => revealSession(lane, s),
@@ -947,7 +937,8 @@ export function Quick() {
       editors: board ? { apps: board.apps, icons } : undefined,
       desktop: onDesktop,
       left,
-    });
+  });
+  const sessionMenuSpec = (lane: Lane, s: Session): MenuSpec => menus.sessionMenu(lane, s, quickCan(lane, s));
 
   /** A row's menu: a session's, PR's or todo's as every window has it, a suggestion's own. */
   const rowMenu = (r: Row) => {
@@ -1500,6 +1491,10 @@ export function Quick() {
 
   /** A reply is on its way, or what it waited on was answered: the panel is done. The window that
    *  opened it hears what happened. */
+  // The session answered here: what's done to it from the view goes on to the next that waits
+  // on you, or back to the list it's left.
+  const replyCan = replying ? quickCan(replying.lane, replying.session, (done) => (queued ? advance(replying.session, `${done}.`) : leaveReply())) : null;
+
   const replied = (message: string | null) => {
     setReplyKey(null);
     setQueued(false);
@@ -1529,19 +1524,10 @@ export function Quick() {
             onBack={leaveReply}
             onOpen={() => openSession(replying.lane, replying.session)}
             onReveal={() => revealSession(replying.lane, replying.session)}
-            onSeen={() => dismissReply(replying.session, 'marked seen.', seenAhead([replying.session.key]))}
-            onArchive={() => dismissReply(replying.session, 'archived.', archiveAhead(replying.session.key, true))}
-            onSnooze={(e) => {
-              const s = replying.session;
-              void showContextMenu(snoozeMenu([s.key], Date.now(), { until: s.snoozedUntil, onDone: (act) => dismissReply(s, 'snoozed.', act) }).items, below(e.currentTarget));
-            }}
+            actions={replyCan ? menus.sessionActions(replying.lane, replying.session, replyCan) : undefined}
             renaming={renameKey === replying.session.key}
             onRename={(name) => renamed(replying.session, name)}
-            onMenu={(at) => {
-              const s = replying.session;
-              const spec = sessionMenuSpec(replying.lane, s, (done) => (queued ? advance(s, `${done}.`) : leaveReply()));
-              void showContextMenu(spec, at).catch((e: unknown) => setNotice({ text: errorText(e), error: true }));
-            }}
+            onMenu={(at) => replyCan && void showContextMenu(menus.sessionMenu(replying.lane, replying.session, replyCan), at).catch((e: unknown) => setNotice({ text: errorText(e), error: true }))}
             queue={queued ? { left: queueLeft.length, next: queueLeft[0]?.session ?? null, onNext: skip } : undefined}
             notice={notice}
             onSending={() => (queued ? advance(replying.session, 'sent.') : replied(null))}
