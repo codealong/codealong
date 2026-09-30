@@ -14,6 +14,7 @@ import { folderMenu, openInMenu, opensInEditor, useEditorIcons } from './editors
 import { AGENT_BAY, buildBays, filterByAge, inboxCounts, narrowed, prNeedsWork, rowItems, seenable, closable, worktreeRow, type BoardRow, type Filter, type WorktreeRow } from './lanes';
 import { answerLink, approvePr, barMode, desktopPins, getDevices, onDevices, dismissTodoHint, expandAttachments, getBoard, onBarMode, onBoard, onCloseIdle, onDesktopPins, onNewWindow, onQuickStart, onReveal, onSettings, onCheckUpdates, openConfig, openProjectWindow, openTarget, openUrl, pinToDesktop, refresh, refreshUsage, reviewInCodex, setBarMode, startOptions, startSession, forkSession, closeSession, setPinned, setPinnedWorktrees, setTheme, showQuick, signIn, unpinFromDesktop, windowLabel, type BarMode, type Reveal } from './api';
 import { middleTruncate } from './format';
+import { renames } from './harness';
 import { usePerf } from './perf';
 import { archiveAhead, boardAhead, boardView, lanesAhead, observe, seenAhead, useAhead } from './ahead';
 import { reuse } from './reuse';
@@ -30,6 +31,7 @@ import { LABEL_COLORS } from './types';
 import { SettingsDialog, type SettingsSection } from './ui/SettingsDialog';
 import { CloseIdleDialog } from './ui/CloseIdleDialog';
 import { PreviewDialog } from './ui/PreviewBits';
+import { RenameDialog } from './ui/RenameDialog';
 import { Inspector } from './ui/Inspector';
 import { SessionPanel } from './ui/SessionPanel';
 import { LaneRow } from './ui/LaneRow';
@@ -351,6 +353,8 @@ export function App() {
   const [closeIdle, setCloseIdle] = useState(false);
   // The worktree whose preview URL is being set (ui/PreviewBits.tsx), by id.
   const [previewFor, setPreviewFor] = useState<string | null>(null);
+  // The session being renamed (ui/RenameDialog.tsx), by key.
+  const [renaming, setRenaming] = useState<string | null>(null);
   useEffect(() => onCloseIdle(() => setCloseIdle(true)), []);
   // New session opens the quick panel (ui/Quick.tsx) at a worktree, maybe for a todo, in the
   // project this window shows. The panel tells this window how the start goes.
@@ -1279,10 +1283,10 @@ export function App() {
   const toggleLanePin = useCallback((lane: Lane) => lanePins.toggle(lane.id), [lanePins]);
 
   /**
-   * A session's right-click menu: open it, fork it, mark it seen, pin it, snooze it, close it,
-   * archive it, copy its ID. Snoozes keep sessions off the floating bar, which shows this Mac's only. Each list pins what
-   * it shows: Sessions pins the session; the board and the sidebar, lists of worktrees, pin the
-   * session's worktree.
+   * A session's right-click menu: open it, fork it, rename it, mark it seen, pin it, snooze it,
+   * close it, archive it, copy its ID. Snoozes keep sessions off the floating bar, which shows
+   * this Mac's only. Each list pins what it shows: Sessions pins the session; the board and the
+   * sidebar, lists of worktrees, pin the session's worktree.
    */
   const todoItemsRef = useRef(todoMenuItems);
   todoItemsRef.current = todoMenuItems;
@@ -1322,6 +1326,7 @@ export function App() {
         'separator',
         ...todoItemsRef.current(lane.project, { session: s.key }, { session: s.key, worktree: lane.id, label: `${s.account} in ${lane.callsign}` }, s.title),
         'separator',
+        ...(renames(s) ? [{ label: 'Rename…', run: () => setRenaming(s.key) }] : []),
         ...(seenable(s) ? [{ label: 'Mark as seen', run: () => seen(s) }] : []),
         ...(s.archived ? [] : [pinItem, ...desktopItem('session', s.key)]),
         ...(s.archived || shortOf(s.key) ? [] : [snoozeMenu([s.key], Date.now(), { until: s.snoozedUntil, onDone: (act) => void act.catch((e: unknown) => setToast(String(e))) })]),
@@ -1543,8 +1548,8 @@ export function App() {
         openSettings();
         return;
       }
-      // Settings has the keyboard while it's open, as the preview URL sheet does.
-      if (settings || previewFor) return;
+      // Settings has the keyboard while it's open, as the preview URL and rename sheets do.
+      if (settings || previewFor || renaming) return;
       // ⌘] skips to the next session that waits on you, from the panel's box too. ] goes by its
       // key's code, which layouts that type it with ⌥ keep.
       if (mod && !e.ctrlKey && !e.shiftKey && e.code === 'BracketRight' && view === 'sessions') {
@@ -1638,6 +1643,12 @@ export function App() {
         setArchived(selected.session.key, !selected.session.archived, selected.session.title);
         return;
       }
+      if (key === 'r' && !mod && selected?.kind === 'agent' && renames(selected.session)) {
+        // Not typed into the name as its field takes the keyboard.
+        e.preventDefault();
+        setRenaming(selected.session.key);
+        return;
+      }
       if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
         // Insertion points: one up is the row's own index less one; one down is two past it.
         const step = (i: number) => (e.key === 'ArrowUp' ? i - 1 : i + 2);
@@ -1708,7 +1719,7 @@ export function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [visible, selected, pickedRows, selectedLane, startLaneId, move, open, openRow, copy, settings, previewFor, openSettings, newSession, view, setView, toggleLanePin, sessionPins, lanePins, pinnedRows, pinnedLaneRows, shownBays, movePinnedSession, movePinnedLane, current, setArchived, projects, toggleSidebar, panelMax, togglePanelMax]);
+  }, [visible, selected, pickedRows, selectedLane, startLaneId, move, open, openRow, copy, settings, previewFor, renaming, openSettings, newSession, view, setView, toggleLanePin, sessionPins, lanePins, pinnedRows, pinnedLaneRows, shownBays, movePinnedSession, movePinnedLane, current, setArchived, projects, toggleSidebar, panelMax, togglePanelMax]);
 
   // Starts this window asked the quick panel for. A spinner shows while the harness takes the
   // session; then what's next, and the session is selected when it shows up if Codealong chose
@@ -2028,6 +2039,14 @@ export function App() {
   const setPanelWidth = { pr: setPrPanelWidth, todo: setTodoPanelWidth, session: setSessionPanelWidth, lane: setInspectorWidth };
   // The worktree the preview URL sheet is for, as the latest board has it.
   const previewLane = previewFor ? board?.lanes.find((l) => l.id === previewFor) : undefined;
+  // The session the rename sheet is for, in its own worktree.
+  const renamed = useMemo(() => {
+    for (const lane of renaming ? (board?.lanes ?? []) : []) {
+      const session = lane.sessions.find((s) => s.key === renaming && !s.visitor);
+      if (session) return { lane, session };
+    }
+    return null;
+  }, [renaming, board]);
 
   // The sidebar: the views with their counts, the statuses to narrow them to, and what narrows
   // the view now, for the collapsed rail's badge.
@@ -2512,6 +2531,7 @@ export function App() {
       )}
       {closeIdle && <CloseIdleDialog onClose={() => setCloseIdle(false)} onDone={setToast} />}
       {previewLane && <PreviewDialog lane={previewLane} onClose={() => setPreviewFor(null)} />}
+      {renamed && <RenameDialog lane={renamed.lane} session={renamed.session} onClose={() => setRenaming(null)} onFailed={setToast} />}
       {busy.length > 0 && !toast && (
         <div className="ca-toast is-busy" role="status" aria-live="polite">
           <StatusGlyph status="working" size={14} title="In progress" />

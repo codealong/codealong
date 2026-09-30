@@ -15,7 +15,7 @@ import { CLICK_WAIT_MS, plain } from '../bar';
 import { showContextMenu, type MenuSpec } from '../contextMenu';
 import { shortOf } from '../devices';
 import { folderMenu, openInMenu, opensInEditor, useEditorIcons } from '../editors';
-import { sessionPlace } from '../harness';
+import { renames, sessionPlace } from '../harness';
 import { seenable } from '../lanes';
 import { snoozeMenu } from '../snooze';
 import { sessionHomes } from '../todos';
@@ -211,6 +211,7 @@ export function DesktopPin() {
           ...(feed && opensInEditor(lane) ? folderMenu(feed, icons, (id) => void openFromBar(lane.id, id).catch(fail)) : []),
           ...prItem(lane),
           { label: 'Show in Codealong', run: () => void showMain({ kind: 'session', laneId: lane.id, key: s.key }) },
+          ...(renames(s) ? [{ label: 'Rename…', run: () => rename(s.key) }] : []),
           ...(seenable(s) ? [{ label: 'Mark as seen', run: () => seenAhead([s.key]).catch(fail) }] : []),
           ...(s.archived || shortOf(s.key) ? [] : [snoozeMenu([s.key], Date.now(), { until: s.snoozedUntil, onDone: (act) => void act.catch(fail) })]),
           ...off,
@@ -275,6 +276,11 @@ export function DesktopPin() {
   const peek = (key: string, at: PillRect) => {
     if (peekedNow.current.key === key) void peekHide();
     else peekOpen(key, at, true).catch(fail);
+  };
+
+  /** Shows the card's session in the peek beside it with its name ready to change. */
+  const rename = (key: string) => {
+    if (card.current) peekOpen(key, rectOf(card.current), true, true).catch(fail);
   };
 
   const onClick = (e: MouseEvent) => {

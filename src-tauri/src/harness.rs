@@ -104,6 +104,29 @@ pub trait Adapter: Sync {
     fn stop(&self, _ctx: &Ctx, _session: &Session) -> Result<String> {
         bail!("Codealong can't close this {} session; close it where it runs.", self.harness().word())
     }
+
+    /// Names the session where the harness keeps its name, so the harness shows it too, and
+    /// returns the files that changed, for the engine to read again at once. `name` is one line
+    /// (`session_name`).
+    fn rename(&self, _ctx: &Ctx, _session: &Session, _name: &str) -> Result<Vec<PathBuf>> {
+        bail!("Codealong can't rename {} sessions yet.", self.harness().word())
+    }
+}
+
+/// The longest name a session takes: Claude Code's own limit.
+const NAME_MAX: usize = 200;
+
+/// A name as typed, made one line as Claude Code makes its names: control, line-break,
+/// direction and zero-width characters become spaces, and then runs of spaces one; the ends are
+/// trimmed and it's cut at 200 characters. Mirrored by `sessionName` in the UI's harness.ts.
+pub fn session_name(raw: &str) -> Result<String> {
+    let spaced: String = raw.chars().map(|c| if c.is_control() || matches!(c, '\u{061C}' | '\u{200B}'..='\u{200F}' | '\u{2028}'..='\u{202E}' | '\u{2060}'..='\u{206F}' | '\u{FEFF}') { ' ' } else { c }).collect();
+    let name: String = spaced.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(NAME_MAX).collect();
+    let name = name.trim_end();
+    if name.is_empty() {
+        bail!("A session's name can't be empty.");
+    }
+    Ok(name.to_string())
 }
 
 /// How a fork opens in a terminal (`Adapter::fork`).
@@ -139,5 +162,16 @@ mod tests {
         for h in [Harness::Claude, Harness::Codex, Harness::Opencode, Harness::Antigravity] {
             assert_eq!(adapter(h).harness(), h);
         }
+    }
+
+    #[test]
+    fn names_are_one_line() {
+        assert_eq!(session_name("  Fix the\nlogin   redirect\t").unwrap(), "Fix the login redirect");
+        assert_eq!(session_name("a\u{200B}b\u{202E}c\u{FEFF}").unwrap(), "a b c");
+        assert_eq!(session_name("Ünïcode · “quotes” and `code`").unwrap(), "Ünïcode · “quotes” and `code`");
+        assert_eq!(session_name(&"x".repeat(250)).unwrap().chars().count(), 200);
+        // Cut at 200, the space before the cut doesn't stay at the end.
+        assert_eq!(session_name(&format!("{} y", "x".repeat(199))).unwrap(), "x".repeat(199));
+        assert!(session_name(" \n\u{200B} ").is_err());
     }
 }

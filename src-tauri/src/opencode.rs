@@ -434,11 +434,20 @@ fn get(svc: &Service, path: &str) -> Option<Value> {
 /// A POST of JSON on the service. The password and the body both go to curl on stdin: the body
 /// is your prompt, which has no business in a process list either.
 pub fn post(svc: &Service, path: &str, body: &Value) -> anyhow::Result<Value> {
+    send(svc, "POST", path, body)
+}
+
+/// A PATCH of JSON on the service, as `post` sends it.
+fn patch(svc: &Service, path: &str, body: &Value) -> anyhow::Result<Value> {
+    send(svc, "PATCH", path, body)
+}
+
+fn send(svc: &Service, method: &str, path: &str, body: &Value) -> anyhow::Result<Value> {
     let config = format!("user = \"opencode:{}\"\ndata-binary = \"{}\"\n", curl_quote(&svc.password), curl_quote(&body.to_string()));
     let url = format!("{}{path}", svc.url);
     let out = procs::run_stdin(
         "/usr/bin/curl",
-        &["-sS", "--fail-with-body", "-m", "10", "-K", "-", "-X", "POST", "-H", "Content-Type: application/json", "-H", "Accept: application/json", &url],
+        &["-sS", "--fail-with-body", "-m", "10", "-K", "-", "-X", method, "-H", "Content-Type: application/json", "-H", "Accept: application/json", &url],
         &config,
         Duration::from_secs(15),
     )?;
@@ -633,6 +642,16 @@ impl crate::harness::Adapter for OpenCode {
         let got = post(&svc, &format!("/api/session/{}/fork", urlencoding::encode(&s.id)), &serde_json::json!({})).map_err(|e| anyhow::anyhow!("OpenCode couldn't fork {}: {e}", s.title))?;
         let id = forked_id(&got).ok_or_else(|| anyhow::anyhow!("OpenCode forked {} but didn't say what it called the copy.", s.title))?;
         Ok(fork_into(ctx.account, &id))
+    }
+
+    /// Names the session through its service (`PATCH /api/session/<id>` with its title; checked on
+    /// 2.0.16 against a service of its own), which keeps it in its database, where the board and
+    /// its terminal read it.
+    fn rename(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, name: &str) -> anyhow::Result<Vec<PathBuf>> {
+        let home = ctx.account.home_path();
+        let svc = service(&home).ok_or_else(|| anyhow::anyhow!("OpenCode's service isn't running, so Codealong can't rename “{}”. Open OpenCode and try again.", s.title))?;
+        patch(&svc, &format!("/api/session/{}", urlencoding::encode(&s.id)), &serde_json::json!({ "title": name })).map_err(|e| anyhow::anyhow!("OpenCode couldn't rename “{}”: {e}", s.title))?;
+        Ok(vec![home.join("opencode.db")])
     }
 }
 

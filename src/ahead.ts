@@ -1,12 +1,12 @@
 // Changes you make that the engine takes a moment to show: sessions marked seen, snoozed,
-// archived, or sent a message. The engine takes them in its own loop, which waits behind scans and git on a
+// archived, renamed, or sent a message. The engine takes them in its own loop, which waits behind scans and git on a
 // busy Mac (half a second typically, seconds at worst), and only then does every window get a
 // board that shows them. So each window shows a change at once, on top of the board it has, and
 // tells the other windows (the `ahead` event): the bar's pill goes as you mark its session seen in
 // the peek, and the main window shows the session working as you send it something from the bar.
 //
-// A seen, snooze or archive goes once a board at least as new as the one the engine says shows it
-// arrives. Going by whether the board looks right instead would hide a session that turned unread
+// A seen, snooze, archive or rename goes once a board at least as new as the one the engine says
+// shows it arrives. Going by whether the board looks right instead would hide a session that turned unread
 // again a moment later. One the engine turns down goes at once, and the caller says why.
 //
 // A message waits for any other on its way to the same session, so they arrive in order. The box
@@ -16,8 +16,9 @@
 // shows the session took says so in the thread.
 
 import { useSyncExternalStore } from 'react';
-import { archiveSession, emitAhead, markSeen, onAhead, sendToSession, snoozeSessions, windowLabel } from './api';
+import { archiveSession, emitAhead, markSeen, onAhead, renameSession, sendToSession, snoozeSessions, windowLabel } from './api';
 import { readDraft, writeDraft } from './drafts';
+import { nameShown } from './harness';
 import { relaned, sessionHeadline } from './lanes';
 import type { BarFeed, BarItem, BarRecent, BarSnoozed, Board, Lane, LogoStatus, PrItem, Sent, Session, Status, TranscriptItem } from './types';
 
@@ -29,10 +30,10 @@ export const CONFIRM_MS = 20_000;
 const TAKEN_MS = 5_000;
 /** A prompt a little before the send still counts as it: another device's clock may be behind. */
 export const SLACK_MS = 1_000;
-/** A seen or archive the engine gave no board for (a session on another device) goes when the
- *  board shows it, or after this. */
+/** A seen, archive or rename the engine gave no board for (a session on another device) goes
+ *  when the board shows it, or after this. */
 const UNANSWERED_MS = 20_000;
-/** A seen or archive goes after this, whatever the board says. */
+/** A seen, archive or rename goes after this, whatever the board says. */
 const LONGEST_MS = 60_000;
 /** A message goes after this, whatever the board says: its thread has said what it knows. */
 const SEND_LONGEST_MS = 10 * 60_000;
@@ -42,6 +43,8 @@ export type Change =
   /** Snoozed until then, or woken now with null. */
   | { kind: 'snooze'; keys: string[]; until: number | null }
   | { kind: 'archive'; key: string; archived: boolean }
+  /** Named, as the board will show it. */
+  | { kind: 'rename'; key: string; title: string }
   | {
       kind: 'send';
       key: string;
@@ -75,6 +78,7 @@ type SendChange = Extract<Change, { kind: 'send' }>;
 
 /** A session as a window shows it, before its changes: what settling a change looks at. */
 export interface Shown {
+  title: string;
   status: Status;
   statusSince: number | null;
   /** Unknown to the bar. */
@@ -128,6 +132,7 @@ export function sessionAhead(s: Session, changes: Ahead[] | undefined): Session 
     const c = a.change;
     if (c.kind === 'seen' && settledBySeen(out)) out = { ...out, status: 'idle', asks: false };
     else if (c.kind === 'archive' && out.archived !== c.archived) out = { ...out, archived: c.archived };
+    else if (c.kind === 'rename' && out.title !== c.title) out = { ...out, title: c.title };
     else if (c.kind === 'snooze' && !out.archived) {
       if (c.until != null) {
         if (out.snoozedUntil !== c.until) out = { ...out, snoozedUntil: c.until };
@@ -143,7 +148,8 @@ export function sessionAhead(s: Session, changes: Ahead[] | undefined): Session 
     }
   }
   if (out === s) return s;
-  if (out.status === s.status) return out;
+  // The headline names the session, after what it's doing.
+  if (out.status === s.status && out.title === s.title) return out;
   const [headline, detail] = sessionHeadline(out);
   return { ...out, headline, detail };
 }
@@ -159,8 +165,9 @@ export function lanesAhead(lanes: Lane[], changes: Ahead[]): Lane[] {
     const sessions = l.sessions.map((s) => sessionAhead(s, by.get(s.key)));
     if (sessions.every((s, i) => s === l.sessions[i])) return l;
     changed = true;
-    // The lane's status and sentence come from its sessions' statuses; a snooze alone leaves them.
-    const moved = sessions.some((s, i) => s.status !== l.sessions[i].status || s.archived !== l.sessions[i].archived);
+    // The lane's status and sentence come from its sessions' statuses and headlines; a snooze
+    // alone leaves them.
+    const moved = sessions.some((s, i) => s.status !== l.sessions[i].status || s.archived !== l.sessions[i].archived || s.title !== l.sessions[i].title);
     return moved ? relaned(l, sessions) : { ...l, sessions };
   });
   return changed ? out : lanes;
@@ -194,11 +201,37 @@ export function boardAhead(board: Board, changes: Ahead[]): Board {
 
 const GROUP_RANK = ['needs', 'unread', 'working'];
 
-/** The floating bar's feed with this window's changes: pills marked seen or archived go, and a
+/** The floating bar's feed with this window's changes: pills marked seen or archived go, a
  *  session sent a message moves to Working (out of the snoozed ones too, as sending ends a
- *  snooze). The same feed when nothing changes. */
+ *  snooze), and a renamed one takes its name. The same feed when nothing changes. */
 export function barAhead(feed: BarFeed, changes: Ahead[]): BarFeed {
   if (changes.length === 0) return feed;
+  return barMoved(barRenamed(feed, changes), changes);
+}
+
+/** The bar's feed with renamed sessions' names. The same feed when nothing changes. */
+function barRenamed(feed: BarFeed, changes: Ahead[]): BarFeed {
+  const names = new Map<string, string>();
+  for (const a of changes) if (a.change.kind === 'rename') names.set(a.change.key, a.change.title);
+  if (names.size === 0) return feed;
+  let changed = false;
+  const retitle = <T extends { key: string; title: string }>(list: T[]): T[] => {
+    let hit = false;
+    const out = list.map((i) => {
+      const title = names.get(i.key);
+      if (title === undefined || title === i.title) return i;
+      hit = true;
+      return { ...i, title };
+    });
+    if (hit) changed = true;
+    return hit ? out : list;
+  };
+  const next = { ...feed, items: retitle(feed.items), recent: retitle(feed.recent), snoozed: feed.snoozed && retitle(feed.snoozed) };
+  return changed ? next : feed;
+}
+
+/** The bar's feed with pills gone, moved or snoozed. The same feed when nothing changes. */
+function barMoved(feed: BarFeed, changes: Ahead[]): BarFeed {
   const by = byKey(changes);
   const archived = (key: string) => (by.get(key) ?? []).some((a) => a.change.kind === 'archive' && a.change.archived);
   const moved = (key: string) => (by.get(key) ?? []).find(startsNow);
@@ -271,7 +304,7 @@ export function boardView(boardAt: number | null, laneLists: Lane[][]): View {
       for (const lanes of laneLists) {
         for (const l of lanes) {
           const s = l.sessions.find((x) => x.key === key && !x.visitor);
-          if (s) return { status: s.status, statusSince: s.statusSince, lastPromptAt: s.lastPromptAt, archived: s.archived, asks: !!s.asks, snoozedUntil: s.snoozedUntil ?? null };
+          if (s) return { title: s.title, status: s.status, statusSince: s.statusSince, lastPromptAt: s.lastPromptAt, archived: s.archived, asks: !!s.asks, snoozedUntil: s.snoozedUntil ?? null };
         }
       }
       return undefined;
@@ -285,7 +318,7 @@ export function barView(feed: BarFeed): View {
     boardAt: feed.generatedAt ?? null,
     find: (key) => {
       const i = feed.items.find((x) => x.key === key) ?? feed.recent.find((x) => x.key === key) ?? (feed.snoozed ?? []).find((x) => x.key === key);
-      return i && { status: i.status, statusSince: i.since, lastPromptAt: null, archived: false, asks: !!i.asks, snoozedUntil: i.snoozedUntil ?? null };
+      return i && { title: i.title, status: i.status, statusSince: i.since, lastPromptAt: null, archived: false, asks: !!i.asks, snoozedUntil: i.snoozedUntil ?? null };
     },
   };
 }
@@ -309,12 +342,13 @@ export function settled(a: Ahead, v: View, now: number): Ahead | null {
     if (a.doneAt == null) return a;
     if (a.shownAt != null) return v.boardAt != null && v.boardAt >= a.shownAt ? null : a;
     if (now - a.doneAt > UNANSWERED_MS) return null;
-    const keys = c.kind === 'archive' ? [c.key] : c.keys;
+    const keys = c.kind === 'archive' || c.kind === 'rename' ? [c.key] : c.keys;
     const shows = keys.every((k) => {
       const s = v.find(k);
       if (s === undefined) return false;
       if (c.kind === 'seen') return !settledBySeen(s);
       if (c.kind === 'snooze') return s.snoozedUntil === c.until;
+      if (c.kind === 'rename') return s.title === c.title;
       return s.archived === c.archived;
     });
     return shows ? null : a;
@@ -485,6 +519,20 @@ export function archiveAhead(key: string, archived: boolean): Promise<void> {
   const a = made({ kind: 'archive', key, archived });
   put(a, true);
   return archiveSession(key, archived).then(
+    (shownAt) => answered(a.id, shownAt),
+    (e: unknown) => {
+      drop(a.id, true);
+      throw e;
+    },
+  );
+}
+
+/** Names a session where its harness keeps its name, in every window at once. Rejects with why
+ *  when it can't: OpenCode's service isn't running, say. */
+export function renameAhead(key: string, name: string): Promise<void> {
+  const a = made({ kind: 'rename', key, title: nameShown(name) });
+  put(a, true);
+  return renameSession(key, name).then(
     (shownAt) => answered(a.id, shownAt),
     (e: unknown) => {
       drop(a.id, true);

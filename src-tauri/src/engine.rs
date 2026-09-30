@@ -25,6 +25,7 @@ use crate::config::{self, AccountCfg, Config, Theme};
 use crate::detect;
 use crate::editors;
 use crate::git;
+use crate::harness;
 use crate::github::{self, PrRaw};
 use crate::held::Held;
 use crate::jev;
@@ -135,6 +136,10 @@ pub enum Msg {
     /// A worktree's preview URL was set or cleared; the reply is the time of the board that
     /// shows it.
     Previews(Sender<i64>),
+    /// Files a window's change just wrote (a session renamed in its harness's record), read now
+    /// rather than when the watcher says. The reply is the time of the board that shows it,
+    /// published at once.
+    Reread(Vec<PathBuf>, Sender<i64>),
 }
 
 /// What the UI talks to. Cheap to clone.
@@ -262,6 +267,21 @@ impl Handle {
         }
         let (tx, rx) = channel();
         if self.tx.send(Msg::SetArchived(key.to_string(), archived, tx)).is_err() {
+            bail!("Codealong's engine stopped.");
+        }
+        Ok(rx.recv_timeout(SHOWN_WAIT).ok())
+    }
+
+    /// Names a session where its harness keeps its name (`Adapter::rename`), so the harness
+    /// shows it too, and reads what that changed at once. Returns the time of the board that
+    /// shows it, as `mark_seen_shown` does.
+    pub fn rename(&self, key: &str, name: &str) -> Result<Option<i64>> {
+        let name = harness::session_name(name)?;
+        let cfg = config::load()?.unwrap_or_default();
+        let (session, account) = self.read(|b| harness::find(b, &cfg, key).map(|(s, a)| (s.clone(), a.clone())))?;
+        let changed = harness::adapter(session.harness).rename(&harness::Ctx { account: &account }, &session, &name)?;
+        let (tx, rx) = channel();
+        if self.tx.send(Msg::Reread(changed, tx)).is_err() {
             bail!("Codealong's engine stopped.");
         }
         Ok(rx.recv_timeout(SHOWN_WAIT).ok())
@@ -1338,6 +1358,12 @@ impl Engine {
                 Ok(Msg::Previews(reply)) => {
                     self.load_previews();
                     // Now rather than on the next tick: the window waits for it.
+                    self.publish();
+                    let _ = reply.send(self.board.read().map(|b| b.generated_at).unwrap_or(0));
+                }
+                Ok(Msg::Reread(paths, reply)) => {
+                    self.apply_fs(paths);
+                    // Now rather than on the next tick: the window shows it already, and waits for it.
                     self.publish();
                     let _ = reply.send(self.board.read().map(|b| b.generated_at).unwrap_or(0));
                 }

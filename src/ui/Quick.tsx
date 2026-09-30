@@ -44,13 +44,13 @@ import {
   todoOp,
   type QuickOpen,
 } from '../api';
-import { archiveAhead, boardAhead, boardView, observe, seenAhead, sendAhead, useAhead } from '../ahead';
+import { archiveAhead, boardAhead, boardView, observe, renameAhead, seenAhead, sendAhead, useAhead } from '../ahead';
 import { filesToAttach, keepFiles, useFileDrop } from '../attachInput';
 import { deviceLabel, shortOf } from '../devices';
 import { useKeyPerf, usePerf } from '../perf';
 import { below, showContextMenu } from '../contextMenu';
 import { ago, agoPhrase, resetsPhrase, tildePath } from '../format';
-import { HARNESS_WORD, usageNote } from '../harness';
+import { HARNESS_WORD, renames, usageNote } from '../harness';
 import { useLogo } from '../logo';
 import { prPills } from '../prStatus';
 import { snoozeMenu } from '../snooze';
@@ -251,6 +251,8 @@ export function Quick() {
   const [picker, setPicker] = useState<PickerKind | null>(null);
   // The session the panel answers in place of the list (⇥ on its row).
   const [replyKey, setReplyKey] = useState<string | null>(null);
+  // The session shown with its name ready to change (Rename in a row's menu).
+  const [renameKey, setRenameKey] = useState<string | null>(null);
   // Answered from the empty list: the view goes on to the next session that waits on you as each
   // one's done, and says how the last one went.
   const [queued, setQueued] = useState(false);
@@ -806,15 +808,33 @@ export function Quick() {
     setQueued(fromList);
     setNotice(null);
     setReplyKey(session.key);
+    setRenameKey(null);
+    setPicker(null);
+    setError(null);
+  };
+
+  /** Shows a session with its name ready to change; done, it's back to the list. */
+  const renameIn = (session: Session) => {
+    setQueued(false);
+    setNotice(null);
+    setReplyKey(session.key);
+    setRenameKey(session.key);
     setPicker(null);
     setError(null);
   };
 
   const leaveReply = () => {
     setReplyKey(null);
+    setRenameKey(null);
     setQueued(false);
     setNotice(null);
     refocus();
+  };
+
+  /** Renames the session shown, or leaves its name, and goes back to the list. */
+  const renamed = (s: Session, name: string | null) => {
+    leaveReply();
+    if (name) renameAhead(s.key, name).catch((e: unknown) => setError(plain(e)));
   };
 
   /** Done with a session answered from the list: the next that waits on you takes the view, saying
@@ -916,6 +936,7 @@ export function Quick() {
           ...(sg.kind === 'send' ? [{ label: 'Send this prompt to it', run: () => send(sg.session) }] : []),
           { label: 'Open', run: () => openSession(sg.lane, sg.session) },
           { label: 'Reply here', run: () => replyTo(sg.session) },
+          ...(renames(sg.session) ? [{ label: 'Rename…', run: () => renameIn(sg.session) }] : []),
           { label: 'Show in Codealong', run: () => revealSession(sg.lane, sg.session) },
         ]);
       } else {
@@ -930,6 +951,7 @@ export function Quick() {
       void showContextMenu([
         { label: 'Open', run: () => openSession(r.lane, r.session) },
         { label: 'Reply here', run: () => replyTo(r.session) },
+        ...(renames(r.session) ? [{ label: 'Rename…', run: () => renameIn(r.session) }] : []),
         { label: 'Show in Codealong', run: () => revealSession(r.lane, r.session) },
       ]);
       return;
@@ -1495,6 +1517,8 @@ export function Quick() {
               const s = replying.session;
               void showContextMenu(snoozeMenu([s.key], Date.now(), { until: s.snoozedUntil, onDone: (act) => dismissReply(s, 'snoozed.', act) }).items, below(e.currentTarget));
             }}
+            renaming={renameKey === replying.session.key}
+            onRename={(name) => renamed(replying.session, name)}
             queue={queued ? { left: queueLeft.length, next: queueLeft[0]?.session ?? null, onNext: skip } : undefined}
             notice={notice}
             onSending={() => (queued ? advance(replying.session, 'sent.') : replied(null))}

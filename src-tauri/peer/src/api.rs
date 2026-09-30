@@ -28,6 +28,9 @@ pub const SESSION_CANCEL: &str = "session-cancel";
 /// Where what you typed goes, as the quick panel suggests it: Jev's answer about this device's
 /// board (`Route`). Macs before 2026-09-29 refuse it as a request they don't know.
 pub const ROUTE: &str = "route";
+/// Names a session (`key`, `name`) where its harness keeps its name. Macs before 2026-09-30
+/// refuse it as a request they don't know.
+pub const SESSION_RENAME: &str = "session-rename";
 
 /// Requests that act on a session: they need remote control on at the device asked.
 pub const CONTROL: [&str; 4] = [SESSION_SEND, SESSION_ANSWER, START, SESSION_CANCEL];

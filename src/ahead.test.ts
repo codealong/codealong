@@ -4,6 +4,7 @@ const api = vi.hoisted(() => ({
   sendToSession: vi.fn(),
   markSeen: vi.fn(),
   archiveSession: vi.fn(),
+  renameSession: vi.fn(),
 }));
 vi.mock('./api', () => ({
   ...api,
@@ -12,7 +13,7 @@ vi.mock('./api', () => ({
   windowLabel: () => 'test',
 }));
 
-import { barAhead, CONFIRM_MS, inRecord, lanesAhead, logoOf, sendAhead, settled, type Ahead, type View } from './ahead';
+import { barAhead, CONFIRM_MS, inRecord, lanesAhead, logoOf, renameAhead, sendAhead, settled, type Ahead, type View } from './ahead';
 import { readDraft, writeDraft } from './drafts';
 import { bayOf } from './lanes';
 import type { BarFeed, BarItem, BarSnoozed, Lane, Session, TranscriptItem } from './types';
@@ -95,6 +96,15 @@ describe('lanesAhead', () => {
     expect([woke.sessions[1].snoozedUntil, woke.sessions[1].status]).toEqual([undefined, 'unread']);
   });
 
+  it('names a renamed session, in its headline and its lane’s', () => {
+    const lanes = [lane([session('a', 'working'), session('b', 'idle')])];
+    const [l] = lanesAhead(lanes, [change({ kind: 'rename', key: 'a', title: 'Fix the login redirect' })]);
+    expect([l.sessions[0].title, l.sessions[0].headline, l.headline]).toEqual(['Fix the login redirect', '`claude` · Fix the login redirect', '`claude` · Fix the login redirect']);
+    expect(l.sessions[1]).toBe(lanes[0].sessions[1]);
+    // Once the board has the name, nothing changes.
+    expect(lanesAhead(lanes, [change({ kind: 'rename', key: 'b', title: 'Task b' })])).toBe(lanes);
+  });
+
   it('hands back the same lanes when nothing applies', () => {
     const lanes = [lane([session('a', 'idle')])];
     expect(lanesAhead(lanes, [])).toBe(lanes);
@@ -110,7 +120,7 @@ describe('lanesAhead', () => {
 describe('settled', () => {
   const view = (boardAt: number | null, s?: Partial<Session> & { status: Session['status'] }): View => ({
     boardAt,
-    find: () => (s ? { status: s.status, statusSince: s.statusSince ?? null, lastPromptAt: s.lastPromptAt ?? null, archived: s.archived ?? false, asks: false, snoozedUntil: s.snoozedUntil ?? null } : undefined),
+    find: () => (s ? { title: s.title ?? 'Title', status: s.status, statusSince: s.statusSince ?? null, lastPromptAt: s.lastPromptAt ?? null, archived: s.archived ?? false, asks: false, snoozedUntil: s.snoozedUntil ?? null } : undefined),
   });
 
   it('keeps a seen until a board at least as new as the engine’s arrives', () => {
@@ -119,6 +129,15 @@ describe('settled', () => {
     expect(settled(a, view(NOW + 40, { status: 'unread' }), NOW + 200)).toBe(a);
     // Even a board that looks right doesn't settle it: it may have turned unread again since.
     expect(settled(a, view(NOW + 50, { status: 'unread' }), NOW + 200)).toBeNull();
+  });
+
+  it('keeps a rename until the engine’s board arrives, or one from another device shows the name', () => {
+    const a = change({ kind: 'rename', key: 'a', title: 'New name' }, { doneAt: NOW + 100, shownAt: NOW + 50 });
+    expect(settled(a, view(NOW + 40, { status: 'idle', title: 'Old name' }), NOW + 200)).toBe(a);
+    expect(settled(a, view(NOW + 50, { status: 'idle', title: 'New name' }), NOW + 200)).toBeNull();
+    const remote = change({ kind: 'rename', key: 'a', title: 'New name' }, { doneAt: NOW + 100 });
+    expect(settled(remote, view(NOW + 500, { status: 'idle', title: 'Old name' }), NOW + 1_000)).toBe(remote);
+    expect(settled(remote, view(NOW + 900, { status: 'idle', title: 'New name' }), NOW + 1_000)).toBeNull();
   });
 
   it('waits on the engine, but not forever', () => {
@@ -199,6 +218,13 @@ describe('barAhead', () => {
     expect(out.snoozed.map((i) => [i.key, i.snoozedUntil])).toEqual([['n', NOW + 900_000]]);
   });
 
+  it('names a renamed session’s pill wherever it is on the bar', () => {
+    const f = { ...feed([item('n', 'needs', NOW - 5)], [{ ...item('r', 'working', NOW - 99), group: 'recent' } as unknown as BarItem]), snoozed: [{ ...item('z', 'needs', NOW - 9), group: 'snoozed', snoozedUntil: NOW + 3_600_000 }] } as unknown as BarFeed;
+    const out = barAhead(f, ['n', 'r', 'z'].map((key) => change({ kind: 'rename', key, title: `Named ${key}` })));
+    expect([out.items[0].title, out.recent[0].title, out.snoozed[0].title]).toEqual(['Named n', 'Named r', 'Named z']);
+    expect(barAhead(f, [change({ kind: 'rename', key: 'n', title: 'n' })])).toBe(f);
+  });
+
   it('hands back the same feed when nothing applies', () => {
     const f = feed([item('w', 'working', NOW)]);
     expect(barAhead(f, [change({ kind: 'archive', key: 'x', archived: true })])).toBe(f);
@@ -248,5 +274,17 @@ describe('sendAhead', () => {
     const s = session('s', 'idle');
     await Promise.all([sendAhead(s, 'One'), sendAhead(s, 'Two')]);
     expect(order).toEqual(['One', 'Two']);
+  });
+});
+
+describe('renameAhead', () => {
+  beforeEach(() => api.renameSession.mockReset());
+
+  it('hands the engine the name as typed, and says why when the harness didn’t take it', async () => {
+    api.renameSession.mockResolvedValueOnce(NOW);
+    await renameAhead('s', 'Use `vitest` for `ahead`');
+    expect(api.renameSession).toHaveBeenCalledWith('s', 'Use `vitest` for `ahead`');
+    api.renameSession.mockRejectedValueOnce(new Error("OpenCode's service isn't running."));
+    await expect(renameAhead('t', 'Other')).rejects.toThrow("OpenCode's service isn't running.");
   });
 });

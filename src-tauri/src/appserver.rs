@@ -128,6 +128,13 @@ pub fn set_archived(codex_home: &Path, thread_id: &str, archived: bool) -> Resul
     call(codex_home, method, json!({ "threadId": thread_id })).map(|_| ())
 }
 
+/// Names a thread in Codex: a line in its thread index (`session_index.jsonl`) and the name in
+/// its state database, where the Codex app reads it. It refuses an archived thread ("no rollout
+/// found"; 0.158.0-alpha.2, checked on a scratch `CODEX_HOME`).
+pub fn set_name(codex_home: &Path, thread_id: &str, name: &str) -> Result<()> {
+    call(codex_home, "thread/name/set", json!({ "threadId": thread_id, "name": name })).map(|_| ())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

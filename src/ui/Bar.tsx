@@ -16,6 +16,7 @@ import { barMode, desktopPins, dragToDesktop, fitBar, getBarFeed, onBarDragEnd, 
 import { CLICK_WAIT_MS, elsewhereWaits, fitGroups, GROUPS, plain, projectWaits, type Group, type GroupFit, type WaitCounts } from '../bar';
 import { showContextMenu, type MenuAction, type MenuSpec } from '../contextMenu';
 import { ago } from '../format';
+import { renames } from '../harness';
 import { usePerf } from '../perf';
 import { barAhead, barView, observe, seenAhead, snoozeAhead, useAhead } from '../ahead';
 import { ALL_PROJECTS, inProject } from '../quick';
@@ -535,11 +536,12 @@ export function Bar() {
     );
   };
 
-  /** The peek with the keyboard, ready to answer the session. */
-  const reply = (i: BarItem) => {
+  /** The peek with the keyboard, ready to answer the session, or with `rename` to change its
+   *  name. */
+  const reply = (i: BarItem, rename = false) => {
     stopHover();
     const el = hud.current?.querySelector(`[data-key="${CSS.escape(i.key)}"]`) ?? null;
-    peekOpen(i.key, rectOf(el), true).catch((e: unknown) => setFailed({ anchor: i.key, message: String(e).replace(/^Error: /, '') }));
+    peekOpen(i.key, rectOf(el), true, rename).catch((e: unknown) => setFailed({ anchor: i.key, message: String(e).replace(/^Error: /, '') }));
   };
 
   const open = (i: BarItem | BarRecent | BarSnoozed, anchor = i.key) => {
@@ -621,6 +623,7 @@ export function Bar() {
       { label: 'Show in Codealong', run: () => reveal(i) },
       { label: openLabel(i, feed?.terminal ?? 'Terminal'), run: () => open(i) },
       { label: 'Reply here', run: () => reply(i) },
+      ...(renames(i) ? [{ label: 'Rename…', run: () => reply(i, true) }] : []),
       ...(i.status === 'unread' ? [{ label: 'Mark as seen', run: () => markSeen([i.key], i.key) }] : []),
       snoozeMenu([i.key], Date.now(), { until: i.snoozedUntil, onDone: snoozeDone([i.key], i.key) }),
       'separator',

@@ -5,12 +5,14 @@
 // through it closes too, but stays while the box holds something for you to send next. Escape
 // closes it too, and what you'd typed stays with the session (drafts.ts), here and in its panels,
 // until you send it. Its header's ✓ marks a finished turn seen, its snooze button snoozes the
-// session, and its archive button archives it, any of which takes it off the bar. While it's up,
-// the session follows the board, and the peek stays on it as its pill moves along the bar.
+// session, and its archive button archives it, any of which takes it off the bar. Rename in a
+// pill's menu opens it with the session's name ready to change; ⏎ renames it and the peek closes.
+// While it's up, the session follows the board, and the peek stays on it as its pill moves along
+// the bar.
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { barNote, getBoard, inPreview, onBoard, onPeekHidden, onPeekOpen, onPeekShown, openFromBar, peekFit, peekFocus, peekHide, peekReady, showMain } from '../api';
-import { archiveAhead, boardView, lanesAhead, observe, seenAhead, useAhead } from '../ahead';
+import { archiveAhead, boardView, lanesAhead, observe, renameAhead, seenAhead, useAhead } from '../ahead';
 import { below, showContextMenu } from '../contextMenu';
 import { readDraft } from '../drafts';
 import { snoozeMenu } from '../snooze';
@@ -54,7 +56,7 @@ async function previewOpen(): Promise<PeekOpen | null> {
   const lane = board.lanes.find((l) => l.sessions.some((s) => s.key === key));
   const session = lane?.sessions.find((s) => s.key === key);
   if (!lane || !session) return null;
-  return { id: 1, lane, session, terminal: board.apps.terminal, theme: board.theme, room: 580 + FAR + NEAR, below: true, focus: false };
+  return { id: 1, lane, session, terminal: board.apps.terminal, theme: board.theme, room: 580 + FAR + NEAR, below: true, focus: false, rename: false };
 }
 
 export function Peek() {
@@ -204,6 +206,12 @@ export function Peek() {
     act.catch((e: unknown) => void barNote({ key: session.key, message: String(e).replace(/^Error: /, ''), tone: 'error' }));
   };
 
+  /** Renames the session, or leaves its name, and puts the peek away: that's what it opened for. */
+  const renamed = (name: string | null) => {
+    if (name) dismiss(renameAhead(session.key, name));
+    else void peekHide();
+  };
+
   return (
     <div
       className={open.below ? 'ca-peek-root' : 'ca-peek-root is-over'}
@@ -234,6 +242,8 @@ export function Peek() {
           onSeen={() => dismiss(seenAhead([session.key]))}
           onArchive={() => dismiss(archiveAhead(session.key, true))}
           onSnooze={(e) => void showContextMenu(snoozeMenu([session.key], Date.now(), { until: session.snoozedUntil, onDone: dismiss }).items, below(e.currentTarget))}
+          renaming={open.rename}
+          onRename={renamed}
           onReveal={() => {
             void peekHide();
             void showMain({ kind: 'session', laneId: lane.id, key: session.key });

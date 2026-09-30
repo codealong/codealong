@@ -188,6 +188,13 @@ export async function archiveSession(key: string, archived: boolean): Promise<nu
   return (await invoke<number | null>('archive_session', { key, archived })) ?? null;
 }
 
+/** Names a session where its harness keeps its name, so the harness shows it too. Returns the
+ *  time of the board that shows it, as `markSeen` does. */
+export async function renameSession(key: string, name: string): Promise<number | null> {
+  if (!inTauri) return null;
+  return (await invoke<number | null>('rename_session', { key, name })) ?? null;
+}
+
 /** Tells every window about a change shown ahead of the engine (ahead.ts). */
 export function emitAhead<T>(event: T): void {
   if (inTauri) void emit('ahead', event);
@@ -790,11 +797,12 @@ export interface PillRect {
   h: number;
 }
 
-/** Shows a session in the floating bar's peek: for a hover over its pill, or with `focus` ready
- *  to type into. Without a pill it opens where it last was. */
-export async function peekOpen(key: string, pill: PillRect | null, focus = false): Promise<void> {
+/** Shows a session in the floating bar's peek: for a hover over its pill, with `focus` ready to
+ *  type into, or with `rename` its name ready to change. Without a pill it opens where it last
+ *  was. */
+export async function peekOpen(key: string, pill: PillRect | null, focus = false, rename = false): Promise<void> {
   if (!inTauri) return;
-  await invoke('peek_open', { key, pill, focus });
+  await invoke('peek_open', { key, pill, focus, rename });
 }
 
 /** The peek's page is laid out for the open `id`, at this height: time to show it. */

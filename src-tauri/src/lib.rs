@@ -342,14 +342,15 @@ fn open_from_bar(app: tauri::AppHandle, engine: State<'_, engine::Handle>, lane_
 }
 
 /// Shows a session in the floating bar's peek: for a hover over its pill or a click on a card on
-/// the desktop (where the window's page measured it), or with `focus` ready to type into
-/// (peek.rs).
+/// the desktop (where the window's page measured it), with `focus` ready to type into, or with
+/// `rename` its name ready to change (peek.rs).
 #[tauri::command]
-fn peek_open(app: tauri::AppHandle, window: tauri::WebviewWindow, engine: State<'_, engine::Handle>, key: String, pill: Option<bar::Rect>, focus: Option<bool>) -> Result<(), String> {
+fn peek_open(app: tauri::AppHandle, window: tauri::WebviewWindow, engine: State<'_, engine::Handle>, key: String, pill: Option<bar::Rect>, focus: Option<bool>, rename: Option<bool>) -> Result<(), String> {
     let target = engine.read(|b| peek::target(b, &key)).ok_or_else(|| "That session isn't on the board any more.".to_string())?;
     // The pill is in the window that asked: the bar, or a card on the desktop.
     let pill = pill.and_then(|p| bar::native::frame(&window).map(|host| (host, p)));
-    peek::open(&app, target, pill, focus.unwrap_or(false)).map_err(|e| e.to_string())
+    let rename = rename.unwrap_or(false);
+    peek::open(&app, target, pill, focus.unwrap_or(false) || rename, rename).map_err(|e| e.to_string())
 }
 
 /// The peek's page is laid out for the open `id`, at this height.
@@ -772,6 +773,16 @@ fn archive_session(engine: State<'_, engine::Handle>, peers: State<'_, peers::Pe
     engine.archive(&key, archived).map_err(|e| format!("{e:#}"))
 }
 
+/// Names a session where its harness keeps its name, so the harness shows it too. Returns the
+/// time of the board that shows it, as `mark_seen` does.
+#[tauri::command(async)]
+fn rename_session(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, name: String) -> Result<Option<i64>, String> {
+    if let Some((device, key)) = peerfeed::split_remote(&key) {
+        return peers.ask(device, api::SESSION_RENAME, serde_json::json!({ "key": key, "name": name }), ASK_ACT).map(|_| None);
+    }
+    engine.rename(&key, &name).map_err(|e| format!("{e:#}"))
+}
+
 #[tauri::command(async)]
 fn get_accounts(engine: State<'_, engine::Handle>) -> Result<Vec<model::AccountInfo>, String> {
     engine.accounts().map_err(|e| format!("{e:#}"))
@@ -942,6 +953,7 @@ fn peer_answer(engine: &engine::Handle, method: &str, p: serde_json::Value) -> R
             answer_here(engine, &key()?, &text("id"), answer, p.get("answers")).map(Value::String)
         }
         api::SESSION_ARCHIVE => engine.archive(&key()?, p.get("archived").and_then(Value::as_bool).unwrap_or(true)).map(|_| Value::Null).map_err(|e| format!("{e:#}")),
+        api::SESSION_RENAME => engine.rename(&key()?, &text("name")).map(|_| Value::Null).map_err(|e| format!("{e:#}")),
         api::MARK_SEEN => {
             let keys: Vec<String> = p.get("keys").cloned().and_then(|k| serde_json::from_value(k).ok()).unwrap_or_default();
             engine.mark_seen(keys);
@@ -1356,7 +1368,7 @@ pub fn run() {
             desktop::on_window_event(window, event);
         })
         .register_asynchronous_uri_scheme_protocol("codealong-image", |_ctx, request, responder| serve_image(request, responder))
-        .invoke_handler(tauri::generate_handler![get_board, idle_terminals, close_idle_terminals, close_session, open_target, open_config, editor_icons, mark_seen, snooze_sessions, refresh, refresh_usage, set_pinned, set_pinned_worktrees, set_preview, archive_session, pr_detail, pr_comment_asks, approve_pr, review_in_codex, open_url, run_in_terminal, get_accounts, save_accounts, set_preferred, found_accounts, get_config, save_config, save_config_text, sign_in, agents_status, install_agents, start_options, device_start_options, start_session, fork_session, todo_op, canvas_load, canvas_save, save_attachment, import_attachment, open_attachment, expand_attachments, set_theme, open_project_window, fit_bar, show_main, peek_open, peek_ready, peek_fit, peek_focus, peek_hide, bar_feed, bar_on, set_bar_on, bar_mode, set_bar_mode, set_notch_open, notch_shape, open_from_bar, desktop_pins, pin_to_desktop, unpin_from_desktop, drag_to_desktop, desktop_feed, fit_desktop, show_quick, hide_quick, quick_ready, fit_quick, start_from_quick, route_quick, search_text, search_devices, devices, set_device_color, link_device, answer_link, unlink_device, device_link_code, link_code_qr, link_with_code, session_page, session_newer, session_pending, session_answer, session_stream, session_cancel, send_to_session, suggest_todo, dismiss_todo_hint, jev_key, set_jev_key, test_jev, quick_shortcut, pause_quick_shortcut, perf_mark, page_unfocused, popup_menu, update_status, check_for_updates, restart_to_update])
+        .invoke_handler(tauri::generate_handler![get_board, idle_terminals, close_idle_terminals, close_session, open_target, open_config, editor_icons, mark_seen, snooze_sessions, refresh, refresh_usage, set_pinned, set_pinned_worktrees, set_preview, archive_session, rename_session, pr_detail, pr_comment_asks, approve_pr, review_in_codex, open_url, run_in_terminal, get_accounts, save_accounts, set_preferred, found_accounts, get_config, save_config, save_config_text, sign_in, agents_status, install_agents, start_options, device_start_options, start_session, fork_session, todo_op, canvas_load, canvas_save, save_attachment, import_attachment, open_attachment, expand_attachments, set_theme, open_project_window, fit_bar, show_main, peek_open, peek_ready, peek_fit, peek_focus, peek_hide, bar_feed, bar_on, set_bar_on, bar_mode, set_bar_mode, set_notch_open, notch_shape, open_from_bar, desktop_pins, pin_to_desktop, unpin_from_desktop, drag_to_desktop, desktop_feed, fit_desktop, show_quick, hide_quick, quick_ready, fit_quick, start_from_quick, route_quick, search_text, search_devices, devices, set_device_color, link_device, answer_link, unlink_device, device_link_code, link_code_qr, link_with_code, session_page, session_newer, session_pending, session_answer, session_stream, session_cancel, send_to_session, suggest_todo, dismiss_todo_hint, jev_key, set_jev_key, test_jev, quick_shortcut, pause_quick_shortcut, perf_mark, page_unfocused, popup_menu, update_status, check_for_updates, restart_to_update])
         .build(tauri::generate_context!())
         .expect("error while running Codealong")
         .run(|app, event| {
@@ -1396,6 +1408,8 @@ pub fn is_cli(args: &[String]) -> bool {
 /// `codealong --snapshot --pending <session key>`: what a session waits on you to allow, as its panel shows it.
 /// `codealong --snapshot --answer <session key> <id> <allow|deny>`: answers it, as the panel's buttons do.
 /// `codealong --snapshot --send <session key> <text>`: sends a session a message, as its panel does.
+/// `codealong --snapshot --rename <session key> <name>`: names a session where its harness keeps
+/// names, as Rename… in its menu does.
 /// `codealong --snapshot --transcript <session key> [--before <cursor>]`: a page of a session's
 /// conversation, as its panel gets it.
 /// `codealong --snapshot --start-options`: where each account can start a session.
@@ -1449,6 +1463,28 @@ pub fn snapshot_cli(args: &[String]) -> i32 {
         return match send::send(&board, &cfg, key, text, send::Sender::Elsewhere) {
             Ok(sent) => {
                 println!("{}", sent.message);
+                0
+            }
+            Err(e) => {
+                eprintln!("{e:#}");
+                1
+            }
+        };
+    }
+    if let Some(i) = args.iter().position(|a| a == "--rename") {
+        let (Some(key), Some(name)) = (args.get(i + 1), args.get(i + 2)) else {
+            eprintln!("usage: codealong --snapshot --rename <session key> <name>");
+            return 2;
+        };
+        let cfg = config::load().ok().flatten().unwrap_or_default();
+        let board = engine::snapshot(false, false);
+        let renamed = harness::session_name(name).and_then(|name| {
+            let (s, account) = harness::find(&board, &cfg, key)?;
+            harness::adapter(s.harness).rename(&harness::Ctx { account }, s, &name).map(|_| name)
+        });
+        return match renamed {
+            Ok(name) => {
+                println!("Renamed it {name}.");
                 0
             }
             Err(e) => {

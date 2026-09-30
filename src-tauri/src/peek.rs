@@ -134,6 +134,8 @@ struct Opening {
     below: bool,
     /// It takes the keyboard as it shows (Reply here in the pill's menu), not on a click.
     focus: bool,
+    /// Its name is ready to change (Rename in the pill's menu).
+    rename: bool,
     /// `[debug] perf_log` is on, so the page reports its timings.
     perf_log: bool,
 }
@@ -208,9 +210,9 @@ pub fn target(board: &Board, key: &str) -> Option<Target> {
 
 /// Shows a session in the peek, for a hover over its pill (`pill`: the window it's in, the bar or
 /// a card on the desktop, and the pill as that window's page measured it) or, with `focus`, ready
-/// to type into. Without a pill it opens where it last was. A hover doesn't take the peek from a
-/// session you're typing to. On the main thread.
-pub fn open(app: &AppHandle, target: Target, pill: Option<(Rect, Rect)>, focus: bool) -> Result<()> {
+/// to type into, its name with `rename`. Without a pill it opens where it last was. A hover
+/// doesn't take the peek from a session you're typing to. On the main thread.
+pub fn open(app: &AppHandle, target: Target, pill: Option<(Rect, Rect)>, focus: bool, rename: bool) -> Result<()> {
     let Some(state) = app.try_state::<Peek>() else { return Ok(()) };
     let bar = crate::bar::frame(app);
     let pill = pill.map(|(host, p)| (host, pill_on_screen(host, p)));
@@ -247,7 +249,7 @@ pub fn open(app: &AppHandle, target: Target, pill: Option<(Rect, Rect)>, focus: 
         (s.opens, s.place.map_or(MAX_HEIGHT, |p| p.room), s.place.is_none_or(|p| p.below))
     };
     let Target { lane, session, terminal, theme } = target;
-    let _ = app.emit_to(LABEL, "peek-open", Opening { id, lane, session, terminal, theme, room, below, focus, perf_log: crate::perf::enabled() });
+    let _ = app.emit_to(LABEL, "peek-open", Opening { id, lane, session, terminal, theme, room, below, focus, rename, perf_log: crate::perf::enabled() });
     // A page that doesn't answer doesn't keep the peek from showing.
     let handle = app.clone();
     std::thread::spawn(move || {

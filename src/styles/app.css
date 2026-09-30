@@ -490,6 +490,13 @@ body.is-resizing * {
   display: flex;
   gap: var(--space-2);
 }
+/* Rename session: a name, not code, so not the fields' monospace. */
+.ca-dialog.ca-renamedlg {
+  width: min(480px, 100%);
+}
+.ca-renamedlg .ca-field input {
+  font-family: var(--font-sans);
+}
 .ca-srow--button {
   margin: 0 calc(-1 * var(--space-2));
   padding-left: var(--space-2);
@@ -6066,6 +6073,22 @@ html.is-quick body {
 .ca-reply-meta {
   color: var(--ink-3);
   font: 400 11px/14px var(--font-sans);
+}
+/* Its name ready to change (Rename in a menu): the title's type in a field that keeps the
+   header's height, its text where the title's was. A border without the focus ring, which
+   would cover the line under it. */
+.ca-reply-name {
+  min-width: 0;
+  height: 22px;
+  margin: -3px -5px -1px;
+  padding: 0 4px;
+  box-sizing: border-box;
+  border: 1px solid var(--focus);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font: 600 13px/18px var(--font-sans);
+  outline: none;
 }
 .ca-reply-head .ca-btn {
   flex: none;

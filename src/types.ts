@@ -904,6 +904,8 @@ export interface PeekOpen {
   below: boolean;
   /** It takes the keyboard as it shows, rather than on a click. */
   focus: boolean;
+  /** Its name is ready to change (Rename in a pill's menu). */
+  rename: boolean;
   /** `[debug] perf_log` is on, so the page reports its timings. */
   perfLog?: boolean;
 }

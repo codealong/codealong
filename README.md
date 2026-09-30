@@ -29,7 +29,14 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     with `a` or its right-click menu; Codex threads are archived in Codex itself. Close
     terminal, in the right-click menu of a session running in a Ghostty, iTerm2 or Terminal
     tab, closes that tab whatever the session is doing, and Stop background job stops a Claude
-    Code background job; either way its conversation is kept and resumes. Mark a
+    Code background job; either way its conversation is kept and resumes. Rename a session
+    with `r` or its right-click menu, here or wherever a session has one (the floating bar's
+    pills, cards on the desktop and the quick panel's rows change the name in place). The name
+    goes where its harness keeps names, so the harness shows it too: a Claude Code session's
+    transcript, which `/resume` lists it by and a running session takes up, in its terminal's
+    title too, the next time it reads its transcript's end; a Codex thread, which the Codex app
+    shows the next time it reads its threads (not an archived one); an OpenCode session,
+    through its service, so OpenCode must be running. Antigravity's can't be renamed here. Mark a
     finished turn seen, which makes it idle and takes it off the floating bar, with `e`, the
     check at the top of its panel or its right-click menu. Fork in terminal, in a Claude Code,
     Codex or OpenCode session's right-click menu, opens a copy of its conversation in a new
@@ -342,8 +349,8 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   bar does, until you send, press Escape or click somewhere else. Click a pill to show its
   session in Codealong, as a click on its row there does, and double-click it to open the
   session where it lives; drag it off the bar (floating or in the notch) to pin its card to the
-  desktop where you let go; right-click it to reply in the peek, mark it seen, snooze it or pin it
-  to the desktop. The todos pill opens the quick panel ready to start a
+  desktop where you let go; right-click it to reply in the peek, rename it there, mark it seen,
+  snooze it or pin it to the desktop. The todos pill opens the quick panel ready to start a
   session for a todo (its menu picks which).
   **Snooze** (a session's menu on the bar or in Codealong, the peek's zzz button, or a folded
   pill's menu for all of its sessions): for 15 minutes, an hour, three hours or until 9 the
@@ -375,9 +382,9 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   where you want it; it stays there across launches. Click a session (its card, a session line,
   or a todo's card) to open its peek beside the card, as the bar's pills do, with the keyboard in
   its box; click again to put it away. Double-click to open what it shows where it lives (a todo
-  without a session starts one in the quick panel). Right-click it to show it in Codealong, mark
-  it seen or snooze it, or Remove from desktop, which its menu in Codealong also offers once it's
-  pinned.
+  without a session starts one in the quick panel). Right-click it to show it in Codealong,
+  rename it in its peek, mark it seen or snooze it, or Remove from desktop, which its menu in
+  Codealong also offers once it's pinned.
 - **New window** (File › New window, ⌘⇧N): one more window on the project you're looking at.
   Closing the main window hides it; New window, the Dock icon or the bar brings it back, and
   ⌘Q quits.
@@ -629,7 +636,7 @@ light scan (no git, PRs or visitors).
 | `src-tauri/src/idle.rs`, `src/ui/CloseIdleDialog.tsx` | Close idle terminals: which sessions' tabs can close and why (pure, tested), and closing them |
 | `src-tauri/src/start.rs`, `src/start.ts` | New sessions: where each account can start one, the launch it makes, the agent menu (every account on every model, and the effort levels) and Auto's pick |
 | `src-tauri/src/quick.rs`, `src/quick.ts`, `src/ui/Quick.tsx` | The quick panel: its window (a panel that takes the keyboard over any app), its shortcut, and its page (what needs you, finding sessions, starting one) |
-| `src-tauri/src/harness.rs` | The interface each harness implements (`Adapter`): a session's record, its conversation, what it waits on you to allow and answering it; CLAUDE.md's "Adding a harness" says what else a new one needs |
+| `src-tauri/src/harness.rs` | The interface each harness implements (`Adapter`): a session's record, its conversation, what it waits on you to allow and answering it, renaming it (`src/ui/RenameDialog.tsx` in the main window); CLAUDE.md's "Adding a harness" says what else a new one needs |
 | `src-tauri/src/transcript.rs`, `src/ui/SessionPanel.tsx`, `src/ui/SessionThread.tsx`, `src/ui/SessionReply.tsx` | A session's conversation, read a page at a time from its own record, the panel that shows it, and the box that sends it messages or answers what it waits on |
 | `src-tauri/src/peek.rs`, `src/ui/Peek.tsx`, `src/ui/ReplyView.tsx` | The floating bar's peek: its window (a panel under the bar that takes the keyboard only on a click), where it opens for a pill and when it closes, and the session view it shares with the quick panel's ⇥ |
 | `src-tauri/src/search.rs` | Searching what was said in sessions: an in-memory index of prompts and replies, read once per file and then from where it stopped |
@@ -647,14 +654,14 @@ light scan (no git, PRs or visitors).
 | `src-tauri/src/canvas.rs`, `src/canvas/`, `src/ui/CanvasView.tsx`, `src/ui/CanvasCard.tsx` | The Canvas view: its documents (what's on it, where; kept in sync with the board; Tidy's layouts), the WebGL layer (grid, links, zoomed-out blocks) and the HTML cards, notes and frames on top |
 | `src-tauri/src/attachments.rs`, `src/attachInput.ts` | Files in descriptions and prompts: pasted, dropped or picked, kept by content, images shown in place, all handed to agents as paths |
 | `src-tauri/src/usage.rs` | Plan usage: Claude through its sign-in and usage endpoint, Codex from its rollouts, none for OpenCode and Antigravity |
-| `src-tauri/src/appserver.rs` | Codex actions through its app-server (archiving) |
+| `src-tauri/src/appserver.rs` | Codex actions through its app-server (archiving, renaming) |
 | `src-tauri/src/claudeapp.rs` | The Claude app's session records (its IDs, what you archived there) |
 | `src-tauri/src/config.rs`, `state.rs` | `config.toml` (accounts saved in place) and `state.json` (seen, pinned, archived, account folders already read) |
 | `src-tauri/src/prlinks.rs` | Sessions tied to PRs other than by branch: what their records show they did to a PR, and links made by hand (`pr-links.json`) |
 | `src-tauri/src/detect.rs` | The harness accounts on this device: folders, sign-ins, and the wrappers and aliases that run them |
 | `src-tauri/src/bar.rs`, `barfeed.rs` | The bar's window (a panel over every app, floating where you put it or docked in the notch, found from the screen's sides of the menu bar, where it takes clicks only on the shape it shows; Window › Floating bar and Bar in the notch) and the small feed of what it shows, sent only when that changes |
 | `src-tauri/src/desktop.rs`, `src/ui/DesktopPin.tsx` | Cards pinned to the desktop: a window each, made as the bar's is, where a new one goes, `desktop.json`, and what each shows, cut from the board and sent only when it changes; the page draws the Canvas view's card (`ui/CanvasCard.tsx`) |
-| `src/` | The React UI, built from the design system's components and tokens; `lanes.ts` groups the board and mirrors the engine's status rules for the age filter; `pins.ts` keeps the pinned lists; `ahead.ts` shows sessions marked seen, archived or sent a message at once, in every window, until a board shows it; `prStatus.ts` and `ui/PrPills.tsx` say where a PR stands and which PRs are your move; `bar.ts`, `ui/Bar.tsx` and `ui/Notch.tsx` lay out the bar, floating or in the notch; `ui/Picker.tsx` is the quick panel's filterable menus; `ui/SettingsDialog.tsx` and `ui/AccountsSection.tsx` are Settings |
+| `src/` | The React UI, built from the design system's components and tokens; `lanes.ts` groups the board and mirrors the engine's status rules for the age filter; `pins.ts` keeps the pinned lists; `ahead.ts` shows sessions marked seen, archived, renamed or sent a message at once, in every window, until a board shows it; `prStatus.ts` and `ui/PrPills.tsx` say where a PR stands and which PRs are your move; `bar.ts`, `ui/Bar.tsx` and `ui/Notch.tsx` lay out the bar, floating or in the notch; `ui/Picker.tsx` is the quick panel's filterable menus; `ui/SettingsDialog.tsx` and `ui/AccountsSection.tsx` are Settings |
 | `scripts/preview.sh` | Headless preview against real data, for screenshots and scripted checks |
 | `design/tokens.json` | Design tokens; `npm run tokens` regenerates `src/styles/tokens.css` |
 

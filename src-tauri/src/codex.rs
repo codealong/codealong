@@ -676,6 +676,18 @@ impl crate::harness::Adapter for Codex {
     fn fork(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> anyhow::Result<crate::harness::Fork> {
         Ok(fork_of(ctx.account, &s.id))
     }
+
+    /// Names the thread through Codex's app-server, as the Codex app does (`appserver::set_name`).
+    /// The board reads names from the thread index; the app shows the name the next time it
+    /// reads its threads.
+    fn rename(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, name: &str) -> anyhow::Result<Vec<PathBuf>> {
+        if s.archived {
+            anyhow::bail!("Codex can't rename an archived thread. Unarchive it first.");
+        }
+        let home = ctx.account.home_path();
+        crate::appserver::set_name(&home, &s.id, name)?;
+        Ok(vec![home.join("session_index.jsonl")])
+    }
 }
 
 fn fork_of(account: &crate::config::AccountCfg, id: &str) -> crate::harness::Fork {

@@ -90,6 +90,9 @@ The engine binary doubles as a CLI for checking behavior without a window:
 - `codealong --snapshot --transcript <session key> [--before <cursor>]`: a page of a session's
   conversation (prompts, replies, tool calls and their output) read from its own record, as its
   panel gets it (`transcript.rs`).
+- `codealong --snapshot --rename <session key> <name>`: names a session where its harness keeps
+  names, as Rename… in its menu does (`Adapter::rename`). It renames it for real: use a scratch
+  session, or a `HOME` of your own with scratch accounts.
 - `codealong --snapshot --editor-icons`: the installed editors' app icons, as the Open in menus
   get them (`editors.rs`).
 - `codealong --snapshot --start-options`: where each account can start a session.
@@ -336,6 +339,18 @@ Claude Code
   swallows the prompt. There's no image flag. The prompt is a positional argument parsed like any other: one that starts with `-`
   reads as an option, and one that is only a subcommand's name (`update`, `doctor`) runs that
   command. `start.rs` pads such prompts with a space.
+- A session's name (`/rename`, or the Claude app's titles) is a `custom-title` line in its
+  transcript, `{"type":"custom-title","customTitle":…,"sessionId":…}`, and
+  `<session>/custom-title.json` beside it (`{"customTitle":…}`, mode 600, its folder 700), which
+  `/resume` lists sessions by. `/rename` also writes an `agent-name` line and the registry's
+  `name` with `nameSource: "user"`, the name other sessions message it by. Another process may
+  write the line (2.1.285's SDK docs say so): a running session re-stamps its metadata every
+  32 KB of its own writes, at a compaction and as it exits, and first reads the last 64 KB of its
+  transcript and takes the latest `custom-title` there as its own, terminal title included; a
+  re-stamp skips a line equal to the last of its type within 32 KB. Checked on 2.1.285
+  (2026-09-29): a session `/rename`d in tmux, renamed from outside, then exited, kept the new
+  name, and `claude --resume` listed it by it. `claude.rs`'s `rename` writes both, never the
+  registry, which the running process owns.
 - `--resume <id> --fork-session` opens a copy of the conversation as far as it's written (a
   turn still running shows as interrupted in the copy) while the original carries on.
   `--session-id <uuid>` names the copy; with `--resume` it's taken only alongside
@@ -596,6 +611,11 @@ Codex
   then `{"method":"initialized"}`, then e.g. `thread/archive {threadId}`. No shared daemon runs,
   so `codex app-server proxy` fails. `codex app-server generate-json-schema --out <dir>` dumps
   the protocol. Logs: `~/Library/Logs/com.openai.codex/`.
+- `thread/name/set {threadId, name}` names a thread, loaded or not: a line in
+  `session_index.jsonl` and `threads.name` in `state_5.sqlite`. It refuses an archived thread
+  ("no rollout found for thread id …"; 0.158.0-alpha.2 on a scratch `CODEX_HOME`, 2026-09-29).
+  The window socket has no rename (its `thread-follower-*` messages), so the app shows a new
+  name when it next reads its threads.
 
 OpenCode (2.0.16, from its source at that tag and its files here)
 
@@ -629,6 +649,8 @@ OpenCode (2.0.16, from its source at that tag and its files here)
   `codealong` finds the session that runs it there (checked with `opencode run`, 2026-09-27).
 - `POST /api/session/<id>/prompt` with `{text, delivery: "queue"|"steer"}` sends a session a
   prompt; any TUI on that session shows it.
+- `PATCH /api/session/<id>` with `{title}` renames a session (204; `time_updated` moves), as it
+  takes `metadata` and `permissions` (checked against a service of its own, 2026-09-29).
 - `POST /api/session/<id>/fork` with `{}` copies a session's history into a new session (`{before:
   <message id>}` copies what came before it) and answers `{data: {id, title, fork: {sessionID,
   boundary}}}`. The copy has no `parent_id`, so it lists as a session of its own, titled `<title>

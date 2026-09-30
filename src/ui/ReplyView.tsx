@@ -4,11 +4,12 @@
 // header a way to mark a finished turn seen or archive the session, off the list it came from, and
 // a way to snooze it off the bar. Answering from the quick panel's list, a strip above the header
 // says how the last one went and what's left: the view goes on to the next as each one's done.
+// Rename in a pill's or a row's menu shows it with its name ready to change.
 
-import { useMemo, type MouseEvent } from 'react';
+import { useMemo, useRef, useState, type MouseEvent } from 'react';
 import { shortOf } from '../devices';
 import { agoPhrase, duration } from '../format';
-import { sessionPlace } from '../harness';
+import { sessionName, sessionPlace } from '../harness';
 import { seenable } from '../lanes';
 import { untilWords } from '../snooze';
 import type { Lane, Sent, Session } from '../types';
@@ -34,6 +35,10 @@ interface ReplyViewProps {
   onArchive?: () => void;
   /** Drops the snooze menu from the header's button. */
   onSnooze?: (e: MouseEvent<HTMLButtonElement>) => void;
+  /** Its name is a field, ready to change; `onRename` hears the new one, or null when it's left
+   *  as it was. */
+  renaming?: boolean;
+  onRename?: (name: string | null) => void;
   autoFocus?: boolean;
   /** ⌘⏎ allows what it waits on (the quick panel, which is used from the keyboard). */
   keys?: boolean;
@@ -84,7 +89,46 @@ function openWords(lane: Lane, s: Session, terminal: string): { label: string; d
   return t ? { label: t.label, detail: t.detail, disabled: t.disabled } : { label: `Open in ${sessionPlace(s, terminal)}`, detail: null, disabled: false };
 }
 
-export function ReplyView({ lane, session: s, terminal, now, onOpen, onReveal, onBack, onSeen, onArchive, onSnooze, autoFocus, keys, onSending, onSent, onFailed, onAnswered, onLoaded, queue, notice }: ReplyViewProps) {
+/** A session's name as a field: ⏎ keeps what's typed, Escape leaves the name as it was, and so
+ *  does clicking away without changing it. Clicking away after changing it keeps the change, as
+ *  renaming a file in the Finder does. */
+function NameField({ title, onDone }: { title: string; onDone: (name: string | null) => void }) {
+  // The title it opened on: one the board changes meanwhile isn't a change of yours.
+  const [opened] = useState(title);
+  const [name, setName] = useState(title);
+  const done = useRef(false);
+  const finish = (next: string | null) => {
+    if (done.current) return;
+    done.current = true;
+    onDone(next);
+  };
+  // Left as it was, a title the board cut short isn't taken for a new name.
+  const keep = () => finish(name !== opened ? sessionName(name) || null : null);
+  return (
+    <input
+      className="ca-reply-name"
+      aria-label="Name"
+      value={name}
+      autoFocus
+      spellCheck={false}
+      onFocus={(e) => e.currentTarget.select()}
+      onChange={(e) => setName(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.nativeEvent.isComposing) return;
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          keep();
+        } else if (e.key === 'Escape') {
+          e.preventDefault();
+          finish(null);
+        }
+      }}
+      onBlur={keep}
+    />
+  );
+}
+
+export function ReplyView({ lane, session: s, terminal, now, onOpen, onReveal, onBack, onSeen, onArchive, onSnooze, renaming, onRename, autoFocus, keys, onSending, onSent, onFailed, onAnswered, onLoaded, queue, notice }: ReplyViewProps) {
   const open = openWords(lane, s, terminal);
   const since = s.statusSince ? (s.status === 'working' ? `for ${duration(s.statusSince, now)}` : agoPhrase(s.statusSince, now)) : agoPhrase(s.lastActivity, now);
   const snoozed = s.snoozedUntil ? ` · snoozed until ${untilWords(s.snoozedUntil, now)}` : '';
@@ -98,12 +142,14 @@ export function ReplyView({ lane, session: s, terminal, now, onOpen, onReveal, o
         {onBack && <Button variant="ghost" size="sm" icon="chevron-left" aria-label="Back" title="Back to the list (Esc)" onClick={onBack} />}
         <StatusGlyph status={s.status} size={12} />
         <div className="ca-reply-who">
-          <div className="ca-reply-title" title={s.title}>
-            {s.title}
-          </div>
-          <div className="ca-reply-meta">
-            {s.account} · {lane.callsign} · {status}
-          </div>
+          {renaming && onRename ? (
+            <NameField title={s.title} onDone={onRename} />
+          ) : (
+            <div className="ca-reply-title" title={s.title}>
+              {s.title}
+            </div>
+          )}
+          <div className="ca-reply-meta">{renaming && onRename ? '⏎ renames it · Esc keeps the old name' : `${s.account} · ${lane.callsign} · ${status}`}</div>
         </div>
         {onSeen && seenable(s) && <Button variant="ghost" size="sm" icon="check" aria-label="Mark as seen" title="Mark as seen: it leaves the list" onClick={onSeen} />}
         {onSnooze && (
@@ -148,7 +194,7 @@ export function ReplyView({ lane, session: s, terminal, now, onOpen, onReveal, o
           ) : null
         }
       />
-      <Reply session={s} terminal={terminal} onOpen={onOpen} autoFocus={autoFocus} keys={keys} onSending={onSending} onSent={onSent} onFailed={onFailed} onAnswered={onAnswered} />
+      <Reply session={s} terminal={terminal} onOpen={onOpen} autoFocus={autoFocus && !renaming} keys={keys} onSending={onSending} onSent={onSent} onFailed={onFailed} onAnswered={onAnswered} />
     </div>
   );
 }
