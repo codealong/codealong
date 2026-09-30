@@ -540,6 +540,9 @@ pub fn start(board: &Board, cfg: &Config, spec: &StartSpec) -> Result<Started> {
     if let Some(e) = effort.filter(|e| !valid_effort(e)) {
         bail!("{e:?} isn't an effort level; Claude Code takes {}.", effort_levels().collect::<Vec<_>>().join(", "));
     }
+    if claude_terminal {
+        trust(account, folder);
+    }
     let id = new_session_id();
     let prompted = !spec.prompt.trim().is_empty();
     match plan(account, spec.place, folder, &spec.prompt, &id, model, effort, worktree) {
@@ -588,6 +591,16 @@ pub fn start(board: &Board, cfg: &Config, spec: &StartSpec) -> Result<Started> {
     }
 }
 
+/// Trusts the folder a Claude Code session is starting in for its account
+/// (`claude::trust_folder`): Claude Code stops a new session at its trust prompt in a folder it
+/// hasn't trusted, where the default answer quits, and `--bg` refuses to start there. You chose
+/// the folder, as answering the prompt would. A start goes ahead without it, and Claude Code asks.
+fn trust(account: &AccountCfg, folder: &Path) {
+    if let Err(e) = crate::claude::trust_folder(&account.home_path(), folder) {
+        eprintln!("Couldn't trust {} for {}: {e:#}", tilde(folder), account.name);
+    }
+}
+
 /// Forks a session into a new terminal in its folder (`Adapter::fork`): the copy goes on from
 /// what the session had written, and the session itself carries on as it was.
 pub fn fork(board: &Board, cfg: &Config, key: &str) -> Result<Started> {
@@ -602,6 +615,10 @@ pub fn fork(board: &Board, cfg: &Config, key: &str) -> Result<Started> {
     let lane = board.lanes.iter().find(own).or_else(|| board.lanes.iter().find(holds)).ok_or_else(|| anyhow!("That session isn't on the board any more."))?;
     let cwd = if Path::new(&s.cwd).is_dir() { PathBuf::from(&s.cwd) } else { PathBuf::from(&lane.path) };
     let fork = crate::harness::adapter(s.harness).fork(&crate::harness::Ctx { account }, s)?;
+    // A Claude app session can run where Claude Code in a terminal hasn't been trusted.
+    if s.harness == Harness::Claude {
+        trust(account, &cwd);
+    }
     let near = crate::board::terminal_neighbours(&board.lanes, &cwd);
     launch::terminal_run(&cfg.apps.terminal, launch::Placement { new_terminal: cfg.apps.new_terminal, near: &near }, &cwd, &fork.input, &fork.env)?;
     // One whose harness names the copy shows on the board once it's written.

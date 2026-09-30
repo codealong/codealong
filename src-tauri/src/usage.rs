@@ -343,10 +343,7 @@ pub fn describe(a: &AccountCfg) -> AccountInfo {
     let dir = a.home_path();
     let (signed_in, email) = match a.harness.as_str() {
         "claude" => {
-            // Claude Code keeps its settings in ~/.claude.json for the default folder, and
-            // inside the folder otherwise.
-            let settings = if dir == home().join(".claude") { home().join(".claude.json") } else { dir.join(".claude.json") };
-            let email = std::fs::read(&settings)
+            let email = std::fs::read(crate::claude::state_file(&dir))
                 .ok()
                 .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
                 .and_then(|v| v.pointer("/oauthAccount/emailAddress").and_then(Value::as_str).map(str::to_string));

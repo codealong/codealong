@@ -469,6 +469,20 @@ Claude Code
   flags 5 (1 in its legacy mode), never "report all keys", so a typed digit still arrives as the
   plain character.
 - The folder-trust prompt a new folder gets has "No, exit" as its default: Return quits.
+- Trust lives in the account's state file (`~/.claude.json` for `~/.claude`, `<home>/.claude.json`
+  for any other, or an old install's `<home>/.config.json`): `projects.<path>.hasTrustDialogAccepted`
+  (read from 2.1.285's code, checked in tmux 2026-09-29). Yes at the prompt writes it for the
+  folder's git root, or the folder outside a repo. A folder counts as trusted when the repo's main
+  checkout has it (so every worktree of a trusted repo is), or the folder itself or any folder
+  above it up to its worktree's root does (up to `/` outside a repo); `--bg`'s "Workspace not
+  trusted" goes by the same entries, with the path's links resolved and in NFC. Home trust is
+  never saved. Claude Code rewrites the file all the time: under a proper-lockfile lock (a folder,
+  `<file>.lock`, made with mkdir, its time freshened every 5 s, stale after 10), re-reading the
+  file under it and applying only its own change, and running sessions reread it every second. So
+  a write under that lock, in one step (temp file and rename), survives a running session's next
+  write: `claude::trust_folder` does this when Codealong starts or forks a Claude Code session in
+  a folder, adding only that entry. It strips `hasCompletedProjectOnboarding`, `history`,
+  `projectOnboardingSeenCount` and `devIntentsDetected` from project entries whenever it saves.
 - A `PermissionRequest` hook (checked on 2.1.284, from its code and a session in tmux with a
   stub hook) gets `session_id`, `transcript_path` (a subagent's calls are in
   `<session>/subagents/agent-<agent_id>.jsonl`), `cwd`, `permission_mode`, `agent_id` in a

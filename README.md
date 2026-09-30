@@ -293,6 +293,8 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   Haiku, 1M context, Opus Plan Mode) at the effort you picked (`--effort`; Haiku takes none,
   and Default is the account's `effortLevel`), and with New worktree Claude Code makes a fresh worktree
   for it (`claude --worktree`: its folder, branch and base are Claude Code's choice).
+  Codealong trusts the folder for that account first, as Yes at Claude Code's trust prompt does
+  (the prompt's default answer quits, and `--bg` refuses a folder it hasn't trusted).
   Background starts it the same way under Claude Code's background service (`claude --bg`),
   with no terminal: it shows on the board like any other, takes prompts from Codealong, and
   Attach opens a terminal on it when you want one. The
