@@ -65,7 +65,11 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     `name#123` with the PR's state as its icon; hovering it shows a card with where the PR stands
     (review, checks, branches, size), the worktrees that hold it and the sessions that worked on
     it, each a click from its panel, and its right-click menu is the PR's. A PR the board doesn't
-    list (an older one, another repo's) is asked of GitHub when its card first shows. Code blocks have Copy on hover, and a shell block in a
+    list (an older one, another repo's) is asked of GitHub when its card first shows. ⌘⇧↑ and ⌘⇧↓
+    bring your previous or next prompt to the top, from the box too (⌘↑ and ⌘↓ as well while the
+    cursor isn't in a text box), reading further back as they go; the prompt behind what you're
+    reading stays pinned at the top once it has scrolled off, two lines of it and more on hover,
+    and a click brings it up. Code blocks have Copy on hover, and a shell block in a
     reply (`bash`, `sh`, `zsh`…) or a command the agent ran has Run beside it: that opens a new
     terminal where the session works, or where the command ran, and types the commands there
     without their comments. The box at the bottom sends it a message where it runs,

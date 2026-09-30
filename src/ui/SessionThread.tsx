@@ -12,6 +12,13 @@
 // A prompt the session took back before its agent saw it (Claude Code does when a turn is
 // stopped before any reply, claude.rs) stays in view, faint, saying so. Claude Code puts it back
 // in its own input box, and the latest one goes back in the box below too, once.
+//
+// ⌘⇧↑ and ⌘⇧↓ bring your previous or next prompt to the top of the view, as Ghostty and iTerm2
+// jump between prompts, from the box below too; ⌘↑ and ⌘↓ do it (Terminal's keys) while the
+// cursor isn't in a text box, where they go to its start or end. Up past what's been read reads
+// earlier pages until it finds one. The prompt behind what's in view, once it's gone off the top,
+// stays pinned there, two lines of it (more on hover), so what you asked stays in mind while you
+// read what came of it; a click brings the whole of it up.
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { delivered, dismiss, inRecord, useAhead, type Ahead } from '../ahead';
@@ -137,7 +144,7 @@ function ToolRun({ calls, stateOf, onOpen }: { calls: { item: TranscriptItem; re
 
 function Said({ item, now, label, onPutBack }: { item: TranscriptItem; now: number; label: ReactNode; onPutBack?: () => void }) {
   return (
-    <div className={['ca-thread-said', `is-${item.kind}`, item.withdrawn && 'is-withdrawn'].filter(Boolean).join(' ')}>
+    <div className={['ca-thread-said', `is-${item.kind}`, item.withdrawn && 'is-withdrawn'].filter(Boolean).join(' ')} data-prompt={item.kind === 'you' ? keyOf(item) : undefined}>
       <div className="ca-thread-meta">
         <span>{label}</span>
         <span className="ca-meta" title={absolute(item.at)}>
@@ -175,7 +182,7 @@ function Unsaid({ ahead, onOpen }: { ahead: Ahead; onOpen: () => void }) {
   if (c.kind !== 'send') return null;
   const state = ahead.doneAt == null ? 'Sending…' : ahead.unconfirmed ? 'Not in the session yet' : 'Sent';
   return (
-    <div className={['ca-thread-said', 'is-you', 'is-ahead', ahead.doneAt == null && 'is-going', ahead.unconfirmed && 'is-unconfirmed'].filter(Boolean).join(' ')}>
+    <div className={['ca-thread-said', 'is-you', 'is-ahead', ahead.doneAt == null && 'is-going', ahead.unconfirmed && 'is-unconfirmed'].filter(Boolean).join(' ')} data-prompt={`ahead:${ahead.id}`}>
       <div className="ca-thread-meta">
         <span>You</span>
         <span className="ca-meta">{state}</span>
@@ -225,6 +232,14 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
   const anchor = useRef<{ kind: 'end' } | { kind: 'keep'; fromEnd: number } | null>(null);
   const atEnd = useRef(true);
 
+  // The prompt the keys last brought up, and how far down the view it sat: the next key goes on
+  // from it while it's still there, and from the top of the view once you've scrolled.
+  const jumped = useRef<{ key: string; offset: number } | null>(null);
+  // Up past the pages read so far: the next page is searched as it lands.
+  const seeking = useRef(false);
+  // Your prompt behind what's in view, once it's gone off the top.
+  const [pinned, setPinned] = useState<{ key: string; text: string } | null>(null);
+
   // A session Codealong runs streams its reply before its record has it: shown at the end
   // until the record catches up at the end of the message.
   const [stream, setStream] = useState<HostedStream | null>(null);
@@ -255,6 +270,8 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
   const landed = useRef(0);
   useEffect(() => {
     const read = ++reading.current;
+    jumped.current = null;
+    seeking.current = false;
     setItems([]);
     setBefore(null);
     setLoaded(false);
@@ -286,7 +303,7 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
         setItems((old) => [...p.items, ...old]);
         setBefore(p.before);
       })
-      .catch(() => {})
+      .catch(() => (seeking.current = false))
       .finally(() => read === reading.current && (loading.current = false));
   }, [s.key, before]);
 
@@ -331,7 +348,98 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
     if (!el) return;
     atEnd.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
     if (el.scrollTop < NEAR_TOP) loadOlder();
+    pin();
   };
+
+  /** Your prompts in the view, where each starts and ends from the top of what's scrolled. */
+  const promptsIn = (el: HTMLElement) => {
+    const top = el.getBoundingClientRect().top - el.scrollTop;
+    return [...el.querySelectorAll<HTMLElement>('[data-prompt]')].map((p) => {
+      const r = p.getBoundingClientRect();
+      return { el: p, key: p.dataset.prompt ?? '', at: r.top - top, end: r.bottom - top };
+    });
+  };
+  const padOf = (el: HTMLElement) => parseFloat(getComputedStyle(el).paddingTop) || 0;
+
+  /** Pins the prompt behind what's in view once the whole of it is above the top. */
+  const pin = () => {
+    const el = scroller.current;
+    if (!el) return;
+    const behind = promptsIn(el)
+      .filter((p) => p.at < el.scrollTop + padOf(el) + 2)
+      .pop();
+    const off = behind && behind.end < el.scrollTop + 8 ? behind : null;
+    const next = off ? { key: off.key, text: (off.el.querySelector('.ca-thread-you')?.textContent ?? '').replace(/\s+/g, ' ').trim() } : null;
+    setPinned((was) => (was?.key === next?.key && was?.text === next?.text ? was : next));
+  };
+  useLayoutEffect(pin, [items, loaded]);
+
+  /** Brings one of your prompts to the top of the view, and marks it for a moment. */
+  const bringUp = (el: HTMLElement, to: { el: HTMLElement; key: string; at: number }) => {
+    el.scrollTop = to.at - padOf(el);
+    jumped.current = { key: to.key, offset: to.at - el.scrollTop };
+    // Marked, since one near the end can't come all the way up.
+    to.el.classList.remove('is-landed');
+    void to.el.offsetWidth;
+    to.el.classList.add('is-landed');
+  };
+
+  /** Brings your previous (-1) or next (1) prompt to the top of the view. */
+  const jump = (dir: -1 | 1) => {
+    const el = scroller.current;
+    if (!el) return;
+    const pad = padOf(el);
+    const prompts = promptsIn(el);
+    const last = jumped.current;
+    const was = last && prompts.find((p) => p.key === last.key && Math.abs(p.at - el.scrollTop - last.offset) < 2);
+    // From the prompt it brought up last; from the end, where the latest prompt is the one before
+    // even while it's in view; else from the top of the view.
+    const from = was ? was.at : dir < 0 && atEnd.current ? Infinity : el.scrollTop + pad;
+    const to = dir < 0 ? prompts.filter((p) => p.at < from - 2).pop() : prompts.find((p) => p.at > from + 2);
+    if (!to) {
+      if (dir < 0 && before != null) {
+        seeking.current = true;
+        loadOlder();
+        return;
+      }
+      jumped.current = null;
+      el.scrollTop = dir < 0 ? 0 : el.scrollHeight;
+      return;
+    }
+    bringUp(el, to);
+  };
+  const jumpNow = useRef(jump);
+  jumpNow.current = jump;
+
+  // Each page read while looking further up: searched once it's laid out and the view is back
+  // where it was.
+  useLayoutEffect(() => {
+    if (!seeking.current) return;
+    seeking.current = false;
+    jumpNow.current(-1);
+  }, [items]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.key !== 'ArrowUp' && e.key !== 'ArrowDown') || !e.metaKey || e.ctrlKey || e.altKey || e.isComposing || e.defaultPrevented) return;
+      const el = scroller.current;
+      if (!el || el.getClientRects().length === 0) return;
+      // Settings and the rename sheet keep the keys while they're open.
+      const modal = document.querySelector('[aria-modal="true"]');
+      if (modal && !modal.contains(el)) return;
+      // In a text box they move its cursor, all but ⌘⇧ in this panel's own box, where selecting
+      // to the start of a reply is seldom what's meant.
+      const at = document.activeElement as HTMLElement | null;
+      const field = at instanceof HTMLInputElement || at instanceof HTMLTextAreaElement || at instanceof HTMLSelectElement || !!at?.isContentEditable;
+      if (field && !(e.shiftKey && at.closest('.ca-composer') && el.parentElement?.contains(at))) return;
+      // Ahead of the window's own keys, where ⌘↑ would move along the list.
+      e.preventDefault();
+      e.stopPropagation();
+      jumpNow.current(e.key === 'ArrowUp' ? -1 : 1);
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, []);
 
 
   const rows = useMemo(() => rowsOf(items), [items]);
@@ -380,6 +488,26 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
   return (
     <RunContext.Provider value={run ?? null}>
       <div className="ca-thread" ref={scroller} onScroll={onScroll}>
+        {/* Takes no room: it floats over the top of the view while it has a prompt to show. */}
+        <div className="ca-thread-pin">
+          {pinned && (
+            <button
+              type="button"
+              className="ca-thread-pinned"
+              title="Go to this prompt (⌘⇧↑)"
+              // The cursor stays in the box below.
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                const el = scroller.current;
+                const to = el && promptsIn(el).find((p) => p.key === pinned.key);
+                if (el && to) bringUp(el, to);
+              }}
+            >
+              <span className="ca-thread-pintext">{pinned.text}</span>
+              <Icon name="arrow-up" size={12} />
+            </button>
+          )}
+        </div>
         {!loaded && <p className="ca-empty">Reading the conversation…</p>}
         {loaded && before == null && items.length > 0 && <div className="ca-thread-start">The start of the session</div>}
         {loaded && before != null && <div className="ca-thread-start">Loading earlier…</div>}

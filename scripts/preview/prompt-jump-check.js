@@ -1,0 +1,243 @@
+// Checks the keys that jump between your prompts in a session's conversation (SessionThread.tsx
+// `jump`): a session read in three pages, the newest with prompts 4 to 6, one before it with no
+// prompt at all, and the first with prompts 1 to 3. ⌘⇧↑ in the box brings up the latest prompt,
+// then the one before; ⌘↑ in the box is the box's; from the list ⌘↑ and ⌘↓ jump and the list's
+// selection stays; up past what's read reads on through the page with no prompt to the one before
+// it; ⌘↓ past the last prompt goes to the end. In the quick panel, ⇥ opens it and the keys work
+// from its box the same way.
+//   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/prompt-jump-check.js
+//   PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/prompt-jump-check.js
+// Every step should say ok.
+(function () {
+  var out = [];
+  var say = function (t) { window.__t = t; };
+  setInterval(function () { if (window.__t) document.title = window.__t; }, 100);
+  var wait = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
+  var until = function (f, ms) {
+    var s = Date.now();
+    return new Promise(function (res, rej) {
+      (function p() { if (f()) return res(); if (Date.now() - s > ms) return rej(new Error('timeout')); setTimeout(p, 10); })();
+    });
+  };
+  var check = function (name, ok, why) { out.push(name + (ok ? ' ok' : ' FAIL') + (why ? ' (' + why + ')' : '')); };
+
+  localStorage.setItem('codealong.project', 'All projects');
+  localStorage.setItem('codealong.quick.project', 'All projects');
+  var now = Date.now();
+  var picked = null;
+  var long = function (what) {
+    var lines = [];
+    for (var i = 1; i <= 30; i++) lines.push(what + ', paragraph ' + i + ' of the reply.');
+    return lines.join('\n\n');
+  };
+  var pages = {};
+  var page = function (from, specs, before) {
+    var items = specs.map(function (sp, i) {
+      return { at: now - (1000 - from - i) * 60e3, kind: sp[0], text: sp[1], failed: false, cursor: from + i, n: 0, id: sp[2], input: sp[3], output: sp[4] };
+    });
+    return { items: items, before: before, after: from + specs.length };
+  };
+  pages.newest = page(200, [['you', 'Prompt 4'], ['agent', long('Four')], ['you', 'Prompt 5'], ['agent', long('Five')], ['you', 'Prompt 6'], ['agent', long('Six')]], 100);
+  var tools = [];
+  for (var t = 0; t < 8; t++) tools.push(['tool', 'Bash · `step ' + t + '`', 't' + t, 'step ' + t], ['result', '', 't' + t, undefined, 'ok']);
+  tools.push(['agent', long('Middle')]);
+  pages[100] = page(100, tools, 50);
+  pages[50] = page(0, [['you', 'Prompt 1'], ['agent', long('One')], ['you', 'Prompt 2'], ['agent', long('Two')], ['you', 'Prompt 3'], ['agent', long('Three')]], null);
+
+  var real = window.__TAURI_INTERNALS__.invoke;
+  window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {
+    if (cmd === 'session_page' && picked && (args || {}).key === picked.key) {
+      window.__calls.push([cmd, args, options]);
+      var b = (args || {}).before;
+      return wait(40).then(function () { return JSON.parse(JSON.stringify(b == null ? pages.newest : pages[b])); });
+    }
+    var p = real(cmd, args, options);
+    if (cmd !== 'get_board') return p;
+    return p.then(function (board) {
+      board.lanes.forEach(function (l) {
+        l.sessions.forEach(function (s) {
+          if (s.status === 'needs' || s.status === 'error' || s.status === 'unread' || s.status === 'working') s.status = 'idle';
+          if (picked || l.hidden || s.visitor || s.archived) return;
+          s.status = 'unread';
+          s.statusSince = now - 60e3;
+          s.lastActivity = now - 60e3;
+          s.hosted = false;
+          s.stoppable = false;
+          s.title = 'Jump A';
+          picked = { key: s.key, lane: l.id };
+        });
+      });
+      return board;
+    });
+  };
+
+  var quick = function () { return !!document.querySelector('.ca-quick'); };
+  var title = function () { var t = document.querySelector('.ca-sessinsp-title, .ca-reply-title'); return t ? t.textContent : null; };
+  var box = function () { return document.querySelector('.ca-sessinsp .ca-composer textarea, .ca-reply .ca-composer textarea'); };
+  var thread = function () { return document.querySelector('.ca-sessinsp .ca-thread, .ca-reply .ca-thread'); };
+  var row = function () { return document.getElementById('row-' + picked.lane + '::' + picked.key); };
+  var key = function (el, init) {
+    var e = new KeyboardEvent('keydown', Object.assign({ bubbles: true, cancelable: true }, init));
+    el.dispatchEvent(e);
+    return e;
+  };
+  var pages_read = function () { return window.__calls.filter(function (c) { return c[0] === 'session_page'; }).map(function (c) { return String(c[1].before); }); };
+  // The prompt at the top of the view, if one sits there.
+  var atTop = function () {
+    var el = thread();
+    var pad = parseFloat(getComputedStyle(el).paddingTop);
+    var top = el.getBoundingClientRect().top + pad;
+    var found = null;
+    el.querySelectorAll('[data-prompt]').forEach(function (p) {
+      if (Math.abs(p.getBoundingClientRect().top - top) < 3) found = p.querySelector('.ca-thread-you').textContent.trim();
+    });
+    return found;
+  };
+  var atEnd = function () { var el = thread(); return el.scrollHeight - el.scrollTop - el.clientHeight < 2; };
+  var press = function (init) {
+    var e = key(document.activeElement || document.body, Object.assign({ key: 'ArrowUp', metaKey: true }, init));
+    return wait(200).then(function () { return e; });
+  };
+
+  var opened = function () {
+    return until(function () { return title() === 'Jump A' && thread() && /Prompt 6/.test(thread().textContent); }, 5000).then(function () { return wait(300); });
+  };
+
+  // At the end, the latest prompt has gone off the top and is pinned there; a click on it brings
+  // it up, and it's no longer pinned while it's in view.
+  var pinned = function () { var p = document.querySelector('.ca-thread-pinned'); return p ? p.textContent.trim() : null; };
+  var pinChecks = function () {
+    var p = document.querySelector('.ca-thread-pinned');
+    check('at the end the latest prompt is pinned', pinned() === 'Prompt 6', pinned());
+    check('flush with the top of the view', p && Math.abs(p.getBoundingClientRect().top - thread().getBoundingClientRect().top) < 1, p && String(p.getBoundingClientRect().top - thread().getBoundingClientRect().top));
+    if (!p) return Promise.resolve();
+    p.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+    p.click();
+    return wait(200).then(function () {
+      check('a click brings it up', atTop() === 'Prompt 6', atTop());
+      check('and it’s no longer pinned', pinned() === null, pinned());
+      thread().scrollTop = thread().scrollHeight;
+      return wait(200);
+    });
+  };
+
+  // The quick panel's reply view: its box, both ways, and on to the end.
+  var inQuick = function () {
+    key(document.querySelector('.ca-quick-input textarea'), { key: 'Tab' });
+    return opened()
+      .then(function () {
+        check('⇥ opens it at the end', title() === 'Jump A' && atEnd(), title());
+        check('with the cursor in its box', document.activeElement === box());
+        return press({ shiftKey: true });
+      })
+      .then(function () {
+        check('⌘⇧↑ brings up the latest prompt', atTop() === 'Prompt 6', atTop());
+        return press({ shiftKey: true });
+      })
+      .then(function () {
+        check('again, the one before', atTop() === 'Prompt 5', atTop());
+        return press({});
+      })
+      .then(function (e) {
+        check('⌘↑ is the box’s', !e.defaultPrevented && atTop() === 'Prompt 5', atTop());
+        return press({ key: 'ArrowDown', shiftKey: true });
+      })
+      .then(function () {
+        check('⌘⇧↓ goes to the next', atTop() === 'Prompt 6', atTop());
+        return press({ key: 'ArrowDown', shiftKey: true });
+      })
+      .then(function () {
+        check('and past it, the end', atEnd());
+        return pinChecks();
+      });
+  };
+
+  say('prompt jump check: waiting for the list');
+  until(function () { return picked && (row() || document.querySelector('.ca-quick-input textarea')); }, 20000)
+    .then(function () { return wait(300); })
+    .then(function () {
+      if (quick()) return inQuick().then(function () { throw 'quick'; });
+    })
+    .then(function () {
+      row().dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+      return opened();
+    })
+    .then(function () {
+      check('the conversation opens at the end', atEnd());
+      check('the cursor is in the box', document.activeElement === box());
+      return press({ shiftKey: true });
+    })
+    .then(function (e) {
+      check('⌘⇧↑ in the box brings up the latest prompt', atTop() === 'Prompt 6', atTop());
+      check('and the box doesn’t select', e.defaultPrevented && document.activeElement === box());
+      return press({ shiftKey: true });
+    })
+    .then(function () {
+      check('again, the one before', atTop() === 'Prompt 5', atTop());
+      return press({});
+    })
+    .then(function (e) {
+      check('⌘↑ in the box is the box’s', !e.defaultPrevented && atTop() === 'Prompt 5', atTop());
+      key(box(), { key: 'Escape' });
+      return wait(100);
+    })
+    .then(function () {
+      check('Escape gives the list the keys', document.activeElement && !!document.activeElement.closest('.ca-board-list'), document.activeElement && document.activeElement.className);
+      return press({});
+    })
+    .then(function () {
+      check('⌘↑ from the list jumps', atTop() === 'Prompt 4', atTop());
+      check('and the list’s selection stays', title() === 'Jump A', title());
+      return press({ key: 'ArrowDown' });
+    })
+    .then(function () {
+      check('⌘↓ goes to the next', atTop() === 'Prompt 5', atTop());
+      return press({ key: 'ArrowUp' }).then(function () { return wait(300); });
+    })
+    .then(function () {
+      check('back at the first prompt read', atTop() === 'Prompt 4', atTop());
+      return press({ shiftKey: true }).then(function () {
+        return until(function () { return atTop() === 'Prompt 3'; }, 3000).catch(function () {});
+      });
+    })
+    .then(function () {
+      check('up past what’s read reads on through a page with no prompt', atTop() === 'Prompt 3' && pages_read().join(',') === 'null,100,50', atTop() + ' after pages ' + pages_read().join(','));
+      return press({ shiftKey: true }).then(function () { return press({ shiftKey: true }); });
+    })
+    .then(function () {
+      check('on up to the first prompt', atTop() === 'Prompt 1', atTop());
+      return press({ shiftKey: true });
+    })
+    .then(function () {
+      check('past the first, the start of the session', thread().scrollTop === 0 && /The start of the session/.test(thread().textContent), String(thread().scrollTop));
+      return press({ key: 'ArrowDown', shiftKey: true });
+    })
+    .then(function () {
+      check('⌘⇧↓ from the start goes to the first prompt', atTop() === 'Prompt 1', atTop());
+      var go = Promise.resolve();
+      for (var i = 0; i < 5; i++) go = go.then(function () { return press({ key: 'ArrowDown' }); });
+      return go;
+    })
+    .then(function () {
+      check('down to the latest prompt', atTop() === 'Prompt 6', atTop());
+      return press({ key: 'ArrowDown' });
+    })
+    .then(function () {
+      check('and past it, the end', atEnd());
+      var landed = document.querySelectorAll('.ca-thread-said.is-landed');
+      check('prompts it brought up are marked', landed.length > 0, String(landed.length));
+      return pinChecks();
+    })
+    .then(function () {
+      // With Settings open (or the rename sheet) the keys are theirs.
+      key(document.body, { key: ',', metaKey: true });
+      return until(function () { return document.querySelector('.ca-settings'); }, 3000).then(function () {
+        var before = thread().scrollTop;
+        return press({}).then(function () {
+          check('Settings keeps the keys', thread().scrollTop === before, String(thread().scrollTop - before));
+        });
+      });
+    })
+    .catch(function (e) { if (e !== 'quick') check('ran', false, String(e)); })
+    .then(function () { say('done: ' + out.join(' | ')); });
+})();
