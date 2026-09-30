@@ -323,6 +323,23 @@ window.__TAURI_INTERNALS__ = {
         return all[0] && all[0].key === key ? all[1] : null;
       });
     }
+    // How a message would reach a session, as the engine would guess it from the session alone
+    // (send.rs `way_in` also looks at its process and registry).
+    if (cmd === 'session_way') {
+      return fetch('./board.json').then(function (r) { return r.json(); }).then(function (board) {
+        var key = (args || {}).key;
+        var s = null;
+        board.lanes.forEach(function (l) { l.sessions.forEach(function (x) { if (x.key === key) s = x; }); });
+        if (!s || s.hosted) return null;
+        var terminal = board.apps.terminal;
+        if (s.harness === 'antigravity') return { kind: 'antigravity' };
+        if (s.harness === 'opencode') return { kind: 'opencode' };
+        if (s.harness === 'codex') return s.surface === 'app' ? { kind: 'codex-app' } : s.live ? { kind: 'typed', app: terminal } : { kind: 'resume', app: terminal };
+        if (!s.live) return s.surface === 'app' ? { kind: 'claude-app' } : { kind: 'resume', app: terminal };
+        if (s.attachCommand) return { kind: 'background' };
+        return s.surface === 'app' ? { kind: 'message' } : { kind: 'typed', app: terminal };
+      });
+    }
     if (cmd === 'session_answer') return Promise.resolve((args || {}).answer === 'allow' ? 'Allowed it (in the preview nothing is pressed anywhere).' : 'Denied it (in the preview nothing is pressed anywhere).');
     if (cmd === 'session_newer') return Promise.resolve({ items: [], before: null, after: (args || {}).after || 0 });
     // A session Codealong runs: the reply it's writing, which a check can set.

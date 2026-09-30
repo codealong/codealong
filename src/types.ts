@@ -70,6 +70,19 @@ export interface Session {
   detail: string | null;
 }
 
+/** How a message sent to a session would reach it (send.rs `way_in`): typed into its terminal,
+ *  pasted into its background job, a message on Claude Code's socket, a new terminal resuming it,
+ *  or its app. */
+export type Way =
+  | { kind: 'typed'; app: string }
+  | { kind: 'background' }
+  | { kind: 'message' }
+  | { kind: 'resume'; app: string }
+  | { kind: 'claude-app' }
+  | { kind: 'codex-app' }
+  | { kind: 'opencode' }
+  | { kind: 'antigravity' };
+
 export interface Checks {
   passed: number;
   failed: number;

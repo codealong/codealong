@@ -63,6 +63,7 @@ const REQUESTS: &[Request] = &[
     Request { name: api::SESSION_PAGE, only_here: None, here: page },
     Request { name: api::SESSION_NEWER, only_here: None, here: newer },
     Request { name: api::SESSION_PENDING, only_here: None, here: pending },
+    Request { name: api::SESSION_WAY, only_here: None, here: way },
     Request { name: api::SESSION_STREAM, only_here: None, here: stream },
     Request { name: api::SESSION_ANSWER, only_here: None, here: answer_call },
     Request { name: api::SESSION_SEND, only_here: None, here: send_prompt },
@@ -148,6 +149,15 @@ fn pending(engine: &Handle, c: &Call) -> Result<Value, String> {
     let (cfg, board) = (cfg()?, engine.board());
     let (s, account) = harness::find(&board, &cfg, key).map_err(words)?;
     to_value(harness::adapter(s.harness).pending(&harness::Ctx { account }, s))
+}
+
+/// How a message sent to it would reach it (send.rs `way_in`).
+fn way(engine: &Handle, c: &Call) -> Result<Value, String> {
+    let key = c.session()?;
+    if acp::hosts(key) {
+        return Ok(Value::Null);
+    }
+    to_value(send::way_in(&engine.board(), &cfg()?, key).map_err(words)?)
 }
 
 /// The reply a session Codealong runs is writing, for a panel that opens mid-turn.

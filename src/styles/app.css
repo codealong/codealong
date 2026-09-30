@@ -5891,11 +5891,13 @@ html.is-quick body {
   border-top: 1px solid var(--line);
   background: var(--surface);
 }
-/* The box itself, as chat apps draw theirs: the text, what's attached, then a foot with what the
-   box has to say and the send button, all inside one border. */
+/* The box itself, as chat apps draw theirs: what's attached, then the text, which reaches the
+   box's foot, with the send button in a column of its own at the right, so the text and its
+   scrollbar never run under it. What the box has to say goes below it. */
 .ca-composer-field {
   display: grid;
-  gap: 4px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
   min-width: 0;
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
@@ -5906,27 +5908,19 @@ html.is-quick body {
   border-color: var(--line-strong);
 }
 .ca-composer-field > .ca-imgstrip {
-  padding: 0 10px;
+  grid-column: 1 / -1;
+  padding: 8px 10px 0;
 }
 .ca-composer textarea {
   width: 100%;
   box-sizing: border-box;
-  padding: 8px 10px 0;
+  padding: 8px 10px;
   border: 0;
   background: transparent;
   color: var(--ink);
   font: 400 13px/19px var(--font-sans);
   resize: none;
   outline: none;
-}
-.ca-composer-bar {
-  display: flex;
-  align-items: flex-end;
-  gap: 8px;
-  padding: 0 5px 5px 10px;
-}
-.ca-composer-bar .ca-composer-note {
-  align-self: center;
 }
 /* Send, or Stop while a turn runs and the box is empty: round, in the box's corner. */
 .ca-composer-send {
@@ -5935,7 +5929,7 @@ html.is-quick body {
   place-items: center;
   width: 26px;
   height: 26px;
-  margin: 0 0 0 auto;
+  margin: 0 5px 5px 0;
   padding: 0;
   border: 0;
   border-radius: var(--radius-pill);

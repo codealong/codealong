@@ -1,9 +1,9 @@
 // Checks Stop in the reply box (SessionReply.tsx), in the bar's peek: a session whose turn can be
-// stopped shows Stop in the box's corner while the box is empty, Send once something's typed, and
-// says Escape stops it; Escape in the box asks for session_cancel once and doesn't close the peek,
-// the button says Stopping and the box says what happened; another Escape meanwhile asks nothing
-// more and closes the peek as usual, as ⌘. asks nothing more; and the button goes once the
-// session's turn has ended.
+// stopped shows Stop in the box's corner while the box is empty, Send once something's typed,
+// and its placeholder says Escape stops it; Escape in the box asks for session_cancel once and
+// doesn't close the peek, the button says Stopping and the box says what happened; another
+// Escape meanwhile asks nothing more and closes the peek as usual, as ⌘. asks nothing more; and
+// the button goes once the session's turn has ended.
 //   PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/stop-check.js
 // Every step should say ok.
 (function () {
@@ -59,7 +59,7 @@
     try {
       await until(stopButton, 20000);
       check('shows Stop in the box', stopButton().getAttribute('aria-label') === 'Stop' && !sendButton());
-      check('says Escape stops it', noteText().indexOf('Esc stops') === 0, noteText());
+      check('its placeholder says Escape stops it', /esc stops its turn$/.test(box().placeholder), box().placeholder);
       type(box(), 'and then');
       await wait(50);
       check('turns to Send once something is typed', !stopButton() && sendButton() && !sendButton().disabled);

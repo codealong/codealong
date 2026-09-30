@@ -4,7 +4,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { emit, emitTo, listen } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import type { Answers, DesktopFeed, DesktopPinned, DeviceFound, EditorIcon, DevicesView, Lane, LabelColor, Session, AccountCfg, AccountInfo, AgentsStatus, Attachment, BarFeed, BarNote, CloseOutcome, UpdateView, IdlePlan, Pending, HostedStream, PeekOpen, PeekShown, TranscriptPage, Board, Config, ConfigView, FoundAccount, PrDetail, Route, Sent, ShortcutStatus, TextFound, StartOptions, StartSpec, Started, Theme, TodoSuggested } from './types';
+import type { AccountCfg, AccountInfo, AgentsStatus, Answers, Attachment, BarFeed, BarNote, Board, CloseOutcome, Config, ConfigView, DesktopFeed, DesktopPinned, DeviceFound, DevicesView, EditorIcon, FoundAccount, HostedStream, IdlePlan, LabelColor, Lane, PeekOpen, PeekShown, Pending, PrDetail, Route, Sent, Session, ShortcutStatus, Started, StartOptions, StartSpec, TextFound, Theme, TodoSuggested, TranscriptPage, UpdateView, Way } from './types';
 import type { TodoOp } from './todos';
 
 export const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -1010,6 +1010,13 @@ export async function sessionNewer(key: string, after: number): Promise<Transcri
 }
 
 /** What a session waiting on you wants to do, when Codealong can answer it for you. */
+/** How a message sent to a session would reach it, for its box to say (send.rs `way_in`); null
+ *  for one Codealong runs, and from a device that can't say yet. */
+export async function sessionWay(key: string): Promise<Way | null> {
+  if (!inTauri) return null;
+  return invoke<Way | null>('session_way', { key });
+}
+
 export async function sessionPending(key: string): Promise<Pending | null> {
   if (!inTauri) return null;
   return invoke<Pending | null>('session_pending', { key });

@@ -52,6 +52,8 @@
           s.lastActivity = p.since;
           s.asks = p.asks;
           s.hosted = false;
+          // No turn of theirs runs, or Escape in the box would stop it rather than give back the keys.
+          s.stoppable = false;
           s.title = 'Queue ' + 'ABCD'[picked.length];
           picked.push({ key: s.key, lane: l.id });
         });

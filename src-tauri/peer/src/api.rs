@@ -32,6 +32,9 @@ pub const ROUTE: &str = "route";
 /// Names a session (`key`, `name`) where its harness keeps its name. Macs before 2026-09-30
 /// refuse it as a request they don't know.
 pub const SESSION_RENAME: &str = "session-rename";
+/// How a message sent to a session would reach it (`Way`), or null for one Codealong runs itself.
+/// Macs before 2026-09-30 refuse it as a request they don't know.
+pub const SESSION_WAY: &str = "session-way";
 
 /// Who may make a request of a device, as the device asked decides it (the engine's peers.rs).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -47,10 +50,11 @@ pub enum Reach {
 }
 
 /// Every request, with who may make it. A request missing here is one a device doesn't know.
-pub const REQUESTS: [(&str, Reach); 15] = [
+pub const REQUESTS: [(&str, Reach); 16] = [
     (SESSION_PAGE, Reach::Read),
     (SESSION_NEWER, Reach::Read),
     (SESSION_PENDING, Reach::Read),
+    (SESSION_WAY, Reach::Read),
     (SESSION_STREAM, Reach::Read),
     (SESSION_WATCH, Reach::Read),
     (SEARCH, Reach::Read),
@@ -198,6 +202,30 @@ pub struct Sent {
     /// Missing from devices that don't know it yet.
     #[serde(default)]
     pub fell_back: bool,
+}
+
+/// How a message sent to a session would reach it, for its box to say before you send: the first
+/// of its ways in that applies (the engine's send.rs `way_in`). Typing can still find no tab and
+/// go another way, as the send then says.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum Way {
+    /// Typed into its tab or pane in this terminal: Ghostty, iTerm2, Terminal, tmux.
+    Typed { app: String },
+    /// Pasted into its background job by Claude Code's background service.
+    Background,
+    /// A message from Codealong on Claude Code's socket for messages between sessions.
+    Message,
+    /// It isn't running: a new tab in this terminal resumes it with the prompt.
+    Resume { app: String },
+    /// A Claude app session that isn't running: the app opens it with the prompt on the clipboard.
+    ClaudeApp,
+    /// A turn the Codex app starts, or, when it can't, the thread opens with the prompt filled in.
+    CodexApp,
+    /// Posted to OpenCode's service.
+    Opencode,
+    /// Nothing takes a prompt from outside: the app comes forward with it on the clipboard.
+    Antigravity,
 }
 
 // ---- starting a session (`start-options`, `start`) ----

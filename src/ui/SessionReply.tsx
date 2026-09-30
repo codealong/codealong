@@ -19,23 +19,25 @@
 // Where there's a next session waiting on you (the Sessions view's panel), ⌘⏎ sends and goes on to
 // it, or, while the session waits on a call that can be allowed here, allows it and goes on.
 //
-// The box is laid out as chat apps' are: the send button sits inside it, and what it has to say
-// (how a send went, the keys that aren't the usual ones) runs along its foot beside the button.
+// The box is laid out as chat apps' are: the send button sits inside it, at its corner, and the
+// placeholder says how a message gets there (typed into its Ghostty tab, a message from
+// Codealong, its app: send.rs `way_in`). What else it has to say (how a send went, the keys that
+// aren't the usual ones) goes on a line below it, there only while there's something to say.
 //
 // While its turn runs, Escape in the box stops it where Codealong can reach the session (the
 // engine's `stoppable`), as Escape does in Claude Code and Codex, and so does the button while
-// the box is empty (⌘. too, from anywhere in the window). It sends what the harness's own Stop
+// the box is empty, whose placeholder says so (⌘. too, from anywhere in the window). It sends what the harness's own Stop
 // sends, or presses Escape in its terminal. The session carries on, waiting for you.
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent } from 'react';
 import { sendAhead, sending, useAhead } from '../ahead';
-import { sessionAnswer, sessionCancel, sessionPending } from '../api';
+import { sessionAnswer, sessionCancel, sessionPending, sessionWay } from '../api';
 import { filesToAttach, keepFiles } from '../attachInput';
 import { onDraftChange, readDraft, writeDraft } from '../drafts';
 import { sessionPlace } from '../harness';
 import { stoppable } from '../lanes';
 import { attachmentsIn, insertAttachments, withoutAttachment } from '../todos';
-import type { Answers, Pending, Question, Sent, Session } from '../types';
+import type { Answers, Pending, Question, Sent, Session, Way } from '../types';
 import { CodeBlock } from './CopyButton';
 import { AttachmentStrip } from './DescriptionEditor';
 import { Button, Icon, Rich } from './primitives';
@@ -52,10 +54,29 @@ export function takesReply(s: Session): boolean {
   return s.status !== 'needs' || !!s.asks;
 }
 
-/** What the box asks for, and where a message goes when that isn't where the session runs. */
-export function replyPlaceholder(s: Session, terminal: string): string {
+/** What the box asks for, and how a message gets there (`way`, once the engine has said): typed
+ *  into its terminal, pasted into its background job, a message from Codealong, or its app; or,
+ *  where it can't reach the session itself, what happens instead. */
+export function replyPlaceholder(s: Session, terminal: string, way?: Way | null): string {
   const to = s.asks ? `Answer ${s.account}` : `Send to ${s.account}`;
   if (s.hosted) return s.status === 'working' || s.status === 'needs' ? `${to}: it takes this after its current turn` : to;
+  const working = s.status === 'working' ? ': it takes this in as it works' : '';
+  switch (way?.kind) {
+    case 'typed':
+      return `${to} via ${way.app}${working}`;
+    case 'background':
+      return `${to} via its background job${working}`;
+    case 'message':
+      return `${to} as a message from Codealong${working}`;
+    case 'codex-app':
+      return `${to} via the Codex app${working}`;
+    case 'opencode':
+      return `${to} via OpenCode${working}`;
+    case 'resume':
+      return `${to}: it isn’t running, so this resumes it in ${way.app}`;
+    case 'claude-app':
+      return `${to}: it isn’t running, so the Claude app opens it with this on the clipboard`;
+  }
   if (s.harness === 'antigravity') return `${to}: Antigravity opens with this on the clipboard`;
   if (!s.live && s.harness === 'claude') return s.surface === 'app' ? `${to}: it isn’t running, so the Claude app opens it with this on the clipboard` : `${to}: it isn’t running, so this resumes it in ${terminal}`;
   if (!s.live && s.harness === 'codex' && s.surface === 'cli') return `${to}: it isn’t running, so this resumes it in ${terminal}`;
@@ -86,6 +107,10 @@ interface ComposerProps {
 
 type Note = { text: string; error: boolean };
 
+/** How a message to each session would go, as the engine last said, so a box that shows again
+ *  says it at once. */
+const ways = new Map<string, Way | null>();
+
 /** How a send went, by session, for the box showing on it now or, with none, the next. */
 const landed = new Map<string, Note>();
 /** The boxes showing, by session, each hearing how its session's sends go. */
@@ -113,6 +138,22 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
   const latest = useRef(text);
   latest.current = text;
   const attached = attachmentsIn(text);
+  // How what's typed gets to the session, asked again as the session starts or stops running
+  // somewhere.
+  const [way, setWay] = useState<Way | null>(() => ways.get(s.key) ?? null);
+  useEffect(() => {
+    let live = true;
+    sessionWay(s.key).then(
+      (w) => {
+        ways.set(s.key, w);
+        if (live) setWay(w);
+      },
+      () => {},
+    );
+    return () => {
+      live = false;
+    };
+  }, [s.key, s.live, s.pid, s.surface, s.attachCommand]);
 
   const setText = (t: string) => {
     setTextNow(t);
@@ -253,6 +294,7 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
   // With nothing in the box, the button stops a turn that can be stopped; with something, it
   // sends, the turn taking the message in as it works.
   const stopButton = canStop && empty;
+  const said = note?.error ? note.text : going ? 'Sending…' : (note?.text ?? (stopping ? 'Stopping…' : hint(waiting, !!onNext, !!onAllowNext)));
   return (
     <div className="ca-composer">
       <div
@@ -264,11 +306,12 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
           box.current?.focus();
         }}
       >
+        {attached.length > 0 && <AttachmentStrip items={attached} onRemove={(a) => setText(withoutAttachment(latest.current, a.path))} />}
         <textarea
           ref={box}
           value={text}
           rows={Math.min(LINES, Math.max(2, text.split('\n').length))}
-          placeholder={replyPlaceholder(s, terminal)}
+          placeholder={replyPlaceholder(s, terminal, way) + (canStop ? ' · esc stops its turn' : '')}
           onChange={(e) => {
             setText(e.target.value);
             if (note && !note.error) setNote(null);
@@ -295,32 +338,31 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
           onPaste={paste}
           aria-label={`Message to ${s.title}`}
         />
-        {attached.length > 0 && <AttachmentStrip items={attached} onRemove={(a) => setText(withoutAttachment(latest.current, a.path))} />}
-        <div className="ca-composer-bar">
-          <span className={['ca-composer-note', note?.error && 'is-error'].filter(Boolean).join(' ')} role="status">
-            {note?.error ? note.text : going ? 'Sending…' : (note?.text ?? (stopping ? 'Stopping…' : hint(waiting, !!onNext, !!onAllowNext, canStop)))}
-          </span>
-          {stopButton ? (
-            <button type="button" className="ca-composer-send is-stop" aria-label={stopping ? 'Stopping' : 'Stop'} title="Stop its turn (esc)" disabled={stopping} onClick={stop}>
-              <Icon name="player-stop" size={12} stroke={2} />
-            </button>
-          ) : (
-            <button type="button" className="ca-composer-send" aria-label="Send" title={waiting ? 'Send this once it isn’t waiting on you' : 'Send (⏎)'} disabled={empty || waiting} onClick={send}>
-              <Icon name="arrow-up" size={16} stroke={2} />
-            </button>
-          )}
-        </div>
+        {stopButton ? (
+          <button type="button" className="ca-composer-send is-stop" aria-label={stopping ? 'Stopping' : 'Stop'} title="Stop its turn (esc)" disabled={stopping} onClick={stop}>
+            <Icon name="player-stop" size={12} stroke={2} />
+          </button>
+        ) : (
+          <button type="button" className="ca-composer-send" aria-label="Send" title={waiting ? 'Send this once it isn’t waiting on you' : 'Send (⏎)'} disabled={empty || waiting} onClick={send}>
+            <Icon name="arrow-up" size={16} stroke={2} />
+          </button>
+        )}
       </div>
+      {said && (
+        <span className={['ca-composer-note', note?.error && 'is-error'].filter(Boolean).join(' ')} role="status">
+          {said}
+        </span>
+      )}
     </div>
   );
 }
 
 /** What the box has to say when nothing's happened: only the keys that aren't a chat box's usual
- *  ones. ⏎ sends and ⇧⏎ starts a new line, as everywhere. */
-function hint(waiting: boolean | undefined, next: boolean, allowNext: boolean, stop: boolean): string {
+ *  ones. ⏎ sends and ⇧⏎ starts a new line, as everywhere, and the placeholder says Escape stops a
+ *  turn while it can. */
+function hint(waiting: boolean | undefined, next: boolean, allowNext: boolean): string {
   if (waiting) return allowNext ? '⌘⏎ allow + next · send this once it isn’t waiting on you' : 'Send this once it isn’t waiting on you';
-  if (next) return `⌘⏎ send + next${stop ? ' · esc stops its turn' : ''}`;
-  return stop ? 'Esc stops its turn' : '';
+  return next ? '⌘⏎ send + next' : '';
 }
 
 interface ApprovalProps {

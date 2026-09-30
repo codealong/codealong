@@ -44,8 +44,9 @@ use crate::model::{Board, Harness, Session, Status, Surface};
 use crate::procs;
 use crate::start;
 
-/// How a send went; it goes back to other devices too, so it's in codealong-peer.
-pub use codealong_peer::api::Sent;
+/// How a send went, and how one would go; they go back to other devices too, so they're in
+/// codealong-peer.
+pub use codealong_peer::api::{Sent, Way};
 
 /// Who a message is from: how the session is told, and which ways in it may take.
 #[derive(Debug, Clone, PartialEq)]
@@ -158,6 +159,35 @@ pub enum Route {
 /// another window sent it too) joins that send and gets its outcome, rather than going twice.
 pub fn send(board: &Board, cfg: &Config, session_key: &str, text: &str, sender: Sender) -> Result<Sent> {
     join(session_key, text.trim(), || send_now(board, cfg, session_key, text, &sender))
+}
+
+/// How a message from you would reach the session with this key, for its box to say before you
+/// send it: the first of its ways in (`Adapter::routes`) that applies, as `send` tries them. None
+/// for a session Codealong runs itself, which its box says in its own words.
+pub fn way_in(board: &Board, cfg: &Config, key: &str) -> Result<Option<Way>> {
+    let (session, account) = crate::harness::find(board, cfg, key)?;
+    if session.hosted {
+        return Ok(None);
+    }
+    let routes = crate::harness::adapter(session.harness).routes(account, session);
+    let resume_in = launch::terminal_name(&cfg.apps.terminal);
+    Ok(routes.iter().find_map(|r| way_of(r, &|pid| launch::terminal_kind(pid).map(|k| k.name()), &resume_in)))
+}
+
+/// What a way in comes to, with `terminal` naming the terminal a process runs in: typing goes
+/// into that one, and a session in no terminal Codealong can type into passes to its next way,
+/// as a send does.
+fn way_of(route: &Route, terminal: &dyn Fn(u32) -> Option<&'static str>, resume_in: &str) -> Option<Way> {
+    Some(match route {
+        Route::Daemon { .. } => Way::Background,
+        Route::Type { pid } => Way::Typed { app: terminal(*pid)?.to_string() },
+        Route::Peer { .. } => Way::Message,
+        Route::Resume => Way::Resume { app: resume_in.to_string() },
+        Route::ClaudeApp => Way::ClaudeApp,
+        Route::CodexApp => Way::CodexApp,
+        Route::Opencode => Way::Opencode,
+        Route::Antigravity => Way::Antigravity,
+    })
 }
 
 /// A send on its way, which a send of the same text to the same session waits on.
@@ -914,6 +944,28 @@ mod tests {
         let mut r = json!({ "pid": 42, "sessionId": "abc", "peerProtocol": 1, "messagingSocketPath": "/tmp/cc-socks/42.sock", "kind": "interactive" });
         r.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
         r
+    }
+
+    #[test]
+    fn says_the_first_way_in_that_applies() {
+        let in_ghostty = |pid: u32| (pid == 42).then_some("Ghostty");
+        let first = |routes: &[Route]| routes.iter().find_map(|r| way_of(r, &in_ghostty, "iTerm2"));
+        let peer = Route::Peer { socket: "/tmp/cc-socks/42.sock".into(), session_id: "abc".into(), mode: None };
+        assert_eq!(first(&[Route::Type { pid: 42 }, peer.clone()]), Some(Way::Typed { app: "Ghostty".into() }));
+        // A session in no terminal Codealong can type into gets a message on its socket instead.
+        assert_eq!(first(&[Route::Type { pid: 7 }, peer.clone()]), Some(Way::Message));
+        assert_eq!(first(&[Route::Type { pid: 7 }]), None);
+        let daemon = Route::Daemon { socket: "/d.sock".into(), key_file: "/k".into(), job: "j".into() };
+        assert_eq!(first(&[daemon, peer]), Some(Way::Background));
+        assert_eq!(first(&[Route::Resume]), Some(Way::Resume { app: "iTerm2".into() }));
+        assert_eq!(first(&[Route::CodexApp]), Some(Way::CodexApp));
+    }
+
+    #[test]
+    fn a_way_in_reads_as_the_box_takes_it() {
+        assert_eq!(serde_json::to_value(Way::Typed { app: "Ghostty".into() }).unwrap(), json!({ "kind": "typed", "app": "Ghostty" }));
+        assert_eq!(serde_json::to_value(Way::ClaudeApp).unwrap(), json!({ "kind": "claude-app" }));
+        assert_eq!(serde_json::to_value(Way::CodexApp).unwrap(), json!({ "kind": "codex-app" }));
     }
 
     #[test]

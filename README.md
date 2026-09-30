@@ -76,9 +76,11 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     answer comes first counts. Others open where they run to be answered. The box stays meanwhile,
     keeping what you'd written, and Send works again once the session isn't waiting (a session
     run In Codealong takes it at once, after its current turn). The box's send button sits
-    inside it, at its corner. While a turn runs that Codealong can stop, Escape in the box stops
-    it, as it does in Claude Code and Codex (⌘. anywhere in the window too), and so does the
-    button while the box is empty; it says Stopping until the turn has ended. To work through what waits on
+    inside it, at its corner, and its placeholder says how a message gets there: typed into its
+    Ghostty, iTerm2, Terminal or tmux tab, pasted into its background job, as a message from
+    Codealong, or through its app. While a turn runs that Codealong can stop, Escape in the box
+    stops it, as it does in Claude Code and Codex (⌘. anywhere in the window too), and so does
+    the button while the box is empty; it says Stopping until the turn has ended. To work through what waits on
     you, ⌘⏎ in the box sends and goes on to the next session listed that waits on you (Needs
     you the longest wait first, then Your turn), or, while the session waits on a call that can
     be allowed here, allows it and goes on; ⏎ sends and stays. `e` on the list (⌘E in the box,
