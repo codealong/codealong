@@ -61,6 +61,14 @@ objc2-foundation = { version = "0.3", default-features = false, features = ["std
 [dev-dependencies]
 tauri = { version = "2", features = ["test"] }
 
+# Keep file/line backtraces without full variable/type debug information, so
+# development and test builds use less disk space across worktrees.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.test]
+debug = "line-tables-only"
+
 # Built for rebuild speed, not the last few percent of engine speed: no LTO (thin LTO relinks
 # the whole crate for a one-line change), incremental on, default codegen units.
 [profile.release]
