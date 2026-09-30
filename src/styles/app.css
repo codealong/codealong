@@ -2050,8 +2050,11 @@ body.is-resizing * {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Titles are bold in the lists, so a row reads by what the session is about before the rest of
+   the line. 600 is the heaviest Barlow the app ships; a heavier one would be synthesized. */
 .ca-agentline-title {
   flex: 0 1 auto;
+  font-weight: 600;
 }
 .ca-agentline-detail {
   flex: 1 1 0;
@@ -2216,6 +2219,9 @@ body.is-resizing * {
 }
 .ca-prrow .ca-seg-main {
   border-left: 0;
+}
+.ca-prrow .ca-lane-headline {
+  font-weight: 600;
 }
 /* A row that's your move (see prFlag) gets a colored edge: amber for a review asked of you or
    something to fix, red for failing checks, green for your PRs that GitHub would merge. */
