@@ -80,7 +80,8 @@
       return on('Queue A').then(function () { return wait(50); });
     })
     .then(function () {
-      key(box(), { key: 'Escape' });
+      // A real press gives the list the keys; a synthetic one doesn't.
+      list().focus();
       check('the list has the keys', document.activeElement === list());
       key(list(), { key: 'e' });
       return on('Queue B');

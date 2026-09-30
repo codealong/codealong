@@ -855,17 +855,9 @@ export function App() {
   useEffect(() => {
     if (boxFocus && selected?.key !== boxFocus) setBoxFocus(null);
   }, [selected?.key]);
-  // A session you click in Sessions is one you mean to answer: the cursor goes to its panel's box,
-  // once the click has given the list the keyboard, as a press does. Moving along the list with
-  // the keys leaves them with the list, and Escape in the box gives them back to it.
+  // A session clicked in Sessions leaves the keyboard with the list; Escape in its panel's box
+  // gives it back there.
   const listRef = useRef<HTMLDivElement>(null);
-  const focusBox = () =>
-    window.setTimeout(() => {
-      const el = document.querySelector<HTMLTextAreaElement>('.ca-sessinsp .ca-composer textarea');
-      if (!el) return;
-      el.focus();
-      el.setSelectionRange(el.value.length, el.value.length);
-    });
 
   /** Archives a session (Codex threads in Codex itself), or unarchives it. */
   const setArchived = useCallback((key: string, archived: boolean, title: string) => {
@@ -1468,8 +1460,8 @@ export function App() {
       const typing = document.activeElement === searchRef.current;
       const mod = e.metaKey;
       const key = e.key.toLowerCase();
-      // Escape in a session panel's box gives the list its keys back (a click on a row put them
-      // there), unless it stopped the session's turn. With the panel expanded there's no list to
+      // Escape in a session panel's box gives the list its keys back, unless it stopped the
+      // session's turn. With the panel expanded there's no list to
       // give them to, so the window has them.
       if (e.key === 'Escape' && !e.isComposing && !e.defaultPrevented && view === 'sessions' && document.activeElement?.closest('.ca-sessinsp .ca-composer')) {
         e.preventDefault();
@@ -2345,10 +2337,7 @@ export function App() {
                 now={now}
                 selectedKey={selected?.key ?? null}
                 domId={domId}
-                onSelect={(r, e) => {
-                  setSelectedKey(r.key);
-                  if (e.button === 0) focusBox();
-                }}
+                onSelect={(r) => setSelectedKey(r.key)}
                 onOpen={(r) => {
                   setSelectedKey(r.key);
                   openRow(r);

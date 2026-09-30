@@ -4,7 +4,6 @@
 // to reorder.
 
 import { bySession, byStatusTime } from '../lanes';
-import type { MouseEvent } from 'react';
 import type { Bay, Lane, Session, Status, Todo } from '../types';
 import { AgentRow } from './LaneRow';
 import { PinnedSection, type PinDrag } from './PinnedSection';
@@ -100,8 +99,8 @@ interface SessionsViewProps {
   now: number;
   selectedKey: string | null;
   domId: (row: SessionItem) => string;
-  /** A row pressed, with the press: which button, which keys. */
-  onSelect: (row: SessionItem, e: MouseEvent) => void;
+  /** A row pressed. */
+  onSelect: (row: SessionItem) => void;
   onOpen: (row: SessionItem) => void;
   /** Right-click on a row. */
   onContextMenu: (row: SessionItem) => void;
@@ -131,7 +130,7 @@ export function SessionsView(props: SessionsViewProps) {
       domId={domId(r)}
       now={now}
       selected={r.key === selectedKey}
-      onSelect={(e) => onSelect(r, e)}
+      onSelect={() => onSelect(r)}
       onOpen={() => onOpen(r)}
       pinned={drag != null}
       onContextMenu={() => onContextMenu(r)}
