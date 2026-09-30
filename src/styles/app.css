@@ -6557,6 +6557,47 @@ html.is-quick body {
 .ca-lane-sub .ca-devbadge {
   margin-right: 6px;
 }
+/* A reusable worktree's mark, before its repo and branch (LaneRow.tsx). */
+.ca-reusemark {
+  display: inline-flex;
+  vertical-align: -2px;
+  margin-right: 4px;
+  color: var(--ink-3);
+}
+/* The heading over a reusable worktree's sessions from before its latest work (Inspector.tsx). */
+.ca-srows-divider {
+  padding: var(--space-3) 0 var(--space-1);
+  border-top: 1px solid var(--line);
+  font: 600 11px/14px var(--font-display);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.ca-srows-divider + .ca-srow {
+  border-top: none;
+}
+/* Settings › Projects: a reusable worktree and what it holds, or one that looks reusable and
+   its buttons, at the end. */
+.ca-reuse-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.ca-reuse-row > .ca-code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Free: a reusable worktree that holds no work, where new work can start. */
+.ca-chip.ca-reusechip {
+  padding: 0 7px;
+  font-family: var(--font-sans);
+  font-weight: 600;
+  background: var(--pr-open-tint);
+  color: var(--pr-open);
+}
 .ca-cv-l1 .ca-devbadge,
 .ca-cv-l2 .ca-devbadge {
   max-width: 88px;

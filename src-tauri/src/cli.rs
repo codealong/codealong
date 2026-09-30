@@ -20,7 +20,7 @@ use crate::attachments;
 use crate::board;
 use crate::config::{self, AccountCfg, Config};
 use crate::engine;
-use crate::model::{Board, Lane, PreviewServer, Session, Status};
+use crate::model::{Board, Lane, Origin, PreviewServer, Reuse, Session, Status};
 use crate::procs;
 use crate::search;
 use crate::server::{self, Request};
@@ -91,6 +91,11 @@ enum Cmd {
     Preview {
         #[command(subcommand)]
         cmd: PreviewCmd,
+    },
+    /// Whether a worktree is reusable: it takes one piece of work after another, where others are kept for one piece of work each. Jev suggests new work only in reusable worktrees. A main checkout is reusable unless it's marked otherwise. The app's worktree menu has the same switch (Reuse for new work).
+    Reuse {
+        #[command(subcommand)]
+        cmd: ReuseCmd,
     },
     /// Start a session for a todo (or several, on one prompt) or on a prompt, the way the app's New session does, and link it to the todos.
     Start(StartArgs),
@@ -419,6 +424,23 @@ enum PreviewCmd {
     Clear(PreviewAt),
 }
 
+#[derive(Subcommand, Debug)]
+enum ReuseCmd {
+    /// Whether a worktree is reusable, and what it holds: `free` (nothing uncommitted or unlanded and no agent at work: new work can start there), `open` (work under way), `review` (its PR is open) or `landed` (its PR merged; new work starts once it's back on the default branch).
+    Show(ReuseAt),
+    /// Make a worktree reusable: new work can start there once its work lands, and agents can join the work under way.
+    On(ReuseAt),
+    /// Keep a worktree for its own piece of work: Jev stops suggesting new work there.
+    Off(ReuseAt),
+}
+
+#[derive(Args, Debug)]
+struct ReuseAt {
+    /// The worktree: its path, or `.` for the one the current folder is in.
+    #[arg(long, default_value = ".")]
+    worktree: String,
+}
+
 #[derive(Args, Debug)]
 struct PreviewAt {
     /// The worktree: its path, or `.` for the one the current folder is in.
@@ -453,6 +475,9 @@ struct WorktreesArgs {
     /// Hidden ones too (worktrees outside every project that need nothing).
     #[arg(long)]
     all: bool,
+    /// Only reusable ones (`codealong reuse`): where new work can start, or join the work under way.
+    #[arg(long)]
+    reusable: bool,
 }
 
 #[derive(Args, Debug)]
@@ -775,6 +800,9 @@ fn run(cmd: Cmd, c: &mut Client, json: bool) -> Result<()> {
             preview_set(c, &a.at.worktree, Some(PreviewTo { url: a.url.as_deref(), port: a.port, profile }), json)
         }
         Cmd::Preview { cmd: PreviewCmd::Clear(a) } => preview_set(c, &a.worktree, None, json),
+        Cmd::Reuse { cmd: ReuseCmd::Show(a) } => reuse_show(c, &a.worktree, json),
+        Cmd::Reuse { cmd: ReuseCmd::On(a) } => reuse_set(c, &a.worktree, true, json),
+        Cmd::Reuse { cmd: ReuseCmd::Off(a) } => reuse_set(c, &a.worktree, false, json),
         Cmd::Start(args) => start_cmd(c, &args, json),
         Cmd::Config { cmd } => config_cmd(cmd, json),
         Cmd::Install(args) => install(c, &args, json),
@@ -1521,6 +1549,9 @@ struct LaneRow {
     /// Where its app opens (`codealong preview`), and whether a server in its folder serves it now.
     preview: Option<String>,
     preview_running: Option<bool>,
+    /// What it holds, when it's reusable (`codealong reuse`): free, open, review or landed. None
+    /// for a worktree kept for one piece of work.
+    reuse: Option<String>,
 }
 
 /// Whether a session is running now: a process has it open (a terminal, the Claude app, a
@@ -1558,6 +1589,7 @@ fn lane_row(l: &Lane, board: &Board) -> LaneRow {
         todos: board.todos.iter().filter(|t| t.worktrees.contains(&l.id)).map(|t| t.id.clone()).collect(),
         preview: l.preview.as_ref().map(|p| p.url.clone()),
         preview_running: l.preview.as_ref().map(|p| p.server.is_some()),
+        reuse: l.reuse.as_ref().map(lower_debug),
     }
 }
 
@@ -1566,19 +1598,24 @@ fn worktrees(c: &mut Client, a: &WorktreesArgs, json: bool) -> Result<()> {
     let rows: Vec<LaneRow> = board
         .lanes
         .iter()
-        .filter(|l| (a.all || !l.hidden) && a.project.as_deref().map_or(true, |p| p.eq_ignore_ascii_case(&l.project)) && a.bay.as_deref().map_or(true, |b| b.eq_ignore_ascii_case(&lower_debug(&l.bay))))
+        .filter(|l| (a.all || !l.hidden) && (!a.reusable || l.reuse.is_some()) && a.project.as_deref().map_or(true, |p| p.eq_ignore_ascii_case(&l.project)) && a.bay.as_deref().map_or(true, |b| b.eq_ignore_ascii_case(&lower_debug(&l.bay))))
         .map(|l| lane_row(l, board))
         .collect();
     if json {
         return print_json(&rows);
     }
     let now = now_ms();
-    // A column for previews only when a worktree has one.
+    // Columns for reuse and previews only when a worktree has them.
+    let reuse = rows.iter().any(|r| r.reuse.is_some());
     let previews = rows.iter().any(|r| r.preview.is_some());
     let table: Vec<Vec<String>> = rows
         .iter()
         .map(|r| {
-            let mut row = vec![r.bay.clone(), r.callsign.clone(), r.branch.clone().unwrap_or_default(), r.pr.map(|n| format!("#{n} {}", r.pr_state.clone().unwrap_or_default())).unwrap_or_default(), r.agents.to_string(), ago(now - r.last_activity), truncate(&r.headline, 60)];
+            let mut row = vec![r.bay.clone(), r.callsign.clone(), r.branch.clone().unwrap_or_default(), r.pr.map(|n| format!("#{n} {}", r.pr_state.clone().unwrap_or_default())).unwrap_or_default(), r.agents.to_string()];
+            if reuse {
+                row.push(r.reuse.clone().unwrap_or_default());
+            }
+            row.extend([ago(now - r.last_activity), truncate(&r.headline, 60)]);
             if previews {
                 row.push(r.preview.as_deref().map(|u| format!("{}{}", crate::previews::short_url(u), if r.preview_running == Some(true) { "" } else { " (not running)" })).unwrap_or_default());
             }
@@ -1586,8 +1623,16 @@ fn worktrees(c: &mut Client, a: &WorktreesArgs, json: bool) -> Result<()> {
             row
         })
         .collect();
-    let head: &[&str] = if previews { &["BAY", "WORKTREE", "BRANCH", "PR", "AGENTS", "AGO", "HEADLINE", "PREVIEW", "PATH"] } else { &["BAY", "WORKTREE", "BRANCH", "PR", "AGENTS", "AGO", "HEADLINE", "PATH"] };
-    print!("{}", table_text(head, table));
+    let mut head = vec!["BAY", "WORKTREE", "BRANCH", "PR", "AGENTS"];
+    if reuse {
+        head.push("REUSE");
+    }
+    head.extend(["AGO", "HEADLINE"]);
+    if previews {
+        head.push("PREVIEW");
+    }
+    head.push("PATH");
+    print!("{}", table_text(&head, table));
     Ok(())
 }
 
@@ -1707,6 +1752,96 @@ fn preview_set(c: &mut Client, worktree: &str, to: Option<PreviewTo>, json: bool
         (Some(u), false) => println!("{at} already opens at {u}{profile}."),
         (None, true) => println!("Took the preview URL off {at}."),
         (None, false) => println!("{at} had no preview URL."),
+    }
+    Ok(())
+}
+
+// ---- reuse ----
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ReuseOut {
+    worktree: String,
+    reusable: bool,
+    /// How it was marked, by the menu or `codealong reuse on|off`; none when it goes by the
+    /// default (a main checkout is reusable, the rest aren't).
+    marked: Option<bool>,
+    /// What it holds, when it's reusable: free, open, review or landed.
+    state: Option<String>,
+    /// Not marked, but its branch has carried several merged PRs: it looks like one that's
+    /// reused.
+    looks_reusable: bool,
+    /// False when it already was so (`on` and `off`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    changed: Option<bool>,
+}
+
+/// What a reusable worktree's state says, after its path.
+fn reuse_words(state: Reuse) -> &'static str {
+    match state {
+        Reuse::Free => "free: nothing uncommitted or unlanded and no agent at work, so new work can start there",
+        Reuse::Open => "has work under way: new work that belongs with it can join it",
+        Reuse::Review => "has its PR in review",
+        Reuse::Landed => "has its work landed: new work starts once it's back on the default branch",
+    }
+}
+
+fn reuse_out(c: &mut Client, id: &str) -> Result<ReuseOut> {
+    let marked = crate::reusable::load()?.get(id);
+    let lane = c.board()?.lanes.iter().find(|l| l.id == id).ok_or_else(|| anyhow!("That worktree just changed. Try again."))?;
+    Ok(ReuseOut { worktree: id.to_string(), reusable: lane.reuse.is_some(), marked, state: lane.reuse.as_ref().map(lower_debug), looks_reusable: lane.looks_reusable, changed: None })
+}
+
+fn print_reuse(out: &ReuseOut, lane: Option<&Lane>) {
+    let at = tilde(Path::new(&out.worktree));
+    match lane.and_then(|l| l.reuse) {
+        Some(state) => println!("{at} is reusable{} and {}.", if out.marked.is_none() { " (a main checkout is, unless marked otherwise)" } else { "" }, reuse_words(state)),
+        None if out.marked == Some(true) => println!("{at} is marked reusable, but only a repo's worktree in one of your projects can be."),
+        None => println!("{at} is kept for its own piece of work: Jev doesn't suggest new work there."),
+    }
+    if out.looks_reusable {
+        println!("Its branch has carried several merged PRs, as a reused worktree's does: `codealong reuse on` makes it reusable.");
+    }
+}
+
+fn reuse_show(c: &mut Client, worktree: &str, json: bool) -> Result<()> {
+    let id = resolve_worktree(c, worktree)?;
+    let out = reuse_out(c, &id)?;
+    if json {
+        return print_json(&out);
+    }
+    print_reuse(&out, c.board()?.lanes.iter().find(|l| l.id == id));
+    Ok(())
+}
+
+/// Marks a worktree reusable or not. The app watches the file.
+fn reuse_set(c: &mut Client, worktree: &str, on: bool, json: bool) -> Result<()> {
+    let id = resolve_worktree(c, worktree)?;
+    if crate::peerfeed::split_remote(&id).is_some() {
+        bail!("That worktree is on another device; mark it there.");
+    }
+    {
+        let lane = c.board()?.lanes.iter().find(|l| l.id == id).ok_or_else(|| anyhow!("That worktree just changed. Try again."))?;
+        if on && (lane.project == crate::board::ELSEWHERE || lane.origin == Origin::Folder) {
+            bail!("Only a repo's worktree in one of your projects can be reusable; {} isn't one.", tilde(Path::new(&id)));
+        }
+    }
+    let mut changed = false;
+    crate::reusable::change(|store| {
+        changed = store.set(&id, on, now_ms());
+        changed
+    })?;
+    // What it holds comes from the app, which reads the file once the watcher says: `reuse
+    // show` has it then.
+    if json {
+        return print_json(&ReuseOut { worktree: id.clone(), reusable: on, marked: Some(on), state: None, looks_reusable: false, changed: Some(changed) });
+    }
+    let at = tilde(Path::new(&id));
+    match (on, changed) {
+        (true, true) => println!("{at} is reusable now: new work can start there once its work lands, and Jev suggests it."),
+        (true, false) => println!("{at} was reusable already."),
+        (false, true) => println!("{at} is kept for its own piece of work now: Jev stops suggesting new work there."),
+        (false, false) => println!("{at} was kept for its own piece of work already."),
     }
     Ok(())
 }

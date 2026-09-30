@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ageFiltered, bayOf, buildBays, bySession, closable, stoppable, filterByAge, homeOf, liveOrLatest, inboxCounts, narrowed, rowItems, sessionFlag, sessionHeadline, sessionPrs, withoutAccount } from './lanes';
+import { ageFiltered, bayOf, buildBays, bySession, closable, stoppable, filterByAge, homeOf, liveOrLatest, inboxCounts, narrowed, relaned, rowItems, sessionFlag, sessionHeadline, sessionPrs, withoutAccount, worktreeRow } from './lanes';
 import type { Lane, Pr, PrItem, Session } from './types';
 
 const NOW = 1_790_200_000_000;
@@ -162,6 +162,20 @@ describe('inboxCounts', () => {
     const inReview = { ...lane([], pr('open')), id: '/r/review' } as Lane;
     // Needs you counts agents alone; the PRs that need work count under PR needs work.
     expect(inboxCounts([busy, failing, changes, inReview])).toEqual({ needs: 1, working: 2, unread: 2, review: 2, work: 2 });
+  });
+});
+
+describe('a reusable worktree’s earlier work', () => {
+  // A reply from before the worktree last took new work, never read; and one of the current work.
+  const shipped = { ...session('shipped', 'unread', NOW - DAY), account: 'claude', title: 'Ship it', earlier: true };
+  const current = { ...session('current', 'idle', NOW - 60_000), account: 'claude', title: 'Next thing' };
+  const l = { ...lane([current], null), sessions: [current, shipped] };
+
+  it('gets no line on the row, and stays out of its status and counts', () => {
+    expect(worktreeRow(l).agents).toEqual([]);
+    expect(relaned(l, l.sessions).bay).toBe('idle');
+    expect(inboxCounts([l]).unread).toBe(0);
+    expect(narrowed(l, ['unread'], '')).toBeNull();
   });
 });
 

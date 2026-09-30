@@ -16,7 +16,7 @@ use anyhow::{anyhow, bail, Result};
 use serde_json::{json, Map, Value};
 
 use crate::board::ELSEWHERE;
-use crate::model::{Board, Lane, Origin, Session, Status};
+use crate::model::{Board, Lane, Origin, Reuse, Session, Status};
 
 /// "All projects" in the panel: every lane but the hidden ones.
 pub const ALL_PROJECTS: &str = "All projects";
@@ -138,6 +138,16 @@ fn lane_card(l: &Lane, now: i64) -> Value {
         card.insert("recent sessions".into(), json!(recent));
     }
     card.insert("last active".into(), json!(crate::jev::ago_words(l.last_activity, now)));
+    // New work starts only in reusable worktrees (src/route.ts), so Jev knows which are, and
+    // which of those hold no work.
+    card.insert(
+        "reusable".into(),
+        json!(match l.reuse {
+            Some(Reuse::Free) | Some(Reuse::Landed) => "yes, and free: it holds no work now",
+            Some(Reuse::Open) | Some(Reuse::Review) => "yes, with work under way",
+            None => "no: it's kept for its own piece of work",
+        }),
+    );
     Value::Object(card)
 }
 
@@ -403,6 +413,7 @@ mod tests {
             hosted: false,
             stoppable: false,
             snoozed_until: None,
+            earlier: false,
         }
     }
 
@@ -433,6 +444,8 @@ mod tests {
             device: None,
             repo_slug_now: None,
             preview: None,
+            reuse: None,
+            looks_reusable: false,
         }
     }
 
@@ -471,6 +484,7 @@ mod tests {
         assert!(req.body["questions"]["session"]["criteria"]["none"].is_string());
         assert_eq!(req.body["questions"]["worktree"]["criteria"]["w2"]["worktree"], "api (main checkout of api)");
         assert_eq!(req.body["questions"]["worktree"]["criteria"]["w2"]["recent sessions"], json!(["Fix login", "Old stopped"]));
+        assert_eq!(req.body["questions"]["worktree"]["criteria"]["w2"]["reusable"], "no: it's kept for its own piece of work");
         assert_eq!(req.body["model"], "jev-latest");
         // Only running sessions that aren't waiting on you could already be doing it.
         let dup = req.body["questions"]["duplicate"]["criteria"].as_object().unwrap();

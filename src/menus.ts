@@ -7,7 +7,7 @@
 // went through the window's `Report`: a toast in the main window, a note on the bar.
 
 import { useEffect, useState } from 'react';
-import { closeSession, desktopPins, forkSession, onDesktopPins, openUrl, pinToDesktop, sessionCancel, showQuick, unpinFromDesktop } from './api';
+import { closeSession, desktopPins, forkSession, onDesktopPins, openUrl, pinToDesktop, sessionCancel, setReusable, showQuick, unpinFromDesktop } from './api';
 import { archiveAhead, seenAhead } from './ahead';
 import type { MenuAction, MenuGroup, MenuSpec } from './contextMenu';
 import { shortOf } from './devices';
@@ -63,6 +63,15 @@ export function useDesktopPins(): ReadonlySet<string> {
 function prItem(lane: Lane, report: Report): MenuAction | undefined {
   const pr = lane.pr;
   return pr ? { label: `Open PR #${pr.number} on GitHub`, run: () => void openUrl(pr.url).catch((e: unknown) => report.error(errorText(e))) } : undefined;
+}
+
+/** Reuse for new work, checked while the worktree takes one piece of work after another: Jev
+ *  suggests new work only in reusable worktrees. Only a repo's worktree in one of your projects
+ *  can be (board::can_reuse), and only this device's is marked here. */
+function reuseItem(lane: Lane, report: Report): MenuAction | undefined {
+  if (lane.device || lane.project === 'Elsewhere' || lane.origin === 'folder') return undefined;
+  const on = lane.reuse != null;
+  return { label: 'Reuse for new work', checked: on, run: () => void setReusable(lane.id, !on).catch((e: unknown) => report.error(errorText(e))) };
 }
 
 /** New session here…: the quick panel on the worktree, from any window. The panel starts
@@ -232,6 +241,7 @@ export interface LaneActions {
   reveal?: MenuAction;
   newSession?: MenuAction;
   setPreview?: MenuAction;
+  reuse?: MenuAction;
   pin?: MenuAction;
   desktop?: MenuAction;
   copyPath?: MenuAction;
@@ -260,6 +270,7 @@ export function laneActions(lane: Lane, can: LaneCan): LaneActions {
     reveal: can.reveal && { label: 'Show in Codealong', run: can.reveal },
     newSession: newSessionItem(lane, can.newSession),
     setPreview: can.setPreview && !lane.device ? { label: lane.preview?.set ? 'Change preview URL…' : 'Set preview URL…', run: can.setPreview } : undefined,
+    reuse: reuseItem(lane, report),
     pin: can.pin,
     desktop: can.desktop ? desktopItem('worktree', lane.id, can.desktop, report) : undefined,
     copyPath: copyItem('Copy path', lane.path, 'worktree path', report),
@@ -270,10 +281,11 @@ export function laneActions(lane: Lane, can: LaneCan): LaneActions {
 }
 
 /** The order of a worktree's menu: opening it, its PR, showing it and starting in it; the
- *  window's todos; pins; copying its path, branch and links. */
+ *  window's todos; whether it's reused; pins; copying its path, branch and links. */
 const LANE_MENU = [
   ['open', 'editor', 'openIn', 'finder', 'preview', 'pr', 'reveal', 'newSession', 'setPreview'],
   ['todos'],
+  ['reuse'],
   ['pin', 'desktop'],
   ['copyPath', 'copyBranch', 'copyPr', 'copyPreview', 'canvas'],
 ] as const;

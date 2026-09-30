@@ -1,9 +1,10 @@
 // The selected lane: where it is, how to open it, its sessions, its PR and its git state.
 
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { useEditorIcons, withOtherEditors } from '../editors';
 import { absolute, ago, count, middleTruncate, tildePath } from '../format';
 import { HARNESS_APP } from '../harness';
+import { REUSE_WORDS } from '../reusable';
 import type { Board, Lane, Origin, Session, Target, Todo } from '../types';
 import { InsightChips } from './InsightBits';
 import { BranchLabel, Button, driftWords, HarnessChip, Icon, Kbd, LaneGlyph, PrChip, Rich, StatusGlyph } from './primitives';
@@ -195,6 +196,11 @@ export function Inspector({ lane, focusKey, apps, now, onOpen, onNewSession, tod
             {lane.callsign}
           </span>
           <span className="ca-tag">{ORIGIN_WORD[lane.origin]}</span>
+          {lane.reuse && (
+            <span className="ca-tag" title={REUSE_WORDS[lane.reuse]}>
+              {lane.reuse === 'free' ? 'Reusable · free' : 'Reusable'}
+            </span>
+          )}
         </div>
         <button type="button" className="ca-insp-path" title={`Reveal ${lane.path} in Finder`} onClick={() => onOpen('l|finder')}>
           <Icon name="folder" size={12} />
@@ -236,8 +242,16 @@ export function Inspector({ lane, focusKey, apps, now, onOpen, onNewSession, tod
           <p className="ca-empty">No agent has worked here in the last 14 days.</p>
         ) : (
           <div className="ca-srows">
-            {sessions.map((s) => (
-              <SessionRow key={s.key} session={s} terminal={apps.terminal} now={now} focused={s.key === focusKey} onOpen={onOpen} todos={todosFor?.(s.key)} onShowTodo={onShowTodo} />
+            {sessions.map((s, i) => (
+              <Fragment key={s.key}>
+                {/* A reusable worktree's sessions from before its latest work come last, under a heading. */}
+                {s.earlier && !sessions[i - 1]?.earlier && (
+                  <div className="ca-srows-divider" title="Sessions from before this worktree last took new work: another branch checked out, or its branch reset">
+                    Earlier work
+                  </div>
+                )}
+                <SessionRow session={s} terminal={apps.terminal} now={now} focused={s.key === focusKey} onOpen={onOpen} todos={todosFor?.(s.key)} onShowTodo={onShowTodo} />
+              </Fragment>
             ))}
           </div>
         )}

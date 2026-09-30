@@ -223,6 +223,18 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   every worktree at once), each new one is asked for its front page once, and the kernel says
   the moment one exits, so nothing is polled over HTTP. Only worktrees in projects are looked
   at, and only on this device.
+- **Reusable worktrees**: a worktree that takes one piece of work after another (its
+  right-click menu's Reuse for new work, or `codealong reuse on`), where others are kept for
+  one piece of work each. A main checkout is reusable unless it's turned off. Its row shows a
+  repeat mark before its repo, and Free while it holds no work: nothing uncommitted or
+  unlanded, and no agent at work (otherwise work under way, in review, or landed once its PR
+  merged). Jev suggests new work only in reusable worktrees: for work it matches to a worktree
+  kept for its own work, the quick panel offers the repo's free reusable worktree, or a new
+  worktree when none is free. When a reusable worktree takes new work (another branch checked
+  out, or its branch reset, as its HEAD's reflog says), the sessions from before move to
+  Earlier work in its panel, off its row and out of its status. Settings › Projects lists
+  them, and suggests worktrees that look reused: reset or switched to new work three times or
+  more, or on a branch that has carried several merged PRs.
 - **Quick panel** (⌥⌘/ from any app, over full-screen ones too; ⌘N, the title bar, the
   inspector, or a worktree's or session's right-click menu in Codealong): one input, and below
   it what you can do next. With nothing typed it lists the sessions that need you, the
@@ -565,7 +577,7 @@ chrome_profile = "Work"        # its worktrees' previews open in this Chrome pro
 What you've seen (for Your turn), what you've pinned, snoozed and archived in Codealong are
 kept in `state.json` next to it; whether the bar is on, floating or in the notch, and where you
 left it floating, in `bar.json`; what's pinned to the desktop, and where each card was left, in `desktop.json`; each project's canvas in `canvas.json`; whether your latest quick-panel starts in each repo went into a new worktree, in `starts.json`; sessions linked to PRs or unlinked from
-them by hand in `pr-links.json`. Todos and labels are in `todos.json`, which is watched, so an
+them by hand in `pr-links.json`; worktrees marked reusable or not in `worktrees.json`. Todos and labels are in `todos.json`, which is watched, so an
 agent or an editor can add to it. Attachments are kept by their content: images in `images/`,
 other files in `files/<hash>/<name>`; ones no todo uses are cleared after 30 days. The devices
 this one is linked with are in `devices.json`, and what each last said in `device-feeds.json`;
@@ -677,6 +689,7 @@ light scan (no git, PRs or visitors).
 | `src-tauri/src/appserver.rs` | Codex actions through its app-server (archiving, renaming) |
 | `src-tauri/src/claudeapp.rs` | The Claude app's session records (its IDs, what you archived there) |
 | `src-tauri/src/config.rs`, `state.rs` | `config.toml` (accounts saved in place) and `state.json` (seen, pinned, archived, account folders already read) |
+| `src-tauri/src/reusable.rs`, `src/reusable.ts` | Reusable worktrees: the marks made by hand (`worktrees.json`); `board::reusable`, `reuse_of`, `earlier` and `looks_reusable` have the rules, `git::new_work` reads the reflog, and `src/route.ts` sends Jev's new work to them |
 | `src-tauri/src/prlinks.rs` | Sessions tied to PRs other than by branch: what their records show they did to a PR, and links made by hand (`pr-links.json`) |
 | `src-tauri/src/detect.rs` | The harness accounts on this device: folders, sign-ins, and the wrappers and aliases that run them |
 | `src-tauri/src/bar.rs`, `barfeed.rs` | The bar's window (a panel over every app, floating where you put it or docked in the notch, found from the screen's sides of the menu bar, where it takes clicks only on the shape it shows; Window › Floating bar and Bar in the notch) and the small feed of what it shows, sent only when that changes |

@@ -107,6 +107,8 @@ pub struct Inputs<'a> {
     pub pr_links: &'a PrLinks,
     /// Worktrees' app URLs and the servers in their folders.
     pub previews: &'a Previews,
+    /// Worktrees marked reusable or not by hand, by path (reusable.rs).
+    pub reusable: &'a HashMap<String, bool>,
 }
 
 /// Worktrees' app URLs set by hand, and the servers listening in their folders (previews.rs).
@@ -306,6 +308,7 @@ pub fn claude_session(
         hosted: false,
         stoppable: false,
         snoozed_until: None,
+        earlier: false,
     })
 }
 
@@ -392,6 +395,7 @@ pub fn codex_session(account: &AccountCfg, th: &ThreadInfo, name: Option<&str>, 
         hosted: false,
         stoppable: false,
         snoozed_until: None,
+        earlier: false,
     }
 }
 
@@ -463,6 +467,7 @@ pub fn opencode_session(account: &AccountCfg, row: &SessionRow, live: Option<&Li
         hosted: false,
         stoppable: false,
         snoozed_until: None,
+        earlier: false,
     }
 }
 
@@ -531,6 +536,7 @@ pub fn antigravity_session(account: &AccountCfg, c: &Conversation, seen_at: i64,
         hosted: false,
         stoppable: false,
         snoozed_until: None,
+        earlier: false,
     }
 }
 
@@ -903,6 +909,76 @@ pub fn apply_insight(s: &mut Session, i: &SessionInsight) {
 /// among them), which aren't cleaned up, no PR that says where it stands already (a merged or
 /// closed one has its own bay), nothing running or waiting, and every session of its own read
 /// by Jev as finished.
+/// Whether a worktree could take one piece of work after another: a repo's worktree in one of
+/// your projects. A plain folder, an app's chats and a repo outside every project have no work
+/// of yours to reuse them for.
+pub fn can_reuse(seed: &LaneSeed) -> bool {
+    !seed.elsewhere && !seed.chats && seed.origin != Origin::Folder
+}
+
+/// Whether a worktree takes one piece of work after another: as marked (its menu's Reuse for
+/// new work, reusable.rs), else a main checkout does, being where work starts when there's no
+/// other, and the rest don't.
+pub fn reusable(seed: &LaneSeed, marks: &HashMap<String, bool>) -> bool {
+    can_reuse(seed) && marks.get(seed.path.to_string_lossy().as_ref()).copied().unwrap_or(seed.origin == Origin::Main)
+}
+
+/// How many times a worktree must have taken new work for Settings to suggest reusing it: once
+/// when it was made, maybe once more when its work was redone.
+const LOOKS_REUSED_AT: u32 = 3;
+
+/// A worktree Settings suggests making reusable: marked neither way and not reusable already,
+/// that has taken new work again and again (its reflog), or whose branch has carried two or more
+/// merged PRs among the repo's recent ones. A branch that goes on from one merged PR to the next
+/// is a worktree taking one piece of work after another (atlas's `app2`, reset onto
+/// `origin/main` after each). PRs from anyone's fork count: a teammate's `app2` says the repo's
+/// people name reused worktrees so.
+pub fn looks_reusable(seed: &LaneSeed, marked: bool, git: Option<&GitInfo>, prs: &HashMap<String, Vec<PrRaw>>) -> bool {
+    if marked || !can_reuse(seed) || seed.origin == Origin::Main {
+        return false;
+    }
+    if git.and_then(|g| g.new_work_count).is_some_and(|n| n >= LOOKS_REUSED_AT) {
+        return true;
+    }
+    let (Some(slug), Some(branch)) = (seed.repo_slug.as_ref(), seed.branch.as_ref()) else { return false };
+    if seed.default_branch.as_ref() == Some(branch) {
+        return false;
+    }
+    let merged = |p: &&PrRaw| &p.head_ref == branch && p.state == PrState::Merged;
+    prs.get(slug).map_or(0, |list| list.iter().filter(merged).count()) >= 2
+}
+
+/// Whether a session in a reusable worktree belongs to the work before its latest: it was last
+/// active before the worktree last took new work (`git::reset_at`). One that needs you or is
+/// working belongs to now, whenever it began.
+pub fn earlier(s: &Session, reset_at: Option<i64>) -> bool {
+    reset_at.is_some_and(|at| s.last_activity < at) && !matches!(s.status, Status::Needs | Status::Error | Status::Working)
+}
+
+/// What a reusable worktree holds, from its PR, its git state and its current work's sessions:
+/// in review while its PR is open; open while an agent of its own is at work there or it has
+/// uncommitted changes or commits that haven't landed; landed once its PR merged, until the
+/// next work starts; otherwise free. A session idle there doesn't hold it: it can take the
+/// next work, as another can.
+pub fn reuse_of(pr: Option<&Pr>, git: Option<&GitInfo>, sessions: &[Session]) -> Reuse {
+    if pr.is_some_and(|p| p.state.is_open()) {
+        return Reuse::Review;
+    }
+    let at_work = sessions.iter().any(|s| s.visitor.is_none() && !s.archived && !s.earlier && matches!(s.status, Status::Working | Status::Needs | Status::Error));
+    if at_work || git.is_some_and(|g| g.dirty > 0) {
+        return Reuse::Open;
+    }
+    // A squash merge leaves the branch's commits off the default branch, so a merged PR on the
+    // worktree's HEAD (`find_pr`) says they landed.
+    if pr.is_some_and(|p| p.state == PrState::Merged) {
+        return Reuse::Landed;
+    }
+    if git.and_then(|g| g.base_ahead).unwrap_or(0) > 0 {
+        return Reuse::Open;
+    }
+    Reuse::Free
+}
+
 pub fn looks_finished(origin: Origin, pr: Option<&Pr>, sessions: &[Session]) -> bool {
     if matches!(origin, Origin::Main | Origin::Folder) || pr.is_some_and(|p| !p.state.is_open()) {
         return false;
@@ -1186,7 +1262,7 @@ pub fn targets(seed: &LaneSeed, sessions: &[Session], pr: Option<&Pr>, preview: 
 }
 
 pub fn compose(inp: Inputs) -> Board {
-    let Inputs { now, apps, seeds, mut sessions, visitors, git, prs, project_order, warnings, loading, github_at, pinned, github_login, pr_links, previews } = inp;
+    let Inputs { now, apps, seeds, mut sessions, visitors, git, prs, project_order, warnings, loading, github_at, pinned, github_login, pr_links, previews, reusable: marks } = inp;
     for s in &mut sessions {
         let (h, d) = session_headline(s);
         s.headline = h;
@@ -1227,21 +1303,32 @@ pub fn compose(inp: Inputs) -> Board {
         .collect();
     let mut lanes = Vec::with_capacity(seeds.len());
     for ((seed, sessions), guests) in seeds.iter().zip(by_lane).zip(guests) {
-        // Archived sessions stay in the lane's list, last, and out of its status.
+        let g = git.get(&seed.path).cloned();
+        let reuse_on = reusable(seed, marks);
+        // Archived sessions stay in the lane's list, last, and out of its status. In a reusable
+        // worktree so do the ones from before its latest work, ahead of the archived ones.
         let (mut sessions, archived): (Vec<Session>, Vec<Session>) = sessions.into_iter().partition(|s| !s.archived);
         sort_sessions(&mut sessions);
+        let reset = g.as_ref().and_then(|g| g.reset_at).filter(|_| reuse_on);
+        for s in &mut sessions {
+            s.earlier = earlier(s, reset);
+        }
+        // Stable: each part keeps its order.
+        sessions.sort_by_key(|s| s.earlier);
         let mut kept = 0;
         sessions.retain(|s| {
             let keep = kept < MAX_SESSIONS_PER_LANE || pinned.contains(&s.key);
             kept += keep as usize;
             keep
         });
-        let g = git.get(&seed.path).cloned();
+        let current = sessions.iter().take_while(|s| !s.earlier).count();
         let pr = find_pr(seed, prs, now);
-        // The bay and headline come from the lane's own sessions; the maker is shown after them.
-        let (bay, glyph) = bay_of(&sessions, pr.as_ref());
-        let (mut headline, mut detail) = headline(bay, &sessions, pr.as_ref(), g.as_ref());
-        if let (Bay::Idle, true, Some(g)) = (bay, sessions.is_empty(), guests.first()) {
+        // The bay and headline come from the lane's own current sessions; the maker is shown
+        // after them.
+        let (bay, glyph) = bay_of(&sessions[..current], pr.as_ref());
+        let (mut headline, mut detail) = headline(bay, &sessions[..current], pr.as_ref(), g.as_ref());
+        let reuse = reuse_on.then(|| reuse_of(pr.as_ref(), g.as_ref(), &sessions[..current]));
+        if let (Bay::Idle, 0, Some(g)) = (bay, current, guests.first()) {
             let verb = if g.visitor.as_deref() == Some(MADE_IT) { "Made by" } else { "Worked on by" };
             headline = format!("{verb} {} · {}", code(&g.account), g.title);
             detail = Some(format!("last turn {{ago:{}}}", g.last_activity));
@@ -1249,7 +1336,10 @@ pub fn compose(inp: Inputs) -> Board {
         // A lane outside your projects shows while it needs you; an app's chats while there are
         // any you haven't archived.
         let hidden = seed.elsewhere && bay != Bay::Needs && !(seed.chats && !sessions.is_empty());
+        // Visitors after the current work's sessions, and the earlier work's after them.
+        let earlier_ones = sessions.split_off(current);
         sessions.extend(guests);
+        sessions.extend(earlier_ones);
         let set = previews.set.iter().find(|e| Path::new(&e.worktree) == seed.path);
         let servers: Vec<&crate::previews::Server> = previews.servers.iter().filter(|s| s.lane == seed.path).collect();
         let preview = lane_preview(set, &servers, &sessions, previews.chrome_profiles.get(&seed.project).map(String::as_str));
@@ -1262,8 +1352,12 @@ pub fn compose(inp: Inputs) -> Board {
             .unwrap_or(0);
         sessions.extend(archived);
         let dirty = g.as_ref().map(|g| g.dirty > 0).unwrap_or(false);
-        let parked = bay == Bay::Idle && !dirty && now - last_activity > 14 * DAY_MS;
-        let looks_finished = looks_finished(seed.origin, pr.as_ref(), &sessions);
+        let mark = marks.get(seed.path.to_string_lossy().as_ref()).copied();
+        // One you marked reusable is kept to take the next work however long it has been quiet;
+        // a main checkout, reusable unless marked otherwise, parks as others do.
+        let parked = bay == Bay::Idle && !dirty && now - last_activity > 14 * DAY_MS && !(reuse_on && mark == Some(true));
+        let looks_finished = !reuse_on && looks_finished(seed.origin, pr.as_ref(), &sessions);
+        let looks_reusable = looks_reusable(seed, mark.is_some(), g.as_ref(), prs);
         lanes.push(Lane {
             id: seed.path.to_string_lossy().into_owned(),
             project: seed.project.clone(),
@@ -1290,6 +1384,8 @@ pub fn compose(inp: Inputs) -> Board {
             device: None,
             repo_slug_now: None,
             preview,
+            reuse,
+            looks_reusable,
         });
     }
     lanes.sort_by(lane_order);
@@ -1484,6 +1580,7 @@ mod tests {
             github_login: Some("ghempton"),
             pr_links: &PrLinks::default(),
             previews: &Previews::default(),
+            reusable: &HashMap::new(),
         })
     }
 
@@ -1590,6 +1687,7 @@ mod tests {
             github_login: Some("ghempton"),
             pr_links: &PrLinks::default(),
             previews: &Previews::default(),
+            reusable: &HashMap::new(),
         });
         assert_eq!(board.prs.len(), 1);
         let p = &board.prs[0];
@@ -1598,6 +1696,122 @@ mod tests {
         assert_eq!(p.lanes, vec!["/r/atlas-quarry".to_string()]);
         assert_eq!(p.sessions, vec![PrSession { key: on_branch.key, lane: "/r/atlas-quarry".into() }]);
         assert_eq!(board.github_login.as_deref(), Some("ghempton"));
+    }
+
+    #[test]
+    fn a_main_checkout_is_reusable_unless_marked_and_other_worktrees_only_when_marked() {
+        let main = LaneSeed { origin: Origin::Main, ..seed("/r/atlas", "app") };
+        let wt = seed("/r/atlas-app3", "app3");
+        let none = HashMap::new();
+        assert!(reusable(&main, &none));
+        assert!(!reusable(&wt, &none));
+        let marks = HashMap::from([("/r/atlas".to_string(), false), ("/r/atlas-app3".to_string(), true)]);
+        assert!(!reusable(&main, &marks));
+        assert!(reusable(&wt, &marks));
+        // A plain folder, an app's chats and a repo outside your projects never are.
+        let all = HashMap::from([("/r/notes".to_string(), true)]);
+        assert!(!reusable(&LaneSeed { origin: Origin::Folder, ..seed("/r/notes", "x") }, &all));
+        assert!(!reusable(&LaneSeed { chats: true, ..seed("/r/notes", "x") }, &all));
+        assert!(!reusable(&LaneSeed { elsewhere: true, ..seed("/r/notes", "x") }, &all));
+    }
+
+    #[test]
+    fn a_branch_that_carried_several_merged_prs_looks_reusable() {
+        let wt = seed("/r/atlas-app3", "app3");
+        let merged = |n: u64, owner: &str| PrRaw { number: n, head_ref: "app3".into(), head_owner: Some(owner.into()), ..pr(PrState::Merged, 0) };
+        let prs = |list: Vec<PrRaw>| HashMap::from([("northwindai/atlas".to_string(), list)]);
+        let two = prs(vec![merged(1, "ghempton"), merged(2, "ghempton")]);
+        assert!(looks_reusable(&wt, false, None, &two));
+        // A teammate's `app3` from their fork says the same of the name.
+        assert!(looks_reusable(&wt, false, None, &prs(vec![merged(1, "ghempton"), merged(2, "someone")])));
+        // One merged PR is a branch's usual life, and an open one hasn't landed.
+        assert!(!looks_reusable(&wt, false, None, &prs(vec![merged(1, "ghempton"), PrRaw { state: PrState::Open, ..merged(2, "ghempton") }])));
+        // A worktree that took new work again and again looks reused, PRs or not.
+        let git = |n: u32| GitInfo { new_work_count: Some(n), ..Default::default() };
+        assert!(looks_reusable(&wt, false, Some(&git(3)), &HashMap::new()));
+        assert!(!looks_reusable(&wt, false, Some(&git(2)), &HashMap::new()));
+        // Marked either way, or reusable already, it isn't suggested; nor is the default branch.
+        assert!(!looks_reusable(&wt, true, Some(&git(9)), &two));
+        assert!(!looks_reusable(&LaneSeed { origin: Origin::Main, ..wt.clone() }, false, Some(&git(9)), &two));
+        let on_main = |n| PrRaw { head_ref: "main".into(), ..merged(n, "ghempton") };
+        assert!(!looks_reusable(&LaneSeed { branch: Some("main".into()), ..wt.clone() }, false, None, &prs(vec![on_main(1), on_main(2)])));
+    }
+
+    #[test]
+    fn what_a_reusable_worktree_holds() {
+        let git = |dirty: u32, ahead: u32| GitInfo { dirty, base_ahead: Some(ahead), ..Default::default() };
+        let base = claude_session(&acct("claude"), Some(&reg("idle", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
+        let with = |status: Status| Session { status, live: true, ..base.clone() };
+        let pr_in = |state: PrState| Pr { number: 1, title: String::new(), url: String::new(), state, checks: Checks::default(), merge: Merge::Unknown, updated_at: 0, merged_at: None, closed_at: None };
+        let clean = git(0, 0);
+        assert_eq!(reuse_of(None, Some(&clean), &[]), Reuse::Free);
+        // An agent sitting idle there doesn't hold it; one at work does.
+        assert_eq!(reuse_of(None, Some(&clean), &[with(Status::Idle), with(Status::Unread)]), Reuse::Free);
+        assert_eq!(reuse_of(None, Some(&clean), &[with(Status::Working)]), Reuse::Open);
+        assert_eq!(reuse_of(None, Some(&clean), &[with(Status::Needs)]), Reuse::Open);
+        // Visitors, and earlier work's sessions, belong elsewhere.
+        assert_eq!(reuse_of(None, Some(&clean), &[Session { visitor: Some("worked here".into()), ..with(Status::Working) }]), Reuse::Free);
+        // Uncommitted changes, or commits that haven't landed, are work under way.
+        assert_eq!(reuse_of(None, Some(&git(2, 0)), &[]), Reuse::Open);
+        assert_eq!(reuse_of(None, Some(&git(0, 3)), &[]), Reuse::Open);
+        assert_eq!(reuse_of(Some(&pr_in(PrState::Open)), Some(&git(0, 3)), &[]), Reuse::Review);
+        assert_eq!(reuse_of(Some(&pr_in(PrState::Changes)), Some(&git(1, 3)), &[]), Reuse::Review);
+        // A squash merge leaves the commits off the default branch; the merged PR says they landed.
+        assert_eq!(reuse_of(Some(&pr_in(PrState::Merged)), Some(&git(0, 3)), &[]), Reuse::Landed);
+        assert_eq!(reuse_of(Some(&pr_in(PrState::Merged)), Some(&git(1, 3)), &[]), Reuse::Open);
+        // Closed without merging, its commits haven't landed.
+        assert_eq!(reuse_of(Some(&pr_in(PrState::Closed)), Some(&git(0, 3)), &[]), Reuse::Open);
+    }
+
+    #[test]
+    fn a_reused_worktree_sets_aside_the_sessions_from_before_its_latest_work() {
+        let path = "/r/atlas-app3";
+        let seeds = vec![seed(path, "app3")];
+        let base = claude_session(&acct("claude"), Some(&reg("idle", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
+        let at = |key: &str, status: Status, ago: i64| Session { key: key.into(), id: key.into(), cwd: path.into(), status, live: false, last_activity: NOW - ago, last_prompt_at: NOW - ago, ..base.clone() };
+        // Shipped the last work and was never read; the worktree was reset for new work since.
+        let shipped = at("c:shipped", Status::Unread, 5 * 3_600_000);
+        let asked = at("c:asked", Status::Needs, 6 * 3_600_000);
+        let fresh = at("c:fresh", Status::Idle, 60_000);
+        let git = HashMap::from([(PathBuf::from(path), GitInfo { reset_at: Some(NOW - 2 * 3_600_000), base_ahead: Some(0), ..Default::default() })]);
+        let (visitors, prs, order) = (HashMap::new(), HashMap::new(), vec!["Northwind".to_string()]);
+        let board_with = |sessions: Vec<Session>, marks: &HashMap<String, bool>| {
+            compose(Inputs {
+                now: NOW,
+                apps: &AppNames::default(),
+                seeds: &seeds,
+                sessions,
+                visitors: &visitors,
+                git: &git,
+                prs: &prs,
+                project_order: &order,
+                warnings: vec![],
+                loading: false,
+                github_at: None,
+                pinned: &[],
+                github_login: None,
+                pr_links: &PrLinks::default(),
+                previews: &Previews::default(),
+                reusable: marks,
+            })
+        };
+        let marked = HashMap::from([(path.to_string(), true)]);
+        let b = board_with(vec![shipped.clone(), asked.clone(), fresh.clone()], &marked);
+        let lane = &b.lanes[0];
+        // The one that needs you belongs to now whenever it began; the shipped one comes after,
+        // and out of the worktree's status.
+        let keys: Vec<(&str, bool)> = lane.sessions.iter().map(|s| (s.key.as_str(), s.earlier)).collect();
+        assert_eq!(keys, vec![("c:asked", false), ("c:fresh", false), ("c:shipped", true)]);
+        assert_eq!(lane.bay, Bay::Needs);
+        assert_eq!(lane.reuse, Some(Reuse::Open));
+        // Without the one that needs you, the unread reply from before doesn't make it Your turn.
+        let b = board_with(vec![shipped.clone(), fresh.clone()], &marked);
+        assert_eq!(b.lanes[0].bay, Bay::Idle);
+        assert_eq!(b.lanes[0].reuse, Some(Reuse::Free));
+        // Kept for its own work, nothing is set aside.
+        let b = board_with(vec![shipped.clone(), asked.clone(), fresh.clone()], &HashMap::new());
+        assert!(b.lanes[0].sessions.iter().all(|s| !s.earlier));
+        assert_eq!(b.lanes[0].reuse, None);
     }
 
     #[test]
@@ -1634,6 +1848,7 @@ mod tests {
             github_login: None,
             pr_links: &PrLinks::default(),
             previews: &Previews::default(),
+            reusable: &HashMap::new(),
         });
         assert_eq!(board.prs[0].sessions, vec![PrSession { key: s.key, lane: "/r/atlas-quarry".into() }]);
     }
@@ -1677,6 +1892,7 @@ mod tests {
             github_login: None,
             pr_links: &PrLinks::default(),
             previews: &Previews::default(),
+            reusable: &HashMap::new(),
         });
         let get = |n: u64| board.prs.iter().find(|p| p.number == n).unwrap();
         let listed = |key: &str| PrSession { key: key.into(), lane: "/r/atlas-quarry".into() };
@@ -1726,6 +1942,7 @@ mod tests {
                 github_login: None,
                 pr_links: &PrLinks::default(),
                 previews: &Previews::default(),
+                reusable: &HashMap::new(),
             })
         };
         let listed = |key: &str| PrSession { key: key.into(), lane: scratch.into() };
@@ -2237,7 +2454,7 @@ mod tests {
         let (git, prs, visitors) = (HashMap::new(), HashMap::new(), HashMap::new());
         let order = vec!["Northwind".to_string()];
         let hidden = |sessions: Vec<Session>| {
-            let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions, visitors: &visitors, git: &git, prs: &prs, project_order: &order, warnings: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default() });
+            let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions, visitors: &visitors, git: &git, prs: &prs, project_order: &order, warnings: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new() });
             let lane = |p: &str| board.lanes.iter().find(|l| l.path == p).unwrap().clone();
             assert!(!lane(root).looks_finished);
             (lane(root).hidden, lane("/Users/me/notes").hidden)
@@ -2258,7 +2475,7 @@ mod tests {
         s.work = vec!["/r/codealong-pins".into(); 3];
         let (git, prs, visitors) = (HashMap::new(), HashMap::new(), HashMap::new());
         let order = vec!["Northwind".to_string()];
-        let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![s], visitors: &visitors, git: &git, prs: &prs, project_order: &order, warnings: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default() });
+        let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![s], visitors: &visitors, git: &git, prs: &prs, project_order: &order, warnings: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new() });
         let lane = |p: &str| board.lanes.iter().find(|l| l.path == p).unwrap();
         assert_eq!(lane("/r/codealong-pins").bay, Bay::Working);
         assert_eq!(lane("/r/codealong-pins").sessions.len(), 1);
@@ -2551,7 +2768,7 @@ mod tests {
         maker.cwd = "/r/osprey".into();
         let (git, prs, order) = (HashMap::new(), HashMap::new(), vec!["Northwind".to_string()]);
         let visitors = HashMap::new();
-        let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![maker], visitors: &visitors, git: &git, prs: &prs, project_order: &order, warnings: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default() });
+        let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![maker], visitors: &visitors, git: &git, prs: &prs, project_order: &order, warnings: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new() });
         let lane = board.lanes.iter().find(|l| l.path == scratch).unwrap();
         assert_eq!(lane.sessions.len(), 1);
         assert_eq!(lane.sessions[0].visitor.as_deref(), Some("made this worktree"));
@@ -2586,6 +2803,7 @@ mod tests {
             github_login: None,
             pr_links: &PrLinks::default(),
             previews: &Previews::default(),
+            reusable: &HashMap::new(),
         });
         let lane = &board.lanes[0];
         assert_eq!(lane.bay, Bay::Idle);
@@ -2627,6 +2845,7 @@ mod tests {
             github_login: None,
             pr_links: &PrLinks::default(),
             previews: &Previews::default(),
+            reusable: &HashMap::new(),
         });
         let lane = &board.lanes[0];
         assert_eq!(lane.sessions.len(), MAX_SESSIONS_PER_LANE + 1);
@@ -2660,6 +2879,7 @@ mod tests {
             github_login: None,
             pr_links: &PrLinks::default(),
             previews: &Previews::default(),
+            reusable: &HashMap::new(),
         });
         assert_eq!(board.lanes.len(), 2);
         assert_eq!(board.lanes[0].bay, Bay::Needs);
@@ -2682,7 +2902,7 @@ mod tests {
         let seeds = vec![seed("/r/atlas", "main"), seed("/r/atlas-pins", "pins"), other_repo, elsewhere, folder("/Users/me/Documents/Codex", true), folder("/Users/me/notes", false)];
         let (git, prs, visitors) = (HashMap::new(), HashMap::new(), HashMap::new());
         let order = vec!["Northwind".to_string()];
-        let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![], visitors: &visitors, git: &git, prs: &prs, project_order: &order, warnings: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default() });
+        let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![], visitors: &visitors, git: &git, prs: &prs, project_order: &order, warnings: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new() });
         let near = |p: &str| terminal_neighbours(&board.lanes, Path::new(p));
         assert_eq!(near("/r/atlas-pins/src"), vec![vec!["/r/atlas-pins".to_string()], vec!["/r/atlas".to_string()], vec!["/r/kestrel".to_string()]]);
         assert_eq!(near("/tmp/scratch"), vec![vec!["/tmp/scratch".to_string()]]);

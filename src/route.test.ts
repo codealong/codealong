@@ -3,7 +3,8 @@ import { duplicateOf, rankedBy, suggestions, sureness, todoTitle, worthRouting }
 import type { Board, Lane, Route, Session } from './types';
 
 const session = (key: string, status: Session['status'], extra: Partial<Session> = {}): Session => ({ key, status, title: key, visitor: null, ...extra }) as Session;
-const lane = (id: string, sessions: Session[], repo = id): Lane => ({ id, sessions, callsign: id, repo, project: 'P' }) as unknown as Lane;
+// Reusable unless it says otherwise, so new work can start in any of them.
+const lane = (id: string, sessions: Session[], repo = id, extra: Partial<Lane> = { reuse: 'open' }): Lane => ({ id, sessions, callsign: id, repo, project: 'P', lastActivity: 0, ...extra }) as unknown as Lane;
 const board = (lanes: Lane[]): Board => ({ lanes }) as unknown as Board;
 
 const b = board([lane('/api', [session('s:fix', 'unread'), session('s:ask', 'needs')]), lane('/web', [session('s:copy', 'working')])]);
@@ -118,6 +119,38 @@ describe('suggestions', () => {
   it('skips sessions and worktrees the board no longer has', () => {
     const r = route({ action: 'send', actions: [['send', 1]], sessions: [{ id: 'gone', p: 1 }], lanes: [{ id: '/gone', p: 1 }] });
     expect(suggestions(r, b)).toEqual([]);
+  });
+});
+
+describe('new work in reusable worktrees', () => {
+  const start = (lanes: { id: string; p: number }[]) => route({ action: 'start', actions: [['start', 1]], noSession: 1, lanes });
+  const kept = (id: string, repo: string, extra: Partial<Lane> = {}) => lane(id, [], repo, extra);
+  const repo = board([
+    kept('/atlas', 'atlas', { origin: 'main', reuse: 'open' } as Partial<Lane>),
+    kept('/atlas-quarry', 'atlas'),
+    kept('/atlas-app2', 'atlas', { reuse: 'landed', lastActivity: 5 }),
+    kept('/atlas-app3', 'atlas', { reuse: 'free', lastActivity: 1 }),
+    kept('/atlas-app4', 'atlas', { reuse: 'free', lastActivity: 2 }),
+    // A main checkout marked as kept for its own work, and a worktree of it.
+    kept('/infra', 'infra', { origin: 'main' } as Partial<Lane>),
+    kept('/infra-tls', 'infra'),
+  ]);
+
+  it('goes to a free reusable worktree of the repo when Jev picks one kept for its own work', () => {
+    // Free before landed, and of the free ones the latest active.
+    expect(suggestions(start([{ id: '/atlas-quarry', p: 0.9 }]), repo).map((x) => x.key)).toEqual(['start:/atlas-app4']);
+    // One Jev ranked leads, even landed.
+    expect(suggestions(start([{ id: '/atlas-quarry', p: 0.6 }, { id: '/atlas-app2', p: 0.3 }]), repo)[0].key).toBe('start:/atlas-app2');
+  });
+
+  it('starts in a reusable worktree Jev picks, joining the work under way there', () => {
+    expect(suggestions(start([{ id: '/atlas', p: 0.9 }]), repo)[0]).toMatchObject({ key: 'start:/atlas', newWorktree: false });
+  });
+
+  it('makes a new worktree from the main checkout when the repo has no reusable one free', () => {
+    const s = suggestions(start([{ id: '/infra-tls', p: 0.9 }]), repo);
+    expect(s[0]).toMatchObject({ key: 'start:new:P/infra', newWorktree: true });
+    expect(s[0].lane.id).toBe('/infra');
   });
 });
 

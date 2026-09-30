@@ -230,6 +230,13 @@ export async function setPreview(laneId: string, url: string | null, port: numbe
   return invoke<number | null>('set_preview', { laneId, url, port, chromeProfile });
 }
 
+/** Marks a worktree reusable or not (reusable.rs). Resolves with the time of the board that
+ *  shows it, or null when the engine didn't say in time. */
+export async function setReusable(laneId: string, on: boolean): Promise<number | null> {
+  if (!inTauri) return null;
+  return invoke<number | null>('set_reusable', { laneId, on });
+}
+
 export async function setPinnedWorktrees(ids: string[]): Promise<void> {
   if (!inTauri) return;
   await invoke('set_pinned_worktrees', { ids });

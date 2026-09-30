@@ -95,6 +95,13 @@ done` say on stderr that no session was linked; give a session key when you want
   (`working` of them working or waiting on the user). `sessions` counts every session that
   worked there, running or not: a long-lived worktree has dozens, and they aren't agents
   there now.
+- Some worktrees are reusable: they take one piece of work after another, where the rest are
+  kept for one piece of work each. `codealong worktrees --reusable` lists them with `reuse`:
+  `free` (nothing uncommitted or unlanded and no agent at work, so new work can start there),
+  `open` (work under way, which work that belongs with it can join), `review` (its PR is open)
+  or `landed` (its PR merged; the repo's own steps put it back on the default branch before
+  new work). When you need a worktree for new work and the repo's instructions don't name one,
+  a free reusable worktree is the place. `codealong reuse on|off` marks one, when the user asks.
 
 ## Messaging other sessions
 

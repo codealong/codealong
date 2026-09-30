@@ -431,6 +431,7 @@ mod tests {
             hosted: false,
             stoppable: false,
             snoozed_until: None,
+            earlier: false,
         }
     }
 
@@ -461,6 +462,8 @@ mod tests {
             repo_slug_now: None,
             preview: None,
             looks_finished: false,
+            reuse: None,
+            looks_reusable: false,
         }
     }
 

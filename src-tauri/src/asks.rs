@@ -462,6 +462,7 @@ mod tests {
             hosted: false,
             stoppable: false,
             snoozed_until: None,
+            earlier: false,
         }
     }
 

@@ -49,6 +49,10 @@ Commands:
              the URL when you know where the worktree's app opens (you started its dev
              server, or the repo's instructions say where it's served): the worktree's
              row in the app links to it and shows whether it's running
+  reuse      Whether a worktree is reusable: it takes one piece of work after another,
+             where others are kept for one piece of work each. Jev suggests new work
+             only in reusable worktrees. A main checkout is reusable unless it's marked
+             otherwise. The app's worktree menu has the same switch (Reuse for new work)
   start      Start a session for a todo (or several, on one prompt) or on a prompt, the
              way the app's New session does, and link it to the todos
   config     Codealong's own settings (config.toml): show them as the app reads them,
@@ -1013,6 +1017,10 @@ Options:
       --verbose
           Say on stderr whether the app or the files answered
 
+      --reusable
+          Only reusable ones (`codealong reuse`): where new work can start, or join the
+          work under way
+
   -h, --help
           Print help
 ```
@@ -1266,6 +1274,122 @@ Take a worktree's URL away. A page a server in its folder serves still shows, at
 localhost
 
 Usage: codealong preview clear [OPTIONS]
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --worktree <WORKTREE>
+          The worktree: its path, or `.` for the one the current folder is in
+          
+          [default: .]
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong reuse
+
+```
+Whether a worktree is reusable: it takes one piece of work after another, where others
+are kept for one piece of work each. Jev suggests new work only in reusable worktrees. A
+main checkout is reusable unless it's marked otherwise. The app's worktree menu has the
+same switch (Reuse for new work)
+
+Usage: codealong reuse [OPTIONS] <COMMAND>
+
+Commands:
+  show  Whether a worktree is reusable, and what it holds: `free` (nothing uncommitted
+        or unlanded and no agent at work: new work can start there), `open` (work under
+        way), `review` (its PR is open) or `landed` (its PR merged; new work starts once
+        it's back on the default branch)
+  on    Make a worktree reusable: new work can start there once its work lands, and
+        agents can join the work under way
+  off   Keep a worktree for its own piece of work: Jev stops suggesting new work there
+  help  Print this message or the help of the given subcommand(s)
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong reuse show
+
+```
+Whether a worktree is reusable, and what it holds: `free` (nothing uncommitted or
+unlanded and no agent at work: new work can start there), `open` (work under way),
+`review` (its PR is open) or `landed` (its PR merged; new work starts once it's back on
+the default branch)
+
+Usage: codealong reuse show [OPTIONS]
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --worktree <WORKTREE>
+          The worktree: its path, or `.` for the one the current folder is in
+          
+          [default: .]
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong reuse on
+
+```
+Make a worktree reusable: new work can start there once its work lands, and agents can
+join the work under way
+
+Usage: codealong reuse on [OPTIONS]
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --worktree <WORKTREE>
+          The worktree: its path, or `.` for the one the current folder is in
+          
+          [default: .]
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong reuse off
+
+```
+Keep a worktree for its own piece of work: Jev stops suggesting new work there
+
+Usage: codealong reuse off [OPTIONS]
 
 Options:
       --json

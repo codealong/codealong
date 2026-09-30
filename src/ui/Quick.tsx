@@ -1461,8 +1461,10 @@ export function Quick() {
           : tree
             ? `Claude Code makes a new worktree of ${sg.lane.repo} and starts ${who} there${placeNow === 'background' ? ' in the background' : ''}.`
             : `Starts ${who} in ${sg.lane.callsign}${placeNow === 'background' ? ' in the background' : ''}.`;
+    // What the reusable worktree it starts in holds (reusable.ts): new work goes only to those.
+    const held = tree || !sg.lane.reuse ? '' : sg.lane.reuse === 'free' ? ' It holds no work now.' : sg.lane.reuse === 'landed' ? ' Its last work landed.' : ' It joins the work under way there.';
     // The warning leads: the row's line is cut short when it's long.
-    const warned = duplicate ? `“${duplicate.session.title}” may already be on this. ${why}` : why;
+    const warned = duplicate ? `“${duplicate.session.title}” may already be on this. ${why}${held}` : `${why}${held}`;
     return { icon: 'plus', title: tree ? `Start in a new worktree of ${sg.lane.repo}` : `Start in ${sg.lane.origin === 'main' ? `${sg.lane.callsign} (main)` : sg.lane.callsign}`, why: warned, where: `${sg.lane.project} · ${sg.lane.repo}` };
   };
 

@@ -1,13 +1,16 @@
 //! Per-lane git state. Read-only: every command runs with `GIT_OPTIONAL_LOCKS=0` so it never
 //! takes the index lock out from under you or an agent.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use crate::model::GitInfo;
 use crate::procs;
 
 const TIMEOUT: Duration = Duration::from_secs(15);
+/// How much of the end of a reflog is read at most: it keeps 90 days of entries by default, the
+/// latest last, a few hundred KB for a busy worktree.
+const REFLOG_TAIL: usize = 1024 * 1024;
 
 fn git(path: &Path, args: &[&str]) -> Option<String> {
     let dir = path.to_string_lossy();
@@ -53,7 +56,50 @@ pub fn status(path: &Path, base: Option<&str>) -> GitInfo {
             info.removed = Some(removed);
         }
     }
+    let starts = new_work(path, base);
+    info.reset_at = starts.last().copied();
+    info.new_work_count = Some(starts.len() as u32);
     info
+}
+
+/// When the worktree at `path` took new work, oldest first, from its HEAD's reflog: each time
+/// HEAD went to another branch, or its branch was reset or made afresh (`git switch -C`,
+/// `checkout -B`, `reset --hard origin/main`). A file read, not a git run. Empty when the
+/// reflog has none, or can't be read.
+pub fn new_work(path: &Path, base: Option<&str>) -> Vec<i64> {
+    let Some(log) = git_dir(path).and_then(|d| std::fs::read(d.join("logs/HEAD")).ok()) else { return Vec::new() };
+    let tail = &log[log.len().saturating_sub(REFLOG_TAIL)..];
+    String::from_utf8_lossy(tail).lines().filter_map(|l| new_work_at(l, base)).collect()
+}
+
+/// A worktree's git folder: `.git` in a main checkout, the folder its `.git` file names in a
+/// linked worktree.
+fn git_dir(path: &Path) -> Option<PathBuf> {
+    let dot = path.join(".git");
+    if dot.is_dir() {
+        return Some(dot);
+    }
+    let text = std::fs::read_to_string(&dot).ok()?;
+    let dir = PathBuf::from(text.trim().strip_prefix("gitdir:")?.trim());
+    Some(if dir.is_absolute() { dir } else { path.join(dir) })
+}
+
+/// A reflog line's time, in ms, when it starts new work. A line is `<old> <new> <who> <seconds>
+/// <zone>`, a tab, then what happened. Going to the branch you're on (`switch -C` writes that
+/// after its reset) and resets anywhere but the default branch (undoing a commit) don't count.
+pub fn new_work_at(line: &str, base: Option<&str>) -> Option<i64> {
+    let (head, message) = line.split_once('\t')?;
+    let mut parts = head.rsplitn(3, ' ');
+    let _zone = parts.next()?;
+    let seconds: i64 = parts.next()?.parse().ok()?;
+    let new_work = if let Some(rest) = message.strip_prefix("checkout: moving from ") {
+        rest.split_once(" to ").is_some_and(|(from, to)| from != to)
+    } else if let Some(to) = message.strip_prefix("reset: moving to ") {
+        base.is_some_and(|b| to == b || b.split_once('/').is_some_and(|(_, name)| to == name))
+    } else {
+        message.starts_with("branch: Reset to ") || message.starts_with("branch: Created from ")
+    };
+    new_work.then_some(seconds * 1000)
 }
 
 #[derive(Debug, Default, PartialEq)]
@@ -122,6 +168,38 @@ mod tests {
         assert_eq!(parse_left_right("0\t0\n"), Some((0, 0)));
         assert_eq!(parse_left_right("fatal: bad revision\n"), None);
         assert_eq!(parse_left_right(""), None);
+    }
+
+    #[test]
+    fn a_reflog_line_starts_new_work_when_the_branch_changes_or_goes_back_to_the_base() {
+        let at = |m: &str| new_work_at(&format!("aaa bbb Some One <one@x.y> 1790785361 -0700\t{m}"), Some("origin/main"));
+        assert_eq!(at("checkout: moving from app3 to feature"), Some(1_790_785_361_000));
+        assert_eq!(at("branch: Reset to origin/main"), Some(1_790_785_361_000));
+        assert_eq!(at("branch: Created from origin/main"), Some(1_790_785_361_000));
+        assert_eq!(at("reset: moving to origin/main"), Some(1_790_785_361_000));
+        assert_eq!(at("reset: moving to main"), Some(1_790_785_361_000));
+        // Going to the branch it's on, undoing a commit, committing and pulling don't.
+        assert_eq!(at("checkout: moving from app3 to app3"), None);
+        assert_eq!(at("reset: moving to HEAD~1"), None);
+        assert_eq!(at("reset: moving to HEAD"), None);
+        assert_eq!(at("commit: Fix the thing"), None);
+        assert_eq!(at("pull: Fast-forward"), None);
+        assert_eq!(new_work_at("no tab here", None), None);
+    }
+
+    #[test]
+    fn reads_when_a_linked_worktree_last_took_new_work() {
+        let root = std::env::temp_dir().join(format!("codealong-reflog-{}", std::process::id()));
+        let (wt, admin) = (root.join("app3"), root.join("main/.git/worktrees/app3"));
+        std::fs::create_dir_all(admin.join("logs")).unwrap();
+        std::fs::create_dir_all(&wt).unwrap();
+        std::fs::write(wt.join(".git"), format!("gitdir: {}\n", admin.display())).unwrap();
+        let line = |t: i64, m: &str| format!("aaa bbb A <a@b.c> {t} +0000\t{m}\n");
+        let log = [line(100, "branch: Created from origin/main"), line(200, "commit: work"), line(300, "branch: Reset to origin/main"), line(301, "checkout: moving from app3 to app3"), line(400, "commit: more")].concat();
+        std::fs::write(admin.join("logs/HEAD"), log).unwrap();
+        assert_eq!(new_work(&wt, Some("origin/main")), vec![100_000, 300_000]);
+        assert_eq!(new_work(&root.join("nowhere"), None), Vec::<i64>::new());
+        std::fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]

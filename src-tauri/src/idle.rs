@@ -274,6 +274,7 @@ mod tests {
             hosted: false,
             stoppable: false,
             snoozed_until: None,
+            earlier: false,
         }
     }
 
@@ -304,6 +305,8 @@ mod tests {
             device: None,
             repo_slug_now: None,
             preview: None,
+            reuse: None,
+            looks_reusable: false,
         };
         let mut b = Board::default();
         b.lanes = vec![lane];

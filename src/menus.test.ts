@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { MenuSpec } from './contextMenu';
-import { keyed, laneMenu, prMenu, sessionActions, sessionMenu, todoMenu, type SessionCan } from './menus';
+import { keyed, laneActions, laneMenu, prMenu, sessionActions, sessionMenu, todoMenu, type SessionCan } from './menus';
 import { openLabel } from './open';
 import type { Report } from './report';
 import type { Lane, Session } from './types';
@@ -147,12 +147,24 @@ describe('laneMenu', () => {
       'Show in Codealong',
       'New session here…',
       '-',
+      'Reuse for new work',
+      '-',
       'Remove from desktop',
       '-',
       'Copy path',
       'Copy branch name',
       'Copy PR link',
     ]);
+  });
+
+  it('checks Reuse for new work while the worktree is reusable, and has it only where it can be', () => {
+    const reuse = (l: Lane) => laneActions(l, { report, open: noop }).reuse;
+    expect(reuse(lane())?.checked).toBe(false);
+    expect(reuse(lane({ reuse: 'free' }))?.checked).toBe(true);
+    // Another device's worktree is marked there; a plain folder or one outside your projects never is.
+    expect(reuse(lane({ device: { name: 'Mini', short: 'mini', color: 'blue', online: true, lastSeen: null } as Lane['device'] }))).toBeUndefined();
+    expect(reuse(lane({ project: 'Elsewhere' }))).toBeUndefined();
+    expect(reuse(lane({ origin: 'folder' }))).toBeUndefined();
   });
 });
 

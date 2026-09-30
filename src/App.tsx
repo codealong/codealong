@@ -56,6 +56,8 @@ import { errorText, type Report } from './report';
 import { openWhere, where } from './open';
 
 const ELSEWHERE = 'Elsewhere';
+/** No worktrees yet, as one list, so Settings doesn't see a new one on every render. */
+const NO_LANES: Lane[] = [];
 
 declare global {
   interface Window {
@@ -2455,6 +2457,7 @@ export function App() {
           now={now}
           onClose={closeSettings}
           onOpenConfig={editConfig}
+          lanes={board?.lanes ?? NO_LANES}
         />
       )}
       {closeIdle && <CloseIdleDialog onClose={() => setCloseIdle(false)} onDone={setToast} />}

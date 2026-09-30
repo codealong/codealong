@@ -3,6 +3,7 @@
 // on its worktree's row, so a worktree shows once however many agents run in it.
 
 import { deviceLabel } from '../devices';
+import { REUSE_WORDS } from '../reusable';
 import { DeviceBadge } from './DeviceBadge';
 import { memoRow } from './memoRow';
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
@@ -52,9 +53,10 @@ interface LaneRowProps {
 const DAY = 86_400_000;
 
 /** Sessions worth showing at a glance: live ones, ones with news, and anything from the last
- *  day. The inspector lists every session from the last 14 days. */
+ *  day, but not a reusable worktree's from before its latest work. The inspector lists every
+ *  session from the last 14 days. */
 export function currentSessions(lane: Lane, now: number) {
-  return lane.sessions.filter((s) => s.live || s.status === 'needs' || s.status === 'error' || s.status === 'working' || s.status === 'unread' || now - s.lastActivity < DAY);
+  return lane.sessions.filter((s) => !s.earlier && (s.live || s.status === 'needs' || s.status === 'error' || s.status === 'working' || s.status === 'unread' || now - s.lastActivity < DAY));
 }
 
 /** `atlas · quarry`: the repo, and the branch when the callsign doesn't already say it. */
@@ -138,9 +140,31 @@ function WorktreeCell({ lane, now, titled }: { lane: Lane; now: number; titled: 
       </span>
       <span className="ca-lane-sub" title={branch ?? lane.path}>
         {lane.device && <DeviceBadge device={lane.device} now={now} />}
+        <ReuseMark lane={lane} />
         {sub}
       </span>
     </>
+  );
+}
+
+/** A reusable worktree's mark, before its repo and branch: it takes one piece of work after
+ *  another. Its tooltip says what it holds now. */
+export function ReuseMark({ lane }: { lane: Lane }) {
+  if (!lane.reuse) return null;
+  return (
+    <span className="ca-reusemark" title={`Reusable. ${REUSE_WORDS[lane.reuse]}`}>
+      <Icon name="repeat" size={11} />
+    </span>
+  );
+}
+
+/** Free, on a reusable worktree that holds no work: new work can start there. */
+function FreeChip({ lane }: { lane: Lane }) {
+  if (lane.reuse !== 'free') return null;
+  return (
+    <span className="ca-chip ca-reusechip" title={REUSE_WORDS.free}>
+      Free
+    </span>
   );
 }
 
@@ -242,11 +266,12 @@ function WorktreeOnlyRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpe
                 onOpenTarget(lane, s.openTarget);
               }}
             />
-            {chips.length === 0 && (
+            {chips.length === 0 && lane.reuse !== 'free' && (
               <span className="ca-none" title={lane.sessions.length ? `${count(lane.sessions.length, 'session')} before today. The panel lists them.` : undefined}>
                 {lane.sessions.length ? 'No agents today' : 'No agents'}
               </span>
             )}
+            <FreeChip lane={lane} />
             <TodoChips todos={todos} onShow={onShowTodo} />
             <LooksFinished lane={lane} />
           </span>
@@ -288,7 +313,7 @@ function GroupRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpenTarget
   // The worktree's own todos, less the ones its agents' lines already show.
   const onLines = new Set(agents.flatMap((a) => todosFor?.(a.session.key) ?? []));
   const footTodos = (worktreeTodos ?? []).filter((t) => !onLines.has(t));
-  const foot = others.length > 0 || footTodos.length > 0 || lane.pr != null || lane.preview != null;
+  const foot = others.length > 0 || footTodos.length > 0 || lane.pr != null || lane.preview != null || lane.reuse === 'free';
   const selectFirst = () => onSelect(agents[0].key);
   return (
     <div
@@ -342,6 +367,7 @@ function GroupRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpenTarget
                   }}
                 />
                 <TodoChips todos={footTodos} onShow={onShowTodo} />
+                <FreeChip lane={lane} />
               </span>
               <LaneLinks lane={lane} now={now} onOpenTarget={onOpenTarget} onPrMenu={onPrMenu} onPrOpen={onPrOpen} />
             </span>

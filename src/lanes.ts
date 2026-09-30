@@ -1,7 +1,9 @@
 // Lanes on the board: grouped into bays, seen through the age and status filters, and sorted.
 // The engine sets a lane's bay and headline from all of its sessions; when a filter hides some
 // of them, the lane's status and sentence are worked out again from what's left, with the same
-// rules as the engine (board.rs, `bay_of` and `headline`).
+// rules as the engine (board.rs, `bay_of` and `headline`). As there, a reusable worktree's
+// sessions from before its latest work (`earlier`) are left out of its status, as archived ones
+// are.
 
 import { shortOf } from './devices';
 import type { InsightLabel } from './insights';
@@ -262,7 +264,7 @@ function idleHeadline(lane: Lane, own: Session[]): [string, string | null] {
  * or merged keeps the engine's sentence when it was there already.
  */
 export function relaned(lane: Lane, sessions: Session[]): Lane {
-  const own = sessions.filter((s) => !s.visitor && !s.archived).sort(bySession);
+  const own = sessions.filter((s) => !s.visitor && !s.archived && !s.earlier).sort(bySession);
   const [bay, glyph] = bayOf(own, lane.pr);
   const next = { ...lane, sessions, bay, glyph };
   if (bay === 'needs' || bay === 'working' || bay === 'unread') {
@@ -281,7 +283,7 @@ export function relaned(lane: Lane, sessions: Session[]): Lane {
 /** The lane with only `sessions`. When that changes its status, the bay, glyph and headline are worked out again. */
 function withSessions(lane: Lane, sessions: Session[], since: string): Lane {
   if (sessions.length === lane.sessions.length) return lane;
-  const own = sessions.filter((s) => !s.visitor);
+  const own = sessions.filter((s) => !s.visitor && !s.earlier);
   const [bay, glyph] = bayOf(own, lane.pr);
   if (bay === lane.bay && glyph === lane.glyph) return { ...lane, sessions };
   const [headline, detail] = headlineFor(bay, own, lane.pr, since);
@@ -311,7 +313,7 @@ export function filterByAge(lanes: Lane[], cutoff: number, pinnedLanes: Set<stri
 /** A worktree's row: a line for each own agent that needs you, is working or just finished. */
 export function worktreeRow(lane: Lane): WorktreeRow {
   const agents = lane.sessions
-    .filter((s) => !s.visitor && !s.archived && AGENT_BAY[s.status])
+    .filter((s) => !s.visitor && !s.archived && !s.earlier && AGENT_BAY[s.status])
     .sort(bySession)
     .map((session): AgentItem => ({ kind: 'agent', key: `${lane.id}::${session.key}`, lane, session }));
   return { key: lane.id, lane, agents };
@@ -343,7 +345,7 @@ export function narrowed(lane: Lane, fs: readonly Filter[], since: string): Lane
   if (fs.length === 0) return lane;
   const forPr = fs.some((f) => (f === 'work' ? prNeedsWork(lane.pr) : !AGENT_FILTERS.has(f) && lane.bay === f));
   if (forPr) return lane;
-  const sessions = lane.sessions.filter((s) => !s.visitor && fs.includes(AGENT_BAY[s.status] as Filter));
+  const sessions = lane.sessions.filter((s) => !s.visitor && !s.earlier && fs.includes(AGENT_BAY[s.status] as Filter));
   if (sessions.length === 0) return null;
   // It shows in its agents' bay even when its other agents put it elsewhere: one working and one
   // finished shows under Your turn when that's what you picked.
@@ -362,7 +364,7 @@ const AGENT_FILTERS = new Set<Filter>(['needs', 'working', 'unread']);
 export function inboxCounts(lanes: Lane[]): { needs: number; working: number; unread: number; review: number; work: number } {
   const c = { needs: 0, working: 0, unread: 0, review: 0, work: 0 };
   for (const lane of lanes) {
-    const own = lane.sessions.filter((s) => !s.visitor);
+    const own = lane.sessions.filter((s) => !s.visitor && !s.earlier);
     for (const s of own) {
       const bay = AGENT_BAY[s.status];
       if (bay === 'needs' || bay === 'working' || bay === 'unread') c[bay]++;

@@ -19,6 +19,7 @@ use crate::chrome;
 use crate::claudeapp;
 use crate::prlinks;
 use crate::previews;
+use crate::reusable;
 use crate::codex::{self, ThreadInfo};
 use crate::opencode;
 use crate::config::{self, AccountCfg, Config, Theme};
@@ -136,6 +137,8 @@ pub enum Msg {
     /// A worktree's preview URL was set or cleared; the reply is the time of the board that
     /// shows it.
     Previews(Sender<i64>),
+    /// A worktree was marked reusable or not; the reply is the time of the board that shows it.
+    Reusable(Sender<i64>),
     /// Files a window's change just wrote (a session renamed in its harness's record), read now
     /// rather than when the watcher says. The reply is the time of the board that shows it,
     /// published at once.
@@ -243,6 +246,20 @@ impl Handle {
         })?;
         let (tx, rx) = channel();
         if self.tx.send(Msg::Previews(tx)).is_err() {
+            bail!("Codealong's engine stopped.");
+        }
+        Ok(rx.recv_timeout(SHOWN_WAIT).ok())
+    }
+
+    /// Marks a worktree reusable or not (reusable.rs), and returns the time of the board that
+    /// shows it, as `set_preview` does.
+    pub fn set_reusable(&self, lane_id: &str, on: bool) -> Result<Option<i64>> {
+        if !self.read(|b| b.lanes.iter().any(|l| l.id == lane_id && l.device.is_none())) {
+            bail!("That worktree just changed. Try again.");
+        }
+        reusable::change(|store| store.set(lane_id, on, now_ms()))?;
+        let (tx, rx) = channel();
+        if self.tx.send(Msg::Reusable(tx)).is_err() {
             bail!("Codealong's engine stopped.");
         }
         Ok(rx.recv_timeout(SHOWN_WAIT).ok())
@@ -497,6 +514,7 @@ pub fn snapshot(with_github: bool, with_usage: bool) -> Board {
     e.scan_pr_marks(true);
     lap("pr marks", &t);
     e.load_previews();
+    e.load_reusable();
     e.previews.servers = previews::scan_once(&e.server_roots());
     lap("previews", &t);
     e.loading = false;
@@ -548,6 +566,7 @@ pub fn light_snapshot() -> Board {
     e.scan_sessions();
     e.load_repos();
     e.load_previews();
+    e.load_reusable();
     e.previews.servers = previews::scan_once(&e.server_roots());
     e.loading = false;
     e.compose()
@@ -693,6 +712,9 @@ struct Engine {
     /// Worktrees' preview URLs (`previews.json`) and the servers in their folders.
     previews: board::Previews,
     previews_warning: Option<String>,
+    /// Worktrees marked reusable or not by hand (`worktrees.json`), by path.
+    reusable: HashMap<String, bool>,
+    reusable_warning: Option<String>,
     /// The thread that finds servers, told which worktrees to look in; none in a snapshot.
     servers: Option<previews::Watcher>,
     git: HashMap<PathBuf, GitInfo>,
@@ -806,6 +828,8 @@ impl Engine {
             pr_links_warning: None,
             previews: board::Previews::default(),
             previews_warning: None,
+            reusable: HashMap::new(),
+            reusable_warning: None,
             servers: None,
             git: HashMap::new(),
             git_jobs,
@@ -1075,6 +1099,7 @@ impl Engine {
         self.load_pr_links();
         self.scan_pr_marks(false);
         self.load_previews();
+        self.load_reusable();
     }
 
     /// Asks each OpenCode account's background service what's running and what it's waiting
@@ -1349,6 +1374,11 @@ impl Engine {
                 Ok(Msg::Previews(reply)) => {
                     self.load_previews();
                     // Now rather than on the next tick: the window waits for it.
+                    self.publish();
+                    let _ = reply.send(self.board.read().map(|b| b.generated_at).unwrap_or(0));
+                }
+                Ok(Msg::Reusable(reply)) => {
+                    self.load_reusable();
                     self.publish();
                     let _ = reply.send(self.board.read().map(|b| b.generated_at).unwrap_or(0));
                 }
@@ -1693,6 +1723,16 @@ impl Engine {
         }
     }
 
+    fn load_reusable(&mut self) {
+        match reusable::load() {
+            Ok(store) => {
+                self.reusable = store.by_path();
+                self.reusable_warning = None;
+            }
+            Err(e) => self.reusable_warning = Some(format!("{e:#}")),
+        }
+    }
+
     fn git_targets(&self) -> Vec<PathBuf> {
         self.seeds.iter().filter(|s| !s.elsewhere && s.origin != Origin::Folder && !self.held_worktrees.contains(&s.path)).map(|s| s.path.clone()).collect()
     }
@@ -2034,6 +2074,11 @@ impl Engine {
             }
             if p == previews::path() {
                 self.load_previews();
+                self.dirty = true;
+                continue;
+            }
+            if p == reusable::path() {
+                self.load_reusable();
                 self.dirty = true;
                 continue;
             }
@@ -2620,7 +2665,7 @@ impl Engine {
         };
         let order: Vec<String> = self.cfg.projects.iter().map(|p| p.name.clone()).collect();
         let held = held_warning(&self.reads.out_for(HELD_WARN_AFTER));
-        let warnings = [&self.config_warning, &self.gh_warning, &self.watch_warning, &self.todos_warning, &self.pr_links_warning, &self.previews_warning].into_iter().flatten().cloned().chain(held).collect();
+        let warnings = [&self.config_warning, &self.gh_warning, &self.watch_warning, &self.todos_warning, &self.pr_links_warning, &self.previews_warning, &self.reusable_warning].into_iter().flatten().cloned().chain(held).collect();
         let (worked, unlinked) = prlinks::resolve(&self.pr_marks, &self.pr_store);
         let pr_links = board::PrLinks { worked, unlinked };
         let mut board = board::compose(board::Inputs {
@@ -2639,6 +2684,7 @@ impl Engine {
             github_login: self.gh_login.as_deref(),
             pr_links: &pr_links,
             previews: &self.previews,
+            reusable: &self.reusable,
         });
         board.usage = self.compose_usage(now);
         board.pinned_worktrees = self.seen.pinned_worktrees.clone();

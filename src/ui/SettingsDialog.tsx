@@ -4,9 +4,10 @@
 // in AccountsSection.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { getConfig, onQuickShortcut, openUrl, pauseQuickShortcut, quickShortcut, jevKey, saveConfig, saveConfigText, setJevKey, testJev } from '../api';
+import { getConfig, onQuickShortcut, openUrl, pauseQuickShortcut, quickShortcut, jevKey, saveConfig, saveConfigText, setJevKey, setReusable, testJev } from '../api';
 import { shortcutFromKey, shortcutLabel, TAKEN } from '../quick';
-import type { ChromeProfile, Config, ConfigView, JevCfg, NewTerminal, Profile, ProjectCfg, ShortcutStatus, Theme, Usage } from '../types';
+import { REUSE_WORDS } from '../reusable';
+import type { ChromeProfile, Config, ConfigView, JevCfg, Lane, NewTerminal, Profile, ProjectCfg, Reuse, ShortcutStatus, Theme, Usage } from '../types';
 import { AccountsSection } from './AccountsSection';
 import { AgentsSection } from './AgentsSection';
 import { DevicesPane } from './DevicesSection';
@@ -54,9 +55,11 @@ interface SettingsDialogProps {
   onClose: () => void;
   /** Opens config.toml in the editor. */
   onOpenConfig: () => void;
+  /** The board's worktrees, for Projects' reusable ones. */
+  lanes: Lane[];
 }
 
-export function SettingsDialog({ section, onSection, focus, usage, apps, theme, onPickTheme, now, onClose, onOpenConfig }: SettingsDialogProps) {
+export function SettingsDialog({ section, onSection, focus, usage, apps, theme, onPickTheme, now, onClose, onOpenConfig, lanes }: SettingsDialogProps) {
   const [view, setView] = useState<ConfigView | null>(null);
   const [error, setError] = useState<string | null>(null);
   // What you've typed in the config.toml section, kept while you look at another section.
@@ -129,7 +132,7 @@ export function SettingsDialog({ section, onSection, focus, usage, apps, theme, 
   } else if (section === 'devices' && cfg) {
     pane = <DevicesPane cfg={cfg} disabled={!!broken} onSave={save} now={now} />;
   } else if (section === 'projects' && cfg) {
-    pane = <ProjectsPane cfg={cfg} chromeProfiles={view.chromeProfiles ?? []} disabled={!!broken} onSave={save} />;
+    pane = <ProjectsPane cfg={cfg} chromeProfiles={view.chromeProfiles ?? []} disabled={!!broken} onSave={save} lanes={lanes} />;
   } else if (section === 'jev' && cfg) {
     pane = <JevPane jev={{ ...JEV_OFF, ...cfg.jev }} disabled={!!broken} onChange={(jev) => void save({ ...cfg, jev })} />;
   } else if (section === 'advanced' && cfg) {
@@ -565,7 +568,7 @@ interface ProjectDraft {
   chromeProfile: string;
 }
 
-function ProjectsPane({ cfg, chromeProfiles, disabled, onSave }: PaneProps & { chromeProfiles: ChromeProfile[] }) {
+function ProjectsPane({ cfg, chromeProfiles, disabled, onSave, lanes }: PaneProps & { chromeProfiles: ChromeProfile[]; lanes: Lane[] }) {
   const [draft, setDraft] = useState<ProjectDraft | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -708,6 +711,94 @@ function ProjectsPane({ cfg, chromeProfiles, disabled, onSave }: PaneProps & { c
           </div>
         )}
       </fieldset>
+      <ReusableWorktrees lanes={lanes} />
+    </>
+  );
+}
+
+const REUSE_STATE: Record<Reuse, string> = { free: 'Free', open: 'Work under way', review: 'In review', landed: 'Landed' };
+
+/**
+ * Worktrees that take one piece of work after another, by project, and ones whose branch has
+ * carried several merged PRs as a reused worktree's does (board::looks_reusable), to make
+ * reusable with a click. Marks are kept in worktrees.json, not config.toml (reusable.rs), and a
+ * worktree's menu changes them too.
+ */
+function ReusableWorktrees({ lanes }: { lanes: Lane[] }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const mine = lanes.filter((l) => !l.device && l.project !== 'Elsewhere');
+  const suggested = mine.filter((l) => l.looksReusable);
+  const byProject = new Map<string, Lane[]>();
+  for (const l of mine) if (l.reuse) byProject.set(l.project, [...(byProject.get(l.project) ?? []), l]);
+  const mark = async (l: Lane, on: boolean) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await setReusable(l.id, on);
+    } catch (e) {
+      setError(errorText(e));
+    }
+    setBusy(false);
+  };
+  const name = (l: Lane) => (l.callsign === l.repo ? l.repo : `${l.repo} · ${l.callsign}`);
+  return (
+    <>
+      <div className="ca-settings-intro">
+        <h3>Reusable worktrees</h3>
+        <p>
+          A reusable worktree takes one piece of work after another; the rest are kept for one piece of work each. Jev suggests new work only in reusable worktrees. A main checkout is reusable unless
+          you turn it off. A worktree's right-click menu has Reuse for new work.
+        </p>
+      </div>
+      <div className="ca-settings-cards">
+        {error && (
+          <p className="ca-acct-note" role="alert">
+            {error}
+          </p>
+        )}
+        {suggested.length > 0 && (
+          <div className="ca-ucard ca-acct">
+            <div className="ca-ucard-head">
+              <span className="ca-ucard-name">These look reusable</span>
+            </div>
+            <p className="ca-acct-note">Each has taken one piece of work after another: reset or switched to new work several times, or on a branch that has carried several merged PRs.</p>
+            {suggested.map((l) => (
+              <div key={l.id} className="ca-reuse-row">
+                <span className="ca-code" title={l.path}>
+                  {name(l)}
+                </span>
+                <span className="ca-acct-actions">
+                  <Button size="sm" disabled={busy} onClick={() => void mark(l, true)}>
+                    Reuse for new work
+                  </Button>
+                  <Button variant="ghost" size="sm" disabled={busy} onClick={() => void mark(l, false)}>
+                    Not this one
+                  </Button>
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+        {[...byProject].map(([project, list]) => (
+          <div key={project} className="ca-ucard ca-acct">
+            <div className="ca-ucard-head">
+              <span className="ca-ucard-name">{project}</span>
+            </div>
+            {list.map((l) => (
+              <div key={l.id} className="ca-reuse-row">
+                <span className="ca-code" title={l.path}>
+                  {name(l)}
+                </span>
+                <span className="ca-meta" title={l.reuse ? REUSE_WORDS[l.reuse] : undefined}>
+                  {l.reuse ? REUSE_STATE[l.reuse] : ''}
+                </span>
+              </div>
+            ))}
+          </div>
+        ))}
+        {byProject.size === 0 && suggested.length === 0 && <p className="ca-empty">No reusable worktrees yet.</p>}
+      </div>
     </>
   );
 }

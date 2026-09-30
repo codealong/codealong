@@ -211,6 +211,11 @@ pub struct Session {
     /// leave it out of Needs you and Your turn until the time comes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub snoozed_until: Option<i64>,
+    /// It worked in a reusable worktree before that worktree last took new work
+    /// (`board::earlier`): kept in the lane's list after its current sessions, and out of the
+    /// lane's status.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub earlier: bool,
 }
 
 /// Jev's read of a session (insights.rs). Each part is there only when it was asked: how a turn
@@ -287,6 +292,14 @@ pub struct GitInfo {
     pub base_ahead: Option<u32>,
     #[serde(default)]
     pub base_behind: Option<u32>,
+    /// When the worktree last took new work, from its HEAD's reflog (`git::reset_at`): another
+    /// branch checked out, or its branch reset or made afresh.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reset_at: Option<i64>,
+    /// How many times it took new work, as far back as its reflog goes (90 days by default):
+    /// one for a worktree made for one piece of work, many for one that's reused.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub new_work_count: Option<u32>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -351,6 +364,30 @@ pub struct Lane {
     /// folder serves. Only this device's own, since the link only opens here.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preview: Option<Preview>,
+    /// What it holds, for a worktree that takes one piece of work after another (reusable: its
+    /// menu's Reuse for new work, or a main checkout left as it is). None for one kept for a
+    /// single piece of work.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reuse: Option<Reuse>,
+    /// Not marked either way, but its branch has carried several merged PRs: Settings suggests
+    /// making it reusable (`board::looks_reusable`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub looks_reusable: bool,
+}
+
+/// What a reusable worktree holds (`board::reuse_of`).
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum Reuse {
+    /// No work: nothing uncommitted or unlanded, and no agent at work. New work can start here.
+    Free,
+    /// Work under way: uncommitted changes, commits that haven't landed, or an agent at work.
+    Open,
+    /// Its PR is open.
+    Review,
+    /// Its PR merged and nothing has changed since: new work can start once it's back on the
+    /// default branch.
+    Landed,
 }
 
 /// A worktree's app: where it opens, and the server behind it while one runs.

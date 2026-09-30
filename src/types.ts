@@ -58,6 +58,9 @@ export interface Session {
   /** Snoozed from Codealong until then: the floating bar and the mark leave it out of Needs you
    *  and Your turn until the time comes (board::apply_snooze). */
   snoozedUntil?: number;
+  /** It worked in a reusable worktree before that worktree last took new work: listed after the
+   *  current work's sessions, and out of the worktree's status (board::earlier). */
+  earlier?: boolean;
   resumeCommand: string | null;
   /** The Claude app is signed into this session's account. */
   appAccount: boolean;
@@ -118,6 +121,11 @@ export interface GitInfo {
   base?: string | null;
   baseAhead?: number | null;
   baseBehind?: number | null;
+  /** When the worktree last took new work, from its HEAD's reflog: another branch checked out,
+   *  or its branch reset or made afresh. */
+  resetAt?: number;
+  /** How many times it took new work, as far back as its reflog goes. */
+  newWorkCount?: number;
 }
 
 export interface Target {
@@ -164,7 +172,18 @@ export interface Lane {
   /** Its app, to open in the browser: the URL set for it, or a page a server in its folder
    *  serves. This device's worktrees only. */
   preview?: Preview;
+  /** What it holds, for a worktree that takes one piece of work after another (its menu's Reuse
+   *  for new work, or a main checkout left as it is). Missing for one kept for a single piece of
+   *  work (board::reuse_of). */
+  reuse?: Reuse;
+  /** Marked neither way, but its branch has carried several merged PRs: Settings suggests
+   *  making it reusable. */
+  looksReusable?: boolean;
 }
+
+/** What a reusable worktree holds: no work, so new work can start there; work under way; its
+ *  PR in review; or its PR merged, so new work can start once it's back on the default branch. */
+export type Reuse = 'free' | 'open' | 'review' | 'landed';
 
 /** A worktree's app: where it opens, and the server behind it while one runs. */
 export interface Preview {

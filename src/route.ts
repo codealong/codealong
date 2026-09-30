@@ -4,6 +4,7 @@
 // have tests.
 
 import { homeOf } from './lanes';
+import { mainCheckoutOf, reusableFor } from './reusable';
 import type { Board, Lane, Route, RoutePick, Session } from './types';
 
 /** How likely a suggestion is, as the panel says it. */
@@ -44,6 +45,11 @@ function findSession(board: Board, key: string): { lane: Lane; session: Session 
  * work when that's likely too, so a wrong guess is one ↓ away from the right one. A session that
  * waits on you for a prompt is opened, never sent to: what's typed would answer the prompt. One
  * whose reply asks you something is sent to: what's typed is its answer.
+ *
+ * New work starts only in a reusable worktree (reusable.ts): Jev matches it to the worktree it's
+ * about, and when that one is kept for its own work, it goes to one of the repo's reusable
+ * worktrees that holds no work, else to a new worktree. A reusable one with work under way takes
+ * it as Jev picked it: the new work belongs with that work.
  */
 export function suggestions(route: Route, board: Board): Suggestion[] {
   const prob = (a: string) => route.actions.find(([x]) => x === a)?.[1] ?? 0;
@@ -63,10 +69,13 @@ export function suggestions(route: Route, board: Board): Suggestion[] {
     return { kind: open ? 'open' : 'send', key: `${open ? 'open' : 'send'}:${found.session.key}`, ...found, p };
   };
   const startIn = (pick: RoutePick | undefined, p: number): Suggestion | null => {
-    const lane = laneOf(pick);
-    if (!lane) return null;
-    const newWorktree = route.ownWorktree >= OWN_WORKTREE;
-    // A new worktree is made from the repo, so two of its worktrees make the same row.
+    const picked = laneOf(pick);
+    if (!picked) return null;
+    const reusable = picked.reuse ? picked : reusableFor(picked, board.lanes, route.lanes);
+    const newWorktree = route.ownWorktree >= OWN_WORKTREE || !reusable;
+    // A new worktree is made from the repo's main checkout, so two of its worktrees make the
+    // same row.
+    const lane = newWorktree ? (mainCheckoutOf(picked, board.lanes) ?? picked) : (reusable ?? picked);
     return { kind: 'start', key: newWorktree ? `start:new:${lane.project}/${lane.repo}` : `start:${lane.id}`, lane, newWorktree, p };
   };
   const [s1, s2] = route.sessions;
