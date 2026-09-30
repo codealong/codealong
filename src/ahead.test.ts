@@ -188,12 +188,12 @@ describe('barAhead', () => {
     expect(f.items.map((i) => i.key)).toEqual(['p']);
   });
 
-  it('moves a session sent a message to Working, newest first, and colors the mark', () => {
+  it('moves a session sent a message to the end of Working, and colors the mark', () => {
     const f = barAhead(feed([item('u', 'unread', NOW - 10), item('w', 'working', NOW - 5)], [{ ...item('r', 'working', NOW - 99), group: 'recent', status: 'idle' } as unknown as BarItem]), [send('u', { at: NOW + 1 }), send('r')]);
     expect(f.items.map((i) => [i.key, i.group])).toEqual([
-      ['u', 'working'],
-      ['r', 'working'],
       ['w', 'working'],
+      ['r', 'working'],
+      ['u', 'working'],
     ]);
     expect(f.recent).toEqual([]);
     expect(f.logoStatus).toBe('working');

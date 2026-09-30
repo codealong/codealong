@@ -282,8 +282,8 @@ function barMoved(feed: BarFeed, changes: Ahead[]): BarFeed {
   const recent = leave(feed.recent);
   const snoozed = [...leave(feed.snoozed ?? []), ...snoozing].sort((a, b) => a.snoozedUntil - b.snoozedUntil || a.key.localeCompare(b.key));
   if (!changed) return feed;
-  // As barfeed.rs orders them: Needs you a queue, the longest wait first; the others newest first.
-  items.sort((a, b) => GROUP_RANK.indexOf(a.group) - GROUP_RANK.indexOf(b.group) || (a.group === 'needs' ? a.since - b.since : b.since - a.since) || a.key.localeCompare(b.key));
+  // As barfeed.rs orders them: Needs you and Working queues, the longest first; Your turn newest first.
+  items.sort((a, b) => GROUP_RANK.indexOf(a.group) - GROUP_RANK.indexOf(b.group) || (a.group === 'unread' ? b.since - a.since : a.since - b.since) || a.key.localeCompare(b.key));
   const logoStatus = logoOfBar(items, feed.reviews.length > 0);
   return { ...feed, items, recent, snoozed, logoStatus };
 }

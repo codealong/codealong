@@ -379,8 +379,8 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   comes it's back as it is then, and one with nothing new (its turn already seen, or its
   process gone) comes back as Your turn, so a snooze always brings its session back. A running
   session stays in Working while snoozed, and sending a session a prompt ends its snooze.
-  Needs you is a queue, the longest wait first, so a new one joins the end instead of pushing
-  an old one down; Your turn and Working are the newest first. Pills that
+  Needs you and Working are queues, the longest first, so a new one joins the end instead of
+  pushing an old one down; Your turn is the newest first. Pills that
   don't fit fold into one per group that lists them, and a session picked from that list, or
   from the recent pill's, shows in Codealong's window. The mark brings Codealong forward; drag
   the bar by it or by its gaps. **In the notch**, the bar docks at the top of the screen instead:

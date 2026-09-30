@@ -51,8 +51,8 @@ export function waitingQueue(rows: SessionItem[]): SessionItem[] {
 }
 
 /**
- * Needs you, Your turn and Working first, in the floating bar's order: Needs you the longest
- * wait first, the others the newest status first. Then Snoozed, the soonest back first. The
+ * Needs you, Your turn and Working first, in the floating bar's order: Needs you and Working the
+ * longest first, Your turn the newest status first. Then Snoozed, the soonest back first. The
  * rest go under Today, Yesterday, Last 7 days and Older, by last activity in local time, the one
  * you last sent a prompt first.
  */

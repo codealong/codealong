@@ -35,10 +35,10 @@ describe('timeSections', () => {
       item('stopped', at(23, 9), 'stopped'),
     ];
     expect(timeSections(rows, now).map((s) => [s.label, s.rows.map((r) => r.session.key)])).toEqual([
-      // The longest wait first; the others the newest status first.
+      // Needs you and Working the longest first; Your turn the newest status first.
       ['Needs you', ['failed', 'blocked']],
       ['Your turn', ['turn']],
-      ['Working', ['busy-new', 'busy-old']],
+      ['Working', ['busy-old', 'busy-new']],
       ['Today', ['idle']],
       ['Yesterday', ['stopped']],
     ]);

@@ -44,13 +44,13 @@ export function waitingSince(s: Session): number | null {
 const statusAt = (s: Session) => s.statusSince ?? s.lastActivity;
 
 /**
- * Two sessions of one of the floating bar's groups, in its order (barfeed.rs): Needs you the
- * longest wait first; Your turn and Working, which read as a feed, the newest status first. A
+ * Two sessions of one of the floating bar's groups, in its order (barfeed.rs): Needs you and
+ * Working are queues, the longest first; Your turn reads as a feed, the newest status first. A
  * status's time doesn't move while it lasts, so rows hold their places.
  */
 export function byStatusTime(a: Session, b: Session): number {
   const d = statusAt(a) - statusAt(b);
-  return waitingSince(a) !== null ? d : -d;
+  return a.status === 'unread' ? -d : d;
 }
 
 /**

@@ -72,7 +72,8 @@ function sessionsIn(board: Board, project: string): { lane: Lane; session: Sessi
 export const statusTime = (s: Session) => s.statusSince ?? s.lastActivity;
 
 /** The empty panel's list: sessions that need you, the longest wait first, then those whose
- *  turn ended, the newest first, as on the floating bar; with neither, the ones working.
+ *  turn ended, the newest first, as on the floating bar; with neither, the ones working, the
+ *  longest running first.
  *  `counts` has every group's full size, for the headings. */
 export function attentionRows(board: Board, project: string, limit = MAX_ROWS): { rows: SessionRow[]; counts: Record<'needs' | 'unread' | 'working', number> } {
   const all = sessionsIn(board, project)

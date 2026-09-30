@@ -71,9 +71,9 @@ describe('attentionRows', () => {
     expect(counts).toEqual({ needs: 2, unread: 2, working: 1 });
   });
 
-  it('lists the working sessions when nothing waits on you', () => {
-    const b = board([lane('app2', [session('w1', 'working', NOW - 5), session('w2', 'working', NOW), session('i', 'idle', NOW)])]);
-    expect(attentionRows(b, ALL_PROJECTS).rows.map((r) => r.key)).toEqual(['w2', 'w1']);
+  it('lists the working sessions when nothing waits on you, the longest running first', () => {
+    const b = board([lane('app2', [session('w2', 'working', NOW), session('w1', 'working', NOW - 5), session('i', 'idle', NOW)])]);
+    expect(attentionRows(b, ALL_PROJECTS).rows.map((r) => r.key)).toEqual(['w1', 'w2']);
   });
 
   it('keeps to the project, leaves out visitors and archived sessions, and stops at the limit', () => {

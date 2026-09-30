@@ -53,7 +53,7 @@ pub struct BarFeed {
     pub terminal: String,
     /// The projects, in your order, for the bar's project menu.
     pub projects: Vec<String>,
-    /// In bar order: by group, then Needs you the longest wait first and the others the newest
+    /// In bar order: by group, then Needs you and Working the longest first, Your turn the newest
     /// status first.
     pub items: Vec<BarItem>,
     /// The other sessions started in the last day (by their last activity when the start isn't
@@ -177,10 +177,11 @@ pub fn feed(board: &Board) -> BarFeed {
             }
         }
     }
-    // Needs you is a queue, the longest wait first, so a new one can't keep an old one waiting
-    // (and it joins the end, where the group folds). The others read as a feed, newest first.
+    // Needs you and Working are queues, the longest first: a new one joins the end, where the
+    // group folds, and can't push an old one down or out of sight. Your turn reads as a feed,
+    // newest first.
     items.sort_by(|(a_at, a), (b_at, b)| {
-        let by_time = if a.group == Group::Needs { a_at.cmp(b_at) } else { b_at.cmp(a_at) };
+        let by_time = if a.group == Group::Unread { b_at.cmp(a_at) } else { a_at.cmp(b_at) };
         a.group.cmp(&b.group).then(by_time).then_with(|| a.key.cmp(&b.key))
     });
     recent.sort_by(|(a_at, a), (b_at, b)| b_at.cmp(a_at).then_with(|| a.key.cmp(&b.key)));
@@ -262,7 +263,7 @@ mod tests {
     }
 
     #[test]
-    fn lists_what_needs_you_longest_wait_first_then_finished_turns_then_running_agents_newest_first() {
+    fn lists_what_needs_you_longest_wait_first_then_finished_turns_newest_first_then_running_agents_longest_first() {
         let b = board(
             vec![
                 lane("/a", vec![session("w1", Status::Working, NOW - 50), session("i1", Status::Idle, NOW), session("u1", Status::Unread, NOW - 10)], false),
@@ -271,7 +272,7 @@ mod tests {
             vec![],
         );
         let got: Vec<(String, Group)> = feed(&b).items.into_iter().map(|i| (i.key, i.group)).collect();
-        let want = [("n1", Group::Needs), ("e1", Group::Needs), ("u1", Group::Unread), ("w2", Group::Working), ("w1", Group::Working)];
+        let want = [("n1", Group::Needs), ("e1", Group::Needs), ("u1", Group::Unread), ("w1", Group::Working), ("w2", Group::Working)];
         assert_eq!(got, want.map(|(k, g)| (k.to_string(), g)));
     }
 
@@ -285,7 +286,7 @@ mod tests {
         elsewhere.project = "Elsewhere".into();
         let b = board(vec![lane("/a", vec![visitor, archived], false), elsewhere, lane("/b", vec![session("ok", Status::Working, NOW)], false)], vec![]);
         let got: Vec<(String, String, bool)> = feed(&b).items.into_iter().map(|i| (i.key, i.project, i.hidden)).collect();
-        assert_eq!(got, vec![("ok".to_string(), "P".to_string(), false), ("h".to_string(), "Elsewhere".to_string(), true)]);
+        assert_eq!(got, vec![("h".to_string(), "Elsewhere".to_string(), true), ("ok".to_string(), "P".to_string(), false)]);
     }
 
     #[test]
@@ -401,7 +402,7 @@ mod tests {
         a.last_activity = NOW;
         let c = session("c", Status::Working, NOW - 50);
         let got: Vec<String> = feed(&board(vec![lane("/a", vec![a, c], false)], vec![])).items.into_iter().map(|i| i.key).collect();
-        assert_eq!(got, vec!["c".to_string(), "a".to_string()]);
+        assert_eq!(got, vec!["a".to_string(), "c".to_string()]);
     }
 
     #[test]
