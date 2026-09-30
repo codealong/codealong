@@ -11,8 +11,8 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { below, showContextMenu, type MenuAction, type MenuSpec } from './contextMenu';
 import { folderMenu, openInMenu, opensInEditor, useEditorIcons } from './editors';
-import { AGENT_BAY, buildBays, filterByAge, inboxCounts, narrowed, prNeedsWork, rowItems, seenable, closable, worktreeRow, type BoardRow, type Filter, type WorktreeRow } from './lanes';
-import { answerLink, approvePr, barMode, desktopPins, getDevices, onDevices, dismissTodoHint, expandAttachments, getBoard, onBarMode, onBoard, onCloseIdle, onDesktopPins, onNewWindow, onQuickStart, onReveal, onSettings, onCheckUpdates, openConfig, openProjectWindow, openTarget, openUrl, pinToDesktop, refresh, refreshUsage, reviewInCodex, setBarMode, startOptions, startSession, forkSession, closeSession, setPinned, setPinnedWorktrees, setTheme, showQuick, signIn, unpinFromDesktop, windowLabel, type BarMode, type Reveal } from './api';
+import { AGENT_BAY, buildBays, filterByAge, inboxCounts, narrowed, prNeedsWork, rowItems, seenable, closable, stoppable, worktreeRow, type BoardRow, type Filter, type WorktreeRow } from './lanes';
+import { answerLink, approvePr, barMode, desktopPins, getDevices, onDevices, dismissTodoHint, expandAttachments, getBoard, onBarMode, onBoard, onCloseIdle, onDesktopPins, onNewWindow, onQuickStart, onReveal, onSettings, onCheckUpdates, openConfig, openProjectWindow, openTarget, openUrl, pinToDesktop, refresh, refreshUsage, reviewInCodex, setBarMode, startOptions, startSession, forkSession, closeSession, sessionCancel, setPinned, setPinnedWorktrees, setTheme, showQuick, signIn, unpinFromDesktop, windowLabel, type BarMode, type Reveal } from './api';
 import { middleTruncate } from './format';
 import { renames } from './harness';
 import { usePerf } from './perf';
@@ -1300,7 +1300,12 @@ export function App() {
         if (started?.key) setPendingSession({ key: started.key, until: Date.now() + 60_000 });
       })
       .catch((e: unknown) => setToast(String(e).replace(/^Error: /, '')));
-  /** Closes a session running here: its terminal tab, or a background job stopped. It shows as
+  /** Stops the turn a session is taking; the session carries on, waiting for you. */
+  const stopTurn = (s: Session) =>
+    track(`Stopping ${s.title}…`, sessionCancel(s.key))
+      .then((said) => said && setToast(said))
+      .catch((e: unknown) => setToast(String(e).replace(/^Error: /, '')));
+  /** Closes a session running here: its terminal tab, or a background job ended. It shows as
    *  stopped once the engine sees it go. */
   const close = (s: Session) =>
     track(`Closing ${s.title}…`, closeSession(s.key))
@@ -1326,11 +1331,12 @@ export function App() {
         'separator',
         ...todoItemsRef.current(lane.project, { session: s.key }, { session: s.key, worktree: lane.id, label: `${s.account} in ${lane.callsign}` }, s.title),
         'separator',
+        ...(stoppable(s) ? [{ label: 'Stop turn', run: () => void stopTurn(s) }] : []),
         ...(renames(s) ? [{ label: 'Rename…', run: () => setRenaming(s.key) }] : []),
         ...(seenable(s) ? [{ label: 'Mark as seen', run: () => seen(s) }] : []),
         ...(s.archived ? [] : [pinItem, ...desktopItem('session', s.key)]),
         ...(s.archived || shortOf(s.key) ? [] : [snoozeMenu([s.key], Date.now(), { until: s.snoozedUntil, onDone: (act) => void act.catch((e: unknown) => setToast(String(e))) })]),
-        ...(closable(s) ? [{ label: s.attachCommand ? 'Stop background job' : 'Close terminal', run: () => void close(s) }] : []),
+        ...(closable(s) ? [{ label: s.attachCommand ? 'End background job' : 'Close terminal', run: () => void close(s) }] : []),
         { label: s.archived ? 'Unarchive' : s.harness === 'codex' ? 'Archive in Codex' : 'Archive', run: () => setArchived(s.key, !s.archived, s.title) },
         'separator',
         { label: 'Copy session ID', run: () => copy(s.id, 'session ID') },

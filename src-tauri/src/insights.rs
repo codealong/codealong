@@ -337,6 +337,7 @@ mod tests {
             insight: None,
             asks: false,
             hosted: false,
+            stoppable: false,
             snoozed_until: None,
         }
     }

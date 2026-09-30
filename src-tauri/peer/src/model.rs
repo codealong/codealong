@@ -203,6 +203,10 @@ pub struct Session {
     /// and answers what it asks, and opening it shows the panel.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub hosted: bool,
+    /// Its turn is running and Codealong can stop it (`harness::stoppable`): a Stop sends its
+    /// harness what its own Stop sends, or presses Escape in its terminal.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub stoppable: bool,
     /// Snoozed from Codealong until then (`board::apply_snooze`): the floating bar and the mark
     /// leave it out of Needs you and Your turn until the time comes.
     #[serde(default, skip_serializing_if = "Option::is_none")]

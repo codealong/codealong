@@ -94,6 +94,8 @@ pub struct BarItem {
     pub target: Option<BarTarget>,
     /// When it's back, while it's snoozed.
     pub snoozed_until: Option<i64>,
+    /// Its turn is running and Codealong can stop it: its menu offers Stop.
+    pub stoppable: bool,
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
@@ -166,6 +168,7 @@ pub fn feed(board: &Board) -> BarFeed {
                 open_target: s.open_target.clone(),
                 target,
                 snoozed_until: s.snoozed_until,
+                stoppable: s.stoppable,
             };
             match group {
                 Group::Recent => recent.push((at, item)),

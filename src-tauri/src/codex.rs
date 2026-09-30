@@ -688,6 +688,30 @@ impl crate::harness::Adapter for Codex {
         crate::appserver::set_name(&home, &s.id, name)?;
         Ok(vec![home.join("session_index.jsonl")])
     }
+
+    /// The app's own Stop, through its windows' socket; Escape in a terminal, the key its
+    /// terminal UI stops a turn with.
+    fn interrupts(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> bool {
+        match (s.surface, s.pid) {
+            (crate::model::Surface::Cli, Some(pid)) => crate::launch::terminal_kind(pid).is_some_and(|k| k.presses_keys()),
+            (crate::model::Surface::Cli, None) => false,
+            _ => ctx.account.home_path().join("ipc/ipc.sock").exists(),
+        }
+    }
+
+    fn interrupt(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> anyhow::Result<String> {
+        match (s.surface, s.pid) {
+            (crate::model::Surface::Cli, Some(pid)) => {
+                let Some(host) = crate::launch::terminal_host(pid, Path::new(&s.cwd))? else {
+                    anyhow::bail!("It isn't in a terminal Codealong can press keys in ({}). Open it to stop it there.", crate::launch::PRESSES_KEYS_IN);
+                };
+                crate::launch::press_key(&host, crate::launch::Key::Escape)?;
+            }
+            (crate::model::Surface::Cli, None) => anyhow::bail!("It isn't running any more."),
+            _ => crate::send::codex_interrupt_turn(&ctx.account.home_path(), &s.id)?,
+        }
+        Ok(format!("Stopped “{}”.", s.title))
+    }
 }
 
 fn fork_of(account: &crate::config::AccountCfg, id: &str) -> crate::harness::Fork {

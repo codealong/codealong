@@ -36,6 +36,7 @@ import {
   quickReady,
   routeQuick,
   searchText,
+  sessionCancel,
   showMain,
   showQuick,
   startFromQuick,
@@ -53,6 +54,7 @@ import { ago, agoPhrase, resetsPhrase, tildePath } from '../format';
 import { HARNESS_WORD, renames, usageNote } from '../harness';
 import { useLogo } from '../logo';
 import { prPills } from '../prStatus';
+import { stoppable } from '../lanes';
 import { snoozeMenu } from '../snooze';
 import { ALL_PROJECTS, attentionRows, findPrs, findSessions, findTodos, FOUND_SESSIONS, inProject, laneBranch, laneGroups, MAX_ROWS, projectCounts, queryWords, queueAfter, queueRows, readyTodos, recallList, recentRows, shortcutLabel, stillSaid, TEXT_SEARCH_MIN, type Handled, type PrRow, type RowGroup, type SessionRow, type TodoRow, withPrompt as historyWith } from '../quick';
 import {
@@ -927,6 +929,10 @@ export function Quick() {
     return found.sort((a, b) => Number(b.session.live) - Number(a.session.live) || b.session.lastActivity - a.session.lastActivity)[0] ?? null;
   };
 
+  /** Stops the turn a session is taking; its row shows the turn ending, and a stop that didn't
+   *  go says why. */
+  const stopItem = (s: Session) => (stoppable(s) ? [{ label: 'Stop turn', run: () => void sessionCancel(s.key).catch((e: unknown) => setError(plain(e))) }] : []);
+
   const rowMenu = (r: Row) => {
     if (r.kind === 'more') return;
     if (r.kind === 'suggest') {
@@ -936,6 +942,7 @@ export function Quick() {
           ...(sg.kind === 'send' ? [{ label: 'Send this prompt to it', run: () => send(sg.session) }] : []),
           { label: 'Open', run: () => openSession(sg.lane, sg.session) },
           { label: 'Reply here', run: () => replyTo(sg.session) },
+          ...stopItem(sg.session),
           ...(renames(sg.session) ? [{ label: 'Rename…', run: () => renameIn(sg.session) }] : []),
           { label: 'Show in Codealong', run: () => revealSession(sg.lane, sg.session) },
         ]);
@@ -951,6 +958,7 @@ export function Quick() {
       void showContextMenu([
         { label: 'Open', run: () => openSession(r.lane, r.session) },
         { label: 'Reply here', run: () => replyTo(r.session) },
+        ...stopItem(r.session),
         ...(renames(r.session) ? [{ label: 'Rename…', run: () => renameIn(r.session) }] : []),
         { label: 'Show in Codealong', run: () => revealSession(r.lane, r.session) },
       ]);

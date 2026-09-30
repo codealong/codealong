@@ -591,13 +591,30 @@ fn session_stream(peers: State<'_, peers::Peers>, key: String) -> Option<acp::St
     acp::stream(&key)
 }
 
-/// Stops the turn a session Codealong runs is taking, here or on another device.
+/// Stops the turn a session is taking, here or on another device, and says what happened.
 #[tauri::command(async)]
-fn session_cancel(peers: State<'_, peers::Peers>, key: String) -> Result<(), String> {
+fn session_cancel(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String) -> Result<String, String> {
     if let Some((device, own)) = peerfeed::split_remote(&key) {
-        return peers.ask(device, api::SESSION_CANCEL, serde_json::json!({ "key": own }), ASK_ACT).map(|_| ());
+        let got = peers.ask(device, api::SESSION_CANCEL, serde_json::json!({ "key": own }), ASK_ACT)?;
+        // Devices before stops reached every harness answered with nothing.
+        return Ok(got.as_str().unwrap_or("Stopped.").to_string());
     }
-    acp::cancel(&key).map_err(|e| format!("{e:#}"))
+    cancel_here(&engine, &key)
+}
+
+/// Stops a session's turn on this device: one Codealong runs, through its agent; any other,
+/// through its harness (`Adapter::interrupt`).
+fn cancel_here(engine: &engine::Handle, key: &str) -> Result<String, String> {
+    if acp::hosts(key) {
+        return acp::cancel(key).map(|_| "Stopped.".to_string()).map_err(|e| format!("{e:#}"));
+    }
+    let cfg = config::load().map_err(|e| format!("{e:#}"))?.unwrap_or_default();
+    let board = engine.board();
+    let (s, account) = harness::find(&board, &cfg, key).map_err(|e| format!("{e:#}"))?;
+    if !harness::turn_running(s) {
+        return Err("Its turn has already ended.".into());
+    }
+    harness::adapter(s.harness).interrupt(&harness::Ctx { account }, s).map_err(|e| format!("{e:#}"))
 }
 
 /// Sends a prompt to a session that's already going, where it runs (send.rs). Only Codealong's
@@ -969,7 +986,7 @@ fn peer_answer(engine: &engine::Handle, method: &str, p: serde_json::Value) -> R
             let project = p.get("project").and_then(Value::as_str).filter(|p| !p.is_empty()).unwrap_or(route::ALL_PROJECTS);
             to_value(route_here(engine, project, &text("text"))?).map_err(|e| e.to_string())
         }
-        api::SESSION_CANCEL => acp::cancel(&key()?).map(|_| Value::Null).map_err(|e| format!("{e:#}")),
+        api::SESSION_CANCEL => cancel_here(engine, &key()?).map(Value::String),
         _ => Err(format!("Codealong on this device doesn't know how to {method} yet; update it here.")),
     }
 }
@@ -1410,6 +1427,7 @@ pub fn is_cli(args: &[String]) -> bool {
 /// `codealong --snapshot --send <session key> <text>`: sends a session a message, as its panel does.
 /// `codealong --snapshot --rename <session key> <name>`: names a session where its harness keeps
 /// names, as Rename… in its menu does.
+/// `codealong --snapshot --stop <session key>`: stops the turn it's taking, as its Stop does.
 /// `codealong --snapshot --transcript <session key> [--before <cursor>]`: a page of a session's
 /// conversation, as its panel gets it.
 /// `codealong --snapshot --start-options`: where each account can start a session.
@@ -1443,6 +1461,30 @@ pub fn snapshot_cli(args: &[String]) -> i32 {
             return 2;
         };
         return match harness::adapter(s.harness).answer(&ctx, s, id, answer) {
+            Ok(said) => {
+                println!("{said}");
+                0
+            }
+            Err(e) => {
+                eprintln!("{e:#}");
+                1
+            }
+        };
+    }
+    if let Some(i) = args.iter().position(|a| a == "--stop") {
+        let Some(key) = args.get(i + 1) else {
+            eprintln!("usage: codealong --snapshot --stop <session key>");
+            return 2;
+        };
+        let cfg = config::load().ok().flatten().unwrap_or_default();
+        let board = engine::snapshot(false, false);
+        let stopped = harness::find(&board, &cfg, key).and_then(|(s, account)| {
+            if !harness::turn_running(s) {
+                anyhow::bail!("Its turn has already ended.");
+            }
+            harness::adapter(s.harness).interrupt(&harness::Ctx { account }, s)
+        });
+        return match stopped {
             Ok(said) => {
                 println!("{said}");
                 0

@@ -12,7 +12,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { barMode, desktopPins, dragToDesktop, fitBar, getBarFeed, onBarDragEnd, onBarFeed, onBarMode, onBarNote, onDesktopPins, onPeekShown, openFromBar, peekHide, peekOpen, pinToDesktop, setBarMode, setNotchOpen, showMain, showQuick, unpinFromDesktop, type BarModeView, type PillRect } from '../api';
+import { barMode, desktopPins, dragToDesktop, fitBar, getBarFeed, onBarDragEnd, onBarFeed, onBarMode, onBarNote, onDesktopPins, onPeekShown, openFromBar, peekHide, peekOpen, pinToDesktop, sessionCancel, setBarMode, setNotchOpen, showMain, showQuick, unpinFromDesktop, type BarModeView, type PillRect } from '../api';
 import { CLICK_WAIT_MS, elsewhereWaits, fitGroups, GROUPS, plain, projectWaits, type Group, type GroupFit, type WaitCounts } from '../bar';
 import { showContextMenu, type MenuAction, type MenuSpec } from '../contextMenu';
 import { ago } from '../format';
@@ -623,6 +623,8 @@ export function Bar() {
       { label: 'Show in Codealong', run: () => reveal(i) },
       { label: openLabel(i, feed?.terminal ?? 'Terminal'), run: () => open(i) },
       { label: 'Reply here', run: () => reply(i) },
+      // The pill moves on once the turn has ended; a stop that didn't go says why on it.
+      ...(i.stoppable ? [{ label: 'Stop turn', run: () => void sessionCancel(i.key).catch(failedOn(i.key)) }] : []),
       ...(renames(i) ? [{ label: 'Rename…', run: () => reply(i, true) }] : []),
       ...(i.status === 'unread' ? [{ label: 'Mark as seen', run: () => markSeen([i.key], i.key) }] : []),
       snoozeMenu([i.key], Date.now(), { until: i.snoozedUntil, onDone: snoozeDone([i.key], i.key) }),

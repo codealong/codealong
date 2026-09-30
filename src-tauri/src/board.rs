@@ -304,6 +304,7 @@ pub fn claude_session(
         insight: None,
         asks: false,
         hosted: false,
+        stoppable: false,
         snoozed_until: None,
     })
 }
@@ -389,6 +390,7 @@ pub fn codex_session(account: &AccountCfg, th: &ThreadInfo, name: Option<&str>, 
         insight: None,
         asks: false,
         hosted: false,
+        stoppable: false,
         snoozed_until: None,
     }
 }
@@ -459,6 +461,7 @@ pub fn opencode_session(account: &AccountCfg, row: &SessionRow, live: Option<&Li
         insight: None,
         asks: false,
         hosted: false,
+        stoppable: false,
         snoozed_until: None,
     }
 }
@@ -526,6 +529,7 @@ pub fn antigravity_session(account: &AccountCfg, c: &Conversation, seen_at: i64,
         insight: None,
         asks: false,
         hosted: false,
+        stoppable: false,
         snoozed_until: None,
     }
 }

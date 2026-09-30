@@ -52,6 +52,9 @@ export interface Session {
   /** Codealong runs it itself, over the Agent Client Protocol (acp.rs): its panel sends to it
    *  and answers what it asks, and opening it shows the panel. */
   hosted?: boolean;
+  /** Its turn is running and Codealong can stop it (harness::stoppable): Stop sends its harness
+   *  what its own Stop sends, or presses Escape in its terminal. */
+  stoppable?: boolean;
   /** Snoozed from Codealong until then: the floating bar and the mark leave it out of Needs you
    *  and Your turn until the time comes (board::apply_snooze). */
   snoozedUntil?: number;
@@ -834,6 +837,8 @@ export interface BarItem {
   target: { label: string; detail: string | null; disabled: boolean } | null;
   /** When it's back, while it's snoozed. */
   snoozedUntil: number | null;
+  /** Its turn is running and Codealong can stop it. Missing from a feed an older app sent. */
+  stoppable?: boolean;
 }
 
 /** A session on the bar's recent pill: started in the last day, and in none of its groups. */

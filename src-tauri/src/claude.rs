@@ -813,6 +813,42 @@ impl crate::harness::Adapter for ClaudeCode {
         }
         Ok(paths)
     }
+
+    /// Escape, Claude Code's own interrupt: pressed in the terminal it runs in, or, for a
+    /// background job, through its account's service.
+    fn interrupts(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> bool {
+        if s.surface != crate::model::Surface::Cli {
+            return false;
+        }
+        if s.attach_command.is_some() {
+            return crate::send::daemon_socket(&ctx.account.home_path()).is_some();
+        }
+        s.pid.and_then(crate::launch::terminal_kind).is_some_and(|k| k.presses_keys())
+    }
+
+    /// Presses Escape only while its own record says a turn is running: busy, or waiting on a
+    /// prompt, which Escape answers No to, ending the turn. With nothing running, an Escape would
+    /// go to whatever the terminal shows then (two in a row open Claude Code's rewind).
+    fn interrupt(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> anyhow::Result<String> {
+        let home = ctx.account.home_path();
+        let registry = crate::send::claude_registry(&home, s).ok_or_else(|| anyhow::anyhow!("It isn't running any more."))?;
+        let status = registry.get("status").and_then(Value::as_str).unwrap_or_default();
+        if !matches!(status, "busy" | "waiting") {
+            anyhow::bail!("Its turn has already ended.");
+        }
+        if registry.get("kind").and_then(Value::as_str) == Some("bg") {
+            let job = registry.get("jobId").and_then(Value::as_str).ok_or_else(|| anyhow::anyhow!("Claude Code didn't record which job it is."))?;
+            let socket = crate::send::daemon_socket(&home).ok_or_else(|| anyhow::anyhow!("Its account's background service isn't running."))?;
+            crate::send::daemon_press_escape(&socket, &home.join("daemon/control.key"), job)?;
+        } else {
+            let pid = s.pid.ok_or_else(|| anyhow::anyhow!("It isn't running any more."))?;
+            let Some(host) = crate::launch::terminal_host(pid, Path::new(&s.cwd))? else {
+                anyhow::bail!("It isn't in a terminal Codealong can press keys in ({}). Open it to stop it there.", crate::launch::PRESSES_KEYS_IN);
+            };
+            crate::launch::press_key(&host, crate::launch::Key::Escape)?;
+        }
+        Ok(format!("Stopped “{}”.", s.title))
+    }
 }
 
 /// `<account command> stop <job>` for a background job, its job read from its attach command.

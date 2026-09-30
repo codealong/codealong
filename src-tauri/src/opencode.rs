@@ -653,6 +653,29 @@ impl crate::harness::Adapter for OpenCode {
         patch(&svc, &format!("/api/session/{}", urlencoding::encode(&s.id)), &serde_json::json!({ "title": name })).map_err(|e| anyhow::anyhow!("OpenCode couldn't rename “{}”: {e}", s.title))?;
         Ok(vec![home.join("opencode.db")])
     }
+
+    /// Its service runs every session's turns, whichever terminal shows it, and stops one as its
+    /// terminal UI's Escape does.
+    fn interrupts(&self, ctx: &crate::harness::Ctx, _s: &crate::model::Session) -> bool {
+        service(&ctx.account.home_path()).is_some()
+    }
+
+    /// Stops the run without `resume`, which would go straight on with a message steering it:
+    /// a Stop leaves the session waiting for you.
+    fn interrupt(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> anyhow::Result<String> {
+        let svc = service(&ctx.account.home_path()).ok_or_else(|| anyhow::anyhow!("OpenCode's service isn't running, so Codealong can't reach {}.", s.title))?;
+        let got = post(&svc, &format!("/api/session/{}/interrupt", urlencoding::encode(&s.id)), &serde_json::json!({}))?;
+        if !interrupted(&got) {
+            anyhow::bail!("OpenCode says {} wasn't running anything.", s.title);
+        }
+        Ok(format!("Stopped “{}”.", s.title))
+    }
+}
+
+/// Whether the service's answer to an interrupt says a run was stopped: `{interrupted}`, false
+/// for a session that was idle.
+fn interrupted(answer: &Value) -> bool {
+    answer.get("interrupted").or_else(|| answer.pointer("/data/interrupted")).and_then(Value::as_bool) == Some(true)
 }
 
 /// The copy's id in the service's answer to a fork: `{data: {id, fork: {sessionID, boundary}}}`.
@@ -780,6 +803,13 @@ mod tests {
         std::fs::write(&path, r#"{"url":"http://127.0.0.1:1","pid":4000000,"password":"pw"}"#).unwrap();
         assert_eq!(service_at(&path), None);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn reads_whether_its_service_stopped_a_run() {
+        assert!(interrupted(&serde_json::json!({ "interrupted": true })));
+        assert!(!interrupted(&serde_json::json!({ "interrupted": false })));
+        assert!(!interrupted(&Value::Null));
     }
 
     #[test]

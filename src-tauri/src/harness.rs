@@ -111,6 +111,18 @@ pub trait Adapter: Sync {
     fn rename(&self, _ctx: &Ctx, _session: &Session, _name: &str) -> Result<Vec<PathBuf>> {
         bail!("Codealong can't rename {} sessions yet.", self.harness().word())
     }
+
+    /// Whether `interrupt` can reach the session where it runs, asked of every session whose
+    /// turn is running each time the board is put together, so it only looks, cheaply.
+    fn interrupts(&self, _ctx: &Ctx, _session: &Session) -> bool {
+        false
+    }
+
+    /// Stops the turn the session is taking, as its own Stop or Escape would, and leaves the
+    /// session running. Returns what happened, in a sentence.
+    fn interrupt(&self, _ctx: &Ctx, _session: &Session) -> Result<String> {
+        bail!("Codealong can't stop this {} session; open it to stop it there.", self.harness().word())
+    }
 }
 
 /// The longest name a session takes: Claude Code's own limit.
@@ -127,6 +139,17 @@ pub fn session_name(raw: &str) -> Result<String> {
         bail!("A session's name can't be empty.");
     }
     Ok(name.to_string())
+}
+
+/// Whether a session is in the middle of a turn that a Stop would end: working, or stuck mid-turn.
+pub fn turn_running(s: &Session) -> bool {
+    s.live && (s.status == crate::model::Status::Working || s.stalled_since.is_some())
+}
+
+/// Whether Codealong can stop the turn a session is taking: one it runs itself, or one its
+/// harness can reach.
+pub fn stoppable(s: &Session, account: Option<&AccountCfg>) -> bool {
+    turn_running(s) && (s.hosted || account.is_some_and(|account| adapter(s.harness).interrupts(&Ctx { account }, s)))
 }
 
 /// How a fork opens in a terminal (`Adapter::fork`).

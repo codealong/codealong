@@ -502,6 +502,57 @@ fn daemon_reply(socket: &Path, key: &str, job: &str, text: &str) -> Result<()> {
     bail!("Claude Code's daemon didn't take it: {last}")
 }
 
+/// The daemon's `attach` request, as `claude attach` sends it but without a terminal's
+/// capabilities (`caps` is optional, and the job goes on without them as it does with nobody
+/// attached; null is refused).
+pub fn daemon_attach_request(key: &str, job: &str, attach_id: &str) -> String {
+    format!("{}\n", json!({ "proto": 1, "op": "attach", "short": job, "auth": key, "cols": 200, "rows": 50, "attachId": attach_id }))
+}
+
+/// Presses Escape in a background job's terminal. The daemon has no request for it, and its
+/// `reply` pastes text and presses Return, so this attaches as `claude attach` does, which hands
+/// what comes after the request line to the job's terminal as typed, and detaches. Attaching
+/// redraws the job and sizes its terminal to this one; detaching gives a terminal attached
+/// meanwhile its own size back.
+pub fn daemon_press_escape(socket: &Path, key_file: &Path, job: &str) -> Result<()> {
+    let key = std::fs::read_to_string(key_file).map_err(|_| anyhow!("Codealong can't read the background service's key."))?;
+    let mut stream = UnixStream::connect(socket)?;
+    stream.set_read_timeout(Some(Duration::from_secs(10)))?;
+    stream.set_write_timeout(Some(Duration::from_secs(5)))?;
+    stream.write_all(daemon_attach_request(key.trim(), job, &start::new_session_id()).as_bytes())?;
+    // The answer is one line; the job's screen follows it.
+    let mut line = Vec::new();
+    let mut byte = [0u8; 1];
+    while stream.read(&mut byte)? == 1 && byte[0] != b'\n' {
+        line.push(byte[0]);
+    }
+    let answer: Value = serde_json::from_slice(&line).map_err(|_| anyhow!("Claude Code's daemon gave an answer Codealong can't read."))?;
+    if answer.get("ok").and_then(Value::as_bool) != Some(true) {
+        let why = answer.get("error").and_then(Value::as_str).or_else(|| answer.get("code").and_then(Value::as_str)).unwrap_or("no reason given");
+        bail!("Claude Code's daemon didn't let Codealong in: {why}");
+    }
+    // Apart from what attaching writes to the job first (focus, a redraw), so it reads as a key
+    // of its own. The screen is read and dropped meanwhile: the daemon closes a connection whose
+    // unread output piles up.
+    let drain = |stream: &mut UnixStream, for_ms: u64| {
+        let until = Instant::now() + Duration::from_millis(for_ms);
+        let mut chunk = [0u8; 65536];
+        while let Some(left) = until.checked_duration_since(Instant::now()) {
+            let _ = stream.set_read_timeout(Some(left.max(Duration::from_millis(10))));
+            match stream.read(&mut chunk) {
+                Ok(0) => break,
+                Ok(_) => {}
+                Err(e) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => break,
+                Err(_) => break,
+            }
+        }
+    };
+    drain(&mut stream, 200);
+    stream.write_all(b"\x1b")?;
+    drain(&mut stream, 400);
+    Ok(())
+}
+
 /// The sender's name on what you send, and the line its text starts with. The session's
 /// transcript keeps both (claude.rs, `sent_from_codealong`), which is how its panel knows the
 /// message was yours.
@@ -698,44 +749,54 @@ impl Ipc {
     }
 }
 
+impl Ipc {
+    /// Connects to the socket the Codex app's windows use to reach each other
+    /// (`<CODEX_HOME>/ipc/ipc.sock`) and joins it as a client.
+    fn connect(codex_home: &Path, deadline: Instant) -> Result<Ipc> {
+        let stream = UnixStream::connect(codex_home.join("ipc/ipc.sock")).map_err(|_| anyhow!("The Codex app isn't running."))?;
+        stream.set_write_timeout(Some(Duration::from_secs(5)))?;
+        let mut ipc = Ipc { stream, buf: Vec::new(), client_id: String::new() };
+        let init = start::new_session_id();
+        ipc.send(&json!({ "type": "request", "requestId": init, "method": "initialize", "params": { "clientType": "codealong" } }))?;
+        let r = ipc.response(&init, deadline)?;
+        ipc.client_id = r.pointer("/result/clientId").and_then(Value::as_str).ok_or_else(|| anyhow!("Codex didn't take Codealong as a client."))?.to_string();
+        Ok(ipc)
+    }
+
+    /// The window that has `thread` loaded, if one answers by `wait`. A window owns only the
+    /// threads it has loaded, and asking about any other goes unanswered until the router gives
+    /// up ten seconds later.
+    fn owner(&mut self, thread: &str, wait: Instant) -> Result<Option<String>> {
+        let find = start::new_session_id();
+        self.send(&json!({
+            "type": "request", "requestId": find, "sourceClientId": self.client_id, "version": 1,
+            "method": "thread-owner-discovery", "params": { "hostId": "local", "conversationId": thread },
+        }))?;
+        Ok(self.response(&find, wait).ok().filter(|r| r.get("resultType").and_then(Value::as_str) == Some("success")).and_then(|r| r.get("handledByClientId").and_then(Value::as_str).map(String::from)))
+    }
+}
+
 /// Starts a turn with `text` in a Codex thread, through the socket the app's windows use to
-/// reach each other (`<CODEX_HOME>/ipc/ipc.sock`). The window that owns the thread runs the turn
-/// in the app's own app-server, so the app shows it as if you'd sent it there. A window owns only
-/// the threads it has loaded, and asking about any other goes unanswered until the router gives
-/// up ten seconds later; so after a short wait Codealong opens the thread in the app, which loads
-/// it and takes it within a couple of seconds, and asks again.
+/// reach each other. The window that owns the thread runs the turn in the app's own app-server,
+/// so the app shows it as if you'd sent it there. A thread no window has loaded is opened in the
+/// app after a short wait, which loads it and takes it within a couple of seconds, and asked
+/// about again.
 pub fn codex_start_turn(codex_home: &Path, thread: &str, text: &str, model: Option<(&str, Option<&str>)>) -> Result<()> {
     let deadline = Instant::now() + Duration::from_secs(18);
-    let stream = UnixStream::connect(codex_home.join("ipc/ipc.sock"))?;
-    stream.set_write_timeout(Some(Duration::from_secs(5)))?;
-    let mut ipc = Ipc { stream, buf: Vec::new(), client_id: String::new() };
-    let init = start::new_session_id();
-    ipc.send(&json!({ "type": "request", "requestId": init, "method": "initialize", "params": { "clientType": "codealong" } }))?;
-    let r = ipc.response(&init, deadline)?;
-    ipc.client_id = r.pointer("/result/clientId").and_then(Value::as_str).ok_or_else(|| anyhow!("Codex didn't take Codealong as a client."))?.to_string();
+    let mut ipc = Ipc::connect(codex_home, deadline)?;
     let client = ipc.client_id.clone();
 
     let mut opened = false;
     let owner = loop {
-        let find = start::new_session_id();
-        ipc.send(&json!({
-            "type": "request", "requestId": find, "sourceClientId": client, "version": 1,
-            "method": "thread-owner-discovery", "params": { "hostId": "local", "conversationId": thread },
-        }))?;
         let wait = (Instant::now() + Duration::from_millis(1500)).min(deadline);
-        if let Ok(r) = ipc.response(&find, wait) {
-            if r.get("resultType").and_then(Value::as_str) == Some("success") {
-                if let Some(owner) = r.get("handledByClientId").and_then(Value::as_str) {
-                    if opened {
-                        // A window takes a thread as it starts loading it, and a turn that
-                        // arrives before its settings are in goes out with an empty model
-                        // (refused) and the app's default reviewer. They're in within about a
-                        // second.
-                        std::thread::sleep(Duration::from_secs(2));
-                    }
-                    break owner.to_string();
-                }
+        if let Some(owner) = ipc.owner(thread, wait)? {
+            if opened {
+                // A window takes a thread as it starts loading it, and a turn that arrives
+                // before its settings are in goes out with an empty model (refused) and the
+                // app's default reviewer. They're in within about a second.
+                std::thread::sleep(Duration::from_secs(2));
             }
+            break owner;
         }
         if Instant::now() >= deadline {
             bail!("No Codex window took this thread.");
@@ -752,6 +813,41 @@ pub fn codex_start_turn(codex_home: &Path, thread: &str, text: &str, model: Opti
     let r = ipc.response(&turn, deadline)?;
     if r.get("resultType").and_then(Value::as_str) != Some("success") {
         bail!("Codex didn't start the turn: {}", r.get("error").and_then(Value::as_str).unwrap_or("no reason given"));
+    }
+    Ok(())
+}
+
+/// The request that stops the turn a thread is taking, sent to the window that owns it: what
+/// the app's own Stop sends from a window that doesn't (`user-stop`, which also pauses the
+/// thread's goal and stops its subagents). Without the turn's id the router expects version 3;
+/// with one, 4 (26.924's code).
+pub fn codex_interrupt_request(request_id: &str, client_id: &str, owner: &str, thread: &str) -> Value {
+    json!({
+        "type": "request",
+        "requestId": request_id,
+        "sourceClientId": client_id,
+        "version": 3,
+        "method": "thread-follower-interrupt-turn",
+        "targetClientId": owner,
+        "timeoutMs": 10_000,
+        "params": { "conversationId": thread, "mode": "user-stop" },
+    })
+}
+
+/// Stops the turn a Codex thread is taking in the app, through the window that runs it. A thread
+/// that's running there is loaded in some window, so one that no window claims isn't running in
+/// the app.
+pub fn codex_interrupt_turn(codex_home: &Path, thread: &str) -> Result<()> {
+    let deadline = Instant::now() + Duration::from_secs(12);
+    let mut ipc = Ipc::connect(codex_home, deadline)?;
+    let Some(owner) = ipc.owner(thread, (Instant::now() + Duration::from_secs(3)).min(deadline))? else {
+        bail!("No Codex window has this thread open, so it isn't running in the app.");
+    };
+    let id = start::new_session_id();
+    ipc.send(&codex_interrupt_request(&id, &ipc.client_id.clone(), &owner, thread))?;
+    let r = ipc.response(&id, deadline)?;
+    if r.get("resultType").and_then(Value::as_str) != Some("success") {
+        bail!("Codex didn't stop the turn: {}", r.get("error").and_then(Value::as_str).unwrap_or("no reason given"));
     }
     Ok(())
 }
@@ -798,6 +894,7 @@ mod tests {
             insight: None,
             asks: false,
             hosted: false,
+            stoppable: false,
             snoozed_until: None,
         }
     }
@@ -1046,6 +1143,113 @@ mod tests {
         assert!(line.ends_with('\n') && line.matches('\n').count() == 1);
         let v: Value = serde_json::from_str(line.trim()).unwrap();
         assert_eq!(v, json!({ "proto": 1, "op": "reply", "short": "6e07c149", "text": "two\nlines", "auth": "k" }));
+    }
+
+    /// A folder of its own under the system's temporary one, short enough for a socket path.
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("ca-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn presses_escape_in_a_background_job_by_attaching_to_it() {
+        let dir = scratch("attach");
+        let socket = dir.join("c.sock");
+        std::fs::write(dir.join("control.key"), "k\n").unwrap();
+        let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+        let daemon = std::thread::spawn(move || {
+            let (mut conn, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(conn.try_clone().unwrap());
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            // The answer, then the job's screen as the daemon starts streaming it.
+            conn.write_all(b"{\"ok\":true,\"op\":\"attach\"}\n\x1b[?1049h\x1b[2J screen").unwrap();
+            let mut typed = Vec::new();
+            reader.read_to_end(&mut typed).unwrap();
+            (serde_json::from_str::<Value>(line.trim()).unwrap(), typed)
+        });
+        daemon_press_escape(&socket, &dir.join("control.key"), "6e07c149").unwrap();
+        let (request, typed) = daemon.join().unwrap();
+        assert_eq!((request["op"].as_str(), request["short"].as_str(), request["auth"].as_str()), (Some("attach"), Some("6e07c149"), Some("k")));
+        // The daemon refuses a null for what it takes as an object or nothing.
+        assert!(request.get("caps").is_none());
+        assert_eq!(typed, b"\x1b");
+
+        // A job the daemon doesn't have is refused, with its reason.
+        let _ = std::fs::remove_file(&socket);
+        let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+        let daemon = std::thread::spawn(move || {
+            let (mut conn, _) = listener.accept().unwrap();
+            let mut line = String::new();
+            BufReader::new(conn.try_clone().unwrap()).read_line(&mut line).unwrap();
+            conn.write_all(b"{\"ok\":false,\"error\":\"job not found\",\"code\":\"ENOJOB\"}\n").unwrap();
+        });
+        let err = daemon_press_escape(&socket, &dir.join("control.key"), "6e07c149").unwrap_err();
+        daemon.join().unwrap();
+        assert!(err.to_string().contains("job not found"), "{err}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn stops_a_codex_turn_through_the_window_that_owns_the_thread() {
+        let home = scratch("codex");
+        std::fs::create_dir_all(home.join("ipc")).unwrap();
+        let listener = std::os::unix::net::UnixListener::bind(home.join("ipc/ipc.sock")).unwrap();
+        let router = std::thread::spawn(move || {
+            let (mut conn, _) = listener.accept().unwrap();
+            let mut buf = Vec::new();
+            let mut chunk = [0u8; 4096];
+            loop {
+                while let Some(m) = ipc_take(&mut buf) {
+                    let id = m["requestId"].clone();
+                    let answer = match m["method"].as_str() {
+                        Some("initialize") => json!({ "type": "response", "requestId": id, "resultType": "success", "result": { "clientId": "me" } }),
+                        Some("thread-owner-discovery") => json!({ "type": "response", "requestId": id, "resultType": "success", "handledByClientId": "window" }),
+                        _ => {
+                            conn.write_all(&ipc_frame(&json!({ "type": "response", "requestId": id, "resultType": "success", "result": { "ok": true } }))).unwrap();
+                            return m;
+                        }
+                    };
+                    conn.write_all(&ipc_frame(&answer)).unwrap();
+                }
+                let n = conn.read(&mut chunk).unwrap();
+                assert!(n > 0, "Codealong hung up before asking to stop");
+                buf.extend_from_slice(&chunk[..n]);
+            }
+        });
+        codex_interrupt_turn(&home, "t1").unwrap();
+        let asked = router.join().unwrap();
+        assert_eq!(asked["method"], "thread-follower-interrupt-turn");
+        assert_eq!((&asked["version"], &asked["sourceClientId"], &asked["targetClientId"]), (&json!(3), &json!("me"), &json!("window")));
+        assert_eq!(asked["params"], json!({ "conversationId": "t1", "mode": "user-stop" }));
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn offers_a_stop_only_while_a_turn_runs_where_codealong_can_reach_it() {
+        use crate::harness::stoppable;
+        let hosted = |status, live, stalled: Option<i64>| Session { hosted: true, stalled_since: stalled, ..session(Harness::Claude, Surface::Cli, status, live, None) };
+        assert!(stoppable(&hosted(Status::Working, true, None), None));
+        // Stuck mid-turn, on a command waiting for input, say.
+        assert!(stoppable(&hosted(Status::Needs, true, Some(1)), None));
+        assert!(!stoppable(&hosted(Status::Idle, true, None), None));
+        assert!(!stoppable(&hosted(Status::Working, false, None), None));
+
+        let home = scratch("stoppable");
+        let account = |harness: &str| -> AccountCfg { serde_json::from_value(json!({ "name": "a", "harness": harness, "home": home.to_string_lossy() })).unwrap() };
+        // The Claude app runs its sessions' turns itself, and takes no stop from outside.
+        let app = session(Harness::Claude, Surface::App, Status::Working, true, Some(1));
+        assert!(!stoppable(&app, Some(&account("claude"))));
+        assert!(!stoppable(&session(Harness::Antigravity, Surface::App, Status::Working, true, None), Some(&account("antigravity"))));
+        // A Codex app thread stops through the app's windows, while they're there to ask.
+        let thread = session(Harness::Codex, Surface::App, Status::Working, true, None);
+        assert!(!stoppable(&thread, Some(&account("codex"))));
+        std::fs::create_dir_all(home.join("ipc")).unwrap();
+        std::fs::write(home.join("ipc/ipc.sock"), "").unwrap();
+        assert!(stoppable(&thread, Some(&account("codex"))));
+        let _ = std::fs::remove_dir_all(&home);
     }
 
     #[test]

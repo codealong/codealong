@@ -317,7 +317,7 @@ window.__TAURI_INTERNALS__ = {
     if (cmd === 'session_newer') return Promise.resolve({ items: [], before: null, after: (args || {}).after || 0 });
     // A session Codealong runs: the reply it's writing, which a check can set.
     if (cmd === 'session_stream') return Promise.resolve(window.__stream || null);
-    if (cmd === 'session_cancel') return Promise.resolve(null);
+    if (cmd === 'session_cancel') return Promise.resolve('Stopped it (in the preview nothing is pressed anywhere).');
     if (cmd === 'send_to_session') return Promise.resolve({ message: 'Sent (in the preview nothing is typed anywhere).', opened: false });
     // A todo change "shows" on a board that never comes, so the page keeps its own copy of it.
     // Close idle terminals: the board's live terminal sessions quiet that long, without the

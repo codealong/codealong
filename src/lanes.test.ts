@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ageFiltered, bayOf, buildBays, bySession, closable, filterByAge, inboxCounts, narrowed, rowItems, sessionFlag, sessionHeadline, withoutAccount } from './lanes';
+import { ageFiltered, bayOf, buildBays, bySession, closable, stoppable, filterByAge, inboxCounts, narrowed, rowItems, sessionFlag, sessionHeadline, withoutAccount } from './lanes';
 import type { Lane, Pr, Session } from './types';
 
 const NOW = 1_790_200_000_000;
@@ -233,5 +233,19 @@ describe('closable', () => {
     expect(closable(live({ hosted: true }))).toBe(false);
     expect(closable(live({ pid: null }))).toBe(false);
     expect(closable(live({ key: '@ab12:claude:c:1' }))).toBe(false);
+  });
+});
+
+describe('stoppable', () => {
+  const running = (over: Partial<Session>): Session => ({ ...session('claude:c:1', 'working', NOW), live: true, ...over }) as Session;
+
+  it('offers Stop where the engine says it can reach the turn', () => {
+    expect(stoppable(running({ stoppable: true }))).toBe(true);
+    expect(stoppable(running({}))).toBe(false);
+  });
+
+  it('still offers it for a working session Codealong runs on a Mac from before', () => {
+    expect(stoppable(running({ hosted: true }))).toBe(true);
+    expect(stoppable(running({ hosted: true, status: 'idle' }))).toBe(false);
   });
 });

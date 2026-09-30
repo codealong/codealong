@@ -23,7 +23,8 @@ pub const SESSION_STREAM: &str = "session-stream";
 /// The sessions whose replies to send this connection as they're written (`Msg::Stream`), in
 /// place of the ones before; `keys` empty stops them.
 pub const SESSION_WATCH: &str = "session-watch";
-/// Stops the turn a session Codealong runs is taking.
+/// Stops the turn a session is taking (one whose feed says `stoppable`), answering what happened
+/// in a sentence. Macs before 2026-09-29 stop only sessions Codealong runs, and answer null.
 pub const SESSION_CANCEL: &str = "session-cancel";
 /// Where what you typed goes, as the quick panel suggests it: Jev's answer about this device's
 /// board (`Route`). Macs before 2026-09-29 refuse it as a request they don't know.

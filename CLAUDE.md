@@ -93,6 +93,8 @@ The engine binary doubles as a CLI for checking behavior without a window:
 - `codealong --snapshot --rename <session key> <name>`: names a session where its harness keeps
   names, as Rename… in its menu does (`Adapter::rename`). It renames it for real: use a scratch
   session, or a `HOME` of your own with scratch accounts.
+- `codealong --snapshot --stop <session key>`: stops the turn a session is taking, as its Stop
+  does (`Adapter::interrupt`). Real: use it only on a session of your own.
 - `codealong --snapshot --editor-icons`: the installed editors' app icons, as the Open in menus
   get them (`editors.rs`).
 - `codealong --snapshot --start-options`: where each account can start a session.
@@ -440,6 +442,18 @@ Claude Code
   sha256(config dir)>/control.sock`, one JSON line each way, `{"proto":1,"op":"reply","short":
   <jobId>,"text":…,"auth":<contents of <home>/daemon/control.key>}`. It's pasted into the job as
   if typed.
+- Nothing on that socket stops a job's turn (2.1.285's ops: attach, await-ack, dispatch, has,
+  kill, lease, leases, list, nudge, ping, reply, resize, respawn-stale, shutdown, yield), and
+  `reply` pastes and presses Return. `attach` (`{"proto":1,"op":"attach","short","auth","cols",
+  "rows","attachId"}`; `caps`, if given, must be an object: null is refused as malformed) answers
+  one JSON line and hands whatever comes after the request line to the job's terminal as typed,
+  so an Escape written there stops the turn as in a terminal (`send::daemon_press_escape`,
+  checked 2026-09-29). Attaching sizes the job's terminal to the attacher's and redraws it;
+  detaching gives a terminal still attached its own size back. The daemon drops an attached
+  connection whose unread output piles up.
+- Nothing from outside stops a Claude app session's turn: the app sends a stream-json
+  `control_request` `{subtype: "interrupt"}` down the pipe it runs Claude Code through, and the
+  session's socket takes only messages.
 - A permission prompt (checked on 2.1.283, in tmux): the registry says `"status": "waiting"`,
   `"waitingFor": "permission prompt"`, and the transcript's last `tool_use` has no result yet.
   The prompt lists `1. Yes`, `2. Yes, and always allow…`, `3. No`; the digit alone answers it
@@ -584,6 +598,13 @@ Codex
   `codex://threads/<id>` makes the window take it within about 2 s, but it takes it as it starts
   loading: a turn sent in the next second went out with an empty model ("The '' model is not
   supported") and the app's default reviewer, so `send::codex_start_turn` waits 2 s more.
+- `thread-follower-interrupt-turn` to the owning window stops a thread's turn as the app's Stop
+  does from a window that doesn't own it: `params: {conversationId, mode: "user-stop"}`, version
+  3 (4 with `expectedTurnId`, which stops the turn only while it's still the one running; 26.924's
+  code). It sends `turn/interrupt`, kills the exec running the call, pauses an active goal and
+  stops its subagents; the rollout gets `turn_aborted`. A command already handed to a background
+  terminal keeps running, as after Escape in the CLI ("1 background terminal running · /stop to
+  close"); `thread/backgroundTerminals/clean {threadId}` ends those (checked 2026-09-29).
 - A new thread can be started for the app to run: `thread/start {cwd}` from an app-server of
   your own, then `thread/inject_items` with one item (an empty list is refused), since the
   rollout isn't written until the history has something in it and the app can't open a thread
@@ -606,7 +627,8 @@ Codex
   id Codex picks (the app-server's `thread/fork {threadId, cwd, …}` does the same), and a typed-in prompt pasted into the TUI is sent with Return, queued while a
   turn runs. `codex::terminals` finds TUIs by `ps` (the daemon, `exec` and bundled copies aren't
   terminals) and `pair_terminals` gives each its `resume` id or its folder's newest CLI thread
-  active since it started.
+  active since it started. Escape in the TUI stops a running turn ("Conversation interrupted", `turn_aborted`),
+  leaving its background terminals running.
 - `codex://threads/new?path=<folder>&prompt=<text>` opens a new thread there with the prompt
   filled in (it also takes `originUrl`, `projectId`, `mode` and `browserUrl`, and no images;
   nothing in 26.924's link parser sends it);
@@ -627,7 +649,8 @@ Codex
 - Actions go through its app-server: `<the app's CLI> app-server --listen stdio://` with `CODEX_HOME` set, JSON lines: `initialize {clientInfo}`,
   then `{"method":"initialized"}`, then e.g. `thread/archive {threadId}`. No shared daemon runs,
   so `codex app-server proxy` fails. `codex app-server generate-json-schema --out <dir>` dumps
-  the protocol. Logs: `~/Library/Logs/com.openai.codex/`.
+  the protocol. Logs: `~/Library/Logs/com.openai.codex/`. Your own app-server can't archive a
+  thread the app has loaded ("thread … already has an active writer").
 - `thread/name/set {threadId, name}` names a thread, loaded or not: a line in
   `session_index.jsonl` and `threads.name` in `state_5.sqlite`. It refuses an archived thread
   ("no rollout found for thread id …"; 0.158.0-alpha.2 on a scratch `CODEX_HOME`, 2026-09-29).
@@ -668,6 +691,10 @@ OpenCode (2.0.16, from its source at that tag and its files here)
   prompt; any TUI on that session shows it.
 - `PATCH /api/session/<id>` with `{title}` renames a session (204; `time_updated` moves), as it
   takes `metadata` and `permissions` (checked against a service of its own, 2026-09-29).
+- `POST /api/session/<id>/interrupt` (body `{}` is fine) stops a session's run and answers
+  `{interrupted}`, false for one that was idle; the row gets `idle_outcome` `interrupted`.
+  `?resume=true`, which the TUI's double Escape sends, goes straight on with a message steering
+  it (checked 2026-09-29).
 - `POST /api/session/<id>/fork` with `{}` copies a session's history into a new session (`{before:
   <message id>}` copies what came before it) and answers `{data: {id, title, fork: {sessionID,
   boundary}}}`. The copy has no `parent_id`, so it lists as a session of its own, titled `<title>

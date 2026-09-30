@@ -18,6 +18,10 @@
 //
 // Where there's a next session waiting on you (the Sessions view's panel), ⌘⏎ sends and goes on to
 // it, or, while the session waits on a call that can be allowed here, allows it and goes on.
+//
+// While its turn runs, Stop (⌘.) ends it where Codealong can reach the session (the engine's
+// `stoppable`): what the harness's own Stop sends, or Escape pressed in its terminal. The session
+// carries on, waiting for you.
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent } from 'react';
 import { sendAhead, sending, useAhead } from '../ahead';
@@ -25,6 +29,7 @@ import { sessionAnswer, sessionCancel, sessionPending } from '../api';
 import { filesToAttach, keepFiles } from '../attachInput';
 import { onDraftChange, readDraft, writeDraft } from '../drafts';
 import { sessionPlace } from '../harness';
+import { stoppable } from '../lanes';
 import { attachmentsIn, insertAttachments, withoutAttachment } from '../todos';
 import type { Answers, Pending, Question, Sent, Session } from '../types';
 import { CodeBlock } from './CopyButton';
@@ -33,6 +38,8 @@ import { Button, Icon, Rich } from './primitives';
 
 /** The box grows to this many lines, then scrolls. */
 const LINES = 8;
+/** How long a Stop waits for the turn to end before saying it hasn't. */
+const STOP_WAIT_MS = 8000;
 
 function plain(e: unknown): string {
   return String(e).replace(/^Error: /, '');
@@ -157,14 +164,47 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
     el.setSelectionRange(el.value.length, el.value.length);
   }, [autoFocus]);
 
-  // A session Codealong runs can be stopped mid-turn from here.
+  // A session whose turn is running can be stopped from here, where Codealong can reach it. The
+  // button says Stopping until the turn ends, and says so if it hasn't a while later.
+  const canStop = stoppable(s);
   const [stopping, setStopping] = useState(false);
+  useEffect(() => {
+    if (!stopping) return;
+    if (!canStop) {
+      setStopping(false);
+      return;
+    }
+    const t = window.setTimeout(() => {
+      setStopping(false);
+      setNote({ text: 'It still says it’s working. Open it to stop it there.', error: true });
+    }, STOP_WAIT_MS);
+    return () => window.clearTimeout(t);
+  }, [stopping, canStop]);
   const stop = () => {
+    if (stopping) return;
     setStopping(true);
-    sessionCancel(s.key)
-      .catch((e: unknown) => setNote({ text: plain(e), error: true }))
-      .finally(() => setStopping(false));
+    setNote(null);
+    sessionCancel(s.key).then(
+      (said) => setNote({ text: said, error: false }),
+      (e: unknown) => {
+        setStopping(false);
+        setNote({ text: plain(e), error: true });
+      },
+    );
   };
+  const stopNow = useRef(stop);
+  stopNow.current = stop;
+  // ⌘. stops it, as it stops things in the Mac's own apps, wherever the focus is in the window.
+  useEffect(() => {
+    if (!canStop) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== '.' || !e.metaKey || e.shiftKey || e.altKey || e.ctrlKey || e.defaultPrevented) return;
+      e.preventDefault();
+      stopNow.current();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [canStop]);
 
   /** Sends what's in the box; says whether there was anything to send. */
   const send = (): boolean => {
@@ -237,11 +277,11 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
       {attached.length > 0 && <AttachmentStrip items={attached} onRemove={(a) => setText(withoutAttachment(latest.current, a.path))} />}
       <div className="ca-composer-foot">
         <span className={['ca-composer-note', note?.error && 'is-error'].filter(Boolean).join(' ')}>
-          {note?.error ? note.text : going ? 'Sending…' : (note?.text ?? hint(waiting, !!onNext, !!onAllowNext))}
+          {note?.error ? note.text : going ? 'Sending…' : (note?.text ?? hint(waiting, !!onNext, !!onAllowNext, canStop))}
         </span>
-        {s.hosted && s.status === 'working' && (
-          <Button size="sm" icon="pause" disabled={stopping} onClick={stop}>
-            Stop
+        {canStop && (
+          <Button size="sm" icon="player-stop" disabled={stopping} onClick={stop} title="Stop its turn (⌘.)">
+            {stopping ? 'Stopping…' : 'Stop'}
           </Button>
         )}
         <Button variant="primary" size="sm" icon="send" disabled={!text.trim() || waiting} onClick={send}>
@@ -253,9 +293,10 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
 }
 
 /** What the box's keys do, below it. */
-function hint(waiting: boolean | undefined, next: boolean, allowNext: boolean): string {
+function hint(waiting: boolean | undefined, next: boolean, allowNext: boolean, stop: boolean): string {
   if (waiting) return allowNext ? '⌘⏎ allow + next · send this once it isn’t waiting on you' : 'Send this once it isn’t waiting on you';
-  return next ? '⏎ send · ⌘⏎ send + next · ⇧⏎ new line' : '⏎ sends · ⇧⏎ new line';
+  if (next) return `⏎ send · ⌘⏎ send + next · ⇧⏎ new line${stop ? ' · ⌘. stop' : ''}`;
+  return `⏎ sends · ⇧⏎ new line${stop ? ' · ⌘. stops' : ''}`;
 }
 
 interface ApprovalProps {

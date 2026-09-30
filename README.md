@@ -28,7 +28,7 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     here, with `p` or the right-click menu, and their pins show only here. Archive a session
     with `a` or its right-click menu; Codex threads are archived in Codex itself. Close
     terminal, in the right-click menu of a session running in a Ghostty, iTerm2 or Terminal
-    tab, closes that tab whatever the session is doing, and Stop background job stops a Claude
+    tab, closes that tab whatever the session is doing, and End background job stops a Claude
     Code background job; either way its conversation is kept and resumes. Rename a session
     with `r` or its right-click menu, here or wherever a session has one (the floating bar's
     pills, cards on the desktop and the quick panel's rows change the name in place). The name
@@ -36,7 +36,14 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     transcript, which `/resume` lists it by and a running session takes up, in its terminal's
     title too, the next time it reads its transcript's end; a Codex thread, which the Codex app
     shows the next time it reads its threads (not an archived one); an OpenCode session,
-    through its service, so OpenCode must be running. Antigravity's can't be renamed here. Mark a
+    through its service, so OpenCode must be running. Antigravity's can't be renamed here.
+    Stop turn, in the right-click menu of a session whose turn is running (here, on the
+    floating bar and in the quick panel), ends that turn and leaves the session waiting for
+    you, as its own Stop or Escape would: Escape pressed in its Ghostty, iTerm2 or tmux tab for
+    Claude Code and the Codex CLI (through its account's background service for a Claude Code
+    background job), the Codex app's own Stop for its threads, and OpenCode's service for
+    OpenCode. Claude app sessions, Terminal tabs and Antigravity can't be stopped from
+    Codealong. Mark a
     finished turn seen, which makes it idle and takes it off the floating bar, with `e`, the
     check at the top of its panel or its right-click menu. Fork in terminal, in a Claude Code,
     Codex or OpenCode session's right-click menu, opens a copy of its conversation in a new
@@ -67,7 +74,9 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     Answer sends your picks. Claude Code's own prompt stays up all the while, and whichever
     answer comes first counts. Others open where they run to be answered. The box stays meanwhile,
     keeping what you'd written, and Send works again once the session isn't waiting (a session
-    run In Codealong takes it at once, after its current turn). To work through what waits on
+    run In Codealong takes it at once, after its current turn). While a turn runs that
+    Codealong can stop, Stop sits beside Send (⌘. anywhere in the window), and says Stopping…
+    until the turn has ended. To work through what waits on
     you, ⌘⏎ in the box sends and goes on to the next session listed that waits on you (Needs
     you the longest wait first, then Your turn), or, while the session waits on a call that can
     be allowed here, allows it and goes on; ⏎ sends and stays. `e` on the list (⌘E in the box,
@@ -297,7 +306,7 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   agent's Agent Client Protocol adapter (`codealong install` adds the ones for Claude Code and
   Codex; OpenCode has its own): its panel shows the reply as it's written, takes the next
   prompt (queued while a turn runs), answers what it asks to run with Allow and Deny, and Stop
-  ends a turn. The agent keeps the session in its usual records, so it can be resumed in a
+  ends a turn, as it does for sessions running elsewhere. The agent keeps the session in its usual records, so it can be resumed in a
   terminal too, and after Codealong restarts, sending to it picks it up again. Auto, the default
   (and `codealong start`'s), keeps to preferred accounts (starred in Settings › Accounts;
   without a star, those of the first account's agent) while one has room, judged by the limits

@@ -71,6 +71,12 @@ export function seenable(s: Session): boolean {
 /** Whether Codealong can close a session from its menu (idle.rs `close_one`): one running on
  *  this device in a terminal of its own, whose tab closes, or as a background job, which stops.
  *  The apps' sessions and the ones Codealong runs itself have no terminal to close. */
+/** Whether Codealong can stop the turn a session is taking. A session Codealong runs on a Mac
+ *  from before stops reached every harness says so by working alone. */
+export function stoppable(s: Session): boolean {
+  return !!s.stoppable || (!!s.hosted && s.status === 'working');
+}
+
 export function closable(s: Session): boolean {
   return s.live && s.surface === 'cli' && !s.hosted && !shortOf(s.key) && (s.pid != null || s.attachCommand != null);
 }

@@ -2538,6 +2538,7 @@ impl Engine {
         for s in &mut out {
             crate::acp::overlay(s, self.seen.seen_at(&s.key));
             crate::asks::overlay(s);
+            s.stoppable = crate::harness::stoppable(s, self.cfg.accounts.iter().find(|a| a.name == s.account));
         }
         out
     }

@@ -1014,10 +1014,11 @@ export async function sessionStream(key: string): Promise<HostedStream | null> {
   return invoke<HostedStream | null>('session_stream', { key });
 }
 
-/** Stops the turn a session Codealong runs is taking. */
-export async function sessionCancel(key: string): Promise<void> {
+/** Stops the turn a session is taking, as its harness's own Stop or Escape does; says what
+ *  happened. */
+export async function sessionCancel(key: string): Promise<string> {
   if (!inTauri) throw new Error('Stopping needs the app.');
-  await invoke('session_cancel', { key });
+  return invoke<string>('session_cancel', { key });
 }
 
 /** The replies sessions Codealong runs write, as they stream. */
