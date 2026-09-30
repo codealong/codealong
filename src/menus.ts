@@ -12,7 +12,8 @@ import { archiveAhead, seenAhead } from './ahead';
 import type { MenuAction, MenuSpec } from './contextMenu';
 import { shortOf } from './devices';
 import { folderMenu, openInMenu, opensInEditor, type AppIcons, type Apps } from './editors';
-import { renames, sessionPlace } from './harness';
+import { renames } from './harness';
+import { openLabel } from './open';
 import { closable, seenable, stoppable } from './lanes';
 import { snoozeMenu } from './snooze';
 import type { DesktopPinned, Lane, Pr, Session, Started } from './types';
@@ -56,12 +57,6 @@ export function useDesktopPins(): ReadonlySet<string> {
     return onDesktopPins(take);
   }, []);
   return pins;
-}
-
-/** Where a session opens, as its worktree says it (Respond in Ghostty, Resume in Ghostty), or,
- *  since worktrees list that for their first few sessions only, from where it runs. */
-export function openLabel(lane: Lane, s: Session, terminal: string): string {
-  return lane.targets.find((t) => t.id === s.openTarget)?.label ?? `Open in ${sessionPlace(s, terminal)}`;
 }
 
 /** Opens a worktree's PR on GitHub. */

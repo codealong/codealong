@@ -12,7 +12,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSPr
 import { below, showContextMenu, type MenuAction, type MenuSpec } from './contextMenu';
 import { useEditorIcons } from './editors';
 import { AGENT_BAY, buildBays, filterByAge, homeOf, inboxCounts, liveOrLatest, narrowed, prNeedsWork, rowItems, seenable, worktreeRow, sessionHomes, type BoardRow, type Filter, type WorktreeRow } from './lanes';
-import { answerLink, approvePr, barMode, getDevices, onDevices, dismissTodoHint, expandAttachments, getBoard, onBarMode, onBoard, onCloseIdle, onNewWindow, onQuickStart, onReveal, onSettings, onCheckUpdates, openConfig, openProjectWindow, openTarget, openUrl, refresh, refreshUsage, reviewInCodex, setBarMode, startOptions, startSession, setPinned, setPinnedWorktrees, setTheme, showQuick, signIn, windowLabel, type BarMode, type Reveal } from './api';
+import { answerLink, approvePr, barMode, getDevices, onDevices, dismissTodoHint, expandAttachments, getBoard, onBarMode, onBoard, onCloseIdle, onNewWindow, onQuickStart, onReveal, onSettings, onCheckUpdates, openConfig, openProjectWindow, openUrl, refresh, refreshUsage, reviewInCodex, setBarMode, startOptions, startSession, setPinned, setPinnedWorktrees, setTheme, showQuick, signIn, windowLabel, type BarMode, type Reveal } from './api';
 import { middleTruncate } from './format';
 import { renames } from './harness';
 import * as menus from './menus';
@@ -54,6 +54,7 @@ import { Sidebar, type SideStatus } from './ui/Sidebar';
 import { loadSaved, newSavedId, onSavedChange, sameView, storeSaved, suggestName, type SavedView, type ViewState } from './savedViews';
 import { useNow } from './ui/useNow';
 import { errorText, type Report } from './report';
+import { openWhere, where } from './open';
 
 const ELSEWHERE = 'Elsewhere';
 
@@ -752,13 +753,8 @@ export function App() {
       markSeen([key]);
       return;
     }
-    const target = lane.targets.find((t) => t.id === targetId);
-    if (target?.disabled) {
-      setToast(target.detail ?? `${target.label} isn't available right now.`);
-      return;
-    }
-    track(`${target?.label ?? 'Opening'}…`, openTarget(lane.id, targetId)).catch((e: unknown) => setToast(String(e)));
-  }, [track, markSeen]);
+    openWhere(where(lane, targetId), { report, from: 'main' });
+  }, [report, markSeen]);
 
   const openRow = useCallback(
     (row: Row | null) => {

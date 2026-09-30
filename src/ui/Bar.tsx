@@ -12,7 +12,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { barMode, dragToDesktop, fitBar, getBarFeed, onBarDragEnd, onBarFeed, onBarMode, onBarNote, onPeekShown, openFromBar, peekHide, peekOpen, sessionAt, setBarMode, setNotchOpen, showMain, showQuick, type BarModeView, type PillRect } from '../api';
+import { barMode, dragToDesktop, fitBar, getBarFeed, onBarDragEnd, onBarFeed, onBarMode, onBarNote, onPeekShown, peekHide, peekOpen, sessionAt, setBarMode, setNotchOpen, showMain, showQuick, type BarModeView, type PillRect } from '../api';
 import { CLICK_WAIT_MS, elsewhereWaits, fitGroups, GROUPS, plain, projectWaits, type Group, type GroupFit, type WaitCounts } from '../bar';
 import { showContextMenu, type MenuAction, type MenuSpec } from '../contextMenu';
 import { useEditorIcons, type Apps } from '../editors';
@@ -29,6 +29,7 @@ import { NotchShell } from './Notch';
 import { LOGO_LABEL, useLogo } from '../logo';
 import { useNow } from './useNow';
 import { errorText, type Report } from '../report';
+import { openWhere, openWords } from '../open';
 
 /** Room around the bar for its shadow: the window is this much bigger on every side. */
 const MARGIN = 12;
@@ -66,21 +67,6 @@ function storedProject(): string {
 /** The pill's class for a status: errors are red, the rest of Needs you amber. */
 function tone(status: Status): string {
   return status === 'error' ? 'is-error' : `is-${status}`;
-}
-
-/** The session menu's open item: its lane's label for it, or one from how the session opens
- *  (lanes list targets for their first few sessions only). */
-function openLabel(i: Pick<BarItem, 'target' | 'openTarget'>, terminal: string): string {
-  if (i.target) return i.target.label;
-  const how: Record<string, string> = {
-    focus: `Show in ${terminal}`,
-    attach: `Attach in ${terminal}`,
-    resume: `Resume in ${terminal}`,
-    'claude-app': 'Open in Claude app',
-    codex: 'Open in Codex',
-    antigravity: 'Open Antigravity',
-  };
-  return how[i.openTarget.split('|')[2]] ?? 'Open';
 }
 
 /** What a pill says to a screen reader; the peek shows the rest. */
@@ -538,14 +524,18 @@ export function Bar() {
     peekOpen(i.key, rectOf(el), true, rename).catch((e: unknown) => setFailed({ anchor: i.key, message: errorText(e) }));
   };
 
-  const open = (i: BarItem | BarRecent | BarSnoozed, anchor = i.key) => {
+  /** Opens a session where it lives (open.ts), or with `target` another of its worktree's
+   *  targets; what goes wrong shows on the pill `anchor`. */
+  const open = (i: BarItem | BarRecent | BarSnoozed, anchor = i.key, target = i.openTarget) => {
     stopHover();
-    if (peekedNow.current.key) void peekHide();
-    if (i.target?.disabled) {
-      setFailed({ anchor, message: i.target.detail ?? `${i.target.label} isn't available right now.` });
-      return;
-    }
-    openFromBar(i.laneId, i.openTarget).catch((e: unknown) => setFailed({ anchor, message: errorText(e) }));
+    const w = target === i.openTarget ? { laneId: i.laneId, target, listed: i.target } : { laneId: i.laneId, target };
+    openWhere(w, {
+      report: { error: (message) => setFailed({ anchor, message }), info: (message) => setFailed({ anchor, message, tone: 'info' }) },
+      from: 'panel',
+      before: () => {
+        if (peekedNow.current.key) void peekHide();
+      },
+    });
   };
 
   /** Shows the session in Codealong's window: what a click on its pill, or an item in the bar's
@@ -622,7 +612,7 @@ export function Bar() {
       setApps(at.apps);
       return menus.sessionMenu(at.lane, at.session, {
         report,
-        open: (lane, target) => (target === i.openTarget ? open(i) : openFromBar(lane.id, target).catch(failedOn(i.key))),
+        open: (_, target) => open(i, i.key, target),
         terminal: at.apps.terminal,
         heading: true,
         reveal: () => reveal(i),
@@ -665,7 +655,7 @@ export function Bar() {
       label: `${i.title} · ${i.callsign} · until ${untilWords(i.snoozedUntil, t)}`,
       items: [
         { label: 'Show in Codealong', run: () => reveal(i) },
-        { label: openLabel(i, terminal), run: () => wakeAndOpen(i) },
+        { label: i.target?.label ?? openWords(i.openTarget, terminal), run: () => wakeAndOpen(i) },
         'separator',
         { label: 'Wake now', run: () => snoozeDone([i.key], 'snoozed')(snoozeAhead([i.key], null)) },
         snoozeMenu([i.key], t, { label: 'Snooze instead', onDone: snoozeDone([i.key], 'snoozed') }),

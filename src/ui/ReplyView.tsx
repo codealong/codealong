@@ -11,7 +11,7 @@ import { below } from '../contextMenu';
 import { shortOf } from '../devices';
 import { agoPhrase, duration } from '../format';
 import { sessionName } from '../harness';
-import { openLabel } from '../menus';
+import { openLabel } from '../open';
 import { seenable } from '../lanes';
 import { untilWords } from '../snooze';
 import type { Lane, Sent, Session } from '../types';

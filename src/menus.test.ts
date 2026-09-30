@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { MenuSpec } from './contextMenu';
-import { laneMenu, openLabel, prMenu, sessionMenu, todoMenu, type SessionCan } from './menus';
+import { laneMenu, prMenu, sessionMenu, todoMenu, type SessionCan } from './menus';
+import { openLabel } from './open';
 import type { Report } from './report';
 import type { Lane, Session } from './types';
 
@@ -130,8 +131,10 @@ describe('sessionMenu', () => {
 
   it('names where it opens when the worktree doesn’t list it', () => {
     expect(openLabel(lane(), session(), 'Ghostty')).toBe('Respond in Ghostty');
-    expect(openLabel(lane({ targets: [] }), session(), 'Ghostty')).toBe('Open in Ghostty');
-    expect(openLabel(lane({ targets: [] }), session({ surface: 'app' }), 'Ghostty')).toBe('Open in Claude app');
+    // In the engine's words for how it opens.
+    expect(openLabel(lane({ targets: [] }), session(), 'Ghostty')).toBe('Show in Ghostty');
+    expect(openLabel(lane({ targets: [] }), session({ openTarget: 's|claude:c:1|resume' }), 'Ghostty')).toBe('Resume in Ghostty');
+    expect(openLabel(lane({ targets: [] }), session({ openTarget: 's|claude:c:1|claude-app' }), 'Ghostty')).toBe('Open in Claude app');
   });
 });
 

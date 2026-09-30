@@ -9,7 +9,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { fitDesktop, getDesktopFeed, onDesktopFeed, onPeekShown, openFromBar, openUrl, peekHide, peekOpen, showMain, showQuick, unpinFromDesktop, type PillRect } from '../api';
+import { fitDesktop, getDesktopFeed, onDesktopFeed, onPeekShown, openUrl, peekHide, peekOpen, showMain, showQuick, unpinFromDesktop, type PillRect } from '../api';
 import { boardView, lanesAhead, observe, useAhead } from '../ahead';
 import { CLICK_WAIT_MS, plain } from '../bar';
 import { showContextMenu, type MenuSpec } from '../contextMenu';
@@ -23,6 +23,7 @@ import { STATUS_WORD } from './primitives';
 import { useTheme } from './ThemeSwitch';
 import { useNow } from './useNow';
 import { errorText, type Report } from '../report';
+import { openWhere, where } from '../open';
 
 /** Room around the card for its shadow: the window is this much bigger on every side. */
 const MARGIN = 12;
@@ -138,17 +139,13 @@ export function DesktopPin() {
   }, [report]);
 
   const fail = (e: unknown) => setFailed(errorText(e));
+  // What comes of an open or a menu's action shows on the card.
+  const said: Report = { error: setFailed, info: setFailed };
 
   /** Opens a session where it lives and brings that app forward: a click here leaves Codealong
    *  in the background, as one in the bar does. */
-  const openSession = (lane: Lane, s: Session) => {
-    const target = lane.targets.find((t) => t.id === s.openTarget);
-    if (target?.disabled) {
-      setFailed(target.detail ?? `${target.label} isn't available right now.`);
-      return;
-    }
-    openFromBar(lane.id, s.openTarget).catch(fail);
-  };
+  const openOn = (lane: Lane, target: string) => openWhere(where(lane, target), { report: said, from: 'panel' });
+  const openSession = (lane: Lane, s: Session) => openOn(lane, s.openTarget);
 
   /** What a click on the card does: a session opens where it lives, a worktree the way its row's
    *  double-click opens it, and a todo its session, or the quick panel ready to start one. */
@@ -159,10 +156,8 @@ export function DesktopPin() {
         return;
       case 'worktree': {
         const l = data.lane;
-        const target = l.targets.find((t) => t.id === l.defaultTarget);
-        if (!l.defaultTarget) void showMain({ kind: 'worktree', laneId: l.id });
-        else if (target?.disabled) setFailed(target.detail ?? `${target.label} isn't available right now.`);
-        else openFromBar(l.id, l.defaultTarget).catch(fail);
+        if (l.defaultTarget) openOn(l, l.defaultTarget);
+        else void showMain({ kind: 'worktree', laneId: l.id });
         return;
       }
       case 'todo': {
@@ -186,9 +181,7 @@ export function DesktopPin() {
   };
   /** The menus, as every window has them (menus.ts): the card's thing's, or a session's for a
    *  session line in a worktree's or todo's card. What comes of them shows on the card. */
-  const said: Report = { error: setFailed, info: setFailed };
   const editors = feed ? { apps: feed, icons } : undefined;
-  const openOn = (lane: Lane, target: string) => void openFromBar(lane.id, target).catch(fail);
   const sessionMenu = (lane: Lane, s: Session, el: Element | null): MenuSpec =>
     menus.sessionMenu(lane, s, {
       report: said,

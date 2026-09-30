@@ -11,7 +11,7 @@
 // session follows the board, and the peek stays on it as its pill moves along the bar.
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { barNote, getBoard, inPreview, onBoard, onPeekHidden, onPeekOpen, onPeekShown, openFromBar, peekFit, peekFocus, peekHide, peekReady, showMain } from '../api';
+import { barNote, getBoard, inPreview, onBoard, onPeekHidden, onPeekOpen, onPeekShown, peekFit, peekFocus, peekHide, peekReady, showMain } from '../api';
 import { archiveAhead, boardView, lanesAhead, observe, renameAhead, seenAhead, useAhead } from '../ahead';
 import { below, showContextMenu } from '../contextMenu';
 import { readDraft } from '../drafts';
@@ -26,6 +26,7 @@ import { ReplyView } from './ReplyView';
 import { useTheme } from './ThemeSwitch';
 import { useNow } from './useNow';
 import { errorText, type Report } from '../report';
+import { openWhere, where } from '../open';
 
 /** Room around the card for its shadow (`--shadow-peek`, which falls away from the bar): the
  *  window (peek.rs) is the card, this on its sides, `FAR` on the side away from the bar, and
@@ -196,10 +197,15 @@ export function Peek() {
 
   if (!open || !lane || !session || !shown) return null;
 
-  const openHere = () => {
-    void peekHide();
-    void openFromBar(lane.id, session.openTarget).catch((e: unknown) => void barNote({ key: session.key, message: errorText(e), tone: 'error' }));
+  /** What comes of an open or the menu's actions is said on the bar, by the session's pill,
+   *  since the peek may be gone by then. */
+  const report: Report = {
+    error: (message) => void barNote({ key: session.key, message, tone: 'error' }),
+    info: (message) => void barNote({ key: session.key, message, tone: 'info' }),
   };
+  /** Opens one of the worktree's targets where it lives (open.ts), putting the peek away. */
+  const openOn = (l: Lane, target: string) => openWhere(where(l, target), { report, from: 'panel', before: () => void peekHide() });
+  const openHere = () => openOn(lane, session.openTarget);
 
   /** Takes the session off the bar, and puts the peek away. */
   const dismiss = (act: Promise<void>) => {
@@ -221,19 +227,11 @@ export function Peek() {
     void showMain({ kind: 'session', laneId: lane.id, key: session.key });
   };
 
-  /** The session's menu, as every window has it (menus.ts). What comes of it is said on the
-   *  bar, by the session's pill, since the peek may be gone by then. */
+  /** The session's menu, as every window has it (menus.ts). */
   const menu = (at?: { x: number; y: number }) => {
-    const report: Report = {
-      error: (message) => void barNote({ key: session.key, message, tone: 'error' }),
-      info: (message) => void barNote({ key: session.key, message, tone: 'info' }),
-    };
     const spec = menus.sessionMenu(lane, session, {
       report,
-      open: (l, target) => {
-        void peekHide();
-        void openFromBar(l.id, target).catch((e: unknown) => report.error(errorText(e)));
-      },
+      open: openOn,
       terminal: open.terminal,
       reveal,
       editors: open.apps ? { apps: open.apps, icons } : undefined,

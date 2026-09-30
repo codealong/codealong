@@ -31,7 +31,6 @@ import {
   onBoard,
   onDevices,
   onQuickHidden,
-  openFromBar,
   openUrl,
   quickReady,
   routeQuick,
@@ -93,6 +92,7 @@ import { TodoGlyph } from './TodoBits';
 import { UsageMeter } from './UsageBar';
 import { useNow } from './useNow';
 import { errorText, type Report } from '../report';
+import { openWhere, where } from '../open';
 
 declare global {
   interface Window {
@@ -778,23 +778,31 @@ export function Quick() {
   };
 
   /** Opens a session where it lives. The search that found it is done with. */
-  const openSession = (lane: Lane, session: Session) => {
-    const target = lane.targets.find((t) => t.id === session.openTarget);
-    if (target?.disabled) {
-      setError(target.detail ?? `${target.label} isn’t available right now.`);
-      return;
-    }
+  const openSession = (lane: Lane, session: Session) => openHere(lane, session.openTarget);
+
+  /** Opens one of a worktree's targets where it lives (open.ts): the panel puts itself away,
+   *  and comes back as it was if the open fails. */
+  const openHere = (lane: Lane, target: string) => {
     const kept = textNow.current;
-    setText('');
-    setActiveKey(null);
-    setError(null);
-    void hideQuick();
-    openFromBar(lane.id, session.openTarget).catch((e: unknown) =>
-      reopen(() => {
-        setText(kept);
-        setError(errorText(e));
-      }),
-    );
+    openWhere(where(lane, target), {
+      from: 'panel',
+      report: {
+        error: (message) =>
+          shownNow.current
+            ? setError(message)
+            : reopen(() => {
+                setText(kept);
+                setError(message);
+              }),
+        info: setInfo,
+      },
+      before: () => {
+        setText('');
+        setActiveKey(null);
+        setError(null);
+        void hideQuick();
+      },
+    });
   };
 
   const revealSession = (lane: Lane, session: Session) => {
@@ -921,12 +929,6 @@ export function Quick() {
     return liveOrLatest(found);
   };
 
-  /** Opens another of a worktree's targets (its folder in an editor), as opening a session does. */
-  const openElsewhere = (lane: Lane, target: string) => {
-    void hideQuick();
-    openFromBar(lane.id, target).catch((e: unknown) => reopen(() => setError(errorText(e))));
-  };
-
   /** How the menus say how things went: in the answer view, its notice; else under the input. */
   const menuReport: Report = {
     error: (message) => (replyKeyNow.current ? setNotice({ text: message, error: true }) : setError(message)),
@@ -937,7 +939,7 @@ export function Quick() {
   const sessionMenuSpec = (lane: Lane, s: Session, left?: menus.SessionCan['left']): MenuSpec =>
     menus.sessionMenu(lane, s, {
       report: menuReport,
-      open: (l, target) => (target === s.openTarget ? openSession(l, s) : openElsewhere(l, target)),
+      open: openHere,
       terminal: board?.apps.terminal ?? 'Terminal',
       reveal: () => revealSession(lane, s),
       reply: replyKeyNow.current === s.key ? undefined : () => replyTo(s),
