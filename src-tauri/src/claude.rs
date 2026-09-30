@@ -27,6 +27,10 @@ pub struct RegistryEntry {
     /// Set on a window whose conversation moved to that background job: until you go back to
     /// it, the window shows Claude Code's list of agents and runs no session.
     pub parked_job: Option<String>,
+    /// A background session the account's service started ahead of time, so the next
+    /// background start takes it over at once. It has no conversation until then, and loses
+    /// the mark when its first turn starts.
+    pub spare: bool,
     pub entrypoint: Option<String>,
     pub name: Option<String>,
     pub name_source: Option<String>,
@@ -47,6 +51,8 @@ struct RawRegistry {
     kind: Option<String>,
     job_id: Option<String>,
     parked_job_id: Option<String>,
+    #[serde(default)]
+    spare: bool,
     entrypoint: Option<String>,
     name: Option<String>,
     name_source: Option<String>,
@@ -64,6 +70,7 @@ pub fn parse_registry(text: &str) -> Option<RegistryEntry> {
         kind: raw.kind,
         job_id: raw.job_id,
         parked_job: raw.parked_job_id,
+        spare: raw.spare,
         entrypoint: raw.entrypoint,
         name: raw.name,
         name_source: raw.name_source,
@@ -91,7 +98,8 @@ pub fn resumed_from(roster: &Value, job: &str) -> Option<String> {
 
 /// Live sessions for one account. Entries whose process is gone, or whose pid now belongs
 /// to a newer process, are dropped, and so are windows whose conversation moved to the
-/// background: the job it moved to runs it now (`board::claude_moves`).
+/// background: the job it moved to runs it now (`board::claude_moves`). So are spares, which
+/// Claude Code's own lookups skip too: nothing has happened in one yet.
 pub fn read_registry(home: &Path) -> Vec<RegistryEntry> {
     let Ok(entries) = std::fs::read_dir(home.join("sessions")) else { return vec![] };
     let mut out = Vec::new();
@@ -104,7 +112,7 @@ pub fn read_registry(home: &Path) -> Vec<RegistryEntry> {
         }
         let Ok(text) = std::fs::read_to_string(&path) else { continue };
         let Some(mut entry) = parse_registry(&text) else { continue };
-        if entry.parked_job.is_some() || !procs::pid_alive(entry.pid) {
+        if entry.parked_job.is_some() || entry.spare || !procs::pid_alive(entry.pid) {
             continue;
         }
         if let (Some(proc_start), Some(started)) = (procs::proc_start_ms(entry.pid), entry.started_at) {
@@ -1943,6 +1951,7 @@ mod tests {
         assert_eq!(e.status, "busy");
         assert_eq!(e.name.as_deref(), Some("atlas-app4-4b"));
         assert_eq!(e.parked_job, None);
+        assert!(!e.spare);
         assert!(parse_registry(r#"{"pid":1}"#).is_none());
     }
 
@@ -1964,14 +1973,18 @@ mod tests {
     }
 
     #[test]
-    fn a_window_whose_conversation_moved_to_the_background_runs_no_session() {
+    fn parked_windows_and_spares_run_no_session() {
         let home = std::env::temp_dir().join(format!("codealong-parked-{}", std::process::id()));
         std::fs::create_dir_all(home.join("sessions")).unwrap();
         let (pid, now) = (std::process::id(), crate::util::now_ms());
         let entry = |id: &str, extra: &str| format!(r#"{{"pid":{pid},"sessionId":"{id}","cwd":"/x","status":"idle","kind":"interactive","startedAt":{now}{extra}}}"#);
         std::fs::write(home.join("sessions/1.json"), entry("b664dd38", r#","parkedJobId":"398f3533""#)).unwrap();
         std::fs::write(home.join("sessions/2.json"), entry("c1456f74", "")).unwrap();
+        // A spare, as 2.1.286 registers one: named its job, idle, no transcript.
+        let spare = r#","jobId":"acdfc0fb","name":"acdfc0fb","spare":true"#;
+        std::fs::write(home.join("sessions/3.json"), entry("acdfc0fb-8aa7-4e09-b822-056b058f5ca5", spare)).unwrap();
         assert_eq!(parse_registry(&entry("b664dd38", r#","parkedJobId":"398f3533""#)).unwrap().parked_job.as_deref(), Some("398f3533"));
+        assert!(parse_registry(&entry("acdfc0fb-8aa7-4e09-b822-056b058f5ca5", spare)).unwrap().spare);
         let live: Vec<String> = read_registry(&home).into_iter().map(|e| e.session_id).collect();
         assert_eq!(live, vec!["c1456f74"]);
         std::fs::remove_dir_all(&home).unwrap();

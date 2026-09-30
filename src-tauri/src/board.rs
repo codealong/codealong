@@ -1558,6 +1558,7 @@ mod tests {
             kind: Some("interactive".into()),
             job_id: None,
             parked_job: None,
+            spare: false,
             entrypoint: Some("cli".into()),
             name: Some("atlas-quarry-8f".into()),
             name_source: Some("derived".into()),

@@ -359,6 +359,12 @@ Claude Code
   where it started. `board::session_seed` lists an agent where most of its last five
   commands and edits worked; `util::command_dir` has the rule for commands.
 - Background jobs (`kind: bg`) have no terminal; `<account command> attach <jobId>` opens one.
+- From 2.1.286 the account's background service keeps a warm spare: a background session started
+  ahead of time (roster `dispatch.source: "spare"`, empty `seed.intent`), which the next
+  background start takes over. Until then its registry entry says `"spare": true`, `kind: bg`,
+  `status: idle`, `name` its job ID, and it has no transcript; Claude Code clears the mark when
+  its first turn starts (`busy`). Claude Code's own session lookups skip spares, and so does
+  `claude::read_registry` (checked 2026-09-30, one spare per account on this Mac).
 - A Bash call's `tool_use` is in the transcript before its command runs, and the command's
   shell, a background one too, is a child of the session's process: the `codealong` command
   finds the session that runs it by its parent processes. A terminal keeps
