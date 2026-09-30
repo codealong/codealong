@@ -10,6 +10,8 @@ export interface SlashCommand {
   args: string;
   /** What it does, in a few words, as the hint shows it. */
   about: string;
+  /** The box's send button shows this while the command is typed, so ⏎ reads as running it. */
+  icon: string;
   /** Whether the session's harness can do it. */
   takes: (s: Session) => boolean;
 }
@@ -19,6 +21,7 @@ export const COMMANDS: SlashCommand[] = [
     name: 'fork',
     args: '[prompt]',
     about: 'a copy of it goes on in the background, starting on the prompt if you give one',
+    icon: 'git-fork',
     // Claude Code forks into a background job, OpenCode in its service, Codex in Codealong.
     takes: (s) => s.harness === 'claude' || s.harness === 'codex' || s.harness === 'opencode',
   },

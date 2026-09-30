@@ -402,7 +402,7 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
             disabled={empty || (waiting && !command) || (!!command && forking)}
             onClick={submit}
           >
-            <Icon name="arrow-up" size={16} stroke={2} />
+            <Icon name={command?.command.icon ?? 'arrow-up'} size={16} stroke={2} />
           </button>
         )}
       </div>

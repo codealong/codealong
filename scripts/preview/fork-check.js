@@ -1,5 +1,5 @@
 // Checks /fork in the reply box (SessionReply.tsx, slash.ts), in the bar's peek: typing a `/` and
-// the start of the name says what /fork does; ⏎ on `/fork <prompt>` asks for a background fork
+// the start of the name says what /fork does, and the send button shows a fork; ⏎ on `/fork <prompt>` asks for a background fork
 // with the prompt, clears the box, leaves the peek open and says what happened; a fork that fails
 // puts what was typed back with why; and any other `/…` is sent to the session as typed.
 //   PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/fork-check.js
@@ -64,6 +64,7 @@
       type(box(), '/fork try it with a queue');
       await wait(50);
       check('the button runs it', button().getAttribute('aria-label') === 'Run /fork' && !button().disabled, button().getAttribute('aria-label'));
+      check('and shows a fork, not the send arrow', button().innerHTML.indexOf('M12 12l0 4') >= 0);
       var hides = calls('peek_hide').length;
       var sends = calls('send_to_session').length;
       enter();
@@ -88,6 +89,7 @@
       type(box(), '/compact');
       await wait(50);
       check('another /command gets no hint', noteText().indexOf('/fork') < 0, noteText());
+      check('and the send arrow', button().innerHTML.indexOf('M12 12l0 4') < 0 && button().getAttribute('aria-label') === 'Send');
       enter();
       await until(function () { return calls('send_to_session').length > sends; }, 5000);
       var sent = calls('send_to_session');
