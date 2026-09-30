@@ -281,15 +281,17 @@ it waits on you to allow and how to answer. Adding one:
 1. A variant of `model::Harness` (and `src/types.ts`), its name in `Harness::word` and
    `src/harness.ts`, and its string in `config::HARNESSES`.
 2. A module with a struct implementing `harness::Adapter`, listed in `harness::ADAPTERS`. Only
-   `harness` and `records` are required; the rest default to saying it can't.
-3. Reading its sessions for the board, which still lives outside the adapter: the engine's
-   fields and `scan_sessions`, `watch`, `apply_fs`, `build_sessions`, `session_cwds`; a
-   `board::*_session` constructor for its status rules; `board::targets` and
-   `engine::open_on` for opening; `start.rs` for starting; a new `send::Route` if it takes
-   prompts some new way; `usage.rs` and `detect.rs` for limits, sign-in and finding it on the Mac; `install.rs` for its
-   skills folder; `search.rs` for text search. Most of these match on the harness's config
-   string with a fallback, so the compiler won't list them: search for an existing harness's
-   name. They move into the adapter as they're next changed.
+   `harness` and `records` are required; the rest default to saying it can't. Besides its
+   sessions, the adapter answers for an account: `installed`, `signed_in`, `sign_in_command`,
+   `folder_use` (detect.rs finds accounts by it), `skills_dir`, `acp_command`, `places` (where
+   sessions start), `session_cwds` (first run's projects) and `no_limits`.
+3. Reading its sessions for the board, which still lives in the engine with each harness's
+   caches and watches: the engine's fields and `scan_sessions`, `watch`, `apply_fs`,
+   `build_sessions`; a `board::*_session` constructor for its status rules; `board::targets`
+   and `engine::open_on` for opening; `start.rs`'s plans for starting; a new `send::Route` if it
+   takes prompts some new way; `usage.rs` for limits read from somewhere of its own;
+   `search.rs` for text search. These match on the harness's config string with a fallback, so
+   the compiler won't list them: search for an existing harness's name.
 
 ## Harness facts
 

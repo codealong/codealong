@@ -77,14 +77,7 @@ fn harness_of(a: &AccountCfg) -> Harness {
 /// `~/.codex`); the terminal runs any Claude Code, Codex or OpenCode account through its command.
 /// Antigravity starts conversations only in its own window.
 pub fn places_of(a: &AccountCfg, home: &Path) -> std::result::Result<Vec<Place>, String> {
-    match harness_of(a) {
-        Harness::Claude if a.home_path() == home.join(".claude") => Ok(vec![Place::Terminal, Place::Background, Place::ClaudeApp, Place::Codealong]),
-        Harness::Claude => Ok(vec![Place::Terminal, Place::Background, Place::Codealong]),
-        Harness::Codex if a.home_path() == home.join(".codex") => Ok(vec![Place::CodexApp, Place::Terminal, Place::Codealong]),
-        Harness::Codex => Ok(vec![Place::Terminal, Place::Codealong]),
-        Harness::Opencode => Ok(vec![Place::Terminal, Place::Codealong]),
-        Harness::Antigravity => Err(format!("Antigravity starts conversations in its own window, so {} can't start one from here.", a.name)),
-    }
+    crate::harness::adapter(harness_of(a)).places(a, home)
 }
 
 /// Why an account's `start` can't be where its sessions start, in words.

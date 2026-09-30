@@ -320,6 +320,23 @@ pub fn note_work(work: &mut Vec<String>, path: String) {
     }
 }
 
+
+/// Maps `f` over `items` on a few threads.
+pub fn parallel_map<T: Send, R: Send>(items: Vec<T>, f: impl Fn(T) -> Option<R> + Sync) -> Vec<R> {
+    let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).min(8);
+    let chunk = items.len().div_ceil(threads).max(1);
+    let mut buckets: Vec<Vec<T>> = Vec::new();
+    let mut items = items.into_iter().peekable();
+    while items.peek().is_some() {
+        buckets.push(items.by_ref().take(chunk).collect());
+    }
+    let f = &f;
+    std::thread::scope(|scope| {
+        let handles: Vec<_> = buckets.into_iter().map(|b| scope.spawn(move || b.into_iter().filter_map(f).collect::<Vec<R>>())).collect();
+        handles.into_iter().flat_map(|h| h.join().unwrap_or_default()).collect()
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

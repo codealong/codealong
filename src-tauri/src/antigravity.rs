@@ -139,6 +139,45 @@ impl crate::harness::Adapter for Antigravity {
         crate::model::Harness::Antigravity
     }
 
+    /// The sign-in is a token file beside the app data folder, under ~/.gemini; only whether
+    /// it's there is read.
+    fn signed_in(&self, home: &Path) -> (bool, Option<String>) {
+        (home.parent().is_some_and(|p| p.join("jetski-standalone-oauth-token").is_file()), None)
+    }
+
+    /// It signs in from its own window.
+    fn sign_in_command(&self, _account: &crate::config::AccountCfg) -> String {
+        "open -a Antigravity".to_string()
+    }
+
+    fn installed(&self, _home: &Path, _on_path: &dyn Fn(&str) -> bool) -> bool {
+        crate::detect::app("Antigravity.app").is_some()
+    }
+
+    fn folder_use(&self, dir: &Path) -> crate::harness::FolderUse {
+        crate::harness::FolderUse {
+            has_data: dir.join("conversation_summaries.db").is_file(),
+            last_used: [dir.join("conversation_summaries.db"), dir.join("conversation_summaries.db-wal")].iter().filter_map(|p| crate::util::mtime_ms(p)).max(),
+            signed_in: false,
+        }
+    }
+
+    fn skills_dir(&self, _account: &crate::config::AccountCfg) -> Option<std::path::PathBuf> {
+        Some(crate::util::home().join(".gemini/config/skills"))
+    }
+
+    fn places(&self, account: &crate::config::AccountCfg, _home: &Path) -> std::result::Result<Vec<crate::start::Place>, String> {
+        Err(format!("Antigravity starts conversations in its own window, so {} can't start one from here.", account.name))
+    }
+
+    fn session_cwds(&self, home: &Path, since: i64) -> Vec<String> {
+        read_conversations(home, since, &HashSet::new()).into_iter().filter_map(|c| c.cwd).collect()
+    }
+
+    fn no_limits(&self) -> Option<&'static str> {
+        Some("Antigravity keeps its quotas in the app.")
+    }
+
     fn records(&self, account: &crate::config::AccountCfg, _s: &crate::model::Session) -> Vec<std::path::PathBuf> {
         vec![account.home_path().join("conversation_summaries.db")]
     }

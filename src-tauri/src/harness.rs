@@ -7,11 +7,17 @@
 //! harness itself. A new harness is a module with an `Adapter`, a line in `ADAPTERS`, and a
 //! variant of `Harness`; each method a harness can't do has a default that says so.
 //!
-//! Reading sessions for the board (discovery, status rules, opening, starting, sending, usage)
-//! still dispatches in the engine and its helpers; CLAUDE.md's "Adding a harness" lists where.
-//! They move behind this interface as they're next worked on.
+//! It answers for an account too: whether it's installed and signed in, how it signs in, what
+//! its folders hold, where its skills go, how Codealong runs it itself, where its sessions can
+//! start, and whether it has plan limits (`harness::of(account)`).
+//!
+//! Reading sessions for the board still dispatches in the engine, which keeps each harness's
+//! caches and file watches: scanning and watching (`scan_sessions`, `watch`, `apply_fs`,
+//! `build_sessions`), the `board::*_session` status rules, opening, start plans and Claude's plan
+//! usage. CLAUDE.md's "Adding a harness" lists where. Those move behind this interface as the
+//! engine's per-harness state does.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Result};
 
@@ -123,6 +129,58 @@ pub trait Adapter: Sync {
     fn interrupt(&self, _ctx: &Ctx, _session: &Session) -> Result<String> {
         bail!("Codealong can't stop this {} session; open it to stop it there.", self.harness().word())
     }
+
+    // ---- The account, besides its sessions ----
+
+    /// Whether an account kept in `home` is signed in, and the email it's for when its files say
+    /// (Settings › Accounts). Reads no secret.
+    fn signed_in(&self, _home: &Path) -> (bool, Option<String>) {
+        (false, None)
+    }
+
+    /// What signs an account in, typed into a new terminal.
+    fn sign_in_command(&self, account: &AccountCfg) -> String {
+        account.command().to_string()
+    }
+
+    /// Whether it's on this Mac: `on_path` says whether a command is on the PATH, and `home` is
+    /// yours, where installers put their own copies.
+    fn installed(&self, _home: &Path, _on_path: &dyn Fn(&str) -> bool) -> bool {
+        false
+    }
+
+    /// What its folder `dir` holds, for finding its accounts on this Mac (detect.rs).
+    fn folder_use(&self, _dir: &Path) -> FolderUse {
+        FolderUse::default()
+    }
+
+    /// Where an account reads personal skills, where install.rs puts Codealong's.
+    fn skills_dir(&self, _account: &AccountCfg) -> Option<PathBuf> {
+        None
+    }
+
+    /// How Codealong runs its sessions itself (acp.rs): the adapter's command and what goes in its
+    /// environment, or why it can't. An account's own `acp` in config.toml comes before this.
+    fn acp_command(&self, _account: &AccountCfg) -> std::result::Result<(String, Vec<(String, String)>), String> {
+        Err(format!("{} has no Agent Client Protocol adapter.", self.harness().word()))
+    }
+
+    /// Where an account can start a session, the usual place first, or why it can't (start.rs).
+    /// `home` is yours: an app runs the account in the harness's default folder.
+    fn places(&self, account: &AccountCfg, _home: &Path) -> std::result::Result<Vec<crate::start::Place>, String> {
+        Err(format!("{} can't start sessions from Codealong.", account.name))
+    }
+
+    /// The folders an account's sessions worked in since `since`, for the projects a first run
+    /// sets up.
+    fn session_cwds(&self, _home: &Path, _since: i64) -> Vec<String> {
+        Vec::new()
+    }
+
+    /// Why it has no plan limits to show, when it keeps none Codealong can read.
+    fn no_limits(&self) -> Option<&'static str> {
+        None
+    }
 }
 
 /// The longest name a session takes: Claude Code's own limit.
@@ -152,6 +210,16 @@ pub fn stoppable(s: &Session, account: Option<&AccountCfg>) -> bool {
     turn_running(s) && (s.hosted || account.is_some_and(|account| adapter(s.harness).interrupts(&Ctx { account }, s)))
 }
 
+/// What one of a harness's folders holds (`Adapter::folder_use`).
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct FolderUse {
+    /// It holds sessions or a sign-in: the harness has run here.
+    pub has_data: bool,
+    pub last_used: Option<i64>,
+    /// A sign-in kept in the folder itself, besides where `signed_in` looks.
+    pub signed_in: bool,
+}
+
 /// How a fork opens in a terminal (`Adapter::fork`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Fork {
@@ -169,6 +237,17 @@ pub fn adapter(h: Harness) -> &'static dyn Adapter {
     *ADAPTERS.iter().find(|a| a.harness() == h).expect("every harness has an adapter")
 }
 
+/// The adapter for a harness as config.toml names it (`claude`, `codex`…); None for a name
+/// Codealong doesn't know, which `config::check_accounts` keeps out of a saved file.
+pub fn named(name: &str) -> Option<&'static dyn Adapter> {
+    crate::config::HARNESSES.contains(&name).then(|| adapter(Harness::from_config(name)))
+}
+
+/// The adapter for an account's harness (`named`).
+pub fn of(account: &AccountCfg) -> Option<&'static dyn Adapter> {
+    named(&account.harness)
+}
+
 /// A session on the board with its account, for an adapter.
 pub fn find<'a>(board: &'a crate::model::Board, cfg: &'a Config, key: &str) -> Result<(&'a Session, &'a AccountCfg)> {
     let (_, s) = board.session(key).ok_or_else(|| anyhow::anyhow!("That session isn't on the board any more."))?;
@@ -179,6 +258,15 @@ pub fn find<'a>(board: &'a crate::model::Board, cfg: &'a Config, key: &str) -> R
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_account_names_its_adapter_by_its_config_string() {
+        assert_eq!(named("codex").map(|a| a.harness()), Some(Harness::Codex));
+        assert_eq!(named("antigravity").map(|a| a.harness()), Some(Harness::Antigravity));
+        // Harness::from_config reads anything unknown as Claude Code; an account's harness
+        // doesn't, so nothing is asked of Claude Code's adapter for it.
+        assert!(named("gemini").is_none());
+    }
 
     #[test]
     fn every_harness_has_its_own_adapter() {

@@ -341,19 +341,7 @@ fn title(s: &str) -> String {
 /// whether it holds a sign-in, and the email comes from the account's own settings file.
 pub fn describe(a: &AccountCfg) -> AccountInfo {
     let dir = a.home_path();
-    let (signed_in, email) = match a.harness.as_str() {
-        "claude" => {
-            let email = std::fs::read(crate::claude::state_file(&dir))
-                .ok()
-                .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
-                .and_then(|v| v.pointer("/oauthAccount/emailAddress").and_then(Value::as_str).map(str::to_string));
-            (claude_signed_in(&dir), email)
-        }
-        "opencode" => (crate::opencode::signed_in(&dir), None),
-        // The sign-in lives beside the app data folder, under ~/.gemini.
-        "antigravity" => (dir.parent().map(|p| p.join("jetski-standalone-oauth-token").is_file()).unwrap_or(false), None),
-        _ => (dir.join("auth.json").is_file(), None),
-    };
+    let (signed_in, email) = crate::harness::of(a).map_or((false, None), |h| h.signed_in(&dir));
     AccountInfo {
         name: a.name.clone(),
         harness: a.harness.clone(),
@@ -369,20 +357,13 @@ pub fn describe(a: &AccountCfg) -> AccountInfo {
 
 /// The command that signs an account in, typed into a new terminal window.
 pub fn sign_in_command(a: &AccountCfg) -> String {
-    match a.harness.as_str() {
-        // Codex wants its folder to exist before it will use it.
-        "codex" => format!("mkdir -p {} && {} login", a.home, codex_cli(a.command())),
-        "opencode" => format!("{} auth login", a.command()),
-        // Antigravity signs in from its own window.
-        "antigravity" => "open -a Antigravity".to_string(),
-        _ => a.command().to_string(),
-    }
+    crate::harness::of(a).map_or_else(|| a.command().to_string(), |h| h.sign_in_command(a))
 }
 
 /// A Codex command as a terminal can run it. Installing the Codex app doesn't put `codex` on the
 /// PATH, so a plain `codex` becomes the CLI inside the app when the PATH has none; a wrapper or
 /// alias of your own is left as you wrote it.
-fn codex_cli(command: &str) -> String {
+pub(crate) fn codex_cli(command: &str) -> String {
     if with_program(command, "codex", "").is_none() || crate::detect::on_user_path("codex") {
         return command.to_string();
     }

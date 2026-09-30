@@ -41,7 +41,7 @@ use crate::throttle::{self, GitQueue, Verdict};
 use crate::todos::{self, TodoOp, TodoStore};
 use crate::attachments;
 use crate::usage;
-use crate::util::{expand, file_name, home, mtime_ms, now_ms, read_first_line, tilde, DAY_MS};
+use crate::util::{expand, file_name, home, mtime_ms, now_ms, parallel_map, tilde, DAY_MS};
 
 /// How far back sessions are read.
 const WINDOW_MS: i64 = 14 * DAY_MS;
@@ -577,22 +577,6 @@ fn keep_last_good(prev: Option<&Usage>, mut fresh: Usage) -> Usage {
         }
     }
     fresh
-}
-
-/// Maps `f` over `items` on a few threads.
-fn parallel_map<T: Send, R: Send>(items: Vec<T>, f: impl Fn(T) -> Option<R> + Sync) -> Vec<R> {
-    let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).min(8);
-    let chunk = items.len().div_ceil(threads).max(1);
-    let mut buckets: Vec<Vec<T>> = Vec::new();
-    let mut items = items.into_iter().peekable();
-    while items.peek().is_some() {
-        buckets.push(items.by_ref().take(chunk).collect());
-    }
-    let f = &f;
-    std::thread::scope(|scope| {
-        let handles: Vec<_> = buckets.into_iter().map(|b| scope.spawn(move || b.into_iter().filter_map(f).collect::<Vec<R>>())).collect();
-        handles.into_iter().flat_map(|h| h.join().unwrap_or_default()).collect()
-    })
 }
 
 enum RepoEvent {
@@ -2679,13 +2663,13 @@ impl Engine {
         self.cfg
             .accounts
             .iter()
-            .map(|a| match a.harness.as_str() {
-                "codex" => {
+            .map(|a| match (harness::of(a).and_then(|h| h.no_limits()), a.harness.as_str()) {
+                (Some(why), _) => usage::none(a, why),
+                // Codex's limits come with each turn, in the rollouts the engine reads anyway.
+                (None, "codex") => {
                     let reports = self.rollouts.values().filter(|(acct, _)| acct == &a.name).filter_map(|(_, p)| p.as_ref().map(|(th, _)| &th.rate_limits));
                     usage::codex(a, reports, now)
                 }
-                "opencode" => usage::none(a, "OpenCode bills the provider you bring, so it has no plan limits to show."),
-                "antigravity" => usage::none(a, "Antigravity keeps its quotas in the app."),
                 _ => self.usage.get(&a.name).cloned().unwrap_or_else(|| usage::loading(a)),
             })
             // A read made before the star changed still carries the old one.
@@ -3032,21 +3016,8 @@ fn first_run_config() -> Config {
     let since = now_ms() - 30 * DAY_MS;
     let mut cwds: Vec<String> = Vec::new();
     for a in &accounts {
-        let home = a.home_path();
-        match a.harness.as_str() {
-            "claude" => {
-                let files = claude::transcript_files(&home, since, &HashSet::new());
-                cwds.extend(parallel_map(files, |(p, _)| claude::transcript_cwd(&p)));
-            }
-            "codex" => {
-                let files = codex::rollout_files(&home, since, &HashSet::new());
-                cwds.extend(parallel_map(files, |(p, _)| {
-                    read_first_line(&p, 4 * 1024 * 1024).and_then(|l| codex::parse_meta(&l)).map(|m| m.cwd)
-                }));
-            }
-            "opencode" => cwds.extend(opencode::read_sessions(&home, since, &HashSet::new()).into_iter().map(|r| r.directory)),
-            "antigravity" => cwds.extend(antigravity::read_conversations(&home, since, &HashSet::new()).into_iter().filter_map(|c| c.cwd)),
-            _ => {}
+        if let Some(h) = harness::of(a) {
+            cwds.extend(h.session_cwds(&a.home_path(), since));
         }
     }
     // A folder macOS holds for a privacy prompt is left out rather than waited on (held.rs).

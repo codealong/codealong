@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 
 use crate::config::AccountCfg;
-use crate::util::{expand, home, mtime_ms, now_ms, tilde, DAY_MS};
+use crate::util::{expand, home, now_ms, tilde, DAY_MS};
 
 /// Sessions this recent make an account one you use.
 const ACTIVE_MS: i64 = 30 * DAY_MS;
@@ -536,68 +536,29 @@ fn inspect(f: &mut Folder) {
     if !f.exists {
         return;
     }
-    let newest = |paths: Vec<PathBuf>| paths.iter().filter_map(|p| mtime_ms(p)).max();
     let info = crate::usage::describe(&AccountCfg { name: String::new(), harness: f.harness.to_string(), home: d.to_string_lossy().into_owned(), command: None, start: None, preferred: false, acp: None });
     f.signed_in = info.signed_in;
     f.email = info.email;
-    match f.harness {
-        "claude" => {
-            let projects = d.join("projects");
-            f.has_data = projects.is_dir() || d.join("history.jsonl").is_file();
-            // Claude Code keeps sign-ins in the keychain on a Mac, and in the folder elsewhere.
-            f.signed_in |= d.join(".credentials.json").is_file();
-            let mut paths = vec![d.join("history.jsonl"), d.join("sessions")];
-            paths.extend(std::fs::read_dir(&projects).into_iter().flatten().flatten().map(|e| e.path()));
-            f.last_used = newest(paths);
-        }
-        "codex" => {
-            let sessions = d.join("sessions");
-            f.has_data = sessions.is_dir() || d.join("auth.json").is_file();
-            f.last_used = newest(vec![d.join("session_index.jsonl"), latest_day(&sessions).unwrap_or_default()]);
-        }
-        "opencode" => {
-            f.has_data = d.join("opencode.db").is_file();
-            f.last_used = newest(vec![d.join("opencode.db"), d.join("opencode.db-wal")]);
-        }
-        "antigravity" => {
-            f.has_data = d.join("conversation_summaries.db").is_file();
-            f.last_used = newest(vec![d.join("conversation_summaries.db"), d.join("conversation_summaries.db-wal")]);
-        }
-        _ => {}
-    }
-}
-
-/// Codex's newest `sessions/YYYY/MM/DD` folder, whose time is the latest new thread's.
-fn latest_day(sessions: &Path) -> Option<PathBuf> {
-    let mut dir = sessions.to_path_buf();
-    for _ in 0..3 {
-        let mut kids: Vec<String> = std::fs::read_dir(&dir).ok()?.flatten().filter(|e| e.path().is_dir()).map(|e| e.file_name().to_string_lossy().into_owned()).collect();
-        kids.sort();
-        dir = dir.join(kids.pop()?);
-    }
-    Some(dir)
+    let used = crate::harness::named(f.harness).map(|h| h.folder_use(&d)).unwrap_or_default();
+    f.has_data = used.has_data;
+    f.last_used = used.last_used;
+    f.signed_in |= used.signed_in;
 }
 
 /// Whether the harness is on this Mac: its command on the PATH or where its installer puts it,
 /// or its app.
 fn installed(harness: &str, h: &Path, path_dirs: &[PathBuf]) -> bool {
     let on_path = |name: &str| path_dirs.iter().any(|d| is_executable(&d.join(name)));
-    match harness {
-        "claude" => on_path("claude") || is_executable(&h.join(".local/bin/claude")) || is_executable(&h.join(".claude/local/claude")),
-        "codex" => on_path("codex") || codex_app_cli().is_some(),
-        "opencode" => on_path("opencode") || is_executable(&h.join(".opencode/bin/opencode")),
-        "antigravity" => app("Antigravity.app").is_some(),
-        _ => false,
-    }
+    crate::harness::named(harness).is_some_and(|a| a.installed(h, &on_path))
 }
 
-fn is_executable(p: &Path) -> bool {
+pub(crate) fn is_executable(p: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
     std::fs::metadata(p).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
 }
 
 /// An app in /Applications or ~/Applications.
-fn app(bundle: &str) -> Option<PathBuf> {
+pub(crate) fn app(bundle: &str) -> Option<PathBuf> {
     [PathBuf::from("/Applications"), home().join("Applications")].into_iter().map(|d| d.join(bundle)).find(|p| p.is_dir())
 }
 

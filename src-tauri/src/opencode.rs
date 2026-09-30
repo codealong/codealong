@@ -589,6 +589,48 @@ impl crate::harness::Adapter for OpenCode {
         crate::model::Harness::Opencode
     }
 
+    fn signed_in(&self, home: &Path) -> (bool, Option<String>) {
+        (crate::opencode::signed_in(home), None)
+    }
+
+    fn sign_in_command(&self, account: &crate::config::AccountCfg) -> String {
+        format!("{} auth login", account.command())
+    }
+
+    fn installed(&self, home: &Path, on_path: &dyn Fn(&str) -> bool) -> bool {
+        on_path("opencode") || crate::detect::is_executable(&home.join(".opencode/bin/opencode"))
+    }
+
+    fn folder_use(&self, dir: &Path) -> crate::harness::FolderUse {
+        crate::harness::FolderUse {
+            has_data: dir.join("opencode.db").is_file(),
+            last_used: [dir.join("opencode.db"), dir.join("opencode.db-wal")].iter().filter_map(|p| crate::util::mtime_ms(p)).max(),
+            signed_in: false,
+        }
+    }
+
+    /// It reads `~/.config/opencode/skills` (and Claude Code's folders too).
+    fn skills_dir(&self, _account: &crate::config::AccountCfg) -> Option<PathBuf> {
+        Some(crate::util::home().join(".config/opencode/skills"))
+    }
+
+    /// Its command may set its data folder; `acp` is its own subcommand.
+    fn acp_command(&self, account: &crate::config::AccountCfg) -> std::result::Result<(String, Vec<(String, String)>), String> {
+        Ok((format!("{} acp", account.command()), Vec::new()))
+    }
+
+    fn places(&self, _account: &crate::config::AccountCfg, _home: &Path) -> std::result::Result<Vec<crate::start::Place>, String> {
+        Ok(vec![crate::start::Place::Terminal, crate::start::Place::Codealong])
+    }
+
+    fn session_cwds(&self, home: &Path, since: i64) -> Vec<String> {
+        read_sessions(home, since, &HashSet::new()).into_iter().map(|r| r.directory).collect()
+    }
+
+    fn no_limits(&self) -> Option<&'static str> {
+        Some("OpenCode bills the provider you bring, so it has no plan limits to show.")
+    }
+
     fn records(&self, account: &crate::config::AccountCfg, _s: &crate::model::Session) -> Vec<PathBuf> {
         vec![account.home_path().join("opencode.db")]
     }

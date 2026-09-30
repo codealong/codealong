@@ -51,15 +51,7 @@ pub fn skill_source() -> Option<PathBuf> {
 
 /// Where the account's harness reads personal skills, or None when Codealong doesn't know.
 pub fn skill_dir(a: &AccountCfg) -> Option<PathBuf> {
-    let dir = match a.harness.as_str() {
-        // Claude Code: <config dir>/skills; a second account's config dir is its home here.
-        "claude" => a.home_path().join("skills"),
-        "codex" => a.home_path().join("skills"),
-        "opencode" => home().join(".config/opencode/skills"),
-        "antigravity" => home().join(".gemini/config/skills"),
-        _ => return None,
-    };
-    Some(dir.join("codealong"))
+    Some(crate::harness::of(a)?.skills_dir(a)?.join("codealong"))
 }
 
 /// The hash of a skill folder's files, so a copy can say what it's a copy of.

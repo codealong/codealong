@@ -203,18 +203,15 @@ fn installed_bin(name: &str) -> Option<PathBuf> {
 /// How an account's adapter starts: a program and its arguments, and what goes in its
 /// environment. None when there's no adapter for it, with why.
 pub fn adapter_command(a: &AccountCfg) -> std::result::Result<(String, Vec<(String, String)>), String> {
-    let home = a.home_path().to_string_lossy().into_owned();
     if let Some(cmd) = a.acp.as_deref().filter(|c| !c.trim().is_empty()) {
         return Ok((cmd.to_string(), Vec::new()));
     }
-    let missing = || format!("Run `codealong install` to add the adapter that lets Codealong run {} sessions itself.", Harness::from_config(&a.harness).word());
-    match a.harness.as_str() {
-        "claude" => installed_bin("claude-agent-acp").map(|p| (sh_quote(&p.to_string_lossy()), vec![("CLAUDE_CONFIG_DIR".into(), home)])).ok_or_else(missing),
-        "codex" => installed_bin("codex-acp").map(|p| (sh_quote(&p.to_string_lossy()), vec![("CODEX_HOME".into(), home)])).ok_or_else(missing),
-        // OpenCode's command may set its data folder; `acp` is its own subcommand.
-        "opencode" => Ok((format!("{} acp", a.command()), Vec::new())),
-        _ => Err(format!("{} has no Agent Client Protocol adapter.", Harness::from_config(&a.harness).word())),
-    }
+    crate::harness::of(a).ok_or_else(|| format!("{} has no Agent Client Protocol adapter.", a.harness))?.acp_command(a)
+}
+
+/// An adapter package's program, quoted for the shell, or what to run to install it.
+pub(crate) fn package_program(bin: &str, h: Harness) -> std::result::Result<String, String> {
+    installed_bin(bin).map(|p| sh_quote(&p.to_string_lossy())).ok_or_else(|| format!("Run `codealong install` to add the adapter that lets Codealong run {} sessions itself.", h.word()))
 }
 
 fn sh_quote(s: &str) -> String {

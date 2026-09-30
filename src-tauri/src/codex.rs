@@ -628,6 +628,48 @@ impl crate::harness::Adapter for Codex {
         crate::model::Harness::Codex
     }
 
+    /// Its sign-in is `auth.json` in its folder.
+    fn signed_in(&self, home: &Path) -> (bool, Option<String>) {
+        (home.join("auth.json").is_file(), None)
+    }
+
+    /// Codex wants its folder to exist before it will use it.
+    fn sign_in_command(&self, account: &crate::config::AccountCfg) -> String {
+        format!("mkdir -p {} && {} login", account.home, crate::usage::codex_cli(account.command()))
+    }
+
+    fn installed(&self, _home: &Path, on_path: &dyn Fn(&str) -> bool) -> bool {
+        on_path("codex") || crate::detect::codex_app_cli().is_some()
+    }
+
+    fn folder_use(&self, dir: &Path) -> crate::harness::FolderUse {
+        let sessions = dir.join("sessions");
+        crate::harness::FolderUse {
+            has_data: sessions.is_dir() || dir.join("auth.json").is_file(),
+            last_used: [dir.join("session_index.jsonl"), latest_day(&sessions).unwrap_or_default()].iter().filter_map(|p| mtime_ms(p)).max(),
+            signed_in: false,
+        }
+    }
+
+    fn skills_dir(&self, account: &crate::config::AccountCfg) -> Option<PathBuf> {
+        Some(account.home_path().join("skills"))
+    }
+
+    fn acp_command(&self, account: &crate::config::AccountCfg) -> std::result::Result<(String, Vec<(String, String)>), String> {
+        let program = crate::acp::package_program("codex-acp", self.harness())?;
+        Ok((program, vec![("CODEX_HOME".into(), account.home_path().to_string_lossy().into_owned())]))
+    }
+
+    /// The Codex app runs the account in `~/.codex`, where its threads usually start.
+    fn places(&self, account: &crate::config::AccountCfg, home: &Path) -> std::result::Result<Vec<crate::start::Place>, String> {
+        use crate::start::Place;
+        Ok(if account.home_path() == home.join(".codex") { vec![Place::CodexApp, Place::Terminal, Place::Codealong] } else { vec![Place::Terminal, Place::Codealong] })
+    }
+
+    fn session_cwds(&self, home: &Path, since: i64) -> Vec<String> {
+        crate::util::parallel_map(rollout_files(home, since, &HashSet::new()), |(p, _)| read_first_line(&p, 4 * 1024 * 1024).and_then(|l| parse_meta(&l)).map(|m| m.cwd))
+    }
+
     /// Its rollout, by the id in the file name, archived or not.
     fn records(&self, account: &crate::config::AccountCfg, s: &crate::model::Session) -> Vec<PathBuf> {
         let suffix = format!("-{}.jsonl", s.id);
@@ -861,6 +903,17 @@ pub fn pair_terminals(terminals: &[Terminal], threads: &[(&str, &str, i64, i64, 
         }
     }
     out
+}
+
+/// Codex's newest `sessions/YYYY/MM/DD` folder, whose time is the latest new thread's.
+fn latest_day(sessions: &Path) -> Option<PathBuf> {
+    let mut dir = sessions.to_path_buf();
+    for _ in 0..3 {
+        let mut kids: Vec<String> = std::fs::read_dir(&dir).ok()?.flatten().filter(|e| e.path().is_dir()).map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+        kids.sort();
+        dir = dir.join(kids.pop()?);
+    }
+    Some(dir)
 }
 
 #[cfg(test)]

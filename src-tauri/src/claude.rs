@@ -646,6 +646,56 @@ impl crate::harness::Adapter for ClaudeCode {
         crate::model::Harness::Claude
     }
 
+    /// The keychain holds its sign-in (only whether it does is asked), and its state file the
+    /// email.
+    fn signed_in(&self, home: &Path) -> (bool, Option<String>) {
+        let email = std::fs::read(state_file(home))
+            .ok()
+            .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+            .and_then(|v| v.pointer("/oauthAccount/emailAddress").and_then(Value::as_str).map(str::to_string));
+        (crate::usage::claude_signed_in(home), email)
+    }
+
+    fn installed(&self, home: &Path, on_path: &dyn Fn(&str) -> bool) -> bool {
+        on_path("claude") || crate::detect::is_executable(&home.join(".local/bin/claude")) || crate::detect::is_executable(&home.join(".claude/local/claude"))
+    }
+
+    fn folder_use(&self, dir: &Path) -> crate::harness::FolderUse {
+        let projects = dir.join("projects");
+        let mut paths = vec![dir.join("history.jsonl"), dir.join("sessions")];
+        paths.extend(std::fs::read_dir(&projects).into_iter().flatten().flatten().map(|e| e.path()));
+        crate::harness::FolderUse {
+            has_data: projects.is_dir() || dir.join("history.jsonl").is_file(),
+            last_used: paths.iter().filter_map(|p| mtime_ms(p)).max(),
+            // Claude Code keeps sign-ins in the keychain on a Mac, and in the folder elsewhere.
+            signed_in: dir.join(".credentials.json").is_file(),
+        }
+    }
+
+    /// `<config dir>/skills`: a second account's config dir is its home here.
+    fn skills_dir(&self, account: &crate::config::AccountCfg) -> Option<PathBuf> {
+        Some(account.home_path().join("skills"))
+    }
+
+    fn acp_command(&self, account: &crate::config::AccountCfg) -> std::result::Result<(String, Vec<(String, String)>), String> {
+        let program = crate::acp::package_program("claude-agent-acp", self.harness())?;
+        Ok((program, vec![("CLAUDE_CONFIG_DIR".into(), account.home_path().to_string_lossy().into_owned())]))
+    }
+
+    /// The Claude app runs the account in `~/.claude`.
+    fn places(&self, account: &crate::config::AccountCfg, home: &Path) -> std::result::Result<Vec<crate::start::Place>, String> {
+        use crate::start::Place;
+        Ok(if account.home_path() == home.join(".claude") {
+            vec![Place::Terminal, Place::Background, Place::ClaudeApp, Place::Codealong]
+        } else {
+            vec![Place::Terminal, Place::Background, Place::Codealong]
+        })
+    }
+
+    fn session_cwds(&self, home: &Path, since: i64) -> Vec<String> {
+        crate::util::parallel_map(transcript_files(home, since, &HashSet::new()), |(p, _)| transcript_cwd(&p))
+    }
+
     /// Its transcript, looked up by id under every project folder: for a job that has written
     /// none of its own yet, the one of the conversation it goes on from.
     fn records(&self, account: &crate::config::AccountCfg, s: &crate::model::Session) -> Vec<PathBuf> {
