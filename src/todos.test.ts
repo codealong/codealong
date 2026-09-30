@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { filesToAttach } from './attachInput';
 import { sessionHomes } from './lanes';
-import { applyOp, attachmentsIn, blockedBy, cantWaitOn, dependents, inlines, insertAttachments, newTodo, nextColor, pickTo, pickToggle, pieces, sectionOf, snippet, todoIndex, todoInFilter, todoInQuery, todoItem, todoPrompt, todosPrompt, todoSections, todoSuggestions, waitsOn, worthSuggesting, withoutAttachment, type TodoPatch, type TodoStore } from './todos';
+import { applyOp, attachmentsIn, blockedBy, cantWaitOn, dependents, inlines, insertAttachments, newTodo, nextColor, panelTodos, pickTo, pickToggle, pieces, sectionOf, snippet, todoIndex, todoInFilter, todoInQuery, todoItem, todoPrompt, todosPrompt, todoSections, todoSuggestions, waitsOn, worthSuggesting, withoutAttachment, type TodoPatch, type TodoStore } from './todos';
 import type { Label, Lane, Session, Todo } from './types';
 
 const NOW = 1_790_000_000_000;
@@ -254,6 +254,14 @@ describe('prompts and images', () => {
   it('gives new labels a color no label has yet', () => {
     expect(nextColor([])).toBe('red');
     expect(nextColor([{ id: 'a', name: 'A', color: 'red' }])).toBe('pink');
+  });
+});
+
+describe("a session's panel", () => {
+  it('lists todos under way first, then the done ones latest first', () => {
+    const list = [todo('a', { status: 'done', doneAt: NOW - 3000 }), todo('b'), todo('c', { status: 'done', doneAt: NOW - 1000 }), todo('d', { status: 'in-progress' }), todo('e', { status: 'done', doneAt: null })];
+    expect(panelTodos(list).map((t) => t.id)).toEqual(['d', 'b', 'c', 'a', 'e']);
+    expect(list.map((t) => t.id)).toEqual(['a', 'b', 'c', 'd', 'e']);
   });
 });
 

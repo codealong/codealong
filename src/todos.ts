@@ -410,6 +410,13 @@ export function todoIndex(todos: Todo[], homes: Map<string, Placed>): { bySessio
   return { bySession, byLane, byWorktree };
 }
 
+/** A session's linked todos as its panel lists them: the ones still under way, then the done
+ *  ones, latest first, so the few shown before "more" are the ones that matter now. */
+export function panelTodos(todos: Todo[]): Todo[] {
+  const rank = (t: Todo) => (t.status === 'in-progress' ? 0 : t.status === 'todo' ? 1 : 2);
+  return [...todos].sort((a, b) => rank(a) - rank(b) || (a.status === 'done' ? (b.doneAt ?? 0) - (a.doneAt ?? 0) : 0));
+}
+
 /** What a session started from a todo is asked: the title, the description, then which todo
  *  it is, so the agent can mark it done through the codealong skill. `todo_prompt` in cli.rs
  *  writes the same text. */

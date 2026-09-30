@@ -16,7 +16,7 @@ import { absolute, agoPhrase, duration, middleTruncate, tildePath } from '../for
 import { HARNESS_WORD, sessionPlace } from '../harness';
 import { seenable } from '../lanes';
 import type { Board, DeviceView, Lane, Pr, Session, Target, Todo } from '../types';
-import { STATUS_WORD as TODO_WORD } from '../todos';
+import { panelTodos, STATUS_WORD as TODO_WORD } from '../todos';
 import { InsightChips } from './InsightBits';
 import { QueueStrip, type Notice, type Queue } from './ReplyView';
 import { OpenInMenu } from './Inspector';
@@ -30,6 +30,9 @@ import { TodoGlyph } from './TodoBits';
 
 /** PRs listed before a "more" link: a long session can have made many. */
 const PRS_SHOWN = 3;
+/** Todos listed before a "more" link, so a session that worked through many doesn't push its
+ *  conversation down the panel. */
+const TODOS_SHOWN = 2;
 
 interface SessionPanelProps {
   lane: Lane;
@@ -74,6 +77,8 @@ interface SessionPanelProps {
 export function SessionPanel({ lane, session: s, apps, now, onOpen, onNewSession, onShowLane, prs = [], onOpenPr, onPrMenu, todos, onShowTodo, onMoreMenu, onSeen, device, back, onSendFailed, queue, notice, onDone, autoFocus, maximized, onMaximize }: SessionPanelProps) {
   const [details, setDetails] = useState(false);
   const [allPrs, setAllPrs] = useState(false);
+  const [allTodos, setAllTodos] = useState(false);
+  const listed = useMemo(() => panelTodos(todos ?? []), [todos]);
   const icons = useEditorIcons(apps);
   const own = lane.targets.filter((t) => t.id.startsWith(`s|${s.key}|`));
   // Under the ways to open the session, its worktree's folder in any editor installed here. A
@@ -177,15 +182,28 @@ export function SessionPanel({ lane, session: s, apps, now, onOpen, onNewSession
           </button>
         </div>
         <InsightChips session={s} />
-        {todos && todos.length > 0 && (
+        {listed.length > 0 && (
           <div className="ca-insp-todos">
-            {todos.map((t) => (
+            {(allTodos ? listed : listed.slice(0, TODOS_SHOWN)).map((t) => (
               <button key={t.id} type="button" className="ca-insp-todo" title="Show the todo" onClick={() => onShowTodo?.(t)}>
                 <TodoGlyph status={t.status} />
                 <span className="ca-insp-todo-title">{t.title || 'Untitled'}</span>
                 <span className="ca-meta">{TODO_WORD[t.status]}</span>
               </button>
             ))}
+            {!allTodos && listed.length > TODOS_SHOWN && (
+              <button
+                type="button"
+                className="ca-linkbtn ca-insp-todomore"
+                title={listed
+                  .slice(TODOS_SHOWN)
+                  .map((t) => t.title || 'Untitled')
+                  .join('\n')}
+                onClick={() => setAllTodos(true)}
+              >
+                {listed.length - TODOS_SHOWN} more {listed.length - TODOS_SHOWN === 1 ? 'todo' : 'todos'}
+              </button>
+            )}
           </div>
         )}
         {details && (

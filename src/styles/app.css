@@ -4070,6 +4070,12 @@ html.is-peek body {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* A session's panel lists a few; the rest wait behind this, lined up with the titles. */
+.ca-insp-todomore {
+  justify-self: start;
+  min-height: 24px;
+  padding-left: 20px;
+}
 
 /* The worktree picker and its New worktree box. */
 .ca-start-lane {
