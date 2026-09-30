@@ -1,5 +1,5 @@
 // The Todo view: work you mean to hand an agent. In progress, Ready and Waiting come in your
-// order (drag, or ⌥↑ ⌥↓, to reorder), then Done under a fold. Waiting holds the todos marked as
+// order (drag, or ⌃⌘↑ ⌃⌘↓, to reorder), then Done under a fold. Waiting holds the todos marked as
 // waiting and the ones not started that wait on a todo that isn't done. A row shows the todo's
 // labels, what it waits on, the sessions on it with their status, and the worktree it's in.
 // Type in the box at the top and press Return to add one. ⌘-click and ⇧-click pick several, to
@@ -258,7 +258,7 @@ function Section({ section, props }: { section: TodoSection; props: TodoViewProp
         hint={
           draggable && selectedKey && picked.size === 0 && section.rows.some((r) => r.key === selectedKey) ? (
             <>
-              Drag or <Kbd keys={['⌥', '↑']} /> <Kbd keys={['⌥', '↓']} /> to reorder
+              Drag or <Kbd keys={['⌃', '⌘', '↑']} /> <Kbd keys={['⌃', '⌘', '↓']} /> to reorder
             </>
           ) : undefined
         }

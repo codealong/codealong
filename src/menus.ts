@@ -112,9 +112,9 @@ export interface SessionCan {
   left?: (done: 'marked seen' | 'snoozed' | 'archived') => void;
   /** Add to canvas, where there's a canvas. */
   canvas?: MenuSpec;
-  /** Shows the main window's keys beside the actions they run (`KEYS`), with ⌃ where they take it
-   *  (Sessions). */
-  keys?: boolean | 'ctrl';
+  /** Shows the main window's keys beside the actions they run (`KEYS`), or its chords (`CHORDS`)
+   *  where letters alone do nothing (Sessions). */
+  keys?: boolean | 'chords';
 }
 
 /** A session's actions by name, each once: the menu lays them out (`sessionMenu`), a header
@@ -299,6 +299,9 @@ export function laneMenu(lane: Lane, can: LaneCan): MenuSpec {
 
 /** The main window's keys for actions, shown beside them in its menus. */
 export const KEYS: Partial<Record<keyof SessionActions | keyof LaneActions, string>> = { seen: 'E', pin: 'P', archive: 'A', rename: 'R' };
+/** The same actions' chords, which work in every view and from Sessions' box, where letters alone
+ *  do nothing: ⌘E marks seen (and goes on, in Sessions), ⌃⌘ and the letter runs the rest. */
+export const CHORDS: typeof KEYS = { seen: 'Cmd+E', pin: 'Ctrl+Cmd+P', archive: 'Ctrl+Cmd+A', rename: 'Ctrl+Cmd+R' };
 
 /** The action a key runs among a session's or worktree's (`KEYS`), by the key as typed, when
  *  it applies to them now. */
@@ -312,15 +315,15 @@ type Item = MenuAction | MenuGroup;
 
 /** A menu from a layout: each group's actions that are there (or the window's extras in their
  *  places), a line between groups that have any, and with `keys` each action's key beside it. */
-function laidOut<A extends object>(layout: readonly (readonly string[])[], actions: A, extras: Record<string, MenuSpec>, keys?: boolean | 'ctrl'): MenuSpec {
+function laidOut<A extends object>(layout: readonly (readonly string[])[], actions: A, extras: Record<string, MenuSpec>, keys?: boolean | 'chords'): MenuSpec {
   const byName = actions as Record<string, Item | undefined>;
   const group = (names: readonly string[]): MenuSpec =>
     names.flatMap((name): MenuSpec => {
       if (name in extras) return extras[name];
       const it = byName[name];
       if (!it) return [];
-      const key = keys ? KEYS[name as keyof typeof KEYS] : undefined;
-      return [key && !('items' in it) ? { ...it, accelerator: keys === 'ctrl' ? `Ctrl+${key}` : key } : it];
+      const key = keys ? (keys === 'chords' ? CHORDS : KEYS)[name as keyof typeof KEYS] : undefined;
+      return [key && !('items' in it) ? { ...it, accelerator: key } : it];
     });
   return sections(...layout.map(group));
 }

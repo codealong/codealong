@@ -1,11 +1,11 @@
-// Checks marking seen and going on in the Sessions view's panel (App.tsx `seenAndOn`), and the
-// panel expanded to the whole window (⌃F): two sessions that need you, the first on a reply that
-// asks you something and the second on a call to allow, and two whose turns ended. The list's
-// letter keys take ⌃ here, so a word typed on the list does nothing. ⌃E on the list marks seen and
-// goes on with the keys left on the list, a session with nothing to mark stays, ⌃E and ⌘E in the
-// box do it from there, ⌃J in the box moves along with the cursor in the next box, and the check
-// on the panel does it too. ⌃F expands the panel, Escape in its box leaves the keys with the
-// window, ⌃J still moves along, and ⌃F puts the list back.
+// Checks the Sessions view's keys and working through what waits on you from its panel (App.tsx
+// `seenAndOn`, `goOn`, `goBack`), with the panel expanded to the whole window (⇧⌘F): two sessions
+// that need you, the first on a reply that asks you something and the second on a call to allow,
+// and two whose turns ended. A click puts the cursor in the box, and the list's keys are chords
+// that work from there too, so a word typed on the list does nothing. ⌥⇧↓ ⌥⇧↑ go through what
+// waits on you, ⌘E marks seen and goes on (the keys staying where they were), ⌘] skips, ⌃⌘P ⌃⌘R
+// ⌃⌘A pin, rename and archive, ⇧⌘F expands, ⌥↑ ⌥↓ move along, ⌃Tab goes through the views, and
+// the right-click menu shows the chords.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/seen-next-check.js
 // Every step should say ok.
 (function () {
@@ -73,69 +73,121 @@
   var seenKeys = function () { return window.__calls.filter(function (c) { return c[0] === 'mark_seen'; }).map(function (c) { return c[1].keys.join(','); }); };
   var on = function (name) { return until(function () { return title() === name; }, 3000).catch(function () {}); };
 
+  var calls = function (cmd) { return window.__calls.filter(function (c) { return c[0] === cmd; }); };
+  var boxed = function () { return document.activeElement === box(); };
+  var press = function (el, init) {
+    var ev = new KeyboardEvent('keydown', Object.assign({ bubbles: true, cancelable: true }, init));
+    el.dispatchEvent(ev);
+    return ev.defaultPrevented;
+  };
+  var named = function (name) { return on(name).then(function () { return wait(50); }); };
+
   say('seen next check: waiting for the list');
   until(function () { return picked.length === plan.length && row(0); }, 20000)
     .then(function () { return wait(300); })
     .then(function () {
       row(0).dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-      return on('Queue A').then(function () { return wait(50); });
+      return named('Queue A');
     })
     .then(function () {
-      check('clicking a row puts the cursor in its box', document.activeElement === box());
+      check('clicking a row puts the cursor in its box', boxed());
+      key(box(), { key: 'ArrowDown', altKey: true, shiftKey: true });
+      return named('Queue B');
+    })
+    .then(function () {
+      check('⌥⇧↓ in the box goes on to the next that waits on you', title() === 'Queue B' && boxed(), title());
+      key(box(), { key: 'ArrowUp', altKey: true, shiftKey: true });
+      return named('Queue A');
+    })
+    .then(function () {
+      check('⌥⇧↑ goes back to the one before', title() === 'Queue A' && boxed(), title());
+      key(box(), { key: 'ArrowUp', altKey: true, shiftKey: true });
+      return named('Queue D');
+    })
+    .then(function () {
+      check('and from the first, round to the last', title() === 'Queue D', title());
+      key(box(), { key: 'ArrowDown', altKey: true, shiftKey: true });
+      return named('Queue A');
+    })
+    .then(function () {
       key(box(), { key: 'Escape' });
-      check('the list has the keys', document.activeElement === list());
-      var calls = window.__calls.length;
+      check('Escape gives the list the keys', document.activeElement === list());
+      var n = window.__calls.length;
       var stored = JSON.stringify(localStorage);
       'a pear fever'.split('').forEach(function (c) { key(list(), { key: c }); });
       return wait(300).then(function () {
-        check('plain letters on the list do nothing', title() === 'Queue A' && window.__calls.length === calls && JSON.stringify(localStorage) === stored && !document.querySelector('.ca-renamedlg'), title() + ' ' + window.__calls.slice(calls).map(function (c) { return c[0]; }).join(','));
-        key(list(), { key: 'e', ctrlKey: true });
+        check('plain letters on the list do nothing', title() === 'Queue A' && window.__calls.length === n && JSON.stringify(localStorage) === stored && !document.querySelector('.ca-renamedlg'), title() + ' ' + window.__calls.slice(n).map(function (c) { return c[0]; }).join(','));
+        key(list(), { key: 'e', metaKey: true });
         return on('Queue B');
       });
     })
     .then(function () {
-      check('⌃E marks a reply that asks you seen and goes on', title() === 'Queue B' && seenKeys().join(';') === picked[0].key, title() + ' ' + seenKeys().join(';'));
+      check('⌘E on the list marks a reply that asks you seen and goes on', title() === 'Queue B' && seenKeys().join(';') === picked[0].key, title() + ' ' + seenKeys().join(';'));
       check('and says so', /Queue A: marked seen/.test(strip()), strip());
       check('the keys stay with the list', document.activeElement === list(), document.activeElement && document.activeElement.className);
       check('a call to allow has no check', !document.querySelector('.ca-sessinsp-seen'));
-      key(list(), { key: 'e', ctrlKey: true });
+      key(list(), { key: 'e', metaKey: true });
       return wait(300);
     })
     .then(function () {
-      check('⌃E on a call to allow does nothing', title() === 'Queue B' && seenKeys().length === 1, title());
+      check('⌘E on a call to allow does nothing', title() === 'Queue B' && seenKeys().length === 1, title());
       key(list(), { key: ']', code: 'BracketRight', metaKey: true });
-      return on('Queue C').then(function () { return wait(50); });
+      return named('Queue C');
     })
     .then(function () {
-      check('⌘] goes on to a finished turn with the cursor in its box', title() === 'Queue C' && document.activeElement === box(), title());
-      key(box(), { key: 'e', ctrlKey: true });
-      return on('Queue D').then(function () { return wait(50); });
+      check('⌘] goes on to a finished turn with the cursor in its box', title() === 'Queue C' && boxed(), title());
+      key(box(), { key: 'e', metaKey: true });
+      return named('Queue D');
     })
     .then(function () {
-      check('⌃E in the box marks seen and goes on', title() === 'Queue D' && seenKeys()[1] === picked[2].key, title() + ' ' + seenKeys().join(';'));
-      check('the next one’s box has the cursor', document.activeElement === box());
+      check('⌘E in the box marks seen and goes on', title() === 'Queue D' && seenKeys()[1] === picked[2].key, title() + ' ' + seenKeys().join(';'));
+      check('the next one’s box has the cursor', boxed());
       var seenBtn = document.querySelector('.ca-sessinsp-seen');
-      check('the check says it goes on', !!seenBtn && /go on to the next \(⌃E\)/.test(seenBtn.title), seenBtn && seenBtn.title);
+      check('the check says it goes on', !!seenBtn && /go on to the next \(⌘E\)/.test(seenBtn.title), seenBtn && seenBtn.title);
       seenBtn.click();
-      return on('Queue B');
+      return named('Queue B');
     })
     .then(function () {
       check('the check marks seen and goes on to what’s left', title() === 'Queue B' && seenKeys()[2] === picked[3].key, title() + ' ' + seenKeys().join(';'));
+      box().focus();
+      var taken = press(box(), { key: 'p', ctrlKey: true, metaKey: true });
+      return wait(300).then(function () {
+        var pins = calls('set_pinned');
+        check('⌃⌘P in the box pins it', taken && pins.length === 1 && pins[0][1].keys.indexOf(picked[1].key) >= 0, JSON.stringify(pins.map(function (c) { return c[1]; })));
+        key(box() || document.body, { key: 'p', ctrlKey: true, metaKey: true });
+        return wait(300);
+      });
+    })
+    .then(function () {
+      var pins = calls('set_pinned');
+      check('and again unpins it', pins.length === 2 && pins[1][1].keys.indexOf(picked[1].key) < 0, JSON.stringify(pins.map(function (c) { return c[1]; })));
+      return named('Queue B');
+    })
+    .then(function () {
+      box().focus();
+      key(box(), { key: 'r', ctrlKey: true, metaKey: true });
+      return until(function () { return document.querySelector('.ca-renamedlg'); }, 2000).then(function () { return true; }, function () { return false; });
+    })
+    .then(function (shown) {
+      check('⌃⌘R in the box opens Rename', shown);
+      var cancel = Array.prototype.filter.call(document.querySelectorAll('.ca-renamedlg button'), function (b) { return b.textContent.trim() === 'Cancel'; })[0];
+      if (cancel) cancel.click();
+      return wait(200);
+    })
+    .then(function () {
       check('not expanded yet', !body().classList.contains('is-panel-max'));
       box().focus();
-      var ev = new KeyboardEvent('keydown', { key: 'f', ctrlKey: true, bubbles: true, cancelable: true });
-      box().dispatchEvent(ev);
-      check('⌃F in the box isn’t the box’s', ev.defaultPrevented);
+      check('⇧⌘F in the box isn’t the box’s', press(box(), { key: 'f', shiftKey: true, metaKey: true }));
       return wait(200);
     })
     .then(function () {
       var panel = document.querySelector('.ca-sessinsp').getBoundingClientRect();
       var board = document.querySelector('.ca-board');
       var btn = document.querySelector('.ca-sessinsp-max');
-      check('⌃F expands the panel', body().classList.contains('is-panel-max'));
+      check('⇧⌘F expands the panel', body().classList.contains('is-panel-max'));
       check('the list and sidebar step aside', getComputedStyle(board).display === 'none' && getComputedStyle(document.querySelector('.ca-side, .ca-rail')).display === 'none');
       check('the panel takes the window', panel.width >= window.innerWidth - 2, panel.width + ' of ' + window.innerWidth);
-      check('its button says how to go back', !!btn && btn.getAttribute('aria-pressed') === 'true' && /Show the list again \(⌃F\)/.test(btn.title), btn && btn.title);
+      check('its button says how to go back', !!btn && btn.getAttribute('aria-pressed') === 'true' && /Show the list again \(⇧⌘F\)/.test(btn.title), btn && btn.title);
       check('and it’s remembered', localStorage.getItem('codealong.sessionPanelMax') === '1');
       var head = document.querySelector('.ca-sessinsp-head');
       var pad = parseFloat(getComputedStyle(head).paddingLeft);
@@ -143,22 +195,52 @@
       box().focus();
       key(box(), { key: 'Escape' });
       check('Escape in the box leaves the keys with the window', document.activeElement === document.body, document.activeElement && document.activeElement.className);
-      key(document.body, { key: 'j', ctrlKey: true });
+      key(document.body, { key: 'ArrowDown', altKey: true });
       return wait(300);
     })
     .then(function () {
-      check('⌃J still moves along the list while expanded', title() !== 'Queue B' && body().classList.contains('is-panel-max'), title());
-      var was = title();
+      check('⌥↓ moves along the list while expanded', title() !== 'Queue B' && body().classList.contains('is-panel-max'), title());
       box().focus();
-      key(box(), { key: 'k', ctrlKey: true });
-      return wait(300).then(function () {
-        check('⌃K in the box moves along, the cursor in the next one’s box', title() !== was && document.activeElement === box(), title());
-        key(box(), { key: 'f', ctrlKey: true });
-        return wait(200);
-      });
+      check('⌥↑ in the box isn’t the box’s', press(box(), { key: 'ArrowUp', altKey: true }));
+      return named('Queue B');
     })
     .then(function () {
-      check('⌃F puts the list back', !body().classList.contains('is-panel-max') && getComputedStyle(document.querySelector('.ca-board')).display !== 'none');
+      check('⌥↑ in the box moves back, the cursor in that one’s box', title() === 'Queue B' && boxed(), title());
+      key(box(), { key: 'a', ctrlKey: true, metaKey: true });
+      return wait(300);
+    })
+    .then(function () {
+      var archived = calls('archive_session');
+      check('⌃⌘A in the box archives it', archived.length === 1 && archived[0][1].key === picked[1].key && archived[0][1].archived === true, JSON.stringify(archived.map(function (c) { return c[1]; })));
+      key(document.body, { key: 'f', shiftKey: true, metaKey: true });
+      return wait(200);
+    })
+    .then(function () {
+      check('⇧⌘F puts the list back', !body().classList.contains('is-panel-max') && getComputedStyle(document.querySelector('.ca-board')).display !== 'none');
+      key(document.body, { key: 'Tab', ctrlKey: true });
+      return wait(300);
+    })
+    .then(function () {
+      var label = list() && list().getAttribute('aria-label');
+      check('⌃Tab goes to the next view', label !== 'Sessions', label);
+      key(document.body, { key: 'Tab', ctrlKey: true, shiftKey: true });
+      return wait(300);
+    })
+    .then(function () {
+      var label = list() && list().getAttribute('aria-label');
+      check('⌃⇧Tab comes back', label === 'Sessions', label);
+      return until(function () { return row(0); }, 3000);
+    })
+    .then(function () {
+      row(0).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+      return wait(300);
+    })
+    .then(function () {
+      var made = calls('plugin:menu|new');
+      var flat = function (items) { return (items || []).flatMap(function (i) { return i.items ? flat(i.items) : i.accelerator ? [i.text + '=' + i.accelerator] : []; }); };
+      var keys = made.length ? flat(made[made.length - 1][1].options.items) : [];
+      // The first was marked seen, so its menu has no Mark as seen.
+      check('the menu shows the chords', keys.join(', ') === 'Rename…=Ctrl+Cmd+R, Pin session=Ctrl+Cmd+P, Archive=Ctrl+Cmd+A', keys.join(', '));
     })
     .catch(function (e) { check('ran', false, String(e) + ' at ' + title()); })
     .then(function () { say('done: ' + out.join('; ')); });

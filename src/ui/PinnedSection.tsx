@@ -1,5 +1,5 @@
 // The Pinned section at the top of the Worktrees and Sessions views: rows in your order. Drag
-// one, or press ⌥↑ ⌥↓, to move it.
+// one, or press ⌃⌘↑ ⌃⌘↓, to move it.
 
 import type { ReactNode } from 'react';
 import { Kbd, SectionHeader } from './primitives';
@@ -27,7 +27,7 @@ export function PinnedSection<T>({ items, keyOf, onMove, row }: PinnedSectionPro
         count={items.length}
         hint={
           <>
-            Drag or <Kbd keys={['⌥', '↑']} /> <Kbd keys={['⌥', '↓']} /> to reorder
+            Drag or <Kbd keys={['⌃', '⌘', '↑']} /> <Kbd keys={['⌃', '⌘', '↓']} /> to reorder
           </>
         }
       />

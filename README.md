@@ -18,22 +18,25 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
 
 - **Five views** of the current project, each in a window of its own if you like (⌘⇧N). The
   project switcher (⌘P) shows each project's key: ⌥⌘1 to ⌥⌘9 switch projects, ⌥⌘0 shows them
-  all. The views:
-  - **Sessions**: every session, pinned ones first in your order (drag or ⌥↑ ⌥↓), then Needs
+  all. ⌃Tab and ⌃⇧Tab go through the views (`v` too, outside Sessions), ⌥↑ ⌥↓ move along a
+  list as the arrows do, and ⌃⌘↑ ⌃⌘↓ reorder what's pinned. A session's or worktree's
+  actions have letters (`p` pin, `a` archive, `r` rename, `e` mark seen) and chords that work
+  in every view (⌃⌘P, ⌃⌘A, ⌃⌘R, ⌘E); the right-click menu shows them. The views:
+  - **Sessions**: every session, pinned ones first in your order (drag or ⌃⌘↑ ⌃⌘↓), then Needs
     you, Your turn and Working as the floating bar groups them and orders them, then the ones
     you snoozed, the soonest back first, then the rest by day, the one you last sent a prompt
     first. A row leads with the session's title, then what it's doing or said last; one that
     needs you has a label beside its title for what it waits on (Asks you, Needs approval,
-    Stuck, Error). A snoozed session's row says how long until it's back. Here the list's
-    letter keys take ⌃ (⌃J ⌃K to move, ⌃P, ⌃A…) and work from the panel's box too, so a word
-    typed on the list by mistake does nothing; the other views take them plain. Sessions are
-    pinned here, with ⌃P or the right-click menu, and their pins show only here. Archive a
-    session with ⌃A (`a` elsewhere) or its right-click menu; Codex threads are archived in
-    Codex itself. Close
+    Stuck, Error). A snoozed session's row says how long until it's back. Here letters alone
+    do nothing, so a word typed on the list by mistake doesn't pin, archive or rename: the
+    keys are the chords, and they work from the panel's box too. Sessions are pinned here,
+    with ⌃⌘P or the right-click menu, and their pins show only here. Archive a session with
+    ⌃⌘A (`a` elsewhere) or its right-click menu; Codex threads are archived in Codex itself.
+    Close
     terminal, in the right-click menu of a session running in a Ghostty, iTerm2 or Terminal
     tab, closes that tab whatever the session is doing, and End background job stops a Claude
     Code background job; either way its conversation is kept and resumes. Rename a session
-    with ⌃R (`r` elsewhere) or its right-click menu, here or wherever a session has one
+    with ⌃⌘R (`r` elsewhere) or its right-click menu, here or wherever a session has one
     (the floating bar's pills, cards on the desktop and the quick panel's rows change the name
     in place). The name
     goes where its harness keeps names, so the harness shows it too: a Claude Code session's
@@ -48,7 +51,7 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     background job), the Codex app's own Stop for its threads, and OpenCode's service for
     OpenCode. Claude app sessions, Terminal tabs and Antigravity can't be stopped from
     Codealong. Mark a
-    finished turn seen, which makes it idle and takes it off the floating bar, with ⌃E (`e`
+    finished turn seen, which makes it idle and takes it off the floating bar, with ⌘E (`e`
     elsewhere), the
     check at the top of its panel or its right-click menu. Fork in terminal, in a Claude Code,
     Codex or OpenCode session's right-click menu, opens a copy of its conversation in a new
@@ -92,16 +95,17 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     the button while the box is empty; it says Stopping until the turn has ended. To work through what waits on
     you, ⌘⏎ in the box sends and goes on to the next session listed that waits on you (Needs
     you the longest wait first, then Your turn), or, while the session waits on a call that can
-    be allowed here, allows it and goes on; ⏎ sends and stays. ⌃E (⌘E too, or the check at
-    the top of the panel) marks a finished turn seen and goes on, and the keys stay where they
-    were, so ⌃E works down the list or from box to box. ⌘] skips to the next, and a
-    skipped one comes round again after the rest. ⌃F (or the button beside the check) expands
+    be allowed here, allows it and goes on; ⏎ sends and stays. ⌘E (or the check at the top
+    of the panel) marks a finished turn seen and goes on, and the keys stay where they were,
+    so ⌘E works down the list or from box to box. ⌘] or ⌥⇧↓ skips to the next, ⌥⇧↑ goes back
+    to the one before, and a skipped one comes round again after the rest. ⇧⌘F (or the button
+    beside the check) expands
     the panel to the whole window, the list and sidebar out of the way while you work through
     them, and stays so until you press it again; Escape in the box then leaves the keys with the
     window. A line at the top of the panel says how many
     more wait on you and how the last one went. Clicking a session puts the cursor in its box;
-    ⌃J ⌃K from there move along with the cursor in the next one's box, the arrows on the list
-    leave the keys with the list, and Escape in the box gives them back to it.
+    ⌥↑ ⌥↓ from there move along with the cursor in the next one's box, the arrows on the list
+    leave the keys with the list, and Escape in the box gives them back.
   - **Worktrees**: each worktree once, pinned ones first in your order, then the rest by
     status: Needs you, Working, Your turn, In review, Idle, Merged. A worktree's row has a
     line for each agent that needs you, is working or just finished, which you select, open
@@ -124,7 +128,7 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     agents (busy but silent for 30 minutes) show in Needs you with the command they're stuck
     on. The sidebar's statuses narrow each worktree to the agents they're about. Pin a worktree
     with `p` or the right-click menu of the worktree or one of its agents, and reorder pins
-    by dragging or with ⌥↑ ⌥↓; a pinned worktree stays whatever the age filter says. Beside
+    by dragging or with ⌃⌘↑ ⌃⌘↓; a pinned worktree stays whatever the age filter says. Beside
     its line diff, a row shows how far the worktree has moved from the default branch on the
     remote (`origin/main`), whatever its branch tracks: `↑3` for commits it has that the remote
     doesn't, `↓42` for commits the remote has that it doesn't. Canvas cards show the same.
@@ -150,7 +154,7 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     hold screenshots and any other files (paste, drop or attach them; files copied in the
     Finder paste too), colored labels, and a status: Todo, In
     progress (an agent is on it) or Done. The list has In progress, Ready, Waiting and Done.
-    Add one in the box at the top (`n`), reorder by dragging or with ⌥↑ ⌥↓, mark one done
+    Add one in the box at the top (`n`), reorder by dragging or with ⌃⌘↑ ⌃⌘↓, mark one done
     with `x`. A todo can wait on other todos (Waits on, in its panel): until they're done it's
     under Waiting and shows what it's waiting on, and a dependency that would make a loop is
     refused. One an agent is already on stays In progress. Mark a todo as waiting by hand

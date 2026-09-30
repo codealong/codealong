@@ -1,6 +1,6 @@
 // The Sessions view: every session in the project, pinned ones first in your order, then the
 // ones that want you or are running, grouped as the floating bar groups them, then the ones you
-// snoozed, then the rest by the day they were last active. Drag a pinned session, or press ⌥↑ ⌥↓,
+// snoozed, then the rest by the day they were last active. Drag a pinned session, or press ⌃⌘↑ ⌃⌘↓,
 // to reorder.
 
 import { bySession, byStatusTime } from '../lanes';

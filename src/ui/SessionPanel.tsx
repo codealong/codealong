@@ -3,9 +3,9 @@
 // sends it a message where it runs, or what it waits on you to allow (SessionReply.tsx).
 //
 // In Sessions it works through what waits on you: ⌘⏎ in the box sends (or allows the call the
-// session waits on) and goes on to the next, the check (⌃E) marks a finished turn seen and goes
+// session waits on) and goes on to the next, the check (⌘E) marks a finished turn seen and goes
 // on, ⌘] skips to it, and a strip above the header says how many more there are and how the last
-// one went (ReplyView.tsx's). ⌃F expands it to the whole window, so the list is out of the way
+// one went (ReplyView.tsx's). ⇧⌘F expands it to the whole window, so the list is out of the way
 // while you do.
 
 import { useMemo, useState } from 'react';
@@ -102,7 +102,7 @@ export function SessionPanel({ lane, session: s, apps, now, onOpen, onNewSession
         <div className="ca-insp-title">
           <StatusGlyph status={s.status} size={14} />
           <span className="ca-tag">{HARNESS_WORD[s.harness]}</span>
-          {seenable(s) && <Button variant="ghost" size="sm" icon="check" aria-label="Mark as seen" title={queue?.next ? 'Mark as seen and go on to the next (⌃E)' : 'Mark as seen: it goes idle and leaves the bar'} className="ca-sessinsp-seen" onClick={onSeen} />}
+          {seenable(s) && <Button variant="ghost" size="sm" icon="check" aria-label="Mark as seen" title={queue?.next ? 'Mark as seen and go on to the next (⌘E)' : 'Mark as seen: it goes idle and leaves the bar'} className="ca-sessinsp-seen" onClick={onSeen} />}
           {onMaximize && (
             <Button
               variant="ghost"
@@ -110,7 +110,7 @@ export function SessionPanel({ lane, session: s, apps, now, onOpen, onNewSession
               icon={maximized ? 'minimize' : 'maximize'}
               aria-label={maximized ? 'Show the list' : 'Expand to the window'}
               aria-pressed={maximized}
-              title={maximized ? 'Show the list again (⌃F)' : 'Expand to the whole window (⌃F)'}
+              title={maximized ? 'Show the list again (⇧⌘F)' : 'Expand to the whole window (⇧⌘F)'}
               className="ca-sessinsp-max"
               onClick={onMaximize}
             />
