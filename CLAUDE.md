@@ -252,6 +252,12 @@ some work is, answer with one.
   gathers inputs and calls them. `src/lanes.ts` mirrors `bay_of`, the agent bays'
   headlines and the order of sessions and lanes (`sort_sessions`, `lane_prompt_at`) for the
   filters; keep them in step.
+- What Codealong does to a session, whichever device it's on, is a request in
+  `src-tauri/src/actions.rs` (`REQUESTS`: its name and what it does here), and who may ask for it
+  from another device is its `Reach` in codealong-peer's `api::REQUESTS` (read, organize, or
+  control, which needs remote control on). A window's command goes through `actions::run`, which
+  asks the session's device when it's elsewhere; a device's request through `actions::answer`.
+  A new session action is a line in each, not a command with its own remote branch.
 - A session's, worktree's, PR's or todo's right-click menu is defined once, in `src/menus.ts`,
   and every window (main, bar, peek, quick panel, desktop cards) builds it from there, saying
   what it can do. A new item goes there, not into one window's menu.

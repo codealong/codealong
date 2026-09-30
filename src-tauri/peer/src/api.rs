@@ -1,5 +1,5 @@
 //! What a device asks another for, and what comes back, as types both sides share: the engine
-//! answers with them (`peer_answer` in its lib.rs) and a device that only watches reads them
+//! answers with them (its actions.rs) and a device that only watches reads them
 //! (client.rs). A conversation page is built by the engine's adapters as its `transcript::Page`,
 //! with borrowed strings; `Page` here reads one back, and the engine's tests check the two agree.
 
@@ -33,8 +33,42 @@ pub const ROUTE: &str = "route";
 /// refuse it as a request they don't know.
 pub const SESSION_RENAME: &str = "session-rename";
 
-/// Requests that act on a session: they need remote control on at the device asked.
-pub const CONTROL: [&str; 4] = [SESSION_SEND, SESSION_ANSWER, START, SESSION_CANCEL];
+/// Who may make a request of a device, as the device asked decides it (the engine's peers.rs).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Reach {
+    /// Any linked device: it only reads.
+    Read,
+    /// Any linked device: it changes how a session is listed there (seen, archived, named), not
+    /// what an agent does.
+    Organize,
+    /// Only with remote control on at the device asked: it drives an agent (a prompt, an answer,
+    /// a start, a stop). The device asked records each one in its devices.log.
+    Control,
+}
+
+/// Every request, with who may make it. A request missing here is one a device doesn't know.
+pub const REQUESTS: [(&str, Reach); 15] = [
+    (SESSION_PAGE, Reach::Read),
+    (SESSION_NEWER, Reach::Read),
+    (SESSION_PENDING, Reach::Read),
+    (SESSION_STREAM, Reach::Read),
+    (SESSION_WATCH, Reach::Read),
+    (SEARCH, Reach::Read),
+    (START_OPTIONS, Reach::Read),
+    (ROUTE, Reach::Read),
+    (MARK_SEEN, Reach::Organize),
+    (SESSION_ARCHIVE, Reach::Organize),
+    (SESSION_RENAME, Reach::Organize),
+    (SESSION_SEND, Reach::Control),
+    (SESSION_ANSWER, Reach::Control),
+    (SESSION_CANCEL, Reach::Control),
+    (START, Reach::Control),
+];
+
+/// Who may make `method` of a device; None for a request this crate doesn't know.
+pub fn reach(method: &str) -> Option<Reach> {
+    REQUESTS.iter().find(|(m, _)| *m == method).map(|(_, r)| *r)
+}
 
 /// The reply a session Codealong runs is writing, as the Mac's acp.rs has it: what it said since
 /// its last tool call, and the tool it's running. Both empty once the turn ends.

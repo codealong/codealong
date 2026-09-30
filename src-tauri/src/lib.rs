@@ -1,6 +1,7 @@
 //! Codealong: every agent runs in a worktree, and every worktree is a lane.
 
 mod acp;
+mod actions;
 mod appserver;
 mod asks;
 mod attachments;
@@ -180,12 +181,8 @@ async fn close_idle_terminals(engine: State<'_, engine::Handle>, keys: Vec<Strin
 /// Closes one session from its menu: its terminal tab, or a background job stopped (idle.rs).
 /// Returns what happened, in a sentence.
 #[tauri::command(async)]
-fn close_session(engine: State<'_, engine::Handle>, key: String) -> Result<String, String> {
-    if peerfeed::split_remote(&key).is_some() {
-        return Err("Close it on the Mac it runs on.".into());
-    }
-    let cfg = config::load().map_err(|e| format!("{e:#}"))?.unwrap_or_default();
-    idle::close_one(&engine.board(), &cfg, &key).map_err(|e| format!("{e:#}"))
+fn close_session(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String) -> Result<String, String> {
+    actions::run(&engine, &peers, actions::CLOSE, &key, serde_json::json!({})).map(|v| v.as_str().unwrap_or_default().to_string())
 }
 
 /// Returns the time of the board that shows the sessions on this device seen (none when they're
@@ -203,14 +200,13 @@ fn mark_seen(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, 
     for (device, keys) in by_device {
         let peers = peers.inner().clone();
         std::thread::spawn(move || {
-            let _ = peers.ask(&device, api::MARK_SEEN, serde_json::json!({ "keys": keys }), ASK_ACT);
+            let _ = actions::ask(&peers, &device, api::MARK_SEEN, serde_json::json!({ "keys": keys }));
         });
     }
     if here.is_empty() {
-        None
-    } else {
-        engine.mark_seen_shown(here)
+        return None;
     }
+    actions::run(&engine, &peers, api::MARK_SEEN, "", serde_json::json!({ "keys": here })).ok().and_then(|v| v.as_i64())
 }
 
 /// Snoozes sessions until `until` (ms since the epoch), or wakes them with none. Only this Mac's:
@@ -523,126 +519,53 @@ fn search_text(words: Vec<String>) -> search::Found {
 /// `before` is none, else what came before it.
 #[tauri::command(async)]
 fn session_page(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, before: Option<u64>) -> Result<serde_json::Value, String> {
-    if let Some((device, key)) = peerfeed::split_remote(&key) {
-        return peers.ask(device, api::SESSION_PAGE, serde_json::json!({ "key": key, "before": before }), ASK_READ);
-    }
-    page_here(engine.inner(), &key, before)
-}
-
-fn page_here(engine: &engine::Handle, key: &str, before: Option<u64>) -> Result<serde_json::Value, String> {
-    let cfg = config::load().map_err(|e| format!("{e:#}"))?.unwrap_or_default();
-    let page = transcript::page(&engine.board(), &cfg, key, before, 60).map_err(|e| format!("{e:#}"))?;
-    serde_json::to_value(page).map_err(|e| e.to_string())
+    actions::run(&engine, &peers, api::SESSION_PAGE, &key, serde_json::json!({ "before": before }))
 }
 
 /// What a session waiting on you wants to do, when it's a tool call Codealong can answer for it
 /// (`harness::Adapter::pending`).
 #[tauri::command(async)]
 fn session_pending(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String) -> Result<serde_json::Value, String> {
-    if let Some((device, key)) = peerfeed::split_remote(&key) {
-        return peers.ask(device, api::SESSION_PENDING, serde_json::json!({ "key": key }), ASK_READ);
-    }
-    pending_here(engine.inner(), &key)
-}
-
-fn pending_here(engine: &engine::Handle, key: &str) -> Result<serde_json::Value, String> {
-    if acp::hosts(key) {
-        return serde_json::to_value(acp::pending(key)).map_err(|e| e.to_string());
-    }
-    let cfg = config::load().map_err(|e| format!("{e:#}"))?.unwrap_or_default();
-    let board = engine.board();
-    let (s, account) = harness::find(&board, &cfg, key).map_err(|e| format!("{e:#}"))?;
-    serde_json::to_value(harness::adapter(s.harness).pending(&harness::Ctx { account }, s)).map_err(|e| e.to_string())
+    actions::run(&engine, &peers, api::SESSION_PENDING, &key, serde_json::json!({}))
 }
 
 /// Allows or denies the tool call `id` a session waits on, if it's still the one waiting; or,
 /// with `answers`, answers the questions it asks (`Pending::questions`).
 #[tauri::command(async)]
 fn session_answer(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, id: String, answer: harness::Answer, answers: Option<serde_json::Value>) -> Result<String, String> {
-    if let Some((device, key)) = peerfeed::split_remote(&key) {
-        let said = peers.ask(device, api::SESSION_ANSWER, serde_json::json!({ "key": key, "id": id, "answer": answer, "answers": answers }), ASK_ACT)?;
-        return Ok(said.as_str().unwrap_or_default().to_string());
-    }
-    answer_here(engine.inner(), &key, &id, answer, answers.as_ref())
-}
-
-fn answer_here(engine: &engine::Handle, key: &str, id: &str, answer: harness::Answer, answers: Option<&serde_json::Value>) -> Result<String, String> {
-    if acp::hosts(key) {
-        return acp::answer(key, id, answer).map_err(|e| format!("{e:#}"));
-    }
-    let cfg = config::load().map_err(|e| format!("{e:#}"))?.unwrap_or_default();
-    let board = engine.board();
-    let (s, account) = harness::find(&board, &cfg, key).map_err(|e| format!("{e:#}"))?;
-    let ctx = harness::Ctx { account };
-    match answers.filter(|a| !a.is_null()) {
-        Some(a) => harness::adapter(s.harness).answer_questions(&ctx, s, id, a),
-        None => harness::adapter(s.harness).answer(&ctx, s, id, answer),
-    }
-    .map_err(|e| format!("{e:#}"))
+    let said = actions::run(&engine, &peers, api::SESSION_ANSWER, &key, serde_json::json!({ "id": id, "answer": answer, "answers": answers }))?;
+    Ok(said.as_str().unwrap_or_default().to_string())
 }
 
 /// What a session said and did after `after`, as it goes on.
 #[tauri::command(async)]
 fn session_newer(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, after: u64) -> Result<serde_json::Value, String> {
-    if let Some((device, key)) = peerfeed::split_remote(&key) {
-        return peers.ask(device, api::SESSION_NEWER, serde_json::json!({ "key": key, "after": after }), ASK_READ);
-    }
-    newer_here(engine.inner(), &key, after)
+    actions::run(&engine, &peers, api::SESSION_NEWER, &key, serde_json::json!({ "after": after }))
 }
 
-fn newer_here(engine: &engine::Handle, key: &str, after: u64) -> Result<serde_json::Value, String> {
-    let cfg = config::load().map_err(|e| format!("{e:#}"))?.unwrap_or_default();
-    let page = transcript::newer(&engine.board(), &cfg, key, after).map_err(|e| format!("{e:#}"))?;
-    serde_json::to_value(page).map_err(|e| e.to_string())
-}
-
-/// The reply a session Codealong runs is writing, for a panel that opens mid-turn. One on another
-/// device is asked of it.
+/// The reply a session Codealong runs is writing, for a panel that opens mid-turn, known by the
+/// key the window has for it.
 #[tauri::command(async)]
-fn session_stream(peers: State<'_, peers::Peers>, key: String) -> Option<acp::Stream> {
-    if let Some((device, own)) = peerfeed::split_remote(&key) {
-        let got = peers.ask(device, api::SESSION_STREAM, serde_json::json!({ "key": own }), ASK_READ).ok()?;
-        let mut s: acp::Stream = serde_json::from_value(got).ok()?;
-        s.key = key.clone();
-        return Some(s);
-    }
-    acp::stream(&key)
+fn session_stream(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String) -> Option<acp::Stream> {
+    let got = actions::run(&engine, &peers, api::SESSION_STREAM, &key, serde_json::json!({})).ok()?;
+    let mut s: acp::Stream = serde_json::from_value(got).ok()?;
+    s.key = key;
+    Some(s)
 }
 
 /// Stops the turn a session is taking, here or on another device, and says what happened.
 #[tauri::command(async)]
 fn session_cancel(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String) -> Result<String, String> {
-    if let Some((device, own)) = peerfeed::split_remote(&key) {
-        let got = peers.ask(device, api::SESSION_CANCEL, serde_json::json!({ "key": own }), ASK_ACT)?;
-        // Devices before stops reached every harness answered with nothing.
-        return Ok(got.as_str().unwrap_or("Stopped.").to_string());
-    }
-    cancel_here(&engine, &key)
-}
-
-/// Stops a session's turn on this device: one Codealong runs, through its agent; any other,
-/// through its harness (`Adapter::interrupt`).
-fn cancel_here(engine: &engine::Handle, key: &str) -> Result<String, String> {
-    if acp::hosts(key) {
-        return acp::cancel(key).map(|_| "Stopped.".to_string()).map_err(|e| format!("{e:#}"));
-    }
-    let cfg = config::load().map_err(|e| format!("{e:#}"))?.unwrap_or_default();
-    let board = engine.board();
-    let (s, account) = harness::find(&board, &cfg, key).map_err(|e| format!("{e:#}"))?;
-    if !harness::turn_running(s) {
-        return Err("Its turn has already ended.".into());
-    }
-    harness::adapter(s.harness).interrupt(&harness::Ctx { account }, s).map_err(|e| format!("{e:#}"))
+    let said = actions::run(&engine, &peers, api::SESSION_CANCEL, &key, serde_json::json!({}))?;
+    // Devices before stops reached every harness answered with nothing.
+    Ok(said.as_str().unwrap_or("Stopped.").to_string())
 }
 
 /// Sends a prompt to a session that's already going, where it runs (send.rs). Only Codealong's
 /// windows call this, so what it sends is what you typed.
 #[tauri::command(async)]
 fn send_to_session(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, text: String) -> Result<serde_json::Value, String> {
-    if let Some((device, key)) = peerfeed::split_remote(&key) {
-        return peers.ask(device, api::SESSION_SEND, serde_json::json!({ "key": key, "text": text }), ASK_ACT);
-    }
-    serde_json::to_value(send_here(engine.inner(), &key, &text, send::Sender::You)?).map_err(|e| e.to_string())
+    actions::run(&engine, &peers, api::SESSION_SEND, &key, serde_json::json!({ "text": text }))
 }
 
 /// Sends to a session on this device; the socket (server.rs) does the same for `codealong session
@@ -799,23 +722,18 @@ fn run_in_terminal(app: tauri::AppHandle, window: tauri::WebviewWindow, engine: 
     Ok(())
 }
 
-/// Returns the time of the board that shows it, as `mark_seen` does.
+/// Archives or unarchives a session; returns the time of the board that shows it, as
+/// `mark_seen` does.
 #[tauri::command(async)]
 fn archive_session(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, archived: bool) -> Result<Option<i64>, String> {
-    if let Some((device, key)) = peerfeed::split_remote(&key) {
-        return peers.ask(device, api::SESSION_ARCHIVE, serde_json::json!({ "key": key, "archived": archived }), ASK_ACT).map(|_| None);
-    }
-    engine.archive(&key, archived).map_err(|e| format!("{e:#}"))
+    actions::run(&engine, &peers, api::SESSION_ARCHIVE, &key, serde_json::json!({ "archived": archived })).map(|v| v.as_i64())
 }
 
 /// Names a session where its harness keeps its name, so the harness shows it too. Returns the
 /// time of the board that shows it, as `mark_seen` does.
 #[tauri::command(async)]
 fn rename_session(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, name: String) -> Result<Option<i64>, String> {
-    if let Some((device, key)) = peerfeed::split_remote(&key) {
-        return peers.ask(device, api::SESSION_RENAME, serde_json::json!({ "key": key, "name": name }), ASK_ACT).map(|_| None);
-    }
-    engine.rename(&key, &name).map_err(|e| format!("{e:#}"))
+    actions::run(&engine, &peers, api::SESSION_RENAME, &key, serde_json::json!({ "name": name })).map(|v| v.as_i64())
 }
 
 #[tauri::command(async)]
@@ -894,9 +812,6 @@ fn install_agents(command: bool, accounts: Vec<String>) -> Result<install::Agent
 }
 
 /// Where each account can start a session, for the new-session sheet.
-/// How long a window waits on another device: to read, and to act.
-const ASK_READ: std::time::Duration = std::time::Duration::from_secs(15);
-const ASK_ACT: std::time::Duration = std::time::Duration::from_secs(40);
 
 /// Your other devices as Settings › Devices and the views show them (peers.rs).
 #[tauri::command]
@@ -960,55 +875,6 @@ fn search_devices(peers: State<'_, peers::Peers>, words: Vec<String>) -> Vec<pee
     peers.search(&words)
 }
 
-/// Answers a linked device's request, with the function the matching command runs for a window
-/// here. peers.rs has already checked the device is linked, and that remote control is on for the
-/// requests that act on a session.
-fn peer_answer(engine: &engine::Handle, method: &str, p: serde_json::Value) -> Result<serde_json::Value, String> {
-    use serde_json::{to_value, Value};
-    let key = || p.get("key").and_then(Value::as_str).map(str::to_string).ok_or_else(|| "The request names no session.".to_string());
-    let text = |k: &str| p.get(k).and_then(Value::as_str).unwrap_or_default().to_string();
-    match method {
-        api::SESSION_PAGE => page_here(engine, &key()?, p.get("before").and_then(Value::as_u64)),
-        api::SESSION_NEWER => newer_here(engine, &key()?, p.get("after").and_then(Value::as_u64).unwrap_or(0)),
-        api::SESSION_PENDING => pending_here(engine, &key()?),
-        api::SEARCH => {
-            let words: Vec<String> = p.get("words").cloned().and_then(|w| serde_json::from_value(w).ok()).unwrap_or_default();
-            to_value(search_text(words)).map_err(|e| e.to_string())
-        }
-        api::SESSION_SEND => {
-            let sent = send_here(engine, &key()?, &text("text"), send::Sender::Elsewhere)?;
-            // Opening the session with the prompt ready to send needs someone at this device.
-            if sent.opened {
-                return Err(format!("It needs someone at this device: {}", sent.message));
-            }
-            to_value(sent).map_err(|e| e.to_string())
-        }
-        api::SESSION_ANSWER => {
-            let answer: harness::Answer = p.get("answer").cloned().and_then(|a| serde_json::from_value(a).ok()).ok_or("The request has no answer.")?;
-            answer_here(engine, &key()?, &text("id"), answer, p.get("answers")).map(Value::String)
-        }
-        api::SESSION_ARCHIVE => engine.archive(&key()?, p.get("archived").and_then(Value::as_bool).unwrap_or(true)).map(|_| Value::Null).map_err(|e| format!("{e:#}")),
-        api::SESSION_RENAME => engine.rename(&key()?, &text("name")).map(|_| Value::Null).map_err(|e| format!("{e:#}")),
-        api::MARK_SEEN => {
-            let keys: Vec<String> = p.get("keys").cloned().and_then(|k| serde_json::from_value(k).ok()).unwrap_or_default();
-            engine.mark_seen(keys);
-            Ok(Value::Null)
-        }
-        api::START_OPTIONS => to_value(start_options()?).map_err(|e| e.to_string()),
-        api::START => {
-            let spec: start::StartSpec = p.get("spec").cloned().and_then(|s| serde_json::from_value(s).ok()).ok_or("The request has no start.")?;
-            to_value(start_and_link(engine, &spec)?).map_err(|e| e.to_string())
-        }
-        api::SESSION_STREAM => to_value(acp::stream(&key()?)).map_err(|e| e.to_string()),
-        api::ROUTE => {
-            let project = p.get("project").and_then(Value::as_str).filter(|p| !p.is_empty()).unwrap_or(route::ALL_PROJECTS);
-            to_value(route_here(engine, project, &text("text"))?).map_err(|e| e.to_string())
-        }
-        api::SESSION_CANCEL => cancel_here(engine, &key()?).map(Value::String),
-        _ => Err(format!("Codealong on this device doesn't know how to {method} yet; update it here.")),
-    }
-}
-
 #[tauri::command(async)]
 fn start_options() -> Result<start::StartOptions, String> {
     let cfg = config::load().map_err(|e| format!("{e:#}"))?.unwrap_or_default();
@@ -1028,19 +894,15 @@ fn start_session(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peer
 
 /// Forks a session into a new terminal in its folder (`start::fork`).
 #[tauri::command(async)]
-fn fork_session(engine: State<'_, engine::Handle>, key: String) -> Result<start::Started, String> {
-    if peerfeed::split_remote(&key).is_some() {
-        return Err("Fork it on the Mac it runs on.".into());
-    }
-    let cfg = config::load().map_err(|e| format!("{e:#}"))?.unwrap_or_default();
-    start::fork(&engine.board(), &cfg, &key).map_err(|e| format!("{e:#}"))
+fn fork_session(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String) -> Result<start::Started, String> {
+    serde_json::from_value(actions::run(&engine, &peers, actions::FORK, &key, serde_json::json!({}))?).map_err(|e| e.to_string())
 }
 
 /// Starts a session in a worktree of another device, which runs it with its own accounts.
 fn start_on_device(peers: &peers::Peers, device: &str, lane: &str, spec: &start::StartSpec) -> Result<start::Started, String> {
     // Its todos are this device's; the other device has its own list.
     let spec = start::StartSpec { lane_id: lane.to_string(), todos: Vec::new(), ..spec.clone() };
-    let got = peers.ask(device, api::START, serde_json::json!({ "spec": spec }), ASK_ACT)?;
+    let got = actions::ask(peers, device, api::START, serde_json::json!({ "spec": spec }))?;
     let mut started: start::Started = serde_json::from_value(got).map_err(|e| e.to_string())?;
     started.key = started.key.map(|k| peerfeed::remote_key(device, &k));
     Ok(started)
@@ -1049,7 +911,7 @@ fn start_on_device(peers: &peers::Peers, device: &str, lane: &str, spec: &start:
 /// Where each account on another device can start a session, asked of that device.
 #[tauri::command(async)]
 fn device_start_options(peers: State<'_, peers::Peers>, device: String) -> Result<start::StartOptions, String> {
-    let got = peers.ask(&device, api::START_OPTIONS, serde_json::json!({}), ASK_READ)?;
+    let got = actions::ask(&peers, &device, api::START_OPTIONS, serde_json::json!({}))?;
     serde_json::from_value(got).map_err(|e| e.to_string())
 }
 
@@ -1302,7 +1164,7 @@ pub fn run() {
                     peers::Hooks {
                         board: Box::new(move || boards.get().map(|e| e.board()).unwrap_or_default()),
                         answer: Box::new(move |method, params| match answers.get() {
-                            Some(e) => peer_answer(e, method, params),
+                            Some(e) => actions::answer(e, method, params),
                             None => Err("Codealong is still starting on that device.".into()),
                         }),
                         emit: Box::new(move |view| {

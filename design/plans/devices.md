@@ -77,7 +77,7 @@ Unlinking on one device unlinks both when they're connected.
   `session_pending`, `session_answer`, `send_to_session`, `archive_session`, `mark_seen`,
   `start_session`. Seen goes to the device a session is on, so Your turn clears on every device
   at once.
-- **Requests** (`peer_answer` in `lib.rs`; the names are codealong-peer's `api`): `session-page`,
+- **Requests** (`actions.rs`, one table of what each does on the device asked; the names, and who may make each, are codealong-peer's `api::REQUESTS`): `session-page`,
   `session-newer`, `session-pending`, `session-stream`, `search`, `session-archive`, `mark-seen`,
   `start-options`, `session-watch` (peers.rs keeps it: the hosted sessions whose replies go to
   that connection as they're written, as `stream` messages), and, only with remote control on at

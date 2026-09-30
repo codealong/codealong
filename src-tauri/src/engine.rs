@@ -150,6 +150,13 @@ pub struct Handle {
 }
 
 impl Handle {
+    /// A handle on an empty board with no engine behind it, for tests of what goes through one.
+    #[cfg(test)]
+    pub fn for_tests() -> Handle {
+        let (tx, _) = channel();
+        Handle { tx, board: Arc::new(RwLock::new(Board::default())) }
+    }
+
     pub fn board(&self) -> Board {
         self.board.read().map(|b| b.clone()).unwrap_or_default()
     }

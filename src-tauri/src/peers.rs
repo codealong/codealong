@@ -63,9 +63,6 @@ const LINK_CODE_FOR_MS: i64 = 10 * 60 * 1000;
 /// reply so far.
 const STREAM_EVERY: Duration = Duration::from_millis(150);
 
-/// Requests that act on a session: they need remote control on at the device asked.
-pub use codealong_peer::api::CONTROL;
-
 /// A connection to another device as the rest of this module sees it, whatever carries it.
 pub use codealong_peer::wire::Wire;
 
@@ -693,7 +690,9 @@ impl Inner {
         if !linked {
             return Err(format!("{me} isn't linked with this device."));
         }
-        let acts = CONTROL.contains(&method);
+        // Who may ask for what is api::REQUESTS's: reading and listing for any linked device,
+        // driving an agent only with remote control on here.
+        let acts = codealong_peer::api::reach(method) == Some(codealong_peer::api::Reach::Control);
         if acts && !control {
             return Err(format!("Remote control is off on {me}; turn it on there in Settings › Devices."));
         }
