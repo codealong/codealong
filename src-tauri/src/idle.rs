@@ -6,6 +6,8 @@
 //! A terminal closes only when every session in it is idle or unread, has been quiet for the
 //! whole wait, left nothing running in the background, and its last reply asks you nothing: by
 //! Jev's read when `[jev] sessions` has one, else by the reply not ending in a question.
+//!
+//! A session's menu closes that one session (`close_one`) without those checks: you picked it.
 
 use std::collections::{BTreeMap, HashSet};
 
@@ -173,6 +175,32 @@ pub fn close(board: &Board, keys: &[String], after_ms: i64) -> Vec<Outcome> {
             Outcome { key: key.clone(), title, closed: false, message: why }
         })
         .collect()
+}
+
+/// Closes one session because you picked Close from its menu, whatever it's doing: its terminal
+/// tab closes with it, or, for a background job, its harness stops it. Its conversation stays
+/// and resumes like any other. Returns what happened, in a sentence.
+pub fn close_one(board: &Board, cfg: &crate::config::Config, key: &str) -> anyhow::Result<String> {
+    use anyhow::{anyhow, bail};
+    let (s, account) = crate::harness::find(board, cfg, key)?;
+    if !s.live {
+        bail!("It isn't running.");
+    }
+    if s.attach_command.is_some() {
+        return crate::harness::adapter(s.harness).stop(&crate::harness::Ctx { account }, s);
+    }
+    let pid = match (s.surface, s.pid) {
+        (Surface::Cli, Some(pid)) if !s.hosted => pid,
+        _ if s.hosted => bail!("Codealong runs it itself, in no terminal."),
+        (Surface::App, _) => bail!("It runs in {}; close it there.", match s.harness {
+            Harness::Claude => "the Claude app",
+            Harness::Codex => "the Codex app",
+            h => h.word(),
+        }),
+        _ => bail!("It has no terminal Codealong can close."),
+    };
+    let result = crate::launch::close_session_terminals(&[(pid, std::path::Path::new(&s.cwd))]).pop().unwrap_or_else(|| Err(anyhow!("Nothing was closed.")));
+    result.map(|()| format!("Closed the terminal of “{}”. Its conversation is kept and resumes like any other.", s.title))
 }
 
 /// A stretch of time in words: 26 hours, 3 days.

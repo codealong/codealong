@@ -631,6 +631,31 @@ impl crate::harness::Adapter for ClaudeCode {
         // A job with no transcript of its own yet has the conversation it goes on from, so far.
         Ok(fork_as(ctx.account, s.continues.as_deref().unwrap_or(&s.id), &crate::start::new_session_id()))
     }
+
+    /// A background job stops under its account's service, which keeps the conversation
+    /// (`claude stop <job>`). Run through a login shell, as a start is: the account's command
+    /// can be an alias.
+    fn stop(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> anyhow::Result<String> {
+        let Some(command) = s.attach_command.as_deref().and_then(|attach| stop_command(ctx.account, attach)) else {
+            anyhow::bail!("It isn't a background job, so it closes with its terminal.");
+        };
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+        if let Err(e) = procs::run(&shell, &["-ilc", &command], None, std::time::Duration::from_secs(30)) {
+            // Claude Code's own reason comes last, after whatever the shell's startup printed.
+            let said = e.to_string();
+            let why = said.lines().map(str::trim).filter(|l| !l.is_empty()).last().unwrap_or("it failed").to_string();
+            anyhow::bail!("Couldn't stop the job: {why}");
+        }
+        Ok(format!("Stopped “{}”. Its conversation is kept and resumes like any other.", s.title))
+    }
+}
+
+/// `<account command> stop <job>` for a background job, its job read from its attach command.
+/// None for anything else, or a job id that isn't plain letters and digits, since it's typed
+/// into a shell.
+fn stop_command(account: &crate::config::AccountCfg, attach: &str) -> Option<String> {
+    let (_, job) = attach.rsplit_once(" attach ")?;
+    (!job.is_empty() && job.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')).then(|| format!("{} stop {job}", account.command()))
 }
 
 /// Forks session `id` into a new one named `new_id`: `--fork-session` copies the transcript, and
@@ -1315,6 +1340,14 @@ mod tests {
         let input = serde_json::json!({"command": "cd /Users/me/projects/app-fix && yarn test"});
         assert_eq!(tool_request("Bash", &input), "Bash · `yarn test`");
         assert_eq!(tool_activity("Bash", &input), "running `yarn test`");
+    }
+
+    #[test]
+    fn stops_a_job_by_the_id_it_attaches_to() {
+        let a = crate::config::AccountCfg { name: "claude2".into(), harness: "claude".into(), home: "~/.claude2".into(), command: None, start: None, preferred: false, acp: None };
+        assert_eq!(stop_command(&a, "claude2 attach 6e07c149").as_deref(), Some("claude2 stop 6e07c149"));
+        assert_eq!(stop_command(&a, "claude2 attach 6e07c149; rm -rf ~"), None);
+        assert_eq!(stop_command(&a, "claude2 --resume 6e07c149"), None);
     }
 
     #[test]

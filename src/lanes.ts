@@ -3,6 +3,7 @@
 // of them, the lane's status and sentence are worked out again from what's left, with the same
 // rules as the engine (board.rs, `bay_of` and `headline`).
 
+import { shortOf } from './devices';
 import type { InsightLabel } from './insights';
 import type { Bay, Lane, Pr, Session, Status } from './types';
 
@@ -65,6 +66,13 @@ export function bySession(a: Session, b: Session): number {
  *  Marking it seen makes it idle, which takes it off the bar and out of its bay. */
 export function seenable(s: Session): boolean {
   return s.status === 'unread' || !!s.asks;
+}
+
+/** Whether Codealong can close a session from its menu (idle.rs `close_one`): one running on
+ *  this device in a terminal of its own, whose tab closes, or as a background job, which stops.
+ *  The apps' sessions and the ones Codealong runs itself have no terminal to close. */
+export function closable(s: Session): boolean {
+  return s.live && s.surface === 'cli' && !s.hosted && !shortOf(s.key) && (s.pid != null || s.attachCommand != null);
 }
 
 /** When you last sent a prompt to one of a worktree's own agents; with none, when anything last happened in it. */

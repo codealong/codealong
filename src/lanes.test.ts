@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ageFiltered, bayOf, buildBays, bySession, filterByAge, inboxCounts, narrowed, rowItems, sessionFlag, sessionHeadline, withoutAccount } from './lanes';
+import { ageFiltered, bayOf, buildBays, bySession, closable, filterByAge, inboxCounts, narrowed, rowItems, sessionFlag, sessionHeadline, withoutAccount } from './lanes';
 import type { Lane, Pr, Session } from './types';
 
 const NOW = 1_790_200_000_000;
@@ -216,5 +216,22 @@ describe('sessionFlag', () => {
     expect(flag({})).toBeNull();
     expect(flag({ harness: 'antigravity', excerpt: 'waiting' })).toBeNull();
     for (const status of ['working', 'unread', 'idle', 'stopped'] as const) expect(flag({ status, excerpt: 'Pushed the fix' })).toBeNull();
+  });
+});
+
+describe('closable', () => {
+  const live = (over: Partial<Session>): Session => ({ ...session('claude:c:1', 'idle', NOW), live: true, surface: 'cli', pid: 42, attachCommand: null, ...over }) as Session;
+
+  it('offers Close for terminals and background jobs running here', () => {
+    expect(closable(live({}))).toBe(true);
+    expect(closable(live({ pid: null, attachCommand: 'claude attach 6e07c149' }))).toBe(true);
+  });
+
+  it('leaves out what has no terminal of its own, or runs elsewhere', () => {
+    expect(closable(live({ live: false }))).toBe(false);
+    expect(closable(live({ surface: 'app' }))).toBe(false);
+    expect(closable(live({ hosted: true }))).toBe(false);
+    expect(closable(live({ pid: null }))).toBe(false);
+    expect(closable(live({ key: '@ab12:claude:c:1' }))).toBe(false);
   });
 });

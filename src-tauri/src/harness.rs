@@ -97,6 +97,13 @@ pub trait Adapter: Sync {
     fn fork(&self, _ctx: &Ctx, _session: &Session) -> Result<Fork> {
         bail!("{} can't fork a session.", self.harness().word())
     }
+
+    /// Ends a live session that has no terminal of its own (a background job), keeping its
+    /// conversation to resume later. A session in a terminal closes with its tab (idle.rs).
+    /// Returns what happened, in a sentence.
+    fn stop(&self, _ctx: &Ctx, _session: &Session) -> Result<String> {
+        bail!("Codealong can't close this {} session; close it where it runs.", self.harness().word())
+    }
 }
 
 /// How a fork opens in a terminal (`Adapter::fork`).

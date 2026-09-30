@@ -11,8 +11,8 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { below, showContextMenu, type MenuAction, type MenuSpec } from './contextMenu';
 import { folderMenu, openInMenu, opensInEditor, useEditorIcons } from './editors';
-import { AGENT_BAY, buildBays, filterByAge, inboxCounts, narrowed, prNeedsWork, rowItems, seenable, worktreeRow, type BoardRow, type Filter, type WorktreeRow } from './lanes';
-import { answerLink, approvePr, barMode, desktopPins, getDevices, onDevices, dismissTodoHint, expandAttachments, getBoard, onBarMode, onBoard, onCloseIdle, onDesktopPins, onNewWindow, onQuickStart, onReveal, onSettings, onCheckUpdates, openConfig, openProjectWindow, openTarget, openUrl, pinToDesktop, refresh, refreshUsage, reviewInCodex, setBarMode, startOptions, startSession, forkSession, setPinned, setPinnedWorktrees, setTheme, showQuick, signIn, unpinFromDesktop, windowLabel, type BarMode, type Reveal } from './api';
+import { AGENT_BAY, buildBays, filterByAge, inboxCounts, narrowed, prNeedsWork, rowItems, seenable, closable, worktreeRow, type BoardRow, type Filter, type WorktreeRow } from './lanes';
+import { answerLink, approvePr, barMode, desktopPins, getDevices, onDevices, dismissTodoHint, expandAttachments, getBoard, onBarMode, onBoard, onCloseIdle, onDesktopPins, onNewWindow, onQuickStart, onReveal, onSettings, onCheckUpdates, openConfig, openProjectWindow, openTarget, openUrl, pinToDesktop, refresh, refreshUsage, reviewInCodex, setBarMode, startOptions, startSession, forkSession, closeSession, setPinned, setPinnedWorktrees, setTheme, showQuick, signIn, unpinFromDesktop, windowLabel, type BarMode, type Reveal } from './api';
 import { middleTruncate } from './format';
 import { usePerf } from './perf';
 import { archiveAhead, boardAhead, boardView, lanesAhead, observe, seenAhead, useAhead } from './ahead';
@@ -1279,8 +1279,8 @@ export function App() {
   const toggleLanePin = useCallback((lane: Lane) => lanePins.toggle(lane.id), [lanePins]);
 
   /**
-   * A session's right-click menu: open it, fork it, mark it seen, pin it, snooze it, archive it,
-   * copy its ID. Snoozes keep sessions off the floating bar, which shows this Mac's only. Each list pins what
+   * A session's right-click menu: open it, fork it, mark it seen, pin it, snooze it, close it,
+   * archive it, copy its ID. Snoozes keep sessions off the floating bar, which shows this Mac's only. Each list pins what
    * it shows: Sessions pins the session; the board and the sidebar, lists of worktrees, pin the
    * session's worktree.
    */
@@ -1295,6 +1295,12 @@ export function App() {
         if (started?.message) setToast(started.message);
         if (started?.key) setPendingSession({ key: started.key, until: Date.now() + 60_000 });
       })
+      .catch((e: unknown) => setToast(String(e).replace(/^Error: /, '')));
+  /** Closes a session running here: its terminal tab, or a background job stopped. It shows as
+   *  stopped once the engine sees it go. */
+  const close = (s: Session) =>
+    track(`Closing ${s.title}…`, closeSession(s.key))
+      .then((said) => said && setToast(said))
       .catch((e: unknown) => setToast(String(e).replace(/^Error: /, '')));
   const editorIcons = useEditorIcons(board?.apps);
   /** Opens a worktree's folder in an editor from a session's menu: yours, or, with others
@@ -1319,6 +1325,7 @@ export function App() {
         ...(seenable(s) ? [{ label: 'Mark as seen', run: () => seen(s) }] : []),
         ...(s.archived ? [] : [pinItem, ...desktopItem('session', s.key)]),
         ...(s.archived || shortOf(s.key) ? [] : [snoozeMenu([s.key], Date.now(), { until: s.snoozedUntil, onDone: (act) => void act.catch((e: unknown) => setToast(String(e))) })]),
+        ...(closable(s) ? [{ label: s.attachCommand ? 'Stop background job' : 'Close terminal', run: () => void close(s) }] : []),
         { label: s.archived ? 'Unarchive' : s.harness === 'codex' ? 'Archive in Codex' : 'Archive', run: () => setArchived(s.key, !s.archived, s.title) },
         'separator',
         { label: 'Copy session ID', run: () => copy(s.id, 'session ID') },

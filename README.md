@@ -26,7 +26,10 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     needs you has a label beside its title for what it waits on (Asks you, Needs approval,
     Stuck, Error). A snoozed session's row says how long until it's back. Sessions are pinned
     here, with `p` or the right-click menu, and their pins show only here. Archive a session
-    with `a` or its right-click menu; Codex threads are archived in Codex itself. Mark a
+    with `a` or its right-click menu; Codex threads are archived in Codex itself. Close
+    terminal, in the right-click menu of a session running in a Ghostty, iTerm2 or Terminal
+    tab, closes that tab whatever the session is doing, and Stop background job stops a Claude
+    Code background job; either way its conversation is kept and resumes. Mark a
     finished turn seen, which makes it idle and takes it off the floating bar, with `e`, the
     check at the top of its panel or its right-click menu. Fork in terminal, in a Claude Code,
     Codex or OpenCode session's right-click menu, opens a copy of its conversation in a new
@@ -242,7 +245,9 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   it to a session that's already going, start new work in a worktree (a new one when it's a
   change of its own), open a session, or keep it as a todo. ⏎ does the first. The same call
   says whether a running session may already be doing it (start rows say so, and sending to it
-  is offered), and puts the sessions it thinks you mean first among the search results. Jev
+  is offered), and puts the sessions it thinks you mean first among the search results. A
+  session that's running leads one that isn't when Jev finds them close (a stopped one counts
+  half against running ones), since sending to it doesn't resume anything. Jev
   never picks the model: a new session starts on the one the start menu shows. Sending goes the
   way each harness takes a prompt: pasted into the session's Ghostty, iTerm2, Terminal or tmux tab, Claude Code's daemon
   for a background job, OpenCode's service, a turn started by the Codex app itself (opening

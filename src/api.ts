@@ -168,6 +168,12 @@ export async function closeIdleTerminals(keys: string[], afterMs: number): Promi
   return invoke<CloseOutcome[]>('close_idle_terminals', { keys, afterMs });
 }
 
+/** Closes one session: its terminal tab, or a background job stopped. Says what happened. */
+export async function closeSession(key: string): Promise<string> {
+  if (!inTauri) return '';
+  return invoke<string>('close_session', { key });
+}
+
 /** Archives or unarchives a session; Codex threads are archived in Codex itself. Returns the
  *  time of the board that shows it, as `markSeen` does. */
 export async function archiveSession(key: string, archived: boolean): Promise<number | null> {

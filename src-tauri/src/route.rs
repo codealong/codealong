@@ -38,6 +38,8 @@ pub use codealong_peer::api::{Action, Pick, Route};
 pub struct Request {
     pub body: Value,
     sessions: Vec<String>,
+    /// Which of `sessions` are running.
+    running: Vec<bool>,
     lanes: Vec<String>,
     lane_repos: Vec<String>,
 }
@@ -53,6 +55,10 @@ const DUPLICATE_AT: f64 = 0.5;
 const SCORED_AT: f64 = 0.01;
 /// Scored sessions kept at most.
 const SCORED: usize = 20;
+/// How a session that isn't running counts against running ones Jev also picked. Sending to a
+/// running session reaches it where it is; one that isn't running has to be resumed, a process
+/// and often a terminal of its own, so when they're close the running one leads.
+const STOPPED_WEIGHT: f64 = 0.5;
 
 /// Whether a lane is in the panel's project, as the panel decides it (quick.ts `inProject`).
 fn in_project(lane: &Lane, project: &str) -> bool {
@@ -235,6 +241,7 @@ pub fn request(board: &Board, project: &str, text: &str, model: &str, now: i64) 
     Ok(Request {
         body,
         sessions: sessions.iter().map(|(_, s)| s.key.clone()).collect(),
+        running: sessions.iter().map(|(_, s)| s.live).collect(),
         lanes: lanes.iter().map(|l| l.id.clone()).collect(),
         lane_repos: lanes.iter().map(|l| format!("{}/{}", l.project, l.repo)).collect(),
     })
@@ -251,6 +258,21 @@ fn probabilities(answer: &Value) -> BTreeMap<String, f64> {
         .unwrap_or_default()
 }
 
+/// Jev's session picks leaning toward running sessions: one that isn't running counts
+/// `STOPPED_WEIGHT` as likely as Jev says, and the running ones share what it gives up, so the
+/// sessions together stay as likely as Jev made them and "none" keeps its chance. With only
+/// running or only stopped sessions picked, nothing changes.
+fn favor_running(picks: Vec<(Pick, bool)>) -> Vec<Pick> {
+    let total: f64 = picks.iter().map(|(p, _)| p.p).sum();
+    let weighed: Vec<Pick> = picks.into_iter().map(|(p, running)| Pick { p: if running { p.p } else { p.p * STOPPED_WEIGHT }, ..p }).collect();
+    let left: f64 = weighed.iter().map(|p| p.p).sum();
+    if left <= 0.0 {
+        return weighed;
+    }
+    let scale = total / left;
+    weighed.into_iter().map(|p| Pick { p: p.p * scale, ..p }).collect()
+}
+
 fn ranked(mut picks: Vec<Pick>) -> Vec<Pick> {
     picks.sort_by(|a, b| b.p.partial_cmp(&a.p).unwrap_or(std::cmp::Ordering::Equal).then(a.id.cmp(&b.id)));
     picks
@@ -258,6 +280,7 @@ fn ranked(mut picks: Vec<Pick>) -> Vec<Pick> {
 
 /// Reads Jev's answer into a route. The action is Jev's likeliest, with one correction made in
 /// code: sending needs a session, so when "none" is the likelier session, new work is meant.
+/// Sessions are ranked with running ones favored (`favor_running`).
 pub fn read(req: &Request, response: &Value, ms: u64) -> Result<Route> {
     let answers = response.get("answers").ok_or_else(|| anyhow!("TypeSafe's answer has no answers"))?;
     let action_p = probabilities(&answers["action"]);
@@ -271,7 +294,17 @@ pub fn read(req: &Request, response: &Value, ms: u64) -> Result<Route> {
         let n: usize = id.strip_prefix(prefix)?.parse().ok()?;
         list.get(n.checked_sub(1)?).cloned()
     };
-    let sessions = ranked(session_p.iter().filter_map(|(k, p)| Some(Pick { id: at(k, 's', &req.sessions)?, p: *p })).collect());
+    let picked: Vec<(Pick, bool)> = session_p
+        .iter()
+        .filter_map(|(k, p)| {
+            let n: usize = k.strip_prefix('s')?.parse().ok()?;
+            let i = n.checked_sub(1)?;
+            Some((Pick { id: req.sessions.get(i)?.clone(), p: *p }, req.running.get(i).copied().unwrap_or(false)))
+        })
+        .collect();
+    // Whether any session fits at all is Jev's call, before running ones are favored.
+    let top_session = picked.iter().map(|(p, _)| p.p).fold(0.0, f64::max);
+    let sessions = ranked(favor_running(picked));
     let no_session = session_p.get("none").copied().unwrap_or(if req.sessions.is_empty() { 1.0 } else { 0.0 });
     let lanes = ranked(lane_p.iter().filter_map(|(k, p)| Some(Pick { id: at(k, 'w', &req.lanes)?, p: *p })).collect());
     let mut repo_sum: BTreeMap<String, f64> = BTreeMap::new();
@@ -287,7 +320,6 @@ pub fn read(req: &Request, response: &Value, ms: u64) -> Result<Route> {
         .next()
         .filter(|d| d.p >= DUPLICATE_AT);
 
-    let top_session = sessions.first().map_or(0.0, |s| s.p);
     let mut action = actions.first().map_or(Action::Start, |a| a.0);
     if matches!(action, Action::Send | Action::Find) && no_session > top_session {
         action = Action::Start;
@@ -494,6 +526,26 @@ mod tests {
         assert_eq!(r.lanes[0].id, "/p/api");
         assert_eq!(r.repos[0], Pick { id: "Acme/api".into(), p: 0.7 });
         assert_eq!((r.model.as_str(), r.ms, r.input_tokens), ("jev-1.13.0", 250, 1234));
+    }
+
+    #[test]
+    fn a_running_session_leads_a_stopped_one_jev_scored_a_little_higher() {
+        let mut b = board();
+        b.lanes[0].sessions[1].last_prompt_at = NOW - 3_600_000;
+        let req = request(&b, "Acme", "the login fix should also cover sso", "m", NOW).unwrap();
+        // c:1 and c:2 run; c:old doesn't.
+        assert_eq!(req.sessions, vec!["c:1", "c:2", "c:old"]);
+        let sends = |s1: f64, s3: f64| read(&req, &answer(&[("send", 1.0)], &[("s1", s1), ("s3", s3), ("none", 0.1)], &[("w1", 1.0)], 0.0), 1).unwrap();
+        let r = sends(0.35, 0.55);
+        assert_eq!(r.action, Action::Send);
+        assert_eq!(r.sessions.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(), vec!["c:1", "c:old"]);
+        // Together they're as likely as Jev said, and none keeps its share.
+        assert!((r.sessions.iter().map(|p| p.p).sum::<f64>() - 0.9).abs() < 1e-9);
+        assert_eq!(r.no_session, 0.1);
+        // One Jev is much surer of still leads.
+        assert_eq!(sends(0.1, 0.8).sessions[0].id, "c:old");
+        // With no running session picked, Jev's numbers stand.
+        assert_eq!(sends(0.0, 0.9).sessions[0], Pick { id: "c:old".into(), p: 0.9 });
     }
 
     #[test]
