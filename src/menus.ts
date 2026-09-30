@@ -16,7 +16,7 @@ import { renames } from './harness';
 import { chromeLabel, openLabel } from './open';
 import { closable, seenable, stoppable } from './lanes';
 import { snoozeMenu } from './snooze';
-import type { DesktopPinned, Lane, Pr, Session, Started } from './types';
+import type { DesktopPinned, Lane, Pr, Session } from './types';
 import { errorText, type Report } from './report';
 
 /** The editors installed here and their icons, for Open folder in and Open in. */
@@ -97,8 +97,6 @@ export interface SessionCan {
   editors?: Editors;
   /** New session here…, when it's more than the quick panel on the worktree. */
   newSession?: () => void;
-  /** Hears that a fork started, to select it once it shows. */
-  forked?: (started: Started) => void;
   /** Add to todo and Remove from todo, where the todos are (the main window). */
   todos?: MenuSpec;
   /** Asks for a new name, where this window asks (a sheet, the peek, the quick panel's box). */
@@ -160,7 +158,6 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
     busy(`Forking ${s.title}…`, forkSession(s.key))
       .then((started) => {
         if (started?.message) report.info(started.message);
-        if (started) can.forked?.(started);
       })
       .catch((e: unknown) => report.error(errorText(e)));
   const archive = can.archive ?? ((archived: boolean) => (archived ? settle('archived')(archiveAhead(s.key, true)) : void archiveAhead(s.key, false).catch((e: unknown) => report.error(errorText(e)))));

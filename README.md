@@ -354,7 +354,7 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   unused, else the one with the most room. It starts on
   that default model, or the next best (Opus, then Sonnet) when the default's own weekly limit
   is nearly used up. Codealong only launches: the session shows on the board like any other,
-  and one started in a terminal is selected as soon as it appears. Paste or drop screenshots and
+  and the panel stays on whatever you're looking at when it appears. Paste or drop screenshots and
   other files into the prompt: Claude Code in a terminal gets them as file mentions (attached
   when they're 256 KB or less, read otherwise, with their folders added so it doesn't ask),
   and the apps and OpenCode get their paths.

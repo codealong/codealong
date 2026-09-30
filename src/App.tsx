@@ -383,8 +383,6 @@ export function App() {
   /** How this window's menus say how things went (menus.ts): a toast, and the spinner while
    *  something takes a moment. */
   const report = useMemo<Report>(() => ({ error: setToast, info: setToast, busy: track }), [track]);
-  // A session started from here, selected once it shows on the board.
-  const [pendingSession, setPendingSession] = useState<{ key: string; until: number } | null>(null);
   const now = useNow(15_000);
   const searchRef = useRef<HTMLInputElement>(null);
   const gPending = useRef(false);
@@ -682,16 +680,24 @@ export function App() {
   // Nothing is listed until the board is read, so nothing can be selected: not the other devices'
   // rows that come first.
   const visible = loading ? [] : view === 'sessions' ? sessionRows : view === 'prs' ? prVisible : view === 'todo' ? todoVisible : view === 'canvas' ? [] : worktreeItems;
-  // When the selected agent's line goes (you marked it seen, it stopped), the selection stays
+  // A session listed under another worktree now (its commands moved there) stays selected. When
+  // the selected agent's line goes (you marked it seen, it stopped), the selection stays
   // on its worktree rather than jumping to the top. A todo that leaves the list (marked done
   // while Done is folded, or no longer matching the search or a filter) stays in the panel: the
   // next key you press is still about the todo you see, and an edit in progress isn't cut off.
-  const selectedLaneId = selectedKey?.split('::')[0];
+  const [selectedLaneId, selectedSessionKey] = selectedKey?.split('::') ?? [];
   const selected =
     visible.find((r) => r.key === selectedKey) ??
-    (view === 'todo' ? todoItems.find((r) => r.key === selectedKey) : visible.find((r) => r.kind !== 'pr' && r.kind !== 'todo' && r.lane.id === selectedLaneId)) ??
+    (view === 'todo'
+      ? todoItems.find((r) => r.key === selectedKey)
+      : (visible.find((r) => r.kind === 'agent' && r.session.key === selectedSessionKey) ?? visible.find((r) => r.kind !== 'pr' && r.kind !== 'todo' && r.lane.id === selectedLaneId))) ??
     visible[0] ??
     null;
+  // With nothing picked yet (the window just opened, or you changed projects) the panel shows
+  // the top row, and it holds there: a session that comes to the top later doesn't take it.
+  useEffect(() => {
+    if (selectedKey === null && selected) setSelectedKey(selected.key);
+  }, [selectedKey, selected?.key]);
   const selectedLane = selected?.lane ?? null;
   // The todos picked together, in the list's order. They hold while the keyboard stays on the
   // row they were picked from: selecting a row any other way ends them. Fewer than two is none.
@@ -1211,7 +1217,6 @@ export function App() {
         track(`Starting a review of #${pr.number} on ${pick.account}…`, startSession(spec))
           .then((started) => {
             if (started?.message) setToast(started.message);
-            if (started?.key) setPendingSession({ key: started.key, until: Date.now() + 60_000 });
           })
           .catch((e: unknown) => setToast(errorText(e)));
       },
@@ -1278,8 +1283,6 @@ export function App() {
       terminal: board?.apps.terminal ?? 'Terminal',
       editors,
       newSession: () => newSession({ laneId: lane.id }),
-      // A fork is selected once it shows, as a start is.
-      forked: (started) => started.key && setPendingSession({ key: started.key, until: Date.now() + 60_000 }),
       todos: todoItemsRef.current(lane.project, { session: s.key }, { session: s.key, worktree: lane.id, label: `${s.account} in ${lane.callsign}` }, s.title),
       pin:
         pin === 'session'
@@ -1335,21 +1338,6 @@ export function App() {
     setBayFilter([]);
     if (lane.parked) setShowParked(true);
     setSelectedKey(boardRowKey(lane));
-  };
-
-  /** Selects a session: in Sessions its own row; on the board its line on its worktree's row, else the worktree. */
-  const focusSession = (lane: Lane, session: Session) => {
-    setBayFilter([]);
-    if (view === 'sessions') {
-      const item = sessionItems.find((r) => r.session.key === session.key);
-      if (item) {
-        setSelectedKey(item.key);
-        return;
-      }
-    }
-    const hasLine = !session.visitor && AGENT_BAY[session.status];
-    if (!hasLine && lane.parked) setShowParked(true);
-    setSelectedKey(hasLine ? `${lane.id}::${session.key}` : boardRowKey(lane));
   };
 
   // Where the bar shows: floating, docked in the notch, or off; changed here, from its own menu or
@@ -1675,8 +1663,9 @@ export function App() {
   }, [visible, selected, pickedRows, selectedLane, startLaneId, move, open, openRow, copy, settings, previewFor, renaming, openSettings, newSession, view, setView, toggleLanePin, sessionPins, lanePins, pinnedRows, pinnedLaneRows, shownBays, movePinnedSession, movePinnedLane, current, setArchived, projects, toggleSidebar, panelMax, togglePanelMax]);
 
   // Starts this window asked the quick panel for. A spinner shows while the harness takes the
-  // session; then what's next, and the session is selected when it shows up if Codealong chose
-  // its ID. A failed start brings the panel back with what you wrote and why.
+  // session; then what's next. The new session isn't selected when it shows up: by then you may
+  // be reading another, and the panel stays on what you picked. A failed start brings the panel
+  // back with what you wrote and why.
   useEffect(() => {
     const timers = new Map<number, number>();
     const off = onQuickStart((e) => {
@@ -1688,7 +1677,6 @@ export function App() {
       timers.delete(e.id);
       setBusy((b) => b.filter((x) => x.id !== e.id));
       if (e.message) setToast(e.message);
-      if (e.key) setPendingSession({ key: e.key, until: Date.now() + 60_000 });
     });
     return () => {
       off();
@@ -1696,23 +1684,6 @@ export function App() {
     };
   }, []);
 
-  useEffect(() => {
-    if (!pendingSession) return;
-    if (Date.now() > pendingSession.until) {
-      setPendingSession(null);
-      return;
-    }
-    for (const lane of lanes) {
-      const session = lane.sessions.find((s) => s.key === pendingSession.key);
-      if (!session) continue;
-      setPendingSession(null);
-      // Started from a todo: the todo stays selected, and its panel shows the new session.
-      if (view === 'todo') return;
-      if (view === 'prs') setView('worktrees');
-      focusSession(lane, session);
-      return;
-    }
-  }, [lanes, pendingSession]);
 
   const toggleBay = (f: Filter) => {
     setBayFilter((fs) => (fs.includes(f) ? fs.filter((x) => x !== f) : [...fs, f]));
