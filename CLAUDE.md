@@ -98,6 +98,10 @@ The engine binary doubles as a CLI for checking behavior without a window:
   session, or a `HOME` of your own with scratch accounts.
 - `codealong --snapshot --stop <session key>`: stops the turn a session is taking, as its Stop
   does (`Adapter::interrupt`). Real: use it only on a session of your own.
+- `codealong --snapshot --fork <session key> [prompt]`: forks a session into the background, as
+  `/fork` in its box does (`Adapter::fork_background`). Real: it starts a copy (a Claude Code
+  background job, `claude rm <job>` after; an OpenCode session). Codex's copy runs over ACP,
+  which needs the app.
 - `codealong --snapshot --editor-icons`: the installed editors' app icons, as the Open in menus
   get them (`editors.rs`).
 - `codealong --snapshot --start-options`: where each account can start a session.
@@ -389,7 +393,12 @@ Claude Code
   `--session-id <uuid>` names the copy; with `--resume` it's taken only alongside
   `--fork-session` ("--session-id can only be used with --continue or --resume if
   --fork-session is also specified"). The registry has the new ID at once, the transcript from
-  the first prompt, as with a start (checked on 2.1.284, 2026-09-28).
+  the first prompt, as with a start (checked on 2.1.284, 2026-09-28). With `--bg` the copy is a
+  background job (checked on 2.1.286, 2026-09-30): the roster's `workers.<job>.dispatch.launch`
+  says `{mode: "resume", sessionId: <id>, fork: true}`. With a prompt it writes its transcript,
+  the conversation so far included, at once; without one it prints `(idle — send a prompt to
+  start)` and has none until its first prompt, so the board shows it with the conversation it
+  copies (`claude::resumed_from`).
 - `--model` takes a full name or an alias for the newest model of a family: `sonnet`, `opus`,
   `haiku`, `fable`, their `[1m]` (1M context) variants, `best` and `opusplan` (2.1.282's list).
   Quote it when typing it: zsh reads `fable[1m]` as a file pattern ("no matches found"). Without

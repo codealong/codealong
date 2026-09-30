@@ -519,6 +519,31 @@ pub fn start(a: &AccountCfg, cwd: &Path, prompt: &str, model: Option<&str>, effo
     Ok(key)
 }
 
+/// Forks session `id` into a new one Codealong runs (`session/fork`): a copy of its
+/// conversation that goes on in `cwd`, on `prompt` when there's one. Returns the copy's key.
+pub fn fork(a: &AccountCfg, id: &str, cwd: &Path, prompt: &str) -> Result<String> {
+    in_app()?;
+    let harness = Harness::from_config(&a.harness);
+    let ag = agent(a)?;
+    if !ag.can("fork") {
+        bail!("{}'s agent can't fork a session.", a.name);
+    }
+    let r = ag.request("session/fork", json!({ "sessionId": id, "cwd": cwd, "mcpServers": [] }), Some(REQUEST_TIMEOUT))?;
+    let copy = r.get("sessionId").and_then(Value::as_str).ok_or_else(|| anyhow!("{}'s agent made no copy.", a.name))?.to_string();
+    let key = key_of(harness, &a.name, &copy);
+    let cwd_s = cwd.to_string_lossy().into_owned();
+    remember(Remembered { harness, account: a.name.clone(), id: copy.clone(), cwd: cwd_s.clone() });
+    // codex-acp lets go of the thread once it's copied (1.13.1), so the first prompt picks it up
+    // again as it would a session from before the process started.
+    state().sessions.insert(key.clone(), Hosted { account: a.name.clone(), id: copy, cwd: cwd_s, loaded: false, ..Default::default() });
+    let text = crate::attachments::expand(prompt.trim(), crate::attachments::Style::Path);
+    if !text.is_empty() {
+        send(a, &key, &text)?;
+    }
+    notify(Change::Board);
+    Ok(key)
+}
+
 /// The id of a session's config option in `category` (ACP's `model`, `thought_level`) when it
 /// offers `value`.
 fn offered_option(options: &Value, category: &str, value: &str) -> Option<String> {
@@ -760,6 +785,26 @@ mod tests {
         println!("{}", send(&a, &key, "What was the last thing I asked you? Answer in one short sentence.").unwrap());
         wait_until("the turn to end", 180, || !state().sessions[&key].running);
         assert!(state().sessions[&key].error.is_none(), "{:?}", state().sessions[&key].error);
+    }
+
+    /// Against a real adapter: `CODEALONG_TEST_ACP_FORK=<key of a thread of your own>
+    /// CODEALONG_TEST_ACP_DIR=<its folder> cargo test acp_forks -- --ignored --nocapture`. Forks
+    /// it as /fork does for a Codex thread, and runs the copy on a question only the conversation
+    /// it copied answers; its rollout has the answer. The copy is a real thread, remembered in
+    /// hosted.json.
+    #[test]
+    #[ignore]
+    fn acp_forks_a_session() {
+        let (Ok(key), Ok(dir)) = (std::env::var("CODEALONG_TEST_ACP_FORK"), std::env::var("CODEALONG_TEST_ACP_DIR")) else { return };
+        let mut parts = key.splitn(3, ':').skip(1);
+        let (account, id) = (parts.next().unwrap(), parts.next().unwrap());
+        let cfg = config::load().unwrap().unwrap_or_default();
+        let a = cfg.accounts.iter().find(|x| x.name == account).expect("an account by that name").clone();
+        init(|_| {});
+        let copy = fork(&a, id, Path::new(&dir), "Which word did I ask you to remember? Answer with the word alone, in lowercase.").unwrap();
+        println!("{copy}");
+        wait_until("the copy's turn to end", 240, || !state().sessions[&copy].running);
+        assert!(state().sessions[&copy].error.is_none(), "{:?}", state().sessions[&copy].error);
     }
 
     /// Against a real adapter: `CODEALONG_TEST_ACP=<account> CODEALONG_TEST_ACP_DIR=<folder>

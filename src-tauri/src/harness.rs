@@ -104,6 +104,14 @@ pub trait Adapter: Sync {
         bail!("{} can't fork a session.", self.harness().word())
     }
 
+    /// A copy of the session's conversation as far as it's written that goes on with no window
+    /// coming forward: a background job, or a session a service or Codealong runs. It starts in
+    /// `cwd` on `prompt`, when that isn't empty (attachments not yet expanded), and otherwise
+    /// waits for one. Returns the copy's key, when the harness has said it.
+    fn fork_background(&self, _ctx: &Ctx, _session: &Session, _cwd: &Path, _prompt: &str) -> Result<Option<String>> {
+        bail!("{} can't fork a session in the background.", self.harness().word())
+    }
+
     /// Ends a live session that has no terminal of its own (a background job), keeping its
     /// conversation to resume later. A session in a terminal closes with its tab (idle.rs).
     /// Returns what happened, in a sentence.

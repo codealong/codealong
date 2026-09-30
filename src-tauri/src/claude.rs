@@ -32,6 +32,9 @@ pub struct RegistryEntry {
     pub name_source: Option<String>,
     pub started_at: Option<i64>,
     pub status_updated_at: Option<i64>,
+    /// For a background job that goes on from another session's conversation (a fork, or a
+    /// window's `/background`), that session's id, from the service's roster.
+    pub resumes: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -66,7 +69,24 @@ pub fn parse_registry(text: &str) -> Option<RegistryEntry> {
         name_source: raw.name_source,
         started_at: raw.started_at,
         status_updated_at: raw.status_updated_at,
+        resumes: None,
     })
+}
+
+/// The conversation a background job goes on from, from the service's roster
+/// (`<home>/daemon/roster.json`): `workers.<job>.dispatch.launch` says `mode: "resume"` and
+/// names the session, by its id (`claude --bg --resume <id>`, with `--fork-session` for a copy)
+/// or by its transcript's path (`/background`). None for a job that started afresh, and for
+/// one that goes on as the session itself.
+pub fn resumed_from(roster: &Value, job: &str) -> Option<String> {
+    let worker = roster.get("workers")?.get(job)?;
+    let launch = worker.pointer("/dispatch/launch")?;
+    if launch.get("mode")?.as_str()? != "resume" {
+        return None;
+    }
+    let from = Path::new(launch.get("sessionId")?.as_str()?).file_stem()?.to_str()?.to_string();
+    let own = worker.get("sessionId").and_then(Value::as_str);
+    (!from.is_empty() && own != Some(from.as_str())).then_some(from)
 }
 
 /// Live sessions for one account. Entries whose process is gone, or whose pid now belongs
@@ -75,13 +95,15 @@ pub fn parse_registry(text: &str) -> Option<RegistryEntry> {
 pub fn read_registry(home: &Path) -> Vec<RegistryEntry> {
     let Ok(entries) = std::fs::read_dir(home.join("sessions")) else { return vec![] };
     let mut out = Vec::new();
+    // Read once, and only when there's a job to look up.
+    let mut roster: Option<Value> = None;
     for e in entries.flatten() {
         let path = e.path();
         if path.extension().and_then(|x| x.to_str()) != Some("json") {
             continue;
         }
         let Ok(text) = std::fs::read_to_string(&path) else { continue };
-        let Some(entry) = parse_registry(&text) else { continue };
+        let Some(mut entry) = parse_registry(&text) else { continue };
         if entry.parked_job.is_some() || !procs::pid_alive(entry.pid) {
             continue;
         }
@@ -89,6 +111,10 @@ pub fn read_registry(home: &Path) -> Vec<RegistryEntry> {
             if proc_start > started + 60_000 {
                 continue;
             }
+        }
+        if let Some(job) = entry.job_id.as_deref() {
+            let roster = roster.get_or_insert_with(|| std::fs::read(home.join("daemon/roster.json")).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or(Value::Null));
+            entry.resumes = resumed_from(roster, job);
         }
         out.push(entry);
     }
@@ -826,6 +852,14 @@ impl crate::harness::Adapter for ClaudeCode {
     fn fork(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> anyhow::Result<crate::harness::Fork> {
         // A job with no transcript of its own yet has the conversation it goes on from, so far.
         Ok(fork_as(ctx.account, s.continues.as_deref().unwrap_or(&s.id), &crate::start::new_session_id()))
+    }
+
+    /// A background job under the account's service, whichever way the session runs: Claude
+    /// Code copies the conversation from its transcript (`start::fork_command`).
+    fn fork_background(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, cwd: &Path, prompt: &str) -> anyhow::Result<Option<String>> {
+        let command = crate::start::fork_command(ctx.account, s.continues.as_deref().unwrap_or(&s.id), prompt);
+        let (_, id) = crate::start::start_background(ctx.account, cwd, &command)?;
+        Ok(id.map(|id| format!("claude:{}:{id}", ctx.account.name)))
     }
 
     /// A background job stops under its account's service, which keeps the conversation
@@ -1910,6 +1944,23 @@ mod tests {
         assert_eq!(e.name.as_deref(), Some("atlas-app4-4b"));
         assert_eq!(e.parked_job, None);
         assert!(parse_registry(r#"{"pid":1}"#).is_none());
+    }
+
+    #[test]
+    fn reads_the_conversation_a_background_job_goes_on_from() {
+        let roster = serde_json::json!({"workers": {
+            "37620e2b": {"sessionId": "37620e2b-35d0-47b2-8e04-9a55468b75fe", "dispatch": {"launch": {"mode": "resume", "sessionId": "3628c9e6-0309-4a30-aed9-3e68d0e66b7e", "fork": true}}},
+            "5a1b2c3d": {"sessionId": "5a1b2c3d-0000-4000-8000-000000000000", "dispatch": {"source": "slash", "launch": {"mode": "resume", "fork": true, "sessionId": "/Users/me/.claude/projects/-r-x/9f62aa00-0000-4000-8000-000000000000.jsonl"}}},
+            "77777777": {"sessionId": "77777777-0000-4000-8000-000000000000", "dispatch": {"launch": {"mode": "resume", "sessionId": "77777777-0000-4000-8000-000000000000"}}},
+            "d3d3cd21": {"sessionId": "d3d3cd21-0478-4ac5-a902-a215a327e140", "dispatch": {"launch": {"mode": "prompt"}}}
+        }});
+        // A fork names the session it copies; a window's /background, its transcript.
+        assert_eq!(resumed_from(&roster, "37620e2b").as_deref(), Some("3628c9e6-0309-4a30-aed9-3e68d0e66b7e"));
+        assert_eq!(resumed_from(&roster, "5a1b2c3d").as_deref(), Some("9f62aa00-0000-4000-8000-000000000000"));
+        // Going on as the session itself, started afresh, or not in the roster.
+        assert_eq!(resumed_from(&roster, "77777777"), None);
+        assert_eq!(resumed_from(&roster, "d3d3cd21"), None);
+        assert_eq!(resumed_from(&roster, "00000000"), None);
     }
 
     #[test]

@@ -2634,8 +2634,10 @@ impl Engine {
                             continue;
                         }
                         let key = format!("claude:{}:{}", a.name, id);
-                        // A job that hasn't written its own transcript yet shows the one it goes on from.
-                        let from = moves.from.get(id).and_then(|f| Some((f, by_id.get(f.as_str())?.1?)));
+                        // A job that hasn't written its own transcript yet shows the one it goes on
+                        // from: a window's conversation it took over, or one it's a fork of.
+                        let resumes = reg.and_then(|r| r.resumes.as_ref()).filter(|_| tr.is_none());
+                        let from = moves.from.get(id).or(resumes).and_then(|f| Some((f, by_id.get(f.as_str())?.1?)));
                         let tr = tr.or(from.map(|(_, t)| t));
                         let moved = reg.zip(from).map(|(r, (_, (_, t)))| board::moved_registry(r, t));
                         let reg = moved.as_ref().or(reg);

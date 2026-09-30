@@ -24,6 +24,10 @@
 // Codealong, its app: send.rs `way_in`). What else it has to say (how a send went, the keys that
 // aren't the usual ones) goes on a line below it, there only while there's something to say.
 //
+// A few of Codealong's own slash commands work in the box (slash.ts): `/fork [prompt]` forks the
+// session into a copy that goes on in the background, on the prompt when there is one, and you
+// stay where you are. Any other `/…` goes to the session as typed.
+//
 // While its turn runs, Escape in the box stops it where Codealong can reach the session (the
 // engine's `stoppable`), as Escape does in Claude Code and Codex, and so does the button while
 // the box is empty, whose placeholder says so (⌘. too, from anywhere in the window). It sends what the harness's own Stop
@@ -31,11 +35,12 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent } from 'react';
 import { sendAhead, sending, useAhead } from '../ahead';
-import { sessionAnswer, sessionCancel, sessionPending, sessionWay } from '../api';
+import { forkSession, sessionAnswer, sessionCancel, sessionPending, sessionWay } from '../api';
 import { filesToAttach, keepFiles } from '../attachInput';
 import { onDraftChange, readDraft, writeDraft } from '../drafts';
 import { sessionPlace } from '../harness';
 import { stoppable } from '../lanes';
+import { slashCommand, slashMatches } from '../slash';
 import { attachmentsIn, insertAttachments, withoutAttachment } from '../todos';
 import type { Answers, Pending, Question, Sent, Session, Way } from '../types';
 import { CodeBlock } from './CopyButton';
@@ -271,6 +276,36 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
     return true;
   };
 
+  // `/fork`, and what follows it for the copy. The box clears at once, as a send does, and has it
+  // back, with why, if the fork doesn't go.
+  const [forking, setForking] = useState(false);
+  const fork = (prompt: string) => {
+    if (forking) return;
+    const key = s.key;
+    const typed = text;
+    setForking(true);
+    setNote(null);
+    setText('');
+    forkSession(key, { background: true, prompt })
+      .then(
+        (started) => void land(key, { text: started?.message ?? 'Forked in the background.', error: false }),
+        (e: unknown) => {
+          const why = errorText(e);
+          writeDraft(key, [typed, readDraft(key)].filter((t) => t.trim()).join('\n\n'));
+          if (!land(key, { text: why, error: true })) onFailed?.(why);
+        },
+      )
+      .finally(() => setForking(false));
+  };
+
+  /** Runs what's in the box when it's one of Codealong's commands, else sends it. */
+  const submit = (): boolean => {
+    const command = slashCommand(text, s);
+    if (!command) return send();
+    if (command.command.name === 'fork') fork(command.rest);
+    return true;
+  };
+
   // A pasted screenshot or file goes in at the cursor, on a line of its own; the agent gets its
   // path (send.rs expands it).
   const paste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
@@ -291,10 +326,21 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
   };
 
   const empty = !text.trim();
+  // A command goes even while the session waits on you: it doesn't reach the session.
+  const command = slashCommand(text, s);
+  const commands = slashMatches(text, s);
   // With nothing in the box, the button stops a turn that can be stopped; with something, it
   // sends, the turn taking the message in as it works.
   const stopButton = canStop && empty;
-  const said = note?.error ? note.text : going ? 'Sending…' : (note?.text ?? (stopping ? 'Stopping…' : hint(waiting, !!onNext, !!onAllowNext)));
+  const said = note?.error
+    ? note.text
+    : going
+      ? 'Sending…'
+      : forking
+        ? 'Forking…'
+        : commands.length > 0
+          ? commands.map((c) => `/${c.name} ${c.args}: ${c.about}`).join(' · ')
+          : (note?.text ?? (stopping ? 'Stopping…' : hint(waiting, !!onNext, !!onAllowNext)));
   return (
     <div className="ca-composer">
       <div
@@ -325,6 +371,11 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
               return;
             }
             if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing) return;
+            if (command) {
+              e.preventDefault();
+              submit();
+              return;
+            }
             if (e.metaKey && onAllowNext && (waiting || !text.trim())) {
               e.preventDefault();
               onAllowNext();
@@ -343,7 +394,14 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
             <Icon name="player-stop" size={12} stroke={2} />
           </button>
         ) : (
-          <button type="button" className="ca-composer-send" aria-label="Send" title={waiting ? 'Send this once it isn’t waiting on you' : 'Send (⏎)'} disabled={empty || waiting} onClick={send}>
+          <button
+            type="button"
+            className="ca-composer-send"
+            aria-label={command ? `Run /${command.command.name}` : 'Send'}
+            title={command ? `Run /${command.command.name} (⏎)` : waiting ? 'Send this once it isn’t waiting on you' : 'Send (⏎)'}
+            disabled={empty || (waiting && !command) || (!!command && forking)}
+            onClick={submit}
+          >
             <Icon name="arrow-up" size={16} stroke={2} />
           </button>
         )}

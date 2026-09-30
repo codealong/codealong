@@ -917,10 +917,16 @@ fn start_session(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peer
     start_and_link(&engine, &spec)
 }
 
-/// Forks a session into a new terminal in its folder (`start::fork`).
+/// Forks a session: into a new terminal in its folder (`start::fork`), or, `background`, into a
+/// copy that goes on without a window, on `prompt` when there's one (`start::fork_background`).
 #[tauri::command(async)]
-fn fork_session(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String) -> Result<start::Started, String> {
-    serde_json::from_value(actions::run(&engine, &peers, actions::FORK, &key, serde_json::json!({}))?).map_err(|e| e.to_string())
+fn fork_session(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, background: Option<bool>, prompt: Option<String>) -> Result<start::Started, String> {
+    let got = if background == Some(true) {
+        actions::run(&engine, &peers, api::SESSION_FORK, &key, serde_json::json!({ "prompt": prompt.unwrap_or_default() }))?
+    } else {
+        actions::run(&engine, &peers, actions::FORK_TERMINAL, &key, serde_json::json!({}))?
+    };
+    serde_json::from_value(got).map_err(|e| e.to_string())
 }
 
 /// Starts a session in a worktree of another device, which runs it with its own accounts.
@@ -1410,6 +1416,25 @@ pub fn snapshot_cli(args: &[String]) -> i32 {
         return match send::send(&board, &cfg, key, text, send::Sender::Elsewhere) {
             Ok(sent) => {
                 println!("{}", sent.message);
+                0
+            }
+            Err(e) => {
+                eprintln!("{e:#}");
+                1
+            }
+        };
+    }
+    if let Some(i) = args.iter().position(|a| a == "--fork") {
+        let Some(key) = args.get(i + 1) else {
+            eprintln!("usage: codealong --snapshot --fork <session key> [prompt]");
+            return 2;
+        };
+        let prompt = args.get(i + 2).map(String::as_str).unwrap_or("");
+        let cfg = config::load().ok().flatten().unwrap_or_default();
+        let board = engine::snapshot(false, false);
+        return match start::fork_background(&board, &cfg, key, prompt) {
+            Ok(started) => {
+                println!("{}", serde_json::to_string_pretty(&started).unwrap_or_default());
                 0
             }
             Err(e) => {

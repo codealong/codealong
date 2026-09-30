@@ -364,6 +364,12 @@ impl Client {
         read(self.ask(device, api::START, json!({ "spec": spec }), ACT_WAIT)?)
     }
 
+    /// Forks a session on `device` into a copy that goes on without a window there, on `prompt`
+    /// when it isn't empty.
+    pub fn fork(&self, device: &str, key: &str, prompt: &str) -> std::result::Result<api::Started, String> {
+        read(self.ask(device, api::SESSION_FORK, json!({ "key": key, "prompt": prompt }), ACT_WAIT)?)
+    }
+
     /// Asks `device` to send the replies of these sessions (keys there) as they're written, in
     /// place of any it sent before; none stops them. Also reads where each stands now, since
     /// only what's written from here on is sent. Says false when the device doesn't know how.

@@ -358,26 +358,7 @@ fn plan_in(account: &AccountCfg, place: Place, folder: &Path, prompt: &str, sess
             Plan::Terminal { cwd: folder.to_path_buf(), input, env }
         }
         Place::Background => {
-            // `--bg` picks the session's ID itself and ignores `--session-id`.
-            let mut command = account.command().to_string();
-            if worktree {
-                command.push_str(" --worktree");
-            }
-            for (has, dir) in [(has_images, images_dir), (has_files, files_dir)] {
-                if has {
-                    command.push_str(&format!(" --add-dir {}", sh_quote(&dir.to_string_lossy())));
-                }
-            }
-            command.push_str(" --bg");
-            if let Some(m) = model.filter(|m| valid_model(m)) {
-                command.push_str(&format!(" --model '{m}'"));
-            }
-            if let Some(e) = effort {
-                command.push_str(&format!(" --effort {e}"));
-            }
-            if !prompt.is_empty() {
-                command.push_str(&format!(" {}", sh_quote(&as_argument(prompt))));
-            }
+            let command = format!("{}{}", account.command(), background_args(prompt_in, model, effort, worktree, (images_dir, files_dir)));
             Plan::Background { cwd: folder.to_path_buf(), command }
         }
         Place::ClaudeApp => Plan::ClaudeApp { url: with_param(format!("claude://code/new?folder={}", urlencoding::encode(&dir)), "q", prompt) },
@@ -391,6 +372,47 @@ fn plan_in(account: &AccountCfg, place: Place, folder: &Path, prompt: &str, sess
             effort: effort.map(String::from),
         },
     }
+}
+
+/// What follows the account's command in a Claude Code background start, quoted for the shell:
+/// the new worktree and attachment folders, `--bg`, the model and effort, and the prompt last.
+/// `--bg` picks the session's ID itself and ignores `--session-id`.
+fn background_args(prompt: &str, model: Option<&str>, effort: Option<&str>, worktree: bool, (images_dir, files_dir): (&Path, &Path)) -> String {
+    let (has_images, has_files) = attachments::kinds(prompt);
+    let prompt = attachments::expand_in(prompt, images_dir, files_dir, Style::Mention);
+    let prompt = prompt.trim();
+    let mut args = String::new();
+    if worktree {
+        args.push_str(" --worktree");
+    }
+    for (has, dir) in [(has_images, images_dir), (has_files, files_dir)] {
+        if has {
+            args.push_str(&format!(" --add-dir {}", sh_quote(&dir.to_string_lossy())));
+        }
+    }
+    args.push_str(" --bg");
+    if let Some(m) = model.filter(|m| valid_model(m)) {
+        args.push_str(&format!(" --model '{m}'"));
+    }
+    if let Some(e) = effort {
+        args.push_str(&format!(" --effort {e}"));
+    }
+    if !prompt.is_empty() {
+        args.push_str(&format!(" {}", sh_quote(&as_argument(prompt))));
+    }
+    args
+}
+
+/// The command that forks Claude Code session `id` into a background job, on `prompt` when
+/// there's one: `--bg` with `--resume` and `--fork-session` starts a copy of the conversation
+/// as far as it's written, the original carrying on (checked on 2.1.286). Without a prompt the
+/// job waits for one, and writes its transcript, the conversation so far included, with it.
+pub fn fork_command(account: &AccountCfg, id: &str, prompt: &str) -> String {
+    fork_command_in(account, id, prompt, (&attachments::images_dir(), &attachments::files_dir()))
+}
+
+fn fork_command_in(account: &AccountCfg, id: &str, prompt: &str, dirs: (&Path, &Path)) -> String {
+    format!("{} --resume {id} --fork-session{}", account.command(), background_args(prompt, None, None, false, dirs))
 }
 
 fn with_param(url: String, key: &str, value: &str) -> String {
@@ -439,7 +461,7 @@ pub fn background_session(roster: &serde_json::Value, job: &str) -> Option<Strin
 /// Runs a background start in the login shell, which knows the account's command even when it's
 /// an alias, and returns the job's session ID once the service has it. Output goes to a file,
 /// not a pipe: a service the command starts would hold a pipe open long after it returns.
-fn start_background(account: &AccountCfg, cwd: &Path, command: &str) -> Result<(String, Option<String>)> {
+pub(crate) fn start_background(account: &AccountCfg, cwd: &Path, command: &str) -> Result<(String, Option<String>)> {
     use std::process::{Command, Stdio};
     use std::time::{Duration, Instant};
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
@@ -594,9 +616,9 @@ fn trust(account: &AccountCfg, folder: &Path) {
     }
 }
 
-/// Forks a session into a new terminal in its folder (`Adapter::fork`): the copy goes on from
-/// what the session had written, and the session itself carries on as it was.
-pub fn fork(board: &Board, cfg: &Config, key: &str) -> Result<Started> {
+/// A session to fork, with its account, the worktree it's in and the folder the copy starts in:
+/// the session's own, or its worktree's when that's gone.
+fn to_fork<'a>(board: &'a Board, cfg: &'a Config, key: &str) -> Result<(&'a crate::model::Session, &'a AccountCfg, &'a crate::model::Lane, PathBuf)> {
     let (s, account) = crate::harness::find(board, cfg, key)?;
     // The id is typed into a shell, and the harnesses' ids are letters, digits, - and _.
     if s.id.is_empty() || !s.id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
@@ -607,16 +629,37 @@ pub fn fork(board: &Board, cfg: &Config, key: &str) -> Result<Started> {
     let holds = |l: &&crate::model::Lane| l.sessions.iter().any(|x| x.key == key);
     let lane = board.lanes.iter().find(own).or_else(|| board.lanes.iter().find(holds)).ok_or_else(|| anyhow!("That session isn't on the board any more."))?;
     let cwd = if Path::new(&s.cwd).is_dir() { PathBuf::from(&s.cwd) } else { PathBuf::from(&lane.path) };
-    let fork = crate::harness::adapter(s.harness).fork(&crate::harness::Ctx { account }, s)?;
     // A Claude app session can run where Claude Code in a terminal hasn't been trusted.
     if s.harness == Harness::Claude {
         trust(account, &cwd);
     }
+    Ok((s, account, lane, cwd))
+}
+
+/// Forks a session into a new terminal in its folder (`Adapter::fork`): the copy goes on from
+/// what the session had written, and the session itself carries on as it was.
+pub fn fork(board: &Board, cfg: &Config, key: &str) -> Result<Started> {
+    let (s, account, lane, cwd) = to_fork(board, cfg, key)?;
+    let fork = crate::harness::adapter(s.harness).fork(&crate::harness::Ctx { account }, s)?;
     let near = crate::board::terminal_neighbours(&board.lanes, &cwd);
     launch::terminal_run(&cfg.apps.terminal, launch::Placement { new_terminal: cfg.apps.new_terminal, near: &near }, &cwd, &fork.input, &fork.env)?;
     // One whose harness names the copy shows on the board once it's written.
     let message = fork.key.is_none().then(|| format!("{} is opening a fork of {} in {}.", s.harness.word(), s.title, lane.callsign));
     Ok(Started { key: fork.key, message })
+}
+
+/// Forks a session into a copy that goes on where no window comes forward
+/// (`Adapter::fork_background`): on `prompt` when there's one, else waiting for one. You stay
+/// where you are; the copy shows on the board beside the session.
+pub fn fork_background(board: &Board, cfg: &Config, key: &str, prompt: &str) -> Result<Started> {
+    let (s, account, _, cwd) = to_fork(board, cfg, key)?;
+    let copy = crate::harness::adapter(s.harness).fork_background(&crate::harness::Ctx { account }, s, &cwd, prompt)?;
+    let message = if prompt.trim().is_empty() {
+        format!("Forked in the background: the copy of “{}” waits for its first message.", s.title)
+    } else {
+        format!("Forked in the background: the copy of “{}” is on it.", s.title)
+    };
+    Ok(Started { key: copy, message: Some(message) })
 }
 
 /// Starts a Codex app thread on a prompt. The app's new-thread link only fills the prompt in, so
@@ -880,6 +923,19 @@ mod tests {
         // A one-word prompt keeps its padding, so it isn't read as a command.
         let Plan::Background { command, .. } = plan(&a, Place::Background, Path::new("/r/x"), "update", id, None, None, false) else { panic!() };
         assert_eq!(command, "claude2 --bg 'update '");
+    }
+
+    #[test]
+    fn forks_into_the_background_with_the_prompt_quoted_last() {
+        let a = account("claude2", "claude", "~/.claude2", Some("claude2"));
+        let dirs = (Path::new("/i"), Path::new("/f"));
+        let id = "3628c9e6-0309-4a30-aed9-3e68d0e66b7e";
+        assert_eq!(fork_command_in(&a, id, "", dirs), format!("claude2 --resume {id} --fork-session --bg"));
+        assert_eq!(fork_command_in(&a, id, "  try it the other way's round  ", dirs), format!("claude2 --resume {id} --fork-session --bg 'try it the other way'\\''s round'"));
+        assert_eq!(
+            fork_command_in(&a, id, "look\n![image](images/0123456789abcdef.png)", dirs),
+            format!("claude2 --resume {id} --fork-session --add-dir '/i' --bg 'look\n@\"/i/0123456789abcdef.png\"'")
+        );
     }
 
     #[test]

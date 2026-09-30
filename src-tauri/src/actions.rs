@@ -17,7 +17,7 @@ use crate::{acp, config, harness, peerfeed, send, transcript};
 
 /// What only happens on the device a session runs on: another device can't ask for them, so
 /// they have names here but none in `api`.
-pub const FORK: &str = "session-fork";
+pub const FORK_TERMINAL: &str = "session-fork-terminal";
 pub const CLOSE: &str = "session-close";
 
 /// Who's asking.
@@ -75,8 +75,9 @@ const REQUESTS: &[Request] = &[
     Request { name: api::ROUTE, only_here: None, here: route },
     Request { name: api::START_OPTIONS, only_here: None, here: start_options },
     Request { name: api::START, only_here: None, here: start },
-    // A fork opens in a terminal, and closing one ends it: both need someone at that Mac.
-    Request { name: FORK, only_here: Some("Fork it on the Mac it runs on."), here: fork },
+    Request { name: api::SESSION_FORK, only_here: None, here: fork },
+    // A fork into a terminal opens one, and closing one ends it: both need someone at that Mac.
+    Request { name: FORK_TERMINAL, only_here: Some("Fork it on the Mac it runs on."), here: fork_terminal },
     Request { name: CLOSE, only_here: Some("Close it on the Mac it runs on."), here: close },
 ];
 
@@ -265,8 +266,14 @@ fn start(engine: &Handle, c: &Call) -> Result<Value, String> {
     to_value(crate::start_and_link(engine, &spec)?)
 }
 
-/// Forks it into a new terminal in its folder (`start::fork`).
+/// Forks it into a copy that goes on without a window, on `prompt` when there's one
+/// (`start::fork_background`).
 fn fork(engine: &Handle, c: &Call) -> Result<Value, String> {
+    to_value(crate::start::fork_background(&engine.board(), &cfg()?, c.session()?, &c.text("prompt")).map_err(words)?)
+}
+
+/// Forks it into a new terminal in its folder (`start::fork`).
+fn fork_terminal(engine: &Handle, c: &Call) -> Result<Value, String> {
     to_value(crate::start::fork(&engine.board(), &cfg()?, c.session()?).map_err(words)?)
 }
 
@@ -300,7 +307,7 @@ mod tests {
     #[test]
     fn another_devices_request_for_what_needs_someone_here_is_refused() {
         let engine = Handle::for_tests();
-        let err = answer(&engine, FORK, json!({ "key": "claude:claude:abc" })).unwrap_err();
+        let err = answer(&engine, FORK_TERMINAL, json!({ "key": "claude:claude:abc" })).unwrap_err();
         assert!(err.contains("doesn't know how to"), "{err}");
         let err = answer(&engine, "session-launch-rockets", json!({})).unwrap_err();
         assert!(err.contains("update it here"), "{err}");

@@ -680,10 +680,19 @@ impl crate::harness::Adapter for OpenCode {
     /// Its command line can't fork, but its service can: the copy is a session of its own
     /// (no parent), named "<title> (fork #1)", which the terminal UI then opens.
     fn fork(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> anyhow::Result<crate::harness::Fork> {
-        let svc = service(&ctx.account.home_path()).ok_or_else(|| anyhow::anyhow!("OpenCode's service isn't running, so Codealong can't fork {}. Open OpenCode and try again.", s.title))?;
-        let got = post(&svc, &format!("/api/session/{}/fork", urlencoding::encode(&s.id)), &serde_json::json!({})).map_err(|e| anyhow::anyhow!("OpenCode couldn't fork {}: {e}", s.title))?;
-        let id = forked_id(&got).ok_or_else(|| anyhow::anyhow!("OpenCode forked {} but didn't say what it called the copy.", s.title))?;
+        let (_, id) = fork_in_service(ctx.account, s)?;
         Ok(fork_into(ctx.account, &id))
+    }
+
+    /// The service makes the copy and runs it, as it runs every session: the prompt goes to it
+    /// as a message sent to a session does, and a terminal can open it later.
+    fn fork_background(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, _cwd: &Path, prompt: &str) -> anyhow::Result<Option<String>> {
+        let (svc, id) = fork_in_service(ctx.account, s)?;
+        if !prompt.trim().is_empty() {
+            let body = serde_json::json!({ "text": crate::attachments::expand(prompt.trim(), crate::attachments::Style::Path), "delivery": "queue" });
+            post(&svc, &format!("/api/session/{}/prompt", urlencoding::encode(&id)), &body).map_err(|e| anyhow::anyhow!("OpenCode forked {} but didn't take the prompt: {e}", s.title))?;
+        }
+        Ok(Some(format!("opencode:{}:{id}", ctx.account.name)))
     }
 
     /// Names the session through its service (`PATCH /api/session/<id>` with its title; checked on
@@ -723,6 +732,14 @@ fn interrupted(answer: &Value) -> bool {
 /// The copy's id in the service's answer to a fork: `{data: {id, fork: {sessionID, boundary}}}`.
 fn forked_id(answer: &Value) -> Option<String> {
     answer.get("data")?.get("id")?.as_str().map(String::from)
+}
+
+/// Has the service copy session `s`, and returns the service and the copy's id.
+fn fork_in_service(account: &crate::config::AccountCfg, s: &crate::model::Session) -> anyhow::Result<(Service, String)> {
+    let svc = service(&account.home_path()).ok_or_else(|| anyhow::anyhow!("OpenCode's service isn't running, so Codealong can't fork {}. Open OpenCode and try again.", s.title))?;
+    let got = post(&svc, &format!("/api/session/{}/fork", urlencoding::encode(&s.id)), &serde_json::json!({})).map_err(|e| anyhow::anyhow!("OpenCode couldn't fork {}: {e}", s.title))?;
+    let id = forked_id(&got).ok_or_else(|| anyhow::anyhow!("OpenCode forked {} but didn't say what it called the copy.", s.title))?;
+    Ok((svc, id))
 }
 
 /// Opens the terminal UI on `id`, a fork the service has made.

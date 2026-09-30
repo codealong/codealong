@@ -400,10 +400,12 @@ export async function startSession(spec: StartSpec): Promise<Started | null> {
   return invoke<Started | null>('start_session', { spec });
 }
 
-/** Forks a session into a new terminal in its folder: the copy goes on from what it had written. */
-export async function forkSession(key: string): Promise<Started | null> {
+/** Forks a session: the copy goes on from what it had written. Into a new terminal in its
+ *  folder, or, `background`, where no window comes forward (a background job, or a session a
+ *  service or Codealong runs), on `prompt` when there's one. */
+export async function forkSession(key: string, { background = false, prompt = '' }: { background?: boolean; prompt?: string } = {}): Promise<Started | null> {
   if (!inTauri) throw new Error('Forking a session needs the app.');
-  return invoke<Started | null>('fork_session', { key });
+  return invoke<Started | null>('fork_session', { key, background, prompt });
 }
 
 /** A change to a todo or the labels. Resolves with the time of the first board that shows it. */

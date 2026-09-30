@@ -719,6 +719,12 @@ impl crate::harness::Adapter for Codex {
         Ok(fork_of(ctx.account, &s.id))
     }
 
+    /// Codex has no background of its own: Codealong runs the copy over the account's ACP
+    /// adapter, which forks the thread through its app-server (`acp::fork`).
+    fn fork_background(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, cwd: &Path, prompt: &str) -> anyhow::Result<Option<String>> {
+        crate::acp::fork(ctx.account, &s.id, cwd, prompt).map(Some)
+    }
+
     /// Names the thread through Codex's app-server, as the Codex app does (`appserver::set_name`).
     /// The board reads names from the thread index; the app shows the name the next time it
     /// reads its threads.

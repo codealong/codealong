@@ -56,7 +56,11 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     check at the top of its panel or its right-click menu. Fork in terminal, in a Claude Code,
     Codex or OpenCode session's right-click menu, opens a copy of its conversation in a new
     terminal while it carries on (OpenCode's copy is made by its service, so it needs OpenCode
-    running). The selected session's panel shows the PRs it worked on under its
+    running). `/fork` in the box at the bottom of its panel forks it without a window coming
+    forward, and you stay on the session: a Claude Code copy is a background job, an OpenCode
+    copy runs in its service, and a Codex copy runs In Codealong (over its ACP adapter).
+    Whatever follows `/fork` is the copy's first prompt; with nothing, the copy waits for one.
+    Other `/…` commands go to the session as typed. The selected session's panel shows the PRs it worked on under its
     branch (as the PRs view links them, else its worktree's), each opening on GitHub, and its
     whole conversation, read from the session's own record (Claude Code's transcript, Codex's rollout, OpenCode's database): your prompts, the
     agent's replies as Markdown, and every tool call, which opens to its input and output; runs

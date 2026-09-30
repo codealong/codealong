@@ -35,6 +35,10 @@ pub const SESSION_RENAME: &str = "session-rename";
 /// How a message sent to a session would reach it (`Way`), or null for one Codealong runs itself.
 /// Macs before 2026-09-30 refuse it as a request they don't know.
 pub const SESSION_WAY: &str = "session-way";
+/// Forks a session (`key`) into a copy that goes on without a window, on `prompt` when there's
+/// one, answering `Started`. Macs before 2026-09-30 refuse it: their forks open in a terminal,
+/// which needs someone at the Mac.
+pub const SESSION_FORK: &str = "session-fork";
 
 /// Who may make a request of a device, as the device asked decides it (the engine's peers.rs).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -50,7 +54,7 @@ pub enum Reach {
 }
 
 /// Every request, with who may make it. A request missing here is one a device doesn't know.
-pub const REQUESTS: [(&str, Reach); 16] = [
+pub const REQUESTS: [(&str, Reach); 17] = [
     (SESSION_PAGE, Reach::Read),
     (SESSION_NEWER, Reach::Read),
     (SESSION_PENDING, Reach::Read),
@@ -67,6 +71,7 @@ pub const REQUESTS: [(&str, Reach); 16] = [
     (SESSION_ANSWER, Reach::Control),
     (SESSION_CANCEL, Reach::Control),
     (START, Reach::Control),
+    (SESSION_FORK, Reach::Control),
 ];
 
 /// Who may make `method` of a device; None for a request this crate doesn't know.
