@@ -16,11 +16,13 @@ import { showContextMenu, type MenuSpec } from '../contextMenu';
 import { useEditorIcons } from '../editors';
 import { sessionPlace } from '../harness';
 import * as menus from '../menus';
-import { sessionHomes } from '../todos';
+import { liveOrLatest, sessionHomes } from '../lanes';
 import type { DesktopFeed, Label, Lane, PeekShown, Pr, Session } from '../types';
 import { cardData, CardFace, SessionLine, sessionLine, type CardData } from './CanvasCard';
 import { STATUS_WORD } from './primitives';
-import { applyTheme } from './ThemeSwitch';
+import { useTheme } from './ThemeSwitch';
+import { useNow } from './useNow';
+import { errorText, type Report } from '../report';
 
 /** Room around the card for its shadow: the window is this much bigger on every side. */
 const MARGIN = 12;
@@ -28,15 +30,6 @@ const MARGIN = 12;
 const SESSIONS = 4;
 /** How far the pointer moves with the button down before it drags the card rather than clicks it. */
 const DRAG_AFTER = 4;
-
-function useNow(everyMs: number): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const id = window.setInterval(() => setNow(Date.now()), everyMs);
-    return () => window.clearInterval(id);
-  }, [everyMs]);
-  return now;
-}
 
 /** The sessions a worktree's or todo's card lists under it: a todo's all, a worktree's the ones
  *  running or waiting on you (it keeps every session it ever had). */
@@ -103,7 +96,7 @@ export function DesktopPin() {
   }, [feed]);
 
   const theme = feed?.theme ?? 'system';
-  useEffect(() => applyTheme(theme), [theme]);
+  useTheme(theme);
 
   useEffect(() => {
     if (!failed) return;
@@ -144,7 +137,7 @@ export function DesktopPin() {
     return () => observer.disconnect();
   }, [report]);
 
-  const fail = (e: unknown) => setFailed(String(e).replace(/^Error: /, ''));
+  const fail = (e: unknown) => setFailed(errorText(e));
 
   /** Opens a session where it lives and brings that app forward: a click here leaves Codealong
    *  in the background, as one in the bar does. */
@@ -173,7 +166,7 @@ export function DesktopPin() {
         return;
       }
       case 'todo': {
-        const s = data.sessions.find((x) => x.session.live) ?? data.sessions[0];
+        const s = liveOrLatest(data.sessions);
         if (s) openSession(s.lane, s.session);
         else void showQuick({ todo: data.todo.id, project: data.todo.project || null });
         return;
@@ -193,7 +186,7 @@ export function DesktopPin() {
   };
   /** The menus, as every window has them (menus.ts): the card's thing's, or a session's for a
    *  session line in a worktree's or todo's card. What comes of them shows on the card. */
-  const said: menus.Report = { error: setFailed, info: setFailed };
+  const said: Report = { error: setFailed, info: setFailed };
   const editors = feed ? { apps: feed, icons } : undefined;
   const openOn = (lane: Lane, target: string) => void openFromBar(lane.id, target).catch(fail);
   const sessionMenu = (lane: Lane, s: Session, el: Element | null): MenuSpec =>
@@ -221,7 +214,7 @@ export function DesktopPin() {
       }
       case 'todo': {
         const t = data.todo;
-        const s = data.sessions.find((x) => x.session.live) ?? data.sessions[0];
+        const s = liveOrLatest(data.sessions);
         return menus.todoMenu(t.id, {
           report: said,
           start: () => void showQuick({ todo: t.id, project: t.project || null }),
@@ -260,7 +253,7 @@ export function DesktopPin() {
     const el = card.current;
     if (!el) return null;
     if (data?.ref === 'session') return { lane: data.lane, session: data.session, el };
-    const t = data?.ref === 'todo' ? (data.sessions.find((x) => x.session.live) ?? data.sessions[0]) : null;
+    const t = data?.ref === 'todo' ? liveOrLatest(data.sessions) : null;
     return t ? { ...t, el } : null;
   };
 

@@ -11,6 +11,7 @@ import { COLOR_WORD } from '../todos';
 import type { Config, DevicesCfg, DevicesView, DeviceView, LabelColor } from '../types';
 import { DEVICES_OFF, LABEL_COLORS } from '../types';
 import { Button } from './primitives';
+import { errorText } from '../report';
 
 interface DevicesPaneProps {
   cfg: Config;
@@ -43,7 +44,7 @@ export function DevicesPane({ cfg, disabled, onSave, now }: DevicesPaneProps) {
       const said = await f();
       if (said) setNote({ ok: true, text: said });
     } catch (e) {
-      setNote({ ok: false, text: String(e).replace(/^Error: /, '') });
+      setNote({ ok: false, text: errorText(e) });
     } finally {
       setBusy(null);
     }

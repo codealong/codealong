@@ -207,7 +207,7 @@ pub struct Target {
 
 /// The session and its lane, as the board has them.
 pub fn target(board: &Board, key: &str) -> Option<Target> {
-    let (lane, session) = board.lanes.iter().find_map(|l| l.sessions.iter().find(|s| s.key == key).map(|s| (l.clone(), s.clone())))?;
+    let (lane, session) = board.session(key).map(|(l, s)| (l.clone(), s.clone()))?;
     Some(Target { lane, session, terminal: board.apps.terminal.clone(), apps: board.apps.clone(), theme: board.theme })
 }
 

@@ -6,6 +6,7 @@
 import { useEffect, useRef, type ClipboardEvent as ReactClipboardEvent, type RefObject } from 'react';
 import { importAttachment, onFileDrop, saveAttachment } from './api';
 import type { Attachment } from './types';
+import { errorText } from './report';
 
 /**
  * The files a paste should attach, or none to paste text as usual. Apps like Numbers put a
@@ -50,7 +51,7 @@ export function useFileDrop(ref: RefObject<HTMLElement | null>, onAttachments: (
           try {
             kept.push(await importAttachment(p));
           } catch (e: unknown) {
-            latest.current.onError(String(e).replace(/^Error: /, ''));
+            latest.current.onError(errorText(e));
           }
         }
         if (kept.length > 0) latest.current.onAttachments(kept);

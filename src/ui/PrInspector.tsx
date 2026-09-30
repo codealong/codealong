@@ -14,6 +14,7 @@ import { PanelSession } from './PanelSession';
 import { PrPills } from './PrPills';
 import { Button, Icon, LaneGlyph } from './primitives';
 import { ChecksSummary, PrGlyph, prIsOpen, syncWords, type PrPlace, type PrRowItem } from './PrsView';
+import { errorText } from '../report';
 
 /** Details already fetched, by PR and last update, so going back to a PR is instant. */
 const cache = new Map<string, PrDetail>();
@@ -199,7 +200,7 @@ export function PrInspector({ item, now, approving, onApprove, onReview, onShowS
         if (live) setState({ key: cacheKey, detail: d });
       })
       .catch((e: unknown) => {
-        if (live) setState({ key: cacheKey, error: String(e).replace(/^Error: /, '') });
+        if (live) setState({ key: cacheKey, error: errorText(e) });
       });
     return () => {
       live = false;

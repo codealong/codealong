@@ -8,6 +8,7 @@ import { renameAhead } from '../ahead';
 import { NAME_KEPT, sessionName } from '../harness';
 import type { Lane, Session } from '../types';
 import { Button } from './primitives';
+import { errorText } from '../report';
 
 interface RenameDialogProps {
   lane: Lane;
@@ -38,7 +39,7 @@ export function RenameDialog({ lane, session: s, onClose, onFailed }: RenameDial
   const next = sessionName(name);
   const save = () => {
     // Left as it was, a title the board cut short isn't taken for a new name.
-    if (next && name !== opened) renameAhead(s.key, next).catch((e: unknown) => onFailed(String(e).replace(/^Error: /, '')));
+    if (next && name !== opened) renameAhead(s.key, next).catch((e: unknown) => onFailed(errorText(e)));
     onClose();
   };
 

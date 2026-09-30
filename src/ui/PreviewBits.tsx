@@ -7,6 +7,7 @@ import { getConfig, setPreview } from '../api';
 import { absolute, duration } from '../format';
 import type { ChromeProfile, Lane, Preview } from '../types';
 import { Button, Icon } from './primitives';
+import { errorText } from '../report';
 
 /** A URL as rows show it: `feature.app.test`, `localhost:5173/admin`. */
 export function previewHost(url: string): string {
@@ -204,7 +205,7 @@ export function PreviewDialog({ lane, onClose }: { lane: Lane; onClose: () => vo
       await setPreview(lane.id, clear ? null : url.trim(), clear ? null : n, clear || !profile ? null : profile);
       onClose();
     } catch (e) {
-      setError(String(e).replace(/^Error: /, ''));
+      setError(errorText(e));
       setSaving(false);
     }
   };

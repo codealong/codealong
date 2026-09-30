@@ -27,6 +27,8 @@ import { Icon, Mark, STATUS_WORD, StatusGlyph } from './primitives';
 import { applyTheme } from './ThemeSwitch';
 import { NotchShell } from './Notch';
 import { LOGO_LABEL, useLogo } from '../logo';
+import { useNow } from './useNow';
+import { errorText, type Report } from '../report';
 
 /** Room around the bar for its shadow: the window is this much bigger on every side. */
 const MARGIN = 12;
@@ -59,15 +61,6 @@ function storedProject(): string {
   } catch {
     return ALL_PROJECTS;
   }
-}
-
-function useNow(everyMs: number): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const id = window.setInterval(() => setNow(Date.now()), everyMs);
-    return () => window.clearInterval(id);
-  }, [everyMs]);
-  return now;
 }
 
 /** The pill's class for a status: errors are red, the rest of Needs you amber. */
@@ -542,7 +535,7 @@ export function Bar() {
   const reply = (i: BarItem, rename = false) => {
     stopHover();
     const el = hud.current?.querySelector(`[data-key="${CSS.escape(i.key)}"]`) ?? null;
-    peekOpen(i.key, rectOf(el), true, rename).catch((e: unknown) => setFailed({ anchor: i.key, message: String(e).replace(/^Error: /, '') }));
+    peekOpen(i.key, rectOf(el), true, rename).catch((e: unknown) => setFailed({ anchor: i.key, message: errorText(e) }));
   };
 
   const open = (i: BarItem | BarRecent | BarSnoozed, anchor = i.key) => {
@@ -552,7 +545,7 @@ export function Bar() {
       setFailed({ anchor, message: i.target.detail ?? `${i.target.label} isn't available right now.` });
       return;
     }
-    openFromBar(i.laneId, i.openTarget).catch((e: unknown) => setFailed({ anchor, message: String(e).replace(/^Error: /, '') }));
+    openFromBar(i.laneId, i.openTarget).catch((e: unknown) => setFailed({ anchor, message: errorText(e) }));
   };
 
   /** Shows the session in Codealong's window: what a click on its pill, or an item in the bar's
@@ -600,7 +593,7 @@ export function Bar() {
     setDragging(i.key);
     dragToDesktop(i.key).catch((err: unknown) => {
       setDragging(null);
-      setFailed({ anchor: i.key, message: String(err).replace(/^Error: /, '') });
+      setFailed({ anchor: i.key, message: errorText(err) });
     });
   };
 
@@ -609,18 +602,18 @@ export function Bar() {
   const snoozeDone = (keys: string[], anchor: string) => (act: Promise<void>) => {
     const p = peekedNow.current.key;
     if (p && keys.includes(p)) void peekHide();
-    act.catch((e: unknown) => setFailed({ anchor, message: String(e).replace(/^Error: /, '') }));
+    act.catch((e: unknown) => setFailed({ anchor, message: errorText(e) }));
   };
 
   /** Marks sessions seen: their pills go at once, and come back with why if the engine can't. */
   const markSeen = (keys: string[], anchor: string) => {
-    seenAhead(keys).catch((e: unknown) => setFailed({ anchor, message: String(e).replace(/^Error: /, '') }));
+    seenAhead(keys).catch((e: unknown) => setFailed({ anchor, message: errorText(e) }));
   };
 
   /** A pill's menu: the session's, as every window has it (menus.ts). The feed has only what the
    *  pills show, so the rest of the session is asked of the engine as the menu opens. */
   const sessionMenu = (i: BarItem) => {
-    const report: menus.Report = {
+    const report: Report = {
       error: (message) => setFailed({ anchor: i.key, message }),
       info: (message) => setFailed({ anchor: i.key, message, tone: 'info' }),
     };
@@ -647,7 +640,7 @@ export function Bar() {
   };
 
   /** Shows what went wrong on the pill it came from. */
-  const failedOn = (anchor: string) => (e: unknown) => setFailed({ anchor, message: String(e).replace(/^Error: /, '') });
+  const failedOn = (anchor: string) => (e: unknown) => setFailed({ anchor, message: errorText(e) });
 
   const foldMenu = (group: Group, folded: BarItem[], e: MouseEvent<HTMLButtonElement>) => {
     const menu: MenuSpec = folded.map((i) => ({ label: `${i.title} · ${i.callsign}`, run: () => reveal(i) }));
@@ -661,7 +654,7 @@ export function Bar() {
   /** Wakes a snoozed session and opens it: you're taking it up now, so it doesn't come back later.
    *  The engine hears the wake before the open's mark seen, which comes once the session is open. */
   const wakeAndOpen = (i: BarSnoozed) => {
-    snoozeAhead([i.key], null).catch((e: unknown) => setFailed({ anchor: 'snoozed', message: String(e).replace(/^Error: /, '') }));
+    snoozeAhead([i.key], null).catch((e: unknown) => setFailed({ anchor: 'snoozed', message: errorText(e) }));
     open(i, 'snoozed');
   };
 

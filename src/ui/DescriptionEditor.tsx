@@ -10,6 +10,7 @@ import { filesToAttach, keepFiles, useFileDrop } from '../attachInput';
 import { attachmentsIn, inlines, insertAttachments, pieces, withoutAttachment } from '../todos';
 import type { Attachment } from '../types';
 import { Icon } from './primitives';
+import { errorText } from '../report';
 
 const open = (path: string) => void openAttachment(path);
 
@@ -205,7 +206,7 @@ export function DescriptionEditor({ value, onSave, onError }: DescriptionEditorP
   const addFiles = (files: File[]) => {
     keepFiles(files)
       .then(addAttachments)
-      .catch((e: unknown) => onError(String(e).replace(/^Error: /, '')));
+      .catch((e: unknown) => onError(errorText(e)));
   };
   useFileDrop(boxRef, addAttachments, onError);
 

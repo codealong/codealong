@@ -7,6 +7,7 @@ import { runInTerminal } from '../api';
 import { tildePath } from '../format';
 import type { Lane, Session } from '../types';
 import { Icon } from './primitives';
+import { errorText } from '../report';
 
 /** Where a session's commands run: its folder on this Mac, and the terminal that opens there. A
  *  session's thread gives it to its code blocks; a session on another device has none, and its
@@ -48,7 +49,7 @@ export function RunButton({ text, folder, terminal, onFailed }: { text: string; 
           () => setState('done'),
           (err: unknown) => {
             setState(null);
-            onFailed(String(err).replace(/^Error: /, ''));
+            onFailed(errorText(err));
           },
         );
       }}

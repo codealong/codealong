@@ -1,6 +1,7 @@
 // Light or dark, at the foot of the sidebar. The choice is the theme in config.toml, so every
 // window follows it and it lasts.
 
+import { useEffect } from 'react';
 import type { Theme } from '../types';
 import { Icon } from './primitives';
 
@@ -16,6 +17,11 @@ export function applyTheme(theme: Theme) {
   const root = document.documentElement;
   if (theme === 'system') delete root.dataset.theme;
   else root.dataset.theme = theme;
+}
+
+/** Keeps a window's page in `theme` as it changes (config.toml's `theme`). */
+export function useTheme(theme: Theme) {
+  useEffect(() => applyTheme(theme), [theme]);
 }
 
 export function ThemeSwitch({ theme, onPick }: { theme: Theme; onPick: (theme: Theme) => void }) {

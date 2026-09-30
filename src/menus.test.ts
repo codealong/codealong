@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { MenuSpec } from './contextMenu';
-import { laneMenu, openLabel, prMenu, sessionMenu, todoMenu, type Report, type SessionCan } from './menus';
+import { laneMenu, openLabel, prMenu, sessionMenu, todoMenu, type SessionCan } from './menus';
+import type { Report } from './report';
 import type { Lane, Session } from './types';
 
 const report: Report = { error: () => {}, info: () => {} };

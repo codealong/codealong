@@ -81,6 +81,36 @@ export function closable(s: Session): boolean {
   return s.live && s.surface === 'cli' && !s.hosted && !shortOf(s.key) && (s.pid != null || s.attachCommand != null);
 }
 
+/** A session and the worktree it's listed under as its own, not one it only visits. */
+export interface Placed {
+  lane: Lane;
+  session: Session;
+}
+
+/** Where each session lives on the board: the lane it's listed under as its own. */
+export function sessionHomes(lanes: Lane[]): Map<string, Placed> {
+  const m = new Map<string, Placed>();
+  for (const lane of lanes) for (const session of lane.sessions) if (!session.visitor && !m.has(session.key)) m.set(session.key, { lane, session });
+  return m;
+}
+
+/** Where one session lives on the board (`sessionHomes` for one), or null once it's gone. */
+export function homeOf(lanes: Lane[], key: string | null | undefined): Placed | null {
+  if (!key) return null;
+  for (const lane of lanes) {
+    const session = lane.sessions.find((s) => s.key === key && !s.visitor);
+    if (session) return { lane, session };
+  }
+  return null;
+}
+
+/** The session to open for something with several (a todo, a PR): the running one, else the one
+ *  most recently active. */
+export function liveOrLatest<T extends { session: Session }>(list: T[]): T | null {
+  const better = (a: Session, b: Session) => (a.live !== b.live ? a.live : a.lastActivity > b.lastActivity);
+  return list.reduce<T | null>((best, x) => (!best || better(x.session, best.session) ? x : best), null);
+}
+
 /** When you last sent a prompt to one of a worktree's own agents; with none, when anything last happened in it. */
 export function lanePromptAt(lane: Lane): number {
   const own = lane.sessions.filter((s) => !s.visitor && !s.archived);

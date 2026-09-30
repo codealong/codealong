@@ -11,7 +11,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { below, showContextMenu, type MenuAction, type MenuSpec } from './contextMenu';
 import { useEditorIcons } from './editors';
-import { AGENT_BAY, buildBays, filterByAge, inboxCounts, narrowed, prNeedsWork, rowItems, seenable, worktreeRow, type BoardRow, type Filter, type WorktreeRow } from './lanes';
+import { AGENT_BAY, buildBays, filterByAge, homeOf, inboxCounts, liveOrLatest, narrowed, prNeedsWork, rowItems, seenable, worktreeRow, sessionHomes, type BoardRow, type Filter, type WorktreeRow } from './lanes';
 import { answerLink, approvePr, barMode, getDevices, onDevices, dismissTodoHint, expandAttachments, getBoard, onBarMode, onBoard, onCloseIdle, onNewWindow, onQuickStart, onReveal, onSettings, onCheckUpdates, openConfig, openProjectWindow, openTarget, openUrl, refresh, refreshUsage, reviewInCodex, setBarMode, startOptions, startSession, setPinned, setPinnedWorktrees, setTheme, showQuick, signIn, windowLabel, type BarMode, type Reveal } from './api';
 import { middleTruncate } from './format';
 import { renames } from './harness';
@@ -22,7 +22,7 @@ import { reuse } from './reuse';
 import { reorderPinned, usePins } from './pins';
 import { reviewLane, reviewPicks, reviewPrompt } from './review';
 import { remembered } from './start';
-import { blockedBy, COLOR_WORD, depsOf, newTodo, pickTo, pickToggle, sectionOf, sessionHomes, snippet, STATUSES, STATUS_WORD, todoIndex, todoInFilter, todoInQuery, todoItem, todoPrompt, todosPrompt, todoSections, useTodoStore, type TodoItem, type TodoPick, type TodoSectionId } from './todos';
+import { blockedBy, COLOR_WORD, depsOf, newTodo, pickTo, pickToggle, sectionOf, snippet, STATUSES, STATUS_WORD, todoIndex, todoInFilter, todoInQuery, todoItem, todoPrompt, todosPrompt, todoSections, useTodoStore, type TodoItem, type TodoPick, type TodoSectionId } from './todos';
 import type { Bay, Board, DevicesView, Label, Lane, Pr, PrItem, Session, StartOptions, Theme, Todo, TodoStatus } from './types';
 import { byDevice, deviceOf, needsOn, shortOf, withDevices, workingOn, type DeviceFilter } from './devices';
 import { queueAfter, statusTime, type Handled } from './quick';
@@ -48,10 +48,12 @@ import { TodoComposer, TodoView, type ComposerContext, type SelectHow } from './
 import { CanvasView } from './ui/CanvasView';
 import { entitiesOf, homeLane, refId, type RefItem, type RefKind } from './canvas/model';
 import { useCanvas } from './canvas/useCanvas';
-import { applyTheme, ThemeSwitch } from './ui/ThemeSwitch';
+import { ThemeSwitch, useTheme } from './ui/ThemeSwitch';
 import { UsageBar } from './ui/UsageBar';
 import { Sidebar, type SideStatus } from './ui/Sidebar';
 import { loadSaved, newSavedId, onSavedChange, sameView, storeSaved, suggestName, type SavedView, type ViewState } from './savedViews';
+import { useNow } from './ui/useNow';
+import { errorText, type Report } from './report';
 
 const ELSEWHERE = 'Elsewhere';
 
@@ -209,15 +211,6 @@ function storedView(): View {
   }
 }
 
-function useNow(everyMs: number): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const id = window.setInterval(() => setNow(Date.now()), everyMs);
-    return () => window.clearInterval(id);
-  }, [everyMs]);
-  return now;
-}
-
 function storedProject(): string | null {
   try {
     return window.localStorage.getItem(PROJECT_KEY);
@@ -369,7 +362,7 @@ export function App() {
   const busySeq = useRef(0);
   /** Marks sessions seen, shown at once; the engine turning it down puts them back and says why. */
   const markSeen = useCallback((keys: string[]) => {
-    seenAhead(keys).catch((e: unknown) => setToast(String(e).replace(/^Error: /, '')));
+    seenAhead(keys).catch((e: unknown) => setToast(errorText(e)));
   }, []);
   const track = useCallback(<T,>(label: string, work: Promise<T>): Promise<T> => {
     const id = ++busySeq.current;
@@ -383,7 +376,7 @@ export function App() {
   }, []);
   /** How this window's menus say how things went (menus.ts): a toast, and the spinner while
    *  something takes a moment. */
-  const report = useMemo<menus.Report>(() => ({ error: setToast, info: setToast, busy: track }), [track]);
+  const report = useMemo<Report>(() => ({ error: setToast, info: setToast, busy: track }), [track]);
   // A session started from here, selected once it shows on the board.
   const [pendingSession, setPendingSession] = useState<{ key: string; until: number } | null>(null);
   const now = useNow(15_000);
@@ -436,7 +429,7 @@ export function App() {
   const [pickedTheme, setPickedTheme] = useState<Theme | null>(null);
   const theme = pickedTheme ?? board?.theme ?? 'system';
   const logoStatus = useLogo(board?.logoStatus);
-  useEffect(() => applyTheme(theme), [theme]);
+  useTheme(theme);
   useEffect(() => {
     if (pickedTheme && board?.theme === pickedTheme) setPickedTheme(null);
   }, [board?.theme, pickedTheme]);
@@ -777,7 +770,7 @@ export function App() {
       if (row.kind === 'todo') {
         // A todo opens its agent where it lives: the live one, else the latest. Without one,
         // it's time to start one.
-        const s = row.sessions.find((x) => x.session.live) ?? row.sessions[0];
+        const s = liveOrLatest(row.sessions);
         if (s) open(s.lane, s.session.openTarget);
         else newSession({ laneId: row.lane?.id ?? null, todo: row.todo.id, prompt: todoPrompt(row.todo) });
         return;
@@ -792,7 +785,7 @@ export function App() {
     setApproving((a) => new Set(a).add(pr.key));
     approvePr(pr.repoSlug, pr.number)
       .then(() => setToast(`Approved #${pr.number}.`))
-      .catch((e: unknown) => setToast(String(e).replace(/^Error: /, '')))
+      .catch((e: unknown) => setToast(errorText(e)))
       .finally(() =>
         setApproving((a) => {
           const next = new Set(a);
@@ -882,7 +875,7 @@ export function App() {
     setUndo(archived ? { key, title } : null);
     archiveAhead(key, archived).catch((e: unknown) => {
       setUndo(null);
-      setToast(String(e).replace(/^Error: /, ''));
+      setToast(errorText(e));
     });
   }, []);
 
@@ -1086,7 +1079,7 @@ export function App() {
   const todoMenu = (r: TodoItem) => void showContextMenu(todoMenuSpec(r)).catch((e: unknown) => setToast(String(e)));
   const todoMenuSpec = (r: TodoItem): MenuSpec => {
     const t = r.todo;
-    const agent = r.sessions.find((x) => x.session.live) ?? r.sessions[0];
+    const agent = liveOrLatest(r.sessions);
     return menus.todoMenu(t.id, {
       report,
       start: () => startForTodo(r),
@@ -1219,7 +1212,7 @@ export function App() {
             if (started?.message) setToast(started.message);
             if (started?.key) setPendingSession({ key: started.key, until: Date.now() + 60_000 });
           })
-          .catch((e: unknown) => setToast(String(e).replace(/^Error: /, '')));
+          .catch((e: unknown) => setToast(errorText(e)));
       },
     }));
   };
@@ -1976,13 +1969,7 @@ export function App() {
   // The worktree the preview URL sheet is for, as the latest board has it.
   const previewLane = previewFor ? board?.lanes.find((l) => l.id === previewFor) : undefined;
   // The session the rename sheet is for, in its own worktree.
-  const renamed = useMemo(() => {
-    for (const lane of renaming ? (board?.lanes ?? []) : []) {
-      const session = lane.sessions.find((s) => s.key === renaming && !s.visitor);
-      if (session) return { lane, session };
-    }
-    return null;
-  }, [renaming, board]);
+  const renamed = useMemo(() => homeOf(board?.lanes ?? [], renaming), [renaming, board]);
 
   // The sidebar: the views with their counts, the statuses to narrow them to, and what narrows
   // the view now, for the collapsed rail's badge.

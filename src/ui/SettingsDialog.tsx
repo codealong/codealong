@@ -13,6 +13,7 @@ import { DevicesPane } from './DevicesSection';
 import { ChromeProfileSelect } from './PreviewBits';
 import { UpdatesFields } from './Updates';
 import { Button, Icon, NavItem } from './primitives';
+import { errorText } from '../report';
 
 export type SettingsSection = 'general' | 'accounts' | 'agents' | 'devices' | 'projects' | 'jev' | 'advanced' | 'file';
 
@@ -39,10 +40,6 @@ const NEW_TERMINALS: { id: NewTerminal; label: string; says: string }[] = [
   { id: 'window', label: 'New window', says: 'A window of its own every time.' },
 ];
 
-function plain(e: unknown): string {
-  return String(e).replace(/^Error: /, '');
-}
-
 interface SettingsDialogProps {
   section: SettingsSection;
   onSection: (s: SettingsSection) => void;
@@ -65,7 +62,7 @@ export function SettingsDialog({ section, onSection, focus, usage, apps, theme, 
   // What you've typed in the config.toml section, kept while you look at another section.
   const [fileDraft, setFileDraft] = useState<FileDraft | null>(null);
 
-  const load = useCallback(() => getConfig().then(setView).catch((e: unknown) => setError(plain(e))), []);
+  const load = useCallback(() => getConfig().then(setView).catch((e: unknown) => setError(errorText(e))), []);
 
   useEffect(() => {
     void load();
@@ -99,7 +96,7 @@ export function SettingsDialog({ section, onSection, focus, usage, apps, theme, 
       await load();
       return true;
     } catch (e) {
-      setError(plain(e));
+      setError(errorText(e));
       await load();
       return false;
     }
@@ -330,7 +327,7 @@ function JevPane({ jev, disabled, onChange }: { jev: JevCfg; disabled: boolean; 
       const said = await what();
       if (said) setNote({ ok: true, text: said });
     } catch (e) {
-      setNote({ ok: false, text: plain(e) });
+      setNote({ ok: false, text: errorText(e) });
     }
     setHasKey(await jevKey());
     setBusy(false);
@@ -785,7 +782,7 @@ function FilePane({ view, draft, onDraft, editor, onOpenConfig, onSaved }: FileP
       onDraft(null);
       onSaved();
     } catch (e) {
-      setError(plain(e));
+      setError(errorText(e));
     } finally {
       setBusy(false);
     }

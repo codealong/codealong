@@ -78,7 +78,8 @@ import {
   type AutoPick,
 } from '../start';
 import { duplicateOf, rankedBy, suggestions, sureness, todoTitle, worthRouting, type Suggestion } from '../route';
-import { attachmentsIn, blockedBy, insertAttachments, newTodo, sessionHomes, snippet, todoItem, todoPrompt, todosPrompt, withoutAttachment } from '../todos';
+import { liveOrLatest, sessionHomes } from '../lanes';
+import { attachmentsIn, blockedBy, insertAttachments, newTodo, snippet, todoItem, todoPrompt, todosPrompt, withoutAttachment } from '../todos';
 import type { Attachment, Board, DevicesView, Lane, Meter, PrItem, Route, Session, StartOptions, StartPlace, StartSpec, TextFound } from '../types';
 import { AttachmentStrip } from './DescriptionEditor';
 import { sessionWhy } from './PanelSession';
@@ -87,9 +88,11 @@ import { ReplyView } from './ReplyView';
 import { Icon, Kbd, Mark, STATUS_WORD, StatusGlyph } from './primitives';
 import { projectForDigit, projectKey } from './ProjectSwitcher';
 import { PrGlyph } from './PrsView';
-import { applyTheme } from './ThemeSwitch';
+import { useTheme } from './ThemeSwitch';
 import { TodoGlyph } from './TodoBits';
 import { UsageMeter } from './UsageBar';
+import { useNow } from './useNow';
+import { errorText, type Report } from '../report';
 
 declare global {
   interface Window {
@@ -149,10 +152,6 @@ const TEXT_AFTER_MS = 150;
 /** How long typing has to pause before the list may shrink to what it shows. */
 const SETTLE_MS = 600;
 
-function plain(e: unknown): string {
-  return String(e).replace(/^Error: /, '');
-}
-
 function storedHistory(): string[] {
   try {
     const v: unknown = JSON.parse(window.localStorage.getItem(HISTORY_KEY) ?? '[]');
@@ -168,15 +167,6 @@ function storedProject(): string | null {
   } catch {
     return null;
   }
-}
-
-function useNow(everyMs: number): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const id = window.setInterval(() => setNow(Date.now()), everyMs);
-    return () => window.clearInterval(id);
-  }, [everyMs]);
-  return now;
 }
 
 /** Why Auto starts the account and model it does. `fallback`: it isn't one of the preferred
@@ -401,7 +391,7 @@ export function Quick() {
       (b ? Promise.resolve(b) : getBoard())
         .then((fresh) => openNow('page', ctx, fresh))
         .catch((e: unknown) => {
-          setError(plain(e));
+          setError(errorText(e));
           openNow('page', ctx, null);
         });
     };
@@ -449,7 +439,7 @@ export function Quick() {
   }, [keyed]);
 
   const theme = board?.theme ?? 'system';
-  useEffect(() => applyTheme(theme), [theme]);
+  useTheme(theme);
   const logoStatus = useLogo(board?.logoStatus);
 
   // The input grows with what you write.
@@ -499,7 +489,7 @@ export function Quick() {
     const d = deviceNow;
     deviceStartOptions(d)
       .then((o) => setRemoteOptions((r) => ({ ...r, [d]: { at: Date.now(), options: o, error: null } })))
-      .catch((e: unknown) => setRemoteOptions((r) => ({ ...r, [d]: { at: Date.now(), options: r[d]?.options ?? null, error: plain(e) } })));
+      .catch((e: unknown) => setRemoteOptions((r) => ({ ...r, [d]: { at: Date.now(), options: r[d]?.options ?? null, error: errorText(e) } })));
   }, [shown, deviceNow, remote]);
   const startOptionsNow = deviceNow ? (remote?.options ?? null) : options;
 
@@ -677,7 +667,7 @@ export function Quick() {
           routes.current.set(routeFor, r);
           if (live) setRouted({ for: routeFor, route: r });
         })
-        .catch((e: unknown) => live && setRouteError({ for: routeFor, message: plain(e) }));
+        .catch((e: unknown) => live && setRouteError({ for: routeFor, message: errorText(e) }));
     }, ROUTE_AFTER_MS);
     return () => {
       live = false;
@@ -802,7 +792,7 @@ export function Quick() {
     openFromBar(lane.id, session.openTarget).catch((e: unknown) =>
       reopen(() => {
         setText(kept);
-        setError(plain(e));
+        setError(errorText(e));
       }),
     );
   };
@@ -846,7 +836,7 @@ export function Quick() {
   /** Renames the session shown, or leaves its name, and goes back to the list. */
   const renamed = (s: Session, name: string | null) => {
     leaveReply();
-    if (name) renameAhead(s.key, name).catch((e: unknown) => setError(plain(e)));
+    if (name) renameAhead(s.key, name).catch((e: unknown) => setError(errorText(e)));
   };
 
   /** Done with a session answered from the list: the next that waits on you takes the view, saying
@@ -873,14 +863,14 @@ export function Quick() {
     if (queued) advance(s, done);
     else leaveReply();
     act.catch((e: unknown) => {
-      const why = plain(e);
+      const why = errorText(e);
       setError(why);
       setNotice({ text: `${s.title}: ${why}`, error: true });
     });
   };
 
   /** The session ⏎ opens for a todo, as in the main window: the live one, else the latest. */
-  const todoSession = (r: TodoRow) => r.item.sessions.find((x) => x.session.live) ?? r.item.sessions[0] ?? null;
+  const todoSession = (r: TodoRow) => liveOrLatest(r.item.sessions);
 
   /** Makes the new session the todo's: its prompt, its worktree, and linked to it. It starts
    *  when you say so. */
@@ -913,7 +903,7 @@ export function Quick() {
   /** A PR opens on GitHub, as it does in the PRs view. */
   const openPr = (pr: PrItem) => {
     void hideQuick();
-    openUrl(pr.url).catch((e: unknown) => reopen(() => setError(plain(e))));
+    openUrl(pr.url).catch((e: unknown) => reopen(() => setError(errorText(e))));
   };
 
   const revealPr = (pr: PrItem) => {
@@ -928,17 +918,17 @@ export function Quick() {
       const session = lane?.sessions.find((s) => s.key === x.key);
       return lane && session ? [{ lane, session }] : [];
     });
-    return found.sort((a, b) => Number(b.session.live) - Number(a.session.live) || b.session.lastActivity - a.session.lastActivity)[0] ?? null;
+    return liveOrLatest(found);
   };
 
   /** Opens another of a worktree's targets (its folder in an editor), as opening a session does. */
   const openElsewhere = (lane: Lane, target: string) => {
     void hideQuick();
-    openFromBar(lane.id, target).catch((e: unknown) => reopen(() => setError(plain(e))));
+    openFromBar(lane.id, target).catch((e: unknown) => reopen(() => setError(errorText(e))));
   };
 
   /** How the menus say how things went: in the answer view, its notice; else under the input. */
-  const menuReport: menus.Report = {
+  const menuReport: Report = {
     error: (message) => (replyKeyNow.current ? setNotice({ text: message, error: true }) : setError(message)),
     info: (message) => (replyKeyNow.current ? setNotice({ text: message, error: false }) : setInfo(message)),
   };
@@ -960,7 +950,7 @@ export function Quick() {
   /** A row's menu: a session's, PR's or todo's as every window has it, a suggestion's own. */
   const rowMenu = (r: Row) => {
     if (r.kind === 'more') return;
-    const show = (spec: MenuSpec) => void showContextMenu(spec).catch((e: unknown) => setError(plain(e)));
+    const show = (spec: MenuSpec) => void showContextMenu(spec).catch((e: unknown) => setError(errorText(e)));
     if (r.kind === 'suggest') {
       const sg = r.s;
       if (sg.kind === 'send' || sg.kind === 'open') {
@@ -1074,7 +1064,7 @@ export function Quick() {
           setText(kept.text);
           setTodoIds(kept.todoIds);
           setNewWorktree(kept.newWorktree);
-          setError(plain(e));
+          setError(errorText(e));
         });
       });
   };
@@ -1097,7 +1087,7 @@ export function Quick() {
         void tellOpener(to, { phase: 'end', id, key: null, message: null });
         reopen(() => {
           setText(prompt);
-          setError(plain(e));
+          setError(errorText(e));
         });
       });
   };
@@ -1118,7 +1108,7 @@ export function Quick() {
       .catch((e: unknown) =>
         reopen(() => {
           setText(prompt);
-          setError(plain(e));
+          setError(errorText(e));
         }),
       );
   };
@@ -1548,7 +1538,7 @@ export function Quick() {
             onMenu={(at) => {
               const s = replying.session;
               const spec = sessionMenuSpec(replying.lane, s, (done) => (queued ? advance(s, `${done}.`) : leaveReply()));
-              void showContextMenu(spec, at).catch((e: unknown) => setNotice({ text: plain(e), error: true }));
+              void showContextMenu(spec, at).catch((e: unknown) => setNotice({ text: errorText(e), error: true }));
             }}
             queue={queued ? { left: queueLeft.length, next: queueLeft[0]?.session ?? null, onNext: skip } : undefined}
             notice={notice}
@@ -1600,7 +1590,7 @@ export function Quick() {
               e.preventDefault();
               keepFiles(files)
                 .then(addAttachments)
-                .catch((err: unknown) => setError(plain(err)));
+                .catch((err: unknown) => setError(errorText(err)));
             }}
           />
           {shortcut && !text && (

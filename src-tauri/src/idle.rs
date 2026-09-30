@@ -170,7 +170,7 @@ pub fn close(board: &Board, keys: &[String], after_ms: i64) -> Vec<Outcome> {
                     Err(e) => Outcome { key: key.clone(), title, closed: false, message: e.to_string() },
                 };
             }
-            let title = board.lanes.iter().flat_map(|l| &l.sessions).find(|s| &s.key == key).map(|s| s.title.clone()).unwrap_or_default();
+            let title = board.session(key).map(|(_, s)| s.title.clone()).unwrap_or_default();
             let why = fresh.kept.iter().find(|k| &k.key == key).map(|k| format!("Kept open: {}.", k.why)).unwrap_or_else(|| "Its terminal is already closed.".into());
             Outcome { key: key.clone(), title, closed: false, message: why }
         })

@@ -3,6 +3,7 @@
 // sounds, and which runners-up are worth a row, is decided here. Kept free of React so the rules
 // have tests.
 
+import { homeOf } from './lanes';
 import type { Board, Lane, Route, RoutePick, Session } from './types';
 
 /** How likely a suggestion is, as the panel says it. */
@@ -34,11 +35,7 @@ export function worthRouting(text: string): boolean {
 }
 
 function findSession(board: Board, key: string): { lane: Lane; session: Session } | null {
-  for (const lane of board.lanes) {
-    const session = lane.sessions.find((s) => s.key === key && !s.visitor);
-    if (session) return { lane, session };
-  }
-  return null;
+  return homeOf(board.lanes, key);
 }
 
 /**

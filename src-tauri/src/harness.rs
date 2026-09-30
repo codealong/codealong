@@ -171,7 +171,7 @@ pub fn adapter(h: Harness) -> &'static dyn Adapter {
 
 /// A session on the board with its account, for an adapter.
 pub fn find<'a>(board: &'a crate::model::Board, cfg: &'a Config, key: &str) -> Result<(&'a Session, &'a AccountCfg)> {
-    let s = board.lanes.iter().flat_map(|l| &l.sessions).find(|s| s.key == key).ok_or_else(|| anyhow::anyhow!("That session isn't on the board any more."))?;
+    let (_, s) = board.session(key).ok_or_else(|| anyhow::anyhow!("That session isn't on the board any more."))?;
     let account = cfg.accounts.iter().find(|a| a.name == s.account).ok_or_else(|| anyhow::anyhow!("There's no account named {} in config.toml.", s.account))?;
     Ok((s, account))
 }

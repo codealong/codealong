@@ -6,8 +6,8 @@
 // said in it (the engine's text search, search.rs). Kept free of React so the rules have tests.
 
 import { middleTruncate } from './format';
-import { byStatusTime } from './lanes';
-import { sectionOf, sessionHomes, todoItem, type TodoItem, type TodoSectionId } from './todos';
+import { byStatusTime, sessionHomes } from './lanes';
+import { sectionOf, todoItem, type TodoItem, type TodoSectionId } from './todos';
 import { prFlag } from './prStatus';
 import type { Board, Lane, PrItem, PrState, Session, Status, TextHit } from './types';
 

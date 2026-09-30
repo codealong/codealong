@@ -24,6 +24,7 @@ import { DescriptionView } from './DescriptionEditor';
 import { Markdown } from './Markdown';
 import { Icon, Rich, StatusGlyph } from './primitives';
 import { RunContext, type RunPlace } from './RunButton';
+import { errorText } from '../report';
 
 /** Loads the page before once you're this close to the top. */
 const NEAR_TOP = 240;
@@ -269,7 +270,7 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
         landed.current = read;
         setLoaded(true);
       })
-      .catch((e: unknown) => read === reading.current && (setError(String(e).replace(/^Error: /, '')), setLoaded(true)))
+      .catch((e: unknown) => read === reading.current && (setError(errorText(e)), setLoaded(true)))
       .finally(() => read === reading.current && (loading.current = false));
   }, [s.key, s.continues]);
 

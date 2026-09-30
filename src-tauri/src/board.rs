@@ -574,6 +574,13 @@ fn urgency(s: Status) -> u8 {
     }
 }
 
+/// Where a session is on the board: the lane it's listed under as its own, else one it only
+/// visits (a lane lists a visitor when it worked there). None once it's gone.
+pub fn home<'a>(lanes: &'a [Lane], key: &str) -> Option<(&'a Lane, &'a Session)> {
+    let find = |own: bool| lanes.iter().find_map(|l| l.sessions.iter().find(|s| s.key == key && (!own || s.visitor.is_none())).map(|s| (l, s)));
+    find(true).or_else(|| find(false))
+}
+
 /// When a session began waiting on you, for one that needs you: the list of those is a queue,
 /// the longest wait first, so a new one can't keep pushing an old one down.
 pub fn waiting_since(s: &Session) -> Option<i64> {
@@ -716,8 +723,7 @@ pub fn pr_items(seeds: &[LaneSeed], lanes: &[Lane], prs: &HashMap<String, Vec<Pr
                     continue;
                 }
                 // The lane it's in, else one it visited.
-                let found = lanes.iter().find_map(|l| l.sessions.iter().find(|s| &s.key == k && s.visitor.is_none()).map(|s| (l, s)))
-                    .or_else(|| lanes.iter().find_map(|l| l.sessions.iter().find(|s| &s.key == k).map(|s| (l, s))));
+                let found = home(lanes, k);
                 if let Some((l, s)) = found.filter(|(_, s)| !s.archived) {
                     sessions.push(PrSession { key: s.key.clone(), lane: l.id.clone() });
                 }

@@ -12,7 +12,7 @@
 // itself; what's on stays, drawn as gone once the board no longer has it, until a tidy or you take
 // it off.
 
-import { sessionHomes, type Placed } from '../todos';
+import { sessionHomes, type Placed } from '../lanes';
 import type { Board, Lane, LabelColor, PrItem, Session, Todo } from '../types';
 
 export type RefKind = 'worktree' | 'session' | 'todo' | 'pr';

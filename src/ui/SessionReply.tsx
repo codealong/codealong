@@ -35,15 +35,12 @@ import type { Answers, Pending, Question, Sent, Session } from '../types';
 import { CodeBlock } from './CopyButton';
 import { AttachmentStrip } from './DescriptionEditor';
 import { Button, Icon, Rich } from './primitives';
+import { errorText } from '../report';
 
 /** The box grows to this many lines, then scrolls. */
 const LINES = 8;
 /** How long a Stop waits for the turn to end before saying it hasn't. */
 const STOP_WAIT_MS = 8000;
-
-function plain(e: unknown): string {
-  return String(e).replace(/^Error: /, '');
-}
 
 /** Whether typing reaches the session now: anything but one waiting on you to answer a prompt
  *  (a permission, or a turn stuck on a command). */
@@ -188,7 +185,7 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
       (said) => setNote({ text: said, error: false }),
       (e: unknown) => {
         setStopping(false);
-        setNote({ text: plain(e), error: true });
+        setNote({ text: errorText(e), error: true });
       },
     );
   };
@@ -221,7 +218,7 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
         onSent?.(sent);
       },
       (e: unknown) => {
-        const why = plain(e);
+        const why = errorText(e);
         if (!land(key, { text: why, error: true })) onFailed?.(why);
       },
     );
@@ -245,7 +242,7 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
           box.current?.setSelectionRange(r.cursor, r.cursor);
         });
       })
-      .catch((err: unknown) => setNote({ text: plain(err), error: true }));
+      .catch((err: unknown) => setNote({ text: errorText(err), error: true }));
   };
 
   return (
@@ -339,7 +336,7 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onAllowNext,
         onAnswered?.(said);
         then?.(said);
       })
-      .catch((e: unknown) => setNote({ text: plain(e), error: true }))
+      .catch((e: unknown) => setNote({ text: errorText(e), error: true }))
       .finally(() => setBusy(false));
   };
 

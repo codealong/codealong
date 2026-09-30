@@ -79,7 +79,7 @@ fn byline(board: &Board, from: Option<&str>) -> Byline {
             name: "codealong".into(),
         };
     };
-    let author = board.lanes.iter().flat_map(|l| &l.sessions).find(|s| s.key == key);
+    let author = board.session(key).map(|(_, s)| s);
     let who = match author {
         Some(s) => format!("{} ({} on {}, session {key})", quoted(&s.title), s.harness.word(), s.account),
         None => format!("session {key}"),

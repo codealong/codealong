@@ -15,6 +15,7 @@ import { barNote, getBoard, inPreview, onBoard, onPeekHidden, onPeekOpen, onPeek
 import { archiveAhead, boardView, lanesAhead, observe, renameAhead, seenAhead, useAhead } from '../ahead';
 import { below, showContextMenu } from '../contextMenu';
 import { readDraft } from '../drafts';
+import { homeOf } from '../lanes';
 import { useEditorIcons } from '../editors';
 import * as menus from '../menus';
 import { snoozeMenu } from '../snooze';
@@ -22,7 +23,9 @@ import { attentionRows, ALL_PROJECTS } from '../quick';
 import type { Lane, PeekOpen, Session, Theme } from '../types';
 import { useKeyPerf } from '../perf';
 import { ReplyView } from './ReplyView';
-import { applyTheme } from './ThemeSwitch';
+import { useTheme } from './ThemeSwitch';
+import { useNow } from './useNow';
+import { errorText, type Report } from '../report';
 
 /** Room around the card for its shadow (`--shadow-peek`, which falls away from the bar): the
  *  window (peek.rs) is the card, this on its sides, `FAR` on the side away from the bar, and
@@ -35,15 +38,6 @@ const LOAD_WAIT_MS = 250;
 /** Where a preview (scripts/preview.sh) says which session to peek at. */
 const PREVIEW_KEY = 'codealong.preview.peek';
 
-function useNow(everyMs: number): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const id = window.setInterval(() => setNow(Date.now()), everyMs);
-    return () => window.clearInterval(id);
-  }, [everyMs]);
-  return now;
-}
-
 /** A preview has no engine to open the peek: it opens on the session named for it, else the first
  *  one that needs you. */
 async function previewOpen(): Promise<PeekOpen | null> {
@@ -55,9 +49,9 @@ async function previewOpen(): Promise<PeekOpen | null> {
     // No storage: the first session that needs you.
   }
   key = key || attentionRows(board, ALL_PROJECTS).rows[0]?.session.key || null;
-  const lane = board.lanes.find((l) => l.sessions.some((s) => s.key === key));
-  const session = lane?.sessions.find((s) => s.key === key);
-  if (!lane || !session) return null;
+  const home = homeOf(board.lanes, key);
+  if (!home) return null;
+  const { lane, session } = home;
   return { id: 1, lane, session, terminal: board.apps.terminal, apps: board.apps, theme: board.theme, room: 580 + FAR + NEAR, below: true, focus: false, rename: false };
 }
 
@@ -110,9 +104,8 @@ export function Peek() {
     if (!shown || !key) return;
     return onBoard((b) => {
       observe(boardView(b.generatedAt, [b.lanes]));
-      const lane = b.lanes.find((l) => l.sessions.some((s) => s.key === key));
-      const session = lane?.sessions.find((s) => s.key === key);
-      if (lane && session) setLive({ lane, session, theme: b.theme });
+      const home = homeOf(b.lanes, key);
+      if (home) setLive({ ...home, theme: b.theme });
     });
   }, [shown, key]);
 
@@ -123,7 +116,7 @@ export function Peek() {
   const sessionKey = live?.session.key ?? open?.session.key ?? null;
   const session = lane?.sessions.find((s) => s.key === sessionKey) ?? live?.session ?? open?.session ?? null;
   const theme = live?.theme ?? open?.theme ?? 'system';
-  useEffect(() => applyTheme(theme), [theme]);
+  useTheme(theme);
   // For the session's menu: what's on the desktop, and the editors' icons.
   const onDesktop = menus.useDesktopPins();
   const icons = useEditorIcons(open?.apps);
@@ -205,13 +198,13 @@ export function Peek() {
 
   const openHere = () => {
     void peekHide();
-    void openFromBar(lane.id, session.openTarget).catch((e: unknown) => void barNote({ key: session.key, message: String(e).replace(/^Error: /, ''), tone: 'error' }));
+    void openFromBar(lane.id, session.openTarget).catch((e: unknown) => void barNote({ key: session.key, message: errorText(e), tone: 'error' }));
   };
 
   /** Takes the session off the bar, and puts the peek away. */
   const dismiss = (act: Promise<void>) => {
     void peekHide();
-    act.catch((e: unknown) => void barNote({ key: session.key, message: String(e).replace(/^Error: /, ''), tone: 'error' }));
+    act.catch((e: unknown) => void barNote({ key: session.key, message: errorText(e), tone: 'error' }));
   };
 
   /** Renames the session, or leaves its name, and puts the peek away: that's what it opened for. */
@@ -231,7 +224,7 @@ export function Peek() {
   /** The session's menu, as every window has it (menus.ts). What comes of it is said on the
    *  bar, by the session's pill, since the peek may be gone by then. */
   const menu = (at?: { x: number; y: number }) => {
-    const report: menus.Report = {
+    const report: Report = {
       error: (message) => void barNote({ key: session.key, message, tone: 'error' }),
       info: (message) => void barNote({ key: session.key, message, tone: 'info' }),
     };
@@ -239,7 +232,7 @@ export function Peek() {
       report,
       open: (l, target) => {
         void peekHide();
-        void openFromBar(l.id, target).catch((e: unknown) => report.error(String(e).replace(/^Error: /, '')));
+        void openFromBar(l.id, target).catch((e: unknown) => report.error(errorText(e)));
       },
       terminal: open.terminal,
       reveal,

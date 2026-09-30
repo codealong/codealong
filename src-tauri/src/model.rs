@@ -114,6 +114,13 @@ pub struct Board {
     pub project_rules: Vec<crate::config::ProjectCfg>,
 }
 
+impl Board {
+    /// A session and the lane it's listed under as its own, else one it visits (`board::home`).
+    pub fn session(&self, key: &str) -> Option<(&Lane, &Session)> {
+        crate::board::home(&self.lanes, key)
+    }
+}
+
 /// Why a todo looks done: how sure Jev is, and what showed it.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]

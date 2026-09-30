@@ -16,24 +16,13 @@ import { renames, sessionPlace } from './harness';
 import { closable, seenable, stoppable } from './lanes';
 import { snoozeMenu } from './snooze';
 import type { DesktopPinned, Lane, Pr, Session, Started } from './types';
-
-/** How a window says how something went. */
-export interface Report {
-  /** What went wrong: a toast, a note on the pill the menu came from. */
-  error: (message: string) => void;
-  /** What happened, when it's worth saying. */
-  info: (message: string) => void;
-  /** Shows that `work` is under way while it takes a moment (the main window's spinner). */
-  busy?: <T>(label: string, work: Promise<T>) => Promise<T>;
-}
+import { errorText, type Report } from './report';
 
 /** The editors installed here and their icons, for Open folder in and Open in. */
 export interface Editors {
   apps: Apps;
   icons: AppIcons;
 }
-
-const plain = (e: unknown) => String(e).replace(/^Error: /, '');
 
 /** Groups of items, with a line between the ones that have any. */
 function sections(...groups: MenuSpec[]): MenuSpec {
@@ -54,7 +43,7 @@ function copyItem(label: string, text: string | null | undefined, what: string, 
 export function desktopItem(ref: DesktopPinned['ref'], key: string, pinned: ReadonlySet<string>, report: Report): MenuAction {
   const on = pinned.has(`${ref}:${key}`);
   const act = () => (on ? unpinFromDesktop({ ref, key }) : pinToDesktop({ ref, key }));
-  return { label: on ? 'Remove from desktop' : 'Pin to desktop', run: () => void act().catch((e: unknown) => report.error(plain(e))) };
+  return { label: on ? 'Remove from desktop' : 'Pin to desktop', run: () => void act().catch((e: unknown) => report.error(errorText(e))) };
 }
 
 /** What's pinned to the desktop, as `ref:key`, kept up to date, for Pin to desktop in a
@@ -78,7 +67,7 @@ export function openLabel(lane: Lane, s: Session, terminal: string): string {
 /** Opens a worktree's PR on GitHub. */
 function prItem(lane: Lane, report: Report): MenuSpec {
   const pr = lane.pr;
-  return pr ? [{ label: `Open PR #${pr.number} on GitHub`, run: () => void openUrl(pr.url).catch((e: unknown) => report.error(plain(e))) }] : [];
+  return pr ? [{ label: `Open PR #${pr.number} on GitHub`, run: () => void openUrl(pr.url).catch((e: unknown) => report.error(errorText(e))) }] : [];
 }
 
 /** New session here…: the quick panel on the worktree, from any window. The panel starts
@@ -134,7 +123,7 @@ export function sessionMenu(lane: Lane, s: Session, can: SessionCan): MenuSpec {
   const busy = <T>(label: string, work: Promise<T>) => (report.busy ? report.busy(label, work) : work);
   const settle = (done: 'marked seen' | 'snoozed' | 'archived') => (act: Promise<unknown>) => {
     can.left?.(done);
-    act.catch((e: unknown) => report.error(plain(e)));
+    act.catch((e: unknown) => report.error(errorText(e)));
   };
   const fork = () =>
     busy(`Forking ${s.title}…`, forkSession(s.key))
@@ -142,16 +131,16 @@ export function sessionMenu(lane: Lane, s: Session, can: SessionCan): MenuSpec {
         if (started?.message) report.info(started.message);
         if (started) can.forked?.(started);
       })
-      .catch((e: unknown) => report.error(plain(e)));
+      .catch((e: unknown) => report.error(errorText(e)));
   const stop = () =>
     busy(`Stopping ${s.title}…`, sessionCancel(s.key))
       .then((said) => said && report.info(said))
-      .catch((e: unknown) => report.error(plain(e)));
+      .catch((e: unknown) => report.error(errorText(e)));
   const close = () =>
     busy(`Closing ${s.title}…`, closeSession(s.key))
       .then((said) => said && report.info(said))
-      .catch((e: unknown) => report.error(plain(e)));
-  const archive = can.archive ?? ((archived: boolean) => (archived ? settle('archived')(archiveAhead(s.key, true)) : void archiveAhead(s.key, false).catch((e: unknown) => report.error(plain(e)))));
+      .catch((e: unknown) => report.error(errorText(e)));
+  const archive = can.archive ?? ((archived: boolean) => (archived ? settle('archived')(archiveAhead(s.key, true)) : void archiveAhead(s.key, false).catch((e: unknown) => report.error(errorText(e)))));
   return sections(
     can.heading ? [{ label: `${s.title} · ${lane.callsign}`, enabled: false, run: () => {} }] : [],
     [
@@ -263,7 +252,7 @@ export function prMenu(pr: Pick<Pr, 'url' | 'number'> & { head?: string | null }
   const s = can.session;
   return sections(
     [
-      { label: 'Open on GitHub', run: can.open ?? (() => void openUrl(pr.url).catch((e: unknown) => report.error(plain(e)))) },
+      { label: 'Open on GitHub', run: can.open ?? (() => void openUrl(pr.url).catch((e: unknown) => report.error(errorText(e)))) },
       ...(s ? [{ label: s.session.live ? 'Open its session' : 'Open its latest session', run: s.open }] : []),
       ...(can.review ? [{ label: 'Review with', items: can.review }] : []),
       ...(can.reveal ? [{ label: 'Show in Codealong', run: can.reveal }] : []),

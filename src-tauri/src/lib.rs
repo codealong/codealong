@@ -366,7 +366,7 @@ struct SessionAt {
 fn session_at(engine: State<'_, engine::Handle>, key: String) -> Option<SessionAt> {
     // From the worktree it runs in, not one it only visits.
     engine.read(|b| {
-        let (lane, session) = b.lanes.iter().find_map(|l| l.sessions.iter().find(|s| s.key == key && s.visitor.is_none()).map(|s| (l, s)))?;
+        let (lane, session) = b.session(&key)?;
         Some(SessionAt { lane: lane.clone(), session: session.clone(), apps: b.apps.clone() })
     })
 }

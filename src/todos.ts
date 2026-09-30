@@ -6,9 +6,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { todoOp } from './api';
-import { prNeedsWork } from './lanes';
+import { prNeedsWork, type Placed } from './lanes';
 import type { Attachment, Board, Label, LabelColor, Lane, Pr, Session, Todo, TodoStatus, TodoSuggested, Waiting } from './types';
 import { LABEL_COLORS } from './types';
+import { errorText } from './report';
 
 /** `dependsOn` replaces the whole list. `waiting: null` says it's ready. */
 export type TodoPatch = Partial<Pick<Todo, 'title' | 'description' | 'status' | 'labels' | 'project' | 'dependsOn' | 'waiting'>>;
@@ -266,7 +267,7 @@ export function useTodoStore(board: Board | null, onError: (message: string) => 
         )
         .catch((e: unknown) => {
           setChanges((cs) => cs.filter((c) => c.seq !== id));
-          onError(String(e).replace(/^Error: /, ''));
+          onError(errorText(e));
         });
     },
     [onError],
@@ -276,19 +277,6 @@ export function useTodoStore(board: Board | null, onError: (message: string) => 
     [board?.todos, board?.labels, changes],
   );
   return { ...store, run };
-}
-
-/** A session and the worktree it's listed under as its own. */
-export interface Placed {
-  lane: Lane;
-  session: Session;
-}
-
-/** Where each session lives on the board: the lane it's listed under as its own. */
-export function sessionHomes(lanes: Lane[]): Map<string, Placed> {
-  const m = new Map<string, Placed>();
-  for (const lane of lanes) for (const session of lane.sessions) if (!session.visitor && !m.has(session.key)) m.set(session.key, { lane, session });
-  return m;
 }
 
 /** A worktree a todo is linked to, directly or through its sessions, with those sessions. */
