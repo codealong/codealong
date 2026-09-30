@@ -188,6 +188,9 @@ describe('actions by name', () => {
     const can: SessionCan = { ...base, keys: true, rename: noop, pin: { label: 'Pin session', run: noop } };
     const keys = sessionMenu(lane(), session(), can).flatMap((i) => (i !== 'separator' && !('items' in i) && i.accelerator ? [`${i.label}=${i.accelerator}`] : []));
     expect(keys).toEqual(['Rename…=R', 'Mark as seen=E', 'Pin session=P', 'Archive=A']);
+    // Sessions takes them with ⌃.
+    const ctrl = sessionMenu(lane(), session(), { ...can, keys: 'ctrl' }).flatMap((i) => (i !== 'separator' && !('items' in i) && i.accelerator ? [i.accelerator] : []));
+    expect(ctrl).toEqual(['Ctrl+R', 'Ctrl+E', 'Ctrl+P', 'Ctrl+A']);
     // Elsewhere no window takes those keys, so none show.
     expect(sessionMenu(lane(), session(), { ...can, keys: false }).some((i) => i !== 'separator' && 'accelerator' in i && i.accelerator)).toBe(false);
     const acts = sessionActions(lane(), session(), can);

@@ -56,6 +56,8 @@ import { errorText, type Report } from './report';
 import { openWhere, where } from './open';
 
 const ELSEWHERE = 'Elsewhere';
+/** The list's letter keys, which Sessions' box hands the list when they come with ⌃. */
+const LIST_LETTERS = new Set(['j', 'k', 'f', 'g', 'v', ...Object.values(menus.KEYS).map((k) => k.toLowerCase())]);
 /** No worktrees yet, as one list, so Settings doesn't see a new one on every render. */
 const NO_LANES: Lane[] = [];
 
@@ -294,7 +296,7 @@ export function App() {
       return !c;
     });
   }, []);
-  // A session's panel in Sessions can take the whole window (F), for working through sessions one
+  // A session's panel in Sessions can take the whole window (⌃F), for working through sessions one
   // after another with the list out of the way; it stays as you left it.
   const [panelMax, setPanelMax] = useState(() => {
     try {
@@ -811,8 +813,8 @@ export function App() {
   );
 
   // Working through what waits on you from a session's panel in Sessions: ⌘⏎ in its box sends (or
-  // allows the call it waits on) and goes on to the next listed that waits on you, `e` (⌘E from the
-  // box) marks a finished turn seen and goes on, and ⌘] skips to it; a skipped one comes round
+  // allows the call it waits on) and goes on to the next listed that waits on you, ⌃E (⌘E too)
+  // marks a finished turn seen and goes on, and ⌘] skips to it; a skipped one comes round
   // again after the rest. The ones dealt with stay out until they wait on you anew, since an
   // allowed call isn't shown ahead of the board.
   const waitingRows = useMemo(() => waitingQueue(shownSessions), [shownSessions]);
@@ -855,9 +857,17 @@ export function App() {
   useEffect(() => {
     if (boxFocus && selected?.key !== boxFocus) setBoxFocus(null);
   }, [selected?.key]);
-  // A session clicked in Sessions leaves the keyboard with the list; Escape in its panel's box
-  // gives it back there.
+  // A session you click in Sessions is one you mean to answer: the cursor goes to its panel's box,
+  // once the click has given the list the keyboard, as a press does. The list's keys work from the
+  // box with ⌃, and Escape in the box gives the list the keyboard back.
   const listRef = useRef<HTMLDivElement>(null);
+  const focusBox = () =>
+    window.setTimeout(() => {
+      const el = document.querySelector<HTMLTextAreaElement>('.ca-sessinsp .ca-composer textarea');
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(el.value.length, el.value.length);
+    });
 
   /** Archives a session (Codex threads in Codex itself), or unarchives it. */
   const setArchived = useCallback((key: string, archived: boolean, title: string) => {
@@ -1261,7 +1271,7 @@ export function App() {
    *  actions (menus.ts). */
   const sessionCan = (lane: Lane, s: Session, pin: 'session' | 'worktree'): menus.SessionCan => ({
       report,
-      keys: true,
+      keys: view === 'sessions' ? 'ctrl' : true,
       open,
       terminal: board?.apps.terminal ?? 'Terminal',
       editors,
@@ -1460,17 +1470,40 @@ export function App() {
       const typing = document.activeElement === searchRef.current;
       const mod = e.metaKey;
       const key = e.key.toLowerCase();
-      // Escape in a session panel's box gives the list its keys back, unless it stopped the
-      // session's turn. With the panel expanded there's no list to
+      const inBox = view === 'sessions' && !!document.activeElement?.closest('.ca-sessinsp .ca-composer');
+      // The list's letter keys. In Sessions they take ⌃, and work from the panel's box too: a
+      // click on a row puts the cursor there, and a word typed on the list by mistake would
+      // otherwise pin, archive or rename. Elsewhere plain letters run them, and ⌃ ones as well.
+      const letters = view !== 'sessions' || e.ctrlKey;
+      // Escape in a session panel's box gives the list its keys back (a click on a row put them
+      // there), unless it stopped the session's turn. With the panel expanded there's no list to
       // give them to, so the window has them.
-      if (e.key === 'Escape' && !e.isComposing && !e.defaultPrevented && view === 'sessions' && document.activeElement?.closest('.ca-sessinsp .ca-composer')) {
+      if (e.key === 'Escape' && !e.isComposing && !e.defaultPrevented && inBox) {
         e.preventDefault();
         if (panelMax) (document.activeElement as HTMLElement).blur();
         else listRef.current?.focus();
         return;
       }
-      // So does a text field, a todo's title or description say, but for the window's own ⌘ keys.
-      if (inField(document.activeElement, searchRef.current) && !(mod && (key === 'k' || key === 'p' || e.key === ',' || ((e.code === 'BracketRight' || key === 'e') && view === 'sessions') || (e.altKey && /^Digit\d$/.test(e.code))))) return;
+      // g's second key goes to the first row in a status (g n: Needs you), and after ⌃G in
+      // Sessions' box it's a plain one. Any other key does what it does.
+      if (gPending.current) {
+        gPending.current = false;
+        const bay = ({ n: 'needs', w: 'working', t: 'unread', r: 'review' } as Record<string, Bay | undefined>)[key];
+        if (bay && !mod && (inBox || !inField(document.activeElement, searchRef.current))) {
+          e.preventDefault();
+          const first =
+            view === 'worktrees'
+              ? [...pinnedLaneRows, ...shownBays.flatMap((b) => b.rows)].filter((r) => r.lane.bay === bay).flatMap(rowItems)[0]
+              : visible.find((r) => r.kind === 'agent' && AGENT_BAY[r.session.status] === bay);
+          if (first) setSelectedKey(first.key);
+          return;
+        }
+      }
+      // ⌃ and a list key in Sessions' box is the list's, never the box's (⌃A isn't line start).
+      if (inBox && e.ctrlKey && !mod && LIST_LETTERS.has(key)) e.preventDefault();
+      // Any other text field, a todo's title or description say, keeps its keys but for the
+      // window's own ⌘ ones.
+      else if (inField(document.activeElement, searchRef.current) && !(mod && (key === 'k' || key === 'p' || e.key === ',' || ((e.code === 'BracketRight' || key === 'e') && view === 'sessions') || (e.altKey && /^Digit\d$/.test(e.code))))) return;
       if (mod && e.key === ',') {
         e.preventDefault();
         openSettings();
@@ -1485,10 +1518,10 @@ export function App() {
         if (selected?.kind === 'agent') goOn(selected.key, selected.session, null);
         return;
       }
-      // ⌘E marks a finished turn seen and goes on, as `e` does on the list, from the box too.
+      // ⌘E marks a finished turn seen and goes on, as ⌃E does.
       if (mod && !e.ctrlKey && !e.shiftKey && !e.altKey && key === 'e' && view === 'sessions') {
         e.preventDefault();
-        if (selected?.kind === 'agent') seenAndOn(selected.key, selected.session, !!document.activeElement?.closest('.ca-sessinsp .ca-composer'));
+        if (selected?.kind === 'agent') seenAndOn(selected.key, selected.session, inBox);
         return;
       }
       if (mod && key === 'k') {
@@ -1540,31 +1573,22 @@ export function App() {
       }
       // The canvas's keys, unless the keyboard is in the panel beside it.
       if (view === 'canvas' && !document.activeElement?.closest('.ca-insp') && canvasKeys.current(e)) return;
-      if (gPending.current) {
-        gPending.current = false;
-        const bay = ({ n: 'needs', w: 'working', t: 'unread', r: 'review' } as Record<string, Bay | undefined>)[key];
-        const first =
-          view === 'worktrees'
-            ? [...pinnedLaneRows, ...shownBays.flatMap((b) => b.rows)].filter((r) => r.lane.bay === bay).flatMap(rowItems)[0]
-            : visible.find((r) => r.kind === 'agent' && AGENT_BAY[r.session.status] === bay);
-        if (first) setSelectedKey(first.key);
-        return;
-      }
       const lane = selectedLane;
-      if (key === 'v' && !mod) {
+      if (key === 'v' && !mod && letters) {
         const i = VIEWS.findIndex((x) => x.id === view);
         setView(VIEWS[(i + 1) % VIEWS.length].id);
         return;
       }
       if (todoKeys.current(e, key)) return;
-      if (key === 'f' && !mod && view === 'sessions' && selected?.kind === 'agent') {
+      if (key === 'f' && !mod && letters && view === 'sessions' && selected?.kind === 'agent') {
+        e.preventDefault();
         togglePanelMax();
         return;
       }
       // P, A and R run the selected row's menu actions (menus.ts `KEYS`), so each applies where
       // the menu's would. P pins what the view lists: worktrees on the board, sessions in
       // Sessions. E, below, marks seen more than one session at once.
-      if (!mod && selected && selected.kind !== 'pr' && selected.kind !== 'todo') {
+      if (!mod && letters && selected && selected.kind !== 'pr' && selected.kind !== 'todo') {
         const acts = selected.kind === 'agent' ? actionsRef.current.session(selected.lane, selected.session, view === 'worktrees' ? 'worktree' : 'session') : actionsRef.current.lane(selected.lane);
         const found = menus.keyed(acts, key);
         if (found && found.id !== 'seen') {
@@ -1591,12 +1615,15 @@ export function App() {
       if (e.key === '/') {
         e.preventDefault();
         searchRef.current?.focus();
-      } else if (e.key === 'ArrowDown' || (key === 'j' && !mod)) {
+      } else if (e.key === 'ArrowDown' || (key === 'j' && !mod && letters)) {
         e.preventDefault();
         move(1);
-      } else if (e.key === 'ArrowUp' || (key === 'k' && !mod)) {
+        // From the box, the cursor goes on to the next one's.
+        if (inBox) focusBox();
+      } else if (e.key === 'ArrowUp' || (key === 'k' && !mod && letters)) {
         e.preventDefault();
         move(-1);
+        if (inBox) focusBox();
       } else if (e.key === 'Enter' && !mod) {
         e.preventDefault();
         openRow(selected);
@@ -1632,12 +1659,12 @@ export function App() {
       } else if (mod && key === 'c' && !window.getSelection()?.toString()) {
         e.preventDefault();
         copy(lane?.branch, 'branch name');
-      } else if (key === 'e' && !mod && view === 'sessions') {
-        if (selected?.kind === 'agent') seenAndOn(selected.key, selected.session, false);
-      } else if (key === 'e' && !mod) {
+      } else if (key === 'e' && !mod && letters && view === 'sessions') {
+        if (selected?.kind === 'agent') seenAndOn(selected.key, selected.session, inBox);
+      } else if (key === 'e' && !mod && letters) {
         const sessions = selected?.kind === 'agent' ? [selected.session] : selected?.kind === 'todo' ? (pickedRows.length > 0 ? pickedRows : [selected]).flatMap((r) => r.sessions.map((x) => x.session)) : (lane?.sessions ?? []);
         markSeen(sessions.filter(seenable).map((s) => s.key));
-      } else if (key === 'g' && !mod) {
+      } else if (key === 'g' && !mod && letters) {
         gPending.current = true;
         window.setTimeout(() => (gPending.current = false), 1200);
       }
@@ -2337,7 +2364,10 @@ export function App() {
                 now={now}
                 selectedKey={selected?.key ?? null}
                 domId={domId}
-                onSelect={(r) => setSelectedKey(r.key)}
+                onSelect={(r, e) => {
+                  setSelectedKey(r.key);
+                  if (e.button === 0) focusBox();
+                }}
                 onOpen={(r) => {
                   setSelectedKey(r.key);
                   openRow(r);

@@ -114,8 +114,9 @@ export interface SessionCan {
   left?: (done: 'marked seen' | 'snoozed' | 'archived') => void;
   /** Add to canvas, where there's a canvas. */
   canvas?: MenuSpec;
-  /** Shows the main window's keys beside the actions they run (`KEYS`). */
-  keys?: boolean;
+  /** Shows the main window's keys beside the actions they run (`KEYS`), with ⌃ where they take it
+   *  (Sessions). */
+  keys?: boolean | 'ctrl';
 }
 
 /** A session's actions by name, each once: the menu lays them out (`sessionMenu`), a header
@@ -310,7 +311,7 @@ type Item = MenuAction | MenuGroup;
 
 /** A menu from a layout: each group's actions that are there (or the window's extras in their
  *  places), a line between groups that have any, and with `keys` each action's key beside it. */
-function laidOut<A extends object>(layout: readonly (readonly string[])[], actions: A, extras: Record<string, MenuSpec>, keys?: boolean): MenuSpec {
+function laidOut<A extends object>(layout: readonly (readonly string[])[], actions: A, extras: Record<string, MenuSpec>, keys?: boolean | 'ctrl'): MenuSpec {
   const byName = actions as Record<string, Item | undefined>;
   const group = (names: readonly string[]): MenuSpec =>
     names.flatMap((name): MenuSpec => {
@@ -318,7 +319,7 @@ function laidOut<A extends object>(layout: readonly (readonly string[])[], actio
       const it = byName[name];
       if (!it) return [];
       const key = keys ? KEYS[name as keyof typeof KEYS] : undefined;
-      return [key && !('items' in it) ? { ...it, accelerator: key } : it];
+      return [key && !('items' in it) ? { ...it, accelerator: keys === 'ctrl' ? `Ctrl+${key}` : key } : it];
     });
   return sections(...layout.map(group));
 }

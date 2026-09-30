@@ -2,7 +2,7 @@
 // SessionsView.tsx `waitingQueue`): three sessions that need you, one of them on a call to allow,
 // and one whose turn ended. ⌘⏎ in the box sends and goes on, ⌘⏎ on the call allows it and goes
 // on, ⌘] skips, a skipped one comes round again, and a plain ⏎ sends and stays. Clicking a row
-// leaves the box alone, and Escape there gives the list its keys back. (A synthetic press
+// puts the cursor in the box, and Escape there gives the list its keys back. (A synthetic press
 // doesn't focus the list first as a real one does.)
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/panel-queue-check.js
 // Every step should say ok.
@@ -83,8 +83,7 @@
       return on('Queue A').then(function () { return wait(50); });
     })
     .then(function () {
-      check('clicking a row leaves the cursor out of its box', document.activeElement !== box());
-      box().focus();
+      check('clicking a row puts the cursor in its box', document.activeElement === box());
       check('a session that waits on you shows what’s left', /3 more waiting on you/.test(strip()), strip());
       check('the box says what ⌘⏎ does', /⌘⏎ send \+ next/.test(note()), note());
       type(box(), 'Yes, go ahead.');
