@@ -403,13 +403,16 @@ pub fn conversation_items(v: &Value, at: i64) -> Vec<Item> {
                 return Vec::new();
             }
             let Some(parts) = v.pointer("/message/content").and_then(Value::as_array) else { return Vec::new() };
-            parts
-                .iter()
-                .filter(|p| p.get("type").and_then(Value::as_str) == Some("tool_result"))
+            let results: Vec<&Value> = parts.iter().filter(|p| p.get("type").and_then(Value::as_str) == Some("tool_result")).collect();
+            // The line's `toolUseResult` is its one result's: for questions, what you answered.
+            let answers = if results.len() == 1 { answers_of(v.pointer("/toolUseResult/answers")) } else { Default::default() };
+            results
+                .into_iter()
                 .map(|p| Item {
                     id: p.get("tool_use_id").and_then(Value::as_str).map(String::from),
                     output: Some(clip_output(&text_of(p.get("content").unwrap_or(&Value::Null)))),
                     failed: p.get("is_error").and_then(Value::as_bool) == Some(true),
+                    answers: answers.clone(),
                     ..item(at, "result", "")
                 })
                 .collect()
@@ -450,6 +453,7 @@ pub fn conversation_items(v: &Value, at: i64) -> Vec<Item> {
                         out.push(Item {
                             id: p.get("id").and_then(Value::as_str).map(String::from),
                             input: Some(clip_input(&whole)),
+                            questions: if name == crate::asks::QUESTIONS { questions_of(&input) } else { Vec::new() },
                             shell,
                             // The line's folder is the shell's, where the command ran.
                             cwd: shell.then(|| v.get("cwd").and_then(Value::as_str).map(String::from)).flatten(),
@@ -784,6 +788,20 @@ impl crate::harness::Adapter for ClaudeCode {
         if let Some(a) = crate::asks::of_session(&s.id) {
             return Some(asked_pending(&a));
         }
+        // Questions the hook didn't hand over (the plugin isn't in the account, or the app started
+        // after they were asked) still show here, to answer where the session runs.
+        if let Some((call, _)) = waiting_on(self, ctx, s, "input needed").filter(|(c, _)| !c.questions.is_empty()) {
+            return Some(crate::harness::Pending {
+                id: call.id.clone().unwrap_or_default(),
+                label: format!("Asks you · {}", one_line(&call.questions[0].question, 160)),
+                input: None,
+                cannot: Some("Codealong didn't get these as they were asked, so they're answered where the session runs.".into()),
+                always: false,
+                plan: false,
+                always_rule: None,
+                questions: call.questions,
+            });
+        }
         let (call, _) = waiting_call(self, ctx, s)?;
         let cannot = match crate::launch::terminal_kind(s.pid?) {
             Some(k) if k.presses_keys() => None,
@@ -1033,6 +1051,24 @@ fn questions_of(input: &Value) -> Vec<crate::harness::Question> {
         .unwrap_or_default()
 }
 
+/// Your answers as Claude Code records them on the result (`toolUseResult.answers`): each
+/// question's text to a label or words of your own, or a list where it took several. Older
+/// versions joined several into one string with commas, which is kept as it is.
+fn answers_of(v: Option<&Value>) -> std::collections::BTreeMap<String, Vec<String>> {
+    let Some(map) = v.and_then(Value::as_object) else { return Default::default() };
+    map.iter()
+        .filter_map(|(q, a)| {
+            let list: Vec<String> = match a {
+                Value::String(t) => vec![t.clone()],
+                Value::Array(l) => l.iter().filter_map(Value::as_str).map(String::from).collect(),
+                _ => Vec::new(),
+            };
+            let list: Vec<String> = list.into_iter().map(|t| t.trim().to_string()).filter(|t| !t.is_empty()).collect();
+            (!list.is_empty()).then(|| (q.clone(), list))
+        })
+        .collect()
+}
+
 /// Your answers to the questions, as Claude Code takes them: each question answered by its text,
 /// with a label or words of your own, or a list of them where it takes several. Empty answers
 /// and questions it didn't ask are left out; none at all is refused.
@@ -1121,10 +1157,16 @@ fn record(a: &ClaudeCode, ctx: &crate::harness::Ctx, s: &crate::model::Session) 
 /// Code's own record of the session says it's waiting on a permission prompt, and the call is
 /// the last one in its transcript with no result yet.
 fn waiting_call(a: &ClaudeCode, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> Option<(Item, u32)> {
+    waiting_on(a, ctx, s, "permission prompt")
+}
+
+/// The call a live session's prompt is up for, when its registry says it waits `for` that
+/// (a "permission prompt", or "input needed" for questions), and its process.
+fn waiting_on(a: &ClaudeCode, ctx: &crate::harness::Ctx, s: &crate::model::Session, what: &str) -> Option<(Item, u32)> {
     let pid = s.pid?;
     let reg: Value = serde_json::from_str(&std::fs::read_to_string(ctx.account.home_path().join("sessions").join(format!("{pid}.json"))).ok()?).ok()?;
     let field = |k: &str| reg.get(k).and_then(Value::as_str);
-    if field("sessionId") != Some(s.id.as_str()) || field("status") != Some("waiting") || field("waitingFor") != Some("permission prompt") {
+    if field("sessionId") != Some(s.id.as_str()) || field("status") != Some("waiting") || field("waitingFor") != Some(what) {
         return None;
     }
     let page = crate::transcript::file_page(&record(a, ctx, s).ok()?, conversation_items, None, 40).ok()?;
@@ -1752,6 +1794,55 @@ mod tests {
         let one = picked(&qs, &serde_json::json!({ "Which color do you prefer?": ["Blue", "Red"] })).unwrap();
         assert_eq!(one["Which color do you prefer?"], "Blue", "one pick for a question that takes one");
         assert!(picked(&qs, &serde_json::json!({ "Which days?": [] })).is_err());
+    }
+
+    #[test]
+    fn questions_show_in_the_conversation_and_wait_where_the_session_runs() {
+        use crate::harness::Adapter;
+        let home = std::env::temp_dir().join(format!("codealong-questions-{}", std::process::id()));
+        let dir = home.join("projects/-x");
+        std::fs::create_dir_all(home.join("sessions")).unwrap();
+        std::fs::create_dir_all(&dir).unwrap();
+        let id = "5c1d7e2a";
+        let ask = r#"{"type":"assistant","timestamp":"2026-09-30T20:33:55Z","message":{"content":[{"type":"tool_use","id":"toolu_q","name":"AskUserQuestion","input":{"questions":[{"question":"Which limit?","header":"Limit","multiSelect":false,"options":[{"label":"100 days (Recommended)","description":"A quarter and a bit."},{"label":"45 days"}]},{"question":"Which days?","multiSelect":true,"options":[{"label":"Mon"},{"label":"Tue"}]}]}}]}}"#;
+        let answered = r#"{"type":"user","timestamp":"2026-09-30T20:40:10Z","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_q","content":"Your questions have been answered"}]},"toolUseResult":{"questions":[],"answers":{"Which limit?":"100 days (Recommended)","Which days?":["Mon","Tue"],"Blank":" "},"annotations":{}}}"#;
+        std::fs::write(dir.join(format!("{id}.jsonl")), format!("{ask}\n")).unwrap();
+        let account = crate::config::AccountCfg { name: "claude".into(), harness: "claude".into(), home: home.to_string_lossy().into(), command: None, start: None, preferred: false, acp: None };
+        let ctx = crate::harness::Ctx { account: &account };
+        let session: crate::model::Session = serde_json::from_value(serde_json::json!({
+            "key": format!("claude:claude:{id}"), "id": id, "shortId": "s", "harness": "claude", "account": "claude", "surface": "cli",
+            "status": "needs", "live": true, "pid": 4242, "title": "Limits", "cwd": "/x", "work": [], "name": null, "startedAt": null,
+            "statusSince": null, "lastActivity": 0, "lastPromptAt": 0, "excerpt": null, "resumeCommand": null, "appAccount": false,
+            "openTarget": "", "visitor": null, "headline": "", "detail": null, "branch": null, "archived": false, "attachCommand": null,
+            "continues": null, "stalledSince": null
+        }))
+        .unwrap();
+        let registry = |waiting_for: &str| std::fs::write(home.join("sessions/4242.json"), serde_json::json!({ "pid": 4242, "sessionId": id, "status": "waiting", "waitingFor": waiting_for }).to_string()).unwrap();
+
+        // The call's questions come with it, for the panel to show as questions.
+        let page = ClaudeCode.conversation(&ctx, &session, None, 50).unwrap();
+        let qs = &page.items[0].questions;
+        assert_eq!((qs.len(), qs[0].header.as_deref(), qs[0].options[0].description.as_deref(), qs[1].multi_select), (2, Some("Limit"), Some("A quarter and a bit."), true));
+
+        // Asked with no hook to hand them over: they show, and are answered where the session runs.
+        registry("input needed");
+        let p = ClaudeCode.pending(&ctx, &session).unwrap();
+        assert_eq!((p.id.as_str(), p.label.as_str(), p.questions.len(), p.cannot.is_some()), ("toolu_q", "Asks you · Which limit?", 2, true));
+        // A permission prompt isn't a question, and nor is a call without any.
+        registry("permission prompt");
+        assert!(ClaudeCode.pending(&ctx, &session).map_or(true, |p| p.questions.is_empty()));
+
+        // Answered: the result has your picks, several where it took them.
+        std::fs::write(dir.join(format!("{id}.jsonl")), format!("{ask}\n{answered}\n")).unwrap();
+        let page = ClaudeCode.conversation(&ctx, &session, None, 50).unwrap();
+        let r = &page.items[1];
+        assert_eq!((r.kind, r.id.as_deref()), ("result", Some("toolu_q")));
+        assert_eq!(r.answers.get("Which limit?"), Some(&vec!["100 days (Recommended)".to_string()]));
+        assert_eq!(r.answers.get("Which days?"), Some(&vec!["Mon".to_string(), "Tue".to_string()]));
+        assert!(!r.answers.contains_key("Blank"));
+        registry("input needed");
+        assert!(ClaudeCode.pending(&ctx, &session).is_none(), "nothing waits once it's answered");
+        std::fs::remove_dir_all(&home).ok();
     }
 
     #[test]

@@ -114,6 +114,13 @@ pub struct Item {
     /// saw it (Claude Code, when a turn is stopped before any reply).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub withdrawn: bool,
+    /// The questions a call asks you (Claude Code's `AskUserQuestion`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub questions: Vec<Question>,
+    /// Your answers to them, on the call's result: each question's text to what you picked or
+    /// wrote, several where it took more.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub answers: std::collections::BTreeMap<String, Vec<String>>,
     /// Where its line starts in the record (or its message number); with `n`, unique in the session.
     pub cursor: u64,
     pub n: u32,
@@ -380,8 +387,8 @@ mod tests {
     fn a_page_reads_back_what_it_wrote() {
         let page = Page {
             items: vec![
-                Item { at: 1, kind: "you".into(), text: "Fix the build".into(), id: None, input: None, output: None, failed: false, withdrawn: false, cursor: 0, n: 0 },
-                Item { at: 2, kind: "tool".into(), text: "Bash · `cargo test`".into(), id: Some("t1".into()), input: Some("cargo test".into()), output: Some("ok".into()), failed: false, withdrawn: false, cursor: 120, n: 1 },
+                Item { at: 1, kind: "you".into(), text: "Fix the build".into(), id: None, input: None, output: None, failed: false, withdrawn: false, questions: Vec::new(), answers: Default::default(), cursor: 0, n: 0 },
+                Item { at: 2, kind: "tool".into(), text: "Bash · `cargo test`".into(), id: Some("t1".into()), input: Some("cargo test".into()), output: Some("ok".into()), failed: false, withdrawn: false, questions: vec![Question { question: "Which?".into(), header: None, options: vec![Choice { label: "This".into(), description: None }], multi_select: false }], answers: [("Which?".to_string(), vec!["This".to_string()])].into(), cursor: 120, n: 1 },
             ],
             before: Some(0),
             after: 400,

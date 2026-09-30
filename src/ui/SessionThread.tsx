@@ -3,7 +3,9 @@
 // It opens at the newest and loads older pages as you scroll up, holding your place; new steps
 // come in at the bottom as the session goes on, and the view follows them if you're at the end.
 // A tool call is a line; click it for its input and output. A run of calls folds into one line
-// that keeps its latest call in view.
+// that keeps its latest call in view. Questions it asks you (Claude Code's AskUserQuestion) open
+// as questions with their choices rather than the call's input, marked with your picks once
+// they're answered.
 //
 // A message you sent shows at the end as it goes (ahead.ts): sending, then sent, until the
 // session's record has it and it shows from there. One that went but that the session shows no
@@ -25,11 +27,12 @@ import { delivered, dismiss, inRecord, useAhead, type Ahead } from '../ahead';
 import { onHostedStream, sessionNewer, sessionPage, sessionStream } from '../api';
 import { putBack } from '../drafts';
 import { absolute, agoPhrase } from '../format';
-import type { HostedStream, Session, Status, TranscriptItem } from '../types';
+import type { HostedStream, Question, Session, Status, TranscriptItem } from '../types';
 import { CodeBlock } from './CopyButton';
 import { DescriptionView } from './DescriptionEditor';
 import { Markdown } from './Markdown';
 import { Icon, Rich, StatusGlyph } from './primitives';
+import { QuestionList } from './QuestionList';
 import { RunContext, type RunPlace } from './RunButton';
 import { errorText } from '../report';
 
@@ -79,17 +82,26 @@ function toolIcon(label: string): string {
   return 'bolt';
 }
 
+/** A question call's line: what it asks about, by the questions' headers when they all have one. */
+export function questionsLine(questions: Question[]): string {
+  const headers = questions.map((q) => q.header).filter(Boolean);
+  const about = headers.length === questions.length ? headers.join(', ') : questions[0].question;
+  return `Asks you · ${about}`;
+}
+
 function ToolLine({ item, result, state, onOpen }: { item: TranscriptItem; result?: TranscriptItem; state: 'done' | 'running' | 'asks' | 'open'; onOpen?: () => void }) {
-  const [open, setOpen] = useState(false);
+  const questions = item.questions?.length ? item.questions : null;
+  // Questions it waits on you for show without a click, unless the reply area below shows them.
+  const [open, setOpen] = useState(!!questions && state === 'asks' && !!onOpen);
   const output = item.output ?? result?.output;
   const failed = item.failed || !!result?.failed;
-  const detail = item.input || output;
+  const detail = questions || item.input || output;
   return (
     <div className={['ca-thread-tool', failed && 'is-failed', state === 'asks' && 'is-asks'].filter(Boolean).join(' ')}>
       <button type="button" className="ca-thread-toolhead" aria-expanded={open} disabled={!detail} onClick={() => setOpen(!open)}>
-        <Icon name={toolIcon(item.text)} size={13} />
+        <Icon name={questions ? 'help' : toolIcon(item.text)} size={13} />
         <span className="ca-thread-toollabel">
-          <Rich text={item.text} now={0} />
+          <Rich text={questions ? questionsLine(questions) : item.text} now={0} />
         </span>
         {state === 'running' ? (
           <StatusGlyph status="working" size={11} />
@@ -104,14 +116,21 @@ function ToolLine({ item, result, state, onOpen }: { item: TranscriptItem; resul
       </button>
       {state === 'asks' && onOpen && (
         <div className="ca-thread-askrow">
-          <span>It’s waiting for your approval.</span>
+          <span>{questions ? 'It’s asking you.' : 'It’s waiting for your approval.'}</span>
           <button type="button" className="ca-btn ca-btn--secondary ca-btn--sm" onClick={onOpen}>
             <Icon name="arrow-up-right" size={13} />
             <span>Open to answer</span>
           </button>
         </div>
       )}
-      {open && (
+      {open && questions && (
+        <div className="ca-thread-tooldetail">
+          <QuestionList questions={questions} answers={result?.answers} />
+          {/* Declined, or refused: why, from its result. Answered, the picks above say it all. */}
+          {failed && output && <CodeBlock text={output} className="ca-thread-out is-failed" />}
+        </div>
+      )}
+      {open && !questions && (
         <div className="ca-thread-tooldetail">
           {item.input && <CodeBlock text={item.input} className="ca-thread-in" run={item.shell && state !== 'asks' ? { folder: item.cwd } : undefined} />}
           {output && <CodeBlock text={output} className={['ca-thread-out', failed && 'is-failed'].filter(Boolean).join(' ')} />}

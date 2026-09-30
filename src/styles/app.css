@@ -6230,6 +6230,55 @@ html.is-quick body {
   margin-right: 6px;
   vertical-align: 1px;
 }
+/* Questions to read (QuestionList.tsx): in the conversation, and in the reply area while they're
+   answered where the session runs. Choices are numbered as Claude Code's prompt numbers them. */
+.ca-questions {
+  display: grid;
+  gap: 10px;
+}
+.ca-composer.is-elsewhere .ca-questions {
+  max-height: 40vh;
+  overflow: auto;
+}
+.ca-question-list {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: 20px;
+  color: var(--ink-3);
+  font: 400 12px/16px var(--font-sans);
+}
+.ca-question-list li::marker {
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+.ca-question-opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--ink);
+  font-weight: 500;
+}
+.ca-question-desc {
+  display: block;
+  color: var(--ink-2);
+}
+.ca-question-list.is-answered li:not(.is-picked) {
+  opacity: 0.55;
+}
+.ca-question-list li.is-picked .ca-question-opt {
+  font-weight: 600;
+}
+.ca-question-yours {
+  color: var(--ink);
+  font: 400 12px/16px var(--font-sans);
+}
+.ca-question-yours > span {
+  color: var(--ink-3);
+}
+.ca-question-yours.is-none {
+  color: var(--ink-3);
+}
 .ca-question-choices {
   display: flex;
   flex-wrap: wrap;
@@ -6362,6 +6411,8 @@ html.is-quick body {
 .ca-thread-note,
 .ca-sessinsp-now,
 .ca-approval-label,
+.ca-question-list,
+.ca-question-yours,
 .ca-codeblock pre,
 .ca-composer textarea {
   -webkit-user-select: text;

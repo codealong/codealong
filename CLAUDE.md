@@ -531,6 +531,10 @@ Claude Code
   session's first call was written as its prompt showed, but a later one only with its result,
   four minutes after, when it was answered. So a prompt's call can't be read from the
   transcript until then (`claude.rs`'s keypress path looks for it there); the hook has it.
+- An `AskUserQuestion` call's result line has `toolUseResult: {questions, answers, annotations}`:
+  `answers` keyed by each question's text, a choice's label or your own words, several as a list
+  (older versions joined them into one string with commas). Declined, the result is an error,
+  "The user doesn't want to proceed…", with `toolUseResult` the string "User rejected tool use".
 - A peer message to a session that bypasses permissions is held ("Held message from another
   session", Deny first) unless its settings say `"crossSessionInbound": "accept"`; typing into
   its terminal isn't held. Under the Claude app (stream-json) a hold is only a `{"type":

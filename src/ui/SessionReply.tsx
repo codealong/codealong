@@ -2,8 +2,8 @@
 // when it waits on you to allow a tool call, that call above the box with Allow and Deny, if its
 // harness can be answered from here (harness.rs: OpenCode through its service, Claude Code by a
 // keypress in its Ghostty, iTerm2 or tmux tab, once its own record says the prompt is up). Otherwise it
-// offers to open the session to answer there. The session panel, the floating bar's peek and the
-// quick panel's reply view all end with it.
+// offers to open the session to answer there; questions it asks still show, to read before you go.
+// The session panel, the floating bar's peek and the quick panel's reply view all end with it.
 //
 // The box stays while the session waits on you, so a session that starts waiting as you type
 // doesn't take what you wrote away; you can send it once the session is no longer waiting. What
@@ -46,6 +46,7 @@ import type { Answers, Pending, Question, Sent, Session, Way } from '../types';
 import { CodeBlock } from './CopyButton';
 import { AttachmentStrip } from './DescriptionEditor';
 import { Button, Icon, Rich } from './primitives';
+import { QuestionList } from './QuestionList';
 import { errorText } from '../report';
 
 /** The box grows to this many lines, then scrolls. */
@@ -492,6 +493,26 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onAllowNext,
   }, [onAllowNext, answerable]);
 
   const where = sessionPlace(s, terminal);
+  // Questions that can only be answered where it runs still show here, to read before you go.
+  if (pending?.cannot && pending.questions?.length) {
+    return (
+      <div className="ca-composer is-approval is-questions is-elsewhere">
+        <div className="ca-approval-head">
+          <Icon name="help" size={14} />
+          <span>Asks you</span>
+        </div>
+        <QuestionList questions={pending.questions} />
+        <div className="ca-composer-foot">
+          <span className="ca-composer-note" title={pending.cannot}>
+            {note?.text ?? `Answer ${pending.questions.length > 1 ? 'them' : 'it'} in ${where}.`}
+          </span>
+          <Button variant="primary" size="sm" icon="arrow-up-right" onClick={onOpen}>
+            Open in {where}
+          </Button>
+        </div>
+      </div>
+    );
+  }
   if (!pending || pending.cannot) {
     const why = s.stalledSince ? `It looks stuck. Open it in ${where} to see what it’s waiting for.` : `It’s waiting on you. Answer it in ${where}.`;
     return (

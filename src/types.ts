@@ -1020,6 +1020,11 @@ export interface TranscriptItem {
   /** A prompt of yours the session took back before its agent saw it: Claude Code does that when
    *  a turn is stopped before any reply. */
   withdrawn?: boolean;
+  /** The questions a call asks you (Claude Code's AskUserQuestion), shown in place of its input. */
+  questions?: Question[];
+  /** Your answers to them, on the call's result: each question's text to what you picked or
+   *  wrote, several where it took more. */
+  answers?: Record<string, string[]>;
   /** Where its line starts (or its message number in OpenCode); with `n`, unique in the session. */
   cursor: number;
   n: number;
