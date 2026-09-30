@@ -4,7 +4,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { emit, emitTo, listen } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import type { Answers, DesktopFeed, DesktopPinned, DeviceFound, EditorIcon, DevicesView, LabelColor, AccountCfg, AccountInfo, AgentsStatus, Attachment, BarFeed, BarNote, CloseOutcome, UpdateView, IdlePlan, Pending, HostedStream, PeekOpen, PeekShown, TranscriptPage, Board, Config, ConfigView, FoundAccount, PrDetail, Route, Sent, ShortcutStatus, TextFound, StartOptions, StartSpec, Started, Theme, TodoSuggested } from './types';
+import type { Answers, DesktopFeed, DesktopPinned, DeviceFound, EditorIcon, DevicesView, Lane, LabelColor, Session, AccountCfg, AccountInfo, AgentsStatus, Attachment, BarFeed, BarNote, CloseOutcome, UpdateView, IdlePlan, Pending, HostedStream, PeekOpen, PeekShown, TranscriptPage, Board, Config, ConfigView, FoundAccount, PrDetail, Route, Sent, ShortcutStatus, TextFound, StartOptions, StartSpec, Started, Theme, TodoSuggested } from './types';
 import type { TodoOp } from './todos';
 
 export const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -544,6 +544,13 @@ export async function fitBar(width: number, height: number): Promise<void> {
 export async function openFromBar(laneId: string, targetId: string): Promise<void> {
   if (!inTauri) return;
   await invoke('open_from_bar', { laneId, targetId });
+}
+
+/** A session with its worktree and the apps, for a window without the board to build the
+ *  session's menu (menus.ts). Null once the board no longer has it. */
+export async function sessionAt(key: string): Promise<{ lane: Lane; session: Session; apps: Board['apps'] } | null> {
+  if (!inTauri) return null;
+  return (await invoke<{ lane: Lane; session: Session; apps: Board['apps'] } | null>('session_at', { key })) ?? null;
 }
 
 /** What the floating bar shows. Outside the app it comes from ./bar-feed.json. */

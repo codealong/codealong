@@ -10,11 +10,12 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { below, showContextMenu, type MenuAction, type MenuSpec } from './contextMenu';
-import { folderMenu, openInMenu, opensInEditor, useEditorIcons } from './editors';
-import { AGENT_BAY, buildBays, filterByAge, inboxCounts, narrowed, prNeedsWork, rowItems, seenable, closable, stoppable, worktreeRow, type BoardRow, type Filter, type WorktreeRow } from './lanes';
-import { answerLink, approvePr, barMode, desktopPins, getDevices, onDevices, dismissTodoHint, expandAttachments, getBoard, onBarMode, onBoard, onCloseIdle, onDesktopPins, onNewWindow, onQuickStart, onReveal, onSettings, onCheckUpdates, openConfig, openProjectWindow, openTarget, openUrl, pinToDesktop, refresh, refreshUsage, reviewInCodex, setBarMode, startOptions, startSession, forkSession, closeSession, sessionCancel, setPinned, setPinnedWorktrees, setTheme, showQuick, signIn, unpinFromDesktop, windowLabel, type BarMode, type Reveal } from './api';
+import { useEditorIcons } from './editors';
+import { AGENT_BAY, buildBays, filterByAge, inboxCounts, narrowed, prNeedsWork, rowItems, seenable, worktreeRow, type BoardRow, type Filter, type WorktreeRow } from './lanes';
+import { answerLink, approvePr, barMode, getDevices, onDevices, dismissTodoHint, expandAttachments, getBoard, onBarMode, onBoard, onCloseIdle, onNewWindow, onQuickStart, onReveal, onSettings, onCheckUpdates, openConfig, openProjectWindow, openTarget, openUrl, refresh, refreshUsage, reviewInCodex, setBarMode, startOptions, startSession, setPinned, setPinnedWorktrees, setTheme, showQuick, signIn, windowLabel, type BarMode, type Reveal } from './api';
 import { middleTruncate } from './format';
 import { renames } from './harness';
+import * as menus from './menus';
 import { usePerf } from './perf';
 import { archiveAhead, boardAhead, boardView, lanesAhead, observe, seenAhead, useAhead } from './ahead';
 import { reuse } from './reuse';
@@ -22,9 +23,8 @@ import { reorderPinned, usePins } from './pins';
 import { reviewLane, reviewPicks, reviewPrompt } from './review';
 import { remembered } from './start';
 import { blockedBy, COLOR_WORD, depsOf, newTodo, pickTo, pickToggle, sectionOf, sessionHomes, snippet, STATUSES, STATUS_WORD, todoIndex, todoInFilter, todoInQuery, todoItem, todoPrompt, todosPrompt, todoSections, useTodoStore, type TodoItem, type TodoPick, type TodoSectionId } from './todos';
-import type { Bay, Board, DesktopPinned, DevicesView, Label, Lane, Pr, PrItem, Session, StartOptions, Theme, Todo, TodoStatus } from './types';
+import type { Bay, Board, DevicesView, Label, Lane, Pr, PrItem, Session, StartOptions, Theme, Todo, TodoStatus } from './types';
 import { byDevice, deviceOf, needsOn, shortOf, withDevices, workingOn, type DeviceFilter } from './devices';
-import { snoozeMenu } from './snooze';
 import { queueAfter, statusTime, type Handled } from './quick';
 import { DeviceBadge } from './ui/DeviceBadge';
 import { LABEL_COLORS } from './types';
@@ -381,6 +381,9 @@ export function App() {
     work.then(done, done);
     return work;
   }, []);
+  /** How this window's menus say how things went (menus.ts): a toast, and the spinner while
+   *  something takes a moment. */
+  const report = useMemo<menus.Report>(() => ({ error: setToast, info: setToast, busy: track }), [track]);
   // A session started from here, selected once it shows on the board.
   const [pendingSession, setPendingSession] = useState<{ key: string; until: number } | null>(null);
   const now = useNow(15_000);
@@ -660,18 +663,8 @@ export function App() {
   /** The menu item that does that, in the other views' menus. */
   const canvasItem = (ref: RefKind, key: string): MenuSpec =>
     view === 'canvas' ? [] : [{ label: canvas.has(ref, key) ? 'Show on canvas' : 'Add to canvas', run: () => showOnCanvas(ref, key) }];
-  // What's pinned to the desktop, as `ref:key`, so menus offer to take it off (desktop.rs).
-  const [onDesktop, setOnDesktop] = useState<Set<string>>(() => new Set());
-  useEffect(() => {
-    const take = (pins: DesktopPinned[]) => setOnDesktop(new Set(pins.map((p) => `${p.ref}:${p.key}`)));
-    void desktopPins().then(take);
-    return onDesktopPins(take);
-  }, []);
-  /** Pins a session, worktree or todo to the desktop, over every window, or takes it off. */
-  const desktopItem = (ref: DesktopPinned['ref'], key: string): MenuSpec => {
-    const pinned = onDesktop.has(`${ref}:${key}`);
-    return [{ label: pinned ? 'Remove from desktop' : 'Pin to desktop', run: () => void (pinned ? unpinFromDesktop({ ref, key }) : pinToDesktop({ ref, key })).catch((e: unknown) => setToast(String(e))) }];
-  };
+  // What's pinned to the desktop, so menus offer to take it off (desktop.rs).
+  const onDesktop = menus.useDesktopPins();
   useEffect(() => {
     if (composerFocus === 0) return;
     composerRef.current?.focus();
@@ -1094,23 +1087,22 @@ export function App() {
   const todoMenuSpec = (r: TodoItem): MenuSpec => {
     const t = r.todo;
     const agent = r.sessions.find((x) => x.session.live) ?? r.sessions[0];
-    return [
-      { label: 'Start session…', run: () => startForTodo(r) },
-      ...(agent ? [{ label: `Open ${agent.session.account}: ${agent.session.title.slice(0, 48)}`, run: () => open(agent.lane, agent.session.openTarget) }] : []),
-      'separator',
-      ...STATUSES.map((st) => ({ label: STATUS_WORD[st], checked: t.status === st, run: () => setTodoStatus(t, st) })),
-      ...waitingItem([t]),
-      'separator',
-      { label: 'Labels', items: labelItems(t) },
-      { label: 'Move to project', items: projectItems(t) },
-      ...desktopItem('todo', t.id),
-      'separator',
-      { label: 'Copy as prompt', run: () => copyPrompt([t]) },
-      { label: 'Copy todo ID', run: () => copy(t.id, 'todo ID') },
-      ...canvasItem('todo', t.id),
-      'separator',
-      { label: 'Delete todo', run: () => deleteTodos([t]) },
-    ];
+    return menus.todoMenu(t.id, {
+      report,
+      start: () => startForTodo(r),
+      session: agent ? { ...agent, open: () => open(agent.lane, agent.session.openTarget) } : undefined,
+      edit: [
+        ...STATUSES.map((st) => ({ label: STATUS_WORD[st], checked: t.status === st, run: () => setTodoStatus(t, st) })),
+        ...waitingItem([t]),
+        'separator',
+        { label: 'Labels', items: labelItems(t) },
+        { label: 'Move to project', items: projectItems(t) },
+      ],
+      desktop: onDesktop,
+      copyPrompt: () => copyPrompt([t]),
+      canvas: canvasItem('todo', t.id),
+      remove: () => deleteTodos([t]),
+    });
   };
 
   /** The right-click menu of several todos picked together, and their panel's ⋯ menu. */
@@ -1241,41 +1233,30 @@ export function App() {
     void showContextMenu(spec, below(el)).catch((e: unknown) => setToast(String(e)));
   };
 
-  /** A PR's right-click menu. */
+  /** A PR's right-click menu, as every window has it (menus.ts), with this window's own. */
   const prMenuSpec = (r: PrRowItem): MenuSpec => {
     const p = r.pr;
-    return [
-        { label: 'Open on GitHub', run: () => void openUrl(p.url) },
-        { label: 'Review with', items: reviewItems(p) },
-        ...(p.reviewRequested && prIsOpen(p) ? ['separator' as const, { label: `Approve #${p.number}`, run: () => approve(p) }] : []),
-        'separator',
-        ...(r.lane ? [{ label: `Show worktree ${r.lane.callsign}`, run: () => r.lane && focusLane(r.lane) }] : []),
-        { label: 'Copy link', run: () => copy(p.url, 'PR link') },
-        { label: 'Copy branch name', run: () => copy(p.head, 'branch name') },
-        ...canvasItem('pr', p.key),
-    ];
+    const lane = r.lane;
+    return menus.prMenu(p, {
+      report,
+      review: reviewItems(p),
+      approve: p.reviewRequested && prIsOpen(p) ? () => approve(p) : undefined,
+      showLane: lane ? { lane, run: () => focusLane(lane) } : undefined,
+      canvas: canvasItem('pr', p.key),
+    });
   };
   const prMenu = (r: PrRowItem) => void showContextMenu(prMenuSpec(r)).catch((e: unknown) => setToast(String(e)));
   /** Opens a worktree's PR on GitHub: a click on its chip, or Open PR in a menu. */
   const openLanePr = (lane: Lane) => {
     if (lane.pr) openUrl(lane.pr.url).catch((e: unknown) => setToast(String(e)));
   };
-  /** A menu's item for opening the worktree's PR on GitHub, when it has one. */
-  const openPrItem = (lane: Lane): MenuSpec => (lane.pr ? [{ label: `Open PR #${lane.pr.number} on GitHub`, run: () => openLanePr(lane) }] : []);
   /** The right-click menu of a worktree's PR chip: the PR's own. A PR the board doesn't list,
    *  such as one on another Mac in a repo this one doesn't have, gets what its link allows. */
   const lanePrMenu = (lane: Lane) => {
     const p = lane.pr;
     if (!p) return;
     const item = board?.prs.find((x) => x.url === p.url);
-    const spec: MenuSpec = item
-      ? prMenuSpec(prRowOf(item))
-      : [
-          { label: 'Open on GitHub', run: () => void openUrl(p.url) },
-          { label: 'Review with', items: reviewItems(reviewedPr(lane, p)) },
-          'separator',
-          { label: 'Copy link', run: () => copy(p.url, 'PR link') },
-        ];
+    const spec: MenuSpec = item ? prMenuSpec(prRowOf(item)) : menus.prMenu(p, { report, review: reviewItems(reviewedPr(lane, p)) });
     void showContextMenu(spec).catch((e: unknown) => setToast(String(e)));
   };
 
@@ -1283,100 +1264,49 @@ export function App() {
   const toggleLanePin = useCallback((lane: Lane) => lanePins.toggle(lane.id), [lanePins]);
 
   /**
-   * A session's right-click menu: open it, fork it, rename it, mark it seen, pin it, snooze it,
-   * close it, archive it, copy its ID. Snoozes keep sessions off the floating bar, which shows
-   * this Mac's only. Each list pins what it shows: Sessions pins the session; the board and the
-   * sidebar, lists of worktrees, pin the session's worktree.
+   * A session's right-click menu, as every window has it (menus.ts), with what only this window
+   * does: rename it in a sheet, add it to a todo, pin it, add it to the canvas, undo an archive. Each list pins what it
+   * shows: Sessions pins the session; the board and the sidebar, lists of worktrees, pin the
+   * session's worktree.
    */
   const todoItemsRef = useRef(todoMenuItems);
   todoItemsRef.current = todoMenuItems;
-  /** Marks a finished turn seen: it goes idle, and leaves Your turn and the bar. */
-  const seen = (s: Session) => markSeen([s.key]);
-  /** Forks a session into a new terminal, and selects the copy once it shows, as a start does. */
-  const fork = (s: Session) =>
-    track(`Forking ${s.title}…`, forkSession(s.key))
-      .then((started) => {
-        if (started?.message) setToast(started.message);
-        if (started?.key) setPendingSession({ key: started.key, until: Date.now() + 60_000 });
-      })
-      .catch((e: unknown) => setToast(String(e).replace(/^Error: /, '')));
-  /** Stops the turn a session is taking; the session carries on, waiting for you. */
-  const stopTurn = (s: Session) =>
-    track(`Stopping ${s.title}…`, sessionCancel(s.key))
-      .then((said) => said && setToast(said))
-      .catch((e: unknown) => setToast(String(e).replace(/^Error: /, '')));
-  /** Closes a session running here: its terminal tab, or a background job ended. It shows as
-   *  stopped once the engine sees it go. */
-  const close = (s: Session) =>
-    track(`Closing ${s.title}…`, closeSession(s.key))
-      .then((said) => said && setToast(said))
-      .catch((e: unknown) => setToast(String(e).replace(/^Error: /, '')));
   const editorIcons = useEditorIcons(board?.apps);
-  /** Opens a worktree's folder in an editor from a session's menu: yours, or, with others
-   *  installed, any of them. */
-  const folderMenuItems = (lane: Lane): MenuSpec => (board && opensInEditor(lane) ? folderMenu(board.apps, editorIcons, (id) => open(lane, id)) : []);
-  const sessionMenuSpec = (lane: Lane, s: Session, pin: 'session' | 'worktree'): MenuSpec => {
-      const target = lane.targets.find((t) => t.id === s.openTarget);
-      const pinItem =
+  const editors = board ? { apps: board.apps, icons: editorIcons } : undefined;
+  const sessionMenuSpec = (lane: Lane, s: Session, pin: 'session' | 'worktree'): MenuSpec =>
+    menus.sessionMenu(lane, s, {
+      report,
+      open,
+      terminal: board?.apps.terminal ?? 'Terminal',
+      editors,
+      newSession: () => newSession({ laneId: lane.id }),
+      // A fork is selected once it shows, as a start is.
+      forked: (started) => started.key && setPendingSession({ key: started.key, until: Date.now() + 60_000 }),
+      todos: todoItemsRef.current(lane.project, { session: s.key }, { session: s.key, worktree: lane.id, label: `${s.account} in ${lane.callsign}` }, s.title),
+      pin:
         pin === 'session'
           ? { label: sessionPins.set.has(s.key) ? 'Unpin session' : 'Pin session', run: () => sessionPins.toggle(s.key) }
-          : { label: lanePins.set.has(lane.id) ? 'Unpin worktree' : 'Pin worktree', run: () => toggleLanePin(lane) };
-      return [
-        { label: target?.label ?? 'Open', run: () => open(lane, s.openTarget) },
-        ...folderMenuItems(lane),
-        { label: 'New session here…', run: () => newSession({ laneId: lane.id }) },
-        // Forks open in a terminal, where only sessions that resume in one can go.
-        ...(s.resumeCommand ? [{ label: 'Fork in terminal', run: () => void fork(s) }] : []),
-        ...openPrItem(lane),
-        'separator',
-        ...todoItemsRef.current(lane.project, { session: s.key }, { session: s.key, worktree: lane.id, label: `${s.account} in ${lane.callsign}` }, s.title),
-        'separator',
-        ...(stoppable(s) ? [{ label: 'Stop turn', run: () => void stopTurn(s) }] : []),
-        ...(renames(s) ? [{ label: 'Rename…', run: () => setRenaming(s.key) }] : []),
-        ...(seenable(s) ? [{ label: 'Mark as seen', run: () => seen(s) }] : []),
-        ...(s.archived ? [] : [pinItem, ...desktopItem('session', s.key)]),
-        ...(s.archived || shortOf(s.key) ? [] : [snoozeMenu([s.key], Date.now(), { until: s.snoozedUntil, onDone: (act) => void act.catch((e: unknown) => setToast(String(e))) })]),
-        ...(closable(s) ? [{ label: s.attachCommand ? 'End background job' : 'Close terminal', run: () => void close(s) }] : []),
-        { label: s.archived ? 'Unarchive' : s.harness === 'codex' ? 'Archive in Codex' : 'Archive', run: () => setArchived(s.key, !s.archived, s.title) },
-        'separator',
-        { label: 'Copy session ID', run: () => copy(s.id, 'session ID') },
-        ...(s.resumeCommand ? [{ label: 'Copy resume command', run: () => copy(s.resumeCommand, 'resume command') }] : []),
-        ...(s.visitor ? [] : canvasItem('session', s.key)),
-      ];
-  };
+          : { label: lanePins.set.has(lane.id) ? 'Unpin worktree' : 'Pin worktree', run: () => toggleLanePin(lane) },
+      desktop: onDesktop,
+      rename: () => setRenaming(s.key),
+      archive: (archived) => setArchived(s.key, archived, s.title),
+      canvas: canvasItem('session', s.key),
+    });
   const sessionMenu = (lane: Lane, s: Session, pin: 'session' | 'worktree') => void showContextMenu(sessionMenuSpec(lane, s, pin)).catch((e: unknown) => setToast(String(e)));
 
-  /** A worktree's right-click menu: open it, pin it, copy its path, branch or PR link. */
-  const laneMenuSpec = (lane: Lane): MenuSpec => {
-      const main = lane.targets.find((t) => t.id === lane.defaultTarget);
-      const pr = lane.pr;
-      const item = (id: string): MenuSpec => {
-        const t = lane.targets.find((x) => x.id === id);
-        return t && id !== lane.defaultTarget ? [{ label: t.label, run: () => open(lane, id) }] : [];
-      };
-      return [
-        { label: main?.label ?? 'Open', run: () => open(lane, lane.defaultTarget) },
-        // Open in <yours>, then the other editors installed here.
-        ...item('l|editor'),
-        ...(board && opensInEditor(lane) ? openInMenu(board.apps, editorIcons, (id) => open(lane, id)) : []),
-        ...item('l|finder'),
-        ...item('l|preview'),
-        { label: 'New session here…', run: () => newSession({ laneId: lane.id }) },
-        ...(lane.device ? [] : [{ label: lane.preview?.set ? 'Change preview URL…' : 'Set preview URL…', run: () => setPreviewFor(lane.id) }]),
-        ...openPrItem(lane),
-        'separator',
-        ...todoItemsRef.current(lane.project, { worktree: lane.id }, { worktree: lane.id, label: lane.callsign }),
-        'separator',
-        { label: lanePins.set.has(lane.id) ? 'Unpin worktree' : 'Pin worktree', run: () => toggleLanePin(lane) },
-        ...desktopItem('worktree', lane.id),
-        'separator',
-        { label: 'Copy path', run: () => copy(lane.path, 'worktree path') },
-        ...(lane.branch ? [{ label: 'Copy branch name', run: () => copy(lane.branch, 'branch name') }] : []),
-        ...(pr ? [{ label: 'Copy PR link', run: () => copy(pr.url, 'PR link') }] : []),
-        ...(lane.preview ? [{ label: 'Copy preview URL', run: () => copy(lane.preview?.url, 'preview URL') }] : []),
-        ...canvasItem('worktree', lane.id),
-      ];
-  };
+  /** A worktree's right-click menu, as every window has it (menus.ts), with this window's own. */
+  const laneMenuSpec = (lane: Lane): MenuSpec =>
+    menus.laneMenu(lane, {
+      report,
+      open,
+      editors,
+      newSession: () => newSession({ laneId: lane.id }),
+      setPreview: () => setPreviewFor(lane.id),
+      todos: todoItemsRef.current(lane.project, { worktree: lane.id }, { worktree: lane.id, label: lane.callsign }),
+      pin: { label: lanePins.set.has(lane.id) ? 'Unpin worktree' : 'Pin worktree', run: () => toggleLanePin(lane) },
+      desktop: onDesktop,
+      canvas: canvasItem('worktree', lane.id),
+    });
   const laneMenu = (lane: Lane) => void showContextMenu(laneMenuSpec(lane)).catch((e: unknown) => setToast(String(e)));
 
   /** Moves a pinned session to insertion point `index` among the pinned ones showing. */
@@ -1964,7 +1894,7 @@ export function App() {
         todos={todoLinks.bySession.get(session.key)}
         onShowTodo={showTodoFromPanel}
         onMoreMenu={(at) => void showContextMenu(sessionMenuSpec(lane, session, 'session'), at).catch((err: unknown) => setToast(String(err)))}
-        onSeen={() => (row !== undefined ? seenAndOn(row, session, false) : seen(session))}
+        onSeen={() => (row !== undefined ? seenAndOn(row, session, false) : markSeen([session.key]))}
         device={deviceOf(devices, session.key)}
         back={back}
         onSendFailed={(why) => {

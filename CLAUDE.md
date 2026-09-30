@@ -252,6 +252,9 @@ some work is, answer with one.
   gathers inputs and calls them. `src/lanes.ts` mirrors `bay_of`, the agent bays'
   headlines and the order of sessions and lanes (`sort_sessions`, `lane_prompt_at`) for the
   filters; keep them in step.
+- A session's, worktree's, PR's or todo's right-click menu is defined once, in `src/menus.ts`,
+  and every window (main, bar, peek, quick panel, desktop cards) builds it from there, saying
+  what it can do. A new item goes there, not into one window's menu.
 - Styles: tokens in `design/tokens.json` (`npm run tokens`), colors only through CSS
   variables. Dark values apply under `prefers-color-scheme` unless `data-theme` on the root
   says otherwise; it comes from `theme` in config.toml, which also sets the app's native

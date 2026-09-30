@@ -10,14 +10,12 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { fitDesktop, getDesktopFeed, onDesktopFeed, onPeekShown, openFromBar, openUrl, peekHide, peekOpen, showMain, showQuick, unpinFromDesktop, type PillRect } from '../api';
-import { boardView, lanesAhead, observe, seenAhead, useAhead } from '../ahead';
+import { boardView, lanesAhead, observe, useAhead } from '../ahead';
 import { CLICK_WAIT_MS, plain } from '../bar';
 import { showContextMenu, type MenuSpec } from '../contextMenu';
-import { shortOf } from '../devices';
-import { folderMenu, openInMenu, opensInEditor, useEditorIcons } from '../editors';
-import { renames, sessionPlace } from '../harness';
-import { seenable } from '../lanes';
-import { snoozeMenu } from '../snooze';
+import { useEditorIcons } from '../editors';
+import { sessionPlace } from '../harness';
+import * as menus from '../menus';
 import { sessionHomes } from '../todos';
 import type { DesktopFeed, Label, Lane, PeekShown, Pr, Session } from '../types';
 import { cardData, CardFace, SessionLine, sessionLine, type CardData } from './CanvasCard';
@@ -38,12 +36,6 @@ function useNow(everyMs: number): number {
     return () => window.clearInterval(id);
   }, [everyMs]);
   return now;
-}
-
-/** Where a session opens, as its lane says it when it lists it (lanes list their first few
- *  sessions' targets only). */
-function openLabel(lane: Lane, s: Session, terminal: string): string {
-  return lane.targets.find((t) => t.id === s.openTarget)?.label ?? `Open in ${sessionPlace(s, terminal)}`;
 }
 
 /** The sessions a worktree's or todo's card lists under it: a todo's all, a worktree's the ones
@@ -129,6 +121,9 @@ export function DesktopPin() {
   const sessions = listed(data);
   const terminal = feed?.terminal ?? 'Terminal';
   const icons = useEditorIcons(feed ?? undefined);
+  // What's on the desktop, this card surely: it's there before the list is.
+  const pinned = menus.useDesktopPins();
+  const onDesktop = useMemo(() => (feed ? new Set([...pinned, `${feed.pin.ref}:${feed.pin.key}`]) : pinned), [pinned, feed]);
 
   // The window follows the card's size: after every render, and on resizes renders don't cause
   // (fonts loading).
@@ -196,47 +191,44 @@ export function DesktopPin() {
     drag.current = null;
     if (!moved) openUrl(pr.url).catch(fail);
   };
-  const prItem = (lane: Lane): MenuSpec => {
-    const pr = lane.pr;
-    return pr ? [{ label: `Open PR #${pr.number} on GitHub`, run: () => openUrl(pr.url).catch(fail) }] : [];
-  };
-
-  const menu = (): MenuSpec => {
-    const off: MenuSpec = ['separator', { label: 'Remove from desktop', run: remove }];
+  /** The menus, as every window has them (menus.ts): the card's thing's, or a session's for a
+   *  session line in a worktree's or todo's card. What comes of them shows on the card. */
+  const said: menus.Report = { error: setFailed, info: setFailed };
+  const editors = feed ? { apps: feed, icons } : undefined;
+  const openOn = (lane: Lane, target: string) => void openFromBar(lane.id, target).catch(fail);
+  const sessionMenu = (lane: Lane, s: Session, el: Element | null): MenuSpec =>
+    menus.sessionMenu(lane, s, {
+      report: said,
+      open: (l, target) => (target === s.openTarget ? openSession(l, s) : openOn(l, target)),
+      terminal,
+      reveal: () => void showMain({ kind: 'session', laneId: lane.id, key: s.key }),
+      reply: el ? () => peekOpen(s.key, rectOf(el), true).catch(fail) : undefined,
+      // Its name, in the peek beside what was clicked.
+      rename: el ? () => peekOpen(s.key, rectOf(el), true, true).catch(fail) : undefined,
+      editors,
+      desktop: onDesktop,
+    });
+  const menu = (target: Element): MenuSpec => {
+    const line = target.closest<HTMLElement>('[data-session]');
+    const hit = line && sessions.find((x) => x.session.key === line.dataset.session);
+    if (line && hit) return sessionMenu(hit.lane, hit.session, line);
     switch (data?.ref) {
-      case 'session': {
-        const { lane, session: s } = data;
-        return [
-          { label: openLabel(lane, s, terminal), run: () => openSession(lane, s) },
-          ...(feed && opensInEditor(lane) ? folderMenu(feed, icons, (id) => void openFromBar(lane.id, id).catch(fail)) : []),
-          ...prItem(lane),
-          { label: 'Show in Codealong', run: () => void showMain({ kind: 'session', laneId: lane.id, key: s.key }) },
-          ...(renames(s) ? [{ label: 'Rename…', run: () => rename(s.key) }] : []),
-          ...(seenable(s) ? [{ label: 'Mark as seen', run: () => seenAhead([s.key]).catch(fail) }] : []),
-          ...(s.archived || shortOf(s.key) ? [] : [snoozeMenu([s.key], Date.now(), { until: s.snoozedUntil, onDone: (act) => void act.catch(fail) })]),
-          ...off,
-        ];
-      }
+      case 'session':
+        return sessionMenu(data.lane, data.session, card.current);
       case 'worktree': {
         const l = data.lane;
-        // Its default open, its editors, Finder, then its app in the browser.
-        const opens = [l.defaultTarget, 'l|editor', 'l|finder', 'l|preview'].flatMap((id, i): MenuSpec => {
-          const t = l.targets.find((x) => x.id === id);
-          const item = t && (i === 0 || id !== l.defaultTarget) ? [{ label: t.label, enabled: !t.disabled, run: () => openFromBar(l.id, t.id).catch(fail) }] : [];
-          // The other editors installed here, after Open in <yours>.
-          return id === 'l|editor' && feed && opensInEditor(l) ? [...item, ...openInMenu(feed, icons, (target) => void openFromBar(l.id, target).catch(fail))] : item;
-        });
-        return [...opens, ...prItem(l), { label: 'Show in Codealong', run: () => void showMain({ kind: 'worktree', laneId: l.id }) }, ...off];
+        return menus.laneMenu(l, { report: said, open: openOn, reveal: () => void showMain({ kind: 'worktree', laneId: l.id }), editors, desktop: onDesktop });
       }
       case 'todo': {
         const t = data.todo;
         const s = data.sessions.find((x) => x.session.live) ?? data.sessions[0];
-        return [
-          { label: 'Start session…', run: () => void showQuick({ todo: t.id, project: t.project || null }) },
-          ...(s ? [{ label: `Open ${s.session.account}: ${s.session.title.slice(0, 48)}`, run: () => openSession(s.lane, s.session) }] : []),
-          { label: 'Show in Codealong', run: () => void showMain({ kind: 'todo', id: t.id }) },
-          ...off,
-        ];
+        return menus.todoMenu(t.id, {
+          report: said,
+          start: () => void showQuick({ todo: t.id, project: t.project || null }),
+          session: s ? { ...s, open: () => openSession(s.lane, s.session) } : undefined,
+          reveal: () => void showMain({ kind: 'todo', id: t.id }),
+          desktop: onDesktop,
+        });
       }
       default:
         return [{ label: 'Remove from desktop', run: remove }];
@@ -245,7 +237,7 @@ export function DesktopPin() {
 
   const onContextMenu = (e: MouseEvent) => {
     e.preventDefault();
-    void showContextMenu(menu()).catch(fail);
+    void showContextMenu(menu(e.target as Element)).catch(fail);
   };
 
   // The whole card is the handle: pressing and moving drags the window, a press without moving
@@ -276,11 +268,6 @@ export function DesktopPin() {
   const peek = (key: string, at: PillRect) => {
     if (peekedNow.current.key === key) void peekHide();
     else peekOpen(key, at, true).catch(fail);
-  };
-
-  /** Shows the card's session in the peek beside it with its name ready to change. */
-  const rename = (key: string) => {
-    if (card.current) peekOpen(key, rectOf(card.current), true, true).catch(fail);
   };
 
   const onClick = (e: MouseEvent) => {

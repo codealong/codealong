@@ -7,9 +7,11 @@
 // Rename in a pill's or a row's menu shows it with its name ready to change.
 
 import { useMemo, useRef, useState, type MouseEvent } from 'react';
+import { below } from '../contextMenu';
 import { shortOf } from '../devices';
 import { agoPhrase, duration } from '../format';
-import { sessionName, sessionPlace } from '../harness';
+import { sessionName } from '../harness';
+import { openLabel } from '../menus';
 import { seenable } from '../lanes';
 import { untilWords } from '../snooze';
 import type { Lane, Sent, Session } from '../types';
@@ -39,6 +41,9 @@ interface ReplyViewProps {
    *  as it was. */
   renaming?: boolean;
   onRename?: (name: string | null) => void;
+  /** Shows the session's menu (menus.ts): from the header's ⋯ button, below it, or at the
+   *  pointer for a right-click anywhere but the box. */
+  onMenu?: (at?: { x: number; y: number }) => void;
   autoFocus?: boolean;
   /** ⌘⏎ allows what it waits on (the quick panel, which is used from the keyboard). */
   keys?: boolean;
@@ -86,7 +91,7 @@ export function QueueStrip({ queue, notice }: { queue?: Queue; notice?: Notice |
 /** The open button's words: the lane's own for the session, else where it opens. */
 function openWords(lane: Lane, s: Session, terminal: string): { label: string; detail: string | null; disabled: boolean } {
   const t = lane.targets.find((x) => x.id === s.openTarget);
-  return t ? { label: t.label, detail: t.detail, disabled: t.disabled } : { label: `Open in ${sessionPlace(s, terminal)}`, detail: null, disabled: false };
+  return { label: openLabel(lane, s, terminal), detail: t?.detail ?? null, disabled: t?.disabled ?? false };
 }
 
 /** A session's name as a field: ⏎ keeps what's typed, Escape leaves the name as it was, and so
@@ -128,7 +133,7 @@ function NameField({ title, onDone }: { title: string; onDone: (name: string | n
   );
 }
 
-export function ReplyView({ lane, session: s, terminal, now, onOpen, onReveal, onBack, onSeen, onArchive, onSnooze, renaming, onRename, autoFocus, keys, onSending, onSent, onFailed, onAnswered, onLoaded, queue, notice }: ReplyViewProps) {
+export function ReplyView({ lane, session: s, terminal, now, onOpen, onReveal, onBack, onSeen, onArchive, onSnooze, renaming, onRename, onMenu, autoFocus, keys, onSending, onSent, onFailed, onAnswered, onLoaded, queue, notice }: ReplyViewProps) {
   const open = openWords(lane, s, terminal);
   const since = s.statusSince ? (s.status === 'working' ? `for ${duration(s.statusSince, now)}` : agoPhrase(s.statusSince, now)) : agoPhrase(s.lastActivity, now);
   const snoozed = s.snoozedUntil ? ` · snoozed until ${untilWords(s.snoozedUntil, now)}` : '';
@@ -136,7 +141,15 @@ export function ReplyView({ lane, session: s, terminal, now, onOpen, onReveal, o
   // Its shell blocks run in a terminal here, so not for a session on another device.
   const run = useMemo(() => (shortOf(s.key) ? undefined : { folder: runFolder(lane, s), terminal }), [s.key, s.cwd, lane.path, terminal]);
   return (
-    <div className="ca-reply">
+    <div
+      className="ca-reply"
+      onContextMenu={(e) => {
+        // The box keeps its own menu, for copy and paste, as does anything inside with one.
+        if (!onMenu || e.defaultPrevented || (e.target instanceof Element && e.target.closest('input, textarea, [contenteditable="true"]'))) return;
+        e.preventDefault();
+        onMenu();
+      }}
+    >
       <QueueStrip queue={queue} notice={notice} />
       <header className="ca-reply-head">
         {onBack && <Button variant="ghost" size="sm" icon="chevron-left" aria-label="Back" title="Back to the list (Esc)" onClick={onBack} />}
@@ -173,6 +186,7 @@ export function ReplyView({ lane, session: s, terminal, now, onOpen, onReveal, o
             onClick={onArchive}
           />
         )}
+        {onMenu && <Button variant="ghost" size="sm" icon="dots" aria-label="More" aria-haspopup="menu" title="Close, fork, pin, copy and more" onClick={(e) => onMenu(below(e.currentTarget))} />}
         <Button variant="ghost" size="sm" icon="sidebar" aria-label="Show in Codealong" title="Show in Codealong" onClick={onReveal} />
         <Button size="sm" icon="arrow-up-right" title={open.detail ?? undefined} disabled={open.disabled} onClick={onOpen}>
           {open.label}

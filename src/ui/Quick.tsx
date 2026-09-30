@@ -36,7 +36,6 @@ import {
   quickReady,
   routeQuick,
   searchText,
-  sessionCancel,
   showMain,
   showQuick,
   startFromQuick,
@@ -49,12 +48,13 @@ import { archiveAhead, boardAhead, boardView, observe, renameAhead, seenAhead, s
 import { filesToAttach, keepFiles, useFileDrop } from '../attachInput';
 import { deviceLabel, shortOf } from '../devices';
 import { useKeyPerf, usePerf } from '../perf';
-import { below, showContextMenu } from '../contextMenu';
+import { below, showContextMenu, type MenuSpec } from '../contextMenu';
+import { useEditorIcons } from '../editors';
+import * as menus from '../menus';
 import { ago, agoPhrase, resetsPhrase, tildePath } from '../format';
-import { HARNESS_WORD, renames, usageNote } from '../harness';
+import { HARNESS_WORD, usageNote } from '../harness';
 import { useLogo } from '../logo';
 import { prPills } from '../prStatus';
-import { stoppable } from '../lanes';
 import { snoozeMenu } from '../snooze';
 import { ALL_PROJECTS, attentionRows, findPrs, findSessions, findTodos, FOUND_SESSIONS, inProject, laneBranch, laneGroups, MAX_ROWS, projectCounts, queryWords, queueAfter, queueRows, readyTodos, recallList, recentRows, shortcutLabel, stillSaid, TEXT_SEARCH_MIN, type Handled, type PrRow, type RowGroup, type SessionRow, type TodoRow, withPrompt as historyWith } from '../quick';
 import {
@@ -224,6 +224,9 @@ export function Quick() {
   // Changes made in any window that the engine hasn't shown yet (ahead.ts), on top of the board.
   const ahead = useAhead();
   const board = useMemo(() => (engineBoard ? boardAhead(engineBoard, ahead) : null), [engineBoard, ahead]);
+  // For the menus: the editors' icons, and what's on the desktop.
+  const icons = useEditorIcons(board?.apps);
+  const onDesktop = menus.useDesktopPins();
   const [options, setOptions] = useState<StartOptions | null>(null);
   // Up (or about to be): the page follows the board only then.
   const [shown, setShown] = useState(false);
@@ -249,6 +252,13 @@ export function Quick() {
   // The todos a new session is for: one, or several started together on one prompt.
   const [todoIds, setTodoIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  // What a menu's action did (copied, closed), for a moment.
+  const [info, setInfo] = useState<string | null>(null);
+  useEffect(() => {
+    if (!info) return;
+    const id = window.setTimeout(() => setInfo(null), 4000);
+    return () => window.clearTimeout(id);
+  }, [info]);
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const [picker, setPicker] = useState<PickerKind | null>(null);
   // The session the panel answers in place of the list (⇥ on its row).
@@ -911,14 +921,6 @@ export function Quick() {
     void showMain({ kind: 'pr', key: pr.key });
   };
 
-  /** Puts a PR's link on the clipboard and closes the panel, as opening the PR would. */
-  const copyPrLink = (pr: PrItem) => {
-    navigator.clipboard.writeText(pr.url).then(
-      () => void hideQuick(),
-      () => setError('Couldn’t copy the PR link.'),
-    );
-  };
-
   /** The latest session that worked on a PR, where it's listed. */
   const prSession = (pr: PrItem): { lane: Lane; session: Session } | null => {
     const found = pr.sessions.flatMap((x) => {
@@ -929,25 +931,42 @@ export function Quick() {
     return found.sort((a, b) => Number(b.session.live) - Number(a.session.live) || b.session.lastActivity - a.session.lastActivity)[0] ?? null;
   };
 
-  /** Stops the turn a session is taking; its row shows the turn ending, and a stop that didn't
-   *  go says why. */
-  const stopItem = (s: Session) => (stoppable(s) ? [{ label: 'Stop turn', run: () => void sessionCancel(s.key).catch((e: unknown) => setError(plain(e))) }] : []);
+  /** Opens another of a worktree's targets (its folder in an editor), as opening a session does. */
+  const openElsewhere = (lane: Lane, target: string) => {
+    void hideQuick();
+    openFromBar(lane.id, target).catch((e: unknown) => reopen(() => setError(plain(e))));
+  };
 
+  /** How the menus say how things went: in the answer view, its notice; else under the input. */
+  const menuReport: menus.Report = {
+    error: (message) => (replyKeyNow.current ? setNotice({ text: message, error: true }) : setError(message)),
+    info: (message) => (replyKeyNow.current ? setNotice({ text: message, error: false }) : setInfo(message)),
+  };
+
+  /** A session's menu, as every window has it (menus.ts). */
+  const sessionMenuSpec = (lane: Lane, s: Session, left?: menus.SessionCan['left']): MenuSpec =>
+    menus.sessionMenu(lane, s, {
+      report: menuReport,
+      open: (l, target) => (target === s.openTarget ? openSession(l, s) : openElsewhere(l, target)),
+      terminal: board?.apps.terminal ?? 'Terminal',
+      reveal: () => revealSession(lane, s),
+      reply: replyKeyNow.current === s.key ? undefined : () => replyTo(s),
+      rename: () => renameIn(s),
+      editors: board ? { apps: board.apps, icons } : undefined,
+      desktop: onDesktop,
+      left,
+    });
+
+  /** A row's menu: a session's, PR's or todo's as every window has it, a suggestion's own. */
   const rowMenu = (r: Row) => {
     if (r.kind === 'more') return;
+    const show = (spec: MenuSpec) => void showContextMenu(spec).catch((e: unknown) => setError(plain(e)));
     if (r.kind === 'suggest') {
       const sg = r.s;
       if (sg.kind === 'send' || sg.kind === 'open') {
-        void showContextMenu([
-          ...(sg.kind === 'send' ? [{ label: 'Send this prompt to it', run: () => send(sg.session) }] : []),
-          { label: 'Open', run: () => openSession(sg.lane, sg.session) },
-          { label: 'Reply here', run: () => replyTo(sg.session) },
-          ...stopItem(sg.session),
-          ...(renames(sg.session) ? [{ label: 'Rename…', run: () => renameIn(sg.session) }] : []),
-          { label: 'Show in Codealong', run: () => revealSession(sg.lane, sg.session) },
-        ]);
+        show([...(sg.kind === 'send' ? [{ label: 'Send this prompt to it', run: () => send(sg.session) }, 'separator' as const] : []), ...sessionMenuSpec(sg.lane, sg.session)]);
       } else {
-        void showContextMenu([
+        show([
           { label: `Start a session in ${sg.lane.callsign}`, run: () => start({ lane: sg.lane, newWorktree: sg.kind === 'start' && sg.newWorktree }) },
           { label: `Save as a todo in ${sg.lane.project}`, run: () => saveTodo(sg.lane) },
         ]);
@@ -955,32 +974,31 @@ export function Quick() {
       return;
     }
     if (r.kind === 'session') {
-      void showContextMenu([
-        { label: 'Open', run: () => openSession(r.lane, r.session) },
-        { label: 'Reply here', run: () => replyTo(r.session) },
-        ...stopItem(r.session),
-        ...(renames(r.session) ? [{ label: 'Rename…', run: () => renameIn(r.session) }] : []),
-        { label: 'Show in Codealong', run: () => revealSession(r.lane, r.session) },
-      ]);
+      show(sessionMenuSpec(r.lane, r.session));
       return;
     }
     if (r.kind === 'pr') {
       const s = prSession(r.pr);
-      void showContextMenu([
-        { label: 'Open on GitHub', run: () => openPr(r.pr) },
-        ...(s ? [{ label: s.session.live ? 'Open its session' : 'Open its latest session', run: () => openSession(s.lane, s.session) }] : []),
-        { label: 'Show in Codealong', run: () => revealPr(r.pr) },
-        'separator',
-        { label: 'Copy link', run: () => copyPrLink(r.pr) },
-      ]);
+      show(
+        menus.prMenu(r.pr, {
+          report: menuReport,
+          open: () => openPr(r.pr),
+          session: s ? { ...s, open: () => openSession(s.lane, s.session) } : undefined,
+          reveal: () => revealPr(r.pr),
+        }),
+      );
       return;
     }
     const s = todoSession(r);
-    void showContextMenu([
-      ...(s ? [{ label: s.session.live ? 'Open its session' : 'Open its latest session', run: () => openSession(s.lane, s.session) }] : []),
-      { label: 'Start a session for it', run: () => prepareTodo(r) },
-      { label: 'Show in Codealong', run: () => revealTodo(r) },
-    ]);
+    show(
+      menus.todoMenu(r.item.todo.id, {
+        report: menuReport,
+        start: () => prepareTodo(r),
+        session: s ? { ...s, open: () => openSession(s.lane, s.session) } : undefined,
+        reveal: () => revealTodo(r),
+        desktop: onDesktop,
+      }),
+    );
   };
 
   /* ---- Starting ---- */
@@ -1527,6 +1545,11 @@ export function Quick() {
             }}
             renaming={renameKey === replying.session.key}
             onRename={(name) => renamed(replying.session, name)}
+            onMenu={(at) => {
+              const s = replying.session;
+              const spec = sessionMenuSpec(replying.lane, s, (done) => (queued ? advance(s, `${done}.`) : leaveReply()));
+              void showContextMenu(spec, at).catch((e: unknown) => setNotice({ text: plain(e), error: true }));
+            }}
             queue={queued ? { left: queueLeft.length, next: queueLeft[0]?.session ?? null, onNext: skip } : undefined}
             notice={notice}
             onSending={() => (queued ? advance(replying.session, 'sent.') : replied(null))}
@@ -1816,6 +1839,12 @@ export function Quick() {
           <p className="ca-quick-error" role="alert">
             <Icon name="alert" size={14} />
             <span>{error}</span>
+          </p>
+        )}
+        {info && !error && (
+          <p className="ca-quick-error is-info" role="status">
+            <Icon name="check" size={14} />
+            <span>{info}</span>
           </p>
         )}
         <div className="ca-quick-bar">

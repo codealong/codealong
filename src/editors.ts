@@ -6,7 +6,7 @@ import { editorIcons } from './api';
 import type { MenuImage, MenuSpec } from './contextMenu';
 import type { Board, EditorIcon, Lane, Profile, Target } from './types';
 
-type Apps = Pick<Board['apps'], 'editor' | 'editorId' | 'editors'>;
+export type Apps = Pick<Board['apps'], 'editor' | 'editorId' | 'editors'>;
 
 /** An editor's app icon, as a page shows it and as a native menu takes it. */
 export interface AppIcon {

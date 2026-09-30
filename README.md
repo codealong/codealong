@@ -355,14 +355,15 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   by itself, so passing over the bar can't take what you're typing elsewhere; click in it to
   type, and ⏎ sends where the session runs and puts it away (Escape does too, keeping what you
   wrote with the session). A session waiting on you to allow a tool call shows it with Allow
-  and Deny above the box. Until you click in it, the peek follows the pointer from pill to pill
+  and Deny above the box; its ⋯ button, or a right-click in it, has the session's menu, as
+  everywhere else. Until you click in it, the peek follows the pointer from pill to pill
   and closes once the pointer leaves it; pills that shift under a still pointer as sessions
   change groups don't move it. Once you've clicked in it, it stays on its session whatever the
   bar does, until you send, press Escape or click somewhere else. Click a pill to show its
   session in Codealong, as a click on its row there does, and double-click it to open the
   session where it lives; drag it off the bar (floating or in the notch) to pin its card to the
-  desktop where you let go; right-click it to reply in the peek, rename it there, mark it seen,
-  snooze it or pin it to the desktop. The todos pill opens the quick panel ready to start a
+  desktop where you let go; right-click it for the session's menu, with Reply here to answer it in
+  the peek and Rename… to rename it there. The todos pill opens the quick panel ready to start a
   session for a todo (its menu picks which).
   **Snooze** (a session's menu on the bar or in Codealong, the peek's zzz button, or a folded
   pill's menu for all of its sessions): for 15 minutes, an hour, three hours or until 9 the
@@ -394,9 +395,9 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   where you want it; it stays there across launches. Click a session (its card, a session line,
   or a todo's card) to open its peek beside the card, as the bar's pills do, with the keyboard in
   its box; click again to put it away. Double-click to open what it shows where it lives (a todo
-  without a session starts one in the quick panel). Right-click it to show it in Codealong,
-  rename it in its peek, mark it seen or snooze it, or Remove from desktop, which its menu in
-  Codealong also offers once it's pinned.
+  without a session starts one in the quick panel). Right-click it, or a session line in it, for
+  that session's (Rename… renames it in its peek), worktree's or todo's menu, where Remove from
+  desktop takes the card off; the menu in Codealong also offers that once it's pinned.
 - **New window** (File › New window, ⌘⇧N): one more window on the project you're looking at.
   Closing the main window hides it; New window, the Dock icon or the bar brings it back, and
   ⌘Q quits.
@@ -659,6 +660,7 @@ light scan (no git, PRs or visitors).
 | `src-tauri/src/peers.rs`, `peerfeed.rs` | Your other devices: links, connections, and the feed of worktrees and sessions sent a change at a time; `design/plans/devices.md` has the reasoning |
 | `src-tauri/peer/` | codealong-peer, what goes between devices: the protocol (each side proves its device key), link codes and iroh, feeds, the requests and their answers, the worktree and session model, and a device that only watches. The iPhone app ([codealong-ios](https://github.com/codealong/codealong-ios)) builds on it; `design/plans/ios.md` has the plan |
 | `src-tauri/src/tailnet.rs`, `devicekey.rs` | Reaching them on your tailnet through Tailscale's command (iroh is in codealong-peer), and this device's key in the keychain |
+| `src/menus.ts`, `src/contextMenu.ts` | Right-click menus of sessions, worktrees, PRs and todos, each defined once and the same in every window (each says what it can do); native menus through Tauri |
 | `src/devices.ts`, `src/ui/DevicesSection.tsx` | Other devices' worktrees in the views, and Settings › Devices |
 | `src/ui/Sidebar.tsx`, `src/savedViews.ts` | The sidebar: the view and what narrows it, open or folded to a rail, and saved views |
 | `src-tauri/src/cli.rs`, `server.rs`, `install.rs` | The `codealong` command (clap; JSON or tables; the app over its socket, else the files), the app's socket, and putting the skill and the command where agents find them |

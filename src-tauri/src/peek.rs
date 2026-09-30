@@ -127,6 +127,8 @@ struct Opening {
     lane: Lane,
     session: Session,
     terminal: String,
+    /// The editors installed here, for the session menu's Open folder in (menus.ts).
+    apps: crate::model::AppNames,
     theme: Theme,
     /// The tallest the window can be where it opens.
     room: f64,
@@ -199,13 +201,14 @@ pub struct Target {
     pub lane: Lane,
     pub session: Session,
     pub terminal: String,
+    pub apps: crate::model::AppNames,
     pub theme: Theme,
 }
 
 /// The session and its lane, as the board has them.
 pub fn target(board: &Board, key: &str) -> Option<Target> {
     let (lane, session) = board.lanes.iter().find_map(|l| l.sessions.iter().find(|s| s.key == key).map(|s| (l.clone(), s.clone())))?;
-    Some(Target { lane, session, terminal: board.apps.terminal.clone(), theme: board.theme })
+    Some(Target { lane, session, terminal: board.apps.terminal.clone(), apps: board.apps.clone(), theme: board.theme })
 }
 
 /// Shows a session in the peek, for a hover over its pill (`pill`: the window it's in, the bar or
@@ -248,8 +251,8 @@ pub fn open(app: &AppHandle, target: Target, pill: Option<(Rect, Rect)>, focus: 
         s.away_since = None;
         (s.opens, s.place.map_or(MAX_HEIGHT, |p| p.room), s.place.is_none_or(|p| p.below))
     };
-    let Target { lane, session, terminal, theme } = target;
-    let _ = app.emit_to(LABEL, "peek-open", Opening { id, lane, session, terminal, theme, room, below, focus, rename, perf_log: crate::perf::enabled() });
+    let Target { lane, session, terminal, apps, theme } = target;
+    let _ = app.emit_to(LABEL, "peek-open", Opening { id, lane, session, terminal, apps, theme, room, below, focus, rename, perf_log: crate::perf::enabled() });
     // A page that doesn't answer doesn't keep the peek from showing.
     let handle = app.clone();
     std::thread::spawn(move || {

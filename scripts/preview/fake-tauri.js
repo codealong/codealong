@@ -112,6 +112,16 @@ window.__TAURI_INTERNALS__ = {
         return all[2] ? withUsage(board, all[2]) : board;
       });
     }
+    // One session with its worktree, for the bar's pill menus (lib.rs `session_at`).
+    if (cmd === 'session_at') {
+      return window.__TAURI_INTERNALS__.invoke('get_board').then(function (board) {
+        var found = null;
+        board.lanes.forEach(function (l) {
+          l.sessions.forEach(function (s) { if (!found && s.key === args.key && !s.visitor) found = { lane: l, session: s, apps: board.apps }; });
+        });
+        return found;
+      });
+    }
     // With a devices fixture, Settings reads `[devices]` from it.
     if (cmd === 'get_config') {
       return Promise.all([fetch('./config.json').then(function (r) { return r.json(); }), optionalJson('./devices-fixture.json')]).then(function (all) {

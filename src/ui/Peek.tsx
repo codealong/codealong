@@ -5,16 +5,18 @@
 // through it closes too, but stays while the box holds something for you to send next. Escape
 // closes it too, and what you'd typed stays with the session (drafts.ts), here and in its panels,
 // until you send it. Its header's ✓ marks a finished turn seen, its snooze button snoozes the
-// session, and its archive button archives it, any of which takes it off the bar. Rename in a
-// pill's menu opens it with the session's name ready to change; ⏎ renames it and the peek closes.
-// While it's up, the session follows the board, and the peek stays on it as its pill moves along
-// the bar.
+// session, and its archive button archives it, any of which takes it off the bar; its ⋯ button,
+// or a right-click, has the session's menu (menus.ts). Rename in that menu, or in a pill's, shows
+// the session's name ready to change; ⏎ renames it and the peek closes. While it's up, the
+// session follows the board, and the peek stays on it as its pill moves along the bar.
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { barNote, getBoard, inPreview, onBoard, onPeekHidden, onPeekOpen, onPeekShown, openFromBar, peekFit, peekFocus, peekHide, peekReady, showMain } from '../api';
 import { archiveAhead, boardView, lanesAhead, observe, renameAhead, seenAhead, useAhead } from '../ahead';
 import { below, showContextMenu } from '../contextMenu';
 import { readDraft } from '../drafts';
+import { useEditorIcons } from '../editors';
+import * as menus from '../menus';
 import { snoozeMenu } from '../snooze';
 import { attentionRows, ALL_PROJECTS } from '../quick';
 import type { Lane, PeekOpen, Session, Theme } from '../types';
@@ -56,7 +58,7 @@ async function previewOpen(): Promise<PeekOpen | null> {
   const lane = board.lanes.find((l) => l.sessions.some((s) => s.key === key));
   const session = lane?.sessions.find((s) => s.key === key);
   if (!lane || !session) return null;
-  return { id: 1, lane, session, terminal: board.apps.terminal, theme: board.theme, room: 580 + FAR + NEAR, below: true, focus: false, rename: false };
+  return { id: 1, lane, session, terminal: board.apps.terminal, apps: board.apps, theme: board.theme, room: 580 + FAR + NEAR, below: true, focus: false, rename: false };
 }
 
 export function Peek() {
@@ -65,6 +67,8 @@ export function Peek() {
   const [live, setLive] = useState<{ lane: Lane; session: Session; theme: Theme } | null>(null);
   const [shown, setShown] = useState(false);
   const [engaged, setEngaged] = useState(false);
+  // The session whose name the peek's own menu asked to change.
+  const [renameAsked, setRenameAsked] = useState<string | null>(null);
   const now = useNow(30_000);
   const card = useRef<HTMLDivElement>(null);
   // The open answered with its height, and the height last reported after it.
@@ -76,6 +80,7 @@ export function Peek() {
   useEffect(() => {
     const offOpen = onPeekOpen((o) => {
       setOpen(o);
+      setRenameAsked(null);
       setLive(null);
       setShown(true);
       setEngaged(o.focus);
@@ -119,6 +124,9 @@ export function Peek() {
   const session = lane?.sessions.find((s) => s.key === sessionKey) ?? live?.session ?? open?.session ?? null;
   const theme = live?.theme ?? open?.theme ?? 'system';
   useEffect(() => applyTheme(theme), [theme]);
+  // For the session's menu: what's on the desktop, and the editors' icons.
+  const onDesktop = menus.useDesktopPins();
+  const icons = useEditorIcons(open?.apps);
 
   const measure = () => Math.ceil((card.current?.getBoundingClientRect().height ?? 0) + FAR + NEAR);
 
@@ -208,8 +216,39 @@ export function Peek() {
 
   /** Renames the session, or leaves its name, and puts the peek away: that's what it opened for. */
   const renamed = (name: string | null) => {
+    const here = renameAsked === session.key && !open.rename;
+    setRenameAsked(null);
     if (name) dismiss(renameAhead(session.key, name));
-    else void peekHide();
+    // Asked from the peek's own menu, leaving the name goes back to the conversation.
+    else if (!here) void peekHide();
+  };
+
+  const reveal = () => {
+    void peekHide();
+    void showMain({ kind: 'session', laneId: lane.id, key: session.key });
+  };
+
+  /** The session's menu, as every window has it (menus.ts). What comes of it is said on the
+   *  bar, by the session's pill, since the peek may be gone by then. */
+  const menu = (at?: { x: number; y: number }) => {
+    const report: menus.Report = {
+      error: (message) => void barNote({ key: session.key, message, tone: 'error' }),
+      info: (message) => void barNote({ key: session.key, message, tone: 'info' }),
+    };
+    const spec = menus.sessionMenu(lane, session, {
+      report,
+      open: (l, target) => {
+        void peekHide();
+        void openFromBar(l.id, target).catch((e: unknown) => report.error(String(e).replace(/^Error: /, '')));
+      },
+      terminal: open.terminal,
+      reveal,
+      editors: open.apps ? { apps: open.apps, icons } : undefined,
+      desktop: onDesktop,
+      rename: () => setRenameAsked(session.key),
+      left: () => void peekHide(),
+    });
+    void showContextMenu(spec, at).catch((e: unknown) => report.error(String(e)));
   };
 
   return (
@@ -242,12 +281,10 @@ export function Peek() {
           onSeen={() => dismiss(seenAhead([session.key]))}
           onArchive={() => dismiss(archiveAhead(session.key, true))}
           onSnooze={(e) => void showContextMenu(snoozeMenu([session.key], Date.now(), { until: session.snoozedUntil, onDone: dismiss }).items, below(e.currentTarget))}
-          renaming={open.rename}
+          renaming={open.rename || renameAsked === session.key}
           onRename={renamed}
-          onReveal={() => {
-            void peekHide();
-            void showMain({ kind: 'session', laneId: lane.id, key: session.key });
-          }}
+          onMenu={menu}
+          onReveal={reveal}
           onSending={() => void peekHide()}
           onSent={(sent) => {
             // What you'd want to know goes on the bar: the prompt is on the clipboard, say, or it

@@ -4557,6 +4557,10 @@ html.is-quick body {
   flex: none;
   margin-top: 1px;
 }
+/* What a menu's action did, in the same place, without the alarm. */
+.ca-quick-error.is-info {
+  color: var(--ink-2);
+}
 .ca-quick-bar {
   display: flex;
   flex-wrap: wrap;

@@ -12,16 +12,17 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { barMode, desktopPins, dragToDesktop, fitBar, getBarFeed, onBarDragEnd, onBarFeed, onBarMode, onBarNote, onDesktopPins, onPeekShown, openFromBar, peekHide, peekOpen, pinToDesktop, sessionCancel, setBarMode, setNotchOpen, showMain, showQuick, unpinFromDesktop, type BarModeView, type PillRect } from '../api';
+import { barMode, dragToDesktop, fitBar, getBarFeed, onBarDragEnd, onBarFeed, onBarMode, onBarNote, onPeekShown, openFromBar, peekHide, peekOpen, sessionAt, setBarMode, setNotchOpen, showMain, showQuick, type BarModeView, type PillRect } from '../api';
 import { CLICK_WAIT_MS, elsewhereWaits, fitGroups, GROUPS, plain, projectWaits, type Group, type GroupFit, type WaitCounts } from '../bar';
 import { showContextMenu, type MenuAction, type MenuSpec } from '../contextMenu';
+import { useEditorIcons, type Apps } from '../editors';
 import { ago } from '../format';
-import { renames } from '../harness';
+import * as menus from '../menus';
 import { usePerf } from '../perf';
 import { barAhead, barView, observe, seenAhead, snoozeAhead, useAhead } from '../ahead';
 import { ALL_PROJECTS, inProject } from '../quick';
 import { snoozeMenu, untilWords } from '../snooze';
-import type { BarFeed, BarItem, BarRecent, BarReview, BarSnoozed, BarTodo, DesktopPinned, PeekShown, Status } from '../types';
+import type { BarFeed, BarItem, BarRecent, BarReview, BarSnoozed, BarTodo, PeekShown, Status } from '../types';
 import { Icon, Mark, STATUS_WORD, StatusGlyph } from './primitives';
 import { applyTheme } from './ThemeSwitch';
 import { NotchShell } from './Notch';
@@ -348,13 +349,11 @@ export function Bar() {
   // The session whose card is being dragged onto the desktop (desktop.rs `drag_out`).
   const [dragging, setDragging] = useState<string | null>(null);
   useEffect(() => onBarDragEnd(() => setDragging(null)), []);
-  // The sessions pinned to the desktop, for the pill menu's Pin to desktop.
-  const [onDesktop, setOnDesktop] = useState<Set<string>>(() => new Set());
-  useEffect(() => {
-    const take = (pins: DesktopPinned[]) => setOnDesktop(new Set(pins.filter((p) => p.ref === 'session').map((p) => p.key)));
-    void desktopPins().then(take);
-    return onDesktopPins(take);
-  }, []);
+  // What's pinned to the desktop, for the pill menu's Pin to desktop.
+  const onDesktop = menus.useDesktopPins();
+  // The editors, once a pill's menu has fetched them, for their icons in the next one.
+  const [apps, setApps] = useState<Apps | undefined>(undefined);
+  const icons = useEditorIcons(apps);
   useEffect(() => () => {
     if (clickTimer.current != null) window.clearTimeout(clickTimer.current);
   }, []);
@@ -368,9 +367,11 @@ export function Bar() {
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   // How many of the bar's menus are up: docked in the notch, it stays open under them.
   const [menusUp, setMenusUp] = useState(0);
-  const popup = (spec: MenuSpec, at?: { x: number; y: number }) => {
+  const popup = (spec: MenuSpec | Promise<MenuSpec>, at?: { x: number; y: number }) => {
     setMenusUp((n) => n + 1);
-    return showContextMenu(spec, at).finally(() => setMenusUp((n) => n - 1));
+    return Promise.resolve(spec)
+      .then((items) => showContextMenu(items, at))
+      .finally(() => setMenusUp((n) => n - 1));
   };
   // Floating, or docked in the notch (bar.rs), with the notch's size.
   const [place, setPlace] = useState<BarModeView | null>(null);
@@ -616,23 +617,33 @@ export function Bar() {
     seenAhead(keys).catch((e: unknown) => setFailed({ anchor, message: String(e).replace(/^Error: /, '') }));
   };
 
+  /** A pill's menu: the session's, as every window has it (menus.ts). The feed has only what the
+   *  pills show, so the rest of the session is asked of the engine as the menu opens. */
   const sessionMenu = (i: BarItem) => {
-    void popup([
-      { label: `${i.title} · ${i.callsign}`, run: () => {}, enabled: false },
-      'separator',
-      { label: 'Show in Codealong', run: () => reveal(i) },
-      { label: openLabel(i, feed?.terminal ?? 'Terminal'), run: () => open(i) },
-      { label: 'Reply here', run: () => reply(i) },
-      // The pill moves on once the turn has ended; a stop that didn't go says why on it.
-      ...(i.stoppable ? [{ label: 'Stop turn', run: () => void sessionCancel(i.key).catch(failedOn(i.key)) }] : []),
-      ...(renames(i) ? [{ label: 'Rename…', run: () => reply(i, true) }] : []),
-      ...(i.status === 'unread' ? [{ label: 'Mark as seen', run: () => markSeen([i.key], i.key) }] : []),
-      snoozeMenu([i.key], Date.now(), { until: i.snoozedUntil, onDone: snoozeDone([i.key], i.key) }),
-      'separator',
-      onDesktop.has(i.key)
-        ? { label: 'Remove from desktop', run: () => void unpinFromDesktop({ ref: 'session', key: i.key }).catch(failedOn(i.key)) }
-        : { label: 'Pin to desktop', run: () => void pinToDesktop({ ref: 'session', key: i.key }).catch(failedOn(i.key)) },
-    ]);
+    const report: menus.Report = {
+      error: (message) => setFailed({ anchor: i.key, message }),
+      info: (message) => setFailed({ anchor: i.key, message, tone: 'info' }),
+    };
+    const spec = sessionAt(i.key).then((at): MenuSpec => {
+      if (!at) return [{ label: `${i.title} is no longer on the board`, run: () => {}, enabled: false }];
+      setApps(at.apps);
+      return menus.sessionMenu(at.lane, at.session, {
+        report,
+        open: (lane, target) => (target === i.openTarget ? open(i) : openFromBar(lane.id, target).catch(failedOn(i.key))),
+        terminal: at.apps.terminal,
+        heading: true,
+        reveal: () => reveal(i),
+        reply: () => reply(i),
+        rename: () => reply(i, true),
+        editors: { apps: at.apps, icons },
+        desktop: onDesktop,
+        // The peek goes with a session that leaves the bar.
+        left: () => {
+          if (peekedNow.current.key === i.key) void peekHide();
+        },
+      });
+    });
+    void popup(spec).catch(failedOn(i.key));
   };
 
   /** Shows what went wrong on the pill it came from. */

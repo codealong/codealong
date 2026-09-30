@@ -902,6 +902,9 @@ export interface PeekOpen {
   lane: Lane;
   session: Session;
   terminal: string;
+  /** The editors installed here, for the session menu's Open folder in (menus.ts). Missing from
+   *  an app older than the menu. */
+  apps?: Board['apps'];
   theme: Theme;
   /** The tallest the peek's window can be where it opens. */
   room: number;
