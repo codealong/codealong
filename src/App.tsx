@@ -45,7 +45,7 @@ import { PrInspector } from './ui/PrInspector';
 import { usePrLinks } from './ui/PrLink';
 import { prIsOpen, prPlaces, prSections, PrsView, type PrRowItem } from './ui/PrsView';
 import { Resizer, usePanelWidth } from './ui/Resizer';
-import { SessionsView, timeSections, waitingQueue, type SessionItem } from './ui/SessionsView';
+import { SESSION_SORTS, SessionsView, sortSessions, waitingQueue, type SessionItem, type SessionSort } from './ui/SessionsView';
 import { TodoPanel, TodoPickPanel } from './ui/TodoPanel';
 import { TodoComposer, TodoView, type ComposerContext, type SelectHow } from './ui/TodoView';
 import { CanvasView } from './ui/CanvasView';
@@ -86,6 +86,7 @@ const PROJECT_KEY = 'codealong.project';
 const VIEW_KEY = 'codealong.view';
 const AGE_KEY = 'codealong.age';
 const GROUP_KEY = 'codealong.byDevice';
+const SESSION_SORT_KEY = 'codealong.sessionSort';
 const SIDEBAR_WIDTH_KEY = 'codealong.sidebarWidth';
 const SIDEBAR_COLLAPSED_KEY = 'codealong.sidebarCollapsed';
 const INSPECTOR_WIDTH_KEY = 'codealong.inspectorWidth';
@@ -215,6 +216,15 @@ function storedAge(): Age {
     return AGES.some((a) => a.id === v) ? (v as Age) : 'all';
   } catch {
     return 'all';
+  }
+}
+
+function storedSessionSort(): SessionSort {
+  try {
+    const v = window.localStorage.getItem(SESSION_SORT_KEY);
+    return SESSION_SORTS.some((o) => o.id === v) ? (v as SessionSort) : 'status';
+  } catch {
+    return 'status';
   }
 }
 
@@ -510,6 +520,16 @@ export function App() {
   // your order.
   const sessionPins = usePins(board?.pinned, setPinned, setToast);
   const lanePins = usePins(board?.pinnedWorktrees, setPinnedWorktrees, setToast);
+  // How Sessions orders the sessions that aren't pinned: by status, or the newest start first.
+  const [sessionSort, setSessionSortState] = useState<SessionSort>(storedSessionSort);
+  const setSessionSort = useCallback((sort: SessionSort) => {
+    setSessionSortState(sort);
+    try {
+      window.localStorage.setItem(SESSION_SORT_KEY, sort);
+    } catch {
+      // Storage can be unavailable; the order just won't persist.
+    }
+  }, []);
 
   // Archived sessions leave every view but the Archived list.
   const rawLanes = useMemo(() => withDevices(board?.lanes ?? [], deviceLanes, deviceFilter), [board?.lanes, deviceLanes, deviceFilter]);
@@ -567,7 +587,7 @@ export function App() {
     const byKey = new Map(shownSessions.map((r) => [r.session.key, r]));
     return sessionPins.keys.flatMap((k) => byKey.get(k) ?? []);
   }, [shownSessions, sessionPins.keys]);
-  const sessionSections = useMemo(() => timeSections(shownSessions.filter((r) => !sessionPins.set.has(r.session.key)), now), [shownSessions, sessionPins.set, now]);
+  const sessionList = useMemo(() => sortSessions(shownSessions.filter((r) => !sessionPins.set.has(r.session.key)), sessionSort, now), [shownSessions, sessionPins.set, sessionSort, now]);
   // Pinned worktrees that match the search and the status filter, in your order. Each shows at the
   // top of the board and leaves the bays below.
   const pinnedLaneRows = useMemo(() => {
@@ -687,8 +707,8 @@ export function App() {
   }, [todoUndo]);
 
   const sessionRows = useMemo<Row[]>(
-    () => [...pinnedRows, ...sessionSections.flatMap((s) => s.rows), ...(showArchived ? archivedItems : [])],
-    [pinnedRows, sessionSections, showArchived, archivedItems],
+    () => [...pinnedRows, ...sessionList, ...(showArchived ? archivedItems : [])],
+    [pinnedRows, sessionList, showArchived, archivedItems],
   );
   // Nothing is listed until the board is read, so nothing can be selected: not the other devices'
   // rows that come first.
@@ -2211,6 +2231,9 @@ export function App() {
           age={age}
           ageApplies={ageApplies}
           onAge={(id) => setAge(id as Age)}
+          sorts={view === 'sessions' ? SESSION_SORTS : null}
+          sort={sessionSort}
+          onSort={(id) => setSessionSort(id as SessionSort)}
           statuses={sideStatuses}
           filter={bayFilter}
           onFilter={toggleBay}
@@ -2417,7 +2440,8 @@ export function App() {
             {view === 'sessions' && (
               <SessionsView
                 pinned={pinnedRows}
-                sections={sessionSections}
+                rows={sessionList}
+                sort={sessionSort}
                 now={now}
                 selectedKey={selected?.key ?? null}
                 domId={domId}

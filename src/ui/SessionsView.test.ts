@@ -1,25 +1,29 @@
 import { describe, expect, it } from 'vitest';
 import type { Lane, Session } from '../types';
-import { timeSections, waitingQueue, type SessionItem } from './SessionsView';
+import { sortSessions, waitingQueue, type SessionItem } from './SessionsView';
 
-const item = (key: string, lastActivity: number, status: Session['status'] = 'idle', lastPromptAt = lastActivity, statusSince: number | null = null): SessionItem => ({
+const item = (key: string, lastActivity: number, status: Session['status'] = 'idle', lastPromptAt = lastActivity, statusSince: number | null = null, startedAt: number | null = null): SessionItem => ({
   kind: 'agent',
   key: `lane::${key}`,
   lane: {} as Lane,
-  session: { key, lastActivity, status, lastPromptAt, statusSince } as Session,
+  session: { key, lastActivity, status, lastPromptAt, statusSince, startedAt } as Session,
 });
 
-describe('timeSections', () => {
-  it('groups by local day, newest first', () => {
+const keys = (rows: SessionItem[]) => rows.map((r) => r.session.key);
+
+describe('sortSessions by status', () => {
+  it('orders the rest by local day, newest first', () => {
     const now = new Date(2026, 8, 24, 15, 0).getTime();
     const at = (d: number, h: number) => new Date(2026, 8, d, h, 0).getTime();
-    const sections = timeSections([item('old', at(10, 9)), item('today2', at(24, 14)), item('yday', at(23, 23)), item('today1', at(24, 1)), item('week', at(19, 12))], now);
-    expect(sections.map((s) => [s.label, s.rows.map((r) => r.session.key)])).toEqual([
-      ['Today', ['today2', 'today1']],
-      ['Yesterday', ['yday']],
-      ['Last 7 days', ['week']],
-      ['Older', ['old']],
-    ]);
+    const rows = [item('old', at(10, 9)), item('today2', at(24, 14)), item('yday', at(23, 23)), item('today1', at(24, 1)), item('week', at(19, 12))];
+    expect(keys(sortSessions(rows, 'status', now))).toEqual(['today2', 'today1', 'yday', 'week', 'old']);
+  });
+
+  it('keeps a day ahead of an older prompt: last active today comes before prompted yesterday', () => {
+    const now = new Date(2026, 8, 24, 15, 0).getTime();
+    const at = (d: number, h: number) => new Date(2026, 8, d, h, 0).getTime();
+    const rows = [item('yday', at(23, 20), 'idle', at(23, 20)), item('woke', at(24, 9), 'idle', at(20, 9))];
+    expect(keys(sortSessions(rows, 'status', now))).toEqual(['woke', 'yday']);
   });
 
   it("puts what needs you, your turns and working agents first, in the bar's order", () => {
@@ -34,17 +38,11 @@ describe('timeSections', () => {
       item('failed', at(23, 8), 'error', at(23, 8), at(23, 8)),
       item('stopped', at(23, 9), 'stopped'),
     ];
-    expect(timeSections(rows, now).map((s) => [s.label, s.rows.map((r) => r.session.key)])).toEqual([
-      // Needs you and Working the longest first; Your turn the newest status first.
-      ['Needs you', ['failed', 'blocked']],
-      ['Your turn', ['turn']],
-      ['Working', ['busy-old', 'busy-new']],
-      ['Today', ['idle']],
-      ['Yesterday', ['stopped']],
-    ]);
+    // Needs you and Working the longest first; Your turn the newest status first.
+    expect(keys(sortSessions(rows, 'status', now))).toEqual(['failed', 'blocked', 'turn', 'busy-old', 'busy-new', 'idle', 'stopped']);
   });
 
-  it('keeps snoozed sessions apart after Working, the soonest back first, unless they run', () => {
+  it('keeps snoozed sessions after Working, the soonest back first, unless they run', () => {
     const now = new Date(2026, 8, 24, 15, 0).getTime();
     const at = (d: number, h: number) => new Date(2026, 8, d, h, 0).getTime();
     const snoozed = (r: SessionItem, until: number): SessionItem => ({ ...r, session: { ...r.session, snoozedUntil: until } });
@@ -56,17 +54,34 @@ describe('timeSections', () => {
       snoozed(item('busy', at(24, 14), 'working', at(24, 14), at(24, 14)), at(24, 16)),
       item('idle', at(24, 14)),
     ];
-    expect(timeSections(rows, now).map((s) => [s.label, s.rows.map((r) => r.session.key)])).toEqual([
-      ['Needs you', ['blocked']],
-      ['Working', ['busy']],
-      ['Snoozed', ['soon', 'quiet', 'later']],
-      ['Today', ['idle']],
-    ]);
+    expect(keys(sortSessions(rows, 'status', now))).toEqual(['blocked', 'busy', 'soon', 'quiet', 'later', 'idle']);
+  });
+});
+
+describe('sortSessions by start', () => {
+  it('lists the newest start first, whatever the status, snoozed ones in place too', () => {
+    const now = new Date(2026, 8, 24, 15, 0).getTime();
+    const at = (d: number, h: number) => new Date(2026, 8, d, h, 0).getTime();
+    const late = item('snoozed', at(24, 12), 'unread', at(24, 12), null, at(23, 12));
+    const rows = [
+      item('old-busy', at(24, 14), 'working', at(24, 14), at(24, 14), at(20, 9)),
+      item('new-idle', at(24, 13), 'idle', at(24, 13), null, at(24, 13)),
+      item('blocked', at(24, 12), 'needs', at(24, 11), at(24, 12), at(22, 9)),
+      { ...late, session: { ...late.session, snoozedUntil: at(24, 18) } },
+    ];
+    expect(keys(sortSessions(rows, 'started', now))).toEqual(['new-idle', 'snoozed', 'blocked', 'old-busy']);
+  });
+
+  it("goes by the last prompt where a session's start isn't known", () => {
+    const now = new Date(2026, 8, 24, 15, 0).getTime();
+    const at = (d: number, h: number) => new Date(2026, 8, d, h, 0).getTime();
+    const rows = [item('known', at(24, 14), 'idle', at(24, 14), null, at(22, 9)), item('unknown', at(24, 10), 'idle', at(23, 9))];
+    expect(keys(sortSessions(rows, 'started', now))).toEqual(['unknown', 'known']);
   });
 });
 
 describe('waitingQueue', () => {
-  it('lists what waits on you in the sections\' order, pinned ones too, and leaves snoozed ones to wait', () => {
+  it('lists what waits on you in the status order, pinned ones too, and leaves snoozed ones to wait', () => {
     const at = (d: number, h: number) => new Date(2026, 8, d, h, 0).getTime();
     const rows = [
       item('idle', at(24, 14)),

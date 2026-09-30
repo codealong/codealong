@@ -1630,12 +1630,17 @@ body.is-resizing * {
   font: 400 11px/14px var(--font-sans);
   color: var(--ink-3);
 }
-.ca-segctl.ca-side-ages {
+.ca-segctl.ca-side-ages,
+.ca-segctl.ca-side-sorts {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   margin: 2px 8px 0;
 }
-.ca-side-ages button {
+.ca-segctl.ca-side-sorts {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.ca-side-ages button,
+.ca-side-sorts button {
   justify-content: center;
   padding: 0;
 }
@@ -2109,7 +2114,8 @@ body.is-resizing * {
 }
 
 /* Reordering pinned rows (sessions or worktrees) by dragging them. */
-.ca-pinned .ca-lane {
+.ca-pinned .ca-lane,
+.ca-sessionlist .ca-lane[data-pin-index] {
   cursor: grab;
 }
 .ca-bay-lanes.is-dragging,
@@ -2148,8 +2154,21 @@ body.is-resizing * {
   pointer-events: none;
 }
 .ca-pinned .ca-lane:hover .ca-grip,
+.ca-sessionlist .ca-lane[data-pin-index]:hover .ca-grip,
 .ca-lane.is-drag-source .ca-grip {
   opacity: 1;
+}
+/* Sessions is one list with no headings: a strip of ground sets the pinned rows at its top
+   apart from the rest, and each carries a solid pin, where no Pinned heading says so. */
+.ca-sessionlist .ca-lane.is-pinned + .ca-lane:not(.is-pinned) {
+  margin-top: var(--space-1);
+  border-top: 1px solid var(--line);
+}
+.ca-sessionlist .ca-pinmark {
+  color: var(--ink-2);
+}
+.ca-sessionlist .ca-pinmark path:first-child {
+  fill: currentColor;
 }
 
 /* The age filter, at the right of the board head. Each option's tooltip says what it filters. */

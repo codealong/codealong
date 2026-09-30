@@ -8,7 +8,7 @@ import { DeviceBadge } from './DeviceBadge';
 import { memoRow } from './memoRow';
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
 import { absolute, ago, agoPhrase, count, middleTruncate, untilShort } from '../format';
-import { worktreeName, type AgentItem, type WorktreeRow } from '../lanes';
+import { startedOf, worktreeName, type AgentItem, type WorktreeRow } from '../lanes';
 import { untilWords } from '../snooze';
 import type { GitInfo, Lane, Session, Todo } from '../types';
 import { driftWords, HarnessChip, Icon, LaneGlyph, PrChip, Rich, StatusGlyph } from './primitives';
@@ -192,7 +192,7 @@ function SessionChips({ sessions, max, onOpen }: { sessions: Session[]; max: num
 
 function PinMark() {
   return (
-    <span className="ca-pinmark" title="Pinned">
+    <span className="ca-pinmark" title="Pinned: drag, or press ⌃⌘↑ ⌃⌘↓, to reorder">
       <Icon name="pinned" size={12} />
     </span>
   );
@@ -455,6 +455,8 @@ interface AgentRowProps {
   session: Session;
   domId: string;
   now: number;
+  /** What its age says: when it was last active, or when it started (Sessions sorted by start). */
+  age?: 'active' | 'started';
   selected: boolean;
   onSelect: (e: ReactMouseEvent) => void;
   onOpen: () => void;
@@ -512,7 +514,8 @@ function SnoozeChip({ session: s, now }: { session: Session; now: number }) {
  * waits on you for, and what it's doing or said last), where and why on the second (its worktree,
  * todo and insights, and the worktree's PR and diff).
  */
-function AgentRowView({ lane, session: s, domId, now, selected, onSelect, onOpen, pinned, onContextMenu, onPrMenu, onPrOpen, pinIndex, onPointerDown, extraClass, todos, onShowTodo }: AgentRowProps) {
+function AgentRowView({ lane, session: s, domId, now, age, selected, onSelect, onOpen, pinned, onContextMenu, onPrMenu, onPrOpen, pinIndex, onPointerDown, extraClass, todos, onShowTodo }: AgentRowProps) {
+  const started = age === 'started';
   return (
     <div
       id={domId}
@@ -553,8 +556,15 @@ function AgentRowView({ lane, session: s, domId, now, selected, onSelect, onOpen
           </span>
         </div>
       </div>
-      <div className="ca-seg ca-seg-age" title={`Last active ${absolute(s.lastActivity)}. You last sent it a prompt ${agoPhrase(s.lastPromptAt, now)}, which sets its place in the list.`}>
-        {ago(s.lastActivity, now)}
+      <div
+        className="ca-seg ca-seg-age"
+        title={
+          started
+            ? `Started ${absolute(startedOf(s))}, which sets its place in the list. Last active ${agoPhrase(s.lastActivity, now)}.`
+            : `Last active ${absolute(s.lastActivity)}. You last sent it a prompt ${agoPhrase(s.lastPromptAt, now)}, which sets its place in the list.`
+        }
+      >
+        {ago(started ? startedOf(s) : s.lastActivity, now)}
         {pinned && <PinMark />}
       </div>
     </div>

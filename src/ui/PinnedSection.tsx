@@ -1,5 +1,5 @@
-// The Pinned section at the top of the Worktrees and Sessions views: rows in your order. Drag
-// one, or press ⌃⌘↑ ⌃⌘↓, to move it.
+// The Pinned section at the top of the Worktrees view: rows in your order. Drag one, or press
+// ⌃⌘↑ ⌃⌘↓, to move it. Sessions has no headings: its pinned rows lead its one list.
 
 import type { ReactNode } from 'react';
 import { Kbd, SectionHeader } from './primitives';

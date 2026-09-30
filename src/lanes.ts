@@ -64,6 +64,11 @@ export function bySession(a: Session, b: Session): number {
   return URGENCY[a.status] - URGENCY[b.status] || (waitingSince(a) ?? 0) - (waitingSince(b) ?? 0) || b.lastPromptAt - a.lastPromptAt || b.lastActivity - a.lastActivity;
 }
 
+/** When a session started, or when you last prompted it where its record doesn't say. */
+export function startedOf(s: Session): number {
+  return s.startedAt ?? s.lastPromptAt;
+}
+
 /** A finished turn waiting on you to read it: Your turn, or a reply that asks you something.
  *  Marking it seen makes it idle, which takes it off the bar and out of its bay. */
 export function seenable(s: Session): boolean {

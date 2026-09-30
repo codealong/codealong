@@ -22,10 +22,12 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   list as the arrows do, and ⌃⌘↑ ⌃⌘↓ reorder what's pinned. A session's or worktree's
   actions have letters (`p` pin, `a` archive, `r` rename, `e` mark seen) and chords that work
   in every view (⌃⌘P, ⌃⌘A, ⌃⌘R, ⌘E); the right-click menu shows them. The views:
-  - **Sessions**: every session, pinned ones first in your order (drag or ⌃⌘↑ ⌃⌘↓), then Needs
-    you, Your turn and Working as the floating bar groups them and orders them, then the ones
-    you snoozed, the soonest back first, then the rest by day, the one you last sent a prompt
-    first. A row leads with the session's title, then what it's doing or said last; one that
+  - **Sessions**: every session in one list, with no headings. Pinned ones come first in your
+    order (drag or ⌃⌘↑ ⌃⌘↓), each with a pin under its age, set a little apart from the rest.
+    The sidebar's Sort by orders the rest. Status puts Needs you, Your turn and Working first, as
+    the floating bar orders them, then the ones you snoozed, the soonest back first, then the
+    rest by the day they were last active, the one you last sent a prompt first. Started puts the
+    newest session first, and each row's age then says when it started. A row leads with the session's title, then what it's doing or said last; one that
     needs you has a label beside its title for what it waits on (Asks you, Needs approval,
     Stuck, Error). A snoozed session's row says how long until it's back. Here letters alone
     do nothing, so a word typed on the list by mistake doesn't pin, archive or rename: the
@@ -392,7 +394,8 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   doesn't parse.
 - **Sidebar**: picks the view (Sessions, Worktrees, PRs, Todo, Canvas) and narrows it: to the
   devices you pick, to what was active in the last 24h, 3d or 7d, and to the statuses you pick
-  (Needs you, Your turn, Working, In review, PR needs work; any of them). Devices and statuses
+  (Needs you, Your turn, Working, In review, PR needs work; any of them). In Sessions it also
+  sorts, by status or by when sessions started. Devices and statuses
   toggle; none picked shows all, and Clear unpicks them. Save the view as it is under a name to come back to it;
   right-click a saved view to update or delete it (they're kept per Mac, not in config.toml).
   ⌃⌘S, or the button beside the traffic lights, folds it to a rail of the views and devices
