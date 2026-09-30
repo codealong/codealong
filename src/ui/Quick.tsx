@@ -50,6 +50,7 @@ import { useKeyPerf, usePerf } from '../perf';
 import { showContextMenu, type MenuSpec } from '../contextMenu';
 import { useEditorIcons } from '../editors';
 import * as menus from '../menus';
+import { prRefOf } from '../prLinks';
 import { ago, agoPhrase, resetsPhrase, tildePath } from '../format';
 import { HARNESS_WORD, usageNote } from '../harness';
 import { useLogo } from '../logo';
@@ -85,6 +86,7 @@ import { Picker, type PickerOption, type PickerSection } from './Picker';
 import { ReplyView } from './ReplyView';
 import { Icon, Kbd, Mark, STATUS_WORD, StatusGlyph } from './primitives';
 import { projectForDigit, projectKey } from './ProjectSwitcher';
+import { usePrLinks } from './PrLink';
 import { PrGlyph } from './PrsView';
 import { useTheme } from './ThemeSwitch';
 import { TodoGlyph } from './TodoBits';
@@ -896,9 +898,12 @@ export function Quick() {
   };
 
   /** A PR opens on GitHub, as it does in the PRs view. */
-  const openPr = (pr: PrItem) => {
+  const openPr = (pr: PrItem) => openLink(pr.url);
+
+  /** A web link opens in the browser, with the panel out of the way. */
+  const openLink = (url: string) => {
     void hideQuick();
-    openUrl(pr.url).catch((e: unknown) => reopen(() => setError(errorText(e))));
+    openUrl(url).catch((e: unknown) => reopen(() => setError(errorText(e))));
   };
 
   const revealPr = (pr: PrItem) => {
@@ -940,6 +945,17 @@ export function Quick() {
   });
   const sessionMenuSpec = (lane: Lane, s: Session): MenuSpec => menus.sessionMenu(lane, s, quickCan(lane, s));
 
+  /** A PR's menu, as every window has it. */
+  const prMenuSpec = (pr: PrItem): MenuSpec => {
+    const s = prSession(pr);
+    return menus.prMenu(pr, {
+      report: menuReport,
+      open: () => openPr(pr),
+      session: s ? { ...s, open: () => openSession(s.lane, s.session) } : undefined,
+      reveal: () => revealPr(pr),
+    });
+  };
+
   /** A row's menu: a session's, PR's or todo's as every window has it, a suggestion's own. */
   const rowMenu = (r: Row) => {
     if (r.kind === 'more') return;
@@ -961,15 +977,7 @@ export function Quick() {
       return;
     }
     if (r.kind === 'pr') {
-      const s = prSession(r.pr);
-      show(
-        menus.prMenu(r.pr, {
-          report: menuReport,
-          open: () => openPr(r.pr),
-          session: s ? { ...s, open: () => openSession(s.lane, s.session) } : undefined,
-          reveal: () => revealPr(r.pr),
-        }),
-      );
+      show(prMenuSpec(r.pr));
       return;
     }
     const s = todoSession(r);
@@ -1515,6 +1523,20 @@ export function Quick() {
     void hideQuick();
     if (message) void tellOpener(opener ?? 'main', { phase: 'end', id: Date.now(), key: null, message });
   };
+
+  // PR links in a conversation shown here (PrLink.tsx): a session on a PR's card is answered here
+  // too, and the PR is shown in the main window.
+  usePrLinks(board?.prs, board?.lanes, {
+    showPr: revealPr,
+    showSession: (_lane, s) => replyTo(s),
+    openSession,
+    sessionMenu: (lane, s) => void showContextMenu(sessionMenuSpec(lane, s)).catch((e: unknown) => setError(errorText(e))),
+    prMenu: (url, pr) => {
+      const spec = pr ? prMenuSpec(pr) : menus.prMenu({ url, number: prRefOf(url)?.number ?? 0 }, { report: menuReport, open: () => openLink(url) });
+      void showContextMenu(spec).catch((e: unknown) => setError(errorText(e)));
+    },
+    openLink,
+  });
 
   return (
     <div

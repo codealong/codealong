@@ -224,6 +224,19 @@ window.__TAURI_INTERNALS__ = {
         return view;
       });
     }
+    // A PR the board doesn't list, as GitHub would have it: merged a while ago, no sessions here.
+    if (cmd === 'pr_card') {
+      var want = args || {};
+      var daysAgo = function (days) { return Date.now() - days * 864e5; };
+      return Promise.resolve({
+        key: want.repo + '#' + want.number, repoSlug: want.repo, repo: want.repo.split('/')[1], project: '', number: want.number,
+        title: 'An older PR, as GitHub has it', url: 'https://github.com/' + want.repo + '/pull/' + want.number, state: 'merged',
+        author: 'someone', mine: false, reviewRequested: false, head: 'older-work', base: 'main',
+        checks: { passed: 4, failed: 0, pending: 0, skipped: 0, failing: [] }, merge: 'unknown',
+        additions: 120, deletions: 34, changedFiles: 6, createdAt: daysAgo(40), updatedAt: daysAgo(38), mergedAt: daysAgo(38), closedAt: daysAgo(38),
+        lanes: [], sessions: [],
+      });
+    }
     if (cmd === 'link_device') return Promise.resolve('482 915');
     if (cmd === 'device_link_code') return Promise.resolve('cal1f4k3c0d3xq7mzv2r9k8w3n5b6t1y4u7p2e9s3d8g5h1j6l0a4c7v2b');
     // A stand-in for the QR code the engine draws (link_code_qr): the right size and colors, not a real code.
@@ -305,11 +318,17 @@ window.__TAURI_INTERNALS__ = {
         all[2].lanes.forEach(function (l) { l.sessions.forEach(function (x) { if (x.key === key) s = x; }); });
         if (!s) return Promise.reject(new Error("That session isn't on the board any more."));
         var item = function (kind, text, n, extra) { return Object.assign({ at: s.lastActivity - (3 - n) * 60e3, kind: kind, text: text, failed: false, cursor: n, n: 0 }, extra || {}); };
+        // The reply links the PR the session worked on, if the board has one, and an older PR in
+        // its repo the board doesn't list (pr_card answers for that one).
+        var pr = (all[2].prs || []).find(function (p) { return p.sessions.some(function (x) { return x.key === key; }); });
+        var older = 1;
+        while (pr && all[2].prs.some(function (p) { return p.repoSlug === pr.repoSlug && p.number === older; })) older++;
+        var links = pr ? '\n\nOpened ' + pr.url + ', which follows [the earlier fix](' + pr.url.replace(/\/pull\/\d+$/, '/pull/' + older) + ').' : '';
         return { before: null, after: 4, items: [
           item('you', s.title, 0),
           item('tool', 'Bash · `npm test`', 1, { id: 't1', input: 'npm test' }),
           item('result', '', 2, { id: 't1', output: 'Tests  12 passed (12)' }),
-          item('agent', s.excerpt || 'Done.', 3),
+          item('agent', (s.excerpt || 'Done.') + links, 3),
         ] };
       });
     }

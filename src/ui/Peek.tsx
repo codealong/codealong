@@ -19,8 +19,11 @@ import { homeOf } from '../lanes';
 import { useEditorIcons } from '../editors';
 import * as menus from '../menus';
 import { attentionRows, ALL_PROJECTS } from '../quick';
-import type { Lane, PeekOpen, Session, Theme } from '../types';
+import type { Board, Lane, PeekOpen, PrItem, Session, Theme } from '../types';
+import { prRefOf } from '../prLinks';
+import { reuse } from '../reuse';
 import { useKeyPerf } from '../perf';
+import { usePrLinks } from './PrLink';
 import { ReplyView } from './ReplyView';
 import { useTheme } from './ThemeSwitch';
 import { useNow } from './useNow';
@@ -99,6 +102,11 @@ export function Peek() {
     };
   }, []);
 
+  // The board's PRs and worktrees, for PR links in the conversation (PrLink.tsx), from the pushes
+  // that come while it's up; the last ones stay for the next time it shows.
+  const [prBoard, setPrBoard] = useState<Pick<Board, 'prs' | 'lanes'> | null>(null);
+  const takeBoard = useCallback((b: Board) => setPrBoard((prev) => reuse(prev, { prs: b.prs, lanes: b.lanes })), []);
+
   const key = open?.session.key ?? null;
   useEffect(() => {
     if (!shown || !key) return;
@@ -106,8 +114,9 @@ export function Peek() {
       observe(boardView(b.generatedAt, [b.lanes]));
       const home = homeOf(b.lanes, key);
       if (home) setLive({ ...home, theme: b.theme });
+      takeBoard(b);
     });
-  }, [shown, key]);
+  }, [shown, key, takeBoard]);
 
   // With changes made in any window that the engine hasn't shown yet (ahead.ts).
   const ahead = useAhead();
@@ -193,6 +202,45 @@ export function Peek() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
+
+  // A PR link's card: its sessions show in the main window, and what comes of an open or a menu is
+  // said on the bar by the peek's own session.
+  const cardReport: Report = {
+    error: (message) => void (key && barNote({ key, message, tone: 'error' })),
+    info: (message) => void (key && barNote({ key, message, tone: 'info' })),
+  };
+  const showSessionMain = (l: Lane, s: Session) => {
+    void peekHide();
+    void showMain({ kind: 'session', laneId: l.id, key: s.key });
+  };
+  const openFromCard = (l: Lane, target: string) => openWhere(where(l, target), { report: cardReport, from: 'panel', before: () => void peekHide() });
+  const showPrMain = (pr: PrItem) => {
+    void peekHide();
+    void showMain({ kind: 'pr', key: pr.key });
+  };
+  usePrLinks(prBoard?.prs, prBoard?.lanes, {
+    showPr: showPrMain,
+    showSession: showSessionMain,
+    openSession: (l, s) => openFromCard(l, s.openTarget),
+    sessionMenu: (l, s) => {
+      const can: menus.SessionCan = {
+        report: cardReport,
+        open: openFromCard,
+        terminal: open?.terminal ?? 'Terminal',
+        reveal: () => showSessionMain(l, s),
+        editors: open?.apps ? { apps: open.apps, icons } : undefined,
+        desktop: onDesktop,
+        left: () => void peekHide(),
+      };
+      void showContextMenu(menus.sessionMenu(l, s, can)).catch((e: unknown) => cardReport.error(errorText(e)));
+    },
+    prMenu: (url, pr) => {
+      const spec = menus.prMenu(pr ?? { url, number: prRefOf(url)?.number ?? 0 }, { report: cardReport, reveal: pr ? () => showPrMain(pr) : undefined });
+      void showContextMenu(spec).catch((e: unknown) => cardReport.error(errorText(e)));
+    },
+    // Without it, a card asks GitHub.
+    needBoard: () => void getBoard().then(takeBoard, () => setPrBoard((prev) => prev ?? { prs: [], lanes: [] })),
+  });
 
   if (!open || !lane || !session || !shown) return null;
 

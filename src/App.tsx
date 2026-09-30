@@ -15,6 +15,7 @@ import { AGENT_BAY, buildBays, filterByAge, homeOf, inboxCounts, liveOrLatest, n
 import { answerLink, approvePr, barMode, getDevices, onDevices, dismissTodoHint, expandAttachments, getBoard, onBarMode, onBoard, onCloseIdle, onNewWindow, onQuickStart, onReveal, onSettings, onCheckUpdates, openConfig, openProjectWindow, openUrl, refresh, refreshUsage, reviewInCodex, setBarMode, startOptions, startSession, setPinned, setPinnedWorktrees, setTheme, showQuick, signIn, windowLabel, type BarMode, type Reveal } from './api';
 import { middleTruncate } from './format';
 import * as menus from './menus';
+import { prRefOf } from './prLinks';
 import { usePerf } from './perf';
 import { archiveAhead, boardAhead, boardView, lanesAhead, observe, seenAhead, useAhead } from './ahead';
 import { reuse } from './reuse';
@@ -39,6 +40,7 @@ import { BayHeader, Button, Icon, Kbd, StatusGlyph } from './ui/primitives';
 import { ALL_PROJECTS, openSwitcher, projectForDigit, ProjectSwitcher, type ActionCounts } from './ui/ProjectSwitcher';
 import { useLogo } from './logo';
 import { PrInspector } from './ui/PrInspector';
+import { usePrLinks } from './ui/PrLink';
 import { prIsOpen, prPlaces, prSections, PrsView, type PrRowItem } from './ui/PrsView';
 import { Resizer, usePanelWidth } from './ui/Resizer';
 import { SessionsView, timeSections, waitingQueue, type SessionItem } from './ui/SessionsView';
@@ -2047,6 +2049,19 @@ export function App() {
       'separator',
       { label: 'Delete', run: () => keepSaved(savedViews.filter((x) => x.id !== v.id)) },
     ]).catch((e: unknown) => setToast(String(e)));
+
+  // PR links in conversations and descriptions (PrLink.tsx): their cards show the PR and its
+  // sessions here.
+  usePrLinks(board?.prs, lanes, {
+    showPr: (pr) => reveal.current({ kind: 'pr', key: pr.key }),
+    showSession: (lane, session) => reveal.current({ kind: 'session', laneId: lane.id, key: session.key }),
+    openSession: (lane, session) => open(lane, session.openTarget),
+    sessionMenu: (lane, s) => sessionMenu(lane, s, 'worktree'),
+    prMenu: (url, pr) => {
+      if (pr) prMenu(prRowOf(pr));
+      else void showContextMenu(menus.prMenu({ url, number: prRefOf(url)?.number ?? 0 }, { report })).catch((e: unknown) => setToast(String(e)));
+    },
+  });
 
   return (
     <div className="ca-win ca-win--app">

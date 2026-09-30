@@ -1,15 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import { isValidElement, type ReactNode } from 'react';
 import { blocks, inline } from './Markdown';
+import { prLabel, prRefOf } from '../prLinks';
 
-/** The web links in a line, as [text, url], found through its elements. */
+/** The web links in a line, as [the words they show, url], found through their elements. A bare
+ *  link shows its URL, or a PR's as GitHub shortens it. */
 function links(nodes: ReactNode[]): [string, string][] {
   const out: [string, string][] = [];
   const text = (n: ReactNode): string => (Array.isArray(n) ? n.map(text).join('') : isValidElement<{ children?: ReactNode }>(n) ? text(n.props.children) : n == null || typeof n === 'boolean' ? '' : String(n));
   const walk = (n: ReactNode) => {
     if (Array.isArray(n)) n.forEach(walk);
     else if (isValidElement<{ url?: string; children?: ReactNode }>(n)) {
-      if (n.props.url) out.push([text(n.props.children), n.props.url]);
+      const { url } = n.props;
+      if (url) out.push([n.props.children == null ? (prRefOf(url) ? prLabel(prRefOf(url)!) : url) : text(n.props.children), url]);
       walk(n.props.children);
     }
   };
@@ -20,7 +23,7 @@ function links(nodes: ReactNode[]): [string, string][] {
 describe('inline', () => {
   it('makes web links clickable, bare or written as links, and leaves others as text', () => {
     expect(links(inline('See https://github.com/a/b/pull/12. Or [the docs](https://x.dev/a_b) and <https://y.io>.'))).toEqual([
-      ['https://github.com/a/b/pull/12', 'https://github.com/a/b/pull/12'],
+      ['b#12', 'https://github.com/a/b/pull/12'],
       ['the docs', 'https://x.dev/a_b'],
       ['https://y.io', 'https://y.io'],
     ]);

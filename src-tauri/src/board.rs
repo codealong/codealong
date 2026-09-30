@@ -684,87 +684,112 @@ pub fn find_pr(seed: &LaneSeed, prs: &HashMap<String, Vec<PrRaw>>, now: i64) -> 
 /// to it by hand (`links.worked`), whatever their branch or time, each under the lane it's in.
 /// A session unlinked by hand is left off.
 pub fn pr_items(seeds: &[LaneSeed], lanes: &[Lane], prs: &HashMap<String, Vec<PrRaw>>, login: Option<&str>, links: &PrLinks) -> Vec<PrItem> {
-    let mut project_of: HashMap<&str, (&str, &str, Option<&str>)> = HashMap::new();
-    for s in seeds {
-        if let Some(slug) = s.repo_slug.as_deref() {
-            project_of.entry(slug).or_insert((s.project.as_str(), s.repo.as_str(), s.default_branch.as_deref()));
-        }
-    }
+    let repos = repos_of(seeds);
     let mut out = Vec::new();
     for (slug, list) in prs {
-        let Some(&(project, repo, default_branch)) = project_of.get(slug.as_str()) else { continue };
-        let here: Vec<&Lane> = lanes.iter().filter(|l| l.repo_slug.as_deref() == Some(slug.as_str())).collect();
-        for p in list {
-            let head = p.head_ref.as_str();
-            let (opened, ended) = (p.created_at, p.merged_at.or(p.closed_at));
-            let before_end = move |s: &Session| ended.map_or(true, |end| s.started_at.unwrap_or(s.last_activity) <= end);
-            let during = move |s: &Session| s.last_activity >= opened - 3_600_000 && before_end(s);
-            let mut sessions: Vec<PrSession> = Vec::new();
-            if default_branch != Some(head) {
-                // Sessions in their own lanes first, then ones that came to a worktree on the branch.
-                let own = here.iter().flat_map(|&l| {
-                    // A session that works here from another folder records that folder's branch,
-                    // so it goes by this worktree's.
-                    let here_branch = move |s: &Session| s.branch.is_none() || !Path::new(&s.cwd).starts_with(&l.id);
-                    let on_branch = move |s: &Session| s.branch.as_deref() == Some(head) || (here_branch(s) && l.branch.as_deref() == Some(head));
-                    l.sessions.iter().filter(move |s| s.visitor.is_none() && on_branch(s) && during(s)).map(move |s| (l, s))
-                });
-                let guests = here.iter().filter(|l| l.branch.as_deref() == Some(head)).flat_map(|&l| {
-                    let counts = move |s: &Session| match s.visitor.as_deref() {
-                        None => false,
-                        Some(MADE_IT) => before_end(s),
-                        Some(_) => during(s),
-                    };
-                    l.sessions.iter().filter(move |s| counts(s)).map(move |s| (l, s))
-                });
-                for (l, s) in own.chain(guests) {
-                    if !s.archived && !sessions.iter().any(|x| x.key == s.key) {
-                        sessions.push(PrSession { key: s.key.clone(), lane: l.id.clone() });
-                    }
-                }
-            }
-            let key = crate::prlinks::pr_key(&format!("{slug}#{}", p.number));
-            for k in links.worked.get(&key).into_iter().flatten() {
-                if sessions.iter().any(|x| &x.key == k) {
-                    continue;
-                }
-                // The lane it's in, else one it visited.
-                let found = home(lanes, k);
-                if let Some((l, s)) = found.filter(|(_, s)| !s.archived) {
-                    sessions.push(PrSession { key: s.key.clone(), lane: l.id.clone() });
-                }
-            }
-            sessions.retain(|x| !links.unlinked.contains(&(key.clone(), x.key.clone())));
-            out.push(PrItem {
-                key: format!("{slug}#{}", p.number),
-                repo_slug: slug.clone(),
-                repo: repo.to_string(),
-                project: project.to_string(),
-                number: p.number,
-                title: p.title.clone(),
-                url: p.url.clone(),
-                state: p.state,
-                author: p.author.clone(),
-                mine: login.is_some() && p.author.as_deref() == login,
-                review_requested: p.review_requested,
-                head: p.head_ref.clone(),
-                base: p.base_ref.clone(),
-                checks: p.checks.clone(),
-                merge: p.merge,
-                additions: p.additions,
-                deletions: p.deletions,
-                changed_files: p.changed_files,
-                created_at: p.created_at,
-                updated_at: p.updated_at,
-                merged_at: p.merged_at,
-                closed_at: p.closed_at,
-                lanes: here.iter().filter(|l| l.pr.as_ref().map(|x| x.number) == Some(p.number)).map(|l| l.id.clone()).collect(),
-                sessions,
-            });
-        }
+        let Some(&repo) = repos.get(slug.as_str()) else { continue };
+        out.extend(list.iter().map(|p| pr_item(lanes, slug, repo, p, login, links)));
     }
     out.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
     out
+}
+
+/// One PR that `pr_items` doesn't list, for a link to it in a conversation: one older than the
+/// PRs the board reads, or in a repo no project covers. It's matched to worktrees and sessions
+/// as the listed ones are. `slug` is the repo as the link names it; a project's repo that
+/// answers to it in another case, or by the name it had before a rename (`renamed`, old name to
+/// new, lowercased), is the one it's matched in.
+pub fn pr_card(seeds: &[LaneSeed], lanes: &[Lane], slug: &str, renamed: &HashMap<String, String>, p: &PrRaw, login: Option<&str>, links: &PrLinks) -> PrItem {
+    let repos = repos_of(seeds);
+    let found = repos.iter().find(|(s, _)| {
+        s.eq_ignore_ascii_case(slug) || renamed.get(&s.to_ascii_lowercase()).is_some_and(|now| now.eq_ignore_ascii_case(slug))
+    });
+    match found {
+        Some((&local, &repo)) => pr_item(lanes, local, repo, p, login, links),
+        None => pr_item(lanes, slug, ("", slug.rsplit('/').next().unwrap_or(slug), None), p, login, links),
+    }
+}
+
+/// Each project's repo by its slug: the project, the repo's name and its default branch.
+fn repos_of(seeds: &[LaneSeed]) -> HashMap<&str, (&str, &str, Option<&str>)> {
+    let mut repos: HashMap<&str, (&str, &str, Option<&str>)> = HashMap::new();
+    for s in seeds {
+        if let Some(slug) = s.repo_slug.as_deref() {
+            repos.entry(slug).or_insert((s.project.as_str(), s.repo.as_str(), s.default_branch.as_deref()));
+        }
+    }
+    repos
+}
+
+/// A PR with its worktrees and sessions, as `pr_items` says.
+fn pr_item(lanes: &[Lane], slug: &str, (project, repo, default_branch): (&str, &str, Option<&str>), p: &PrRaw, login: Option<&str>, links: &PrLinks) -> PrItem {
+    let here: Vec<&Lane> = lanes.iter().filter(|l| l.repo_slug.as_deref() == Some(slug)).collect();
+    let head = p.head_ref.as_str();
+    let (opened, ended) = (p.created_at, p.merged_at.or(p.closed_at));
+    let before_end = move |s: &Session| ended.map_or(true, |end| s.started_at.unwrap_or(s.last_activity) <= end);
+    let during = move |s: &Session| s.last_activity >= opened - 3_600_000 && before_end(s);
+    let mut sessions: Vec<PrSession> = Vec::new();
+    if default_branch != Some(head) {
+        // Sessions in their own lanes first, then ones that came to a worktree on the branch.
+        let own = here.iter().flat_map(|&l| {
+            // A session that works here from another folder records that folder's branch,
+            // so it goes by this worktree's.
+            let here_branch = move |s: &Session| s.branch.is_none() || !Path::new(&s.cwd).starts_with(&l.id);
+            let on_branch = move |s: &Session| s.branch.as_deref() == Some(head) || (here_branch(s) && l.branch.as_deref() == Some(head));
+            l.sessions.iter().filter(move |s| s.visitor.is_none() && on_branch(s) && during(s)).map(move |s| (l, s))
+        });
+        let guests = here.iter().filter(|l| l.branch.as_deref() == Some(head)).flat_map(|&l| {
+            let counts = move |s: &Session| match s.visitor.as_deref() {
+                None => false,
+                Some(MADE_IT) => before_end(s),
+                Some(_) => during(s),
+            };
+            l.sessions.iter().filter(move |s| counts(s)).map(move |s| (l, s))
+        });
+        for (l, s) in own.chain(guests) {
+            if !s.archived && !sessions.iter().any(|x| x.key == s.key) {
+                sessions.push(PrSession { key: s.key.clone(), lane: l.id.clone() });
+            }
+        }
+    }
+    let key = crate::prlinks::pr_key(&format!("{slug}#{}", p.number));
+    for k in links.worked.get(&key).into_iter().flatten() {
+        if sessions.iter().any(|x| &x.key == k) {
+            continue;
+        }
+        // The lane it's in, else one it visited.
+        let found = home(lanes, k);
+        if let Some((l, s)) = found.filter(|(_, s)| !s.archived) {
+            sessions.push(PrSession { key: s.key.clone(), lane: l.id.clone() });
+        }
+    }
+    sessions.retain(|x| !links.unlinked.contains(&(key.clone(), x.key.clone())));
+    PrItem {
+        key: format!("{slug}#{}", p.number),
+        repo_slug: slug.to_string(),
+        repo: repo.to_string(),
+        project: project.to_string(),
+        number: p.number,
+        title: p.title.clone(),
+        url: p.url.clone(),
+        state: p.state,
+        author: p.author.clone(),
+        mine: login.is_some() && p.author.as_deref() == login,
+        review_requested: p.review_requested,
+        head: p.head_ref.clone(),
+        base: p.base_ref.clone(),
+        checks: p.checks.clone(),
+        merge: p.merge,
+        additions: p.additions,
+        deletions: p.deletions,
+        changed_files: p.changed_files,
+        created_at: p.created_at,
+        updated_at: p.updated_at,
+        merged_at: p.merged_at,
+        closed_at: p.closed_at,
+        lanes: here.iter().filter(|l| l.pr.as_ref().map(|x| x.number) == Some(p.number)).map(|l| l.id.clone()).collect(),
+        sessions,
+    }
 }
 
 /// The first rule that matches. See *The model*, Lane status. Needs you, Working and Your turn
@@ -1699,6 +1724,33 @@ mod tests {
         assert_eq!(p.lanes, vec!["/r/atlas-quarry".to_string()]);
         assert_eq!(p.sessions, vec![PrSession { key: on_branch.key, lane: "/r/atlas-quarry".into() }]);
         assert_eq!(board.github_login.as_deref(), Some("ghempton"));
+    }
+
+    #[test]
+    fn a_pr_the_board_doesnt_list_is_matched_in_the_project_repo_a_link_names() {
+        let seeds = vec![seed("/r/atlas-quarry", "quarry")];
+        let a = acct("claude2");
+        let mut maker = claude_session(&a, Some(&reg("idle", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
+        maker.branch = Some("app4".into());
+        let (git, visitors, prs) = (HashMap::new(), HashMap::new(), HashMap::new());
+        let order = vec!["Northwind".to_string()];
+        let board = compose(Inputs { now: NOW, apps: &AppNames::default(), seeds: &seeds, sessions: vec![maker.clone()], visitors: &visitors, git: &git, prs: &prs, project_order: &order, warnings: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new() });
+        let old = pr(PrState::Merged, 0);
+        let links = PrLinks { worked: HashMap::from([("northwindai/atlas#1037".to_string(), vec![maker.key.clone()]), ("acme/tool#1037".to_string(), vec![maker.key.clone()])]), ..Default::default() };
+        let renamed = HashMap::from([("northwindai/atlas".to_string(), "Northwind/atlas".to_string())]);
+        // In another case, or by the repo's name now: the project's repo, and the session its
+        // records say made it.
+        for slug in ["NorthwindAI/Atlas", "northwind/atlas"] {
+            let item = pr_card(&seeds, &board.lanes, slug, &renamed, &old, Some("ghempton"), &links);
+            assert_eq!((item.key.as_str(), item.project.as_str(), item.repo.as_str()), ("northwindai/atlas#1037", "Northwind", "atlas"), "{slug}");
+            assert_eq!(item.sessions.iter().map(|x| x.key.as_str()).collect::<Vec<_>>(), vec![maker.key.as_str()], "{slug}");
+            assert!(item.mine);
+        }
+        // A repo no project covers still gets the sessions linked to it.
+        let other = pr_card(&seeds, &board.lanes, "acme/tool", &renamed, &old, None, &links);
+        assert_eq!((other.key.as_str(), other.project.as_str(), other.repo.as_str()), ("acme/tool#1037", "", "tool"));
+        assert_eq!(other.sessions.len(), 1);
+        assert!(other.lanes.is_empty());
     }
 
     #[test]

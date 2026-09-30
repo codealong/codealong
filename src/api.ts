@@ -4,7 +4,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { emit, emitTo, listen } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import type { AccountCfg, AccountInfo, AgentsStatus, Answers, Attachment, BarFeed, BarNote, Board, CloseOutcome, Config, ConfigView, DesktopFeed, DesktopPinned, DeviceFound, DevicesView, EditorIcon, FoundAccount, HostedStream, IdlePlan, LabelColor, Lane, PeekOpen, PeekShown, Pending, PrDetail, Route, Sent, Session, ShortcutStatus, Started, StartOptions, StartSpec, TextFound, Theme, TodoSuggested, TranscriptPage, UpdateView, Way } from './types';
+import type { AccountCfg, AccountInfo, AgentsStatus, Answers, Attachment, BarFeed, BarNote, Board, CloseOutcome, Config, ConfigView, DesktopFeed, DesktopPinned, DeviceFound, DevicesView, EditorIcon, FoundAccount, HostedStream, IdlePlan, LabelColor, Lane, PeekOpen, PeekShown, Pending, PrDetail, PrItem, Route, Sent, Session, ShortcutStatus, Started, StartOptions, StartSpec, TextFound, Theme, TodoSuggested, TranscriptPage, UpdateView, Way } from './types';
 import type { TodoOp } from './todos';
 
 export const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -87,6 +87,13 @@ export async function refresh(): Promise<void> {
 export async function prDetail(repo: string, number: number): Promise<PrDetail> {
   if (!inTauri) throw new Error('PR details need the app.');
   return invoke<PrDetail>('pr_detail', { repo, number });
+}
+
+/** A PR the board doesn't list, for a link to it: what GitHub says of it, with the worktrees and
+ *  sessions here that worked on it. */
+export async function prCard(repo: string, number: number): Promise<PrItem> {
+  if (!inTauri) throw new Error('PR details need the app.');
+  return invoke<PrItem>('pr_card', { repo, number });
 }
 
 /** Which of a PR's comments ask for a change, by comment id, from Jev. Empty while that's off. */

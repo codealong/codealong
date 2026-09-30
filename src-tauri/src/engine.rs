@@ -143,6 +143,9 @@ pub enum Msg {
     /// rather than when the watcher says. The reply is the time of the board that shows it,
     /// published at once.
     Reread(Vec<PathBuf>, Sender<i64>),
+    /// A PR the board doesn't list, as GitHub has it, to match to worktrees and sessions for a
+    /// link to it (`board::pr_card`): the repo as the link names it, the PR, and who `gh` is.
+    PrCard(String, PrRaw, Option<String>, Sender<PrItem>),
 }
 
 /// What the UI talks to. Cheap to clone.
@@ -309,6 +312,20 @@ impl Handle {
             bail!("Codealong's engine stopped.");
         }
         Ok(rx.recv_timeout(SHOWN_WAIT).ok())
+    }
+
+    /// A PR the board doesn't list, for a link to it in a conversation: GitHub's facts, with the
+    /// worktrees and sessions here that worked on it. The GitHub request runs on the caller's
+    /// thread; the engine only matches it. When the engine is too busy to, it comes with none.
+    pub fn pr_card(&self, slug: &str, number: u64) -> Result<PrItem> {
+        let (raw, login) = github::one(slug, number)?;
+        let (tx, rx) = channel();
+        if self.tx.send(Msg::PrCard(slug.to_string(), raw.clone(), login.clone(), tx)).is_ok() {
+            if let Ok(item) = rx.recv_timeout(Duration::from_secs(3)) {
+                return Ok(item);
+            }
+        }
+        Ok(board::pr_card(&[], &[], slug, &HashMap::new(), &raw, login.as_deref(), &board::PrLinks::default()))
     }
 
     /// The accounts in config.toml, each with whether it's signed in.
@@ -495,6 +512,18 @@ pub fn start(emit: impl Fn(&Board) + Send + 'static) -> Handle {
 /// One synchronous pass for `--snapshot`: everything the board needs, no watchers. Claude usage
 /// is read only when asked: the usage endpoint rate-limits, and the app polls it already.
 pub fn snapshot(with_github: bool, with_usage: bool) -> Board {
+    snapshot_engine(with_github, with_usage).compose()
+}
+
+/// `--snapshot --pr-card`: a PR as a link to it gets it when the board doesn't list it.
+pub fn snapshot_pr_card(slug: &str, number: u64) -> Result<PrItem> {
+    let (raw, login) = github::one(slug, number)?;
+    let e = snapshot_engine(false, false);
+    let lanes = e.compose().lanes;
+    Ok(e.pr_card(&lanes, slug, &raw, login.as_deref()))
+}
+
+fn snapshot_engine(with_github: bool, with_usage: bool) -> Engine {
     let (tx, _rx) = channel();
     let mut e = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
     let t = Instant::now();
@@ -551,7 +580,7 @@ pub fn snapshot(with_github: bool, with_usage: bool) -> Board {
         }
         lap("github", &t);
     }
-    e.compose()
+    e
 }
 
 /// The board without git, GitHub, visitors or usage: sessions, worktrees and todos as the
@@ -1381,6 +1410,13 @@ impl Engine {
                     self.load_reusable();
                     self.publish();
                     let _ = reply.send(self.board.read().map(|b| b.generated_at).unwrap_or(0));
+                }
+                Ok(Msg::PrCard(slug, raw, login, reply)) => {
+                    let item = match self.board.read() {
+                        Ok(b) => self.pr_card(&b.lanes, &slug, &raw, login.as_deref()),
+                        Err(_) => self.pr_card(&[], &slug, &raw, login.as_deref()),
+                    };
+                    let _ = reply.send(item);
                 }
                 Ok(Msg::Reread(paths, reply)) => {
                     self.apply_fs(paths);
@@ -2362,6 +2398,13 @@ impl Engine {
                 let _ = tx.send(Msg::PrMarks(scan()));
             });
         }
+    }
+
+    /// A PR the board doesn't list, matched to these lanes' worktrees and sessions.
+    fn pr_card(&self, lanes: &[Lane], slug: &str, raw: &PrRaw, login: Option<&str>) -> PrItem {
+        let (worked, unlinked) = prlinks::resolve(&self.pr_marks, &self.pr_store);
+        let links = board::PrLinks { worked, unlinked };
+        board::pr_card(&self.seeds, lanes, slug, &self.repo_names, raw, self.gh_login.as_deref().or(login), &links)
     }
 
     fn load_pr_links(&mut self) {

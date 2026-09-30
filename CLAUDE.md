@@ -85,6 +85,9 @@ The engine binary doubles as a CLI for checking behavior without a window:
   config, the file's text, its parse error if any, the app profiles).
 - `codealong --snapshot --open <lane id> <target id>`: runs a click's open action.
 - `codealong --snapshot --pr <owner/name> <number>`: a PR's detail, as the PR panel gets it.
+- `codealong --snapshot --pr-card <owner/name> <number>`: a PR the board doesn't list, as a link
+  to it in a conversation gets it on hover (`pr_card`: GitHub's facts, and the worktrees and
+  sessions here that worked on it).
 - `codealong --snapshot --route <text> [--project <name>]`: what Jev suggests for text typed in
   the quick panel (one TypeSafe call; needs the key).
 - `codealong --snapshot --transcript <session key> [--before <cursor>]`: a page of a session's

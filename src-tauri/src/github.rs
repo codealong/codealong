@@ -52,6 +52,10 @@ query($owner: String!, $name: String!, $requested: String!) {
   }
   requested: search(query: $requested, type: ISSUE, first: 50) { nodes { ... on PullRequest { number } } }
 }
+"#;
+
+/// What's read of each PR, for the board and for a link to one.
+const PR_FIELDS: &str = r#"
 fragment pr on PullRequest {
   number title url state isDraft reviewDecision updatedAt createdAt mergedAt closedAt headRefName headRefOid baseRefName
   additions deletions changedFiles
@@ -92,7 +96,7 @@ fn slug_of(out: &str) -> Option<String> {
 pub fn fetch(owner: &str, name: &str) -> Result<RepoPrs> {
     let owner_arg = format!("owner={owner}");
     let name_arg = format!("name={name}");
-    let query_arg = format!("query={QUERY}");
+    let query_arg = format!("query={QUERY}{PR_FIELDS}");
     let requested_arg = format!("requested=repo:{owner}/{name} is:pr is:open review-requested:@me");
     let out = procs::run(
         "gh",
@@ -111,6 +115,44 @@ pub fn fetch(owner: &str, name: &str) -> Result<RepoPrs> {
         }
     })?;
     parse(&out)
+}
+
+/// One PR, as the board reads PRs, for a link to one the board doesn't list; and who `gh` is
+/// signed in as.
+pub fn one(slug: &str, number: u64) -> Result<(PrRaw, Option<String>)> {
+    let (owner, name) = slug.split_once('/').ok_or_else(|| anyhow!("bad repo {slug}"))?;
+    let args = [format!("query={ONE_QUERY}{PR_FIELDS}"), format!("owner={owner}"), format!("name={name}"), format!("number={number}")];
+    let out = procs::run("gh", &["api", "graphql", "-f", &args[0], "-f", &args[1], "-f", &args[2], "-F", &args[3]], None, Duration::from_secs(20)).map_err(|e| {
+        let msg = e.to_string();
+        if msg.contains("couldn't start") {
+            anyhow!("Install the gh CLI and sign in with `gh auth login` to see PRs.")
+        } else if msg.contains("auth login") || msg.contains("401") {
+            anyhow!("Sign in again with `gh auth login` to see PRs.")
+        } else if msg.contains("Could not resolve") {
+            anyhow!("GitHub has no PR #{number} in {slug} that you can see.")
+        } else {
+            anyhow!("GitHub didn't answer for {slug}#{number}.")
+        }
+    })?;
+    parse_one(&out)
+}
+
+const ONE_QUERY: &str = r#"
+query($owner: String!, $name: String!, $number: Int!) {
+  viewer { login }
+  repository(owner: $owner, name: $name) { pullRequest(number: $number) { ...pr mergeStateStatus } }
+}
+"#;
+
+pub fn parse_one(json: &str) -> Result<(PrRaw, Option<String>)> {
+    let v: Value = serde_json::from_str(json)?;
+    let n = v.pointer("/data/repository/pullRequest").filter(|n| !n.is_null()).ok_or_else(|| anyhow!("GitHub didn't return the PR"))?;
+    let mut pr = parse_pr(n).ok_or_else(|| anyhow!("GitHub's answer for the PR didn't read"))?;
+    // As on the board, where it's asked only of open PRs.
+    if !pr.state.is_open() {
+        pr.merge = Merge::Unknown;
+    }
+    Ok((pr, v.pointer("/data/viewer/login").and_then(Value::as_str).map(String::from)))
 }
 
 pub fn parse(json: &str) -> Result<RepoPrs> {
@@ -440,6 +482,16 @@ mod tests {
         assert_eq!(repo.login.as_deref(), Some("ghempton"));
         assert!(prs[0].review_requested);
         assert!(!prs[1].review_requested);
+    }
+
+    #[test]
+    fn reads_one_pr() {
+        let json = r#"{"data":{"viewer":{"login":"me"},"repository":{"pullRequest":{"number":88,"title":"Old work","url":"https://github.com/acme/tool/pull/88","state":"MERGED","isDraft":false,"reviewDecision":null,"mergeStateStatus":"CLEAN","updatedAt":"2026-08-01T10:00:00Z","createdAt":"2026-07-30T10:00:00Z","mergedAt":"2026-08-01T10:00:00Z","closedAt":"2026-08-01T10:00:00Z","headRefName":"old-work","baseRefName":"main","additions":12,"deletions":3,"changedFiles":2,"author":{"login":"me"},"commits":{"nodes":[]}}}}}"#;
+        let (pr, login) = parse_one(json).unwrap();
+        assert_eq!((pr.number, pr.state, pr.merge), (88, PrState::Merged, Merge::Unknown));
+        assert_eq!((pr.head_ref.as_str(), pr.base_ref.as_deref(), pr.changed_files), ("old-work", Some("main"), 2));
+        assert_eq!(login.as_deref(), Some("me"));
+        assert!(parse_one(r#"{"data":{"viewer":{"login":"me"},"repository":{"pullRequest":null}}}"#).is_err());
     }
 
     #[test]

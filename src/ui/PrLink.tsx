@@ -1,0 +1,372 @@
+// A link to a GitHub PR in a conversation (Markdown.tsx) or in what you wrote
+// (DescriptionEditor.tsx). A bare one reads `name#123`, with the PR's state as its icon once
+// Codealong knows the PR. Hovering it brings up a card: where the PR stands on GitHub, the
+// worktrees that hold it and the sessions that worked on it, as the PRs view has them. A click
+// opens the link in the browser, and a right-click has the PR's menu (menus.ts).
+//
+// It costs nothing until you hover: the board already lists the PRs in your projects' repos with
+// their sessions, and each link watches only its own PR there, so a push re-renders a link only
+// when its PR changed. A PR the board doesn't list (an older one, or another repo's) is asked of
+// GitHub once its card shows (pr_card, which matches it to sessions as the board does), and the
+// answer is kept a while for every link to it.
+
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
+import { openUrl, prCard } from '../api';
+import { absolute, agoPhrase, count } from '../format';
+import { prIndex, type PrRef } from '../prLinks';
+import { errorText } from '../report';
+import type { Lane, PrItem, Session } from '../types';
+import { PanelSession } from './PanelSession';
+import { PrPills } from './PrPills';
+import { Button, Icon, PR_ICON, PR_WORD } from './primitives';
+
+/** What a window does with a PR link's card: showing and opening what's on it, and menus. */
+export interface PrLinkActions {
+  /** Shows the PR in the main window's PRs view. Only for a PR the board lists. */
+  showPr?: (pr: PrItem) => void;
+  /** A click on a session: shows it in this window, or the main one. */
+  showSession: (lane: Lane, session: Session) => void;
+  /** Double-click: opens it where it runs. */
+  openSession: (lane: Lane, session: Session) => void;
+  sessionMenu: (lane: Lane, session: Session) => void;
+  /** The PR's right-click menu, with the board's PR when it lists it. */
+  prMenu: (url: string, pr: PrItem | null) => void;
+  /** Opens a web link; the quick panel steps aside first. The browser, without it. */
+  openLink?: (url: string) => void;
+  /** Reads the board, for a window that has none yet (the peek, until the first push): a card
+   *  waits for it rather than ask GitHub about a PR the board lists. */
+  needBoard?: () => void;
+}
+
+/** This window's PRs and lanes and what it does with them (`usePrLinks`). Each window is a page
+ *  of its own, so one is enough. */
+const host = {
+  prs: undefined as readonly PrItem[] | undefined,
+  index: new Map<string, PrItem>(),
+  lanes: [] as readonly Lane[],
+  actions: null as PrLinkActions | null,
+  listeners: new Set<() => void>(),
+};
+
+/** PRs GitHub was asked about, by link key: kept a while, then asked again on the next hover. */
+interface Fetched {
+  at: number;
+  item?: PrItem;
+  error?: string;
+  loading: boolean;
+}
+const fetched = new Map<string, Fetched>();
+const FRESH_MS = 5 * 60_000;
+const FAILED_MS = 30_000;
+
+/** Links hear about a new board and about answers from GitHub. */
+function subscribe(cb: () => void): () => void {
+  host.listeners.add(cb);
+  return () => void host.listeners.delete(cb);
+}
+
+function notify() {
+  for (const cb of host.listeners) cb();
+}
+
+const lanesNow = () => host.lanes;
+
+/** Asks GitHub about a PR, unless it was asked lately or is being asked now. */
+function fetchCard(ref: PrRef) {
+  const hit = fetched.get(ref.key);
+  if (hit && (hit.loading || performance.now() - hit.at < (hit.error ? FAILED_MS : FRESH_MS))) return;
+  const done = (f: { item?: PrItem; error?: string }) => {
+    fetched.set(ref.key, { at: performance.now(), loading: false, ...f });
+    notify();
+  };
+  fetched.set(ref.key, { at: performance.now(), item: hit?.item, loading: true });
+  notify();
+  prCard(ref.slug, ref.number)
+    .then((item) => done({ item }))
+    .catch((e: unknown) => done({ item: hit?.item, error: errorText(e) }));
+}
+
+/** Gives this window's PR links the board's PRs and lanes, and what the window does with them.
+ *  Links rendering with it read the new board at once; links that skip rendering hear about it
+ *  after, and re-render only when their own PR changed. */
+export function usePrLinks(prs: readonly PrItem[] | undefined, lanes: readonly Lane[] | undefined, actions: PrLinkActions) {
+  host.actions = actions;
+  if (host.prs !== prs) {
+    host.prs = prs;
+    host.index = prIndex(prs ?? []);
+  }
+  host.lanes = lanes ?? [];
+  useLayoutEffect(notify, [prs, lanes]);
+}
+
+const SHOW_MS = 350;
+const HIDE_MS = 200;
+/** After a card closes, another link's shows at once for this long. */
+const WARM_MS = 500;
+/** The one card that's up, so a new one closes it. */
+let shown: (() => void) | null = null;
+let warmUntil = 0;
+
+export function PrLink({ url, pr: ref, children }: { url: string; pr: PrRef; children: ReactNode }) {
+  const item = useSyncExternalStore(subscribe, () => host.index.get(ref.key) ?? fetched.get(ref.key)?.item);
+  // Without a window that says what to do with it (a page that never called usePrLinks), it's a
+  // plain link.
+  const hosted = host.actions !== null;
+  const anchor = useRef<HTMLAnchorElement>(null);
+  const [open, setOpen] = useState(false);
+  const timer = useRef(0);
+  const closeRef = useRef(() => setOpen(false));
+
+  useEffect(
+    () => () => {
+      window.clearTimeout(timer.current);
+      if (shown === closeRef.current) shown = null;
+    },
+    [],
+  );
+
+  const show = () => {
+    window.clearTimeout(timer.current);
+    const go = () => {
+      if (shown && shown !== closeRef.current) shown();
+      shown = closeRef.current;
+      setOpen(true);
+    };
+    if (performance.now() < warmUntil) go();
+    else timer.current = window.setTimeout(go, SHOW_MS);
+  };
+  const close = () => {
+    window.clearTimeout(timer.current);
+    if (shown === closeRef.current) {
+      shown = null;
+      warmUntil = performance.now() + WARM_MS;
+    }
+    setOpen(false);
+  };
+  const hide = () => {
+    window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(close, HIDE_MS);
+  };
+
+  const follow = () => {
+    close();
+    const openLink = host.actions?.openLink;
+    if (openLink) openLink(url);
+    else void openUrl(url);
+  };
+
+  return (
+    <>
+      <a
+        ref={anchor}
+        className="ca-md-a ca-prlink"
+        href={url}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          follow();
+        }}
+        onMouseEnter={hosted ? show : undefined}
+        onMouseLeave={hosted ? hide : undefined}
+        onContextMenu={
+          hosted
+            ? (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                close();
+                host.actions?.prMenu(url, host.index.get(ref.key) ?? null);
+              }
+            : undefined
+        }
+      >
+        {item && (
+          <span className={`ca-lane-pricon ca-prlink-icon ca-pr--${item.state}`}>
+            <Icon name={PR_ICON[item.state]} size={12} stroke={2} title={PR_WORD[item.state]} />
+          </span>
+        )}
+        {children}
+      </a>
+      {open && anchor.current && <PrCard anchor={anchor.current} prRef={ref} url={url} onEnter={show} onLeave={hide} onClose={close} onFollow={follow} />}
+    </>
+  );
+}
+
+/** Sessions listed before "and N more". */
+const SESSIONS_SHOWN = 5;
+/** Room kept between the card and the window's edges, and between it and the link. */
+const EDGE = 8;
+const GAP = 4;
+
+interface CardProps {
+  anchor: HTMLElement;
+  prRef: PrRef;
+  url: string;
+  onEnter: () => void;
+  onLeave: () => void;
+  onClose: () => void;
+  onFollow: () => void;
+}
+
+function PrCard({ anchor, prRef: ref, url, onEnter, onLeave, onClose, onFollow }: CardProps) {
+  const card = useRef<HTMLDivElement>(null);
+  const listed = useSyncExternalStore(subscribe, () => host.index.get(ref.key));
+  const lanes = useSyncExternalStore(subscribe, lanesNow);
+  const asked = useSyncExternalStore(subscribe, () => fetched.get(ref.key));
+  const hasBoard = useSyncExternalStore(subscribe, () => host.prs !== undefined);
+  const pr = listed ?? asked?.item;
+  const now = Date.now();
+
+  useEffect(() => {
+    if (listed) return;
+    if (hasBoard || !host.actions?.needBoard) fetchCard(ref);
+    else host.actions.needBoard();
+  }, [listed, hasBoard, ref]);
+
+  // Under the link, or over it when there's more room there; inside the window either way, and
+  // scrolling within itself when the window is short of room.
+  const place = useRef(() => {});
+  place.current = () => {
+    const el = card.current;
+    if (!el) return;
+    const rects = anchor.isConnected ? anchor.getClientRects() : null;
+    if (!rects || rects.length === 0) return onClose();
+    const first = rects[0];
+    const last = rects[rects.length - 1];
+    el.style.maxHeight = '';
+    const natural = el.offsetHeight;
+    const below = window.innerHeight - last.bottom - GAP - EDGE;
+    const above = first.top - GAP - EDGE;
+    const under = natural <= below || below >= above;
+    const height = Math.max(0, Math.min(natural, under ? below : above));
+    const at = under ? last : first;
+    el.style.maxHeight = `${height}px`;
+    el.style.top = `${under ? last.bottom + GAP : first.top - GAP - height}px`;
+    el.style.left = `${Math.max(EDGE, Math.min(at.left, window.innerWidth - el.offsetWidth - EDGE))}px`;
+  };
+  useLayoutEffect(() => place.current());
+
+  // It follows the link as the conversation scrolls, and goes on a key, a click elsewhere, or when
+  // the window goes to the background.
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  useEffect(() => {
+    const close = () => closeRef.current();
+    let frame = 0;
+    const onMove = () => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => place.current());
+    };
+    const onDown = (e: PointerEvent) => {
+      const t = e.target as Node;
+      if (!card.current?.contains(t) && !anchor.contains(t)) close();
+    };
+    window.addEventListener('scroll', onMove, true);
+    window.addEventListener('resize', onMove);
+    window.addEventListener('keydown', close, true);
+    window.addEventListener('pointerdown', onDown, true);
+    window.addEventListener('blur', close);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener('scroll', onMove, true);
+      window.removeEventListener('resize', onMove);
+      window.removeEventListener('keydown', close, true);
+      window.removeEventListener('pointerdown', onDown, true);
+      window.removeEventListener('blur', close);
+    };
+  }, [anchor]);
+
+  const laneById = new Map(lanes.map((l) => [l.id, l]));
+  const sessions = (pr?.sessions ?? [])
+    .flatMap((x) => {
+      const lane = laneById.get(x.lane);
+      const session = lane?.sessions.find((s) => s.key === x.key);
+      return lane && session ? [{ lane, session }] : [];
+    })
+    .sort((a, b) => Number(b.session.live) - Number(a.session.live) || b.session.lastActivity - a.session.lastActivity);
+  const holding = (pr?.lanes ?? []).flatMap((id) => laneById.get(id) ?? []);
+  const ended = pr?.mergedAt ?? pr?.closedAt ?? null;
+  // Doing something from the card closes it first.
+  const act = (f: (a: PrLinkActions) => void) => {
+    onClose();
+    if (host.actions) f(host.actions);
+  };
+
+  return createPortal(
+    <div ref={card} className="ca-prcard" role="dialog" aria-label={`${ref.slug}#${ref.number}`} onMouseEnter={onEnter} onMouseLeave={onLeave}>
+      <div className="ca-prcard-head">
+        <span className={['ca-lane-pricon', pr && `ca-pr--${pr.state}`].filter(Boolean).join(' ')}>
+          <Icon name={pr ? PR_ICON[pr.state] : 'pr'} size={14} stroke={1.75} title={pr ? PR_WORD[pr.state] : undefined} />
+        </span>
+        <span className="ca-prcard-ref">
+          {ref.slug}#{ref.number}
+        </span>
+        {pr && <PrPills pr={pr} />}
+      </div>
+      {pr ? (
+        <>
+          <p className="ca-prcard-title">{pr.title}</p>
+          <p className="ca-prcard-meta">
+            <code className="ca-ic">{pr.head}</code>
+            {pr.base && (
+              <>
+                {' → '}
+                <code className="ca-ic">{pr.base}</code>
+              </>
+            )}
+          </p>
+          <p className="ca-prcard-meta">
+            by {pr.mine ? 'you' : (pr.author ?? 'unknown')} ·{' '}
+            {ended != null ? (
+              <span title={absolute(ended)}>
+                {pr.state === 'merged' ? 'merged' : 'closed'} {agoPhrase(ended, now)}
+              </span>
+            ) : (
+              <span title={absolute(pr.updatedAt)}>updated {agoPhrase(pr.updatedAt, now)}</span>
+            )}{' '}
+            · +{pr.additions.toLocaleString('en-US')} −{pr.deletions.toLocaleString('en-US')} in {count(pr.changedFiles, 'file')}
+          </p>
+          {holding.length > 0 && (
+            <p className="ca-prcard-meta">
+              Checked out in <span className="ca-prcard-lanes">{holding.map((l) => l.callsign).join(', ')}</span>
+            </p>
+          )}
+        </>
+      ) : asked?.error ? (
+        <p className="ca-prcard-error">{asked.error}</p>
+      ) : (
+        <p className="ca-prcard-meta">Asking GitHub…</p>
+      )}
+      {sessions.length > 0 && (
+        <div className="ca-prcard-sec">
+          <h4 className="ca-label">{sessions.length === 1 ? 'Its session' : `Sessions · ${sessions.length}`}</h4>
+          <div className="ca-tree" role="tree" aria-label="Sessions">
+            {sessions.slice(0, SESSIONS_SHOWN).map(({ lane, session }) => (
+              <PanelSession
+                key={session.key}
+                lane={lane}
+                session={session}
+                now={now}
+                onShow={(l, s) => act((a) => a.showSession(l, s))}
+                onOpen={(l, s) => act((a) => a.openSession(l, s))}
+                onMenu={(l, s) => host.actions?.sessionMenu(l, s)}
+              />
+            ))}
+          </div>
+          {sessions.length > SESSIONS_SHOWN && <p className="ca-prcard-meta">and {sessions.length - SESSIONS_SHOWN} more</p>}
+        </div>
+      )}
+      <div className="ca-prcard-foot">
+        {listed && host.actions?.showPr && (
+          <Button size="sm" icon="layout-sidebar" onClick={() => act((a) => a.showPr?.(listed))}>
+            Show in Codealong
+          </Button>
+        )}
+        <Button size="sm" icon="external" title={url} onClick={onFollow}>
+          Open on GitHub
+        </Button>
+      </div>
+    </div>,
+    document.body,
+  );
+}

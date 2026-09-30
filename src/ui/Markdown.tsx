@@ -1,18 +1,30 @@
 // Just enough Markdown for what agents write back: headings, lists, quotes, fenced code, tables,
 // and **bold**, *italics*, `code` and [links](url) inside lines. Built as React elements, never as
 // HTML, so nothing in a transcript can put markup on the page. Web links, written as links or bare,
-// open in the browser; any other link shows as its text.
+// open in the browser; any other link shows as its text. A link to a GitHub PR is the PR's
+// (PrLink.tsx): a bare one reads `name#123`, and hovering it shows the PR and its sessions.
 
 import { Fragment, memo, type ReactNode } from 'react';
 import { openUrl } from '../api';
+import { prLabel, prRefOf } from '../prLinks';
 import { CodeBlock } from './CopyButton';
+import { PrLink } from './PrLink';
 
 const WEB = /^https?:\/\//i;
 /** A bare web link in text, without the punctuation that ends a sentence around it. */
 const BARE = /https?:\/\/[^\s<>()`]+[^\s<>()`.,;:!?'"*_]/g;
 
-/** A web link that opens in the browser, never in the app's own window. */
-function Link({ url, children }: { url: string; children: ReactNode }) {
+/** A web link that opens in the browser, never in the app's own window. A bare one (`children`
+ *  left out) reads as its URL, or a PR's as GitHub shortens it. */
+function Link({ url, children }: { url: string; children?: ReactNode }) {
+  const pr = prRefOf(url);
+  if (pr) {
+    return (
+      <PrLink url={url} pr={pr}>
+        {children ?? prLabel(pr)}
+      </PrLink>
+    );
+  }
   return (
     <a
       className="ca-md-a"
@@ -24,7 +36,7 @@ function Link({ url, children }: { url: string; children: ReactNode }) {
         void openUrl(url);
       }}
     >
-      {children}
+      {children ?? url}
     </a>
   );
 }
@@ -35,11 +47,7 @@ function bare(text: string, key: number): ReactNode[] {
   let last = 0;
   for (const m of text.matchAll(BARE)) {
     if (m.index > last) out.push(text.slice(last, m.index));
-    out.push(
-      <Link key={`${key}-${m.index}`} url={m[0]}>
-        {m[0]}
-      </Link>,
-    );
+    out.push(<Link key={`${key}-${m.index}`} url={m[0]} />);
     last = m.index + m[0].length;
   }
   if (last < text.length) out.push(text.slice(last));
@@ -190,16 +198,7 @@ export function inline(text: string, links = true): ReactNode[] {
           <Fragment key={n++}>{inline(m[4], links)}</Fragment>
         ),
       );
-    else if (m[6] != null)
-      out.push(
-        links ? (
-          <Link key={n++} url={m[6]}>
-            {m[6]}
-          </Link>
-        ) : (
-          m[6]
-        ),
-      );
+    else if (m[6] != null) out.push(links ? <Link key={n++} url={m[6]} /> : m[6]);
     else out.push(<em key={n++}>{inline(m[7], links)}</em>);
     last = m.index + m[0].length;
   }

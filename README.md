@@ -58,7 +58,11 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     whole conversation, read from the session's own record (Claude Code's transcript, Codex's rollout, OpenCode's database): your prompts, the
     agent's replies as Markdown, and every tool call, which opens to its input and output; runs
     of calls fold into one line. It opens at the newest and loads older pages as you scroll up,
-    and follows the session as it goes. Code blocks have Copy on hover, and a shell block in a
+    and follows the session as it goes. A link to a GitHub PR, in a reply or a prompt, reads
+    `name#123` with the PR's state as its icon; hovering it shows a card with where the PR stands
+    (review, checks, branches, size), the worktrees that hold it and the sessions that worked on
+    it, each a click from its panel, and its right-click menu is the PR's. A PR the board doesn't
+    list (an older one, another repo's) is asked of GitHub when its card first shows. Code blocks have Copy on hover, and a shell block in a
     reply (`bash`, `sh`, `zsh`…) or a command the agent ran has Run beside it: that opens a new
     terminal where the session works, or where the command ran, and types the commands there
     without their comments. The box at the bottom sends it a message where it runs,
@@ -700,6 +704,7 @@ light scan (no git, PRs or visitors).
 | `src-tauri/src/config.rs`, `state.rs` | `config.toml` (accounts saved in place) and `state.json` (seen, pinned, archived, account folders already read) |
 | `src-tauri/src/reusable.rs`, `src/reusable.ts` | Reusable worktrees: the marks made by hand (`worktrees.json`); `board::reusable`, `reuse_of`, `earlier` and `looks_reusable` have the rules, `git::new_work` reads the reflog, and `src/route.ts` sends Jev's new work to them |
 | `src-tauri/src/prlinks.rs` | Sessions tied to PRs other than by branch: what their records show they did to a PR, and links made by hand (`pr-links.json`) |
+| `src/prLinks.ts`, `src/ui/PrLink.tsx` | Links to PRs in conversations and prompts: the board's PRs by link, and the card a link shows on hover (`pr_card` for a PR the board doesn't list) |
 | `src-tauri/src/detect.rs` | The harness accounts on this device: folders, sign-ins, and the wrappers and aliases that run them |
 | `src-tauri/src/bar.rs`, `barfeed.rs` | The bar's window (a panel over every app, floating where you put it or docked in the notch, found from the screen's sides of the menu bar, where it takes clicks only on the shape it shows; Window › Floating bar and Bar in the notch) and the small feed of what it shows, sent only when that changes |
 | `src-tauri/src/desktop.rs`, `src/ui/DesktopPin.tsx` | Cards pinned to the desktop: a window each, made as the bar's is, where a new one goes, `desktop.json`, and what each shows, cut from the board and sent only when it changes; the page draws the Canvas view's card (`ui/CanvasCard.tsx`) |

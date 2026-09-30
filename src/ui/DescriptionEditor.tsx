@@ -8,8 +8,10 @@ import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
 import { imageUrl, openAttachment, openUrl } from '../api';
 import { filesToAttach, keepFiles, useFileDrop } from '../attachInput';
 import { attachmentsIn, inlines, insertAttachments, pieces, withoutAttachment } from '../todos';
+import { prLabel, prRefOf } from '../prLinks';
 import type { Attachment } from '../types';
 import { Icon } from './primitives';
+import { PrLink } from './PrLink';
 import { errorText } from '../report';
 
 const open = (path: string) => void openAttachment(path);
@@ -40,6 +42,31 @@ function FileChip({ name, path, onRemove }: { name: string; path: string; onRemo
   );
 }
 
+/** A web link in text, which opens in the browser. A PR's reads as GitHub shortens it, and
+ *  hovering it shows the PR (PrLink.tsx). */
+function TextLink({ url }: { url: string }) {
+  const pr = prRefOf(url);
+  if (pr) {
+    return (
+      <PrLink url={url} pr={pr}>
+        {prLabel(pr)}
+      </PrLink>
+    );
+  }
+  return (
+    <a
+      href={url}
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        void openUrl(url);
+      }}
+    >
+      {url}
+    </a>
+  );
+}
+
 /** Text with its web links and kept files clickable: links open in the browser, files where
  *  they open. */
 function InlineText({ text }: { text: string }) {
@@ -47,17 +74,7 @@ function InlineText({ text }: { text: string }) {
     <>
       {inlines(text).map((part, i) =>
         part.kind === 'url' ? (
-          <a
-            key={i}
-            href={part.url}
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              void openUrl(part.url);
-            }}
-          >
-            {part.url}
-          </a>
+          <TextLink key={i} url={part.url} />
         ) : part.kind === 'file' ? (
           <FileChip key={i} name={part.name} path={part.path} />
         ) : (
