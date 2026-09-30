@@ -270,7 +270,7 @@ fn osascript(script: &str, args: &[&str]) -> Result<String> {
 }
 
 /// Runs a script that talks to `app` (its name, for what goes wrong).
-fn osascript_in(app: &'static str, script: &str, args: &[&str]) -> Result<String> {
+pub fn osascript_in(app: &'static str, script: &str, args: &[&str]) -> Result<String> {
     let mut full = vec!["-"];
     full.extend_from_slice(args);
     procs::run_stdin("/usr/bin/osascript", &full, script, OSASCRIPT_TIMEOUT).map_err(|e| {

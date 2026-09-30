@@ -233,6 +233,14 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   every worktree at once), each new one is asked for its front page once, and the kernel says
   the moment one exits, so nothing is polled over HTTP. Only worktrees in projects are looked
   at, and only on this device.
+- **Chrome tabs**: a Claude Code session that drove Chrome through Claude in Chrome has Show in
+  Chrome in its right-click menu and its panel's Open menu, naming the Chrome profile when
+  Chrome has more than one. It selects the session's own tab in whichever window has it, which
+  shows its tab group, and brings that window forward. Once its tabs are gone, the item reads
+  Reopen <site> in Chrome and opens the session's last page again in that profile. The tabs
+  come from the session's transcript (each of the extension's results lists the session's tab
+  group); the profile from the extension's storage in each profile, which records its tab
+  groups, or from each profile's History for a group it no longer remembers.
 - **Reusable worktrees**: a worktree that takes one piece of work after another (its
   right-click menu's Reuse for new work, or `codealong reuse on`), where others are kept for
   one piece of work each. A repo's main worktree (named `main` on its row, as git calls it) and
@@ -705,6 +713,7 @@ light scan (no git, PRs or visitors).
 | `src-tauri/src/reusable.rs`, `src/reusable.ts` | Reusable worktrees: the marks made by hand (`worktrees.json`); `board::reusable`, `reuse_of`, `earlier` and `looks_reusable` have the rules, `git::new_work` reads the reflog, and `src/route.ts` sends Jev's new work to them |
 | `src-tauri/src/prlinks.rs` | Sessions tied to PRs other than by branch: what their records show they did to a PR, and links made by hand (`pr-links.json`) |
 | `src/prLinks.ts`, `src/ui/PrLink.tsx` | Links to PRs in conversations and prompts: the board's PRs by link, and the card a link shows on hover (`pr_card` for a PR the board doesn't list) |
+| `src-tauri/src/chrometabs.rs` | The Chrome tabs a Claude Code session drove through Claude in Chrome, read from its transcript; which profile they're in (the extension's storage, then History); bringing its tab forward by AppleScript, or its last page again in that profile |
 | `src-tauri/src/detect.rs` | The harness accounts on this device: folders, sign-ins, and the wrappers and aliases that run them |
 | `src-tauri/src/bar.rs`, `barfeed.rs` | The bar's window (a panel over every app, floating where you put it or docked in the notch, found from the screen's sides of the menu bar, where it takes clicks only on the shape it shows; Window › Floating bar and Bar in the notch) and the small feed of what it shows, sent only when that changes |
 | `src-tauri/src/desktop.rs`, `src/ui/DesktopPin.tsx` | Cards pinned to the desktop: a window each, made as the bar's is, where a new one goes, `desktop.json`, and what each shows, cut from the board and sent only when it changes; the page draws the Canvas view's card (`ui/CanvasCard.tsx`) |

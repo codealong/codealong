@@ -216,6 +216,29 @@ pub struct Session {
     /// lane's status.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub earlier: bool,
+    /// The Chrome tabs it drives through Claude in Chrome (chrometabs.rs), to bring back.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chrome: Option<ChromeTabs>,
+}
+
+/// A session's tabs in Chrome, as its record last listed them.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ChromeTabs {
+    /// Chrome's ids for its tab group's tabs, the one it last acted on first; empty once
+    /// they're closed.
+    pub tabs: Vec<i64>,
+    /// The page it last acted on, kept after its tabs close to open again.
+    pub url: String,
+    pub title: String,
+    /// The Chrome profile they're in, as its picker names it, when Chrome has more than one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile: Option<String>,
+    /// That profile's folder (`Profile 12`), where the page opens again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile_dir: Option<String>,
+    /// When it last used Chrome.
+    pub at: i64,
 }
 
 /// Jev's read of a session (insights.rs). Each part is there only when it was asked: how a turn

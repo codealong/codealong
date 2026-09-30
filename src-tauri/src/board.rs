@@ -309,6 +309,7 @@ pub fn claude_session(
         stoppable: false,
         snoozed_until: None,
         earlier: false,
+        chrome: None,
     })
 }
 
@@ -396,6 +397,7 @@ pub fn codex_session(account: &AccountCfg, th: &ThreadInfo, name: Option<&str>, 
         stoppable: false,
         snoozed_until: None,
         earlier: false,
+        chrome: None,
     }
 }
 
@@ -468,6 +470,7 @@ pub fn opencode_session(account: &AccountCfg, row: &SessionRow, live: Option<&Li
         stoppable: false,
         snoozed_until: None,
         earlier: false,
+        chrome: None,
     }
 }
 
@@ -537,6 +540,7 @@ pub fn antigravity_session(account: &AccountCfg, c: &Conversation, seen_at: i64,
         stoppable: false,
         snoozed_until: None,
         earlier: false,
+        chrome: None,
     }
 }
 
@@ -1174,6 +1178,24 @@ pub fn lane_preview(set: Option<&crate::previews::Entry>, servers: &[&crate::pre
     }
 }
 
+/// What a session's Chrome item says: Show in Chrome while one of its tabs is open, else Reopen
+/// with the site of its last page, and the profile when Chrome has more than one. `chromeLabel`
+/// in `src/open.ts` says the same.
+pub fn chrome_label(c: &ChromeTabs) -> String {
+    let what = if c.tabs.is_empty() { format!("Reopen {} in Chrome", site(&c.url)) } else { "Show in Chrome".to_string() };
+    match &c.profile {
+        Some(p) => format!("{what} ({p})"),
+        None => what,
+    }
+}
+
+/// A web address's host, without `www.`.
+fn site(url: &str) -> &str {
+    let rest = url.split_once("://").map_or(url, |(_, r)| r);
+    let host = rest.split(['/', '?', '#']).next().unwrap_or(rest);
+    host.strip_prefix("www.").unwrap_or(host)
+}
+
 pub fn targets(seed: &LaneSeed, sessions: &[Session], pr: Option<&Pr>, preview: Option<&Preview>, apps: &AppNames) -> (Vec<Target>, Option<String>) {
     let term = &apps.terminal;
     let editor = &apps.editor;
@@ -1182,7 +1204,8 @@ pub fn targets(seed: &LaneSeed, sessions: &[Session], pr: Option<&Pr>, preview: 
     // order, most urgent first.
     let latest = latest_session(sessions);
     let rest = sessions.iter().filter(|s| latest.map_or(true, |l| l.key != s.key));
-    for (i, s) in latest.into_iter().chain(rest).take(4).enumerate() {
+    let shown: Vec<&Session> = latest.into_iter().chain(rest).take(4).collect();
+    for (i, s) in shown.iter().enumerate() {
         let first = i == 0;
         let enter: Option<&[&str]> = if first { Some(&["⏎"]) } else { None };
         let who = format!("{} · {}", s.account, truncate(&s.title, 48));
@@ -1259,6 +1282,14 @@ pub fn targets(seed: &LaneSeed, sessions: &[Session], pr: Option<&Pr>, preview: 
                 let why = format!("{who} · no link to a conversation, so the app comes forward");
                 t.push(target(format!("s|{}|antigravity", s.key), "app", "Open Antigravity".into(), Some(why), enter, false, "session"));
             }
+        }
+    }
+    // Their tabs in Chrome, apart from the ways to open them: ⌘⏎ and the lane's default are those.
+    for s in &shown {
+        if let Some(c) = &s.chrome {
+            let page = if c.title.is_empty() { crate::previews::short_url(&c.url) } else { c.title.as_str() };
+            let detail = format!("{} · {} · {}", truncate(page, 48), s.account, truncate(&s.title, 48));
+            t.push(target(format!("s|{}|chrome", s.key), "world", chrome_label(c), Some(detail), None, false, "browser"));
         }
     }
     let here = tilde(&seed.path);
@@ -2711,6 +2742,24 @@ mod tests {
         let (none, default) = targets(&seed("/r/x", "x"), &[], None, None, &apps);
         assert_eq!(default.as_deref(), Some("l|terminal"));
         assert_eq!(none.len(), 3);
+    }
+
+    #[test]
+    fn a_session_offers_its_chrome_tabs() {
+        let apps = AppNames { terminal: "Ghostty".into(), ..Default::default() };
+        let a = acct("claude2");
+        let mut s = claude_session(&a, Some(&reg("idle", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
+        s.chrome = Some(ChromeTabs { tabs: vec![12, 11], url: "https://www.admin.google.com/ac/users?x=1".into(), title: "Users".into(), profile: Some("Work".into()), profile_dir: Some("Profile 12".into()), at: NOW });
+        let (t, default) = targets(&seed("/r/x", "x"), &[s.clone()], None, None, &apps);
+        let c = t.iter().find(|x| x.id == "s|claude:claude2:abc1234567|chrome").expect("a Chrome target");
+        assert_eq!((c.label.as_str(), c.group.as_str()), ("Show in Chrome (Work)", "browser"));
+        assert!(c.detail.as_deref().unwrap().starts_with("Users · claude2 · "));
+        // It isn't how the session or the lane opens.
+        assert_eq!(default.as_deref(), Some(s.open_target.as_str()));
+        let tabs = s.chrome.as_mut().unwrap();
+        tabs.tabs.clear();
+        tabs.profile = None;
+        assert_eq!(chrome_label(tabs), "Reopen admin.google.com in Chrome");
     }
 
     #[test]

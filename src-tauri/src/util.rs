@@ -407,3 +407,23 @@ mod tests {
         assert_eq!(work.last().map(String::as_str), Some("/w/19"));
     }
 }
+
+/// Calls `f` with each line of a file that has one of `needles` in it, read a line at a time:
+/// transcripts run to hundreds of megabytes, and only a few lines in them matter.
+pub fn each_line_with(path: &Path, needles: &[&str], mut f: impl FnMut(&str)) {
+    use std::io::BufRead;
+    let Ok(file) = std::fs::File::open(path) else { return };
+    let mut r = std::io::BufReader::with_capacity(1 << 20, file);
+    let finders: Vec<memchr::memmem::Finder> = needles.iter().map(|n| memchr::memmem::Finder::new(n.as_bytes())).collect();
+    let mut line = Vec::new();
+    loop {
+        line.clear();
+        match r.read_until(b'\n', &mut line) {
+            Ok(0) | Err(_) => break,
+            Ok(_) => {}
+        }
+        if finders.iter().any(|x| x.find(&line).is_some()) {
+            f(String::from_utf8_lossy(&line).trim_end());
+        }
+    }
+}

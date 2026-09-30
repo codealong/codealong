@@ -5,7 +5,7 @@
 
 import { openFromBar, openTarget } from './api';
 import { errorText, type Report } from './report';
-import type { Lane, Session } from './types';
+import type { ChromeTabs, Lane, Session } from './types';
 
 /** A worktree's own entry for one of its targets, as `lane.targets` lists it. */
 export interface Listed {
@@ -38,8 +38,24 @@ export function openWords(target: string, terminal: string): string {
     codex: 'Open in Codex',
     antigravity: 'Open Antigravity',
     hosted: 'Show in Codealong',
+    chrome: 'Show in Chrome',
   };
   return how[target.split('|')[2]] ?? 'Open';
+}
+
+/** What a session's Chrome item says: Show in Chrome while one of its tabs is open, else Reopen
+ *  with the site of its last page, and the profile when Chrome has more than one. board.rs's
+ *  `chrome_label` says the same. */
+export function chromeLabel(c: ChromeTabs): string {
+  const what = c.tabs.length > 0 ? 'Show in Chrome' : `Reopen ${site(c.url)} in Chrome`;
+  return c.profile ? `${what} (${c.profile})` : what;
+}
+
+/** A web address's host, without `www.`. */
+function site(url: string): string {
+  const rest = url.includes('://') ? url.slice(url.indexOf('://') + 3) : url;
+  const host = rest.split(/[/?#]/)[0];
+  return host.startsWith('www.') ? host.slice(4) : host;
 }
 
 /** How a session opens, in words: its worktree's label for it (Respond in Ghostty), else

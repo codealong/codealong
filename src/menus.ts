@@ -13,7 +13,7 @@ import type { MenuAction, MenuGroup, MenuSpec } from './contextMenu';
 import { shortOf } from './devices';
 import { folderMenu, openInMenu, opensInEditor, type AppIcons, type Apps } from './editors';
 import { renames } from './harness';
-import { openLabel } from './open';
+import { chromeLabel, openLabel } from './open';
 import { closable, seenable, stoppable } from './lanes';
 import { snoozeMenu } from './snooze';
 import type { DesktopPinned, Lane, Pr, Session, Started } from './types';
@@ -127,6 +127,7 @@ export interface SessionActions {
   open: MenuAction;
   folder?: MenuAction | MenuGroup;
   pr?: MenuAction;
+  chrome?: MenuAction;
   reveal?: MenuAction;
   reply?: MenuAction;
   newSession?: MenuAction;
@@ -167,6 +168,9 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
     open: { label: openLabel(lane, s, can.terminal), run: () => can.open(lane, s.openTarget) },
     folder: can.editors && opensInEditor(lane) ? item(folderMenu(can.editors.apps, can.editors.icons, (id) => can.open(lane, id))) : undefined,
     pr: prItem(lane, report),
+    // Its tab in Chrome, in whichever profile's window has it; Chrome here, so not for a session
+    // on another device.
+    chrome: here && s.chrome ? { label: chromeLabel(s.chrome), run: () => can.open(lane, `s|${s.key}|chrome`) } : undefined,
     reveal: can.reveal && { label: 'Show in Codealong', run: can.reveal },
     reply: can.reply && { label: 'Reply here', run: can.reply },
     newSession: newSessionItem(lane, can.newSession),
@@ -188,12 +192,12 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
 }
 
 /** The order of a session's menu, in groups with a line between: opening it (where it lives,
- *  its folder, its PR), showing or answering it in Codealong and starting from it; the window's
+ *  its folder, its PR, its tabs in Chrome), showing or answering it in Codealong and starting from it; the window's
  *  todos; what it is to you (its turn, its name, seen, pinned, snoozed, closed, archived);
  *  copying it. */
 const SESSION_MENU = [
   ['heading'],
-  ['open', 'folder', 'pr', 'reveal', 'reply', 'newSession', 'fork'],
+  ['open', 'folder', 'pr', 'chrome', 'reveal', 'reply', 'newSession', 'fork'],
   ['todos'],
   ['stop', 'rename', 'seen', 'pin', 'desktop', 'snooze', 'close', 'archive'],
   ['copyId', 'copyResume', 'canvas'],

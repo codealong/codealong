@@ -61,6 +61,8 @@ export interface Session {
   /** It worked in a reusable worktree before that worktree last took new work: listed after the
    *  current work's sessions, and out of the worktree's status (board::earlier). */
   earlier?: boolean;
+  /** The Chrome tabs it drives through Claude in Chrome, to bring back (chrometabs.rs). */
+  chrome?: ChromeTabs;
   resumeCommand: string | null;
   /** The Claude app is signed into this session's account. */
   appAccount: boolean;
@@ -128,6 +130,19 @@ export interface GitInfo {
   newWorkCount?: number;
 }
 
+/** A session's tabs in Chrome, as its record last listed them. */
+export interface ChromeTabs {
+  /** Chrome's ids for its tab group's tabs, the one it last acted on first; empty once closed. */
+  tabs: number[];
+  /** The page it last acted on, kept after its tabs close to open again. */
+  url: string;
+  title: string;
+  /** The Chrome profile they're in, as its picker names it, when Chrome has more than one. */
+  profile?: string;
+  profileDir?: string;
+  at: number;
+}
+
 export interface Target {
   id: string;
   icon: string;
@@ -137,7 +152,8 @@ export interface Target {
   detail: string | null;
   kbd: string[] | null;
   disabled: boolean;
-  group: 'session' | 'lane' | 'pr';
+  /** `browser` is a session's tabs in Chrome: listed apart from the ways to open it. */
+  group: 'session' | 'browser' | 'lane' | 'pr';
 }
 
 export interface Lane {

@@ -432,6 +432,7 @@ mod tests {
             stoppable: false,
             snoozed_until: None,
             earlier: false,
+            chrome: None,
         }
     }
 

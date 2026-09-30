@@ -10,6 +10,7 @@ mod barfeed;
 mod board;
 mod canvas;
 mod chrome;
+mod chrometabs;
 mod caret;
 mod claude;
 mod claudeapp;

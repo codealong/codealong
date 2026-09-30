@@ -827,6 +827,37 @@ Google Chrome (154, for previews' profiles, chrome.rs; checked 2026-09-29)
   with a Chrome on a scratch `--user-data-dir`: one main process after, the page in that
   profile's session). Started from the binary instead, a Chrome that wasn't running would be
   Codealong's child.
+- A tab's AppleScript `id` (text) is the id extensions get for it (both are
+  `SessionTabHelper`'s, per Chromium's `tab_applescript.mm` and `extension_tab_util.cc`), unique
+  across all profiles' windows, which one Chrome process runs and one `every window` lists.
+  `every window` answers `window id N` references. By `window_applescript.mm`, `set active tab
+  index of w to i` activates the tab through the tab strip and `set index of w to 1` orders the
+  window front (not yet watched on a window in use). Windows have no profile property.
+- A profile's History (SQLite: `urls`, `visits` with `visit_time` in microseconds since 1601) is
+  locked while Chrome runs; a `file:…?immutable=1` URI reads it in place.
+
+Claude in Chrome (extension 1.0.97, `fcoeoabgfenejglbffodgkkbkcdhcgfn`; chrometabs.rs, checked
+2026-09-30)
+
+- Chrome starts the native host (`Claude.app/Contents/Helpers/chrome-native-host`, or Claude
+  Code's `~/.claude/chrome/chrome-native-host`) once per profile with the extension; each listens
+  on `/tmp/claude-mcp-browser-bridge-$USER/<pid>.sock`, and nothing in its arguments names the
+  profile.
+- Its tools are `mcp__claude-in-chrome__*`. Each result ends with `Tab Context:` then
+  `- Executed on tabId: N` (when the call acted on a tab), `- Available tabs:` and one `  •
+  tabId N: "title" ("url")` a line for the session's tab group, none once they're closed ("Group
+  is now empty (auto-removed)"). `tabs_context_mcp` answers JSON first,
+  `{"availableTabs":[{tabId,title,url}],"selectedTabId":N,"tabGroupId":G}`, and other tools'
+  results can carry it as "Tab context (from front-loaded tabs_context_mcp)". A group closed
+  under a session answers "This session's tab group no longer exists".
+- `list_connected_browsers` answers `[{deviceId, name, osPlatform, connectedAt, isLocal,
+  inUse}]`: a device is one profile's extension, and names like "Browser 2" change with the
+  list. `select_browser {deviceId}` answers `Connected to browser "<name>"` or `Selected
+  browser …`, as `switch_browser` does.
+- The extension's storage (LevelDB, `<profile>/Local Extension Settings/<extension id>/`) keeps
+  `bridgeDeviceId`, `displayName`, and `tabGroups`, `{"<main tab id>":{"chromeGroupId":G,
+  "mainTabId",…}}`, rewritten whole on each change. The log is plain; compaction into tables
+  drops a gone group's record within days.
 
 iTerm2 (3.7.3, from its AppleScript dictionary and a program recording its input, 2026-09-29)
 

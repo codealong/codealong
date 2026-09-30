@@ -16,6 +16,7 @@ use crate::antigravity;
 use crate::appserver;
 use crate::claude::{self, RegistryEntry, TranscriptInfo};
 use crate::chrome;
+use crate::chrometabs;
 use crate::claudeapp;
 use crate::prlinks;
 use crate::previews;
@@ -101,6 +102,12 @@ pub enum Msg {
     Visitors(HashMap<PathBuf, Vec<String>>),
     /// Session key → the PRs its records show it made or changed (prlinks.rs).
     PrMarks(HashMap<String, Vec<String>>),
+    /// Session key → the Chrome tabs its records show it drove, their profiles looked up, and
+    /// Chrome's profiles (chrometabs.rs).
+    ChromeUse(HashMap<String, chrometabs::Use>, Vec<chrome::Profile>),
+    /// The profile folder a session's Chrome tabs are in, looked up for the tab group it had
+    /// then, and Chrome's profiles.
+    ChromeProfile(String, Option<i64>, Option<String>, Vec<chrome::Profile>),
     RefreshUsage,
     UsageDone(Vec<Usage>),
     /// What each OpenCode account's background service said, or None where it isn't running.
@@ -439,6 +446,7 @@ pub fn open_on(board: &Board, lane_id: &str, target_id: &str) -> Result<Option<S
                 "claude-app" => launch::open_url(&launch::claude_app_url(&s.id))?,
                 "codex" => launch::open_codex(&launch::codex_thread_url(&s.id))?,
                 "antigravity" => launch::open_antigravity()?,
+                "chrome" => chrometabs::show(s.chrome.as_ref().ok_or_else(|| anyhow!("That session hasn't used Chrome."))?)?,
                 // A window shows it in its own panel; nothing opens elsewhere.
                 "hosted" => {}
                 other => bail!("Unknown action {other:?}"),
@@ -735,6 +743,12 @@ struct Engine {
     subagent_offsets: HashMap<PathBuf, u64>,
     /// Session key → the PRs its records show it made or changed.
     pr_marks: HashMap<String, Vec<String>>,
+    /// Session key → the Chrome tabs its records show it drove (chrometabs.rs).
+    chrome_use: HashMap<String, chrometabs::Use>,
+    /// Chrome's profiles, as of the last lookup of a session's.
+    chrome_profiles: Vec<chrome::Profile>,
+    /// Session key → the tab group its profile was last looked up for, and when.
+    chrome_lookups: HashMap<String, (Option<i64>, Instant)>,
     /// Links to PRs made or taken away by hand (`pr-links.json`).
     pr_store: prlinks::LinkStore,
     pr_links_warning: Option<String>,
@@ -853,6 +867,9 @@ impl Engine {
             needles: Vec::new(),
             subagent_offsets: HashMap::new(),
             pr_marks: HashMap::new(),
+            chrome_use: HashMap::new(),
+            chrome_profiles: Vec::new(),
+            chrome_lookups: HashMap::new(),
             pr_store: prlinks::LinkStore::default(),
             pr_links_warning: None,
             previews: board::Previews::default(),
@@ -1076,6 +1093,19 @@ impl Engine {
                 if s.status == Status::Idle && s.background.is_some() && s.status_since.unwrap_or(0) > self.seen.seen_at(&s.key) {
                     s.status = Status::Unread;
                 }
+            }
+        }
+        sessions
+    }
+
+    /// The Chrome tabs each session drove, to bring back from its menu.
+    fn with_chrome(&self, mut sessions: Vec<Session>) -> Vec<Session> {
+        if self.chrome_use.is_empty() {
+            return sessions;
+        }
+        for s in &mut sessions {
+            if let Some(u) = self.chrome_use.get(&s.key) {
+                s.chrome = u.for_board(&self.chrome_profiles);
             }
         }
         sessions
@@ -1316,6 +1346,16 @@ impl Engine {
                         }
                     }
                     self.dirty = true;
+                }
+                Ok(Msg::ChromeUse(found, profiles)) => self.take_chrome_use(found, profiles),
+                Ok(Msg::ChromeProfile(key, group, dir, profiles)) => {
+                    self.chrome_profiles = profiles;
+                    if let Some(u) = self.chrome_use.get_mut(&key).filter(|u| u.group == group) {
+                        if dir.is_some() && u.profile != dir {
+                            u.profile = dir;
+                            self.dirty = true;
+                        }
+                    }
                 }
                 Ok(Msg::RefreshUsage) => self.fetch_usage(),
                 Ok(Msg::Hosted) => self.dirty = true,
@@ -2375,27 +2415,44 @@ impl Engine {
                 files.push((p.clone(), format!("codex:{}:{}", a, th.id)));
             }
         }
-        let scan = move || -> HashMap<String, Vec<String>> {
+        let scan = move || -> (HashMap<String, Vec<String>>, HashMap<String, chrometabs::Use>, Vec<chrome::Profile>) {
             let mut out: HashMap<String, Vec<String>> = HashMap::new();
-            for (key, marks) in parallel_map(files, |(path, key)| {
-                let marks = prlinks::file_marks(&path);
-                (!marks.is_empty()).then(|| (key, marks))
+            let mut used: HashMap<String, chrometabs::Use> = HashMap::new();
+            for (key, marks, chrome) in parallel_map(files, |(path, key)| {
+                let (marks, chrome) = file_marks(&path);
+                (!marks.is_empty() || !chrome.is_empty()).then(|| (key, marks, chrome))
             }) {
-                let have = out.entry(key).or_default();
+                let have = out.entry(key.clone()).or_default();
                 for (pr, _) in marks {
                     if !have.contains(&pr) {
                         have.push(pr);
                     }
                 }
+                // A session's own log and its subagents' each have their own: the latest counts.
+                if !chrome.is_empty() && used.get(&key).map_or(true, |u| chrome.at > u.at) {
+                    used.insert(key, chrome);
+                }
             }
-            out
+            out.retain(|_, prs| !prs.is_empty());
+            // Which profile each session's tabs are in, from one read of the extension's storage.
+            if !used.is_empty() {
+                let mut clues = chrometabs::Clues::read();
+                for u in used.values_mut() {
+                    u.profile = clues.profile_of(u);
+                }
+            }
+            (out, used, chrome::profiles())
         };
         if sync {
-            self.pr_marks = scan();
+            let (prs, used, profiles) = scan();
+            self.pr_marks = prs;
+            self.take_chrome_use(used, profiles);
         } else {
             let tx = self.tx.clone();
             std::thread::spawn(move || {
-                let _ = tx.send(Msg::PrMarks(scan()));
+                let (prs, used, profiles) = scan();
+                let _ = tx.send(Msg::PrMarks(prs));
+                let _ = tx.send(Msg::ChromeUse(used, profiles));
             });
         }
     }
@@ -2405,6 +2462,44 @@ impl Engine {
         let (worked, unlinked) = prlinks::resolve(&self.pr_marks, &self.pr_store);
         let links = board::PrLinks { worked, unlinked };
         board::pr_card(&self.seeds, lanes, slug, &self.repo_names, raw, self.gh_login.as_deref().or(login), &links)
+    }
+
+    /// Takes in the full scan's Chrome use. A session's lines read while it ran are newer and
+    /// kept, with the group and profile the scan found for it when they don't say.
+    fn take_chrome_use(&mut self, found: HashMap<String, chrometabs::Use>, profiles: Vec<chrome::Profile>) {
+        self.chrome_profiles = profiles;
+        for (key, u) in found {
+            self.chrome_lookups.insert(key.clone(), (u.group, Instant::now()));
+            match self.chrome_use.get_mut(&key) {
+                Some(have) if have.at > u.at => {
+                    if have.group.is_none() || have.group == u.group {
+                        have.group = have.group.or(u.group);
+                        have.profile = have.profile.clone().or(u.profile);
+                    }
+                }
+                _ => {
+                    self.chrome_use.insert(key, u);
+                }
+            }
+        }
+        self.dirty = true;
+    }
+
+    /// Looks up which Chrome profile a session's tabs are in, off the engine's thread: when its
+    /// tab group is new, or again a minute on when the extension hadn't written it down yet.
+    fn look_up_chrome_profile(&mut self, key: &str) {
+        let Some(u) = self.chrome_use.get(key).filter(|u| !u.is_empty()) else { return };
+        if let Some((group, at)) = self.chrome_lookups.get(key) {
+            if *group == u.group && (u.profile.is_some() || at.elapsed() < Duration::from_secs(60)) {
+                return;
+            }
+        }
+        self.chrome_lookups.insert(key.to_string(), (u.group, Instant::now()));
+        let (u, key, tx) = (u.clone(), key.to_string(), self.tx.clone());
+        std::thread::spawn(move || {
+            let dir = chrometabs::Clues::read().profile_of(&u);
+            let _ = tx.send(Msg::ChromeProfile(key, u.group, dir, chrome::profiles()));
+        });
     }
 
     fn load_pr_links(&mut self) {
@@ -2429,6 +2524,12 @@ impl Engine {
                 have.push(pr);
                 self.dirty = true;
             }
+        }
+        let mut chrome = self.chrome_use.get(key).cloned().unwrap_or_default();
+        if chrometabs::fold_text(&mut chrome, &text) {
+            self.chrome_use.insert(key.to_string(), chrome);
+            self.look_up_chrome_profile(key);
+            self.dirty = true;
         }
         for (lane, needle, _) in &self.needles {
             if worked_in(&text, needle) {
@@ -2715,7 +2816,7 @@ impl Engine {
             now,
             apps: &apps,
             seeds: &self.seeds,
-            sessions: self.with_snoozes(self.with_insights(self.build_sessions(now), now), now),
+            sessions: self.with_snoozes(self.with_insights(self.with_chrome(self.build_sessions(now)), now), now),
             git: &self.git,
             prs: &self.prs,
             project_order: &order,
@@ -2921,6 +3022,22 @@ fn line_time(line: &str) -> Option<i64> {
     let start = line.find("\"timestamp\":\"")? + "\"timestamp\":\"".len();
     let end = line[start..].find('"')? + start;
     crate::util::parse_rfc3339_ms(&line[start..end])
+}
+
+/// A log's PR marks and the Chrome tabs it drove, from one read of it.
+fn file_marks(path: &Path) -> (Vec<(String, i64)>, chrometabs::Use) {
+    let needles: Vec<&str> = prlinks::NEEDLES.iter().chain(chrometabs::NEEDLES.iter()).copied().collect();
+    let mut marks: Vec<(String, i64)> = Vec::new();
+    let mut chrome = chrometabs::Use::default();
+    crate::util::each_line_with(path, &needles, |line| {
+        if let Some(m) = prlinks::line_mark(line) {
+            if !marks.iter().any(|(k, _)| k == &m.0) {
+                marks.push(m);
+            }
+        }
+        chrometabs::fold(&mut chrome, line);
+    });
+    (marks, chrome)
 }
 
 fn read_range_lossy(path: &Path, from: u64, to: u64) -> Option<String> {

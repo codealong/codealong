@@ -4,9 +4,8 @@
 //! engine watches it.
 
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader};
 use std::os::fd::AsRawFd;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
@@ -108,7 +107,7 @@ pub fn pr_marks(text: &str) -> Vec<(String, i64)> {
     text.lines().filter_map(line_mark).collect()
 }
 
-fn line_mark(line: &str) -> Option<(String, i64)> {
+pub fn line_mark(line: &str) -> Option<(String, i64)> {
     let claude = line.contains("\"gitOperation\"") && line.contains("\"pr\":{");
     let codex_create = line.contains("\"CommandExecution\"") && line.contains("gh pr create");
     let codex_attach = line.contains("\"attach_artifact\"") && line.contains("pull_request");
@@ -143,29 +142,9 @@ fn line_mark(line: &str) -> Option<(String, i64)> {
     Some((pr_key(&from_url(&url)?), at))
 }
 
-/// Every PR mark in a file, read line by line. Lines without a mark's text aren't decoded.
-pub fn file_marks(path: &Path) -> Vec<(String, i64)> {
-    let Ok(f) = std::fs::File::open(path) else { return vec![] };
-    let mut r = BufReader::with_capacity(1 << 20, f);
-    let mut line = Vec::new();
-    let mut out = Vec::new();
-    let finders = [memchr::memmem::Finder::new("\"gitOperation\""), memchr::memmem::Finder::new("gh pr create"), memchr::memmem::Finder::new("\"attach_artifact\"")];
-    loop {
-        line.clear();
-        match r.read_until(b'\n', &mut line) {
-            Ok(0) | Err(_) => break,
-            Ok(_) => {}
-        }
-        if finders.iter().any(|f| f.find(&line).is_some()) {
-            if let Some(m) = line_mark(String::from_utf8_lossy(&line).trim_end()) {
-                if !out.iter().any(|(k, _)| k == &m.0) {
-                    out.push(m);
-                }
-            }
-        }
-    }
-    out
-}
+/// Text a log line has when it may hold a PR mark (`line_mark`): the engine decodes only lines
+/// with one of these, as it reads a whole log once for everything it looks for.
+pub const NEEDLES: [&str; 3] = ["\"gitOperation\"", "gh pr create", "\"attach_artifact\""];
 
 /// PR key → session keys, from what each session's records show (`marks`: session key → PR
 /// keys) and the links made by hand, and the pairs unlinked by hand.
