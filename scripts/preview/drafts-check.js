@@ -34,7 +34,7 @@
 
   var stored = function () { var v = localStorage.getItem(item); return v == null ? null : JSON.parse(v).text; };
   var box = function () { return document.querySelector('.ca-peek .ca-composer textarea'); };
-  var send = function () { return Array.prototype.find.call(document.querySelectorAll('.ca-peek .ca-composer button'), function (b) { return /Send/.test(b.textContent); }); };
+  var send = function () { return document.querySelector('.ca-peek .ca-composer-send[aria-label="Send"]'); };
   var waitingShown = function () { return !!document.querySelector('.ca-peek .ca-composer.is-waiting, .ca-peek .ca-composer.is-approval'); };
   var type = function (el, text) {
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(el, text);

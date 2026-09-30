@@ -114,6 +114,11 @@ export const ICONS: Record<string, string[]> = {
   "M11.5 3a17 17 0 0 0 0 18",
   "M12.5 3a17 17 0 0 1 0 18"
  ],
+ "arrow-up": [
+  "M12 5l0 14",
+  "M18 11l-6 -6",
+  "M6 11l6 -6"
+ ],
  "arrow-up-right": [
   "M17 7l-10 10",
   "M8 7l9 0l0 9"

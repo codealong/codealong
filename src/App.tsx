@@ -11,7 +11,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { below, showContextMenu, type MenuAction, type MenuSpec } from './contextMenu';
 import { useEditorIcons } from './editors';
-import { AGENT_BAY, buildBays, filterByAge, homeOf, inboxCounts, liveOrLatest, narrowed, prNeedsWork, rowItems, seenable, worktreeRow, sessionHomes, type BoardRow, type Filter, type WorktreeRow } from './lanes';
+import { AGENT_BAY, buildBays, filterByAge, homeOf, inboxCounts, liveOrLatest, narrowed, prNeedsWork, rowItems, seenable, sessionPrs, worktreeRow, sessionHomes, type BoardRow, type Filter, type WorktreeRow } from './lanes';
 import { answerLink, approvePr, barMode, getDevices, onDevices, dismissTodoHint, expandAttachments, getBoard, onBarMode, onBoard, onCloseIdle, onNewWindow, onQuickStart, onReveal, onSettings, onCheckUpdates, openConfig, openProjectWindow, openUrl, refresh, refreshUsage, reviewInCodex, setBarMode, startOptions, startSession, setPinned, setPinnedWorktrees, setTheme, showQuick, signIn, windowLabel, type BarMode, type Reveal } from './api';
 import { middleTruncate } from './format';
 import * as menus from './menus';
@@ -1238,11 +1238,13 @@ export function App() {
   const openLanePr = (lane: Lane) => {
     if (lane.pr) openUrl(lane.pr.url).catch((e: unknown) => setToast(String(e)));
   };
-  /** The right-click menu of a worktree's PR chip: the PR's own. A PR the board doesn't list,
-   *  such as one on another Mac in a repo this one doesn't have, gets what its link allows. */
+  /** The right-click menu of a worktree's PR chip: the PR's own. */
   const lanePrMenu = (lane: Lane) => {
-    const p = lane.pr;
-    if (!p) return;
+    if (lane.pr) prChipMenu(lane, lane.pr);
+  };
+  /** A PR's menu where a worktree or one of its sessions shows it. A PR the board doesn't list,
+   *  such as one on another Mac in a repo this one doesn't have, gets what its link allows. */
+  const prChipMenu = (lane: Lane, p: Pr) => {
     const item = board?.prs.find((x) => x.url === p.url);
     const spec: MenuSpec = item ? prMenuSpec(prRowOf(item)) : menus.prMenu(p, { report, review: reviewItems(reviewedPr(lane, p)) });
     void showContextMenu(spec).catch((e: unknown) => setToast(String(e)));
@@ -1465,8 +1467,9 @@ export function App() {
       const mod = e.metaKey;
       const key = e.key.toLowerCase();
       // Escape in a session panel's box gives the list its keys back (a click on a row put them
-      // there). With the panel expanded there's no list to give them to, so the window has them.
-      if (e.key === 'Escape' && !e.isComposing && view === 'sessions' && document.activeElement?.closest('.ca-sessinsp .ca-composer')) {
+      // there), unless it stopped the session's turn. With the panel expanded there's no list to
+      // give them to, so the window has them.
+      if (e.key === 'Escape' && !e.isComposing && !e.defaultPrevented && view === 'sessions' && document.activeElement?.closest('.ca-sessinsp .ca-composer')) {
         e.preventDefault();
         if (panelMax) (document.activeElement as HTMLElement).blur();
         else listRef.current?.focus();
@@ -1883,6 +1886,9 @@ export function App() {
         onOpen={(id) => open(lane, id)}
         onNewSession={() => newSession({ laneId: lane.id })}
         onShowLane={showLaneFromPanel}
+        prs={sessionPrs(board?.prs ?? [], lane, session)}
+        onOpenPr={(p) => openUrl(p.url).catch((e: unknown) => setToast(String(e)))}
+        onPrMenu={(p) => prChipMenu(lane, p)}
         todos={todoLinks.bySession.get(session.key)}
         onShowTodo={showTodoFromPanel}
         onMoreMenu={(at) => void showContextMenu(sessionMenuSpec(lane, session, 'session'), at).catch((err: unknown) => setToast(String(err)))}

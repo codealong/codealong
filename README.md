@@ -48,8 +48,9 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     check at the top of its panel or its right-click menu. Fork in terminal, in a Claude Code,
     Codex or OpenCode session's right-click menu, opens a copy of its conversation in a new
     terminal while it carries on (OpenCode's copy is made by its service, so it needs OpenCode
-    running). The selected session's panel shows its whole conversation, read from the session's own
-    record (Claude Code's transcript, Codex's rollout, OpenCode's database): your prompts, the
+    running). The selected session's panel shows the PRs it worked on under its
+    branch (as the PRs view links them, else its worktree's), each opening on GitHub, and its
+    whole conversation, read from the session's own record (Claude Code's transcript, Codex's rollout, OpenCode's database): your prompts, the
     agent's replies as Markdown, and every tool call, which opens to its input and output; runs
     of calls fold into one line. It opens at the newest and loads older pages as you scroll up,
     and follows the session as it goes. Code blocks have Copy on hover, and a shell block in a
@@ -74,9 +75,10 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     Answer sends your picks. Claude Code's own prompt stays up all the while, and whichever
     answer comes first counts. Others open where they run to be answered. The box stays meanwhile,
     keeping what you'd written, and Send works again once the session isn't waiting (a session
-    run In Codealong takes it at once, after its current turn). While a turn runs that
-    Codealong can stop, Stop sits beside Send (⌘. anywhere in the window), and says Stopping…
-    until the turn has ended. To work through what waits on
+    run In Codealong takes it at once, after its current turn). The box's send button sits
+    inside it, at its corner. While a turn runs that Codealong can stop, Escape in the box stops
+    it, as it does in Claude Code and Codex (⌘. anywhere in the window too), and so does the
+    button while the box is empty; it says Stopping until the turn has ended. To work through what waits on
     you, ⌘⏎ in the box sends and goes on to the next session listed that waits on you (Needs
     you the longest wait first, then Your turn), or, while the session waits on a call that can
     be allowed here, allows it and goes on; ⏎ sends and stays. `e` on the list (⌘E in the box,

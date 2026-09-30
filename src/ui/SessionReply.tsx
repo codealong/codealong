@@ -19,9 +19,13 @@
 // Where there's a next session waiting on you (the Sessions view's panel), ⌘⏎ sends and goes on to
 // it, or, while the session waits on a call that can be allowed here, allows it and goes on.
 //
-// While its turn runs, Stop (⌘.) ends it where Codealong can reach the session (the engine's
-// `stoppable`): what the harness's own Stop sends, or Escape pressed in its terminal. The session
-// carries on, waiting for you.
+// The box is laid out as chat apps' are: the send button sits inside it, and what it has to say
+// (how a send went, the keys that aren't the usual ones) runs along its foot beside the button.
+//
+// While its turn runs, Escape in the box stops it where Codealong can reach the session (the
+// engine's `stoppable`), as Escape does in Claude Code and Codex, and so does the button while
+// the box is empty (⌘. too, from anywhere in the window). It sends what the harness's own Stop
+// sends, or presses Escape in its terminal. The session carries on, waiting for you.
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent } from 'react';
 import { sendAhead, sending, useAhead } from '../ahead';
@@ -191,7 +195,7 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
   };
   const stopNow = useRef(stop);
   stopNow.current = stop;
-  // ⌘. stops it, as it stops things in the Mac's own apps, wherever the focus is in the window.
+  // ⌘. stops it too, as it stops things in the Mac's own apps, wherever the focus is in the window.
   useEffect(() => {
     if (!canStop) return;
     const onKey = (e: KeyboardEvent) => {
@@ -245,55 +249,78 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
       .catch((err: unknown) => setNote({ text: errorText(err), error: true }));
   };
 
+  const empty = !text.trim();
+  // With nothing in the box, the button stops a turn that can be stopped; with something, it
+  // sends, the turn taking the message in as it works.
+  const stopButton = canStop && empty;
   return (
     <div className="ca-composer">
-      <textarea
-        ref={box}
-        value={text}
-        rows={Math.min(LINES, Math.max(2, text.split('\n').length))}
-        placeholder={replyPlaceholder(s, terminal)}
-        onChange={(e) => {
-          setText(e.target.value);
-          if (note && !note.error) setNote(null);
-        }}
-        onKeyDown={(e) => {
-          if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing) return;
-          if (e.metaKey && onAllowNext && (waiting || !text.trim())) {
-            e.preventDefault();
-            onAllowNext();
-            return;
-          }
-          // While it waits on you ⏎ sends nothing, and ⌘⏎ goes on to Allow (the quick panel's).
-          if (waiting && e.metaKey) return;
+      <div
+        className="ca-composer-field"
+        onMouseDown={(e) => {
+          // A press anywhere in the box but its buttons puts the cursor in it.
+          if ((e.target as Element).closest('button, textarea')) return;
           e.preventDefault();
-          if (send() && e.metaKey) onNext?.('sent.');
+          box.current?.focus();
         }}
-        onPaste={paste}
-        aria-label={`Message to ${s.title}`}
-      />
-      {attached.length > 0 && <AttachmentStrip items={attached} onRemove={(a) => setText(withoutAttachment(latest.current, a.path))} />}
-      <div className="ca-composer-foot">
-        <span className={['ca-composer-note', note?.error && 'is-error'].filter(Boolean).join(' ')}>
-          {note?.error ? note.text : going ? 'Sending…' : (note?.text ?? hint(waiting, !!onNext, !!onAllowNext, canStop))}
-        </span>
-        {canStop && (
-          <Button size="sm" icon="player-stop" disabled={stopping} onClick={stop} title="Stop its turn (⌘.)">
-            {stopping ? 'Stopping…' : 'Stop'}
-          </Button>
-        )}
-        <Button variant="primary" size="sm" icon="send" disabled={!text.trim() || waiting} onClick={send}>
-          Send
-        </Button>
+      >
+        <textarea
+          ref={box}
+          value={text}
+          rows={Math.min(LINES, Math.max(2, text.split('\n').length))}
+          placeholder={replyPlaceholder(s, terminal)}
+          onChange={(e) => {
+            setText(e.target.value);
+            if (note && !note.error) setNote(null);
+          }}
+          onKeyDown={(e) => {
+            // Escape stops a running turn; once it's stopping, Escape does what it does in the
+            // window (closes the peek, gives Sessions' list its keys back).
+            if (e.key === 'Escape' && canStop && !stopping && !e.nativeEvent.isComposing) {
+              e.preventDefault();
+              stop();
+              return;
+            }
+            if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing) return;
+            if (e.metaKey && onAllowNext && (waiting || !text.trim())) {
+              e.preventDefault();
+              onAllowNext();
+              return;
+            }
+            // While it waits on you ⏎ sends nothing, and ⌘⏎ goes on to Allow (the quick panel's).
+            if (waiting && e.metaKey) return;
+            e.preventDefault();
+            if (send() && e.metaKey) onNext?.('sent.');
+          }}
+          onPaste={paste}
+          aria-label={`Message to ${s.title}`}
+        />
+        {attached.length > 0 && <AttachmentStrip items={attached} onRemove={(a) => setText(withoutAttachment(latest.current, a.path))} />}
+        <div className="ca-composer-bar">
+          <span className={['ca-composer-note', note?.error && 'is-error'].filter(Boolean).join(' ')} role="status">
+            {note?.error ? note.text : going ? 'Sending…' : (note?.text ?? (stopping ? 'Stopping…' : hint(waiting, !!onNext, !!onAllowNext, canStop)))}
+          </span>
+          {stopButton ? (
+            <button type="button" className="ca-composer-send is-stop" aria-label={stopping ? 'Stopping' : 'Stop'} title="Stop its turn (esc)" disabled={stopping} onClick={stop}>
+              <Icon name="player-stop" size={12} stroke={2} />
+            </button>
+          ) : (
+            <button type="button" className="ca-composer-send" aria-label="Send" title={waiting ? 'Send this once it isn’t waiting on you' : 'Send (⏎)'} disabled={empty || waiting} onClick={send}>
+              <Icon name="arrow-up" size={16} stroke={2} />
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
 }
 
-/** What the box's keys do, below it. */
+/** What the box has to say when nothing's happened: only the keys that aren't a chat box's usual
+ *  ones. ⏎ sends and ⇧⏎ starts a new line, as everywhere. */
 function hint(waiting: boolean | undefined, next: boolean, allowNext: boolean, stop: boolean): string {
   if (waiting) return allowNext ? '⌘⏎ allow + next · send this once it isn’t waiting on you' : 'Send this once it isn’t waiting on you';
-  if (next) return `⏎ send · ⌘⏎ send + next · ⇧⏎ new line${stop ? ' · ⌘. stop' : ''}`;
-  return `⏎ sends · ⇧⏎ new line${stop ? ' · ⌘. stops' : ''}`;
+  if (next) return `⌘⏎ send + next${stop ? ' · esc stops its turn' : ''}`;
+  return stop ? 'Esc stops its turn' : '';
 }
 
 interface ApprovalProps {

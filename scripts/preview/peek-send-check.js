@@ -44,7 +44,7 @@
   var box = function () { return document.querySelector('.ca-peek .ca-composer textarea'); };
   var note = function () { var n = document.querySelector('.ca-peek .ca-composer-note'); return n ? n.textContent : ''; };
   var bubbles = function () { return Array.prototype.map.call(document.querySelectorAll('.ca-peek .ca-thread-said.is-ahead'), function (b) { return b.querySelector('.ca-meta').textContent + ': ' + b.querySelector('.ca-thread-you').textContent; }); };
-  var sendButton = function () { return Array.prototype.find.call(document.querySelectorAll('.ca-peek .ca-composer button'), function (b) { return /Send/.test(b.textContent); }); };
+  var sendButton = function () { return document.querySelector('.ca-peek .ca-composer-send[aria-label="Send"]'); };
   var type = function (el, text) {
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(el, text);
     el.dispatchEvent(new Event('input', { bubbles: true }));

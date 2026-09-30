@@ -5,7 +5,7 @@
 
 import { shortOf } from './devices';
 import type { InsightLabel } from './insights';
-import type { Bay, Lane, Pr, Session, Status } from './types';
+import type { Bay, Lane, Pr, PrItem, Session, Status } from './types';
 
 export const BAYS: Bay[] = ['needs', 'working', 'unread', 'review', 'idle', 'merged'];
 /** The status filter an agent falls under, for the statuses that have one. */
@@ -75,6 +75,15 @@ export function seenable(s: Session): boolean {
  *  from before stops reached every harness says so by working alone. */
 export function stoppable(s: Session): boolean {
   return !!s.stoppable || (!!s.hosted && s.status === 'working');
+}
+
+/** The PRs a session worked on, newest activity first, as the PRs view links them (board.rs
+ *  `pr_items`); else its worktree's PR, when the session is on the worktree's branch. A PR the
+ *  board doesn't list (one on another device's repo) still comes from its worktree. */
+export function sessionPrs(prs: PrItem[], lane: Lane, s: Session): Pr[] {
+  const worked = prs.filter((p) => p.sessions.some((x) => x.key === s.key));
+  if (worked.length > 0) return worked;
+  return lane.pr && (s.branch ?? lane.branch) === lane.branch ? [lane.pr] : [];
 }
 
 export function closable(s: Session): boolean {

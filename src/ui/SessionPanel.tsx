@@ -15,18 +15,21 @@ import { folderTargets, opensInEditor, useEditorIcons } from '../editors';
 import { absolute, agoPhrase, duration, middleTruncate, tildePath } from '../format';
 import { HARNESS_WORD, sessionPlace } from '../harness';
 import { seenable } from '../lanes';
-import type { Board, DeviceView, Lane, Session, Target, Todo } from '../types';
+import type { Board, DeviceView, Lane, Pr, Session, Target, Todo } from '../types';
 import { STATUS_WORD as TODO_WORD } from '../todos';
 import { InsightChips } from './InsightBits';
 import { QueueStrip, type Notice, type Queue } from './ReplyView';
 import { OpenInMenu } from './Inspector';
 import { PreviewLink } from './PreviewBits';
-import { BranchLabel, Button, HarnessChip, Icon, Rich, STATUS_WORD, StatusGlyph } from './primitives';
+import { BranchLabel, Button, HarnessChip, Icon, PrChip, Rich, STATUS_WORD, StatusGlyph } from './primitives';
 import { runFolder } from './RunButton';
 import { Reply } from './SessionReply';
 import { DeviceBadge } from './DeviceBadge';
 import { SessionThread } from './SessionThread';
 import { TodoGlyph } from './TodoBits';
+
+/** PRs listed before a "more" link: a long session can have made many. */
+const PRS_SHOWN = 3;
 
 interface SessionPanelProps {
   lane: Lane;
@@ -37,6 +40,11 @@ interface SessionPanelProps {
   /** A new session in this one's worktree. */
   onNewSession: () => void;
   onShowLane: (lane: Lane) => void;
+  /** The PRs it worked on (lanes.ts `sessionPrs`), each opening on GitHub, with its menu on a
+   *  right-click. */
+  prs?: Pr[];
+  onOpenPr?: (pr: Pr) => void;
+  onPrMenu?: (pr: Pr) => void;
   todos?: Todo[];
   onShowTodo?: (todo: Todo) => void;
   /** The session's right-click menu, from its ⋯ button. */
@@ -63,8 +71,9 @@ interface SessionPanelProps {
   onMaximize?: () => void;
 }
 
-export function SessionPanel({ lane, session: s, apps, now, onOpen, onNewSession, onShowLane, todos, onShowTodo, onMoreMenu, onSeen, device, back, onSendFailed, queue, notice, onDone, autoFocus, maximized, onMaximize }: SessionPanelProps) {
+export function SessionPanel({ lane, session: s, apps, now, onOpen, onNewSession, onShowLane, prs = [], onOpenPr, onPrMenu, todos, onShowTodo, onMoreMenu, onSeen, device, back, onSendFailed, queue, notice, onDone, autoFocus, maximized, onMaximize }: SessionPanelProps) {
   const [details, setDetails] = useState(false);
+  const [allPrs, setAllPrs] = useState(false);
   const icons = useEditorIcons(apps);
   const own = lane.targets.filter((t) => t.id.startsWith(`s|${s.key}|`));
   // Under the ways to open the session, its worktree's folder in any editor installed here. A
@@ -115,6 +124,40 @@ export function SessionPanel({ lane, session: s, apps, now, onOpen, onNewSession
         {(s.branch ?? lane.branch) && (
           <div className="ca-insp-branch">
             <BranchLabel branch={(s.branch ?? lane.branch) as string} />
+          </div>
+        )}
+        {prs.length > 0 && (
+          <div className="ca-sessinsp-prs">
+            {(allPrs ? prs : prs.slice(0, PRS_SHOWN)).map((pr) => {
+              const menu = onPrMenu && (() => onPrMenu(pr));
+              return (
+                <div key={pr.url} className="ca-sessinsp-pr">
+                  <PrChip pr={pr} onOpen={() => onOpenPr?.(pr)} onMenu={menu} />
+                  <button
+                    type="button"
+                    className="ca-linkbtn ca-sessinsp-prlink"
+                    title={`Open #${pr.number} on GitHub`}
+                    onClick={() => onOpenPr?.(pr)}
+                    onContextMenu={
+                      menu
+                        ? (e) => {
+                            e.preventDefault();
+                            menu();
+                          }
+                        : undefined
+                    }
+                  >
+                    <span>{pr.title}</span>
+                    <Icon name="external" size={12} />
+                  </button>
+                </div>
+              );
+            })}
+            {!allPrs && prs.length > PRS_SHOWN && (
+              <button type="button" className="ca-linkbtn ca-sessinsp-prmore" onClick={() => setAllPrs(true)}>
+                {prs.length - PRS_SHOWN} more
+              </button>
+            )}
           </div>
         )}
         <div className="ca-insp-actions">

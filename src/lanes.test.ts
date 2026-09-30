@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { ageFiltered, bayOf, buildBays, bySession, closable, stoppable, filterByAge, homeOf, liveOrLatest, inboxCounts, narrowed, rowItems, sessionFlag, sessionHeadline, withoutAccount } from './lanes';
-import type { Lane, Pr, Session } from './types';
+import { ageFiltered, bayOf, buildBays, bySession, closable, stoppable, filterByAge, homeOf, liveOrLatest, inboxCounts, narrowed, rowItems, sessionFlag, sessionHeadline, sessionPrs, withoutAccount } from './lanes';
+import type { Lane, Pr, PrItem, Session } from './types';
 
 const NOW = 1_790_200_000_000;
 const DAY = 86_400_000;
@@ -266,5 +266,23 @@ describe('homeOf and liveOrLatest', () => {
     expect(liveOrLatest([at('a', false, 3), at('b', true, 1), at('c', false, 2)])?.session.key).toBe('b');
     expect(liveOrLatest([at('a', false, 1), at('b', false, 3)])?.session.key).toBe('b');
     expect(liveOrLatest([])).toBeNull();
+  });
+});
+
+describe('sessionPrs', () => {
+  const s = { ...session('k', 'idle', NOW), branch: 'fix' } as Session;
+  const item = (number: number, keys: string[]) => ({ number, url: `u/${number}`, sessions: keys.map((key) => ({ key, lane: '/r' })) }) as unknown as PrItem;
+  const onBranch = (branch: string, p: Pr | null) => ({ ...lane([s], p), branch }) as Lane;
+
+  it('lists the PRs the session worked on, in the board’s order', () => {
+    const prs = [item(9, ['other']), item(8, ['k']), item(5, ['other', 'k'])];
+    expect(sessionPrs(prs, onBranch('fix', pr('open')), s).map((p) => p.number)).toEqual([8, 5]);
+  });
+
+  it('falls back to its worktree’s PR on the same branch, and only then', () => {
+    expect(sessionPrs([item(9, ['other'])], onBranch('fix', pr('open')), s).map((p) => p.number)).toEqual([7]);
+    expect(sessionPrs([], onBranch('main', pr('open')), s)).toEqual([]);
+    expect(sessionPrs([], onBranch('fix', null), s)).toEqual([]);
+    expect(sessionPrs([], onBranch('fix', pr('open')), { ...s, branch: null }).map((p) => p.number)).toEqual([7]);
   });
 });
