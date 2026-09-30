@@ -387,7 +387,7 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   and closes once the pointer leaves it; pills that shift under a still pointer as sessions
   change groups don't move it. Once you've clicked in it, it stays on its session whatever the
   bar does, until you send, press Escape or click somewhere else. Click a pill to show its
-  session in Codealong, as a click on its row there does, and double-click it to open the
+  session in Codealong, selected in Sessions, and double-click it to open the
   session where it lives; drag it off the bar (floating or in the notch) to pin its card to the
   desktop where you let go; right-click it for the session's menu, with Reply here to answer it in
   the peek and Rename… to rename it there. The todos pill opens the quick panel ready to start a

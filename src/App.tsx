@@ -1387,11 +1387,10 @@ export function App() {
     if (lane && r.kind === 'worktree') {
       focusLane(lane);
     } else if (lane && session) {
-      // A session Codealong runs is read and answered in its panel, which Sessions shows.
-      if (session.hosted) setView('sessions');
-      else if (view === 'prs' || view === 'todo') setView('worktrees');
+      // Its own row in Sessions, with its conversation in the panel, whichever view was showing:
+      // the board would only show its line on its worktree's row.
+      setView('sessions');
       setBayFilter([]);
-      // Its own row in Sessions, its line on its worktree's row on the board.
       setSelectedKey(`${lane.id}::${session.key}`);
     } else if (pr) {
       setView('prs');
