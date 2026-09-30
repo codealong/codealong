@@ -205,8 +205,8 @@ export function HarnessChip({ session, withStatus = true, onOpen, className }: {
 
 /** A PR's number, state and checks. With `onMenu`, a right-click on it shows the PR's own menu
  *  rather than the menu of the row it's on; with `onOpen`, a click opens it (on GitHub) rather
- *  than selecting the row. */
-export function PrChip({ pr, compact = false, onMenu, onOpen }: { pr: Pr; compact?: boolean; onMenu?: () => void; onOpen?: () => void }) {
+ *  than selecting the row. Without `titled`, it has no tooltip: a card shows instead (PrLink.tsx). */
+export function PrChip({ pr, compact = false, titled = true, onMenu, onOpen }: { pr: Pr; compact?: boolean; titled?: boolean; onMenu?: () => void; onOpen?: () => void }) {
   const c = pr.checks;
   const open = pr.state !== 'merged' && pr.state !== 'closed';
   const title = `#${pr.number} ${PR_WORD[pr.state]}: ${pr.title}`;
@@ -244,7 +244,7 @@ export function PrChip({ pr, compact = false, onMenu, onOpen }: { pr: Pr; compac
   );
   if (!onOpen) {
     return (
-      <span className={cx('ca-pr', `ca-pr--${pr.state}`)} title={title} onContextMenu={onContextMenu}>
+      <span className={cx('ca-pr', `ca-pr--${pr.state}`)} title={titled ? title : undefined} onContextMenu={onContextMenu}>
         {inner}
       </span>
     );
@@ -253,7 +253,7 @@ export function PrChip({ pr, compact = false, onMenu, onOpen }: { pr: Pr; compac
     <button
       type="button"
       className={cx('ca-pr', `ca-pr--${pr.state}`, 'ca-pr--button')}
-      title={`${title}. Click to open it on GitHub.`}
+      title={titled ? `${title}. Click to open it on GitHub.` : undefined}
       onContextMenu={onContextMenu}
       onMouseDown={(e) => e.stopPropagation()}
       onDoubleClick={(e) => e.stopPropagation()}

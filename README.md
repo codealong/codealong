@@ -60,8 +60,12 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     forward, and you stay on the session: a Claude Code copy is a background job, an OpenCode
     copy runs in its service, and a Codex copy runs In Codealong (over its ACP adapter).
     Whatever follows `/fork` is the copy's first prompt; with nothing, the copy waits for one.
-    Other `/…` commands go to the session as typed. The selected session's panel shows the PRs it worked on under its
-    branch (as the PRs view links them, else its worktree's), each opening on GitHub, and its
+    Other `/…` commands go to the session as typed. The selected session's panel keeps its top
+    to three lines so the conversation has the room: the title with the ways to open it, mark it
+    seen, expand the panel, its details (ⓘ: account, ID, folder, times) and its menu (⋯, New
+    session here among the rest); where it stands, its harness, worktree and branch; and the PRs it
+    worked on (as the PRs view links them, else its worktree's), each a chip that opens on GitHub
+    and shows the PR's card on hover, with the todo it's on and +N for the rest. Below is its
     whole conversation, read from the session's own record (Claude Code's transcript, Codex's rollout, OpenCode's database): your prompts, the
     agent's replies as Markdown, and every tool call, which opens to its input and output; runs
     of calls fold into one line. It opens at the newest and loads older pages as you scroll up,

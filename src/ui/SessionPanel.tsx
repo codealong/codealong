@@ -2,6 +2,10 @@
 // the top, its whole conversation in the middle (SessionThread.tsx), and at the bottom a box that
 // sends it a message where it runs, or what it waits on you to allow (SessionReply.tsx).
 //
+// The top keeps to a few lines so the conversation has the room: the title with the ways to open
+// it and act on it, one line of where it stands and where it works, and one of the PRs it worked
+// on (each one's card on hover) and the todo it's on. The rest is in Details and the ⋯ menu.
+//
 // In Sessions it works through what waits on you: ⌘⏎ in the box sends (or allows the call the
 // session waits on) and goes on to the next, the check (⌘E) marks a finished turn seen and goes
 // on, ⌘] skips to it, and a strip above the header says how many more there are and how the last
@@ -21,18 +25,16 @@ import { InsightChips } from './InsightBits';
 import { QueueStrip, type Notice, type Queue } from './ReplyView';
 import { OpenInMenu } from './Inspector';
 import { PreviewLink } from './PreviewBits';
-import { BranchLabel, Button, HarnessChip, Icon, PrChip, Rich, STATUS_WORD, StatusGlyph } from './primitives';
+import { PrChipCard } from './PrLink';
+import { BranchLabel, Button, HarnessChip, Icon, Rich, STATUS_WORD, StatusGlyph } from './primitives';
 import { runFolder } from './RunButton';
 import { Reply } from './SessionReply';
 import { DeviceBadge } from './DeviceBadge';
 import { SessionThread } from './SessionThread';
 import { TodoGlyph } from './TodoBits';
 
-/** PRs listed before a "more" link: a long session can have made many. */
+/** PRs shown before a "+N": a long session can have made many. */
 const PRS_SHOWN = 3;
-/** Todos listed before a "more" link, so a session that worked through many doesn't push its
- *  conversation down the panel. */
-const TODOS_SHOWN = 2;
 
 interface SessionPanelProps {
   lane: Lane;
@@ -40,8 +42,6 @@ interface SessionPanelProps {
   apps: Board['apps'];
   now: number;
   onOpen: (targetId: string) => void;
-  /** A new session in this one's worktree. */
-  onNewSession: () => void;
   onShowLane: (lane: Lane) => void;
   /** The PRs it worked on (lanes.ts `sessionPrs`), each opening on GitHub, with its menu on a
    *  right-click. */
@@ -74,11 +74,14 @@ interface SessionPanelProps {
   onMaximize?: () => void;
 }
 
-export function SessionPanel({ lane, session: s, apps, now, onOpen, onNewSession, onShowLane, prs = [], onOpenPr, onPrMenu, todos, onShowTodo, onMoreMenu, onSeen, device, back, onSendFailed, queue, notice, onDone, autoFocus, maximized, onMaximize }: SessionPanelProps) {
+export function SessionPanel({ lane, session: s, apps, now, onOpen, onShowLane, prs = [], onOpenPr, onPrMenu, todos, onShowTodo, onMoreMenu, onSeen, device, back, onSendFailed, queue, notice, onDone, autoFocus, maximized, onMaximize }: SessionPanelProps) {
   const [details, setDetails] = useState(false);
   const [allPrs, setAllPrs] = useState(false);
   const [allTodos, setAllTodos] = useState(false);
   const listed = useMemo(() => panelTodos(todos ?? []), [todos]);
+  // The todo it's on: one in progress, else one still to do. Done ones wait behind "+N".
+  const current = listed.find((t) => t.status !== 'done');
+
   const icons = useEditorIcons(apps);
   const own = lane.targets.filter((t) => t.id.startsWith(`s|${s.key}|`));
   // Under the ways to open the session, its worktree's folder in any editor installed here. A
@@ -99,111 +102,103 @@ export function SessionPanel({ lane, session: s, apps, now, onOpen, onNewSession
             {back.label}
           </button>
         )}
-        <div className="ca-insp-title">
+        <div className="ca-sessinsp-top">
           <StatusGlyph status={s.status} size={14} />
-          <span className="ca-tag">{HARNESS_WORD[s.harness]}</span>
-          {seenable(s) && <Button variant="ghost" size="sm" icon="check" aria-label="Mark as seen" title={queue?.next ? 'Mark as seen and go on to the next (⌘E)' : 'Mark as seen: it goes idle and leaves the bar'} className="ca-sessinsp-seen" onClick={onSeen} />}
-          {onMaximize && (
-            <Button
-              variant="ghost"
-              size="sm"
-              icon={maximized ? 'minimize' : 'maximize'}
-              aria-label={maximized ? 'Show the list' : 'Expand to the window'}
-              aria-pressed={maximized}
-              title={maximized ? 'Show the list again (⇧⌘F)' : 'Expand to the whole window (⇧⌘F)'}
-              className="ca-sessinsp-max"
-              onClick={onMaximize}
-            />
-          )}
-          <Button variant="ghost" size="sm" icon="dots" aria-label="More" title="Pin, archive, copy and more" className="ca-todoinsp-more" onClick={(e) => onMoreMenu(below(e.currentTarget))} />
-        </div>
-        <h3 className="ca-sessinsp-title">{s.title}</h3>
-        <div className="ca-sessinsp-status">{s.stalledSince ? `Quiet since ${agoPhrase(s.stalledSince, now)}` : `${STATUS_WORD[s.status]} · ${since}`}</div>
-        <button type="button" className="ca-insp-path" title={`Show ${lane.callsign}`} onClick={() => onShowLane(lane)}>
-          <Icon name="folder" size={12} />
-          <span>
-            {lane.callsign} · {middleTruncate(tildePath(lane.path), 36)}
-          </span>
-        </button>
-        <PreviewLink preview={lane.preview} now={now} onOpen={() => onOpen('l|preview')} />
-        {(s.branch ?? lane.branch) && (
-          <div className="ca-insp-branch">
-            <BranchLabel branch={(s.branch ?? lane.branch) as string} />
-          </div>
-        )}
-        {prs.length > 0 && (
-          <div className="ca-sessinsp-prs">
-            {(allPrs ? prs : prs.slice(0, PRS_SHOWN)).map((pr) => {
-              const menu = onPrMenu && (() => onPrMenu(pr));
-              return (
-                <div key={pr.url} className="ca-sessinsp-pr">
-                  <PrChip pr={pr} onOpen={() => onOpenPr?.(pr)} onMenu={menu} />
-                  <button
-                    type="button"
-                    className="ca-linkbtn ca-sessinsp-prlink"
-                    title={`Open #${pr.number} on GitHub`}
-                    onClick={() => onOpenPr?.(pr)}
-                    onContextMenu={
-                      menu
-                        ? (e) => {
-                            e.preventDefault();
-                            menu();
-                          }
-                        : undefined
-                    }
-                  >
-                    <span>{pr.title}</span>
-                    <Icon name="external" size={12} />
-                  </button>
-                </div>
-              );
-            })}
-            {!allPrs && prs.length > PRS_SHOWN && (
-              <button type="button" className="ca-linkbtn ca-sessinsp-prmore" onClick={() => setAllPrs(true)}>
-                {prs.length - PRS_SHOWN} more
-              </button>
+          <h3 className="ca-sessinsp-title" title={s.title}>
+            {s.title}
+          </h3>
+          <div className="ca-sessinsp-tools">
+            {device ? (
+              <DeviceBadge device={device} now={now} full />
+            ) : targets.length > 0 ? (
+              <OpenInMenu targets={targets} defaultId={s.openTarget} onOpen={onOpen} size="sm" />
+            ) : (
+              <Button variant="primary" size="sm" icon="arrow-up-right" onClick={() => onOpen(s.openTarget)}>
+                Open in {sessionPlace(s, apps.terminal)}
+              </Button>
             )}
+            {seenable(s) && <Button variant="ghost" size="sm" icon="check" aria-label="Mark as seen" title={queue?.next ? 'Mark as seen and go on to the next (⌘E)' : 'Mark as seen: it goes idle and leaves the bar'} className="ca-sessinsp-seen" onClick={onSeen} />}
+            {onMaximize && (
+              <Button
+                variant="ghost"
+                size="sm"
+                icon={maximized ? 'minimize' : 'maximize'}
+                aria-label={maximized ? 'Show the list' : 'Expand to the window'}
+                aria-pressed={maximized}
+                title={maximized ? 'Show the list again (⇧⌘F)' : 'Expand to the whole window (⇧⌘F)'}
+                className="ca-sessinsp-max"
+                onClick={onMaximize}
+              />
+            )}
+            <Button variant="ghost" size="sm" icon="info-circle" aria-label="Details" aria-expanded={details} title={details ? 'Hide the details' : 'Details: its account, ID, folder and times'} className={details ? 'ca-sessinsp-detailsbtn is-on' : 'ca-sessinsp-detailsbtn'} onClick={() => setDetails(!details)} />
+            <Button variant="ghost" size="sm" icon="dots" aria-label="More" title="New session here, pin, archive, copy and more" onClick={(e) => onMoreMenu(below(e.currentTarget))} />
           </div>
-        )}
-        <div className="ca-insp-actions">
-          {device ? (
-            <DeviceBadge device={device} now={now} full />
-          ) : targets.length > 0 ? (
-            <OpenInMenu targets={targets} defaultId={s.openTarget} onOpen={onOpen} />
-          ) : (
-            <Button variant="primary" icon="arrow-up-right" onClick={() => onOpen(s.openTarget)}>
-              Open in {sessionPlace(s, apps.terminal)}
-            </Button>
-          )}
-          {!device && <Button icon="plus" title={`New session in ${lane.callsign} (⌘N)`} aria-label={`New session in ${lane.callsign}`} onClick={onNewSession} />}
-          <button type="button" className="ca-linkbtn ca-sessinsp-detailsbtn" aria-expanded={details} onClick={() => setDetails(!details)}>
-            <Icon name={details ? 'chevron-down' : 'chevron-right'} size={12} />
-            Details
-          </button>
         </div>
-        <InsightChips session={s} />
-        {listed.length > 0 && (
+        <div className="ca-sessinsp-meta">
+          <span>{s.stalledSince ? `Quiet since ${agoPhrase(s.stalledSince, now)}` : `${STATUS_WORD[s.status]} · ${since}`}</span>
+          <span aria-hidden="true">·</span>
+          <span>{HARNESS_WORD[s.harness]}</span>
+          <span aria-hidden="true">·</span>
+          <button type="button" className="ca-sessinsp-lane" title={`Show ${lane.callsign}: ${tildePath(lane.path)}`} onClick={() => onShowLane(lane)}>
+            <Icon name="folder" size={12} />
+            <span>{lane.callsign}</span>
+          </button>
+          {(s.branch ?? lane.branch) && (
+            <>
+              <span aria-hidden="true">·</span>
+              <BranchLabel branch={(s.branch ?? lane.branch) as string} />
+            </>
+          )}
+        </div>
+        {/* Hidden when it has nothing to show (app.css), Jev's chip included. */}
+        <div className="ca-sessinsp-links">
+          {(allPrs ? prs : prs.slice(0, PRS_SHOWN)).map((pr) => (
+            <PrChipCard key={pr.url} pr={pr} onOpen={() => onOpenPr?.(pr)} onMenu={onPrMenu && (() => onPrMenu(pr))} />
+          ))}
+          {!allPrs && prs.length > PRS_SHOWN && (
+            <button
+              type="button"
+              className="ca-linkbtn ca-sessinsp-more"
+              title={prs
+                .slice(PRS_SHOWN)
+                .map((p) => `#${p.number} ${p.title}`)
+                .join('\n')}
+              onClick={() => setAllPrs(true)}
+            >
+              +{prs.length - PRS_SHOWN}
+            </button>
+          )}
+          <PreviewLink preview={lane.preview} now={now} onOpen={() => onOpen('l|preview')} />
+          <InsightChips session={s} />
+          {!allTodos && current && (
+            <button type="button" className="ca-sessinsp-todo" title={`${current.title || 'Untitled'} · ${TODO_WORD[current.status]}. Show the todo.`} onClick={() => onShowTodo?.(current)}>
+              <TodoGlyph status={current.status} />
+              <span>{current.title || 'Untitled'}</span>
+            </button>
+          )}
+          {!allTodos && listed.length > (current ? 1 : 0) && (
+            <button
+              type="button"
+              className="ca-linkbtn ca-sessinsp-more"
+              title={listed
+                .filter((t) => t !== current)
+                .map((t) => `${t.title || 'Untitled'} · ${TODO_WORD[t.status]}`)
+                .join('\n')}
+              onClick={() => setAllTodos(true)}
+            >
+              {current ? `+${listed.length - 1}` : `${listed.length} done ${listed.length === 1 ? 'todo' : 'todos'}`}
+            </button>
+          )}
+        </div>
+        {allTodos && (
           <div className="ca-insp-todos">
-            {(allTodos ? listed : listed.slice(0, TODOS_SHOWN)).map((t) => (
+            {listed.map((t) => (
               <button key={t.id} type="button" className="ca-insp-todo" title="Show the todo" onClick={() => onShowTodo?.(t)}>
                 <TodoGlyph status={t.status} />
                 <span className="ca-insp-todo-title">{t.title || 'Untitled'}</span>
                 <span className="ca-meta">{TODO_WORD[t.status]}</span>
               </button>
             ))}
-            {!allTodos && listed.length > TODOS_SHOWN && (
-              <button
-                type="button"
-                className="ca-linkbtn ca-insp-todomore"
-                title={listed
-                  .slice(TODOS_SHOWN)
-                  .map((t) => t.title || 'Untitled')
-                  .join('\n')}
-                onClick={() => setAllTodos(true)}
-              >
-                {listed.length - TODOS_SHOWN} more {listed.length - TODOS_SHOWN === 1 ? 'todo' : 'todos'}
-              </button>
-            )}
           </div>
         )}
         {details && (
@@ -211,6 +206,10 @@ export function SessionPanel({ lane, session: s, apps, now, onOpen, onNewSession
             <dt>Account</dt>
             <dd>
               <HarnessChip session={s} withStatus={false} />
+            </dd>
+            <dt>Folder</dt>
+            <dd className="ca-code" title={lane.path}>
+              {middleTruncate(tildePath(lane.path), 60)}
             </dd>
             <dt>ID</dt>
             <dd className="ca-code" title={s.id}>

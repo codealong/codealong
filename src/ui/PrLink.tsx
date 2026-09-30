@@ -2,7 +2,8 @@
 // (DescriptionEditor.tsx). A bare one reads `name#123`, with the PR's state as its icon once
 // Codealong knows the PR. Hovering it brings up a card: where the PR stands on GitHub, the
 // worktrees that hold it and the sessions that worked on it, as the PRs view has them. A click
-// opens the link in the browser, and a right-click has the PR's menu (menus.ts).
+// opens the link in the browser, and a right-click has the PR's menu (menus.ts). A PR's chip in a
+// session's panel (`PrChipCard`) has the same card.
 //
 // It costs nothing until you hover: the board already lists the PRs in your projects' repos with
 // their sessions, and each link watches only its own PR there, so a push re-renders a link only
@@ -14,12 +15,12 @@ import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, typ
 import { createPortal } from 'react-dom';
 import { openUrl, prCard } from '../api';
 import { absolute, agoPhrase, count } from '../format';
-import { prIndex, type PrRef } from '../prLinks';
+import { prIndex, prRefOf, type PrRef } from '../prLinks';
 import { errorText } from '../report';
-import type { Lane, PrItem, Session } from '../types';
+import type { Lane, Pr, PrItem, Session } from '../types';
 import { PanelSession } from './PanelSession';
 import { PrPills } from './PrPills';
-import { Button, Icon, PR_ICON, PR_WORD } from './primitives';
+import { Button, Icon, PR_ICON, PR_WORD, PrChip } from './primitives';
 
 /** What a window does with a PR link's card: showing and opening what's on it, and menus. */
 export interface PrLinkActions {
@@ -108,12 +109,12 @@ const WARM_MS = 500;
 let shown: (() => void) | null = null;
 let warmUntil = 0;
 
-export function PrLink({ url, pr: ref, children }: { url: string; pr: PrRef; children: ReactNode }) {
-  const item = useSyncExternalStore(subscribe, () => host.index.get(ref.key) ?? fetched.get(ref.key)?.item);
-  // Without a window that says what to do with it (a page that never called usePrLinks), it's a
-  // plain link.
+/** A PR's card for what shows the PR, a link or a chip: the handlers its anchor takes, and the
+ *  card while it's up. Without a window that says what to do with it (a page that never called
+ *  usePrLinks), there's no card. */
+function usePrCard(url: string, ref: PrRef) {
   const hosted = host.actions !== null;
-  const anchor = useRef<HTMLAnchorElement>(null);
+  const anchor = useRef<HTMLElement | null>(null);
   const [open, setOpen] = useState(false);
   const timer = useRef(0);
   const closeRef = useRef(() => setOpen(false));
@@ -156,25 +157,33 @@ export function PrLink({ url, pr: ref, children }: { url: string; pr: PrRef; chi
     else void openUrl(url);
   };
 
+  const card = open && anchor.current ? <PrCard anchor={anchor.current} prRef={ref} url={url} onEnter={show} onLeave={hide} onClose={close} onFollow={follow} /> : null;
+  return { hosted, anchor, show, hide, close, follow, card };
+}
+
+export function PrLink({ url, pr: ref, children }: { url: string; pr: PrRef; children: ReactNode }) {
+  const item = useSyncExternalStore(subscribe, () => host.index.get(ref.key) ?? fetched.get(ref.key)?.item);
+  const c = usePrCard(url, ref);
+
   return (
     <>
       <a
-        ref={anchor}
+        ref={(el) => void (c.anchor.current = el)}
         className="ca-md-a ca-prlink"
         href={url}
         onClick={(e) => {
           e.preventDefault();
           e.stopPropagation();
-          follow();
+          c.follow();
         }}
-        onMouseEnter={hosted ? show : undefined}
-        onMouseLeave={hosted ? hide : undefined}
+        onMouseEnter={c.hosted ? c.show : undefined}
+        onMouseLeave={c.hosted ? c.hide : undefined}
         onContextMenu={
-          hosted
+          c.hosted
             ? (e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                close();
+                c.close();
                 host.actions?.prMenu(url, host.index.get(ref.key) ?? null);
               }
             : undefined
@@ -187,8 +196,44 @@ export function PrLink({ url, pr: ref, children }: { url: string; pr: PrRef; chi
         )}
         {children}
       </a>
-      {open && anchor.current && <PrCard anchor={anchor.current} prRef={ref} url={url} onEnter={show} onLeave={hide} onClose={close} onFollow={follow} />}
+      {c.card}
     </>
+  );
+}
+
+/** A PR's chip whose card shows on hover, as a link to it does: its title and the rest are
+ *  there, so the chip needs no line of its own. A click opens it on GitHub, and a right-click
+ *  has its menu. */
+export function PrChipCard({ pr, onOpen, onMenu }: { pr: Pr; onOpen?: () => void; onMenu?: () => void }) {
+  const ref = prRefOf(pr.url);
+  if (!ref) return <PrChip pr={pr} onOpen={onOpen} onMenu={onMenu} />;
+  return <HoveredChip pr={pr} prRef={ref} onOpen={onOpen} onMenu={onMenu} />;
+}
+
+function HoveredChip({ pr, prRef, onOpen, onMenu }: { pr: Pr; prRef: PrRef; onOpen?: () => void; onMenu?: () => void }) {
+  const c = usePrCard(pr.url, prRef);
+  return (
+    <span ref={(el) => void (c.anchor.current = el)} className="ca-prchipcard" onMouseEnter={c.hosted ? c.show : undefined} onMouseLeave={c.hosted ? c.hide : undefined}>
+      <PrChip
+        pr={pr}
+        titled={!c.hosted}
+        onOpen={
+          onOpen &&
+          (() => {
+            c.close();
+            onOpen();
+          })
+        }
+        onMenu={
+          onMenu &&
+          (() => {
+            c.close();
+            onMenu();
+          })
+        }
+      />
+      {c.card}
+    </span>
   );
 }
 

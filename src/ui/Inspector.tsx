@@ -30,7 +30,7 @@ function TargetIcon({ target }: { target: Target }) {
   return target.image ? <img className="ca-appicon" src={target.image} alt="" width={16} height={16} /> : <Icon name={target.icon} size={16} />;
 }
 
-export function OpenInMenu({ targets, defaultId, onOpen }: { targets: Target[]; defaultId: string | null; onOpen: (id: string) => void }) {
+export function OpenInMenu({ targets, defaultId, onOpen, size = 'md' }: { targets: Target[]; defaultId: string | null; onOpen: (id: string) => void; size?: 'sm' | 'md' }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -54,13 +54,13 @@ export function OpenInMenu({ targets, defaultId, onOpen }: { targets: Target[]; 
   return (
     <div className="ca-openin" ref={ref}>
       <div className="ca-split">
-        <button type="button" className="ca-btn ca-btn--primary ca-btn--md ca-split-main" onClick={() => onOpen(def.id)} title={def.detail ?? undefined}>
+        <button type="button" className={`ca-btn ca-btn--primary ca-btn--${size} ca-split-main`} onClick={() => onOpen(def.id)} title={def.detail ?? undefined}>
           <TargetIcon target={def} />
           <span>{def.label}</span>
         </button>
         <button
           type="button"
-          className="ca-btn ca-btn--primary ca-btn--md ca-split-caret"
+          className={`ca-btn ca-btn--primary ca-btn--${size} ca-split-caret`}
           aria-haspopup="menu"
           aria-expanded={open}
           aria-label="Other ways to open"

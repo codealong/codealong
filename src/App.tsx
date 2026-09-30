@@ -1900,7 +1900,6 @@ export function App() {
         apps={board?.apps ?? { terminal: 'Terminal', terminalId: '', editor: 'Editor', editorId: '' }}
         now={now}
         onOpen={(id) => open(lane, id)}
-        onNewSession={() => newSession({ laneId: lane.id })}
         onShowLane={showLaneFromPanel}
         prs={sessionPrs(board?.prs ?? [], lane, session)}
         onOpenPr={(p) => openUrl(p.url).catch((e: unknown) => setToast(String(e)))}

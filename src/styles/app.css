@@ -4070,12 +4070,6 @@ html.is-peek body {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* A session's panel lists a few; the rest wait behind this, lined up with the titles. */
-.ca-insp-todomore {
-  justify-self: start;
-  min-height: 24px;
-  padding-left: 20px;
-}
 
 /* The worktree picker and its New worktree box. */
 .ca-start-lane {
@@ -5619,35 +5613,160 @@ html.is-quick body {
   display: grid;
   gap: 6px;
   flex: none;
-  padding: var(--space-4) var(--space-4) var(--space-3);
+  padding: var(--space-3) var(--space-4) 10px;
   border-bottom: 1px solid var(--line);
 }
-.ca-sessinsp-head .ca-insp-path,
-.ca-sessinsp-head .ca-insp-branch {
+/* The title, and beside it the ways to open it and act on it. Short of room, those go under it
+   rather than squeeze it. */
+.ca-sessinsp-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 4px 8px;
+  min-width: 0;
+}
+.ca-sessinsp-top > .ca-glyph,
+.ca-sessinsp-top > svg {
+  flex: none;
+  margin-top: 3px;
+}
+.ca-sessinsp-tools {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 1 auto;
+  min-width: 0;
+  margin: -2px 0 -2px auto;
+}
+.ca-sessinsp-tools .ca-openin {
+  margin-right: 4px;
+}
+.ca-sessinsp-tools .ca-openin,
+.ca-sessinsp-tools .ca-split-main,
+.ca-sessinsp-tools .ca-split-main > span {
+  min-width: 0;
+}
+.ca-sessinsp-tools .ca-split-main > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ca-sessinsp-tools .ca-split-caret.ca-btn--sm {
+  flex: none;
+  width: 22px;
+}
+.ca-sessinsp-tools > .ca-btn {
+  flex: none;
+}
+/* The Open menu opens under its button toward the panel, not past the window's edge. */
+.ca-sessinsp-tools .ca-openin > .ca-menu {
+  left: auto;
+  right: 0;
+}
+.ca-sessinsp-detailsbtn.is-on {
+  background: var(--surface-selected);
+  color: var(--ink);
+}
+/* Where it stands and where it works, in one line that gives way at the worktree and branch. */
+.ca-sessinsp-meta {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  color: var(--ink-3);
+  font: 400 12px/16px var(--font-sans);
+  white-space: nowrap;
+}
+.ca-sessinsp-meta > * {
+  flex: none;
+}
+.ca-sessinsp-meta > .ca-sessinsp-lane,
+.ca-sessinsp-meta > .ca-branch {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.ca-sessinsp-lane {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink-2);
+  font: 400 12px/16px var(--font-mono);
+  cursor: pointer;
+}
+.ca-sessinsp-lane .ca-icon {
+  flex: none;
+  color: var(--ink-3);
+}
+.ca-sessinsp-lane span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ca-sessinsp-lane:hover span {
+  color: var(--ink);
+  text-decoration: underline;
+}
+.ca-sessinsp-lane:focus-visible {
+  outline: none;
+  border-radius: var(--radius-sm);
+  box-shadow: 0 0 0 2px var(--focus);
+}
+/* The PRs it worked on, its app and the todo it's on, in a line: the todo takes what's left. */
+.ca-sessinsp-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  min-width: 0;
+}
+.ca-sessinsp-links:empty {
+  display: none;
+}
+.ca-sessinsp-links > * {
+  flex: none;
+}
+.ca-sessinsp-links .ca-insp-path {
   margin-top: 0;
 }
-/* A grid item stretches across the column; a chip keeps its own width. */
-.ca-sessinsp-head > .ca-chip {
-  justify-self: start;
+.ca-prchipcard {
+  display: inline-flex;
 }
-.ca-sessinsp .ca-insp-title .ca-tag {
-  margin-left: 0;
+.ca-sessinsp-more {
+  font-size: 12px;
 }
-.ca-sessinsp .ca-todoinsp-more {
-  margin-left: auto;
+.ca-sessinsp-links > .ca-sessinsp-todo {
+  flex: 1 1 140px;
 }
-.ca-sessinsp .ca-sessinsp-seen {
-  margin-left: auto;
+.ca-sessinsp-todo {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: max-content;
+  height: 22px;
+  margin: 0 -2px 0 2px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-2);
+  font: 400 12px/16px var(--font-sans);
+  text-align: left;
+  cursor: pointer;
 }
-.ca-sessinsp .ca-sessinsp-seen + .ca-todoinsp-more {
-  margin-left: 0;
+.ca-sessinsp-todo span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.ca-sessinsp .ca-sessinsp-max {
-  margin-left: auto;
+.ca-sessinsp-todo:hover {
+  background: var(--surface-hover);
+  color: var(--ink);
 }
-.ca-sessinsp .ca-sessinsp-seen + .ca-sessinsp-max,
-.ca-sessinsp .ca-sessinsp-max + .ca-todoinsp-more {
-  margin-left: 0;
+.ca-sessinsp-todo:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--focus);
 }
 /* Expanded to the whole window (F): the sidebar and the list step aside, and the panel's parts
    keep to a readable width in the middle, their backgrounds and lines still reaching the edges. */
@@ -5664,52 +5783,16 @@ html.is-quick body {
   padding-inline: max(var(--space-4), (100% - 860px) / 2);
 }
 .ca-sessinsp-title {
+  flex: 1 1 120px;
+  min-width: 0;
   margin: 0;
-  font: 600 17px/22px var(--font-sans);
+  font: 600 15px/20px var(--font-sans);
   color: var(--ink);
   overflow-wrap: anywhere;
-}
-/* The PRs it worked on, under its branch: the chip and the title each open one on GitHub. */
-.ca-sessinsp-prs {
-  display: grid;
-  gap: 4px;
-  justify-items: start;
-  min-width: 0;
-}
-.ca-sessinsp-pr {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  max-width: 100%;
-}
-.ca-sessinsp-pr .ca-pr {
-  flex: none;
-}
-.ca-sessinsp-prlink {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
-  font-weight: 400;
-}
-.ca-sessinsp-prlink span {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.ca-sessinsp-prlink .ca-icon {
-  flex: none;
-}
-.ca-sessinsp-status {
-  color: var(--ink-3);
-  font: 400 12px/16px var(--font-sans);
-}
-.ca-sessinsp-detailsbtn {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  margin-left: auto;
 }
 .ca-sessinsp-now {
   margin: 0;
