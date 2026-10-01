@@ -4,8 +4,9 @@
 // new session with what you typed as its prompt, in the worktree, on the agent and in the app
 // chosen at the bottom.
 //
-// ⏎ does the selected row and ⌘⏎ always starts. ⌥⏎ shows the session in Codealong, ⌘1 to ⌘9
-// open a row, ⌘P picks the project and ⌥⌘1 to ⌥⌘9 switch to one (⌥⌘0 to all of them), ⌘D picks
+// ⏎ does the selected row and ⌘⏎ always starts. ⏎ on a session shows it in Codealong, with its
+// conversation, and ⌥⏎ opens it where it lives; ⌥⏎ on a todo or PR shows that in Codealong. ⌘1 to ⌘9
+// do a row, ⌘P picks the project and ⌥⌘1 to ⌥⌘9 switch to one (⌥⌘0 to all of them), ⌘D picks
 // the Mac (with others linked), ⌘T the worktree and ⌘L the agent, whose menu has the effort
 // under its models (← → there), ↑ in the empty input brings back the last draft and earlier
 // prompts, and Escape closes. (⌘M is the Window menu's Minimize, which may take the key before
@@ -818,6 +819,15 @@ export function Quick() {
     void showMain({ kind: 'session', laneId: lane.id, key: session.key });
   };
 
+  /** What picking a session does: Codealong shows it, with its conversation, rather than the
+   *  terminal or app it runs in. The search that found it is done with, as when it opens there. */
+  const showSession = (lane: Lane, session: Session) => {
+    setText('');
+    setActiveKey(null);
+    setError(null);
+    revealSession(lane, session);
+  };
+
   /** Answers a session here: its conversation, and a box for the reply. What's typed in the input
    *  stays for when you go back. */
   const replyTo = (session: Session) => {
@@ -895,7 +905,7 @@ export function Quick() {
 
   const openTodo = (r: TodoRow) => {
     const s = todoSession(r);
-    if (s) openSession(s.lane, s.session);
+    if (s) showSession(s.lane, s.session);
     else prepareTodo(r);
   };
 
@@ -1122,9 +1132,8 @@ export function Quick() {
   };
 
   const suggest = (sg: Suggestion, alt: boolean) => {
-    if ((sg.kind === 'send' || sg.kind === 'open') && alt) revealSession(sg.lane, sg.session);
-    else if (sg.kind === 'send') send(sg.session);
-    else if (sg.kind === 'open') openSession(sg.lane, sg.session);
+    if (sg.kind === 'send') alt ? revealSession(sg.lane, sg.session) : send(sg.session);
+    else if (sg.kind === 'open') (alt ? openSession : showSession)(sg.lane, sg.session);
     else if (sg.kind === 'start') start({ lane: sg.lane, newWorktree: sg.newWorktree });
     else saveTodo(sg.lane);
   };
@@ -1139,7 +1148,7 @@ export function Quick() {
       // The first of those it adds takes its place.
       setAllFor(query);
       setActiveKey(ranked[FOUND_SESSIONS]?.key ?? null);
-    } else (alt ? revealSession : openSession)(row.lane, row.session);
+    } else (alt ? openSession : showSession)(row.lane, row.session);
   };
 
   /* ---- Keys ---- */
@@ -1447,7 +1456,7 @@ export function Quick() {
       const age = x.startedAt != null ? `Started ${agoPhrase(x.startedAt, now)}. ` : '';
       if (sg.kind === 'open') {
         return x.status === 'needs'
-          ? { icon: 'external', title: `Answer “${x.title}”`, why: `${age}It’s waiting on you, so it opens where it lives and you answer there.`, where }
+          ? { icon: 'external', title: `Answer “${x.title}”`, why: `${age}It’s waiting on you, so Codealong shows it and you answer there.`, where }
           : { icon: 'external', title: `Open “${x.title}”`, why: `${age}${sessionWhy(x.detail, x.headline, now)}`, where };
       }
       const why = !x.live
@@ -1682,7 +1691,7 @@ export function Quick() {
                             role="option"
                             aria-selected={active === r.key}
                             className={['ca-quick-row', 'is-suggest', active === r.key && 'is-active'].filter(Boolean).join(' ')}
-                            title={`${said.title}\n${said.why}\n${pct}% likely, from ${route?.model ?? 'Jev'} in ${route?.ms ?? 0} ms · ⏎ does it${r.s.kind === 'send' || r.s.kind === 'open' ? ' · ⌥⏎ shows the session in Codealong' : ''}`}
+                            title={`${said.title}\n${said.why}\n${pct}% likely, from ${route?.model ?? 'Jev'} in ${route?.ms ?? 0} ms · ⏎ does it${r.s.kind === 'send' ? ' · ⌥⏎ shows the session in Codealong' : r.s.kind === 'open' ? ' · ⌥⏎ opens the session where it lives' : ''}`}
                             {...handlers}
                           >
                             <span className="ca-quick-plus is-suggest">
@@ -1700,14 +1709,14 @@ export function Quick() {
                       }
                       if (r.kind === 'todo') {
                         const t = r.item.todo;
-                        const opens = todoSession(r) ? 'opens its session' : 'gets a session ready to start for it';
+                        const opens = todoSession(r) ? 'shows its session in Codealong' : 'gets a session ready to start for it';
                         return (
                           <div
                             key={r.key}
                             role="option"
                             aria-selected={active === r.key}
                             className={['ca-quick-row', 'is-todo', active === r.key && 'is-active'].filter(Boolean).join(' ')}
-                            title={`${t.title || 'Untitled'}\n⏎ ${opens} · ⌥⏎ shows it in Codealong`}
+                            title={`${t.title || 'Untitled'}\n⏎ ${opens} · ⌥⏎ shows the todo in Codealong`}
                             {...handlers}
                           >
                             <TodoGlyph status={t.status} waiting={r.waiting} />
@@ -1775,7 +1784,7 @@ export function Quick() {
                           role="option"
                           aria-selected={active === r.key}
                           className={['ca-quick-row', active === r.key && 'is-active', `is-${s2.status}`].filter(Boolean).join(' ')}
-                          title={`${s2.title}\n${s2.account} · ${r.lane.callsign}\n⏎ opens it where it lives · ⇥ answers it here · ⌥⏎ shows it in Codealong`}
+                          title={`${s2.title}\n${s2.account} · ${r.lane.callsign}\n⏎ shows it in Codealong · ⇥ answers it here · ⌥⏎ opens it where it lives`}
                           {...handlers}
                         >
                           <StatusGlyph status={s2.status} />

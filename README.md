@@ -289,12 +289,14 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   rest a row away, and under them todos by
   title, description, label, project, or the worktrees and sessions linked to them, then PRs by
   number, title, repo, branch or author. A word of one or two letters among others counts only
-  as a whole word, so "class c" doesn't find everything with a c in it. ⏎ on a todo
-  opens its session, or, when it has none, gets a session ready to start for it (its prompt,
+  as a whole word, so "class c" doesn't find everything with a c in it. ⏎ on a session
+  shows it in Codealong, with its conversation and a box to answer it, and ⌥⏎ opens it where it
+  lives. ⏎ on a todo
+  shows its session the same way, or, when it has none, gets a session ready to start for it (its prompt,
   its worktree, linked to it); on a PR it opens the PR on GitHub, and the PR's right-click menu
   copies its link. The last row starts a new session with what you typed as its
   prompt. ⏎ does the selected row, ⌘⏎ always starts, ⌥⏎
-  shows the session, todo or PR in Codealong, ⌘1 to ⌘9 open a row, Escape closes. ⇥ on a
+  shows a todo or PR in Codealong, ⌘1 to ⌘9 do a row, Escape closes. ⇥ on a
   session answers it in the panel: its conversation, and a box that sends it a message where it
   runs (⏎ sends and closes the panel), or what it waits on you to allow, with Allow and Deny
   (⌘⏎ allows); Escape goes back to the list. Answered from the list with nothing typed, the
