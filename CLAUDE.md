@@ -1002,6 +1002,22 @@ Ghostty (1.3, AppleScript dictionary in the app bundle)
   next turn. `current date` inside `tell application "Ghostty"` goes to Ghostty first.
 - macOS doesn't let a background process bring an app forward: `activate` from a shell leaves
   Ghostty behind; from a click in Codealong it works.
+- A tab on another desktop (a Space): `select tab` and `activate window` are
+  `makeKeyAndOrderFront`, the second with `NSApp.activate` after it, and `focus` does the same on
+  Ghostty's next turn (1.3.1's ScriptTab.swift, ScriptWindow.swift, BaseTerminalController.swift),
+  so the window is raised before Ghostty is the active app, and after a click in the bar Ghostty
+  is active only once Codealong asks (`bar::bring_forward`). macOS switches desktops for a window
+  the active app brings forward (AppKit's notes on `moveToActiveSpace`), so `launch::follow`
+  focuses the terminal a second time once its app is active, in iTerm2 and Terminal too. Nothing
+  public says which desktop a window is on, or goes to one. The window server's own calls do
+  (`CGSCopySpacesForWindows`, read here: a tab that isn't selected is a window on no desktop; and
+  `_SLPSSetFrontProcessWithOptions` with a window's number, which AltTab focuses a window on
+  another desktop with), but Ghostty's script ids are object addresses, not window numbers, and
+  getting a window's number through Accessibility needs that permission, asked again for every
+  build of Codealong Dev. Not yet checked by hand (2026-10-01): that the second focus takes you
+  to the other desktop, since every Ghostty window was on one desktop and the check moves your
+  screen. With Mission Control's "When switching to an application, switch to a Space with open
+  windows for the application" off, macOS may stay where you are.
 - `send key "<name>" to terminal id <id>` takes the Swift names of Ghostty's keys (`digit1`,
   `escape`, `enter`; `digit_1` and `1` error with "Unknown key name") and sends a key event
   without text, and Ghostty writes nothing for a character key without text: only keys with

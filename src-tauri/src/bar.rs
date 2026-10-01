@@ -617,6 +617,12 @@ pub fn bring_forward(app: &AppHandle, bundle_id: &'static str) {
     let _ = app.run_on_main_thread(move || native::activate_app(bundle_id));
 }
 
+/// Whether the app with this bundle ID is the active one, the app whose menus are in the menu bar.
+/// Asked afresh each time, from any thread.
+pub fn app_active(bundle_id: &str) -> bool {
+    native::app_active(bundle_id)
+}
+
 /// Brings the main window forward. `reveal` (a session or PR) goes to its page, which selects it.
 pub fn show_main(app: &AppHandle, reveal: Option<serde_json::Value>) -> Result<()> {
     let main = app.get_webview_window("main").ok_or_else(|| anyhow!("The main window is gone."))?;
@@ -740,6 +746,12 @@ pub(crate) mod native {
             #[allow(deprecated)]
             let _ = apps.objectAtIndex(0).activateWithOptions(NSApplicationActivationOptions::empty());
         }
+    }
+
+    /// A running app's record is as it was when it was fetched, so each ask fetches it again.
+    pub fn app_active(bundle_id: &str) -> bool {
+        let apps = NSRunningApplication::runningApplicationsWithBundleIdentifier(&NSString::from_str(bundle_id));
+        apps.count() > 0 && apps.objectAtIndex(0).isActive()
     }
 
     fn rect(r: NSRect) -> Rect {
@@ -890,6 +902,9 @@ pub(crate) mod native {
     }
     pub fn unmake_panel(_: &WebviewWindow, _: Original) {}
     pub fn activate_app(_: &str) {}
+    pub fn app_active(_: &str) -> bool {
+        false
+    }
     pub fn prepare(_: &WebviewWindow) {}
     pub fn show(w: &WebviewWindow) {
         let _ = w.show();

@@ -556,15 +556,86 @@ pub fn terminal_focus_session(profile: &str, pid: u32, title: &str, cwd: &Path) 
         // Clicked again while this one waited: the newer click decides what comes forward.
         return Ok(true);
     };
-    match terminal_kind(pid) {
-        Some(HostKind::Ghostty) => ghostty_focus_session(pid, &tty, title, cwd),
-        Some(HostKind::ITerm2) => iterm::focus(&tty.to_string_lossy()),
-        Some(HostKind::Terminal) => terminal_app::focus(&tty.to_string_lossy()),
-        Some(HostKind::Tmux) | None => focus_by_title(profile, title, cwd),
+    let kind = terminal_kind(pid);
+    // Asked before the tab is raised: `follow` is for an app that wasn't the active one then.
+    let behind = kind.and_then(HostKind::bundle).or_else(|| bundle_id(profile)).filter(|app| !crate::bar::app_active(app));
+    let on_tty = tty.to_string_lossy().into_owned();
+    let raised = match kind {
+        Some(HostKind::Ghostty) => ghostty_focus_session(pid, &tty, title, cwd)?.map(Raised::Ghostty),
+        Some(HostKind::ITerm2) => iterm::focus(&on_tty)?.then(|| Raised::ITerm2(on_tty)),
+        Some(HostKind::Terminal) => terminal_app::focus(&on_tty)?.then(|| Raised::Terminal(on_tty)),
+        Some(HostKind::Tmux) | None => focus_by_title(profile, title, cwd)?,
+    };
+    let found = raised.is_some();
+    if let (Some(raised), Some(app)) = (raised, behind) {
+        follow(ticket, app, raised);
+    }
+    Ok(found)
+}
+
+/// A tab that was brought forward, by what its app finds it again by: Ghostty's terminal id, the
+/// TTY in iTerm2 and Terminal.
+enum Raised {
+    Ghostty(String),
+    ITerm2(String),
+    Terminal(String),
+}
+
+impl Raised {
+    fn again(&self) {
+        let _ = match self {
+            Raised::Ghostty(id) => osascript(GHOSTTY_FOCUS, &["id", id]).map(|_| true),
+            Raised::ITerm2(tty) => iterm::focus(tty),
+            Raised::Terminal(tty) => terminal_app::focus(tty),
+        };
     }
 }
 
-fn ghostty_focus_session(pid: u32, tty: &Path, title: &str, cwd: &Path) -> Result<bool> {
+/// How long a terminal's app gets to become the active one after its tab was raised (`follow`).
+const FOLLOW_WAIT: Duration = Duration::from_secs(2);
+
+/// Raises a focused tab once more when its app has become the active one, so a tab on another
+/// desktop (a Space, a full-screen window's too) takes you there. macOS switches to a window's
+/// desktop when the active app brings the window forward (unless the window is set to move to
+/// the desktop you're on, by AppKit's notes on `moveToActiveSpace`). The terminals raise the
+/// window first and become active after: Ghostty's `activate window` is `makeKeyAndOrderFront`,
+/// then `NSApp.activate`, and after a click in the bar it's active only once Codealong asks
+/// macOS (`bar::bring_forward`). An app made active with one window on the desktop you're on
+/// and the raised one on another needn't take you anywhere. So this waits for the app to be
+/// active and raises the tab again, which moves nothing when it's in front already. A newer
+/// click drops it, as it drops a focus still waiting its turn. The switch itself isn't checked
+/// by hand yet (2026-10-01).
+fn follow(ticket: u64, app: &'static str, raised: Raised) {
+    std::thread::spawn(move || {
+        let newest = || FOCUS_TURNS.newest.load(Ordering::SeqCst) == ticket;
+        if !wait_until(FOLLOW_WAIT, || crate::bar::app_active(app), || !newest()) {
+            return;
+        }
+        if let Some(_turn) = FOCUS_TURNS.wait(ticket) {
+            raised.again();
+        }
+    });
+}
+
+/// Waits for `ready` to say yes. False when `dropped` does first, or `limit` runs out.
+fn wait_until(limit: Duration, ready: impl Fn() -> bool, dropped: impl Fn() -> bool) -> bool {
+    let started = std::time::Instant::now();
+    loop {
+        if dropped() {
+            return false;
+        }
+        if ready() {
+            return true;
+        }
+        if started.elapsed() >= limit {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(40));
+    }
+}
+
+/// The id of the Ghostty terminal it brought forward, None when the session's tab isn't found.
+fn ghostty_focus_session(pid: u32, tty: &Path, title: &str, cwd: &Path) -> Result<Option<String>> {
     let terminals = ghostty_terminals()?;
     let mark = format!("{MARK_PREFIX}{pid}-{}", crate::util::now_ms());
     let mut failed = None;
@@ -580,31 +651,31 @@ fn ghostty_focus_session(pid: u32, tty: &Path, title: &str, cwd: &Path) -> Resul
             .unwrap_or_else(|| cwd.to_string_lossy().into_owned());
         let _ = write_osc7(tty, &real);
         match found {
-            Ok(_) if !id.is_empty() => return Ok(true),
+            Ok(_) if !id.is_empty() => return Ok(Some(id)),
             Ok(_) => {}
             // Ghostty was too slow or refused: say that, unless the fallback finds the tab.
             Err(e) => failed = Some(e),
         }
     }
     match pick_by_title(&terminals, title, cwd) {
-        Some(id) => Ok(!osascript(GHOSTTY_FOCUS, &["id", &id])?.trim().is_empty()),
-        None => failed.map_or(Ok(false), Err),
+        Some(id) => Ok((!osascript(GHOSTTY_FOCUS, &["id", &id])?.trim().is_empty()).then_some(id)),
+        None => failed.map_or(Ok(None), Err),
     }
 }
 
 /// The one tab in `profile`'s app titled like the session (see `pick_by_title`). Terminal lists
 /// no titles or folders of its tabs, so it has none.
-fn focus_by_title(profile: &str, title: &str, cwd: &Path) -> Result<bool> {
+fn focus_by_title(profile: &str, title: &str, cwd: &Path) -> Result<Option<Raised>> {
     match profile {
         "ghostty" => match pick_by_title(&ghostty_terminals()?, title, cwd) {
-            Some(id) => Ok(!osascript(GHOSTTY_FOCUS, &["id", &id])?.trim().is_empty()),
-            None => Ok(false),
+            Some(id) => Ok((!osascript(GHOSTTY_FOCUS, &["id", &id])?.trim().is_empty()).then(|| Raised::Ghostty(id))),
+            None => Ok(None),
         },
         "iterm2" => match pick_by_title(&iterm::sessions()?, title, cwd) {
-            Some(tty) => iterm::focus(&tty),
-            None => Ok(false),
+            Some(tty) => Ok(iterm::focus(&tty)?.then(|| Raised::ITerm2(tty))),
+            None => Ok(None),
         },
-        _ => Ok(false),
+        _ => Ok(None),
     }
 }
 
@@ -1829,6 +1900,23 @@ end run
         drop(held);
         assert!(turns.wait(second).is_none(), "a click made while another waited is dropped");
         assert!(turns.wait(third).is_some(), "the newest click goes ahead");
+    }
+
+    #[test]
+    fn a_raise_waits_for_its_app_and_gives_way_to_a_newer_click() {
+        use std::cell::Cell;
+        let limit = Duration::from_secs(5);
+        assert!(wait_until(limit, || true, || false), "the app is active already");
+        // Active on the third look, as an app brought forward a moment after its window is.
+        let looks = Cell::new(0);
+        let ready = || {
+            looks.set(looks.get() + 1);
+            looks.get() >= 3
+        };
+        assert!(wait_until(limit, ready, || false));
+        assert_eq!(looks.get(), 3);
+        assert!(!wait_until(limit, || true, || true), "a newer click drops it, active app or not");
+        assert!(!wait_until(Duration::ZERO, || false, || false), "the app never came forward");
     }
 
     #[test]
