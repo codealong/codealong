@@ -27,6 +27,9 @@ pub struct SeenState {
     /// Pinned worktrees by lane id (the worktree's path), in the order you put them.
     #[serde(default)]
     pub pinned_worktrees: Vec<String>,
+    /// Pinned PRs by key (`owner/name#number`), in the order you put them.
+    #[serde(default)]
+    pub pinned_prs: Vec<String>,
     /// Sessions archived from Codealong, and when.
     #[serde(default)]
     pub archived: Vec<ArchivedSession>,
@@ -114,6 +117,11 @@ impl SeenState {
     /// Replaces the pinned worktrees, keeping the first of any repeats.
     pub fn set_pinned_worktrees(&mut self, ids: Vec<String>) {
         self.pinned_worktrees = unique(ids);
+    }
+
+    /// Replaces the pinned PRs, keeping the first of any repeats.
+    pub fn set_pinned_prs(&mut self, keys: Vec<String>) {
+        self.pinned_prs = unique(keys);
     }
 
     /// Records an archive (or its undoing) made from Codealong.
@@ -207,6 +215,18 @@ mod tests {
         assert!(old.pinned_worktrees.is_empty());
         let text = serde_json::to_string(&s).unwrap();
         assert!(text.contains(r#""pinnedWorktrees":["/r/app3","/r/main"]"#));
+    }
+
+    #[test]
+    fn pinned_prs_are_a_list_of_their_own() {
+        let mut s = SeenState::default();
+        s.set_pinned_worktrees(vec!["/r/main".into()]);
+        s.set_pinned_prs(vec!["o/r#12".into(), "o/r#3".into(), "o/r#12".into(), "".into()]);
+        assert_eq!(s.pinned_prs, vec!["o/r#12".to_string(), "o/r#3".to_string()]);
+        assert_eq!(s.pinned_worktrees, vec!["/r/main".to_string()]);
+        let old: SeenState = serde_json::from_str(r#"{"firstRun":5,"seen":{},"pinnedWorktrees":["/r/main"]}"#).unwrap();
+        assert!(old.pinned_prs.is_empty());
+        assert!(serde_json::to_string(&s).unwrap().contains(r#""pinnedPrs":["o/r#12","o/r#3"]"#));
     }
 
     #[test]

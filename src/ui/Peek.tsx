@@ -307,7 +307,7 @@ export function Peek() {
   };
   const prMenu = (pr: Pr) => {
     const item = prBoard?.prs.find((p) => p.url === pr.url);
-    void showContextMenu(menus.prMenu(item ?? pr, { report, reveal: item ? () => showPrMain(item) : undefined })).catch((e: unknown) => report.error(errorText(e)));
+    void showContextMenu(menus.prMenu(item ?? pr, { report, reveal: item ? () => showPrMain(item) : undefined, desktop: onDesktop })).catch((e: unknown) => report.error(errorText(e)));
   };
 
   return (

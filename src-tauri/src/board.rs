@@ -1529,6 +1529,7 @@ pub fn compose(inp: Inputs) -> Board {
         usage: Vec::new(),
         pinned: pinned.to_vec(),
         pinned_worktrees: Vec::new(),
+        pinned_prs: Vec::new(),
         prs: pr_list,
         github_login: github_login.map(str::to_string),
         theme: Default::default(),

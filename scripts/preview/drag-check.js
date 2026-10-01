@@ -5,8 +5,9 @@
 // desktop too.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/drag-check.js
 //   PREVIEW_WAIT=60000 scripts/preview.sh worktrees '' scripts/preview/drag-check.js
+//   PREVIEW_WAIT=60000 scripts/preview.sh prs '' scripts/preview/drag-check.js
 //   PREVIEW_WAIT=60000 PREVIEW_TODOS=scripts/preview/todos-sample.json scripts/preview.sh todo '' scripts/preview/drag-check.js
-// Sessions and worktrees need three rows or more. Every step should say ok.
+// Sessions, worktrees and PRs need three rows or more. Every step should say ok.
 (function () {
   var out = [];
   var say = function (t) { window.__t = t; };
@@ -49,6 +50,13 @@
         rows: function () { return all('.ca-sessionlist .ca-lane'); },
         key: function (r) { return r.id.split('::').pop(); },
         save: 'set_pinned', arg: 'keys', ref: 'session',
+      };
+    }
+    if (view === 'prs') {
+      return {
+        rows: function () { return all('.ca-board-list > .ca-bayblock .ca-prrow'); },
+        key: null,
+        save: 'set_pinned_prs', arg: 'keys', ref: 'pr',
       };
     }
     return {
@@ -215,8 +223,27 @@
       });
   };
 
+  // A PR's menu pins it too, in the list and to the desktop, and P pins the one selected.
+  var prMenu = function () {
+    if (view !== 'prs') return;
+    var row = all('.ca-board-list .ca-prrow').filter(function (r) { return !r.hasAttribute('data-pin-index'); })[0];
+    row.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
+    row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+    return wait(200).then(function () {
+      var menus = window.__calls.filter(function (c) { return c[0] === 'plugin:menu|new'; });
+      var items = menus.length ? menus[menus.length - 1][1].options.items.map(function (i) { return i.text; }) : [];
+      check("a PR's menu pins it", items.indexOf('Pin PR') >= 0 && items.indexOf('Pin to desktop') >= 0, items.join(', '));
+      mark();
+      document.querySelector('.ca-board-list').dispatchEvent(new KeyboardEvent('keydown', { key: 'p', code: 'KeyP', bubbles: true, cancelable: true }));
+      return wait(100);
+    }).then(function () {
+      var s = last('set_pinned_prs');
+      check('and P pins the PR selected', !!s && s.keys.length > 0, JSON.stringify(s));
+    });
+  };
+
   say('drag check: waiting for the ' + view + ' view');
-  (view === 'todo' ? todos() : pins())
+  (view === 'todo' ? todos() : pins().then(prMenu))
     .then(done)
     .catch(function (e) {
       out.push('FAIL ' + e);

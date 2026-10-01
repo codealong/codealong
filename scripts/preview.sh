@@ -29,8 +29,8 @@
 # the quick panel (default 760,640: its window's width). The panel opens as the shortcut opens
 # it, with nothing typed; PREVIEW_INIT can type or click from there. The peek (default 520,640)
 # opens on PREVIEW_TRANSCRIPT's session when there is one, else on the first that needs you.
-# A desktop card (default 360,300) shows PREVIEW_PIN: `session`, `worktree` or `todo` for the
-# latest session, the latest worktree with sessions or the first todo, or `<ref>:<key>` for one.
+# A desktop card (default 360,300) shows PREVIEW_PIN: `session`, `worktree`, `todo` or `pr` for the
+# latest session, the latest worktree with sessions, the first todo or a PR with sessions, or `<ref>:<key>` for one.
 #
 # PREVIEW_TODOS=<file> shows the todos in it (scripts/preview/todos-sample.json has some) in
 # place of yours; "$lane:N" and "$session:N" in it stand for the project's Nth most recent

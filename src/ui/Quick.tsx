@@ -207,12 +207,13 @@ function prWhy(pr: PrItem): string {
 }
 
 /** A title with the typed words underlined. */
-/** What a result pins to the desktop when it's dragged out of the panel: its session or todo.
- *  Null for what has no card: a session on another device or archived, a start, more results. */
+/** What a result pins to the desktop when it's dragged out of the panel: its session, todo or
+ *  PR. Null for what has no card: a session on another device or archived, a start, more results. */
 function deskPin(r: Row | undefined): DesktopPinned | null {
   const session = r?.kind === 'session' ? r : r?.kind === 'suggest' && (r.s.kind === 'send' || r.s.kind === 'open') ? r.s : null;
   if (session) return session.lane.device || session.session.archived ? null : { ref: 'session', key: session.session.key };
   if (r?.kind === 'todo') return { ref: 'todo', key: r.item.todo.id };
+  if (r?.kind === 'pr') return { ref: 'pr', key: r.pr.key };
   return null;
 }
 
@@ -221,6 +222,7 @@ function deskTitle(r: Row | undefined): string {
   if (r?.kind === 'session') return r.session.title;
   if (r?.kind === 'suggest' && (r.s.kind === 'send' || r.s.kind === 'open')) return r.s.session.title;
   if (r?.kind === 'todo') return r.item.todo.title || 'Untitled';
+  if (r?.kind === 'pr') return `#${r.pr.number} ${r.pr.title}`;
   return '';
 }
 
@@ -787,7 +789,7 @@ export function Quick() {
   const moreRow: MoreRow[] = !showAll && ranked.length > FOUND_SESSIONS ? [{ kind: 'more', key: 'more:found', group: 'found', count: ranked.length - FOUND_SESSIONS }] : [];
   const rows: Row[] = query ? [...suggested, ...(showAll ? ranked : ranked.slice(0, FOUND_SESSIONS)), ...moreRow, ...foundTodos, ...foundPrs] : [...(attention?.rows ?? []), ...(readyList?.rows ?? []), ...(recent?.rows ?? [])];
   const keys = [...rows.map((r) => r.key), COMPOSE];
-  // A result dragged out of the panel is pinned to the desktop: a session, a todo, or the
+  // A result dragged out of the panel is pinned to the desktop: a session, a todo, a PR, or the
   // session a suggestion is about (useRowDrag.tsx). Nothing here is put in order.
   const rowsNow = useRef(rows);
   rowsNow.current = rows;
@@ -999,6 +1001,7 @@ export function Quick() {
       open: () => openPr(pr),
       session: s ? { ...s, open: () => openSession(s.lane, s.session) } : undefined,
       reveal: () => revealPr(pr),
+      desktop: onDesktop,
     });
   };
 

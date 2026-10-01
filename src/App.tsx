@@ -12,7 +12,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSPr
 import { below, showContextMenu, type MenuAction, type MenuSpec } from './contextMenu';
 import { useEditorIcons } from './editors';
 import { AGENT_BAY, buildBays, filterByAge, homeOf, inboxCounts, liveOrLatest, narrowed, prNeedsWork, rowItems, seenable, sessionPrs, worktreeRow, sessionHomes, type BoardRow, type Filter, type WorktreeRow } from './lanes';
-import { answerLink, approvePr, barMode, getDevices, onDevices, dismissTodoHint, expandAttachments, getBoard, onBarMode, onBoard, onCloseIdle, onNewWindow, onQuickStart, onReveal, onSettings, onCheckUpdates, openConfig, openProjectWindow, openUrl, refresh, refreshUsage, reviewInCodex, setBarMode, startOptions, startSession, setPinned, setPinnedWorktrees, setTheme, showQuick, signIn, windowLabel, type BarMode, type Reveal } from './api';
+import { answerLink, approvePr, barMode, getDevices, onDevices, dismissTodoHint, expandAttachments, getBoard, onBarMode, onBoard, onCloseIdle, onNewWindow, onQuickStart, onReveal, onSettings, onCheckUpdates, openConfig, openProjectWindow, openUrl, refresh, refreshUsage, reviewInCodex, setBarMode, startOptions, startSession, setPinned, setPinnedPrs, setPinnedWorktrees, setTheme, showQuick, signIn, windowLabel, type BarMode, type Reveal } from './api';
 import { dueChoices } from './due';
 import { middleTruncate } from './format';
 import * as menus from './menus';
@@ -521,6 +521,7 @@ export function App() {
   // your order.
   const sessionPins = usePins(board?.pinned, setPinned, setToast);
   const lanePins = usePins(board?.pinnedWorktrees, setPinnedWorktrees, setToast);
+  const prPins = usePins(board?.pinnedPrs, setPinnedPrs, setToast);
   // How Sessions orders the sessions that aren't pinned: by status, or the newest start first.
   const [sessionSort, setSessionSortState] = useState<SessionSort>(storedSessionSort);
   const setSessionSort = useCallback((sort: SessionSort) => {
@@ -625,17 +626,22 @@ export function App() {
   const prRows = useMemo(
     () =>
       projectPrs
-        .filter((p) => p.updatedAt >= cutoff && prInQuery(p, query))
+        .filter((p) => (p.updatedAt >= cutoff || prPins.set.has(p.key)) && prInQuery(p, query))
         .map((p): PrRowItem => {
           const holding = p.lanes.flatMap((id) => laneById.get(id) ?? []);
           const sessions = p.sessions.flatMap((s) => sessionIndex.get(`${s.lane}::${s.key}`) ?? []);
           return { kind: 'pr', key: `pr:${p.key}`, pr: p, lane: holding[0] ?? null, sessions, places: prPlaces(holding, sessions) };
         })
         .filter((r) => prInFilter(r, bayFilter)),
-    [projectPrs, cutoff, query, bayFilter, laneById, sessionIndex],
+    [projectPrs, cutoff, query, bayFilter, laneById, sessionIndex, prPins.set],
   );
-  const prSecs = useMemo(() => prSections(prRows), [prRows]);
-  const prVisible = useMemo<Row[]>(() => prSecs.flatMap((s) => (s.id === 'done' && !showDonePrs ? [] : s.rows)), [prSecs, showDonePrs]);
+  // Pinned PRs lead the PRs view in your order, whatever their age, and leave its sections.
+  const pinnedPrRows = useMemo(() => {
+    const byKey = new Map(prRows.map((r) => [r.pr.key, r]));
+    return prPins.keys.flatMap((k) => byKey.get(k) ?? []);
+  }, [prRows, prPins.keys]);
+  const prSecs = useMemo(() => prSections(prRows.filter((r) => !prPins.set.has(r.pr.key))), [prRows, prPins.set]);
+  const prVisible = useMemo<Row[]>(() => [...pinnedPrRows, ...prSecs.flatMap((s) => (s.id === 'done' && !showDonePrs ? [] : s.rows))], [pinnedPrRows, prSecs, showDonePrs]);
   const openPrCount = useMemo(() => projectPrs.filter((p) => prIsOpen(p) && p.updatedAt >= cutoff).length, [projectPrs, cutoff]);
   const requestedCount = useMemo(() => projectPrs.filter((p) => prIsOpen(p) && p.reviewRequested).length, [projectPrs]);
 
@@ -1310,6 +1316,8 @@ export function App() {
       review: reviewItems(p),
       approve: p.reviewRequested && prIsOpen(p) ? () => approve(p) : undefined,
       showLane: lane ? { lane, run: () => focusLane(lane) } : undefined,
+      pin: { label: prPins.set.has(p.key) ? 'Unpin PR' : 'Pin PR', run: () => prPins.toggle(p.key), accelerator: 'P' },
+      desktop: onDesktop,
       canvas: canvasItem('pr', p.key),
     });
   };
@@ -1671,7 +1679,13 @@ export function App() {
           return;
         }
       }
-      // ⌃⌘↑ ⌃⌘↓ move a pinned session or worktree among the pins (a todo in Todos, above).
+      // P pins the PR selected in PRs, as it pins what the other views list.
+      if (((!mod && letters) || chord) && key === 'p' && view === 'prs' && selected?.kind === 'pr') {
+        e.preventDefault();
+        prPins.toggle(selected.pr.key);
+        return;
+      }
+      // ⌃⌘↑ ⌃⌘↓ move a pinned session, worktree or PR among the pins (a todo in Todos, above).
       if (chord && vertical) {
         e.preventDefault();
         // Insertion points: one up is the row's own index less one; one down is two past it.
@@ -1680,6 +1694,8 @@ export function App() {
           movePinnedSession(selected.session.key, step(pinnedRows.findIndex((r) => r.key === selected.key)));
         } else if (view === 'worktrees' && selected && selected.kind !== 'pr' && selected.kind !== 'todo' && lanePins.set.has(selected.lane.id)) {
           movePinnedLane(selected.lane.id, step(pinnedLaneRows.findIndex((r) => r.key === selected.lane.id)));
+        } else if (view === 'prs' && selected?.kind === 'pr' && prPins.set.has(selected.pr.key)) {
+          prPins.move(pinnedPrRows.map((r) => r.pr.key), selected.pr.key, step(pinnedPrRows.findIndex((r) => r.key === selected.key)));
         }
         return;
       }
@@ -1749,7 +1765,7 @@ export function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [visible, selected, pickedRows, selectedLane, startLaneId, move, open, openRow, copy, settings, previewFor, renaming, openSettings, newSession, view, setView, toggleLanePin, sessionPins, lanePins, pinnedRows, pinnedLaneRows, shownBays, movePinnedSession, movePinnedLane, current, setArchived, projects, toggleSidebar, panelMax, togglePanelMax]);
+  }, [visible, selected, pickedRows, selectedLane, startLaneId, move, open, openRow, copy, settings, previewFor, renaming, openSettings, newSession, view, setView, toggleLanePin, sessionPins, lanePins, prPins, pinnedRows, pinnedLaneRows, pinnedPrRows, shownBays, movePinnedSession, movePinnedLane, current, setArchived, projects, toggleSidebar, panelMax, togglePanelMax]);
 
   // Starts this window asked the quick panel for. A spinner shows while the harness takes the
   // session; then what's next. The new session isn't selected when it shows up: by then you may
@@ -2426,6 +2442,9 @@ export function App() {
             )}
             {view === 'prs' && (
               <PrsView
+                pinned={pinnedPrRows}
+                onPlacePinned={(key, index) => prPins.place(pinnedPrRows.map((r) => r.pr.key), key, index)}
+                onUnpin={prPins.remove}
                 sections={prSecs}
                 now={now}
                 selectedKey={selected?.key ?? null}

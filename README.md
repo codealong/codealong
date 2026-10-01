@@ -166,7 +166,9 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     doesn't, `↓42` for commits the remote has that it doesn't. Canvas cards show the same.
   - **PRs**: every PR in the project's repos, with the worktree and sessions that worked on
     each: the ones that made, edited or commented on it (from their own records), the ones on
-    its branch while it was open, and any linked by hand (`codealong pr link|unlink`). Reviews asked of you come first, with one-click Approve;
+    its branch while it was open, and any linked by hand (`codealong pr link|unlink`). The PRs you pinned come first, in your order (`p`, Pin PR in its
+    menu, or drag its row up to the top; drag a pinned one down to unpin it, or ⌃⌘↑ ⌃⌘↓ to
+    reorder), whatever the age filter says. Then reviews asked of you, with one-click Approve;
     they're listed for every repo a project has here, one checked out only on its default
     branch too, whose other PRs aren't read.
     A PR's right-click menu, on its row here or on its number where a worktree or session shows
@@ -471,14 +473,16 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   of its menu bar. The pair of buttons at the top right of the window floats the bar or puts it
   in the notch, and picking the one that's on turns it off, as do Window › Floating bar and Bar
   in the notch and the bar's own right-click menu.
-- **Pin to desktop** (a session's, worktree's or todo's right-click menu, in any view or on the
-  canvas; or drag it out of its window: a row out of the Sessions, Worktrees or Todo list, a
-  result out of the quick panel, a session's pill off the bar): puts its card, the one the Canvas
+- **Pin to desktop** (a session's, worktree's, todo's or PR's right-click menu, in any view or on
+  the canvas; or drag it out of its window: a row out of the Sessions, Worktrees, PRs or Todo
+  list, a result out of the quick panel, a session's pill off the bar): puts its card, the one the Canvas
   view shows, on the desktop, floating over every window, on every Space and over full-screen
   apps as the floating bar does. A dragged card follows the pointer from where it leaves the
   window and stays where you let go; back over the window, the drag pins nothing. A pinned row
   dragged to the desktop leaves its list's pins: it moves there. A worktree's card
-  lists its sessions that are running or waiting on you, and a todo's its sessions. Drag a card
+  lists its sessions that are running or waiting on you, a todo's its sessions, and a PR's the
+  ones that worked on it and are running or waiting on you; a click on a PR's card shows the PR
+  in Codealong, and a double-click opens it on GitHub. Drag a card
   where you want it; it stays there across launches. Click a session (its card, a session line,
   or a todo's card) to open its peek beside the card, as the bar's pills do, with the keyboard in
   its box; click again to put it away. Double-click to open what it shows where it lives (a todo

@@ -87,6 +87,9 @@ pub struct Board {
     pub pinned: Vec<String>,
     /// Pinned worktrees (lane ids), in order.
     pub pinned_worktrees: Vec<String>,
+    /// Pinned PRs (`owner/name#number`), in order.
+    #[serde(default)]
+    pub pinned_prs: Vec<String>,
     /// Every PR in the repos the projects cover, newest activity first.
     pub prs: Vec<PrItem>,
     /// Who `gh` is signed in as.

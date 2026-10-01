@@ -122,6 +122,8 @@ pub enum Msg {
     SetPinned(Vec<String>),
     /// The full list of pinned worktrees (lane ids), in order.
     SetPinnedWorktrees(Vec<String>),
+    /// The full list of pinned PRs (`owner/name#number`), in order.
+    SetPinnedPrs(Vec<String>),
     /// A session archived (true) or unarchived from Codealong; Codex has already done its part.
     /// The reply is the time of the board that shows it, published at once.
     SetArchived(String, bool, Sender<i64>),
@@ -237,6 +239,10 @@ impl Handle {
 
     pub fn set_pinned_worktrees(&self, ids: Vec<String>) {
         let _ = self.tx.send(Msg::SetPinnedWorktrees(ids));
+    }
+
+    pub fn set_pinned_prs(&self, keys: Vec<String>) {
+        let _ = self.tx.send(Msg::SetPinnedPrs(keys));
     }
 
     /// A change to a todo or the labels. Returns once a board that shows it has gone out, with
@@ -1443,6 +1449,11 @@ impl Engine {
                 }
                 Ok(Msg::SetPinnedWorktrees(ids)) => {
                     self.seen.set_pinned_worktrees(ids);
+                    self.seen.save();
+                    self.dirty = true;
+                }
+                Ok(Msg::SetPinnedPrs(keys)) => {
+                    self.seen.set_pinned_prs(keys);
                     self.seen.save();
                     self.dirty = true;
                 }
@@ -3000,6 +3011,7 @@ impl Engine {
         });
         board.usage = self.compose_usage(now);
         board.pinned_worktrees = self.seen.pinned_worktrees.clone();
+        board.pinned_prs = self.seen.pinned_prs.clone();
         board.theme = self.cfg.appearance.theme;
         board.quick_shortcut = self.cfg.shortcuts.quick_panel.clone();
         board.jev = self.cfg.jev.clone();

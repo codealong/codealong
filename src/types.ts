@@ -535,6 +535,8 @@ export interface Board {
   pinned: string[];
   /** Pinned worktrees (lane ids), in order. */
   pinnedWorktrees: string[];
+  /** Pinned PRs (`owner/name#number`), in order. */
+  pinnedPrs?: string[];
   /** Every PR in the repos the projects cover, newest activity first. */
   prs: PrItem[];
   /** Who `gh` is signed in as. */
@@ -932,10 +934,10 @@ export interface BarTodo {
   due?: string | null;
 }
 
-/** A session, worktree or todo pinned to the desktop (desktop.rs), by its session key, lane id or
- *  todo id. */
+/** A session, worktree, todo or PR pinned to the desktop (desktop.rs), by its session key, lane
+ *  id, todo id or PR key. */
 export interface DesktopPinned {
-  ref: 'session' | 'worktree' | 'todo';
+  ref: 'session' | 'worktree' | 'todo' | 'pr';
   key: string;
 }
 
@@ -962,9 +964,12 @@ export interface DesktopFeed {
   editor: string;
   editorId: string;
   editors: Profile[];
-  /** The worktree's own lane; the session's; the todo's linked worktrees and its sessions'. A
-   *  worktree keeps all its sessions, the others only the ones the card shows. */
+  /** The worktree's own lane; the session's; the todo's linked worktrees and its sessions'; the
+   *  worktrees that hold the PR and its sessions'. A worktree keeps all its sessions, the others
+   *  only the ones the card shows. */
   lanes: Lane[];
+  /** The PR, for a PR's card. Missing on feeds from before PRs could be pinned. */
+  prs?: PrItem[];
   /** The todo, for a todo's card. */
   todos: Todo[];
   labels: Label[];

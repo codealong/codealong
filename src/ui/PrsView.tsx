@@ -1,12 +1,16 @@
-// The PRs view: every PR in the project's repos. Reviews asked of you come first, flagged, with
-// one-click Approve; then yours, then everyone else's; merged and closed ones fold at the end.
-// Each row names the local worktree and the sessions that worked on the PR.
+// The PRs view: every PR in the project's repos. The ones you pinned come first, in your order;
+// then reviews asked of you, flagged, with one-click Approve; then yours, then everyone else's;
+// merged and closed ones fold at the end. Each row names the local worktree and the sessions that
+// worked on the PR. Drag a PR up among the pinned ones to pin it there, a pinned one down to the
+// list to unpin it, and any out of the window to pin it to the desktop (useRowDrag.tsx).
 
 import { absolute, ago, count } from '../format';
 import { prFlag } from '../prStatus';
 import type { Checks, GitInfo, Lane, PrItem, Session } from '../types';
+import { PinnedSection } from './PinnedSection';
 import { PrPills } from './PrPills';
 import { HarnessChip, Icon, PR_ICON, PR_WORD } from './primitives';
+import { useRowDrag, type DragProps } from './useRowDrag';
 
 export interface PrRowItem {
   kind: 'pr';
@@ -125,9 +129,11 @@ interface PrRowProps {
   onApprove: () => void;
   onOpenSession: (lane: Lane, session: Session) => void;
   onContextMenu: () => void;
+  /** Starts a drag of the row; with a `pinIndex`, it's one of the pinned ones. */
+  drag?: DragProps;
 }
 
-function PrRow({ item, domId, now, selected, approving, onSelect, onOpen, onApprove, onOpenSession, onContextMenu }: PrRowProps) {
+function PrRow({ item, domId, now, selected, approving, onSelect, onOpen, onApprove, onOpenSession, onContextMenu, drag }: PrRowProps) {
   const { pr } = item;
   const requested = pr.reviewRequested && prIsOpen(pr);
   const flag = prFlag(pr);
@@ -137,7 +143,9 @@ function PrRow({ item, domId, now, selected, approving, onSelect, onOpen, onAppr
       id={domId}
       role="option"
       aria-selected={selected}
-      className={['ca-lane', 'ca-prrow', requested && 'is-requested', flag && `is-flag-${flag}`, selected && 'is-selected'].filter(Boolean).join(' ')}
+      className={['ca-lane', 'ca-prrow', requested && 'is-requested', flag && `is-flag-${flag}`, selected && 'is-selected', drag?.pinIndex != null && 'is-pinned', drag?.extraClass].filter(Boolean).join(' ')}
+      data-pin-index={drag?.pinIndex}
+      onPointerDown={drag?.onPointerDown}
       onMouseDown={onSelect}
       onDoubleClick={onOpen}
       onContextMenu={(e) => {
@@ -145,6 +153,11 @@ function PrRow({ item, domId, now, selected, approving, onSelect, onOpen, onAppr
         onContextMenu();
       }}
     >
+      {drag && (
+        <span className="ca-grip" aria-hidden="true">
+          <Icon name="grip-vertical" size={10} />
+        </span>
+      )}
       <div className="ca-seg ca-seg-glyph">
         <PrGlyph pr={pr} />
       </div>
@@ -214,6 +227,8 @@ function PrRow({ item, domId, now, selected, approving, onSelect, onOpen, onAppr
 }
 
 interface PrsViewProps {
+  /** The PRs you pinned, in your order; they're left out of the sections. */
+  pinned: PrRowItem[];
   sections: PrSection[];
   now: number;
   selectedKey: string | null;
@@ -226,14 +241,51 @@ interface PrsViewProps {
   onApprove: (row: PrRowItem) => void;
   onOpenSession: (lane: Lane, session: Session) => void;
   onContextMenu: (row: PrRowItem) => void;
+  /** Puts a PR at insertion point `index` among the pinned ones showing: a pinned one moves
+   *  there, another is pinned there. */
+  onPlacePinned: (key: string, index: number) => void;
+  /** Unpins a PR: its row dragged from the pinned ones down to the list, or out of the window. */
+  onUnpin: (key: string) => void;
 }
 
 const SECTION_ICON: Record<PrSection['id'], string> = { requested: 'eye', mine: 'user', others: 'pr', done: 'merge' };
 
 export function PrsView(props: PrsViewProps) {
-  const { sections, now, selectedKey, domId, showDone, onToggleDone, approving, onSelect, onOpen, onApprove, onOpenSession, onContextMenu } = props;
+  const { pinned, sections, now, selectedKey, domId, showDone, onToggleDone, approving, onSelect, onOpen, onApprove, onOpenSession, onContextMenu, onPlacePinned, onUnpin } = props;
+  const byKey = (key: string) => pinned.find((r) => r.pr.key === key) ?? sections.flatMap((s) => s.rows).find((r) => r.pr.key === key);
+  const drag = useRowDrag({
+    onPlace: onPlacePinned,
+    joins: true,
+    onLeave: onUnpin,
+    desktop: (key) => ({ ref: 'pr', key }),
+    label: (key) => {
+      const r = byKey(key);
+      return r ? `#${r.pr.number} ${r.pr.title}` : '';
+    },
+  });
+  /** A PR's row: `index` is its place among the pinned ones. */
+  const row = (r: PrRowItem, index: number | null) => (
+    <PrRow
+      key={r.key}
+      item={r}
+      domId={domId(r)}
+      now={now}
+      selected={r.key === selectedKey}
+      approving={approving.has(r.pr.key)}
+      onSelect={() => onSelect(r)}
+      onOpen={() => onOpen(r)}
+      onApprove={() => onApprove(r)}
+      onOpenSession={onOpenSession}
+      onContextMenu={() => onContextMenu(r)}
+      drag={drag.rowProps(r.pr.key, index, pinned.length)}
+    />
+  );
   return (
     <>
+      {/* The first pin lands at the top of the list. */}
+      {pinned.length === 0 && drag.dropIndex === 0 && <div className="ca-dropline" />}
+      {pinned.length > 0 && <PinnedSection items={pinned} row={row} />}
+      {drag.ghost}
       {sections.map((s) => (
         <section key={s.id} className={['ca-bayblock', s.id === 'requested' && 'ca-prs-requested'].filter(Boolean).join(' ')}>
           <div className="ca-bay ca-bay--section" role="heading" aria-level={3}>
@@ -249,23 +301,7 @@ export function PrsView(props: PrsViewProps) {
             )}
           </div>
           {(s.id !== 'done' || showDone) && (
-            <div className="ca-bay-lanes">
-              {s.rows.map((r) => (
-                <PrRow
-                  key={r.key}
-                  item={r}
-                  domId={domId(r)}
-                  now={now}
-                  selected={r.key === selectedKey}
-                  approving={approving.has(r.pr.key)}
-                  onSelect={() => onSelect(r)}
-                  onOpen={() => onOpen(r)}
-                  onApprove={() => onApprove(r)}
-                  onOpenSession={onOpenSession}
-                  onContextMenu={() => onContextMenu(r)}
-                />
-              ))}
-            </div>
+            <div className="ca-bay-lanes">{s.rows.map((r) => row(r, null))}</div>
           )}
         </section>
       ))}

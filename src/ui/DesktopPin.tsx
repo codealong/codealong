@@ -1,9 +1,10 @@
-// A card pinned to the desktop: a session, worktree or todo, pinned from its right-click menu, in a
-// window of its own that floats over every other as the floating bar does (desktop.rs). It's the
-// Canvas view's card (card/CardFace.tsx), and under a worktree or a todo its sessions. A click on a session
-// (the card's own, a session line, or a todo's) shows it in the bar's peek beside the card, its
-// conversation and a box to answer it (peek.rs, Peek.tsx); a double-click opens it where it lives.
-// A click on the worktree's PR chip opens the PR on GitHub.
+// A card pinned to the desktop: a session, worktree, todo or PR, pinned from its right-click menu
+// or dragged out of its window, in a window of its own that floats over every other as the floating
+// bar does (desktop.rs). It's the Canvas view's card (card/CardFace.tsx), and under a worktree, a
+// todo or a PR its sessions. A click on a session (the card's own, a session line, or a todo's)
+// shows it in the bar's peek beside the card, its conversation and a box to answer it (peek.rs,
+// Peek.tsx); a double-click opens it where it lives. A click on the worktree's PR chip opens the PR
+// on GitHub; a PR's own card shows the PR in Codealong on a click and opens it on GitHub on two.
 // Dragging moves the card, and its right-click menu has the rest, with Remove from desktop. The
 // engine sends it what it shows, and only when that changed; the page sizes the window to itself.
 
@@ -17,7 +18,7 @@ import { useEditorIcons } from '../editors';
 import { sessionPlace } from '../harness';
 import * as menus from '../menus';
 import { liveOrLatest, sessionHomes } from '../lanes';
-import type { DesktopFeed, Label, Lane, PeekShown, Pr, Session } from '../types';
+import type { DesktopFeed, Label, Lane, PeekShown, Pr, PrItem, Session } from '../types';
 import { CardFace } from './card/CardFace';
 import { SessionLine } from './card/CardPopover';
 import { cardData, sessionLine, type CardData } from './card/data';
@@ -34,11 +35,16 @@ const SESSIONS = 4;
 /** How far the pointer moves with the button down before it drags the card rather than clicks it. */
 const DRAG_AFTER = 4;
 
-/** The sessions a worktree's or todo's card lists under it: a todo's all, a worktree's the ones
- *  running or waiting on you (it keeps every session it ever had). */
-function listed(d: CardData | null): { lane: Lane; session: Session }[] {
-  if (d?.ref === 'worktree') return d.lane.sessions.filter((s) => !s.visitor && !s.archived && (s.live || s.status !== 'idle' && s.status !== 'stopped')).map((session) => ({ lane: d.lane, session }));
+/** A session worth a line on a card that could list many: running, or waiting on you. */
+const current = (s: Session) => !s.archived && (s.live || (s.status !== 'idle' && s.status !== 'stopped'));
+
+/** The sessions a worktree's, todo's or PR's card lists under it: a todo's all, a worktree's and
+ *  a PR's the ones running or waiting on you (they keep every session they ever had). `lanes`
+ *  are the feed's: for a PR, the worktrees that hold it and its sessions'. */
+function listed(d: CardData | null, lanes: Lane[]): { lane: Lane; session: Session }[] {
+  if (d?.ref === 'worktree') return d.lane.sessions.filter((s) => !s.visitor && current(s)).map((session) => ({ lane: d.lane, session }));
   if (d?.ref === 'todo') return d.sessions;
+  if (d?.ref === 'pr') return lanes.flatMap((lane) => lane.sessions.filter(current).map((session) => ({ lane, session })));
   return [];
 }
 
@@ -53,6 +59,8 @@ function tooltip(d: CardData | null, now: number, terminal: string, lines: numbe
       return [d.lane.callsign, d.lane.branch && d.lane.branch !== d.lane.callsign ? d.lane.branch : '', plain(d.lane.headline, now), lines ? 'Click a session to read and answer it, double-click to open it' : ''].filter(Boolean).join('\n');
     case 'todo':
       return [d.todo.title || 'Untitled', d.sessions.length ? 'Click to read and answer its session, double-click to open it' : 'Double-click to start a session for it'].join('\n');
+    case 'pr':
+      return [`#${d.pr.number} ${d.pr.title}`, `${d.pr.repo} · ${d.pr.head}`, 'Click to show it in Codealong, double-click to open it on GitHub'].join('\n');
     default:
       return '';
   }
@@ -110,11 +118,11 @@ export function DesktopPin() {
   const item = useMemo(() => ({ ref: feed?.pin.ref ?? 'session', key: feed?.pin.key ?? '', title: feed?.title ?? undefined }), [feed]);
   const data = useMemo(() => {
     if (!feed) return null;
-    const entities = { lanes: new Map(lanes.map((l) => [l.id, l])), sessions: sessionHomes(lanes), todos: new Map(feed.todos.map((t) => [t.id, t])), prs: new Map() };
+    const entities = { lanes: new Map(lanes.map((l) => [l.id, l])), sessions: sessionHomes(lanes), todos: new Map(feed.todos.map((t) => [t.id, t])), prs: new Map((feed.prs ?? []).map((p): [string, PrItem] => [p.key, p])) };
     const labels = new Map<string, Label>(feed.labels.map((l) => [l.id, l]));
     return cardData(entities, { kind: 'ref', x: 0, y: 0, ...item }, labels);
   }, [feed, lanes, item]);
-  const sessions = listed(data);
+  const sessions = listed(data, lanes);
   const terminal = feed?.terminal ?? 'Terminal';
   const icons = useEditorIcons(feed ?? undefined);
   // What's on the desktop, this card surely: it's there before the list is.
@@ -168,6 +176,9 @@ export function DesktopPin() {
         else void showQuick({ todo: data.todo.id, project: data.todo.project || null });
         return;
       }
+      case 'pr':
+        openUrl(data.pr.url).catch(fail);
+        return;
     }
   };
 
@@ -217,6 +228,11 @@ export function DesktopPin() {
           reveal: () => void showMain({ kind: 'todo', id: t.id }),
           desktop: onDesktop,
         });
+      }
+      case 'pr': {
+        const p = data.pr;
+        const s = liveOrLatest(lanes.flatMap((lane) => lane.sessions.map((session) => ({ lane, session }))));
+        return menus.prMenu(p, { report: said, session: s ? { ...s, open: () => openSession(s.lane, s.session) } : undefined, reveal: () => void showMain({ kind: 'pr', key: p.key }), desktop: onDesktop });
       }
       default:
         return [{ label: 'Remove from desktop', run: remove }];
@@ -272,7 +288,17 @@ export function DesktopPin() {
       else openIt();
       return;
     }
-    if (!hit) return;
+    if (!hit) {
+      // A PR has no conversation to peek at: its panel in Codealong says where it stands.
+      if (data.ref === 'pr') {
+        const key = data.pr.key;
+        clickTimer.current = window.setTimeout(() => {
+          clickTimer.current = null;
+          void showMain({ kind: 'pr', key });
+        }, CLICK_WAIT_MS);
+      }
+      return;
+    }
     const at = rectOf(hit.el);
     clickTimer.current = window.setTimeout(() => {
       clickTimer.current = null;

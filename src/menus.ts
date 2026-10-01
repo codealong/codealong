@@ -353,12 +353,17 @@ export interface PrCan {
   approve?: () => void;
   /** Shows the worktree it's checked out in. */
   showLane?: { lane: Lane; run: () => void };
+  /** Pin PR or Unpin PR, where PRs are listed (the main window). */
+  pin?: MenuAction;
+  /** What's on the desktop, as `ref:key`, for Pin to desktop: for a PR the board lists, which
+   *  has a key. */
+  desktop?: ReadonlySet<string>;
   canvas?: MenuSpec;
 }
 
-/** A PR's menu: opening it, its session, reviewing it, showing it; approving it; its worktree
- *  and copying its link and branch. */
-export function prMenu(pr: Pick<Pr, 'url' | 'number'> & { head?: string | null }, can: PrCan): MenuSpec {
+/** A PR's menu: opening it, its session, reviewing it, showing it; approving it; pinning it; its
+ *  worktree and copying its link and branch. */
+export function prMenu(pr: Pick<Pr, 'url' | 'number'> & { head?: string | null; key?: string }, can: PrCan): MenuSpec {
   const { report } = can;
   const s = can.session;
   return sections(
@@ -369,6 +374,7 @@ export function prMenu(pr: Pick<Pr, 'url' | 'number'> & { head?: string | null }
       ...(can.reveal ? [{ label: 'Show in Codealong', run: can.reveal }] : []),
     ],
     can.approve ? [{ label: `Approve #${pr.number}`, run: can.approve }] : [],
+    [...some(can.pin), ...(can.desktop && pr.key ? [desktopItem('pr', pr.key, can.desktop, report)] : [])],
     [
       ...(can.showLane ? [{ label: `Show worktree ${can.showLane.lane.callsign}`, run: can.showLane.run }] : []),
       ...some(copyItem('Copy link', pr.url, 'PR link', report)),

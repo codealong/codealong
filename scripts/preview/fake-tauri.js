@@ -95,7 +95,7 @@ function optionalJson(file) {
 // (PREVIEW_LOADING in preview.sh): loading, with nothing read yet but the settings. Other
 // devices (PREVIEW_DEVICES) still show, as their feeds kept from last time do.
 function loadingBoard(board) {
-  return Object.assign(board, { loading: true, generatedAt: 0, projects: [], lanes: [], warnings: [], githubAt: null, usage: [], pinned: [], pinnedWorktrees: [], prs: [], githubLogin: null, todos: [], labels: [], todoHints: {} });
+  return Object.assign(board, { loading: true, generatedAt: 0, projects: [], lanes: [], warnings: [], githubAt: null, usage: [], pinned: [], pinnedWorktrees: [], pinnedPrs: [], prs: [], githubLogin: null, todos: [], labels: [], todoHints: {} });
 }
 function loadingFeed(feed) {
   return Object.assign(feed, { loading: true, generatedAt: 0, projects: [], items: [], recent: [], snoozed: [], reviews: [], todos: [] });
@@ -138,9 +138,9 @@ window.__TAURI_INTERNALS__ = {
     }
     // The window of lines between desktop cards (preview.sh lineage): lineage-desk.js's sample.
     if (cmd === 'lineage_feed') return Promise.resolve(window.__LINEAGE_FEED__ || { theme: 'system', lines: [] });
-    // A card pinned to the desktop (preview.sh desktop): PREVIEW_PIN's session, worktree or todo
-    // (`<ref>:<key>`), cut from the board as desktop.rs cuts it. A ref alone takes the latest
-    // worktree with sessions, the latest session, or the first todo.
+    // A card pinned to the desktop (preview.sh desktop): PREVIEW_PIN's session, worktree, todo or
+    // PR (`<ref>:<key>`), cut from the board as desktop.rs cuts it. A ref alone takes the latest
+    // worktree with sessions, the latest session, the first todo, or the first PR with a session.
     if (cmd === 'desktop_feed') {
       return window.__TAURI_INTERNALS__.invoke('get_board').then(function (board) {
         var pin = window.__CODEALONG_PIN__ || 'session';
@@ -152,7 +152,8 @@ window.__TAURI_INTERNALS__ = {
         if (!key && ref === 'worktree') key = (lanes.find(function (l) { return own(l).length > 1; }) || lanes[0] || {}).id;
         if (!key && ref === 'session') key = (lanes.flatMap(own).sort(function (a, b) { return b.lastActivity - a.lastActivity; })[0] || {}).key;
         if (!key && ref === 'todo') key = ((board.todos || [])[0] || {}).id;
-        var feed = { pin: { ref: ref, key: key }, title: null, loading: false, generatedAt: board.generatedAt, theme: board.theme, terminal: board.apps.terminal, editor: board.apps.editor, editorId: board.apps.editorId, editors: board.apps.editors || [], lanes: [], todos: [], labels: [] };
+        if (!key && ref === 'pr') key = ((board.prs || []).find(function (p) { return p.sessions.length > 0; }) || (board.prs || [])[0] || {}).key;
+        var feed = { pin: { ref: ref, key: key }, title: null, loading: false, generatedAt: board.generatedAt, theme: board.theme, terminal: board.apps.terminal, editor: board.apps.editor, editorId: board.apps.editorId, editors: board.apps.editors || [], lanes: [], prs: [], todos: [], labels: [] };
         var cut = function (l, keep) { return Object.assign({}, l, { sessions: l.sessions.filter(keep) }); };
         if (ref === 'session') {
           var home = board.lanes.find(function (l) { return l.sessions.some(function (s) { return s.key === key && !s.visitor; }); });
@@ -174,6 +175,14 @@ window.__TAURI_INTERNALS__ = {
             feed.todos = [t];
             feed.labels = (board.labels || []).filter(function (l) { return t.labels.indexOf(l.id) >= 0; });
             feed.title = t.title;
+          }
+        } else if (ref === 'pr') {
+          var p = (board.prs || []).find(function (x) { return x.key === key; });
+          if (p) {
+            var worked = function (l) { return function (s) { return p.sessions.some(function (x) { return x.key === s.key && x.lane === l.id; }); }; };
+            feed.lanes = board.lanes.filter(function (l) { return p.lanes.indexOf(l.id) >= 0 || l.sessions.some(worked(l)); }).map(function (l) { return cut(l, worked(l)); });
+            feed.prs = [p];
+            feed.title = '#' + p.number + ' ' + p.title;
           }
         }
         return feed;

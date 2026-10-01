@@ -275,6 +275,7 @@ impl Counters {
             ("usage", hash_of(&board.usage)),
             ("pinned", hash_of(&board.pinned)),
             ("pinnedWorktrees", hash_of(&board.pinned_worktrees)),
+            ("pinnedPrs", hash_of(&board.pinned_prs)),
             ("githubLogin", hash_of(&board.github_login)),
             ("theme", hash_of(&board.theme)),
         ];

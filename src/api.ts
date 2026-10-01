@@ -249,6 +249,12 @@ export async function setPinnedWorktrees(ids: string[]): Promise<void> {
   await invoke('set_pinned_worktrees', { ids });
 }
 
+/** Saves the whole list of pinned PRs (`owner/name#number`), in order. */
+export async function setPinnedPrs(keys: string[]): Promise<void> {
+  if (!inTauri) return;
+  await invoke('set_pinned_prs', { keys });
+}
+
 export async function refreshUsage(): Promise<void> {
   if (!inTauri) return;
   await invoke('refresh_usage');

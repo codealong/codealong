@@ -1,4 +1,4 @@
-//! Desktop pins: a session, worktree or todo pinned from its right-click menu to a card of its
+//! Desktop pins: a session, worktree, todo or PR pinned from its right-click menu to a card of its
 //! own that floats over every other window, on every Space and over full-screen apps, as the
 //! floating bar does (DesktopPin.tsx draws it). You drag a card where you want it, a click opens
 //! what it shows, and its own right-click menu takes it off the desktop.
@@ -23,7 +23,7 @@ use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder, Windo
 
 use crate::bar::{clamp, native, screen_for, Rect, EDGE, TOP_GAP};
 use crate::config::{support_dir, Theme};
-use crate::model::{Board, Lane};
+use crate::model::{Board, Lane, PrItem};
 use crate::todos::{Label, Todo};
 
 /// Cards' windows are `desktop-1`, `desktop-2`… in the order they were made since launch.
@@ -46,9 +46,11 @@ pub enum Kind {
     Session,
     Worktree,
     Todo,
+    Pr,
 }
 
-/// A thing pinned to the desktop: a session's key, a worktree's lane id, or a todo's id.
+/// A thing pinned to the desktop: a session's key, a worktree's lane id, a todo's id, or a PR's
+/// key (`owner/name#number`).
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Pinned {
     #[serde(rename = "ref")]
@@ -172,9 +174,12 @@ pub struct Feed {
     pub editor: String,
     pub editor_id: String,
     pub editors: Vec<crate::config::Profile>,
-    /// The worktree's own lane; the session's; the todo's linked worktrees and its sessions'.
-    /// A worktree keeps all its sessions, the others only the ones the card shows.
+    /// The worktree's own lane; the session's; the todo's linked worktrees and its sessions'; the
+    /// worktrees that hold the PR and its sessions'. A worktree keeps all its sessions, the
+    /// others only the ones the card shows.
     pub lanes: Vec<Lane>,
+    /// The PR, for a PR's card.
+    pub prs: Vec<PrItem>,
     /// The todo, for a todo's card.
     pub todos: Vec<Todo>,
     /// The todo's labels.
@@ -194,6 +199,7 @@ pub fn feed(board: &Board, pin: &Pinned, last_title: Option<&str>) -> Feed {
     let mut lanes: Vec<Lane> = Vec::new();
     let mut todos = Vec::new();
     let mut labels = Vec::new();
+    let mut prs = Vec::new();
     let title = match pin.kind {
         Kind::Session => session_lane(board, &pin.key).map(|l| {
             let title = l.sessions[0].title.clone();
@@ -218,6 +224,19 @@ pub fn feed(board: &Board, pin: &Pinned, last_title: Option<&str>) -> Feed {
             todos.push(t.clone());
             t.title.clone()
         }),
+        Kind::Pr => board.prs.iter().find(|p| p.key == pin.key).map(|p| {
+            for lane in &board.lanes {
+                let worked = |s: &crate::model::Session| p.sessions.iter().any(|x| x.key == s.key && x.lane == lane.id);
+                if !p.lanes.contains(&lane.id) && !lane.sessions.iter().any(worked) {
+                    continue;
+                }
+                let mut lane = lane.clone();
+                lane.sessions.retain(worked);
+                lanes.push(lane);
+            }
+            prs.push(p.clone());
+            format!("#{} {}", p.number, p.title)
+        }),
     };
     Feed {
         pin: pin.clone(),
@@ -230,6 +249,7 @@ pub fn feed(board: &Board, pin: &Pinned, last_title: Option<&str>) -> Feed {
         editor_id: board.apps.editor_id.clone(),
         editors: board.apps.editors.clone(),
         lanes,
+        prs,
         todos,
         labels,
     }
@@ -914,6 +934,26 @@ mod tests {
         assert_eq!(lanes, [("/a", vec!["s2"]), ("/b", vec!["s3"]), ("/c", vec![])]);
         assert_eq!(f.todos.len(), 1);
         assert_eq!(f.labels.iter().map(|l| l.id.as_str()).collect::<Vec<_>>(), ["l1"]);
+    }
+
+    #[test]
+    fn a_pr_comes_with_the_worktrees_that_hold_it_and_the_sessions_that_worked_on_it() {
+        let mut b = board();
+        b.prs = vec![serde_json::from_value(serde_json::json!({
+            "key": "o/r#7", "repoSlug": "o/r", "repo": "r", "project": "P", "number": 7, "title": "Fix it", "url": "https://github.com/o/r/pull/7",
+            "state": "open", "author": "me", "mine": true, "reviewRequested": false, "head": "fix", "base": "main",
+            "checks": {"passed": 1, "failed": 0, "pending": 0, "skipped": 0, "failing": []}, "merge": "clean",
+            "additions": 1, "deletions": 0, "changedFiles": 1, "createdAt": 0, "updatedAt": 0, "mergedAt": null, "closedAt": null,
+            "lanes": ["/c"], "sessions": [{"key": "s2", "lane": "/a"}]
+        }))
+        .expect("a PR")];
+        let f = feed(&b, &Pinned { kind: Kind::Pr, key: "o/r#7".into() }, None);
+        assert_eq!(f.title.as_deref(), Some("#7 Fix it"));
+        assert_eq!(f.prs.len(), 1);
+        let lanes: Vec<(&str, Vec<&str>)> = f.lanes.iter().map(|l| (l.id.as_str(), keys(l))).collect();
+        assert_eq!(lanes, [("/a", vec!["s2"]), ("/c", vec![])]);
+        // As `desktop.json` and the windows name it.
+        assert_eq!(serde_json::to_string(&f.pin).unwrap(), r##"{"ref":"pr","key":"o/r#7"}"##);
     }
 
     #[test]
