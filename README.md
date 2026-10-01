@@ -25,7 +25,8 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   once its conversation has shown for a second, so the ones passed over on the way down a list
   aren't stops, and each window keeps its own history across launches. A session's or worktree's
   actions have letters (`p` pin, `a` archive, `r` rename, `e` mark seen) and chords that work
-  in every view (⌃⌘P, ⌃⌘A, ⌃⌘R, ⌘E); the right-click menu shows them. A click on a row's
+  in every view (⌃⌘P, ⌃⌘A, ⌃⌘R, ⌘E, and ⌃⌘W to close a session's terminal, which has no
+  letter of its own); the right-click menu shows them. A click on a row's
   chips selects the row, as a click anywhere on it does, and a double-click does the chip's own
   thing (its PR on GitHub, the session where it runs, its todo, its app) in place of opening
   the row; in a panel, a click does. A right-click (or ⌃-click) opens a row's menu and leaves
@@ -143,8 +144,11 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     beside the check) expands
     the panel to the whole window, the list and sidebar out of the way while you work through
     them, and stays so until you press it again; Escape in the box then leaves the keys with the
-    window. A line at the top of the panel says how many
-    more wait on you and how the last one went. Clicking a session puts the cursor in its box;
+    window. A strip at the top of the panel says how many
+    more wait on you and how the last one went, and has what's commonly done to a session as
+    buttons that say their keys: Seen (⌘E), Snooze, Close terminal (⌃⌘W, which ends a background
+    job where the session is one; the conversation stays, to go on with later), Archive (⌃⌘A)
+    and Next (⌘]). One that doesn't apply to the session shown is dimmed in its place. Clicking a session puts the cursor in its box;
     ⌥↑ ⌥↓ from there move along with the cursor in the next one's box, the arrows on the list
     leave the keys with the list, and Escape in the box gives them back.
   - **Worktrees**: each worktree once, pinned ones first in your order, then the rest by
@@ -511,9 +515,14 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   waits on) and goes on to the next that waits on you, ⌘E marks a finished turn seen and goes
   on, ⌘] or ⌥⇧↓ skips to the next and ⌥⇧↑ goes back, ⌥↑ ⌥↓ step along the bar's sessions, the
   running ones too, and ⌃- and ⌃⇧- go back and forward through the ones you looked at there. A
-  strip over the header says how many more wait and how the last one went, and the pill of the
-  one shown is marked. Marked seen, snoozed or archived, a session leaves the bar and the next
-  takes its place; with none left the notch closes. Escape, a click on its pill again or a click
+  strip over the header says how many more wait and how the last one went, and has what's
+  commonly done to the session as buttons that say their keys, as its panel in Sessions has:
+  Seen (⌘E), Snooze, Close terminal (⌃⌘W), Archive (⌃⌘A), Back (⌃-), Next (⌘]) and × (esc).
+  The pill of the one shown is marked. Marked seen, snoozed, closed or archived, a session
+  leaves what waits on you and the next takes its place; with none left the notch closes.
+  Drag the session's bottom corners or its bottom edge to size it: the notch stays centered, so
+  a corner pulled out widens it as much on the other side, it keeps the size across launches,
+  and a double-click on a corner gives it its usual size back. Escape, a click on its pill again or a click
   anywhere else puts the session away and the app you were in has the keyboard back; if another
   app takes the keyboard while the pointer is still on it, it stays until the pointer leaves.
   A count beside the camera shows its group's first session, a session picked from a folded

@@ -117,17 +117,18 @@ export function elsewhereWaits(waits: Record<string, WaitCounts>, projects: stri
 /** The docked bar's measures, in points: each side beside the camera while it's closed, and how
  *  much wider it grows while the pointer is on it; the concave corners where it meets the menu
  *  bar and its bottom corners, closed, with the pills showing and with a session under them; the
- *  padding around the pills; the session under them, no narrower than `width`, `height` tall
- *  where the screen has the room and never less than `least`, leaving `clear` of the screen under
- *  it; and the room the window keeps beside and under the shape for its shadow (app.css
- *  `--shadow-notch` reaches 16 beside it and 30 under it). */
+ *  padding around the pills; the session under them, `width` by `height` until you drag it to a
+ *  size of your own, never narrower than `width` or shorter than `least`, nor wider than `widest`
+ *  or taller than `tallest`, and leaving `clear` of the screen beside and under it; and the room
+ *  the window keeps beside and under the shape for its shadow (app.css `--shadow-notch` reaches
+ *  16 beside it and 30 under it). */
 export const NOTCH = {
   wing: 44,
   hover: 4,
   ear: { closed: 6, open: 14 },
   radius: { closed: 12, open: 22, session: 26 },
   pad: 10,
-  session: { width: 560, height: 520, least: 240, clear: 96 },
+  session: { width: 640, height: 520, least: 240, widest: 1040, tallest: 900, clear: 96 },
   shadow: { side: 20, bottom: 32 },
 };
 
@@ -145,34 +146,55 @@ export interface NotchSizes {
   closed: Size;
   pills: Size;
   session: Size;
+  /** The biggest the shape can get, a session dragged as far as it goes: what everything is laid
+   *  out in. */
+  full: Size;
   window: Size;
 }
 
 /** The docked bar's shape in each state, and its window. With the pills it's as wide as they or
- *  the sides beside the camera need, never narrower than closed; with a session it's at least
- *  the session's width, and as much taller. Everything is laid out once in the biggest of them,
- *  the session's, and shown through a clip (`notchClip`). The window is as wide as the pills can
- *  get (`room`) and as tall as the session opens on a screen `screenH` high, with room for the
- *  corners and the shadow, so it keeps its size whatever shows and never cuts the shadow off. */
-export function notchSizes(notch: { width: number; height: number }, body: Size, side: number, room: number, screenH: number): NotchSizes {
+ *  the sides beside the camera need, never narrower than closed; with a session it's the
+ *  session's width and as much taller, at the size you dragged it to (`want`: its width, and its
+ *  height under the pills) or its usual one, within what the screen has room for. Everything is
+ *  laid out once in the biggest it can get (`full`) and shown through a clip (`notchClip`). The
+ *  window is that big too, with room for the corners and the shadow, so it keeps its size
+ *  whatever shows, a session being dragged bigger included, and never cuts the shadow off.
+ *  `room` is the widest the pills can get. */
+export function notchSizes(notch: { width: number; height: number }, body: Size, side: number, room: number, screen: Size, want?: Size | null): NotchSizes {
   const closed = { w: notch.width + 2 * NOTCH.wing, h: notch.height };
   // As much wider than closed on each side, in whole points: the clip's edges then fall on whole
   // points, where they're sharp.
   const widened = (w: number) => closed.w + 2 * Math.ceil(Math.max(0, w - closed.w) / 2);
   const pills = { w: widened(Math.max(body.w + 2 * NOTCH.pad, notch.width + 2 * (side + NOTCH.pad))), h: Math.ceil(notch.height + body.h + NOTCH.pad) };
-  const tall = Math.max(NOTCH.session.least, Math.min(NOTCH.session.height, Math.floor(screenH - pills.h - NOTCH.session.clear)));
-  const session = { w: widened(Math.max(pills.w, NOTCH.session.width)), h: pills.h + tall };
+  const narrowest = Math.max(pills.w, widened(NOTCH.session.width));
+  const widest = Math.max(narrowest, widened(Math.min(NOTCH.session.widest, screen.w - NOTCH.session.clear)));
+  const tallest = Math.max(NOTCH.session.least, Math.min(NOTCH.session.tallest, Math.floor(screen.h - pills.h - NOTCH.session.clear)));
+  const tall = Math.min(tallest, Math.max(NOTCH.session.least, Math.round(want?.h ?? NOTCH.session.height)));
+  const session = { w: Math.min(widest, Math.max(narrowest, widened(want?.w ?? NOTCH.session.width))), h: pills.h + tall };
+  const full = { w: Math.max(widest, widened(room + 2 * NOTCH.pad)), h: pills.h + tallest };
   const margin = Math.max(NOTCH.ear.open, NOTCH.shadow.side);
-  return { closed, pills, session, window: { w: Math.ceil(Math.max(session.w, room + 2 * NOTCH.pad)) + 2 * margin, h: session.h + NOTCH.shadow.bottom } };
+  return { closed, pills, session, full, window: { w: full.w + 2 * margin, h: full.h + NOTCH.shadow.bottom } };
 }
 
 /** How much of the layout shows: its insets from the sides and the bottom, and the radius of its
  *  bottom corners. Closed it's the notch and its sides, a little wider under the pointer. */
-export function notchClip(s: Pick<NotchSizes, 'closed' | 'pills' | 'session'>, state: NotchState): { side: number; bottom: number; radius: number } {
-  if (state === 'session') return { side: 0, bottom: 0, radius: NOTCH.radius.session };
-  if (state === 'pills') return { side: (s.session.w - s.pills.w) / 2, bottom: s.session.h - s.pills.h, radius: NOTCH.radius.open };
-  const side = Math.max(0, (s.session.w - s.closed.w) / 2 - (state === 'hover' ? NOTCH.hover : 0));
-  return { side, bottom: s.session.h - s.closed.h, radius: NOTCH.radius.closed };
+export function notchClip(s: Pick<NotchSizes, 'closed' | 'pills' | 'session' | 'full'>, state: NotchState): { side: number; bottom: number; radius: number } {
+  if (state === 'session') return { side: (s.full.w - s.session.w) / 2, bottom: s.full.h - s.session.h, radius: NOTCH.radius.session };
+  if (state === 'pills') return { side: (s.full.w - s.pills.w) / 2, bottom: s.full.h - s.pills.h, radius: NOTCH.radius.open };
+  const side = Math.max(0, (s.full.w - s.closed.w) / 2 - (state === 'hover' ? NOTCH.hover : 0));
+  return { side, bottom: s.full.h - s.closed.h, radius: NOTCH.radius.closed };
+}
+
+/** The edges that size the session in the notch: its bottom corners and its bottom edge. */
+export type NotchEdge = 'left' | 'right' | 'bottom';
+
+/** The size a session in the notch is dragged to, from the size it had (`from`: its width, and
+ *  its height under the pills) by the pointer's move since the press. The notch stays centered,
+ *  so a corner pulled out widens it as much on the other side. `notchSizes` keeps it within
+ *  what there's room for. */
+export function notchDragged(from: Size, edge: NotchEdge, dx: number, dy: number): Size {
+  const out = edge === 'right' ? dx : edge === 'left' ? -dx : 0;
+  return { w: from.w + 2 * out, h: from.h + dy };
 }
 
 /** What the notch counts beside the camera: the bar's groups, and the PRs that wait on your

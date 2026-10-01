@@ -873,7 +873,7 @@ export function Bar() {
           moment={moment}
           counts={{ needs: byGroup.needs.length, reviews: reviews.length, unread: byGroup.unread.length, working: byGroup.working.length }}
           room={Math.min(MAX_WIDTH, window.screen.availWidth - SCREEN_ROOM)}
-          screenH={window.screen.height}
+          screen={{ w: window.screen.availWidth, h: window.screen.height }}
           project={picking ? <ProjectButton name={current} others={others} open={projectMenuOpen} onOpen={projectMenu} /> : null}
           held={projectMenuOpen || menusUp > 0 || dragging !== null}
           session={
@@ -884,6 +884,7 @@ export function Bar() {
                 now={now}
                 queue={stage.queue}
                 notice={stage.notice}
+                onBack={stage.back}
                 keys={stage.keys}
                 onKeys={stage.takeKeys}
                 onShow={stage.show}

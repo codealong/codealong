@@ -299,7 +299,14 @@ some work is, answer with one.
   `NotchSession.tsx`). It has no peek. The session works through what waits on you with the keys
   a session's panel has in Sessions (⌘⏎, ⌘E, ⌘], ⌥⇧↑ ⌥⇧↓, ⌥↑ ⌥↓, ⌃- ⌃⇧-), over the bar's own
   list (`bar.ts` `waitingAfter`, the rule the quick panel and Sessions go by, `quick.ts`
-  `leftAfter`); a key for getting about added to one goes in all three.
+  `leftAfter`); a key for getting about added to one goes in all three. The session's bottom
+  corners and bottom edge drag it to a size the page keeps (`notchDragged`, localStorage), in
+  the same window.
+- The strip over a session's header (`SessionPanel.tsx` `QueueStrip`) says where the queue
+  stands; with `hotkeys` (Sessions' panel, the notch) it's always there and has what's commonly
+  done to a session as buttons that say their keys. The buttons run the session's own actions
+  (`menus.ts` `sessionActions`) and read their keys from `CHORDS`, so an action given a chord
+  there gets its key on the strip, in the menus and in every window at once.
 - A side conversation (side.rs) is a harness's throwaway copy of a session, described by its
   adapter (`Adapter::side`: the process, and a `Dialect` that turns its lines into what was
   said, the tool it runs and the end of a turn, and questions into lines). The dialects are
@@ -1239,8 +1246,8 @@ Tauri and macOS (from the Tauri 2.11 and tao 0.35 sources)
   window resized as its page animates shows, for a frame, its old picture pinned to the new
   window's corner (WebKit draws in a process of its own): opening the docked bar that way looked
   glitchy. So its window keeps the size it opens to at its biggest, with a session under its pills
-  (about 940 by 620 points, clear but for the shape), the page shows the shape through an animated
-  clip, and bar.rs looks at the pointer every 40 ms while it's docked, letting clicks through
+  dragged as big as it goes (`bar.ts` `NOTCH.session`: about 1080 by 1000 points on a 16-inch
+  screen, clear but for the shape), the page shows the shape through an animated clip, and bar.rs looks at the pointer every 40 ms while it's docked, letting clicks through
   (`setIgnoresMouseEvents`) off the shape the page reports, and telling the page when the pointer
   comes onto the shape and leaves it, which a window letting clicks through doesn't. A press that
   began on the shape stays the shape's until it's let go, for a selection dragged past its edge.

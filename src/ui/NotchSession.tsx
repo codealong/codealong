@@ -11,7 +11,8 @@
 // on) and goes on to the next that waits on you, ⌘E marks a finished turn seen and goes on, ⌘] or
 // ⌥⇧↓ skips to it and ⌥⇧↑ goes back, ⌥↑ ⌥↓ step along the bar's sessions, the running ones too,
 // and ⌃- and ⌃⇧- go back and forward through the ones you looked at here (history.ts). The pill
-// of the one shown is marked, and a strip over its header says how many more wait
+// of the one shown is marked, and a strip over its header has what's commonly done to it as
+// buttons that say their keys (SessionPanel.tsx `Hotkeys`) and says how many more wait
 // and how the last one went. Marked seen, snoozed or archived, a session leaves the bar, and the
 // next that waits takes its place; with none left the notch closes, and the app you were in has
 // the keyboard back. The session's own shortcuts (⌃⌘A, ⌃⌘R, ⌃⌘P) are its card's.
@@ -24,6 +25,7 @@ import { keepNotchSession, notchKeys, onNotchKeys, sessionAt } from '../api';
 import { renameAhead } from '../ahead';
 import { currentItem, stepItem, waitingAfter, waitingItems } from '../bar';
 import { historyChord, useSessionHistory } from '../history';
+import type { Left } from '../menus';
 import type { Handled } from '../quick';
 import { errorText } from '../report';
 import type { BarItem, Board } from '../types';
@@ -38,8 +40,6 @@ const NOTICE_MS = 4000;
 /** Where the sessions looked at in the notch are kept, apart from the main window's. */
 const HISTORY_KEY = 'codealong.sessionHistory:notch';
 
-/** How a session left the list, as its menu's actions say it (menus.ts). */
-type Left = 'marked seen' | 'snoozed' | 'archived';
 
 export interface NotchSessionState {
   /** The session shown, or the one being put away while its card lingers. */
@@ -53,6 +53,8 @@ export interface NotchSessionState {
   /** What's left to work through after it, and how the last one went. */
   queue: Queue | undefined;
   notice: Notice | null;
+  /** Back to the session looked at before it; null with none. */
+  back: (() => void) | null;
   /** Shows a session, with the keyboard; `rename` with its name ready to change. */
   show: (key: string, rename?: boolean) => void;
   /** Shows it, or puts it away if it's the one showing: a click on its pill. */
@@ -257,14 +259,21 @@ export function useNotchSession(items: BarItem[], known: (key: string) => boolea
     return () => window.removeEventListener('keydown', onKey);
   }, [open, close, goOn, goBack, show]);
 
-  // A strip over the header while the one shown waits on you or the last one's outcome is still
-  // being said, as in Sessions.
+  // What the strip over the header goes by, as in Sessions: what's left after the one shown,
+  // and whether it's one of those waiting itself.
   const key = open ? (shown?.key ?? null) : null;
   const after = key ? waitingAfter(items, key, handled.current) : [];
-  const queued = key !== null && (!!notice || waitingItems(items).some((i) => i.key === key));
-  const queue: Queue | undefined = queued ? { left: after.length, next: after[0] ?? null, onNext: () => goOn(null) } : undefined;
+  const queue: Queue | undefined = key !== null ? { left: after.length, next: after[0] ?? null, onNext: () => goOn(null), waiting: waitingItems(items).some((i) => i.key === key) } : undefined;
+  const back = history.back
+    ? () => {
+        const to = travel.current.goBack();
+        if (!to) return;
+        setNotice(null);
+        show(to);
+      }
+    : null;
 
-  return { key: shown?.key ?? null, open, keys, rename: shown?.rename ?? false, queue, notice, show, toggle, press, close, takeKeys, next, left };
+  return { key: shown?.key ?? null, open, keys, rename: shown?.rename ?? false, queue, notice, back, show, toggle, press, close, takeKeys, next, left };
 }
 
 interface NotchSessionProps {
@@ -275,6 +284,8 @@ interface NotchSessionProps {
   now: number;
   queue: Queue | undefined;
   notice: Notice | null;
+  /** Back to the session looked at before (⌃-); null with none. */
+  onBack: (() => void) | null;
   /** It has the keyboard; a click in it takes it. */
   keys: boolean;
   onKeys: () => void;
@@ -288,7 +299,7 @@ interface NotchSessionProps {
   onGone: (key: string) => void;
 }
 
-export function NotchSession({ sessionKey, rename, now, queue, notice, keys, onKeys, onShow, onClose, onNext, onLeft, onGone }: NotchSessionProps) {
+export function NotchSession({ sessionKey, rename, now, queue, notice, onBack, keys, onKeys, onShow, onClose, onNext, onLeft, onGone }: NotchSessionProps) {
   // The session as the engine has it, asked for as it's shown; the one before stays until it
   // comes, so going from one to the next never shows an empty notch.
   const [told, setTold] = useState<(Told & { apps: Board['apps'] }) | null>(null);
@@ -371,6 +382,7 @@ export function NotchSession({ sessionKey, rename, now, queue, notice, keys, onK
         keys
         queue={queue}
         notice={notice}
+        hotkeys={{ onBack, onClose }}
         renaming={(rename && renamed !== session.key) || renameAsked === session.key}
         onRename={rename_}
         onKeep={keep}

@@ -6,7 +6,9 @@
 // that lost the keyboard stays while the pointer is on it and goes when it leaves, or at once
 // with the pointer elsewhere; a double-click opens the session where it lives; and a count beside
 // the camera shows its group's first, and a click on the notch itself the current one; the pin in its header keeps it on the desktop; and Rename…
-// in a pill's menu shows it with its name ready to change.
+// in a pill's menu shows it with its name ready to change. The strip over its header has the
+// common actions with their keys, ⌃⌘W closes its terminal, and its bottom corner drags it to a
+// size it keeps.
 //   PREVIEW_SIZE=1512,720 PREVIEW_WAIT=60000 scripts/preview.sh notch '' scripts/preview/notch-session-check.js
 (function () {
   var out = [];
@@ -115,7 +117,10 @@
     })
     .then(function () {
       check('⌥↓ steps along the bar, to the ones running too', true);
-      check('no strip on one that doesn’t wait', !document.querySelector('.ca-notch-session .ca-reply-queue'));
+      var note = document.querySelector('.ca-notch-session .ca-reply-queue-note');
+      check('on one that doesn’t wait the strip says what does, not what more', !!note && /^3 waiting on you/.test(note.textContent), note ? note.textContent : 'no strip');
+      var labels = Array.prototype.map.call(document.querySelectorAll('.ca-notch-session .ca-hotkeys .ca-hotkey'), function (b) { return b.textContent; });
+      check('the strip has the common actions with their keys', labels.join('|') === 'Seen⌘E|Snooze|' + labels[2] + '|Archive⌃⌘A|Back⌃-|Next⌘]|esc' && /⌃⌘W$/.test(labels[2]), labels.join('|'));
       key({ key: ']', code: 'BracketRight', metaKey: true });
       return until(shows(items[0]), 3000, '⌘] from one running');
     })
@@ -294,6 +299,82 @@
     })
     .then(function () {
       check('a click on the notch opens the current session, and a second puts it away', keysCalls()[keysCalls().length - 1] === false, keysCalls().join());
+      return wait(500);
+    })
+    .then(function () {
+      // Its bottom corner drags it to a size, as much wider on the other side, in the window it has.
+      shape().click();
+      return until(function () { return is('session'); }, 3000, 'the session, to size');
+    })
+    .then(function () { return wait(900); })
+    .then(function () {
+      var before = lastShape();
+      var fitsBefore = fits().length;
+      var g = document.querySelector('.ca-notch-grip.is-right');
+      var at = function (type, x, y, buttons) { g.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, button: type === 'pointerdown' ? 0 : -1, buttons: buttons, screenX: x, screenY: y })); };
+      at('pointerdown', 500, 500, 1);
+      at('pointermove', 530, 520, 1);
+      at('pointermove', 560, 550, 1);
+      return wait(300).then(function () {
+        var s = lastShape();
+        check('a bottom corner drags it bigger, as much on the other side', s.w === before.w + 120 && s.h === before.h + 50 && s.x === before.x - 60, JSON.stringify(before) + ' to ' + JSON.stringify(s));
+        check('with no easing to catch up', notch().classList.contains('is-sizing'));
+        at('pointerup', 560, 550, 0);
+        return wait(200);
+      }).then(function () {
+        var kept = JSON.parse(localStorage.getItem('codealong.notch.size') || 'null');
+        check('and it keeps the size', !!kept && kept.w === before.w + 120 && !notch().classList.contains('is-sizing'), JSON.stringify(kept));
+        check('in the window it has', fits().length === fitsBefore, fits().slice(fitsBefore).join(' '));
+        at('pointerdown', 560, 550, 1);
+        at('pointermove', 3000, 3000, 1);
+        return wait(300);
+      }).then(function () {
+        var s = lastShape();
+        var win = fits()[fits().length - 1].split('x').map(Number);
+        check('no bigger than its window has room for', s.w <= win[0] - 40 && s.h <= win[1] - 32 && s.w > before.w + 120, JSON.stringify(s) + ' in ' + win.join('x'));
+        at('pointerup', 3000, 3000, 0);
+        g.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+        return wait(700);
+      }).then(function () {
+        var s = lastShape();
+        check('a double-click on the corner gives it its usual size back', s.w === before.w && s.h === before.h && localStorage.getItem('codealong.notch.size') === null, JSON.stringify(s));
+      });
+    })
+    .then(function () { return wait(600); })
+    .then(function () {
+      // The strip's buttons: back to the one looked at before, and away.
+      key({ key: 'ArrowDown', altKey: true });
+      return until(function () { return is('session') && pill(items[2].key) && pill(items[2].key).classList.contains('is-peeked'); }, 3000, 'the next along, to go back from');
+    })
+    .then(function () { return wait(1200); })
+    .then(function () {
+      var back = Array.prototype.filter.call(document.querySelectorAll('.ca-notch-session .ca-hotkey'), function (b) { return /^Back/.test(b.textContent); })[0];
+      check('the strip’s Back is there to press', !!back && !back.disabled);
+      if (back) back.click();
+      return until(function () { return pill(items[0].key) && pill(items[0].key).classList.contains('is-peeked'); }, 3000, 'Back on the strip');
+    })
+    .then(function () {
+      check('the strip’s Back goes to the one looked at before', true);
+      var close = Array.prototype.filter.call(document.querySelectorAll('.ca-notch-session .ca-hotkey'), function (b) { return /Close terminal|End job/.test(b.textContent); })[0];
+      if (!close || close.disabled) {
+        check('(the session shown has no terminal to close today)', true);
+        return null;
+      }
+      var closes = calls('close_session').length;
+      key({ key: 'w', metaKey: true, ctrlKey: true });
+      return until(function () { return calls('close_session').length === closes + 1; }, 2000, '⌃⌘W').then(function () {
+        var c = calls('close_session');
+        check('⌃⌘W closes its terminal', c[c.length - 1].key === items[0].key, JSON.stringify(c[c.length - 1]));
+        return until(function () { return is('session') && pill(items[2].key) && pill(items[2].key).classList.contains('is-peeked'); }, 3000, 'on to the next after closing').then(function () { check('and goes on to the next that waits', true); });
+      });
+    })
+    .then(function () {
+      var away = Array.prototype.filter.call(document.querySelectorAll('.ca-notch-session .ca-hotkey'), function (b) { return /esc$/.test(b.textContent); })[0];
+      if (away) away.click();
+      return until(function () { return !is('session'); }, 2000, 'the strip’s ×');
+    })
+    .then(function () {
+      check('the strip’s × puts it away', keysCalls()[keysCalls().length - 1] === false);
       return wait(200);
     })
     .then(function () { say('done: ' + out.join(' · ')); })

@@ -7,19 +7,21 @@
 // pointer leaves, unless a menu is up or its pin keeps it open. And a click opens it further, into
 // a session under the pills, to read and answer (NotchSession.tsx): a click on a session's pill
 // into that one, a click on the notch itself into the current one, and a second click on either
-// puts it away. There's no peek beside a docked bar. A session has the keyboard, and stays up whatever the
+// puts it away. There's no peek beside a docked bar. The session's bottom corners and bottom edge
+// drag it to a size of your own, which it keeps (a double-click on one gives it its usual size
+// back); the notch stays centered, so a corner pulled out widens it as much on the other side. A session has the keyboard, and stays up whatever the
 // pointer does until it's put away; one that lost the keyboard to another app stays while the
 // pointer is on it.
 //
-// Everything is laid out once, at the size it has with a session, and shown through a clip, so
+// Everything is laid out once, at the biggest a session can be dragged to, and shown through a clip, so
 // each state animates the clip and the corners alone: nothing inside moves or lays out again, and
 // the window keeps its size throughout (a window resized as it opens shows its old picture for a
 // frame in the wrong place). The window takes clicks only on the shape, so Codealong watches the
 // pointer and says when it comes onto the shape and leaves it (`notch-pointer`).
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { fitBar, notchShape, onNotchPointer, type Notch } from '../api';
-import { NOTCH, NOTCH_ORDER, notchClip, notchSizes, type Group, type NotchKind, type NotchState, type Size } from '../bar';
+import { NOTCH, NOTCH_ORDER, notchClip, notchDragged, notchSizes, type Group, type NotchEdge, type NotchKind, type NotchState, type Size } from '../bar';
 import type { BarGroup } from '../types';
 import type { Moment } from '../mark';
 import type { LogoStatus, Status } from '../types';
@@ -30,6 +32,30 @@ import { Icon, StatusGlyph } from './primitives';
  *  closes. */
 const OPEN_AFTER_MS = 250;
 const CLOSE_AFTER_MS = 400;
+/** Where the size you dragged the session to is kept: its width, and its height under the pills. */
+const SIZE_KEY = 'codealong.notch.size';
+/** How far an edge moves with the button down before it sizes the session rather than clicks. */
+const SIZE_AFTER = 3;
+
+function storedSize(): Size | null {
+  try {
+    const v: unknown = JSON.parse(window.localStorage.getItem(SIZE_KEY) ?? 'null');
+    if (!v || typeof v !== 'object') return null;
+    const { w, h } = v as { w?: unknown; h?: unknown };
+    return typeof w === 'number' && typeof h === 'number' && w > 0 && h > 0 ? { w, h } : null;
+  } catch {
+    return null;
+  }
+}
+
+function keepSize(size: Size | null): void {
+  try {
+    if (size) window.localStorage.setItem(SIZE_KEY, JSON.stringify(size));
+    else window.localStorage.removeItem(SIZE_KEY);
+  } catch {
+    // Storage can be unavailable; the size just won't outlast the window.
+  }
+}
 
 const GLYPH: Record<Group, Status> = { needs: 'needs', unread: 'unread', working: 'working' };
 const WORD: Record<Group, string> = { needs: 'need you', unread: 'your turn', working: 'working' };
@@ -42,9 +68,9 @@ export interface NotchShellProps {
   /** How many sessions are in each of the bar's groups, and how many open PRs wait on your
    *  review. */
   counts: Record<NotchKind, number>;
-  /** The widest the pills below can get, and the screen's height, which a session fits. */
+  /** The widest the pills below can get, and the screen, which a session fits. */
   room: number;
-  screenH: number;
+  screen: Size;
   /** The project button, beside the mark while it's open. */
   project: ReactNode;
   /** Keeps it open: a menu is up, or a pill is being dragged off it. */
@@ -71,7 +97,7 @@ export interface NotchShellProps {
   children: ReactNode;
 }
 
-export function NotchShell({ notch, logoStatus, moment, counts, room, screenH, project, held, session, sessionOpen, sessionKeys, onSessionLeft, onCount, onPress, keepOpen, onKeepOpen, onMark, onMenu, children }: NotchShellProps) {
+export function NotchShell({ notch, logoStatus, moment, counts, room, screen, project, held, session, sessionOpen, sessionKeys, onSessionLeft, onCount, onPress, keepOpen, onKeepOpen, onMark, onMenu, children }: NotchShellProps) {
   // The pills show, under the pointer or pinned; a session shows under them.
   const [open, setOpen] = useState(keepOpen);
   // The pointer is on the shape.
@@ -99,7 +125,11 @@ export function NotchShell({ notch, logoStatus, moment, counts, room, screenH, p
     window.addEventListener('resize', resized);
     return () => window.removeEventListener('resize', resized);
   }, []);
-  const sizes = notchSizes(notch, natural.body, natural.side, room, screenH);
+  // The size you dragged the session to, if you have: its width, and its height under the pills.
+  const [want, setWant] = useState<Size | null>(storedSize);
+  // An edge is being dragged: the shape follows the pointer, with no easing to catch up.
+  const [sizing, setSizing] = useState(false);
+  const sizes = notchSizes(notch, natural.body, natural.side, room, screen, want);
   const state: NotchState = sessionOpen ? 'session' : open ? 'pills' : on ? 'hover' : 'closed';
   const clip = notchClip(sizes, state);
   // Something shows under the notch.
@@ -127,9 +157,9 @@ export function NotchShell({ notch, logoStatus, moment, counts, room, screenH, p
     reported.current = key;
     void fitBar(sizes.window.w, sizes.window.h);
   }, [sizes.window.w, sizes.window.h]);
-  const x = Math.round((viewW - sizes.session.w) / 2);
-  const shownW = sizes.session.w - 2 * clip.side;
-  const shownH = sizes.session.h - clip.bottom;
+  const x = Math.round((viewW - sizes.full.w) / 2);
+  const shownW = sizes.full.w - 2 * clip.side;
+  const shownH = sizes.full.h - clip.bottom;
   useLayoutEffect(() => {
     void notchShape(x + clip.side, 0, shownW, shownH);
   }, [x, clip.side, shownW, shownH]);
@@ -205,6 +235,58 @@ export function NotchShell({ notch, logoStatus, moment, counts, room, screenH, p
 
   useEffect(() => clear, []);
 
+  // An edge of the session being dragged: where the pointer went down and the size it had then.
+  const drag = useRef<{ edge: NotchEdge; x: number; y: number; from: Size; to: Size; moved: boolean; frame: number } | null>(null);
+  const sizeNow = useRef<Size>({ w: 0, h: 0 });
+  sizeNow.current = { w: sizes.session.w, h: sizes.session.h - sizes.pills.h };
+  const startSize = (edge: NotchEdge) => (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    // The edge keeps the pointer while it runs ahead of it; a pointer that can't be kept (a
+    // check's made-up one) still drags while it stays on the edge.
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      // No such pointer to keep.
+    }
+    drag.current = { edge, x: e.screenX, y: e.screenY, from: sizeNow.current, to: sizeNow.current, moved: false, frame: 0 };
+  };
+  const moveSize = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const d = drag.current;
+    if (!d) return;
+    const [dx, dy] = [e.screenX - d.x, e.screenY - d.y];
+    if (!d.moved && Math.abs(dx) + Math.abs(dy) < SIZE_AFTER) return;
+    if (!d.moved) setSizing(true);
+    d.moved = true;
+    d.to = notchDragged(d.from, d.edge, dx, dy);
+    if (d.frame) return;
+    d.frame = requestAnimationFrame(() => {
+      d.frame = 0;
+      setWant(d.to);
+    });
+  };
+  /** Let go, it keeps the size it has, which is what was asked for within what there's room for. */
+  const endSize = () => {
+    const d = drag.current;
+    drag.current = null;
+    if (!d?.moved) return;
+    cancelAnimationFrame(d.frame);
+    setSizing(false);
+    const s = notchSizes(notch, natural.body, natural.side, room, screen, d.to);
+    const kept = { w: s.session.w, h: s.session.h - s.pills.h };
+    setWant(kept);
+    keepSize(kept);
+  };
+  /** A double-click on an edge gives the session its usual size back. */
+  const resetSize = () => {
+    setWant(null);
+    keepSize(null);
+  };
+  const grip = (edge: NotchEdge) => (
+    <div className={`ca-notch-grip is-${edge}`} aria-hidden="true" onPointerDown={startSize(edge)} onPointerMove={moveSize} onPointerUp={endSize} onPointerCancel={endSize} onDoubleClick={resetSize} />
+  );
+
   const shown = NOTCH_ORDER.filter((k) => counts[k] > 0);
   // The corners move and grow by their place and size, as the clip does, not by a transform:
   // WebKit runs a transform's animation apart from the page's, and the corners fell out of step
@@ -215,8 +297,8 @@ export function NotchShell({ notch, logoStatus, moment, counts, room, screenH, p
 
   return (
     <div
-      className={['ca-notch', `is-${state}`, below && 'is-open', !notch.real && 'is-drawn'].filter(Boolean).join(' ')}
-      style={{ left: x, width: sizes.session.w, height: sizes.session.h, '--notch-w': `${notch.width}px`, '--notch-h': `${notch.height}px` } as CSSProperties}
+      className={['ca-notch', `is-${state}`, below && 'is-open', sizing && 'is-sizing', !notch.real && 'is-drawn'].filter(Boolean).join(' ')}
+      style={{ left: x, width: sizes.full.w, height: sizes.full.h, '--notch-w': `${notch.width}px`, '--notch-h': `${notch.height}px` } as CSSProperties}
     >
       <span
         className="ca-notch-shadow"
@@ -224,7 +306,7 @@ export function NotchShell({ notch, logoStatus, moment, counts, room, screenH, p
         style={{ left: clip.side, right: clip.side, bottom: clip.bottom, borderRadius: `0 0 ${clip.radius}px ${clip.radius}px` }}
       />
       <span className="ca-notch-ear is-left" aria-hidden="true" style={{ left: clip.side - ear, width: ear + under, height: ear }} />
-      <span className="ca-notch-ear is-right" aria-hidden="true" style={{ left: sizes.session.w - clip.side - under, width: ear + under, height: ear }} />
+      <span className="ca-notch-ear is-right" aria-hidden="true" style={{ left: sizes.full.w - clip.side - under, width: ear + under, height: ear }} />
       <div
         className="ca-notch-shape"
         style={{ clipPath: `inset(0 ${clip.side}px ${clip.bottom}px ${clip.side}px round 0 0 ${clip.radius}px ${clip.radius}px)` }}
@@ -278,12 +360,16 @@ export function NotchShell({ notch, logoStatus, moment, counts, room, screenH, p
             </div>
           </div>
         </div>
-        <div ref={body} className="ca-notch-body" style={{ left: Math.round((sizes.session.w - natural.body.w) / 2) }} aria-hidden={!open}>
+        <div ref={body} className="ca-notch-body" style={{ left: Math.round((sizes.full.w - natural.body.w) / 2) }} aria-hidden={!open}>
           {children}
         </div>
-        {/* The session, under the pills: as wide as the shape and as tall as it opens. */}
-        <div className="ca-notch-session" style={{ top: sizes.pills.h, height: sizes.session.h - sizes.pills.h }} aria-hidden={!sessionOpen}>
+        {/* The session, under the pills: as wide as the shape and as tall as it opens, with the
+            edges that size it over its foot. */}
+        <div className="ca-notch-session" style={{ top: sizes.pills.h, left: (sizes.full.w - sizes.session.w) / 2, width: sizes.session.w, height: sizes.session.h - sizes.pills.h }} aria-hidden={!sessionOpen}>
           {session}
+          {grip('bottom')}
+          {grip('left')}
+          {grip('right')}
         </div>
       </div>
     </div>

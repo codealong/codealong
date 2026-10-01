@@ -70,7 +70,7 @@ const ELSEWHERE = 'Elsewhere';
 function listChord(e: KeyboardEvent): boolean {
   const vertical = e.key === 'ArrowUp' || e.key === 'ArrowDown';
   if (e.altKey && !e.metaKey && !e.ctrlKey) return vertical;
-  if (e.ctrlKey && e.metaKey && !e.altKey && !e.shiftKey) return vertical || Object.values(menus.KEYS).includes(e.key.toUpperCase());
+  if (e.ctrlKey && e.metaKey && !e.altKey && !e.shiftKey) return vertical || menus.chordLetter(e.key);
   if (e.shiftKey && e.metaKey && !e.ctrlKey && !e.altKey) return e.key.toLowerCase() === 'f';
   return e.ctrlKey && !e.metaKey && !e.altKey && e.key === 'Tab';
 }
@@ -1770,12 +1770,12 @@ export function App() {
         return;
       }
       // P, A and R run the selected row's menu actions (menus.ts `KEYS`), plain outside Sessions and
-      // with ⌃⌘ anywhere, so each applies where the menu's would. P pins what the view lists:
-      // worktrees on the board, sessions in Sessions. E, below, marks seen more than one session
-      // at once.
+      // with ⌃⌘ anywhere, so each applies where the menu's would; ⌃⌘W closes a session's terminal,
+      // which no letter alone does. P pins what the view lists: worktrees on the board, sessions
+      // in Sessions. E, below, marks seen more than one session at once.
       if (((!mod && letters) || chord) && selected && selected.kind !== 'pr' && selected.kind !== 'todo') {
         const acts = selected.kind === 'agent' ? actionsRef.current.session(selected.lane, selected.session, view === 'worktrees' ? 'worktree' : 'session') : actionsRef.current.lane(selected.lane);
-        const found = menus.keyed(acts, key);
+        const found = menus.keyed(acts, key, chord);
         if (found && found.id !== 'seen') {
           // Not typed into a field the action opens (Rename's).
           e.preventDefault();
@@ -2110,8 +2110,12 @@ export function App() {
           handled.current.delete(session.key);
           setToast(`Didn’t send to ${session.title}, so it’s back in its box: ${why}`);
         }}
-        queue={row !== undefined && queued ? { left: left.length, next: left[0]?.session ?? null, onNext: () => goOn(row, session, null) } : undefined}
+        queue={row !== undefined ? { left: left.length, next: left[0]?.session ?? null, onNext: () => goOn(row, session, null), waiting: queued } : undefined}
         notice={note}
+        // In Sessions the strip is always there, with what's commonly done to a session and the
+        // keys for it. Back and forward are in the title bar.
+        hotkeys={row !== undefined ? {} : undefined}
+        actions={row !== undefined ? actionsRef.current.session(lane, session, 'session') : undefined}
         onDone={row !== undefined ? (done) => goOn(row, session, done) : undefined}
         autoFocus={row !== undefined && boxFocus === row}
         maximized={row !== undefined && panelMax}

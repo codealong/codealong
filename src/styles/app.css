@@ -3732,8 +3732,6 @@ html.is-notch body {
    fades in once the shape has room for it, and out ahead of the shape closing over it. */
 .ca-notch-session {
   position: absolute;
-  right: 0;
-  left: 0;
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
@@ -3752,6 +3750,41 @@ html.is-notch body {
   flex: 1 1 auto;
   flex-direction: column;
   min-height: 0;
+}
+/* The edges that size the session, over its foot: the bottom corners, and the bottom edge between
+   them. While one is dragged the shape follows the pointer, with no easing to catch up. */
+.ca-notch-grip {
+  position: absolute;
+  bottom: 0;
+  z-index: 2;
+}
+.ca-notch-grip.is-bottom {
+  right: 22px;
+  left: 22px;
+  height: 7px;
+  cursor: ns-resize;
+}
+.ca-notch-grip.is-left,
+.ca-notch-grip.is-right {
+  width: 22px;
+  height: 22px;
+}
+.ca-notch-grip.is-left {
+  left: 0;
+  cursor: nesw-resize;
+}
+.ca-notch-grip.is-right {
+  right: 0;
+  cursor: nwse-resize;
+}
+.ca-notch.is-sizing .ca-notch-shape,
+.ca-notch.is-sizing .ca-notch-ear,
+.ca-notch.is-sizing .ca-notch-shadow {
+  transition: none;
+}
+.ca-notch.is-sizing .ca-notch-session {
+  -webkit-user-select: none;
+  user-select: none;
 }
 /* The box, at the shape's foot, on the notch's black as the rest is: the field stands a step off
    it, where elsewhere the strip around the field does. */
@@ -7355,6 +7388,71 @@ html.is-quick body {
 }
 .ca-reply-queue .ca-btn {
   flex: none;
+}
+/* With what's commonly done to the session as buttons that say their keys (SessionPanel.tsx
+   `Hotkeys`): where the strip is short of room, they go on a line of their own. */
+.ca-reply-queue.has-keys {
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  padding-top: 3px;
+  padding-bottom: 3px;
+}
+.ca-reply-queue.has-keys .ca-reply-queue-note {
+  flex: 1 1 96px;
+}
+.ca-hotkeys {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1px;
+  margin-left: auto;
+}
+.ca-hotkey {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-2);
+  font: 500 11px/16px var(--font-sans);
+  white-space: nowrap;
+  cursor: default;
+}
+.ca-hotkey:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+.ca-hotkey:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+.ca-hotkey:disabled {
+  opacity: 0.4;
+}
+.ca-hotkey kbd {
+  display: inline-flex;
+  align-items: center;
+  height: 16px;
+  padding: 0 4px;
+  box-sizing: border-box;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+  background: var(--neutral-tint);
+  color: var(--ink-3);
+  font: 500 10px/1 var(--font-sans);
+  letter-spacing: 0.04em;
+}
+.ca-hotkeys-gap {
+  flex: none;
+  width: 1px;
+  height: 12px;
+  margin: 0 4px;
+  background: var(--line);
 }
 /* In a session's panel (Sessions), lined up with the panel's header. */
 .ca-sessinsp .ca-reply-queue {

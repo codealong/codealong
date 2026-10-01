@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { MenuSpec } from './contextMenu';
-import { chorded, keyed, laneActions, laneMenu, prMenu, sessionActions, sessionMenu, todoMenu, type SessionCan } from './menus';
+import { chordLetter, chordSigns, chorded, keyed, laneActions, laneMenu, prMenu, sessionActions, sessionMenu, todoMenu, type SessionCan } from './menus';
 import { openLabel } from './open';
 import type { Report } from './report';
 import type { Lane, Session } from './types';
@@ -190,7 +190,7 @@ describe('actions by name', () => {
     expect(keys).toEqual(['Rename…=R', 'Mark as seen=E', 'Pin session=P', 'Archive=A']);
     // Sessions takes chords.
     const chords = sessionMenu(lane(), session(), { ...can, keys: 'chords' }).flatMap((i) => (i !== 'separator' && !('items' in i) && i.accelerator ? [i.accelerator] : []));
-    expect(chords).toEqual(['Ctrl+Cmd+R', 'Cmd+E', 'Ctrl+Cmd+P', 'Ctrl+Cmd+A']);
+    expect(chords).toEqual(['Ctrl+Cmd+R', 'Cmd+E', 'Ctrl+Cmd+P', 'Ctrl+Cmd+W', 'Ctrl+Cmd+A']);
     // Elsewhere no window takes those keys, so none show.
     expect(sessionMenu(lane(), session(), { ...can, keys: false }).some((i) => i !== 'separator' && 'accelerator' in i && i.accelerator)).toBe(false);
     const acts = sessionActions(lane(), session(), can);
@@ -216,5 +216,26 @@ describe('actions by name', () => {
     expect(press('k', { ctrl: true })).toBeNull();
     // A chord for an action that doesn't apply does nothing.
     expect(chorded(sessionActions(lane(), session(), base), { key: 'r', metaKey: true, ctrlKey: true, altKey: false, shiftKey: false })).toBeNull();
+  });
+
+  it('closes a session’s terminal on ⌃⌘W, which no letter alone does, and says it left', () => {
+    const left: string[] = [];
+    const can: SessionCan = { ...base, keys: 'chords', left: (done) => left.push(done) };
+    const acts = sessionActions(lane(), session(), can);
+    expect(acts.close?.label).toBe('Close terminal');
+    expect(chorded(acts, { key: 'w', metaKey: true, ctrlKey: true, altKey: false, shiftKey: false })).toBe(acts.close);
+    // ⌘W is the window's, and the letter alone is nothing's.
+    expect(chorded(acts, { key: 'w', metaKey: true, ctrlKey: false, altKey: false, shiftKey: false })).toBeNull();
+    expect(keyed(acts, 'w')).toBeNull();
+    expect(keyed(acts, 'w', true)?.action).toBe(acts.close);
+    expect(keyed(acts, 'a', true)?.action).toBe(acts.archive);
+    expect(chordLetter('w')).toBe(true);
+    expect(chordLetter('k')).toBe(false);
+    expect(chordSigns('Ctrl+Cmd+W')).toBe('⌃⌘W');
+    expect(chordSigns('Cmd+E')).toBe('⌘E');
+    acts.close?.run();
+    expect(left).toEqual(['closed']);
+    // One with no terminal of its own has nothing to close.
+    expect(chorded(sessionActions(lane(), { ...session(), live: false }, can), { key: 'w', metaKey: true, ctrlKey: true, altKey: false, shiftKey: false })).toBeNull();
   });
 });

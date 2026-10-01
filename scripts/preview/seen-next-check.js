@@ -240,7 +240,8 @@
       var flat = function (items) { return (items || []).flatMap(function (i) { return i.items ? flat(i.items) : i.accelerator ? [i.text + '=' + i.accelerator] : []; }); };
       var keys = made.length ? flat(made[made.length - 1][1].options.items) : [];
       // The first was marked seen, so its menu has no Mark as seen.
-      check('the menu shows the chords', keys.join(', ') === 'Rename…=Ctrl+Cmd+R, Pin session=Ctrl+Cmd+P, Archive=Ctrl+Cmd+A', keys.join(', '));
+      // Whether it's pinned, and whether it has a terminal to close, are the board's today.
+      check('the menu shows the chords', /^Rename…=Ctrl\+Cmd\+R, (Pin|Unpin) session=Ctrl\+Cmd\+P, ((Close terminal|End background job)=Ctrl\+Cmd\+W, )?Archive=Ctrl\+Cmd\+A$/.test(keys.join(', ')), keys.join(', '));
     })
     .catch(function (e) { check('ran', false, String(e) + ' at ' + title()); })
     .then(function () { say('done: ' + out.join('; ')); });

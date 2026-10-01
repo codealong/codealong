@@ -81,6 +81,9 @@ function newSessionItem(lane: Lane, run: (() => void) | undefined): MenuAction |
   return { label: 'New session here…', run: run ?? (() => void showQuick({ laneId: lane.id, project: lane.project })) };
 }
 
+/** How a session left the list of what waits on you. */
+export type Left = 'marked seen' | 'snoozed' | 'closed' | 'archived';
+
 export interface SessionCan {
   report: Report;
   /** Opens one of its worktree's targets: the session where it lives, the folder in an editor. */
@@ -108,8 +111,8 @@ export interface SessionCan {
   /** Archives or unarchives it, where that does more (an undo in the main window). */
   archive?: (archived: boolean) => void;
   /** It left the list it was picked from, and how: the peek goes away, the quick panel's queue
-   *  goes on to the next. */
-  left?: (done: 'marked seen' | 'snoozed' | 'archived') => void;
+   *  and the notch's go on to the next. */
+  left?: (done: Left) => void;
   /** Add to canvas, where there's a canvas. */
   canvas?: MenuSpec;
   /** Shows the main window's keys beside the actions they run (`KEYS`), or its chords (`CHORDS`)
@@ -150,7 +153,7 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
     busy(label, work)
       .then((words) => words && report.info(words))
       .catch((e: unknown) => report.error(errorText(e)));
-  const settle = (done: 'marked seen' | 'snoozed' | 'archived') => (act: Promise<unknown>) => {
+  const settle = (done: Left) => (act: Promise<unknown>) => {
     can.left?.(done);
     act.catch((e: unknown) => report.error(errorText(e)));
   };
@@ -181,7 +184,17 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
     desktop: !s.archived && can.desktop ? desktopItem('session', s.key, can.desktop, report) : undefined,
     // Snoozes keep sessions off the floating bar, which shows this device's only.
     snooze: s.archived || !here ? undefined : snoozeMenu([s.key], Date.now(), { until: s.snoozedUntil, onDone: settle('snoozed') }),
-    close: closable(s) ? { label: s.attachCommand ? 'End background job' : 'Close terminal', run: () => void said(`Closing ${s.title}…`, closeSession(s.key)) } : undefined,
+    // Closed, it's done with for now, as one marked seen is: a window working through what
+    // waits on you goes on.
+    close: closable(s)
+      ? {
+          label: s.attachCommand ? 'End background job' : 'Close terminal',
+          run: () => {
+            can.left?.('closed');
+            void said(`Closing ${s.title}…`, closeSession(s.key));
+          },
+        }
+      : undefined,
     archive: { label: s.archived ? 'Unarchive' : s.harness === 'codex' ? 'Archive in Codex' : 'Archive', run: () => archive(!s.archived) },
     copyId: copyItem('Copy session ID', s.id, 'session ID', report) as MenuAction,
     copyResume: copyItem('Copy resume command', s.resumeCommand, 'resume command', report),
@@ -300,13 +313,30 @@ export function laneMenu(lane: Lane, can: LaneCan): MenuSpec {
 /** The main window's keys for actions, shown beside them in its menus. */
 export const KEYS: Partial<Record<keyof SessionActions | keyof LaneActions, string>> = { seen: 'E', pin: 'P', archive: 'A', rename: 'R' };
 /** The same actions' chords, which work in every view and from Sessions' box, where letters alone
- *  do nothing: ⌘E marks seen (and goes on, in Sessions), ⌃⌘ and the letter runs the rest. */
-export const CHORDS: typeof KEYS = { seen: 'Cmd+E', pin: 'Ctrl+Cmd+P', archive: 'Ctrl+Cmd+A', rename: 'Ctrl+Cmd+R' };
+ *  do nothing: ⌘E marks seen (and goes on, in Sessions), ⌃⌘ and the letter runs the rest. Closing
+ *  a session's terminal has a chord and no letter of its own: it's not one to press by mistake. */
+export const CHORDS: typeof KEYS = { seen: 'Cmd+E', pin: 'Ctrl+Cmd+P', archive: 'Ctrl+Cmd+A', rename: 'Ctrl+Cmd+R', close: 'Ctrl+Cmd+W' };
+const CTRL_CMD = 'Ctrl+Cmd+';
 
-/** The action a key runs among a session's or worktree's (`KEYS`), by the key as typed, when
- *  it applies to them now. */
-export function keyed(actions: SessionActions | LaneActions, key: string): { id: string; action: MenuAction } | null {
-  const id = Object.keys(KEYS).find((name) => KEYS[name as keyof typeof KEYS] === key.toUpperCase());
+/** Whether ⌃⌘ with this key is one of the chords. */
+export function chordLetter(key: string): boolean {
+  return Object.values(CHORDS).includes(CTRL_CMD + key.toUpperCase());
+}
+
+/** A chord as the keys' own signs, for a button that says it: `Ctrl+Cmd+W` is ⌃⌘W. */
+export function chordSigns(chord: string): string {
+  const signs: Record<string, string> = { Ctrl: '⌃', Cmd: '⌘', Alt: '⌥', Shift: '⇧' };
+  return chord
+    .split('+')
+    .map((k) => signs[k] ?? k)
+    .join('');
+}
+
+/** The action a key runs among a session's or worktree's, by the key as typed, when it applies
+ *  to them now: the letter alone (`KEYS`), or with `chord` the letter pressed with ⌃⌘ (`CHORDS`). */
+export function keyed(actions: SessionActions | LaneActions, key: string, chord = false): { id: string; action: MenuAction } | null {
+  const letter = key.toUpperCase();
+  const id = chord ? Object.keys(CHORDS).find((name) => CHORDS[name as keyof typeof CHORDS] === CTRL_CMD + letter) : Object.keys(KEYS).find((name) => KEYS[name as keyof typeof KEYS] === letter);
   const it = id ? (actions as Record<string, Item | undefined>)[id] : undefined;
   return id && it && !('items' in it) ? { id, action: it } : null;
 }
