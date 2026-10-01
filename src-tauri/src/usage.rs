@@ -382,11 +382,12 @@ fn with_program(command: &str, program: &str, replacement: &str) -> Option<Strin
     Some(words.join(" "))
 }
 
-/// Reads every Claude account's usage, one after another. For the snapshot and the engine's
-/// background fetch.
-pub fn claude_all(accounts: &[AccountCfg]) -> Vec<Usage> {
+/// Reads the usage of every account whose harness keeps it somewhere slow to ask
+/// (`Adapter::polls_usage`), one after another. For the snapshot and the engine's background
+/// fetch.
+pub fn read_all(accounts: &[AccountCfg]) -> Vec<Usage> {
     let now = now_ms();
-    accounts.iter().filter(|a| a.harness == "claude").map(|a| claude(a, now)).collect()
+    accounts.iter().filter_map(|a| crate::harness::of(a).filter(|h| h.polls_usage()).map(|h| h.read_usage(a, now))).collect()
 }
 
 #[cfg(test)]

@@ -12,17 +12,13 @@ use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 
 use crate::board::{self, LaneSeed, ELSEWHERE};
-use crate::antigravity;
-use crate::appserver;
-use crate::claude::{self, RegistryEntry, TranscriptInfo};
 use crate::chrome;
 use crate::chrometabs;
 use crate::claudeapp;
 use crate::prlinks;
 use crate::previews;
 use crate::reusable;
-use crate::codex::{self, ThreadInfo};
-use crate::opencode;
+use crate::codex;
 use crate::origins;
 use crate::config::{self, AccountCfg, Config, Theme};
 use crate::detect;
@@ -59,8 +55,6 @@ const USAGE_EVERY: Duration = Duration::from_secs(2 * 60);
 const JEV_RETRY: Duration = Duration::from_secs(5 * 60);
 /// After the usage endpoint says to slow down.
 const USAGE_BACKOFF: Duration = Duration::from_secs(10 * 60);
-/// How often the commands Claude sessions left running in the background are looked at.
-const BACKGROUND_EVERY: Duration = Duration::from_secs(60);
 /// How long the repo scan waits for folders' files before going on without the ones still out,
 /// which macOS may be holding for a privacy prompt (held.rs). At a load of 600, this Mac's 66
 /// session folders and 123 worktrees were all read within 170 ms.
@@ -75,15 +69,6 @@ const LANDED_QUIET: Duration = Duration::from_millis(150);
 /// How long a window's seen or archive waits to hear which board shows it. A window shows the
 /// change meanwhile; without an answer it keeps its copy until a board shows the change.
 const SHOWN_WAIT: Duration = Duration::from_secs(10);
-
-/// A command a Claude session left running in the background, as last seen.
-struct BackgroundWatch {
-    /// The registry's status time: a new turn that leaves a command running starts afresh.
-    since: i64,
-    tree: procs::CommandTree,
-    /// When its processes were last seen starting a process or using CPU.
-    active_at: i64,
-}
 
 pub enum Msg {
     Fs(Vec<PathBuf>),
@@ -116,8 +101,8 @@ pub enum Msg {
     ChromeProfile(String, Option<i64>, Option<String>, Vec<chrome::Profile>),
     RefreshUsage,
     UsageDone(Vec<Usage>),
-    /// What each OpenCode account's background service said, or None where it isn't running.
-    OpencodeLive(Vec<(String, Option<opencode::Live>)>),
+    /// A harness's reader has something new that it read off this thread (`harness::Wake`).
+    Read,
     /// The full pinned list, in order.
     SetPinned(Vec<String>),
     /// The full list of pinned worktrees (lane ids), in order.
@@ -305,19 +290,19 @@ impl Handle {
         let _ = self.tx.send(Msg::TodoStarted { ids, lane, session, pending });
     }
 
-    /// Archives or unarchives a session. Codex threads are archived in Codex itself, so the
-    /// Codex app shows it too; neither Claude Code nor the Claude app lets another program
-    /// archive, so a Claude session is archived in Codealong until it's active again.
+    /// Archives or unarchives a session: in its harness where that has an archive another
+    /// program can reach (`Adapter::archive`: Codex, so the Codex app shows it too), and in
+    /// Codealong, where a session of any other harness stays archived until it's active again.
     /// Returns the time of the board that shows it, as `mark_seen_shown` does.
     pub fn archive(&self, key: &str, archived: bool) -> Result<Option<i64>> {
         let mut parts = key.splitn(3, ':');
         let (Some(harness), Some(account), Some(id)) = (parts.next(), parts.next(), parts.next()) else {
             bail!("That isn't a session.");
         };
-        if harness == "codex" {
+        if let Some(adapter) = harness::named(harness) {
             let cfg = config::load()?.unwrap_or_default();
             let a = cfg.accounts.iter().find(|a| a.name == account).ok_or_else(|| anyhow!("There's no account named {account}."))?;
-            appserver::set_archived(&a.home_path(), id, archived)?;
+            adapter.archive(a, id, archived)?;
         }
         let (tx, rx) = channel();
         if self.tx.send(Msg::SetArchived(key.to_string(), archived, tx)).is_err() {
@@ -559,7 +544,6 @@ fn snapshot_engine(with_github: bool, with_usage: bool) -> Engine {
     e.load_config();
     e.seen = SeenState::load();
     e.load_todos();
-    e.app_records.refresh(&claudeapp::records_dir());
     lap("config", &t);
     e.scan_sessions();
     lap("sessions", &t);
@@ -583,7 +567,7 @@ fn snapshot_engine(with_github: bool, with_usage: bool) -> Engine {
     }
     lap("git", &t);
     if with_usage {
-        for u in usage::claude_all(&e.cfg.accounts) {
+        for u in usage::read_all(&e.cfg.accounts) {
             e.usage.insert(u.account.clone(), u);
         }
         lap("usage", &t);
@@ -623,7 +607,6 @@ pub fn light_snapshot() -> Board {
     e.load_config();
     e.seen = SeenState::load();
     e.load_todos();
-    e.app_records.refresh(&claudeapp::records_dir());
     e.scan_sessions();
     e.load_repos();
     e.load_previews();
@@ -631,19 +614,6 @@ pub fn light_snapshot() -> Board {
     e.previews.servers = previews::scan_once(&e.server_roots());
     e.loading = false;
     e.compose()
-}
-
-/// The newest write to a Claude session's subagent logs (`<transcript dir>/<id>/subagents`).
-fn subagent_activity(transcript: &Path, session_id: &str) -> Option<i64> {
-    let dir = transcript.parent()?.join(session_id).join("subagents");
-    std::fs::read_dir(dir).ok()?.flatten().filter_map(|e| mtime_ms(&e.path())).max()
-}
-
-/// A Claude session's subagent logs.
-fn subagent_logs(transcript: &Path, session_id: &str) -> Vec<PathBuf> {
-    let Some(dir) = transcript.parent().map(|d| d.join(session_id).join("subagents")) else { return vec![] };
-    let Ok(entries) = std::fs::read_dir(dir) else { return vec![] };
-    entries.flatten().map(|e| e.path()).filter(|p| p.extension().and_then(|x| x.to_str()) == Some("jsonl")).collect()
 }
 
 /// A read that failed for a reason other than sign-in keeps the last good numbers; its error
@@ -731,27 +701,8 @@ struct Engine {
     /// `<main>/.git/worktrees/<name>` → the linked worktree's path.
     gitdir_to_lane: HashMap<PathBuf, PathBuf>,
     ignores: HashMap<PathBuf, Gitignore>,
-    registry: HashMap<String, Vec<RegistryEntry>>,
-    /// What each account's background jobs were forked from, read from their records.
-    claude_forks: HashMap<String, claude::Forks>,
-    transcripts: HashMap<PathBuf, (String, claude::Parsed)>,
-    codex_index: HashMap<String, HashMap<String, (String, i64)>>,
-    /// `None` marks a thread that's never shown (a guardian review, a subagent), so its
-    /// constant writes are ignored.
-    rollouts: HashMap<PathBuf, (String, Option<(ThreadInfo, u64)>)>,
-    /// OpenCode sessions by account, newest first.
-    opencode_sessions: HashMap<String, Vec<opencode::SessionRow>>,
-    /// What each OpenCode account's background service said last, while it was running.
-    opencode_live: HashMap<String, opencode::Live>,
-    /// OpenCode's interactive terminals, refreshed on the tick.
-    opencode_terminals: Vec<opencode::Terminal>,
-    codex_terminals: Vec<codex::Terminal>,
-    /// Each OpenCode and Antigravity database's size and time, and its WAL's, at the last look.
-    database_marks: HashMap<String, [Option<(u64, Option<std::time::SystemTime>)>; 2]>,
-    opencode_inflight: bool,
-    opencode_last: Option<Instant>,
-    /// Antigravity conversations by account, newest first.
-    antigravity: HashMap<String, Vec<antigravity::Conversation>>,
+    /// Each harness's sessions as its files last said (`harness::Reader`), in the adapters' order.
+    readers: Vec<Box<dyn harness::Reader>>,
     /// The repo scan's reads of files in folders it doesn't own, which macOS can hold.
     reads: RepoReads,
     /// When a held read last landed: the repos are read again once they stop landing.
@@ -765,8 +716,6 @@ struct Engine {
     visitors: HashMap<PathBuf, Vec<String>>,
     /// What to look for in logs: (lane path, text that identifies it, when it was made).
     needles: Vec<(PathBuf, String, i64)>,
-    /// How far each subagent log has been checked for orphan worktrees and PR marks.
-    subagent_offsets: HashMap<PathBuf, u64>,
     /// Session key → the PRs its records show it made or changed.
     pr_marks: HashMap<String, Vec<String>>,
     /// Session key → the Chrome tabs its records show it drove (chrometabs.rs).
@@ -818,17 +767,9 @@ struct Engine {
     watch_warning: Option<String>,
     /// Account folders that didn't exist at the last watch: a new account before sign-in.
     missing_homes: Vec<PathBuf>,
-    /// Claude usage by account, from the last background read.
+    /// Usage by account for the harnesses whose usage is asked for in the background
+    /// (`Adapter::polls_usage`), from the last read.
     usage: HashMap<String, Usage>,
-    /// The Claude app's session records, for what you archived there.
-    app_records: claudeapp::Records,
-    app_records_at: Option<Instant>,
-    /// (pid, status time) → the command a stuck Claude session's shell is running.
-    stuck: Mutex<HashMap<(u32, i64), Option<String>>>,
-    /// Claude sessions whose turn left a command running in the background, by pid: when
-    /// their processes last did something, from a look at them every minute.
-    background: HashMap<u32, BackgroundWatch>,
-    background_at: Option<Instant>,
     usage_inflight: bool,
     usage_last: Option<Instant>,
     usage_backoff: bool,
@@ -865,6 +806,12 @@ impl Engine {
         let jev_jobs = jev::worker(move |id, answer| {
             let _ = back.send(Msg::JevDone(id, answer));
         });
+        let back = Mutex::new(tx.clone());
+        let wake: harness::Wake = Arc::new(move || {
+            if let Ok(back) = back.lock() {
+                let _ = back.send(Msg::Read);
+            }
+        });
         Engine {
             emit,
             tx,
@@ -881,26 +828,13 @@ impl Engine {
             seeds: Vec::new(),
             gitdir_to_lane: HashMap::new(),
             ignores: HashMap::new(),
-            registry: HashMap::new(),
-            claude_forks: HashMap::new(),
-            transcripts: HashMap::new(),
-            codex_index: HashMap::new(),
-            rollouts: HashMap::new(),
-            opencode_sessions: HashMap::new(),
-            opencode_live: HashMap::new(),
-            opencode_terminals: Vec::new(),
-            codex_terminals: Vec::new(),
-            database_marks: HashMap::new(),
-            opencode_inflight: false,
-            opencode_last: None,
-            antigravity: HashMap::new(),
+            readers: harness::readers(&wake),
             reads,
             landed_at: None,
             held_worktrees: HashSet::new(),
             last_hash: 0,
             visitors: HashMap::new(),
             needles: Vec::new(),
-            subagent_offsets: HashMap::new(),
             pr_marks: HashMap::new(),
             chrome_use: HashMap::new(),
             chrome_profiles: Vec::new(),
@@ -934,11 +868,6 @@ impl Engine {
             watch_warning: None,
             missing_homes: Vec::new(),
             usage: HashMap::new(),
-            app_records: claudeapp::Records::default(),
-            app_records_at: None,
-            stuck: Mutex::new(HashMap::new()),
-            background: HashMap::new(),
-            background_at: None,
             usage_inflight: false,
             usage_last: None,
             usage_backoff: false,
@@ -1188,8 +1117,6 @@ impl Engine {
                 attachments::collect_garbage(&texts.iter().map(String::as_str).collect::<Vec<_>>());
             });
         }
-        self.app_records.refresh(&claudeapp::records_dir());
-        self.app_records_at = Some(Instant::now());
         self.scan_sessions();
         self.load_repos();
         self.loading = false;
@@ -1197,7 +1124,7 @@ impl Engine {
         self.queue_git_all();
         self.fetch_github(true);
         self.fetch_usage();
-        self.poll_opencode();
+        self.poll_readers();
         self.watch();
         // The scan read config.toml and todos.json before the watcher started, and can take
         // minutes on a busy Mac: an edit made meanwhile is read now, as the watcher would have,
@@ -1213,100 +1140,67 @@ impl Engine {
         self.load_reusable();
     }
 
-    /// Asks each OpenCode account's background service what's running and what it's waiting
-    /// on, on a background thread: one poll at a time, and not more than one every 2 seconds.
-    fn poll_opencode(&mut self) {
-        if self.opencode_inflight || self.opencode_last.map(|t| t.elapsed() < Duration::from_secs(2)).unwrap_or(false) {
-            return;
-        }
-        let accounts: Vec<AccountCfg> = self.cfg.accounts.iter().filter(|a| a.harness == "opencode").cloned().collect();
-        if accounts.is_empty() {
-            return;
-        }
-        self.opencode_inflight = true;
-        self.opencode_last = Some(Instant::now());
-        let tx = self.tx.clone();
-        std::thread::spawn(move || {
-            procs::utility_thread();
-            let now = now_ms();
-            let results = accounts.into_iter().map(|a| (a.name.clone(), opencode::service(&a.home_path()).and_then(|svc| opencode::poll(&svc, now)))).collect();
-            let _ = tx.send(Msg::OpencodeLive(results));
-        });
+    /// What a reader goes by as it reads (`harness::Look`). Borrows only what you've seen, so
+    /// the readers can be changed meanwhile.
+    fn look(seen: &SeenState) -> harness::Look<'_> {
+        let now = now_ms();
+        harness::Look { seen, since: now - WINDOW_MS, now }
     }
 
-    /// OpenCode's interactive terminals: which sessions are live, and where each shows.
-    fn refresh_opencode_terminals(&mut self) -> bool {
-        if !self.cfg.accounts.iter().any(|a| a.harness == "opencode") {
-            return false;
+    /// Takes in what a read came to: the board is to be published again, and the lines sessions
+    /// wrote are checked. True when a session appeared, which may need a lane (`place_sessions`).
+    fn take(&mut self, applied: harness::Applied) -> bool {
+        self.dirty |= applied.dirty;
+        for l in applied.lines {
+            self.check_new_lines(&l.path, l.from, l.to, &l.key);
         }
-        let fresh = opencode::terminals();
-        let changed = fresh != self.opencode_terminals;
-        self.opencode_terminals = fresh;
-        changed
+        applied.added
     }
 
-    /// Codex's terminal UIs: which threads are open in a terminal, and which one.
-    fn refresh_codex_terminals(&mut self) -> bool {
-        if !self.cfg.accounts.iter().any(|a| a.harness == "codex") {
-            return false;
-        }
-        let fresh = codex::terminals();
-        let changed = fresh != self.codex_terminals;
-        self.codex_terminals = fresh;
-        changed
-    }
-
-    /// Rereads each OpenCode or Antigravity database whose size or time changed since the last
-    /// look. A running session writes only to the database's WAL, through a file SQLite holds
-    /// open, and FSEvents doesn't report those writes (checked on this Mac), so watching the
-    /// folder doesn't hear them: a stat of two files every couple of seconds does.
-    fn check_databases(&mut self) {
-        let accounts: Vec<AccountCfg> = self.cfg.accounts.iter().filter(|a| a.harness == "opencode" || a.harness == "antigravity").cloned().collect();
-        for a in accounts {
-            let db = if a.harness == "opencode" { "opencode.db" } else { "conversation_summaries.db" };
-            let home = a.home_path();
-            let mark = [home.join(db), home.join(format!("{db}-wal"))].map(|p| std::fs::metadata(p).ok().map(|m| (m.len(), m.modified().ok())));
-            let changed = self.database_marks.get(&a.name).is_some_and(|before| *before != mark);
-            self.database_marks.insert(a.name.clone(), mark);
-            if changed {
-                self.reread_database(&a.name);
-                self.dirty = true;
-            }
+    /// Has each reader ask what only a running service knows (`Reader::poll`).
+    fn poll_readers(&mut self) {
+        for r in &mut self.readers {
+            r.poll(&harness::accounts_of(&self.cfg, r.harness()));
         }
     }
 
-    /// Reads an OpenCode or Antigravity account's database again after it changed. True when a
-    /// session appeared that wasn't there before.
-    fn reread_database(&mut self, account: &str) -> bool {
-        let Some(a) = self.account(account).cloned() else { return false };
-        let since = now_ms() - WINDOW_MS;
-        match a.harness.as_str() {
-            "opencode" => {
-                let rows = opencode::read_sessions(&a.home_path(), since, &self.seen.pinned_ids("opencode", &a.name));
-                let before: HashSet<String> = self.opencode_sessions.get(account).map(|v| v.iter().map(|r| r.id.clone()).collect()).unwrap_or_default();
-                let added = rows.iter().any(|r| !before.contains(&r.id));
-                self.opencode_sessions.insert(a.name.clone(), rows);
-                // A write means a run may have started or asked something: ask the service.
-                self.poll_opencode();
-                added
-            }
-            "antigravity" => {
-                let rows = antigravity::read_conversations(&a.home_path(), since, &self.seen.pinned_ids("antigravity", &a.name));
-                let before: HashSet<String> = self.antigravity.get(account).map(|v| v.iter().map(|c| c.id.clone()).collect()).unwrap_or_default();
-                let added = rows.iter().any(|c| !before.contains(&c.id));
-                self.antigravity.insert(a.name.clone(), rows);
-                added
-            }
-            _ => false,
+    /// Has each reader look at what the watcher never hears of (`Reader::glance`).
+    fn glance_readers(&mut self) {
+        let look = Self::look(&self.seen);
+        let mut all = harness::Applied::default();
+        for r in &mut self.readers {
+            all.and(r.glance(&harness::accounts_of(&self.cfg, r.harness()), &look));
+        }
+        if self.take(all) {
+            self.place_sessions();
         }
     }
 
-    /// Reads Claude usage on a background thread; Codex usage comes from the rollouts.
+    /// A new session may have started somewhere no lane covers yet: a chat, or a folder or repo
+    /// outside your projects. Its folder is only looked up here, as reading it could wait on a
+    /// privacy prompt; one whose read is held is looked at again once it lands. The repos are
+    /// read again when one has.
+    fn place_sessions(&mut self) {
+        let unplaced = || {
+            let chats = chat_roots();
+            self.session_cwds().into_iter().any(|cwd| {
+                let p = Path::new(&cwd);
+                board::best_seed(&self.seeds, p).is_none() && (chat_root(&chats, p).is_some() || (!self.reads.folders.is_out(p) && p.is_dir()))
+            })
+        };
+        if unplaced() {
+            self.rescan_repos();
+        }
+    }
+
+    /// Reads usage on a background thread for the accounts whose harness keeps it somewhere slow
+    /// to ask (`Adapter::polls_usage`: Claude Code's endpoint). Usage that comes with the
+    /// sessions is the reader's (`Reader::usage`: Codex's, in its rollouts).
     fn fetch_usage(&mut self) {
         if self.usage_inflight {
             return;
         }
-        let accounts: Vec<AccountCfg> = self.cfg.accounts.iter().filter(|a| a.harness == "claude").cloned().collect();
+        let accounts: Vec<AccountCfg> = self.cfg.accounts.iter().filter(|a| harness::of(a).is_some_and(|h| h.polls_usage())).cloned().collect();
         self.usage_last = Some(Instant::now());
         if accounts.is_empty() {
             return;
@@ -1314,7 +1208,7 @@ impl Engine {
         self.usage_inflight = true;
         let tx = self.tx.clone();
         let _ = std::thread::Builder::new().name("codealong-usage".into()).spawn(move || {
-            let _ = tx.send(Msg::UsageDone(usage::claude_all(&accounts)));
+            let _ = tx.send(Msg::UsageDone(usage::read_all(&accounts)));
         });
     }
 
@@ -1417,26 +1311,15 @@ impl Engine {
                     }
                 }
                 Ok(Msg::RefreshUsage) => self.fetch_usage(),
-                Ok(Msg::Hosted) => self.dirty = true,
-                Ok(Msg::OpencodeLive(results)) => {
-                    self.opencode_inflight = false;
-                    for (account, live) in results {
-                        match live {
-                            Some(l) => {
-                                self.opencode_live.insert(account, l);
-                            }
-                            None => {
-                                self.opencode_live.remove(&account);
-                            }
-                        }
-                    }
-                    self.dirty = true;
-                }
+                Ok(Msg::Hosted) | Ok(Msg::Read) => self.dirty = true,
                 Ok(Msg::SetArchived(key, archived, reply)) => {
                     self.seen.set_archived(&key, archived, now_ms());
                     self.seen.save();
-                    if key.starts_with("codex:") {
-                        self.refresh_archived_rollouts();
+                    // A harness with an archive of its own reads what's in it now.
+                    let look = Self::look(&self.seen);
+                    let harness = key.split(':').next().and_then(harness::named).map(|a| a.harness());
+                    for r in self.readers.iter_mut().filter(|r| Some(r.harness()) == harness) {
+                        r.archives_changed(&harness::accounts_of(&self.cfg, r.harness()), &look);
                     }
                     // Now rather than on the next tick: the window shows it already, and waits for it.
                     self.publish();
@@ -1600,7 +1483,7 @@ impl Engine {
             }
             if last_databases.elapsed() >= DATABASES_EVERY {
                 last_databases = Instant::now();
-                self.check_databases();
+                self.glance_readers();
             }
             if last_tick.elapsed() >= Duration::from_secs(10) {
                 last_tick = Instant::now();
@@ -1652,83 +1535,20 @@ impl Engine {
         self.seen.know_accounts(keys)
     }
 
-    fn account(&self, name: &str) -> Option<&AccountCfg> {
-        self.cfg.accounts.iter().find(|a| a.name == name)
-    }
-
     fn scan_sessions(&mut self) {
-        let since = now_ms() - WINDOW_MS;
-        self.registry.clear();
-        self.transcripts.clear();
-        self.codex_index.clear();
-        self.rollouts.clear();
-        self.opencode_sessions.clear();
-        self.antigravity.clear();
-        for a in self.cfg.accounts.clone() {
-            let home = a.home_path();
-            match a.harness.as_str() {
-                "claude" => {
-                    self.registry.insert(a.name.clone(), claude::read_registry(&home));
-                    self.claude_forks.entry(a.name.clone()).or_default().refresh(&home, now_ms());
-                    let files = claude::transcript_files(&home, since, &self.seen.pinned_ids("claude", &a.name));
-                    for (path, parsed) in parallel_map(files, |(p, m)| claude::parse_transcript(&p, m, None).map(|r| (p, r))) {
-                        self.transcripts.insert(path, (a.name.clone(), parsed));
-                    }
-                }
-                "codex" => {
-                    self.codex_index.insert(a.name.clone(), codex::read_index(&home));
-                    let files = codex::rollout_files(&home, since, &self.seen.pinned_ids("codex", &a.name));
-                    for (path, parsed) in parallel_map(files, |(p, m)| {
-                        let parsed = codex::parse_rollout(&p, m, None);
-                        Some((p, parsed))
-                    }) {
-                        self.rollouts.insert(path, (a.name.clone(), parsed));
-                    }
-                }
-                "opencode" => {
-                    let rows = opencode::read_sessions(&home, since, &self.seen.pinned_ids("opencode", &a.name));
-                    self.opencode_sessions.insert(a.name.clone(), rows);
-                }
-                "antigravity" => {
-                    let rows = antigravity::read_conversations(&home, since, &self.seen.pinned_ids("antigravity", &a.name));
-                    self.antigravity.insert(a.name.clone(), rows);
-                }
-                _ => {}
-            }
-        }
-        self.refresh_opencode_terminals();
-        self.refresh_codex_terminals();
-        self.refresh_archived_rollouts();
-    }
-
-    /// Loads the Codex threads archived from Codealong from `archived_sessions`, so its Archived
-    /// list can show them, and drops ones that were unarchived or are no longer listed.
-    fn refresh_archived_rollouts(&mut self) {
-        for a in self.cfg.accounts.clone().iter().filter(|a| a.harness == "codex") {
-            let dir = a.home_path().join("archived_sessions");
-            let ids = self.seen.archived_ids("codex", &a.name);
-            self.rollouts.retain(|path, (acct, _)| {
-                acct != &a.name || !path.starts_with(&dir) || (path.exists() && codex::thread_id_of(path).map(|id| ids.contains(&id)).unwrap_or(false))
-            });
-            for (path, m) in codex::archived_rollout_files(&a.home_path(), &ids) {
-                if !self.rollouts.contains_key(&path) {
-                    let parsed = codex::parse_rollout(&path, m, None);
-                    self.rollouts.insert(path, (a.name.clone(), parsed));
-                }
-            }
+        let look = Self::look(&self.seen);
+        for r in &mut self.readers {
+            r.scan(&harness::accounts_of(&self.cfg, r.harness()), &look);
         }
     }
 
     fn session_cwds(&self) -> BTreeSet<String> {
-        let mut out = BTreeSet::new();
-        for entries in self.registry.values() {
-            out.extend(entries.iter().map(|e| e.cwd.clone()));
-        }
-        out.extend(self.transcripts.values().map(|(_, (_, t, _))| t.cwd.clone()));
-        out.extend(self.rollouts.values().filter_map(|(_, t)| t.as_ref().map(|(t, _)| t.cwd.clone())));
-        out.extend(self.opencode_sessions.values().flatten().map(|r| r.directory.clone()));
-        out.extend(self.antigravity.values().flatten().filter_map(|c| c.cwd.clone()));
-        out
+        self.readers.iter().flat_map(|r| r.cwds()).collect()
+    }
+
+    /// Every session's record that's a file of lines, with the session's key (`Reader::logs`).
+    fn session_logs(&self) -> Vec<(PathBuf, String)> {
+        self.readers.iter().flat_map(|r| r.logs()).collect()
     }
 
     /// The checkouts and their worktrees, as seeds for lanes. Files in folders the scan doesn't
@@ -2116,96 +1936,17 @@ impl Engine {
         }
     }
 
-    fn refresh_registry(&mut self, account: &str) -> bool {
-        let Some(a) = self.account(account) else { return false };
-        let home = a.home_path();
-        let fresh = claude::read_registry(&home);
-        let changed = self.registry.get(account) != Some(&fresh);
-        self.registry.insert(account.to_string(), fresh);
-        // A new job shows in the registry as it starts, and its record says what it's a fork of.
-        let forked = self.claude_forks.entry(account.to_string()).or_default().refresh(&home, now_ms());
-        changed || forked
-    }
-
-    /// FSEvents can hold back appends until a writer closes its file. Codex keeps rollouts
-    /// open across turns, so check their lengths too and read only bytes we haven't consumed.
-    fn poll_codex(&mut self) {
-        let mut changed = Vec::new();
-        for a in self.cfg.accounts.iter().filter(|a| a.harness == "codex") {
-            let home = a.home_path();
-            let sessions = home.join("sessions");
-            let mut paths: BTreeSet<PathBuf> = codex::rollout_files(&home, now_ms() - WINDOW_MS, &self.seen.pinned_ids("codex", &a.name))
-                .into_iter().map(|(p, _)| p).collect();
-            // Include known files so a removal or truncation is noticed as well.
-            paths.extend(self.rollouts.iter().filter(|(p, (acct, _))| acct == &a.name && p.starts_with(&sessions)).map(|(p, _)| p.clone()));
-            for p in paths {
-                let unread = match self.rollouts.get(&p) {
-                    Some((_, Some((_, offset)))) => std::fs::metadata(&p).map(|m| m.len() != *offset).unwrap_or(true),
-                    // Guardian reviews and subagents still don't need to be parsed.
-                    Some((_, None)) => false,
-                    None => true,
-                };
-                if unread {
-                    changed.push(p);
-                }
-            }
-            let index = codex::read_index(&home);
-            if self.codex_index.get(&a.name) != Some(&index) {
-                self.codex_index.insert(a.name.clone(), index);
-                self.dirty = true;
-            }
-        }
-        if !changed.is_empty() {
-            self.apply_fs(changed);
-        }
-    }
-
-    /// Looks at what the commands Claude sessions left running in the background are doing,
-    /// once a minute and only while there are some: one `ps` for all of them.
-    fn watch_background(&mut self, now: i64) {
-        if self.background_at.is_some_and(|t| t.elapsed() < BACKGROUND_EVERY) {
-            return;
-        }
-        self.background_at = Some(Instant::now());
-        let shells: Vec<(u32, i64)> = self.registry.values().flatten().filter(|r| r.status == "shell").map(|r| (r.pid, r.status_updated_at.unwrap_or(0))).collect();
-        self.background.retain(|pid, _| shells.iter().any(|(p, _)| p == pid));
-        if shells.is_empty() {
-            return;
-        }
-        let pids: Vec<u32> = shells.iter().map(|(p, _)| *p).collect();
-        let mut trees = procs::command_trees(&pids);
-        for (pid, since) in shells {
-            let Some(tree) = trees.remove(&pid) else { continue };
-            match self.background.get_mut(&pid) {
-                Some(w) if w.since == since => {
-                    if tree.active_since(&w.tree) {
-                        w.active_at = now;
-                    }
-                    w.tree = tree;
-                }
-                _ => {
-                    // Seen for the first time, perhaps long after the turn ended (the app just
-                    // started): give it a few looks to show it's doing something.
-                    let active_at = since.max(now - board::BACKGROUND_QUIET_MS + 3 * BACKGROUND_EVERY.as_millis() as i64);
-                    self.background.insert(pid, BackgroundWatch { since, tree, active_at });
-                }
-            }
-        }
-    }
-
     fn tick(&mut self) {
-        let claude_accounts: Vec<String> = self.cfg.accounts.iter().filter(|a| a.harness == "claude").map(|a| a.name.clone()).collect();
-        for a in claude_accounts {
-            if self.refresh_registry(&a) {
-                self.dirty = true;
-            }
+        // What the watcher doesn't say: a file its writer holds open, a process that came or went.
+        let look = Self::look(&self.seen);
+        let mut all = harness::Applied::default();
+        for r in &mut self.readers {
+            all.and(r.tick(&harness::accounts_of(&self.cfg, r.harness()), &look));
         }
-        self.watch_background(now_ms());
-        self.poll_codex();
-        if self.refresh_opencode_terminals() | self.refresh_codex_terminals() {
-            self.dirty = true;
+        if self.take(all) {
+            self.place_sessions();
         }
-        self.poll_opencode();
+        self.poll_readers();
         if self.gh_last.map(|t| t.elapsed() >= GITHUB_EVERY).unwrap_or(true) {
             self.fetch_github(true);
             self.fetch_repo_names();
@@ -2213,12 +1954,6 @@ impl Engine {
         let every = if self.usage_backoff { USAGE_BACKOFF } else { USAGE_EVERY };
         if self.usage_last.map(|t| t.elapsed() >= every).unwrap_or(true) {
             self.fetch_usage();
-        }
-        if self.app_records_at.map(|t| t.elapsed() >= Duration::from_secs(30)).unwrap_or(true) {
-            self.app_records_at = Some(Instant::now());
-            if self.app_records.refresh(&claudeapp::records_dir()) {
-                self.dirty = true;
-            }
         }
         // A new account's folder appears when it first signs in; start reading it.
         if self.missing_homes.iter().any(|p| p.exists()) {
@@ -2280,13 +2015,9 @@ impl Engine {
         paths.dedup();
         let config_path = config::config_path();
         let todos_path = todos::path();
-        let accounts = self.cfg.accounts.clone();
-        let mut registries = BTreeSet::new();
-        let mut indexes = BTreeSet::new();
-        let mut transcripts = Vec::new();
-        let mut subagents = Vec::new();
-        let mut rollouts = Vec::new();
-        let mut databases = BTreeSet::new();
+        // Each harness's own files, by reader and account, in the order they're read.
+        let accounts: Vec<Vec<AccountCfg>> = self.readers.iter().map(|r| harness::accounts_of(&self.cfg, r.harness())).collect();
+        let mut owned: BTreeMap<(usize, usize), Vec<PathBuf>> = BTreeMap::new();
         let mut lanes = BTreeSet::new();
         let mut reload_repos = false;
         let mut reload_config = false;
@@ -2314,52 +2045,10 @@ impl Engine {
                 self.dirty = true;
                 continue;
             }
-            for a in &accounts {
-                let home = a.home_path();
-                let jsonl = p.extension().and_then(|x| x.to_str()) == Some("jsonl");
-                match a.harness.as_str() {
-                    "claude" => {
-                        if p.starts_with(home.join("sessions")) {
-                            registries.insert(a.name.clone());
-                            continue 'paths;
-                        }
-                        let projects = home.join("projects");
-                        if p.starts_with(&projects) {
-                            if jsonl && p.parent().and_then(Path::parent) == Some(projects.as_path()) {
-                                transcripts.push((a.name.clone(), p));
-                            } else if jsonl && p.parent().map(file_name).as_deref() == Some("subagents") {
-                                // `<session>/subagents/agent-*.jsonl`
-                                if let Some(id) = p.parent().and_then(Path::parent).map(file_name) {
-                                    subagents.push((format!("claude:{}:{}", a.name, id), p));
-                                }
-                            }
-                            continue 'paths;
-                        }
-                    }
-                    "codex" => {
-                        if p == home.join("session_index.jsonl") {
-                            indexes.insert(a.name.clone());
-                            continue 'paths;
-                        }
-                        if p.starts_with(home.join("sessions")) {
-                            if jsonl {
-                                rollouts.push((a.name.clone(), p));
-                            }
-                            continue 'paths;
-                        }
-                        if p.starts_with(&home) {
-                            continue 'paths;
-                        }
-                    }
-                    "opencode" | "antigravity" => {
-                        if p.starts_with(&home) {
-                            if p.parent() == Some(home.as_path()) && file_name(&p).contains(".db") {
-                                databases.insert(a.name.clone());
-                            }
-                            continue 'paths;
-                        }
-                    }
-                    _ => {}
+            for (i, r) in self.readers.iter().enumerate() {
+                if let Some(j) = accounts[i].iter().position(|a| r.owns(a, &p)) {
+                    owned.entry((i, j)).or_default().push(p);
+                    continue 'paths;
                 }
             }
             match self.classify_repo_path(&p) {
@@ -2378,83 +2067,16 @@ impl Engine {
             self.reload();
             return;
         }
-        let mut registry_changed = false;
-        for a in registries {
-            if self.refresh_registry(&a) {
-                self.dirty = true;
-                registry_changed = true;
-            }
+        let look = Self::look(&self.seen);
+        let mut all = harness::Applied::default();
+        for ((i, j), paths) in owned {
+            all.and(self.readers[i].apply(&accounts[i][j], &paths, &look));
         }
-        let mut sessions_changed = registry_changed;
-        for (a, p) in transcripts {
-            let prev = self.transcripts.remove(&p).map(|(_, parsed)| parsed);
-            let is_new = prev.is_none();
-            let from = prev.as_ref().map(|(_, _, st)| st.offset);
-            if let Some(parsed) = mtime_ms(&p).and_then(|m| claude::parse_transcript(&p, m, prev)) {
-                if let Some(from) = from {
-                    let key = format!("claude:{}:{}", a, parsed.1.session_id);
-                    self.check_new_lines(&p, from, parsed.2.offset, &key);
-                }
-                self.transcripts.insert(p, (a, parsed));
-            }
-            sessions_changed |= is_new;
-            self.dirty = true;
-        }
-        for (key, p) in subagents {
-            let Ok(len) = std::fs::metadata(&p).map(|m| m.len()) else { continue };
-            // A log first seen now is new, or its earlier lines were read by the last full search.
-            let from = self.subagent_offsets.get(&p).copied().unwrap_or(len.saturating_sub(1 << 20));
-            self.check_new_lines(&p, from, len, &key);
-            self.subagent_offsets.insert(p, len);
-        }
-        for a in indexes {
-            if let Some(acct) = self.account(&a) {
-                let index = codex::read_index(&acct.home_path());
-                self.codex_index.insert(a, index);
-                self.dirty = true;
-            }
-        }
-        for (a, p) in rollouts {
-            let prev = match self.rollouts.get(&p) {
-                // A thread that's never shown: skip its writes.
-                Some((_, None)) => continue,
-                Some((_, Some(parsed))) => Some(parsed.clone()),
-                None => None,
-            };
-            let is_new = prev.is_none();
-            let from = prev.as_ref().map(|(_, off)| *off);
-            match mtime_ms(&p) {
-                Some(m) => {
-                    let parsed = codex::parse_rollout(&p, m, prev);
-                    sessions_changed |= is_new && parsed.is_some();
-                    if let (Some(from), Some((th, to))) = (from, parsed.as_ref()) {
-                        let key = format!("codex:{}:{}", a, th.id);
-                        self.check_new_lines(&p, from, *to, &key);
-                    }
-                    self.rollouts.insert(p, (a, parsed));
-                }
-                None => {
-                    self.rollouts.remove(&p);
-                }
-            }
-            self.dirty = true;
-        }
-        for a in databases {
-            sessions_changed |= self.reread_database(&a);
-            self.dirty = true;
-        }
-        // A new session may have started somewhere no lane covers yet: a chat, or a folder or repo
-        // outside your projects. Its folder is only looked up here, as reading it could wait on
-        // a privacy prompt; one whose read is held is looked at again once it lands.
-        let unplaced = sessions_changed && {
-            let chats = chat_roots();
-            self.session_cwds().into_iter().any(|cwd| {
-                let p = Path::new(&cwd);
-                board::best_seed(&self.seeds, p).is_none() && (chat_root(&chats, p).is_some() || (!self.reads.folders.is_out(p) && p.is_dir()))
-            })
-        };
-        if reload_repos || unplaced {
+        let added = self.take(all);
+        if reload_repos {
             self.rescan_repos();
+        } else if added {
+            self.place_sessions();
         }
         for l in lanes {
             self.queue_git(l);
@@ -2510,18 +2132,7 @@ impl Engine {
             self.visitors.clear();
             return;
         }
-        let mut files: Vec<(PathBuf, String)> = Vec::new();
-        for (p, (a, (_, info, _))) in &self.transcripts {
-            let key = format!("claude:{}:{}", a, info.session_id);
-            // A subagent works where its session sent it, so its log counts for the session.
-            files.extend(subagent_logs(p, &info.session_id).into_iter().map(|s| (s, key.clone())));
-            files.push((p.clone(), key));
-        }
-        for (p, (a, parsed)) in &self.rollouts {
-            if let Some((th, _)) = parsed {
-                files.push((p.clone(), format!("codex:{}:{}", a, th.id)));
-            }
-        }
+        let files = self.session_logs();
         let scan = move || -> HashMap<PathBuf, Vec<String>> {
             let found = parallel_map(files, |(path, key)| {
                 let written = mtime_ms(&path)?;
@@ -2560,17 +2171,7 @@ impl Engine {
     /// Reads the PRs each session's records show it made or changed, subagents' logs included,
     /// in the background unless `sync`. New lines are read as they come (`check_new_lines`).
     fn scan_pr_marks(&mut self, sync: bool) {
-        let mut files: Vec<(PathBuf, String)> = Vec::new();
-        for (p, (a, (_, info, _))) in &self.transcripts {
-            let key = format!("claude:{}:{}", a, info.session_id);
-            files.extend(subagent_logs(p, &info.session_id).into_iter().map(|s| (s, key.clone())));
-            files.push((p.clone(), key));
-        }
-        for (p, (a, parsed)) in &self.rollouts {
-            if let Some((th, _)) = parsed {
-                files.push((p.clone(), format!("codex:{}:{}", a, th.id)));
-            }
-        }
+        let files = self.session_logs();
         let scan = move || -> (HashMap<String, Vec<String>>, HashMap<String, chrometabs::Use>, Vec<chrome::Profile>) {
             let mut out: HashMap<String, Vec<String>> = HashMap::new();
             let mut used: HashMap<String, chrometabs::Use> = HashMap::new();
@@ -2722,20 +2323,9 @@ impl Engine {
         self.missing_homes = self.cfg.accounts.iter().map(|a| a.home_path()).filter(|h| !h.exists()).collect();
         let _ = std::fs::create_dir_all(config::support_dir());
         paths.push((config::support_dir(), RecursiveMode::NonRecursive));
-        for a in &self.cfg.accounts {
-            let home = a.home_path();
-            match a.harness.as_str() {
-                "claude" => {
-                    paths.push((home.join("sessions"), RecursiveMode::NonRecursive));
-                    paths.push((home.join("projects"), RecursiveMode::Recursive));
-                }
-                "codex" => {
-                    paths.push((home.clone(), RecursiveMode::NonRecursive));
-                    paths.push((home.join("sessions"), RecursiveMode::Recursive));
-                }
-                // The database, its WAL and its journal, all in the folder itself.
-                "opencode" | "antigravity" => paths.push((home.clone(), RecursiveMode::NonRecursive)),
-                _ => {}
+        for r in &self.readers {
+            for a in harness::accounts_of(&self.cfg, r.harness()) {
+                paths.extend(r.watch(&a).into_iter().map(|(p, deep)| (p, if deep { RecursiveMode::Recursive } else { RecursiveMode::NonRecursive })));
             }
         }
         let roots: Vec<PathBuf> = self.checkouts.iter().map(|(_, c)| c.root.clone()).collect();
@@ -2757,122 +2347,14 @@ impl Engine {
         self.watcher = Some(watcher);
     }
 
-    /// What a stuck session's shell is running, read once per stall.
-    fn stuck_command(&self, r: &RegistryEntry) -> Option<String> {
-        let mut cache = self.stuck.lock().ok()?;
-        cache.entry((r.pid, r.status_updated_at.unwrap_or(0))).or_insert_with(|| crate::procs::running_command(r.pid)).clone()
-    }
-
     fn build_sessions(&self, now: i64) -> Vec<Session> {
+        let look = harness::Look { now, ..Self::look(&self.seen) };
         let mut out = Vec::new();
+        // In config.toml's order of accounts, each read by its harness's reader.
         for a in &self.cfg.accounts {
-            match a.harness.as_str() {
-                "claude" => {
-                    let app_archived = self.app_records.archived();
-                    let mut by_id: HashMap<&str, (Option<&RegistryEntry>, Option<(&Path, &TranscriptInfo)>)> = HashMap::new();
-                    for r in self.registry.get(&a.name).map(|v| v.as_slice()).unwrap_or(&[]) {
-                        by_id.entry(r.session_id.as_str()).or_default().0 = Some(r);
-                    }
-                    for (path, (acct, (_, t, _))) in &self.transcripts {
-                        if acct == &a.name {
-                            let slot = by_id.entry(t.session_id.as_str()).or_default();
-                            if slot.1.map(|(_, old)| old.last_ts < t.last_ts).unwrap_or(true) {
-                                slot.1 = Some((path.as_path(), t));
-                            }
-                        }
-                    }
-                    let live: HashSet<&str> = by_id.iter().filter(|(_, (r, _))| r.is_some()).map(|(id, _)| *id).collect();
-                    let said: HashMap<&str, &TranscriptInfo> = by_id.iter().filter_map(|(id, (_, t))| t.map(|(_, t)| (*id, t))).collect();
-                    let moves = board::claude_moves(&live, &said);
-                    for (&id, &(reg, tr)) in &by_id {
-                        // Its conversation went on in a job, which shows it.
-                        if moves.moved.contains_key(id) {
-                            continue;
-                        }
-                        let key = format!("claude:{}:{}", a.name, id);
-                        // A job that hasn't written its own transcript yet shows the one it goes on
-                        // from: a window's conversation it took over, or one it's a fork of.
-                        let resumes = reg.and_then(|r| r.resumes.as_ref()).filter(|_| tr.is_none());
-                        let from = moves.from.get(id).or(resumes).and_then(|f| Some((f, by_id.get(f.as_str())?.1?)));
-                        let tr = tr.or(from.map(|(_, t)| t));
-                        let moved = reg.zip(from).map(|(r, (_, (_, t)))| board::moved_registry(r, t));
-                        let reg = moved.as_ref().or(reg);
-                        let seen_at = from.map(|(f, _)| self.seen.seen_at(&format!("claude:{}:{f}", a.name))).unwrap_or(0).max(self.seen.seen_at(&key));
-                        let info = tr.map(|(_, t)| t);
-                        // Only a busy session that's gone quiet costs a look outside its transcript,
-                        // and one whose turn left a command running in the background (read once
-                        // per status change).
-                        let background = reg.filter(|r| r.status == "shell");
-                        let (subagent_at, running) = match board::claude_busy_since(reg, info) {
-                            _ if background.is_some() => (None, background.and_then(|r| self.stuck_command(r))),
-                            Some(since) if now - since > board::CLAUDE_STALL_MS => {
-                                let sub = tr.and_then(|(p, _)| subagent_activity(p, id));
-                                let quiet = now - since.max(sub.unwrap_or(0)) > board::CLAUDE_STALL_MS;
-                                (sub, if quiet { reg.and_then(|r| self.stuck_command(r)) } else { None })
-                            }
-                            _ => (None, None),
-                        };
-                        let background_active_at = background.and_then(|r| self.background.get(&r.pid)).filter(|w| Some(w.since) == background.and_then(|r| r.status_updated_at)).map(|w| w.active_at);
-                        let quiet = board::Quiet { subagent_at, running: running.as_deref(), background_active_at };
-                        if let Some(mut s) = board::claude_session(a, reg, info, seen_at, now, &quiet) {
-                            // Archived here until it's active again, or archived in the Claude app.
-                            let here = self.seen.archived_at(&key).map(|at| s.last_activity <= at).unwrap_or(false);
-                            s.archived = here || app_archived.contains(id);
-                            s.continues = from.map(|(f, _)| f.clone());
-                            // A job's record says what it's a fork of; the roster says for a
-                            // running one whose record hasn't been read yet.
-                            let parent = self.claude_forks.get(&a.name).and_then(|f| f.parent_of(id)).or(reg.and_then(|r| r.resumes.as_deref()));
-                            s.origin = parent.filter(|p| *p != id).map(|p| SessionOrigin { key: format!("claude:{}:{p}", a.name), how: OriginHow::Fork });
-                            out.push(s);
-                        }
-                    }
-                }
-                "codex" => {
-                    let index = self.codex_index.get(&a.name);
-                    // Codex decides what's archived: its archived threads live in `archived_sessions`.
-                    let archived_dir = a.home_path().join("archived_sessions");
-                    let threads: Vec<(&str, &str, i64, i64, bool)> = self
-                        .rollouts
-                        .values()
-                        .filter_map(|(acct, info)| info.as_ref().filter(|_| acct == &a.name).map(|(th, _)| (th.id.as_str(), th.cwd.as_str(), th.started_at.unwrap_or(0), th.last_ts, th.cli)))
-                        .collect();
-                    let terminals = codex::pair_terminals(&self.codex_terminals, &threads);
-                    for (path, (acct, info)) in &self.rollouts {
-                        let (true, Some((th, _))) = (acct == &a.name, info.as_ref()) else { continue };
-                        let key = format!("codex:{}:{}", a.name, th.id);
-                        let name = index.and_then(|i| i.get(&th.id)).map(|(n, _)| n.as_str());
-                        let mut s = board::codex_session(a, th, name, terminals.get(&th.id).copied(), self.seen.seen_at(&key), now);
-                        s.archived = path.starts_with(&archived_dir);
-                        out.push(s);
-                    }
-                }
-                "opencode" => {
-                    let live = self.opencode_live.get(&a.name);
-                    let rows = self.opencode_sessions.get(&a.name).map(|v| v.as_slice()).unwrap_or(&[]);
-                    // A terminal in a folder shows the folder's latest session (rows are newest first).
-                    let mut latest: HashMap<&str, &str> = HashMap::new();
-                    for r in rows {
-                        latest.entry(r.directory.as_str()).or_insert(r.id.as_str());
-                    }
-                    for r in rows {
-                        let key = format!("opencode:{}:{}", a.name, r.id);
-                        let latest_here = latest.get(r.directory.as_str()) == Some(&r.id.as_str());
-                        let terminal = opencode::terminal_for(&self.opencode_terminals, r, latest_here).map(|t| t.pid);
-                        let mut s = board::opencode_session(a, r, live, terminal, self.seen.seen_at(&key), now);
-                        // Archived in OpenCode, or here until it's active again.
-                        s.archived |= self.seen.archived_at(&key).map(|at| s.last_activity <= at).unwrap_or(false);
-                        out.push(s);
-                    }
-                }
-                "antigravity" => {
-                    for c in self.antigravity.get(&a.name).map(|v| v.as_slice()).unwrap_or(&[]) {
-                        let key = format!("antigravity:{}:{}", a.name, c.id);
-                        let mut s = board::antigravity_session(a, c, self.seen.seen_at(&key), now);
-                        s.archived = self.seen.archived_at(&key).map(|at| s.last_activity <= at).unwrap_or(false);
-                        out.push(s);
-                    }
-                }
-                _ => {}
+            let Some(h) = harness::of(a).map(|x| x.harness()) else { continue };
+            if let Some(r) = self.readers.iter().find(|r| r.harness() == h) {
+                out.extend(r.sessions(a, &look));
             }
         }
         // What only the process knows: about the sessions Codealong runs, and the permission
@@ -2937,7 +2419,6 @@ impl Engine {
         if self.todos.todos.iter().all(|t| t.pending.is_empty()) {
             return false;
         }
-        let harness = |h: Harness| if h == Harness::Codex { "codex" } else { "claude" };
         let sessions: Vec<todos::SessionRef> = board
             .lanes
             .iter()
@@ -2945,7 +2426,7 @@ impl Engine {
                 l.sessions.iter().filter(|s| s.visitor.is_none()).map(move |s| todos::SessionRef {
                     key: &s.key,
                     lane: &l.id,
-                    harness: harness(s.harness),
+                    harness: s.harness.config(),
                     account: &s.account,
                     started: s.started_at.unwrap_or(s.last_activity),
                 })
@@ -3033,14 +2514,14 @@ impl Engine {
         self.cfg
             .accounts
             .iter()
-            .map(|a| match (harness::of(a).and_then(|h| h.no_limits()), a.harness.as_str()) {
-                (Some(why), _) => usage::none(a, why),
-                // Codex's limits come with each turn, in the rollouts the engine reads anyway.
-                (None, "codex") => {
-                    let reports = self.rollouts.values().filter(|(acct, _)| acct == &a.name).filter_map(|(_, p)| p.as_ref().map(|(th, _)| &th.rate_limits));
-                    usage::codex(a, reports, now)
+            .map(|a| {
+                let adapter = harness::of(a);
+                if let Some(why) = adapter.and_then(|h| h.no_limits()) {
+                    return usage::none(a, why);
                 }
-                _ => self.usage.get(&a.name).cloned().unwrap_or_else(|| usage::loading(a)),
+                // What comes with the sessions read anyway, else the last background read.
+                let read = adapter.and_then(|h| self.readers.iter().find(|r| r.harness() == h.harness())).and_then(|r| r.usage(a, now));
+                read.unwrap_or_else(|| self.usage.get(&a.name).cloned().unwrap_or_else(|| usage::loading(a)))
             })
             // A read made before the star changed still carries the old one.
             .zip(&self.cfg.accounts)
@@ -3600,74 +3081,6 @@ mod tests {
         engine.on_github(slug.clone(), answer(true));
         assert!(asked(&engine));
         assert!(engine.approved_here.is_empty());
-    }
-
-    #[test]
-    fn polls_codex_turns_while_the_rollout_stays_open() {
-        use std::io::Write;
-        use super::*;
-
-        let home = std::env::temp_dir().join(format!("codealong-codex-poll-{}", std::process::id()));
-        let dir = home.join("sessions/2026/09/24");
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("rollout-2026-09-24T18-00-00-01a0d54c-7f02-7623-95b3-a3110c0f9672.jsonl");
-        let mut file = std::fs::File::create(&path).unwrap();
-        writeln!(file, r#"{{"type":"session_meta","payload":{{"id":"thread","cwd":"/codealong-test-missing-repo","thread_source":"user"}}}}"#).unwrap();
-        writeln!(file, r#"{{"timestamp":"2026-09-24T18:00:00.000Z","type":"event_msg","payload":{{"type":"task_complete","last_agent_message":"Earlier result"}}}}"#).unwrap();
-        let (tx, _rx) = channel();
-        let mut engine = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
-        engine.cfg.accounts = vec![AccountCfg { name: "studio".into(), harness: "codex".into(), home: home.to_string_lossy().into_owned(), command: None, start: None, preferred: false, acp: None }];
-        // A startup scan has the previous completed turn. No filesystem events follow.
-        engine.rollouts.insert(path.clone(), ("studio".into(), codex::parse_rollout(&path, 0, None)));
-        engine.codex_index.insert("studio".into(), HashMap::new());
-        let now = crate::util::parse_rfc3339_ms("2026-09-24T18:35:00.000Z").unwrap();
-        assert_eq!(engine.build_sessions(now)[0].status, Status::Unread);
-
-        writeln!(file, r#"{{"timestamp":"2026-09-24T18:34:00.000Z","type":"event_msg","payload":{{"type":"task_started"}}}}"#).unwrap();
-        writeln!(file, r#"{{"timestamp":"2026-09-24T18:34:01.000Z","type":"event_msg","payload":{{"type":"user_message","message":"Continue the work"}}}}"#).unwrap();
-        engine.poll_codex();
-        let session = &engine.build_sessions(now)[0];
-        assert_eq!(session.status, Status::Working);
-        assert!(session.live);
-        assert_eq!(session.excerpt.as_deref(), Some("Continue the work"));
-        assert!(engine.dirty);
-
-        engine.dirty = false;
-        engine.poll_codex();
-        assert!(!engine.dirty, "unchanged files don't need another update");
-
-        // A poll between writes must leave the incomplete line for the next one.
-        write!(file, r#"{{"timestamp":"2026-09-24T18:34:59.000Z","type":"event_msg","payload":{{"type":"task_complete","last_agent_message":"Done"}}}}"#).unwrap();
-        engine.poll_codex();
-        assert_eq!(engine.build_sessions(now)[0].status, Status::Working);
-        writeln!(file).unwrap();
-        engine.poll_codex();
-        let session = &engine.build_sessions(now)[0];
-        assert_eq!(session.status, Status::Unread);
-        assert!(!session.live);
-        assert_eq!(session.excerpt.as_deref(), Some("Done"));
-
-        drop(file);
-        std::fs::remove_file(&path).unwrap();
-        engine.poll_codex();
-        assert!(engine.build_sessions(now).is_empty());
-
-        // Discovery also works without a create event, including files from older day folders.
-        std::fs::write(&path, "{\"type\":\"session_meta\",\"payload\":{\"id\":\"new-thread\",\"cwd\":\"/codealong-test-missing-repo\"}}\n").unwrap();
-        std::fs::write(home.join("session_index.jsonl"), "{\"id\":\"new-thread\",\"thread_name\":\"New work\"}\n").unwrap();
-        engine.poll_codex();
-        assert_eq!(engine.build_sessions(now)[0].title, "New work");
-
-        // Hidden subagent logs stay ignored even if they grow.
-        engine.rollouts.insert(path.clone(), ("studio".into(), None));
-        let mut hidden = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
-        writeln!(hidden, "not a user thread").unwrap();
-        engine.dirty = false;
-        engine.poll_codex();
-        assert!(!engine.dirty);
-        assert!(engine.build_sessions(now).is_empty());
-        drop(hidden);
-        std::fs::remove_dir_all(&home).unwrap();
     }
 
     /// The first scan reads config.toml before the watcher starts, and can take minutes, so an

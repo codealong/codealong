@@ -11,18 +11,21 @@
 //! its folders hold, where its skills go, how Codealong runs it itself, where its sessions can
 //! start, and whether it has plan limits (`harness::of(account)`).
 //!
-//! Reading sessions for the board still dispatches in the engine, which keeps each harness's
-//! caches and file watches: scanning and watching (`scan_sessions`, `watch`, `apply_fs`,
-//! `build_sessions`), the `board::*_session` status rules, opening, start plans and Claude's plan
-//! usage. CLAUDE.md's "Adding a harness" lists where. Those move behind this interface as the
-//! engine's per-harness state does.
+//! Reading sessions for the board is a `Reader`, one a harness, which the engine keeps and
+//! never looks inside: it holds what the harness's files said at the last read, says which
+//! folders to watch, takes in the files that change, and puts the sessions together with the
+//! `board::*_session` status rules.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::time::SystemTime;
 
 use anyhow::{bail, Result};
 
 use crate::config::{AccountCfg, Config};
-use crate::model::{Harness, Session};
+use crate::model::{Harness, Session, Usage};
+use crate::state::SeenState;
 use crate::transcript::Page;
 
 /// What a session waits on you for, and your answer: they go between devices too, so they're in
@@ -197,6 +200,163 @@ pub trait Adapter: Sync {
     /// Why it has no plan limits to show, when it keeps none Codealong can read.
     fn no_limits(&self) -> Option<&'static str> {
         None
+    }
+
+    /// Whether an account's plan usage is somewhere slow to ask (`read_usage`), which the
+    /// engine asks every couple of minutes off its thread. Usage that comes with the sessions
+    /// is the reader's to say (`Reader::usage`).
+    fn polls_usage(&self) -> bool {
+        false
+    }
+
+    /// Reads an account's plan usage where `polls_usage` says it is. It can take seconds.
+    fn read_usage(&self, account: &AccountCfg, _now: i64) -> Usage {
+        crate::usage::loading(account)
+    }
+
+    /// Archives a session in the harness itself, or takes it out of its archive, where the
+    /// harness has one another program can reach. Elsewhere a session is archived in Codealong
+    /// only, until it's active again.
+    fn archive(&self, _account: &AccountCfg, _id: &str, _archived: bool) -> Result<()> {
+        Ok(())
+    }
+
+    /// What reads its sessions for the board. `wake` tells the engine that something it read
+    /// off the engine's thread changed what the board shows.
+    fn reader(&self, wake: Wake) -> Box<dyn Reader>;
+}
+
+/// Tells the engine a reader has something new that no file change will say (`Adapter::reader`).
+pub type Wake = Arc<dyn Fn() + Send + Sync>;
+
+/// What a reader goes by as it reads: how far back sessions go, and what you've seen, pinned
+/// and archived in Codealong.
+pub struct Look<'a> {
+    pub seen: &'a SeenState,
+    /// Sessions quiet since before then aren't read, unless they're pinned.
+    pub since: i64,
+    pub now: i64,
+}
+
+impl Look<'_> {
+    /// Whether a session was archived in Codealong and hasn't been active since.
+    pub fn archived_here(&self, key: &str, last_activity: i64) -> bool {
+        self.seen.archived_at(key).is_some_and(|at| last_activity <= at)
+    }
+}
+
+/// What a read came to, for the engine to act on.
+#[derive(Default)]
+pub struct Applied {
+    /// Something the board shows changed.
+    pub dirty: bool,
+    /// A session is there that wasn't before: its folder may have no lane yet.
+    pub added: bool,
+    /// Lines sessions wrote since the last read, which the engine checks for the PRs, Chrome
+    /// tabs and worktrees they worked on.
+    pub lines: Vec<NewLines>,
+}
+
+impl Applied {
+    pub fn and(&mut self, other: Applied) {
+        self.dirty |= other.dirty;
+        self.added |= other.added;
+        self.lines.extend(other.lines);
+    }
+}
+
+/// A stretch of a session's record written since it was last read.
+pub struct NewLines {
+    pub path: PathBuf,
+    pub from: u64,
+    pub to: u64,
+    /// The session's key.
+    pub key: String,
+}
+
+/// A harness's sessions on this Mac, read and kept for the board (`Adapter::reader`). Every
+/// method gets the accounts config.toml has for the harness, or one of them.
+pub trait Reader: Send {
+    fn harness(&self) -> Harness;
+
+    /// Reads every account's sessions afresh: at launch, and when config.toml changes.
+    fn scan(&mut self, accounts: &[AccountCfg], look: &Look);
+
+    /// The folders to watch for an account's changes, each with whether everything under it
+    /// counts.
+    fn watch(&self, account: &AccountCfg) -> Vec<(PathBuf, bool)>;
+
+    /// Whether a changed path is the account's own, to hand to `apply`, rather than a file in
+    /// some worktree.
+    fn owns(&self, account: &AccountCfg, path: &Path) -> bool;
+
+    /// Takes in an account's files that changed.
+    fn apply(&mut self, account: &AccountCfg, paths: &[PathBuf], look: &Look) -> Applied;
+
+    /// Every ten seconds: what the watcher doesn't say (a file a writer holds open, a process
+    /// that came or went).
+    fn tick(&mut self, _accounts: &[AccountCfg], _look: &Look) -> Applied {
+        Applied::default()
+    }
+
+    /// Every second or two, so it only looks, cheaply: a database whose writes the watcher
+    /// never hears.
+    fn glance(&mut self, _accounts: &[AccountCfg], _look: &Look) -> Applied {
+        Applied::default()
+    }
+
+    /// Asks what only a running service knows, off the engine's thread, and wakes the engine
+    /// when it has answered. Asked at launch and on each tick.
+    fn poll(&mut self, _accounts: &[AccountCfg]) {}
+
+    /// Archives made or undone in Codealong changed what's to be read.
+    fn archives_changed(&mut self, _accounts: &[AccountCfg], _look: &Look) {}
+
+    /// An account's sessions for the board, as of `look.now`.
+    fn sessions(&self, account: &AccountCfg, look: &Look) -> Vec<Session>;
+
+    /// The folders sessions ran in, for the lanes that show them.
+    fn cwds(&self) -> Vec<String>;
+
+    /// Each session's record that's a file of lines, with the session's key: the engine
+    /// searches them for the worktrees and PRs a session worked on. A subagent's log counts for
+    /// its session.
+    fn logs(&self) -> Vec<(PathBuf, String)> {
+        Vec::new()
+    }
+
+    /// An account's plan usage, when it comes with what's read anyway.
+    fn usage(&self, _account: &AccountCfg, _now: i64) -> Option<Usage> {
+        None
+    }
+}
+
+/// A reader for each harness, in the adapters' order.
+pub fn readers(wake: &Wake) -> Vec<Box<dyn Reader>> {
+    ADAPTERS.iter().map(|a| a.reader(wake.clone())).collect()
+}
+
+/// The accounts config.toml has for a harness.
+pub fn accounts_of(cfg: &Config, h: Harness) -> Vec<AccountCfg> {
+    cfg.accounts.iter().filter(|a| of(a).is_some_and(|x| x.harness() == h)).cloned().collect()
+}
+
+/// A database's size and time and its WAL's, by a name, at the last look. A running session
+/// writes only to the WAL, through a file SQLite holds open, and FSEvents doesn't report those
+/// writes (checked on this Mac), so watching the folder doesn't hear them: a stat of two files
+/// every couple of seconds does (`Reader::glance`).
+#[derive(Default)]
+pub struct DatabaseMarks(HashMap<String, [Option<(u64, Option<SystemTime>)>; 2]>);
+
+impl DatabaseMarks {
+    /// Whether the database changed since the last look under this name. The first look only
+    /// notes how it stands.
+    pub fn changed(&mut self, name: &str, db: &Path) -> bool {
+        let wal = PathBuf::from(format!("{}-wal", db.to_string_lossy()));
+        let mark = [db, wal.as_path()].map(|p| std::fs::metadata(p).ok().map(|m| (m.len(), m.modified().ok())));
+        let changed = self.0.get(name).is_some_and(|before| *before != mark);
+        self.0.insert(name.to_string(), mark);
+        changed
     }
 }
 

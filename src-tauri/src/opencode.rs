@@ -6,11 +6,15 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use rusqlite::{Connection, OpenFlags};
 use serde_json::Value;
 
+use crate::config::AccountCfg;
+use crate::harness::{Applied, Look, Wake};
+use crate::model::{Harness, Session};
 use crate::procs;
 use crate::transcript::{clip_input, clip_output, item, kept_whole, Item, Page};
 use crate::util::{code, home, one_line, truncate};
@@ -591,6 +595,160 @@ pub fn conversation_items(v: &Value, seq: u64, at: i64) -> Vec<Item> {
     crate::transcript::placed(out, seq)
 }
 
+/* ---- Reading sessions for the board ---- */
+
+/// What each account's background service said last, while it was running, and whether it's
+/// being asked now.
+#[derive(Default)]
+struct Polled {
+    live: HashMap<String, Live>,
+    inflight: bool,
+}
+
+/// OpenCode's sessions for the board (`harness::Reader`): the database's rows, what the service
+/// says is running and waiting, and the terminals that show sessions.
+pub struct Reader {
+    /// Sessions by account, newest first.
+    sessions: HashMap<String, Vec<SessionRow>>,
+    polled: Arc<Mutex<Polled>>,
+    polled_at: Option<Instant>,
+    /// OpenCode's interactive terminals, refreshed on the tick.
+    terminals: Vec<Terminal>,
+    marks: crate::harness::DatabaseMarks,
+    wake: Wake,
+}
+
+impl Reader {
+    fn new(wake: Wake) -> Reader {
+        Reader { sessions: HashMap::new(), polled: Default::default(), polled_at: None, terminals: Vec::new(), marks: Default::default(), wake }
+    }
+
+    /// Reads an account's database again. True when a session is there that wasn't.
+    fn reread(&mut self, a: &AccountCfg, look: &Look) -> bool {
+        let rows = read_sessions(&a.home_path(), look.since, &look.seen.pinned_ids("opencode", &a.name));
+        let before: HashSet<&str> = self.sessions.get(&a.name).map(|v| v.iter().map(|r| r.id.as_str()).collect()).unwrap_or_default();
+        let added = rows.iter().any(|r| !before.contains(r.id.as_str()));
+        self.sessions.insert(a.name.clone(), rows);
+        // A write means a run may have started or asked something: ask the service.
+        crate::harness::Reader::poll(self, std::slice::from_ref(a));
+        added
+    }
+}
+
+impl crate::harness::Reader for Reader {
+    fn harness(&self) -> Harness {
+        Harness::Opencode
+    }
+
+    fn scan(&mut self, accounts: &[AccountCfg], look: &Look) {
+        self.sessions.clear();
+        for a in accounts {
+            let rows = read_sessions(&a.home_path(), look.since, &look.seen.pinned_ids("opencode", &a.name));
+            self.sessions.insert(a.name.clone(), rows);
+        }
+        if !accounts.is_empty() {
+            self.terminals = terminals();
+        }
+    }
+
+    /// The database, its WAL and its journal, all in the folder itself.
+    fn watch(&self, account: &AccountCfg) -> Vec<(PathBuf, bool)> {
+        vec![(account.home_path(), false)]
+    }
+
+    fn owns(&self, account: &AccountCfg, path: &Path) -> bool {
+        path.starts_with(account.home_path())
+    }
+
+    fn apply(&mut self, account: &AccountCfg, paths: &[PathBuf], look: &Look) -> Applied {
+        let home = account.home_path();
+        if !paths.iter().any(|p| p.parent() == Some(home.as_path()) && crate::util::file_name(p).contains(".db")) {
+            return Applied::default();
+        }
+        Applied { dirty: true, added: self.reread(account, look), lines: Vec::new() }
+    }
+
+    /// Which sessions are live in a terminal, and where each shows.
+    fn tick(&mut self, accounts: &[AccountCfg], _look: &Look) -> Applied {
+        if accounts.is_empty() {
+            return Applied::default();
+        }
+        let fresh = terminals();
+        let dirty = fresh != self.terminals;
+        self.terminals = fresh;
+        Applied { dirty, ..Default::default() }
+    }
+
+    fn glance(&mut self, accounts: &[AccountCfg], look: &Look) -> Applied {
+        let mut out = Applied::default();
+        for a in accounts {
+            if self.marks.changed(&a.name, &a.home_path().join("opencode.db")) {
+                out.added |= self.reread(a, look);
+                out.dirty = true;
+            }
+        }
+        out
+    }
+
+    /// Asks each account's background service what's running and what it's waiting on: one
+    /// poll at a time, and not more than one every 2 seconds.
+    fn poll(&mut self, accounts: &[AccountCfg]) {
+        if accounts.is_empty() || self.polled_at.is_some_and(|t| t.elapsed() < Duration::from_secs(2)) {
+            return;
+        }
+        {
+            let mut polled = self.polled.lock().unwrap_or_else(|e| e.into_inner());
+            if polled.inflight {
+                return;
+            }
+            polled.inflight = true;
+        }
+        self.polled_at = Some(Instant::now());
+        let (accounts, polled, wake) = (accounts.to_vec(), self.polled.clone(), self.wake.clone());
+        std::thread::spawn(move || {
+            procs::utility_thread();
+            let now = crate::util::now_ms();
+            let results: Vec<(String, Option<Live>)> = accounts.into_iter().map(|a| (a.name.clone(), service(&a.home_path()).and_then(|svc| poll(&svc, now)))).collect();
+            {
+                let mut polled = polled.lock().unwrap_or_else(|e| e.into_inner());
+                polled.inflight = false;
+                for (account, live) in results {
+                    match live {
+                        Some(l) => polled.live.insert(account, l),
+                        None => polled.live.remove(&account),
+                    };
+                }
+            }
+            wake();
+        });
+    }
+
+    fn sessions(&self, account: &AccountCfg, look: &Look) -> Vec<Session> {
+        let polled = self.polled.lock().unwrap_or_else(|e| e.into_inner());
+        let live = polled.live.get(&account.name);
+        let rows = self.sessions.get(&account.name).map(|v| v.as_slice()).unwrap_or(&[]);
+        // A terminal in a folder shows the folder's latest session (rows are newest first).
+        let mut latest: HashMap<&str, &str> = HashMap::new();
+        for r in rows {
+            latest.entry(r.directory.as_str()).or_insert(r.id.as_str());
+        }
+        rows.iter()
+            .map(|r| {
+                let key = format!("opencode:{}:{}", account.name, r.id);
+                let latest_here = latest.get(r.directory.as_str()) == Some(&r.id.as_str());
+                let terminal = terminal_for(&self.terminals, r, latest_here).map(|t| t.pid);
+                let mut s = crate::board::opencode_session(account, r, live, terminal, look.seen.seen_at(&key), look.now);
+                // Archived in OpenCode, or here until it's active again.
+                s.archived |= look.archived_here(&key, s.last_activity);
+                s
+            })
+            .collect()
+    }
+
+    fn cwds(&self) -> Vec<String> {
+        self.sessions.values().flatten().map(|r| r.directory.clone()).collect()
+    }
+}
 
 /// OpenCode (`harness::Adapter`): its database for the conversation, and its service's
 /// permission requests, answered through the service as its own TUI answers them.
@@ -732,6 +890,10 @@ impl crate::harness::Adapter for OpenCode {
             anyhow::bail!("OpenCode says {} wasn't running anything.", s.title);
         }
         Ok(format!("Stopped “{}”.", s.title))
+    }
+
+    fn reader(&self, wake: Wake) -> Box<dyn crate::harness::Reader> {
+        Box::new(Reader::new(wake))
     }
 }
 

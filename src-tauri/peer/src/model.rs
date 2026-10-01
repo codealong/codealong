@@ -26,6 +26,16 @@ impl Harness {
         }
     }
 
+    /// Its name in config.toml and in a session's key (`from_config` reads it back).
+    pub fn config(self) -> &'static str {
+        match self {
+            Harness::Claude => "claude",
+            Harness::Codex => "codex",
+            Harness::Opencode => "opencode",
+            Harness::Antigravity => "antigravity",
+        }
+    }
+
     /// The harness as the UI names it.
     pub fn word(self) -> &'static str {
         match self {

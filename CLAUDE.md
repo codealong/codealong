@@ -262,8 +262,8 @@ some work is, answer with one.
   `origin/main` commit and talks to Macs of other builds: a message a peer doesn't know is
   skipped now, but ended the connection on builds before 2026-09-28, so new messages go only to
   peers that say they know them.
-- `src-tauri/src/board.rs` holds the model's rules as pure functions with tests; the engine
-  gathers inputs and calls them. `src/lanes.ts` mirrors `bay_of`, the agent bays'
+- `src-tauri/src/board.rs` holds the model's rules as pure functions with tests; each harness's
+  reader gathers a session's inputs and calls them, and the engine the rest. `src/lanes.ts` mirrors `bay_of`, the agent bays'
   headlines and the order of sessions and lanes (`sort_sessions`, `lane_prompt_at`) for the
   filters; keep them in step.
 - What Codealong does to a session, whichever device it's on, is a request in
@@ -317,14 +317,18 @@ it waits on you to allow and how to answer. Adding one:
    sessions, the adapter answers for an account: `installed`, `signed_in`, `sign_in_command`,
    `folder_use` (detect.rs finds accounts by it), `skills_dir`, `acp_command`, `places` (where
    sessions start), `session_cwds` (first run's projects) and `no_limits`.
-3. Reading its sessions for the board, which still lives in the engine with each harness's
-   caches and watches: the engine's fields and `scan_sessions`, `watch`, `apply_fs`,
-   `build_sessions`; a `board::*_session` constructor for its status rules; `board::targets`
-   and `engine::open_on` for opening; `start.rs`'s plans for starting; a new `send::Route` if it
-   takes prompts some new way; `usage.rs` for limits read from somewhere of its own;
-   `search.rs` for text search; where a session came from (`Session::origin`: what it's a fork of,
-   or which session started it) when its records say. These match on the harness's config string with a fallback, so
-   the compiler won't list them: search for an existing harness's name.
+3. A `harness::Reader` in the module, which `Adapter::reader` makes and the engine keeps without
+   looking inside: what the harness's files said at the last read, the folders to watch, taking
+   in the files that change (`owns`, `apply`), what the watcher never says (`tick` every ten
+   seconds, `glance` every second or two, `poll` for a service asked off the engine's thread),
+   and its sessions, put together with a `board::*_session` constructor for its status rules,
+   with where each came from (`Session::origin`: what it's a fork of, or which session started
+   it) when its records say. Plan usage that comes with the sessions is `Reader::usage`; usage
+   asked from somewhere slow is `Adapter::polls_usage` and `read_usage`.
+4. What still matches on the harness by name, with a fallback, so the compiler won't list it:
+   `board::targets` and `engine::open_on` for opening; `start.rs`'s plans for starting; a new
+   `send::Route` if it takes prompts some new way; `search.rs` for text search. Search for an
+   existing harness's name.
 
 ## Harness facts
 

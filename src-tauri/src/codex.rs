@@ -1,13 +1,16 @@
 //! Codex: the thread index (`~/.codex/session_index.jsonl`) and rollouts
 //! (`~/.codex/sessions/YYYY/MM/DD/rollout-<time>-<id>.jsonl`). See *Harness adapters*.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
+use crate::config::AccountCfg;
+use crate::harness::{Applied, Look, NewLines};
+use crate::model::{Harness, Session, Usage};
 use crate::transcript::{clip_input, clip_output, item, kept_whole, text_of, Item, Page};
-use crate::util::{code, command_dir, file_name, mtime_ms, note_work, one_line, parse_rfc3339_ms, read_first_line, resolve, scan_lines_back, without_cd};
+use crate::util::{code, command_dir, file_name, mtime_ms, note_work, one_line, parallel_map, parse_rfc3339_ms, read_first_line, resolve, scan_lines_back, without_cd};
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ThreadInfo {
@@ -962,6 +965,200 @@ impl crate::harness::Adapter for Codex {
         }
         Ok(format!("Stopped “{}”.", s.title))
     }
+
+    /// Codex archives a thread itself, so the Codex app shows it too.
+    fn archive(&self, account: &AccountCfg, id: &str, archived: bool) -> anyhow::Result<()> {
+        crate::appserver::set_archived(&account.home_path(), id, archived)
+    }
+
+    fn reader(&self, _wake: crate::harness::Wake) -> Box<dyn crate::harness::Reader> {
+        Box::new(Reader::default())
+    }
+}
+
+/* ---- Reading threads for the board ---- */
+
+/// Codex's threads for the board (`harness::Reader`): each account's thread names, the rollouts
+/// read so far, and the terminals that show threads.
+#[derive(Default)]
+pub struct Reader {
+    /// Thread names by account (`session_index.jsonl`).
+    index: HashMap<String, HashMap<String, (String, i64)>>,
+    /// Each rollout with its account, what it said, and how far it's been read. `None` marks a
+    /// thread that's never shown (a guardian review, a subagent), so its constant writes are
+    /// ignored.
+    rollouts: HashMap<PathBuf, (String, Option<(ThreadInfo, u64)>)>,
+    /// Codex's terminal UIs: which threads are open in a terminal, and which one.
+    terminals: Vec<Terminal>,
+}
+
+impl Reader {
+    /// Loads the threads archived from Codealong from `archived_sessions`, so its Archived list
+    /// can show them, and drops ones that were unarchived or are no longer listed.
+    fn refresh_archived(&mut self, accounts: &[AccountCfg], look: &Look) {
+        for a in accounts {
+            let dir = a.home_path().join("archived_sessions");
+            let ids = look.seen.archived_ids("codex", &a.name);
+            self.rollouts.retain(|path, (acct, _)| acct != &a.name || !path.starts_with(&dir) || (path.exists() && thread_id_of(path).map(|id| ids.contains(&id)).unwrap_or(false)));
+            for (path, m) in archived_rollout_files(&a.home_path(), &ids) {
+                if !self.rollouts.contains_key(&path) {
+                    let parsed = parse_rollout(&path, m, None);
+                    self.rollouts.insert(path, (a.name.clone(), parsed));
+                }
+            }
+        }
+    }
+
+    /// FSEvents can hold back appends until a writer closes its file. Codex keeps rollouts open
+    /// across turns, so their lengths are checked too, and only bytes not yet read are read.
+    fn poll_rollouts(&mut self, accounts: &[AccountCfg], look: &Look) -> Applied {
+        let mut out = Applied::default();
+        for a in accounts {
+            let home = a.home_path();
+            let sessions = home.join("sessions");
+            let mut paths: BTreeSet<PathBuf> = rollout_files(&home, look.since, &look.seen.pinned_ids("codex", &a.name)).into_iter().map(|(p, _)| p).collect();
+            // Include known files so a removal or truncation is noticed as well.
+            paths.extend(self.rollouts.iter().filter(|(p, (acct, _))| acct == &a.name && p.starts_with(&sessions)).map(|(p, _)| p.clone()));
+            for p in paths {
+                let unread = match self.rollouts.get(&p) {
+                    Some((_, Some((_, offset)))) => std::fs::metadata(&p).map(|m| m.len() != *offset).unwrap_or(true),
+                    // Guardian reviews and subagents still don't need to be parsed.
+                    Some((_, None)) => false,
+                    None => true,
+                };
+                if unread {
+                    self.read_rollout(&a.name, &p, &mut out);
+                }
+            }
+            let index = read_index(&home);
+            if self.index.get(&a.name) != Some(&index) {
+                self.index.insert(a.name.clone(), index);
+                out.dirty = true;
+            }
+        }
+        out
+    }
+
+    /// Reads on in a rollout that changed, or for the first time in a new one.
+    fn read_rollout(&mut self, account: &str, p: &Path, out: &mut Applied) {
+        let prev = match self.rollouts.get(p) {
+            // A thread that's never shown: skip its writes.
+            Some((_, None)) => return,
+            Some((_, Some(parsed))) => Some(parsed.clone()),
+            None => None,
+        };
+        let is_new = prev.is_none();
+        let from = prev.as_ref().map(|(_, off)| *off);
+        match mtime_ms(p) {
+            Some(m) => {
+                let parsed = parse_rollout(p, m, prev);
+                out.added |= is_new && parsed.is_some();
+                if let (Some(from), Some((th, to))) = (from, parsed.as_ref()) {
+                    out.lines.push(NewLines { path: p.to_path_buf(), from, to: *to, key: format!("codex:{account}:{}", th.id) });
+                }
+                self.rollouts.insert(p.to_path_buf(), (account.to_string(), parsed));
+            }
+            None => {
+                self.rollouts.remove(p);
+            }
+        }
+        out.dirty = true;
+    }
+}
+
+impl crate::harness::Reader for Reader {
+    fn harness(&self) -> Harness {
+        Harness::Codex
+    }
+
+    fn scan(&mut self, accounts: &[AccountCfg], look: &Look) {
+        self.index.clear();
+        self.rollouts.clear();
+        for a in accounts {
+            let home = a.home_path();
+            self.index.insert(a.name.clone(), read_index(&home));
+            let files = rollout_files(&home, look.since, &look.seen.pinned_ids("codex", &a.name));
+            for (path, parsed) in parallel_map(files, |(p, m)| {
+                let parsed = parse_rollout(&p, m, None);
+                Some((p, parsed))
+            }) {
+                self.rollouts.insert(path, (a.name.clone(), parsed));
+            }
+        }
+        if !accounts.is_empty() {
+            self.terminals = terminals();
+        }
+        self.refresh_archived(accounts, look);
+    }
+
+    fn watch(&self, account: &AccountCfg) -> Vec<(PathBuf, bool)> {
+        let home = account.home_path();
+        vec![(home.clone(), false), (home.join("sessions"), true)]
+    }
+
+    fn owns(&self, account: &AccountCfg, path: &Path) -> bool {
+        path.starts_with(account.home_path())
+    }
+
+    fn apply(&mut self, account: &AccountCfg, paths: &[PathBuf], _look: &Look) -> Applied {
+        let home = account.home_path();
+        let (index, sessions) = (home.join("session_index.jsonl"), home.join("sessions"));
+        let mut out = Applied::default();
+        if paths.contains(&index) {
+            self.index.insert(account.name.clone(), read_index(&home));
+            out.dirty = true;
+        }
+        for p in paths.iter().filter(|p| p.starts_with(&sessions) && p.extension().and_then(|x| x.to_str()) == Some("jsonl")) {
+            self.read_rollout(&account.name, p, &mut out);
+        }
+        out
+    }
+
+    fn tick(&mut self, accounts: &[AccountCfg], look: &Look) -> Applied {
+        let mut out = self.poll_rollouts(accounts, look);
+        if !accounts.is_empty() {
+            let fresh = terminals();
+            out.dirty |= fresh != self.terminals;
+            self.terminals = fresh;
+        }
+        out
+    }
+
+    fn archives_changed(&mut self, accounts: &[AccountCfg], look: &Look) {
+        self.refresh_archived(accounts, look);
+    }
+
+    fn sessions(&self, account: &AccountCfg, look: &Look) -> Vec<Session> {
+        let index = self.index.get(&account.name);
+        // Codex decides what's archived: its archived threads live in `archived_sessions`.
+        let archived_dir = account.home_path().join("archived_sessions");
+        let mine = || self.rollouts.iter().filter_map(|(path, (acct, info))| info.as_ref().filter(|_| acct == &account.name).map(|(th, _)| (path, th)));
+        let threads: Vec<(&str, &str, i64, i64, bool)> = mine().map(|(_, th)| (th.id.as_str(), th.cwd.as_str(), th.started_at.unwrap_or(0), th.last_ts, th.cli)).collect();
+        let terminals = pair_terminals(&self.terminals, &threads);
+        mine()
+            .map(|(path, th)| {
+                let key = format!("codex:{}:{}", account.name, th.id);
+                let name = index.and_then(|i| i.get(&th.id)).map(|(n, _)| n.as_str());
+                let mut s = crate::board::codex_session(account, th, name, terminals.get(&th.id).copied(), look.seen.seen_at(&key), look.now);
+                s.archived = path.starts_with(&archived_dir);
+                s
+            })
+            .collect()
+    }
+
+    fn cwds(&self) -> Vec<String> {
+        self.rollouts.values().filter_map(|(_, t)| t.as_ref().map(|(t, _)| t.cwd.clone())).collect()
+    }
+
+    fn logs(&self) -> Vec<(PathBuf, String)> {
+        self.rollouts.iter().filter_map(|(p, (a, parsed))| parsed.as_ref().map(|(th, _)| (p.clone(), format!("codex:{a}:{}", th.id)))).collect()
+    }
+
+    /// Codex's limits come with each turn, in the rollouts read anyway.
+    fn usage(&self, account: &AccountCfg, now: i64) -> Option<Usage> {
+        let reports = self.rollouts.values().filter(|(acct, _)| acct == &account.name).filter_map(|(_, p)| p.as_ref().map(|(th, _)| &th.rate_limits));
+        Some(crate::usage::codex(account, reports, now))
+    }
 }
 
 fn fork_of(account: &crate::config::AccountCfg, id: &str) -> crate::harness::Fork {
@@ -1488,5 +1685,74 @@ mod tests {
         assert_eq!(last_turn(&rollout), TurnRan::default());
         assert_eq!(last_turn(&dir.join("none.jsonl")), TurnRan::default());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn polls_turns_while_the_rollout_stays_open() {
+        use crate::harness::Reader as _;
+        use crate::model::Status;
+        use std::io::Write;
+
+        let home = std::env::temp_dir().join(format!("codealong-codex-poll-{}", std::process::id()));
+        let dir = home.join("sessions/2026/09/24");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("rollout-2026-09-24T18-00-00-01a0d54c-7f02-7623-95b3-a3110c0f9672.jsonl");
+        let mut file = std::fs::File::create(&path).unwrap();
+        writeln!(file, r#"{{"type":"session_meta","payload":{{"id":"thread","cwd":"/codealong-test-missing-repo","thread_source":"user"}}}}"#).unwrap();
+        writeln!(file, r#"{{"timestamp":"2026-09-24T18:00:00.000Z","type":"event_msg","payload":{{"type":"task_complete","last_agent_message":"Earlier result"}}}}"#).unwrap();
+        let account = AccountCfg { name: "studio".into(), harness: "codex".into(), home: home.to_string_lossy().into_owned(), command: None, start: None, preferred: false, acp: None };
+        let accounts = std::slice::from_ref(&account);
+        let seen = crate::state::SeenState::default();
+        let now = parse_rfc3339_ms("2026-09-24T18:35:00.000Z").unwrap();
+        let look = Look { seen: &seen, since: now - 14 * crate::util::DAY_MS, now };
+        // A startup scan has the previous completed turn. No filesystem events follow.
+        let mut reader = Reader::default();
+        reader.rollouts.insert(path.clone(), ("studio".into(), parse_rollout(&path, 0, None)));
+        reader.index.insert("studio".into(), HashMap::new());
+        assert_eq!(reader.sessions(&account, &look)[0].status, Status::Unread);
+
+        writeln!(file, r#"{{"timestamp":"2026-09-24T18:34:00.000Z","type":"event_msg","payload":{{"type":"task_started"}}}}"#).unwrap();
+        writeln!(file, r#"{{"timestamp":"2026-09-24T18:34:01.000Z","type":"event_msg","payload":{{"type":"user_message","message":"Continue the work"}}}}"#).unwrap();
+        let read = reader.poll_rollouts(accounts, &look);
+        let session = &reader.sessions(&account, &look)[0];
+        assert_eq!(session.status, Status::Working);
+        assert!(session.live);
+        assert_eq!(session.excerpt.as_deref(), Some("Continue the work"));
+        // The board is published again, and the engine gets the new lines to check.
+        assert!(read.dirty && !read.added);
+        assert_eq!(read.lines.iter().map(|l| l.key.as_str()).collect::<Vec<_>>(), ["codex:studio:thread"]);
+
+        assert!(!reader.poll_rollouts(accounts, &look).dirty, "unchanged files don't need another update");
+
+        // A poll between writes must leave the incomplete line for the next one.
+        write!(file, r#"{{"timestamp":"2026-09-24T18:34:59.000Z","type":"event_msg","payload":{{"type":"task_complete","last_agent_message":"Done"}}}}"#).unwrap();
+        reader.poll_rollouts(accounts, &look);
+        assert_eq!(reader.sessions(&account, &look)[0].status, Status::Working);
+        writeln!(file).unwrap();
+        reader.poll_rollouts(accounts, &look);
+        let session = &reader.sessions(&account, &look)[0];
+        assert_eq!(session.status, Status::Unread);
+        assert!(!session.live);
+        assert_eq!(session.excerpt.as_deref(), Some("Done"));
+
+        drop(file);
+        std::fs::remove_file(&path).unwrap();
+        reader.poll_rollouts(accounts, &look);
+        assert!(reader.sessions(&account, &look).is_empty());
+
+        // Discovery also works without a create event, including files from older day folders.
+        std::fs::write(&path, "{\"type\":\"session_meta\",\"payload\":{\"id\":\"new-thread\",\"cwd\":\"/codealong-test-missing-repo\"}}\n").unwrap();
+        std::fs::write(home.join("session_index.jsonl"), "{\"id\":\"new-thread\",\"thread_name\":\"New work\"}\n").unwrap();
+        assert!(reader.poll_rollouts(accounts, &look).added, "a thread that's new may need a lane");
+        assert_eq!(reader.sessions(&account, &look)[0].title, "New work");
+
+        // Hidden subagent logs stay ignored even if they grow.
+        reader.rollouts.insert(path.clone(), ("studio".into(), None));
+        let mut hidden = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
+        writeln!(hidden, "not a user thread").unwrap();
+        assert!(!reader.poll_rollouts(accounts, &look).dirty);
+        assert!(reader.sessions(&account, &look).is_empty());
+        drop(hidden);
+        std::fs::remove_dir_all(&home).unwrap();
     }
 }

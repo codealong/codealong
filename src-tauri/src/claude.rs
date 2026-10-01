@@ -3,6 +3,8 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use serde::Deserialize;
 use serde_json::Value;
@@ -10,9 +12,12 @@ use serde_json::Value;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 
+use crate::config::AccountCfg;
+use crate::harness::{Applied, Look, NewLines};
+use crate::model::{Harness, OriginHow, Session, SessionOrigin, Usage};
 use crate::procs;
 use crate::transcript::{clip_input, clip_output, item, kept_whole, text_of, Item, Page};
-use crate::util::{code, command_dir, file_name, mtime_ms, note_work, one_line, parse_rfc3339_ms, read_head, resolve, scan_lines_back, without_cd};
+use crate::util::{code, command_dir, file_name, mtime_ms, note_work, one_line, parallel_map, parse_rfc3339_ms, read_head, resolve, scan_lines_back, without_cd};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct RegistryEntry {
@@ -1071,6 +1076,282 @@ impl crate::harness::Adapter for ClaudeCode {
         }
         Ok(format!("Stopped “{}”.", s.title))
     }
+
+    /// The endpoint behind its `/usage`, which turns away calls that come often.
+    fn polls_usage(&self) -> bool {
+        true
+    }
+
+    fn read_usage(&self, account: &AccountCfg, now: i64) -> Usage {
+        crate::usage::claude(account, now)
+    }
+
+    fn reader(&self, _wake: crate::harness::Wake) -> Box<dyn crate::harness::Reader> {
+        Box::new(Reader::default())
+    }
+}
+
+/* ---- Reading sessions for the board ---- */
+
+/// How often the commands sessions left running in the background are looked at.
+const BACKGROUND_EVERY: Duration = Duration::from_secs(60);
+/// How often the Claude app's records are read again, for what you archived there.
+const APP_RECORDS_EVERY: Duration = Duration::from_secs(30);
+
+/// A command a session left running in the background, as last seen.
+struct BackgroundWatch {
+    /// The registry's status time: a new turn that leaves a command running starts afresh.
+    since: i64,
+    tree: procs::CommandTree,
+    /// When its processes were last seen starting a process or using CPU.
+    active_at: i64,
+}
+
+/// Claude Code's sessions for the board (`harness::Reader`): each account's live registry and
+/// transcripts as last read, and what a look at processes said about the sessions that have
+/// gone quiet.
+#[derive(Default)]
+pub struct Reader {
+    registry: HashMap<String, Vec<RegistryEntry>>,
+    /// What each account's background jobs were forked from, read from their records.
+    forks: HashMap<String, Forks>,
+    transcripts: HashMap<PathBuf, (String, Parsed)>,
+    /// How far each subagent log has been handed to the engine to check.
+    subagent_offsets: HashMap<PathBuf, u64>,
+    /// The Claude app's session records, for what you archived there.
+    app_records: crate::claudeapp::Records,
+    app_records_at: Option<Instant>,
+    /// (pid, status time) → the command a stuck session's shell is running.
+    stuck: Mutex<HashMap<(u32, i64), Option<String>>>,
+    /// Sessions whose turn left a command running in the background, by pid: when their
+    /// processes last did something, from a look at them every minute.
+    background: HashMap<u32, BackgroundWatch>,
+    background_at: Option<Instant>,
+}
+
+impl Reader {
+    fn refresh_registry(&mut self, a: &AccountCfg, now: i64) -> bool {
+        let home = a.home_path();
+        let fresh = read_registry(&home);
+        let changed = self.registry.get(&a.name) != Some(&fresh);
+        self.registry.insert(a.name.clone(), fresh);
+        // A new job shows in the registry as it starts, and its record says what it's a fork of.
+        let forked = self.forks.entry(a.name.clone()).or_default().refresh(&home, now);
+        changed || forked
+    }
+
+    /// Looks at what the commands sessions left running in the background are doing, once a
+    /// minute and only while there are some: one `ps` for all of them.
+    fn watch_background(&mut self, now: i64) {
+        if self.background_at.is_some_and(|t| t.elapsed() < BACKGROUND_EVERY) {
+            return;
+        }
+        self.background_at = Some(Instant::now());
+        let shells: Vec<(u32, i64)> = self.registry.values().flatten().filter(|r| r.status == "shell").map(|r| (r.pid, r.status_updated_at.unwrap_or(0))).collect();
+        self.background.retain(|pid, _| shells.iter().any(|(p, _)| p == pid));
+        if shells.is_empty() {
+            return;
+        }
+        let pids: Vec<u32> = shells.iter().map(|(p, _)| *p).collect();
+        let mut trees = procs::command_trees(&pids);
+        for (pid, since) in shells {
+            let Some(tree) = trees.remove(&pid) else { continue };
+            match self.background.get_mut(&pid) {
+                Some(w) if w.since == since => {
+                    if tree.active_since(&w.tree) {
+                        w.active_at = now;
+                    }
+                    w.tree = tree;
+                }
+                _ => {
+                    // Seen for the first time, perhaps long after the turn ended (the app just
+                    // started): give it a few looks to show it's doing something.
+                    let active_at = since.max(now - crate::board::BACKGROUND_QUIET_MS + 3 * BACKGROUND_EVERY.as_millis() as i64);
+                    self.background.insert(pid, BackgroundWatch { since, tree, active_at });
+                }
+            }
+        }
+    }
+
+    /// What a stuck session's shell is running, read once per stall.
+    fn stuck_command(&self, r: &RegistryEntry) -> Option<String> {
+        let mut cache = self.stuck.lock().ok()?;
+        cache.entry((r.pid, r.status_updated_at.unwrap_or(0))).or_insert_with(|| procs::running_command(r.pid)).clone()
+    }
+}
+
+impl crate::harness::Reader for Reader {
+    fn harness(&self) -> Harness {
+        Harness::Claude
+    }
+
+    fn scan(&mut self, accounts: &[AccountCfg], look: &Look) {
+        self.registry.clear();
+        self.transcripts.clear();
+        if !accounts.is_empty() {
+            self.app_records.refresh(&crate::claudeapp::records_dir());
+            self.app_records_at = Some(Instant::now());
+        }
+        for a in accounts {
+            let home = a.home_path();
+            self.registry.insert(a.name.clone(), read_registry(&home));
+            self.forks.entry(a.name.clone()).or_default().refresh(&home, look.now);
+            let files = transcript_files(&home, look.since, &look.seen.pinned_ids("claude", &a.name));
+            for (path, parsed) in parallel_map(files, |(p, m)| parse_transcript(&p, m, None).map(|r| (p, r))) {
+                self.transcripts.insert(path, (a.name.clone(), parsed));
+            }
+        }
+    }
+
+    fn watch(&self, account: &AccountCfg) -> Vec<(PathBuf, bool)> {
+        let home = account.home_path();
+        vec![(home.join("sessions"), false), (home.join("projects"), true)]
+    }
+
+    fn owns(&self, account: &AccountCfg, path: &Path) -> bool {
+        let home = account.home_path();
+        path.starts_with(home.join("sessions")) || path.starts_with(home.join("projects"))
+    }
+
+    fn apply(&mut self, account: &AccountCfg, paths: &[PathBuf], look: &Look) -> Applied {
+        let home = account.home_path();
+        let (sessions, projects) = (home.join("sessions"), home.join("projects"));
+        let mut out = Applied::default();
+        if paths.iter().any(|p| p.starts_with(&sessions)) && self.refresh_registry(account, look.now) {
+            out.dirty = true;
+            out.added = true;
+        }
+        for p in paths.iter().filter(|p| p.starts_with(&projects) && p.extension().and_then(|x| x.to_str()) == Some("jsonl")) {
+            if p.parent().and_then(Path::parent) == Some(projects.as_path()) {
+                let prev = self.transcripts.remove(p).map(|(_, parsed)| parsed);
+                let is_new = prev.is_none();
+                let from = prev.as_ref().map(|(_, _, st)| st.offset);
+                if let Some(parsed) = mtime_ms(p).and_then(|m| parse_transcript(p, m, prev)) {
+                    if let Some(from) = from {
+                        out.lines.push(NewLines { path: p.clone(), from, to: parsed.2.offset, key: format!("claude:{}:{}", account.name, parsed.1.session_id) });
+                    }
+                    self.transcripts.insert(p.clone(), (account.name.clone(), parsed));
+                }
+                out.added |= is_new;
+                out.dirty = true;
+            } else if p.parent().map(file_name).as_deref() == Some("subagents") {
+                // `<session>/subagents/agent-*.jsonl`: a subagent's lines count for its session.
+                let Some(id) = p.parent().and_then(Path::parent).map(file_name) else { continue };
+                let Ok(len) = std::fs::metadata(p).map(|m| m.len()) else { continue };
+                // A log first seen now is new, or its earlier lines were read by the last full search.
+                let from = self.subagent_offsets.get(p).copied().unwrap_or(len.saturating_sub(1 << 20));
+                out.lines.push(NewLines { path: p.clone(), from, to: len, key: format!("claude:{}:{id}", account.name) });
+                self.subagent_offsets.insert(p.clone(), len);
+            }
+        }
+        out
+    }
+
+    fn tick(&mut self, accounts: &[AccountCfg], look: &Look) -> Applied {
+        let mut out = Applied::default();
+        for a in accounts {
+            out.dirty |= self.refresh_registry(a, look.now);
+        }
+        self.watch_background(look.now);
+        if !accounts.is_empty() && self.app_records_at.map_or(true, |t| t.elapsed() >= APP_RECORDS_EVERY) {
+            self.app_records_at = Some(Instant::now());
+            out.dirty |= self.app_records.refresh(&crate::claudeapp::records_dir());
+        }
+        out
+    }
+
+    fn sessions(&self, account: &AccountCfg, look: &Look) -> Vec<Session> {
+        use crate::board;
+        let (a, now) = (account, look.now);
+        let mut out = Vec::new();
+        let app_archived = self.app_records.archived();
+        let mut by_id: HashMap<&str, (Option<&RegistryEntry>, Option<(&Path, &TranscriptInfo)>)> = HashMap::new();
+        for r in self.registry.get(&a.name).map(|v| v.as_slice()).unwrap_or(&[]) {
+            by_id.entry(r.session_id.as_str()).or_default().0 = Some(r);
+        }
+        for (path, (acct, (_, t, _))) in &self.transcripts {
+            if acct == &a.name {
+                let slot = by_id.entry(t.session_id.as_str()).or_default();
+                if slot.1.map(|(_, old)| old.last_ts < t.last_ts).unwrap_or(true) {
+                    slot.1 = Some((path.as_path(), t));
+                }
+            }
+        }
+        let live: HashSet<&str> = by_id.iter().filter(|(_, (r, _))| r.is_some()).map(|(id, _)| *id).collect();
+        let said: HashMap<&str, &TranscriptInfo> = by_id.iter().filter_map(|(id, (_, t))| t.map(|(_, t)| (*id, t))).collect();
+        let moves = board::claude_moves(&live, &said);
+        for (&id, &(reg, tr)) in &by_id {
+            // Its conversation went on in a job, which shows it.
+            if moves.moved.contains_key(id) {
+                continue;
+            }
+            let key = format!("claude:{}:{}", a.name, id);
+            // A job that hasn't written its own transcript yet shows the one it goes on
+            // from: a window's conversation it took over, or one it's a fork of.
+            let resumes = reg.and_then(|r| r.resumes.as_ref()).filter(|_| tr.is_none());
+            let from = moves.from.get(id).or(resumes).and_then(|f| Some((f, by_id.get(f.as_str())?.1?)));
+            let tr = tr.or(from.map(|(_, t)| t));
+            let moved = reg.zip(from).map(|(r, (_, (_, t)))| board::moved_registry(r, t));
+            let reg = moved.as_ref().or(reg);
+            let seen_at = from.map(|(f, _)| look.seen.seen_at(&format!("claude:{}:{f}", a.name))).unwrap_or(0).max(look.seen.seen_at(&key));
+            let info = tr.map(|(_, t)| t);
+            // Only a busy session that's gone quiet costs a look outside its transcript,
+            // and one whose turn left a command running in the background (read once
+            // per status change).
+            let background = reg.filter(|r| r.status == "shell");
+            let (subagent_at, running) = match board::claude_busy_since(reg, info) {
+                _ if background.is_some() => (None, background.and_then(|r| self.stuck_command(r))),
+                Some(since) if now - since > board::CLAUDE_STALL_MS => {
+                    let sub = tr.and_then(|(p, _)| subagent_activity(p, id));
+                    let quiet = now - since.max(sub.unwrap_or(0)) > board::CLAUDE_STALL_MS;
+                    (sub, if quiet { reg.and_then(|r| self.stuck_command(r)) } else { None })
+                }
+                _ => (None, None),
+            };
+            let background_active_at = background.and_then(|r| self.background.get(&r.pid)).filter(|w| Some(w.since) == background.and_then(|r| r.status_updated_at)).map(|w| w.active_at);
+            let quiet = board::Quiet { subagent_at, running: running.as_deref(), background_active_at };
+            if let Some(mut s) = board::claude_session(a, reg, info, seen_at, now, &quiet) {
+                // Archived here until it's active again, or archived in the Claude app.
+                s.archived = look.archived_here(&key, s.last_activity) || app_archived.contains(id);
+                s.continues = from.map(|(f, _)| f.clone());
+                // A job's record says what it's a fork of; the roster says for a
+                // running one whose record hasn't been read yet.
+                let parent = self.forks.get(&a.name).and_then(|f| f.parent_of(id)).or(reg.and_then(|r| r.resumes.as_deref()));
+                s.origin = parent.filter(|p| *p != id).map(|p| SessionOrigin { key: format!("claude:{}:{p}", a.name), how: OriginHow::Fork });
+                out.push(s);
+            }
+        }
+        out
+    }
+
+    fn cwds(&self) -> Vec<String> {
+        let live = self.registry.values().flatten().map(|e| e.cwd.clone());
+        live.chain(self.transcripts.values().map(|(_, (_, t, _))| t.cwd.clone())).collect()
+    }
+
+    fn logs(&self) -> Vec<(PathBuf, String)> {
+        let mut files = Vec::new();
+        for (p, (a, (_, info, _))) in &self.transcripts {
+            let key = format!("claude:{}:{}", a, info.session_id);
+            // A subagent works where its session sent it, so its log counts for the session.
+            files.extend(subagent_logs(p, &info.session_id).into_iter().map(|s| (s, key.clone())));
+            files.push((p.clone(), key));
+        }
+        files
+    }
+}
+
+/// The newest write to a session's subagent logs (`<transcript dir>/<id>/subagents`).
+fn subagent_activity(transcript: &Path, session_id: &str) -> Option<i64> {
+    let dir = transcript.parent()?.join(session_id).join("subagents");
+    std::fs::read_dir(dir).ok()?.flatten().filter_map(|e| mtime_ms(&e.path())).max()
+}
+
+/// A session's subagent logs.
+fn subagent_logs(transcript: &Path, session_id: &str) -> Vec<PathBuf> {
+    let Some(dir) = transcript.parent().map(|d| d.join(session_id).join("subagents")) else { return vec![] };
+    let Ok(entries) = std::fs::read_dir(dir) else { return vec![] };
+    entries.flatten().map(|e| e.path()).filter(|p| p.extension().and_then(|x| x.to_str()) == Some("jsonl")).collect()
 }
 
 /// `<account command> stop <job>` for a background job, its job read from its attach command.
@@ -2604,5 +2885,48 @@ mod tests {
         assert_eq!(r.env, [("CLAUDE_CONFIG_DIR".to_string(), "/Users/me/.claude2".to_string())]);
         assert!(!r.unset.contains(&"CLAUDE_CONFIG_DIR") && r.unset.contains(&"CODEALONG_SESSION"));
         assert!(r.args.join(" ").contains("--resume before --fork-session"));
+    }
+
+    #[test]
+    fn the_reader_takes_in_transcripts_and_hands_new_lines_on() {
+        use crate::harness::Reader as _;
+        use std::io::Write;
+
+        let home = std::env::temp_dir().join(format!("codealong-claude-reader-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        let project = home.join("projects/-Users-me-app");
+        std::fs::create_dir_all(project.join("s1/subagents")).unwrap();
+        let account = AccountCfg { name: "claude9".into(), harness: "claude".into(), home: home.to_string_lossy().into_owned(), command: None, start: None, preferred: false, acp: None };
+        let seen = crate::state::SeenState::default();
+        let now = parse_rfc3339_ms("2026-09-23T16:00:00.000Z").unwrap();
+        let look = Look { seen: &seen, since: 0, now };
+        let mut reader = Reader::default();
+        let transcript = project.join("s1.jsonl");
+        assert!(reader.owns(&account, &transcript) && reader.owns(&account, &home.join("sessions/41.json")));
+        assert!(!reader.owns(&account, &home.join("settings.json")), "only its sessions and transcripts are its to read");
+
+        let mut file = std::fs::File::create(&transcript).unwrap();
+        writeln!(file, r#"{{"type":"user","sessionId":"s1","cwd":"/Users/me/app","timestamp":"2026-09-23T15:00:00.000Z","message":{{"role":"user","content":"Fix the build"}}}}"#).unwrap();
+        let first = reader.apply(&account, std::slice::from_ref(&transcript), &look);
+        assert!(first.dirty && first.added && first.lines.is_empty(), "a transcript read for the first time is a new session");
+        assert_eq!(reader.cwds(), ["/Users/me/app"]);
+        let sessions = reader.sessions(&account, &look);
+        assert_eq!((sessions.len(), sessions[0].key.as_str()), (1, "claude:claude9:s1"));
+
+        // What it wrote since is handed on, from where the last read ended.
+        let before = std::fs::metadata(&transcript).unwrap().len();
+        writeln!(file, r#"{{"type":"assistant","timestamp":"2026-09-23T15:01:00.000Z","message":{{"content":[{{"type":"text","text":"Done."}}]}}}}"#).unwrap();
+        let next = reader.apply(&account, std::slice::from_ref(&transcript), &look);
+        assert!(next.dirty && !next.added);
+        assert_eq!(next.lines.iter().map(|l| (l.key.as_str(), l.from, l.to)).collect::<Vec<_>>(), [("claude:claude9:s1", before, std::fs::metadata(&transcript).unwrap().len())]);
+
+        // A subagent's log counts for its session, and each stretch of it is handed on once.
+        let log = project.join("s1/subagents/agent-a.jsonl");
+        std::fs::write(&log, "{}\n").unwrap();
+        let sub = reader.apply(&account, std::slice::from_ref(&log), &look);
+        assert_eq!(sub.lines.iter().map(|l| (l.key.as_str(), l.from, l.to)).collect::<Vec<_>>(), [("claude:claude9:s1", 0, 3)]);
+        assert!(reader.apply(&account, std::slice::from_ref(&log), &look).lines.iter().all(|l| l.from == l.to));
+        assert!(reader.logs().contains(&(log.clone(), "claude:claude9:s1".to_string())));
+        std::fs::remove_dir_all(&home).unwrap();
     }
 }

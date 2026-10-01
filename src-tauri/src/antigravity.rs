@@ -4,13 +4,16 @@
 //! title, the workspace folders, when it last changed, when you last wrote, and whether it's
 //! still working. See *Harness adapters*.
 
-use std::collections::HashSet;
-use std::path::Path;
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use rusqlite::types::Value as Sql;
 use rusqlite::{Connection, OpenFlags};
 
+use crate::config::AccountCfg;
+use crate::harness::{Applied, Look};
+use crate::model::{Harness, Session};
 use crate::util::parse_rfc3339_ms;
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -130,6 +133,82 @@ pub fn uri_path(uri: &str) -> Option<String> {
     Some(decoded.trim_end_matches('/').to_string()).filter(|p| !p.is_empty())
 }
 
+/// Antigravity's conversations for the board (`harness::Reader`): each account's summary table
+/// as last read, newest first.
+#[derive(Default)]
+pub struct Reader {
+    conversations: HashMap<String, Vec<Conversation>>,
+    marks: crate::harness::DatabaseMarks,
+}
+
+impl Reader {
+    /// Reads an account's summary table again. True when a conversation is there that wasn't.
+    fn reread(&mut self, a: &AccountCfg, look: &Look) -> bool {
+        let rows = read_conversations(&a.home_path(), look.since, &look.seen.pinned_ids("antigravity", &a.name));
+        let before: HashSet<&str> = self.conversations.get(&a.name).map(|v| v.iter().map(|c| c.id.as_str()).collect()).unwrap_or_default();
+        let added = rows.iter().any(|c| !before.contains(c.id.as_str()));
+        self.conversations.insert(a.name.clone(), rows);
+        added
+    }
+}
+
+impl crate::harness::Reader for Reader {
+    fn harness(&self) -> Harness {
+        Harness::Antigravity
+    }
+
+    fn scan(&mut self, accounts: &[AccountCfg], look: &Look) {
+        self.conversations.clear();
+        for a in accounts {
+            self.reread(a, look);
+        }
+    }
+
+    /// The database, its WAL and its journal, all in the folder itself.
+    fn watch(&self, account: &AccountCfg) -> Vec<(PathBuf, bool)> {
+        vec![(account.home_path(), false)]
+    }
+
+    fn owns(&self, account: &AccountCfg, path: &Path) -> bool {
+        path.starts_with(account.home_path())
+    }
+
+    fn apply(&mut self, account: &AccountCfg, paths: &[PathBuf], look: &Look) -> Applied {
+        let home = account.home_path();
+        if !paths.iter().any(|p| p.parent() == Some(home.as_path()) && crate::util::file_name(p).contains(".db")) {
+            return Applied::default();
+        }
+        Applied { dirty: true, added: self.reread(account, look), lines: Vec::new() }
+    }
+
+    fn glance(&mut self, accounts: &[AccountCfg], look: &Look) -> Applied {
+        let mut out = Applied::default();
+        for a in accounts {
+            if self.marks.changed(&a.name, &a.home_path().join("conversation_summaries.db")) {
+                out.added |= self.reread(a, look);
+                out.dirty = true;
+            }
+        }
+        out
+    }
+
+    fn sessions(&self, account: &AccountCfg, look: &Look) -> Vec<Session> {
+        let rows = self.conversations.get(&account.name).map(|v| v.as_slice()).unwrap_or(&[]);
+        rows.iter()
+            .map(|c| {
+                let key = format!("antigravity:{}:{}", account.name, c.id);
+                let mut s = crate::board::antigravity_session(account, c, look.seen.seen_at(&key), look.now);
+                s.archived = look.archived_here(&key, s.last_activity);
+                s
+            })
+            .collect()
+    }
+
+    fn cwds(&self) -> Vec<String> {
+        self.conversations.values().flatten().filter_map(|c| c.cwd.clone()).collect()
+    }
+}
+
 /// Antigravity (`harness::Adapter`): its conversations are protobufs Codealong doesn't read yet,
 /// so its panel shows the summary line and opens the app.
 pub struct Antigravity;
@@ -185,6 +264,10 @@ impl crate::harness::Adapter for Antigravity {
     /// Nothing takes a prompt from outside: the app comes forward with it on the clipboard.
     fn routes(&self, _account: &crate::config::AccountCfg, _s: &crate::model::Session) -> Vec<crate::send::Route> {
         vec![crate::send::Route::Antigravity]
+    }
+
+    fn reader(&self, _wake: crate::harness::Wake) -> Box<dyn crate::harness::Reader> {
+        Box::new(Reader::default())
     }
 }
 

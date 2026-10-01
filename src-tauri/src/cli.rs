@@ -1126,7 +1126,7 @@ fn accounts(c: &mut Client, with_usage: bool, json: bool) -> Result<()> {
     if with_usage {
         let usages = match c.app.is_some() {
             true => c.board()?.usage.clone(),
-            false => usage::claude_all(&cfg.accounts),
+            false => usage::read_all(&cfg.accounts),
         };
         for u in usages {
             let Some(row) = rows.iter_mut().find(|r| r.name == u.account) else { continue };
