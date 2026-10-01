@@ -1171,7 +1171,9 @@ GitHub
   endpoint; approving with `gh pr review --approve`. Only repos with a worktree off the default
   branch are asked that way (`board::polled_slugs`); one more query each poll searches all of
   GitHub for open PRs that wait on your review (`github::fetch_requested`), and the board lists
-  its finds for the other repos checked out here.
+  its finds for the other repos checked out here. Who asked for a review is the `actor` of the
+  PR's `ReviewRequestedEvent` (`timelineItems`), with the `requestedReviewer` it named; it's
+  often not the author (a teammate asks for a review of a bot's PR).
 - REST `repos/<owner>/<name>` answers to a repo's old names (after a rename of the repo or its
   owner, or a transfer) with the repo as it is now; `.full_name` is its name now. The engine
   asks once a launch per repo, so other devices line a checkout with an old remote up with the

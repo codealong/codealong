@@ -155,7 +155,7 @@ function ReviewsPill({ prs, onOpen, measure }: { prs: BarReview[]; onOpen?: (e: 
     <button
       type="button"
       className="ca-hud-pill is-reviews"
-      title={measure ? undefined : prs.map((p) => `#${p.number} ${p.title} · ${p.repo}`).join('\n')}
+      title={measure ? undefined : prs.map(reviewLabel).join('\n')}
       data-reviews={measure ? '' : undefined}
       onClick={onOpen}
       onContextMenu={
@@ -172,6 +172,12 @@ function ReviewsPill({ prs, onOpen, measure }: { prs: BarReview[]; onOpen?: (e: 
       <span>{prs.length} to review</span>
     </button>
   );
+}
+
+/** A PR that waits on your review as its menu item and tooltip line say it: its number and
+ *  title, its repo, and who asked. */
+function reviewLabel(p: BarReview): string {
+  return [`#${p.number} ${p.title}`, p.repo, p.requestedBy ? `asked by ${p.requestedBy}` : ''].filter(Boolean).join(' · ');
 }
 
 /** The rest of the sessions started in the last day, as one pill: a click drops a menu of them. */
@@ -684,7 +690,7 @@ export function Bar() {
       return;
     }
     void popup(
-      reviews.map((p) => ({ label: `#${p.number} ${p.title} · ${p.repo}`, run: () => void showMain({ kind: 'pr', key: p.key }) })),
+      reviews.map((p) => ({ label: reviewLabel(p), run: () => void showMain({ kind: 'pr', key: p.key }) })),
       below(e),
     );
   };

@@ -35,6 +35,8 @@ pub struct PrRaw {
     pub changed_files: u64,
     /// Your review is requested, directly or through a team.
     pub review_requested: bool,
+    /// Who asked for it, who needn't be the author; None when the PR's last requests don't say.
+    pub requested_by: Option<String>,
 }
 
 /// One repo's PRs, and who `gh` is signed in as.
@@ -73,10 +75,12 @@ query($requested: String!) {
 }
 "#;
 
-/// Whose reviews an open PR still waits on (`asked_of`).
+/// Whose reviews an open PR still waits on (`asked_of`), and who asked for the latest of them
+/// (`asker_of`).
 const ASKED_FIELDS: &str = r#"
 fragment asked on PullRequest {
   reviewRequests(first: 20) { nodes { requestedReviewer { __typename ... on User { login } } } }
+  timelineItems(itemTypes: [REVIEW_REQUESTED_EVENT], last: 10) { nodes { ... on ReviewRequestedEvent { actor { login } requestedReviewer { __typename ... on User { login } } } } }
 }
 "#;
 
@@ -210,6 +214,7 @@ pub fn parse(json: &str) -> Result<RepoPrs> {
         for n in nodes {
             if let Some(mut pr) = parse_pr(n) {
                 pr.review_requested = pr.state.is_open() && asked_of(n, login, requested.contains(&pr.number));
+                pr.requested_by = pr.review_requested.then(|| asker_of(n, login)).flatten();
                 prs.push(pr);
             }
         }
@@ -229,6 +234,7 @@ pub fn parse_requested(json: &str) -> Result<Requested> {
             let slug = n.pointer("/repository/nameWithOwner").and_then(Value::as_str)?;
             let mut pr = parse_pr(n)?;
             pr.review_requested = pr.state.is_open() && asked_of(n, login, true);
+            pr.requested_by = asker_of(n, login);
             pr.review_requested.then(|| (slug.to_string(), pr))
         })
         .collect();
@@ -249,6 +255,22 @@ fn asked_of(n: &Value, login: Option<&str>, found: bool) -> bool {
             _ => false,
         }
     })
+}
+
+/// Who asked for your review: whoever made the latest request to you, else the latest to a team
+/// or to a reviewer you can't see, which is how a request through a team you're on reads. It's
+/// often not the author: a teammate asks for a review of a bot's PR.
+fn asker_of(n: &Value, login: Option<&str>) -> Option<String> {
+    let events = n.pointer("/timelineItems/nodes").and_then(Value::as_array)?;
+    fn reviewer(e: &Value) -> Option<&Value> {
+        e.get("requestedReviewer").filter(|w| !w.is_null())
+    }
+    let you = events.iter().rev().find(|e| {
+        let asked = reviewer(e).and_then(|w| w.get("login")).and_then(Value::as_str);
+        login.is_some_and(|me| asked.is_some_and(|l| l.eq_ignore_ascii_case(me)))
+    });
+    let team = || events.iter().rev().find(|e| reviewer(e).and_then(|w| w.get("__typename")).and_then(Value::as_str) != Some("User"));
+    you.or_else(team)?.pointer("/actor/login").and_then(Value::as_str).map(String::from)
 }
 
 fn parse_pr(n: &Value) -> Option<PrRaw> {
@@ -287,6 +309,7 @@ fn parse_pr(n: &Value) -> Option<PrRaw> {
         deletions: n.get("deletions").and_then(Value::as_u64).unwrap_or(0),
         changed_files: n.get("changedFiles").and_then(Value::as_u64).unwrap_or(0),
         review_requested: false,
+        requested_by: None,
     })
 }
 
@@ -566,6 +589,24 @@ mod tests {
         let json = format!(r#"{{"data":{{"viewer":{{"login":"ghempton"}},"requested":{{"nodes":[{{"number":1}},{{"number":3}}]}},"repository":{{"open":{{"nodes":[{open}]}},"done":{{"nodes":[]}}}}}}}}"#);
         let asked: Vec<_> = parse(&json).unwrap().prs.iter().map(|p| (p.number, p.review_requested)).collect();
         assert_eq!(asked, vec![(1, false), (2, true), (3, true), (4, false)]);
+    }
+
+    #[test]
+    fn reads_who_asked_for_your_review() {
+        let event = |actor: &str, reviewer: &str| format!(r#"{{"actor":{{"login":"{actor}"}},"requestedReviewer":{reviewer}}}"#);
+        let (me, other, team) = (r#"{"__typename":"User","login":"GHempton"}"#, r#"{"__typename":"User","login":"ana"}"#, r#"{"__typename":"Team"}"#);
+        let asker = |events: &[String]| {
+            let n: Value = serde_json::from_str(&format!(r#"{{"timelineItems":{{"nodes":[{}]}}}}"#, events.join(","))).unwrap();
+            asker_of(&n, Some("ghempton"))
+        };
+        // The latest request to you, whoever else was asked since, and not the author's own.
+        assert_eq!(asker(&[event("bot", me), event("ken", me), event("lee", other), event("lee", team)]).as_deref(), Some("ken"));
+        // Through a team, or a reviewer you can't see, when none names you.
+        assert_eq!(asker(&[event("ken", other), event("lee", team), event("ana", other)]).as_deref(), Some("lee"));
+        assert_eq!(asker(&[event("ken", "null")]).as_deref(), Some("ken"));
+        assert_eq!(asker(&[event("ken", other)]), None);
+        assert_eq!(asker(&[]), None);
+        assert_eq!(asker_of(&serde_json::json!({}), Some("ghempton")), None);
     }
 
     #[test]

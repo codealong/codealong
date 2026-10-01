@@ -416,7 +416,8 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   double-click it to go back to the default width. The PR panel keeps a width of its own.
 - **Floating bar**: a small bar on top of every window, on every Space and over full-screen
   apps, with a pill for each agent that needs you, whose turn just ended, or that's running,
-  one for PRs waiting on your review, and one for todos ready to start. The project button
+  one for PRs waiting on your review (its menu lists each with its repo and who asked), and
+  one for todos ready to start. The project button
   beside the mark shows one project or all of them; a badge on it counts what needs you in the
   others. Rest the pointer on a session's pill and its peek opens under the bar: the session's
   conversation, as its panel shows it, and a box to answer it. The peek never takes the keyboard

@@ -712,6 +712,8 @@ export interface PrItem {
   author: string | null;
   mine: boolean;
   reviewRequested: boolean;
+  /** Who asked for your review, when GitHub says; often not the author. */
+  requestedBy?: string | null;
   head: string;
   base: string | null;
   checks: Checks;
@@ -915,6 +917,8 @@ export interface BarReview {
   title: string;
   repo: string;
   project: string;
+  /** Who asked for your review, when GitHub says. */
+  requestedBy: string | null;
 }
 
 export interface BarTodo {

@@ -147,6 +147,9 @@ pub struct PrItem {
     pub mine: bool,
     /// Your review is requested.
     pub review_requested: bool,
+    /// Who asked for it, when GitHub says; often not the author.
+    #[serde(default)]
+    pub requested_by: Option<String>,
     pub head: String,
     pub base: Option<String>,
     pub checks: Checks,

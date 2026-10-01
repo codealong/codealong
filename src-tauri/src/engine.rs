@@ -3565,6 +3565,7 @@ mod tests {
             deletions: 0,
             changed_files: 0,
             review_requested: true,
+            requested_by: None,
         };
         let asked = |e: &Engine| e.prs[&slug][0].review_requested;
         let answer = |requested: bool| Ok(github::RepoPrs { login: Some("ghempton".into()), prs: vec![PrRaw { review_requested: requested, ..pr.clone() }] });

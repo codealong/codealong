@@ -114,6 +114,8 @@ pub struct BarReview {
     pub title: String,
     pub repo: String,
     pub project: String,
+    /// Who asked for your review, when GitHub says.
+    pub requested_by: Option<String>,
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
@@ -194,7 +196,7 @@ pub fn feed(board: &Board) -> BarFeed {
     prs.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
     let reviews = prs
         .into_iter()
-        .map(|p| BarReview { key: p.key.clone(), number: p.number, title: p.title.clone(), repo: p.repo.clone(), project: p.project.clone() })
+        .map(|p| BarReview { key: p.key.clone(), number: p.number, title: p.title.clone(), repo: p.repo.clone(), project: p.project.clone(), requested_by: p.requested_by.clone() })
         .collect();
 
     let ready = board.todos.iter().filter(|t| todos::is_ready(t, &board.todos)).map(|t| bar_todo(board, t)).collect();
@@ -425,7 +427,7 @@ mod tests {
         let pr = |n: u64, requested: bool, state: PrState, updated: i64| -> PrItem {
             serde_json::from_value(serde_json::json!({
                 "key": format!("o/r#{n}"), "repoSlug": "o/r", "repo": "r", "project": "P", "number": n, "title": format!("PR {n}"),
-                "url": "", "state": state, "author": null, "mine": false, "reviewRequested": requested, "head": "h", "base": null,
+                "url": "", "state": state, "author": null, "mine": false, "reviewRequested": requested, "requestedBy": if n == 1 { Some("ana") } else { None }, "head": "h", "base": null,
                 "checks": { "passed": 0, "failed": 0, "pending": 0, "skipped": 0, "failing": [] }, "merge": "clean",
                 "additions": 0, "deletions": 0, "changedFiles": 0, "createdAt": 0, "updatedAt": updated,
                 "mergedAt": null, "closedAt": null, "lanes": [], "sessions": []
@@ -433,7 +435,7 @@ mod tests {
             .expect("a PR")
         };
         let b = board(vec![], vec![pr(1, true, PrState::Open, 1), pr(2, true, PrState::Merged, 3), pr(3, false, PrState::Open, 4), pr(4, true, PrState::Draft, 2)]);
-        let got: Vec<(u64, String)> = feed(&b).reviews.into_iter().map(|r| (r.number, r.project)).collect();
-        assert_eq!(got, vec![(4, "P".to_string()), (1, "P".to_string())]);
+        let got: Vec<(u64, String, Option<String>)> = feed(&b).reviews.into_iter().map(|r| (r.number, r.project, r.requested_by)).collect();
+        assert_eq!(got, vec![(4, "P".to_string(), None), (1, "P".to_string(), Some("ana".to_string()))]);
     }
 }
