@@ -124,7 +124,8 @@ can't be seen this way; say so rather than claiming they were checked.
 `scripts/preview.sh quick` renders the quick panel as its shortcut opens it (a `PREVIEW_INIT`
 can type into it or click its menus open).
 `scripts/preview.sh lineage` renders the lines between desktop cards (lineage.rs) over stand-ins
-for the cards, from `scripts/preview/lineage-desk.js`. `scripts/preview.sh bar` renders the floating bar on a stand-in desktop (`PREVIEW_SIZE=1600,64` for
+for the cards, from `scripts/preview/lineage-desk.js`, and `scripts/preview.sh cardpop` a desktop
+card's popover (cardpop.rs) for `PREVIEW_PIN`'s card, on `PREVIEW_SIDE` of it. `scripts/preview.sh bar` renders the floating bar on a stand-in desktop (`PREVIEW_SIZE=1600,64` for
 a wider screen), from the feed `--snapshot --bar` prints. The engine the preview runs is whatever
 was last built into the shared directory, possibly another session's: `PREVIEW_BIN=<a copy of
 your build>` uses yours. `PREVIEW_TODOS=scripts/preview/todos-sample.json scripts/preview.sh todo` shows
@@ -266,6 +267,10 @@ some work is, answer with one.
   control, which needs remote control on). A window's command goes through `actions::run`, which
   asks the session's device when it's elsewhere; a device's request through `actions::answer`.
   A new session action is a line in each, not a command with its own remote branch.
+- A card is one design wherever it is: the Canvas view's cards and the cards pinned to the
+  desktop draw the same face and the same popover, from `src/ui/card/` (`data.ts`, `CardFace.tsx`,
+  `CardPopover.tsx`). `CanvasCard.tsx` and `DesktopPin.tsx` add only where a card goes and what a
+  click does; a change to what a card shows goes in `card/`, never into one of them.
 - A session's, worktree's, PR's or todo's right-click menu is defined once, in `src/menus.ts`,
   and every window (main, bar, peek, quick panel, desktop cards) builds it from there, saying
   what it can do. A new item goes there, not into one window's menu.
@@ -1065,6 +1070,16 @@ Tauri and macOS (from the Tauri 2.11 and tao 0.35 sources)
 - A plain JS `listen()` hears events sent to any window with `emit_to`; listen on the window
   (`getCurrentWebviewWindow().listen`) for the ones meant for it. A window's own `emit`
   (`w.emit`) goes to every window, however it listens: send to one with `emit_to(label, …)`.
+- A window's label must be listed in `src-tauri/capabilities/default.json` (`windows`, a `*` at
+  the end matches the rest). One that isn't still runs Codealong's own commands, but its page's
+  `listen` is refused, so it never hears an event and shows only what it read as it loaded: the
+  lines between desktop cards drew one stale line that way, well off its cards (2026-09-30). The
+  preview's stub allows everything, so it can't show this; a cargo test checks the labels.
+- A window ordered front is scaled in by AppKit over a fifth of a second unless its
+  `animationBehavior` is none (`CGWindowListCopyWindowInfo` reports its bounds smaller meanwhile).
+  What another process draws can be seen without the screen: `screencapture -x -o -l <window id>`
+  captures one window, its clear parts clear, and its id comes from the window list (the app's
+  windows by owner name, the panels at layers 24 to 26).
 - A menu item's icon can be raw RGBA, `{rgba, width, height}` (`JsImage::Rgba`), which needs
   neither the `image-png` nor the `image-ico` feature; Tauri's JS types don't list that form, but
   its `transformImage` passes it through. muda shows an item's image 18 points high.

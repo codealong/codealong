@@ -636,7 +636,7 @@ pub(crate) mod native {
 
     use objc2::runtime::{AnyClass, AnyObject, Bool, ClassBuilder, Sel};
     use objc2::{sel, ClassType, MainThreadMarker};
-    use objc2_app_kit::{NSApplicationActivationOptions, NSEvent, NSMainMenuWindowLevel, NSPanel, NSRunningApplication, NSScreen, NSStatusWindowLevel, NSWindow, NSWindowCollectionBehavior, NSWindowOcclusionState, NSWindowStyleMask};
+    use objc2_app_kit::{NSApplicationActivationOptions, NSEvent, NSMainMenuWindowLevel, NSPanel, NSRunningApplication, NSScreen, NSStatusWindowLevel, NSWindow, NSWindowAnimationBehavior, NSWindowCollectionBehavior, NSWindowOcclusionState, NSWindowStyleMask};
     use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
     use tauri::WebviewWindow;
 
@@ -793,6 +793,14 @@ pub(crate) mod native {
         }
     }
 
+    /// Shows and hides the window at once, without AppKit's scaling it in: what it draws is placed
+    /// by the screen, and is off its place while the window is scaled.
+    pub fn no_animation(w: &WebviewWindow) {
+        if let Some(n) = ns(w) {
+            n.setAnimationBehavior(NSWindowAnimationBehavior::None);
+        }
+    }
+
     /// The notch the bar docks into: the first screen's with one, else one drawn on the screen with
     /// the menu bar.
     pub fn notch() -> Option<Notch> {
@@ -864,6 +872,7 @@ pub(crate) mod native {
     pub fn set_level(_: &WebviewWindow, _: bool) {}
     pub fn set_clickable(_: &WebviewWindow, _: bool) {}
     pub fn set_under_cards(_: &WebviewWindow) {}
+    pub fn no_animation(_: &WebviewWindow) {}
     pub fn hide(w: &WebviewWindow) {
         let _ = w.hide();
     }

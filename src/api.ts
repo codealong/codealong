@@ -662,6 +662,49 @@ export async function desktopHover(on: boolean): Promise<void> {
   await invoke('desktop_hover', { on });
 }
 
+/** A desktop card's popover opening (cardpop.rs): the card's feed and the side of it it opens on. */
+export interface CardPopoverOpen {
+  id: number;
+  feed: DesktopFeed;
+  side: 'left' | 'right';
+  /** The tallest the window can be there. */
+  room: number;
+}
+
+/** Calls `cb` when a desktop card's popover opens in this window, the popover's. */
+export function onCardPopover(cb: (open: CardPopoverOpen) => void): () => void {
+  return onWindowEvent<CardPopoverOpen>('card-popover', cb);
+}
+
+/** Calls `cb` when the desktop card's popover goes away. */
+export function onCardPopoverHidden(cb: () => void): () => void {
+  return onWindowEvent<null>('card-popover-hidden', () => cb());
+}
+
+/** The popover is laid out for the open `id`, at this height: time to show it. */
+export async function cardPopoverReady(id: number, height: number): Promise<void> {
+  if (!inTauri) return;
+  await invoke('card_popover_ready', { id, height });
+}
+
+/** The popover changed size while up. */
+export async function cardPopoverFit(height: number): Promise<void> {
+  if (!inTauri) return;
+  await invoke('card_popover_fit', { height });
+}
+
+/** Puts the desktop card's popover away: its card's menu is opening, or it's being dragged. */
+export async function cardPopoverHide(): Promise<void> {
+  if (!inTauri) return;
+  await invoke('card_popover_hide');
+}
+
+/** Opens a session from the popover in the peek by its card, ready to answer. */
+export async function cardPopoverSession(key: string): Promise<void> {
+  if (!inTauri) return;
+  await invoke('card_popover_session', { key });
+}
+
 /** What the window of lines between desktop cards draws now (lineage.rs). */
 export async function getLineageFeed(): Promise<LineageFeed | null> {
   if (!inTauri) return null;

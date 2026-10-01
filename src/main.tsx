@@ -5,6 +5,7 @@ import { watchCaret } from './caret';
 import { Bar } from './ui/Bar';
 import { DesktopLines } from './ui/DesktopLines';
 import { DesktopPin } from './ui/DesktopPin';
+import { DesktopPopover } from './ui/DesktopPopover';
 import { Peek } from './ui/Peek';
 import { Quick } from './ui/Quick';
 import './styles/tokens.css';
@@ -23,24 +24,28 @@ declare global {
     __CODEALONG_DESKTOP__?: boolean;
     /** Set on the window of lines between cards pinned to the desktop before the page loads. */
     __CODEALONG_LINEAGE__?: boolean;
+    /** Set on the popover of cards pinned to the desktop before the page loads. */
+    __CODEALONG_CARDPOP__?: boolean;
   }
 }
 
 // Every window loads this page; the floating bar's shows the bar, its peek's the peek, the quick
-// panel's the panel, a card pinned to the desktop's the card, and the window under the cards the
-// lines between them, instead of the board.
+// panel's the panel, a card pinned to the desktop's the card, the window beside a hovered card its
+// popover, and the window under the cards the lines between them, instead of the board.
 const isBar = window.__CODEALONG_BAR__ === true;
 const isQuick = window.__CODEALONG_QUICK__ === true;
 const isPeek = window.__CODEALONG_PEEK__ === true;
 const isDesktop = window.__CODEALONG_DESKTOP__ === true;
 const isLineage = window.__CODEALONG_LINEAGE__ === true;
+const isCardPop = window.__CODEALONG_CARDPOP__ === true;
 if (isBar) document.documentElement.classList.add('is-bar');
 if (isQuick) document.documentElement.classList.add('is-quick');
 if (isPeek) document.documentElement.classList.add('is-peek');
 if (isDesktop) document.documentElement.classList.add('is-desktop');
 if (isLineage) document.documentElement.classList.add('is-lineage');
+if (isCardPop) document.documentElement.classList.add('is-cardpop');
 
-createRoot(document.getElementById('root')!).render(<StrictMode>{isBar ? <Bar /> : isQuick ? <Quick /> : isPeek ? <Peek /> : isDesktop ? <DesktopPin /> : isLineage ? <DesktopLines /> : <App />}</StrictMode>);
+createRoot(document.getElementById('root')!).render(<StrictMode>{isBar ? <Bar /> : isQuick ? <Quick /> : isPeek ? <Peek /> : isDesktop ? <DesktopPin /> : isLineage ? <DesktopLines /> : isCardPop ? <DesktopPopover /> : <App />}</StrictMode>);
 
 watchCaret();
 

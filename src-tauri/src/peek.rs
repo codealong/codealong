@@ -344,6 +344,11 @@ pub fn hide(app: &AppHandle) {
     }
 }
 
+/// Whether the peek is up, or about to be.
+pub fn visible(app: &AppHandle) -> bool {
+    app.try_state::<Peek>().and_then(|s| s.inner.lock().ok().map(|s| s.visible || s.waiting.is_some())).unwrap_or(false)
+}
+
 /// Tells the bar and the cards on the desktop (which mark the pill or card) and the page what the
 /// peek shows.
 fn tell(app: &AppHandle) {

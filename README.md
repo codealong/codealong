@@ -197,8 +197,10 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     the todos it waits on as chips you click. Nothing is asked twice: what was asked is kept in
     `jev-todos.json`.
   - **Canvas**: the project's work laid out in space, to remember by where it is. Worktrees,
-    sessions, todos and PRs are compact cards (status, title, where it stands); hover one
-    for the rest, select one for its panel on the right (a session's shows its whole
+    sessions, todos and PRs are compact cards (status, title, where it stands); rest the pointer
+    on one for a popover with the rest (move onto it to select its text, click its PR chip to
+    open the PR, click a session in it to go to that session, right-click one for its menu),
+    select one for its panel on the right (a session's shows its whole
     conversation and takes messages; the rest are the ones their own views show), type in the
     filter at the top or pick a status in the sidebar to fade what doesn't match (a status, or
     Return in the filter, also zooms to what does), double-click to open it where it lives, right-click for its usual
@@ -458,7 +460,9 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   canvas, or a session's pill dragged off the bar): puts its card, the one the Canvas view shows, on the desktop, floating over every
   window, on every Space and over full-screen apps as the floating bar does. A worktree's card
   lists its sessions that are running or waiting on you, and a todo's its sessions. Drag a card
-  where you want it; it stays there across launches. Click a session (its card, a session line,
+  where you want it; it stays there across launches. Rest the pointer on a card and its popover
+  opens beside it, the same one its Canvas card has, and stays while the pointer is on the card
+  or on it. Click a session (its card, a session line,
   or a todo's card) to open its peek beside the card, as the bar's pills do, with the keyboard in
   its box; click again to put it away. Double-click to open what it shows where it lives (a todo
   without a session starts one in the quick panel). Right-click it, or a session line in it, for
@@ -469,9 +473,11 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   forked background jobs; Codex's forks and the threads its app makes for an agent; OpenCode's
   forks) and notes what they don't: a session started by an agent's `codealong start`, and a
   fork into a terminal made from Codealong. A session's panel says what it was forked from or
-  started by and what came of it, each a click away. On the canvas, hovering or selecting a
-  session draws a line from the session it came from and to the ones that came of it, and a
-  session's card on the desktop does the same to the cards of those sessions pinned there.
+  started by and what came of it, each a click away, and so does its card's popover, on the
+  canvas and on the desktop: right-click one there and Pin to desktop puts its card beside the
+  one you're on. On the canvas, hovering or selecting a session draws a line from the session
+  it came from and to the ones that came of it, and a session's card on the desktop does the
+  same to the cards of those sessions pinned on the same screen.
 - **New window** (File › New window, ⌘⇧N): one more window on the project you're looking at.
   Closing the main window hides it; New window, the Dock icon or the bar brings it back, and
   ⌘Q quits.
@@ -753,7 +759,9 @@ light scan (no git, PRs or visitors).
 | `src-tauri/src/detect.rs` | The harness accounts on this device: folders, sign-ins, and the wrappers and aliases that run them |
 | `src-tauri/src/bar.rs`, `barfeed.rs` | The bar's window (a panel over every app, floating where you put it or docked in the notch, found from the screen's sides of the menu bar, where it takes clicks only on the shape it shows; Window › Floating bar and Bar in the notch) and the small feed of what it shows, sent only when that changes |
 | `src-tauri/src/origins.rs`, `src/lineage.ts`, `src-tauri/src/lineage.rs`, `src/ui/DesktopLines.tsx` | Where sessions came from: Codealong's own record of starts and forks (`origins.json`), the line drawn between them on the canvas and between desktop cards, and the clear window under the cards that draws it there |
-| `src-tauri/src/desktop.rs`, `src/ui/DesktopPin.tsx` | Cards pinned to the desktop: a window each, made as the bar's is, where a new one goes, `desktop.json`, and what each shows, cut from the board and sent only when it changes; the page draws the Canvas view's card (`ui/CanvasCard.tsx`) |
+| `src/ui/card/` | The card the Canvas view and the desktop share: what it shows, looked up from the board (`data.ts`), its face (`CardFace.tsx`), and its popover (`CardPopover.tsx`). The canvas and the desktop add only where a card goes and what a click does |
+| `src-tauri/src/cardpop.rs`, `src/ui/DesktopPopover.tsx` | A desktop card's popover: a panel of its own beside the card, opened when the pointer rests on the card and closed once it's off both |
+| `src-tauri/src/desktop.rs`, `src/ui/DesktopPin.tsx` | Cards pinned to the desktop: a window each, made as the bar's is, where a new one goes, `desktop.json`, and what each shows, cut from the board and sent only when it changes; the page draws the card the Canvas view draws (`ui/card/`) |
 | `src/` | The React UI, built from the design system's components and tokens; `lanes.ts` groups the board and mirrors the engine's status rules for the age filter; `pins.ts` keeps the pinned lists; `ahead.ts` shows sessions marked seen, archived, renamed or sent a message at once, in every window, until a board shows it; `prStatus.ts` and `ui/PrPills.tsx` say where a PR stands and which PRs are your move; `bar.ts`, `ui/Bar.tsx` and `ui/Notch.tsx` lay out the bar, floating or in the notch; `ui/Picker.tsx` is the quick panel's filterable menus; `ui/SettingsDialog.tsx` and `ui/AccountsSection.tsx` are Settings |
 | `scripts/preview.sh` | Headless preview against real data, for screenshots and scripted checks |
 | `design/tokens.json` | Design tokens; `npm run tokens` regenerates `src/styles/tokens.css` |

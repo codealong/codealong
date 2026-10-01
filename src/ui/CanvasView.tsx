@@ -12,6 +12,7 @@
 // ⇧0 for 100%. N adds a note, F a frame. Double-click a card to open it where it lives.
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type MutableRefObject, type PointerEvent as ReactPointerEvent } from 'react';
+import { openUrl } from '../api';
 import { showContextMenu, type MenuSpec } from '../contextMenu';
 import { CanvasGl, parseColor, type Block, type Line, type Rgba } from '../canvas/gl';
 import {
@@ -45,7 +46,9 @@ import {
 import { arrowhead, connector, polyline } from '../lineage';
 import { COLOR_WORD, newId } from '../todos';
 import { LABEL_COLORS, type Label, type LabelColor, type Theme, type Todo } from '../types';
-import { CanvasCard, CardDetail, cardData, cardSig } from './CanvasCard';
+import { CanvasCard } from './CanvasCard';
+import { CardDetail, CardPopover } from './card/CardPopover';
+import { cardData, cardSig } from './card/data';
 import { BringInPanel, TidyPanel, tidySummary } from './CanvasTidy';
 import { Icon } from './primitives';
 
@@ -54,6 +57,8 @@ const NEAR = 0.4;
 const MIN_ZOOM = 0.04;
 const MAX_ZOOM = 4;
 const HOVER_MS = 380;
+/** How long a card's popover stays once the pointer is off both, so it can cross to the popover. */
+const LEAVE_MS = 300;
 
 type Tool = 'select' | 'note' | 'frame';
 
@@ -147,6 +152,8 @@ export function CanvasView(props: CanvasViewProps) {
   const [glError, setGlError] = useState<string | null>(null);
   const drag = useRef<Drag | null>(null);
   const hoverTimer = useRef(0);
+  // The popover going, once the pointer left its card and hasn't reached it.
+  const leaveTimer = useRef(0);
   const idleTimer = useRef(0);
   const gestureZoom = useRef<{ zoom: number; x: number; y: number } | null>(null);
 
@@ -299,12 +306,17 @@ export function CanvasView(props: CanvasViewProps) {
     } else fitAll();
   }, [project, doc.camera, applyCamera, fitAll]);
 
-  useEffect(() => {
-    if (!focus) return;
-    const it = byId.get(focus.id);
-    if (!it) return;
-    setSelection(new Set([focus.id]));
+  /** Selects an item and brings it into view; false when it isn't on the canvas. */
+  const showItem = (id: string): boolean => {
+    const it = byId.get(id);
+    if (!it) return false;
+    setSelection(new Set([id]));
     fit(rectOf(it), Math.max(1, cam.current.zoom));
+    return true;
+  };
+
+  useEffect(() => {
+    if (focus) showItem(focus.id);
     // Only when asked again, not as the canvas changes.
   }, [focus?.n]);
 
@@ -611,14 +623,36 @@ export function CanvasView(props: CanvasViewProps) {
     if (!d) {
       // Hover: the card under the pointer, and after a moment its popover.
       const target = e.target as HTMLElement;
+      // On the popover, it stays, and its card stays hovered.
+      if (target.closest('.ca-cv-popover')) {
+        window.clearTimeout(leaveTimer.current);
+        leaveTimer.current = 0;
+        return;
+      }
       const over = target.closest('.ca-cv-toolbar') ? null : hitAt(p.x, p.y);
       const id = over?.kind === 'ref' ? itemId(over) : null;
-      if (id !== hover) {
-        setHover(id);
-        setPopover(null);
-        window.clearTimeout(hoverTimer.current);
-        if (id) hoverTimer.current = window.setTimeout(() => setPopover(id), HOVER_MS);
+      if (id === hover) {
+        window.clearTimeout(leaveTimer.current);
+        leaveTimer.current = 0;
+        return;
       }
+      // Off its card toward nothing else: a moment to reach the popover before both go.
+      if (id === null && popover) {
+        if (!leaveTimer.current) {
+          leaveTimer.current = window.setTimeout(() => {
+            leaveTimer.current = 0;
+            setHover(null);
+            setPopover(null);
+          }, LEAVE_MS);
+        }
+        return;
+      }
+      window.clearTimeout(leaveTimer.current);
+      leaveTimer.current = 0;
+      setHover(id);
+      setPopover(null);
+      window.clearTimeout(hoverTimer.current);
+      if (id) hoverTimer.current = window.setTimeout(() => setPopover(id), HOVER_MS);
       return;
     }
     switch (d.mode) {
@@ -684,7 +718,7 @@ export function CanvasView(props: CanvasViewProps) {
 
   const onDoubleClick = (e: ReactMouseEvent) => {
     const target = e.target as HTMLElement;
-    if (target.closest('.ca-cv-toolbar, .ca-cv-tidy, textarea, input')) return;
+    if (target.closest('.ca-cv-toolbar, .ca-cv-tidy, .ca-cv-popover, textarea, input')) return;
     const frameTitle = target.closest<HTMLElement>('[data-frame]');
     if (frameTitle) {
       setEditing(frameTitle.dataset.frame ?? null);
@@ -699,7 +733,7 @@ export function CanvasView(props: CanvasViewProps) {
   const onContextMenu = (e: ReactMouseEvent) => {
     e.preventDefault();
     const target = e.target as HTMLElement;
-    if (target.closest('.ca-cv-toolbar, .ca-cv-tidy, textarea, input')) return;
+    if (target.closest('.ca-cv-toolbar, .ca-cv-tidy, .ca-cv-popover, textarea, input')) return;
     const p = toWorld(e.clientX, e.clientY);
     const frameTitle = target.closest<HTMLElement>('[data-frame]');
     const hit = frameTitle ? (byId.get(frameTitle.dataset.frame ?? '') ?? null) : pick(p.x, p.y);
@@ -948,6 +982,8 @@ export function CanvasView(props: CanvasViewProps) {
       onPointerLeave={() => {
         if (drag.current) return;
         window.clearTimeout(hoverTimer.current);
+        window.clearTimeout(leaveTimer.current);
+        leaveTimer.current = 0;
         setHover(null);
         setPopover(null);
       }}
@@ -1029,9 +1065,24 @@ export function CanvasView(props: CanvasViewProps) {
         </div>
       )}
       {popItem?.kind === 'ref' && popRect && (
-        <div className="ca-cv-popover" style={popRect} role="tooltip">
-          <CardDetail item={popItem} data={data.get(itemId(popItem)) ?? null} now={now} terminal={terminal} todos={todos} />
-        </div>
+        <CardPopover style={popRect}>
+          <CardDetail
+            item={popItem}
+            data={data.get(itemId(popItem)) ?? null}
+            now={now}
+            terminal={terminal}
+            todos={todos}
+            place="canvas"
+            homes={entities.sessions}
+            onOpenPr={(pr) => openUrl(pr.url).catch((err: unknown) => onToast(String(err)))}
+            onSessionMenu={(_lane, s) => void showContextMenu(menuFor({ kind: 'ref', ref: 'session', key: s.key, x: 0, y: 0 })).catch((err: unknown) => onToast(String(err)))}
+            // A session on the canvas is selected there; one that isn't opens where it lives.
+            onSession={(_lane, s) => {
+              setPopover(null);
+              if (!showItem(refId('session', s.key))) onOpen({ kind: 'ref', ref: 'session', key: s.key, x: 0, y: 0 });
+            }}
+          />
+        </CardPopover>
       )}
       {panel === 'bring' && <BringInPanel doc={doc} onChange={(scope) => update((d) => ({ ...d, scope }))} />}
       {panel === 'tidy' && <TidyPanel doc={doc} entities={entities} now={now} pinned={pinned} onTidy={runTidy} onClear={clearCanvas} onClose={() => setTidyOpen(false)} />}

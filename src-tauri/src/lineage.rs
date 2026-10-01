@@ -142,6 +142,7 @@ fn make_window(app: &AppHandle) -> Result<()> {
         native::prepare(&w);
         native::set_under_cards(&w);
         native::set_clickable(&w, false);
+        native::no_animation(&w);
         if let Ok(mut s) = st.state.lock() {
             s.ready = true;
         };
@@ -215,8 +216,11 @@ fn follow(app: &AppHandle, n: u64, label: &str) {
         return clear(app);
     }
     let screens = native::screens();
-    let screen = screens.iter().find(|s| s.frame.contains(on.center())).or(screens.first()).copied();
+    let Some(screen) = screens.iter().find(|s| s.frame.contains(on.center())).or(screens.first()).copied() else { return clear(app) };
     let (frame, lines) = layout(&ties, screen);
+    if lines.is_empty() {
+        return clear(app);
+    }
     show(app, frame, Feed { theme, lines });
 }
 
@@ -293,30 +297,20 @@ fn inset(r: Rect, by: f64) -> Rect {
     Rect { x: r.x + by, y: r.y + by, w: (r.w - 2.0 * by).max(0.0), h: (r.h - 2.0 * by).max(0.0) }
 }
 
-fn union(a: Rect, b: Rect) -> Rect {
-    let (x, y) = (a.x.min(b.x), a.y.min(b.y));
-    Rect { x, y, w: a.right().max(b.right()) - x, h: a.top().max(b.top()) - y }
-}
-
 /// The window for lines between pairs of card windows (the one it came from first), and the
-/// lines in it: over the screen the hovered card is on, and a card on another screen with room
-/// for its line to bow out. A line bows out on the right when the screen's edge is too close on
-/// the left, so it stays on the screen.
-pub fn layout(ties: &[(Rect, Rect)], screen: Option<Screen>) -> (Rect, Vec<Line>) {
-    let cards: Vec<(Rect, Rect)> = ties.iter().map(|(a, b)| (inset(*a, SHADOW), inset(*b, SHADOW))).collect();
-    let room = |r: Rect| Rect { x: r.x - BOW, y: r.y - BOW, w: r.w + 2.0 * BOW, h: r.h + 2.0 * BOW };
-    let mut frame = screen.map(|s| s.frame).unwrap_or_else(|| room(cards[0].0));
-    for r in cards.iter().flat_map(|(a, b)| [*a, *b]) {
-        let inside = screen.is_some_and(|s| s.frame.contains((r.x, r.y)) && s.frame.contains((r.right(), r.top())));
-        if !inside {
-            frame = union(frame, room(r));
-        }
-    }
-    let left_edge = screen.map(|s| s.visible.x).unwrap_or(f64::MIN);
+/// lines in it: over the screen the hovered card is on, and only between cards on that screen. A
+/// window doesn't reach across displays (each has its own Spaces), so a card on another one gets
+/// no line. A line bows out on the right when the screen's edge is too close on the left, so it
+/// stays on the screen.
+pub fn layout(ties: &[(Rect, Rect)], screen: Screen) -> (Rect, Vec<Line>) {
+    let frame = screen.frame;
+    let here = |r: &Rect| frame.contains(r.center());
     let page = |r: Rect| Card { x: r.x - frame.x, y: frame.top() - r.top(), w: r.w, h: r.h };
-    let lines = cards
+    let lines = ties
         .iter()
-        .map(|(a, b)| Line { from: page(*a), to: page(*b), side: if a.x.min(b.x) - BOW < left_edge { "right" } else { "left" } })
+        .filter(|(a, b)| here(a) && here(b))
+        .map(|(a, b)| (inset(*a, SHADOW), inset(*b, SHADOW)))
+        .map(|(a, b)| Line { from: page(a), to: page(b), side: if a.x.min(b.x) - BOW < screen.visible.x { "right" } else { "left" } })
         .collect();
     (frame, lines)
 }
@@ -336,23 +330,34 @@ mod tests {
         // Two cards in the top right corner, one under the other.
         let upper = r(1200.0, 780.0, 304.0, 80.0);
         let lower = r(1200.0, 700.0, 304.0, 80.0);
-        let (frame, lines) = layout(&[(upper, lower)], Some(SCREEN));
+        let (frame, lines) = layout(&[(upper, lower)], SCREEN);
         assert_eq!(frame, SCREEN.frame);
         assert_eq!(lines, vec![Line { from: Card { x: 1212.0, y: 900.0 - 848.0, w: 280.0, h: 56.0 }, to: Card { x: 1212.0, y: 900.0 - 768.0, w: 280.0, h: 56.0 }, side: "left" }]);
     }
 
     #[test]
     fn a_line_at_the_left_edge_bows_out_on_the_right() {
-        let (_, lines) = layout(&[(r(0.0, 500.0, 304.0, 80.0), r(0.0, 300.0, 304.0, 80.0))], Some(SCREEN));
+        let (_, lines) = layout(&[(r(0.0, 500.0, 304.0, 80.0), r(0.0, 300.0, 304.0, 80.0))], SCREEN);
         assert_eq!(lines[0].side, "right");
     }
 
     #[test]
-    fn a_card_on_another_screen_widens_the_window_to_it() {
+    fn a_card_on_another_screen_gets_no_line() {
         let other = r(1600.0, 400.0, 304.0, 80.0);
-        let (frame, lines) = layout(&[(r(1100.0, 400.0, 304.0, 80.0), other)], Some(SCREEN));
-        assert_eq!(frame.x, 0.0);
-        assert_eq!(frame.right(), 1600.0 + 304.0 - SHADOW + BOW);
-        assert_eq!(lines[0].to.x, 1612.0);
+        let near = r(1100.0, 400.0, 304.0, 80.0);
+        let (frame, lines) = layout(&[(near, other), (near, r(700.0, 400.0, 304.0, 80.0))], SCREEN);
+        assert_eq!(frame, SCREEN.frame);
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0].to.x, 712.0);
+    }
+
+    #[test]
+    fn a_screen_beside_the_main_one_counts_from_its_own_corner() {
+        // A display up and to the right of the main one, as AppKit places it.
+        let screen = Screen { frame: r(918.0, 1117.0, 1920.0, 1080.0), visible: r(918.0, 1117.0, 1920.0, 1080.0) };
+        let (frame, lines) = layout(&[(r(1662.0, 1487.0, 304.0, 81.0), r(1972.0, 1480.0, 304.0, 81.0))], screen);
+        assert_eq!(frame, screen.frame);
+        assert_eq!(lines[0].from, Card { x: 1674.0 - 918.0, y: 2197.0 - 1556.0, w: 280.0, h: 57.0 });
+        assert_eq!(lines[0].to.x, 1984.0 - 918.0);
     }
 }
