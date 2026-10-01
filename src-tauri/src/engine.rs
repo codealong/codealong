@@ -45,6 +45,9 @@ const WINDOW_MS: i64 = 14 * DAY_MS;
 const GIT_WORKERS: usize = 4;
 const PUBLISH_EVERY: Duration = Duration::from_millis(300);
 const GITHUB_EVERY: Duration = Duration::from_secs(60);
+/// How long GitHub is left alone once it says the account's rate limit is used up. It doesn't
+/// say when the hour ends on a refusal, and asking again costs nothing.
+const GITHUB_HOLD: Duration = Duration::from_secs(10 * 60);
 /// How long before a repo GitHub didn't give the name of is asked about again.
 const REPO_NAME_RETRY: Duration = Duration::from_secs(60 * 60);
 /// Claude usage is read this often; Codex usage updates with every Codex turn.
@@ -71,10 +74,12 @@ const SHOWN_WAIT: Duration = Duration::from_secs(10);
 pub enum Msg {
     Fs(Vec<PathBuf>),
     GitDone(PathBuf, GitInfo),
-    /// An empty slug marks the end of a GitHub batch.
-    GithubDone(String, std::result::Result<github::RepoPrs, String>),
+    /// What a poll of GitHub saw at a glance, before its answers.
+    GithubGlance(std::result::Result<github::Glance, String>),
+    /// A repo's PRs and what they were read at. An empty slug marks the end of a GitHub batch.
+    GithubDone(String, std::result::Result<github::RepoPrs, String>, Option<github::Stamp>),
     /// The PRs that wait on your review anywhere, from the same batch.
-    RequestedDone(std::result::Result<github::Requested, String>),
+    RequestedDone(std::result::Result<github::Requested, String>, Option<github::Stamp>),
     RefreshGithub,
     /// A PR you approved from Codealong, by its slug on the board and its number. The reply is
     /// the time of the board that shows it, published at once.
@@ -535,6 +540,7 @@ pub fn snapshot_pr_card(slug: &str, number: u64) -> Result<PrItem> {
 fn snapshot_engine(with_github: bool, with_usage: bool) -> Engine {
     let (tx, _rx) = channel();
     let mut e = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
+    e.passing = true;
     let t = Instant::now();
     let lap = |label: &str, t: &Instant| eprintln!("  {label:<10} {:>6} ms", t.elapsed().as_millis());
     e.load_config();
@@ -570,25 +576,19 @@ fn snapshot_engine(with_github: bool, with_usage: bool) -> Engine {
     }
     if with_github {
         let slugs: Vec<String> = e.github_slugs().into_iter().collect();
-        let requested = std::thread::spawn(github::fetch_requested);
-        let results = parallel_map(slugs, |slug| {
-            let (owner, name) = slug.split_once('/')?;
-            Some((slug.clone(), github::fetch(owner, name)))
-        });
-        for (slug, result) in results {
-            match result {
-                Ok(repo) => {
+        for answer in github::read_once(&slugs) {
+            match answer {
+                github::Answer::Glance(seen) => e.on_glance(seen),
+                github::Answer::Repo(slug, Ok(repo), _) => {
                     e.prs.insert(slug, repo.prs);
                     if repo.login.is_some() {
                         e.gh_login = repo.login;
                     }
                     e.gh_at = Some(now_ms());
                 }
-                Err(err) => e.gh_warning = Some(err.to_string()),
+                github::Answer::Repo(_, Err(err), _) => e.gh_warning = Some(err),
+                github::Answer::Requested(result, _) => e.on_requested(result),
             }
-        }
-        if let Ok(result) = requested.join() {
-            e.on_requested(result.map_err(|err| err.to_string()));
         }
         lap("github", &t);
     }
@@ -600,6 +600,7 @@ fn snapshot_engine(with_github: bool, with_usage: bool) -> Engine {
 pub fn light_snapshot() -> Board {
     let (tx, _rx) = channel();
     let mut e = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
+    e.passing = true;
     e.load_config();
     e.seen = SeenState::load();
     e.load_todos();
@@ -750,6 +751,16 @@ struct Engine {
     gh_again: bool,
     /// When each GitHub request was sent: the one on its way is the latest.
     gh_last: Option<Instant>,
+    /// What each repo's PRs were read at, by slug, and the search's under `github::REQUESTED`:
+    /// a poll reads again only those whose glance has changed since (github.rs).
+    gh_stamps: HashMap<String, github::Stamp>,
+    /// The next poll reads everything, whatever its glance says (`refetch_github`).
+    gh_all: bool,
+    /// The GraphQL points GitHub said were left, at its glances, for each hour of the account's
+    /// that hasn't ended (`github::Points`): the fewest are what's left.
+    gh_points: Vec<github::Points>,
+    /// GitHub said the account's rate limit is used up: it's left alone until then.
+    gh_hold: Option<Instant>,
     /// PRs you approved here (slug, number) and when, until GitHub is asked after it.
     approved_here: HashMap<(String, u64), Instant>,
     gh_at: Option<i64>,
@@ -759,6 +770,9 @@ struct Engine {
     /// When each slug was last asked about, so one GitHub didn't answer is asked again later.
     repo_names_asked: HashMap<String, Instant>,
     repo_names_inflight: bool,
+    /// An engine for one pass (`--snapshot`, the command without the app): it's gone before
+    /// what it would ask in the background comes back.
+    passing: bool,
     watcher: Option<RecommendedWatcher>,
     watch_warning: Option<String>,
     /// Account folders that didn't exist at the last watch: a new account before sign-in.
@@ -852,6 +866,10 @@ impl Engine {
             requested: HashMap::new(),
             gh_warning: None,
             gh_inflight: false,
+            gh_stamps: HashMap::new(),
+            gh_all: false,
+            gh_points: Vec::new(),
+            gh_hold: None,
             gh_again: false,
             gh_last: None,
             approved_here: HashMap::new(),
@@ -860,6 +878,7 @@ impl Engine {
             repo_names: HashMap::new(),
             repo_names_asked: HashMap::new(),
             repo_names_inflight: false,
+            passing: false,
             watcher: None,
             watch_warning: None,
             missing_homes: Vec::new(),
@@ -1270,8 +1289,15 @@ impl Engine {
                     pending.extend(paths);
                 }
                 Ok(Msg::GitDone(path, info)) => self.on_git(path, info),
-                Ok(Msg::GithubDone(slug, result)) => self.on_github(slug, result),
-                Ok(Msg::RequestedDone(result)) => self.on_requested(result),
+                Ok(Msg::GithubGlance(seen)) => self.on_glance(seen),
+                Ok(Msg::GithubDone(slug, result, stamp)) => {
+                    self.on_read(&slug, result.as_ref().err(), stamp);
+                    self.on_github(slug, result);
+                }
+                Ok(Msg::RequestedDone(result, stamp)) => {
+                    self.on_read(github::REQUESTED, result.as_ref().err(), stamp);
+                    self.on_requested(result);
+                }
                 Ok(Msg::RefreshGithub) => self.fetch_github(false),
                 Ok(Msg::Approved(slug, number, reply)) => {
                     self.on_approved(slug, number);
@@ -1751,37 +1777,85 @@ impl Engine {
         if !force && self.gh_last.map(|t| t.elapsed() < Duration::from_secs(20)).unwrap_or(false) {
             return;
         }
-        let slugs = self.github_slugs();
+        if self.gh_hold.is_some_and(|until| Instant::now() < until) {
+            return;
+        }
         if !self.seeds.iter().any(|s| s.repo_slug.is_some()) {
             return;
         }
+        let now = now_ms();
+        let ask = github::Ask {
+            slugs: self.github_slugs().into_iter().collect(),
+            have: self.gh_stamps.clone(),
+            busy: self.prs.iter().filter(|(_, prs)| github::busy(prs, now)).map(|(slug, _)| slug.clone()).collect(),
+            all: std::mem::take(&mut self.gh_all),
+            thrifty: self.gh_points.iter().any(|p| p.resets > now && p.left < github::RESERVE),
+        };
         self.gh_inflight = true;
         self.gh_last = Some(Instant::now());
         let tx = self.tx.clone();
         std::thread::spawn(move || {
-            // One request per repo and one search for your review requests, all at once; each
-            // result is applied as it lands.
-            std::thread::scope(|scope| {
-                let asked = tx.clone();
-                scope.spawn(move || {
-                    let _ = asked.send(Msg::RequestedDone(github::fetch_requested().map_err(|e| e.to_string())));
+            // A glance at every repo, then one request for each repo it says changed and one
+            // for your review requests, all at once; each result is applied as it lands.
+            github::poll(&ask, &|answer| {
+                let _ = tx.send(match answer {
+                    github::Answer::Glance(seen) => Msg::GithubGlance(seen),
+                    github::Answer::Repo(slug, result, stamp) => Msg::GithubDone(slug, result, stamp),
+                    github::Answer::Requested(result, stamp) => Msg::RequestedDone(result, stamp),
                 });
-                for slug in &slugs {
-                    let tx = tx.clone();
-                    scope.spawn(move || {
-                        let Some((owner, name)) = slug.split_once('/') else { return };
-                        let result = github::fetch(owner, name).map_err(|e| e.to_string());
-                        let _ = tx.send(Msg::GithubDone(slug.clone(), result));
-                    });
-                }
             });
-            let _ = tx.send(Msg::GithubDone(String::new(), Ok(github::RepoPrs::default())));
+            let _ = tx.send(Msg::GithubDone(String::new(), Ok(github::RepoPrs::default()), None));
         });
+    }
+
+    /// What a poll saw at a glance: GitHub answered, so the board is as GitHub has it now
+    /// whether or not anything is read again.
+    fn on_glance(&mut self, seen: std::result::Result<github::Glance, String>) {
+        match seen {
+            Ok(seen) => {
+                if seen.login.is_some() {
+                    self.gh_login = seen.login;
+                }
+                if let Some(points) = seen.points {
+                    let now = now_ms();
+                    self.gh_points.retain(|p| p.resets > now && p.resets != points.resets);
+                    self.gh_points.push(points);
+                }
+                self.gh_hold = None;
+                // A repo GitHub doesn't show you says so next, at every poll.
+                if seen.repos.values().all(Option::is_some) {
+                    self.gh_warning = None;
+                }
+                self.gh_at = Some(now_ms());
+            }
+            Err(e) => {
+                if github::rate_limited(&e) {
+                    self.gh_hold = Some(Instant::now() + GITHUB_HOLD);
+                }
+                self.gh_warning = Some(e);
+            }
+        }
+        self.dirty = true;
+    }
+
+    /// A poll's answer for a repo, or for the search (`github::REQUESTED`): what it was read at
+    /// is noted, so the next polls leave it be until its glance changes. A refusal for want of
+    /// points holds GitHub off, as one of a glance does.
+    fn on_read(&mut self, key: &str, failure: Option<&String>, stamp: Option<github::Stamp>) {
+        match (failure, stamp) {
+            (None, Some(stamp)) => {
+                self.gh_stamps.insert(key.to_string(), stamp);
+            }
+            (Some(e), _) if github::rate_limited(e) => self.gh_hold = Some(Instant::now() + GITHUB_HOLD),
+            _ => {}
+        }
     }
 
     /// Asks GitHub now, or as soon as the request on its way returns, which may have been
     /// answered before a change you just made there.
     fn refetch_github(&mut self) {
+        // What you just did there is read in full: its glance may not have moved yet.
+        self.gh_all = true;
         if self.gh_inflight {
             self.gh_again = true;
         } else {
@@ -1889,7 +1963,7 @@ impl Engine {
     /// an hour for one it didn't answer for. A worktree carries the answer when it isn't the name
     /// its remote has, so your other devices know a renamed repo for the same one (peers.rs).
     fn fetch_repo_names(&mut self) {
-        if self.repo_names_inflight {
+        if self.repo_names_inflight || self.passing {
             return;
         }
         let now = Instant::now();
@@ -3005,6 +3079,54 @@ mod tests {
     }
 
     #[test]
+    fn github_is_left_alone_once_its_points_are_gone() {
+        use super::*;
+        let (tx, _rx) = channel();
+        let mut engine = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
+        let stamp = github::Stamp { glance: "a".into(), at: 1 };
+
+        // A glance: GitHub answered, whatever is read after it.
+        engine.gh_warning = Some("GitHub: couldn't load PRs for a/b".into());
+        let now = now_ms();
+        let points = |left: u64, resets: i64| Some(github::Points { left, resets: now + resets });
+        engine.on_glance(Ok(github::Glance { login: Some("ghempton".into()), points: points(120, 60_000), ..github::Glance::default() }));
+        assert_eq!((engine.gh_warning.as_deref(), engine.gh_login.as_deref()), (None, Some("ghempton")));
+        assert!(engine.gh_at.is_some());
+        // GitHub's other counter answers, with plenty left; then the first again, with fewer.
+        // What's left is the fewest, until that hour ends.
+        engine.on_glance(Ok(github::Glance { points: points(4800, 1_800_000), ..github::Glance::default() }));
+        engine.on_glance(Ok(github::Glance { points: Some(github::Points { left: 110, resets: engine.gh_points[0].resets }), ..github::Glance::default() }));
+        engine.gh_points.sort_by_key(|p| p.left);
+        assert_eq!(engine.gh_points.iter().map(|p| p.left).collect::<Vec<_>>(), vec![110, 4800]);
+        // A counter whose hour has ended is forgotten at the next glance.
+        engine.gh_points[0].resets = now_ms() - 1;
+        engine.on_glance(Ok(github::Glance { points: points(4790, 1_800_000), ..github::Glance::default() }));
+        assert_eq!(engine.gh_points.iter().map(|p| p.left).collect::<Vec<_>>(), vec![4790]);
+        // A repo GitHub doesn't show you: its failure, which comes next, isn't cleared first.
+        engine.gh_warning = Some("GitHub: couldn't load PRs for a/b".into());
+        engine.on_glance(Ok(github::Glance { repos: HashMap::from([("a/b".to_string(), None)]), ..github::Glance::default() }));
+        assert!(engine.gh_warning.is_some());
+
+        // What an answer was read at is noted; a failure keeps the one before.
+        engine.on_read("a/b", None, Some(stamp.clone()));
+        engine.on_read("a/b", Some(&"GitHub: couldn't load PRs for a/b".to_string()), None);
+        assert_eq!(engine.gh_stamps.get("a/b"), Some(&stamp));
+        assert!(engine.gh_hold.is_none());
+
+        // Out of points, said by a glance or by a read: GitHub is left alone for a while.
+        let refused = github::failed_for_test("gh gh: API rate limit exceeded for user ID 1.");
+        engine.on_read("a/b", Some(&refused), None);
+        assert!(engine.gh_hold.is_some_and(|until| until > Instant::now()));
+        engine.gh_hold = None;
+        engine.on_glance(Err(refused.clone()));
+        assert!(engine.gh_hold.is_some());
+        assert_eq!(engine.gh_warning.as_deref(), Some(refused.as_str()));
+        // And the next glance that's answered ends that.
+        engine.on_glance(Ok(github::Glance::default()));
+        assert!(engine.gh_hold.is_none() && engine.gh_warning.is_none());
+    }
+
+    #[test]
     fn worktrees_carry_what_github_calls_a_renamed_repo_now() {
         use super::*;
 
@@ -3071,6 +3193,7 @@ mod tests {
         assert!(!asked(&engine), "an answer asked for before the approval doesn't bring it back");
         engine.on_github(String::new(), Ok(github::RepoPrs::default()));
         assert!(!engine.gh_again);
+        assert!(engine.gh_all, "and everything is read then, whatever its glance says");
 
         // An answer asked for after it is GitHub's word, a new request included.
         engine.gh_last = Some(Instant::now());

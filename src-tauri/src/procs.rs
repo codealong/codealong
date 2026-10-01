@@ -409,7 +409,29 @@ pub fn utility_thread() {
     }
 }
 
+/// What a program printed, whether or not it succeeded.
+pub struct Output {
+    pub ok: bool,
+    pub out: String,
+    pub err: String,
+}
+
+/// `run`, for a program whose output is worth reading when it fails: `gh api graphql` exits
+/// with an error when any part of a query failed, and still prints the parts that didn't.
+pub fn run_output(program: &str, args: &[&str], cwd: Option<&Path>, timeout: Duration) -> Result<Output> {
+    output_with_path(program, args, cwd, timeout, user_path(), false)
+}
+
 fn run_with_path(program: &str, args: &[&str], cwd: Option<&Path>, timeout: Duration, path: &str, background: bool) -> Result<String> {
+    let o = output_with_path(program, args, cwd, timeout, path, background)?;
+    if o.ok {
+        Ok(o.out)
+    } else {
+        Err(anyhow!("{} {}", program, o.err.trim()))
+    }
+}
+
+fn output_with_path(program: &str, args: &[&str], cwd: Option<&Path>, timeout: Duration, path: &str, background: bool) -> Result<Output> {
     let mut cmd = Command::new(program);
     if background {
         use std::os::unix::process::CommandExt;
@@ -461,11 +483,7 @@ fn run_with_path(program: &str, args: &[&str], cwd: Option<&Path>, timeout: Dura
     };
     let out = String::from_utf8_lossy(&out_reader.join().unwrap_or_default()).into_owned();
     let err = String::from_utf8_lossy(&err_reader.join().unwrap_or_default()).into_owned();
-    if status.success() {
-        Ok(out)
-    } else {
-        Err(anyhow!("{} {}", program, err.trim()))
-    }
+    Ok(Output { ok: status.success(), out, err })
 }
 
 /// Runs a program with input on stdin (used for AppleScript).

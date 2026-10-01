@@ -2,14 +2,16 @@
 //! PRs that wait on your review wherever they are. Uses your existing `gh` sign-in; Codealong
 //! never handles a GitHub token itself.
 
-use std::time::Duration;
+use std::collections::{BTreeSet, HashMap};
+use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime};
 
 use anyhow::{anyhow, Result};
 use serde_json::Value;
 
 use crate::model::{Checks, Merge, PrState};
 use crate::procs;
-use crate::util::parse_rfc3339_ms;
+use crate::util::{now_ms, parse_rfc3339_ms};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct PrRaw {
@@ -123,29 +125,31 @@ fn slug_of(out: &str) -> Option<String> {
     (part(owner) && part(repo)).then(|| name.to_string())
 }
 
-pub fn fetch(owner: &str, name: &str) -> Result<RepoPrs> {
+/// A repo's PRs as GitHub answers (`QUERY`), for `parse`.
+fn fetch_text(owner: &str, name: &str) -> Result<String> {
     let owner_arg = format!("owner={owner}");
     let name_arg = format!("name={name}");
     let query_arg = format!("query={QUERY}{PR_FIELDS}{ASKED_FIELDS}");
     let requested_arg = format!("requested=repo:{owner}/{name} is:pr is:open review-requested:@me");
-    let out = procs::run(
+    procs::run(
         "gh",
         &["api", "graphql", "-f", &query_arg, "-f", &owner_arg, "-f", &name_arg, "-f", &requested_arg],
         None,
         Duration::from_secs(30),
     )
-    .map_err(|e| failed(e, &format!("PRs for {owner}/{name}")))?;
-    parse(&out)
+    .map_err(|e| failed(e, &format!("PRs for {owner}/{name}")))
 }
 
-/// The open PRs that wait on your review, wherever they are (`REQUESTED_QUERY`).
-pub fn fetch_requested() -> Result<Requested> {
+/// The open PRs that wait on your review, wherever they are (`REQUESTED_QUERY`), as GitHub
+/// answers, for `parse_requested`.
+fn fetch_requested_text() -> Result<String> {
     let query_arg = format!("query={REQUESTED_QUERY}{PR_FIELDS}{ASKED_FIELDS}");
-    let requested_arg = "requested=is:pr is:open archived:false review-requested:@me sort:updated-desc";
-    let out = procs::run("gh", &["api", "graphql", "-f", &query_arg, "-f", requested_arg], None, Duration::from_secs(30))
-        .map_err(|e| failed(e, "the PRs that wait on your review"))?;
-    parse_requested(&out)
+    let requested_arg = format!("requested={REQUESTED_SEARCH}");
+    procs::run("gh", &["api", "graphql", "-f", &query_arg, "-f", &requested_arg], None, Duration::from_secs(30))
+        .map_err(|e| failed(e, "the PRs that wait on your review"))
 }
+
+const REQUESTED_SEARCH: &str = "is:pr is:open archived:false review-requested:@me sort:updated-desc";
 
 /// What a failed `gh` call for `what` says on the board.
 fn failed(e: anyhow::Error, what: &str) -> anyhow::Error {
@@ -154,9 +158,24 @@ fn failed(e: anyhow::Error, what: &str) -> anyhow::Error {
         anyhow!("GitHub: install the gh CLI and sign in with `gh auth login` to see PRs")
     } else if msg.contains("auth login") || msg.contains("401") {
         anyhow!("GitHub: sign in again with `gh auth login` to see PRs")
+    } else if msg.to_lowercase().contains("rate limit") {
+        anyhow!("{RATE_LIMITED}")
     } else {
         anyhow!("GitHub: couldn't load {what}")
     }
+}
+
+/// What the board says when `gh` fails with `message`, for the engine's tests.
+#[cfg(test)]
+pub fn failed_for_test(message: &str) -> String {
+    failed(anyhow!("{message}"), "PRs").to_string()
+}
+
+const RATE_LIMITED: &str = "GitHub: your account's rate limit is used up, so PRs wait until it resets";
+
+/// Whether a failure (as `failed` words it) is GitHub saying the account has no requests left.
+pub fn rate_limited(warning: &str) -> bool {
+    warning == RATE_LIMITED
 }
 
 /// One PR, as the board reads PRs, for a link to one the board doesn't list; and who `gh` is
@@ -311,6 +330,384 @@ fn parse_pr(n: &Value) -> Option<PrRaw> {
         review_requested: false,
         requested_by: None,
     })
+}
+
+// ---- Asking only for what changed ----
+//
+// GitHub gives an account 5,000 GraphQL points an hour, and charges a query for the connections
+// it could return, not for what comes back: a repo's PRs (`QUERY`) are 5 points whether it has a
+// hundred open PRs or none. Asked of seven repos every minute that was 2,200 points an hour
+// from the app alone, and 37 more for every `--snapshot` (each preview takes one), which left
+// none for `gh` itself (2026-10-01). So a poll first takes a glance: one query for every repo,
+// a point for each `GLANCE_REPOS` of them, that reads only what tells a change. A repo's PRs
+// are read in full when its glance isn't the one they were read at, while its checks run, and
+// every `RESYNC_MS`. Each answer is kept on disk with its glance, so the next engine to start
+// (the app after a relaunch, a snapshot) reads from GitHub only what changed since.
+
+/// Repos a glance asks about in one query. Their open PRs' merge states are what takes the
+/// time (40 ms each; seven repos with 37 open PRs answered in 4 s), and GitHub gives a query 10.
+const GLANCE_REPOS: usize = 8;
+/// An answer whose glance hasn't changed is still read again this often, for what a glance
+/// doesn't tell.
+const RESYNC_MS: i64 = 10 * 60 * 1000;
+/// While a repo's checks run, its PRs are read at every poll, which come a minute apart: how
+/// many have passed changes without the glance saying so.
+const BUSY_MS: i64 = 45 * 1000;
+/// Checks still pending this long after their PR last changed are waiting on someone, or stuck.
+const BUSY_FOR_MS: i64 = 60 * 60 * 1000;
+/// With fewer points than this left in the hour, only a changed glance gets anything read: the
+/// rest are for `gh`, which you and your agents use too.
+pub const RESERVE: u64 = 500;
+/// Kept answers that an engine which polls confirmed this lately are a snapshot's answers.
+const FRESH: Duration = Duration::from_secs(150);
+
+/// The key the search for PRs that wait on your review goes by, among stamps and kept answers.
+/// A repo's is its slug, which has a slash.
+pub const REQUESTED: &str = "requested";
+
+/// What an answer was read at: its glance then, and when. The glance is empty for an answer
+/// read when GitHub gave none.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Stamp {
+    pub glance: String,
+    pub at: i64,
+}
+
+/// What a glance saw.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Glance {
+    pub login: Option<String>,
+    /// Each repo's mark by slug, which changes when its PRs do. None for a repo GitHub doesn't
+    /// show you; a repo whose query failed isn't listed.
+    pub repos: HashMap<String, Option<String>>,
+    /// The mark of the search for PRs that wait on your review.
+    pub requested: String,
+    pub points: Option<Points>,
+}
+
+/// GraphQL points left in an hour of the account's, and when that hour ends. GitHub counts on
+/// more than one counter, each with an hour of its own: one query in ten was answered from a
+/// second one that had hardly been used (2026-10-01).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Points {
+    pub left: u64,
+    pub resets: i64,
+}
+
+/// What tells that a repo's PRs changed: an open PR's `updatedAt` moves with its commits,
+/// comments, reviews and review requests, its checks' state and merge state move by themselves,
+/// and anything that happens to a closed PR makes it the latest updated one.
+const GLANCE_FIELDS: &str = r#"
+fragment glance on Repository {
+  open: pullRequests(states: OPEN, first: 100, orderBy: {field: UPDATED_AT, direction: DESC}) { nodes { number updatedAt headRefOid isDraft reviewDecision mergeStateStatus statusCheckRollup { state } } }
+  done: pullRequests(states: [MERGED, CLOSED], first: 1, orderBy: {field: UPDATED_AT, direction: DESC}) { nodes { number updatedAt } }
+}
+"#;
+
+fn glance_query(repos: usize) -> String {
+    let vars: String = (0..repos).map(|i| format!(", $o{i}: String!, $n{i}: String!")).collect();
+    let fields: String = (0..repos).map(|i| format!("  r{i}: repository(owner: $o{i}, name: $n{i}) {{ ...glance }}\n")).collect();
+    // GitHub refuses a query with a fragment it doesn't use.
+    let fragment = if repos > 0 { GLANCE_FIELDS } else { "" };
+    format!(
+        "query($requested: String!{vars}) {{\n  viewer {{ login }}\n  rateLimit {{ remaining resetAt }}\n{fields}  search(query: $requested, type: ISSUE, first: 50) {{ nodes {{ ... on PullRequest {{ number updatedAt repository {{ nameWithOwner }} }} }} }}\n}}\n{fragment}"
+    )
+}
+
+/// A glance at every repo, `GLANCE_REPOS` to a query, asked at once. It fails only when no
+/// query was answered.
+pub fn glance(slugs: &[String]) -> Result<Glance> {
+    let groups: Vec<&[String]> = if slugs.is_empty() { vec![slugs] } else { slugs.chunks(GLANCE_REPOS).collect() };
+    let answers: Vec<Result<Glance>> = std::thread::scope(|scope| {
+        let asked: Vec<_> = groups.iter().map(|group| scope.spawn(move || glance_some(group))).collect();
+        asked.into_iter().map(|a| a.join().unwrap_or_else(|_| Err(anyhow!("GitHub: couldn't load PRs")))).collect()
+    });
+    let mut seen: Option<Glance> = None;
+    let mut failure = None;
+    for answer in answers {
+        match (answer, &mut seen) {
+            (Ok(g), None) => seen = Some(g),
+            (Ok(g), Some(all)) => {
+                all.repos.extend(g.repos);
+                all.points = [all.points, g.points].into_iter().flatten().min_by_key(|p| p.left);
+            }
+            (Err(e), _) => failure = failure.or(Some(e)),
+        }
+    }
+    seen.ok_or_else(|| failure.unwrap_or_else(|| anyhow!("GitHub: couldn't load PRs")))
+}
+
+fn glance_some(slugs: &[String]) -> Result<Glance> {
+    let mut fields = vec![format!("query={}", glance_query(slugs.len())), format!("requested={REQUESTED_SEARCH}")];
+    for (i, slug) in slugs.iter().enumerate() {
+        let (owner, name) = slug.split_once('/').unwrap_or((slug, ""));
+        fields.push(format!("o{i}={owner}"));
+        fields.push(format!("n{i}={name}"));
+    }
+    let mut args = vec!["api", "graphql"];
+    for field in &fields {
+        args.extend(["-f", field.as_str()]);
+    }
+    let o = procs::run_output("gh", &args, None, Duration::from_secs(30)).map_err(|e| failed(e, "PRs"))?;
+    // A repo GitHub doesn't show you fails the command, with the others answered. With nothing
+    // answered, why is in what it printed: a refusal for want of points comes as an error in
+    // the answer.
+    parse_glance(&o.out, slugs).map_err(|_| failed(anyhow!("gh {} {}", o.err.trim(), o.out.chars().take(400).collect::<String>()), "PRs"))
+}
+
+pub fn parse_glance(json: &str, slugs: &[String]) -> Result<Glance> {
+    let v: Value = serde_json::from_str(json)?;
+    let data = v.get("data").filter(|d| d.is_object()).ok_or_else(|| anyhow!("no data in response"))?;
+    let search = data.get("search").filter(|s| !s.is_null()).ok_or_else(|| anyhow!("no search in response"))?;
+    let login = data.pointer("/viewer/login").and_then(Value::as_str);
+    // Whose glance it is counts: another sign-in sees other requests.
+    let who = login.unwrap_or("");
+    let waiting: Vec<(String, u64)> = search
+        .get("nodes")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|n| Some((n.pointer("/repository/nameWithOwner")?.as_str()?.to_lowercase(), n.get("number")?.as_u64()?)))
+        .collect();
+    let repos = slugs
+        .iter()
+        .enumerate()
+        .filter_map(|(i, slug)| {
+            let repo = data.get(format!("r{i}").as_str())?;
+            if repo.is_null() {
+                return Some((slug.clone(), None));
+            }
+            // A PR that starts to wait on your review through a team changes only the search.
+            let lower = slug.to_lowercase();
+            let asked: Vec<String> = waiting.iter().filter(|(s, _)| *s == lower).map(|(_, n)| n.to_string()).collect();
+            Some((slug.clone(), Some(mark(&[who, &repo.to_string(), &asked.join(",")]))))
+        })
+        .collect();
+    Ok(Glance {
+        login: login.map(String::from),
+        repos,
+        requested: mark(&[who, &search.to_string()]),
+        points: data.get("rateLimit").and_then(|r| Some(Points { left: r.get("remaining")?.as_u64()?, resets: parse_rfc3339_ms(r.get("resetAt")?.as_str()?)? })),
+    })
+}
+
+/// A short mark of what a glance read. It's compared only with marks this build made: one
+/// from another build that differs costs a read.
+fn mark(parts: &[&str]) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    parts.hash(&mut h);
+    format!("{:016x}", h.finish())
+}
+
+/// Whether a repo's checks are running: an open PR with some pending that changed lately.
+pub fn busy(prs: &[PrRaw], now: i64) -> bool {
+    prs.iter().any(|p| p.state.is_open() && p.checks.pending > 0 && now - p.updated_at < BUSY_FOR_MS)
+}
+
+/// Whether an answer read at `stamp` still stands when the glance is `glance`.
+fn stands(stamp: &Stamp, glance: &str, busy: bool, thrifty: bool, now: i64) -> bool {
+    stamp.glance == glance && (thrifty || now - stamp.at < if busy { BUSY_MS } else { RESYNC_MS })
+}
+
+/// What a poll goes by.
+#[derive(Debug, Clone, Default)]
+pub struct Ask {
+    pub slugs: Vec<String>,
+    /// What the asker's answers were read at, by slug, the search's under `REQUESTED`.
+    pub have: HashMap<String, Stamp>,
+    /// The repos whose checks are running (`busy`).
+    pub busy: BTreeSet<String>,
+    /// Read everything, whatever the glance says: after something you did on GitHub from here.
+    pub all: bool,
+    /// Few points are left this hour (`RESERVE`), by what the asker has heard: only a changed
+    /// glance gets a repo read. The poll's own glance can say so too.
+    pub thrifty: bool,
+}
+
+/// What a poll brings, as it comes.
+pub enum Answer {
+    /// First: the glance, or why GitHub gave none.
+    Glance(std::result::Result<Glance, String>),
+    /// A repo's PRs, read from GitHub or as kept, and what they were read at.
+    Repo(String, std::result::Result<RepoPrs, String>, Option<Stamp>),
+    Requested(std::result::Result<Requested, String>, Option<Stamp>),
+}
+
+/// One poll: a glance, then the PRs of each repo whose answer no longer stands, and the search
+/// likewise, all at once. Nothing comes for an answer that stands.
+pub fn poll(ask: &Ask, on: &(dyn Fn(Answer) + Sync)) {
+    poll_in(&saved_dir(), ask, on)
+}
+
+fn poll_in(dir: &Path, ask: &Ask, on: &(dyn Fn(Answer) + Sync)) {
+    let now = now_ms();
+    let seen = glance(&ask.slugs).map_err(|e| e.to_string());
+    // Out of points: the reads would be refused too. An asker with nothing gets what's kept,
+    // however old, and then hears why it's no newer.
+    if seen.as_ref().is_err_and(|e| rate_limited(e)) {
+        for key in ask.slugs.iter().map(String::as_str).chain([REQUESTED]).filter(|key| !ask.have.contains_key(*key)) {
+            if let Some(answer) = saved(dir, key).and_then(|kept| kept_answer(key, kept)) {
+                on(answer);
+            }
+        }
+        return on(Answer::Glance(seen));
+    }
+    let glance = seen.as_ref().ok().cloned();
+    on(Answer::Glance(seen));
+    let glance = glance.as_ref();
+    let short = glance.and_then(|g| g.points).is_some_and(|p| p.left < RESERVE);
+    let ask = &Ask { thrifty: ask.thrifty || short, ..ask.clone() };
+    std::thread::scope(|scope| {
+        scope.spawn(move || {
+            let read = read(dir, ask, REQUESTED, glance.map(|g| g.requested.as_str()), now, &fetch_requested_text, &parse_requested, &|_| false);
+            if let Some((result, stamp)) = read {
+                on(Answer::Requested(result, stamp));
+            }
+        });
+        for slug in &ask.slugs {
+            scope.spawn(move || {
+                let mark = match glance.map(|g| g.repos.get(slug)) {
+                    Some(Some(None)) => return on(Answer::Repo(slug.clone(), Err(format!("GitHub: couldn't load PRs for {slug}")), None)),
+                    Some(Some(Some(mark))) => Some(mark.as_str()),
+                    _ => None,
+                };
+                let Some((owner, name)) = slug.split_once('/') else { return };
+                let read = read(dir, ask, slug, mark, now, &|| fetch_text(owner, name), &parse, &|repo: &RepoPrs| busy(&repo.prs, now));
+                if let Some((result, stamp)) = read {
+                    on(Answer::Repo(slug.clone(), result, stamp));
+                }
+            });
+        }
+    });
+}
+
+/// One answer of a poll. None when what the asker has stands; else the kept answer when that
+/// stands, else GitHub's, asked now and kept. `mark` is its glance, None when GitHub gave none.
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+fn read<T>(
+    dir: &Path,
+    ask: &Ask,
+    key: &str,
+    mark: Option<&str>,
+    now: i64,
+    fetch: &dyn Fn() -> Result<String>,
+    parse: &dyn Fn(&str) -> Result<T>,
+    busy: &dyn Fn(&T) -> bool,
+) -> Option<(std::result::Result<T, String>, Option<Stamp>)> {
+    if !ask.all {
+        match (ask.have.get(key), mark) {
+            (Some(have), Some(mark)) if stands(have, mark, ask.busy.contains(key), ask.thrifty, now) => {
+                confirm(dir, key);
+                return None;
+            }
+            // Without a glance, what's had stands until it would be read again anyway.
+            (Some(have), None) if now - have.at < RESYNC_MS => return None,
+            _ => {}
+        }
+        if let (Some(mark), Some(kept)) = (mark, saved(dir, key)) {
+            if let Ok(answer) = parse(&kept.answer) {
+                if stands(&kept.stamp, mark, ask.busy.contains(key) || busy(&answer), ask.thrifty, now) {
+                    confirm(dir, key);
+                    return Some((Ok(answer), Some(kept.stamp)));
+                }
+            }
+        }
+    }
+    let stamp = Stamp { glance: mark.unwrap_or_default().to_string(), at: now };
+    let read = fetch().and_then(|text| {
+        let answer = parse(&text)?;
+        if mark.is_some() {
+            save(dir, key, &stamp, &text);
+        }
+        Ok(answer)
+    });
+    Some(match read {
+        Ok(answer) => (Ok(answer), Some(stamp)),
+        Err(e) => (Err(e.to_string()), None),
+    })
+}
+
+/// Everything a poll would bring, for an engine that starts with nothing and doesn't stay
+/// (`--snapshot`): the kept answers when an engine that polls confirmed them all lately, which
+/// asks GitHub nothing, else a poll.
+pub fn read_once(slugs: &[String]) -> Vec<Answer> {
+    let dir = saved_dir();
+    if let Some(kept) = fresh(&dir, slugs, SystemTime::now()) {
+        return kept;
+    }
+    let answers = std::sync::Mutex::new(Vec::new());
+    let ask = Ask { slugs: slugs.to_vec(), ..Ask::default() };
+    poll_in(&dir, &ask, &|answer| {
+        if let Ok(mut all) = answers.lock() {
+            all.push(answer);
+        }
+    });
+    answers.into_inner().unwrap_or_default()
+}
+
+fn fresh(dir: &Path, slugs: &[String], now: SystemTime) -> Option<Vec<Answer>> {
+    let lately = |key: &str| saved(dir, key).filter(|kept| now.duration_since(kept.stood).is_ok_and(|d| d < FRESH)).and_then(|kept| kept_answer(key, kept));
+    let mut answers = vec![lately(REQUESTED)?];
+    for slug in slugs {
+        answers.push(lately(slug)?);
+    }
+    Some(answers)
+}
+
+/// A kept answer as a poll's.
+fn kept_answer(key: &str, kept: Saved) -> Option<Answer> {
+    Some(match key {
+        REQUESTED => Answer::Requested(Ok(parse_requested(&kept.answer).ok()?), Some(kept.stamp)),
+        slug => Answer::Repo(slug.to_string(), Ok(parse(&kept.answer).ok()?), Some(kept.stamp)),
+    })
+}
+
+/// An answer kept on disk as GitHub gave it, and when it last stood: the file's time, which
+/// `confirm` moves.
+struct Saved {
+    stamp: Stamp,
+    answer: String,
+    stood: SystemTime,
+}
+
+/// A cache: macOS may clear it, and a copy of the app with a home of its own has its own.
+fn saved_dir() -> PathBuf {
+    crate::util::home().join("Library/Caches/Codealong/github")
+}
+
+fn saved_path(dir: &Path, key: &str) -> PathBuf {
+    let name: String = key.to_lowercase().chars().map(|c| if c.is_ascii_alphanumeric() || "-_.".contains(c) { c } else { '~' }).collect();
+    dir.join(format!("{name}.json"))
+}
+
+fn saved(dir: &Path, key: &str) -> Option<Saved> {
+    let path = saved_path(dir, key);
+    let stood = std::fs::metadata(&path).ok()?.modified().ok()?;
+    let v: Value = serde_json::from_str(&std::fs::read_to_string(&path).ok()?).ok()?;
+    let stamp = Stamp { glance: v.get("glance")?.as_str()?.to_string(), at: v.get("at")?.as_i64()? };
+    Some(Saved { stamp, answer: v.get("answer")?.as_str()?.to_string(), stood })
+}
+
+/// Keeps an answer, in one step, readable only by you: it has private repos' PRs.
+fn save(dir: &Path, key: &str, stamp: &Stamp, answer: &str) {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    let path = saved_path(dir, key);
+    let part = path.with_extension(format!("{}.part", std::process::id()));
+    let text = serde_json::json!({ "glance": stamp.glance, "at": stamp.at, "answer": answer }).to_string();
+    let _ = std::fs::create_dir_all(dir);
+    let wrote = std::fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(&part).and_then(|mut f| f.write_all(text.as_bytes()));
+    if wrote.and_then(|_| std::fs::rename(&part, &path)).is_err() {
+        let _ = std::fs::remove_file(&part);
+    }
+}
+
+/// Says a kept answer still stands now.
+fn confirm(dir: &Path, key: &str) {
+    if let Ok(f) = std::fs::File::options().write(true).open(saved_path(dir, key)) {
+        let _ = f.set_modified(SystemTime::now());
+    }
 }
 
 // ---- One PR, for its detail panel ----
@@ -551,9 +948,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn parses_prs_and_checks() {
-        let json = r#"{"data":{"viewer":{"login":"ghempton"},"requested":{"nodes":[{"number":1037}]},"repository":{
+    /// A repo's PRs as GitHub answers: an open one whose checks are running, and a merged one.
+    const PRS: &str = r#"{"data":{"viewer":{"login":"ghempton"},"requested":{"nodes":[{"number":1037}]},"repository":{
           "open":{"nodes":[{"number":1037,"title":"Let the agent add and caption project photos","url":"https://github.com/northwindai/atlas/pull/1037","state":"OPEN","isDraft":false,"reviewDecision":"APPROVED","mergeStateStatus":"UNSTABLE","updatedAt":"2026-09-23T20:00:00Z","mergedAt":null,"closedAt":null,"headRefName":"quarry","headRefOid":"0ef4ed2","headRepositoryOwner":{"login":"ghempton"},
              "commits":{"nodes":[{"commit":{"statusCheckRollup":{"contexts":{"nodes":[
                {"__typename":"CheckRun","name":"server:test","status":"COMPLETED","conclusion":"SUCCESS"},
@@ -562,7 +958,212 @@ mod tests {
                {"__typename":"CheckRun","name":"deploy","status":"COMPLETED","conclusion":"SKIPPED"},
                {"__typename":"StatusContext","context":"vercel","state":"SUCCESS"}]}}}}]}}]},
           "done":{"nodes":[{"number":1016,"title":"Prevent page shifts","url":"u","state":"MERGED","isDraft":false,"reviewDecision":"APPROVED","updatedAt":"2026-09-23T18:00:00Z","mergedAt":"2026-09-23T18:00:00Z","closedAt":"2026-09-23T18:00:00Z","headRefName":"app6","headRepositoryOwner":{"login":"ghempton"},"commits":{"nodes":[]}}]}}}}"#;
-        let repo = parse(json).unwrap();
+
+    const GLANCE: &str = r#"{"data":{"viewer":{"login":"ghempton"},"rateLimit":{"remaining":4321,"resetAt":"2026-10-01T22:43:32Z"},
+      "r0":{"open":{"nodes":[{"number":1037,"updatedAt":"2026-09-23T20:00:00Z","headRefOid":"0ef4ed2","isDraft":false,"reviewDecision":"APPROVED","mergeStateStatus":"CLEAN","statusCheckRollup":{"state":"SUCCESS"}}]},"done":{"nodes":[{"number":1016,"updatedAt":"2026-09-23T18:00:00Z"}]}},
+      "r1":{"open":{"nodes":[]},"done":{"nodes":[]}},
+      "r2":null,
+      "search":{"nodes":[{"number":7,"updatedAt":"2026-09-23T19:00:00Z","repository":{"nameWithOwner":"Kestrelhq/Kestrel"}}]}},
+      "errors":[{"type":"NOT_FOUND","path":["r2"],"message":"Could not resolve to a Repository with the name 'gone/gone'."}]}"#;
+
+    fn slugs() -> Vec<String> {
+        vec!["northwindai/atlas".into(), "kestrelhq/kestrel".into(), "gone/gone".into()]
+    }
+
+    #[test]
+    fn a_glance_marks_each_repo_and_changes_with_its_prs() {
+        let seen = parse_glance(GLANCE, &slugs()).unwrap();
+        assert_eq!(seen.login.as_deref(), Some("ghempton"));
+        assert_eq!(seen.points.map(|p| (p.left, p.resets)), Some((4321, parse_rfc3339_ms("2026-10-01T22:43:32Z").unwrap())));
+        assert_eq!(seen.repos["gone/gone"], None, "a repo GitHub doesn't show you");
+        let mark = |g: &Glance, slug: &str| g.repos[slug].clone().unwrap();
+        assert_eq!(parse_glance(GLANCE, &slugs()).unwrap(), seen, "the same answer, the same marks");
+
+        // A PR's checks finish: only its repo's mark moves.
+        let checked = parse_glance(&GLANCE.replace(r#"{"state":"SUCCESS"}"#, r#"{"state":"FAILURE"}"#), &slugs()).unwrap();
+        assert_ne!(mark(&checked, "northwindai/atlas"), mark(&seen, "northwindai/atlas"));
+        assert_eq!(mark(&checked, "kestrelhq/kestrel"), mark(&seen, "kestrelhq/kestrel"));
+        assert_eq!(checked.requested, seen.requested);
+
+        // A closed PR changes: it's the latest updated one.
+        let closed = parse_glance(&GLANCE.replace("2026-09-23T18:00:00Z", "2026-09-23T18:30:00Z"), &slugs()).unwrap();
+        assert_ne!(mark(&closed, "northwindai/atlas"), mark(&seen, "northwindai/atlas"));
+
+        // The search lists another PR of a repo, as it does when a team you're on is asked:
+        // the search's mark moves, and that repo's, whatever case its name is in.
+        let asked = parse_glance(&GLANCE.replace(r#""number":7,"#, r#""number":8,"#), &slugs()).unwrap();
+        assert_ne!(asked.requested, seen.requested);
+        assert_ne!(mark(&asked, "kestrelhq/kestrel"), mark(&seen, "kestrelhq/kestrel"));
+        assert_eq!(mark(&asked, "northwindai/atlas"), mark(&seen, "northwindai/atlas"));
+
+        // Another sign-in sees other requests.
+        let other = parse_glance(&GLANCE.replace("ghempton", "someone"), &slugs()).unwrap();
+        assert_ne!(mark(&other, "kestrelhq/kestrel"), mark(&seen, "kestrelhq/kestrel"));
+    }
+
+    #[test]
+    fn a_glance_needs_github_to_have_answered() {
+        // Out of points: errors and no data.
+        assert!(parse_glance(r#"{"errors":[{"type":"RATE_LIMITED","message":"API rate limit exceeded for user ID 1."}]}"#, &slugs()).is_err());
+        assert!(parse_glance("", &slugs()).is_err());
+        let said = failed(anyhow!("gh gh: API rate limit exceeded for user ID 1."), "PRs").to_string();
+        assert!(rate_limited(&said), "{said}");
+        assert!(rate_limited(&failed(anyhow!("gh gh: You have exceeded a secondary rate limit."), "PRs").to_string()));
+        assert!(!rate_limited(&failed(anyhow!("gh timed out after 30s"), "PRs").to_string()));
+    }
+
+    #[test]
+    fn a_glance_query_names_each_repo() {
+        let none = glance_query(0);
+        assert!(!none.contains("fragment") && none.contains("search(") && none.contains("query($requested: String!)"), "{none}");
+        let two = glance_query(2);
+        assert!(two.contains("$o1: String!, $n1: String!") && two.contains("r1: repository(owner: $o1, name: $n1) { ...glance }") && two.contains("fragment glance"), "{two}");
+    }
+
+    #[test]
+    fn an_answer_stands_while_its_glance_does() {
+        let now = 1_000_000_000;
+        let stamp = Stamp { glance: "a".into(), at: now - 60_000 };
+        assert!(stands(&stamp, "a", false, false, now));
+        assert!(!stands(&stamp, "b", false, false, now), "the repo's PRs changed");
+        assert!(!stands(&stamp, "a", true, false, now), "its checks are running");
+        assert!(stands(&Stamp { at: now - 20_000, ..stamp.clone() }, "a", true, false, now), "but it was just read");
+        let old = Stamp { glance: "a".into(), at: now - RESYNC_MS };
+        assert!(!stands(&old, "a", false, false, now), "read again every so often");
+        assert!(stands(&old, "a", true, true, now), "unless points are short");
+        assert!(!stands(&old, "b", true, true, now));
+        // Read when GitHub gave no glance.
+        assert!(!stands(&Stamp { glance: String::new(), at: now }, "a", false, false, now));
+    }
+
+    #[test]
+    fn checks_keep_a_repo_busy_for_a_while() {
+        let now = 1_000_000_000_000;
+        let prs = parse(PRS).unwrap().prs;
+        let pending = |updated_at: i64, state: PrState| vec![PrRaw { checks: Checks { pending: 1, ..Checks::default() }, updated_at, state, ..prs[0].clone() }];
+        assert!(busy(&pending(now - 60_000, PrState::Open), now));
+        assert!(!busy(&pending(now - BUSY_FOR_MS, PrState::Open), now), "pending since long ago: stuck, or waiting on someone");
+        assert!(!busy(&pending(now - 60_000, PrState::Merged), now));
+        assert!(!busy(&[PrRaw { checks: Checks::default(), updated_at: now, ..prs[0].clone() }], now));
+    }
+
+    fn scratch(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("codealong-github-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        dir
+    }
+
+    /// `read` for a repo, with GitHub answering `PRS` and counting how often it's asked.
+    fn read_repo(dir: &Path, ask: &Ask, mark: Option<&str>, now: i64, asked: &std::cell::Cell<u32>) -> Option<(std::result::Result<RepoPrs, String>, Option<Stamp>)> {
+        read(dir, ask, "northwindai/atlas", mark, now, &|| {
+            asked.set(asked.get() + 1);
+            Ok(PRS.to_string())
+        }, &parse, &|repo: &RepoPrs| busy(&repo.prs, now))
+    }
+
+    #[test]
+    fn a_poll_reads_a_repo_only_when_its_glance_changed() {
+        let dir = scratch("read");
+        let asked = std::cell::Cell::new(0);
+        // Long after the PR in `PRS` last changed: its pending check keeps nothing busy.
+        let now = 1_795_000_000_000;
+        let slug = "northwindai/atlas";
+        let mut ask = Ask { slugs: vec![slug.into()], ..Ask::default() };
+
+        // Nothing had, nothing kept: GitHub is asked, and the answer kept with its glance.
+        let (result, stamp) = read_repo(&dir, &ask, Some("a"), now, &asked).unwrap();
+        assert_eq!((result.unwrap().prs.len(), asked.get()), (2, 1));
+        assert_eq!(stamp, Some(Stamp { glance: "a".into(), at: now }));
+        ask.have.insert(slug.into(), stamp.unwrap());
+
+        // The same glance a minute later: what's had stands.
+        assert!(read_repo(&dir, &ask, Some("a"), now + 60_000, &asked).is_none());
+        // Another engine starts with nothing: the kept answer is its answer.
+        let fresh = Ask { slugs: vec![slug.into()], ..Ask::default() };
+        let (result, stamp) = read_repo(&dir, &fresh, Some("a"), now + 60_000, &asked).unwrap();
+        assert_eq!((result.unwrap().prs.len(), stamp.unwrap().at, asked.get()), (2, now, 1));
+
+        // The kept answer has checks running as of `then`: kept a minute, it's read again.
+        let then = parse(PRS).unwrap().prs[0].updated_at + 120_000;
+        save(&dir, slug, &Stamp { glance: "a".into(), at: then }, PRS);
+        assert!(read_repo(&dir, &fresh, Some("a"), then + 20_000, &asked).is_some());
+        assert_eq!(asked.get(), 1);
+        assert!(read_repo(&dir, &fresh, Some("a"), then + 60_000, &asked).is_some());
+        assert_eq!(asked.get(), 2);
+
+        // The glance changed: asked again.
+        let (_, stamp) = read_repo(&dir, &ask, Some("b"), now + 120_000, &asked).unwrap();
+        assert_eq!((stamp.clone().unwrap().glance.as_str(), asked.get()), ("b", 3));
+        ask.have.insert(slug.into(), stamp.unwrap());
+        // Its checks are running: asked at each poll.
+        ask.busy.insert(slug.into());
+        assert!(read_repo(&dir, &ask, Some("b"), now + 180_000, &asked).is_some());
+        assert_eq!(asked.get(), 4);
+        ask.busy.clear();
+        // Read again once it's old, and at once after something you did there.
+        assert!(read_repo(&dir, &ask, Some("b"), now + 180_000 + RESYNC_MS, &asked).is_some());
+        ask.all = true;
+        assert!(read_repo(&dir, &ask, Some("b"), now + 180_000, &asked).is_some());
+        assert_eq!(asked.get(), 6);
+        ask.all = false;
+
+        // GitHub gave no glance: what's had stands for a while, and an answer read then isn't
+        // kept, nor taken for one read at a glance.
+        ask.have.insert(slug.into(), Stamp { glance: "b".into(), at: now });
+        assert!(read_repo(&dir, &ask, None, now + 60_000, &asked).is_none());
+        let (_, stamp) = read_repo(&dir, &ask, None, now + RESYNC_MS, &asked).unwrap();
+        assert_eq!((stamp, asked.get()), (Some(Stamp { glance: String::new(), at: now + RESYNC_MS }), 7));
+        assert_eq!(saved(&dir, slug).unwrap().stamp.glance, "b");
+
+        // A failure has no stamp, so the next poll asks again.
+        let failing = read::<RepoPrs>(&dir, &fresh, "a/b", Some("a"), now, &|| Err(anyhow!("GitHub: couldn't load PRs for a/b")), &parse, &|_| false).unwrap();
+        assert_eq!((failing.0.unwrap_err().as_str(), failing.1), ("GitHub: couldn't load PRs for a/b", None));
+        assert!(saved(&dir, "a/b").is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_snapshot_takes_answers_confirmed_lately() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = scratch("fresh");
+        let slugs = vec!["northwindai/atlas".to_string()];
+        let stamp = Stamp { glance: "a".into(), at: 1 };
+        let search = r#"{"data":{"viewer":{"login":"ghempton"},"search":{"nodes":[]}}}"#;
+        assert!(fresh(&dir, &slugs, SystemTime::now()).is_none(), "nothing kept");
+        save(&dir, REQUESTED, &stamp, search);
+        assert!(fresh(&dir, &slugs, SystemTime::now()).is_none(), "a repo's answer is missing");
+        save(&dir, &slugs[0], &stamp, PRS);
+        assert_eq!(std::fs::metadata(saved_path(&dir, &slugs[0])).unwrap().permissions().mode() & 0o777, 0o600);
+        let answers = fresh(&dir, &slugs, SystemTime::now()).unwrap();
+        assert!(matches!(&answers[0], Answer::Requested(Ok(found), _) if found.prs.is_empty()));
+        assert!(matches!(&answers[1], Answer::Repo(slug, Ok(repo), Some(at)) if slug == &slugs[0] && repo.prs.len() == 2 && at == &stamp));
+
+        // Nobody has confirmed them for a while: GitHub is asked.
+        let later = SystemTime::now() + FRESH;
+        assert!(fresh(&dir, &slugs, later).is_none());
+        // An engine that polls says they still stand.
+        let old = SystemTime::now() - Duration::from_secs(3600);
+        for key in [REQUESTED, slugs[0].as_str()] {
+            std::fs::File::options().write(true).open(saved_path(&dir, key)).unwrap().set_modified(old).unwrap();
+        }
+        assert!(fresh(&dir, &slugs, SystemTime::now()).is_none());
+        confirm(&dir, REQUESTED);
+        confirm(&dir, &slugs[0]);
+        assert!(fresh(&dir, &slugs, SystemTime::now()).is_some());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn kept_answers_are_files_named_for_their_repos() {
+        let dir = Path::new("/c");
+        assert_eq!(saved_path(dir, "Northwindai/spec.book"), Path::new("/c/northwindai~spec.book.json"));
+        assert_eq!(saved_path(dir, REQUESTED), Path::new("/c/requested.json"));
+        assert_eq!(saved_path(dir, "../x"), Path::new("/c/..~x.json"));
+    }
+
+    #[test]
+    fn parses_prs_and_checks() {
+        let repo = parse(PRS).unwrap();
         let prs = repo.prs;
         assert_eq!(prs.len(), 2);
         assert_eq!(prs[0].state, PrState::Approved);

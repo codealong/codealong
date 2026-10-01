@@ -1361,13 +1361,33 @@ TypeSafe (Jev, from docs.typesafe.ai, 2026-09-25)
 GitHub
 
 - Through `gh` only: one GraphQL query per repo (viewer, open and recent PRs, a
-  `review-requested:@me` search); PR detail from GraphQL `bodyHTML` plus the REST files
+  `review-requested:@me` search), asked when a glance says the repo changed (below); PR detail from GraphQL `bodyHTML` plus the REST files
   endpoint; approving with `gh pr review --approve`. Only repos with a worktree off the default
   branch are asked that way (`board::polled_slugs`); one more query each poll searches all of
   GitHub for open PRs that wait on your review (`github::fetch_requested`), and the board lists
   its finds for the other repos checked out here. Who asked for a review is the `actor` of the
   PR's `ReviewRequestedEvent` (`timelineItems`), with the `requestedReviewer` it named; it's
   often not the author (a teammate asks for a review of a bot's PR).
+- GraphQL is charged in points, 5,000 an hour for an account, shared with everything else that
+  uses `gh` (you, the agents, your other Macs). A query costs the connections it could return
+  over a hundred, at least 1, whatever comes back: a repo's PRs (100 open ones with four
+  connections each, 40 closed with two) are 5 points for a repo with none, the search 2.
+  `rateLimit { cost remaining resetAt }` in a query says, and is free. Every minute for seven
+  repos that was 2,200 points an hour, and each `--snapshot` (a preview takes one) 37 more, which
+  ran the account out by half past every hour (2026-10-01). So a poll is a glance first
+  (github.rs, "Asking only for what changed"): one query for every repo, a point for eight of
+  them, with each open PR's `updatedAt`, `headRefOid`, `mergeStateStatus` and `statusCheckRollup
+  { state }` (a field of the PR itself, no connection) and the latest closed PR. A repo is read
+  in full when its glance changed, each minute while its checks run, and every ten minutes (only
+  the first with under 500 points left);
+  answers are kept in `~/Library/Caches/Codealong/github`, so a snapshot or a relaunch reads
+  from GitHub only what changed. A PR's `updatedAt` doesn't move when a check finishes, nor
+  when its base moves; the checks' state and the merge state do. `mergeStateStatus` is what
+  takes the time, 40 ms a PR.
+- `gh api graphql` exits 1 when any part of a query failed (a repo you can't see is `null` under
+  its alias, with a `NOT_FOUND` error) and still prints the rest. `gh api rate_limit` isn't to
+  go by: it showed 126 GraphQL points used while the queries' own `rateLimit` said 2,073, a
+  second counter that one query in ten lands on.
 - REST `repos/<owner>/<name>` answers to a repo's old names (after a rename of the repo or its
   owner, or a transfer) with the repo as it is now; `.full_name` is its name now. The engine
   asks once a launch per repo, so other devices line a checkout with an old remote up with the
