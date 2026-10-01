@@ -5,7 +5,7 @@ use std::cmp::Reverse;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use crate::antigravity::Conversation;
+use crate::antigravity::{Conversation, Process};
 use crate::claude::{RegistryEntry, TranscriptInfo};
 use crate::codex::ThreadInfo;
 use crate::opencode::{Live, SessionRow};
@@ -490,20 +490,27 @@ pub fn opencode_session(account: &AccountCfg, row: &SessionRow, live: Option<&Li
     }
 }
 
-/// An Antigravity conversation, from its summary. The summary's status words haven't been
-/// seen on a real conversation yet, so only `not_fully_idle` and the times are relied on;
-/// a status that says waiting, blocked or paused is taken at its word.
-pub fn antigravity_session(account: &AccountCfg, c: &Conversation, seen_at: i64, now: i64) -> Session {
+/// An Antigravity conversation, from its summary and the end of its record. `process` is the
+/// command line process that has it open, when one does, and `app_running` whether the hub
+/// app's agent is up. A turn is under way only while what runs it is there: the command line's
+/// conversation in its own process, the app's in the app's agent, which is taken to have gone
+/// quiet when nothing has been written for a while. A step whose permission prompt is up needs
+/// you. The summary keeps no word for a failure, so none shows as one.
+pub fn antigravity_session(account: &AccountCfg, c: &Conversation, process: Option<&Process>, app_running: bool, seen_at: i64, now: i64) -> Session {
     let fresh = now - c.last_modified < ANTIGRAVITY_STALE_MS;
-    let waiting = ["waiting", "blocked", "paused"].iter().any(|w| c.status.contains(w));
+    // A print run writes its summary only as it ends: while its process has the conversation,
+    // its record says whether a turn is under way.
+    let under_way = match (c.cli, process) {
+        (true, Some(p)) => c.running() || (!p.terminal && c.tail.turn_open),
+        (true, None) => false,
+        (false, _) => c.running() && app_running,
+    };
     let news = c.last_modified > seen_at;
     let status = if c.killed {
         Status::Idle
-    } else if c.status.contains("error") && news {
-        Status::Error
-    } else if waiting {
+    } else if under_way && c.waiting {
         Status::Needs
-    } else if c.not_fully_idle && fresh {
+    } else if under_way && (c.cli || fresh) {
         Status::Working
     } else if news && c.last_modified > c.last_input.unwrap_or(0) {
         Status::Unread
@@ -512,12 +519,20 @@ pub fn antigravity_session(account: &AccountCfg, c: &Conversation, seen_at: i64,
     };
     let title = c.title.clone().or_else(|| c.preview.clone()).unwrap_or_else(|| "Antigravity conversation".to_string());
     let excerpt = match status {
-        Status::Needs | Status::Error => Some(c.status.clone()).filter(|s| !s.is_empty()),
-        _ => c.preview.clone(),
+        Status::Needs => c.tail.open.first().map(|call| call.label.clone()).or_else(|| Some("A step waits for you to allow it".to_string())),
+        Status::Working => c.tail.last_tool.clone().or_else(|| c.preview.clone()),
+        _ => c.tail.last_text.clone().or_else(|| c.preview.clone()),
     };
     let key = format!("antigravity:{}:{}", account.name, c.id);
+    // Its terminal, when it's the command line's own UI rather than a print run.
+    let terminal = process.filter(|p| p.terminal).map(|p| p.pid);
+    let action = match (c.cli, terminal) {
+        (false, _) => "antigravity",
+        (true, Some(_)) => "focus",
+        (true, None) => "resume",
+    };
     Session {
-        open_target: format!("s|{key}|antigravity"),
+        open_target: format!("s|{key}|{action}"),
         visitor: None,
         headline: String::new(),
         detail: None,
@@ -526,15 +541,15 @@ pub fn antigravity_session(account: &AccountCfg, c: &Conversation, seen_at: i64,
         short_id: short_id(&c.id),
         harness: Harness::Antigravity,
         account: account.name.clone(),
-        surface: Surface::App,
+        surface: if c.cli { Surface::Cli } else { Surface::App },
         status,
-        live: status == Status::Working,
-        pid: None,
+        live: matches!(status, Status::Working | Status::Needs) || process.is_some(),
+        pid: terminal,
         title: truncate(&plain(&title), 90),
         cwd: c.cwd.clone().unwrap_or_default(),
-        work: Vec::new(),
+        work: c.tail.work.clone(),
+        reply_tail: c.tail.last_text_tail.clone(),
         // The preview is the conversation's opening, as the app lists it.
-        reply_tail: None,
         first_prompt: c.preview.clone(),
         name: None,
         started_at: None,
@@ -542,7 +557,7 @@ pub fn antigravity_session(account: &AccountCfg, c: &Conversation, seen_at: i64,
         last_prompt_at: c.last_input.unwrap_or(c.last_modified),
         last_activity: c.last_modified,
         excerpt,
-        resume_command: None,
+        resume_command: c.cli.then(|| format!("{} --conversation {}", crate::antigravity::cli_command(account), c.id)),
         app_account: false,
         branch: None,
         archived: false,
@@ -1082,8 +1097,7 @@ pub fn session_headline(s: &Session) -> (String, Option<String>) {
         }
         Status::Needs => match (&s.excerpt, s.harness) {
             (Some(ex), Harness::Claude) => (format!("{acct} is waiting for approval · {title}"), Some(ex.clone())),
-            (Some(ex), Harness::Codex | Harness::Opencode) => (format!("{acct} asks for approval · {title}"), Some(ex.clone())),
-            (Some(ex), Harness::Antigravity) => (format!("{acct} needs you · {title}"), Some(ex.clone())),
+            (Some(ex), Harness::Codex | Harness::Opencode | Harness::Antigravity) => (format!("{acct} asks for approval · {title}"), Some(ex.clone())),
             (None, _) => (format!("{acct} needs you · {title}"), None),
         },
         Status::Error => (format!("{acct} stopped with an error · {title}"), s.excerpt.clone()),
@@ -1175,7 +1189,7 @@ pub fn headline(bay: Bay, sessions: &[Session], pr: Option<&Pr>, git: Option<&Gi
     }
 }
 
-fn target(id: String, icon: &str, label: String, detail: Option<String>, kbd: Option<&[&str]>, disabled: bool, group: &str) -> Target {
+pub fn target(id: String, icon: &str, label: String, detail: Option<String>, kbd: Option<&[&str]>, disabled: bool, group: &str) -> Target {
     Target {
         id,
         icon: icon.to_string(),
@@ -1262,73 +1276,9 @@ pub fn targets(seed: &LaneSeed, sessions: &[Session], pr: Option<&Pr>, preview: 
             t.push(target(format!("s|{}|hosted", s.key), "app", format!("{verb} Codealong"), Some(who), enter, false, "session"));
             continue;
         }
-        match (s.harness, s.surface) {
-            (Harness::Claude, Surface::Cli) if s.live && s.attach_command.is_some() => {
-                let why = format!("{who} · runs in the background");
-                t.push(target(format!("s|{}|attach", s.key), "terminal", format!("Attach in {term}"), Some(why), enter, false, "session"));
-            }
-            (Harness::Claude, Surface::Cli) if s.live => {
-                let verb = if respond { "Respond in" } else { "Show in" };
-                t.push(target(format!("s|{}|focus", s.key), "terminal", format!("{verb} {term}"), Some(who), enter, false, "session"));
-                if first && s.app_account {
-                    let why = format!("Live in {term}, finish there first");
-                    t.push(target(format!("s|{}|claude-app", s.key), "app", "Open in Claude app".into(), Some(why), None, true, "session"));
-                }
-            }
-            (Harness::Claude, Surface::Cli) => {
-                t.push(target(format!("s|{}|resume", s.key), "terminal", format!("Resume in {term}"), Some(who.clone()), enter, false, "session"));
-                // Only the account the Claude app is signed into can continue there.
-                if first && s.app_account {
-                    t.push(target(format!("s|{}|claude-app", s.key), "app", "Continue in Claude app".into(), Some(who), None, false, "session"));
-                }
-            }
-            (Harness::Claude, Surface::App) => {
-                let verb = if respond { "Respond in" } else { "Open in" };
-                t.push(target(format!("s|{}|claude-app", s.key), "app", format!("{verb} Claude app"), Some(who.clone()), enter, false, "session"));
-                if first {
-                    if s.live {
-                        t.push(target(format!("s|{}|resume", s.key), "terminal", format!("Resume in {term}"), Some("Live in the Claude app".into()), None, true, "session"));
-                    } else {
-                        t.push(target(format!("s|{}|resume", s.key), "terminal", format!("Resume in {term}"), Some(who), None, false, "session"));
-                    }
-                }
-            }
-            (Harness::Codex, Surface::Cli) => {
-                // Its terminal is focused; otherwise `codex resume` opens a new one.
-                let (verb, action) = match (respond, s.pid.is_some()) {
-                    (true, true) => ("Respond in", "focus"),
-                    (false, true) => ("Show in", "focus"),
-                    (_, false) => ("Resume in", "resume"),
-                };
-                t.push(target(format!("s|{}|{action}", s.key), "terminal", format!("{verb} {term}"), Some(who.clone()), enter, false, "session"));
-                // The Codex app reads the same threads, for the account it runs.
-                if first && s.app_account {
-                    let (why, busy) = if s.pid.is_some() { (format!("Open in {term}, finish there first"), true) } else { (who, false) };
-                    t.push(target(format!("s|{}|codex", s.key), "app", "Open in Codex".into(), Some(why), None, busy, "session"));
-                }
-            }
-            (Harness::Codex, Surface::App) => {
-                let verb = if respond { "Respond in" } else { "Open in" };
-                t.push(target(format!("s|{}|codex", s.key), "app", format!("{verb} Codex"), Some(who.clone()), enter, false, "session"));
-                if first {
-                    let (why, busy) = if s.live { ("Working in the Codex app".to_string(), true) } else { (who, false) };
-                    t.push(target(format!("s|{}|resume", s.key), "terminal", format!("Resume in {term}"), Some(why), None, busy, "session"));
-                }
-            }
-            (Harness::Opencode, _) => {
-                // A terminal showing it is focused; otherwise `opencode --session` opens a new one.
-                let (verb, action) = match (respond, s.pid.is_some()) {
-                    (true, _) => ("Respond in", if s.pid.is_some() { "focus" } else { "resume" }),
-                    (false, true) => ("Show in", "focus"),
-                    (false, false) => ("Resume in", "resume"),
-                };
-                t.push(target(format!("s|{}|{action}", s.key), "terminal", format!("{verb} {term}"), Some(who), enter, false, "session"));
-            }
-            (Harness::Antigravity, _) => {
-                let why = format!("{who} · no link to a conversation, so the app comes forward");
-                t.push(target(format!("s|{}|antigravity", s.key), "app", "Open Antigravity".into(), Some(why), enter, false, "session"));
-            }
-        }
+        // Each harness says where its sessions open (`Adapter::targets`).
+        let opens = crate::harness::Opens { term, who, first, respond };
+        t.extend(crate::harness::adapter(s.harness).targets(s, &opens));
     }
     // Their tabs in Chrome, apart from the ways to open them: ⌘⏎ and the lane's default are those.
     for s in &shown {
@@ -2520,35 +2470,77 @@ mod tests {
     #[test]
     fn maps_antigravity_statuses() {
         let a = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: "~/.gemini/antigravity".into(), command: None, start: None, preferred: false, acp: None };
+        // The app's conversation, with a turn under way while the app's agent is up.
         let mut c = Conversation {
             id: "c1".into(),
             title: Some("Photo tools".into()),
             preview: Some("Tighten the photo tools".into()),
             cwd: Some("/r".into()),
+            status: "cascade_run_status_running".into(),
             not_fully_idle: true,
             last_modified: NOW - 1_000,
             last_input: Some(NOW - 5_000),
             ..Default::default()
         };
-        let s = antigravity_session(&a, &c, 0, NOW);
-        assert_eq!((s.status, s.live, s.surface), (Status::Working, true, Surface::App));
+        c.tail.last_tool = Some("Run command · `npm test`".into());
+        c.tail.last_text = Some("The tests pass now.".into());
+        let s = antigravity_session(&a, &c, None, true, 0, NOW);
+        assert_eq!((s.status, s.live, s.surface, s.excerpt.as_deref()), (Status::Working, true, Surface::App, Some("Run command · `npm test`")));
         assert_eq!(s.open_target, "s|antigravity:antigravity:c1|antigravity");
-        assert_eq!(s.cwd, "/r");
+        assert_eq!((s.cwd.as_str(), s.resume_command.as_deref()), ("/r", None));
+        // With the app quit nothing runs it, whatever its summary was left saying, and it goes
+        // quiet when nothing has been written for a while.
+        assert_eq!(antigravity_session(&a, &c, None, false, NOW, NOW).status, Status::Idle);
         c.last_modified = NOW - ANTIGRAVITY_STALE_MS - 1;
-        assert_eq!(antigravity_session(&a, &c, 0, NOW).status, Status::Idle);
+        assert_eq!(antigravity_session(&a, &c, None, true, 0, NOW).status, Status::Idle);
         c.last_modified = NOW - 1_000;
+        // A step whose permission prompt is up needs you, and says what waits.
+        c.waiting = true;
+        c.tail.open = vec![crate::antigravity::Call { label: "Run command · `rm -rf build`".into(), ..Default::default() }];
+        let s = antigravity_session(&a, &c, None, true, 0, NOW);
+        assert_eq!((s.status, s.excerpt.as_deref()), (Status::Needs, Some("Run command · `rm -rf build`")));
+        assert_eq!(session_headline(&s).0, format!("`antigravity` asks for approval · {}", s.title));
+        c.waiting = false;
+        // Done: its reply is news until you've seen it, and nothing new since you wrote isn't
+        // your turn.
+        c.status = "cascade_run_status_idle".into();
         c.not_fully_idle = false;
-        assert_eq!(antigravity_session(&a, &c, NOW - 2_000, NOW).status, Status::Unread);
-        assert_eq!(antigravity_session(&a, &c, NOW, NOW).status, Status::Idle);
-        // Nothing new since you wrote: not your turn.
+        let s = antigravity_session(&a, &c, None, true, NOW - 2_000, NOW);
+        assert_eq!((s.status, s.live, s.excerpt.as_deref()), (Status::Unread, false, Some("The tests pass now.")));
+        assert_eq!(antigravity_session(&a, &c, None, true, NOW, NOW).status, Status::Idle);
         c.last_input = Some(NOW - 500);
-        assert_eq!(antigravity_session(&a, &c, 0, NOW).status, Status::Idle);
-        c.status = "waiting".into();
-        let s = antigravity_session(&a, &c, 0, NOW);
-        assert_eq!((s.status, s.excerpt.as_deref()), (Status::Needs, Some("waiting")));
-        assert_eq!(session_headline(&s).0, format!("`antigravity` needs you · {}", s.title));
+        assert_eq!(antigravity_session(&a, &c, None, true, 0, NOW).status, Status::Idle);
         c.killed = true;
-        assert_eq!(antigravity_session(&a, &c, 0, NOW).status, Status::Idle);
+        assert_eq!(antigravity_session(&a, &c, None, true, 0, NOW).status, Status::Idle);
+    }
+
+    #[test]
+    fn a_command_line_conversation_runs_while_its_process_has_it() {
+        let a = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: "~/.gemini/antigravity".into(), command: None, start: None, preferred: false, acp: None };
+        let c = Conversation { id: "c2".into(), cli: true, preview: Some("Fix the build".into()), status: "cascade_run_status_running".into(), not_fully_idle: true, last_modified: NOW - 2 * ANTIGRAVITY_STALE_MS, last_input: Some(NOW - 3 * ANTIGRAVITY_STALE_MS), ..Default::default() };
+        // In its terminal UI: it works however long it's been quiet, and its tab is where it opens.
+        let ui = Process { pid: 41, conversation: Some("c2".into()), terminal: true };
+        let s = antigravity_session(&a, &c, Some(&ui), false, 0, NOW);
+        assert_eq!((s.status, s.live, s.surface, s.pid), (Status::Working, true, Surface::Cli, Some(41)));
+        assert_eq!((s.open_target.as_str(), s.resume_command.as_deref()), ("s|antigravity:antigravity:c2|focus", Some("agy --conversation c2")));
+        // A print run has no terminal to show.
+        let print = Process { terminal: false, ..ui.clone() };
+        let s = antigravity_session(&a, &c, Some(&print), false, 0, NOW);
+        assert_eq!((s.status, s.live, s.pid, s.open_target.as_str()), (Status::Working, true, None, "s|antigravity:antigravity:c2|resume"));
+        // A print run that goes on with an old conversation leaves its summary as it was until
+        // it ends: its record says a turn is under way, and that it's over.
+        let mut resumed = Conversation { status: "cascade_run_status_idle".into(), not_fully_idle: false, ..c.clone() };
+        resumed.tail.turn_open = true;
+        assert_eq!(antigravity_session(&a, &resumed, Some(&print), false, 0, NOW).status, Status::Working);
+        resumed.tail.turn_open = false;
+        assert_eq!(antigravity_session(&a, &resumed, Some(&print), false, NOW, NOW).status, Status::Idle);
+        // Its process gone mid-turn (killed, a closed tab), its summary still says running: it
+        // isn't, and what it left is yours to read.
+        let s = antigravity_session(&a, &c, None, true, 0, NOW);
+        assert_eq!((s.status, s.live), (Status::Unread, false));
+        // An account with a command of its own resumes with it.
+        let own = AccountCfg { command: Some("agy --sandbox".into()), ..a.clone() };
+        assert_eq!(antigravity_session(&own, &c, None, false, 0, NOW).resume_command.as_deref(), Some("agy --sandbox --conversation c2"));
     }
 
     #[test]

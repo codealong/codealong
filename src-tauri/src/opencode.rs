@@ -9,11 +9,11 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use rusqlite::{Connection, OpenFlags};
+use rusqlite::Connection;
 use serde_json::Value;
 
 use crate::config::AccountCfg;
-use crate::harness::{Applied, Look, Wake};
+use crate::harness::{Applied, Look, Said, Wake};
 use crate::model::{Harness, Session};
 use crate::procs;
 use crate::transcript::{clip_input, clip_output, item, kept_whole, Item, Page};
@@ -67,13 +67,7 @@ pub fn read_sessions(home: &Path, since_ms: i64, keep: &HashSet<String>) -> Vec<
 }
 
 fn open(path: &Path) -> Option<Connection> {
-    if !path.is_file() {
-        return None;
-    }
-    let db = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX).ok()?;
-    // OpenCode writes constantly while a session runs; a short wait beats an empty read.
-    db.busy_timeout(Duration::from_millis(500)).ok()?;
-    Some(db)
+    crate::harness::open_database(path)
 }
 
 fn read_sessions_from(db: &Connection, since_ms: i64, keep: &HashSet<String>) -> rusqlite::Result<Vec<SessionRow>> {
@@ -170,22 +164,11 @@ fn read_sessions_from(db: &Connection, since_ms: i64, keep: &HashSet<String>) ->
     Ok(out)
 }
 
-/// A message's words, for searching sessions' text (search.rs).
-pub struct Prose {
-    pub id: String,
-    pub session: String,
-    pub at: i64,
-    pub updated: i64,
-    /// You sent it; otherwise the agent said it.
-    pub you: bool,
-    pub text: String,
-}
-
 /// The text of messages written since `after` (by `time_updated`, since a reply streams into
 /// its row) in top-level sessions updated since `since_ms`.
-pub fn read_prose(home: &Path, since_ms: i64, after: i64) -> Vec<Prose> {
+pub fn read_prose(home: &Path, since_ms: i64, after: i64) -> Vec<Said> {
     let Some(db) = open(&home.join("opencode.db")) else { return Vec::new() };
-    let read = || -> rusqlite::Result<Vec<Prose>> {
+    let read = || -> rusqlite::Result<Vec<Said>> {
         let mut stmt = db.prepare(
             "SELECT m.id, m.session_id, m.type, m.time_created, m.time_updated, m.data FROM session_message m \
              JOIN session_v2 s ON s.id = m.session_id \
@@ -206,7 +189,7 @@ pub fn read_prose(home: &Path, since_ms: i64, after: i64) -> Vec<Prose> {
                     parts.iter().filter(|p| p.get("type").and_then(Value::as_str) == Some("text")).filter_map(|p| p.get("text").and_then(Value::as_str)).collect::<Vec<_>>().join("\n")
                 };
                 let text = text.trim().to_string();
-                (!text.is_empty()).then_some(Prose { id, session, at, updated, you, text })
+                (!text.is_empty()).then_some(Said { id, session, at, updated, you, text })
             })
             .collect())
     };
@@ -759,6 +742,11 @@ impl crate::harness::Adapter for OpenCode {
         crate::model::Harness::Opencode
     }
 
+    fn spec(&self) -> &'static crate::detect::Spec {
+        const SPEC: crate::detect::Spec = crate::detect::Spec { harness: "opencode", program: Some("opencode"), default_command: Some("opencode"), var: Some(("XDG_DATA_HOME", Some("opencode"))), default_dir: "~/.local/share/opencode", siblings: None };
+        &SPEC
+    }
+
     fn signed_in(&self, home: &Path) -> (bool, Option<String>) {
         (crate::opencode::signed_in(home), None)
     }
@@ -791,6 +779,37 @@ impl crate::harness::Adapter for OpenCode {
 
     fn places(&self, _account: &crate::config::AccountCfg, _home: &Path) -> std::result::Result<Vec<crate::start::Place>, String> {
         Ok(vec![crate::start::Place::Terminal, crate::start::Place::Codealong])
+    }
+
+    /// Its messages are rows in its database.
+    fn said(&self, account: &AccountCfg, since: i64, after: i64) -> Vec<Said> {
+        read_prose(&account.home_path(), since, after)
+    }
+
+    /// A terminal showing it is focused; otherwise `opencode --session` opens a new one, which
+    /// is also where a request its service holds is answered.
+    fn targets(&self, s: &Session, o: &crate::harness::Opens) -> Vec<crate::model::Target> {
+        let (verb, action) = match (o.respond, s.pid.is_some()) {
+            (true, shown) => ("Respond in", if shown { "focus" } else { "resume" }),
+            (false, true) => ("Show in", "focus"),
+            (false, false) => ("Resume in", "resume"),
+        };
+        vec![o.way(s, action, "terminal", format!("{verb} {}", o.term), o.who.clone(), true, false)]
+    }
+
+    /// OpenCode picks its own session id and takes the prompt as an option; its files go as
+    /// paths, and it has no `--worktree`, `--add-dir` or `--model` Codealong passes.
+    fn start_in_terminal(&self, account: &AccountCfg, ask: &crate::harness::StartAsk) -> crate::harness::Typed {
+        let prompt = crate::attachments::expand_in(ask.prompt, ask.images_dir, ask.files_dir, crate::attachments::Style::Path);
+        let prompt = prompt.trim();
+        let mut input = account.command().to_string();
+        let mut env = Vec::new();
+        if !prompt.is_empty() {
+            input.push_str(&format!(" --prompt \"${}\"", crate::start::PROMPT_VAR));
+            env.push((crate::start::PROMPT_VAR.to_string(), crate::start::as_argument(prompt)));
+        }
+        input.push('\n');
+        crate::harness::Typed { input, env, key: None }
     }
 
     fn session_cwds(&self, home: &Path, since: i64) -> Vec<String> {
@@ -849,7 +868,7 @@ impl crate::harness::Adapter for OpenCode {
 
     /// Its command line can't fork, but its service can: the copy is a session of its own
     /// (no parent), named "<title> (fork #1)", which the terminal UI then opens.
-    fn fork(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> anyhow::Result<crate::harness::Fork> {
+    fn fork(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> anyhow::Result<crate::harness::Typed> {
         let (_, id) = fork_in_service(ctx.account, s)?;
         Ok(fork_into(ctx.account, &id))
     }
@@ -917,8 +936,8 @@ fn fork_in_service(account: &crate::config::AccountCfg, s: &crate::model::Sessio
 }
 
 /// Opens the terminal UI on `id`, a fork the service has made.
-fn fork_into(account: &crate::config::AccountCfg, id: &str) -> crate::harness::Fork {
-    crate::harness::Fork { input: format!("{} --session {id}\n", account.command()), env: Vec::new(), key: Some(format!("opencode:{}:{id}", account.name)) }
+fn fork_into(account: &crate::config::AccountCfg, id: &str) -> crate::harness::Typed {
+    crate::harness::Typed { input: format!("{} --session {id}\n", account.command()), env: Vec::new(), key: Some(format!("opencode:{}:{id}", account.name)) }
 }
 
 struct PermissionRequest {

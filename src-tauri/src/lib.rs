@@ -1637,7 +1637,18 @@ pub fn snapshot_cli(args: &[String]) -> i32 {
     }
     if args.iter().any(|a| a == "--start-options") {
         let cfg = config::load().ok().flatten().unwrap_or_default();
-        println!("{}", serde_json::to_string_pretty(&start::options_for(&cfg)).unwrap_or_default());
+        // A harness whose list of models is asked for in the background (Antigravity's) has
+        // none on the first ask: the app asks as it starts, and a one-off waits a moment here.
+        let mut options = start::options_for(&cfg);
+        let waits = |o: &start::StartOptions| o.accounts.iter().any(|a| a.models.is_empty() && !a.places.is_empty() && harness::adapter(a.harness).takes_model());
+        for _ in 0..20 {
+            if !waits(&options) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(250));
+            options = start::options_for(&cfg);
+        }
+        println!("{}", serde_json::to_string_pretty(&options).unwrap_or_default());
         return 0;
     }
     if let Some(i) = args.iter().position(|a| a == "--start-plan") {

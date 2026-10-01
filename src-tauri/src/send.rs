@@ -40,7 +40,7 @@ use sha2::{Digest, Sha256};
 use crate::attachments::{self, Style};
 use crate::config::{AccountCfg, Config};
 use crate::launch;
-use crate::model::{Board, Harness, Session, Status, Surface};
+use crate::model::{Board, Session, Status, Surface};
 use crate::procs;
 use crate::start;
 
@@ -315,27 +315,35 @@ fn ensure_not_waiting(session: &Session, sender: &Sender) -> Result<()> {
     Ok(())
 }
 
-/// The ways in an agent's message may take, of the session's own. Claude Code takes messages from
-/// other sessions on its socket, which tells the model a message is another session's and holds
-/// it for the user where the session skips permission prompts; typed into its terminal or handed
-/// to its daemon, the message would read as its user's own words. Other harnesses have no such
-/// socket and take it typed or posted, the byline saying whose it is. A way that resumes a session
-/// or leaves the prompt for someone to send isn't for an agent.
+/// The ways in an agent's message may take, of the session's own. A harness with a way in for
+/// other sessions' messages (`Adapter::takes_messages`: Claude Code's socket, which tells the
+/// model a message is another session's and holds it for the user where the session skips
+/// permission prompts) takes it only that way: typed into its terminal or handed to its daemon,
+/// the message would read as its user's own words. The others take it typed or posted, the
+/// byline saying whose it is. A way that resumes a session or leaves the prompt for someone to
+/// send isn't for an agent.
 fn agent_routes(session: &Session, routes: Vec<Route>) -> Result<Vec<Route>> {
+    let adapter = crate::harness::adapter(session.harness);
+    let left_to_send = routes.iter().any(|r| matches!(r, Route::Antigravity));
     let kept: Vec<Route> = routes
         .into_iter()
         .filter(|r| match r {
             Route::Peer { .. } | Route::CodexApp | Route::Opencode => true,
-            Route::Type { .. } => session.harness != Harness::Claude,
+            Route::Type { .. } => !adapter.takes_messages(),
             Route::Daemon { .. } | Route::Resume | Route::ClaudeApp | Route::Antigravity => false,
         })
         .collect();
     if kept.is_empty() {
         let title = quoted(&session.title);
-        bail!(match session.harness {
-            Harness::Antigravity => "Antigravity takes no prompts from outside; Codealong can only put one on the clipboard for someone at this Mac, so nothing was sent.".to_string(),
-            _ if !session.live => format!("{title} isn't running, and a message from another session doesn't start it again, so nothing was sent. Its user can resume it, or `codealong start` starts a new session."),
-            _ => format!("{title} doesn't take messages from other sessions (its Claude Code doesn't listen for them), and typing into its terminal would read as its user's words, so nothing was sent."),
+        let word = adapter.harness().word();
+        bail!(if left_to_send {
+            format!("{word} takes no prompts from outside; Codealong can only put one on the clipboard for someone at this Mac, so nothing was sent.")
+        } else if !session.live {
+            format!("{title} isn't running, and a message from another session doesn't start it again, so nothing was sent. Its user can resume it, or `codealong start` starts a new session.")
+        } else if adapter.takes_messages() {
+            format!("{title} doesn't take messages from other sessions (its {word} doesn't listen for them), and typing into its terminal would read as its user's words, so nothing was sent.")
+        } else {
+            format!("{title} runs where Codealong can't type, so nothing was sent.")
         });
     }
     Ok(kept)
@@ -389,11 +397,9 @@ fn attempt(route: &Route, session: &Session, account: &AccountCfg, cfg: &Config,
             sent(if busy { format!("Queued for {title}; the background session takes it after its current step.") } else { format!("Sent to {title} in the background.") })
         }
         Route::Type { pid } => {
-            let style = if session.harness == Harness::Claude { Style::Mention } else { Style::Path };
-            // A prompt Claude Code took back may be in its input box again, where what's typed
-            // would be added to it and both go as one prompt.
-            let clear = session.harness == Harness::Claude && crate::claude::last_prompt_taken_back(account, session);
-            match launch::terminal_type_session(*pid, Path::new(&session.cwd), &attachments::expand(text, style), clear) {
+            let adapter = crate::harness::adapter(session.harness);
+            let clear = adapter.clears_before_typing(account, session);
+            match launch::terminal_type_session(*pid, Path::new(&session.cwd), &attachments::expand(text, adapter.typed_attachments()), clear) {
                 Ok(launch::Typed::Into(app)) => sent(if busy { format!("Typed into {title} in {app}; it takes it after its current step.") } else { format!("Typed into {title} in {app}.") }),
                 Ok(launch::Typed::Nowhere(why)) => Ok(Tried::Passed(Some(why))),
                 Err(_) => Err(MayHaveArrived(format!("Codealong started typing this into {title}, and its terminal didn't confirm it went in: look there before sending it again.")).into()),
@@ -414,7 +420,7 @@ fn attempt(route: &Route, session: &Session, account: &AccountCfg, cfg: &Config,
             Ok(Tried::Sent(Sent { message: peer_note(&title, untyped, busy, held, msg.from_agent()), opened: false, fell_back: untyped.is_some() }))
         }
         Route::Resume => {
-            let (input, env) = resume_input(account, &session.id, text);
+            let (input, env) = crate::harness::adapter(session.harness).resume(account, &session.id, text)?;
             launch::terminal_run(&cfg.apps.terminal, place, Path::new(&session.cwd), &input, &env)?;
             sent(format!("Resumed {title} in {} with this prompt.", launch::terminal_name(&cfg.apps.terminal)))
         }
@@ -659,15 +665,8 @@ fn peer_send(socket: &str, session_id: &str, text: &str, claim: Option<&str>, fr
 }
 
 /// The terminal input that resumes a Claude Code session with a prompt, and the environment
-/// that carries the prompt: typed through the shell, as a new session's is (start.rs), so no
-/// quoting of yours can break the command.
-pub fn resume_input(account: &AccountCfg, session_id: &str, text: &str) -> (String, Vec<(String, String)>) {
-    if account.harness == "codex" {
-        // `codex resume <id> <prompt>`; its files go as paths, and `--` keeps a prompt that
-        // starts with a dash from reading as an option.
-        let input = format!("{} resume -- {session_id} \"${}\"\n", account.command(), start::PROMPT_VAR);
-        return (input, vec![(start::PROMPT_VAR.to_string(), attachments::expand(text, Style::Path).trim().to_string())]);
-    }
+/// that carries the prompt (`Adapter::resume`).
+pub fn claude_resume_input(account: &AccountCfg, session_id: &str, text: &str) -> (String, Vec<(String, String)>) {
     let (has_images, has_files) = attachments::kinds(text);
     let mut input = account.command().to_string();
     let mut env = Vec::new();
@@ -1401,11 +1400,11 @@ mod tests {
     #[test]
     fn resumes_with_the_prompt_in_the_environment() {
         let account = AccountCfg { name: "claude2".into(), harness: "claude".into(), home: "~/.claude2".into(), command: None, start: None, preferred: false, acp: None };
-        let (input, env) = resume_input(&account, "abc", "-v please");
+        let (input, env) = crate::harness::adapter(Harness::Claude).resume(&account, "abc", "-v please").unwrap();
         assert_eq!(input, format!("claude2 --resume abc \"${}\"\n", start::PROMPT_VAR));
         assert_eq!(env, vec![(start::PROMPT_VAR.to_string(), " -v please".to_string())]);
         let codex = AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: Some("codex".into()), start: None, preferred: false, acp: None };
-        let (input, env) = resume_input(&codex, "01a0e379", "-v please");
+        let (input, env) = crate::harness::adapter(Harness::Codex).resume(&codex, "01a0e379", "-v please").unwrap();
         assert_eq!(input, format!("codex resume -- 01a0e379 \"${}\"\n", start::PROMPT_VAR));
         assert_eq!(env, vec![(start::PROMPT_VAR.to_string(), "-v please".to_string())]);
     }

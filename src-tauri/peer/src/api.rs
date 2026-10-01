@@ -292,6 +292,16 @@ pub struct StartAccount {
     pub default_model: Option<String>,
     /// Its `preferred` setting: Auto starts it over accounts without one while it has room.
     pub preferred: bool,
+    /// The models a start on its command line can ask for, as the harness takes them; none when
+    /// it takes none, or from a device that lists only Claude Code's (`claude_models`).
+    #[serde(default)]
+    pub models: Vec<ModelOption>,
+    /// The effort levels a start on its command line can ask for, lowest first.
+    #[serde(default)]
+    pub efforts: Vec<ModelOption>,
+    /// Its command line makes a new worktree for a session when asked.
+    #[serde(default)]
+    pub worktree: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]

@@ -143,13 +143,7 @@ fn notify(c: Change) {
 }
 
 fn key_of(h: Harness, account: &str, id: &str) -> String {
-    let word = match h {
-        Harness::Claude => "claude",
-        Harness::Codex => "codex",
-        Harness::Opencode => "opencode",
-        Harness::Antigravity => "antigravity",
-    };
-    format!("{word}:{account}:{id}")
+    format!("{}:{account}:{id}", h.config())
 }
 
 // ---- remembering ----

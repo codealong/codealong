@@ -798,6 +798,13 @@ export interface StartAccount {
   preferred: boolean;
   /** The model a session starts on without one chosen: the account's settings.json `model`. */
   defaultModel: string | null;
+  /** The models a start on its command line can ask for, as its harness takes them; none when
+   *  it takes none. Missing from devices that list only Claude Code's (`claudeModels`). */
+  models?: { id: string; label: string }[];
+  /** The effort levels a start on its command line can ask for, lowest first. */
+  efforts?: { id: string; label: string }[];
+  /** Its command line makes a new worktree for a session when asked. */
+  worktree?: boolean;
 }
 
 export interface StartOptions {

@@ -2870,11 +2870,11 @@ fn pick_account(cfg: &Config, usages: &[crate::model::Usage], place: Option<Plac
     let home = crate::util::home();
     let startable: Vec<(&AccountCfg, Vec<Place>)> = cfg.accounts.iter().filter_map(|a| start::ordered_places(a, &home).ok().filter(|p| !p.is_empty()).map(|p| (a, p))).collect();
     let preferred = start::preferred_names(&startable.iter().map(|(a, _)| *a).collect::<Vec<_>>());
-    let models: Vec<Option<String>> = startable.iter().map(|(a, _)| model.map(str::to_string).or_else(|| if a.harness == "claude" { start::claude_default_model(a) } else { None })).collect();
+    let models: Vec<Option<String>> = startable.iter().map(|(a, _)| model.map(str::to_string).or_else(|| crate::harness::of(a).and_then(|h| h.default_model(a)))).collect();
     let candidates: Vec<start::Candidate> = startable
         .iter()
         .zip(&models)
-        .filter(|((a, places), _)| place.is_none_or(|p| places.contains(&p)) && (model.is_none() || a.harness == "claude"))
+        .filter(|((a, places), _)| place.is_none_or(|p| places.contains(&p)) && model.is_none_or(|m| crate::harness::of(a).is_some_and(|h| h.offers_model(a, m))))
         .map(|((a, _), m)| start::Candidate { name: &a.name, preferred: preferred.contains(&a.name.as_str()), model: m.as_deref() })
         .collect();
     start::auto_pick(&candidates, usages, crate::util::now_ms()).map(|p| p.account)

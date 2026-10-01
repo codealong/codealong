@@ -65,30 +65,28 @@ impl Found {
     }
 }
 
-/// What Codealong knows about each harness's files and commands.
-struct Spec {
-    harness: &'static str,
-    /// The command a terminal runs it with.
-    program: Option<&'static str>,
+/// What finds a harness's accounts on this Mac: its files and commands (`Adapter::spec`).
+pub struct Spec {
+    pub harness: &'static str,
+    /// The command a terminal runs it with, when wrappers and aliases of it run other accounts.
+    pub program: Option<&'static str>,
     /// The command a config.toml account gets for the harness's own folder.
-    default_command: Option<&'static str>,
+    pub default_command: Option<&'static str>,
     /// The variable that moves its folder, and the folder's name under it when it's a parent.
-    var: Option<(&'static str, Option<&'static str>)>,
+    pub var: Option<(&'static str, Option<&'static str>)>,
     /// Its own folder.
-    default_dir: &'static str,
+    pub default_dir: &'static str,
     /// The name its own folder and siblings share: `~/.claude`, `~/.claude2`, `~/.claude-work`.
-    siblings: Option<&'static str>,
+    pub siblings: Option<&'static str>,
 }
 
-const SPECS: [Spec; 4] = [
-    Spec { harness: "claude", program: Some("claude"), default_command: Some("claude"), var: Some(("CLAUDE_CONFIG_DIR", None)), default_dir: "~/.claude", siblings: Some(".claude") },
-    Spec { harness: "codex", program: Some("codex"), default_command: None, var: Some(("CODEX_HOME", None)), default_dir: "~/.codex", siblings: Some(".codex") },
-    Spec { harness: "opencode", program: Some("opencode"), default_command: Some("opencode"), var: Some(("XDG_DATA_HOME", Some("opencode"))), default_dir: "~/.local/share/opencode", siblings: None },
-    Spec { harness: "antigravity", program: None, default_command: None, var: None, default_dir: "~/.gemini/antigravity", siblings: None },
-];
+/// Each harness's (`Adapter::spec`), in the adapters' order.
+fn specs() -> Vec<&'static Spec> {
+    crate::harness::all().map(|a| a.spec()).collect()
+}
 
 fn spec_for_var(var: &str) -> Option<&'static Spec> {
-    SPECS.iter().find(|s| s.var.is_some_and(|(v, _)| v == var))
+    specs().into_iter().find(|s| s.var.is_some_and(|(v, _)| v == var))
 }
 
 // ---- Reading shell setup ----
@@ -115,7 +113,7 @@ fn assignments(s: &str) -> Vec<(String, String)> {
     // Escaped quotes inside an alias's quotes read as plain quotes here.
     let s = s.replace("\\\"", "\"").replace("\\'", "'");
     let mut out = Vec::new();
-    for spec in &SPECS {
+    for spec in specs() {
         let Some((var, _)) = spec.var else { continue };
         let mut from = 0;
         while let Some(i) = s[from..].find(var).map(|i| i + from) {
@@ -352,7 +350,7 @@ pub fn folder_key(home: &str) -> String {
 pub fn build(folders: &[Folder], installed: &dyn Fn(&str) -> bool, now: i64) -> Vec<Found> {
     let mut out: Vec<Found> = Vec::new();
     for f in folders {
-        let Some(spec) = SPECS.iter().find(|s| s.harness == f.harness) else { continue };
+        let Some(spec) = specs().into_iter().find(|s| s.harness == f.harness) else { continue };
         let Some(state) = decide(f, installed(f.harness), now) else { continue };
         let (name, command, via) = naming(spec, f);
         out.push(Found {
@@ -383,7 +381,9 @@ fn unique_names(found: Vec<Found>, taken: &[String]) -> Vec<Found> {
                 let base = f.name.trim_end_matches(|c: char| c.is_ascii_digit()).to_string();
                 let base = if base.is_empty() { f.name.clone() } else { base };
                 let next = (2..).map(|n| format!("{base}{n}")).find(|n| !used.contains(n)).unwrap_or_default();
-                if f.command.is_none() && f.harness != "antigravity" {
+                // An account with no command of its own is run by its name, which it's losing.
+                let by_name = specs().iter().any(|s| s.harness == f.harness && s.program.is_some());
+                if f.command.is_none() && by_name {
                     f.command = Some(f.name.clone());
                 }
                 f.name = next;
@@ -451,7 +451,7 @@ fn shell_decls(h: &Path, path_dirs: &[PathBuf]) -> Vec<(Decl, Named)> {
         for e in entries.flatten() {
             let name = e.file_name().to_string_lossy().into_owned();
             // Outside your home folder, only names that start like a harness's command.
-            let harnessy = SPECS.iter().filter_map(|s| s.program).any(|p| name.starts_with(p) && name != p);
+            let harnessy = specs().iter().filter_map(|s| s.program).any(|p| name.starts_with(p) && name != p);
             if !(mine || harnessy) || !seen.insert(name.clone()) {
                 continue;
             }
@@ -489,7 +489,7 @@ fn gather(h: &Path, decls: &[(Decl, Named)]) -> Vec<Folder> {
             folders.push(Folder { harness, dir, default, named: named.into_iter().collect(), ..Folder::default() });
         }
     };
-    for spec in &SPECS {
+    for spec in specs() {
         let moved = spec.var.and_then(|(var, sub)| {
             decls.iter().filter(|(d, _)| d.name.is_none() && d.var == var).find_map(|(d, _)| resolve(&d.value, h)).map(|p| match sub {
                 Some(s) => p.join(s),
@@ -686,7 +686,7 @@ MY_CLAUDE_CONFIG_DIR=~/.decoy
 
     #[test]
     fn names_accounts_the_way_you_run_them() {
-        let spec = &SPECS[0];
+        let spec = specs()[0];
         let mut own = folder("claude", "/Users/me/.claude");
         own.default = true;
         assert_eq!(naming(spec, &own), ("claude".into(), Some("claude".into()), None));
@@ -701,10 +701,10 @@ MY_CLAUDE_CONFIG_DIR=~/.decoy
         let bare = folder("claude", &home().join(".claude-work").to_string_lossy());
         assert_eq!(naming(spec, &bare), ("claude-work".into(), Some("CLAUDE_CONFIG_DIR=~/.claude-work claude".into()), None));
         let codex = folder("codex", &home().join(".codex2").to_string_lossy());
-        assert_eq!(naming(&SPECS[1], &codex).1, Some("CODEX_HOME=~/.codex2 codex".into()));
+        assert_eq!(naming(specs()[1], &codex).1, Some("CODEX_HOME=~/.codex2 codex".into()));
         // OpenCode's variable is the folder's parent.
         let oc = folder("opencode", &home().join(".oc2/opencode").to_string_lossy());
-        assert_eq!(naming(&SPECS[2], &oc).1, Some("XDG_DATA_HOME=~/.oc2 opencode".into()));
+        assert_eq!(naming(specs()[2], &oc).1, Some("XDG_DATA_HOME=~/.oc2 opencode".into()));
         // A folder that needs quotes gets $HOME, since ~ doesn't expand inside them.
         assert_eq!(shell_path(&home().join("My Claude")), "\"$HOME/My Claude\"");
     }

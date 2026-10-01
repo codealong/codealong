@@ -16,11 +16,12 @@ use std::sync::mpsc::{channel, Sender};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use serde_json::Value;
 
 use crate::config::AccountCfg;
-use crate::util::{file_name, now_ms, parse_rfc3339_ms, DAY_MS};
-use crate::{claude, codex, opencode, procs};
+use crate::harness;
+use crate::model::Harness;
+use crate::procs;
+use crate::util::{now_ms, DAY_MS};
 
 /// A message longer than this is cut: a paste can be hundreds of kilobytes.
 const MAX_TEXT: usize = 32 * 1024;
@@ -57,23 +58,20 @@ impl Entry {
     }
 }
 
-#[derive(Clone, Copy, PartialEq)]
-enum Kind {
-    Claude,
-    Codex,
-}
-
-/// One transcript or rollout: where reading stopped, and what it said up to there.
+/// One session's record that's a file of lines (a transcript, a rollout): where reading
+/// stopped, and what it said up to there. Its harness reads its lines (`Adapter::prose`).
 struct FileText {
     key: String,
-    kind: Kind,
+    harness: Harness,
     offset: u64,
     entries: Vec<Entry>,
 }
 
+/// What an account's sessions said where their harness keeps messages in a database
+/// (`Adapter::said`).
 #[derive(Default)]
-struct OpencodeText {
-    /// The newest `time_updated` read, so the next read takes only later writes.
+struct RowsText {
+    /// The newest write read, so the next read takes only later ones.
     after: i64,
     /// Session key → message id → what it says.
     sessions: HashMap<String, HashMap<String, Entry>>,
@@ -83,8 +81,8 @@ struct OpencodeText {
 struct Index {
     scope: Scope,
     files: HashMap<PathBuf, FileText>,
-    opencode: HashMap<String, OpencodeText>,
-    listed: Vec<(PathBuf, String, Kind)>,
+    rows: HashMap<String, RowsText>,
+    listed: Vec<(PathBuf, String, Harness)>,
     listed_at: Option<Instant>,
     /// Every listed file has been read once.
     ready: bool,
@@ -143,16 +141,16 @@ pub fn spawn_warmer(delay: Duration) {
 
 /// Reads every file not read yet, one at a time, letting searches in between.
 fn warm() {
-    let pending: Vec<(PathBuf, String, Kind)> = {
+    let pending: Vec<(PathBuf, String, Harness)> = {
         let mut ix = index().lock().unwrap_or_else(|e| e.into_inner());
         ix.relist(true);
         ix.listed.iter().filter(|(p, _, _)| !ix.files.contains_key(p)).cloned().collect()
     };
     let t = Instant::now();
     let mut read = 0u64;
-    for (path, key, kind) in pending {
+    for (path, key, harness) in pending {
         // Read outside the lock, then put in: a search meanwhile goes without this file.
-        let mut file = FileText { key, kind, offset: 0, entries: Vec::new() };
+        let mut file = FileText { key, harness, offset: 0, entries: Vec::new() };
         read += catch_up(&path, &mut file);
         let mut ix = index().lock().unwrap_or_else(|e| e.into_inner());
         if ix.listed.iter().any(|(p, _, _)| *p == path) {
@@ -160,7 +158,7 @@ fn warm() {
         }
     }
     let mut ix = index().lock().unwrap_or_else(|e| e.into_inner());
-    ix.catch_up_opencode();
+    ix.catch_up_rows();
     ix.ready = ix.listed.iter().all(|(p, _, _)| ix.files.contains_key(p));
     crate::perf::log(&format!("search index: read {} MB in {:?}, {} files", read / (1024 * 1024), t.elapsed(), ix.files.len()));
 }
@@ -178,7 +176,7 @@ pub fn find(words: &[String], limit: usize) -> Found {
             catch_up(&p, f);
         }
     }
-    ix.catch_up_opencode();
+    ix.catch_up_rows();
     let hits = ix.search(words, limit);
     Found { hits, building: !ix.ready, off: false }
 }
@@ -191,53 +189,43 @@ pub fn find_now(scope: Scope, words: &[String], limit: usize) -> Found {
 }
 
 impl Index {
-    /// Lists the transcripts and rollouts in scope, unless the list is fresh. Files that fell
-    /// out of scope are dropped.
+    /// Lists the records in scope that are files (`Adapter::search_files`), unless the list is
+    /// fresh. Files that fell out of scope are dropped.
     fn relist(&mut self, force: bool) {
         if !force && self.listed_at.is_some_and(|t| t.elapsed() < RELIST_EVERY) {
             return;
         }
         self.listed_at = Some(Instant::now());
         let since = now_ms() - self.scope.days as i64 * DAY_MS;
-        let mut listed: Vec<(PathBuf, String, Kind, i64)> = Vec::new();
+        let mut listed: Vec<(PathBuf, String, Harness, i64)> = Vec::new();
         if self.scope.days > 0 {
-            let none = Default::default();
             for a in &self.scope.accounts {
-                let home = a.home_path();
-                match a.harness.as_str() {
-                    "claude" => {
-                        for (p, m) in claude::transcript_files(&home, since, &none) {
-                            let id = file_name(&p).trim_end_matches(".jsonl").to_string();
-                            listed.push((p, format!("claude:{}:{}", a.name, id), Kind::Claude, m));
-                        }
-                    }
-                    "codex" => {
-                        for (p, m) in codex::rollout_files(&home, since, &none) {
-                            if let Some(id) = codex::thread_id_of(&p) {
-                                listed.push((p, format!("codex:{}:{}", a.name, id), Kind::Codex, m));
-                            }
-                        }
-                    }
-                    _ => {}
-                }
+                let Some(adapter) = harness::of(a) else { continue };
+                listed.extend(adapter.search_files(a, since).into_iter().map(|(p, key, m)| (p, key, adapter.harness(), m)));
             }
         }
         // The newest first, so the warmer reads what you're likeliest to look for first.
         listed.sort_by(|a, b| b.3.cmp(&a.3));
-        self.listed = listed.into_iter().map(|(p, k, kind, _)| (p, k, kind)).collect();
+        self.listed = listed.into_iter().map(|(p, k, harness, _)| (p, k, harness)).collect();
         let keep: std::collections::HashSet<&PathBuf> = self.listed.iter().map(|(p, _, _)| p).collect();
         self.files.retain(|p, _| keep.contains(p));
         self.ready = self.listed.iter().all(|(p, _, _)| self.files.contains_key(p));
     }
 
-    fn catch_up_opencode(&mut self) {
+    /// Reads what was said since the last read where messages are rows (`Adapter::said`).
+    fn catch_up_rows(&mut self) {
         let since = now_ms() - self.scope.days as i64 * DAY_MS;
-        let accounts: Vec<AccountCfg> = self.scope.accounts.iter().filter(|a| a.harness == "opencode").cloned().collect();
-        for a in accounts {
-            let text = self.opencode.entry(a.name.clone()).or_default();
-            for m in opencode::read_prose(&a.home_path(), since, text.after) {
+        for a in self.scope.accounts.clone() {
+            let Some(adapter) = harness::of(&a) else { continue };
+            let after = self.rows.get(&a.name).map_or(0, |t| t.after);
+            let said = adapter.said(&a, since, after);
+            if said.is_empty() {
+                continue;
+            }
+            let text = self.rows.entry(a.name.clone()).or_default();
+            for m in said {
                 text.after = text.after.max(m.updated);
-                let key = format!("opencode:{}:{}", a.name, m.session);
+                let key = format!("{}:{}:{}", adapter.harness().config(), a.name, m.session);
                 text.sessions.entry(key).or_default().insert(m.id, Entry::new(m.at, m.you, m.text));
             }
         }
@@ -253,8 +241,8 @@ impl Index {
                 hits.push(h);
             }
         }
-        for oc in self.opencode.values() {
-            for (key, msgs) in &oc.sessions {
+        for rows in self.rows.values() {
+            for (key, msgs) in &rows.sessions {
                 if let Some(h) = hit(key, msgs.values(), words) {
                     hits.push(h);
                 }
@@ -364,7 +352,7 @@ fn catch_up(path: &Path, f: &mut FileText) -> u64 {
                     break;
                 }
                 f.offset += n as u64;
-                if let Some(e) = entry_of(&buf, f.kind) {
+                if let Some(e) = entry_of(&buf, f.harness) {
                     // Newer Codex versions record a message as an event and as an item.
                     if f.entries.last().is_some_and(|last| last.you == e.you && last.text == e.text) {
                         continue;
@@ -377,31 +365,9 @@ fn catch_up(path: &Path, f: &mut FileText) -> u64 {
     f.offset - start
 }
 
-/// The prose on one line, if it has any. Lines that can't hold any are passed over before
-/// they're parsed: most of a transcript is tool output.
-fn entry_of(line: &[u8], kind: Kind) -> Option<Entry> {
-    let has = |needle: &[u8]| memchr::memmem::find(line, needle).is_some();
-    match kind {
-        Kind::Claude => {
-            if !has(br#""type":"user""#) && !has(br#""type":"assistant""#) {
-                return None;
-            }
-            let v: Value = serde_json::from_slice(line).ok()?;
-            let at = v.get("timestamp").and_then(Value::as_str).and_then(parse_rfc3339_ms).unwrap_or(0);
-            if let Some(t) = claude::typed_text(&v) {
-                return Some(Entry::new(at, true, t));
-            }
-            claude::reply_text(&v).map(|t| Entry::new(at, false, t))
-        }
-        Kind::Codex => {
-            if !has(b"agent_message") && !has(b"user_message") && !has(b"AgentMessage") && !has(b"UserMessage") {
-                return None;
-            }
-            let v: Value = serde_json::from_slice(line).ok()?;
-            let at = v.get("timestamp").and_then(Value::as_str).and_then(parse_rfc3339_ms).unwrap_or(0);
-            codex::prose_of(&v).map(|(you, t)| Entry::new(at, you, t))
-        }
-    }
+/// The prose on one line of a harness's record, if it has any (`Adapter::prose`).
+fn entry_of(line: &[u8], harness: Harness) -> Option<Entry> {
+    harness::adapter(harness).prose(line).map(|(at, you, text)| Entry::new(at, you, text))
 }
 
 #[cfg(test)]
@@ -428,7 +394,7 @@ mod tests {
         ];
         // The last line isn't finished yet.
         std::fs::write(&path, format!("{}\n{}", lines.join("\n"), r#"{"type":"assistant","message":{"content":[{"type":"text","text":"half"#)).unwrap();
-        let mut f = FileText { key: "claude:claude:s".into(), kind: Kind::Claude, offset: 0, entries: Vec::new() };
+        let mut f = FileText { key: "claude:claude:s".into(), harness: Harness::Claude, offset: 0, entries: Vec::new() };
         catch_up(&path, &mut f);
         assert_eq!(f.entries.iter().map(|e| (e.you, e.text.as_str())).collect::<Vec<_>>(), vec![(true, "Fix the webhook retries"), (false, "The retry loop lives in stripe.ts.")]);
         for w in ["zebra", "giraffe", "okapi", "half"] {
@@ -455,7 +421,7 @@ mod tests {
             r#"{"timestamp":"2026-09-24T21:22:56.754Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"I'll use the imagegen skill."}]}}"#,
             r#"{"timestamp":"2026-09-24T21:22:57Z","type":"event_msg","payload":{"type":"agent_message","message":"I'll use the imagegen skill."}}"#,
         ];
-        let entries: Vec<Entry> = lines.iter().filter_map(|l| entry_of(l.as_bytes(), Kind::Codex)).collect();
+        let entries: Vec<Entry> = lines.iter().filter_map(|l| entry_of(l.as_bytes(), Harness::Codex)).collect();
         assert_eq!(entries.len(), 3);
         assert!(entries[0].you && !entries[1].you);
     }

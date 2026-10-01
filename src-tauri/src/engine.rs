@@ -14,11 +14,9 @@ use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use crate::board::{self, LaneSeed, ELSEWHERE};
 use crate::chrome;
 use crate::chrometabs;
-use crate::claudeapp;
 use crate::prlinks;
 use crate::previews;
 use crate::reusable;
-use crate::codex;
 use crate::origins;
 use crate::config::{self, AccountCfg, Config, Theme};
 use crate::detect;
@@ -448,13 +446,11 @@ pub fn open_on(board: &Board, lane_id: &str, target_id: &str) -> Result<Option<S
                     let cmd = s.resume_command.clone().ok_or_else(|| anyhow!("This session can't be resumed in a terminal."))?;
                     launch::terminal_open(&apps.terminal_id, place, &cwd, Some(&format!("{cmd}\n")))?;
                 }
-                "claude-app" => launch::open_url(&launch::claude_app_url(&s.id))?,
-                "codex" => launch::open_codex(&launch::codex_thread_url(&s.id))?,
-                "antigravity" => launch::open_antigravity()?,
                 "chrome" => chrometabs::show(s.chrome.as_ref().ok_or_else(|| anyhow!("That session hasn't used Chrome."))?)?,
                 // A window shows it in its own panel; nothing opens elsewhere.
                 "hosted" => {}
-                other => bail!("Unknown action {other:?}"),
+                // A way of its harness's own: its app.
+                other => harness::adapter(s.harness).open(s, other)?,
             }
             return Ok(Some(s.key.clone()));
         }
@@ -2769,7 +2765,7 @@ fn folder_seed(path: PathBuf, project: &str, name: &str, elsewhere: bool) -> Lan
 /// them: the Claude app's Code sessions started without a folder, and the Codex app's threads
 /// that belong to no project.
 fn chat_roots() -> Vec<(PathBuf, &'static str)> {
-    vec![(claudeapp::scratch_dir(), "Claude app chats"), (codex::chats_dir(), "Codex chats")]
+    harness::chat_roots()
 }
 
 /// Which of `roots` holds `path`.

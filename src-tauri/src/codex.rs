@@ -819,6 +819,11 @@ impl crate::harness::Adapter for Codex {
         crate::model::Harness::Codex
     }
 
+    fn spec(&self) -> &'static crate::detect::Spec {
+        const SPEC: crate::detect::Spec = crate::detect::Spec { harness: "codex", program: Some("codex"), default_command: None, var: Some(("CODEX_HOME", None)), default_dir: "~/.codex", siblings: Some(".codex") };
+        &SPEC
+    }
+
     /// Its sign-in is `auth.json` in its folder.
     fn signed_in(&self, home: &Path) -> (bool, Option<String>) {
         (home.join("auth.json").is_file(), None)
@@ -906,7 +911,7 @@ impl crate::harness::Adapter for Codex {
 
     /// `codex fork <id>` opens its terminal UI on a copy of the thread, an app's thread too.
     /// Codex picks the copy's id, so it shows on the board once it's written.
-    fn fork(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> anyhow::Result<crate::harness::Fork> {
+    fn fork(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> anyhow::Result<crate::harness::Typed> {
         Ok(fork_of(ctx.account, &s.id))
     }
 
@@ -964,6 +969,134 @@ impl crate::harness::Adapter for Codex {
             _ => crate::send::codex_interrupt_turn(&ctx.account.home_path(), &s.id)?,
         }
         Ok(format!("Stopped “{}”.", s.title))
+    }
+
+    /// `codex resume <id> <prompt>`; its files go as paths, and `--` keeps a prompt that starts
+    /// with a dash from reading as an option.
+    fn resume(&self, account: &AccountCfg, id: &str, text: &str) -> anyhow::Result<(String, Vec<(String, String)>)> {
+        let input = format!("{} resume -- {id} \"${}\"\n", account.command(), crate::start::PROMPT_VAR);
+        Ok((input, vec![(crate::start::PROMPT_VAR.to_string(), crate::attachments::expand(text, crate::attachments::Style::Path).trim().to_string())]))
+    }
+
+    fn app(&self) -> &'static str {
+        "the Codex app"
+    }
+
+    /// A terminal's thread opens in its tab, else `codex resume` opens a new one; the Codex app
+    /// reads the same threads, for the account it runs.
+    fn targets(&self, s: &Session, o: &crate::harness::Opens) -> Vec<crate::model::Target> {
+        let (term, who) = (o.term, o.who.clone());
+        let mut t = Vec::new();
+        match s.surface {
+            crate::model::Surface::Cli => {
+                t.push(o.terminal(s, who.clone(), false));
+                if o.first && s.app_account {
+                    let (why, busy) = if s.pid.is_some() { (format!("Open in {term}, finish there first"), true) } else { (who, false) };
+                    t.push(o.way(s, "codex", "app", "Open in Codex".into(), why, false, busy));
+                }
+            }
+            crate::model::Surface::App => {
+                let verb = if o.respond { "Respond in" } else { "Open in" };
+                t.push(o.way(s, "codex", "app", format!("{verb} Codex"), who.clone(), true, false));
+                if o.first {
+                    let (why, busy) = if s.live { ("Working in the Codex app".to_string(), true) } else { (who, false) };
+                    t.push(o.way(s, "resume", "terminal", format!("Resume in {term}"), why, false, busy));
+                }
+            }
+        }
+        t
+    }
+
+    fn open(&self, s: &Session, action: &str) -> anyhow::Result<()> {
+        match action {
+            "codex" => crate::launch::open_codex(&crate::launch::codex_thread_url(&s.id)),
+            other => anyhow::bail!("Unknown action {other:?}"),
+        }
+    }
+
+    fn search_files(&self, account: &AccountCfg, since: i64) -> Vec<(PathBuf, String, i64)> {
+        let files = rollout_files(&account.home_path(), since, &HashSet::new());
+        files.into_iter().filter_map(|(p, m)| thread_id_of(&p).map(|id| (p, format!("codex:{}:{id}", account.name), m))).collect()
+    }
+
+    fn prose(&self, line: &[u8]) -> Option<(i64, bool, String)> {
+        let has = |needle: &[u8]| memchr::memmem::find(line, needle).is_some();
+        if !has(b"agent_message") && !has(b"user_message") && !has(b"AgentMessage") && !has(b"UserMessage") {
+            return None;
+        }
+        let v: Value = serde_json::from_slice(line).ok()?;
+        let at = v.get("timestamp").and_then(Value::as_str).and_then(parse_rfc3339_ms).unwrap_or(0);
+        prose_of(&v).map(|(you, t)| (at, you, t))
+    }
+
+    // ---- Starting a thread ----
+
+    /// Codex picks its own thread id. Its images go with `-i`, which takes several, so `--`
+    /// ends them before the prompt; other files are paths it can read.
+    fn start_in_terminal(&self, account: &AccountCfg, ask: &crate::harness::StartAsk) -> crate::harness::Typed {
+        use crate::attachments::{self, Style};
+        let prompt = attachments::expand_in(ask.prompt, ask.images_dir, ask.files_dir, Style::Path);
+        let prompt = prompt.trim();
+        let mut input = account.command().to_string();
+        let mut env = Vec::new();
+        for rel in attachments::referenced(ask.prompt).iter().filter(|r| r.starts_with("images/")) {
+            if let Some(name) = rel.strip_prefix("images/") {
+                input.push_str(&format!(" -i {}", crate::start::sh_quote(&ask.images_dir.join(name).to_string_lossy())));
+            }
+        }
+        if !prompt.is_empty() {
+            input.push_str(&format!(" -- \"${}\"", crate::start::PROMPT_VAR));
+            env.push((crate::start::PROMPT_VAR.to_string(), prompt.to_string()));
+        }
+        input.push('\n');
+        crate::harness::Typed { input, env, key: None }
+    }
+
+    /// `codex://threads/new` opens the app's new-thread page with the folder and prompt filled
+    /// in; a folder the app has no project for becomes one.
+    fn app_link(&self, folder: &Path, ask: &crate::harness::StartAsk) -> Option<String> {
+        let prompt = crate::attachments::expand_in(ask.prompt, ask.images_dir, ask.files_dir, crate::attachments::Style::Path);
+        Some(crate::start::with_param(format!("codex://threads/new?path={}", urlencoding::encode(&folder.to_string_lossy())), "prompt", prompt.trim()))
+    }
+
+    /// The app's new-thread link only fills a prompt in, so on a prompt Codealong makes the
+    /// thread itself, and the app, once it has the thread open, runs the first turn as if you'd
+    /// sent it there. When that fails the link still fills the prompt in: in the thread just made
+    /// if there is one, else on the new-thread page.
+    fn start_in_app(&self, account: &AccountCfg, lane: &str, folder: &Path, prompt: &str, link: &str) -> anyhow::Result<crate::start::Started> {
+        use crate::start::Started;
+        if prompt.trim().is_empty() {
+            crate::launch::open_codex(link)?;
+            return Ok(Started { key: None, message: Some(format!("A new Codex thread is open in {lane}.")) });
+        }
+        let waiting = || Some("Your prompt is waiting in a new Codex thread. Send it from there.".to_string());
+        let home = account.home_path();
+        let text = crate::attachments::expand(prompt.trim(), crate::attachments::Style::Path);
+        let thread = match crate::appserver::new_thread(&home, folder, None) {
+            Ok(t) => t,
+            Err(_) => {
+                crate::launch::open_codex(link)?;
+                return Ok(Started { key: None, message: waiting() });
+            }
+        };
+        let key = Some(format!("codex:{}:{}", account.name, thread.id));
+        let model = thread.model.as_deref().map(|m| (m, thread.effort.as_deref()));
+        match crate::send::codex_start_turn(&home, &thread.id, &text, model) {
+            Ok(()) => Ok(Started { key, message: None }),
+            Err(_) => {
+                crate::launch::open_codex(&format!("{}?prompt={}", crate::launch::codex_thread_url(&thread.id), urlencoding::encode(&text)))?;
+                Ok(Started { key, message: waiting() })
+            }
+        }
+    }
+
+    fn app_projects(&self, account: &AccountCfg) -> Vec<String> {
+        app_project_roots(&account.home_path())
+    }
+
+    /// A thread the app starts outside a project runs in a folder it makes for it.
+    fn chats(&self) -> Option<(PathBuf, &'static str)> {
+        Some((chats_dir(), "Codex chats"))
     }
 
     /// Codex archives a thread itself, so the Codex app shows it too.
@@ -1161,8 +1294,8 @@ impl crate::harness::Reader for Reader {
     }
 }
 
-fn fork_of(account: &crate::config::AccountCfg, id: &str) -> crate::harness::Fork {
-    crate::harness::Fork { input: format!("{} fork {id}\n", account.command()), env: Vec::new(), key: None }
+fn fork_of(account: &crate::config::AccountCfg, id: &str) -> crate::harness::Typed {
+    crate::harness::Typed { input: format!("{} fork {id}\n", account.command()), env: Vec::new(), key: None }
 }
 
 /// The inputs of the calls at the end of a rollout with no output yet: a call is written there

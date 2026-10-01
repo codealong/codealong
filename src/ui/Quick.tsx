@@ -76,6 +76,7 @@ import {
   remember,
   remembered,
   takesModel,
+  withLists,
   type AgentOption,
   type AutoPick,
 } from '../start';
@@ -565,9 +566,11 @@ export function Quick() {
   // Another Mac's usage comes with its feed.
   const usage = useMemo(() => (deviceNow ? (deviceInfo?.usage ?? []) : (board?.usage ?? [])), [deviceNow, deviceInfo?.usage, board?.usage]);
   // Stars come with the board, which is current; where accounts can start is read less often.
-  const accounts = useMemo(() => (startOptionsNow?.accounts ?? []).map((a) => ({ ...a, preferred: usage.find((u) => u.account === a.name)?.preferred ?? a.preferred })), [startOptionsNow, usage]);
-  const models = useMemo(() => startOptionsNow?.claudeModels ?? [], [startOptionsNow]);
-  const efforts = useMemo(() => startOptionsNow?.claudeEfforts ?? [], [startOptionsNow]);
+  const accounts = useMemo(() => (startOptionsNow ? withLists(startOptionsNow) : []).map((a) => ({ ...a, preferred: usage.find((u) => u.account === a.name)?.preferred ?? a.preferred })), [startOptionsNow, usage]);
+  // Every account's models, for saying one by its name; each account lists its own.
+  const models = useMemo(() => accounts.flatMap((a) => a.models ?? []).filter((m, i, all) => all.findIndex((x) => x.id === m.id) === i), [accounts]);
+  // The effort levels the agent menu offers: those of the accounts that take one.
+  const efforts = useMemo(() => accounts.find((a) => (a.efforts?.length ?? 0) > 0)?.efforts ?? [], [accounts]);
   // Auto follows usage while the panel is up, and resolves when you start.
   const pick = useMemo(() => autoPick(accounts, usage, now), [accounts, usage, now]);
   const agents = useMemo(() => agentOptions(accounts, models, pick), [accounts, models, pick]);
@@ -583,16 +586,18 @@ export function Quick() {
   // A model or effort is asked for on the command line (or of Codealong's adapter), so choosing
   // one leaves only the places that take it; the apps pick their own.
   const allPlaces = placesFor(choice, accounts, pick);
-  const tuned = !!chosenModel || (!!effort && harness === 'claude' && efforts.length > 0);
+  const takesEffort = (accountInfo?.efforts?.length ?? 0) > 0;
+  const tuned = !!chosenModel || (!!effort && takesEffort);
   const places = tuned ? allPlaces.filter((p) => placeTakesModel(p.place)) : allPlaces;
   const placeNow = [place, choice ? (settledPlace(choice, accounts, pick) ?? remembered().places?.[choice]) : undefined].map((p) => places.find((x) => x.place === p)?.place).find(Boolean) ?? places[0]?.place ?? null;
-  const claudeTerminal = !!placeNow && onCommandLine(placeNow) && harness === 'claude';
-  // Codealong hands the model to Claude Code's adapter, which takes the same names.
-  const claudeModel = !!placeNow && placeTakesModel(placeNow) && harness === 'claude';
-  const modelNow = claudeModel ? (autoFor ? (autoModelPick?.model ?? null) : chosenModel) : null;
-  const inNewWorktree = claudeTerminal && newWorktree;
+  // A harness whose command line makes a worktree for a session (Claude Code's `--worktree`).
+  const makesWorktree = !!placeNow && onCommandLine(placeNow) && !!accountInfo?.worktree;
+  // A harness whose command line takes a model; Codealong hands it to an adapter the same way.
+  const takesAModel = !!placeNow && placeTakesModel(placeNow) && (accountInfo?.models?.length ?? 0) > 0;
+  const modelNow = takesAModel ? (autoFor ? (autoModelPick?.model ?? null) : chosenModel) : null;
+  const inNewWorktree = makesWorktree && newWorktree;
   const defaultModel = accountInfo?.defaultModel ?? null;
-  const modelShown = !claudeModel
+  const modelShown = !takesAModel
     ? placeNow === 'claude-app'
       ? 'model chosen in the Claude app'
       : placeNow === 'codex-app'
@@ -601,17 +606,19 @@ export function Quick() {
           ? 'OpenCode’s model'
           : harness === 'codex'
             ? 'Codex’s model'
-            : null
+            : harness === 'antigravity'
+              ? 'Antigravity’s model'
+              : null
     : modelNow
       ? modelName(modelNow, models)
       : defaultModel
         ? modelName(defaultModel, models)
         : 'default model';
-  // Claude Code starts on the model asked for, else the account's own.
-  const startsOn = claudeModel ? (modelNow ?? defaultModel) : null;
-  // The effort goes wherever the model does, except to Haiku, which takes none. A Mac whose
-  // Codealong doesn't know effort yet lists no levels.
-  const effortTaken = claudeModel && efforts.length > 0 && modelFamily(startsOn) !== 'haiku';
+  // It starts on the model asked for, else the account's own.
+  const startsOn = takesAModel ? (modelNow ?? defaultModel) : null;
+  // The effort goes wherever the model does, to a harness that takes one, except to Haiku,
+  // which takes none. A Mac whose Codealong doesn't know effort yet lists no levels.
+  const effortTaken = takesAModel && takesEffort && modelFamily(startsOn) !== 'haiku';
   const effortNow = effortTaken ? effort : null;
   const effortWord = efforts.find((e) => e.id === effortNow)?.label ?? null;
 
@@ -1081,7 +1088,7 @@ export function Quick() {
   /** Starts a session: in the worktree chosen below, or where a suggestion says. */
   const start = (over?: { lane: Lane; newWorktree: boolean }) => {
     const where = over?.lane ?? lane;
-    const newTree = claudeTerminal && (over ? over.newWorktree : newWorktree);
+    const newTree = makesWorktree && (over ? over.newWorktree : newWorktree);
     if (!where || !account || !placeNow) return;
     if (choice) remember(choice, placeNow);
     const spec: StartSpec = { laneId: where.id, account, place: placeNow, prompt: text, model: modelNow, effort: effortNow, worktree: newTree, todos: forTodos.map((t) => t.id) };
@@ -1375,7 +1382,7 @@ export function Quick() {
           lead: <span className="ca-picker-check">{o.id === agentNow ? <Icon name="check" size={14} /> : null}</span>,
           text: `${a.name} ${HARNESS_WORD[a.harness]} ${o.model ? `${o.model} ${modelName(o.model, models)}` : 'default'}`,
           label: o.model ? modelName(o.model, models) : takesModel(a) ? `Default${a.defaultModel ? ` · ${modelName(a.defaultModel, models)}` : ''}` : a.name,
-          detail: o.model ? (models.find((m) => m.id === o.model)?.label.split(': ')[1] ?? null) : takesModel(a) ? 'From its settings.json' : cant ? a.unavailable : a.harness === 'codex' ? 'The model is chosen in Codex' : a.harness === 'opencode' ? 'The model comes from OpenCode’s settings' : null,
+          detail: o.model ? (models.find((m) => m.id === o.model)?.label.split(': ')[1] ?? null) : takesModel(a) ? (a.harness === 'claude' ? 'From its settings.json' : `The one ${HARNESS_WORD[a.harness]} starts on`) : cant ? a.unavailable : a.harness === 'codex' ? 'The model is chosen in Codex' : a.harness === 'opencode' ? 'The model comes from OpenCode’s settings' : null,
           disabled: cant,
           title: cant ? (a.unavailable ?? undefined) : undefined,
         })),
@@ -1402,7 +1409,7 @@ export function Quick() {
   const stepEffort = (delta: -1 | 1) =>
     setEffort((e) => effortSteps[Math.min(effortSteps.length - 1, Math.max(0, Math.max(0, effortSteps.indexOf(e)) + delta))]);
   const effortFoot =
-    efforts.length > 0 && accounts.some((a) => a.harness === 'claude') ? (
+    efforts.length > 0 ? (
       <>
         <span className="ca-picker-foot-label">Effort</span>
         <div className="ca-segctl" role="radiogroup" aria-label="Effort">
@@ -1505,7 +1512,7 @@ export function Quick() {
     if (sg.kind === 'todo') {
       return { icon: 'list-check', title: `Save as a todo: “${todoTitle(text)}”`, why: `In ${sg.lane.project}, linked to ${sg.lane.callsign}. Start it when you’re ready.`, where: sg.lane.callsign };
     }
-    const tree = claudeTerminal && sg.newWorktree;
+    const tree = makesWorktree && sg.newWorktree;
     const who = account ? `${account}${onModel}` : 'a session';
     const why =
       placeNow === 'codealong'
@@ -1952,8 +1959,17 @@ export function Quick() {
             </button>
             {picker === 'worktree' && <Picker sections={worktreeSections} value={lane?.id ?? null} placeholder="Worktree, branch or repo" onPick={(id) => { setLaneId(id); setPicker(null); refocus(); }} onClose={() => { setPicker(null); refocus(); }} />}
           </div>
-          <label className={['ca-check', 'ca-quick-newtree', !claudeTerminal && 'is-disabled'].filter(Boolean).join(' ')} title={claudeTerminal ? 'Claude Code makes the worktree: its folder, branch and base.' : placeNow === 'terminal' ? 'Only Claude Code can start in a new worktree from here.' : 'The app has its own worktree choice; pick it there before you send.'}>
-            <input type="checkbox" checked={inNewWorktree} disabled={!claudeTerminal} onChange={(e) => setNewWorktree(e.target.checked)} />
+          <label
+            className={['ca-check', 'ca-quick-newtree', !makesWorktree && 'is-disabled'].filter(Boolean).join(' ')}
+            title={
+              makesWorktree
+                ? `${harness ? HARNESS_WORD[harness] : 'It'} makes the worktree: its folder, branch and base.`
+                : placeNow && onCommandLine(placeNow)
+                  ? `${harness ? HARNESS_WORD[harness] : 'It'} can’t start in a new worktree from here.`
+                  : 'The app has its own worktree choice; pick it there before you send.'
+            }
+          >
+            <input type="checkbox" checked={inNewWorktree} disabled={!makesWorktree} onChange={(e) => setNewWorktree(e.target.checked)} />
             <span className="ca-check-box" aria-hidden="true">
               <Icon name="check" size={11} stroke={2.5} />
             </span>

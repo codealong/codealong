@@ -37,14 +37,16 @@ function defaultsFor(harness: Harness, name: string): { home: string; command: s
       // OpenCode's data folder is `<XDG_DATA_HOME>/opencode`.
       return plain ? { home: '~/.local/share/opencode', command: 'opencode' } : { home: `~/.${name}/opencode`, command: `XDG_DATA_HOME=~/.${name} opencode` };
     case 'antigravity':
-      // Antigravity keeps every app data folder under ~/.gemini and has no command.
+      // Antigravity keeps every app data folder under ~/.gemini; its command line is `agy`
+      // whatever the account is called, so the account takes no command of its own.
       return { home: `~/.gemini/${name}`, command: '' };
   }
 }
 
 /** Where an account can start a session from Codealong, as start.rs's `places_of` has it: the
- *  Claude and Codex apps each run only the account in the default folder, and Codealong runs any
- *  Claude Code, Codex or OpenCode account over its ACP adapter. */
+ *  Claude and Codex apps each run only the account in the default folder, Codealong runs any
+ *  Claude Code, Codex or OpenCode account over its ACP adapter, and Antigravity starts in the
+ *  terminal once its command line is installed (the engine says when it isn't). */
 export function startPlaces(harness: Harness, home: string): StartPlace[] {
   const main = (dir: string) => new RegExp(`^(~|/Users/[^/]+)/\\.${dir}/?$`).test(home.trim());
   switch (harness) {
@@ -55,7 +57,7 @@ export function startPlaces(harness: Harness, home: string): StartPlace[] {
     case 'opencode':
       return ['terminal', 'codealong'];
     case 'antigravity':
-      return [];
+      return ['terminal'];
   }
 }
 
@@ -85,7 +87,7 @@ function folderHelp(harness: Harness): React.ReactNode {
         </>
       );
     case 'antigravity':
-      return <>Antigravity's app data folder, with its conversation summaries. The app's own is ~/.gemini/antigravity.</>;
+      return <>Antigravity's app data folder, with its conversations. The app's own is ~/.gemini/antigravity; its command line's, ~/.gemini/antigravity-cli beside it, is read with it.</>;
   }
 }
 
@@ -99,7 +101,7 @@ function commandHelp(harness: Harness, terminal: string): string {
     case 'opencode':
       return `Starts this account in ${terminal}. Codealong adds --session to reopen a session.`;
     case 'antigravity':
-      return 'Antigravity has no command line; conversations open in the app.';
+      return `Its command line, agy unless you give another, starts and resumes conversations in ${terminal}. The app's own conversations open in the app.`;
   }
 }
 
@@ -406,7 +408,7 @@ export function AccountsSection({ focus, usage, terminal, now, onSaved }: Accoun
               <dt>Folder</dt>
               <dd className="ca-code">{a.home}</dd>
               <dt>Command</dt>
-              <dd className="ca-code">{a.command ?? (a.harness === 'antigravity' ? '—' : a.name)}</dd>
+              <dd className="ca-code">{a.command ?? (a.harness === 'antigravity' ? 'agy' : a.name)}</dd>
               {startPlaces(a.harness, a.home).length > 1 && (
                 <>
                   <dt>Starts in</dt>

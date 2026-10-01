@@ -7,9 +7,9 @@ use std::path::{Path, PathBuf};
 use anyhow::{anyhow, bail, Result};
 use serde::Serialize;
 
-use crate::codex;
-use crate::config::{AccountCfg, Config};
 use crate::attachments::{self, Style};
+use crate::config::{AccountCfg, Config};
+use crate::harness::{Adapter, StartAsk};
 use crate::launch;
 use crate::model::{Board, Harness, Meter, Severity, Usage};
 use crate::util::{home, tilde};
@@ -24,26 +24,6 @@ pub const SESSION_VAR: &str = "CODEALONG_SESSION";
 pub const IMAGES_VAR: &str = "CODEALONG_IMAGES";
 /// The attached files' folder, for `--add-dir`, when the prompt has other files.
 pub const FILES_VAR: &str = "CODEALONG_FILES";
-
-/// The models a Claude Code start can ask for, as `--model` takes them: aliases for the newest
-/// model of each family, the way Claude Code's own `/model` picker offers them (2.1.282 knows
-/// sonnet, opus, haiku, fable, their `[1m]` variants, best and opusplan). The apps' new-session
-/// links take no model; you pick it in the app.
-const CLAUDE_MODELS: [(&str, &str); 8] = [
-    ("fable", "Fable"),
-    ("fable[1m]", "Fable (1M context)"),
-    ("opus", "Opus"),
-    ("opus[1m]", "Opus (1M context)"),
-    ("sonnet", "Sonnet"),
-    ("sonnet[1m]", "Sonnet (1M context)"),
-    ("haiku", "Haiku"),
-    ("opusplan", "Opus Plan Mode: Opus to plan, Sonnet to build"),
-];
-
-/// The effort levels a Claude Code start can ask for, as `--effort` takes them, named the way
-/// Claude Code's own picker names them (2.1.284: `xhigh` is Extra). A model that doesn't take
-/// a level gets the nearest it does (`max` and `xhigh` become `high`), and Haiku takes none.
-const CLAUDE_EFFORTS: [(&str, &str); 5] = [("low", "Low"), ("medium", "Medium"), ("high", "High"), ("xhigh", "Extra"), ("max", "Max")];
 
 /// What a start asks for and gets back goes between devices too (a phone starts sessions on your
 /// Macs), so those types are in codealong-peer.
@@ -71,13 +51,16 @@ fn harness_of(a: &AccountCfg) -> Harness {
     Harness::from_config(&a.harness)
 }
 
+fn adapter_of(a: &AccountCfg) -> &'static dyn Adapter {
+    crate::harness::adapter(harness_of(a))
+}
 
-/// Where an account can start a session, the usual place first, or why it can't. The Claude
-/// app and the Codex app each run one account, the one in the default folder (`~/.claude`,
-/// `~/.codex`); the terminal runs any Claude Code, Codex or OpenCode account through its command.
-/// Antigravity starts conversations only in its own window.
+/// Where an account can start a session, the usual place first, or why it can't
+/// (`Adapter::places`). The Claude app and the Codex app each run one account, the one in the
+/// default folder (`~/.claude`, `~/.codex`); the terminal runs any account that has a command
+/// line, through its command.
 pub fn places_of(a: &AccountCfg, home: &Path) -> std::result::Result<Vec<Place>, String> {
-    crate::harness::adapter(harness_of(a)).places(a, home)
+    adapter_of(a).places(a, home)
 }
 
 /// Why an account's `start` can't be where its sessions start, in words.
@@ -103,8 +86,8 @@ pub fn ordered_places(a: &AccountCfg, home: &Path) -> std::result::Result<Vec<Pl
 
 /// Where each account can start a session, as the sheet offers it. `default_model` reads an
 /// account's default model.
-pub fn options(accounts: &[AccountCfg], terminal: &str, codex_projects: Vec<String>, home: &Path, default_model: impl Fn(&AccountCfg) -> Option<String>) -> StartOptions {
-    let accounts = accounts
+pub fn options(accounts_in: &[AccountCfg], terminal: &str, codex_projects: Vec<String>, home: &Path, default_model: impl Fn(&AccountCfg) -> Option<String>) -> StartOptions {
+    let accounts = accounts_in
         .iter()
         .map(|a| {
             let harness = harness_of(a);
@@ -126,12 +109,31 @@ pub fn options(accounts: &[AccountCfg], terminal: &str, codex_projects: Vec<Stri
                 })
                 .collect();
             let chosen = a.start.as_deref().and_then(Place::from_word);
-            let default_model = if harness == Harness::Claude { default_model(a) } else { None };
-            StartAccount { name: a.name.clone(), harness, places, chosen, unavailable, default_model, preferred: a.preferred }
+            // What its command line takes; an account with nowhere to start is asked nothing.
+            let adapter = adapter_of(a);
+            let tuned = adapter.takes_model() && unavailable.is_none();
+            StartAccount {
+                name: a.name.clone(),
+                harness,
+                places,
+                chosen,
+                unavailable,
+                default_model: if tuned { default_model(a) } else { None },
+                preferred: a.preferred,
+                models: if tuned { adapter.models(a) } else { Vec::new() },
+                efforts: if tuned { listed(adapter.efforts()) } else { Vec::new() },
+                worktree: adapter.makes_worktrees(),
+            }
         })
         .collect();
-    let listed = |list: &[(&str, &str)]| list.iter().map(|(id, label)| ModelOption { id: id.to_string(), label: label.to_string() }).collect();
-    StartOptions { accounts, codex_projects, claude_models: listed(&CLAUDE_MODELS), claude_efforts: listed(&CLAUDE_EFFORTS) }
+    // Devices that read the lists from here, before each account had its own, start Claude Code.
+    let claude = crate::harness::adapter(Harness::Claude);
+    let claude_models = accounts_in.iter().find(|a| harness_of(a) == Harness::Claude).map(|a| claude.models(a)).unwrap_or_default();
+    StartOptions { accounts, codex_projects, claude_models, claude_efforts: listed(claude.efforts()) }
+}
+
+fn listed(list: &[(&str, &str)]) -> Vec<ModelOption> {
+    list.iter().map(|(id, label)| ModelOption { id: id.to_string(), label: label.to_string() }).collect()
 }
 
 /// Why Auto starts the account it does: its weekly limit resets soonest, so its room is the
@@ -247,175 +249,80 @@ pub fn auto_pick(candidates: &[Candidate], usages: &[Usage], now: i64) -> Option
     least_full(&all).or_else(|| candidates.iter().find(|c| c.preferred).or(candidates.first()).map(first))
 }
 
-/// The `model` in a Claude account's settings.json, which Claude Code starts on without
-/// `--model`. A repo's own `.claude/settings.json` can still override it.
-pub fn claude_default_model(a: &AccountCfg) -> Option<String> {
-    let bytes = std::fs::read(a.home_path().join("settings.json")).ok()?;
-    let v: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
-    v.get("model").and_then(serde_json::Value::as_str).map(str::trim).filter(|m| !m.is_empty()).map(str::to_string)
-}
-
 /// A model name safe to type into the shell inside single quotes: letters, digits and `-._:[]`.
 /// The quotes matter: zsh would read `fable[1m]` as a file pattern.
 pub fn valid_model(m: &str) -> bool {
     !m.is_empty() && m.len() <= 80 && m.chars().all(|c| c.is_ascii_alphanumeric() || "-._:[]".contains(c))
 }
 
-/// Whether `--effort` takes this level.
-pub fn valid_effort(e: &str) -> bool {
-    effort_levels().any(|id| id == e)
-}
-
-/// The levels `--effort` takes, lowest first.
-pub fn effort_levels() -> impl Iterator<Item = &'static str> {
-    CLAUDE_EFFORTS.iter().map(|(id, _)| *id)
+/// The effort levels the harnesses' command lines take between them, lowest first.
+pub fn effort_levels() -> Vec<&'static str> {
+    let mut out = Vec::new();
+    for adapter in crate::harness::all() {
+        for (id, _) in adapter.efforts() {
+            if !out.contains(id) {
+                out.push(*id);
+            }
+        }
+    }
+    out
 }
 
 /// The sheet's options for the accounts in `cfg`.
 pub fn options_for(cfg: &Config) -> StartOptions {
-    let codex_projects = cfg.accounts.iter().filter(|a| a.harness == "codex").flat_map(|a| codex::app_project_roots(&a.home_path())).collect();
-    options(&cfg.accounts, &launch::terminal_name(&cfg.apps.terminal), codex_projects, &home(), claude_default_model)
+    let projects = cfg.accounts.iter().flat_map(|a| crate::harness::of(a).map(|h| h.app_projects(a)).unwrap_or_default()).collect();
+    options(&cfg.accounts, &launch::terminal_name(&cfg.apps.terminal), projects, &home(), |a| crate::harness::of(a).and_then(|h| h.default_model(a)))
 }
 
-/// The launch for one start. In the terminal Claude Code takes `session_id` as its own
-/// (`--session-id`), so the board knows the session the moment it appears. The apps get a link
-/// that opens their new-session page with the folder and prompt filled in; you send it there.
-///
-/// With `worktree`, Claude Code makes a new worktree for the session and chooses its folder,
-/// branch and base itself (or a repo's WorktreeCreate hook does). `--worktree` takes an
-/// optional name, so it goes first: followed by the prompt it would take the prompt as a name.
-///
-/// Attachments in the prompt (`images/…`, `files/…`) go to Claude Code as file mentions, with
-/// their folders added so it can read them without asking; `--add-dir` takes several folders,
-/// so each comes before `--session-id`, which ends it. The apps get the paths.
-///
-/// `model` and `effort` go only to Claude Code (`--model`, `--effort`, or its adapter's options);
-/// the apps and the other agents pick their own.
+/// The launch for one start, as its harness takes it (`Adapter::start_in_terminal`,
+/// `background_command`, `app_link`): a command line gets the prompt, with its attachments
+/// written out the way that harness reads files, and the model, effort and new worktree it
+/// offers; an app gets a link that opens its new-session page with the folder and prompt filled
+/// in, and you send it there. `session_id` is for a harness that takes an id Codealong picks,
+/// so the board knows the session the moment it appears.
 #[allow(clippy::too_many_arguments)]
 pub fn plan(account: &AccountCfg, place: Place, folder: &Path, prompt: &str, session_id: &str, model: Option<&str>, effort: Option<&str>, worktree: bool) -> Plan {
     plan_in(account, place, folder, prompt, session_id, model, effort, worktree, (&attachments::images_dir(), &attachments::files_dir()))
 }
 
+/// What a start asks of an account's harness: only what the harness offers gets through.
 #[allow(clippy::too_many_arguments)]
-fn plan_in(account: &AccountCfg, place: Place, folder: &Path, prompt: &str, session_id: &str, model: Option<&str>, effort: Option<&str>, worktree: bool, (images_dir, files_dir): (&Path, &Path)) -> Plan {
-    let effort = effort.filter(|e| valid_effort(e) && harness_of(account) == Harness::Claude);
-    let (has_images, has_files) = attachments::kinds(prompt);
-    let prompt_in = prompt;
-    // OpenCode and Codex have no --add-dir; they get plain paths.
-    let style = if matches!(harness_of(account), Harness::Opencode | Harness::Codex) { Style::Path } else { Style::Mention };
-    let prompt = attachments::expand_in(prompt, images_dir, files_dir, style);
-    let prompt = prompt.trim();
-    let dir = folder.to_string_lossy();
+fn asked<'a>(adapter: &dyn Adapter, prompt: &'a str, session_id: &'a str, model: Option<&'a str>, effort: Option<&'a str>, worktree: bool, (images_dir, files_dir): (&'a Path, &'a Path)) -> StartAsk<'a> {
+    StartAsk {
+        prompt,
+        session_id,
+        model: model.filter(|m| valid_model(m) && adapter.takes_model()),
+        effort: effort.filter(|e| adapter.efforts().iter().any(|(id, _)| id == e)),
+        worktree: worktree && adapter.makes_worktrees(),
+        images_dir,
+        files_dir,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn plan_in(account: &AccountCfg, place: Place, folder: &Path, prompt: &str, session_id: &str, model: Option<&str>, effort: Option<&str>, worktree: bool, dirs: (&Path, &Path)) -> Plan {
+    let adapter = adapter_of(account);
+    let ask = asked(adapter, prompt, session_id, model, effort, worktree, dirs);
+    let cwd = folder.to_path_buf();
     match place {
-        Place::Terminal if harness_of(account) == Harness::Codex => {
-            // Codex picks its own thread id. Its images go with -i, which takes several, so `--`
-            // ends them before the prompt; other files are paths it can read.
-            let mut input = account.command().to_string();
-            let mut env = Vec::new();
-            for rel in attachments::referenced(prompt_in).iter().filter(|r| r.starts_with("images/")) {
-                if let Some(name) = rel.strip_prefix("images/") {
-                    input.push_str(&format!(" -i {}", sh_quote(&images_dir.join(name).to_string_lossy())));
-                }
-            }
-            if !prompt.is_empty() {
-                input.push_str(&format!(" -- \"${PROMPT_VAR}\""));
-                env.push((PROMPT_VAR.to_string(), prompt.to_string()));
-            }
-            input.push('\n');
-            Plan::Terminal { cwd: folder.to_path_buf(), input, env }
-        }
         Place::Terminal => {
-            // OpenCode picks its own session id, takes the prompt as an option, and has no
-            // --worktree, --add-dir or --model.
-            let opencode = harness_of(account) == Harness::Opencode;
-            let mut input = account.command().to_string();
-            let mut env = Vec::new();
-            if worktree && !opencode {
-                input.push_str(" --worktree");
-            }
-            for (has, var, dir) in [(has_images, IMAGES_VAR, images_dir), (has_files, FILES_VAR, files_dir)] {
-                if has && !opencode {
-                    input.push_str(&format!(" --add-dir \"${var}\""));
-                    env.push((var.to_string(), dir.to_string_lossy().to_string()));
-                }
-            }
-            if !opencode {
-                input.push_str(&format!(" --session-id {session_id}"));
-                env.push((SESSION_VAR.to_string(), format!("claude:{}:{session_id}", account.name)));
-            }
-            if let Some(m) = model.filter(|m| valid_model(m) && !opencode) {
-                input.push_str(&format!(" --model '{m}'"));
-            }
-            if let Some(e) = effort {
-                input.push_str(&format!(" --effort {e}"));
-            }
-            if !prompt.is_empty() {
-                input.push_str(if opencode { " --prompt" } else { "" });
-                input.push_str(&format!(" \"${PROMPT_VAR}\""));
-                env.push((PROMPT_VAR.to_string(), as_argument(prompt)));
-            }
-            input.push('\n');
-            Plan::Terminal { cwd: folder.to_path_buf(), input, env }
+            let typed = adapter.start_in_terminal(account, &ask);
+            Plan::Terminal { cwd, input: typed.input, env: typed.env }
         }
-        Place::Background => {
-            let command = format!("{}{}", account.command(), background_args(prompt_in, model, effort, worktree, (images_dir, files_dir)));
-            Plan::Background { cwd: folder.to_path_buf(), command }
-        }
-        Place::ClaudeApp => Plan::ClaudeApp { url: with_param(format!("claude://code/new?folder={}", urlencoding::encode(&dir)), "q", prompt) },
-        Place::CodexApp => Plan::CodexApp { url: with_param(format!("codex://threads/new?path={}", urlencoding::encode(&dir)), "prompt", prompt) },
+        Place::Background => Plan::Background { cwd, command: adapter.background_command(account, &ask) },
+        Place::ClaudeApp => Plan::ClaudeApp { url: adapter.app_link(folder, &ask).unwrap_or_default() },
+        Place::CodexApp => Plan::CodexApp { url: adapter.app_link(folder, &ask).unwrap_or_default() },
         // The agents take the prompt as text, so attachments go as paths they can read.
-        Place::Codealong => Plan::Hosted {
-            account: account.name.clone(),
-            cwd: folder.to_path_buf(),
-            prompt: attachments::expand_in(prompt_in, images_dir, files_dir, Style::Path).trim().to_string(),
-            model: model.filter(|m| valid_model(m)).map(String::from),
-            effort: effort.map(String::from),
-        },
+        Place::Codealong => Plan::Hosted { account: account.name.clone(), cwd, prompt: hosted_prompt(&ask), model: ask.model.map(String::from), effort: ask.effort.map(String::from) },
     }
 }
 
-/// What follows the account's command in a Claude Code background start, quoted for the shell:
-/// the new worktree and attachment folders, `--bg`, the model and effort, and the prompt last.
-/// `--bg` picks the session's ID itself and ignores `--session-id`.
-fn background_args(prompt: &str, model: Option<&str>, effort: Option<&str>, worktree: bool, (images_dir, files_dir): (&Path, &Path)) -> String {
-    let (has_images, has_files) = attachments::kinds(prompt);
-    let prompt = attachments::expand_in(prompt, images_dir, files_dir, Style::Mention);
-    let prompt = prompt.trim();
-    let mut args = String::new();
-    if worktree {
-        args.push_str(" --worktree");
-    }
-    for (has, dir) in [(has_images, images_dir), (has_files, files_dir)] {
-        if has {
-            args.push_str(&format!(" --add-dir {}", sh_quote(&dir.to_string_lossy())));
-        }
-    }
-    args.push_str(" --bg");
-    if let Some(m) = model.filter(|m| valid_model(m)) {
-        args.push_str(&format!(" --model '{m}'"));
-    }
-    if let Some(e) = effort {
-        args.push_str(&format!(" --effort {e}"));
-    }
-    if !prompt.is_empty() {
-        args.push_str(&format!(" {}", sh_quote(&as_argument(prompt))));
-    }
-    args
+fn hosted_prompt(ask: &StartAsk) -> String {
+    attachments::expand_in(ask.prompt, ask.images_dir, ask.files_dir, Style::Path).trim().to_string()
 }
 
-/// The command that forks Claude Code session `id` into a background job, on `prompt` when
-/// there's one: `--bg` with `--resume` and `--fork-session` starts a copy of the conversation
-/// as far as it's written, the original carrying on (checked on 2.1.286). Without a prompt the
-/// job waits for one, and writes its transcript, the conversation so far included, with it.
-pub fn fork_command(account: &AccountCfg, id: &str, prompt: &str) -> String {
-    fork_command_in(account, id, prompt, (&attachments::images_dir(), &attachments::files_dir()))
-}
-
-fn fork_command_in(account: &AccountCfg, id: &str, prompt: &str, dirs: (&Path, &Path)) -> String {
-    format!("{} --resume {id} --fork-session{}", account.command(), background_args(prompt, None, None, false, dirs))
-}
-
-fn with_param(url: String, key: &str, value: &str) -> String {
+/// `url` with one more query parameter, when it has a value.
+pub fn with_param(url: String, key: &str, value: &str) -> String {
     if value.is_empty() {
         url
     } else {
@@ -438,72 +345,8 @@ pub fn as_argument(prompt: &str) -> String {
 }
 
 /// `s` in single quotes for the shell, each quote in it closed, escaped and reopened.
-fn sh_quote(s: &str) -> String {
+pub fn sh_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
-}
-
-/// The job ID `--bg` prints (`backgrounded · 34b864ad`), which is also where the session's own
-/// ID begins.
-pub fn background_job(output: &str) -> Option<String> {
-    output.lines().find_map(|l| {
-        let rest = l.trim().strip_prefix("backgrounded")?;
-        let job: String = rest.trim_start_matches(|c: char| !c.is_ascii_hexdigit()).chars().take_while(char::is_ascii_hexdigit).collect();
-        (job.len() >= 8).then_some(job)
-    })
-}
-
-/// A background job's session ID, from the service's roster (`<home>/daemon/roster.json`,
-/// `workers.<job>.sessionId`), where it's written as the job starts.
-pub fn background_session(roster: &serde_json::Value, job: &str) -> Option<String> {
-    roster.get("workers")?.get(job)?.get("sessionId")?.as_str().filter(|id| id.starts_with(job)).map(str::to_string)
-}
-
-/// Runs a background start in the login shell, which knows the account's command even when it's
-/// an alias, and returns the job's session ID once the service has it. Output goes to a file,
-/// not a pipe: a service the command starts would hold a pipe open long after it returns.
-pub(crate) fn start_background(account: &AccountCfg, cwd: &Path, command: &str) -> Result<(String, Option<String>)> {
-    use std::process::{Command, Stdio};
-    use std::time::{Duration, Instant};
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
-    let out_path = std::env::temp_dir().join(format!("codealong-bg-{}-{}.txt", std::process::id(), new_session_id()));
-    let out = std::fs::File::create(&out_path)?;
-    let mut child = Command::new(&shell)
-        .args(["-ilc", command])
-        .current_dir(cwd)
-        .env_remove(SESSION_VAR)
-        .stdin(Stdio::null())
-        .stdout(out.try_clone()?)
-        .stderr(out)
-        .spawn()
-        .map_err(|e| anyhow!("couldn't start {shell}: {e}"))?;
-    let started = Instant::now();
-    let status = loop {
-        if let Some(status) = child.try_wait()? {
-            break status;
-        }
-        if started.elapsed() > Duration::from_secs(60) {
-            let _ = child.kill();
-            let _ = std::fs::remove_file(&out_path);
-            bail!("{} didn't start in the background within a minute.", account.name);
-        }
-        std::thread::sleep(Duration::from_millis(20));
-    };
-    let output = std::fs::read_to_string(&out_path).unwrap_or_default();
-    let _ = std::fs::remove_file(&out_path);
-    let Some(job) = background_job(&output) else {
-        // Claude Code says why: an untrusted folder, a bad option, not signed in.
-        let why = output.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with("Starting background service")).last().unwrap_or("").to_string();
-        bail!(if why.is_empty() { format!("{} didn't start in the background (exit {}).", account.name, status.code().unwrap_or(-1)) } else { why });
-    };
-    let roster = account.home_path().join("daemon/roster.json");
-    let deadline = Instant::now() + Duration::from_secs(3);
-    loop {
-        let id = std::fs::read(&roster).ok().and_then(|b| serde_json::from_slice(&b).ok()).and_then(|v| background_session(&v, &job));
-        if id.is_some() || Instant::now() > deadline {
-            return Ok((job, id));
-        }
-        std::thread::sleep(Duration::from_millis(100));
-    }
 }
 
 /// A random version 4 UUID, the form `--session-id` takes.
@@ -521,14 +364,14 @@ fn uuid_v4(mut b: [u8; 16]) -> String {
     format!("{}-{}-{}-{}-{}", &hex[..8], &hex[8..12], &hex[12..16], &hex[16..20], &hex[20..])
 }
 
-/// Whether a start could go into a new worktree: only Claude Code makes one, started in a
-/// terminal or in the background.
+/// Whether a start could go into a new worktree: on the command line of a harness that makes
+/// one (`Adapter::makes_worktrees`), in a terminal or in the background.
 pub fn offers_worktree(cfg: &Config, spec: &StartSpec) -> bool {
-    matches!(spec.place, Place::Terminal | Place::Background) && cfg.accounts.iter().any(|a| a.name == spec.account && harness_of(a) == Harness::Claude)
+    matches!(spec.place, Place::Terminal | Place::Background) && cfg.accounts.iter().any(|a| a.name == spec.account && adapter_of(a).makes_worktrees())
 }
 
 /// Starts a session: checks the choice against the board and the config, then hands it to the
-/// terminal or the app.
+/// terminal or the app, the way the account's harness starts one.
 pub fn start(board: &Board, cfg: &Config, spec: &StartSpec) -> Result<Started> {
     let lane = board.lanes.iter().find(|l| l.id == spec.lane_id).ok_or_else(|| anyhow!("That worktree just changed. Try again."))?;
     let account = cfg.accounts.iter().find(|a| a.name == spec.account).ok_or_else(|| anyhow!("There's no account named {}.", spec.account))?;
@@ -536,83 +379,50 @@ pub fn start(board: &Board, cfg: &Config, spec: &StartSpec) -> Result<Started> {
     if !folder.is_dir() {
         bail!("{} isn't there any more.", tilde(folder));
     }
-    let mut offered = options(std::slice::from_ref(account), &launch::terminal_name(&cfg.apps.terminal), Vec::new(), &home(), |_| None);
-    let offered = offered.accounts.remove(0);
-    if !offered.places.iter().any(|p| p.place == spec.place) {
-        bail!(offered.unavailable.unwrap_or_else(|| format!("{} can't start a session there.", account.name)));
+    let offered = ordered_places(account, &home());
+    if !offered.as_ref().is_ok_and(|ps| ps.contains(&spec.place)) {
+        bail!(offered.err().unwrap_or_else(|| format!("{} can't start a session there.", account.name)));
     }
-    // The apps pick their model and worktree themselves, and only Claude Code takes them on the
-    // command line, so they go only with a terminal start of a Claude Code account.
-    let claude_terminal = matches!(spec.place, Place::Terminal | Place::Background) && harness_of(account) == Harness::Claude;
-    // Codealong hands a Claude Code session's model to its adapter, which takes the same names.
-    let claude_hosted = spec.place == Place::Codealong && harness_of(account) == Harness::Claude;
-    let model = spec.model.as_deref().map(str::trim).filter(|m| !m.is_empty() && (claude_terminal || claude_hosted));
-    let effort = spec.effort.as_deref().map(str::trim).filter(|e| !e.is_empty() && (claude_terminal || claude_hosted));
-    let worktree = spec.worktree && claude_terminal;
+    let adapter = adapter_of(account);
+    let word = adapter.harness().word();
+    // A model, an effort level and a new worktree go where the harness's command line takes
+    // them: in a terminal or the background, or through its adapter under Codealong, which
+    // takes the same names. The apps pick their own.
+    let on_command_line = matches!(spec.place, Place::Terminal | Place::Background);
+    let tuned = (on_command_line || spec.place == Place::Codealong) && adapter.takes_model();
+    let model = spec.model.as_deref().map(str::trim).filter(|m| !m.is_empty() && tuned);
+    let effort = spec.effort.as_deref().map(str::trim).filter(|e| !e.is_empty() && tuned && !adapter.efforts().is_empty());
+    let worktree = spec.worktree && on_command_line;
     if let Some(m) = model.filter(|m| !valid_model(m)) {
-        bail!("{m:?} isn't a model name Codealong can pass to Claude Code.");
+        bail!("{m:?} isn't a model name Codealong can pass to {word}.");
     }
-    if let Some(e) = effort.filter(|e| !valid_effort(e)) {
-        bail!("{e:?} isn't an effort level; Claude Code takes {}.", effort_levels().collect::<Vec<_>>().join(", "));
+    if let Some(e) = effort.filter(|e| !adapter.efforts().iter().any(|(id, _)| id == e)) {
+        bail!("{e:?} isn't an effort level; {word} takes {}.", adapter.efforts().iter().map(|(id, _)| *id).collect::<Vec<_>>().join(", "));
     }
-    if claude_terminal {
-        trust(account, folder);
+    if on_command_line {
+        adapter.before_start(account, folder);
     }
     let id = new_session_id();
-    let prompted = !spec.prompt.trim().is_empty();
-    match plan(account, spec.place, folder, &spec.prompt, &id, model, effort, worktree) {
-        Plan::Terminal { cwd, input, env } => {
+    let dirs = (attachments::images_dir(), attachments::files_dir());
+    let ask = asked(adapter, &spec.prompt, &id, model, effort, worktree, (&dirs.0, &dirs.1));
+    match spec.place {
+        Place::Terminal => {
+            let typed = adapter.start_in_terminal(account, &ask);
             let near = crate::board::terminal_neighbours(&board.lanes, folder);
-            launch::terminal_run(&cfg.apps.terminal, launch::Placement { new_terminal: cfg.apps.new_terminal, near: &near }, &cwd, &input, &env)?;
-            // OpenCode and Codex name their own sessions; one shows on the board once it's written.
-            match harness_of(account) {
-                Harness::Opencode => Ok(Started { key: None, message: Some(format!("OpenCode is starting in {}.", lane.callsign)) }),
-                Harness::Codex => Ok(Started { key: None, message: Some(format!("Codex is starting in {}.", lane.callsign)) }),
-                _ => Ok(Started { key: Some(format!("claude:{}:{id}", account.name)), message: None }),
-            }
+            launch::terminal_run(&cfg.apps.terminal, launch::Placement { new_terminal: cfg.apps.new_terminal, near: &near }, folder, &typed.input, &typed.env)?;
+            // A harness that names its own sessions shows one on the board once it's written.
+            let message = typed.key.is_none().then(|| format!("{word} is starting in {}.", lane.callsign));
+            Ok(Started { key: typed.key, message })
         }
-        Plan::Background { cwd, command } => {
-            let (job, id) = start_background(account, &cwd, &command)?;
-            match id {
-                Some(id) => Ok(Started { key: Some(format!("claude:{}:{id}", account.name)), message: None }),
-                None => Ok(Started { key: None, message: Some(format!("{} is starting in the background as {job}.", account.name)) }),
-            }
+        Place::Background => adapter.start_in_background(account, folder, &adapter.background_command(account, &ask)),
+        Place::ClaudeApp | Place::CodexApp => {
+            let link = adapter.app_link(folder, &ask).ok_or_else(|| anyhow!("{} can't start a session there.", account.name))?;
+            adapter.start_in_app(account, &lane.callsign, folder, &spec.prompt, &link)
         }
-        Plan::ClaudeApp { url } => {
-            launch::open_url(&url)?;
-            let message = if prompted {
-                "Your prompt is waiting in a new Claude app session. Send it from there.".to_string()
-            } else {
-                format!("A new Claude app session is open in {}.", lane.callsign)
-            };
-            Ok(Started { key: None, message: Some(message) })
-        }
-        Plan::Hosted { cwd, prompt, model, effort, .. } => {
-            let key = crate::acp::start(account, &cwd, &prompt, model.as_deref(), effort.as_deref())?;
+        Place::Codealong => {
+            let key = crate::acp::start(account, folder, &hosted_prompt(&ask), ask.model, ask.effort)?;
             Ok(Started { key: Some(key), message: None })
         }
-        Plan::CodexApp { url } => {
-            if prompted {
-                return codex_app_start(account, folder, &spec.prompt, &url);
-            }
-            launch::open_codex(&url)?;
-            let message = if prompted {
-                "Your prompt is waiting in a new Codex thread. Send it from there.".to_string()
-            } else {
-                format!("A new Codex thread is open in {}.", lane.callsign)
-            };
-            Ok(Started { key: None, message: Some(message) })
-        }
-    }
-}
-
-/// Trusts the folder a Claude Code session is starting in for its account
-/// (`claude::trust_folder`): Claude Code stops a new session at its trust prompt in a folder it
-/// hasn't trusted, where the default answer quits, and `--bg` refuses to start there. You chose
-/// the folder, as answering the prompt would. A start goes ahead without it, and Claude Code asks.
-fn trust(account: &AccountCfg, folder: &Path) {
-    if let Err(e) = crate::claude::trust_folder(&account.home_path(), folder) {
-        eprintln!("Couldn't trust {} for {}: {e:#}", tilde(folder), account.name);
     }
 }
 
@@ -629,10 +439,8 @@ fn to_fork<'a>(board: &'a Board, cfg: &'a Config, key: &str) -> Result<(&'a crat
     let holds = |l: &&crate::model::Lane| l.sessions.iter().any(|x| x.key == key);
     let lane = board.lanes.iter().find(own).or_else(|| board.lanes.iter().find(holds)).ok_or_else(|| anyhow!("That session isn't on the board any more."))?;
     let cwd = if Path::new(&s.cwd).is_dir() { PathBuf::from(&s.cwd) } else { PathBuf::from(&lane.path) };
-    // A Claude app session can run where Claude Code in a terminal hasn't been trusted.
-    if s.harness == Harness::Claude {
-        trust(account, &cwd);
-    }
+    // An app's session can run where its harness's command line would stop to ask about the folder.
+    crate::harness::adapter(s.harness).before_start(account, &cwd);
     Ok((s, account, lane, cwd))
 }
 
@@ -667,30 +475,6 @@ pub fn fork_background(board: &Board, cfg: &Config, key: &str, prompt: &str) -> 
         crate::origins::record(copy, key, crate::model::OriginHow::Fork);
     }
     Ok(Started { key: copy, message: Some(message) })
-}
-
-/// Starts a Codex app thread on a prompt. The app's new-thread link only fills the prompt in, so
-/// Codealong makes the thread itself, and the app, once it has the thread open, runs the first
-/// turn as if you'd sent it there. When that fails the link still fills the prompt in: in the
-/// thread just made if there is one, else on the new-thread page.
-fn codex_app_start(account: &AccountCfg, folder: &Path, prompt: &str, link: &str) -> Result<Started> {
-    let home = account.home_path();
-    let text = attachments::expand(prompt.trim(), Style::Path);
-    let thread = match crate::appserver::new_thread(&home, folder, None) {
-        Ok(t) => t,
-        Err(_) => {
-            launch::open_codex(link)?;
-            return Ok(Started { key: None, message: Some("Your prompt is waiting in a new Codex thread. Send it from there.".into()) });
-        }
-    };
-    let model = thread.model.as_deref().map(|m| (m, thread.effort.as_deref()));
-    match crate::send::codex_start_turn(&home, &thread.id, &text, model) {
-        Ok(()) => Ok(Started { key: Some(format!("codex:{}:{}", account.name, thread.id)), message: None }),
-        Err(_) => {
-            launch::open_codex(&format!("{}?prompt={}", launch::codex_thread_url(&thread.id), urlencoding::encode(&text)))?;
-            Ok(Started { key: Some(format!("codex:{}:{}", account.name, thread.id)), message: Some("Your prompt is waiting in a new Codex thread. Send it from there.".into()) })
-        }
-    }
 }
 
 #[cfg(test)]
@@ -881,7 +665,7 @@ mod tests {
         // Only the levels Claude Code takes are typed.
         let Plan::Terminal { input, .. } = plan(&a, Place::Terminal, Path::new("/r/x"), "", id, None, Some("high; rm -rf ~"), false) else { panic!() };
         assert_eq!(input, format!("claude2 --session-id {id}\n"));
-        assert!(valid_effort("medium") && !valid_effort("ultracode") && !valid_effort(""));
+        assert!(effort_levels().contains(&"medium") && !effort_levels().contains(&"ultracode") && !effort_levels().contains(&""));
         // The other agents choose their own.
         let o = account("opencode", "opencode", "~/.local/share/opencode", Some("opencode"));
         let Plan::Terminal { input, .. } = plan(&o, Place::Terminal, Path::new("/r/x"), "", id, None, Some("high"), false) else { panic!() };
@@ -930,61 +714,6 @@ mod tests {
         // A one-word prompt keeps its padding, so it isn't read as a command.
         let Plan::Background { command, .. } = plan(&a, Place::Background, Path::new("/r/x"), "update", id, None, None, false) else { panic!() };
         assert_eq!(command, "claude2 --bg 'update '");
-    }
-
-    #[test]
-    fn forks_into_the_background_with_the_prompt_quoted_last() {
-        let a = account("claude2", "claude", "~/.claude2", Some("claude2"));
-        let dirs = (Path::new("/i"), Path::new("/f"));
-        let id = "3628c9e6-0309-4a30-aed9-3e68d0e66b7e";
-        assert_eq!(fork_command_in(&a, id, "", dirs), format!("claude2 --resume {id} --fork-session --bg"));
-        assert_eq!(fork_command_in(&a, id, "  try it the other way's round  ", dirs), format!("claude2 --resume {id} --fork-session --bg 'try it the other way'\\''s round'"));
-        assert_eq!(
-            fork_command_in(&a, id, "look\n![image](images/0123456789abcdef.png)", dirs),
-            format!("claude2 --resume {id} --fork-session --add-dir '/i' --bg 'look\n@\"/i/0123456789abcdef.png\"'")
-        );
-    }
-
-    #[test]
-    fn finds_the_background_session_it_started() {
-        let out = "backgrounded · 34b864ad\n  claude agents             list sessions\n  claude attach 34b864ad    open in this terminal\n";
-        assert_eq!(background_job(out).as_deref(), Some("34b864ad"));
-        assert_eq!(background_job("backgrounded · 3a6096ed (idle — send a prompt to start)\n").as_deref(), Some("3a6096ed"));
-        assert_eq!(background_job("Workspace not trusted. Run `claude` in /r/x once and accept the trust prompt, then retry.\n"), None);
-        let roster = serde_json::json!({"workers": {"34b864ad": {"sessionId": "34b864ad-b397-4f98-96fe-b06f41bb2653"}, "11111111": {"sessionId": "22222222-0000-4000-8000-000000000000"}}});
-        assert_eq!(background_session(&roster, "34b864ad").as_deref(), Some("34b864ad-b397-4f98-96fe-b06f41bb2653"));
-        assert_eq!(background_session(&roster, "11111111"), None);
-        assert_eq!(background_session(&roster, "99999999"), None);
-    }
-
-    /// Starts a real background session on Haiku in a folder Claude Code trusts, checks that its
-    /// transcript has the prompt exactly as given, then stops and removes it. Opt in:
-    /// `CODEALONG_TEST_FOLDER=<trusted git folder> cargo test background_round_trip -- --ignored`.
-    #[test]
-    #[ignore]
-    fn background_round_trip() {
-        let folder = PathBuf::from(std::env::var("CODEALONG_TEST_FOLDER").expect("CODEALONG_TEST_FOLDER"));
-        let a = account("claude", "claude", "~/.claude", Some("claude"));
-        let prompt = "Reply with just ok. Don't expand $HOME or `this` or $(say nope) -v";
-        let Plan::Background { cwd, command } = plan(&a, Place::Background, &folder, prompt, "unused", Some("haiku"), None, false) else { panic!() };
-        let (job, id) = start_background(&a, &cwd, &command).unwrap();
-        let id = id.expect("the roster names the session");
-        assert!(id.starts_with(&job));
-        let mut seen = false;
-        for _ in 0..100 {
-            let found = crate::util::home().join(".claude/projects").read_dir().unwrap().flatten().map(|d| d.path().join(format!("{id}.jsonl"))).find(|p| p.exists());
-            if let Some(text) = found.and_then(|p| std::fs::read_to_string(p).ok()) {
-                // Nothing in it needs escaping in JSON.
-                if text.contains(prompt) {
-                    seen = true;
-                    break;
-                }
-            }
-            std::thread::sleep(std::time::Duration::from_millis(200));
-        }
-        let _ = crate::procs::run("claude", &["stop", &job], Some(&folder), std::time::Duration::from_secs(20));
-        let _ = crate::procs::run("claude", &["rm", &job], Some(&folder), std::time::Duration::from_secs(20));
-        assert!(seen, "the transcript never showed the prompt");
     }
 
     #[test]

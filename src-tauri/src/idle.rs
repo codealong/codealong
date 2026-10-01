@@ -192,11 +192,7 @@ pub fn close_one(board: &Board, cfg: &crate::config::Config, key: &str) -> anyho
     let pid = match (s.surface, s.pid) {
         (Surface::Cli, Some(pid)) if !s.hosted => pid,
         _ if s.hosted => bail!("Codealong runs it itself, in no terminal."),
-        (Surface::App, _) => bail!("It runs in {}; close it there.", match s.harness {
-            Harness::Claude => "the Claude app",
-            Harness::Codex => "the Codex app",
-            h => h.word(),
-        }),
+        (Surface::App, _) => bail!("It runs in {}; close it there.", crate::harness::adapter(s.harness).app()),
         _ => bail!("It has no terminal Codealong can close."),
     };
     let result = crate::launch::close_session_terminals(&[(pid, std::path::Path::new(&s.cwd))]).pop().unwrap_or_else(|| Err(anyhow!("Nothing was closed.")));

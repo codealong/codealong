@@ -769,6 +769,11 @@ impl crate::harness::Adapter for ClaudeCode {
         crate::model::Harness::Claude
     }
 
+    fn spec(&self) -> &'static crate::detect::Spec {
+        const SPEC: crate::detect::Spec = crate::detect::Spec { harness: "claude", program: Some("claude"), default_command: Some("claude"), var: Some(("CLAUDE_CONFIG_DIR", None)), default_dir: "~/.claude", siblings: Some(".claude") };
+        &SPEC
+    }
+
     /// The keychain holds its sign-in (only whether it does is asked), and its state file the
     /// email.
     fn signed_in(&self, home: &Path) -> (bool, Option<String>) {
@@ -960,16 +965,16 @@ impl crate::harness::Adapter for ClaudeCode {
         true
     }
 
-    fn fork(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> anyhow::Result<crate::harness::Fork> {
+    fn fork(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> anyhow::Result<crate::harness::Typed> {
         // A job with no transcript of its own yet has the conversation it goes on from, so far.
         Ok(fork_as(ctx.account, s.continues.as_deref().unwrap_or(&s.id), &crate::start::new_session_id()))
     }
 
     /// A background job under the account's service, whichever way the session runs: Claude
-    /// Code copies the conversation from its transcript (`start::fork_command`).
+    /// Code copies the conversation from its transcript (`fork_command`).
     fn fork_background(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, cwd: &Path, prompt: &str) -> anyhow::Result<Option<String>> {
-        let command = crate::start::fork_command(ctx.account, s.continues.as_deref().unwrap_or(&s.id), prompt);
-        let (_, id) = crate::start::start_background(ctx.account, cwd, &command)?;
+        let command = fork_command(ctx.account, s.continues.as_deref().unwrap_or(&s.id), prompt);
+        let (_, id) = start_background(ctx.account, cwd, &command)?;
         Ok(id.map(|id| format!("claude:{}:{id}", ctx.account.name)))
     }
 
@@ -1077,6 +1082,207 @@ impl crate::harness::Adapter for ClaudeCode {
         Ok(format!("Stopped “{}”.", s.title))
     }
 
+    fn app(&self) -> &'static str {
+        "the Claude app"
+    }
+
+    /// A terminal session opens in its tab, a background job by attaching, one that isn't
+    /// running by resuming; the Claude app continues any of them for the account it's signed
+    /// into, and opens its own.
+    fn targets(&self, s: &Session, o: &crate::harness::Opens) -> Vec<crate::model::Target> {
+        use crate::model::Surface;
+        let (term, who) = (o.term, o.who.clone());
+        let mut t = Vec::new();
+        match s.surface {
+            Surface::Cli if s.live && s.attach_command.is_some() => {
+                t.push(o.way(s, "attach", "terminal", format!("Attach in {term}"), format!("{who} · runs in the background"), true, false));
+            }
+            Surface::Cli if s.live => {
+                let verb = if o.respond { "Respond in" } else { "Show in" };
+                t.push(o.way(s, "focus", "terminal", format!("{verb} {term}"), who, true, false));
+                if o.first && s.app_account {
+                    t.push(o.way(s, "claude-app", "app", "Open in Claude app".into(), format!("Live in {term}, finish there first"), false, true));
+                }
+            }
+            Surface::Cli => {
+                t.push(o.way(s, "resume", "terminal", format!("Resume in {term}"), who.clone(), true, false));
+                // Only the account the Claude app is signed into can continue there.
+                if o.first && s.app_account {
+                    t.push(o.way(s, "claude-app", "app", "Continue in Claude app".into(), who, false, false));
+                }
+            }
+            Surface::App => {
+                let verb = if o.respond { "Respond in" } else { "Open in" };
+                t.push(o.way(s, "claude-app", "app", format!("{verb} Claude app"), who.clone(), true, false));
+                if o.first {
+                    let (why, busy) = if s.live { ("Live in the Claude app".to_string(), true) } else { (who, false) };
+                    t.push(o.way(s, "resume", "terminal", format!("Resume in {term}"), why, false, busy));
+                }
+            }
+        }
+        t
+    }
+
+    fn open(&self, s: &Session, action: &str) -> anyhow::Result<()> {
+        match action {
+            "claude-app" => crate::launch::open_url(&crate::launch::claude_app_url(&s.id)),
+            other => anyhow::bail!("Unknown action {other:?}"),
+        }
+    }
+
+    fn search_files(&self, account: &AccountCfg, since: i64) -> Vec<(PathBuf, String, i64)> {
+        let files = transcript_files(&account.home_path(), since, &HashSet::new());
+        files
+            .into_iter()
+            .map(|(p, m)| {
+                let key = format!("claude:{}:{}", account.name, file_name(&p).trim_end_matches(".jsonl"));
+                (p, key, m)
+            })
+            .collect()
+    }
+
+    /// What you typed, and what the agent replied.
+    fn prose(&self, line: &[u8]) -> Option<(i64, bool, String)> {
+        let has = |needle: &[u8]| memchr::memmem::find(line, needle).is_some();
+        if !has(br#""type":"user""#) && !has(br#""type":"assistant""#) {
+            return None;
+        }
+        let v: Value = serde_json::from_slice(line).ok()?;
+        let at = v.get("timestamp").and_then(Value::as_str).and_then(parse_rfc3339_ms).unwrap_or(0);
+        typed_text(&v).map(|t| (at, true, t)).or_else(|| reply_text(&v).map(|t| (at, false, t)))
+    }
+
+    /// Typed text goes through the same path as a prompt argument: `@"<path>"` attaches a file.
+    fn typed_attachments(&self) -> crate::attachments::Style {
+        crate::attachments::Style::Mention
+    }
+
+    /// A prompt Claude Code took back may be in its input box again, where what's typed would
+    /// be added to it and both go as one prompt.
+    fn clears_before_typing(&self, account: &AccountCfg, s: &Session) -> bool {
+        last_prompt_taken_back(account, s)
+    }
+
+    /// Every live session listens on a socket for other sessions' messages.
+    fn takes_messages(&self) -> bool {
+        true
+    }
+
+    fn resume(&self, account: &AccountCfg, id: &str, text: &str) -> anyhow::Result<(String, Vec<(String, String)>)> {
+        Ok(crate::send::claude_resume_input(account, id, text))
+    }
+
+    /// A Code session the Claude app starts without a folder runs in a scratch workspace it
+    /// makes for it.
+    fn chats(&self) -> Option<(PathBuf, &'static str)> {
+        Some((crate::claudeapp::scratch_dir(), "Claude app chats"))
+    }
+
+    // ---- Starting a session ----
+
+    fn models(&self, _account: &AccountCfg) -> Vec<crate::start::ModelOption> {
+        MODELS.iter().map(|(id, label)| crate::start::ModelOption { id: id.to_string(), label: label.to_string() }).collect()
+    }
+
+    fn takes_model(&self) -> bool {
+        true
+    }
+
+    /// The list is its aliases; `--model` takes a model's full name too.
+    fn offers_model(&self, _account: &AccountCfg, _model: &str) -> bool {
+        true
+    }
+
+    fn efforts(&self) -> &'static [(&'static str, &'static str)] {
+        &EFFORTS
+    }
+
+    fn default_model(&self, account: &AccountCfg) -> Option<String> {
+        default_model(account)
+    }
+
+    /// `-w/--worktree` makes one and chooses its folder, branch and base itself (or a repo's
+    /// WorktreeCreate hook does).
+    fn makes_worktrees(&self) -> bool {
+        true
+    }
+
+    /// Trusts the folder for the account (`trust_folder`): Claude Code stops a new session at
+    /// its trust prompt in a folder it hasn't trusted, where the default answer quits, and
+    /// `--bg` refuses to start there. You chose the folder, as answering the prompt would. A
+    /// start goes ahead without it, and Claude Code asks.
+    fn before_start(&self, account: &AccountCfg, folder: &Path) {
+        if let Err(e) = trust_folder(&account.home_path(), folder) {
+            eprintln!("Couldn't trust {} for {}: {e:#}", crate::util::tilde(folder), account.name);
+        }
+    }
+
+    /// Claude Code takes `session_id` as its own (`--session-id`), so the board knows the
+    /// session the moment it appears. `--worktree` takes an optional name, so it goes first:
+    /// followed by the prompt it would take the prompt as a name. Attachments go as file
+    /// mentions, with their folders added so it can read them without asking; `--add-dir` takes
+    /// several folders, so each comes before `--session-id`, which ends it.
+    fn start_in_terminal(&self, account: &AccountCfg, ask: &crate::harness::StartAsk) -> crate::harness::Typed {
+        use crate::start::{FILES_VAR, IMAGES_VAR, PROMPT_VAR, SESSION_VAR};
+        let (has_images, has_files) = crate::attachments::kinds(ask.prompt);
+        let prompt = crate::attachments::expand_in(ask.prompt, ask.images_dir, ask.files_dir, crate::attachments::Style::Mention);
+        let prompt = prompt.trim();
+        let key = format!("claude:{}:{}", account.name, ask.session_id);
+        let mut input = account.command().to_string();
+        let mut env = Vec::new();
+        if ask.worktree {
+            input.push_str(" --worktree");
+        }
+        for (has, var, dir) in [(has_images, IMAGES_VAR, ask.images_dir), (has_files, FILES_VAR, ask.files_dir)] {
+            if has {
+                input.push_str(&format!(" --add-dir \"${var}\""));
+                env.push((var.to_string(), dir.to_string_lossy().to_string()));
+            }
+        }
+        input.push_str(&format!(" --session-id {}", ask.session_id));
+        env.push((SESSION_VAR.to_string(), key.clone()));
+        if let Some(m) = ask.model {
+            input.push_str(&format!(" --model '{m}'"));
+        }
+        if let Some(e) = ask.effort {
+            input.push_str(&format!(" --effort {e}"));
+        }
+        if !prompt.is_empty() {
+            input.push_str(&format!(" \"${PROMPT_VAR}\""));
+            env.push((PROMPT_VAR.to_string(), crate::start::as_argument(prompt)));
+        }
+        input.push('\n');
+        crate::harness::Typed { input, env, key: Some(key) }
+    }
+
+    /// A background session, under the account's background service. Its arguments are quoted
+    /// in the command itself: the service the session runs under may start from this shell and
+    /// keep its environment, so nothing is handed over in that.
+    fn background_command(&self, account: &AccountCfg, ask: &crate::harness::StartAsk) -> String {
+        format!("{}{}", account.command(), background_args(ask.prompt, ask.model, ask.effort, ask.worktree, (ask.images_dir, ask.files_dir)))
+    }
+
+    fn start_in_background(&self, account: &AccountCfg, cwd: &Path, command: &str) -> anyhow::Result<crate::start::Started> {
+        let (job, id) = start_background(account, cwd, command)?;
+        Ok(match id {
+            Some(id) => crate::start::Started { key: Some(format!("claude:{}:{id}", account.name)), message: None },
+            None => crate::start::Started { key: None, message: Some(format!("{} is starting in the background as {job}.", account.name)) },
+        })
+    }
+
+    /// `claude://code/new` opens the Claude app's new-session page with the folder and prompt
+    /// filled in; it takes no model or worktree, which the page has its own choices for.
+    fn app_link(&self, folder: &Path, ask: &crate::harness::StartAsk) -> Option<String> {
+        let prompt = crate::attachments::expand_in(ask.prompt, ask.images_dir, ask.files_dir, crate::attachments::Style::Mention);
+        Some(crate::start::with_param(format!("claude://code/new?folder={}", urlencoding::encode(&folder.to_string_lossy())), "q", prompt.trim()))
+    }
+
+    fn start_in_app(&self, _account: &AccountCfg, lane: &str, _folder: &Path, prompt: &str, link: &str) -> anyhow::Result<crate::start::Started> {
+        crate::launch::open_url(link)?;
+        let message = if prompt.trim().is_empty() { format!("A new Claude app session is open in {lane}.") } else { "Your prompt is waiting in a new Claude app session. Send it from there.".to_string() };
+        Ok(crate::start::Started { key: None, message: Some(message) })
+    }
+
     /// The endpoint behind its `/usage`, which turns away calls that come often.
     fn polls_usage(&self) -> bool {
         true
@@ -1088,6 +1294,140 @@ impl crate::harness::Adapter for ClaudeCode {
 
     fn reader(&self, _wake: crate::harness::Wake) -> Box<dyn crate::harness::Reader> {
         Box::new(Reader::default())
+    }
+}
+
+/* ---- Starting a session ---- */
+
+/// The models a start can ask for, as `--model` takes them: aliases for the newest
+/// model of each family, the way Claude Code's own `/model` picker offers them (2.1.282 knows
+/// sonnet, opus, haiku, fable, their `[1m]` variants, best and opusplan). The apps' new-session
+/// links take no model; you pick it in the app.
+const MODELS: [(&str, &str); 8] = [
+    ("fable", "Fable"),
+    ("fable[1m]", "Fable (1M context)"),
+    ("opus", "Opus"),
+    ("opus[1m]", "Opus (1M context)"),
+    ("sonnet", "Sonnet"),
+    ("sonnet[1m]", "Sonnet (1M context)"),
+    ("haiku", "Haiku"),
+    ("opusplan", "Opus Plan Mode: Opus to plan, Sonnet to build"),
+];
+
+/// The effort levels a start can ask for, as `--effort` takes them, named the way
+/// Claude Code's own picker names them (2.1.284: `xhigh` is Extra). A model that doesn't take
+/// a level gets the nearest it does (`max` and `xhigh` become `high`), and Haiku takes none.
+const EFFORTS: [(&str, &str); 5] = [("low", "Low"), ("medium", "Medium"), ("high", "High"), ("xhigh", "Extra"), ("max", "Max")];
+
+/// The `model` in an account's settings.json, which Claude Code starts on without
+/// `--model`. A repo's own `.claude/settings.json` can still override it.
+pub fn default_model(a: &AccountCfg) -> Option<String> {
+    let bytes = std::fs::read(a.home_path().join("settings.json")).ok()?;
+    let v: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    v.get("model").and_then(serde_json::Value::as_str).map(str::trim).filter(|m| !m.is_empty()).map(str::to_string)
+}
+
+/// What follows the account's command in a background start, quoted for the shell:
+/// the new worktree and attachment folders, `--bg`, the model and effort, and the prompt last.
+/// `--bg` picks the session's ID itself and ignores `--session-id`.
+fn background_args(prompt: &str, model: Option<&str>, effort: Option<&str>, worktree: bool, (images_dir, files_dir): (&Path, &Path)) -> String {
+    let (has_images, has_files) = crate::attachments::kinds(prompt);
+    let prompt = crate::attachments::expand_in(prompt, images_dir, files_dir, crate::attachments::Style::Mention);
+    let prompt = prompt.trim();
+    let mut args = String::new();
+    if worktree {
+        args.push_str(" --worktree");
+    }
+    for (has, dir) in [(has_images, images_dir), (has_files, files_dir)] {
+        if has {
+            args.push_str(&format!(" --add-dir {}", crate::start::sh_quote(&dir.to_string_lossy())));
+        }
+    }
+    args.push_str(" --bg");
+    if let Some(m) = model.filter(|m| crate::start::valid_model(m)) {
+        args.push_str(&format!(" --model '{m}'"));
+    }
+    if let Some(e) = effort {
+        args.push_str(&format!(" --effort {e}"));
+    }
+    if !prompt.is_empty() {
+        args.push_str(&format!(" {}", crate::start::sh_quote(&crate::start::as_argument(prompt))));
+    }
+    args
+}
+
+/// The command that forks session `id` into a background job, on `prompt` when
+/// there's one: `--bg` with `--resume` and `--fork-session` starts a copy of the conversation
+/// as far as it's written, the original carrying on (checked on 2.1.286). Without a prompt the
+/// job waits for one, and writes its transcript, the conversation so far included, with it.
+pub fn fork_command(account: &AccountCfg, id: &str, prompt: &str) -> String {
+    fork_command_in(account, id, prompt, (&crate::attachments::images_dir(), &crate::attachments::files_dir()))
+}
+
+pub(crate) fn fork_command_in(account: &AccountCfg, id: &str, prompt: &str, dirs: (&Path, &Path)) -> String {
+    format!("{} --resume {id} --fork-session{}", account.command(), background_args(prompt, None, None, false, dirs))
+}
+
+/// The job ID `--bg` prints (`backgrounded · 34b864ad`), which is also where the session's own
+/// ID begins.
+pub fn background_job(output: &str) -> Option<String> {
+    output.lines().find_map(|l| {
+        let rest = l.trim().strip_prefix("backgrounded")?;
+        let job: String = rest.trim_start_matches(|c: char| !c.is_ascii_hexdigit()).chars().take_while(char::is_ascii_hexdigit).collect();
+        (job.len() >= 8).then_some(job)
+    })
+}
+
+/// A background job's session ID, from the service's roster (`<home>/daemon/roster.json`,
+/// `workers.<job>.sessionId`), where it's written as the job starts.
+pub fn background_session(roster: &serde_json::Value, job: &str) -> Option<String> {
+    roster.get("workers")?.get(job)?.get("sessionId")?.as_str().filter(|id| id.starts_with(job)).map(str::to_string)
+}
+
+/// Runs a background start in the login shell, which knows the account's command even when it's
+/// an alias, and returns the job's session ID once the service has it. Output goes to a file,
+/// not a pipe: a service the command starts would hold a pipe open long after it returns.
+pub(crate) fn start_background(account: &AccountCfg, cwd: &Path, command: &str) -> anyhow::Result<(String, Option<String>)> {
+    use std::process::{Command, Stdio};
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+    let out_path = std::env::temp_dir().join(format!("codealong-bg-{}-{}.txt", std::process::id(), crate::start::new_session_id()));
+    let out = std::fs::File::create(&out_path)?;
+    let mut child = Command::new(&shell)
+        .args(["-ilc", command])
+        .current_dir(cwd)
+        .env_remove(crate::start::SESSION_VAR)
+        .stdin(Stdio::null())
+        .stdout(out.try_clone()?)
+        .stderr(out)
+        .spawn()
+        .map_err(|e| anyhow::anyhow!("couldn't start {shell}: {e}"))?;
+    let started = Instant::now();
+    let status = loop {
+        if let Some(status) = child.try_wait()? {
+            break status;
+        }
+        if started.elapsed() > Duration::from_secs(60) {
+            let _ = child.kill();
+            let _ = std::fs::remove_file(&out_path);
+            anyhow::bail!("{} didn't start in the background within a minute.", account.name);
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    let output = std::fs::read_to_string(&out_path).unwrap_or_default();
+    let _ = std::fs::remove_file(&out_path);
+    let Some(job) = background_job(&output) else {
+        // Claude Code says why: an untrusted folder, a bad option, not signed in.
+        let why = output.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with("Starting background service")).last().unwrap_or("").to_string();
+        anyhow::bail!(if why.is_empty() { format!("{} didn't start in the background (exit {}).", account.name, status.code().unwrap_or(-1)) } else { why });
+    };
+    let roster = account.home_path().join("daemon/roster.json");
+    let deadline = Instant::now() + Duration::from_secs(3);
+    loop {
+        let id = std::fs::read(&roster).ok().and_then(|b| serde_json::from_slice(&b).ok()).and_then(|v| background_session(&v, &job));
+        if id.is_some() || Instant::now() > deadline {
+            return Ok((job, id));
+        }
+        std::thread::sleep(Duration::from_millis(100));
     }
 }
 
@@ -1394,9 +1734,9 @@ fn ends_mid_line(path: &Path) -> bool {
 /// Forks session `id` into a new one named `new_id`: `--fork-session` copies the transcript, and
 /// takes `--session-id` for the copy's ID (resuming takes it only with `--fork-session`), so the
 /// copy's key is known before it's written, as a start's is.
-fn fork_as(account: &crate::config::AccountCfg, id: &str, new_id: &str) -> crate::harness::Fork {
+fn fork_as(account: &crate::config::AccountCfg, id: &str, new_id: &str) -> crate::harness::Typed {
     let key = format!("claude:{}:{new_id}", account.name);
-    crate::harness::Fork {
+    crate::harness::Typed {
         input: format!("{} --resume {id} --fork-session --session-id {new_id}\n", account.command()),
         env: vec![(crate::start::SESSION_VAR.to_string(), key.clone())],
         key: Some(key),
@@ -2928,5 +3268,60 @@ mod tests {
         assert!(reader.apply(&account, std::slice::from_ref(&log), &look).lines.iter().all(|l| l.from == l.to));
         assert!(reader.logs().contains(&(log.clone(), "claude:claude9:s1".to_string())));
         std::fs::remove_dir_all(&home).unwrap();
+    }
+
+    #[test]
+    fn forks_into_the_background_with_the_prompt_quoted_last() {
+        let a = AccountCfg { name: "claude2".into(), harness: "claude".into(), home: "~/.claude2".into(), command: Some("claude2".into()), start: None, preferred: false, acp: None };
+        let dirs = (Path::new("/i"), Path::new("/f"));
+        let id = "3628c9e6-0309-4a30-aed9-3e68d0e66b7e";
+        assert_eq!(fork_command_in(&a, id, "", dirs), format!("claude2 --resume {id} --fork-session --bg"));
+        assert_eq!(fork_command_in(&a, id, "  try it the other way's round  ", dirs), format!("claude2 --resume {id} --fork-session --bg 'try it the other way'\\''s round'"));
+        assert_eq!(
+            fork_command_in(&a, id, "look\n![image](images/0123456789abcdef.png)", dirs),
+            format!("claude2 --resume {id} --fork-session --add-dir '/i' --bg 'look\n@\"/i/0123456789abcdef.png\"'")
+        );
+    }
+
+    #[test]
+    fn finds_the_background_session_it_started() {
+        let out = "backgrounded · 34b864ad\n  claude agents             list sessions\n  claude attach 34b864ad    open in this terminal\n";
+        assert_eq!(background_job(out).as_deref(), Some("34b864ad"));
+        assert_eq!(background_job("backgrounded · 3a6096ed (idle — send a prompt to start)\n").as_deref(), Some("3a6096ed"));
+        assert_eq!(background_job("Workspace not trusted. Run `claude` in /r/x once and accept the trust prompt, then retry.\n"), None);
+        let roster = serde_json::json!({"workers": {"34b864ad": {"sessionId": "34b864ad-b397-4f98-96fe-b06f41bb2653"}, "11111111": {"sessionId": "22222222-0000-4000-8000-000000000000"}}});
+        assert_eq!(background_session(&roster, "34b864ad").as_deref(), Some("34b864ad-b397-4f98-96fe-b06f41bb2653"));
+        assert_eq!(background_session(&roster, "11111111"), None);
+        assert_eq!(background_session(&roster, "99999999"), None);
+    }
+
+    /// Starts a real background session on Haiku in a folder Claude Code trusts, checks that its
+    /// transcript has the prompt exactly as given, then stops and removes it. Opt in:
+    /// `CODEALONG_TEST_FOLDER=<trusted git folder> cargo test background_round_trip -- --ignored`.
+    #[test]
+    #[ignore]
+    fn background_round_trip() {
+        let folder = PathBuf::from(std::env::var("CODEALONG_TEST_FOLDER").expect("CODEALONG_TEST_FOLDER"));
+        let a = AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: Some("claude".into()), start: None, preferred: false, acp: None };
+        let prompt = "Reply with just ok. Don't expand $HOME or `this` or $(say nope) -v";
+        let crate::start::Plan::Background { cwd, command } = crate::start::plan(&a, crate::start::Place::Background, &folder, prompt, "unused", Some("haiku"), None, false) else { panic!() };
+        let (job, id) = start_background(&a, &cwd, &command).unwrap();
+        let id = id.expect("the roster names the session");
+        assert!(id.starts_with(&job));
+        let mut seen = false;
+        for _ in 0..100 {
+            let found = crate::util::home().join(".claude/projects").read_dir().unwrap().flatten().map(|d| d.path().join(format!("{id}.jsonl"))).find(|p| p.exists());
+            if let Some(text) = found.and_then(|p| std::fs::read_to_string(p).ok()) {
+                // Nothing in it needs escaping in JSON.
+                if text.contains(prompt) {
+                    seen = true;
+                    break;
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
+        let _ = crate::procs::run("claude", &["stop", &job], Some(&folder), std::time::Duration::from_secs(20));
+        let _ = crate::procs::run("claude", &["rm", &job], Some(&folder), std::time::Duration::from_secs(20));
+        assert!(seen, "the transcript never showed the prompt");
     }
 }

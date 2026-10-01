@@ -219,8 +219,7 @@ export function sessionHeadline(s: Session): [string, string | null] {
       if (s.asks || s.excerpt?.startsWith('Asks you')) return [`${acct} asks you · ${s.title}`, s.excerpt?.startsWith('Asks you · ') ? s.excerpt.slice('Asks you · '.length) : null];
       if (s.excerpt == null) return [`${acct} needs you · ${s.title}`, null];
       if (s.harness === 'claude') return [`${acct} is waiting for approval · ${s.title}`, s.excerpt];
-      if (s.harness === 'codex' || s.harness === 'opencode') return [`${acct} asks for approval · ${s.title}`, s.excerpt];
-      return [`${acct} needs you · ${s.title}`, s.excerpt];
+      return [`${acct} asks for approval · ${s.title}`, s.excerpt];
     case 'error':
       return [`${acct} stopped with an error · ${s.title}`, s.excerpt];
     case 'working': {
@@ -250,7 +249,7 @@ export function sessionFlag(s: Session): InsightLabel | null {
   if (s.status !== 'needs') return null;
   if (s.asks) return { label: 'Asks you', tone: 'warn', title: 'Its last reply asks you something.' };
   if (s.excerpt?.startsWith('Asks you')) return { label: 'Asks you', tone: 'warn', title: 'It’s waiting for your answer to its question.' };
-  if (s.excerpt != null && s.harness !== 'antigravity') return { label: 'Needs approval', tone: 'warn', title: 'It’s waiting for you to allow what it wants to run.' };
+  if (s.excerpt != null) return { label: 'Needs approval', tone: 'warn', title: 'It’s waiting for you to allow what it wants to run.' };
   return null;
 }
 

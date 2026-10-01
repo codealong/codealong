@@ -305,30 +305,51 @@ some work is, answer with one.
 ## Adding a harness
 
 A harness is a module (`claude.rs`, `codex.rs`, `opencode.rs`, `antigravity.rs`) that knows its
-files, and an `Adapter` in it (`harness.rs`) that the rest of the app asks about a session:
-where its record is, its conversation (`transcript.rs` pages a file of JSON lines given a line
-parser), the ways a prompt reaches it (`send::Route`s, tried in order by `send.rs`), and what
-it waits on you to allow and how to answer. Adding one:
+files and commands, with two things in it that the rest of the app goes through (`harness.rs`):
+an `Adapter`, which answers for a session and for an account, and a `Reader`, which reads its
+sessions for the board. Nothing outside a harness's module branches on which harness it is: it
+asks `harness::adapter(session.harness)` or `harness::of(account)`. Adding one:
 
-1. A variant of `model::Harness` (and `src/types.ts`), its name in `Harness::word` and
-   `src/harness.ts`, and its string in `config::HARNESSES`.
-2. A module with a struct implementing `harness::Adapter`, listed in `harness::ADAPTERS`. Only
-   `harness` and `records` are required; the rest default to saying it can't. Besides its
-   sessions, the adapter answers for an account: `installed`, `signed_in`, `sign_in_command`,
-   `folder_use` (detect.rs finds accounts by it), `skills_dir`, `acp_command`, `places` (where
-   sessions start), `session_cwds` (first run's projects) and `no_limits`.
+1. A variant of `model::Harness` with its name in `Harness::word` and its config string in
+   `Harness::config` and `from_config` (codealong-peer's `model.rs`), in `config::HARNESSES`, and
+   in `src/types.ts` and `src/harness.ts`.
+2. A module with a struct implementing `harness::Adapter`, listed in `harness::ADAPTERS`. It must
+   say `harness`, `spec` (its folder, the variable that moves it and its command, which is how
+   detect.rs finds its accounts), `records`, `targets` (the ways to open a session) and `reader`;
+   everything else defaults to saying it can't. What it can answer, by what asks:
+   - a session's panel: `conversation` and `conversation_after` (`transcript.rs` pages a file of
+     JSON lines given a line parser), `pending`, `answer`, `answer_questions`, `open_calls`;
+   - opening: `targets`, and `open` for a way of its own (its app); the engine does `focus`,
+     `resume` (`Session::resume_command`) and `attach` for every harness;
+   - sending (send.rs): `routes`, best first, `resume` for what a new terminal types to go on
+     with one that isn't running, `typed_attachments`, `clears_before_typing`, `takes_messages`;
+   - acting on it: `fork`, `fork_background`, `side`, `stop`, `rename`, `interrupts` and
+     `interrupt`, `archive`, `skips_permission_prompts`, `runs_its_commands`;
+   - starting (start.rs): `places`, `start_in_terminal`, `background_command` and
+     `start_in_background`, `app_link` and `start_in_app`, `models`, `takes_model`,
+     `offers_model`, `efforts`, `default_model`, `makes_worktrees`, `before_start`,
+     `app_projects`;
+   - search (search.rs): `search_files` and `prose` for records that are files of lines, `said`
+     for messages kept in a database;
+   - its accounts: `installed`, `signed_in`, `sign_in_command`, `folder_use`, `skills_dir`,
+     `acp_command`, `session_cwds` (first run's projects), `chats` (the folder of sessions it
+     starts without a folder of yours, which get one lane), `no_limits`, and `polls_usage` with
+     `read_usage` for usage asked from somewhere slow.
 3. A `harness::Reader` in the module, which `Adapter::reader` makes and the engine keeps without
    looking inside: what the harness's files said at the last read, the folders to watch, taking
    in the files that change (`owns`, `apply`), what the watcher never says (`tick` every ten
-   seconds, `glance` every second or two, `poll` for a service asked off the engine's thread),
-   and its sessions, put together with a `board::*_session` constructor for its status rules,
-   with where each came from (`Session::origin`: what it's a fork of, or which session started
-   it) when its records say. Plan usage that comes with the sessions is `Reader::usage`; usage
-   asked from somewhere slow is `Adapter::polls_usage` and `read_usage`.
-4. What still matches on the harness by name, with a fallback, so the compiler won't list it:
-   `board::targets` and `engine::open_on` for opening; `start.rs`'s plans for starting; a new
-   `send::Route` if it takes prompts some new way; `search.rs` for text search. Search for an
-   existing harness's name.
+   seconds, `glance` every second or two, `poll` for what's asked off the engine's thread), and
+   its sessions, put together with a `board::*_session` constructor for its status rules, with
+   where each came from (`Session::origin`: what it's a fork of, or which session started it)
+   when its records say. Plan usage that comes with the sessions is `Reader::usage`. A database
+   is opened with `harness::open_database`, which reads a WAL database its writer has closed.
+4. What's still said harness by harness, and so needs a line for a new one: a new way a prompt
+   gets in is a `send::Route` with its transport in send.rs (and a `Way` in codealong-peer, for
+   what the reply box says); a new place a session starts is a `Place` there too;
+   `board::session_headline`'s words for an approval, mirrored in `src/lanes.ts`; and the UI's
+   own lists, which the engine doesn't send: names and apps in `src/harness.ts`, which sessions
+   take `/fork` and `/side` in `src/slash.ts`, a new account's defaults and help in
+   `src/ui/AccountsSection.tsx`, the reply box's words in `src/ui/SessionReply.tsx`.
 
 ## Harness facts
 
@@ -858,27 +879,90 @@ OpenCode (2.0.16, from its source at that tag and its files here)
 - Creating a session through the API in a folder made OpenCode point its `global` project
   (its project for folders without version control) at that folder.
 
-Antigravity (2.17.0, from its app bundle and files here)
+Antigravity (the hub app 2.17.0 and its command line, `agy` 1.2.14; from the app bundle, the
+command line's binary, and runs on this Mac, 2026-10-01)
 
-- Now an Electron hub app (`/Applications/Antigravity.app`, bundle id `com.google.antigravity`),
-  not the earlier VS Code fork. Its agent is `Contents/Resources/bin/language_server` (Go;
-  "gemini_coder" protos), which serves the UI on random local ports (logged in
-  `~/Library/Logs/Antigravity/language_server.log`) behind a CSRF token.
-- App data: `~/.gemini/antigravity` (`--app_data_dir antigravity`; a separately installed IDE
-  uses `~/.gemini/antigravity-ide`). `conversation_summaries.db` (SQLite, written by gorm) has
-  a row per conversation: `conversation_id`, `title`, `preview`, `step_count`,
-  `last_modified_time` and `last_user_input_time` (text such as
-  `2026-09-24 14:16:07.434615-07:00`), `workspace_uris` (JSON list of `file://` URIs),
-  `status`, `source`, `parent_conversation_id` and `nesting_depth` (subagents), `not_fully_idle`,
-  `killed`, `raw_summary` (a `CascadeTrajectorySummary` protobuf). The conversations themselves
-  are protobufs in `conversations/`, artifacts in `brain/`. No conversation had run on this Mac
-  when the adapter was written, so `status` values are unseen: the hub's own rules are unread
-  when `lastModifiedTime` passes the last view and working when `notFullyIdle`, and Codealong
-  goes by those, taking a status containing waiting, blocked or paused as Needs you.
+- Two programs on one sign-in. The hub app is Electron (`/Applications/Antigravity.app`, bundle
+  id `com.google.antigravity`), not the earlier VS Code fork; its agent is
+  `Contents/Resources/bin/language_server` (Go; "gemini_coder" protos), which serves the UI on
+  random local ports (logged in `~/Library/Logs/Antigravity/language_server.log`) behind a CSRF
+  token and has none of the command line's flags. The command line is `agy`, a Go binary signed
+  by Google that updates itself: `curl -fsSL https://antigravity.google/cli/install.sh | bash`
+  puts it in `~/.local/bin` and adds that to the PATH in `~/.zshrc`.
+- Each keeps its conversations in a folder of its own under `~/.gemini`, laid out alike:
+  `antigravity` for the app (a separately installed IDE uses `antigravity-ide`) and
+  `antigravity-cli` for the command line. They share the sign-in, a token file
+  `~/.gemini/jetski-standalone-oauth-token` (mode 600; only its presence is checked), and
+  `~/.gemini/config` (skills, plugins, MCP servers). Codealong reads both folders as one
+  account (`antigravity::folders`). The command line can't go on with one of the app's
+  conversations ("trajectory not found").
+- `conversation_summaries.db` (SQLite in WAL mode, written by gorm) has a row a conversation:
+  `conversation_id`, `title` (empty in every row seen), `preview` (the first prompt),
+  `step_count`, `last_modified_time` and `last_user_input_time` (text such as
+  `2026-09-24 14:16:07.434615-07:00`; the year 1 for never), `workspace_uris` (JSON list of
+  `file://` URIs), `status`, `source`, `parent_conversation_id` and `nesting_depth` (subagents),
+  `not_fully_idle`, `killed`, `app_data_dir`, `raw_summary` (a protobuf). `status` is
+  `CASCADE_RUN_STATUS_IDLE`, `_RUNNING`, `_BUSY` or `_CANCELING`; none says error or waiting.
+  The command line's table lists the app's conversations too, without a status: `app_data_dir`
+  says whose folder a row is.
+- SQLite takes a WAL database's `-shm` and `-wal` away when its last connection closes, and a
+  read-only connection can't make them, so a plain read-only open fails once the harness has
+  quit ("unable to open database file"). `harness::open_database` reads it as immutable then.
+- `conversations/<id>.db` holds a conversation's steps (`steps`: `idx`, `step_type`, `status`,
+  and protobuf blobs). The numbers are in the binary's own definitions: status 1 pending,
+  2 running, 3 done, 4 invalid, 5 cleared, 6 canceled, 7 error, 8 generating, 9 waiting,
+  11 queued, 12 interrupted. A step whose permission prompt is up is waiting (9), with the
+  summary running; a call a print run couldn't ask about is canceled (6).
+- `brain/<id>/.system_generated/logs/transcript_full.jsonl` is the same steps as JSON lines,
+  written as they finish: `step_index`, `source` (`USER_EXPLICIT`, `MODEL`, `SYSTEM`), `type`
+  (`USER_INPUT`, `PLANNER_RESPONSE`, `GENERIC`, `SYSTEM_MESSAGE`…), `status`, `created_at` (to
+  the second), `content`, and on a planner's step `tool_calls` (`name`, `args`).
+  `transcript.jsonl` beside it is the same with each argument as a string of JSON. Your prompt
+  is wrapped in `<USER_REQUEST>`, followed by the time and what settings changed. A call has no
+  id: its result is a step of its own after the planner's, in the calls' order (two calls at
+  step 9 are answered by steps 10 and 11), and lines aren't always in step order (10 was
+  written before 9). A result starts with `Created At:` and `Completed At:` lines; a command's
+  goes on `The command exited with code N.` and `Output:`. A step that waits on you isn't in
+  the transcript until it's answered: the planner's call is its last line.
+- Its tools take `toolAction` and `toolSummary` besides their own arguments: `run_command`
+  (`CommandLine`, `Cwd`), `view_file` (`AbsolutePath`), `replace_file_content` and
+  `write_to_file` (`TargetFile`).
+- `agy` opens its terminal UI; `-i <prompt>` starts it on a prompt, `--conversation <id>` goes
+  on with a conversation (with `-i` too), `-c` with the folder's last
+  (`cache/last_conversations.json`). `--model <slug>` takes what `agy models` lists
+  (`slug<TAB>name` a line; it asks Google, a second or two), `--add-dir` repeats, `--effort`,
+  `--mode accept-edits|plan`, `--sandbox`. A prompt that starts with `-` is taken as the
+  option's value. There's no way to choose a conversation's id.
+- `-p <prompt>` is a print run: one turn, then it exits. `--output-format json` prints
+  `{conversation_id, status, response, num_turns, usage}`; `stream-json` prints an `init`
+  event, `step_update`s (`step_type` user_input, agent_response with `text_delta`, tool with
+  `tool_info`) and a `result`. `--input-format stream-json` takes `{"event":"user","message":
+  {"content":…}}` lines, a turn each, and stays up while its stdin is open. A print run can't
+  ask: a call that needs permission is denied, the turn ends with `denied_actions` in its
+  result and exit 0. `--dangerously-skip-permissions` allows everything, and
+  `~/.gemini/antigravity-cli/settings.json` (`permissions.allow`) what it lists; reads and
+  writes in the workspace aren't asked about.
+- A print run writes its summary row only as it ends, though its transcript is written as it
+  goes; the terminal UI writes the row as it goes (running, mid-turn). So while a process has a
+  conversation, Codealong goes by its transcript (`antigravity::started`, `Tail::turn_open`).
+- A process keeps `presence/<id>.lock` open while it has a conversation (`lsof -p` shows it);
+  the files stay behind. That's how Codealong tells which `agy` has which conversation.
+- The terminal UI's first run asks for a color scheme and then shows Terms of Service and a
+  data-use choice, ticked by default; print runs go ahead without it
+  (`cache/onboarding.json`). A prompt given with `-i` runs behind those screens, in
+  `~/.gemini/antigravity-cli/scratch` with no workspace on its row, which is the folder
+  Codealong lists as Antigravity chats.
+- It has no Agent Client Protocol mode (its issue 31 is open), so Codealong can't run it
+  itself. Google's staff say on their forum that running the binary as a child process on the
+  user's sign-in is supported and counts against the same limits.
+- Not checked, because the terminal UI wouldn't go past its first-run screens here: the keys
+  its permission prompt takes, whether Escape stops a turn, and how it takes a paste. So
+  Codealong doesn't answer its prompts or stop its turns. Nor: what the app writes mid-turn,
+  and its hooks (`~/.gemini/config/hooks.json`; the binary names `PreToolUse` and
+  `PostToolUse`).
 - Deep links: the app registers `antigravity://`, but its UI handles only
   `antigravity://teleport/ai_studio`; nothing opens a conversation or starts one, so Codealong
-  brings the app forward. Sign-in is the token file `~/.gemini/jetski-standalone-oauth-token`
-  (mode 600; only its presence is checked). Quotas show in the app only.
+  brings the app forward. Quotas show in the app only.
 
 Ghostty (1.3, AppleScript dictionary in the app bundle)
 

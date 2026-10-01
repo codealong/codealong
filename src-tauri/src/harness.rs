@@ -1,15 +1,16 @@
 //! What Codealong does with a harness's sessions, harness by harness, behind one interface.
 //!
 //! Each harness (Claude Code, Codex, OpenCode, Antigravity) has a module of its own that knows
-//! its files and formats, and an `Adapter` that answers the questions the rest of the app asks
-//! of any session: where its record is, what it said and did, what it's waiting on you for and
-//! how to answer. The rest of the app asks `adapter(session.harness)` and never matches on the
-//! harness itself. A new harness is a module with an `Adapter`, a line in `ADAPTERS`, and a
-//! variant of `Harness`; each method a harness can't do has a default that says so.
-//!
-//! It answers for an account too: whether it's installed and signed in, how it signs in, what
-//! its folders hold, where its skills go, how Codealong runs it itself, where its sessions can
-//! start, and whether it has plan limits (`harness::of(account)`).
+//! its files, formats and commands, and an `Adapter` that answers the questions the rest of the
+//! app asks: of a session, where its record is, what it said and did, what it's waiting on you
+//! for and how to answer, where it opens, how a prompt reaches it, how it's forked, stopped and
+//! renamed; of a start, what its command line takes and what a terminal types; of a search,
+//! what its records say in prose; and of an account, whether it's installed and signed in, how
+//! it signs in, what its folders hold, where its skills go, how Codealong runs it itself, and
+//! whether it has plan limits. The rest of the app asks `adapter(session.harness)` or
+//! `of(account)` and never branches on which harness it is. A new harness is a module with an
+//! `Adapter`, a line in `ADAPTERS`, and a variant of `Harness`; each method a harness can't do
+//! has a default that says so. CLAUDE.md's "Adding a harness" lists the methods by what asks.
 //!
 //! Reading sessions for the board is a `Reader`, one a harness, which the engine keeps and
 //! never looks inside: it holds what the harness's files said at the last read, says which
@@ -24,13 +25,14 @@ use std::time::SystemTime;
 use anyhow::{bail, Result};
 
 use crate::config::{AccountCfg, Config};
-use crate::model::{Harness, Session, Usage};
+use crate::model::{Harness, Session, Target, Usage};
 use crate::state::SeenState;
 use crate::transcript::Page;
 
 /// What a session waits on you for, and your answer: they go between devices too, so they're in
 /// codealong-peer.
 pub use codealong_peer::api::{Answer, Pending, Question};
+use codealong_peer::api::{ModelOption, Started};
 
 /// What an adapter gets to work with besides the session: the account it's on.
 pub struct Ctx<'a> {
@@ -39,6 +41,10 @@ pub struct Ctx<'a> {
 
 pub trait Adapter: Sync {
     fn harness(&self) -> Harness;
+
+    /// What finds its accounts on this Mac: its folder, the variable that moves it, and the
+    /// command wrappers and aliases are made of (detect.rs).
+    fn spec(&self) -> &'static crate::detect::Spec;
 
     /// The files or databases the harness keeps the session in, most specific first.
     fn records(&self, account: &AccountCfg, session: &Session) -> Vec<PathBuf>;
@@ -57,6 +63,46 @@ pub trait Adapter: Sync {
     /// None: Codealong can't send it anything, and says to open it.
     fn routes(&self, _account: &AccountCfg, _session: &Session) -> Vec<crate::send::Route> {
         Vec::new()
+    }
+
+    /// Its app, as a sentence names it, for a session that lives there.
+    fn app(&self) -> &'static str {
+        self.harness().word()
+    }
+
+    /// The ways to open a session where it lives, the usual one first (`board::targets`).
+    fn targets(&self, session: &Session, opens: &Opens) -> Vec<Target>;
+
+    /// Opens a session one of its own ways: an action its `targets` name besides the ones the
+    /// engine does for every harness (`focus`, `resume`, `attach`).
+    fn open(&self, _session: &Session, action: &str) -> Result<()> {
+        bail!("Unknown action {action:?}")
+    }
+
+    /// How a prompt typed into the session's terminal names its attachments: as paths it can
+    /// read, or the way the harness itself mentions files.
+    fn typed_attachments(&self) -> crate::attachments::Style {
+        crate::attachments::Style::Path
+    }
+
+    /// Whether the session's input box may still hold text of its own, which what's typed
+    /// would be added to: the box is cleared first then.
+    fn clears_before_typing(&self, _account: &AccountCfg, _session: &Session) -> bool {
+        false
+    }
+
+    /// Whether the harness has a way in of its own for another session's message
+    /// (`send::Route::Peer`), which tells the session whose it is. An agent's message then goes
+    /// only that way: typed into the terminal it would read as the user's own words.
+    fn takes_messages(&self) -> bool {
+        false
+    }
+
+    /// What a new terminal types to go on with a session that isn't running, on a prompt
+    /// (`send::Route::Resume`), and the environment that carries the prompt: typed through the
+    /// shell, as a new session's is, so no quoting of yours can break the command.
+    fn resume(&self, _account: &AccountCfg, _id: &str, _text: &str) -> Result<(String, Vec<(String, String)>)> {
+        bail!("{} can't go on with a session from a prompt.", self.harness().word())
     }
 
     /// What the session waits on you to allow, if anything. Only asked of sessions that need you.
@@ -103,7 +149,7 @@ pub trait Adapter: Sync {
     /// A copy of the session's conversation as far as it's written, to go on with in a new
     /// terminal while the session itself carries on: what to type there. A harness that copies
     /// through a service has made the copy by the time this returns.
-    fn fork(&self, _ctx: &Ctx, _session: &Session) -> Result<Fork> {
+    fn fork(&self, _ctx: &Ctx, _session: &Session) -> Result<Typed> {
         bail!("{} can't fork a session.", self.harness().word())
     }
 
@@ -191,6 +237,99 @@ pub trait Adapter: Sync {
         Err(format!("{} can't start sessions from Codealong.", account.name))
     }
 
+    // ---- Searching what was said (search.rs) ----
+
+    /// An account's session records that are files of lines, each with its session's key and
+    /// when it last wrote: search reads them whole once, then on from where it stopped.
+    fn search_files(&self, _account: &AccountCfg, _since: i64) -> Vec<(PathBuf, String, i64)> {
+        Vec::new()
+    }
+
+    /// The prose on one line of such a record, if it has any: when, whether it's yours, and
+    /// the text. Tool calls and their output stay out: they're most of a record and would match
+    /// nearly anything, so a line that can hold no prose is passed over before it's parsed.
+    fn prose(&self, _line: &[u8]) -> Option<(i64, bool, String)> {
+        None
+    }
+
+    /// What was said, in sessions active since `since`, in the messages written after
+    /// `after`, where the harness keeps them in a database rather than files.
+    fn said(&self, _account: &AccountCfg, _since: i64, _after: i64) -> Vec<Said> {
+        Vec::new()
+    }
+
+    // ---- Starting a session (start.rs) ----
+
+    /// The models a start can ask for, as the harness's command line takes them, when it takes
+    /// one. An app's new-session page picks its own.
+    fn models(&self, _account: &AccountCfg) -> Vec<ModelOption> {
+        Vec::new()
+    }
+
+    /// Whether a start on its command line takes a model at all, asked without the list, which
+    /// can be slow to get.
+    fn takes_model(&self) -> bool {
+        false
+    }
+
+    /// Whether an account's command line would take this model: one it lists.
+    fn offers_model(&self, account: &AccountCfg, model: &str) -> bool {
+        self.models(account).iter().any(|m| m.id == model)
+    }
+
+    /// The effort levels a start can ask for, lowest first, each with what its picker calls it.
+    fn efforts(&self) -> &'static [(&'static str, &'static str)] {
+        &[]
+    }
+
+    /// The model an account starts on when none is asked for, when its files say.
+    fn default_model(&self, _account: &AccountCfg) -> Option<String> {
+        None
+    }
+
+    /// Whether its command line makes a new worktree for a session when asked.
+    fn makes_worktrees(&self) -> bool {
+        false
+    }
+
+    /// Gets a folder ready for a session of the account to start in, where the harness would
+    /// otherwise stop to ask about it.
+    fn before_start(&self, _account: &AccountCfg, _folder: &Path) {}
+
+    /// What a new terminal types to start a session (`Place::Terminal`).
+    fn start_in_terminal(&self, account: &AccountCfg, _ask: &StartAsk) -> Typed {
+        Typed { input: format!("{}\n", account.command()), env: Vec::new(), key: None }
+    }
+
+    /// The command the login shell runs to start a session with no window (`Place::Background`),
+    /// everything in it quoted for the shell.
+    fn background_command(&self, account: &AccountCfg, _ask: &StartAsk) -> String {
+        account.command().to_string()
+    }
+
+    /// Runs `background_command`'s command in `cwd` and says what started.
+    fn start_in_background(&self, _account: &AccountCfg, _cwd: &Path, _command: &str) -> Result<Started> {
+        bail!("{} can't start a session in the background.", self.harness().word())
+    }
+
+    /// The link its app opens for a new session in `folder` with the prompt filled in
+    /// (`Place::ClaudeApp`, `Place::CodexApp`).
+    fn app_link(&self, _folder: &Path, _ask: &StartAsk) -> Option<String> {
+        None
+    }
+
+    /// Starts a session in its app from `app_link`'s link, in the worktree the board calls
+    /// `lane`, and says what happened.
+    fn start_in_app(&self, _account: &AccountCfg, _lane: &str, _folder: &Path, _prompt: &str, _link: &str) -> Result<Started> {
+        bail!("{} has no app Codealong can start a session in.", self.harness().word())
+    }
+
+    /// The folders its app has as projects, for an account the app runs: a session started
+    /// anywhere else adds one there.
+    fn app_projects(&self, _account: &AccountCfg) -> Vec<String> {
+        Vec::new()
+    }
+
     /// The folders an account's sessions worked in since `since`, for the projects a first run
     /// sets up.
     fn session_cwds(&self, _home: &Path, _since: i64) -> Vec<String> {
@@ -219,6 +358,13 @@ pub trait Adapter: Sync {
     /// only, until it's active again.
     fn archive(&self, _account: &AccountCfg, _id: &str, _archived: bool) -> Result<()> {
         Ok(())
+    }
+
+    /// The folder the harness keeps the sessions it starts without a folder of yours in (an
+    /// app's chats, each in a folder it makes there), and what to call the lane that lists them
+    /// all: a session with no lane would be on no list.
+    fn chats(&self) -> Option<(PathBuf, &'static str)> {
+        None
     }
 
     /// What reads its sessions for the board. `wake` tells the engine that something it read
@@ -331,6 +477,11 @@ pub trait Reader: Send {
     }
 }
 
+/// Each harness's folder of chats, with its lane's name (`Adapter::chats`).
+pub fn chat_roots() -> Vec<(PathBuf, &'static str)> {
+    ADAPTERS.iter().filter_map(|a| a.chats()).collect()
+}
+
 /// A reader for each harness, in the adapters' order.
 pub fn readers(wake: &Wake) -> Vec<Box<dyn Reader>> {
     ADAPTERS.iter().map(|a| a.reader(wake.clone())).collect()
@@ -339,6 +490,32 @@ pub fn readers(wake: &Wake) -> Vec<Box<dyn Reader>> {
 /// The accounts config.toml has for a harness.
 pub fn accounts_of(cfg: &Config, h: Harness) -> Vec<AccountCfg> {
     cfg.accounts.iter().filter(|a| of(a).is_some_and(|x| x.harness() == h)).cloned().collect()
+}
+
+/// Opens a harness's SQLite database to read, without writing beside it where that can be
+/// helped. The harnesses keep theirs in WAL mode, which a read-only connection can only open
+/// while the `-shm` file is there: once the harness has closed the database cleanly it's gone,
+/// and the plain open fails. So with no WAL to read, the file is all there is and it's read as
+/// immutable, which makes nothing in a folder that isn't ours; a WAL with something in it is a
+/// writer's, and SQLite has to read it too.
+pub fn open_database(path: &Path) -> Option<rusqlite::Connection> {
+    use rusqlite::{Connection, OpenFlags};
+    if !path.is_file() {
+        return None;
+    }
+    let wal = PathBuf::from(format!("{}-wal", path.to_string_lossy()));
+    let written = std::fs::metadata(wal).is_ok_and(|m| m.len() > 0);
+    // Opening is lazy: a database that can't be read only says so at the first read.
+    let readable = |db: &Connection| db.query_row("SELECT count(*) FROM sqlite_master", [], |_| Ok(())).is_ok();
+    let plain = || Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX).ok().filter(readable);
+    let immutable = || {
+        let uri = format!("file:{}?immutable=1", urlencoding::encode(&path.to_string_lossy()).replace("%2F", "/"));
+        Connection::open_with_flags(uri, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI | OpenFlags::SQLITE_OPEN_NO_MUTEX).ok().filter(readable)
+    };
+    let db = if written { plain().or_else(immutable) } else { immutable().or_else(plain) }?;
+    // A harness writes constantly while a session runs; a short wait beats an empty read.
+    let _ = db.busy_timeout(std::time::Duration::from_millis(500));
+    Some(db)
 }
 
 /// A database's size and time and its WAL's, by a name, at the last look. A running session
@@ -397,9 +574,55 @@ pub struct FolderUse {
     pub signed_in: bool,
 }
 
-/// How a fork opens in a terminal (`Adapter::fork`).
+/// A message in a session kept in a database (`Adapter::said`).
+pub struct Said {
+    /// The session's id, and the message's.
+    pub session: String,
+    pub id: String,
+    pub at: i64,
+    /// When it was last written: the next read asks for what came after the newest.
+    pub updated: i64,
+    /// You sent it; otherwise the agent said it.
+    pub you: bool,
+    pub text: String,
+}
+
+/// What a session's ways to open are said with (`Adapter::targets`).
+pub struct Opens<'a> {
+    /// The terminal app's name.
+    pub term: &'a str,
+    /// Whose it is: its account and title.
+    pub who: String,
+    /// It leads its lane, whose Return opens it. Only then are its other ways listed.
+    pub first: bool,
+    /// It waits on you: opening it is answering it.
+    pub respond: bool,
+}
+
+impl Opens<'_> {
+    /// A way to open the session: `action` names what does it, `main` says it's what Return
+    /// does when the session leads its lane, and a `disabled` one says why in `detail`.
+    pub fn way(&self, s: &Session, action: &str, icon: &str, label: String, detail: String, main: bool, disabled: bool) -> Target {
+        let kbd: Option<&[&str]> = if main && self.first { Some(&["⏎"]) } else { None };
+        crate::board::target(format!("s|{}|{action}", s.key), icon, label, Some(detail), kbd, disabled, "session")
+    }
+
+    /// The session's terminal: its tab is shown when it has one (`pid`), else a new terminal
+    /// resumes it.
+    pub fn terminal(&self, s: &Session, detail: String, disabled: bool) -> Target {
+        let (verb, action) = match (self.respond, s.pid.is_some()) {
+            (true, true) => ("Respond in", "focus"),
+            (false, true) => ("Show in", "focus"),
+            (_, false) => ("Resume in", "resume"),
+        };
+        self.way(s, action, "terminal", format!("{verb} {}", self.term), detail, true, disabled)
+    }
+}
+
+/// What a new terminal types to open a session: a new one (`Adapter::start_in_terminal`), or a
+/// fork (`Adapter::fork`).
 #[derive(Debug, Clone, PartialEq)]
-pub struct Fork {
+pub struct Typed {
     /// Typed into the new terminal, Return included.
     pub input: String,
     /// Set in the terminal's shell.
@@ -408,7 +631,28 @@ pub struct Fork {
     pub key: Option<String>,
 }
 
+/// What a start asks for (start.rs), for the adapter to put the way its harness takes it.
+pub struct StartAsk<'a> {
+    /// The prompt as typed, its attachments still named (`images/…`, `files/…`).
+    pub prompt: &'a str,
+    /// An id Codealong picked for the session, for a harness that takes one.
+    pub session_id: &'a str,
+    /// A model and an effort level the harness offers (`Adapter::models`, `efforts`).
+    pub model: Option<&'a str>,
+    pub effort: Option<&'a str>,
+    /// In a new worktree the harness makes (`Adapter::makes_worktrees`).
+    pub worktree: bool,
+    /// Where the prompt's attachments are kept.
+    pub images_dir: &'a Path,
+    pub files_dir: &'a Path,
+}
+
 static ADAPTERS: [&dyn Adapter; 4] = [&crate::claude::ClaudeCode, &crate::codex::Codex, &crate::opencode::OpenCode, &crate::antigravity::Antigravity];
+
+/// Every harness's adapter, in the order the app lists them.
+pub fn all() -> impl Iterator<Item = &'static dyn Adapter> {
+    ADAPTERS.iter().copied()
+}
 
 pub fn adapter(h: Harness) -> &'static dyn Adapter {
     *ADAPTERS.iter().find(|a| a.harness() == h).expect("every harness has an adapter")
@@ -461,5 +705,27 @@ mod tests {
         // Cut at 200, the space before the cut doesn't stay at the end.
         assert_eq!(session_name(&format!("{} y", "x".repeat(199))).unwrap(), "x".repeat(199));
         assert!(session_name(" \n\u{200B} ").is_err());
+    }
+
+    /// SQLite takes a WAL database's `-shm` and `-wal` away when its last connection closes, and
+    /// a read-only connection can't make them: the database must still open.
+    #[test]
+    fn reads_a_wal_database_whether_or_not_its_writer_is_there() {
+        let dir = std::env::temp_dir().join(format!("codealong-wal-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("it's a db.db");
+        let count = |db: &rusqlite::Connection| db.query_row("SELECT count(*) FROM t", [], |r| r.get::<_, i64>(0)).unwrap();
+        let writer = rusqlite::Connection::open(&path).unwrap();
+        writer.execute_batch("PRAGMA journal_mode=WAL; CREATE TABLE t (x); INSERT INTO t VALUES (1);").unwrap();
+        // While it's being written, what's still only in the WAL is read too.
+        writer.execute_batch("PRAGMA wal_autocheckpoint=0; INSERT INTO t VALUES (2);").unwrap();
+        assert_eq!(count(&open_database(&path).unwrap()), 2);
+        drop(writer);
+        assert!(!dir.join("it's a db.db-shm").exists(), "SQLite took the shared memory file with the last connection");
+        assert_eq!(count(&open_database(&path).unwrap()), 2);
+        assert!(!dir.join("it's a db.db-shm").exists() && !dir.join("it's a db.db-wal").exists(), "reading it left nothing beside it");
+        assert!(open_database(&dir.join("missing.db")).is_none());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

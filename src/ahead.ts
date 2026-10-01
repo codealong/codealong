@@ -108,9 +108,10 @@ function startsNow(a: Ahead): boolean {
 }
 
 /** Whether a message reaches the session itself, as `replyPlaceholder` (SessionReply.tsx) says:
- *  Antigravity, and a Claude app session that isn't running, open with it on the clipboard. */
+ *  the Antigravity app, and a Claude app session that isn't running, open with it on the
+ *  clipboard. */
 export function startsTurn(s: Session): boolean {
-  if (s.harness === 'antigravity') return false;
+  if (s.harness === 'antigravity' && s.surface === 'app') return false;
   return !(!s.live && s.harness === 'claude' && s.surface === 'app');
 }
 

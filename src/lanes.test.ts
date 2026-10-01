@@ -195,6 +195,7 @@ describe('sessionHeadline', () => {
   it('names the session on every status, as the engine does', () => {
     expect(sessionHeadline(s({ excerpt: 'Bash · `rm -rf build`' }))[0]).toBe('`claude2` is waiting for approval · Fix the test');
     expect(sessionHeadline(s({ harness: 'codex', excerpt: 'Bash · `make`' }))[0]).toBe('`claude2` asks for approval · Fix the test');
+    expect(sessionHeadline(s({ harness: 'antigravity', excerpt: 'Run command · `make`' }))[0]).toBe('`claude2` asks for approval · Fix the test');
     expect(sessionHeadline(s({}))).toEqual(['`claude2` needs you · Fix the test', null]);
     expect(sessionHeadline(s({ status: 'error', excerpt: 'API error' }))[0]).toBe('`claude2` stopped with an error · Fix the test');
   });
@@ -219,6 +220,7 @@ describe('sessionFlag', () => {
     expect(flag({ excerpt: 'Bash · `rm -rf build`' })).toBe('Needs approval');
     expect(flag({ harness: 'codex', excerpt: 'Run · `make`' })).toBe('Needs approval');
     expect(flag({ harness: 'opencode', excerpt: 'Bash · `npm install`' })).toBe('Needs approval');
+    expect(flag({ harness: 'antigravity', excerpt: 'Run command · `rm -rf build`' })).toBe('Needs approval');
     expect(flag({ asks: true, excerpt: 'Asks you · Want the PR?' })).toBe('Asks you');
     // A question held through the plugin, which what you type doesn't answer.
     expect(flag({ excerpt: 'Asks you · Which color?' })).toBe('Asks you');
@@ -228,7 +230,6 @@ describe('sessionFlag', () => {
 
   it('leaves out what the glyph and bay already say', () => {
     expect(flag({})).toBeNull();
-    expect(flag({ harness: 'antigravity', excerpt: 'waiting' })).toBeNull();
     for (const status of ['working', 'unread', 'idle', 'stopped'] as const) expect(flag({ status, excerpt: 'Pushed the fix' })).toBeNull();
   });
 });

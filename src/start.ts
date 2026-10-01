@@ -4,7 +4,7 @@
 // first (config.toml's `preferred`), so it keeps to the agents you'd rather use while they have
 // room. start.rs's `auto_pick` has the same rule for `codealong start`.
 
-import type { Meter, StartAccount, StartPlace, Usage } from './types';
+import type { Meter, StartAccount, StartOptions, StartPlace, Usage } from './types';
 
 /** An account's name, or `auto` for Auto. */
 export type Choice = string;
@@ -163,19 +163,33 @@ export function parseAgent(id: string): { choice: Choice; model: string | null }
   return at < 0 ? { choice: id, model: null } : { choice: id.slice(0, at), model: id.slice(at + 1) || null };
 }
 
-/** Whether Codealong can ask an account for a model: only Claude Code takes one, and only on the
- *  command line. The apps and OpenCode pick their own. */
+/**
+ * The accounts with what each one's command line takes: its own lists where its Mac sends them,
+ * and for a Mac whose Codealong lists only Claude Code's, those for its Claude Code accounts
+ * and nothing for the rest.
+ */
+export function withLists(o: StartOptions): StartAccount[] {
+  return o.accounts.map((a) => {
+    const claude = a.harness === 'claude';
+    return { ...a, models: a.models ?? (claude ? o.claudeModels : []), efforts: a.efforts ?? (claude ? (o.claudeEfforts ?? []) : []), worktree: a.worktree ?? claude };
+  });
+}
+
+/** Whether Codealong can ask an account for a model: its harness lists some (`models`; an
+ *  account without the list is Claude Code's if it takes any), and only on the command line.
+ *  The apps pick their own. */
 export function takesModel(a: StartAccount | undefined): boolean {
-  return !!a && a.harness === 'claude' && a.places.some((p) => p.place === 'terminal');
+  return !!a && (a.models ? a.models.length > 0 : a.harness === 'claude') && a.places.some((p) => p.place === 'terminal');
 }
 
 /** What the agent menu lists: Auto when it's offered, then every account, on its own
- *  default and, where Codealong can ask for one, on each model. */
+ *  default and, where Codealong can ask for one, on each of its models (`models` for an
+ *  account that came without its own list). */
 export function agentOptions(accounts: StartAccount[], models: ModelOption[], pick: AutoPick | null): AgentOption[] {
   const out: AgentOption[] = offersAuto(accounts, pick) ? [{ id: AUTO, choice: AUTO, model: null }] : [];
   for (const a of accounts) {
     out.push({ id: agentId(a.name, null), choice: a.name, model: null });
-    if (takesModel(a)) for (const m of models) out.push({ id: agentId(a.name, m.id), choice: a.name, model: m.id });
+    if (takesModel(a)) for (const m of a.models ?? models) out.push({ id: agentId(a.name, m.id), choice: a.name, model: m.id });
   }
   return out;
 }

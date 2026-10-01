@@ -245,7 +245,7 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
 - **Open where it lives**: the session's own terminal tab (Ghostty, iTerm2 or Terminal, whichever
   it runs in), the Claude app session, the Codex
   thread (a CLI thread's terminal, or `codex resume` in a new one), an OpenCode session in its terminal (or resumed in a new one with `--session`),
-  Antigravity brought forward (it has no link to a conversation), a background job attached
+  an Antigravity command line conversation in its terminal (or resumed in a new one with `agy --conversation`), the Antigravity app brought forward (it has no link to a conversation), a background job attached
   in a new terminal, or the folder in your editor. A new terminal opens in the terminal app
   config.toml names, as a tab in the window already showing that worktree, repo or project
   (`new_terminal` in config.toml; Terminal can't open tabs for another app, so there it's a window).
@@ -384,7 +384,7 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   Codealong makes the thread, opens it in the app and has the app send the prompt, on the
   account's default model; without a prompt it opens the app's new-thread page. OpenCode starts in your terminal on your prompt
   (`--prompt`), and so does the Codex CLI, for any Codex account (`codex -- <prompt>`, images
-  with `-i`); Antigravity starts conversations only in its own window. **In Codealong** runs
+  with `-i`), and Antigravity's command line, `agy`, once it's installed (`agy -i <prompt>`, on one of the models it lists); the Antigravity app starts conversations only in its own window. **In Codealong** runs
   the session in Codealong itself, for any Claude Code, Codex or OpenCode account, through the
   agent's Agent Client Protocol adapter (`codealong install` adds the ones for Claude Code and
   Codex; OpenCode has its own): its panel shows the reply as it's written, takes the next
@@ -659,7 +659,7 @@ command = "opencode"           # used for `opencode --session <id>`
 [[accounts]]
 name = "antigravity"
 harness = "antigravity"
-home = "~/.gemini/antigravity" # its app data folder, with conversation_summaries.db
+home = "~/.gemini/antigravity" # the app's data folder; its command line's, ~/.gemini/antigravity-cli, is read with it
 
 [[projects]]
 name = "Northwind"
@@ -749,7 +749,7 @@ light scan (no git, PRs or visitors).
 | `src-tauri/src/engine.rs`, `throttle.rs` | Caches, file watching (FSEvents), git workers (spaced per worktree, results published in batches), GitHub, publishing the board |
 | `src-tauri/src/board.rs` | The model's rules: status, bays, headlines, open targets (pure, tested) |
 | `src-tauri/src/claude.rs`, `codex.rs` | Harness adapters: registries, transcripts, rollouts, incremental tailing |
-| `src-tauri/src/opencode.rs`, `antigravity.rs` | Harness adapters: OpenCode's database and background service, Antigravity's conversation summaries |
+| `src-tauri/src/opencode.rs`, `antigravity.rs` | Harness adapters: OpenCode's database and background service; Antigravity's app and command line (`agy`), their conversation summaries, transcripts and processes |
 | `src-tauri/src/acp.rs` | Sessions Codealong runs itself: an Agent Client Protocol adapter process per account, turns, permission requests, the streamed reply |
 | `src-tauri/src/side.rs`, `src/side.ts`, `src/ui/SideStrip.tsx` | Side conversations: a throwaway copy of a session's conversation, run by its harness (`Adapter::side`), asked from the reply box with `/side` and shown above it; what was asked and answered, kept to read later (`sides.json`) |
 | `src-tauri/src/repos.rs`, `git.rs`, `github.rs` | Repo discovery, callsigns, worktrees, git status, PRs |
@@ -762,7 +762,7 @@ light scan (no git, PRs or visitors).
 | `src-tauri/src/idle.rs`, `src/ui/CloseIdleDialog.tsx` | Close idle terminals: which sessions' tabs can close and why (pure, tested), and closing them |
 | `src-tauri/src/start.rs`, `src/start.ts` | New sessions: where each account can start one, the launch it makes, the agent menu (every account on every model, and the effort levels) and Auto's pick |
 | `src-tauri/src/quick.rs`, `src/quick.ts`, `src/ui/Quick.tsx` | The quick panel: its window (a panel that takes the keyboard over any app), its shortcut, and its page (what needs you, finding sessions, starting one) |
-| `src-tauri/src/harness.rs` | The interface each harness implements (`Adapter`): a session's record, its conversation, what it waits on you to allow and answering it, renaming it (`src/ui/RenameDialog.tsx` in the main window); CLAUDE.md's "Adding a harness" says what else a new one needs |
+| `src-tauri/src/harness.rs` | The interface each harness implements: an `Adapter` for a session (its record and conversation, what it waits on you to allow, opening, sending, starting, searching, renaming with `src/ui/RenameDialog.tsx`) and for an account, and a `Reader` that reads its sessions for the board; CLAUDE.md's "Adding a harness" lists it all |
 | `src-tauri/src/transcript.rs`, `src/ui/SessionPanel.tsx`, `src/ui/SessionHeader.tsx`, `src/sessionContext.ts`, `src/ui/SessionThread.tsx`, `src/ui/SessionReply.tsx` | A session's conversation, read a page at a time from its own record, the panel that shows it, and the box that sends it messages or answers what it waits on |
 | `src-tauri/src/peek.rs`, `src/ui/Peek.tsx` | The floating bar's peek: its window (a panel under the bar that takes the keyboard only on a click), where it opens for a pill and when it closes. What it shows is the session's panel as a card (`ui/SessionPanel.tsx`), as the quick panel's ⇥ does |
 | `src-tauri/src/kept.rs` | Sessions kept on the desktop from the peek: a window each, made as the peek's is, `kept.json`, sizing and closing. `Peek.tsx` draws them too |

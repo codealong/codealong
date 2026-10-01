@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { accountFor, AUTO, agentId, agentOptions, autoModel, autoPick, choices, initialChoice, initialPlace, modelFamily, modelMeter, modelName, parseAgent, placesFor, preferredNames, settledPlace, takesModel, type AutoPick } from './start';
+import { accountFor, AUTO, agentId, agentOptions, autoModel, autoPick, choices, initialChoice, initialPlace, modelFamily, modelMeter, modelName, parseAgent, placesFor, preferredNames, settledPlace, takesModel, withLists, type AutoPick } from './start';
 import type { Meter, StartAccount, Usage } from './types';
 
 const ghostty = { place: 'terminal' as const, label: 'Ghostty' };
@@ -171,6 +171,22 @@ describe('the agent menu', () => {
     ]);
     expect(takesModel(ACCOUNTS[2])).toBe(false);
     expect(takesModel({ ...ACCOUNTS[0], places: [claudeApp] })).toBe(false);
+  });
+
+  it('lists each account’s own models, and Claude Code’s for a Mac that sends only those', () => {
+    const claudeModels = [{ id: 'opus', label: 'Opus' }];
+    const claudeEfforts = [{ id: 'high', label: 'High' }];
+    const agy: StartAccount = { name: 'antigravity', harness: 'antigravity', places: [ghostty], chosen: null, unavailable: null, defaultModel: null, preferred: false, models: [{ id: 'gemini-3.8-flash-low', label: 'Gemini 3.8 Flash (Low)' }], efforts: [], worktree: false };
+    // A Mac whose Codealong sends each account's lists: they're taken as sent.
+    const sent = withLists({ accounts: [{ ...ACCOUNTS[0], models: claudeModels, efforts: claudeEfforts, worktree: true }, agy], codexProjects: [], claudeModels: [], claudeEfforts: [] });
+    expect(sent.map((a) => [a.name, a.models?.map((m) => m.id), a.efforts?.length, a.worktree])).toEqual([['claude', ['opus'], 1, true], ['antigravity', ['gemini-3.8-flash-low'], 0, false]]);
+    // An older one sends only Claude Code's, which go to its Claude Code accounts.
+    const older = withLists({ accounts: [ACCOUNTS[0], ACCOUNTS[2]], codexProjects: [], claudeModels, claudeEfforts });
+    expect(older.map((a) => [a.name, a.models?.length, a.efforts?.length, a.worktree])).toEqual([['claude', 1, 1, true], ['codex', 0, 0, false]]);
+    // Any account that lists models takes one on the command line, and the menu offers its own.
+    expect(takesModel(agy)).toBe(true);
+    expect(takesModel({ ...agy, models: [] })).toBe(false);
+    expect(agentOptions(sent, [], null).filter((o) => o.model).map((o) => `${o.choice}|${o.model}`)).toEqual(['claude|opus', 'antigravity|gemini-3.8-flash-low']);
   });
 
   it('reads an id back as the choice and model it stands for', () => {
