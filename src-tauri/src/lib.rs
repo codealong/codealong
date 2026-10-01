@@ -1164,13 +1164,19 @@ fn native_theme(theme: config::Theme) -> Option<tauri::Theme> {
     }
 }
 
-/// The board window in front, which a menu command is for. The floating bar, the quick panel, the
-/// peek, the cards pinned to the desktop and the sessions kept there never are (the bar, the peek,
-/// the cards and the kept sessions say they're key while they aren't).
+/// Whether a window shows the board: the main one, or a project's. Only these take the menu's
+/// commands.
+fn shows_board(label: &str) -> bool {
+    label == "main" || label.starts_with("project-")
+}
+
+/// The board window in front, which a menu command is for. It goes by which windows show the
+/// board, not by which don't: the bar, the peek, the cards pinned to the desktop, the lines
+/// between them and the sessions kept there say they're key while they aren't, and the windows
+/// come in no set order, so one of those left in took the command from the window in front about
+/// half the time (the lines' window did: Close idle terminals… opened nothing).
 fn front_window(app: &tauri::AppHandle) -> Option<tauri::WebviewWindow> {
-    app.webview_windows()
-        .into_values()
-        .find(|w| ![bar::LABEL, quick::LABEL, peek::LABEL].contains(&w.label()) && !w.label().starts_with(desktop::PREFIX) && !w.label().starts_with(kept::PREFIX) && w.is_focused().unwrap_or(false))
+    app.webview_windows().into_values().find(|w| shows_board(w.label()) && w.is_focused().unwrap_or(false))
 }
 
 /// Puts Settings… (⌘,) in the app menu, under About. Choosing it tells the front window to
@@ -1826,6 +1832,19 @@ mod tests {
         let kept = format!("{}1", kept::PREFIX);
         for label in ["main", project_window_label("Kestrel").as_str(), bar::LABEL, peek::LABEL, quick::LABEL, card.as_str(), kept.as_str(), lineage::LABEL] {
             assert!(allowed(label), "{label} isn't in capabilities/default.json");
+        }
+    }
+
+    #[test]
+    fn menu_commands_go_only_to_windows_that_show_the_board() {
+        for label in ["main", project_window_label("Kestrel").as_str(), another_window_label("Kestrel", |l| l == "project-kestrel").as_str()] {
+            assert!(shows_board(label), "{label}");
+        }
+        // These say they're key while they aren't, or never show a dialog.
+        let card = format!("{}1", desktop::PREFIX);
+        let kept = format!("{}1", kept::PREFIX);
+        for label in [bar::LABEL, peek::LABEL, quick::LABEL, card.as_str(), kept.as_str(), lineage::LABEL] {
+            assert!(!shows_board(label), "{label}");
         }
     }
 
