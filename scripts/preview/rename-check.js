@@ -1,6 +1,6 @@
 // Checks Rename… in a session's right-click menu, in every window that has one, and where the
 // name is typed: the main window's sheet (RenameDialog.tsx, and `r` on the list), and the name
-// field the peek and the quick panel's reply view show (ReplyView.tsx). Run it in each:
+// field the peek and the quick panel show in the session header (SessionHeader.tsx). Run it in each:
 //   scripts/preview.sh sessions '' scripts/preview/rename-check.js
 //   scripts/preview.sh worktrees '' scripts/preview/rename-check.js
 //   scripts/preview.sh bar '' scripts/preview/rename-check.js
@@ -134,15 +134,15 @@
       .then(function () {
         check('a session row’s menu has Rename…', labels().indexOf('Rename…') >= 0, labels().join('|'));
         choose('Rename…');
-        return until(function () { return !!document.querySelector('.ca-reply-name'); }, 2000);
+        return until(function () { return !!document.querySelector('.ca-sessinsp-name'); }, 2000);
       })
       .then(function () {
-        var input = document.querySelector('.ca-reply-name');
+        var input = document.querySelector('.ca-sessinsp-name');
         check('its name is a field with the keyboard', document.activeElement === input && input.value.length > 0, input.value);
         check('the box below doesn’t take the keyboard', !document.activeElement.closest('.ca-composer'));
         type(input, NAME);
         key(input, 'Enter');
-        return until(function () { return !document.querySelector('.ca-reply-name'); }, 2000);
+        return until(function () { return !document.querySelector('.ca-sessinsp-name'); }, 2000);
       })
       .then(function () {
         var r = renames().pop();
@@ -171,13 +171,13 @@
     })
     .then(function () {
       session = open(7);
-      return until(function () { return !!document.querySelector('.ca-reply-name'); }, 2000);
+      return until(function () { return !!document.querySelector('.ca-sessinsp-name'); }, 2000);
     })
     .then(function () {
-      var input = document.querySelector('.ca-reply-name');
+      var input = document.querySelector('.ca-sessinsp-name');
       check('opened for Rename…, its name is a field', input.value === session.title, input.value + ' vs ' + session.title);
       check('with the keyboard, not the box', document.activeElement === input);
-      check('the line under it says how', /renames it/.test(document.querySelector('.ca-reply-meta').textContent), document.querySelector('.ca-reply-meta').textContent);
+      check('the line under it says how', /renames it/.test(document.querySelector('.ca-sessinsp-meta').textContent), document.querySelector('.ca-sessinsp-meta').textContent);
       var hides = calls('peek_hide').length;
       key(input, 'Escape');
       return wait(100).then(function () {
@@ -189,10 +189,10 @@
     })
     .then(function () {
       session = open(8);
-      return until(function () { return !!document.querySelector('.ca-reply-name'); }, 2000);
+      return until(function () { return !!document.querySelector('.ca-sessinsp-name'); }, 2000);
     })
     .then(function () {
-      var input = document.querySelector('.ca-reply-name');
+      var input = document.querySelector('.ca-sessinsp-name');
       var hides = calls('peek_hide').length;
       type(input, NAME);
       key(input, 'Enter');

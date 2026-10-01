@@ -155,21 +155,10 @@ window.__TAURI_INTERNALS__ = {
         var feed = { pin: { ref: ref, key: key }, title: null, loading: false, generatedAt: board.generatedAt, theme: board.theme, terminal: board.apps.terminal, editor: board.apps.editor, editorId: board.apps.editorId, editors: board.apps.editors || [], lanes: [], todos: [], labels: [] };
         var cut = function (l, keep) { return Object.assign({}, l, { sessions: l.sessions.filter(keep) }); };
         if (ref === 'session') {
-          var homeOf = function (k) { return board.lanes.find(function (l) { return l.sessions.some(function (s) { return s.key === k && !s.visitor; }); }); };
-          var home = homeOf(key);
+          var home = board.lanes.find(function (l) { return l.sessions.some(function (s) { return s.key === key && !s.visitor; }); });
           if (home) {
-            // With the session it came from and the ones that came of it, and its todos, for its popover.
-            var me = home.sessions.find(function (s) { return s.key === key && !s.visitor; });
-            var keys = [key].concat(me.origin ? [me.origin.key] : []);
-            board.lanes.forEach(function (l) { l.sessions.forEach(function (s) { if (!s.visitor && s.origin && s.origin.key === key) keys.push(s.key); }); });
-            var seen = [];
-            keys.forEach(function (k) {
-              var l = homeOf(k);
-              if (l && seen.indexOf(l) < 0) seen.push(l);
-            });
-            feed.lanes = seen.map(function (l) { return cut(l, function (s) { return !s.visitor && keys.indexOf(s.key) >= 0; }); });
-            feed.title = me.title;
-            feed.todos = (board.todos || []).filter(function (t) { return t.sessions.indexOf(key) >= 0; });
+            feed.lanes = [cut(home, function (s) { return s.key === key && !s.visitor; })];
+            feed.title = feed.lanes[0].sessions[0].title;
           }
         } else if (ref === 'worktree') {
           var lane = board.lanes.find(function (l) { return l.id === key; });

@@ -1,0 +1,392 @@
+// A session's header, the same wherever the session is shown with its conversation: its panel in
+// the main window, the floating bar's peek and the quick panel's reply view (SessionPanel.tsx puts
+// it over the conversation in all three). It keeps to a few lines so the conversation has the room:
+// the title with the ways to open it and act on it, one line of where it stands and where it works,
+// and one of the PRs it worked on (each one's card on hover) and the todo it's on. The rest is in
+// Details and the ⋯ menu.
+//
+// A session that came of another (a fork, or started by its agent) names it in a line over the
+// title, and the sessions that came of it hang under the title, a few of them, each with its
+// status: a click shows one, a right-click gives its menu.
+//
+// A window says what it can do by what it passes: the main window can expand the panel, the peek
+// and the quick panel can show the session in Codealong and snooze or archive it from a button,
+// and Rename in a menu shows the name as a field. What a window doesn't know (the PRs, the todos,
+// the sessions around it) it leaves out, and that line isn't there.
+
+import { useMemo, useRef, useState } from 'react';
+import { below, showContextMenu } from '../contextMenu';
+import { folderTargets, opensInEditor, useEditorIcons } from '../editors';
+import { absolute, ago, agoPhrase, duration, middleTruncate, tildePath } from '../format';
+import { HARNESS_WORD, sessionName, sessionPlace } from '../harness';
+import { seenable } from '../lanes';
+import { originWord, type Kin, type Lineage } from '../lineage';
+import type { SessionActions } from '../menus';
+import { untilWords } from '../snooze';
+import type { Board, DeviceView, Lane, Pr, Session, Target, Todo } from '../types';
+import { panelTodos, STATUS_WORD as TODO_WORD } from '../todos';
+import { DeviceBadge } from './DeviceBadge';
+import { InsightChips } from './InsightBits';
+import { OpenInMenu } from './Inspector';
+import { PreviewLink } from './PreviewBits';
+import { PrChipCard } from './PrLink';
+import { BranchLabel, Button, HarnessChip, Icon, STATUS_WORD, StatusGlyph } from './primitives';
+import { TodoGlyph } from './TodoBits';
+
+/** PRs shown before a "+N": a long session can have made many. */
+const PRS_SHOWN = 3;
+/** Sessions that came of this one listed under the title before "and N more": an agent can
+ *  start many, and the conversation needs the room. */
+const CAME_OF_SHOWN = 3;
+
+export interface SessionHeaderProps {
+  lane: Lane;
+  session: Session;
+  /** The terminal's name and the editors installed, for the ways to open it. */
+  apps: Board['apps'];
+  now: number;
+  /** Opens one of its worktree's targets: the session where it lives, or its folder in an editor. */
+  onOpen: (targetId: string) => void;
+  /** Shows its worktree; without it the worktree's name is only said. */
+  onShowLane?: (lane: Lane) => void;
+  /** The PRs it worked on (lanes.ts `sessionPrs`), each opening on GitHub, with its menu on a
+   *  right-click. */
+  prs?: Pr[];
+  onOpenPr?: (pr: Pr) => void;
+  onPrMenu?: (pr: Pr) => void;
+  todos?: Todo[];
+  onShowTodo?: (todo: Todo) => void;
+  /** The session it came from and the ones that came of it (`Session.origin`), those on the board:
+   *  the one it came from over the title, the ones that came of it under it, each showing itself
+   *  on a click and its own menu on a right-click. */
+  lineage?: Lineage;
+  onShowSession?: (lane: Lane, session: Session) => void;
+  onSessionMenu?: (lane: Lane, session: Session) => void;
+  /** The session's menu (menus.ts), from the ⋯ button, below it. */
+  onMenu?: (at?: { x: number; y: number }) => void;
+  /** Marks a finished turn seen, where the window does more than the action alone (the main
+   *  window goes on to the next); else `actions.seen` does. */
+  onSeen?: () => void;
+  /** The session's actions (menus.ts), as its menu has them: Snooze and Archive among them show
+   *  as buttons, where the session is one of several to get through (the peek, the quick panel). */
+  actions?: SessionActions;
+  /** Shows the session in Codealong's main window, from the other windows. */
+  onReveal?: () => void;
+  /** Its name is a field, ready to change; `onRename` hears the new one, or null when it's left
+   *  as it was. */
+  renaming?: boolean;
+  onRename?: (name: string | null) => void;
+  /** The device it's on, when that's another of yours: it opens there. */
+  device?: DeviceView | null;
+  /** Shown from somewhere to go back to (a PR's or a todo's panel, the quick panel's list). */
+  back?: { label: string; onBack: () => void; title?: string };
+  /** There's another to go on to once this one is seen. */
+  next?: boolean;
+  /** In Sessions: whether the panel takes the whole window, and the way to switch. */
+  maximized?: boolean;
+  onMaximize?: () => void;
+}
+
+/** A session's name as a field: ⏎ keeps what's typed, Escape leaves the name as it was, and so
+ *  does clicking away without changing it. Clicking away after changing it keeps the change, as
+ *  renaming a file in the Finder does. */
+function NameField({ title, onDone }: { title: string; onDone: (name: string | null) => void }) {
+  // The title it opened on: one the board changes meanwhile isn't a change of yours.
+  const [opened] = useState(title);
+  const [name, setName] = useState(title);
+  const done = useRef(false);
+  const finish = (next: string | null) => {
+    if (done.current) return;
+    done.current = true;
+    onDone(next);
+  };
+  // Left as it was, a title the board cut short isn't taken for a new name.
+  const keep = () => finish(name !== opened ? sessionName(name) || null : null);
+  return (
+    <input
+      className="ca-sessinsp-name"
+      aria-label="Name"
+      value={name}
+      autoFocus
+      spellCheck={false}
+      onFocus={(e) => e.currentTarget.select()}
+      onChange={(e) => setName(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.nativeEvent.isComposing) return;
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          keep();
+        } else if (e.key === 'Escape') {
+          e.preventDefault();
+          finish(null);
+        }
+      }}
+      onBlur={keep}
+    />
+  );
+}
+
+/** A session this one came from (`parent`, over the title) or that came of it (under the title,
+ *  hanging from it): its status, its title and how long since it last moved. A click shows it, a
+ *  right-click gives its menu. */
+function KinRow({ kin, now, parent = false, onShow, onMenu }: { kin: Kin; now: number; parent?: boolean; onShow?: (lane: Lane, session: Session) => void; onMenu?: (lane: Lane, session: Session) => void }) {
+  const t = kin.session;
+  const phrase = parent ? originWord(kin.how) : kin.how === 'fork' ? 'Forked into' : 'Started';
+  return (
+    <button
+      type="button"
+      role={parent ? undefined : 'listitem'}
+      className={parent ? 'ca-sessinsp-kin is-parent' : 'ca-sessinsp-kin'}
+      title={`${phrase} ${t.title}, in ${kin.lane.callsign}: ${STATUS_WORD[t.status].toLowerCase()}. Click to show it, right-click for its menu.`}
+      onClick={() => onShow?.(kin.lane, t)}
+      onContextMenu={
+        onMenu &&
+        ((e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onMenu(kin.lane, t);
+        })
+      }
+    >
+      {parent ? <span className="ca-sessinsp-kin-phrase">{phrase}</span> : <span className="ca-sessinsp-elbow" aria-hidden="true" />}
+      <StatusGlyph status={t.status} size={11} />
+      <span className="ca-sessinsp-kin-title">{t.title}</span>
+      {kin.how === 'fork' && !parent && <Icon name="git-fork" size={11} />}
+      <span className="ca-sessinsp-kin-age">{t.status === 'working' && t.statusSince ? duration(t.statusSince, now) : ago(t.lastActivity, now)}</span>
+    </button>
+  );
+}
+
+export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane, prs = [], onOpenPr, onPrMenu, todos, onShowTodo, lineage, onShowSession, onSessionMenu, onMenu, onSeen, actions, onReveal, renaming, onRename, device, back, next, maximized, onMaximize }: SessionHeaderProps) {
+  const [details, setDetails] = useState(false);
+  const [allPrs, setAllPrs] = useState(false);
+  const [allTodos, setAllTodos] = useState(false);
+  const [allKin, setAllKin] = useState(false);
+  // In the order they started, so the list holds still as they work.
+  const cameOf = useMemo(() => [...(lineage?.to ?? [])].sort((a, b) => (a.session.startedAt ?? a.session.lastPromptAt) - (b.session.startedAt ?? b.session.lastPromptAt)), [lineage]);
+  const listed = useMemo(() => panelTodos(todos ?? []), [todos]);
+  // The todo it's on: one in progress, else one still to do. Done ones wait behind "+N".
+  const current = listed.find((t) => t.status !== 'done');
+
+  const icons = useEditorIcons(apps);
+  const own = lane.targets.filter((t) => t.id.startsWith(`s|${s.key}|`));
+  // Under the ways to open the session, its worktree's folder in any editor installed here. A
+  // session past the few its worktree lists opens by its own target alone.
+  const place: Target = { id: s.openTarget, icon: 'arrow-up-right', label: `Open in ${sessionPlace(s, apps.terminal)}`, detail: null, kbd: null, disabled: false, group: 'session' };
+  const targets = opensInEditor(lane) ? [...(own.length > 0 ? own : [place]), ...folderTargets(apps, icons)] : own;
+  const since = s.statusSince ? (s.status === 'working' ? `for ${duration(s.statusSince, now)}` : agoPhrase(s.statusSince, now)) : agoPhrase(s.lastActivity, now);
+  const snoozed = s.snoozedUntil ? ` · snoozed until ${untilWords(s.snoozedUntil, now)}` : '';
+  const status = (s.stalledSince ? `Quiet since ${agoPhrase(s.stalledSince, now)}` : `${s.asks ? 'Asks you' : STATUS_WORD[s.status]} · ${since}`) + snoozed;
+  const naming = !!renaming && !!onRename;
+  // Seen where the window says how, else by the session's own action, when it has a turn to see.
+  const seen = onSeen ? (seenable(s) ? onSeen : undefined) : actions?.seen?.run;
+  const branch = s.branch ?? lane.branch;
+
+  return (
+    <header className="ca-sessinsp-head">
+      {back && (
+        <button type="button" className="ca-linkbtn ca-sessinsp-back" title={back.title ?? `Back to ${back.label}`} onClick={back.onBack}>
+          <Icon name="chevron-left" size={12} />
+          {back.label}
+        </button>
+      )}
+      {lineage?.from && <KinRow kin={lineage.from} now={now} parent onShow={onShowSession} onMenu={onSessionMenu} />}
+      <div className="ca-sessinsp-top">
+        <StatusGlyph status={s.status} size={14} />
+        {naming ? (
+          <NameField title={s.title} onDone={onRename} />
+        ) : (
+          <h3 className="ca-sessinsp-title" title={s.title}>
+            {s.title}
+          </h3>
+        )}
+        <div className="ca-sessinsp-tools">
+          {device ? (
+            <DeviceBadge device={device} now={now} full />
+          ) : targets.length > 0 ? (
+            <OpenInMenu targets={targets} defaultId={s.openTarget} onOpen={onOpen} size="sm" />
+          ) : (
+            <Button variant="primary" size="sm" icon="arrow-up-right" onClick={() => onOpen(s.openTarget)}>
+              Open in {sessionPlace(s, apps.terminal)}
+            </Button>
+          )}
+          {seen && <Button variant="ghost" size="sm" icon="check" aria-label="Mark as seen" title={next ? 'Mark as seen and go on to the next (⌘E)' : 'Mark as seen: it goes idle and leaves the bar'} className="ca-sessinsp-seen" onClick={seen} />}
+          {actions?.snooze && (
+            <Button
+              variant="ghost"
+              size="sm"
+              icon="zzz"
+              aria-label={s.snoozedUntil ? 'Snoozed' : 'Snooze'}
+              aria-haspopup="menu"
+              title={s.snoozedUntil ? `Snoozed until ${untilWords(s.snoozedUntil, now)}: snooze it longer, or wake it now` : 'Snooze: off the bar until the time you pick, then back'}
+              onClick={(e) => actions.snooze && void showContextMenu(actions.snooze.items, below(e.currentTarget))}
+            />
+          )}
+          {actions && !s.archived && (
+            <Button
+              variant="ghost"
+              size="sm"
+              icon="archive"
+              aria-label="Archive"
+              title={s.harness === 'codex' ? 'Archive: it leaves the list and the board, and Codex archives the thread' : 'Archive: it leaves the list and the board until you unarchive it'}
+              onClick={actions.archive.run}
+            />
+          )}
+          {onMaximize && (
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={maximized ? 'minimize' : 'maximize'}
+              aria-label={maximized ? 'Show the list' : 'Expand to the window'}
+              aria-pressed={maximized}
+              title={maximized ? 'Show the list again (⇧⌘F)' : 'Expand to the whole window (⇧⌘F)'}
+              className="ca-sessinsp-max"
+              onClick={onMaximize}
+            />
+          )}
+          <Button variant="ghost" size="sm" icon="info-circle" aria-label="Details" aria-expanded={details} title={details ? 'Hide the details' : 'Details: its account, ID, folder and times'} className={details ? 'ca-sessinsp-detailsbtn is-on' : 'ca-sessinsp-detailsbtn'} onClick={() => setDetails(!details)} />
+          {onReveal && <Button variant="ghost" size="sm" icon="sidebar" aria-label="Show in Codealong" title="Show in Codealong" onClick={onReveal} />}
+          {onMenu && <Button variant="ghost" size="sm" icon="dots" aria-label="More" aria-haspopup="menu" title="Fork, pin, archive, copy and more" onClick={(e) => onMenu(below(e.currentTarget))} />}
+        </div>
+      </div>
+      {cameOf.length > 0 && (
+        <div className="ca-sessinsp-kids" role="list" aria-label="Sessions that came of this one">
+          {(allKin ? cameOf : cameOf.slice(0, CAME_OF_SHOWN)).map((k) => (
+            <KinRow key={k.session.key} kin={k} now={now} onShow={onShowSession} onMenu={onSessionMenu} />
+          ))}
+          {!allKin && cameOf.length > CAME_OF_SHOWN && (
+            <button
+              type="button"
+              className="ca-linkbtn ca-sessinsp-kids-more"
+              title={cameOf
+                .slice(CAME_OF_SHOWN)
+                .map((k) => `${k.how === 'fork' ? 'Forked into' : 'Started'} ${k.session.title}`)
+                .join('\n')}
+              onClick={() => setAllKin(true)}
+            >
+              and {cameOf.length - CAME_OF_SHOWN} more
+            </button>
+          )}
+        </div>
+      )}
+      <div className="ca-sessinsp-meta">
+        {naming ? (
+          <span>⏎ renames it · Esc keeps the old name</span>
+        ) : (
+          <>
+            <span>{status}</span>
+            <span aria-hidden="true">·</span>
+            <span>{HARNESS_WORD[s.harness]}</span>
+            <span aria-hidden="true">·</span>
+            {onShowLane ? (
+              <button type="button" className="ca-sessinsp-lane" title={`Show ${lane.callsign}: ${tildePath(lane.path)}`} onClick={() => onShowLane(lane)}>
+                <Icon name="folder" size={12} />
+                <span>{lane.callsign}</span>
+              </button>
+            ) : (
+              <span className="ca-sessinsp-lane is-plain" title={tildePath(lane.path)}>
+                <Icon name="folder" size={12} />
+                <span>{lane.callsign}</span>
+              </span>
+            )}
+            {branch && (
+              <>
+                <span aria-hidden="true">·</span>
+                <BranchLabel branch={branch} />
+              </>
+            )}
+          </>
+        )}
+      </div>
+      {/* Hidden when it has nothing to show (app.css), Jev's chip included. */}
+      <div className="ca-sessinsp-links">
+        {(allPrs ? prs : prs.slice(0, PRS_SHOWN)).map((pr) => (
+          <PrChipCard key={pr.url} pr={pr} onOpen={() => onOpenPr?.(pr)} onMenu={onPrMenu && (() => onPrMenu(pr))} />
+        ))}
+        {!allPrs && prs.length > PRS_SHOWN && (
+          <button
+            type="button"
+            className="ca-linkbtn ca-sessinsp-more"
+            title={prs
+              .slice(PRS_SHOWN)
+              .map((p) => `#${p.number} ${p.title}`)
+              .join('\n')}
+            onClick={() => setAllPrs(true)}
+          >
+            +{prs.length - PRS_SHOWN}
+          </button>
+        )}
+        <PreviewLink preview={lane.preview} now={now} onOpen={() => onOpen('l|preview')} />
+        <InsightChips session={s} />
+        {!allTodos && current && (
+          <button type="button" className="ca-sessinsp-todo" title={`${current.title || 'Untitled'} · ${TODO_WORD[current.status]}.${onShowTodo ? ' Show the todo.' : ''}`} onClick={() => onShowTodo?.(current)}>
+            <TodoGlyph status={current.status} />
+            <span>{current.title || 'Untitled'}</span>
+          </button>
+        )}
+        {!allTodos && listed.length > (current ? 1 : 0) && (
+          <button
+            type="button"
+            className="ca-linkbtn ca-sessinsp-more"
+            title={listed
+              .filter((t) => t !== current)
+              .map((t) => `${t.title || 'Untitled'} · ${TODO_WORD[t.status]}`)
+              .join('\n')}
+            onClick={() => setAllTodos(true)}
+          >
+            {current ? `+${listed.length - 1}` : `${listed.length} done ${listed.length === 1 ? 'todo' : 'todos'}`}
+          </button>
+        )}
+      </div>
+      {allTodos && (
+        <div className="ca-insp-todos">
+          {listed.map((t) => (
+            <button key={t.id} type="button" className="ca-insp-todo" title="Show the todo" onClick={() => onShowTodo?.(t)}>
+              <TodoGlyph status={t.status} />
+              <span className="ca-insp-todo-title">{t.title || 'Untitled'}</span>
+              <span className="ca-meta">{TODO_WORD[t.status]}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      {details && (
+        <dl className="ca-kv">
+          <dt>Account</dt>
+          <dd>
+            <HarnessChip session={s} withStatus={false} />
+          </dd>
+          <dt>Folder</dt>
+          <dd className="ca-code" title={lane.path}>
+            {middleTruncate(tildePath(lane.path), 60)}
+          </dd>
+          <dt>ID</dt>
+          <dd className="ca-code" title={s.id}>
+            {s.id}
+          </dd>
+          {s.startedAt != null && (
+            <>
+              <dt>Started</dt>
+              <dd title={absolute(s.startedAt)}>{agoPhrase(s.startedAt, now)}</dd>
+            </>
+          )}
+          <dt>Last prompt</dt>
+          <dd title={absolute(s.lastPromptAt)}>{agoPhrase(s.lastPromptAt, now)}</dd>
+          {s.live && s.pid ? (
+            <>
+              <dt>Process</dt>
+              <dd>pid {s.pid}</dd>
+            </>
+          ) : null}
+          {s.resumeCommand && (
+            <>
+              <dt>Resume</dt>
+              <dd className="ca-code" title={s.resumeCommand}>
+                {s.resumeCommand}
+              </dd>
+            </>
+          )}
+        </dl>
+      )}
+    </header>
+  );
+}

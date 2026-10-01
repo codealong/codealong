@@ -128,8 +128,7 @@ can't be seen this way; say so rather than claiming they were checked.
 `scripts/preview.sh quick` renders the quick panel as its shortcut opens it (a `PREVIEW_INIT`
 can type into it or click its menus open).
 `scripts/preview.sh lineage` renders the lines between desktop cards (lineage.rs) over stand-ins
-for the cards, from `scripts/preview/lineage-desk.js`, and `scripts/preview.sh cardpop` a desktop
-card's popover (cardpop.rs) for `PREVIEW_PIN`'s card, on `PREVIEW_SIDE` of it. `scripts/preview.sh bar` renders the floating bar on a stand-in desktop (`PREVIEW_SIZE=1600,64` for
+for the cards, from `scripts/preview/lineage-desk.js`. `scripts/preview.sh bar` renders the floating bar on a stand-in desktop (`PREVIEW_SIZE=1600,64` for
 a wider screen), from the feed `--snapshot --bar` prints. The engine the preview runs is whatever
 was last built into the shared directory, possibly another session's: `PREVIEW_BIN=<a copy of
 your build>` uses yours. `PREVIEW_TODOS=scripts/preview/todos-sample.json scripts/preview.sh todo` shows
@@ -272,9 +271,16 @@ some work is, answer with one.
   asks the session's device when it's elsewhere; a device's request through `actions::answer`.
   A new session action is a line in each, not a command with its own remote branch.
 - A card is one design wherever it is: the Canvas view's cards and the cards pinned to the
-  desktop draw the same face and the same popover, from `src/ui/card/` (`data.ts`, `CardFace.tsx`,
-  `CardPopover.tsx`). `CanvasCard.tsx` and `DesktopPin.tsx` add only where a card goes and what a
-  click does; a change to what a card shows goes in `card/`, never into one of them.
+  desktop draw the same face, from `src/ui/card/` (`data.ts`, `CardFace.tsx`; `CardPopover.tsx` is
+  the popover a canvas card opens, and the desktop has none: a panel beside a card was tried and
+  taken out, 2026-09-30). `CanvasCard.tsx` and `DesktopPin.tsx` add only where a card goes and
+  what a click does; a change to what a card shows goes in `card/`, never into one of them.
+- A session shown with its conversation is one component wherever it is: `ui/SessionPanel.tsx`
+  (the header in `ui/SessionHeader.tsx`, the conversation, the reply box), as a panel in the main
+  window and as a card in the bar's peek and the quick panel's reply view. A window says what it
+  can do by the props it passes; a change to the header goes in `SessionHeader.tsx` and shows in
+  all three. `sessionContext.ts` looks up what the header says around a session (its PRs, todos
+  and lineage) for the windows without the main window's indexes.
 - A side conversation (side.rs) is a harness's throwaway copy of a session, described by its
   adapter (`Adapter::side`: the process, and a `Dialect` that turns its lines into what was
   said, the tool it runs and the end of a turn, and questions into lines). The dialects are

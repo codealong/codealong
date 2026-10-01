@@ -52,11 +52,11 @@
     });
   };
 
-  var title = function () { var t = document.querySelector('.ca-reply-title'); return t ? t.textContent : null; };
+  var title = function () { var t = document.querySelector('.ca-sessinsp-title'); return t ? t.textContent : null; };
   var strip = function () { var t = document.querySelector('.ca-reply-queue-note'); return t ? t.textContent : ''; };
   var input = function () { return document.querySelector('.ca-quick-input textarea'); };
   var box = function () { return document.querySelector('.ca-reply .ca-composer textarea'); };
-  var button = function (label) { return document.querySelector('.ca-reply-head button[aria-label="' + label + '"]'); };
+  var button = function (label) { return document.querySelector('.ca-reply .ca-sessinsp-head button[aria-label="' + label + '"]'); };
   var key = function (el, init) { el.dispatchEvent(new KeyboardEvent('keydown', Object.assign({ bubbles: true, cancelable: true }, init))); };
   var type = function (el, text) {
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(el, text);

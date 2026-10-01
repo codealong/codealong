@@ -466,9 +466,7 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   canvas, or a session's pill dragged off the bar): puts its card, the one the Canvas view shows, on the desktop, floating over every
   window, on every Space and over full-screen apps as the floating bar does. A worktree's card
   lists its sessions that are running or waiting on you, and a todo's its sessions. Drag a card
-  where you want it; it stays there across launches. Rest the pointer on a card and its popover
-  opens beside it, the same one its Canvas card has, and stays while the pointer is on the card
-  or on it. Click a session (its card, a session line,
+  where you want it; it stays there across launches. Click a session (its card, a session line,
   or a todo's card) to open its peek beside the card, as the bar's pills do, with the keyboard in
   its box; click again to put it away. Double-click to open what it shows where it lives (a todo
   without a session starts one in the quick panel). Right-click it, or a session line in it, for
@@ -480,9 +478,9 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   forks) and notes what they don't: a session started by an agent's `codealong start`, and a
   fork into a terminal made from Codealong. A session's panel names the session it was forked
   from or started by over its title, and lists the ones that came of it under the title, each
-  with its status; a click shows one and a right-click gives its menu. Its card's popover
-  lists them too, on the canvas and on the desktop: right-click one there and Pin to desktop
-  puts its card beside the one you're on. On the canvas, hovering or selecting a session draws a line from the session
+  with its status; a click shows one and a right-click gives its menu, so Pin to desktop there
+  puts its card beside the one you're on. The bar's peek and the quick panel's reply view have
+  the same header, and its card's popover on the canvas lists them too. On the canvas, hovering or selecting a session draws a line from the session
   it came from and to the ones that came of it, and a session's card on the desktop does the
   same to the cards of those sessions pinned on the same screen.
 - **New window** (File › New window, ⌘⇧N): one more window on the project you're looking at.
@@ -739,8 +737,8 @@ light scan (no git, PRs or visitors).
 | `src-tauri/src/start.rs`, `src/start.ts` | New sessions: where each account can start one, the launch it makes, the agent menu (every account on every model, and the effort levels) and Auto's pick |
 | `src-tauri/src/quick.rs`, `src/quick.ts`, `src/ui/Quick.tsx` | The quick panel: its window (a panel that takes the keyboard over any app), its shortcut, and its page (what needs you, finding sessions, starting one) |
 | `src-tauri/src/harness.rs` | The interface each harness implements (`Adapter`): a session's record, its conversation, what it waits on you to allow and answering it, renaming it (`src/ui/RenameDialog.tsx` in the main window); CLAUDE.md's "Adding a harness" says what else a new one needs |
-| `src-tauri/src/transcript.rs`, `src/ui/SessionPanel.tsx`, `src/ui/SessionThread.tsx`, `src/ui/SessionReply.tsx` | A session's conversation, read a page at a time from its own record, the panel that shows it, and the box that sends it messages or answers what it waits on |
-| `src-tauri/src/peek.rs`, `src/ui/Peek.tsx`, `src/ui/ReplyView.tsx` | The floating bar's peek: its window (a panel under the bar that takes the keyboard only on a click), where it opens for a pill and when it closes, and the session view it shares with the quick panel's ⇥ |
+| `src-tauri/src/transcript.rs`, `src/ui/SessionPanel.tsx`, `src/ui/SessionHeader.tsx`, `src/sessionContext.ts`, `src/ui/SessionThread.tsx`, `src/ui/SessionReply.tsx` | A session's conversation, read a page at a time from its own record, the panel that shows it, and the box that sends it messages or answers what it waits on |
+| `src-tauri/src/peek.rs`, `src/ui/Peek.tsx` | The floating bar's peek: its window (a panel under the bar that takes the keyboard only on a click), where it opens for a pill and when it closes. What it shows is the session's panel as a card (`ui/SessionPanel.tsx`), as the quick panel's ⇥ does |
 | `src-tauri/src/search.rs` | Searching what was said in sessions: an in-memory index of prompts and replies, read once per file and then from where it stopped |
 | `src-tauri/src/route.rs`, `src-tauri/src/starts.rs`, `src/route.ts` | Suggestions in the quick panel: the request to Jev and reading its answer back, the key in the keychain, how your past starts weigh a new worktree, and which suggestions the panel shows |
 | `src-tauri/src/todojev.rs` | Jev on todos: which todo a new session is for, whether a todo's work looks done, and a todo's suggested project, labels and dependencies |
@@ -767,8 +765,7 @@ light scan (no git, PRs or visitors).
 | `src-tauri/src/detect.rs` | The harness accounts on this device: folders, sign-ins, and the wrappers and aliases that run them |
 | `src-tauri/src/bar.rs`, `barfeed.rs` | The bar's window (a panel over every app, floating where you put it or docked in the notch, found from the screen's sides of the menu bar, where it takes clicks only on the shape it shows; Window › Floating bar and Bar in the notch) and the small feed of what it shows, sent only when that changes |
 | `src-tauri/src/origins.rs`, `src/lineage.ts`, `src-tauri/src/lineage.rs`, `src/ui/DesktopLines.tsx` | Where sessions came from: Codealong's own record of starts and forks (`origins.json`), the line drawn between them on the canvas and between desktop cards, and the clear window under the cards that draws it there |
-| `src/ui/card/` | The card the Canvas view and the desktop share: what it shows, looked up from the board (`data.ts`), its face (`CardFace.tsx`), and its popover (`CardPopover.tsx`). The canvas and the desktop add only where a card goes and what a click does |
-| `src-tauri/src/cardpop.rs`, `src/ui/DesktopPopover.tsx` | A desktop card's popover: a panel of its own beside the card, opened when the pointer rests on the card and closed once it's off both |
+| `src/ui/card/` | The card the Canvas view and the desktop share: what it shows, looked up from the board (`data.ts`), its face (`CardFace.tsx`), and the popover a canvas card opens (`CardPopover.tsx`). The canvas and the desktop add only where a card goes and what a click does |
 | `src-tauri/src/desktop.rs`, `src/ui/DesktopPin.tsx` | Cards pinned to the desktop: a window each, made as the bar's is, where a new one goes, `desktop.json`, and what each shows, cut from the board and sent only when it changes; the page draws the card the Canvas view draws (`ui/card/`) |
 | `src/` | The React UI, built from the design system's components and tokens; `lanes.ts` groups the board and mirrors the engine's status rules for the age filter; `pins.ts` keeps the pinned lists; `ahead.ts` shows sessions marked seen, archived, renamed or sent a message at once, in every window, until a board shows it; `prStatus.ts` and `ui/PrPills.tsx` say where a PR stands and which PRs are your move; `bar.ts`, `ui/Bar.tsx` and `ui/Notch.tsx` lay out the bar, floating or in the notch; `ui/Picker.tsx` is the quick panel's filterable menus; `ui/SettingsDialog.tsx` and `ui/AccountsSection.tsx` are Settings |
 | `scripts/preview.sh` | Headless preview against real data, for screenshots and scripted checks |

@@ -12,7 +12,7 @@
       (function p() { var v = f(); if (v) return res(v); if (Date.now() - s > ms) return rej(new Error('nothing to right-click')); setTimeout(p, 20); })();
     });
   };
-  var targets = ['.ca-hud [data-key]', '.ca-reply-head', '.ca-quick-scroll [role="option"]', '.ca-desk', '.ca-bay-lanes > *'];
+  var targets = ['.ca-hud [data-key]', '.ca-reply .ca-sessinsp-head', '.ca-quick-scroll [role="option"]', '.ca-desk', '.ca-bay-lanes > *'];
   var menus = function () { return window.__calls.filter(function (c) { return c[0] === 'plugin:menu|new'; }).length; };
   var labels = function () { return window.__menu().map(function (x) { return x[0]; }).join(' | '); };
   say('menus check: waiting');
@@ -24,7 +24,7 @@
       el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
       return until(function () { return menus() > before; }, 3000).then(function () {
         var right = labels();
-        var more = document.querySelector('.ca-reply-head [aria-label="More"]');
+        var more = document.querySelector('.ca-reply .ca-sessinsp-head [aria-label="More"]');
         if (!more) return say('done: ' + right);
         var n = menus();
         more.click();

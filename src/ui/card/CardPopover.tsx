@@ -1,7 +1,6 @@
 // A card's popover: everything its face leaves out. The Canvas view opens it beside a card after
-// the pointer rests on it (CanvasView.tsx), and a card pinned to the desktop opens it in a panel
-// of its own beside the card (DesktopPopover.tsx, cardpop.rs); either way the pointer can move
-// onto it, and its PR chips and session lines take clicks.
+// the pointer rests on it (CanvasView.tsx); the pointer can move onto it, and its PR chips and
+// session lines take clicks.
 
 import type { CSSProperties, MouseEvent, PointerEvent, ReactNode } from 'react';
 import { dueWords } from '../../due';
@@ -37,9 +36,6 @@ export function SessionLine({ s, now }: { s: Session; now: number }) {
   );
 }
 
-/** Where a card is: on the canvas, or pinned to the desktop, where a click reads a session. */
-export type CardPlace = 'canvas' | 'desktop';
-
 interface CardDetailProps {
   item: Pick<RefItem, 'ref' | 'key' | 'title'>;
   data: CardData | null;
@@ -47,7 +43,6 @@ interface CardDetailProps {
   terminal: string;
   /** Every todo, for the ones a session is on and what a todo waits on. */
   todos: Todo[];
-  place: CardPlace;
   /** A PR chip's click. */
   onOpenPr?: (pr: Pr) => void;
   /** Every session on the board where it lives, for the one a session came from and the ones
@@ -59,7 +54,7 @@ interface CardDetailProps {
   onSessionMenu?: (lane: Lane, session: Session, at: { x: number; y: number }) => void;
 }
 
-/** The popover's shell, the same wherever the card is. */
+/** The popover's shell. */
 export function CardPopover({ style, children, onPointerEnter, onPointerLeave }: { style?: CSSProperties; children: ReactNode; onPointerEnter?: (e: PointerEvent) => void; onPointerLeave?: (e: PointerEvent) => void }) {
   return (
     <div className="ca-cv-popover" style={style} role="group" aria-label="More about this card" onPointerEnter={onPointerEnter} onPointerLeave={onPointerLeave}>
@@ -69,7 +64,7 @@ export function CardPopover({ style, children, onPointerEnter, onPointerLeave }:
 }
 
 /** The popover's body for a card: everything the card leaves out. */
-export function CardDetail({ item, data, now, terminal, todos, place, homes, onOpenPr, onSession, onSessionMenu }: CardDetailProps) {
+export function CardDetail({ item, data, now, terminal, todos, homes, onOpenPr, onSession, onSessionMenu }: CardDetailProps) {
   const chip = (pr: Pr) => <PrChip pr={pr} onOpen={onOpenPr && (() => onOpenPr(pr))} />;
   // A session line takes a click where the card says what one does, and a right-click for its menu.
   const line = (lane: Lane, s: Session) => {
@@ -130,7 +125,6 @@ export function CardDetail({ item, data, now, terminal, todos, place, homes, onO
               {own.length > 6 && <div className="ca-cvp-dim">and {own.length - 6} more</div>}
             </div>
           )}
-          {place === 'desktop' && own.length > 0 && <div className="ca-cvp-hint">Click a session to read and answer it, double-click to open it</div>}
         </>
       );
     }
@@ -184,7 +178,7 @@ export function CardDetail({ item, data, now, terminal, todos, place, homes, onO
             ))}
           </div>
           {homes && <Kin session={s} homes={homes} line={line} />}
-          <div className="ca-cvp-hint">{place === 'desktop' ? `Click to read and answer it, double-click to open it in ${sessionPlace(s, terminal)}` : `Double-click to open in ${sessionPlace(s, terminal)}`}</div>
+          <div className="ca-cvp-hint">Double-click to open in {sessionPlace(s, terminal)}</div>
         </>
       );
     }
@@ -219,7 +213,7 @@ export function CardDetail({ item, data, now, terminal, todos, place, homes, onO
               {data.sessions.slice(0, 5).map(({ lane, session }) => line(lane, session))}
             </div>
           )}
-          <div className="ca-cvp-hint">{data.sessions.length === 0 ? 'Double-click to start a session for it' : place === 'desktop' ? 'Click to read and answer its session, double-click to open it' : 'Double-click to open its session'}</div>
+          <div className="ca-cvp-hint">{data.sessions.length > 0 ? 'Double-click to open its session' : 'Double-click to start a session for it'}</div>
         </>
       );
     }

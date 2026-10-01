@@ -3,6 +3,8 @@
 // with its status; a right-click on one gives that session's menu, and a click shows its panel.
 // A session that started many lists three and "and N more", which lists the rest.
 //   PREVIEW_WAIT=90000 scripts/preview.sh sessions <project> scripts/preview/panel-kin-check.js
+// The bar's peek has the same header (SessionHeader.tsx); there a click on one opens it in the peek:
+//   PREVIEW_TRANSCRIPT=<key of a session with kin> PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/panel-kin-check.js
 // Every step should say ok; "skipped" where the board has no such session.
 (function () {
   var out = [];
@@ -33,7 +35,28 @@
     return false;
   };
   var head = function () { return (document.querySelector('.ca-sessinsp-title') || {}).textContent; };
+  var peek = async function () {
+    for (var i = 0; i < 100 && !document.querySelector('.ca-sessinsp-kin'); i++) await wait(100);
+    var rows = document.querySelectorAll('.ca-reply .ca-sessinsp-kids .ca-sessinsp-kin');
+    var parent = document.querySelector('.ca-reply .ca-sessinsp-kin.is-parent');
+    check('the peek has the panel’s header', !!document.querySelector('.ca-reply .ca-sessinsp-head .ca-sessinsp-title') && !!document.querySelector('.ca-reply .ca-sessinsp-meta'));
+    check('with the sessions around it', rows.length > 0 || !!parent, (parent ? 'from: ' + parent.textContent + ' ' : '') + rows.length + ' rows');
+    var row = rows[0] || parent;
+    if (!row) return say('done: ' + out.join('; '));
+    row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 30, clientY: 30 }));
+    await wait(400);
+    var items = (window.__menu() || []).map(function (x) { return x[0]; });
+    check('a right-click gives its menu', items.indexOf('Pin to desktop') >= 0, items.length + ' items');
+    var title = row.querySelector('.ca-sessinsp-kin-title').textContent;
+    var want = all.find(function (x) { return x.title === title; });
+    row.click();
+    await wait(400);
+    var opened = window.__calls.filter(function (c) { return c[0] === 'peek_open'; });
+    check('a click opens it in the peek', opened.length === 1 && !!want && opened[0][1].key === want.key, JSON.stringify(opened.map(function (c) { return c[1].key; })));
+    say('done: ' + out.join('; '));
+  };
   var run = async function () {
+    if (window.__CODEALONG_PEEK__) return peek();
     // One that came of another and had one come of it.
     var mid = all.find(function (s) { return s.origin && has(s.origin.key) && kids(s).length > 0; });
     if (!mid || !(await select(mid.title))) out.push('a session between two skipped');

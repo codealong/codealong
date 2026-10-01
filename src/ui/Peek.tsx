@@ -1,5 +1,6 @@
 // The floating bar's peek (peek.rs has its window): the session whose pill is under the pointer,
-// its conversation, and the box that answers it (ReplyView.tsx). A click in it gives it the
+// with the header its panel has in the main window, its conversation, and the box that answers it
+// (SessionPanel.tsx, as a card). A click in it gives it the
 // keyboard; ⏎ sends and the peek closes at once, so the app you were in has the keyboard back (a
 // message that doesn't go says so on the bar, and is back in the box). Once an answer went
 // through it closes too, but stays while the box holds something for you to send next. Escape
@@ -11,7 +12,7 @@
 // session follows the board, and the peek stays on it as its pill moves along the bar.
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { barNote, getBoard, inPreview, onBoard, onPeekHidden, onPeekOpen, onPeekShown, peekFit, peekFocus, peekHide, peekReady, showMain } from '../api';
+import { barNote, getBoard, inPreview, onBoard, onPeekHidden, onPeekOpen, onPeekShown, openUrl, peekFit, peekFocus, peekHide, peekOpen, peekReady, showMain } from '../api';
 import { boardView, lanesAhead, observe, renameAhead, useAhead } from '../ahead';
 import { showContextMenu } from '../contextMenu';
 import { readDraft } from '../drafts';
@@ -19,12 +20,13 @@ import { homeOf } from '../lanes';
 import { useEditorIcons } from '../editors';
 import * as menus from '../menus';
 import { attentionRows, ALL_PROJECTS } from '../quick';
-import type { Board, Lane, PeekOpen, PrItem, Session, Theme } from '../types';
+import { sessionContext } from '../sessionContext';
+import type { Board, Lane, PeekOpen, Pr, PrItem, Session, Theme, Todo } from '../types';
 import { prRefOf } from '../prLinks';
 import { reuse } from '../reuse';
 import { useKeyPerf } from '../perf';
 import { usePrLinks } from './PrLink';
-import { ReplyView } from './ReplyView';
+import { SessionPanel } from './SessionPanel';
 import { useTheme } from './ThemeSwitch';
 import { useNow } from './useNow';
 import { errorText, type Report } from '../report';
@@ -102,14 +104,17 @@ export function Peek() {
     };
   }, []);
 
-  // The board's PRs and worktrees, for PR links in the conversation (PrLink.tsx), from the pushes
-  // that come while it's up; the last ones stay for the next time it shows.
-  const [prBoard, setPrBoard] = useState<Pick<Board, 'prs' | 'lanes'> | null>(null);
-  const takeBoard = useCallback((b: Board) => setPrBoard((prev) => reuse(prev, { prs: b.prs, lanes: b.lanes })), []);
+  // The board's PRs, worktrees and todos, for what the header says around the session (its PRs,
+  // its todos, the sessions it came from and that came of it) and for PR links in the conversation
+  // (PrLink.tsx): asked for as the peek shows, then from the pushes that come while it's up. The
+  // last ones stay for the next time it shows.
+  const [prBoard, setPrBoard] = useState<Pick<Board, 'prs' | 'lanes' | 'todos'> | null>(null);
+  const takeBoard = useCallback((b: Board) => setPrBoard((prev) => reuse(prev, { prs: b.prs, lanes: b.lanes, todos: b.todos })), []);
 
   const key = open?.session.key ?? null;
   useEffect(() => {
     if (!shown || !key) return;
+    void getBoard().then(takeBoard, () => {});
     return onBoard((b) => {
       observe(boardView(b.generatedAt, [b.lanes]));
       const home = homeOf(b.lanes, key);
@@ -129,6 +134,8 @@ export function Peek() {
   // For the session's menu: what's on the desktop, and the editors' icons.
   const onDesktop = menus.useDesktopPins();
   const icons = useEditorIcons(open?.apps);
+  // What its header says around it, from the board.
+  const context = useMemo(() => (lane && session ? sessionContext(prBoard, lane, session) : null), [prBoard, lane, session]);
 
   const measure = () => Math.ceil((card.current?.getBoundingClientRect().height ?? 0) + FAR + NEAR);
 
@@ -239,7 +246,7 @@ export function Peek() {
       void showContextMenu(spec).catch((e: unknown) => cardReport.error(errorText(e)));
     },
     // Without it, a card asks GitHub.
-    needBoard: () => void getBoard().then(takeBoard, () => setPrBoard((prev) => prev ?? { prs: [], lanes: [] })),
+    needBoard: () => void getBoard().then(takeBoard, () => setPrBoard((prev) => prev ?? { prs: [], lanes: [], todos: [] })),
   });
 
   if (!open || !lane || !session || !shown) return null;
@@ -252,7 +259,6 @@ export function Peek() {
   };
   /** Opens one of the worktree's targets where it lives (open.ts), putting the peek away. */
   const openOn = (l: Lane, target: string) => openWhere(where(l, target), { report, from: 'panel', before: () => void peekHide() });
-  const openHere = () => openOn(lane, session.openTarget);
 
   /** Takes the session off the bar, and puts the peek away. */
   const dismiss = (act: Promise<void>) => {
@@ -287,6 +293,22 @@ export function Peek() {
     left: () => void peekHide(),
   };
   const menu = (at?: { x: number; y: number }) => void showContextMenu(menus.sessionMenu(lane, session, can), at).catch((e: unknown) => report.error(errorText(e)));
+  /** A session it came from, or that came of it, takes the peek's place; its menu is its own. */
+  const showKin = (_l: Lane, s: Session) => void peekOpen(s.key, null, engaged).catch((e: unknown) => report.error(errorText(e)));
+  const kinMenu = (l: Lane, s: Session) =>
+    void showContextMenu(menus.sessionMenu(l, s, { ...can, reveal: () => showSessionMain(l, s), rename: undefined })).catch((e: unknown) => report.error(errorText(e)));
+  const showLane = (l: Lane) => {
+    void peekHide();
+    void showMain({ kind: 'worktree', laneId: l.id });
+  };
+  const showTodo = (t: Todo) => {
+    void peekHide();
+    void showMain({ kind: 'todo', id: t.id });
+  };
+  const prMenu = (pr: Pr) => {
+    const item = prBoard?.prs.find((p) => p.url === pr.url);
+    void showContextMenu(menus.prMenu(item ?? pr, { report, reveal: item ? () => showPrMain(item) : undefined })).catch((e: unknown) => report.error(errorText(e)));
+  };
 
   return (
     <div
@@ -306,20 +328,30 @@ export function Peek() {
           if (!engaged) void peekFocus();
         }}
       >
-        <ReplyView
+        <SessionPanel
           key={view}
+          variant="card"
           lane={lane}
           session={session}
-          terminal={open.terminal}
+          apps={open.apps ?? { terminal: open.terminal, terminalId: '', editor: 'Editor', editorId: '' }}
           now={now}
           autoFocus={open.focus}
           onLoaded={loaded}
-          onOpen={openHere}
+          onOpen={(target) => openOn(lane, target)}
           actions={menus.sessionActions(lane, session, can)}
           renaming={open.rename || renameAsked === session.key}
           onRename={renamed}
           onMenu={menu}
           onReveal={reveal}
+          onShowLane={showLane}
+          prs={context?.prs}
+          onOpenPr={(pr) => openUrl(pr.url).catch((e: unknown) => report.error(errorText(e)))}
+          onPrMenu={prMenu}
+          todos={context?.todos}
+          onShowTodo={showTodo}
+          lineage={context?.lineage}
+          onShowSession={showKin}
+          onSessionMenu={kinMenu}
           onSending={() => void peekHide()}
           onSent={(sent) => {
             // What you'd want to know goes on the bar: the prompt is on the clipboard, say, or it

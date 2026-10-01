@@ -118,7 +118,7 @@ export interface SessionCan {
 }
 
 /** A session's actions by name, each once: the menu lays them out (`sessionMenu`), a header
- *  shows a few as buttons (ReplyView.tsx), and the main window's keys run some (`KEYS`). An
+ *  shows a few as buttons (SessionHeader.tsx), and the main window's keys run some (`KEYS`). An
  *  action is missing when the window can't do it or the session doesn't allow it, so the rule for
  *  when each applies is here and nowhere else. */
 export interface SessionActions {

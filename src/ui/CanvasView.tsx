@@ -1072,7 +1072,6 @@ export function CanvasView(props: CanvasViewProps) {
             now={now}
             terminal={terminal}
             todos={todos}
-            place="canvas"
             homes={entities.sessions}
             onOpenPr={(pr) => openUrl(pr.url).catch((err: unknown) => onToast(String(err)))}
             onSessionMenu={(_lane, s) => void showContextMenu(menuFor({ kind: 'ref', ref: 'session', key: s.key, x: 0, y: 0 })).catch((err: unknown) => onToast(String(err)))}

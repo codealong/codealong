@@ -13,7 +13,7 @@
 // the page sees it.)
 //
 // ⇥ on a session answers it here: the panel shows its conversation and a box that sends it a
-// message where it runs, or what it waits on you to allow (ReplyView.tsx). ⏎ sends, and Escape
+// message where it runs, or what it waits on you to allow (SessionPanel.tsx, as a card). ⏎ sends, and Escape
 // goes back to the list, as marking it seen or archiving it from its header does. Answering one
 // from the empty panel's list works through the list: once it's sent, allowed, marked seen,
 // snoozed or archived, the next that waits on you takes the view (the longest wait first), ⌘]
@@ -51,6 +51,7 @@ import { useKeyPerf, usePerf } from '../perf';
 import { showContextMenu, type MenuSpec } from '../contextMenu';
 import { useEditorIcons } from '../editors';
 import * as menus from '../menus';
+import { sessionContext } from '../sessionContext';
 import { prRefOf } from '../prLinks';
 import { ago, agoPhrase, resetsPhrase, tildePath } from '../format';
 import { HARNESS_WORD, usageNote } from '../harness';
@@ -85,7 +86,7 @@ import type { Attachment, Board, DevicesView, Lane, Meter, PrItem, Route, Sessio
 import { AttachmentStrip } from './DescriptionEditor';
 import { sessionWhy } from './PanelSession';
 import { Picker, type PickerOption, type PickerSection } from './Picker';
-import { ReplyView } from './ReplyView';
+import { SessionPanel } from './SessionPanel';
 import { Icon, Kbd, Mark, STATUS_WORD, StatusGlyph } from './primitives';
 import { projectForDigit, projectKey } from './ProjectSwitcher';
 import { usePrLinks } from './PrLink';
@@ -522,6 +523,8 @@ export function Quick() {
     }
     return null;
   }, [board, replyKey]);
+  // What its header says around it: its PRs, its todos, the sessions it came from and that came of it.
+  const replyContext = useMemo(() => (replying ? sessionContext(board, replying.lane, replying.session) : null), [board, replying]);
   // What it works through, and what's left after the one showing. Snoozed ones wait their time.
   const queue = useMemo(() => (board && queued ? queueRows(board, current).filter((r) => !r.session.snoozedUntil) : []), [board, queued, current]);
   const queueLeft = replying && queued ? queueAfter(queue, replying.session.key, handled.current) : [];
@@ -1564,20 +1567,41 @@ export function Quick() {
     >
       {replying && (
         <div ref={card} className="ca-quick is-reply" role="dialog" aria-label={`Answer ${replying.session.title}`} style={{ maxHeight: Math.min(REPLY_HEIGHT, room ? room - 2 * MARGIN : REPLY_HEIGHT) }}>
-          <ReplyView
+          <SessionPanel
+            key={replying.session.key}
+            variant="card"
             lane={replying.lane}
             session={replying.session}
-            terminal={board?.apps.terminal ?? 'Terminal'}
+            apps={board?.apps ?? { terminal: 'Terminal', terminalId: '', editor: 'Editor', editorId: '' }}
             now={now}
             autoFocus
             keys
-            onBack={leaveReply}
-            onOpen={() => openSession(replying.lane, replying.session)}
+            back={{ label: 'Back', title: 'Back to the list (Esc)', onBack: leaveReply }}
+            onOpen={(target) => openHere(replying.lane, target)}
             onReveal={() => revealSession(replying.lane, replying.session)}
             actions={replyCan ? menus.sessionActions(replying.lane, replying.session, replyCan) : undefined}
             renaming={renameKey === replying.session.key}
             onRename={(name) => renamed(replying.session, name)}
             onMenu={(at) => replyCan && void showContextMenu(menus.sessionMenu(replying.lane, replying.session, replyCan), at).catch((e: unknown) => setNotice({ text: errorText(e), error: true }))}
+            onShowLane={(l) => {
+              void hideQuick();
+              void showMain({ kind: 'worktree', laneId: l.id });
+            }}
+            prs={replyContext?.prs}
+            onOpenPr={(pr) => openLink(pr.url)}
+            onPrMenu={(pr) => {
+              const item = board?.prs.find((p) => p.url === pr.url);
+              void showContextMenu(item ? prMenuSpec(item) : menus.prMenu(pr, { report: menuReport, open: () => openLink(pr.url) })).catch((e: unknown) => setNotice({ text: errorText(e), error: true }));
+            }}
+            todos={replyContext?.todos}
+            onShowTodo={(t) => {
+              void hideQuick();
+              void showMain({ kind: 'todo', id: t.id });
+            }}
+            lineage={replyContext?.lineage}
+            // A session it came from, or that came of it, is answered here in its place.
+            onShowSession={(_l, x) => replyTo(x)}
+            onSessionMenu={(l, x) => void showContextMenu(sessionMenuSpec(l, x)).catch((e: unknown) => setNotice({ text: errorText(e), error: true }))}
             queue={queued ? { left: queueLeft.length, next: queueLeft[0]?.session ?? null, onNext: skip } : undefined}
             notice={notice}
             onSending={() => (queued ? advance(replying.session, 'sent.') : replied(null))}

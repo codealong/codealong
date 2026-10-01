@@ -9,7 +9,6 @@ mod bar;
 mod barfeed;
 mod board;
 mod canvas;
-mod cardpop;
 mod chrome;
 mod chrometabs;
 mod caret;
@@ -358,8 +357,6 @@ fn open_from_bar(app: tauri::AppHandle, engine: State<'_, engine::Handle>, lane_
 /// `rename` its name ready to change (peek.rs).
 #[tauri::command]
 fn peek_open(app: tauri::AppHandle, window: tauri::WebviewWindow, engine: State<'_, engine::Handle>, key: String, pill: Option<bar::Rect>, focus: Option<bool>, rename: Option<bool>) -> Result<(), String> {
-    // A desktop card's popover makes way for its peek.
-    cardpop::hide(&app);
     let target = engine.read(|b| peek::target(b, &key)).ok_or_else(|| "That session isn't on the board any more.".to_string())?;
     // The pill is in the window that asked: the bar, or a card on the desktop.
     let pill = pill.and_then(|p| bar::native::frame(&window).map(|host| (host, p)));
@@ -456,37 +453,6 @@ fn fit_desktop(app: tauri::AppHandle, window: tauri::Window, width: f64, height:
 #[tauri::command(async)]
 fn desktop_hover(app: tauri::AppHandle, window: tauri::Window, on: bool) {
     lineage::hover(&app, window.label(), on);
-    cardpop::hover(&app, window.label(), on);
-}
-
-/// A desktop card's popover is laid out for the open `id`, at this height (cardpop.rs).
-#[tauri::command]
-fn card_popover_ready(app: tauri::AppHandle, id: u64, height: f64) {
-    cardpop::ready(&app, id, Some(height));
-}
-
-/// A desktop card's popover changed size while up.
-#[tauri::command]
-fn card_popover_fit(app: tauri::AppHandle, height: f64) {
-    cardpop::fit(&app, height);
-}
-
-/// Puts a desktop card's popover away: its card's menu is opening, or the card is being dragged.
-#[tauri::command]
-fn card_popover_hide(app: tauri::AppHandle) {
-    cardpop::hide(&app);
-}
-
-/// A session line in a desktop card's popover was clicked: the session opens in the peek by the
-/// card, ready to answer, as a click on the card's own session line opens it.
-#[tauri::command]
-fn card_popover_session(app: tauri::AppHandle, engine: State<'_, engine::Handle>, key: String) -> Result<(), String> {
-    let card = cardpop::card(&app);
-    cardpop::hide(&app);
-    let target = engine.read(|b| peek::target(b, &key)).ok_or_else(|| "That session isn't on the board any more.".to_string())?;
-    // The card, less its window's room for the shadow (DesktopPin.tsx's MARGIN), is what the peek opens by.
-    let pill = card.and_then(|l| app.get_webview_window(&l)).and_then(|w| bar::native::frame(&w)).map(|host| (host, bar::Rect { x: 12.0, y: 12.0, w: host.w - 24.0, h: host.h - 24.0 }));
-    peek::open(&app, target, pill, true, false).map_err(|e| e.to_string())
 }
 
 /// What the window of lines between desktop cards shows, for its first render; after that it gets
@@ -1349,7 +1315,6 @@ pub fn run() {
                 eprintln!("Couldn't make the floating bar's peek: {e:#}");
             }
             lineage::setup(app.handle());
-            cardpop::setup(app.handle());
             if let Err(e) = desktop::setup(app.handle()) {
                 eprintln!("Couldn't put the cards pinned to the desktop back: {e:#}");
             }
@@ -1379,7 +1344,7 @@ pub fn run() {
             desktop::on_window_event(window, event);
         })
         .register_asynchronous_uri_scheme_protocol("codealong-image", |_ctx, request, responder| serve_image(request, responder))
-        .invoke_handler(tauri::generate_handler![get_board, session_at, idle_terminals, close_idle_terminals, close_session, open_target, open_config, editor_icons, mark_seen, snooze_sessions, refresh, refresh_usage, set_pinned, set_pinned_worktrees, set_preview, set_reusable, archive_session, rename_session, pr_detail, pr_card, pr_comment_asks, approve_pr, review_in_codex, open_url, run_in_terminal, get_accounts, save_accounts, set_preferred, found_accounts, get_config, save_config, save_config_text, sign_in, agents_status, install_agents, start_options, device_start_options, start_session, fork_session, side_ask, side_get, side_close, todo_op, canvas_load, canvas_save, save_attachment, import_attachment, open_attachment, expand_attachments, set_theme, open_project_window, fit_bar, show_main, peek_open, peek_ready, peek_fit, peek_focus, peek_hide, bar_feed, bar_on, set_bar_on, bar_mode, set_bar_mode, set_notch_open, notch_shape, open_from_bar, desktop_pins, pin_to_desktop, unpin_from_desktop, drag_to_desktop, desktop_feed, fit_desktop, desktop_hover, lineage_feed, card_popover_ready, card_popover_fit, card_popover_hide, card_popover_session, show_quick, hide_quick, quick_ready, fit_quick, start_from_quick, route_quick, search_text, search_devices, devices, set_device_color, link_device, answer_link, unlink_device, device_link_code, link_code_qr, link_with_code, session_page, session_newer, session_pending, session_way, session_answer, session_stream, session_cancel, send_to_session, suggest_todo, dismiss_todo_hint, jev_key, set_jev_key, test_jev, quick_shortcut, pause_quick_shortcut, perf_mark, page_unfocused, popup_menu, update_status, check_for_updates, restart_to_update])
+        .invoke_handler(tauri::generate_handler![get_board, session_at, idle_terminals, close_idle_terminals, close_session, open_target, open_config, editor_icons, mark_seen, snooze_sessions, refresh, refresh_usage, set_pinned, set_pinned_worktrees, set_preview, set_reusable, archive_session, rename_session, pr_detail, pr_card, pr_comment_asks, approve_pr, review_in_codex, open_url, run_in_terminal, get_accounts, save_accounts, set_preferred, found_accounts, get_config, save_config, save_config_text, sign_in, agents_status, install_agents, start_options, device_start_options, start_session, fork_session, side_ask, side_get, side_close, todo_op, canvas_load, canvas_save, save_attachment, import_attachment, open_attachment, expand_attachments, set_theme, open_project_window, fit_bar, show_main, peek_open, peek_ready, peek_fit, peek_focus, peek_hide, bar_feed, bar_on, set_bar_on, bar_mode, set_bar_mode, set_notch_open, notch_shape, open_from_bar, desktop_pins, pin_to_desktop, unpin_from_desktop, drag_to_desktop, desktop_feed, fit_desktop, desktop_hover, lineage_feed, show_quick, hide_quick, quick_ready, fit_quick, start_from_quick, route_quick, search_text, search_devices, devices, set_device_color, link_device, answer_link, unlink_device, device_link_code, link_code_qr, link_with_code, session_page, session_newer, session_pending, session_way, session_answer, session_stream, session_cancel, send_to_session, suggest_todo, dismiss_todo_hint, jev_key, set_jev_key, test_jev, quick_shortcut, pause_quick_shortcut, perf_mark, page_unfocused, popup_menu, update_status, check_for_updates, restart_to_update])
         .build(tauri::generate_context!())
         .expect("error while running Codealong")
         .run(|app, event| {
@@ -1777,7 +1742,7 @@ mod tests {
         let listed: Vec<&str> = capability["windows"].as_array().unwrap().iter().filter_map(|w| w.as_str()).collect();
         let allowed = |label: &str| listed.iter().any(|w| *w == label || w.strip_suffix('*').is_some_and(|prefix| label.starts_with(prefix)));
         let card = format!("{}1", desktop::PREFIX);
-        for label in ["main", project_window_label("Kestrel").as_str(), bar::LABEL, peek::LABEL, quick::LABEL, card.as_str(), cardpop::LABEL, lineage::LABEL] {
+        for label in ["main", project_window_label("Kestrel").as_str(), bar::LABEL, peek::LABEL, quick::LABEL, card.as_str(), lineage::LABEL] {
             assert!(allowed(label), "{label} isn't in capabilities/default.json");
         }
     }

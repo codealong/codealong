@@ -1,7 +1,6 @@
 // A card pinned to the desktop: a session, worktree or todo, pinned from its right-click menu, in a
 // window of its own that floats over every other as the floating bar does (desktop.rs). It's the
-// Canvas view's card (card/CardFace.tsx), and under a worktree or a todo its sessions; resting on
-// it opens the Canvas card's popover beside it (DesktopPopover.tsx). A click on a session
+// Canvas view's card (card/CardFace.tsx), and under a worktree or a todo its sessions. A click on a session
 // (the card's own, a session line, or a todo's) shows it in the bar's peek beside the card, its
 // conversation and a box to answer it (peek.rs, Peek.tsx); a double-click opens it where it lives.
 // A click on the worktree's PR chip opens the PR on GitHub.
@@ -10,17 +9,19 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { cardPopoverHide, desktopHover, fitDesktop, getDesktopFeed, onDesktopFeed, onPeekShown, openUrl, peekHide, peekOpen, showMain, showQuick, unpinFromDesktop, type PillRect } from '../api';
+import { desktopHover, fitDesktop, getDesktopFeed, onDesktopFeed, onPeekShown, openUrl, peekHide, peekOpen, showMain, showQuick, unpinFromDesktop, type PillRect } from '../api';
 import { boardView, lanesAhead, observe, useAhead } from '../ahead';
-import { CLICK_WAIT_MS } from '../bar';
+import { CLICK_WAIT_MS, plain } from '../bar';
 import { showContextMenu, type MenuSpec } from '../contextMenu';
 import { useEditorIcons } from '../editors';
+import { sessionPlace } from '../harness';
 import * as menus from '../menus';
 import { liveOrLatest, sessionHomes } from '../lanes';
 import type { DesktopFeed, Label, Lane, PeekShown, Pr, Session } from '../types';
 import { CardFace } from './card/CardFace';
 import { SessionLine } from './card/CardPopover';
-import { cardData, type CardData } from './card/data';
+import { cardData, sessionLine, type CardData } from './card/data';
+import { STATUS_WORD } from './primitives';
 import { useTheme } from './ThemeSwitch';
 import { useNow } from './useNow';
 import { errorText, type Report } from '../report';
@@ -39,6 +40,22 @@ function listed(d: CardData | null): { lane: Lane; session: Session }[] {
   if (d?.ref === 'worktree') return d.lane.sessions.filter((s) => !s.visitor && !s.archived && (s.live || s.status !== 'idle' && s.status !== 'stopped')).map((session) => ({ lane: d.lane, session }));
   if (d?.ref === 'todo') return d.sessions;
   return [];
+}
+
+/** What the card's tooltip says: what it leaves out, and what a click does. */
+function tooltip(d: CardData | null, now: number, terminal: string, lines: number): string {
+  switch (d?.ref) {
+    case 'session': {
+      const s = d.session;
+      return [s.title, `${STATUS_WORD[s.status]} · ${d.lane.callsign} · ${s.account}`, plain(sessionLine(s), now), `Click to read and answer it, double-click to open it in ${sessionPlace(s, terminal)}`].filter(Boolean).join('\n');
+    }
+    case 'worktree':
+      return [d.lane.callsign, d.lane.branch && d.lane.branch !== d.lane.callsign ? d.lane.branch : '', plain(d.lane.headline, now), lines ? 'Click a session to read and answer it, double-click to open it' : ''].filter(Boolean).join('\n');
+    case 'todo':
+      return [d.todo.title || 'Untitled', d.sessions.length ? 'Click to read and answer its session, double-click to open it' : 'Double-click to start a session for it'].join('\n');
+    default:
+      return '';
+  }
 }
 
 /** Where an element is in the window, for the peek to open by. */
@@ -208,7 +225,6 @@ export function DesktopPin() {
 
   const onContextMenu = (e: MouseEvent) => {
     e.preventDefault();
-    void cardPopoverHide();
     void showContextMenu(menu(e.target as Element)).catch(fail);
   };
 
@@ -221,7 +237,6 @@ export function DesktopPin() {
     const d = drag.current;
     if (!d || d.moved || !(e.buttons & 1) || Math.abs(e.screenX - d.x) + Math.abs(e.screenY - d.y) < DRAG_AFTER) return;
     d.moved = true;
-    void cardPopoverHide();
     void getCurrentWindow().startDragging();
   };
   /** The session a click shows in the peek, and what it opens by: the session line clicked, else
@@ -274,10 +289,10 @@ export function DesktopPin() {
         role="button"
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
-        // Resting on the card opens its popover beside it (cardpop.rs), and a session's card shows
-        // lines to the cards of the sessions it came from or that came of it (lineage.rs).
-        onPointerEnter={() => void desktopHover(true)}
-        onPointerLeave={() => void desktopHover(false)}
+        title={tooltip(data, now, terminal, sessions.length) || undefined}
+        // A session's card shows lines to the cards of the sessions it came from or that came of it.
+        onPointerEnter={data?.ref === 'session' ? () => void desktopHover(true) : undefined}
+        onPointerLeave={data?.ref === 'session' ? () => void desktopHover(false) : undefined}
         onClick={onClick}
       >
         {waiting ? (

@@ -1,5 +1,5 @@
 // What a card shows, for the Canvas view's cards and the cards pinned to the desktop alike
-// (card/CardFace.tsx draws it, card/CardPopover.tsx its popover): a worktree, session, todo or PR
+// (card/CardFace.tsx draws it, card/CardPopover.tsx the popover a canvas card opens): a worktree, session, todo or PR
 // looked up from the board, and what it's up to in a line.
 
 import { dayKey } from '../../due';

@@ -155,11 +155,10 @@ pub struct Feed {
     pub editor: String,
     pub editor_id: String,
     pub editors: Vec<crate::config::Profile>,
-    /// The worktree's own lane; the session's, and those of the session it came from and the ones
-    /// that came of it, for its popover; the todo's linked worktrees and its sessions'. A worktree
-    /// keeps all its sessions, the others only the ones the card shows.
+    /// The worktree's own lane; the session's; the todo's linked worktrees and its sessions'.
+    /// A worktree keeps all its sessions, the others only the ones the card shows.
     pub lanes: Vec<Lane>,
-    /// The todo, for a todo's card, and the todos it waits on; a session's todos, for its popover.
+    /// The todo, for a todo's card.
     pub todos: Vec<Todo>,
     /// The todo's labels.
     pub labels: Vec<Label>,
@@ -167,23 +166,10 @@ pub struct Feed {
 
 /// The lane a session is listed under as its own, cut down to that session.
 fn session_lane(board: &Board, key: &str) -> Option<Lane> {
-    session_lanes(board, &[key]).into_iter().next()
-}
-
-/// The lanes these sessions are listed under as their own, each cut down to those of them it
-/// holds, in the order of the first session each holds.
-fn session_lanes(board: &Board, keys: &[&str]) -> Vec<Lane> {
-    let mut out: Vec<Lane> = Vec::new();
-    for key in keys {
-        let Some(lane) = board.lanes.iter().find(|l| l.sessions.iter().any(|s| s.key == *key && s.visitor.is_none())) else { continue };
-        if out.iter().any(|l| l.id == lane.id) {
-            continue;
-        }
-        let mut lane = lane.clone();
-        lane.sessions.retain(|s| s.visitor.is_none() && keys.contains(&s.key.as_str()));
-        out.push(lane);
-    }
-    out
+    let lane = board.lanes.iter().find(|l| l.sessions.iter().any(|s| s.key == key && s.visitor.is_none()))?;
+    let mut lane = lane.clone();
+    lane.sessions.retain(|s| s.key == key && s.visitor.is_none());
+    Some(lane)
 }
 
 /// What a card shows, cut from the board.
@@ -194,13 +180,7 @@ pub fn feed(board: &Board, pin: &Pinned, last_title: Option<&str>) -> Feed {
     let title = match pin.kind {
         Kind::Session => session_lane(board, &pin.key).map(|l| {
             let title = l.sessions[0].title.clone();
-            // Its popover lists the session it came from and the ones that came of it, and its todos.
-            let origin = l.sessions[0].origin.as_ref().map(|o| o.key.clone());
-            let mut keys: Vec<&str> = vec![pin.key.as_str()];
-            keys.extend(origin.as_deref());
-            keys.extend(board.lanes.iter().flat_map(|x| &x.sessions).filter(|s| s.visitor.is_none() && s.origin.as_ref().is_some_and(|o| o.key == pin.key)).map(|s| s.key.as_str()));
-            lanes.extend(session_lanes(board, &keys));
-            todos.extend(board.todos.iter().filter(|t| t.sessions.contains(&pin.key)).cloned());
+            lanes.push(l);
             title
         }),
         Kind::Worktree => board.lanes.iter().find(|l| l.id == pin.key).map(|l| {
@@ -219,8 +199,6 @@ pub fn feed(board: &Board, pin: &Pinned, last_title: Option<&str>) -> Feed {
             }
             labels = board.labels.iter().filter(|l| t.labels.contains(&l.id)).cloned().collect();
             todos.push(t.clone());
-            // Its popover says what it waits on.
-            todos.extend(board.todos.iter().filter(|d| t.depends_on.contains(&d.id)).cloned());
             t.title.clone()
         }),
     };
@@ -270,9 +248,6 @@ pub fn new_frame(w: f64, h: f64, screen: Rect, others: &[Rect]) -> Rect {
 pub fn setup(app: &AppHandle) -> Result<()> {
     app.manage(Desktop::default());
     let saved = Saved::load();
-    if !saved.pins.is_empty() {
-        crate::cardpop::ensure(app);
-    }
     for pin in saved.pins {
         let label = add(app, pin);
         if let Err(e) = make_window(app, &label) {
@@ -396,7 +371,6 @@ pub fn pin(app: &AppHandle, what: Pinned, at: Option<Rect>) -> Result<String> {
         }
         return Err(e);
     }
-    crate::cardpop::ensure(app);
     tell(app);
     Ok(label)
 }
@@ -790,22 +764,6 @@ mod tests {
         // Listed under /a as a visitor, its own lane is /b.
         assert_eq!(f.lanes[0].id, "/b");
         assert_eq!(keys(&f.lanes[0]), ["s3"]);
-        // It comes with its todos, for its popover.
-        assert_eq!(f.todos.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(), ["t1"]);
-    }
-
-    #[test]
-    fn a_session_comes_with_the_session_it_came_from_and_the_ones_that_came_of_it() {
-        let mut b = board();
-        let from = |key: &str, how: crate::model::OriginHow| Some(crate::model::SessionOrigin { key: key.into(), how });
-        // s2 came of s1, and s3 (under /b; a visitor in /a) came of s2.
-        b.lanes[0].sessions[1].origin = from("s1", crate::model::OriginHow::Fork);
-        b.lanes[1].sessions[0].origin = from("s2", crate::model::OriginHow::Started);
-        let f = feed(&b, &Pinned { kind: Kind::Session, key: "s2".into() }, None);
-        let lanes: Vec<(&str, Vec<&str>)> = f.lanes.iter().map(|l| (l.id.as_str(), keys(l))).collect();
-        // Its own lane first, cut down to it and its kin there.
-        assert_eq!(lanes, [("/a", vec!["s1", "s2"]), ("/b", vec!["s3"])]);
-        assert_eq!(f.title.as_deref(), Some("Title s2"));
     }
 
     #[test]

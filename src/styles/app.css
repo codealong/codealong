@@ -3247,35 +3247,6 @@ html.is-desktop,
 html.is-desktop body {
   background: transparent;
 }
-/* A desktop card's popover (DesktopPopover.tsx): the canvas's, in a window of its own beside the
-   card, with room for its shadow except on the side toward the card (cardpop.rs's MARGIN and
-   NEAR), whose clicks the window's clear parts would take. */
-html.is-cardpop,
-html.is-cardpop body {
-  background: transparent;
-  overflow: hidden;
-}
-.ca-deskpop {
-  box-sizing: border-box;
-  display: grid;
-  width: 100%;
-  padding: 16px;
-}
-.ca-deskpop.is-right {
-  padding-left: 6px;
-}
-.ca-deskpop.is-left {
-  padding-right: 6px;
-}
-.ca-deskpop .ca-cv-popover {
-  position: relative;
-  overflow: hidden;
-}
-.ca-deskpop-note {
-  color: var(--alert);
-  font: 400 12px/16px var(--font-sans);
-  overflow-wrap: anywhere;
-}
 /* Lines between cards whose sessions came one of the other (DesktopLines.tsx), in a clear window
    under the cards that lets clicks through. */
 html.is-lineage,
@@ -4584,7 +4555,7 @@ html.is-quick body {
   font: 500 11px/14px var(--font-sans);
   white-space: nowrap;
 }
-/* The panel answering a session (⇥ on its row, ReplyView.tsx): the conversation scrolls between
+/* The panel answering a session (⇥ on its row, SessionPanel.tsx as a card): the conversation scrolls between
    its head and the box. */
 .ca-quick.is-reply {
   overflow: hidden;
@@ -5505,9 +5476,8 @@ html.is-quick body {
   background: color-mix(in srgb, var(--label-gray) 6%, transparent);
 }
 
-/* The popover a card opens on hover, on the canvas and beside a card on the desktop
-   (card/CardPopover.tsx). The pointer can move onto it: its text selects, and its PR chips and
-   session lines take clicks. */
+/* The popover a card on the canvas opens on hover (card/CardPopover.tsx). The pointer can move
+   onto it: its text selects, and its PR chips and session lines take clicks. */
 .ca-cv-popover {
   position: absolute;
   z-index: 5;
@@ -5899,6 +5869,14 @@ html.is-quick body {
 .ca-sessinsp-lane:hover span {
   color: var(--ink);
   text-decoration: underline;
+}
+/* Where the window can't show the worktree, its name is only said. */
+.ca-sessinsp-lane.is-plain {
+  cursor: default;
+}
+.ca-sessinsp-lane.is-plain:hover span {
+  color: inherit;
+  text-decoration: none;
 }
 .ca-sessinsp-lane:focus-visible {
   outline: none;
@@ -6672,63 +6650,34 @@ html.is-quick body {
   overflow-wrap: anywhere;
 }
 
-/* A session to answer at a glance (ReplyView.tsx): the floating bar's peek and the quick panel's
-   reply view. Its head stays put; the conversation scrolls between it and the box. */
+/* A session as a card of its own (SessionPanel.tsx): the floating bar's peek and the quick panel's
+   reply view. Its header, the one its panel has in the main window, stays put; the conversation
+   scrolls between it and the box. */
 .ca-reply {
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
   min-height: 0;
 }
-.ca-reply-head {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--line);
+.ca-reply .ca-sessinsp-head {
+  padding: 10px 12px 8px;
 }
-.ca-reply-head > .ca-glyph {
-  flex: none;
-}
-.ca-reply-who {
-  display: grid;
-  flex: 1;
-  gap: 1px;
+/* Its name ready to change (Rename in a menu): the title's type in a field that takes the title's
+   place, its text where the title's was. A border without the focus ring, which would cover the
+   line under it. */
+.ca-sessinsp-name {
+  flex: 1 1 120px;
   min-width: 0;
-}
-.ca-reply-title,
-.ca-reply-meta {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.ca-reply-title {
-  color: var(--ink);
-  font: 600 13px/18px var(--font-sans);
-}
-.ca-reply-meta {
-  color: var(--ink-3);
-  font: 400 11px/14px var(--font-sans);
-}
-/* Its name ready to change (Rename in a menu): the title's type in a field that keeps the
-   header's height, its text where the title's was. A border without the focus ring, which
-   would cover the line under it. */
-.ca-reply-name {
-  min-width: 0;
-  height: 22px;
-  margin: -3px -5px -1px;
+  height: 24px;
+  margin: -2px -5px;
   padding: 0 4px;
   box-sizing: border-box;
   border: 1px solid var(--focus);
   border-radius: var(--radius-sm);
   background: var(--surface);
   color: var(--ink);
-  font: 600 13px/18px var(--font-sans);
+  font: 600 15px/20px var(--font-sans);
   outline: none;
-}
-.ca-reply-head .ca-btn {
-  flex: none;
 }
 /* Working through what waits on you: how the last one went, and what's left. */
 .ca-reply-queue {

@@ -82,7 +82,7 @@
   };
 
   var quick = function () { return !!document.querySelector('.ca-quick'); };
-  var title = function () { var t = document.querySelector('.ca-sessinsp-title, .ca-reply-title'); return t ? t.textContent : null; };
+  var title = function () { var t = document.querySelector('.ca-sessinsp-title'); return t ? t.textContent : null; };
   var box = function () { return document.querySelector('.ca-sessinsp .ca-composer textarea, .ca-reply .ca-composer textarea'); };
   var thread = function () { return document.querySelector('.ca-sessinsp .ca-thread, .ca-reply .ca-thread'); };
   var row = function () { return document.getElementById('row-' + picked.lane + '::' + picked.key); };

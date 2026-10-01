@@ -8,6 +8,7 @@
 // the cards at their sides: the sides that face each other when there's room between them, else
 // both on one side, bowing out past the cards.
 
+import type { Placed } from './lanes';
 import type { Session, SessionOrigin } from './types';
 
 export interface Pt {
@@ -88,6 +89,24 @@ export function pathOf(c: Curve): string {
 /** How a session came of another, as a phrase before that one's title. */
 export function originWord(how: SessionOrigin['how']): string {
   return how === 'fork' ? 'Forked from' : 'Started by';
+}
+
+/** A session on the board and how it came of another, or that one of it. */
+export type Kin = Placed & { how: SessionOrigin['how'] };
+
+/** Where a session came from and what came of it, as far as the board has them. */
+export interface Lineage {
+  from: Kin | null;
+  to: Kin[];
+}
+
+/** A session's lineage, looked up among the board's sessions where they live (`sessionHomes`). */
+export function lineageOf(session: Session, homes: Map<string, Placed>): Lineage {
+  const from = session.origin ? homes.get(session.origin.key) : undefined;
+  return {
+    from: from && session.origin ? { ...from, how: session.origin.how } : null,
+    to: cameOf(session.key, homes.values()).map((p) => ({ ...p, how: p.session.origin?.how ?? 'started' })),
+  };
 }
 
 /** The sessions that came of `key`, among `sessions`: forks of it and ones its agent started. */
