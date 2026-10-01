@@ -10,14 +10,14 @@
 // "+N more" beside it lists the rest. A click shows one, a right-click gives its menu.
 //
 // A window says what it can do by what it passes: the main window can expand the panel, the peek
-// can keep the session on the desktop and a session kept there can be closed, the quick panel,
-// where sessions are got through in turn, can show the session in Codealong and snooze or archive
-// it from a button, and Rename in a menu shows the name as a field. The rest of what can be done
-// to it is in its ⋯ menu, so the row of buttons stays short. What a window doesn't know (the PRs,
-// the todos, the sessions around it) it leaves out, and that line isn't there.
+// can keep the session on the desktop and a session kept there can be closed, and Rename in a
+// menu shows the name as a field. The rest of what can be done to it (snoozing, archiving,
+// pinning, showing it in Codealong) is in its ⋯ menu and its right-click menu, so the row of
+// buttons stays short and is the same in every window. What a window doesn't know (the PRs, the
+// todos, the sessions around it) it leaves out, and that line isn't there.
 
 import { useMemo, useRef, useState } from 'react';
-import { below, showContextMenu } from '../contextMenu';
+import { below } from '../contextMenu';
 import { folderTargets, opensInEditor, useEditorIcons } from '../editors';
 import { absolute, ago, agoPhrase, duration, middleTruncate, tildePath } from '../format';
 import { HARNESS_WORD, sessionName, sessionPlace } from '../harness';
@@ -69,11 +69,6 @@ export interface SessionHeaderProps {
   /** The session's actions (menus.ts), as its menu has them: the check marks it seen with them
    *  where the window doesn't say how. */
   actions?: SessionActions;
-  /** The session is one of several to get through (the quick panel's reply view): Snooze and
-   *  Archive among its actions show as buttons too. */
-  triage?: boolean;
-  /** Shows the session in Codealong's main window, from the quick panel. */
-  onReveal?: () => void;
   /** Keeps the session on the desktop, from the bar's peek (kept.rs). */
   onKeep?: () => void;
   /** Takes a session kept on the desktop off it. */
@@ -165,7 +160,7 @@ function KinRow({ kin, now, parent = false, onShow, onMenu }: { kin: Kin; now: n
   );
 }
 
-export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane, prs = [], onOpenPr, onPrMenu, todos, onShowTodo, lineage, onShowSession, onSessionMenu, onMenu, onSeen, actions, triage, onReveal, onKeep, onClose, renaming, onRename, device, back, next, maximized, onMaximize, compact }: SessionHeaderProps) {
+export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane, prs = [], onOpenPr, onPrMenu, todos, onShowTodo, lineage, onShowSession, onSessionMenu, onMenu, onSeen, actions, onKeep, onClose, renaming, onRename, device, back, next, maximized, onMaximize, compact }: SessionHeaderProps) {
   const [details, setDetails] = useState(false);
   const [allPrs, setAllPrs] = useState(false);
   const [allTodos, setAllTodos] = useState(false);
@@ -219,29 +214,8 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
               Open in {sessionPlace(s, apps.terminal)}
             </Button>
           )}
-          {seen && <Button variant="ghost" size="sm" icon="check" aria-label="Mark as seen" title={next ? 'Mark as seen and go on to the next (⌘E)' : 'Mark as seen: it goes idle and leaves the bar'} className="ca-sessinsp-seen" onClick={seen} />}
+          {seen && <Button variant="ghost" size="sm" icon="check" aria-label="Mark as seen" title={next ? 'Mark as seen and go on to the next (⌘E)' : 'Mark as seen: it goes idle and leaves the bar (⌘E)'} className="ca-sessinsp-seen" onClick={seen} />}
           {onKeep && <Button variant="ghost" size="sm" icon="pin" aria-label="Keep on the desktop" title="Keep on the desktop: it stays up, here, until you close it. Dragging its edge to make it bigger keeps it too." onClick={onKeep} />}
-          {triage && actions?.snooze && (
-            <Button
-              variant="ghost"
-              size="sm"
-              icon="zzz"
-              aria-label={s.snoozedUntil ? 'Snoozed' : 'Snooze'}
-              aria-haspopup="menu"
-              title={s.snoozedUntil ? `Snoozed until ${untilWords(s.snoozedUntil, now)}: snooze it longer, or wake it now` : 'Snooze: off the bar until the time you pick, then back'}
-              onClick={(e) => actions.snooze && void showContextMenu(actions.snooze.items, below(e.currentTarget))}
-            />
-          )}
-          {triage && actions && !s.archived && (
-            <Button
-              variant="ghost"
-              size="sm"
-              icon="archive"
-              aria-label="Archive"
-              title={s.harness === 'codex' ? 'Archive: it leaves the list and the board, and Codex archives the thread' : 'Archive: it leaves the list and the board until you unarchive it'}
-              onClick={actions.archive.run}
-            />
-          )}
           {onMaximize && (
             <Button
               variant="ghost"
@@ -255,8 +229,7 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
             />
           )}
           {!compact && <Button variant="ghost" size="sm" icon="info-circle" aria-label="Details" aria-expanded={details} title={details ? 'Hide the details' : 'Details: its account, ID, folder and times'} className={details ? 'ca-sessinsp-detailsbtn is-on' : 'ca-sessinsp-detailsbtn'} onClick={() => setDetails(!details)} />}
-          {onReveal && <Button variant="ghost" size="sm" icon="sidebar" aria-label="Show in Codealong" title="Show in Codealong" onClick={onReveal} />}
-          {onMenu && <Button variant="ghost" size="sm" icon="dots" aria-label="More" aria-haspopup="menu" title="Snooze, fork, pin, archive, copy and more" onClick={(e) => onMenu(below(e.currentTarget))} />}
+          {onMenu && <Button variant="ghost" size="sm" icon="dots" aria-label="More" aria-haspopup="menu" title="Snooze, archive, pin, rename, fork, copy and more" onClick={(e) => onMenu(below(e.currentTarget))} />}
           {onClose && <Button variant="ghost" size="sm" icon="x" aria-label="Close" title="Close: it leaves the desktop (⌘W)" onClick={onClose} />}
         </div>
       </div>

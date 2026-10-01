@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { MenuSpec } from './contextMenu';
-import { keyed, laneActions, laneMenu, prMenu, sessionActions, sessionMenu, todoMenu, type SessionCan } from './menus';
+import { chorded, keyed, laneActions, laneMenu, prMenu, sessionActions, sessionMenu, todoMenu, type SessionCan } from './menus';
 import { openLabel } from './open';
 import type { Report } from './report';
 import type { Lane, Session } from './types';
@@ -198,5 +198,23 @@ describe('actions by name', () => {
     expect(keyed(acts, 'x')).toBeNull();
     // A key for an action that doesn't apply does nothing.
     expect(keyed(sessionActions(lane(), session(), base), 'r')).toBeNull();
+  });
+
+  it('runs the same actions for their chords, where a box takes the letters', () => {
+    const can: SessionCan = { ...base, keys: 'chords', rename: noop, pin: { label: 'Pin session', run: noop } };
+    const acts = sessionActions(lane(), session(), can);
+    const press = (key: string, mods: { ctrl?: boolean; alt?: boolean; shift?: boolean; cmd?: boolean } = {}) => chorded(acts, { key, metaKey: mods.cmd ?? true, ctrlKey: !!mods.ctrl, altKey: !!mods.alt, shiftKey: !!mods.shift });
+    expect(press('e')).toBe(acts.seen);
+    expect(press('a', { ctrl: true })).toBe(acts.archive);
+    expect(press('r', { ctrl: true })).toBe(acts.rename);
+    expect(press('p', { ctrl: true })).toBe(acts.pin);
+    // The letter alone is typed, ⌘A selects all, and other chords are someone else's.
+    expect(press('a', { cmd: false })).toBeNull();
+    expect(press('a')).toBeNull();
+    expect(press('e', { ctrl: true })).toBeNull();
+    expect(press('e', { shift: true })).toBeNull();
+    expect(press('k', { ctrl: true })).toBeNull();
+    // A chord for an action that doesn't apply does nothing.
+    expect(chorded(sessionActions(lane(), session(), base), { key: 'r', metaKey: true, ctrlKey: true, altKey: false, shiftKey: false })).toBeNull();
   });
 });

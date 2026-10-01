@@ -319,7 +319,11 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   shows a todo or PR in Codealong, ⌘1 to ⌘9 do a row, Escape closes. ⇥ on a
   session answers it in the panel: its conversation, and a box that sends it a message where it
   runs (⏎ sends and closes the panel), or what it waits on you to allow, with Allow and Deny
-  (⌘⏎ allows); Escape goes back to the list. Answered from the list with nothing typed, the
+  (⌘⏎ allows); Escape goes back to the list. It's the card the bar's peek shows: the same
+  header (the ways to open the session, the check, ⋯), the session's whole menu on ⋯ and on a
+  right-click (snooze, archive, pin, rename, show in Codealong and the rest), and the Sessions
+  list's shortcuts for it: ⌘E marks it seen, ⌃⌘A archives it, ⌃⌘R renames it, ⌃⌘P pins it in
+  Sessions. Answered from the list with nothing typed, the
   panel works through what waits on you: once a session is sent a message, allowed, marked
   seen, snoozed or archived, the next one that waits on you takes its place, and a line at the
   top says how the last one went and how many are left. ⌘] skips to the next (a skipped one
@@ -445,8 +449,10 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   and closes once the pointer leaves it; pills that shift under a still pointer as sessions
   change groups don't move it. Once you've clicked in it, it stays on its session whatever the
   bar does, until you send, press Escape or click somewhere else. Its header has the ways to
-  open the session, the check that marks it seen, the pin and ⋯; snoozing, archiving and showing
-  it in Codealong are in the ⋯ menu. The pin **keeps the session on the desktop**: it gets a
+  open the session, the check that marks it seen, the pin and ⋯; snoozing, archiving, pinning,
+  renaming and showing it in Codealong are in the ⋯ menu and the right-click menu, and the
+  Sessions list's shortcuts work on it once it has the keyboard (⌘E seen, ⌃⌘A archive, ⌃⌘R
+  rename, ⌃⌘P pin in Sessions). The pin **keeps the session on the desktop**: it gets a
   window of its own where the peek is, which stays up whatever you do, floating over every
   window as the cards pinned to the desktop do. Dragging the peek's right edge, its far edge or
   the corner between them to make it bigger keeps it too, at that size, when you let go. A kept
@@ -764,7 +770,8 @@ light scan (no git, PRs or visitors).
 | `src-tauri/src/quick.rs`, `src/quick.ts`, `src/ui/Quick.tsx` | The quick panel: its window (a panel that takes the keyboard over any app), its shortcut, and its page (what needs you, finding sessions, starting one) |
 | `src-tauri/src/harness.rs` | The interface each harness implements: an `Adapter` for a session (its record and conversation, what it waits on you to allow, opening, sending, starting, searching, renaming with `src/ui/RenameDialog.tsx`) and for an account, and a `Reader` that reads its sessions for the board; CLAUDE.md's "Adding a harness" lists it all |
 | `src-tauri/src/transcript.rs`, `src/ui/SessionPanel.tsx`, `src/ui/SessionHeader.tsx`, `src/sessionContext.ts`, `src/ui/SessionThread.tsx`, `src/ui/SessionReply.tsx` | A session's conversation, read a page at a time from its own record, the panel that shows it, and the box that sends it messages or answers what it waits on |
-| `src-tauri/src/peek.rs`, `src/ui/Peek.tsx` | The floating bar's peek: its window (a panel under the bar that takes the keyboard only on a click), where it opens for a pill and when it closes. What it shows is the session's panel as a card (`ui/SessionPanel.tsx`), as the quick panel's ⇥ does |
+| `src-tauri/src/peek.rs`, `src/ui/Peek.tsx` | The floating bar's peek: its window (a panel under the bar that takes the keyboard only on a click), where it opens for a pill and when it closes. What it shows is the session's card (`ui/SessionCard.tsx`), as the quick panel's ⇥ does |
+| `src/ui/SessionCard.tsx` | A session as a card of its own, for the peek, a session kept on the desktop and the quick panel's reply view: the session's panel with its menus, what's around it and its shortcuts wired once |
 | `src-tauri/src/kept.rs` | Sessions kept on the desktop from the peek: a window each, made as the peek's is, `kept.json`, sizing and closing. `Peek.tsx` draws them too |
 | `src-tauri/src/search.rs` | Searching what was said in sessions: an in-memory index of prompts and replies, read once per file and then from where it stopped |
 | `src-tauri/src/route.rs`, `src-tauri/src/starts.rs`, `src/route.ts` | Suggestions in the quick panel: the request to Jev and reading its answer back, the key in the keychain, how your past starts weigh a new worktree, and which suggestions the panel shows |

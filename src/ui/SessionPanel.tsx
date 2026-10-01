@@ -3,8 +3,9 @@
 // bottom a box that sends it a message where it runs, or what it waits on you to allow
 // (SessionReply.tsx). The main window shows it as a panel, on the canvas and in Sessions; the
 // floating bar's peek, a session kept on the desktop and the quick panel's reply view show it as a
-// card of their own, for the pill under the pointer, the session kept and the one picked there,
-// and a right-click anywhere on the card but the box gives the session's menu.
+// card of their own (SessionCard.tsx, which wires it the same for all three), for the pill under
+// the pointer, the session kept and the one picked there, and a right-click anywhere on the card
+// but the box gives the session's menu.
 //
 // Answered in turn, it works through what waits on you: ⌘⏎ in the box sends (or allows the call
 // the session waits on) and goes on to the next, the check (⌘E) marks a finished turn seen and
@@ -30,7 +31,7 @@ export interface Queue {
 /** How the one before went: sent, or why it didn't go. */
 export type Notice = { text: string; error: boolean };
 
-interface SessionPanelProps extends Omit<SessionHeaderProps, 'next' | 'compact'> {
+export interface SessionPanelProps extends Omit<SessionHeaderProps, 'next' | 'compact'> {
   /** A panel in the main window, or a card of its own (the bar's peek, the quick panel's reply
    *  view), where a right-click anywhere but the box gives the session's menu. */
   variant?: 'panel' | 'card';

@@ -311,6 +311,16 @@ export function keyed(actions: SessionActions | LaneActions, key: string): { id:
   return id && it && !('items' in it) ? { id, action: it } : null;
 }
 
+/** The action a chord runs among a session's (`CHORDS`), when it applies to the session now:
+ *  for the windows that show one session with a box to answer it, where letters are typed. */
+export function chorded(actions: SessionActions, e: Pick<KeyboardEvent, 'key' | 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey'>): MenuAction | null {
+  if (!e.metaKey || e.altKey || e.shiftKey) return null;
+  const chord = `${e.ctrlKey ? 'Ctrl+' : ''}Cmd+${e.key.toUpperCase()}`;
+  const id = Object.keys(CHORDS).find((name) => CHORDS[name as keyof typeof CHORDS] === chord);
+  const it = id ? (actions as unknown as Record<string, Item | undefined>)[id] : undefined;
+  return it && !('items' in it) ? it : null;
+}
+
 type Item = MenuAction | MenuGroup;
 
 /** A menu from a layout: each group's actions that are there (or the window's extras in their

@@ -80,7 +80,8 @@
     })
     .then(function () {
       check('⌘] skips to the next', title() === 'Queue B', title());
-      button('Archive').click();
+      check('the header leaves archiving to its menu and its shortcut', !button('Archive') && !button('Snooze') && !!button('More'));
+      key(window, { key: 'a', code: 'KeyA', metaKey: true, ctrlKey: true });
       return on('Queue C');
     })
     .then(function () {

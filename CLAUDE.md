@@ -282,7 +282,12 @@ some work is, answer with one.
   window and as a card in the bar's peek and the quick panel's reply view. A window says what it
   can do by the props it passes; a change to the header goes in `SessionHeader.tsx` and shows in
   all three. `sessionContext.ts` looks up what the header says around a session (its PRs, todos
-  and lineage) for the windows without the main window's indexes.
+  and lineage) for the windows without the main window's indexes. The windows that show one
+  session as a card (the peek, a session kept on the desktop, the quick panel's reply view) all
+  go through `ui/SessionCard.tsx`, which builds the session's menu, the menus of what its header
+  names and its shortcuts once; a window passes only what differs (how it reports and opens,
+  what it does once the session has left). What a card can do to its session goes there, not
+  into `Peek.tsx` or `Quick.tsx`.
 - A side conversation (side.rs) is a harness's throwaway copy of a session, described by its
   adapter (`Adapter::side`: the process, and a `Dialect` that turns its lines into what was
   said, the tool it runs and the end of a turn, and questions into lines). The dialects are

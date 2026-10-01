@@ -51,7 +51,6 @@ import { useKeyPerf, usePerf } from '../perf';
 import { showContextMenu, type MenuSpec } from '../contextMenu';
 import { useEditorIcons } from '../editors';
 import * as menus from '../menus';
-import { sessionContext } from '../sessionContext';
 import { prRefOf } from '../prLinks';
 import { ago, agoPhrase, resetsPhrase, tildePath } from '../format';
 import { HARNESS_WORD, usageNote } from '../harness';
@@ -88,7 +87,7 @@ import type { Attachment, Board, DesktopPinned, DevicesView, Lane, Meter, PrItem
 import { AttachmentStrip } from './DescriptionEditor';
 import { sessionWhy } from './PanelSession';
 import { Picker, type PickerOption, type PickerSection } from './Picker';
-import { SessionPanel } from './SessionPanel';
+import { SessionCard } from './SessionCard';
 import { Icon, Kbd, Mark, STATUS_WORD, StatusGlyph } from './primitives';
 import { projectForDigit, projectKey } from './ProjectSwitcher';
 import { usePrLinks } from './PrLink';
@@ -544,8 +543,6 @@ export function Quick() {
     }
     return null;
   }, [board, replyKey]);
-  // What its header says around it: its PRs, its todos, the sessions it came from and that came of it.
-  const replyContext = useMemo(() => (replying ? sessionContext(board, replying.lane, replying.session) : null), [board, replying]);
   // What it works through, and what's left after the one showing. Snoozed ones wait their time.
   const queue = useMemo(() => (board && queued ? queueRows(board, current).filter((r) => !r.session.snoozedUntil) : []), [board, queued, current]);
   const queueLeft = replying && queued ? queueAfter(queue, replying.session.key, handled.current) : [];
@@ -1262,7 +1259,8 @@ export function Quick() {
         return;
       }
       // Answering a session, only ⌘Q, ⌘H and ⌘] mean something here: the list's keys are for the
-      // list. ] goes by its key's code, which layouts that type it with ⌥ keep.
+      // list, and the session's own (⌘E, ⌃⌘A, ⌃⌘R, ⌃⌘P) are its card's (SessionCard.tsx). ] goes
+      // by its key's code, which layouts that type it with ⌥ keep.
       if (replying) {
         const k = e.key.toLowerCase();
         if (e.metaKey && !e.ctrlKey && !e.altKey && (k === 'q' || k === 'h')) {
@@ -1604,42 +1602,35 @@ export function Quick() {
       {drag.ghost}
       {replying && (
         <div ref={card} className="ca-quick is-reply" role="dialog" aria-label={`Answer ${replying.session.title}`} style={{ maxHeight: Math.min(REPLY_HEIGHT, room ? room - 2 * MARGIN : REPLY_HEIGHT) }}>
-          <SessionPanel
-            key={replying.session.key}
-            variant="card"
+          <SessionCard
             lane={replying.lane}
             session={replying.session}
             apps={board?.apps ?? { terminal: 'Terminal', terminalId: '', editor: 'Editor', editorId: '' }}
             now={now}
-            autoFocus
-            keys
-            back={{ label: 'Back', title: 'Back to the list (Esc)', onBack: leaveReply }}
-            onOpen={(target) => openHere(replying.lane, target)}
-            onReveal={() => revealSession(replying.lane, replying.session)}
-            actions={replyCan ? menus.sessionActions(replying.lane, replying.session, replyCan) : undefined}
-            triage
-            renaming={renameKey === replying.session.key}
-            onRename={(name) => renamed(replying.session, name)}
-            onMenu={(at) => replyCan && void showContextMenu(menus.sessionMenu(replying.lane, replying.session, replyCan), at).catch((e: unknown) => setNotice({ text: errorText(e), error: true }))}
+            board={board}
+            can={replyCan ?? quickCan(replying.lane, replying.session)}
+            canFor={quickCan}
+            // A session it came from, or that came of it, is answered here in its place.
+            onShowSession={(_l, x) => replyTo(x)}
             onShowLane={(l) => {
               void hideQuick();
               void showMain({ kind: 'worktree', laneId: l.id });
             }}
-            prs={replyContext?.prs}
-            onOpenPr={(pr) => openLink(pr.url)}
-            onPrMenu={(pr) => {
-              const item = board?.prs.find((p) => p.url === pr.url);
-              void showContextMenu(item ? prMenuSpec(item) : menus.prMenu(pr, { report: menuReport, open: () => openLink(pr.url) })).catch((e: unknown) => setNotice({ text: errorText(e), error: true }));
-            }}
-            todos={replyContext?.todos}
             onShowTodo={(t) => {
               void hideQuick();
               void showMain({ kind: 'todo', id: t.id });
             }}
-            lineage={replyContext?.lineage}
-            // A session it came from, or that came of it, is answered here in its place.
-            onShowSession={(_l, x) => replyTo(x)}
-            onSessionMenu={(l, x) => void showContextMenu(sessionMenuSpec(l, x)).catch((e: unknown) => setNotice({ text: errorText(e), error: true }))}
+            onShowPr={revealPr}
+            openLink={openLink}
+            prCan={(pr) => {
+              const on = prSession(pr);
+              return { session: on ? { ...on, open: () => openSession(on.lane, on.session) } : undefined };
+            }}
+            autoFocus
+            keys
+            back={{ label: 'Back', title: 'Back to the list (Esc)', onBack: leaveReply }}
+            renaming={renameKey === replying.session.key}
+            onRename={(name) => renamed(replying.session, name)}
             queue={queued ? { left: queueLeft.length, next: queueLeft[0]?.session ?? null, onNext: skip } : undefined}
             notice={notice}
             onSending={() => (queued ? advance(replying.session, 'sent.') : replied(null))}

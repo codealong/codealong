@@ -1,14 +1,15 @@
 // The floating bar's peek (peek.rs has its window): the session whose pill is under the pointer,
 // with the header its panel has in the main window, its conversation, and the box that answers it
-// (SessionPanel.tsx, as a card). A click in it gives it the
+// (SessionCard.tsx, which the quick panel's reply view shows too). A click in it gives it the
 // keyboard; ⏎ sends and the peek closes at once, so the app you were in has the keyboard back (a
 // message that doesn't go says so on the bar, and is back in the box). Once an answer went
 // through it closes too, but stays while the box holds something for you to send next. Escape
 // closes it too, and what you'd typed stays with the session (drafts.ts), here and in its panels,
-// until you send it. Its header's ✓ marks a finished turn seen, its snooze button snoozes the
-// session, and its archive button archives it, any of which takes it off the bar; its ⋯ button,
-// or a right-click, has the session's menu (menus.ts). Rename in that menu, or in a pill's, shows
-// the session's name ready to change; ⏎ renames it and the peek closes. While it's up, the
+// until you send it. Its header's ✓ marks a finished turn seen; its ⋯ button, or a right-click,
+// has the session's menu (menus.ts), where snoozing and archiving it are, either of which takes it
+// off the bar, as marking it seen does. The Sessions list's shortcuts work on it too (⌘E, ⌃⌘A,
+// ⌃⌘R, ⌃⌘P). Rename in that menu, or in a pill's, shows the session's name ready to change; ⏎
+// renames it and the peek closes. While it's up, the
 // session follows the board, and the peek stays on it as its pill moves along the bar.
 //
 // The pin in its header keeps the session on the desktop, and so does dragging the peek's right
@@ -19,7 +20,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { barNote, getBoard, inPreview, keepSession, keptClose, keptFocus, keptReady, keptResize, keptSession, onBoard, onKeptKeys, onPeekHidden, onPeekOpen, onPeekShown, openUrl, peekFit, peekFocus, peekHide, peekOpen, peekReady, peekResize, showMain } from '../api';
+import { barNote, getBoard, inPreview, keepSession, keptClose, keptFocus, keptReady, keptResize, keptSession, onBoard, onKeptKeys, onPeekHidden, onPeekOpen, onPeekShown, peekFit, peekFocus, peekHide, peekOpen, peekReady, peekResize, showMain } from '../api';
 import { boardView, lanesAhead, observe, renameAhead, useAhead } from '../ahead';
 import { showContextMenu } from '../contextMenu';
 import { readDraft } from '../drafts';
@@ -27,13 +28,12 @@ import { homeOf } from '../lanes';
 import { useEditorIcons } from '../editors';
 import * as menus from '../menus';
 import { attentionRows, ALL_PROJECTS } from '../quick';
-import { sessionContext } from '../sessionContext';
-import type { Board, Lane, PeekOpen, Pr, PrItem, Session, Theme, Todo } from '../types';
+import type { Board, Lane, PeekOpen, PrItem, Session, Theme, Todo } from '../types';
 import { prRefOf } from '../prLinks';
 import { reuse } from '../reuse';
 import { useKeyPerf } from '../perf';
 import { usePrLinks } from './PrLink';
-import { SessionPanel } from './SessionPanel';
+import { SessionCard, type CardBoard, type WindowCan } from './SessionCard';
 import { useTheme } from './ThemeSwitch';
 import { useNow } from './useNow';
 import { errorText, type Report } from '../report';
@@ -165,8 +165,8 @@ export function Peek({ kept = false }: { kept?: boolean }) {
   // its todos, the sessions it came from and that came of it) and for PR links in the conversation
   // (PrLink.tsx): asked for as the peek shows, then from the pushes that come while it's up. The
   // last ones stay for the next time it shows.
-  const [prBoard, setPrBoard] = useState<Pick<Board, 'prs' | 'lanes' | 'todos'> | null>(null);
-  const takeBoard = useCallback((b: Board) => setPrBoard((prev) => reuse(prev, { prs: b.prs, lanes: b.lanes, todos: b.todos })), []);
+  const [prBoard, setPrBoard] = useState<CardBoard | null>(null);
+  const takeBoard = useCallback((b: Board) => setPrBoard((prev) => reuse(prev, { prs: b.prs, lanes: b.lanes, todos: b.todos, pinned: b.pinned })), []);
 
   const key = open?.session.key ?? null;
   useEffect(() => {
@@ -191,8 +191,6 @@ export function Peek({ kept = false }: { kept?: boolean }) {
   // For the session's menu: what's on the desktop, and the editors' icons.
   const onDesktop = menus.useDesktopPins();
   const icons = useEditorIcons(open?.apps);
-  // What its header says around it, from the board.
-  const context = useMemo(() => (lane && session ? sessionContext(prBoard, lane, session) : null), [prBoard, lane, session]);
 
   const measure = () => Math.ceil((card.current?.getBoundingClientRect().height ?? 0) + FAR + NEAR);
 
@@ -414,26 +412,14 @@ export function Peek({ kept = false }: { kept?: boolean }) {
     void showMain({ kind: 'session', laneId: lane.id, key: session.key });
   };
 
-  /** What the peek can do to its session (menus.ts): its menu, and the header's buttons among
-   *  its actions. Whatever takes the session off the bar puts the peek away. */
-  const can: menus.SessionCan = {
-    report,
-    open: openOn,
-    terminal: open.terminal,
-    reveal,
-    editors: open.apps ? { apps: open.apps, icons } : undefined,
-    desktop: onDesktop,
-    rename: () => setRenameAsked(session.key),
-    left: away,
-  };
-  const menu = (at?: { x: number; y: number }) => void showContextMenu(menus.sessionMenu(lane, session, can), at).catch((e: unknown) => report.error(errorText(e)));
+  /** What the peek does for its session's actions (SessionCard.tsx has the rest): whatever takes
+   *  the session off the bar puts the peek away. */
+  const can: WindowCan = { report, open: openOn, reveal, rename: () => setRenameAsked(session.key), left: away };
   /** A session it came from, or that came of it, takes the peek's place; from a kept session it
    *  shows in Codealong, and the kept one stays. Its menu is its own. */
   const showKin = (l: Lane, s: Session) => (kept ? showSessionMain(l, s) : void peekOpen(s.key, null, engaged).catch((e: unknown) => report.error(errorText(e))));
   /** Keeps the session on the desktop, where the peek is. */
   const keep = () => void keepSession().catch((e: unknown) => report.error(errorText(e)));
-  const kinMenu = (l: Lane, s: Session) =>
-    void showContextMenu(menus.sessionMenu(l, s, { ...can, reveal: () => showSessionMain(l, s), rename: undefined })).catch((e: unknown) => report.error(errorText(e)));
   const showLane = (l: Lane) => {
     away();
     void showMain({ kind: 'worktree', laneId: l.id });
@@ -441,10 +427,6 @@ export function Peek({ kept = false }: { kept?: boolean }) {
   const showTodo = (t: Todo) => {
     away();
     void showMain({ kind: 'todo', id: t.id });
-  };
-  const prMenu = (pr: Pr) => {
-    const item = prBoard?.prs.find((p) => p.url === pr.url);
-    void showContextMenu(menus.prMenu(item ?? pr, { report, reveal: item ? () => showPrMain(item) : undefined, desktop: onDesktop })).catch((e: unknown) => report.error(errorText(e)));
   };
 
   // The card fills its window once the window has a size of its own: kept, or dragged to one.
@@ -470,31 +452,25 @@ export function Peek({ kept = false }: { kept?: boolean }) {
         }}
         onPointerMove={kept ? moveWindow : undefined}
       >
-        <SessionPanel
-          key={view}
-          variant="card"
+        <SessionCard
           lane={lane}
           session={session}
           apps={open.apps ?? { terminal: open.terminal, terminalId: '', editor: 'Editor', editorId: '' }}
           now={now}
+          board={prBoard}
+          can={can}
+          // A session it came from, or that came of it: its menu shows it in Codealong.
+          canFor={(l, s) => ({ ...can, reveal: () => showSessionMain(l, s), rename: undefined })}
+          onShowSession={showKin}
+          onShowLane={showLane}
+          onShowTodo={showTodo}
+          onShowPr={showPrMain}
           autoFocus={open.focus}
           onLoaded={loaded}
-          onOpen={(target) => openOn(lane, target)}
-          actions={menus.sessionActions(lane, session, can)}
           renaming={open.rename || renameAsked === session.key}
           onRename={renamed}
-          onMenu={menu}
           onKeep={kept ? undefined : keep}
           onClose={kept ? () => void keptClose() : undefined}
-          onShowLane={showLane}
-          prs={context?.prs}
-          onOpenPr={(pr) => openUrl(pr.url).catch((e: unknown) => report.error(errorText(e)))}
-          onPrMenu={prMenu}
-          todos={context?.todos}
-          onShowTodo={showTodo}
-          lineage={context?.lineage}
-          onShowSession={showKin}
-          onSessionMenu={kinMenu}
           onSending={away}
           onSent={(sent) => {
             // What you'd want to know goes on the bar: the prompt is on the clipboard, say, or it
