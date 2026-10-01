@@ -45,8 +45,9 @@ const WINDOW_MS: i64 = 14 * DAY_MS;
 const GIT_WORKERS: usize = 4;
 const PUBLISH_EVERY: Duration = Duration::from_millis(300);
 const GITHUB_EVERY: Duration = Duration::from_secs(60);
-/// How long GitHub is left alone once it says the account's rate limit is used up. It doesn't
-/// say when the hour ends on a refusal, and asking again costs nothing.
+/// How long GitHub is left alone once it says the account's rate limit is used up, when no
+/// glance before said when the hour ends (`hold_github`). A refusal doesn't say, and asking
+/// again costs nothing.
 const GITHUB_HOLD: Duration = Duration::from_secs(10 * 60);
 /// How long before a repo GitHub didn't give the name of is asked about again.
 const REPO_NAME_RETRY: Duration = Duration::from_secs(60 * 60);
@@ -1830,7 +1831,7 @@ impl Engine {
             }
             Err(e) => {
                 if github::rate_limited(&e) {
-                    self.gh_hold = Some(Instant::now() + GITHUB_HOLD);
+                    self.hold_github();
                 }
                 self.gh_warning = Some(e);
             }
@@ -1846,9 +1847,18 @@ impl Engine {
             (None, Some(stamp)) => {
                 self.gh_stamps.insert(key.to_string(), stamp);
             }
-            (Some(e), _) if github::rate_limited(e) => self.gh_hold = Some(Instant::now() + GITHUB_HOLD),
+            (Some(e), _) if github::rate_limited(e) => self.hold_github(),
             _ => {}
         }
+    }
+
+    /// GitHub refused for want of points: it's left alone until the hour ends, as the glances
+    /// said of the counter that was nearly spent, or for `GITHUB_HOLD` when none said.
+    fn hold_github(&mut self) {
+        let now = now_ms();
+        let ends = self.gh_points.iter().filter(|p| p.resets > now && p.left < github::RESERVE).map(|p| p.resets).min();
+        let wait = ends.map_or(GITHUB_HOLD, |at| Duration::from_millis((at - now) as u64) + Duration::from_secs(5));
+        self.gh_hold = Some(Instant::now() + wait);
     }
 
     /// Asks GitHub now, or as soon as the request on its way returns, which may have been
@@ -3119,8 +3129,13 @@ mod tests {
         assert!(engine.gh_hold.is_some_and(|until| until > Instant::now()));
         engine.gh_hold = None;
         engine.on_glance(Err(refused.clone()));
-        assert!(engine.gh_hold.is_some());
+        assert!(engine.gh_hold.is_some_and(|until| until > Instant::now() + Duration::from_secs(9 * 60)), "nothing said when the hour ends");
         assert_eq!(engine.gh_warning.as_deref(), Some(refused.as_str()));
+        // A glance had said the hour was nearly spent, and when it ends: asked again then.
+        engine.gh_points = vec![github::Points { left: 4000, resets: now_ms() + 60_000 }, github::Points { left: 12, resets: now_ms() + 120_000 }];
+        engine.on_glance(Err(refused.clone()));
+        let wait = engine.gh_hold.unwrap() - Instant::now();
+        assert!(wait > Duration::from_secs(120) && wait < Duration::from_secs(130), "{wait:?}");
         // And the next glance that's answered ends that.
         engine.on_glance(Ok(github::Glance::default()));
         assert!(engine.gh_hold.is_none() && engine.gh_warning.is_none());
