@@ -1,5 +1,6 @@
-//! Pull requests and checks through `gh api graphql`, one query per repo. Uses your existing
-//! `gh` sign-in; Codealong never handles a GitHub token itself.
+//! Pull requests and checks through `gh api graphql`, one query per repo, and one search for the
+//! PRs that wait on your review wherever they are. Uses your existing `gh` sign-in; Codealong
+//! never handles a GitHub token itself.
 
 use std::time::Duration;
 
@@ -43,6 +44,14 @@ pub struct RepoPrs {
     pub prs: Vec<PrRaw>,
 }
 
+/// Open PRs anywhere on GitHub that wait on your review, each with its repo as GitHub names it
+/// now, and who `gh` is signed in as.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Requested {
+    pub login: Option<String>,
+    pub prs: Vec<(String, PrRaw)>,
+}
+
 const QUERY: &str = r#"
 query($owner: String!, $name: String!, $requested: String!) {
   viewer { login }
@@ -51,6 +60,16 @@ query($owner: String!, $name: String!, $requested: String!) {
     done: pullRequests(states: [MERGED, CLOSED], first: 40, orderBy: {field: UPDATED_AT, direction: DESC}) { nodes { ...pr } }
   }
   requested: search(query: $requested, type: ISSUE, first: 50) { nodes { ... on PullRequest { number } } }
+}
+"#;
+
+/// PRs that ask for your review, in every repo: the board reads a repo's PRs only while one of
+/// its worktrees is on a branch of its own, so a request in a repo checked out only on its
+/// default branch is found here.
+const REQUESTED_QUERY: &str = r#"
+query($requested: String!) {
+  viewer { login }
+  search(query: $requested, type: ISSUE, first: 50) { nodes { ... on PullRequest { ...pr mergeStateStatus ...asked repository { nameWithOwner } } } }
 }
 "#;
 
@@ -111,17 +130,29 @@ pub fn fetch(owner: &str, name: &str) -> Result<RepoPrs> {
         None,
         Duration::from_secs(30),
     )
-    .map_err(|e| {
-        let msg = e.to_string();
-        if msg.contains("couldn't start") {
-            anyhow!("GitHub: install the gh CLI and sign in with `gh auth login` to see PRs")
-        } else if msg.contains("auth login") || msg.contains("401") {
-            anyhow!("GitHub: sign in again with `gh auth login` to see PRs")
-        } else {
-            anyhow!("GitHub: couldn't load PRs for {owner}/{name}")
-        }
-    })?;
+    .map_err(|e| failed(e, &format!("PRs for {owner}/{name}")))?;
     parse(&out)
+}
+
+/// The open PRs that wait on your review, wherever they are (`REQUESTED_QUERY`).
+pub fn fetch_requested() -> Result<Requested> {
+    let query_arg = format!("query={REQUESTED_QUERY}{PR_FIELDS}{ASKED_FIELDS}");
+    let requested_arg = "requested=is:pr is:open archived:false review-requested:@me sort:updated-desc";
+    let out = procs::run("gh", &["api", "graphql", "-f", &query_arg, "-f", requested_arg], None, Duration::from_secs(30))
+        .map_err(|e| failed(e, "the PRs that wait on your review"))?;
+    parse_requested(&out)
+}
+
+/// What a failed `gh` call for `what` says on the board.
+fn failed(e: anyhow::Error, what: &str) -> anyhow::Error {
+    let msg = e.to_string();
+    if msg.contains("couldn't start") {
+        anyhow!("GitHub: install the gh CLI and sign in with `gh auth login` to see PRs")
+    } else if msg.contains("auth login") || msg.contains("401") {
+        anyhow!("GitHub: sign in again with `gh auth login` to see PRs")
+    } else {
+        anyhow!("GitHub: couldn't load {what}")
+    }
 }
 
 /// One PR, as the board reads PRs, for a link to one the board doesn't list; and who `gh` is
@@ -184,6 +215,24 @@ pub fn parse(json: &str) -> Result<RepoPrs> {
         }
     }
     Ok(RepoPrs { login: login.map(String::from), prs })
+}
+
+/// The search's PRs that still wait on your review: the search can go on listing one you've
+/// reviewed, which the PR's own requests settle (`asked_of`).
+pub fn parse_requested(json: &str) -> Result<Requested> {
+    let v: Value = serde_json::from_str(json)?;
+    let nodes = v.pointer("/data/search/nodes").and_then(Value::as_array).ok_or_else(|| anyhow!("no search in response"))?;
+    let login = v.pointer("/data/viewer/login").and_then(Value::as_str);
+    let prs = nodes
+        .iter()
+        .filter_map(|n| {
+            let slug = n.pointer("/repository/nameWithOwner").and_then(Value::as_str)?;
+            let mut pr = parse_pr(n)?;
+            pr.review_requested = pr.state.is_open() && asked_of(n, login, true);
+            pr.review_requested.then(|| (slug.to_string(), pr))
+        })
+        .collect();
+    Ok(Requested { login: login.map(String::from), prs })
 }
 
 /// Whether a PR still waits on your review. GitHub's search is the only place that says a team
@@ -517,6 +566,23 @@ mod tests {
         let json = format!(r#"{{"data":{{"viewer":{{"login":"ghempton"}},"requested":{{"nodes":[{{"number":1}},{{"number":3}}]}},"repository":{{"open":{{"nodes":[{open}]}},"done":{{"nodes":[]}}}}}}}}"#);
         let asked: Vec<_> = parse(&json).unwrap().prs.iter().map(|p| (p.number, p.review_requested)).collect();
         assert_eq!(asked, vec![(1, false), (2, true), (3, true), (4, false)]);
+    }
+
+    #[test]
+    fn reads_the_prs_that_wait_on_your_review_anywhere() {
+        // #1 in one repo and #7 in another wait on you, #2 you've reviewed (the search hasn't
+        // caught up), #3 waits on a team you're on; the last node isn't a PR.
+        let pr = |slug: &str, n: u64, asked: &str| {
+            format!(r#"{{"number":{n},"title":"t","url":"u","state":"OPEN","isDraft":false,"reviewDecision":null,"updatedAt":"2026-09-30T20:00:00Z","headRefName":"b{n}","commits":{{"nodes":[]}},"reviewRequests":{{"nodes":{asked}}},"repository":{{"nameWithOwner":"{slug}"}}}}"#)
+        };
+        let me = r#"[{"requestedReviewer":{"__typename":"User","login":"ghempton"}}]"#;
+        let nodes = [pr("acme/site", 1, me), pr("acme/site", 2, "[]"), pr("acme/tool", 3, r#"[{"requestedReviewer":{"__typename":"Team"}}]"#), pr("acme/tool", 7, me), "{}".to_string()].join(",");
+        let json = format!(r#"{{"data":{{"viewer":{{"login":"ghempton"}},"search":{{"nodes":[{nodes}]}}}}}}"#);
+        let found = parse_requested(&json).unwrap();
+        let got: Vec<(&str, u64)> = found.prs.iter().map(|(slug, p)| (slug.as_str(), p.number)).collect();
+        assert_eq!(got, vec![("acme/site", 1), ("acme/tool", 3), ("acme/tool", 7)]);
+        assert!(found.prs.iter().all(|(_, p)| p.review_requested));
+        assert_eq!(found.login.as_deref(), Some("ghempton"));
     }
 
     #[test]

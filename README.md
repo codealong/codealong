@@ -152,7 +152,9 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     doesn't, `↓42` for commits the remote has that it doesn't. Canvas cards show the same.
   - **PRs**: every PR in the project's repos, with the worktree and sessions that worked on
     each: the ones that made, edited or commented on it (from their own records), the ones on
-    its branch while it was open, and any linked by hand (`codealong pr link|unlink`). Reviews asked of you come first, with one-click Approve.
+    its branch while it was open, and any linked by hand (`codealong pr link|unlink`). Reviews asked of you come first, with one-click Approve;
+    they're listed for every repo a project has here, one checked out only on its default
+    branch too, whose other PRs aren't read.
     A PR's right-click menu, on its row here or on its number where a worktree or session shows
     it (and the worktree's panel), opens it on GitHub or in Codex and copies its link; a
     worktree's own menu copies its PR's link too. Colored pills say where
@@ -443,8 +445,8 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   from the recent pill's, shows in Codealong's window. The mark brings Codealong forward; drag
   the bar by it or by its gaps. **In the notch**, the bar docks at the top of the screen instead:
   one black shape with the notch, dark whatever the theme, showing the mark on the camera's
-  left and, on its right, the most urgent group and how many (Needs you, then Your turn, then
-  Working; a new one that needs you pulses). Rest the pointer on it for a moment, or click it,
+  left, badged with how many PRs wait on your review, and, on its right, the most urgent group
+  and how many (Needs you, then Your turn, then Working; a new one that needs you pulses). Rest the pointer on it for a moment, or click it,
   and it opens down into the bar's pills, the peek opening under them as on the floating bar;
   it closes a moment after the pointer leaves, and stays open while the peek or one of its
   menus is up. The pin at the end of its right side, or Keep the notch open in its right-click

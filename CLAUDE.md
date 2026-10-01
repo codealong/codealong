@@ -1153,7 +1153,10 @@ GitHub
 
 - Through `gh` only: one GraphQL query per repo (viewer, open and recent PRs, a
   `review-requested:@me` search); PR detail from GraphQL `bodyHTML` plus the REST files
-  endpoint; approving with `gh pr review --approve`.
+  endpoint; approving with `gh pr review --approve`. Only repos with a worktree off the default
+  branch are asked that way (`board::polled_slugs`); one more query each poll searches all of
+  GitHub for open PRs that wait on your review (`github::fetch_requested`), and the board lists
+  its finds for the other repos checked out here.
 - REST `repos/<owner>/<name>` answers to a repo's old names (after a rename of the repo or its
   owner, or a transfer) with the repo as it is now; `.full_name` is its name now. The engine
   asks once a launch per repo, so other devices line a checkout with an old remote up with the

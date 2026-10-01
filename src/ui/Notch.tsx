@@ -1,6 +1,7 @@
 // The bar docked in the notch (bar.rs): one black shape with the hardware notch at the top of the
 // screen, always dark whatever the theme. Closed, it's the notch with a side on each hand: the
-// mark on the left, and on the right the most urgent group and how many. Pointing at it for a
+// mark on the left, badged with how many PRs wait on your review, and on the right the most
+// urgent group and how many. Pointing at it for a
 // moment, or clicking it, opens it down into the bar's pills; it closes a moment after the
 // pointer leaves, unless the peek or a menu is up, or its pin keeps it open.
 //
@@ -29,6 +30,9 @@ export interface NotchShellProps {
   notch: Notch;
   logoStatus: LogoStatus;
   counts: Record<Group, number>;
+  /** How many open PRs wait on your review. The pill that says so is below, out of sight while
+   *  it's closed, so the mark carries the number then. */
+  reviews: number;
   /** The widest the pills below can get. */
   room: number;
   /** The project button, beside the mark while it's open. */
@@ -44,7 +48,7 @@ export interface NotchShellProps {
   children: ReactNode;
 }
 
-export function NotchShell({ notch, logoStatus, counts, room, project, held, keepOpen, onKeepOpen, onMark, onMenu, children }: NotchShellProps) {
+export function NotchShell({ notch, logoStatus, counts, reviews, room, project, held, keepOpen, onKeepOpen, onMark, onMenu, children }: NotchShellProps) {
   const [open, setOpen] = useState(keepOpen);
   // The pointer is on the shape.
   const [on, setOn] = useState(false);
@@ -182,8 +186,13 @@ export function NotchShell({ notch, logoStatus, counts, room, project, held, kee
         <div className="ca-notch-top">
           <div className="ca-notch-side is-left">
             <div ref={left} className="ca-notch-side-in">
-              <button type="button" className="ca-hud-mark" title="Show Codealong" tabIndex={open ? 0 : -1} onClick={(e) => (open ? onMark() : e.preventDefault())}>
+              <button type="button" className="ca-hud-mark" title={reviews > 0 ? `Show Codealong · ${reviewWords(reviews)}` : 'Show Codealong'} tabIndex={open ? 0 : -1} onClick={(e) => (open ? onMark() : e.preventDefault())}>
                 <Mark size={16} status={logoStatus} />
+                {reviews > 0 && (
+                  <span className="ca-notch-badge" aria-label={reviewWords(reviews)}>
+                    {reviews}
+                  </span>
+                )}
               </button>
               {project && <span className="ca-notch-extra">{project}</span>}
             </div>
@@ -219,6 +228,10 @@ export function NotchShell({ notch, logoStatus, counts, room, project, held, kee
       </div>
     </div>
   );
+}
+
+function reviewWords(n: number): string {
+  return n === 1 ? '1 PR waits on your review' : `${n} PRs wait on your review`;
 }
 
 /** A group's glyph and how many are in it. The first beside the camera shows closed too; the

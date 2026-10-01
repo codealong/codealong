@@ -90,6 +90,8 @@ pub enum Msg {
     GitDone(PathBuf, GitInfo),
     /// An empty slug marks the end of a GitHub batch.
     GithubDone(String, std::result::Result<github::RepoPrs, String>),
+    /// The PRs that wait on your review anywhere, from the same batch.
+    RequestedDone(std::result::Result<github::Requested, String>),
     RefreshGithub,
     /// A PR you approved from Codealong, by its slug on the board and its number. The reply is
     /// the time of the board that shows it, published at once.
@@ -582,6 +584,7 @@ fn snapshot_engine(with_github: bool, with_usage: bool) -> Engine {
     }
     if with_github {
         let slugs: Vec<String> = e.github_slugs().into_iter().collect();
+        let requested = std::thread::spawn(github::fetch_requested);
         let results = parallel_map(slugs, |slug| {
             let (owner, name) = slug.split_once('/')?;
             Some((slug.clone(), github::fetch(owner, name)))
@@ -597,6 +600,9 @@ fn snapshot_engine(with_github: bool, with_usage: bool) -> Engine {
                 }
                 Err(err) => e.gh_warning = Some(err.to_string()),
             }
+        }
+        if let Ok(result) = requested.join() {
+            e.on_requested(result.map_err(|err| err.to_string()));
         }
         lap("github", &t);
     }
@@ -784,6 +790,9 @@ struct Engine {
     /// Lane path → the main checkout it belongs to.
     lane_checkout: HashMap<PathBuf, PathBuf>,
     prs: HashMap<String, Vec<PrRaw>>,
+    /// The open PRs GitHub's search says wait on your review, by the slug a project's repo has
+    /// here: the board lists them for the repos `prs` doesn't read (`board::pr_items`).
+    requested: HashMap<String, Vec<PrRaw>>,
     gh_warning: Option<String>,
     gh_inflight: bool,
     /// Ask GitHub again once the request on its way returns (`refetch_github`).
@@ -904,6 +913,7 @@ impl Engine {
             lane_base: HashMap::new(),
             lane_checkout: HashMap::new(),
             prs: HashMap::new(),
+            requested: HashMap::new(),
             gh_warning: None,
             gh_inflight: false,
             gh_again: false,
@@ -1365,6 +1375,7 @@ impl Engine {
                 }
                 Ok(Msg::GitDone(path, info)) => self.on_git(path, info),
                 Ok(Msg::GithubDone(slug, result)) => self.on_github(slug, result),
+                Ok(Msg::RequestedDone(result)) => self.on_requested(result),
                 Ok(Msg::RefreshGithub) => self.fetch_github(false),
                 Ok(Msg::Approved(slug, number, reply)) => {
                     self.on_approved(slug, number);
@@ -1903,11 +1914,7 @@ impl Engine {
     }
 
     fn github_slugs(&self) -> BTreeSet<String> {
-        self.seeds
-            .iter()
-            .filter(|s| s.branch.is_some() && s.branch != s.default_branch)
-            .filter_map(|s| s.repo_slug.clone())
-            .collect()
+        board::polled_slugs(&self.seeds)
     }
 
     fn fetch_github(&mut self, force: bool) {
@@ -1918,15 +1925,20 @@ impl Engine {
             return;
         }
         let slugs = self.github_slugs();
-        if slugs.is_empty() {
+        if !self.seeds.iter().any(|s| s.repo_slug.is_some()) {
             return;
         }
         self.gh_inflight = true;
         self.gh_last = Some(Instant::now());
         let tx = self.tx.clone();
         std::thread::spawn(move || {
-            // One request per repo, all at once; each result is applied as it lands.
+            // One request per repo and one search for your review requests, all at once; each
+            // result is applied as it lands.
             std::thread::scope(|scope| {
+                let asked = tx.clone();
+                scope.spawn(move || {
+                    let _ = asked.send(Msg::RequestedDone(github::fetch_requested().map_err(|e| e.to_string())));
+                });
                 for slug in &slugs {
                     let tx = tx.clone();
                     scope.spawn(move || {
@@ -1955,6 +1967,10 @@ impl Engine {
     fn on_approved(&mut self, slug: String, number: u64) {
         if let Some(pr) = self.prs.get_mut(&slug).and_then(|prs| prs.iter_mut().find(|p| p.number == number)) {
             pr.review_requested = false;
+            self.dirty = true;
+        }
+        if let Some(prs) = self.requested.get_mut(&slug) {
+            prs.retain(|p| p.number != number);
             self.dirty = true;
         }
         self.approved_here.insert((slug, number), Instant::now());
@@ -1995,6 +2011,50 @@ impl Engine {
             }
             Err(e) => self.gh_warning = Some(e),
         }
+        self.dirty = true;
+    }
+
+    /// GitHub's search for the PRs that wait on your review, each filed under the repo it's in
+    /// here, by the name GitHub has for it now; a repo no project covers is left out, as its
+    /// PRs are.
+    fn on_requested(&mut self, result: std::result::Result<github::Requested, String>) {
+        let found = match result {
+            Ok(found) => found,
+            Err(e) => {
+                self.gh_warning = Some(e);
+                self.dirty = true;
+                return;
+            }
+        };
+        let mut here: HashMap<String, String> = HashMap::new();
+        for slug in self.seeds.iter().filter_map(|s| s.repo_slug.as_ref()) {
+            let now = self.repo_names.get(&slug.to_lowercase()).unwrap_or(slug);
+            here.entry(now.to_lowercase()).or_insert_with(|| slug.clone());
+        }
+        let mut requested: HashMap<String, Vec<PrRaw>> = HashMap::new();
+        for (slug, pr) in found.prs {
+            if let Some(local) = here.get(&slug.to_lowercase()) {
+                requested.entry(local.clone()).or_default().push(pr);
+            }
+        }
+        // As with a repo's own PRs (`on_github`): an answer asked for before you approved a PR
+        // here still lists it.
+        let asked = self.gh_last;
+        self.approved_here.retain(|(s, n), at| {
+            if asked.is_some_and(|t| t >= *at) {
+                return false;
+            }
+            if let Some(prs) = requested.get_mut(s) {
+                prs.retain(|p| p.number != *n);
+            }
+            true
+        });
+        self.requested = requested;
+        if found.login.is_some() {
+            self.gh_login = found.login;
+        }
+        self.gh_warning = None;
+        self.gh_at = Some(now_ms());
         self.dirty = true;
     }
 
@@ -2926,6 +2986,7 @@ impl Engine {
             sessions: self.with_snoozes(self.with_insights(self.with_chrome(self.with_origins(self.build_sessions(now))), now), now),
             git: &self.git,
             prs: &self.prs,
+            requested: &self.requested,
             project_order: &order,
             warnings,
             loading: self.loading,
