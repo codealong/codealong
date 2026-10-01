@@ -1,7 +1,7 @@
 // The bar docked in the notch (bar.rs): one black shape with the hardware notch at the top of the
 // screen, always dark whatever the theme. Closed, it's the notch with a side on each hand: the
-// mark on the left, badged with how many PRs wait on your review, and on the right the most
-// urgent group and how many. Pointing at it for a
+// mark on the left, and on the right the most urgent thing and how many: the sessions that need
+// you, else the PRs that wait on your review, else the turns that ended, else what's running. Pointing at it for a
 // moment, or clicking it, opens it down into the bar's pills; it closes a moment after the
 // pointer leaves, unless the peek or a menu is up, or its pin keeps it open.
 //
@@ -13,7 +13,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { fitBar, notchShape, onNotchPointer, type Notch } from '../api';
-import { NOTCH, notchClip, notchSizes, type Group, type NotchState, type Size } from '../bar';
+import { NOTCH, NOTCH_ORDER, notchClip, notchSizes, type Group, type NotchKind, type NotchState, type Size } from '../bar';
 import type { LogoStatus, Status } from '../types';
 import { Icon, Mark, StatusGlyph } from './primitives';
 
@@ -24,15 +24,13 @@ const CLOSE_AFTER_MS = 400;
 
 const GLYPH: Record<Group, Status> = { needs: 'needs', unread: 'unread', working: 'working' };
 const WORD: Record<Group, string> = { needs: 'need you', unread: 'your turn', working: 'working' };
-const ORDER: Group[] = ['needs', 'unread', 'working'];
 
 export interface NotchShellProps {
   notch: Notch;
   logoStatus: LogoStatus;
-  counts: Record<Group, number>;
-  /** How many open PRs wait on your review. The pill that says so is below, out of sight while
-   *  it's closed, so the mark carries the number then. */
-  reviews: number;
+  /** How many sessions are in each of the bar's groups, and how many open PRs wait on your
+   *  review. */
+  counts: Record<NotchKind, number>;
   /** The widest the pills below can get. */
   room: number;
   /** The project button, beside the mark while it's open. */
@@ -48,7 +46,7 @@ export interface NotchShellProps {
   children: ReactNode;
 }
 
-export function NotchShell({ notch, logoStatus, counts, reviews, room, project, held, keepOpen, onKeepOpen, onMark, onMenu, children }: NotchShellProps) {
+export function NotchShell({ notch, logoStatus, counts, room, project, held, keepOpen, onKeepOpen, onMark, onMenu, children }: NotchShellProps) {
   const [open, setOpen] = useState(keepOpen);
   // The pointer is on the shape.
   const [on, setOn] = useState(false);
@@ -147,7 +145,7 @@ export function NotchShell({ notch, logoStatus, counts, reviews, room, project, 
 
   useEffect(() => clear, []);
 
-  const shown = ORDER.filter((g) => counts[g] > 0);
+  const shown = NOTCH_ORDER.filter((k) => counts[k] > 0);
   // The corners move and grow by their place and size, as the clip does, not by a transform:
   // WebKit runs a transform's animation apart from the page's, and the corners fell out of step
   // with the shape. Each reaches 3 points under the shape's edge: where two antialiased edges
@@ -186,13 +184,8 @@ export function NotchShell({ notch, logoStatus, counts, reviews, room, project, 
         <div className="ca-notch-top">
           <div className="ca-notch-side is-left">
             <div ref={left} className="ca-notch-side-in">
-              <button type="button" className="ca-hud-mark" title={reviews > 0 ? `Show Codealong · ${reviewWords(reviews)}` : 'Show Codealong'} tabIndex={open ? 0 : -1} onClick={(e) => (open ? onMark() : e.preventDefault())}>
+              <button type="button" className="ca-hud-mark" title="Show Codealong" tabIndex={open ? 0 : -1} onClick={(e) => (open ? onMark() : e.preventDefault())}>
                 <Mark size={16} status={logoStatus} />
-                {reviews > 0 && (
-                  <span className="ca-notch-badge" aria-label={reviewWords(reviews)}>
-                    {reviews}
-                  </span>
-                )}
               </button>
               {project && <span className="ca-notch-extra">{project}</span>}
             </div>
@@ -200,8 +193,8 @@ export function NotchShell({ notch, logoStatus, counts, reviews, room, project, 
           <div className="ca-notch-cam" aria-hidden="true" />
           <div className="ca-notch-side is-right">
             <div ref={right} className="ca-notch-side-in">
-              {shown.map((g, i) => (
-                <Count key={i === 0 ? `${g}-${counts[g]}` : g} group={g} n={counts[g]} extra={i > 0} pulse={i === 0 && g === 'needs'} />
+              {shown.map((k, i) => (
+                <Count key={i === 0 ? `${k}-${counts[k]}` : k} kind={k} n={counts[k]} extra={i > 0} pulse={i === 0 && k === 'needs'} />
               ))}
               <button
                 type="button"
@@ -230,16 +223,14 @@ export function NotchShell({ notch, logoStatus, counts, reviews, room, project, 
   );
 }
 
-function reviewWords(n: number): string {
-  return n === 1 ? '1 PR waits on your review' : `${n} PRs wait on your review`;
-}
-
-/** A group's glyph and how many are in it. The first beside the camera shows closed too; the
- *  others only open. One that needs you pulses when it comes, and again when the number changes. */
-function Count({ group, n, extra, pulse }: { group: Group; n: number; extra?: boolean; pulse?: boolean }) {
+/** A group's glyph, or the PR icon for reviews asked of you, and how many there are. The first
+ *  beside the camera shows closed too; the others only open. One that needs you pulses when it
+ *  comes, and again when the number changes. */
+function Count({ kind, n, extra, pulse }: { kind: NotchKind; n: number; extra?: boolean; pulse?: boolean }) {
+  const title = kind === 'reviews' ? (n === 1 ? '1 PR waits on your review' : `${n} PRs wait on your review`) : `${n} ${WORD[kind]}`;
   return (
-    <span className={['ca-notch-count', `is-${group}`, extra && 'ca-notch-extra', pulse && 'is-pulse'].filter(Boolean).join(' ')} title={`${n} ${WORD[group]}`}>
-      <StatusGlyph status={GLYPH[group]} title="" />
+    <span className={['ca-notch-count', `is-${kind}`, extra && 'ca-notch-extra', pulse && 'is-pulse'].filter(Boolean).join(' ')} title={title}>
+      {kind === 'reviews' ? <Icon name="pr" size={12} stroke={1.75} /> : <StatusGlyph status={GLYPH[kind]} title="" />}
       <span>{n}</span>
     </span>
   );

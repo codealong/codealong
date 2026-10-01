@@ -824,8 +824,7 @@ export function Bar() {
         <NotchShell
           notch={notch}
           logoStatus={logoStatus}
-          counts={{ needs: byGroup.needs.length, unread: byGroup.unread.length, working: byGroup.working.length }}
-          reviews={reviews.length}
+          counts={{ needs: byGroup.needs.length, reviews: reviews.length, unread: byGroup.unread.length, working: byGroup.working.length }}
           room={Math.min(MAX_WIDTH, window.screen.availWidth - SCREEN_ROOM)}
           project={picking ? <ProjectButton name={current} others={others} open={projectMenuOpen} onOpen={projectMenu} /> : null}
           held={peeked.key !== null || projectMenuOpen || menusUp > 0 || dragging !== null}

@@ -157,9 +157,16 @@ export function notchClip(s: { closed: Size; open: Size }, state: NotchState): {
   return { side, bottom: s.open.h - s.closed.h, radius: NOTCH.radius.closed };
 }
 
-/** What the closed notch shows beside the camera: the most urgent group with anything in it, in
- *  the bar's order, and how many; none when nothing needs you, waits for you or runs. */
-export function notchCount(counts: Record<Group, number>): { group: Group; n: number } | null {
-  const group = GROUPS.find((g) => counts[g] > 0);
-  return group ? { group, n: counts[group] } : null;
+/** What the notch counts beside the camera: the bar's groups, and the PRs that wait on your
+ *  review. */
+export type NotchKind = Group | 'reviews';
+/** Most urgent first. A review asked of you ranks as the mark's colors rank it
+ *  (board.rs `logo_status`): with what needs you, after the sessions that do. */
+export const NOTCH_ORDER: NotchKind[] = ['needs', 'reviews', 'unread', 'working'];
+
+/** What the closed notch shows beside the camera: the most urgent kind with anything in it and
+ *  how many; none when nothing needs you, waits for you or runs. */
+export function notchCount(counts: Record<NotchKind, number>): { kind: NotchKind; n: number } | null {
+  const kind = NOTCH_ORDER.find((k) => counts[k] > 0);
+  return kind ? { kind, n: counts[kind] } : null;
 }

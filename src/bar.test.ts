@@ -154,9 +154,10 @@ describe('the bar docked in the notch', () => {
   });
 
   it('shows the most urgent group beside the camera, in the bar’s order', () => {
-    expect(notchCount({ needs: 2, unread: 1, working: 5 })).toEqual({ group: 'needs', n: 2 });
-    expect(notchCount({ needs: 0, unread: 1, working: 5 })).toEqual({ group: 'unread', n: 1 });
-    expect(notchCount({ needs: 0, unread: 0, working: 5 })).toEqual({ group: 'working', n: 5 });
-    expect(notchCount({ needs: 0, unread: 0, working: 0 })).toBeNull();
+    expect(notchCount({ needs: 2, reviews: 3, unread: 1, working: 5 })).toEqual({ kind: 'needs', n: 2 });
+    expect(notchCount({ needs: 0, reviews: 3, unread: 1, working: 5 })).toEqual({ kind: 'reviews', n: 3 });
+    expect(notchCount({ needs: 0, reviews: 0, unread: 1, working: 5 })).toEqual({ kind: 'unread', n: 1 });
+    expect(notchCount({ needs: 0, reviews: 0, unread: 0, working: 5 })).toEqual({ kind: 'working', n: 5 });
+    expect(notchCount({ needs: 0, reviews: 0, unread: 0, working: 0 })).toBeNull();
   });
 });
