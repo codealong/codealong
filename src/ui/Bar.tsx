@@ -8,7 +8,11 @@
 // Codealong and double-clicking opens it where it lives, dragging it off the bar pins its card to
 // the desktop where you let go (desktop.rs), right-clicking shows its menu, and the mark brings
 // Codealong forward. Docked in the
-// notch (bar.rs), the same pills show below the notch when it opens (Notch.tsx), dark.
+// notch (bar.rs), the same pills show below the notch when it opens (Notch.tsx), dark, and there's
+// no peek: a click on a session's pill opens the notch further, into that session under the pills
+// (NotchSession.tsx), where its conversation is read and answered and the ones that wait on you
+// are worked through in turn. There a session picked from a folded pill's menu or from the recent
+// ones shows the same way, and a count beside the camera shows its group's first.
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -27,6 +31,7 @@ import { MarkLive } from './MarkLive';
 import { Icon, STATUS_WORD, StatusGlyph } from './primitives';
 import { applyTheme } from './ThemeSwitch';
 import { NotchShell } from './Notch';
+import { NotchSession, useNotchSession } from './NotchSession';
 import { LOGO_LABEL, useLogo } from '../logo';
 import { useMarkMoment } from '../mark';
 import { useNow } from './useNow';
@@ -81,8 +86,10 @@ function sessionLabel(i: BarItem, now: number): string {
 interface SessionPillProps {
   item: BarItem;
   now: number;
-  /** The peek shows this session. */
+  /** The peek shows this session, or the notch does under its pills. */
   peeked?: boolean;
+  /** Says the rest in a tooltip, where no peek does (docked in the notch). */
+  told?: boolean;
   onOpen?: (e: MouseEvent<HTMLButtonElement>) => void;
   onMenu?: () => void;
   /** The pointer came onto the pill or moved on it. */
@@ -96,12 +103,14 @@ interface SessionPillProps {
   measure?: boolean;
 }
 
-function SessionPill({ item, now, peeked, onOpen, onMenu, onHover, onLeave, onPress, onDrag, dragged, measure }: SessionPillProps) {
+function SessionPill({ item, now, peeked, told, onOpen, onMenu, onHover, onLeave, onPress, onDrag, dragged, measure }: SessionPillProps) {
   return (
     <button
       type="button"
       className={['ca-hud-pill', tone(item.status), peeked && 'is-peeked', dragged && 'is-dragged'].filter(Boolean).join(' ')}
       aria-label={measure ? undefined : sessionLabel(item, now)}
+      title={told && !measure && !peeked ? sessionLabel(item, now) : undefined}
+      aria-pressed={measure ? undefined : peeked}
       data-pill={measure ? item.group : undefined}
       data-key={measure ? undefined : item.key}
       onClick={onOpen}
@@ -128,11 +137,11 @@ function SessionPill({ item, now, peeked, onOpen, onMenu, onHover, onLeave, onPr
   );
 }
 
-function FoldPill({ group, label, title, onOpen, measure }: { group: Group; label: string; title?: string; onOpen?: (e: MouseEvent<HTMLButtonElement>) => void; measure?: boolean }) {
+function FoldPill({ group, label, title, onOpen, peeked, measure }: { group: Group; label: string; title?: string; onOpen?: (e: MouseEvent<HTMLButtonElement>) => void; peeked?: boolean; measure?: boolean }) {
   return (
     <button
       type="button"
-      className={`ca-hud-pill ca-hud-fold is-${group}`}
+      className={['ca-hud-pill', 'ca-hud-fold', `is-${group}`, peeked && 'is-peeked'].filter(Boolean).join(' ')}
       title={title}
       data-fold={measure ? group : undefined}
       onClick={onOpen}
@@ -444,6 +453,13 @@ export function Bar() {
     return out;
   }, [items]);
 
+  // Docked in the notch, the session shown under the pills (NotchSession.tsx), in place of the
+  // peek: which one, what it works through, and its keys.
+  const onBar = useMemo(() => new Set([...allItems, ...(feed?.recent ?? []), ...(feed?.snoozed ?? [])].map((i) => i.key)), [allItems, feed]);
+  const stage = useNotchSession(items, (key) => onBar.has(key), notch !== null);
+  // The session the peek shows, or the notch: its pill is marked.
+  const shownKey = notch ? (stage.open ? stage.key : null) : peeked.key;
+
   // Every pill measured at full size, then folded until the bar fits the screen.
   useLayoutEffect(() => {
     const el = measure.current;
@@ -510,8 +526,9 @@ export function Bar() {
    *  Only a pointer that moved points at a pill: when sessions change groups the pills shift, and
    *  the one that slides under a still pointer doesn't take the peek. */
   const hover = (i: BarItem, e: PointerEvent<HTMLElement>) => {
-    // A pill pressed is on its way to a click or a drag, not a look.
-    if (e.buttons & 1) return;
+    // A pill pressed is on its way to a click or a drag, not a look. Docked, there's no peek: a
+    // click shows the session in the notch.
+    if (e.buttons & 1 || notch) return;
     const at = pointerAt.current;
     if ((at && at.x === e.screenX && at.y === e.screenY) || hoverFor.current === i.key) return;
     stopHover();
@@ -530,9 +547,10 @@ export function Bar() {
   };
 
   /** The peek with the keyboard, ready to answer the session, or with `rename` to change its
-   *  name. */
+   *  name; docked, the notch opens on it. */
   const reply = (i: BarItem, rename = false) => {
     stopHover();
+    if (notch) return stage.show(i.key, rename);
     const el = hud.current?.querySelector(`[data-key="${CSS.escape(i.key)}"]`) ?? null;
     peekOpen(i.key, rectOf(el), true, rename).catch((e: unknown) => setFailed({ anchor: i.key, message: errorText(e) }));
   };
@@ -547,6 +565,8 @@ export function Bar() {
       from: 'panel',
       before: () => {
         if (peekedNow.current.key) void peekHide();
+        // The keyboard goes back before the session's own app comes forward.
+        stage.close();
       },
     });
   };
@@ -556,12 +576,18 @@ export function Bar() {
   const reveal = (i: BarItem | BarRecent | BarSnoozed) => {
     stopHover();
     if (peekedNow.current.key) void peekHide();
+    stage.close();
     void showMain({ kind: 'session', laneId: i.laneId, key: i.key });
   };
 
+  /** What picking a session from one of the bar's menus does: it shows in Codealong's window, or,
+   *  docked, in the notch, as a click on its pill has it. */
+  const pick = (i: BarItem | BarRecent) => (notch ? stage.show(i.key) : reveal(i));
+
   /** A click on a session's pill shows it in Codealong, as a click on its row there selects it; a
    *  double-click opens it where it lives. The first click waits for a second, so a double-click
-   *  doesn't bring Codealong forward on its way. */
+   *  doesn't bring Codealong forward on its way. Docked, a click shows it in the notch at once,
+   *  as a click on a row shows its panel, and a click on the pill of the one shown puts it away. */
   const clickPill = (i: BarItem, e: MouseEvent<HTMLButtonElement>) => {
     if (clickTimer.current != null) window.clearTimeout(clickTimer.current);
     clickTimer.current = null;
@@ -571,6 +597,10 @@ export function Bar() {
     if (p?.dragged) return;
     if (e.detail >= 2) {
       open(i);
+      return;
+    }
+    if (notch) {
+      stage.toggle(i.key);
       return;
     }
     clickTimer.current = window.setTimeout(() => {
@@ -593,6 +623,7 @@ export function Bar() {
     if (clickTimer.current != null) window.clearTimeout(clickTimer.current);
     clickTimer.current = null;
     if (peekedNow.current.key) void peekHide();
+    stage.close();
     setDragging(i.key);
     dragToDesktop({ ref: 'session', key: i.key }).catch((err: unknown) => {
       setDragging(null);
@@ -605,11 +636,14 @@ export function Bar() {
   const snoozeDone = (keys: string[], anchor: string) => (act: Promise<void>) => {
     const p = peekedNow.current.key;
     if (p && keys.includes(p)) void peekHide();
+    // Several leave the bar at once: the notch closes rather than go on to one of them.
+    if (stage.key && keys.includes(stage.key)) stage.close();
     act.catch((e: unknown) => setFailed({ anchor, message: errorText(e) }));
   };
 
   /** Marks sessions seen: their pills go at once, and come back with why if the engine can't. */
   const markSeen = (keys: string[], anchor: string) => {
+    if (stage.key && keys.includes(stage.key)) stage.close();
     seenAhead(keys).catch((e: unknown) => setFailed({ anchor, message: errorText(e) }));
   };
 
@@ -633,9 +667,10 @@ export function Bar() {
         rename: () => reply(i, true),
         editors: { apps: at.apps, icons },
         desktop: onDesktop,
-        // The peek goes with a session that leaves the bar.
-        left: () => {
+        // The peek goes with a session that leaves the bar; the notch goes on to the next.
+        left: (done) => {
           if (peekedNow.current.key === i.key) void peekHide();
+          stage.left(i.key, done);
         },
       });
     });
@@ -646,7 +681,7 @@ export function Bar() {
   const failedOn = (anchor: string) => (e: unknown) => setFailed({ anchor, message: errorText(e) });
 
   const foldMenu = (group: Group, folded: BarItem[], e: MouseEvent<HTMLButtonElement>) => {
-    const menu: MenuSpec = folded.map((i) => ({ label: `${i.title} · ${i.callsign}`, run: () => reveal(i) }));
+    const menu: MenuSpec = folded.map((i) => ({ label: `${i.title} · ${i.callsign}`, checked: i.key === shownKey || undefined, run: () => pick(i) }));
     const keys = folded.map((i) => i.key);
     if (group !== 'working') menu.push('separator');
     if (group === 'unread') menu.push({ label: 'Mark these as seen', run: () => markSeen(keys, `fold:${group}`) });
@@ -683,7 +718,7 @@ export function Bar() {
 
   const recentMenu = (e: MouseEvent<HTMLButtonElement>) => {
     void popup(
-      recent.map((i) => ({ label: `${i.title} · ${i.callsign} · ${ago(i.since, now)}`, run: () => reveal(i) })),
+      recent.map((i) => ({ label: `${i.title} · ${i.callsign} · ${ago(i.since, now)}`, run: () => pick(i) })),
       below(e),
     );
   };
@@ -782,7 +817,7 @@ export function Bar() {
           failed?.anchor === i.key ? (
             failedPill()
           ) : (
-            <SessionPill key={i.key} item={i} now={now} peeked={peeked.key === i.key} dragged={dragging === i.key} onOpen={(e) => clickPill(i, e)} onMenu={() => sessionMenu(i)} onHover={(e) => hover(i, e)} onLeave={stopHover} onPress={(e) => pressPill(i, e)} onDrag={(e) => dragPill(i, e)} />
+            <SessionPill key={i.key} item={i} now={now} peeked={shownKey === i.key} told={docked} dragged={dragging === i.key} onOpen={(e) => clickPill(i, e)} onMenu={() => sessionMenu(i)} onHover={(e) => hover(i, e)} onLeave={stopHover} onPress={(e) => pressPill(i, e)} onDrag={(e) => dragPill(i, e)} />
           ),
         ),
         ...(folded.length
@@ -795,6 +830,7 @@ export function Bar() {
                   group={group}
                   label={shown.length ? `+${folded.length}` : String(folded.length)}
                   title={`${folded.length} ${shown.length ? 'more ' : ''}${GROUP_WORD[group]}:\n${folded.map((i) => i.title).join('\n')}`}
+                  peeked={folded.some((i) => i.key === shownKey)}
                   onOpen={(e) => foldMenu(group, folded, e)}
                 />
               ),
@@ -837,11 +873,45 @@ export function Bar() {
           moment={moment}
           counts={{ needs: byGroup.needs.length, reviews: reviews.length, unread: byGroup.unread.length, working: byGroup.working.length }}
           room={Math.min(MAX_WIDTH, window.screen.availWidth - SCREEN_ROOM)}
+          screenH={window.screen.height}
           project={picking ? <ProjectButton name={current} others={others} open={projectMenuOpen} onOpen={projectMenu} /> : null}
-          held={peeked.key !== null || projectMenuOpen || menusUp > 0 || dragging !== null}
+          held={projectMenuOpen || menusUp > 0 || dragging !== null}
+          session={
+            stage.key ? (
+              <NotchSession
+                sessionKey={stage.key}
+                rename={stage.rename}
+                now={now}
+                queue={stage.queue}
+                notice={stage.notice}
+                keys={stage.keys}
+                onKeys={stage.takeKeys}
+                onShow={stage.show}
+                onClose={stage.close}
+                onNext={stage.next}
+                onLeft={stage.left}
+                onGone={(key) => {
+                  stage.close();
+                  setFailed({ anchor: key, message: 'That session is no longer on the board.' });
+                }}
+              />
+            ) : null
+          }
+          sessionOpen={stage.open}
+          sessionKeys={stage.keys}
+          onSessionLeft={stage.close}
+          onPress={() => void stage.press()}
+          onCount={(group) => {
+            const first = byGroup[group][0];
+            if (first) stage.show(first.key);
+          }}
           keepOpen={keepOpen}
           onKeepOpen={pinOpen}
-          onMark={() => void showMain()}
+          onMark={() => {
+            // The keyboard goes to Codealong's window with it.
+            stage.close();
+            void showMain();
+          }}
           onMenu={barMenu}
         >
           {sections.flatMap((section, i) => [...(i > 0 ? [<span key={`divider-${i}`} className="ca-hud-divider" aria-hidden="true" />] : []), ...section])}

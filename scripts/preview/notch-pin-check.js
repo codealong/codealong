@@ -37,6 +37,9 @@
     })
     .then(function () {
       check('closed, a click on the pin only opens the notch', isOpen() && calls('set_notch_open').length === 0);
+      // It opened on a session, as a click anywhere on it does: put away, the pills stay under
+      // the pointer.
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', cancelable: true }));
       return wait(500);
     })
     .then(function () {

@@ -878,6 +878,26 @@ export function onNotchPointer(cb: (on: boolean) => void): () => void {
   return onWindowEvent<boolean>('notch-pointer', cb);
 }
 
+/** The bar docked in the notch shows a session under its pills and takes the keyboard for it, or
+ *  has put it away and hands the keyboard back to the app you're in (bar.rs `set_keys`). */
+export async function notchKeys(on: boolean): Promise<void> {
+  if (!inTauri) return;
+  await invoke('notch_keys', { on });
+}
+
+/** Calls `cb` when the docked bar loses the keyboard without having given it up: a click
+ *  somewhere else, or another window or app taking it. */
+export function onNotchKeys(cb: (has: boolean) => void): () => void {
+  return onWindowEvent<boolean>('notch-keys', cb);
+}
+
+/** Keeps the session the docked bar shows on the desktop, in a window of its own where its card
+ *  is (kept.rs): the card as the page measured it, in CSS pixels from the window's top left. */
+export async function keepNotchSession(key: string, card: PillRect): Promise<void> {
+  if (!inTauri) return;
+  await invoke('keep_notch_session', { key, ...card });
+}
+
 /** Calls `cb` whenever the floating bar is turned on or off, from any window or menu. */
 export function onBarOn(cb: (on: boolean) => void): () => void {
   if (!inTauri) return () => {};

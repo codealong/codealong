@@ -65,6 +65,12 @@ export function parseHistory(text: string | null): History {
   }
 }
 
+/** ⌃- and ⌃⇧-, back and forward through the sessions you looked at, as VS Code has them. The key
+ *  goes by what it types or where it is, so a layout that puts - elsewhere has it too. */
+export function historyChord(e: Pick<KeyboardEvent, 'key' | 'code' | 'ctrlKey' | 'metaKey' | 'altKey'>): boolean {
+  return e.ctrlKey && !e.metaKey && !e.altKey && (e.key === '-' || e.key === '_' || e.code === 'Minus');
+}
+
 export interface SessionHistory {
   /** The session Back would show, or null with none. */
   back: string | null;

@@ -131,7 +131,9 @@ can't be seen this way; say so rather than claiming they were checked.
 can type into it or click its menus open).
 `scripts/preview.sh lineage` renders the lines between desktop cards (lineage.rs) over stand-ins
 for the cards, from `scripts/preview/lineage-desk.js`. `scripts/preview.sh bar` renders the floating bar on a stand-in desktop (`PREVIEW_SIZE=1600,64` for
-a wider screen), from the feed `--snapshot --bar` prints. The engine the preview runs is whatever
+a wider screen), from the feed `--snapshot --bar` prints, and `scripts/preview.sh notch` the bar docked
+in the notch, closed (`PREVIEW_SIZE=1512,720 PREVIEW_INIT=scripts/preview/notch-session-init.js` opens it
+on a session; `notch-session-check.js` checks its clicks and keys). The engine the preview runs is whatever
 was last built into the shared directory, possibly another session's: `PREVIEW_BIN=<a copy of
 your build>` uses yours. `PREVIEW_TODOS=scripts/preview/todos-sample.json scripts/preview.sh todo` shows
 sample todos linked to your real worktrees and sessions in place of your own, and
@@ -279,15 +281,24 @@ some work is, answer with one.
   what a click does; a change to what a card shows goes in `card/`, never into one of them.
 - A session shown with its conversation is one component wherever it is: `ui/SessionPanel.tsx`
   (the header in `ui/SessionHeader.tsx`, the conversation, the reply box), as a panel in the main
-  window and as a card in the bar's peek and the quick panel's reply view. A window says what it
-  can do by the props it passes; a change to the header goes in `SessionHeader.tsx` and shows in
-  all three. `sessionContext.ts` looks up what the header says around a session (its PRs, todos
-  and lineage) for the windows without the main window's indexes. The windows that show one
-  session as a card (the peek, a session kept on the desktop, the quick panel's reply view) all
-  go through `ui/SessionCard.tsx`, which builds the session's menu, the menus of what its header
-  names and its shortcuts once; a window passes only what differs (how it reports and opens,
-  what it does once the session has left). What a card can do to its session goes there, not
-  into `Peek.tsx` or `Quick.tsx`.
+  window and as a card in the bar's peek, under the pills of the bar docked in the notch and in
+  the quick panel's reply view. A window says what it can do by the props it passes; a change to
+  the header goes in `SessionHeader.tsx` and shows in all of them. `sessionContext.ts` looks up
+  what the header says around a session (its PRs, todos and lineage) for the windows without the
+  main window's indexes. The windows that show one session as a card (the peek, a session kept on
+  the desktop, the notch, the quick panel's reply view) all go through `ui/SessionCard.tsx`, which
+  builds the session's menu, the menus of what its header names and its shortcuts once; a window
+  passes only what differs (how it reports and opens, what it does once the session has left).
+  What a card can do to its session goes there, not into `Peek.tsx`, `NotchSession.tsx` or
+  `Quick.tsx`. The ones that aren't the board's (the peek, a kept session, the notch) read their
+  session and what's around it through `ui/cardHost.ts`.
+- The bar docked in the notch shows one of three things, in one window through one clip
+  (`Notch.tsx`, sized by `bar.ts` `notchSizes`): the notch alone, the bar's pills under it (the
+  pointer on it, or pinned), and a session under the pills (a click on its pill;
+  `NotchSession.tsx`). It has no peek. The session works through what waits on you with the keys
+  a session's panel has in Sessions (⌘⏎, ⌘E, ⌘], ⌥⇧↑ ⌥⇧↓, ⌥↑ ⌥↓, ⌃- ⌃⇧-), over the bar's own
+  list (`bar.ts` `waitingAfter`, the rule the quick panel and Sessions go by, `quick.ts`
+  `leftAfter`); a key for getting about added to one goes in all three.
 - A side conversation (side.rs) is a harness's throwaway copy of a session, described by its
   adapter (`Adapter::side`: the process, and a `Dialect` that turns its lines into what was
   said, the tool it runs and the end of a turn, and questions into lines). The dialects are
@@ -1220,10 +1231,22 @@ Tauri and macOS (from the Tauri 2.11 and tao 0.35 sources)
   has a safe area of 0 and empty sides. A web view takes the clicks on its clear parts, and a
   window resized as its page animates shows, for a frame, its old picture pinned to the new
   window's corner (WebKit draws in a process of its own): opening the docked bar that way looked
-  glitchy. So its window keeps the size it opens to, the page shows the shape through an animated
+  glitchy. So its window keeps the size it opens to at its biggest, with a session under its pills
+  (about 940 by 620 points, clear but for the shape), the page shows the shape through an animated
   clip, and bar.rs looks at the pointer every 40 ms while it's docked, letting clicks through
   (`setIgnoresMouseEvents`) off the shape the page reports, and telling the page when the pointer
-  comes onto the shape and leaves it, which a window letting clicks through doesn't.
+  comes onto the shape and leaves it, which a window letting clicks through doesn't. A press that
+  began on the shape stays the shape's until it's let go, for a selection dragged past its edge.
+- The docked bar has the keyboard only while it shows a session (`bar::set_keys`). Its panel
+  answers `canBecomeKeyWindow` and `isKeyWindow` truthfully while it's asked to have it and as
+  the floating bar does otherwise (no, and yes), as the peek's panel does, so the cards on the
+  desktop, which share the class, never take it. A key panel hands the keyboard back to the app
+  you're in when it's ordered out and at no other time AppKit offers, and the bar has to stay up,
+  so `drop_keys` orders it out and in again in one turn of the run loop; AppKit has sent a turn's
+  window changes to the screen together since 10.11, so nothing should show. Not yet checked by
+  hand (2026-10-01): that the app you were in gets its keys back at once, and that the notch
+  doesn't blink as it does. If it blinks, a second, unseen panel can take the keyboard from the
+  bar and be the one ordered out.
 - Only a non-activating NSPanel goes onto another app's full-screen Space; an ordinary window
   doesn't, whatever its level or `fullScreenAuxiliary`. Tauri makes NSWindows, so `bar.rs` swaps
   the bar's class to an NSPanel subclass (NSPanel adds no storage) before it's first shown: a
@@ -1242,7 +1265,8 @@ Tauri and macOS (from the Tauri 2.11 and tao 0.35 sources)
   when the window is ordered on screen). An inactive page gets mouse moves only for its
   scrollbars: no DOM mouse events, no tooltips, and `:hover` stays where the last click put it
   (WebKit's WebFrame.cpp, checked in an offscreen WKWebView on 2026-09-26). The bar's panel refuses
-  key but answers yes, and allows tooltips while Codealong is in the background. A WKWebView takes
+  key, except docked while it shows a session (below), but answers yes, and allows tooltips
+  while Codealong is in the background. A WKWebView takes
   mouse moves from its own tracking area, active always with classic scroll bars and in the key
   window with overlay ones, and has no `mouseMoved:` to call: a test sends them with
   `_simulateMouseMove:`.

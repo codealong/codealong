@@ -1,8 +1,9 @@
 // Checks the bar docked in the notch (Notch.tsx): closed it shows the most urgent count and tells
 // Codealong its shape; pointing at it grows it a little at once and opens it after a moment, the
 // clip only ever growing and the window never resized; leaving closes it after a moment; a click
-// opens it at once; it stays open while the peek is up; and Codealong's own word of the pointer
-// (`notch-pointer`) works as the page's events do.
+// opens it at once, on the current session; a peek up elsewhere (a card's on the desktop) doesn't hold it open, since a
+// docked bar has none of its own; and Codealong's own word of the pointer (`notch-pointer`) works
+// as the page's events do. The session it shows under its pills has notch-session-check.js.
 //   PREVIEW_WAIT=40000 scripts/preview.sh notch '' scripts/preview/notch-check.js
 (function () {
   var out = [];
@@ -68,7 +69,9 @@
         .then(function () {
           clearInterval(sampler);
           var back = samples.filter(function (v, i) { return i > 0 && v > samples[i - 1] + 0.5; }).length;
-          check('opens smoothly, never jumping back', back === 0 && samples[samples.length - 1] === 0, back + ' backward steps in ' + samples.length + ', last ' + samples[samples.length - 1]);
+          // It's laid out as wide as it gets with a session; the pills show through the clip.
+          var rest = (notch().getBoundingClientRect().width - lastShape().w) / 2;
+          check('opens smoothly, never jumping back', back === 0 && samples[samples.length - 1] === rest, back + ' backward steps in ' + samples.length + ', last ' + samples[samples.length - 1] + ' of ' + rest);
           check('never resizes its window', fits().slice(fitsAtStart).every(function (f) { return f === windowAtStart; }), windowAtStart + ' then ' + fits().slice(fitsAtStart).join(' '));
           var least = Math.min.apply(null, overlaps);
           var most = Math.max.apply(null, overlaps);
@@ -93,14 +96,24 @@
     })
     .then(function () {
       check('a click opens it at once', isOpen());
-      window.__emit('peek', { key: 'some-session', engaged: false });
-      leave();
-      return wait(1200);
+      // On the current session, when the bar has any (notch-session-check.js has the rest).
+      check('on a session when there is one', !document.querySelector('.ca-notch-body .ca-hud-pill[data-key]') || notch().classList.contains('is-session'));
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', cancelable: true }));
+      return until(function () { return !isOpen(); }, 2000).then(function () { check('Escape closes it', true); });
+    })
+    .then(function () { return wait(500); })
+    .then(function () {
+      enter();
+      return until(isOpen, 1500);
     })
     .then(function () {
-      check('stays open while the peek is up', isOpen());
+      window.__emit('peek', { key: 'some-session', engaged: false });
+      leave();
+      return until(function () { return !isOpen(); }, 2000).then(function () { check('closes with a peek up elsewhere', true); });
+    })
+    .then(function () {
       window.__emit('peek', { key: null, engaged: false });
-      return until(function () { return !isOpen(); }, 2000).then(function () { check('closes once the peek goes', true); });
+      return wait(100);
     })
     .then(function () {
       // Codealong's word of the pointer, as in the app, where the window lets it through.

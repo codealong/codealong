@@ -1,19 +1,26 @@
 // The bar docked in the notch (bar.rs): one black shape with the hardware notch at the top of the
-// screen, always dark whatever the theme. Closed, it's the notch with a side on each hand: the
-// mark on the left, and on the right the most urgent thing and how many: the sessions that need
-// you, else the PRs that wait on your review, else the turns that ended, else what's running. Pointing at it for a
-// moment, or clicking it, opens it down into the bar's pills; it closes a moment after the
-// pointer leaves, unless the peek or a menu is up, or its pin keeps it open.
+// screen, always dark whatever the theme. It shows one of three things. Closed, it's the notch
+// with a side on each hand: the mark on the left, and on the right the most urgent thing and how
+// many: the sessions that need you, else the PRs that wait on your review, else the turns that
+// ended, else what's running. Pointing at it for a moment, or clicking it, opens it down into the
+// bar's pills, with the project and every count beside the camera; it closes a moment after the
+// pointer leaves, unless a menu is up or its pin keeps it open. And a click opens it further, into
+// a session under the pills, to read and answer (NotchSession.tsx): a click on a session's pill
+// into that one, a click on the notch itself into the current one, and a second click on either
+// puts it away. There's no peek beside a docked bar. A session has the keyboard, and stays up whatever the
+// pointer does until it's put away; one that lost the keyboard to another app stays while the
+// pointer is on it.
 //
-// The shape is laid out once at its open size and shown through a clip, so opening and closing
-// animate the clip and the corners alone: nothing inside moves or lays out again, and the window
-// keeps its size throughout (a window resized as it opens shows its old picture for a frame in
-// the wrong place). The window takes clicks only on the shape, so Codealong watches the pointer
-// and says when it comes onto the shape and leaves it (`notch-pointer`).
+// Everything is laid out once, at the size it has with a session, and shown through a clip, so
+// each state animates the clip and the corners alone: nothing inside moves or lays out again, and
+// the window keeps its size throughout (a window resized as it opens shows its old picture for a
+// frame in the wrong place). The window takes clicks only on the shape, so Codealong watches the
+// pointer and says when it comes onto the shape and leaves it (`notch-pointer`).
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { fitBar, notchShape, onNotchPointer, type Notch } from '../api';
 import { NOTCH, NOTCH_ORDER, notchClip, notchSizes, type Group, type NotchKind, type NotchState, type Size } from '../bar';
+import type { BarGroup } from '../types';
 import type { Moment } from '../mark';
 import type { LogoStatus, Status } from '../types';
 import { MarkLive } from './MarkLive';
@@ -35,12 +42,26 @@ export interface NotchShellProps {
   /** How many sessions are in each of the bar's groups, and how many open PRs wait on your
    *  review. */
   counts: Record<NotchKind, number>;
-  /** The widest the pills below can get. */
+  /** The widest the pills below can get, and the screen's height, which a session fits. */
   room: number;
+  screenH: number;
   /** The project button, beside the mark while it's open. */
   project: ReactNode;
-  /** Keeps it open: the peek is up, or a menu. */
+  /** Keeps it open: a menu is up, or a pill is being dragged off it. */
   held: boolean;
+  /** The session shown under the pills, while there is one and for a moment after, as it's put
+   *  away; `sessionOpen` while it shows, and `sessionKeys` while it has the keyboard. */
+  session: ReactNode;
+  sessionOpen: boolean;
+  sessionKeys: boolean;
+  /** The pointer has been off a session without the keyboard for a moment, or the keyboard went
+   *  with the pointer elsewhere: time to put it away. */
+  onSessionLeft: () => void;
+  /** A click on a group's count, open: its first session shows. */
+  onCount: (group: BarGroup) => void;
+  /** A click on the notch itself, off its pills and buttons: the current session shows, or the
+   *  one showing is put away. Closed, a click anywhere on it is one. */
+  onPress: () => void;
   /** Kept open until it's unpinned, whatever the pointer does. */
   keepOpen: boolean;
   onKeepOpen: (keep: boolean) => void;
@@ -50,15 +71,22 @@ export interface NotchShellProps {
   children: ReactNode;
 }
 
-export function NotchShell({ notch, logoStatus, moment, counts, room, project, held, keepOpen, onKeepOpen, onMark, onMenu, children }: NotchShellProps) {
+export function NotchShell({ notch, logoStatus, moment, counts, room, screenH, project, held, session, sessionOpen, sessionKeys, onSessionLeft, onCount, onPress, keepOpen, onKeepOpen, onMark, onMenu, children }: NotchShellProps) {
+  // The pills show, under the pointer or pinned; a session shows under them.
   const [open, setOpen] = useState(keepOpen);
   // The pointer is on the shape.
   const [on, setOn] = useState(false);
   const onNow = useRef(false);
-  const heldNow = useRef(held);
-  heldNow.current = held;
+  // A session with the keyboard holds it open as a menu does.
+  const holding = held || (sessionOpen && sessionKeys);
+  const heldNow = useRef(holding);
+  heldNow.current = holding;
   const keepNow = useRef(keepOpen);
   keepNow.current = keepOpen;
+  const sessionNow = useRef(sessionOpen);
+  sessionNow.current = sessionOpen;
+  const sessionLeft = useRef(onSessionLeft);
+  sessionLeft.current = onSessionLeft;
   const timer = useRef<number | null>(null);
   const body = useRef<HTMLDivElement>(null);
   const left = useRef<HTMLDivElement>(null);
@@ -71,9 +99,11 @@ export function NotchShell({ notch, logoStatus, moment, counts, room, project, h
     window.addEventListener('resize', resized);
     return () => window.removeEventListener('resize', resized);
   }, []);
-  const sizes = notchSizes(notch, natural.body, natural.side, room);
-  const state: NotchState = open ? 'open' : on ? 'hover' : 'closed';
+  const sizes = notchSizes(notch, natural.body, natural.side, room, screenH);
+  const state: NotchState = sessionOpen ? 'session' : open ? 'pills' : on ? 'hover' : 'closed';
   const clip = notchClip(sizes, state);
+  // Something shows under the notch.
+  const below = state === 'pills' || state === 'session';
 
   // What opens below, and what the sides hold open, measured at their own size.
   useLayoutEffect(() => {
@@ -97,9 +127,9 @@ export function NotchShell({ notch, logoStatus, moment, counts, room, project, h
     reported.current = key;
     void fitBar(sizes.window.w, sizes.window.h);
   }, [sizes.window.w, sizes.window.h]);
-  const x = Math.round((viewW - sizes.open.w) / 2);
-  const shownW = sizes.open.w - 2 * clip.side;
-  const shownH = sizes.open.h - clip.bottom;
+  const x = Math.round((viewW - sizes.session.w) / 2);
+  const shownW = sizes.session.w - 2 * clip.side;
+  const shownH = sizes.session.h - clip.bottom;
   useLayoutEffect(() => {
     void notchShape(x + clip.side, 0, shownW, shownH);
   }, [x, clip.side, shownW, shownH]);
@@ -113,7 +143,10 @@ export function NotchShell({ notch, logoStatus, moment, counts, room, project, h
     clear();
     timer.current = window.setTimeout(() => {
       timer.current = null;
-      if (!onNow.current && !heldNow.current && !keepNow.current) setOpen(false);
+      if (onNow.current || heldNow.current) return;
+      // A session still up here is one without the keyboard: it goes with the pointer.
+      if (sessionNow.current) sessionLeft.current();
+      if (!keepNow.current) setOpen(false);
     }, CLOSE_AFTER_MS);
   }, []);
 
@@ -138,14 +171,37 @@ export function NotchShell({ notch, logoStatus, moment, counts, room, project, h
   // Codealong says where the pointer is; in a preview, the page's own events do.
   useEffect(() => onNotchPointer((isOn) => (isOn ? enter() : leave())), [enter, leave]);
 
-  // The peek or a menu going away, or the pin coming out, with the pointer elsewhere closes it
-  // too; pinned, it opens at once.
+  // A menu going away, or the pin coming out, with the pointer elsewhere closes it too; pinned,
+  // it opens at once.
   useEffect(() => {
     if (keepOpen) {
       clear();
       setOpen(true);
-    } else if (!held && open && !onNow.current) leaveSoon();
-  }, [held, keepOpen, open, leaveSoon]);
+    } else if (!holding && open && !onNow.current) leaveSoon();
+  }, [holding, keepOpen, open, leaveSoon]);
+
+  // A session shows under the pills, so they show with it. Put away with the pointer elsewhere,
+  // the whole shape goes back into the notch in one move, unless the pin keeps the pills. Before
+  // the page is drawn, so it never shows the pills alone on its way.
+  const wasSession = useRef(sessionOpen);
+  useLayoutEffect(() => {
+    if (sessionOpen) {
+      clear();
+      setOpen(true);
+    } else if (wasSession.current && !onNow.current && !keepNow.current && !heldNow.current) {
+      clear();
+      setOpen(false);
+    }
+    wasSession.current = sessionOpen;
+  }, [sessionOpen]);
+
+  // The keyboard went from a session (a click somewhere else, another app taking it) with the
+  // pointer elsewhere too: it's put away at once. With the pointer still on it, it stays.
+  const hadKeys = useRef(sessionKeys);
+  useEffect(() => {
+    if (sessionOpen && hadKeys.current && !sessionKeys && !onNow.current) sessionLeft.current();
+    hadKeys.current = sessionKeys;
+  }, [sessionOpen, sessionKeys]);
 
   useEffect(() => clear, []);
 
@@ -154,13 +210,13 @@ export function NotchShell({ notch, logoStatus, moment, counts, room, project, h
   // WebKit runs a transform's animation apart from the page's, and the corners fell out of step
   // with the shape. Each reaches 3 points under the shape's edge: where two antialiased edges
   // meet at a fraction of a pixel as they move, the menu bar would show through between them.
-  const ear = open ? NOTCH.ear.open : NOTCH.ear.closed;
+  const ear = below ? NOTCH.ear.open : NOTCH.ear.closed;
   const under = 3;
 
   return (
     <div
-      className={['ca-notch', `is-${state}`, !notch.real && 'is-drawn'].filter(Boolean).join(' ')}
-      style={{ left: x, width: sizes.open.w, height: sizes.open.h, '--notch-w': `${notch.width}px`, '--notch-h': `${notch.height}px` } as CSSProperties}
+      className={['ca-notch', `is-${state}`, below && 'is-open', !notch.real && 'is-drawn'].filter(Boolean).join(' ')}
+      style={{ left: x, width: sizes.session.w, height: sizes.session.h, '--notch-w': `${notch.width}px`, '--notch-h': `${notch.height}px` } as CSSProperties}
     >
       <span
         className="ca-notch-shadow"
@@ -168,19 +224,22 @@ export function NotchShell({ notch, logoStatus, moment, counts, room, project, h
         style={{ left: clip.side, right: clip.side, bottom: clip.bottom, borderRadius: `0 0 ${clip.radius}px ${clip.radius}px` }}
       />
       <span className="ca-notch-ear is-left" aria-hidden="true" style={{ left: clip.side - ear, width: ear + under, height: ear }} />
-      <span className="ca-notch-ear is-right" aria-hidden="true" style={{ left: sizes.open.w - clip.side - under, width: ear + under, height: ear }} />
+      <span className="ca-notch-ear is-right" aria-hidden="true" style={{ left: sizes.session.w - clip.side - under, width: ear + under, height: ear }} />
       <div
         className="ca-notch-shape"
         style={{ clipPath: `inset(0 ${clip.side}px ${clip.bottom}px ${clip.side}px round 0 0 ${clip.radius}px ${clip.radius}px)` }}
         onPointerEnter={enter}
         onPointerLeave={leave}
-        onClick={() => {
-          if (!open) {
-            clear();
-            setOpen(true);
-          }
+        onClick={(e) => {
+          // What's in it has clicks of its own once it shows.
+          if (open && e.target instanceof Element && e.target.closest('button, a, input, textarea, [role="button"], .ca-notch-session')) return;
+          clear();
+          setOpen(true);
+          onPress();
         }}
         onContextMenu={(e) => {
+          // The session has its own menu, and its box the one for copy and paste.
+          if (e.defaultPrevented || (e.target instanceof Element && e.target.closest('.ca-notch-session'))) return;
           e.preventDefault();
           onMenu();
         }}
@@ -198,7 +257,7 @@ export function NotchShell({ notch, logoStatus, moment, counts, room, project, h
           <div className="ca-notch-side is-right">
             <div ref={right} className="ca-notch-side-in">
               {shown.map((k, i) => (
-                <Count key={i === 0 ? `${k}-${counts[k]}` : k} kind={k} n={counts[k]} extra={i > 0} pulse={i === 0 && k === 'needs'} />
+                <Count key={i === 0 ? `${k}-${counts[k]}` : k} kind={k} n={counts[k]} extra={i > 0} pulse={i === 0 && k === 'needs'} open={open} onPick={onCount} />
               ))}
               <button
                 type="button"
@@ -219,8 +278,12 @@ export function NotchShell({ notch, logoStatus, moment, counts, room, project, h
             </div>
           </div>
         </div>
-        <div ref={body} className="ca-notch-body" style={{ left: Math.round((sizes.open.w - natural.body.w) / 2) }} aria-hidden={!open}>
+        <div ref={body} className="ca-notch-body" style={{ left: Math.round((sizes.session.w - natural.body.w) / 2) }} aria-hidden={!open}>
           {children}
+        </div>
+        {/* The session, under the pills: as wide as the shape and as tall as it opens. */}
+        <div className="ca-notch-session" style={{ top: sizes.pills.h, height: sizes.session.h - sizes.pills.h }} aria-hidden={!sessionOpen}>
+          {session}
         </div>
       </div>
     </div>
@@ -229,13 +292,33 @@ export function NotchShell({ notch, logoStatus, moment, counts, room, project, h
 
 /** A group's glyph, or the PR icon for reviews asked of you, and how many there are. The first
  *  beside the camera shows closed too; the others only open. One that needs you pulses when it
- *  comes, and again when the number changes. */
-function Count({ kind, n, extra, pulse }: { kind: NotchKind; n: number; extra?: boolean; pulse?: boolean }) {
-  const title = kind === 'reviews' ? (n === 1 ? '1 PR waits on your review' : `${n} PRs wait on your review`) : `${n} ${WORD[kind]}`;
+ *  comes, and again when the number changes. Open, a group's count is a button: its first session
+ *  shows under the pills, the way into working through them. */
+function Count({ kind, n, extra, pulse, open, onPick }: { kind: NotchKind; n: number; extra?: boolean; pulse?: boolean; open: boolean; onPick: (group: BarGroup) => void }) {
+  const className = ['ca-notch-count', `is-${kind}`, extra && 'ca-notch-extra', pulse && 'is-pulse'].filter(Boolean).join(' ');
+  if (kind === 'reviews') {
+    return (
+      <span className={className} title={n === 1 ? '1 PR waits on your review' : `${n} PRs wait on your review`}>
+        <Icon name="pr" size={12} stroke={1.75} />
+        <span>{n}</span>
+      </span>
+    );
+  }
   return (
-    <span className={['ca-notch-count', `is-${kind}`, extra && 'ca-notch-extra', pulse && 'is-pulse'].filter(Boolean).join(' ')} title={title}>
-      {kind === 'reviews' ? <Icon name="pr" size={12} stroke={1.75} /> : <StatusGlyph status={GLYPH[kind]} title="" />}
+    <button
+      type="button"
+      className={className}
+      title={`${n} ${WORD[kind]}${open ? '. Click to show the first.' : ''}`}
+      tabIndex={open ? 0 : -1}
+      onClick={(e) => {
+        // Closed, the click opens the notch, as anywhere on it.
+        if (!open) return;
+        e.stopPropagation();
+        onPick(kind);
+      }}
+    >
+      <StatusGlyph status={GLYPH[kind]} title="" />
       <span>{n}</span>
-    </span>
+    </button>
   );
 }

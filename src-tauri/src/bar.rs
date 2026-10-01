@@ -14,8 +14,11 @@
 //! (`notch_shape`); elsewhere they go through to the menu bar and the apps under it.
 //!
 //! It's a non-activating panel: macOS lets only those onto another app's full-screen Space. So a
-//! click in the bar doesn't make Codealong the active app, and it never takes the keyboard. After
-//! it opens a session, Codealong asks macOS to bring that app forward (`bring_forward`).
+//! click in the bar doesn't make Codealong the active app, and it doesn't take the keyboard,
+//! with one exception: docked, a click on a session's pill shows the session under the pills, to
+//! read and answer there, and for as long as that's up the bar has the keyboard (`set_keys`),
+//! as the peek has under the floating bar. After it opens a session, Codealong asks macOS to
+//! bring that app forward (`bring_forward`).
 //!
 //! Closing the main window hides it and the app keeps running with the bar; the Dock icon and the
 //! bar's mark bring it back. Whether the bar is on, where you left it and whether it stays open
@@ -234,6 +237,8 @@ struct Bar {
     /// and whether the pointer was last on it.
     shape: Mutex<Option<Rect>>,
     on_shape: AtomicBool,
+    /// Docked, it has the keyboard, for the session it shows under its pills.
+    keys: AtomicBool,
 }
 
 /// Makes the bar, shows it unless it's turned off, and adds Window › Floating bar.
@@ -250,6 +255,7 @@ pub fn setup(app: &AppHandle) -> Result<()> {
         shape: Mutex::new(None),
         // A new window takes clicks everywhere: the first look lets them through off the shape.
         on_shape: AtomicBool::new(true),
+        keys: AtomicBool::new(false),
     });
 
     let window = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("index.html".into()))
@@ -346,6 +352,11 @@ fn watch_pointer(app: &AppHandle) {
         return;
     };
     let on = on_shape(p, frame, shape);
+    // A press that began on the shape is the shape's until it's let go: text being selected in
+    // the session it shows, a scroll bar being dragged.
+    if !on && native::button_down() && state.on_shape.load(Ordering::Relaxed) {
+        return;
+    }
     if state.on_shape.swap(on, Ordering::Relaxed) != on {
         native::set_clickable(&bar, on);
         let _ = app.emit_to(LABEL, "notch-pointer", on);
@@ -360,6 +371,37 @@ pub fn set_shape(app: &AppHandle, shape: Rect) {
     }
     let handle = app.clone();
     let _ = app.run_on_main_thread(move || watch_pointer(&handle));
+}
+
+/// Docked, gives the bar the keyboard for the session it shows under its pills, or hands it back
+/// to the app you're in once that's put away. On the main thread.
+pub fn set_keys(app: &AppHandle, on: bool) {
+    let (Some(bar), Some(state)) = (app.get_webview_window(LABEL), app.try_state::<Bar>()) else {
+        return;
+    };
+    let on = on && mode_of(app) == Mode::Notch;
+    if state.keys.swap(on, Ordering::Relaxed) == on {
+        return;
+    }
+    if on {
+        native::take_keys(&bar);
+    } else {
+        native::drop_keys(&bar);
+    }
+}
+
+/// The docked bar lost the keyboard without being asked to give it up: a click somewhere else,
+/// or another window or app taking it. Its page hears, and puts the session away unless the
+/// pointer is still on it. On the main thread.
+fn lost_keys(app: &AppHandle) {
+    let (Some(bar), Some(state)) = (app.get_webview_window(LABEL), app.try_state::<Bar>()) else {
+        return;
+    };
+    if !state.keys.swap(false, Ordering::Relaxed) {
+        return;
+    }
+    native::drop_keys(&bar);
+    let _ = app.emit_to(LABEL, "notch-keys", false);
 }
 
 /// Puts the bar back up if it's on but not on screen, and writes down where it is after a move (a
@@ -389,14 +431,15 @@ fn keep_up(app: &AppHandle) {
     }
 }
 
-/// Window events that concern the bar: closing the main window hides it instead, and a moved bar
-/// is remembered. On the main thread.
+/// Window events that concern the bar: closing the main window hides it instead, a moved bar is
+/// remembered, and a docked one that loses the keyboard says so. On the main thread.
 pub fn on_window_event(window: &Window, event: &WindowEvent) {
     match event {
         WindowEvent::CloseRequested { api, .. } if window.label() == "main" => {
             api.prevent_close();
             let _ = window.hide();
         }
+        WindowEvent::Focused(false) if window.label() == LABEL => lost_keys(window.app_handle()),
         WindowEvent::Moved(_) if window.label() == LABEL => {
             let (Some(state), Some(bar)) = (window.try_state::<Bar>(), window.app_handle().get_webview_window(LABEL)) else {
                 return;
@@ -549,8 +592,12 @@ pub fn set_mode(app: &AppHandle, mode: Mode) {
     let handle = app.clone();
     let _ = app.run_on_main_thread(move || {
         let Some(bar) = handle.get_webview_window(LABEL) else { return };
-        // Floating, the bar takes every click; docked, the pointer watch decides.
+        // Floating, the bar takes every click; docked, the pointer watch decides. Only a docked
+        // bar ever has the keyboard.
         if let Some(state) = handle.try_state::<Bar>() {
+            if state.keys.swap(false, Ordering::Relaxed) {
+                native::drop_keys(&bar);
+            }
             state.on_shape.store(true, Ordering::Relaxed);
             if let Ok(mut s) = state.shape.lock() {
                 *s = None;
@@ -638,11 +685,12 @@ pub fn show_main(app: &AppHandle, reveal: Option<serde_json::Value>) -> Result<(
 /// The bar's panel, shared with the cards pinned to the desktop (desktop.rs), which float the same way.
 #[cfg(target_os = "macos")]
 pub(crate) mod native {
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::OnceLock;
 
     use objc2::runtime::{AnyClass, AnyObject, Bool, ClassBuilder, Sel};
-    use objc2::{sel, ClassType, MainThreadMarker};
-    use objc2_app_kit::{NSApplicationActivationOptions, NSEvent, NSMainMenuWindowLevel, NSPanel, NSRunningApplication, NSScreen, NSStatusWindowLevel, NSWindow, NSWindowAnimationBehavior, NSWindowCollectionBehavior, NSWindowOcclusionState, NSWindowStyleMask};
+    use objc2::{msg_send, sel, ClassType, MainThreadMarker};
+    use objc2_app_kit::{NSApplicationActivationOptions, NSEvent, NSMainMenuWindowLevel, NSPanel, NSResponder, NSRunningApplication, NSScreen, NSStatusWindowLevel, NSWindow, NSWindowAnimationBehavior, NSWindowCollectionBehavior, NSWindowOcclusionState, NSWindowStyleMask};
     use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
     use tauri::WebviewWindow;
 
@@ -657,19 +705,37 @@ pub(crate) mod native {
         unsafe { ptr.as_ref() }
     }
 
-    /// NSPanel that never becomes key or main, so the board keeps the keyboard and its place, but
-    /// says it's key when asked. WebKit treats a page whose window isn't key as inactive: it sends
-    /// such a page's mouse moves only to scrollbars, so pills never showed hover, `:hover` stayed on
-    /// whatever was last clicked, and no tooltip ever appeared. Keys still go to the app's real key
-    /// window, and menu commands skip the bar (`front_window` in lib.rs).
+    /// The panel that has the keyboard or is taking it, if any: the docked bar, while it shows a
+    /// session to answer (`take_keys`). The floating bar and the cards on the desktop never do.
+    static ENGAGED: AtomicUsize = AtomicUsize::new(0);
+
+    fn engaged(this: *const AnyObject) -> bool {
+        ENGAGED.load(Ordering::Relaxed) == this as usize
+    }
+
+    /// NSPanel that never becomes main and becomes key only while it's asked to (`take_keys`), so
+    /// the board keeps the keyboard and its place, but says it's key when asked. WebKit treats a
+    /// page whose window isn't key as inactive: it sends such a page's mouse moves only to
+    /// scrollbars, so pills never showed hover, `:hover` stayed on whatever was last clicked, and
+    /// no tooltip ever appeared. Keys still go to the app's real key window, and menu commands
+    /// skip the bar (`front_window` in lib.rs). While it has the keyboard or is taking it, it
+    /// answers truthfully, so AppKit sees a panel that isn't key yet and makes it so, as the
+    /// peek's panel does (peek.rs).
     fn panel_class() -> &'static AnyClass {
         static CLASS: OnceLock<&'static AnyClass> = OnceLock::new();
         CLASS.get_or_init(|| {
             extern "C" fn no(_: &AnyObject, _: Sel) -> Bool {
                 Bool::NO
             }
-            extern "C" fn yes(_: &AnyObject, _: Sel) -> Bool {
-                Bool::YES
+            extern "C" fn can_be_key(this: &AnyObject, _: Sel) -> Bool {
+                Bool::new(engaged(this))
+            }
+            extern "C" fn is_key(this: &AnyObject, _: Sel) -> Bool {
+                if !engaged(this) {
+                    return Bool::YES;
+                }
+                // SAFETY: NSWindow's own `- (BOOL)isKeyWindow`, asked of the panel it was asked of.
+                unsafe { msg_send![super(this, NSPanel::class()), isKeyWindow] }
             }
             // Where it's put is where it goes: docked, the bar sits over the menu bar, which
             // AppKit would otherwise keep a window below.
@@ -681,9 +747,9 @@ pub(crate) mod native {
                     // SAFETY: the overrides match NSWindow's `- (BOOL)canBecome…Window` and
                     // `- (BOOL)isKeyWindow`.
                     unsafe {
-                        builder.add_method(sel!(canBecomeKeyWindow), no as extern "C" fn(_, _) -> _);
+                        builder.add_method(sel!(canBecomeKeyWindow), can_be_key as extern "C" fn(_, _) -> _);
                         builder.add_method(sel!(canBecomeMainWindow), no as extern "C" fn(_, _) -> _);
-                        builder.add_method(sel!(isKeyWindow), yes as extern "C" fn(_, _) -> _);
+                        builder.add_method(sel!(isKeyWindow), is_key as extern "C" fn(_, _) -> _);
                         builder.add_method(sel!(constrainFrameRect:toScreen:), as_asked as extern "C" fn(_, _, _, _) -> _);
                     }
                     builder.register()
@@ -737,6 +803,40 @@ pub(crate) mod native {
         n.setStyleMask(n.styleMask() & !NSWindowStyleMask::NonactivatingPanel);
         // SAFETY: the class the object had before, which make_panel checked is no larger than it.
         unsafe { AnyObject::set_class(n, original.0) };
+    }
+
+    /// Makes the panel the key window, and its webview the first responder, so the page's keys
+    /// reach what it focused. Codealong stays inactive: the app you're in keeps its menu bar.
+    pub fn take_keys(w: &WebviewWindow) {
+        let Some(n) = ns(w) else { return };
+        ENGAGED.store(n as *const NSWindow as usize, Ordering::Relaxed);
+        n.makeKeyWindow();
+        let window = w.clone();
+        let _ = w.with_webview(move |webview| {
+            let Some(n) = ns(&window) else { return };
+            let ptr = webview.inner() as *const NSResponder;
+            // SAFETY: on macOS `inner` is the webview's WKWebView, an NSResponder that lives as
+            // long as the window; this runs on the main thread.
+            if let Some(view) = unsafe { ptr.as_ref() } {
+                n.makeFirstResponder(Some(view));
+            }
+        });
+    }
+
+    /// Hands the keyboard back to the app you're in, with the panel still up. A key panel gives
+    /// the keyboard up when it's ordered out and at no other time AppKit offers, so it's ordered
+    /// out and in again in one turn of the run loop, which the screen shows as nothing: AppKit
+    /// sends a turn's window changes to the screen together. It comes back saying it's key, as
+    /// it does whenever it hasn't the keyboard, so its page still gets the pointer.
+    pub fn drop_keys(w: &WebviewWindow) {
+        let Some(n) = ns(w) else { return };
+        // Ordered out while it still answers truthfully, so AppKit sees a key panel going.
+        if engaged(n as *const NSWindow as *const AnyObject) && n.isKeyWindow() {
+            n.orderOut(None);
+        }
+        ENGAGED.store(0, Ordering::Relaxed);
+        // WebKit reads whether the window is key as it's ordered on screen.
+        n.orderFrontRegardless();
     }
 
     /// Asks the running app with this bundle ID to come forward.
@@ -892,6 +992,10 @@ pub(crate) mod native {
     }
     pub fn set_level(_: &WebviewWindow, _: bool) {}
     pub fn set_clickable(_: &WebviewWindow, _: bool) {}
+    pub fn take_keys(w: &WebviewWindow) {
+        let _ = w.set_focus();
+    }
+    pub fn drop_keys(_: &WebviewWindow) {}
     pub fn set_under_cards(_: &WebviewWindow) {}
     pub fn no_animation(_: &WebviewWindow) {}
     pub fn hide(w: &WebviewWindow) {

@@ -495,10 +495,26 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   one black shape with the notch, dark whatever the theme, showing the mark on the camera's
   left and, on its right, the most urgent thing and how many (Needs you, then PRs that wait on
   your review, then Your turn, then Working; a new one that needs you pulses). Rest the pointer on it for a moment, or click it,
-  and it opens down into the bar's pills, the peek opening under them as on the floating bar;
-  it closes a moment after the pointer leaves, and stays open while the peek or one of its
+  and it opens down into the bar's pills, with the project and every count beside the camera;
+  it closes a moment after the pointer leaves, and stays open while one of its
   menus is up. The pin at the end of its right side, or Keep the notch open in its right-click
-  menu, keeps it open until you unpin it, across launches. A screen without a notch (an external display) gets one drawn at the top center
+  menu, keeps it open until you unpin it, across launches. There's no peek beside a docked bar:
+  click a session's pill and the notch opens further, into that session under the pills, its
+  header, its conversation and the box that answers it, dark as the notch is. It has the
+  keyboard from the click, with the cursor in the box, and works through what waits on you as a
+  session's panel in Sessions does, with the same keys: ⌘⏎ sends (or allows what the session
+  waits on) and goes on to the next that waits on you, ⌘E marks a finished turn seen and goes
+  on, ⌘] or ⌥⇧↓ skips to the next and ⌥⇧↑ goes back, ⌥↑ ⌥↓ step along the bar's sessions, the
+  running ones too, and ⌃- and ⌃⇧- go back and forward through the ones you looked at there. A
+  strip over the header says how many more wait and how the last one went, and the pill of the
+  one shown is marked. Marked seen, snoozed or archived, a session leaves the bar and the next
+  takes its place; with none left the notch closes. Escape, a click on its pill again or a click
+  anywhere else puts the session away and the app you were in has the keyboard back; if another
+  app takes the keyboard while the pointer is still on it, it stays until the pointer leaves.
+  A count beside the camera shows its group's first session, a session picked from a folded
+  pill's menu or the recent ones shows there too, a double-click on a pill still opens the
+  session where it lives, and the pin in the session's header keeps it on the desktop in a
+  window of its own, where it was. A screen without a notch (an external display) gets one drawn at the top center
   of its menu bar. The pair of buttons at the top right of the window floats the bar or puts it
   in the notch, and picking the one that's on turns it off, as do Window › Floating bar and Bar
   in the notch and the bar's own right-click menu.
@@ -786,8 +802,9 @@ light scan (no git, PRs or visitors).
 | `src-tauri/src/harness.rs` | The interface each harness implements: an `Adapter` for a session (its record and conversation, what it waits on you to allow, opening, sending, starting, searching, renaming with `src/ui/RenameDialog.tsx`) and for an account, and a `Reader` that reads its sessions for the board; CLAUDE.md's "Adding a harness" lists it all |
 | `src-tauri/src/transcript.rs`, `src/ui/SessionPanel.tsx`, `src/ui/SessionHeader.tsx`, `src/sessionContext.ts`, `src/ui/SessionThread.tsx`, `src/ui/SessionReply.tsx` | A session's conversation, read a page at a time from its own record, the panel that shows it, and the box that sends it messages or answers what it waits on |
 | `src-tauri/src/peek.rs`, `src/ui/Peek.tsx` | The floating bar's peek: its window (a panel under the bar that takes the keyboard only on a click), where it opens for a pill and when it closes. What it shows is the session's card (`ui/SessionCard.tsx`), as the quick panel's ⇥ does |
-| `src/ui/SessionCard.tsx` | A session as a card of its own, for the peek, a session kept on the desktop and the quick panel's reply view: the session's panel with its menus, what's around it and its shortcuts wired once |
-| `src-tauri/src/kept.rs` | Sessions kept on the desktop from the peek: a window each, made as the peek's is, `kept.json`, sizing and closing. `Peek.tsx` draws them too |
+| `src/ui/Notch.tsx`, `src/ui/NotchSession.tsx` | The bar docked in the notch: its three states (closed, the pills, a session under them) shown through one clip, and the session it shows in place of a peek: which one, the queue it works through and its keys |
+| `src/ui/SessionCard.tsx`, `src/ui/cardHost.ts` | A session as a card of its own, for the peek, a session kept on the desktop, the session in the notch and the quick panel's reply view: the session's panel with its menus, what's around it and its shortcuts wired once; and, for the windows that aren't the board's, the session kept up with the board while its card is up |
+| `src-tauri/src/kept.rs` | Sessions kept on the desktop from the peek or the notch: a window each, made as the peek's is, `kept.json`, sizing and closing. `Peek.tsx` draws them too |
 | `src-tauri/src/search.rs` | Searching what was said in sessions: an in-memory index of prompts and replies, read once per file and then from where it stopped |
 | `src-tauri/src/route.rs`, `src-tauri/src/starts.rs`, `src/route.ts` | Suggestions in the quick panel: the request to Jev and reading its answer back, the key in the keychain, how your past starts weigh a new worktree, and which suggestions the panel shows |
 | `src-tauri/src/todojev.rs` | Jev on todos: which todo a new session is for, whether a todo's work looks done, and a todo's suggested project, labels and dependencies |
@@ -812,7 +829,7 @@ light scan (no git, PRs or visitors).
 | `src/prLinks.ts`, `src/ui/PrLink.tsx` | Links to PRs in conversations and prompts: the board's PRs by link, and the card a link shows on hover (`pr_card` for a PR the board doesn't list) |
 | `src-tauri/src/chrometabs.rs` | The Chrome tabs a Claude Code session drove through Claude in Chrome, read from its transcript; which profile they're in (the extension's storage, then History); bringing its tab forward by AppleScript, or its last page again in that profile |
 | `src-tauri/src/detect.rs` | The harness accounts on this device: folders, sign-ins, and the wrappers and aliases that run them |
-| `src-tauri/src/bar.rs`, `barfeed.rs` | The bar's window (a panel over every app, floating where you put it or docked in the notch, found from the screen's sides of the menu bar, where it takes clicks only on the shape it shows; Window › Floating bar and Bar in the notch) and the small feed of what it shows, sent only when that changes |
+| `src-tauri/src/bar.rs`, `barfeed.rs` | The bar's window (a panel over every app, floating where you put it or docked in the notch, found from the screen's sides of the menu bar, where it takes clicks only on the shape it shows and has the keyboard only while it shows a session; Window › Floating bar and Bar in the notch) and the small feed of what it shows, sent only when that changes |
 | `src-tauri/src/origins.rs`, `src/lineage.ts`, `src-tauri/src/lineage.rs`, `src/ui/DesktopLines.tsx` | Where sessions came from: Codealong's own record of starts and forks (`origins.json`), the line drawn between them on the canvas and between desktop cards, and the clear window under the cards that draws it there |
 | `src/ui/card/` | The card the Canvas view and the desktop share: what it shows, looked up from the board (`data.ts`), its face (`CardFace.tsx`), and the popover a canvas card opens (`CardPopover.tsx`). The canvas and the desktop add only where a card goes and what a click does |
 | `src-tauri/src/desktop.rs`, `src/ui/DesktopPin.tsx` | Cards pinned to the desktop: a window each, made as the bar's is, where a new one goes, `desktop.json`, and what each shows, cut from the board and sent only when it changes; the page draws the card the Canvas view draws (`ui/card/`). `drag_out` follows the pointer for a thing dragged out of a window |

@@ -72,8 +72,10 @@ export interface SessionHeaderProps {
   /** The session's actions (menus.ts), as its menu has them: the check marks it seen with them
    *  where the window doesn't say how. */
   actions?: SessionActions;
-  /** Keeps the session on the desktop, from the bar's peek (kept.rs). */
+  /** Keeps the session on the desktop, from the bar's peek or the notch (kept.rs); `keepTitle`
+   *  says how, where it isn't the peek's way. */
   onKeep?: () => void;
+  keepTitle?: string;
   /** Takes a session kept on the desktop off it. */
   onClose?: () => void;
   /** Its name is a field, ready to change; `onRename` hears the new one, or null when it's left
@@ -163,7 +165,7 @@ function KinRow({ kin, now, parent = false, onShow, onMenu }: { kin: Kin; now: n
   );
 }
 
-export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane, prs = [], onOpenPr, onPrMenu, todos, onShowTodo, lineage, onShowSession, onSessionMenu, onMenu, onSeen, actions, onKeep, onClose, renaming, onRename, device, back, next, maximized, onMaximize, compact }: SessionHeaderProps) {
+export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane, prs = [], onOpenPr, onPrMenu, todos, onShowTodo, lineage, onShowSession, onSessionMenu, onMenu, onSeen, actions, onKeep, keepTitle, onClose, renaming, onRename, device, back, next, maximized, onMaximize, compact }: SessionHeaderProps) {
   const [details, setDetails] = useState(false);
   const [allPrs, setAllPrs] = useState(false);
   const [allTodos, setAllTodos] = useState(false);
@@ -229,7 +231,7 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
             </Button>
           )}
           {seen && <Button variant="ghost" size="sm" icon="check" aria-label="Mark as seen" title={next ? 'Mark as seen and go on to the next (⌘E)' : 'Mark as seen: it goes idle and leaves the bar (⌘E)'} className="ca-sessinsp-seen" onClick={seen} />}
-          {onKeep && <Button variant="ghost" size="sm" icon="pin" aria-label="Keep on the desktop" title="Keep on the desktop: it stays up, here, until you close it. Dragging its edge to make it bigger keeps it too." onClick={onKeep} />}
+          {onKeep && <Button variant="ghost" size="sm" icon="pin" aria-label="Keep on the desktop" title={keepTitle ?? 'Keep on the desktop: it stays up, here, until you close it. Dragging its edge to make it bigger keeps it too.'} onClick={onKeep} />}
           {onMaximize && (
             <Button
               variant="ghost"

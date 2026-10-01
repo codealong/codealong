@@ -111,11 +111,17 @@ export type Handled = Map<string, number>;
  * by it, each with its own rows.
  */
 export function queueAfter<T extends { session: Session }>(queue: T[], key: string, handled: Handled): T[] {
-  const i = queue.findIndex((r) => r.session.key === key);
+  return leftAfter(queue, key, handled, (r) => r.session.key, (r) => statusTime(r.session));
+}
+
+/** `queueAfter` for any rows, given each one's session key and when its status began: the bar's
+ *  pills carry those without the session (bar.ts). */
+export function leftAfter<T>(queue: T[], key: string, handled: Handled, keyOf: (row: T) => string, sinceOf: (row: T) => number): T[] {
+  const i = queue.findIndex((r) => keyOf(r) === key);
   const order = i < 0 ? queue : [...queue.slice(i + 1), ...queue.slice(0, i)];
   return order.filter((r) => {
-    const at = handled.get(r.session.key);
-    return r.session.key !== key && (at === undefined || statusTime(r.session) > at);
+    const at = handled.get(keyOf(r));
+    return keyOf(r) !== key && (at === undefined || sinceOf(r) > at);
   });
 }
 

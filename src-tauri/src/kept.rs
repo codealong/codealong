@@ -209,13 +209,23 @@ pub fn ready(app: &AppHandle, label: &str) {
 /// Keeps the session the peek shows on the desktop, where the peek's card is. On the main thread.
 pub fn keep_peeked(app: &AppHandle) -> Result<()> {
     let (key, card) = crate::peek::showing(app).ok_or_else(|| anyhow!("The peek isn't showing a session."))?;
-    let keys = crate::peek::engaged(app);
+    // One kept already has no new window whose showing puts the peek away.
+    if keep(app, key, card, crate::peek::engaged(app))? {
+        crate::peek::hide(app);
+    }
+    Ok(())
+}
+
+/// Keeps a session on the desktop in a window of its own, its card at `card` on the screen: the
+/// peek's, or the one the bar docked in the notch shows under its pills. With `keys` it takes the
+/// keyboard as it shows. One kept already comes forward where it is, and the answer is true. On
+/// the main thread.
+pub fn keep(app: &AppHandle, key: String, card: Rect, keys: bool) -> Result<bool> {
     let state = app.try_state::<State>().ok_or_else(|| anyhow!("Kept sessions aren't ready yet."))?;
     let already = state.inner.lock().map_err(|_| anyhow!("Kept sessions are unavailable."))?.label_of(&key);
     if let Some(label) = already {
         raise(app, &label, keys);
-        crate::peek::hide(app);
-        return Ok(());
+        return Ok(true);
     }
     let label = add(app, Kept { key, frame: crate::peek::window_for(card) }, keys);
     let handle = app.clone();
@@ -229,7 +239,7 @@ pub fn keep_peeked(app: &AppHandle) -> Result<()> {
             }
         }
     });
-    Ok(())
+    Ok(false)
 }
 
 /// Brings a kept session's window up, with the keyboard if `keys`. On the main thread.

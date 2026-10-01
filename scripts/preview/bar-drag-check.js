@@ -69,8 +69,10 @@
     })
     .then(function () {
       check('and settles when the engine says the drag is over', !pill().classList.contains('is-dragged'));
+      // The menu asks for the session first, which takes a while on a busy Mac.
+      var menus = calls('plugin:menu|new').length;
       pill().dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
-      return wait(200);
+      return until(function () { return calls('plugin:menu|new').length > menus; }, 5000).then(function () { return wait(50); });
     })
     .then(function () {
       var item = find(lastMenu(), 'Pin to desktop');
@@ -82,8 +84,10 @@
       return wait(100);
     })
     .then(function () {
+      // The menu asks for the session first, which takes a while on a busy Mac.
+      var menus = calls('plugin:menu|new').length;
       pill().dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
-      return wait(200);
+      return until(function () { return calls('plugin:menu|new').length > menus; }, 5000).then(function () { return wait(50); });
     })
     .then(function () {
       var item = find(lastMenu(), 'Remove from desktop');

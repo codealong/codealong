@@ -3,7 +3,7 @@
 // them: Working first, then Your turn, then Needs you. Also what its project menu counts.
 
 import { withTimes } from './format';
-import { ALL_PROJECTS, inProject } from './quick';
+import { ALL_PROJECTS, inProject, leftAfter, type Handled } from './quick';
 import type { BarGroup, BarItem } from './types';
 
 export type Group = BarGroup;
@@ -116,15 +116,18 @@ export function elsewhereWaits(waits: Record<string, WaitCounts>, projects: stri
 
 /** The docked bar's measures, in points: each side beside the camera while it's closed, and how
  *  much wider it grows while the pointer is on it; the concave corners where it meets the menu
- *  bar and its bottom corners, closed and open; the padding around what opens below; and the room
- *  the window keeps beside and under the open shape for its shadow (app.css `--shadow-notch`
- *  reaches 16 beside it and 30 under it). */
+ *  bar and its bottom corners, closed, with the pills showing and with a session under them; the
+ *  padding around the pills; the session under them, no narrower than `width`, `height` tall
+ *  where the screen has the room and never less than `least`, leaving `clear` of the screen under
+ *  it; and the room the window keeps beside and under the shape for its shadow (app.css
+ *  `--shadow-notch` reaches 16 beside it and 30 under it). */
 export const NOTCH = {
   wing: 44,
   hover: 4,
   ear: { closed: 6, open: 14 },
-  radius: { closed: 12, open: 22 },
+  radius: { closed: 12, open: 22, session: 26 },
   pad: 10,
+  session: { width: 560, height: 520, least: 240, clear: 96 },
   shadow: { side: 20, bottom: 32 },
 };
 
@@ -133,28 +136,43 @@ export interface Size {
   h: number;
 }
 
-/** The docked bar's shape, closed and open, and its window. Open, it's as wide as the pills
- *  below it or the sides beside the camera need, never narrower than closed. The window is as
- *  wide as the pills can get (`room`) and as tall as it opens, with room for the corners and the
- *  shadow, so it keeps its size as the shape opens and closes and never cuts the shadow off. */
-export function notchSizes(notch: { width: number; height: number }, body: Size, side: number, room: number): { closed: Size; open: Size; window: Size } {
-  const closed = { w: notch.width + 2 * NOTCH.wing, h: notch.height };
-  const wide = Math.max(closed.w, body.w + 2 * NOTCH.pad, notch.width + 2 * (side + NOTCH.pad));
-  // As much wider than closed on each side, in whole points: the clip's edges then fall on whole
-  // points, where they're sharp.
-  const open = { w: closed.w + 2 * Math.ceil((wide - closed.w) / 2), h: Math.ceil(notch.height + body.h + NOTCH.pad) };
-  const margin = Math.max(NOTCH.ear.open, NOTCH.shadow.side);
-  return { closed, open, window: { w: Math.ceil(Math.max(open.w, room + 2 * NOTCH.pad)) + 2 * margin, h: open.h + NOTCH.shadow.bottom } };
+/** What the docked bar shows: the notch alone; the notch a little wider, with the pointer just
+ *  on it; the bar's pills under it, while the pointer stays or it's pinned; a session under the
+ *  pills, to read and answer. */
+export type NotchState = 'closed' | 'hover' | 'pills' | 'session';
+
+export interface NotchSizes {
+  closed: Size;
+  pills: Size;
+  session: Size;
+  window: Size;
 }
 
-export type NotchState = 'closed' | 'hover' | 'open';
+/** The docked bar's shape in each state, and its window. With the pills it's as wide as they or
+ *  the sides beside the camera need, never narrower than closed; with a session it's at least
+ *  the session's width, and as much taller. Everything is laid out once in the biggest of them,
+ *  the session's, and shown through a clip (`notchClip`). The window is as wide as the pills can
+ *  get (`room`) and as tall as the session opens on a screen `screenH` high, with room for the
+ *  corners and the shadow, so it keeps its size whatever shows and never cuts the shadow off. */
+export function notchSizes(notch: { width: number; height: number }, body: Size, side: number, room: number, screenH: number): NotchSizes {
+  const closed = { w: notch.width + 2 * NOTCH.wing, h: notch.height };
+  // As much wider than closed on each side, in whole points: the clip's edges then fall on whole
+  // points, where they're sharp.
+  const widened = (w: number) => closed.w + 2 * Math.ceil(Math.max(0, w - closed.w) / 2);
+  const pills = { w: widened(Math.max(body.w + 2 * NOTCH.pad, notch.width + 2 * (side + NOTCH.pad))), h: Math.ceil(notch.height + body.h + NOTCH.pad) };
+  const tall = Math.max(NOTCH.session.least, Math.min(NOTCH.session.height, Math.floor(screenH - pills.h - NOTCH.session.clear)));
+  const session = { w: widened(Math.max(pills.w, NOTCH.session.width)), h: pills.h + tall };
+  const margin = Math.max(NOTCH.ear.open, NOTCH.shadow.side);
+  return { closed, pills, session, window: { w: Math.ceil(Math.max(session.w, room + 2 * NOTCH.pad)) + 2 * margin, h: session.h + NOTCH.shadow.bottom } };
+}
 
-/** How much of the open shape shows: its insets from the sides and the bottom, and the radius of
- *  its bottom corners. Closed it's the notch and its sides, a little wider under the pointer. */
-export function notchClip(s: { closed: Size; open: Size }, state: NotchState): { side: number; bottom: number; radius: number } {
-  if (state === 'open') return { side: 0, bottom: 0, radius: NOTCH.radius.open };
-  const side = Math.max(0, (s.open.w - s.closed.w) / 2 - (state === 'hover' ? NOTCH.hover : 0));
-  return { side, bottom: s.open.h - s.closed.h, radius: NOTCH.radius.closed };
+/** How much of the layout shows: its insets from the sides and the bottom, and the radius of its
+ *  bottom corners. Closed it's the notch and its sides, a little wider under the pointer. */
+export function notchClip(s: Pick<NotchSizes, 'closed' | 'pills' | 'session'>, state: NotchState): { side: number; bottom: number; radius: number } {
+  if (state === 'session') return { side: 0, bottom: 0, radius: NOTCH.radius.session };
+  if (state === 'pills') return { side: (s.session.w - s.pills.w) / 2, bottom: s.session.h - s.pills.h, radius: NOTCH.radius.open };
+  const side = Math.max(0, (s.session.w - s.closed.w) / 2 - (state === 'hover' ? NOTCH.hover : 0));
+  return { side, bottom: s.session.h - s.closed.h, radius: NOTCH.radius.closed };
 }
 
 /** What the notch counts beside the camera: the bar's groups, and the PRs that wait on your
@@ -169,4 +187,35 @@ export const NOTCH_ORDER: NotchKind[] = ['needs', 'reviews', 'unread', 'working'
 export function notchCount(counts: Record<NotchKind, number>): { kind: NotchKind; n: number } | null {
   const kind = NOTCH_ORDER.find((k) => counts[k] > 0);
   return kind ? { kind, n: counts[kind] } : null;
+}
+
+// ---- The session in the notch (NotchSession.tsx) ----
+
+/** What the session in the notch works through, as a session's panel in Sessions does: the bar's
+ *  sessions that wait on you, in the bar's order (Needs you the longest wait first, then Your
+ *  turn the newest first). */
+export function waitingItems(items: BarItem[]): BarItem[] {
+  return items.filter((i) => i.group !== 'working');
+}
+
+/** What's left of them after the session `key`, the next first (quick.ts `queueAfter`). */
+export function waitingAfter(items: BarItem[], key: string, handled: Handled): BarItem[] {
+  return leftAfter(waitingItems(items), key, handled, (i) => i.key, (i) => i.since);
+}
+
+/** The session a click on the notch itself opens it on: the one it showed last while that still
+ *  waits on you, else the first that waits, else the one it showed last, else the bar's first.
+ *  None with no sessions on the bar. */
+export function currentItem(items: BarItem[], last: string | null): BarItem | null {
+  const waiting = waitingItems(items);
+  return waiting.find((i) => i.key === last) ?? waiting[0] ?? items.find((i) => i.key === last) ?? items[0] ?? null;
+}
+
+/** The session `delta` along the bar from the session `key`, stopping at its ends; the first, or
+ *  the last going back, from one the bar doesn't list. */
+export function stepItem(items: BarItem[], key: string, delta: 1 | -1): BarItem | null {
+  if (items.length === 0) return null;
+  const i = items.findIndex((x) => x.key === key);
+  if (i < 0) return delta > 0 ? items[0] : items[items.length - 1];
+  return items[Math.min(items.length - 1, Math.max(0, i + delta))];
 }

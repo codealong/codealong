@@ -58,7 +58,7 @@ import { Sidebar, type SideStatus } from './ui/Sidebar';
 import { loadSaved, newSavedId, onSavedChange, sameView, storeSaved, suggestName, type SavedView, type ViewState } from './savedViews';
 import { useNow } from './ui/useNow';
 import { errorText, type Report } from './report';
-import { useSessionHistory } from './history';
+import { historyChord, useSessionHistory } from './history';
 import { openWhere, where } from './open';
 
 const ELSEWHERE = 'Elsewhere';
@@ -71,11 +71,6 @@ function listChord(e: KeyboardEvent): boolean {
   if (e.ctrlKey && e.metaKey && !e.altKey && !e.shiftKey) return vertical || Object.values(menus.KEYS).includes(e.key.toUpperCase());
   if (e.shiftKey && e.metaKey && !e.ctrlKey && !e.altKey) return e.key.toLowerCase() === 'f';
   return e.ctrlKey && !e.metaKey && !e.altKey && e.key === 'Tab';
-}
-/** ⌃- and ⌃⇧-, back and forward through the sessions you looked at, as VS Code has them. The key
- *  goes by what it types or where it is, so a layout that puts - elsewhere has it too. */
-function historyChord(e: KeyboardEvent): boolean {
-  return e.ctrlKey && !e.metaKey && !e.altKey && (e.key === '-' || e.key === '_' || e.code === 'Minus');
 }
 /** No worktrees yet, as one list, so Settings doesn't see a new one on every render. */
 const NO_LANES: Lane[] = [];

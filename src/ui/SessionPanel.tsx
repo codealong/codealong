@@ -26,7 +26,8 @@ import { SessionThread } from './SessionThread';
 /** Working through what waits on you: how many are left after this one, and the next. */
 export interface Queue {
   left: number;
-  next: Session | null;
+  /** The next one, by its title: a row's session, or a pill on the bar. */
+  next: Pick<Session, 'title'> | null;
   onNext: () => void;
 }
 /** How the one before went: sent, or why it didn't go. */
