@@ -5,7 +5,8 @@
 #   scripts/preview.sh [view] [project] [check.js]
 #
 #   view     worktrees | sessions | prs | todo | canvas, bar for the floating bar, notch for the
-#            bar docked in the notch, peek for the bar's peek, quick for the quick panel, or
+#            bar docked in the notch, peek for the bar's peek, kept for a session kept on the
+#            desktop (the peek's session, in a window of its size), quick for the quick panel, or
 #            desktop for a card pinned to the desktop, lineage for the lines between desktop
 #            cards over stand-ins for them (default worktrees)
 #   project  the project to show (default: the first one)
@@ -175,6 +176,10 @@ fi
 if [ "$view" = peek ]; then
   size="${PREVIEW_SIZE:-520,640}"
   setup="$setup localStorage.setItem('codealong.preview.peek','${PREVIEW_TRANSCRIPT:-}'); window.__CODEALONG_PEEK__=true;</script><style>html.is-peek{background:linear-gradient(135deg,rgb(93,111,134),rgb(169,182,196))!important}</style><script>"
+fi
+if [ "$view" = kept ]; then
+  size="${PREVIEW_SIZE:-640,720}"
+  setup="$setup localStorage.setItem('codealong.preview.peek','${PREVIEW_TRANSCRIPT:-}'); window.__CODEALONG_KEPT__=true;</script><style>html.is-peek{background:linear-gradient(135deg,rgb(93,111,134),rgb(169,182,196))!important}</style><script>"
 fi
 tail=""
 if [ -n "${PREVIEW_INIT:-}" ]; then

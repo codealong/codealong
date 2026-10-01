@@ -1189,6 +1189,13 @@ Tauri and macOS (from the Tauri 2.11 and tao 0.35 sources)
   close it. A window takes clicks on its clear parts too, so the peek's keeps only a thin margin
   on the bar's side and never covers a pill. Not yet checked by hand (2026-09-27): a click in
   the peek making it key under that override.
+- A session kept on the desktop from the peek (kept.rs) is a window of its own with the peek's
+  panel class, so which panels answer truthfully about being key is a list of windows
+  (`peek::native`'s `ENGAGED`), not one flag. A kept window is destroyed when it's closed, so it
+  gets its class back first, as a desktop card does. One that loses the keyboard is ordered in
+  again saying it's key, as the peek is up from a hover, so its page still gets the pointer.
+  Not yet checked by hand (2026-10-01): keeping, sizing, dragging and closing one in the real
+  app; the preview only shows the page and the commands it sends.
 - tauri-plugin-global-shortcut's `register` and `unregister` hand the work to the main thread and
   wait for it, so calling them on the main thread (in `setup`, or a command without `async`)
   deadlocks. Carbon's `RegisterEventHotKey` succeeds for keys another app already holds

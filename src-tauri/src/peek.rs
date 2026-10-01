@@ -12,6 +12,10 @@
 //! the bar does meanwhile. Should another app take the keyboard while the pointer is still on the
 //! peek, it goes back to how a hover has it rather than closing under you.
 //!
+//! Dragging its far edge or corner makes it bigger, and its Keep button or letting go of that drag
+//! keeps it on the desktop: the session gets a window of its own there (kept.rs), which stays up,
+//! and the peek goes back to being the peek.
+//!
 //! Opening is the quick panel's handshake: Codealong tells the page which session (`peek-open`),
 //! the page reads the conversation and answers with its height (`peek_ready`), and only then does
 //! the panel show, so it never flashes the session it showed before.
@@ -40,6 +44,9 @@ const NEAR: f64 = 8.0;
 const WIDTH: f64 = 480.0 + 2.0 * MARGIN;
 /// The tallest the window gets.
 const MAX_HEIGHT: f64 = 580.0 + FAR + NEAR;
+/// The smallest a peek can be dragged to, and a kept session's window (kept.rs): the window, its
+/// margins included.
+pub const MIN_SIZE: (f64, f64) = (360.0 + 2.0 * MARGIN, 240.0 + FAR + NEAR);
 /// With less room than this under the bar, the peek opens over it when there's more room there.
 const MIN_ROOM: f64 = 360.0;
 /// The bar's page leaves this much room around its card (Bar.tsx), as a desktop card's page does
@@ -67,6 +74,10 @@ pub struct Place {
     pub below: bool,
     /// The tallest the window can be there.
     pub room: f64,
+    /// The room there is to the screen's edge, for a peek dragged bigger than it opens.
+    pub full: f64,
+    /// The widest it can be dragged, to the screen's right edge.
+    pub wide: f64,
 }
 
 impl Place {
@@ -79,6 +90,14 @@ impl Place {
         } else {
             Rect { x: self.x, y: self.edge, w: WIDTH, h }
         }
+    }
+
+    /// The window's frame dragged to a size: it keeps its left edge and the edge by the bar, no
+    /// smaller than it opens and no bigger than the screen has room for.
+    pub fn sized(&self, width: f64, height: f64) -> Rect {
+        let w = width.min(self.wide).max(MIN_SIZE.0);
+        let h = height.min(self.full).max(MIN_SIZE.1.min(self.full));
+        Rect { x: self.x, y: if self.below { self.edge - h } else { self.edge }, w, h }
     }
 }
 
@@ -100,7 +119,7 @@ pub fn place(bar: Rect, pill: Rect, screen: Rect) -> Place {
     let (cx, _) = pill.center();
     let x = (cx - WIDTH / 2.0).min(screen.right() - WIDTH).max(screen.x).round();
     let room = if below { room_below } else { room_above };
-    Place { x, edge: if below { below_edge } else { above_edge }, below, room: room.min(MAX_HEIGHT) }
+    Place { x, edge: if below { below_edge } else { above_edge }, below, room: room.min(MAX_HEIGHT), full: room, wide: screen.right() - x }
 }
 
 /// Whether the pointer is on the peek or on the pill it came from.
@@ -168,6 +187,8 @@ struct Inner {
     away_since: Option<Instant>,
     /// Counts watches of the pointer, so an old one stops.
     watch: u64,
+    /// You dragged it to a size: it keeps that, whatever its page measures.
+    sized: bool,
 }
 
 /// Makes the peek's window, hidden, at launch, so a hover never waits for a page to load.
@@ -192,7 +213,7 @@ pub fn setup(app: &AppHandle) -> Result<()> {
         .background_throttling(tauri::utils::config::BackgroundThrottlingPolicy::Disabled)
         .visible(false)
         .build()?;
-    native::make_panel(&window);
+    native::make_panel(&window, false);
     Ok(())
 }
 
@@ -249,6 +270,7 @@ pub fn open(app: &AppHandle, target: Target, pill: Option<(Rect, Rect)>, focus: 
         s.focus = focus;
         s.key = Some(key);
         s.away_since = None;
+        s.sized = false;
         (s.opens, s.place.map_or(MAX_HEIGHT, |p| p.room), s.place.is_none_or(|p| p.below))
     };
     let Target { lane, session, terminal, apps, theme } = target;
@@ -309,10 +331,51 @@ pub fn ready(app: &AppHandle, id: u64, height: Option<f64>) {
 /// thread.
 pub fn fit(app: &AppHandle, height: f64) {
     let (Some(state), Some(window)) = (app.try_state::<Peek>(), app.get_webview_window(LABEL)) else { return };
-    let Some(frame) = state.inner.lock().ok().filter(|s| s.visible && s.waiting.is_none()).and_then(|s| s.place).map(|p| p.frame(height.ceil())) else { return };
+    let Some(frame) = state.inner.lock().ok().filter(|s| s.visible && s.waiting.is_none() && !s.sized).and_then(|s| s.place).map(|p| p.frame(height.ceil())) else { return };
     if native::frame(&window) != Some(frame) {
         native::set_frame(&window, frame);
     }
+}
+
+/// You're dragging the peek's edge: it takes that size, keeping its left edge and the edge by the
+/// bar, and from then on keeps it. On the main thread.
+pub fn resize(app: &AppHandle, width: f64, height: f64) {
+    let (Some(state), Some(window)) = (app.try_state::<Peek>(), app.get_webview_window(LABEL)) else { return };
+    let frame = {
+        let Ok(mut s) = state.inner.lock() else { return };
+        if !s.visible {
+            return;
+        }
+        let Some(place) = s.place else { return };
+        s.sized = true;
+        place.sized(width.ceil(), height.ceil())
+    };
+    if native::frame(&window) != Some(frame) {
+        native::set_frame(&window, frame);
+    }
+}
+
+/// Whether the peek has the keyboard.
+pub fn engaged(app: &AppHandle) -> bool {
+    app.try_state::<Peek>().is_some_and(|s| s.inner.lock().is_ok_and(|s| s.visible && s.engaged))
+}
+
+/// The session the peek shows, and where its card is on the screen: the window less the room it
+/// keeps for the card's shadow. For keeping it on the desktop (kept.rs). On the main thread.
+pub fn showing(app: &AppHandle) -> Option<(String, Rect)> {
+    let (state, window) = (app.try_state::<Peek>()?, app.get_webview_window(LABEL)?);
+    let s = state.inner.lock().ok()?;
+    let (key, below) = (s.key.clone().filter(|_| s.visible)?, s.place.is_none_or(|p| p.below));
+    let f = native::frame(&window)?;
+    // AppKit's y grows up: under the bar the near side is the window's top.
+    let (under, over) = if below { (FAR, NEAR) } else { (NEAR, FAR) };
+    Some((key, Rect { x: f.x + MARGIN, y: f.y + under, w: f.w - 2.0 * MARGIN, h: f.h - under - over }))
+}
+
+/// A kept session's window for a card at `card`: the room around it the peek keeps under the bar,
+/// so its page lays out as the peek's does there.
+pub fn window_for(card: Rect) -> Rect {
+    Rect { x: card.x - MARGIN, y: card.y - FAR, w: card.w + 2.0 * MARGIN, h: card.h + FAR + NEAR }
 }
 
 /// Gives the peek the keyboard: you clicked in it. On the main thread.
@@ -335,6 +398,7 @@ pub fn hide(app: &AppHandle) {
         s.key = None;
         s.away_since = None;
         s.watch += 1;
+        s.sized = false;
         was
     };
     native::hide(&window);
@@ -459,23 +523,39 @@ pub fn on_window_event(window: &Window, event: &WindowEvent) {
 }
 
 #[cfg(target_os = "macos")]
-mod native {
-    use std::sync::atomic::{AtomicBool, Ordering};
-    use std::sync::OnceLock;
+pub(crate) mod native {
+    use std::sync::{Mutex, OnceLock};
 
     use objc2::runtime::{AnyClass, AnyObject, Bool, ClassBuilder, Sel};
     use objc2::{msg_send, sel, ClassType, MainThreadMarker};
-    use objc2_app_kit::{NSApplication, NSEvent, NSPanel, NSResponder, NSScreen, NSStatusWindowLevel, NSWindow, NSWindowCollectionBehavior, NSWindowStyleMask};
+    use objc2_app_kit::{NSApplication, NSEvent, NSPanel, NSResponder, NSScreen, NSStatusWindowLevel, NSWindow, NSWindowCollectionBehavior, NSWindowOcclusionState, NSWindowStyleMask};
     use objc2_foundation::{NSPoint, NSRect, NSSize};
     use tauri::WebviewWindow;
 
     use super::{Rect, Screen};
 
-    /// While up without the keyboard, the panel says it's the key window anyway, as the floating
+    /// While up without the keyboard, a panel says it's the key window anyway, as the floating
     /// bar's does: WebKit treats a page whose window isn't key as inactive, sending it no pointer
     /// moves, so nothing in it would show hover and no tooltip would appear. Taking the keyboard
-    /// turns this off first, so AppKit sees the panel isn't key yet and makes it so.
-    static SAYS_KEY: AtomicBool = AtomicBool::new(true);
+    /// turns this off first, so AppKit sees the panel isn't key yet and makes it so. These are the
+    /// panels that have the keyboard or are taking it (the peek, the sessions kept on the desktop),
+    /// which answer truthfully.
+    static ENGAGED: Mutex<Vec<usize>> = Mutex::new(Vec::new());
+
+    fn engaged(this: *const AnyObject) -> bool {
+        ENGAGED.lock().is_ok_and(|e| e.contains(&(this as usize)))
+    }
+
+    /// Whether the panel answers truthfully about being key (`on`), or says it is.
+    fn engage(n: &NSWindow, on: bool) {
+        let this = n as *const NSWindow as usize;
+        if let Ok(mut e) = ENGAGED.lock() {
+            e.retain(|x| *x != this);
+            if on {
+                e.push(this);
+            }
+        }
+    }
 
     /// The window's NSWindow, on the main thread only.
     fn ns(w: &WebviewWindow) -> Option<&NSWindow> {
@@ -498,7 +578,7 @@ mod native {
                 Bool::NO
             }
             extern "C" fn is_key(this: &AnyObject, _: Sel) -> Bool {
-                if SAYS_KEY.load(Ordering::Relaxed) {
+                if !engaged(this) {
                     return Bool::YES;
                 }
                 // SAFETY: NSWindow's own `- (BOOL)isKeyWindow`, asked of the panel it was asked of.
@@ -520,54 +600,76 @@ mod native {
         })
     }
 
-    /// Turns the window into a non-activating panel that can take the keyboard, over the floating
-    /// bar, on whichever Space is in front, full-screen ones too.
-    pub fn make_panel(w: &WebviewWindow) {
-        let Some(n) = ns(w) else { return };
+    /// The class a window had before `make_panel` swapped it.
+    pub struct Original(&'static AnyClass);
+
+    /// Turns the window into a non-activating panel that can take the keyboard, on whichever
+    /// Space is in front, full-screen ones too: the peek over the floating bar, coming and going;
+    /// a session `kept` on the desktop with the cards there, left in place by Mission Control.
+    ///
+    /// Returns the class it replaced, which a window must get back before it's destroyed
+    /// (`unmake_panel`). The peek never is.
+    pub fn make_panel(w: &WebviewWindow, kept: bool) -> Option<Original> {
+        let n = ns(w)?;
         let obj: &AnyObject = n;
         let panel = panel_class();
+        let original = obj.class();
         // As for the floating bar (bar.rs): NSPanel adds no storage to NSWindow, so tao's window
         // has room for it; if that ever changes, the peek stays a plain window.
-        if panel.instance_size() > obj.class().instance_size() {
-            return;
+        if panel.instance_size() > original.instance_size() {
+            return None;
         }
         // SAFETY: the object is tao's NSWindow subclass, at least as large as the panel class,
         // which only adds methods. tao reads its own ivar only when focusability changes, which
-        // the peek never does after it's made.
+        // these windows never do after they're made.
         unsafe { AnyObject::set_class(obj, panel) };
         n.setStyleMask(n.styleMask() | NSWindowStyleMask::NonactivatingPanel);
         n.setHidesOnDeactivate(false);
-        n.setLevel(NSStatusWindowLevel + 1);
+        n.setLevel(if kept { NSStatusWindowLevel } else { NSStatusWindowLevel + 1 });
         n.setCollectionBehavior(
             n.collectionBehavior()
                 | NSWindowCollectionBehavior::CanJoinAllSpaces
                 | NSWindowCollectionBehavior::FullScreenAuxiliary
-                | NSWindowCollectionBehavior::Transient
+                | if kept { NSWindowCollectionBehavior::Stationary } else { NSWindowCollectionBehavior::Transient }
                 | NSWindowCollectionBehavior::IgnoresCycle,
         );
         n.setExcludedFromWindowsMenu(true);
         n.setCanHide(false);
-        // Codealong is nearly always in the background while the peek is up.
+        // Codealong is nearly always in the background while one of these is up.
         n.setAllowsToolTipsWhenApplicationIsInactive(true);
+        Some(Original(original))
     }
 
-    /// Orders the peek in over every other app, without activating Codealong. With `keys` it
+    /// Takes a panel off the screen and gives its window back the class `make_panel` replaced, so
+    /// it can be destroyed: WebKit watches the window by its class, and taking the page out of a
+    /// window with the panel's class raises an exception that aborts the app (bar.rs has the
+    /// rest).
+    pub fn unmake_panel(w: &WebviewWindow, original: Original) {
+        let Some(n) = ns(w) else { return };
+        n.orderOut(None);
+        engage(n, false);
+        n.setStyleMask(n.styleMask() & !NSWindowStyleMask::NonactivatingPanel);
+        // SAFETY: the class the object had before, which make_panel checked is no larger than it.
+        unsafe { AnyObject::set_class(n, original.0) };
+    }
+
+    /// Orders the panel in over every other app, without activating Codealong. With `keys` it
     /// takes the keyboard too; without, whatever app you're in keeps it.
     pub fn show(w: &WebviewWindow, keys: bool) {
         let Some(n) = ns(w) else { return };
         // WebKit reads whether the window is key as it's ordered on screen.
-        SAYS_KEY.store(!keys, Ordering::Relaxed);
+        engage(n, keys);
         n.orderFrontRegardless();
         if keys {
             take_keys(w);
         }
     }
 
-    /// Makes the peek the key window, and its webview the first responder, so the page's keys
+    /// Makes the panel the key window, and its webview the first responder, so the page's keys
     /// reach what it focused.
     pub fn take_keys(w: &WebviewWindow) {
         let Some(n) = ns(w) else { return };
-        SAYS_KEY.store(false, Ordering::Relaxed);
+        engage(n, true);
         n.makeKeyWindow();
         let window = w.clone();
         let _ = w.with_webview(move |webview| {
@@ -584,8 +686,13 @@ mod native {
     pub fn hide(w: &WebviewWindow) {
         if let Some(n) = ns(w) {
             n.orderOut(None);
+            engage(n, false);
         }
-        SAYS_KEY.store(true, Ordering::Relaxed);
+    }
+
+    /// Ordered in and some part of it on screen (see bar.rs).
+    pub fn on_screen(w: &WebviewWindow) -> bool {
+        ns(w).map(|n| n.isVisible() && n.occlusionState().contains(NSWindowOcclusionState::Visible)).unwrap_or(true)
     }
 
     fn rect(r: NSRect) -> Rect {
@@ -625,12 +732,20 @@ mod native {
 
 /// Elsewhere the peek is an ordinary window.
 #[cfg(not(target_os = "macos"))]
-mod native {
+pub(crate) mod native {
     use tauri::WebviewWindow;
 
     use super::{Rect, Screen};
 
-    pub fn make_panel(_: &WebviewWindow) {}
+    pub struct Original;
+
+    pub fn make_panel(_: &WebviewWindow, _: bool) -> Option<Original> {
+        None
+    }
+    pub fn unmake_panel(_: &WebviewWindow, _: Original) {}
+    pub fn on_screen(w: &WebviewWindow) -> bool {
+        w.is_visible().unwrap_or(true)
+    }
     pub fn show(w: &WebviewWindow, keys: bool) {
         let _ = w.show();
         if keys {

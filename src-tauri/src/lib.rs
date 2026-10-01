@@ -38,6 +38,7 @@ mod insights;
 // codealong-peer (peer/), which the phone app builds on too.
 use codealong_peer::net as irohnet;
 mod jev;
+mod kept;
 mod launch;
 mod lineage;
 mod logo;
@@ -363,9 +364,13 @@ fn open_from_bar(app: tauri::AppHandle, engine: State<'_, engine::Handle>, lane_
 #[tauri::command]
 fn peek_open(app: tauri::AppHandle, window: tauri::WebviewWindow, engine: State<'_, engine::Handle>, key: String, pill: Option<bar::Rect>, focus: Option<bool>, rename: Option<bool>) -> Result<(), String> {
     let target = engine.read(|b| peek::target(b, &key)).ok_or_else(|| "That session isn't on the board any more.".to_string())?;
+    let rename = rename.unwrap_or(false);
+    // Kept on the desktop, it's up already: its own window comes forward, to type into if asked.
+    if !rename && kept::raise_session(&app, &key, focus.unwrap_or(false)) {
+        return Ok(());
+    }
     // The pill is in the window that asked: the bar, or a card on the desktop.
     let pill = pill.and_then(|p| bar::native::frame(&window).map(|host| (host, p)));
-    let rename = rename.unwrap_or(false);
     peek::open(&app, target, pill, focus.unwrap_or(false) || rename, rename).map_err(|e| e.to_string())
 }
 
@@ -408,6 +413,49 @@ fn peek_focus(app: tauri::AppHandle) {
 #[tauri::command]
 fn peek_hide(app: tauri::AppHandle) {
     peek::hide(&app);
+}
+
+/// You're dragging the peek's edge: it takes that size (peek.rs).
+#[tauri::command]
+fn peek_resize(app: tauri::AppHandle, width: f64, height: f64) {
+    peek::resize(&app, width, height);
+}
+
+/// Keeps the session the peek shows on the desktop, in a window of its own where the peek is
+/// (kept.rs): its Keep button, or its edge dragged and let go.
+#[tauri::command]
+fn keep_session(app: tauri::AppHandle) -> Result<(), String> {
+    kept::keep_peeked(&app).map_err(|e| e.to_string())
+}
+
+/// The session a kept window shows, for its page.
+#[tauri::command]
+fn kept_session(app: tauri::AppHandle, window: tauri::Window) -> Option<String> {
+    kept::session(&app, window.label())
+}
+
+/// A kept session's page has laid it out: its window shows.
+#[tauri::command]
+fn kept_ready(app: tauri::AppHandle, window: tauri::Window) {
+    kept::ready(&app, window.label());
+}
+
+/// A click in a kept session: it takes the keyboard.
+#[tauri::command]
+fn kept_focus(app: tauri::AppHandle, window: tauri::Window) {
+    kept::take_keys(&app, window.label());
+}
+
+/// You're dragging a kept session's edge: its window takes that size.
+#[tauri::command]
+fn kept_resize(app: tauri::AppHandle, window: tauri::Window, width: f64, height: f64) {
+    kept::resize(&app, window.label(), width, height);
+}
+
+/// Takes a kept session off the desktop; that closes the window it came from.
+#[tauri::command(async)]
+fn kept_close(app: tauri::AppHandle, window: tauri::Window) {
+    kept::close(&app, window.label());
 }
 
 /// What the floating bar shows, for its first render; after that it gets `bar-feed` events.
@@ -760,10 +808,10 @@ fn run_in_terminal(app: tauri::AppHandle, window: tauri::WebviewWindow, engine: 
     let dir = std::path::PathBuf::from(&cwd);
     let (apps, near) = engine.read(|b| (b.apps.clone(), board::terminal_neighbours(&b.lanes, &dir)));
     runcode::run(&apps, &near, &dir, &text).map_err(|e| format!("{e:#}"))?;
-    // A click in the bar's peek, the quick panel or a card on the desktop leaves Codealong
-    // inactive, and macOS may not bring the terminal forward for an app that isn't.
+    // A click in the bar's peek, the quick panel, a card on the desktop or a session kept there
+    // leaves Codealong inactive, and macOS may not bring the terminal forward for an app that isn't.
     let label = window.label();
-    if [bar::LABEL, quick::LABEL, peek::LABEL].contains(&label) || label.starts_with(desktop::PREFIX) {
+    if [bar::LABEL, quick::LABEL, peek::LABEL].contains(&label) || label.starts_with(desktop::PREFIX) || label.starts_with(kept::PREFIX) {
         if let Some(bundle) = launch::bundle_id(&apps.terminal_id) {
             bar::bring_forward(&app, bundle);
         }
@@ -1117,12 +1165,12 @@ fn native_theme(theme: config::Theme) -> Option<tauri::Theme> {
 }
 
 /// The board window in front, which a menu command is for. The floating bar, the quick panel, the
-/// peek and the cards pinned to the desktop never are (the bar, the peek and the cards say they're
-/// key while they aren't).
+/// peek, the cards pinned to the desktop and the sessions kept there never are (the bar, the peek,
+/// the cards and the kept sessions say they're key while they aren't).
 fn front_window(app: &tauri::AppHandle) -> Option<tauri::WebviewWindow> {
     app.webview_windows()
         .into_values()
-        .find(|w| ![bar::LABEL, quick::LABEL, peek::LABEL].contains(&w.label()) && !w.label().starts_with(desktop::PREFIX) && w.is_focused().unwrap_or(false))
+        .find(|w| ![bar::LABEL, quick::LABEL, peek::LABEL].contains(&w.label()) && !w.label().starts_with(desktop::PREFIX) && !w.label().starts_with(kept::PREFIX) && w.is_focused().unwrap_or(false))
 }
 
 /// Puts Settings… (⌘,) in the app menu, under About. Choosing it tells the front window to
@@ -1336,6 +1384,9 @@ pub fn run() {
             if let Err(e) = desktop::setup(app.handle()) {
                 eprintln!("Couldn't put the cards pinned to the desktop back: {e:#}");
             }
+            if let Err(e) = kept::setup(app.handle()) {
+                eprintln!("Couldn't put the sessions kept on the desktop back: {e:#}");
+            }
             // Registering waits on the main thread, which this is.
             let handle = app.handle().clone();
             std::thread::spawn(move || quick::apply_shortcut(&handle, &config::quick_shortcut()));
@@ -1360,9 +1411,10 @@ pub fn run() {
             quick::on_window_event(window, event);
             peek::on_window_event(window, event);
             desktop::on_window_event(window, event);
+            kept::on_window_event(window, event);
         })
         .register_asynchronous_uri_scheme_protocol("codealong-image", |_ctx, request, responder| serve_image(request, responder))
-        .invoke_handler(tauri::generate_handler![get_board, session_at, idle_terminals, close_idle_terminals, close_session, open_target, open_config, editor_icons, mark_seen, snooze_sessions, refresh, refresh_usage, set_pinned, set_pinned_worktrees, set_pinned_prs, set_preview, set_reusable, archive_session, rename_session, pr_detail, pr_card, pr_comment_asks, approve_pr, review_in_codex, open_url, run_in_terminal, get_accounts, save_accounts, set_preferred, found_accounts, get_config, save_config, save_config_text, sign_in, agents_status, install_agents, start_options, device_start_options, start_session, fork_session, side_ask, side_get, side_past, side_forget, side_close, todo_op, canvas_load, canvas_save, save_attachment, import_attachment, open_attachment, expand_attachments, set_theme, open_project_window, fit_bar, show_main, peek_open, peek_ready, peek_fit, peek_focus, peek_hide, bar_feed, bar_on, set_bar_on, bar_mode, set_bar_mode, set_notch_open, notch_shape, open_from_bar, desktop_pins, pin_to_desktop, unpin_from_desktop, drag_to_desktop, desktop_feed, fit_desktop, desktop_hover, lineage_feed, show_quick, hide_quick, quick_ready, fit_quick, start_from_quick, route_quick, search_text, search_devices, devices, set_device_color, link_device, answer_link, unlink_device, device_link_code, link_code_qr, link_with_code, session_page, session_newer, session_pending, session_way, session_answer, session_stream, session_cancel, send_to_session, suggest_todo, dismiss_todo_hint, jev_key, set_jev_key, test_jev, quick_shortcut, pause_quick_shortcut, perf_mark, page_unfocused, popup_menu, update_status, check_for_updates, restart_to_update])
+        .invoke_handler(tauri::generate_handler![get_board, session_at, idle_terminals, close_idle_terminals, close_session, open_target, open_config, editor_icons, mark_seen, snooze_sessions, refresh, refresh_usage, set_pinned, set_pinned_worktrees, set_pinned_prs, set_preview, set_reusable, archive_session, rename_session, pr_detail, pr_card, pr_comment_asks, approve_pr, review_in_codex, open_url, run_in_terminal, get_accounts, save_accounts, set_preferred, found_accounts, get_config, save_config, save_config_text, sign_in, agents_status, install_agents, start_options, device_start_options, start_session, fork_session, side_ask, side_get, side_past, side_forget, side_close, todo_op, canvas_load, canvas_save, save_attachment, import_attachment, open_attachment, expand_attachments, set_theme, open_project_window, fit_bar, show_main, peek_open, peek_ready, peek_fit, peek_focus, peek_hide, peek_resize, keep_session, kept_session, kept_ready, kept_focus, kept_resize, kept_close, bar_feed, bar_on, set_bar_on, bar_mode, set_bar_mode, set_notch_open, notch_shape, open_from_bar, desktop_pins, pin_to_desktop, unpin_from_desktop, drag_to_desktop, desktop_feed, fit_desktop, desktop_hover, lineage_feed, show_quick, hide_quick, quick_ready, fit_quick, start_from_quick, route_quick, search_text, search_devices, devices, set_device_color, link_device, answer_link, unlink_device, device_link_code, link_code_qr, link_with_code, session_page, session_newer, session_pending, session_way, session_answer, session_stream, session_cancel, send_to_session, suggest_todo, dismiss_todo_hint, jev_key, set_jev_key, test_jev, quick_shortcut, pause_quick_shortcut, perf_mark, page_unfocused, popup_menu, update_status, check_for_updates, restart_to_update])
         .build(tauri::generate_context!())
         .expect("error while running Codealong")
         .run(|app, event| {
@@ -1760,7 +1812,8 @@ mod tests {
         let listed: Vec<&str> = capability["windows"].as_array().unwrap().iter().filter_map(|w| w.as_str()).collect();
         let allowed = |label: &str| listed.iter().any(|w| *w == label || w.strip_suffix('*').is_some_and(|prefix| label.starts_with(prefix)));
         let card = format!("{}1", desktop::PREFIX);
-        for label in ["main", project_window_label("Kestrel").as_str(), bar::LABEL, peek::LABEL, quick::LABEL, card.as_str(), lineage::LABEL] {
+        let kept = format!("{}1", kept::PREFIX);
+        for label in ["main", project_window_label("Kestrel").as_str(), bar::LABEL, peek::LABEL, quick::LABEL, card.as_str(), kept.as_str(), lineage::LABEL] {
             assert!(allowed(label), "{label} isn't in capabilities/default.json");
         }
     }

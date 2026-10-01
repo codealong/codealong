@@ -1610,6 +1610,7 @@ export function Quick() {
             onOpen={(target) => openHere(replying.lane, target)}
             onReveal={() => revealSession(replying.lane, replying.session)}
             actions={replyCan ? menus.sessionActions(replying.lane, replying.session, replyCan) : undefined}
+            triage
             renaming={renameKey === replying.session.key}
             onRename={(name) => renamed(replying.session, name)}
             onMenu={(at) => replyCan && void showContextMenu(menus.sessionMenu(replying.lane, replying.session, replyCan), at).catch((e: unknown) => setNotice({ text: errorText(e), error: true }))}

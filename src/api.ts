@@ -932,6 +932,53 @@ export async function peekHide(): Promise<void> {
   await invoke('peek_hide');
 }
 
+/** You're dragging the peek's edge: its window takes that size (peek.rs). */
+export async function peekResize(width: number, height: number): Promise<void> {
+  if (!inTauri) return;
+  await invoke('peek_resize', { width, height });
+}
+
+/** Keeps the session the peek shows on the desktop, in a window of its own where the peek is
+ *  (kept.rs). */
+export async function keepSession(): Promise<void> {
+  if (!inTauri) return;
+  await invoke('keep_session');
+}
+
+/** The session this window keeps on the desktop; null once it's no longer kept. */
+export async function keptSession(): Promise<string | null> {
+  return invoke<string | null>('kept_session');
+}
+
+/** A kept session's page has laid it out: time to show its window. */
+export async function keptReady(): Promise<void> {
+  if (!inTauri) return;
+  await invoke('kept_ready');
+}
+
+/** A click in a kept session: it takes the keyboard. */
+export async function keptFocus(): Promise<void> {
+  if (!inTauri) return;
+  await invoke('kept_focus');
+}
+
+/** You're dragging a kept session's edge: its window takes that size, keeping its top left corner. */
+export async function keptResize(width: number, height: number): Promise<void> {
+  if (!inTauri) return;
+  await invoke('kept_resize', { width, height });
+}
+
+/** Takes this window's session off the desktop, which closes the window. */
+export async function keptClose(): Promise<void> {
+  if (!inTauri) return;
+  await invoke('kept_close');
+}
+
+/** Calls `cb` when this kept session's window takes the keyboard (true) or loses it. */
+export function onKeptKeys(cb: (has: boolean) => void): () => void {
+  return onWindowEvent<boolean>('kept-keys', cb);
+}
+
 /** Calls `cb` when the peek is asked to show a session. */
 export function onPeekOpen(cb: (open: PeekOpen) => void): () => void {
   return onWindowEvent<PeekOpen>('peek-open', cb);

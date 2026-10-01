@@ -2,9 +2,9 @@
 // top (SessionHeader.tsx), its whole conversation in the middle (SessionThread.tsx), and at the
 // bottom a box that sends it a message where it runs, or what it waits on you to allow
 // (SessionReply.tsx). The main window shows it as a panel, on the canvas and in Sessions; the
-// floating bar's peek and the quick panel's reply view show it as a card of their own, for the
-// pill under the pointer and the session picked there, and a right-click anywhere on the card but
-// the box gives the session's menu.
+// floating bar's peek, a session kept on the desktop and the quick panel's reply view show it as a
+// card of their own, for the pill under the pointer, the session kept and the one picked there,
+// and a right-click anywhere on the card but the box gives the session's menu.
 //
 // Answered in turn, it works through what waits on you: ⌘⏎ in the box sends (or allows the call
 // the session waits on) and goes on to the next, the check (⌘E) marks a finished turn seen and

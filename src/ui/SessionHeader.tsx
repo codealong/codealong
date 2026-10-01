@@ -10,9 +10,11 @@
 // "+N more" beside it lists the rest. A click shows one, a right-click gives its menu.
 //
 // A window says what it can do by what it passes: the main window can expand the panel, the peek
-// and the quick panel can show the session in Codealong and snooze or archive it from a button,
-// and Rename in a menu shows the name as a field. What a window doesn't know (the PRs, the todos,
-// the sessions around it) it leaves out, and that line isn't there.
+// can keep the session on the desktop and a session kept there can be closed, the quick panel,
+// where sessions are got through in turn, can show the session in Codealong and snooze or archive
+// it from a button, and Rename in a menu shows the name as a field. The rest of what can be done
+// to it is in its ⋯ menu, so the row of buttons stays short. What a window doesn't know (the PRs,
+// the todos, the sessions around it) it leaves out, and that line isn't there.
 
 import { useMemo, useRef, useState } from 'react';
 import { below, showContextMenu } from '../contextMenu';
@@ -64,11 +66,18 @@ export interface SessionHeaderProps {
   /** Marks a finished turn seen, where the window does more than the action alone (the main
    *  window goes on to the next); else `actions.seen` does. */
   onSeen?: () => void;
-  /** The session's actions (menus.ts), as its menu has them: Snooze and Archive among them show
-   *  as buttons, where the session is one of several to get through (the peek, the quick panel). */
+  /** The session's actions (menus.ts), as its menu has them: the check marks it seen with them
+   *  where the window doesn't say how. */
   actions?: SessionActions;
-  /** Shows the session in Codealong's main window, from the other windows. */
+  /** The session is one of several to get through (the quick panel's reply view): Snooze and
+   *  Archive among its actions show as buttons too. */
+  triage?: boolean;
+  /** Shows the session in Codealong's main window, from the quick panel. */
   onReveal?: () => void;
+  /** Keeps the session on the desktop, from the bar's peek (kept.rs). */
+  onKeep?: () => void;
+  /** Takes a session kept on the desktop off it. */
+  onClose?: () => void;
   /** Its name is a field, ready to change; `onRename` hears the new one, or null when it's left
    *  as it was. */
   renaming?: boolean;
@@ -156,7 +165,7 @@ function KinRow({ kin, now, parent = false, onShow, onMenu }: { kin: Kin; now: n
   );
 }
 
-export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane, prs = [], onOpenPr, onPrMenu, todos, onShowTodo, lineage, onShowSession, onSessionMenu, onMenu, onSeen, actions, onReveal, renaming, onRename, device, back, next, maximized, onMaximize, compact }: SessionHeaderProps) {
+export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane, prs = [], onOpenPr, onPrMenu, todos, onShowTodo, lineage, onShowSession, onSessionMenu, onMenu, onSeen, actions, triage, onReveal, onKeep, onClose, renaming, onRename, device, back, next, maximized, onMaximize, compact }: SessionHeaderProps) {
   const [details, setDetails] = useState(false);
   const [allPrs, setAllPrs] = useState(false);
   const [allTodos, setAllTodos] = useState(false);
@@ -211,7 +220,8 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
             </Button>
           )}
           {seen && <Button variant="ghost" size="sm" icon="check" aria-label="Mark as seen" title={next ? 'Mark as seen and go on to the next (⌘E)' : 'Mark as seen: it goes idle and leaves the bar'} className="ca-sessinsp-seen" onClick={seen} />}
-          {actions?.snooze && (
+          {onKeep && <Button variant="ghost" size="sm" icon="pin" aria-label="Keep on the desktop" title="Keep on the desktop: it stays up, here, until you close it. Dragging its edge to make it bigger keeps it too." onClick={onKeep} />}
+          {triage && actions?.snooze && (
             <Button
               variant="ghost"
               size="sm"
@@ -222,7 +232,7 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
               onClick={(e) => actions.snooze && void showContextMenu(actions.snooze.items, below(e.currentTarget))}
             />
           )}
-          {actions && !s.archived && (
+          {triage && actions && !s.archived && (
             <Button
               variant="ghost"
               size="sm"
@@ -246,7 +256,8 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
           )}
           {!compact && <Button variant="ghost" size="sm" icon="info-circle" aria-label="Details" aria-expanded={details} title={details ? 'Hide the details' : 'Details: its account, ID, folder and times'} className={details ? 'ca-sessinsp-detailsbtn is-on' : 'ca-sessinsp-detailsbtn'} onClick={() => setDetails(!details)} />}
           {onReveal && <Button variant="ghost" size="sm" icon="sidebar" aria-label="Show in Codealong" title="Show in Codealong" onClick={onReveal} />}
-          {onMenu && <Button variant="ghost" size="sm" icon="dots" aria-label="More" aria-haspopup="menu" title="Fork, pin, archive, copy and more" onClick={(e) => onMenu(below(e.currentTarget))} />}
+          {onMenu && <Button variant="ghost" size="sm" icon="dots" aria-label="More" aria-haspopup="menu" title="Snooze, fork, pin, archive, copy and more" onClick={(e) => onMenu(below(e.currentTarget))} />}
+          {onClose && <Button variant="ghost" size="sm" icon="x" aria-label="Close" title="Close: it leaves the desktop (⌘W)" onClick={onClose} />}
         </div>
       </div>
       {cameOf.length > 0 && (

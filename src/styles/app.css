@@ -3416,6 +3416,75 @@ html.is-peek body {
 .ca-peek-root.is-over .ca-peek {
   box-shadow: var(--shadow-peek-over);
 }
+/* A size of its own: dragged by an edge, or kept on the desktop (kept.rs). The card fills the
+   window, whose size is yours, where the peek's window follows its card. */
+.ca-peek-root {
+  position: relative;
+}
+.ca-peek-root.is-filled {
+  height: 100vh;
+}
+.ca-peek-root.is-filled .ca-peek {
+  height: 100%;
+}
+/* The edges that size it, in the room the window keeps around the card for its shadow: the
+   right edge, the edge away from the bar, and the corner between them. */
+.ca-peek-grip {
+  position: absolute;
+  z-index: 2;
+}
+.ca-peek-grip.is-side {
+  top: 16px;
+  right: 8px;
+  bottom: 40px;
+  width: 14px;
+  cursor: ew-resize;
+}
+.ca-peek-grip.is-far {
+  right: 28px;
+  bottom: 20px;
+  left: 28px;
+  height: 14px;
+  cursor: ns-resize;
+}
+.ca-peek-grip.is-corner {
+  right: 8px;
+  bottom: 20px;
+  width: 18px;
+  height: 18px;
+  cursor: nwse-resize;
+}
+/* Over the bar the far edge is the top. */
+.ca-peek-root.is-over .ca-peek-grip.is-side {
+  top: 40px;
+  bottom: 16px;
+}
+.ca-peek-root.is-over .ca-peek-grip.is-far {
+  top: 20px;
+  bottom: auto;
+}
+.ca-peek-root.is-over .ca-peek-grip.is-corner {
+  top: 20px;
+  bottom: auto;
+  cursor: nesw-resize;
+}
+/* A session kept on the desktop is dragged by its header. */
+.ca-peek-root.is-kept .ca-sessinsp-head {
+  cursor: default;
+  -webkit-user-select: none;
+  user-select: none;
+}
+/* One the board no longer has. */
+.ca-peek-gone {
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  font: 400 13px/18px var(--font-sans);
+}
+.ca-peek-gone p {
+  margin: 0;
+  color: var(--ink-2);
+}
 /* The box, at the card's foot; what the session waits on sits above it. */
 .ca-peek .ca-composer:last-child {
   border-radius: 0 0 var(--radius-lg) var(--radius-lg);

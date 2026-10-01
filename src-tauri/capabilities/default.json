@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Codealong windows (the main one, one per project, the floating bar, its peek, the quick panel, the cards pinned to the desktop and the lines between them): board events, menus and dragging the toolbar, the bar or a card. A window that isn't listed here can still run Codealong's commands, but its page is refused `listen`, so it never hears an event.",
+  "description": "Codealong windows (the main one, one per project, the floating bar, its peek, the quick panel, the cards pinned to the desktop, the lines between them and the sessions kept there): board events, menus and dragging the toolbar, the bar, a card or a kept session. A window that isn't listed here can still run Codealong's commands, but its page is refused `listen`, so it never hears an event.",
   "windows": [
     "main",
     "project-*",
@@ -9,6 +9,7 @@
     "peek",
     "quick",
     "desktop-*",
+    "kept-*",
     "lineage"
   ],
   "permissions": [

@@ -10,9 +10,16 @@
 // or a right-click, has the session's menu (menus.ts). Rename in that menu, or in a pill's, shows
 // the session's name ready to change; ⏎ renames it and the peek closes. While it's up, the
 // session follows the board, and the peek stays on it as its pill moves along the bar.
+//
+// The pin in its header keeps the session on the desktop, and so does dragging the peek's right
+// edge, its far edge or the corner between them to make it bigger: the session gets a window of
+// its own where the peek is (kept.rs), which this page draws too (`kept`). There it stays up
+// whatever you do: sending leaves it open, its header drags it, its edges size it, and its ×
+// (or ⌘W) takes it off the desktop. It comes back at launch where it was left.
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { barNote, getBoard, inPreview, onBoard, onPeekHidden, onPeekOpen, onPeekShown, openUrl, peekFit, peekFocus, peekHide, peekOpen, peekReady, showMain } from '../api';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { getCurrentWindow } from '@tauri-apps/api/window';
+import { barNote, getBoard, inPreview, keepSession, keptClose, keptFocus, keptReady, keptResize, keptSession, onBoard, onKeptKeys, onPeekHidden, onPeekOpen, onPeekShown, openUrl, peekFit, peekFocus, peekHide, peekOpen, peekReady, peekResize, showMain } from '../api';
 import { boardView, lanesAhead, observe, renameAhead, useAhead } from '../ahead';
 import { showContextMenu } from '../contextMenu';
 import { readDraft } from '../drafts';
@@ -38,6 +45,13 @@ import { openWhere, where } from '../open';
 const MARGIN = 20;
 const FAR = 32;
 const NEAR = 8;
+/** How far an edge moves with the button down before it sizes the card rather than clicks. */
+const SIZE_AFTER = 3;
+/** How far a kept session's header moves with the button down before it drags the window. */
+const DRAG_AFTER = 4;
+/** The edges that size the card: its right edge, its far edge (the one away from the bar), and
+ *  the corner between them. */
+type Edge = 'side' | 'far' | 'corner';
 /** How long an open waits for the conversation before showing what it has. */
 const LOAD_WAIT_MS = 250;
 /** Where a preview (scripts/preview.sh) says which session to peek at. */
@@ -60,8 +74,12 @@ async function previewOpen(): Promise<PeekOpen | null> {
   return { id: 1, lane, session, terminal: board.apps.terminal, apps: board.apps, theme: board.theme, room: 580 + FAR + NEAR, below: true, focus: false, rename: false };
 }
 
-export function Peek() {
+export function Peek({ kept = false }: { kept?: boolean }) {
   const [open, setOpen] = useState<PeekOpen | null>(null);
+  // A kept session the board no longer has: there's only its window to close.
+  const [gone, setGone] = useState(false);
+  // You dragged an edge: the card fills the window, which keeps the size you gave it.
+  const [sized, setSized] = useState(false);
   // The session as the board has it now, while the peek is up.
   const [live, setLive] = useState<{ lane: Lane; session: Session; theme: Theme } | null>(null);
   const [shown, setShown] = useState(false);
@@ -77,16 +95,19 @@ export function Peek() {
   const loadedView = useRef<string | null>(null);
 
   useEffect(() => {
+    if (kept) return;
     const offOpen = onPeekOpen((o) => {
       setOpen(o);
       setRenameAsked(null);
       setLive(null);
       setShown(true);
+      setSized(false);
       setEngaged(o.focus);
     });
     const offHidden = onPeekHidden(() => {
       setShown(false);
       setEngaged(false);
+      setSized(false);
       loadedView.current = null;
     });
     const offShown = onPeekShown((s) => setEngaged(s.engaged));
@@ -102,7 +123,43 @@ export function Peek() {
       offHidden();
       offShown();
     };
-  }, []);
+  }, [kept]);
+
+  // A kept session's window knows which session it keeps; the board says the rest, once it has
+  // read the session (at launch, the window is there before the first scan is done).
+  useEffect(() => {
+    if (!kept) return;
+    let stop = () => {};
+    let over = false;
+    const offKeys = onKeptKeys(setEngaged);
+    void (inPreview ? previewOpen().then((o) => o?.session.key ?? null) : keptSession()).then((key) => {
+      if (over) return;
+      if (!key) {
+        setGone(true);
+        void keptReady();
+        return;
+      }
+      const take = (b: Board) => {
+        const home = homeOf(b.lanes, key);
+        if (home) {
+          setGone(false);
+          setShown(true);
+          setOpen((o) => o ?? { id: 1, lane: home.lane, session: home.session, terminal: b.apps.terminal, apps: b.apps, theme: b.theme, room: 0, below: true, focus: false, rename: false });
+          stop();
+        } else if (!b.loading) {
+          setGone(true);
+          void keptReady();
+        }
+      };
+      stop = onBoard(take);
+      void getBoard().then(take, () => {});
+    });
+    return () => {
+      over = true;
+      stop();
+      offKeys();
+    };
+  }, [kept]);
 
   // The board's PRs, worktrees and todos, for what the header says around the session (its PRs,
   // its todos, the sessions it came from and that came of it) and for PR links in the conversation
@@ -140,13 +197,17 @@ export function Peek() {
   const measure = () => Math.ceil((card.current?.getBoundingClientRect().height ?? 0) + FAR + NEAR);
 
   /** Answers the open with the page's height, once: when the conversation is laid out, or after a
-   *  moment without it. */
+   *  moment without it. A kept session's window has its size already, and shows. */
   const ready = useCallback(() => {
     if (!open || answered.current === open.id) return;
     answered.current = open.id;
+    if (kept) {
+      void keptReady();
+      return;
+    }
     reported.current = measure();
     void peekReady(open.id, reported.current);
-  }, [open]);
+  }, [open, kept]);
   useEffect(() => {
     if (!open) return;
     const id = window.setTimeout(ready, LOAD_WAIT_MS);
@@ -165,9 +226,10 @@ export function Peek() {
   }, [open, view, ready]);
 
   // Once shown, the window follows the card: new steps, a longer draft, an approval coming up.
+  // Not once you've given it a size, which it keeps.
   useLayoutEffect(() => {
     const el = card.current;
-    if (!el) return;
+    if (!el || kept || sized) return;
     const observer = new ResizeObserver(() => {
       if (!open || answered.current !== open.id) return;
       const h = measure();
@@ -177,7 +239,7 @@ export function Peek() {
     });
     observer.observe(el);
     return () => observer.disconnect();
-  }, [open, shown]);
+  }, [open, shown, kept, sized]);
 
   // With the perf log on, how long typed keys take to show.
   const keyed = useKeyPerf(open?.perfLog ?? false);
@@ -187,18 +249,20 @@ export function Peek() {
   }, [keyed]);
 
   // Escape closes it, and ⌘Q, ⌘H and ⌘W close it rather than going to Codealong: the menu bar is
-  // the other app's. Typing with nothing focused goes to the box.
+  // the other app's. A kept session stays up for all of them but ⌘W, which takes it off the
+  // desktop. Typing with nothing focused goes to the box.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || e.isComposing) return;
-      if (e.key === 'Escape') {
+      if (e.key === 'Escape' && !kept) {
         e.preventDefault();
         void peekHide();
         return;
       }
       if (e.metaKey && !e.ctrlKey && !e.altKey && ['q', 'h', 'w'].includes(e.key.toLowerCase())) {
         e.preventDefault();
-        void peekHide();
+        if (!kept) void peekHide();
+        else if (e.key.toLowerCase() === 'w') void keptClose();
         return;
       }
       const el = document.activeElement;
@@ -208,7 +272,62 @@ export function Peek() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  }, [kept]);
+
+  /** Puts the peek away. A session kept on the desktop stays where it is. */
+  const away = () => {
+    if (!kept) void peekHide();
+  };
+
+  // An edge being dragged: where the pointer went down, and the window's size then.
+  const sizing = useRef<{ edge: Edge; x: number; y: number; w: number; h: number; moved: boolean; frame: number; to: [number, number] } | null>(null);
+  const below = open?.below ?? true;
+  const startSize = (edge: Edge) => (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    // With the keyboard it stays up while the pointer runs ahead of its edge, where a peek up
+    // from a hover would take the pointer for gone.
+    if (!engaged) void (kept ? keptFocus() : peekFocus());
+    sizing.current = { edge, x: e.screenX, y: e.screenY, w: window.innerWidth, h: window.innerHeight, moved: false, frame: 0, to: [window.innerWidth, window.innerHeight] };
+  };
+  const moveSize = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const d = sizing.current;
+    if (!d) return;
+    const [dx, dy] = [e.screenX - d.x, e.screenY - d.y];
+    if (!d.moved && Math.abs(dx) + Math.abs(dy) < SIZE_AFTER) return;
+    if (!d.moved) setSized(true);
+    d.moved = true;
+    // The far edge is the bottom under the bar and in a kept window, the top over the bar.
+    d.to = [d.edge === 'far' ? d.w : d.w + dx, d.edge === 'side' ? d.h : d.h + (below ? dy : -dy)];
+    if (d.frame) return;
+    d.frame = requestAnimationFrame(() => {
+      d.frame = 0;
+      void (kept ? keptResize(d.to[0], d.to[1]) : peekResize(d.to[0], d.to[1]));
+    });
+  };
+  /** Letting go of an edge that made the peek bigger keeps it on the desktop at that size. */
+  const endSize = () => {
+    const d = sizing.current;
+    sizing.current = null;
+    if (!d?.moved) return;
+    cancelAnimationFrame(d.frame);
+    void (kept ? keptResize(d.to[0], d.to[1]) : peekResize(d.to[0], d.to[1]).then(keepSession)).catch(() => {});
+  };
+
+  // A kept session's header drags its window, as a card's face drags a card.
+  const moving = useRef<{ x: number; y: number } | null>(null);
+  const startMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const on = e.target instanceof Element ? e.target : null;
+    moving.current = e.button === 0 && on?.closest('.ca-sessinsp-head') && !on.closest('button, a, input, [role="button"]') ? { x: e.screenX, y: e.screenY } : null;
+  };
+  const moveWindow = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const d = moving.current;
+    if (!d || !(e.buttons & 1) || Math.abs(e.screenX - d.x) + Math.abs(e.screenY - d.y) < DRAG_AFTER) return;
+    moving.current = null;
+    void getCurrentWindow().startDragging();
+  };
 
   // A PR link's card: its sessions show in the main window, and what comes of an open or a menu is
   // said on the bar by the peek's own session.
@@ -217,12 +336,12 @@ export function Peek() {
     info: (message) => void (key && barNote({ key, message, tone: 'info' })),
   };
   const showSessionMain = (l: Lane, s: Session) => {
-    void peekHide();
+    away();
     void showMain({ kind: 'session', laneId: l.id, key: s.key });
   };
-  const openFromCard = (l: Lane, target: string) => openWhere(where(l, target), { report: cardReport, from: 'panel', before: () => void peekHide() });
+  const openFromCard = (l: Lane, target: string) => openWhere(where(l, target), { report: cardReport, from: 'panel', before: away });
   const showPrMain = (pr: PrItem) => {
-    void peekHide();
+    away();
     void showMain({ kind: 'pr', key: pr.key });
   };
   usePrLinks(prBoard?.prs, prBoard?.lanes, {
@@ -237,7 +356,7 @@ export function Peek() {
         reveal: () => showSessionMain(l, s),
         editors: open?.apps ? { apps: open.apps, icons } : undefined,
         desktop: onDesktop,
-        left: () => void peekHide(),
+        left: away,
       };
       void showContextMenu(menus.sessionMenu(l, s, can)).catch((e: unknown) => cardReport.error(errorText(e)));
     },
@@ -249,6 +368,21 @@ export function Peek() {
     needBoard: () => void getBoard().then(takeBoard, () => setPrBoard((prev) => prev ?? { prs: [], lanes: [], todos: [] })),
   });
 
+  // A kept session's window is never empty: a clear window would take the clicks meant for what's
+  // under it. Until the board has read the session it says so, and so it does when the board has
+  // lost it (aged out, its transcript deleted); either way it can be closed.
+  if (kept && !open) {
+    return (
+      <div className="ca-peek-root is-kept" style={{ padding: `${NEAR}px ${MARGIN}px ${FAR}px` }}>
+        <div className="ca-peek ca-peek-gone" onPointerDown={() => void keptFocus()}>
+          <p>{gone ? 'This session isn’t on the board any more.' : 'Reading sessions…'}</p>
+          <button type="button" className="ca-btn ca-btn--sm" onClick={() => void keptClose()}>
+            Close
+          </button>
+        </div>
+      </div>
+    );
+  }
   if (!open || !lane || !session || !shown) return null;
 
   /** What comes of an open or the menu's actions is said on the bar, by the session's pill,
@@ -258,11 +392,11 @@ export function Peek() {
     info: (message) => void barNote({ key: session.key, message, tone: 'info' }),
   };
   /** Opens one of the worktree's targets where it lives (open.ts), putting the peek away. */
-  const openOn = (l: Lane, target: string) => openWhere(where(l, target), { report, from: 'panel', before: () => void peekHide() });
+  const openOn = (l: Lane, target: string) => openWhere(where(l, target), { report, from: 'panel', before: away });
 
   /** Takes the session off the bar, and puts the peek away. */
   const dismiss = (act: Promise<void>) => {
-    void peekHide();
+    away();
     act.catch((e: unknown) => report.error(errorText(e)));
   };
 
@@ -272,11 +406,11 @@ export function Peek() {
     setRenameAsked(null);
     if (name) dismiss(renameAhead(session.key, name));
     // Asked from the peek's own menu, leaving the name goes back to the conversation.
-    else if (!here) void peekHide();
+    else if (!here) away();
   };
 
   const reveal = () => {
-    void peekHide();
+    away();
     void showMain({ kind: 'session', laneId: lane.id, key: session.key });
   };
 
@@ -290,19 +424,22 @@ export function Peek() {
     editors: open.apps ? { apps: open.apps, icons } : undefined,
     desktop: onDesktop,
     rename: () => setRenameAsked(session.key),
-    left: () => void peekHide(),
+    left: away,
   };
   const menu = (at?: { x: number; y: number }) => void showContextMenu(menus.sessionMenu(lane, session, can), at).catch((e: unknown) => report.error(errorText(e)));
-  /** A session it came from, or that came of it, takes the peek's place; its menu is its own. */
-  const showKin = (_l: Lane, s: Session) => void peekOpen(s.key, null, engaged).catch((e: unknown) => report.error(errorText(e)));
+  /** A session it came from, or that came of it, takes the peek's place; from a kept session it
+   *  shows in Codealong, and the kept one stays. Its menu is its own. */
+  const showKin = (l: Lane, s: Session) => (kept ? showSessionMain(l, s) : void peekOpen(s.key, null, engaged).catch((e: unknown) => report.error(errorText(e))));
+  /** Keeps the session on the desktop, where the peek is. */
+  const keep = () => void keepSession().catch((e: unknown) => report.error(errorText(e)));
   const kinMenu = (l: Lane, s: Session) =>
     void showContextMenu(menus.sessionMenu(l, s, { ...can, reveal: () => showSessionMain(l, s), rename: undefined })).catch((e: unknown) => report.error(errorText(e)));
   const showLane = (l: Lane) => {
-    void peekHide();
+    away();
     void showMain({ kind: 'worktree', laneId: l.id });
   };
   const showTodo = (t: Todo) => {
-    void peekHide();
+    away();
     void showMain({ kind: 'todo', id: t.id });
   };
   const prMenu = (pr: Pr) => {
@@ -310,23 +447,28 @@ export function Peek() {
     void showContextMenu(menus.prMenu(item ?? pr, { report, reveal: item ? () => showPrMain(item) : undefined, desktop: onDesktop })).catch((e: unknown) => report.error(errorText(e)));
   };
 
+  // The card fills its window once the window has a size of its own: kept, or dragged to one.
+  const filled = kept || sized;
+  const grip = (edge: Edge) => <div className={`ca-peek-grip is-${edge}`} onPointerDown={startSize(edge)} onPointerMove={moveSize} onPointerUp={endSize} onPointerCancel={endSize} />;
   return (
     <div
-      className={open.below ? 'ca-peek-root' : 'ca-peek-root is-over'}
+      className={['ca-peek-root', !open.below && 'is-over', kept && 'is-kept', filled && 'is-filled'].filter(Boolean).join(' ')}
       style={{ padding: open.below ? `${NEAR}px ${MARGIN}px ${FAR}px` : `${FAR}px ${MARGIN}px ${NEAR}px` }}
       onMouseDown={(e) => {
         // The shadow around the card is part of the window; a click there is a click outside.
-        if (e.target === e.currentTarget) void peekHide();
+        if (e.target === e.currentTarget) away();
       }}
     >
       <div
         ref={card}
         className="ca-peek"
-        style={{ maxHeight: open.room - FAR - NEAR }}
-        onPointerDown={() => {
-          // Hovering never gives the peek the keyboard; a click does.
-          if (!engaged) void peekFocus();
+        style={filled ? undefined : { maxHeight: open.room - FAR - NEAR }}
+        onPointerDown={(e) => {
+          // Hovering never gives it the keyboard; a click does.
+          if (!engaged) void (kept ? keptFocus() : peekFocus());
+          if (kept) startMove(e);
         }}
+        onPointerMove={kept ? moveWindow : undefined}
       >
         <SessionPanel
           key={view}
@@ -342,7 +484,8 @@ export function Peek() {
           renaming={open.rename || renameAsked === session.key}
           onRename={renamed}
           onMenu={menu}
-          onReveal={reveal}
+          onKeep={kept ? undefined : keep}
+          onClose={kept ? () => void keptClose() : undefined}
           onShowLane={showLane}
           prs={context?.prs}
           onOpenPr={(pr) => openUrl(pr.url).catch((e: unknown) => report.error(errorText(e)))}
@@ -352,7 +495,7 @@ export function Peek() {
           lineage={context?.lineage}
           onShowSession={showKin}
           onSessionMenu={kinMenu}
-          onSending={() => void peekHide()}
+          onSending={away}
           onSent={(sent) => {
             // What you'd want to know goes on the bar: the prompt is on the clipboard, say, or it
             // went as a message from Codealong because its terminal couldn't be typed into.
@@ -362,10 +505,14 @@ export function Peek() {
           onFailed={(why) => void barNote({ key: session.key, message: why, tone: 'error' })}
           onAnswered={() => {
             // What you wrote while it waited is likely what you'd send next.
-            if (!readDraft(session.key)) void peekHide();
+            if (!readDraft(session.key)) away();
           }}
         />
       </div>
+      {/* Its edges size it, in the room the window keeps around the card. */}
+      {grip('side')}
+      {grip('far')}
+      {grip('corner')}
     </div>
   );
 }

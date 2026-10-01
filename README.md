@@ -444,13 +444,21 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   everywhere else. Until you click in it, the peek follows the pointer from pill to pill
   and closes once the pointer leaves it; pills that shift under a still pointer as sessions
   change groups don't move it. Once you've clicked in it, it stays on its session whatever the
-  bar does, until you send, press Escape or click somewhere else. Click a pill to show its
+  bar does, until you send, press Escape or click somewhere else. Its header has the ways to
+  open the session, the check that marks it seen, the pin and ⋯; snoozing, archiving and showing
+  it in Codealong are in the ⋯ menu. The pin **keeps the session on the desktop**: it gets a
+  window of its own where the peek is, which stays up whatever you do, floating over every
+  window as the cards pinned to the desktop do. Dragging the peek's right edge, its far edge or
+  the corner between them to make it bigger keeps it too, at that size, when you let go. A kept
+  session is dragged by its header and sized by the same edges; sending leaves it open; its ×
+  (or ⌘W) takes it off the desktop; and it comes back at launch where it was left. A pill whose
+  session is kept brings that window up in place of a peek. Click a pill to show its
   session in Codealong, selected in Sessions, and double-click it to open the
   session where it lives; drag it off the bar (floating or in the notch) to pin its card to the
   desktop where you let go; right-click it for the session's menu, with Reply here to answer it in
   the peek and Rename… to rename it there. The todos pill opens the quick panel ready to start a
   session for a todo (its menu picks which).
-  **Snooze** (a session's menu on the bar or in Codealong, the peek's zzz button, or a folded
+  **Snooze** (a session's menu on the bar or in Codealong, the peek's ⋯ menu, or a folded
   pill's menu for all of its sessions): for 15 minutes, an hour, three hours or until 9 the
   next morning. A snoozed session leaves Needs you and Your turn, and the mark stops counting
   it; the snoozed pill lists it with when it's back, to show it in Codealong, open it or wake it
@@ -662,7 +670,7 @@ chrome_profile = "Work"        # its worktrees' previews open in this Chrome pro
 
 What you've seen (for Your turn), what you've pinned, snoozed and archived in Codealong are
 kept in `state.json` next to it; whether the bar is on, floating or in the notch, and where you
-left it floating, in `bar.json`; what's pinned to the desktop, and where each card was left, in `desktop.json`; each project's canvas in `canvas.json`; which session started or was forked into which, where the harness doesn't say, in `origins.json`; whether your latest quick-panel starts in each repo went into a new worktree, in `starts.json`; sessions linked to PRs or unlinked from
+left it floating, in `bar.json`; what's pinned to the desktop, and where each card was left, in `desktop.json`; the sessions kept there from the peek, and their windows' frames, in `kept.json`; each project's canvas in `canvas.json`; which session started or was forked into which, where the harness doesn't say, in `origins.json`; whether your latest quick-panel starts in each repo went into a new worktree, in `starts.json`; sessions linked to PRs or unlinked from
 them by hand in `pr-links.json`; worktrees marked reusable or not in `worktrees.json`. Todos and labels are in `todos.json`, which is watched, so an
 agent or an editor can add to it. Attachments are kept by their content: images in `images/`,
 other files in `files/<hash>/<name>`; ones no todo uses are cleared after 30 days. The devices
@@ -757,6 +765,7 @@ light scan (no git, PRs or visitors).
 | `src-tauri/src/harness.rs` | The interface each harness implements (`Adapter`): a session's record, its conversation, what it waits on you to allow and answering it, renaming it (`src/ui/RenameDialog.tsx` in the main window); CLAUDE.md's "Adding a harness" says what else a new one needs |
 | `src-tauri/src/transcript.rs`, `src/ui/SessionPanel.tsx`, `src/ui/SessionHeader.tsx`, `src/sessionContext.ts`, `src/ui/SessionThread.tsx`, `src/ui/SessionReply.tsx` | A session's conversation, read a page at a time from its own record, the panel that shows it, and the box that sends it messages or answers what it waits on |
 | `src-tauri/src/peek.rs`, `src/ui/Peek.tsx` | The floating bar's peek: its window (a panel under the bar that takes the keyboard only on a click), where it opens for a pill and when it closes. What it shows is the session's panel as a card (`ui/SessionPanel.tsx`), as the quick panel's ⇥ does |
+| `src-tauri/src/kept.rs` | Sessions kept on the desktop from the peek: a window each, made as the peek's is, `kept.json`, sizing and closing. `Peek.tsx` draws them too |
 | `src-tauri/src/search.rs` | Searching what was said in sessions: an in-memory index of prompts and replies, read once per file and then from where it stopped |
 | `src-tauri/src/route.rs`, `src-tauri/src/starts.rs`, `src/route.ts` | Suggestions in the quick panel: the request to Jev and reading its answer back, the key in the keychain, how your past starts weigh a new worktree, and which suggestions the panel shows |
 | `src-tauri/src/todojev.rs` | Jev on todos: which todo a new session is for, whether a todo's work looks done, and a todo's suggested project, labels and dependencies |
