@@ -24,6 +24,8 @@ On the bar, floating or in the notch, the node moves and the C holds still (`src
 a session shows for the first time, working; Ripple as a turn ends; Ripple twice as a session
 or a PR's review starts to need you; Send as you send a session a message from Codealong. One
 that comes while another plays is dropped unless it's more urgent.
+Pointing at the mark turns the C once about the node, with a spring's settle, and grows the
+node a little; it turns back as the pointer leaves.
 
 `mark.svg` is the production vector master. `chosen-reference.png` preserves the
 approved concept, #115 “Node · soft,” selected September 25, 2026. The vector

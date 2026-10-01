@@ -3201,12 +3201,50 @@ html.is-bar body {
 .ca-lmark.is-send .ca-lmark-dot {
   animation: ca-mark-dot 620ms cubic-bezier(0.2, 0.7, 0.3, 1) 110ms both;
 }
+/* Pointing at the mark: the C turns once about the node and settles as a spring does, and the
+   node grows a little for as long as the pointer stays. It turns back as the pointer leaves, so
+   a pointer only passing over turns it part of the way and back, with no jump. Pressing it
+   presses the node in. These are the `rotate` and `scale` properties, which add to a moment's
+   `transform` where the same property would replace it. The color that runs round the C turns
+   with it. The spring's curve is a damped one (damping 0.78: 2% past, then settled) in 32 steps. */
+.ca-lmark {
+  --mark-spring: linear(0, 0.034, 0.118, 0.228, 0.348, 0.466, 0.577, 0.675, 0.759, 0.829, 0.884, 0.928, 0.96, 0.984, 1, 1.01, 1.016, 1.019, 1.02, 1.019, 1.017, 1.015, 1.013, 1.01, 1.008, 1.006, 1.005, 1.003, 1.002, 1.001, 1.001, 1, 1);
+}
+.ca-lmark-c,
+.ca-lmark-run {
+  transform-origin: 54.4% 50.1%;
+  transition: rotate 560ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+.ca-lmark-pop {
+  transition: scale 240ms ease-out;
+}
+.ca-hud-mark:hover .ca-lmark-c,
+.ca-hud-mark:hover .ca-lmark-run {
+  rotate: 360deg;
+  transition: rotate 1100ms var(--mark-spring);
+}
+.ca-hud-mark:hover .ca-lmark-pop {
+  scale: 1.15;
+  transition: scale 600ms var(--mark-spring);
+}
+.ca-hud-mark:active .ca-lmark-pop {
+  scale: 0.92;
+  transition: scale 120ms ease-out;
+}
 /* With Reduce Motion on, the node changes color and nothing moves. */
 @media (prefers-reduced-motion: reduce) {
   .ca-lmark *,
   .ca-lmark[data-status="working"] .ca-lmark-node {
     animation: none !important;
     will-change: auto;
+  }
+  .ca-hud-mark:hover .ca-lmark-c,
+  .ca-hud-mark:hover .ca-lmark-run,
+  .ca-hud-mark:hover .ca-lmark-pop,
+  .ca-hud-mark:active .ca-lmark-pop {
+    rotate: none;
+    scale: none;
+    transition: none;
   }
   .ca-lmark.is-run .ca-lmark-run {
     display: none;

@@ -479,7 +479,8 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   the bar by it or by its gaps. Its node, the part that carries the status color, moves as things
   happen: it breathes while agents work, beats as a turn ends (twice as something starts to need
   you), sends its color once round the C as a new session starts working, and lets a dot go as
-  you send a session a message from Codealong. With Reduce Motion on it only changes color. **In the notch**, the bar docks at the top of the screen instead:
+  you send a session a message from Codealong. Point at the mark and the C turns once about the
+  node, and turns back as the pointer leaves. With Reduce Motion on it only changes color. **In the notch**, the bar docks at the top of the screen instead:
   one black shape with the notch, dark whatever the theme, showing the mark on the camera's
   left and, on its right, the most urgent thing and how many (Needs you, then PRs that wait on
   your review, then Your turn, then Working; a new one that needs you pulses). Rest the pointer on it for a moment, or click it,

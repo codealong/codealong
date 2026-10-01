@@ -8,7 +8,8 @@
 //   knock   a session, or a PR's review, starts to need you: the node beats twice
 //
 // What happened is read from two feeds in a row, by the pills that color the mark (ahead.ts,
-// `logoOfBar`). MarkLive.tsx plays the moment; app.css has the motion.
+// `logoOfBar`). MarkLive.tsx plays the moment; app.css has the motion, and what pointing at the
+// mark does (the C turns once about the node), which is styles alone.
 
 import { useEffect, useRef, useState } from 'react';
 import type { Ahead } from './ahead';
