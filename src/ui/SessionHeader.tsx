@@ -6,8 +6,8 @@
 // Details and the ⋯ menu.
 //
 // A session that came of another (a fork, or started by its agent) names it in a line over the
-// title, and the sessions that came of it hang under the title, a few of them, each with its
-// status: a click shows one, a right-click gives its menu.
+// title, and the latest session that came of it hangs under the title with its status; a quiet
+// "+N more" beside it lists the rest. A click shows one, a right-click gives its menu.
 //
 // A window says what it can do by what it passes: the main window can expand the panel, the peek
 // and the quick panel can show the session in Codealong and snooze or archive it from a button,
@@ -35,9 +35,6 @@ import { TodoGlyph } from './TodoBits';
 
 /** PRs shown before a "+N": a long session can have made many. */
 const PRS_SHOWN = 3;
-/** Sessions that came of this one listed under the title before "and N more": an agent can
- *  start many, and the conversation needs the room. */
-const CAME_OF_SHOWN = 3;
 
 export interface SessionHeaderProps {
   lane: Lane;
@@ -85,6 +82,9 @@ export interface SessionHeaderProps {
   /** In Sessions: whether the panel takes the whole window, and the way to switch. */
   maximized?: boolean;
   onMaximize?: () => void;
+  /** In a card short of room (the peek, the quick panel): Details is left to the main window, so
+   *  the title keeps its place beside the buttons. */
+  compact?: boolean;
 }
 
 /** A session's name as a field: ⏎ keeps what's typed, Escape leaves the name as it was, and so
@@ -135,7 +135,6 @@ function KinRow({ kin, now, parent = false, onShow, onMenu }: { kin: Kin; now: n
   return (
     <button
       type="button"
-      role={parent ? undefined : 'listitem'}
       className={parent ? 'ca-sessinsp-kin is-parent' : 'ca-sessinsp-kin'}
       title={`${phrase} ${t.title}, in ${kin.lane.callsign}: ${STATUS_WORD[t.status].toLowerCase()}. Click to show it, right-click for its menu.`}
       onClick={() => onShow?.(kin.lane, t)}
@@ -157,13 +156,14 @@ function KinRow({ kin, now, parent = false, onShow, onMenu }: { kin: Kin; now: n
   );
 }
 
-export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane, prs = [], onOpenPr, onPrMenu, todos, onShowTodo, lineage, onShowSession, onSessionMenu, onMenu, onSeen, actions, onReveal, renaming, onRename, device, back, next, maximized, onMaximize }: SessionHeaderProps) {
+export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane, prs = [], onOpenPr, onPrMenu, todos, onShowTodo, lineage, onShowSession, onSessionMenu, onMenu, onSeen, actions, onReveal, renaming, onRename, device, back, next, maximized, onMaximize, compact }: SessionHeaderProps) {
   const [details, setDetails] = useState(false);
   const [allPrs, setAllPrs] = useState(false);
   const [allTodos, setAllTodos] = useState(false);
   const [allKin, setAllKin] = useState(false);
-  // In the order they started, so the list holds still as they work.
-  const cameOf = useMemo(() => [...(lineage?.to ?? [])].sort((a, b) => (a.session.startedAt ?? a.session.lastPromptAt) - (b.session.startedAt ?? b.session.lastPromptAt)), [lineage]);
+  // The latest started first: it's the one shown, and the rest open under it in the order they
+  // started, so the list holds still as they work.
+  const cameOf = useMemo(() => [...(lineage?.to ?? [])].sort((a, b) => (b.session.startedAt ?? b.session.lastPromptAt) - (a.session.startedAt ?? a.session.lastPromptAt)), [lineage]);
   const listed = useMemo(() => panelTodos(todos ?? []), [todos]);
   // The todo it's on: one in progress, else one still to do. Done ones wait behind "+N".
   const current = listed.find((t) => t.status !== 'done');
@@ -244,29 +244,36 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
               onClick={onMaximize}
             />
           )}
-          <Button variant="ghost" size="sm" icon="info-circle" aria-label="Details" aria-expanded={details} title={details ? 'Hide the details' : 'Details: its account, ID, folder and times'} className={details ? 'ca-sessinsp-detailsbtn is-on' : 'ca-sessinsp-detailsbtn'} onClick={() => setDetails(!details)} />
+          {!compact && <Button variant="ghost" size="sm" icon="info-circle" aria-label="Details" aria-expanded={details} title={details ? 'Hide the details' : 'Details: its account, ID, folder and times'} className={details ? 'ca-sessinsp-detailsbtn is-on' : 'ca-sessinsp-detailsbtn'} onClick={() => setDetails(!details)} />}
           {onReveal && <Button variant="ghost" size="sm" icon="sidebar" aria-label="Show in Codealong" title="Show in Codealong" onClick={onReveal} />}
           {onMenu && <Button variant="ghost" size="sm" icon="dots" aria-label="More" aria-haspopup="menu" title="Fork, pin, archive, copy and more" onClick={(e) => onMenu(below(e.currentTarget))} />}
         </div>
       </div>
       {cameOf.length > 0 && (
         <div className="ca-sessinsp-kids" role="list" aria-label="Sessions that came of this one">
-          {(allKin ? cameOf : cameOf.slice(0, CAME_OF_SHOWN)).map((k) => (
-            <KinRow key={k.session.key} kin={k} now={now} onShow={onShowSession} onMenu={onSessionMenu} />
+          {(allKin ? cameOf : cameOf.slice(0, 1)).map((k, i) => (
+            <div key={k.session.key} className="ca-sessinsp-kid" role="listitem">
+              <KinRow kin={k} now={now} onShow={onShowSession} onMenu={onSessionMenu} />
+              {i === 0 && cameOf.length > 1 && (
+                <button
+                  type="button"
+                  className="ca-sessinsp-kids-more"
+                  aria-expanded={allKin}
+                  title={
+                    allKin
+                      ? 'Show only the latest'
+                      : cameOf
+                          .slice(1)
+                          .map((x) => `${x.how === 'fork' ? 'Forked into' : 'Started'} ${x.session.title}`)
+                          .join('\n')
+                  }
+                  onClick={() => setAllKin(!allKin)}
+                >
+                  {allKin ? 'fewer' : `+${cameOf.length - 1} more`}
+                </button>
+              )}
+            </div>
           ))}
-          {!allKin && cameOf.length > CAME_OF_SHOWN && (
-            <button
-              type="button"
-              className="ca-linkbtn ca-sessinsp-kids-more"
-              title={cameOf
-                .slice(CAME_OF_SHOWN)
-                .map((k) => `${k.how === 'fork' ? 'Forked into' : 'Started'} ${k.session.title}`)
-                .join('\n')}
-              onClick={() => setAllKin(true)}
-            >
-              and {cameOf.length - CAME_OF_SHOWN} more
-            </button>
-          )}
         </div>
       )}
       <div className="ca-sessinsp-meta">

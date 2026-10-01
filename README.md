@@ -477,8 +477,9 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   forked background jobs; Codex's forks and the threads its app makes for an agent; OpenCode's
   forks) and notes what they don't: a session started by an agent's `codealong start`, and a
   fork into a terminal made from Codealong. A session's panel names the session it was forked
-  from or started by over its title, and lists the ones that came of it under the title, each
-  with its status; a click shows one and a right-click gives its menu, so Pin to desktop there
+  from or started by over its title, and shows the latest one that came of it under the title,
+  with its status and a "+N more" for the rest; a click shows one and a right-click gives its
+  menu, so Pin to desktop there
   puts its card beside the one you're on. The bar's peek and the quick panel's reply view have
   the same header, and its card's popover on the canvas lists them too. On the canvas, hovering or selecting a session draws a line from the session
   it came from and to the ones that came of it, and a session's card on the desktop does the

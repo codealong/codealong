@@ -30,7 +30,7 @@ export interface Queue {
 /** How the one before went: sent, or why it didn't go. */
 export type Notice = { text: string; error: boolean };
 
-interface SessionPanelProps extends Omit<SessionHeaderProps, 'next'> {
+interface SessionPanelProps extends Omit<SessionHeaderProps, 'next' | 'compact'> {
   /** A panel in the main window, or a card of its own (the bar's peek, the quick panel's reply
    *  view), where a right-click anywhere but the box gives the session's menu. */
   variant?: 'panel' | 'card';
@@ -81,7 +81,7 @@ export function SessionPanel({ variant = 'panel', queue, notice, autoFocus, keys
   const body = (
     <>
       <QueueStrip queue={queue} notice={notice} />
-      <SessionHeader {...header} next={!!queue?.next} />
+      <SessionHeader {...header} next={!!queue?.next} compact={variant === 'card'} />
       <SessionThread
         key={s.key}
         session={s}

@@ -1,7 +1,7 @@
 // Checks where a session came from and what came of it in its panel's header (SessionPanel.tsx):
 // the one it came from is a line over the title, the ones that came of it are rows under it, each
 // with its status; a right-click on one gives that session's menu, and a click shows its panel.
-// A session that started many lists three and "and N more", which lists the rest.
+// A session that started several lists the latest and "+N more" beside it, which lists the rest.
 //   PREVIEW_WAIT=90000 scripts/preview.sh sessions <project> scripts/preview/panel-kin-check.js
 // The bar's peek has the same header (SessionHeader.tsx); there a click on one opens it in the peek:
 //   PREVIEW_TRANSCRIPT=<key of a session with kin> PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/panel-kin-check.js
@@ -40,6 +40,11 @@
     var rows = document.querySelectorAll('.ca-reply .ca-sessinsp-kids .ca-sessinsp-kin');
     var parent = document.querySelector('.ca-reply .ca-sessinsp-kin.is-parent');
     check('the peek has the panel’s header', !!document.querySelector('.ca-reply .ca-sessinsp-head .ca-sessinsp-title') && !!document.querySelector('.ca-reply .ca-sessinsp-meta'));
+    var tools = document.querySelector('.ca-reply .ca-sessinsp-tools').getBoundingClientRect();
+    var name = document.querySelector('.ca-reply .ca-sessinsp-title').getBoundingClientRect();
+    check('its title is beside the buttons', tools.top < name.bottom && name.right <= tools.left + 1, Math.round(name.width) + ' wide');
+    var open = document.querySelector('.ca-reply .ca-sessinsp-tools .ca-split-main span');
+    check('and the open button’s words fit', !open || open.scrollWidth <= open.clientWidth, open ? open.textContent : 'no split button');
     check('with the sessions around it', rows.length > 0 || !!parent, (parent ? 'from: ' + parent.textContent + ' ' : '') + rows.length + ' rows');
     var row = rows[0] || parent;
     if (!row) return say('done: ' + out.join('; '));
@@ -64,7 +69,11 @@
       var parent = document.querySelector('.ca-sessinsp-kin.is-parent');
       var rows = document.querySelectorAll('.ca-sessinsp-kids .ca-sessinsp-kin');
       check('the one it came from is over the title', !!parent && parent.compareDocumentPosition(document.querySelector('.ca-sessinsp-top')) & Node.DOCUMENT_POSITION_FOLLOWING, parent && parent.textContent);
-      check('the ones that came of it are under it, each with its status', rows.length === Math.min(3, kids(mid).length) && Array.prototype.every.call(rows, function (r) { return r.querySelector('.ca-glyph'); }), rows.length + ' rows');
+      check('the latest that came of it is under it, with its status', rows.length === 1 && !!rows[0].querySelector('.ca-glyph'), rows.length + ' rows');
+      var top = document.querySelector('.ca-sessinsp-top');
+      var tools = top.querySelector('.ca-sessinsp-tools').getBoundingClientRect();
+      var name = top.querySelector('.ca-sessinsp-title').getBoundingClientRect();
+      check('the title is beside the buttons', tools.top < name.bottom && name.right <= tools.left + 1, Math.round(name.width) + ' wide');
       check('the chips are gone', !document.querySelector('.ca-sessinsp-links .ca-sessinsp-kin'));
       var row = rows[0];
       row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 30, clientY: 30 }));
@@ -79,15 +88,23 @@
       check('and it names the one it came of', !!back && back.textContent.indexOf(mid.title.slice(0, 20)) >= 0, back && back.textContent);
     }
     // One that started many.
-    var many = all.find(function (s) { return kids(s).length > 3; });
-    if (!many || !(await select(many.title))) out.push('a session with many skipped');
+    var many = all.find(function (s) { return kids(s).length > 1; });
+    if (!many || !(await select(many.title))) out.push('a session with several skipped');
     else {
-      var shown = document.querySelectorAll('.ca-sessinsp-kids .ca-sessinsp-kin').length;
+      var shownRows = function () { return document.querySelectorAll('.ca-sessinsp-kids .ca-sessinsp-kin'); };
       var more = document.querySelector('.ca-sessinsp-kids-more');
-      check('many are cut to three and the rest counted', shown === 3 && !!more && more.textContent.trim() === 'and ' + (kids(many).length - 3) + ' more', shown + ' / ' + (more && more.textContent));
+      var latest = kids(many).slice().sort(function (a, b) { return (b.startedAt || b.lastPromptAt) - (a.startedAt || a.lastPromptAt); })[0];
+      check('several are cut to the latest and the rest counted', shownRows().length === 1 && !!more && more.textContent.trim() === '+' + (kids(many).length - 1) + ' more', shownRows().length + ' / ' + (more && more.textContent));
+      check('the one shown is the latest started', shownRows()[0].querySelector('.ca-sessinsp-kin-title').textContent === latest.title, latest.title);
+      var line = shownRows()[0].getBoundingClientRect();
+      check('the button is beside it, not under', !!more && Math.abs(more.getBoundingClientRect().top - line.top) < 6);
       if (more) more.click();
       await wait(300);
-      check('which lists them all', document.querySelectorAll('.ca-sessinsp-kids .ca-sessinsp-kin').length === kids(many).length);
+      check('which lists them all', shownRows().length === kids(many).length);
+      var fewer = document.querySelector('.ca-sessinsp-kids-more');
+      if (fewer) fewer.click();
+      await wait(300);
+      check('and puts them away again', shownRows().length === 1);
     }
     say('done: ' + out.join('; '));
   };
