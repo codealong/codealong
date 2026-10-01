@@ -78,12 +78,12 @@ button {
 .ca-search:focus-within {
   box-shadow: var(--shadow-focus);
 }
-/* The title bar's right end, as wide as the sidebar's toggle and the project switcher so the
-   search stays centered. */
+/* The title bar's right end, as wide as the sidebar's toggle, the history buttons and the
+   project switcher so the search stays centered. */
 .ca-bar-tools {
   display: flex;
   justify-content: flex-end;
-  min-width: 226px;
+  min-width: 282px;
 }
 /* The sidebar's toggle, beside the traffic lights as in the Finder. */
 .ca-sidetoggle {
@@ -108,6 +108,39 @@ button {
   color: var(--ink-2);
 }
 .ca-sidetoggle:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--focus);
+}
+/* Back and forward through the sessions you looked at, beside the sidebar's toggle as in the
+   Finder: quiet until pointed at, and fainter with nowhere to go. */
+.ca-histnav {
+  flex: none;
+  display: flex;
+  margin-right: calc(-1 * var(--space-2));
+}
+.ca-histnav button {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+.ca-histnav button:hover {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+.ca-histnav button[aria-disabled='true'] {
+  background: transparent;
+  color: var(--ink-3);
+  opacity: 0.4;
+  cursor: default;
+}
+.ca-histnav button:focus-visible {
   outline: none;
   box-shadow: inset 0 0 0 2px var(--focus);
 }

@@ -58,6 +58,7 @@ import { Sidebar, type SideStatus } from './ui/Sidebar';
 import { loadSaved, newSavedId, onSavedChange, sameView, storeSaved, suggestName, type SavedView, type ViewState } from './savedViews';
 import { useNow } from './ui/useNow';
 import { errorText, type Report } from './report';
+import { useSessionHistory } from './history';
 import { openWhere, where } from './open';
 
 const ELSEWHERE = 'Elsewhere';
@@ -70,6 +71,11 @@ function listChord(e: KeyboardEvent): boolean {
   if (e.ctrlKey && e.metaKey && !e.altKey && !e.shiftKey) return vertical || Object.values(menus.KEYS).includes(e.key.toUpperCase());
   if (e.shiftKey && e.metaKey && !e.ctrlKey && !e.altKey) return e.key.toLowerCase() === 'f';
   return e.ctrlKey && !e.metaKey && !e.altKey && e.key === 'Tab';
+}
+/** ⌃- and ⌃⇧-, back and forward through the sessions you looked at, as VS Code has them. The key
+ *  goes by what it types or where it is, so a layout that puts - elsewhere has it too. */
+function historyChord(e: KeyboardEvent): boolean {
+  return e.ctrlKey && !e.metaKey && !e.altKey && (e.key === '-' || e.key === '_' || e.code === 'Minus');
 }
 /** No worktrees yet, as one list, so Settings doesn't see a new one on every render. */
 const NO_LANES: Lane[] = [];
@@ -95,6 +101,8 @@ const PR_PANEL_WIDTH_KEY = 'codealong.prPanelWidth';
 const TODO_PANEL_WIDTH_KEY = 'codealong.todoPanelWidth';
 const SESSION_PANEL_WIDTH_KEY = 'codealong.sessionPanelWidth';
 const SESSION_PANEL_MAX_KEY = 'codealong.sessionPanelMax';
+// Each window has its own way back.
+const HISTORY_KEY = WINDOW_PROJECT ? `codealong.sessionHistory:${WINDOW_PROJECT}` : 'codealong.sessionHistory';
 const DAY = 24 * 60 * 60 * 1000;
 
 type View = 'worktrees' | 'sessions' | 'prs' | 'todo' | 'canvas';
@@ -928,6 +936,48 @@ export function App() {
       el.setSelectionRange(el.value.length, el.value.length);
     });
 
+  // Back and forward through the sessions you looked at (history.ts): the one whose conversation
+  // the panel shows, in Sessions, in a PR's or todo's panel, or as the canvas's selected card.
+  const shownSession =
+    view === 'sessions'
+      ? selected?.kind === 'agent'
+        ? selected.session.key
+        : null
+      : drill && drill.from === panelFrom && homes.has(drill.key)
+        ? drill.key
+        : view === 'canvas' && canvasSel?.ref === 'session'
+          ? canvasSel.key
+          : null;
+  // One that's gone, archived, older than the sidebar's age filter shows or in a worktree no
+  // project lists is passed over: the list wouldn't have it.
+  const sessionHistory = useSessionHistory(shownSession, (key) => {
+    const home = homes.get(key);
+    return !!home && (!home.lane.hidden || inProject(home.lane, current)) && (home.session.lastActivity >= cutoff || sessionPins.set.has(key));
+  }, HISTORY_KEY);
+  /** Goes back or forward a session. It shows in Sessions: where it's listed, when the list has it
+   *  as it's filtered now, else as a session the bar asks for is shown. From a session's box, the
+   *  cursor goes to the box of the one gone to. */
+  const travel = useRef<(dir: 'back' | 'forward', box: boolean) => void>(() => {});
+  travel.current = (dir, box) => {
+    const key = dir === 'back' ? sessionHistory.goBack() : sessionHistory.goForward();
+    const home = key ? homes.get(key) : undefined;
+    if (!key || !home) return;
+    const row = sessionRows.find((r) => r.kind === 'agent' && r.session.key === key);
+    if (row) {
+      setView('sessions');
+      setSelectedKey(row.key);
+    } else {
+      reveal.current({ kind: 'session', laneId: home.lane.id, key });
+    }
+    setQueueNote(null);
+    if (box) setBoxFocus(`${home.lane.id}::${key}`);
+  };
+  /** What a history button says: where it goes, and its key. */
+  const historyTitle = (to: string | null, word: string, none: string, keys: string) => {
+    const title = to ? homes.get(to)?.session.title : null;
+    return `${title ? `${word} to ${middleTruncate(title, 60)}` : none} (${keys})`;
+  };
+
   /** Archives a session (Codex threads in Codex itself), or unarchives it. */
   const setArchived = useCallback((key: string, archived: boolean, title: string) => {
     setUndo(archived ? { key, title } : null);
@@ -1569,7 +1619,7 @@ export function App() {
       }
       // A text field, a todo's title or description say, keeps its keys but for the window's own ⌘
       // ones, and Sessions' box for the list's chords.
-      if (inField(document.activeElement, searchRef.current) && !(inBox && listChord(e)) && !(mod && (key === 'k' || key === 'p' || e.key === ',' || ((e.code === 'BracketRight' || key === 'e') && view === 'sessions') || (e.altKey && /^Digit\d$/.test(e.code))))) return;
+      if (inField(document.activeElement, searchRef.current) && !(inBox && listChord(e)) && !historyChord(e) && !(mod && (key === 'k' || key === 'p' || e.key === ',' || ((e.code === 'BracketRight' || key === 'e') && view === 'sessions') || (e.altKey && /^Digit\d$/.test(e.code))))) return;
       if (mod && e.key === ',') {
         e.preventDefault();
         openSettings();
@@ -1577,6 +1627,13 @@ export function App() {
       }
       // Settings has the keyboard while it's open, as the preview URL and rename sheets do.
       if (settings || previewFor || renaming) return;
+      // ⌃- goes back to the session you were looking at before and ⌃⇧- forward again, from any
+      // view and any field. From a session's box the cursor goes on to the next one's.
+      if (historyChord(e)) {
+        e.preventDefault();
+        travel.current(e.shiftKey ? 'forward' : 'back', !!document.activeElement?.closest('.ca-sessinsp .ca-composer'));
+        return;
+      }
       // ⌘] (or ⌥⇧↓, below) skips to the next session that waits on you, from the panel's box too.
       // ] goes by its key's code, which layouts that type it with ⌥ keep.
       if (mod && !e.ctrlKey && !e.shiftKey && e.code === 'BracketRight' && view === 'sessions') {
@@ -2160,6 +2217,26 @@ export function App() {
         >
           <Icon name="layout-sidebar" size={16} />
         </button>
+        <div className="ca-histnav" role="group" aria-label="Sessions you looked at">
+          <button
+            type="button"
+            aria-label="Back"
+            aria-disabled={!sessionHistory.back}
+            title={historyTitle(sessionHistory.back, 'Back', 'Back to the session you looked at before', '⌃-')}
+            onClick={() => travel.current('back', false)}
+          >
+            <Icon name="chevron-left" size={16} />
+          </button>
+          <button
+            type="button"
+            aria-label="Forward"
+            aria-disabled={!sessionHistory.forward}
+            title={historyTitle(sessionHistory.forward, 'Forward', 'Forward again, after going back', '⌃⇧-')}
+            onClick={() => travel.current('forward', false)}
+          >
+            <Icon name="chevron-right" size={16} />
+          </button>
+        </div>
         <ProjectSwitcher logoStatus={logoStatus} projects={projects} current={current} total={totalLanes} actions={actions} onPick={pickProject} onOpenWindow={switcherWindow} onEditProjects={() => openSettings('projects')} />
         <label className="ca-search">
           <Icon name="search" size={14} />

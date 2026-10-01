@@ -19,7 +19,11 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
 - **Five views** of the current project, each in a window of its own if you like (⌘⇧N). The
   project switcher (⌘P) shows each project's key: ⌥⌘1 to ⌥⌘9 switch projects, ⌥⌘0 shows them
   all. ⌃Tab and ⌃⇧Tab go through the views (`v` too, outside Sessions), ⌥↑ ⌥↓ move along a
-  list as the arrows do, and ⌃⌘↑ ⌃⌘↓ reorder what's pinned. A session's or worktree's
+  list as the arrows do, and ⌃⌘↑ ⌃⌘↓ reorder what's pinned. ⌃- goes back to the session you
+  were looking at before and ⌃⇧- forward again, as in VS Code, from any view or text field; the
+  two arrows beside the sidebar's toggle do the same and say where they go. A session counts
+  once its conversation has shown for a second, so the ones passed over on the way down a list
+  aren't stops, and each window keeps its own history across launches. A session's or worktree's
   actions have letters (`p` pin, `a` archive, `r` rename, `e` mark seen) and chords that work
   in every view (⌃⌘P, ⌃⌘A, ⌃⌘R, ⌘E); the right-click menu shows them. A click on a row's
   chips selects the row, as a click anywhere on it does, and a double-click does the chip's own
@@ -807,7 +811,7 @@ light scan (no git, PRs or visitors).
 | `src-tauri/src/desktop.rs`, `src/ui/DesktopPin.tsx` | Cards pinned to the desktop: a window each, made as the bar's is, where a new one goes, `desktop.json`, and what each shows, cut from the board and sent only when it changes; the page draws the card the Canvas view draws (`ui/card/`). `drag_out` follows the pointer for a thing dragged out of a window |
 | `src/mark.ts`, `src/ui/MarkLive.tsx` | The mark's motion on the bar: what happened between two feeds (a new session working, a turn ended, something needs you, a message sent), which moment plays for it, and the mark in parts that move |
 | `src/ui/useRowDrag.tsx` | Dragging rows in the lists and the quick panel: among the pinned ones (pin, reorder), down to the list (unpin), out of the window (the desktop) |
-| `src/` | The React UI, built from the design system's components and tokens; `lanes.ts` groups the board and mirrors the engine's status rules for the age filter; `pins.ts` keeps the pinned lists; `ahead.ts` shows sessions marked seen, archived, renamed or sent a message at once, in every window, until a board shows it; `prStatus.ts` and `ui/PrPills.tsx` say where a PR stands and which PRs are your move; `bar.ts`, `ui/Bar.tsx` and `ui/Notch.tsx` lay out the bar, floating or in the notch; `ui/Picker.tsx` is the quick panel's filterable menus; `ui/SettingsDialog.tsx` and `ui/AccountsSection.tsx` are Settings |
+| `src/` | The React UI, built from the design system's components and tokens; `lanes.ts` groups the board and mirrors the engine's status rules for the age filter; `pins.ts` keeps the pinned lists; `history.ts` the sessions you looked at, for going back and forward; `ahead.ts` shows sessions marked seen, archived, renamed or sent a message at once, in every window, until a board shows it; `prStatus.ts` and `ui/PrPills.tsx` say where a PR stands and which PRs are your move; `bar.ts`, `ui/Bar.tsx` and `ui/Notch.tsx` lay out the bar, floating or in the notch; `ui/Picker.tsx` is the quick panel's filterable menus; `ui/SettingsDialog.tsx` and `ui/AccountsSection.tsx` are Settings |
 | `scripts/preview.sh` | Headless preview against real data, for screenshots and scripted checks |
 | `design/tokens.json` | Design tokens; `npm run tokens` regenerates `src/styles/tokens.css` |
 
