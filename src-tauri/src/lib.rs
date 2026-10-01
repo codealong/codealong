@@ -59,6 +59,7 @@ mod send;
 mod route;
 mod runcode;
 mod search;
+mod side;
 mod server;
 mod start;
 mod starts;
@@ -980,6 +981,26 @@ fn fork_session(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers
     serde_json::from_value(got).map_err(|e| e.to_string())
 }
 
+/// Asks something about a session on the side (side.rs): a throwaway copy of its conversation
+/// answers, and the session carries on, unaware. Returns the side conversation with the question
+/// in it; the answer comes as `side` events.
+#[tauri::command(async)]
+fn side_ask(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, text: String) -> Result<serde_json::Value, String> {
+    actions::run(&engine, &peers, actions::SIDE_ASK, &key, serde_json::json!({ "text": text }))
+}
+
+/// A session's side conversation, for a window that starts showing the session.
+#[tauri::command(async)]
+fn side_get(key: String) -> Option<side::Side> {
+    side::get(&key)
+}
+
+/// Ends a session's side conversation: its copy stops, and what was said is gone.
+#[tauri::command(async)]
+fn side_close(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String) -> Result<(), String> {
+    actions::run(&engine, &peers, actions::SIDE_CLOSE, &key, serde_json::json!({})).map(|_| ())
+}
+
 /// Starts a session in a worktree of another device, which runs it with its own accounts.
 fn start_on_device(peers: &peers::Peers, device: &str, lane: &str, spec: &start::StartSpec) -> Result<start::Started, String> {
     // Its todos are this device's; the other device has its own list.
@@ -1302,6 +1323,13 @@ pub fn run() {
                     }
                 });
             }
+            // A side conversation's answer, as its copy writes it, for the windows showing its session.
+            {
+                let app = app.handle().clone();
+                side::init(move |s| {
+                    let _ = app.emit("side", s);
+                });
+            }
             app.manage(peers);
             server::serve(engine.clone(), app.state::<peers::Peers>().inner().clone(), app.handle().clone());
             // After the first scan and the first git runs, which have the Mac to themselves.
@@ -1351,7 +1379,7 @@ pub fn run() {
             desktop::on_window_event(window, event);
         })
         .register_asynchronous_uri_scheme_protocol("codealong-image", |_ctx, request, responder| serve_image(request, responder))
-        .invoke_handler(tauri::generate_handler![get_board, session_at, idle_terminals, close_idle_terminals, close_session, open_target, open_config, editor_icons, mark_seen, snooze_sessions, refresh, refresh_usage, set_pinned, set_pinned_worktrees, set_preview, set_reusable, archive_session, rename_session, pr_detail, pr_card, pr_comment_asks, approve_pr, review_in_codex, open_url, run_in_terminal, get_accounts, save_accounts, set_preferred, found_accounts, get_config, save_config, save_config_text, sign_in, agents_status, install_agents, start_options, device_start_options, start_session, fork_session, todo_op, canvas_load, canvas_save, save_attachment, import_attachment, open_attachment, expand_attachments, set_theme, open_project_window, fit_bar, show_main, peek_open, peek_ready, peek_fit, peek_focus, peek_hide, bar_feed, bar_on, set_bar_on, bar_mode, set_bar_mode, set_notch_open, notch_shape, open_from_bar, desktop_pins, pin_to_desktop, unpin_from_desktop, drag_to_desktop, desktop_feed, fit_desktop, desktop_hover, lineage_feed, card_popover_ready, card_popover_fit, card_popover_hide, card_popover_session, show_quick, hide_quick, quick_ready, fit_quick, start_from_quick, route_quick, search_text, search_devices, devices, set_device_color, link_device, answer_link, unlink_device, device_link_code, link_code_qr, link_with_code, session_page, session_newer, session_pending, session_way, session_answer, session_stream, session_cancel, send_to_session, suggest_todo, dismiss_todo_hint, jev_key, set_jev_key, test_jev, quick_shortcut, pause_quick_shortcut, perf_mark, page_unfocused, popup_menu, update_status, check_for_updates, restart_to_update])
+        .invoke_handler(tauri::generate_handler![get_board, session_at, idle_terminals, close_idle_terminals, close_session, open_target, open_config, editor_icons, mark_seen, snooze_sessions, refresh, refresh_usage, set_pinned, set_pinned_worktrees, set_preview, set_reusable, archive_session, rename_session, pr_detail, pr_card, pr_comment_asks, approve_pr, review_in_codex, open_url, run_in_terminal, get_accounts, save_accounts, set_preferred, found_accounts, get_config, save_config, save_config_text, sign_in, agents_status, install_agents, start_options, device_start_options, start_session, fork_session, side_ask, side_get, side_close, todo_op, canvas_load, canvas_save, save_attachment, import_attachment, open_attachment, expand_attachments, set_theme, open_project_window, fit_bar, show_main, peek_open, peek_ready, peek_fit, peek_focus, peek_hide, bar_feed, bar_on, set_bar_on, bar_mode, set_bar_mode, set_notch_open, notch_shape, open_from_bar, desktop_pins, pin_to_desktop, unpin_from_desktop, drag_to_desktop, desktop_feed, fit_desktop, desktop_hover, lineage_feed, card_popover_ready, card_popover_fit, card_popover_hide, card_popover_session, show_quick, hide_quick, quick_ready, fit_quick, start_from_quick, route_quick, search_text, search_devices, devices, set_device_color, link_device, answer_link, unlink_device, device_link_code, link_code_qr, link_with_code, session_page, session_newer, session_pending, session_way, session_answer, session_stream, session_cancel, send_to_session, suggest_todo, dismiss_todo_hint, jev_key, set_jev_key, test_jev, quick_shortcut, pause_quick_shortcut, perf_mark, page_unfocused, popup_menu, update_status, check_for_updates, restart_to_update])
         .build(tauri::generate_context!())
         .expect("error while running Codealong")
         .run(|app, event| {
@@ -1497,6 +1525,35 @@ pub fn snapshot_cli(args: &[String]) -> i32 {
                 1
             }
         };
+    }
+    if let Some(i) = args.iter().position(|a| a == "--side") {
+        let (Some(key), questions) = (args.get(i + 1), args.get(i + 2..).unwrap_or_default()) else {
+            eprintln!("usage: codealong --snapshot --side <session key> <question> [a follow-up…]");
+            return 2;
+        };
+        if questions.is_empty() {
+            eprintln!("usage: codealong --snapshot --side <session key> <question> [a follow-up…]");
+            return 2;
+        }
+        let cfg = config::load().ok().flatten().unwrap_or_default();
+        let board = engine::snapshot(false, false);
+        for q in questions {
+            if let Err(e) = side::ask(&board, &cfg, key, q) {
+                eprintln!("{e:#}");
+                side::close(key);
+                return 1;
+            }
+        }
+        // Answers take as long as they take; a copy that stops says so.
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(600);
+        while side::get(key).is_some_and(|s| s.running) && std::time::Instant::now() < until {
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
+        println!("{}", serde_json::to_string_pretty(&side::get(key)).unwrap_or_default());
+        side::close(key);
+        // The copy's process gets a moment to leave by itself.
+        std::thread::sleep(std::time::Duration::from_millis(1700));
+        return 0;
     }
     if let Some(i) = args.iter().position(|a| a == "--rename") {
         let (Some(key), Some(name)) = (args.get(i + 1), args.get(i + 2)) else {

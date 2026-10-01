@@ -19,6 +19,8 @@ use crate::{acp, config, harness, peerfeed, send, transcript};
 /// they have names here but none in `api`.
 pub const FORK_TERMINAL: &str = "session-fork-terminal";
 pub const CLOSE: &str = "session-close";
+pub const SIDE_ASK: &str = "session-side-ask";
+pub const SIDE_CLOSE: &str = "session-side-close";
 
 /// Who's asking.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -79,6 +81,9 @@ const REQUESTS: &[Request] = &[
     // A fork into a terminal opens one, and closing one ends it: both need someone at that Mac.
     Request { name: FORK_TERMINAL, only_here: Some("Fork it on the Mac it runs on."), here: fork_terminal },
     Request { name: CLOSE, only_here: Some("Close it on the Mac it runs on."), here: close },
+    // A side conversation's copy runs on the session's Mac, and its answer goes to the windows there.
+    Request { name: SIDE_ASK, only_here: Some("Ask it on the side on the Mac it runs on."), here: side_ask },
+    Request { name: SIDE_CLOSE, only_here: Some("Its side conversation is on the Mac it runs on."), here: side_close },
 ];
 
 fn find(name: &str) -> Option<&'static Request> {
@@ -280,6 +285,18 @@ fn fork_terminal(engine: &Handle, c: &Call) -> Result<Value, String> {
 /// Closes its terminal tab, or stops it when it's a background job (idle.rs). Says what happened.
 fn close(engine: &Handle, c: &Call) -> Result<Value, String> {
     crate::idle::close_one(&engine.board(), &cfg()?, c.session()?).map(Value::String).map_err(words)
+}
+
+/// Asks a throwaway copy of it `text`, on the side (side.rs): the session carries on, unaware.
+/// Returns the side conversation with the question in it; the answer goes to the windows.
+fn side_ask(engine: &Handle, c: &Call) -> Result<Value, String> {
+    to_value(crate::side::ask(&engine.board(), &cfg()?, c.session()?, &c.text("text")).map_err(words)?)
+}
+
+/// Ends its side conversation: the copy stops, and what was said is gone.
+fn side_close(_: &Handle, c: &Call) -> Result<Value, String> {
+    crate::side::close(c.session()?);
+    Ok(Value::Null)
 }
 
 #[cfg(test)]

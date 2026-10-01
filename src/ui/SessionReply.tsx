@@ -26,7 +26,9 @@
 //
 // A few of Codealong's own slash commands work in the box (slash.ts): `/fork [prompt]` forks the
 // session into a copy that goes on in the background, on the prompt when there is one, and you
-// stay where you are. Any other `/…` goes to the session as typed.
+// stay where you are; `/side <question>` (or `/btw`) asks a throwaway copy of it, whose answer
+// shows above the box (SideStrip.tsx) while the session carries on, unaware. Any other `/…` goes
+// to the session as typed.
 //
 // While its turn runs, Escape in the box stops it where Codealong can reach the session (the
 // engine's `stoppable`), as Escape does in Claude Code and Codex, and so does the button while
@@ -35,7 +37,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent } from 'react';
 import { sendAhead, sending, useAhead } from '../ahead';
-import { forkSession, sessionAnswer, sessionCancel, sessionPending, sessionWay } from '../api';
+import { forkSession, sessionAnswer, sessionCancel, sessionPending, sessionWay, sideAsk } from '../api';
 import { filesToAttach, keepFiles } from '../attachInput';
 import { onDraftChange, readDraft, writeDraft } from '../drafts';
 import { sessionPlace } from '../harness';
@@ -47,6 +49,7 @@ import { CodeBlock } from './CopyButton';
 import { AttachmentStrip } from './DescriptionEditor';
 import { Button, Icon, Rich } from './primitives';
 import { QuestionList } from './QuestionList';
+import { SideStrip } from './SideStrip';
 import { errorText } from '../report';
 
 /** The box grows to this many lines, then scrolls. */
@@ -299,11 +302,37 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
       .finally(() => setForking(false));
   };
 
+  // `/side`, and the question after it. The box clears at once and the question shows above it
+  // as soon as its copy is started; one that can't be asked is back in the box, with why.
+  const [asking, setAsking] = useState(false);
+  const askAside = (question: string) => {
+    if (asking) return;
+    if (!question) {
+      setNote({ text: 'Ask it something: /side, then your question.', error: true });
+      return;
+    }
+    const key = s.key;
+    const typed = text;
+    setAsking(true);
+    setNote(null);
+    setText('');
+    // The question shows as the engine tells of it (side.ts), as its answer does: what this
+    // resolves with can be behind what's been heard since.
+    sideAsk(key, question)
+      .catch((e: unknown) => {
+        const why = errorText(e);
+        writeDraft(key, [typed, readDraft(key)].filter((t) => t.trim()).join('\n\n'));
+        if (!land(key, { text: why, error: true })) onFailed?.(why);
+      })
+      .finally(() => setAsking(false));
+  };
+
   /** Runs what's in the box when it's one of Codealong's commands, else sends it. */
   const submit = (): boolean => {
     const command = slashCommand(text, s);
     if (!command) return send();
     if (command.command.name === 'fork') fork(command.rest);
+    if (command.command.name === 'side') askAside(command.rest);
     return true;
   };
 
@@ -339,7 +368,9 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
       ? 'Sending…'
       : forking
         ? 'Forking…'
-        : commands.length > 0
+        : asking
+          ? 'Asking a copy of it…'
+          : commands.length > 0
           ? commands.map((c) => `/${c.name} ${c.args}: ${c.about}`).join(' · ')
           : (note?.text ?? (stopping ? 'Stopping…' : hint(waiting, !!onNext, !!onAllowNext)));
   return (
@@ -400,7 +431,7 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
             className="ca-composer-send"
             aria-label={command ? `Run /${command.command.name}` : 'Send'}
             title={command ? `Run /${command.command.name} (⏎)` : waiting ? 'Send this once it isn’t waiting on you' : 'Send (⏎)'}
-            disabled={empty || (waiting && !command) || (!!command && forking)}
+            disabled={empty || (waiting && !command) || (!!command && (forking || asking))}
             onClick={submit}
           >
             <Icon name={command?.command.icon ?? 'arrow-up'} size={16} stroke={2} />
@@ -690,9 +721,9 @@ export interface ReplyProps {
   onNext?: (done: string) => void;
 }
 
-/** The bottom of a session's panel: what it waits on you for, if anything, and the box that sends
- *  it a message. The box is the same one throughout, so it keeps what's in it as the session
- *  starts and stops waiting. */
+/** The bottom of a session's panel: what it waits on you for, if anything, its side conversation
+ *  while it has one, and the box that sends it a message. The box is the same one throughout, so
+ *  it keeps what's in it as the session starts and stops waiting. */
 export function Reply({ session, terminal, onOpen, autoFocus, keys, onSending, onSent, onFailed, onAnswered, onNext }: ReplyProps) {
   const waiting = !takesReply(session);
   // The Allow the box's ⌘⏎ presses, once there's a call to allow here.
@@ -702,6 +733,7 @@ export function Reply({ session, terminal, onOpen, autoFocus, keys, onSending, o
   return (
     <>
       {waiting && <Approval key={`wait:${session.key}`} session={session} terminal={terminal} onOpen={onOpen} onAnswered={onAnswered} keys={keys} onAllowNext={onNext ? takeAllow : undefined} onNext={onNext} />}
+      <SideStrip key={`side:${session.key}`} session={session} />
       {/* A session Codealong runs takes a message while it waits, after its current turn. */}
       <Composer key={`box:${session.key}`} session={session} terminal={terminal} autoFocus={autoFocus} waiting={waiting && !session.hosted} onSending={onSending} onSent={onSent} onFailed={onFailed} onNext={onNext} onAllowNext={allowNext} />
     </>

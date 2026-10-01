@@ -4,7 +4,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { emit, emitTo, listen } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import type { AccountCfg, AccountInfo, AgentsStatus, Answers, Attachment, BarFeed, BarNote, Board, CloseOutcome, Config, ConfigView, DesktopFeed, DesktopPinned, DeviceFound, LineageFeed, DevicesView, EditorIcon, FoundAccount, HostedStream, IdlePlan, LabelColor, Lane, PeekOpen, PeekShown, Pending, PrDetail, PrItem, Route, Sent, Session, ShortcutStatus, Started, StartOptions, StartSpec, TextFound, Theme, TodoSuggested, TranscriptPage, UpdateView, Way } from './types';
+import type { AccountCfg, AccountInfo, AgentsStatus, Answers, Attachment, BarFeed, BarNote, Board, CloseOutcome, Config, ConfigView, DesktopFeed, DesktopPinned, DeviceFound, LineageFeed, DevicesView, EditorIcon, FoundAccount, HostedStream, IdlePlan, LabelColor, Lane, PeekOpen, PeekShown, Pending, PrDetail, PrItem, Route, Sent, Session, ShortcutStatus, Side, Started, StartOptions, StartSpec, TextFound, Theme, TodoSuggested, TranscriptPage, UpdateView, Way } from './types';
 import type { TodoOp } from './todos';
 
 export const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -406,6 +406,42 @@ export async function startSession(spec: StartSpec): Promise<Started | null> {
 export async function forkSession(key: string, { background = false, prompt = '' }: { background?: boolean; prompt?: string } = {}): Promise<Started | null> {
   if (!inTauri) throw new Error('Forking a session needs the app.');
   return invoke<Started | null>('fork_session', { key, background, prompt });
+}
+
+/** Asks something about a session on the side (side.rs): a throwaway copy of its conversation
+ *  answers, and the session carries on, unaware. Resolves with the side conversation, the
+ *  question in it; the answer comes through `onSide`. */
+export async function sideAsk(key: string, text: string): Promise<Side> {
+  if (!inTauri) throw new Error('A side conversation needs the app.');
+  return invoke<Side>('side_ask', { key, text });
+}
+
+/** A session's side conversation, if it has one. */
+export async function sideGet(key: string): Promise<Side | null> {
+  if (!inTauri) return null;
+  return invoke<Side | null>('side_get', { key });
+}
+
+/** Ends a session's side conversation: its copy stops, and what was said is gone. */
+export async function sideClose(key: string): Promise<void> {
+  if (!inTauri) return;
+  await invoke('side_close', { key });
+}
+
+/** Calls `cb` as a side conversation changes: a question, more of its answer, its end (one with
+ *  no turns). */
+export function onSide(cb: (side: Side) => void): () => void {
+  if (!inTauri) return () => {};
+  let cancelled = false;
+  let unlisten: (() => void) | undefined;
+  void listen<Side>('side', (e) => cb(e.payload)).then((u) => {
+    if (cancelled) u();
+    else unlisten = u;
+  });
+  return () => {
+    cancelled = true;
+    unlisten?.();
+  };
 }
 
 /** A change to a todo or the labels. Resolves with the time of the first board that shows it. */

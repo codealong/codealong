@@ -160,7 +160,9 @@ pub fn parse_job_state(bytes: &[u8]) -> Option<(String, Option<String>)> {
 /// Live sessions for one account. Entries whose process is gone, or whose pid now belongs
 /// to a newer process, are dropped, and so are windows whose conversation moved to the
 /// background: the job it moved to runs it now (`board::claude_moves`). So are spares, which
-/// Claude Code's own lookups skip too: nothing has happened in one yet.
+/// Claude Code's own lookups skip too: nothing has happened in one yet. And so are the copies
+/// side conversations run (side.rs): a headless fork that keeps no record still lists itself
+/// here while it runs (`kind` interactive, `entrypoint` sdk-cli), and it's no session.
 pub fn read_registry(home: &Path) -> Vec<RegistryEntry> {
     let Ok(entries) = std::fs::read_dir(home.join("sessions")) else { return vec![] };
     let mut out = Vec::new();
@@ -173,7 +175,7 @@ pub fn read_registry(home: &Path) -> Vec<RegistryEntry> {
         }
         let Ok(text) = std::fs::read_to_string(&path) else { continue };
         let Some(mut entry) = parse_registry(&text) else { continue };
-        if entry.parked_job.is_some() || entry.spare || !procs::pid_alive(entry.pid) {
+        if entry.parked_job.is_some() || entry.spare || !procs::pid_alive(entry.pid) || crate::side::runs(entry.pid) {
             continue;
         }
         if let (Some(proc_start), Some(started)) = (procs::proc_start_ms(entry.pid), entry.started_at) {
@@ -949,6 +951,35 @@ impl crate::harness::Adapter for ClaudeCode {
         Ok(id.map(|id| format!("claude:{}:{id}", ctx.account.name)))
     }
 
+    /// Claude Code run headless on a fork of the session that keeps no record (checked on
+    /// 2.1.286, 2026-09-30): `--resume <id> --fork-session --no-session-persistence` reads the
+    /// conversation as far as it's written and writes no transcript. `--permission-mode default`
+    /// holds whatever the account's settings say, and with nobody to ask, whatever would ask
+    /// (an edit, a command that changes things) is refused, while reads and commands that only
+    /// look go ahead. Nothing else about the run is changed (its tools, its system prompt, the
+    /// account's usual model), so its first question reads the session's prompt cache rather
+    /// than paying for the whole conversation again: a 35,000-token haiku session's copy read
+    /// 35,120 tokens from the cache and wrote 594. A session on another model than the
+    /// account's usual one gets its answers from the usual one: a transcript names the model
+    /// without its context size, so the session's own can't be asked for by name.
+    fn side(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, _cwd: &Path) -> anyhow::Result<crate::side::Recipe> {
+        // A job with no transcript of its own yet has the conversation it goes on from, so far.
+        let id = s.continues.as_deref().unwrap_or(&s.id);
+        let home = ctx.account.home_path();
+        // `~/.claude` is where Claude Code looks with no folder named, whatever the app was
+        // started with (install.rs runs `claude plugin` the same way).
+        let usual = home == crate::util::home().join(".claude");
+        let args = ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--resume", id, "--fork-session", "--no-session-persistence", "--permission-mode", "default"];
+        Ok(crate::side::Recipe {
+            program: "claude".into(),
+            args: args.iter().map(|a| a.to_string()).collect(),
+            env: if usual { Vec::new() } else { vec![("CLAUDE_CONFIG_DIR".into(), home.to_string_lossy().into_owned())] },
+            // And it's no child of whatever session the app may have been started from.
+            unset: [usual.then_some("CLAUDE_CONFIG_DIR"), Some("CLAUDE_CODE_SESSION_ID"), Some("CLAUDE_CODE_CHILD_SESSION"), Some("CODEALONG_SESSION")].into_iter().flatten().collect(),
+            dialect: Box::new(SideCopy::default()),
+        })
+    }
+
     /// A background job stops under its account's service, which keeps the conversation
     /// (`claude stop <job>`). Run through a login shell, as a start is: the account's command
     /// can be an alias.
@@ -1467,6 +1498,71 @@ pub fn tool_request(name: &str, input: &Value) -> String {
     match detail {
         Some(d) => format!("{label} · {d}"),
         None => label,
+    }
+}
+
+/// How Codealong talks to a side conversation's copy (side.rs, `Adapter::side`): Claude Code's
+/// stream-json, a line a message each way. A question is a `user` line; the answer comes as
+/// `stream_event` lines (the API's own events: `content_block_delta` with a `text_delta`), each
+/// tool call whole in an `assistant` line, and a `result` line when the turn ends.
+#[derive(Default)]
+pub struct SideCopy {
+    /// It has been told what it is, with its first question.
+    told: bool,
+    /// Some of this answer is written: what comes after a tool call starts a new paragraph.
+    said: bool,
+}
+
+impl crate::side::Dialect for SideCopy {
+    fn open(&mut self) -> Vec<Value> {
+        Vec::new()
+    }
+
+    /// The rules go in the first question, not the system prompt: a resumed conversation sends
+    /// the system prompt it recorded whatever a later launch passes, and the session's prompt
+    /// cache holds only while that and the tools stay as they were.
+    fn ask(&mut self, text: &str) -> Vec<Value> {
+        let text = if self.told { text.to_string() } else { format!("<system-reminder>\n{}\n</system-reminder>\n\n{text}", crate::side::RULES) };
+        self.told = true;
+        self.said = false;
+        vec![serde_json::json!({ "type": "user", "message": { "role": "user", "content": text } })]
+    }
+
+    fn hear(&mut self, line: &Value) -> (Vec<crate::side::Event>, Vec<Value>) {
+        use crate::side::Event;
+        let text = |v: &Value, k: &str| v.get(k).and_then(Value::as_str).map(String::from);
+        let kind = |v: &Value| v.get("type").and_then(Value::as_str).map(String::from).unwrap_or_default();
+        // A subagent's lines aren't the answer.
+        if line.get("parent_tool_use_id").is_some_and(|p| !p.is_null()) {
+            return (Vec::new(), Vec::new());
+        }
+        let events = match kind(line).as_str() {
+            "stream_event" => {
+                let e = line.get("event").unwrap_or(&Value::Null);
+                match kind(e).as_str() {
+                    "content_block_start" if self.said && e.get("content_block").is_some_and(|b| kind(b) == "text") => vec![Event::Said("\n\n".into())],
+                    "content_block_delta" => match e.get("delta").filter(|d| kind(d) == "text_delta").and_then(|d| text(d, "text")) {
+                        Some(t) => {
+                            self.said = true;
+                            vec![Event::Said(t)]
+                        }
+                        None => Vec::new(),
+                    },
+                    _ => Vec::new(),
+                }
+            }
+            "assistant" => {
+                let blocks = line.pointer("/message/content").and_then(Value::as_array).cloned().unwrap_or_default();
+                blocks.iter().filter(|b| kind(b) == "tool_use").map(|b| Event::Tool(tool_request(&text(b, "name").unwrap_or_default(), b.get("input").unwrap_or(&Value::Null)))).collect()
+            }
+            "result" => {
+                let failed = line.get("is_error").and_then(Value::as_bool).unwrap_or(false);
+                let why = || text(line, "result").filter(|r| !r.trim().is_empty()).unwrap_or_else(|| "It ended without an answer.".into());
+                vec![Event::Done(failed.then(why))]
+            }
+            _ => Vec::new(),
+        };
+        (events, Vec::new())
     }
 }
 
@@ -2426,5 +2522,63 @@ mod tests {
         let v: Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
         assert_eq!(v["projects"].as_object().unwrap().len(), 2);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_side_copy_is_told_what_it_is_once_and_heard() {
+        use crate::side::{Dialect, Event};
+        use serde_json::json;
+        let mut copy = SideCopy::default();
+        assert!(copy.open().is_empty());
+        let first = copy.ask("What changed?");
+        let said = first[0].pointer("/message/content").and_then(Value::as_str).unwrap();
+        assert!(said.starts_with("<system-reminder>\nThis is a side conversation.") && said.ends_with("</system-reminder>\n\nWhat changed?"), "{said}");
+        let lines = [
+            json!({"type": "system", "subtype": "init", "tools": ["Bash"]}),
+            json!({"type": "stream_event", "parent_tool_use_id": null, "event": {"type": "content_block_start", "index": 0, "content_block": {"type": "thinking", "thinking": ""}}}),
+            json!({"type": "stream_event", "parent_tool_use_id": null, "event": {"type": "content_block_delta", "index": 0, "delta": {"type": "thinking_delta", "thinking": "hm"}}}),
+            json!({"type": "stream_event", "parent_tool_use_id": null, "event": {"type": "content_block_start", "index": 1, "content_block": {"type": "text", "text": ""}}}),
+            json!({"type": "stream_event", "parent_tool_use_id": null, "event": {"type": "content_block_delta", "index": 1, "delta": {"type": "text_delta", "text": "Let me look."}}}),
+            // The text again, whole, and the call.
+            json!({"type": "assistant", "parent_tool_use_id": null, "message": {"content": [{"type": "text", "text": "Let me look."}, {"type": "tool_use", "id": "toolu_1", "name": "Bash", "input": {"command": "git status"}}]}}),
+            // A subagent's words aren't the answer.
+            json!({"type": "stream_event", "parent_tool_use_id": "toolu_2", "event": {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "Searching"}}}),
+            json!({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_1", "content": "M a.rs"}]}}),
+            json!({"type": "stream_event", "parent_tool_use_id": null, "event": {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}}}),
+            json!({"type": "stream_event", "parent_tool_use_id": null, "event": {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "One file."}}}),
+            json!({"type": "result", "subtype": "success", "is_error": false, "result": "One file."}),
+        ];
+        let heard: Vec<Event> = lines.iter().flat_map(|l| copy.hear(l).0).collect();
+        assert_eq!(heard, [Event::Said("Let me look.".into()), Event::Tool("Bash · `git status`".into()), Event::Said("\n\n".into()), Event::Said("One file.".into()), Event::Done(None)]);
+        // A follow-up is only itself.
+        assert_eq!(copy.ask("And then?")[0].pointer("/message/content"), Some(&json!("And then?")));
+        let failed = copy.hear(&json!({"type": "result", "subtype": "success", "is_error": true, "result": "API Error: overloaded"})).0;
+        assert_eq!(failed, [Event::Done(Some("API Error: overloaded".into()))]);
+        let failed = copy.hear(&json!({"type": "result", "subtype": "error_during_execution", "is_error": true})).0;
+        assert_eq!(failed, [Event::Done(Some("It ended without an answer.".into()))]);
+    }
+
+    #[test]
+    fn a_side_copy_runs_on_its_account_and_keeps_no_record() {
+        use crate::harness::Adapter;
+        let account = |home: &str| crate::config::AccountCfg { name: "c".into(), harness: "claude".into(), home: home.into(), command: None, start: None, preferred: false, acp: None };
+        let mut s: crate::model::Session = serde_json::from_value(serde_json::json!({
+            "key": "claude:c:abc", "id": "abc", "shortId": "abc", "harness": "claude", "account": "c", "surface": "cli", "status": "idle", "live": true, "pid": null, "title": "t", "cwd": "/w",
+            "name": null, "startedAt": null, "statusSince": null, "lastActivity": 0, "lastPromptAt": 0, "excerpt": null, "resumeCommand": null, "appAccount": false, "openTarget": "", "visitor": null,
+            "headline": "", "detail": null, "branch": null, "archived": false, "attachCommand": null, "stalledSince": null
+        }))
+        .unwrap();
+        let usual = account("~/.claude");
+        let r = ClaudeCode.side(&crate::harness::Ctx { account: &usual }, &s, Path::new("/w")).unwrap();
+        assert_eq!(r.program, PathBuf::from("claude"));
+        assert_eq!(r.args.join(" "), "-p --input-format stream-json --output-format stream-json --verbose --include-partial-messages --resume abc --fork-session --no-session-persistence --permission-mode default");
+        assert!(r.env.is_empty() && r.unset.contains(&"CLAUDE_CONFIG_DIR"));
+        // Another account's folder is named, and a job with no transcript yet copies the one it goes on from.
+        s.continues = Some("before".into());
+        let other = account("/Users/me/.claude2");
+        let r = ClaudeCode.side(&crate::harness::Ctx { account: &other }, &s, Path::new("/w")).unwrap();
+        assert_eq!(r.env, [("CLAUDE_CONFIG_DIR".to_string(), "/Users/me/.claude2".to_string())]);
+        assert!(!r.unset.contains(&"CLAUDE_CONFIG_DIR") && r.unset.contains(&"CODEALONG_SESSION"));
+        assert!(r.args.join(" ").contains("--resume before --fork-session"));
     }
 }

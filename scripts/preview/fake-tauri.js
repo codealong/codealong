@@ -384,6 +384,23 @@ window.__TAURI_INTERNALS__ = {
     // A session Codealong runs: the reply it's writing, which a check can set.
     if (cmd === 'session_stream') return Promise.resolve(window.__stream || null);
     if (cmd === 'session_cancel') return Promise.resolve('Stopped it (in the preview nothing is pressed anywhere).');
+    // Side conversations: a question is kept and its answer never comes by itself; a check
+    // writes it with `window.__emit('side', {key, turns, running, ended})`, or sets
+    // `window.__sides[key]` for a window that opens on one.
+    if (cmd === 'side_ask') {
+      window.__sides = window.__sides || {};
+      var side = window.__sides[args.key] || { key: args.key, turns: [], running: false, ended: false };
+      side = { key: side.key, turns: side.turns.concat([{ question: args.text, answer: '', done: false }]), running: true, ended: false };
+      window.__sides[args.key] = side;
+      // The engine tells every window of the question, the one that asked included.
+      setTimeout(function () { window.__emit('side', side); }, 0);
+      return Promise.resolve(side);
+    }
+    if (cmd === 'side_get') return Promise.resolve((window.__sides || {})[(args || {}).key] || null);
+    if (cmd === 'side_close') {
+      if (window.__sides) delete window.__sides[(args || {}).key];
+      return Promise.resolve(null);
+    }
     if (cmd === 'send_to_session') return Promise.resolve({ message: 'Sent (in the preview nothing is typed anywhere).', opened: false });
     // A todo change "shows" on a board that never comes, so the page keeps its own copy of it.
     // Close idle terminals: the board's live terminal sessions quiet that long, without the

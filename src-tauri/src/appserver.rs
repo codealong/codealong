@@ -18,7 +18,7 @@ const TIMEOUT: Duration = Duration::from_secs(20);
 
 /// The Codex CLI the installed app ships, so the protocol matches the app's own; else `codex`
 /// on the PATH.
-fn codex_binary() -> PathBuf {
+pub fn codex_binary() -> PathBuf {
     crate::detect::codex_app_cli().unwrap_or_else(|| PathBuf::from("codex"))
 }
 

@@ -6319,6 +6319,92 @@ html.is-quick body {
   flex: 1;
 }
 
+/* A session's side conversation (SideStrip.tsx), above the box that asks it: set apart from the
+   thread, which it's no part of, and never taller than a share of the window, scrolling inside. */
+.ca-side {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  max-height: 42vh;
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--line);
+  background: var(--surface-sunken);
+}
+.ca-side + .ca-composer {
+  border-top: 0;
+  background: var(--surface-sunken);
+}
+.ca-side-head {
+  flex: none;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--ink-2);
+  font: 600 12px/16px var(--font-sans);
+}
+.ca-side-head .ca-icon {
+  flex: none;
+  align-self: center;
+}
+.ca-side-title {
+  flex: none;
+}
+.ca-side-about {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink-3);
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ca-side-turns {
+  display: grid;
+  gap: 12px;
+  min-height: 0;
+  overflow-y: auto;
+}
+.ca-side-turn {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.ca-side-q {
+  justify-self: start;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 6px 10px;
+  border-radius: var(--radius-md);
+  background: var(--neutral-tint);
+  color: var(--ink);
+  font: 400 13px/19px var(--font-sans);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.ca-side-a {
+  color: var(--ink);
+  font: 400 13px/19px var(--font-sans);
+  overflow-wrap: anywhere;
+}
+.ca-side-doing {
+  color: var(--ink-3);
+  font: 400 12px/16px var(--font-sans);
+  overflow-wrap: anywhere;
+}
+.ca-side-error {
+  color: var(--alert);
+  font: 400 12px/16px var(--font-sans);
+  overflow-wrap: anywhere;
+}
+.ca-side-q,
+.ca-side-a,
+.ca-side-error {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
 /* Markdown from agents (Markdown.tsx). */
 .ca-md > * {
   margin: 0 0 8px;

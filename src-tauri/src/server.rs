@@ -233,6 +233,12 @@ fn hold_permission_ask(engine: &Handle, hook: &Value, pid: Option<u32>, home: Op
         crate::asks::reply(out, None);
         return;
     };
+    // A side conversation's copy has nobody to ask: Claude Code refuses the call as soon as
+    // the hook returns.
+    if crate::side::runs(pid) {
+        crate::asks::reply(out, None);
+        return;
+    }
     let watch = crate::asks::Watch::new(account.home_path(), pid, record);
     crate::asks::hold(out, asked, watch, &|| engine.hosted_changed());
 }

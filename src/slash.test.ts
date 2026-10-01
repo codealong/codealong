@@ -20,6 +20,17 @@ describe('slashCommand', () => {
     expect(slashCommand('/Fork', claude)).toBeNull();
   });
 
+  it('takes /side, or /btw, with its question', () => {
+    expect(slashCommand('/side why a queue?', claude)).toMatchObject({ command: { name: 'side' }, rest: 'why a queue?' });
+    expect(slashCommand('/btw why a queue?', claude)).toMatchObject({ command: { name: 'side' }, rest: 'why a queue?' });
+    expect(slashCommand('/side', session('codex'))?.rest).toBe('');
+    expect(slashCommand('/sidebar', claude)).toBeNull();
+    // OpenCode has no throwaway copy, and a copy runs on the session's own Mac.
+    expect(slashCommand('/side why?', session('opencode'))).toBeNull();
+    expect(slashCommand('/side why?', { key: '@ab12:claude:a:1', harness: 'claude' } as Session)).toBeNull();
+    expect(slashCommand('/fork', { key: '@ab12:claude:a:1', harness: 'claude' } as Session)).not.toBeNull();
+  });
+
   it('is only a command where the harness can fork', () => {
     expect(slashCommand('/fork', session('codex'))).not.toBeNull();
     expect(slashCommand('/fork', session('opencode'))).not.toBeNull();
@@ -29,7 +40,11 @@ describe('slashCommand', () => {
 
 describe('slashMatches', () => {
   it('offers the commands a name being typed could become', () => {
-    expect(slashMatches('/', claude).map((c) => c.name)).toEqual(['fork']);
+    expect(slashMatches('/', claude).map((c) => c.name)).toEqual(['fork', 'side']);
+    expect(slashMatches('/s', claude).map((c) => c.name)).toEqual(['side']);
+    expect(slashMatches('/bt', claude).map((c) => c.name)).toEqual(['side']);
+    expect(slashMatches('/btw what about', claude).map((c) => c.name)).toEqual(['side']);
+    expect(slashMatches('/', session('opencode')).map((c) => c.name)).toEqual(['fork']);
     expect(slashMatches('/fo', claude).map((c) => c.name)).toEqual(['fork']);
     expect(slashMatches('/fork and go on', claude).map((c) => c.name)).toEqual(['fork']);
     expect(slashMatches('/co', claude)).toEqual([]);

@@ -102,6 +102,10 @@ The engine binary doubles as a CLI for checking behavior without a window:
   `/fork` in its box does (`Adapter::fork_background`). Real: it starts a copy (a Claude Code
   background job, `claude rm <job>` after; an OpenCode session). Codex's copy runs over ACP,
   which needs the app.
+- `codealong --snapshot --side <session key> <question> [a follow-up…]`: asks a throwaway copy
+  of a session, as `/side` in its box does (side.rs, `Adapter::side`), and prints the questions
+  with their answers. Real, but nothing of it is kept: a Claude Code copy writes no transcript,
+  a Codex one no rollout. It spends the account's usage, so use a scratch session.
 - `codealong --snapshot --editor-icons`: the installed editors' app icons, as the Open in menus
   get them (`editors.rs`).
 - `codealong --snapshot --start-options`: where each account can start a session.
@@ -271,6 +275,11 @@ some work is, answer with one.
   desktop draw the same face and the same popover, from `src/ui/card/` (`data.ts`, `CardFace.tsx`,
   `CardPopover.tsx`). `CanvasCard.tsx` and `DesktopPin.tsx` add only where a card goes and what a
   click does; a change to what a card shows goes in `card/`, never into one of them.
+- A side conversation (side.rs) is a harness's throwaway copy of a session, described by its
+  adapter (`Adapter::side`: the process, and a `Dialect` that turns its lines into what was
+  said, the tool it runs and the end of a turn, and questions into lines). The dialects are
+  tested without a process; side.rs runs them, one copy a session, and tells the windows
+  (`side` events). A copy mustn't be able to change anything, and must leave no record.
 - A session's, worktree's, PR's or todo's right-click menu is defined once, in `src/menus.ts`,
   and every window (main, bar, peek, quick panel, desktop cards) builds it from there, saying
   what it can do. A new item goes there, not into one window's menu.
@@ -420,6 +429,33 @@ Claude Code
   the conversation so far included, at once; without one it prints `(idle — send a prompt to
   start)` and has none until its first prompt, so the board shows it with the conversation it
   copies (`claude::resumed_from`).
+- `/btw <question>` in a session asks a separate call over the conversation's context that has
+  no tools and answers once; the answer shows in that terminal only and isn't written to the
+  transcript, so typing it into a session from outside is no use. The same thing is the
+  stream-json control request `side_question` (`{"type":"control_request","request_id",
+  "request":{"subtype":"side_question","question","history":[{question,response}]}}`, answered
+  whole in a `control_response`), which only a process's own stdin takes: not the session's
+  socket, nor the daemon's.
+- A headless fork that keeps no record is how Codealong asks on the side (side.rs; checked on
+  2.1.286, 2026-09-30): `claude -p --input-format stream-json --output-format stream-json
+  --verbose --include-partial-messages --resume <id> --fork-session --no-session-persistence
+  --permission-mode default`, run in the session's folder with its stdin kept open. A question
+  is a line `{"type":"user","message":{"role":"user","content":…}}`; the answer streams as
+  `stream_event` lines (the API's events; `content_block_delta` with a `text_delta`), each tool
+  call comes whole in an `assistant` line, and a `result` line ends the turn (`is_error`,
+  `result`, `usage`). No transcript is written and the original is untouched. The flag wins
+  over the account's `defaultMode`, and with nobody to ask, a call that would ask is refused
+  (`system` / `permission_denied`: a Write, `touch`), while reads and read-only commands run.
+  It reads the session's prompt cache when it's on the session's model: forking an interactive
+  haiku session of 35,000 tokens, the first question read 35,120 from the cache and wrote 594,
+  and answered in 2.9 s. A resumed conversation sends the system prompt it recorded
+  (`--system-prompt-snapshot`, on by default), whatever `--append-system-prompt` a later launch
+  passes, so what the copy is told goes in its first message. While it runs it's in the
+  registry as any session is (`kind: "interactive"`, `entrypoint: "sdk-cli"`, a messaging
+  socket, a derived name), and its `SessionStart` (matcher `fork`) and `PermissionRequest`
+  hooks run: `claude::read_registry` and the app's permission hook skip a copy's process.
+  A transcript's `message.model` has no context size (`claude-opus-5-5`, where the session ran
+  `opus[1m]`), so the copy runs on the account's usual model, not one named from the transcript.
 - `--model` takes a full name or an alias for the newest model of a family: `sonnet`, `opus`,
   `haiku`, `fable`, their `[1m]` (1M context) variants, `best` and `opusplan` (2.1.282's list).
   Quote it when typing it: zsh reads `fable[1m]` as a file pattern ("no matches found"). Without
@@ -648,6 +684,19 @@ Codex
   <source_thread_id>…</source_thread_id><input>…</input></codex_delegation>`, a few lines in
   (after the app's instructions, tens of KB). Subagents (`source.subagent.thread_spawn.
   parent_thread_id`) aren't threads of their own on the board.
+- `/side` in the TUI (its tui/src/app/side.rs; checked over an app-server on 0.157.1,
+  2026-09-30) is `thread/fork {threadId, ephemeral: true, developerInstructions}`, then
+  `thread/inject_items` with a "Side conversation boundary" user message, then ordinary
+  `turn/start`s. Over the protocol the fork needs `excludeTurns: true` ("ephemeral paginated
+  thread/fork requires `excludeTurns: true`") and a parent that has a rollout (an ephemeral
+  parent: "no rollout found for thread id"). It took 0.04 to 0.13 s; the first answer 4.5 s
+  (the thread's MCP servers start first), a follow-up 2.8 s, as `item/agentMessage/delta`
+  notifications, each tool an `item/started` (`commandExecution` with `command`,
+  `mcpToolCall`…), ended by `turn/completed` (`turn.status`, `turn.error.message`). No rollout
+  is written for the copy. `thread/start {ephemeral: true}` runs turns with nothing written
+  too, and `thread/delete {threadId}` removes a thread and its rollout. Each turn's
+  `turn_context` line in a rollout names its `model` and `effort`; side.rs forks on the
+  thread's latest, in the read-only sandbox with `approvalPolicy: "never"`.
 - Each turn's `token_count` event carries `rate_limits` (`primary`/`secondary` windows with
   `used_percent`, `window_minutes`, `resets_at`; `limit_id` `codex` or per model; `plan_type`).
 - The desktop app is `/Applications/ChatGPT.app` (bundle id `com.openai.codex`; an older

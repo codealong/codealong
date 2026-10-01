@@ -112,6 +112,14 @@ pub trait Adapter: Sync {
         bail!("{} can't fork a session in the background.", self.harness().word())
     }
 
+    /// A throwaway copy of the session's conversation as far as it's written, to ask things of
+    /// on the side while the session carries on, unaware: the process that runs the copy in
+    /// `cwd` and how to talk to it (side.rs). The copy may look but not change anything, and
+    /// the harness keeps no record of it.
+    fn side(&self, _ctx: &Ctx, _session: &Session, _cwd: &Path) -> Result<crate::side::Recipe> {
+        bail!("{} has no side conversations.", self.harness().word())
+    }
+
     /// Ends a live session that has no terminal of its own (a background job), keeping its
     /// conversation to resume later. A session in a terminal closes with its tab (idle.rs).
     /// Returns what happened, in a sentence.

@@ -65,6 +65,11 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     forward, and you stay on the session: a Claude Code copy is a background job, an OpenCode
     copy runs in its service, and a Codex copy runs In Codealong (over its ACP adapter).
     Whatever follows `/fork` is the copy's first prompt; with nothing, the copy waits for one.
+    `/side <question>` (or `/btw`) asks something about a Claude Code or Codex session on the
+    side: a throwaway copy of its conversation answers above the box, and the session carries
+    on and never hears of it. The copy can read files and run commands that only look, but
+    can't change anything, and nothing of it is kept: no transcript, no session on the board.
+    Ask again to follow up; Close ends it, and a copy left idle for 15 minutes ends by itself.
     Other `/…` commands go to the session as typed. The selected session's panel keeps its top
     to three lines so the conversation has the room: the title with the ways to open it, mark it
     seen, expand the panel, its details (ⓘ: account, ID, folder, times) and its menu (⋯, New
@@ -722,6 +727,7 @@ light scan (no git, PRs or visitors).
 | `src-tauri/src/claude.rs`, `codex.rs` | Harness adapters: registries, transcripts, rollouts, incremental tailing |
 | `src-tauri/src/opencode.rs`, `antigravity.rs` | Harness adapters: OpenCode's database and background service, Antigravity's conversation summaries |
 | `src-tauri/src/acp.rs` | Sessions Codealong runs itself: an Agent Client Protocol adapter process per account, turns, permission requests, the streamed reply |
+| `src-tauri/src/side.rs`, `src/side.ts`, `src/ui/SideStrip.tsx` | Side conversations: a throwaway copy of a session's conversation, run by its harness (`Adapter::side`), asked from the reply box with `/side` and shown above it |
 | `src-tauri/src/repos.rs`, `git.rs`, `github.rs` | Repo discovery, callsigns, worktrees, git status, PRs |
 | `src-tauri/src/held.rs` | The repo scan's reads of folders it doesn't own, each on a thread of its own, so one macOS holds for a privacy prompt holds up only that folder |
 | `src-tauri/src/launch.rs`, `launch/iterm.rs`, `launch/terminal_app.rs` | Terminal profiles: Ghostty, iTerm2 and Terminal through AppleScript (a session's tab found exactly, typing, closing), deep links |

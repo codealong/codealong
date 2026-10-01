@@ -1130,6 +1130,31 @@ export interface CloseOutcome {
   message: string;
 }
 
+/** One question asked on the side, and its answer (side.rs). */
+export interface SideTurn {
+  question: string;
+  /** The answer so far. */
+  answer: string;
+  /** The tool the copy is running, as a line. */
+  tool?: string;
+  done: boolean;
+  /** Why it ended without an answer, or with half of one. */
+  error?: string;
+}
+
+/** A session's side conversation (side.rs): questions about it, answered by a throwaway copy of
+ *  its conversation while the session carries on, unaware. With no turns there is none. */
+export interface Side {
+  /** The session it's about. */
+  key: string;
+  turns: SideTurn[];
+  /** The copy is answering. */
+  running: boolean;
+  /** The copy is gone: what was said can still be read, and the next question goes to a new copy,
+   *  which knows none of it. */
+  ended: boolean;
+}
+
 /** The reply a session Codealong runs is writing (acp.rs). */
 export interface HostedStream {
   key: string;
