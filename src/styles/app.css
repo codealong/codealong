@@ -6377,9 +6377,61 @@ html.is-quick body {
 }
 .ca-side-q,
 .ca-side-a,
-.ca-side-error {
+.ca-side-error,
+.ca-side-steps > div {
   -webkit-user-select: text;
   user-select: text;
+}
+/* What a copy did to answer, folded under how many steps it took. */
+.ca-side-steps {
+  color: var(--ink-3);
+  font: 400 12px/16px var(--font-sans);
+  overflow-wrap: anywhere;
+}
+.ca-side-steps > summary {
+  width: fit-content;
+  cursor: pointer;
+}
+.ca-side-steps > summary:hover {
+  color: var(--ink);
+}
+.ca-side-steps > div {
+  margin: 4px 0 0 14px;
+}
+/* A kept side conversation in the list: its first question, then when and how long it was. */
+.ca-side-turns:has(> .ca-side-kept) {
+  gap: 2px;
+}
+.ca-side-kept {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--ink);
+  font: 400 13px/19px var(--font-sans);
+  text-align: left;
+  cursor: pointer;
+}
+.ca-side-kept:hover,
+.ca-side-kept:focus-visible {
+  outline: none;
+  background: var(--neutral-tint);
+}
+.ca-side-kept-q {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ca-side-kept-when {
+  flex: none;
+  color: var(--ink-3);
+  font-size: 12px;
 }
 
 /* Markdown from agents (Markdown.tsx). */

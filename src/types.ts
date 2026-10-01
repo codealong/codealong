@@ -1135,16 +1135,22 @@ export interface SideTurn {
   question: string;
   /** The answer so far. */
   answer: string;
-  /** The tool the copy is running, as a line. */
+  /** What the copy did to answer: its tool calls, a line each, in order. */
+  tools?: string[];
+  /** The tool it's running now, as a line. */
   tool?: string;
   done: boolean;
   /** Why it ended without an answer, or with half of one. */
   error?: string;
+  /** When it was asked. */
+  at?: number;
 }
 
 /** A session's side conversation (side.rs): questions about it, answered by a throwaway copy of
  *  its conversation while the session carries on, unaware. With no turns there is none. */
 export interface Side {
+  /** Which of the session's side conversations: its record's id (`SideKept`). */
+  id: string;
   /** The session it's about. */
   key: string;
   turns: SideTurn[];
@@ -1153,6 +1159,19 @@ export interface Side {
   /** The copy is gone: what was said can still be read, and the next question goes to a new copy,
    *  which knows none of it. */
   ended: boolean;
+}
+
+/** A side conversation as Codealong keeps it (`sides.json`), to read once its copy is gone: the
+ *  turns that ended, with or without an answer. */
+export interface SideKept {
+  id: string;
+  key: string;
+  /** The session's title when it was asked. */
+  title: string;
+  startedAt: number;
+  /** When it was last asked or answered. */
+  lastAt: number;
+  turns: SideTurn[];
 }
 
 /** The reply a session Codealong runs is writing (acp.rs). */

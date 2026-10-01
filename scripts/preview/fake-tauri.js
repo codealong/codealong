@@ -374,12 +374,14 @@ window.__TAURI_INTERNALS__ = {
     if (cmd === 'session_stream') return Promise.resolve(window.__stream || null);
     if (cmd === 'session_cancel') return Promise.resolve('Stopped it (in the preview nothing is pressed anywhere).');
     // Side conversations: a question is kept and its answer never comes by itself; a check
-    // writes it with `window.__emit('side', {key, turns, running, ended})`, or sets
-    // `window.__sides[key]` for a window that opens on one.
+    // writes it with `window.__emit('side', {id, key, turns, running, ended})`, or sets
+    // `window.__sides[key]` for a window that opens on one. Closing one keeps its turns in
+    // `window.__past`, where a check can put the ones from before.
     if (cmd === 'side_ask') {
       window.__sides = window.__sides || {};
-      var side = window.__sides[args.key] || { key: args.key, turns: [], running: false, ended: false };
-      side = { key: side.key, turns: side.turns.concat([{ question: args.text, answer: '', done: false }]), running: true, ended: false };
+      window.__sideIds = (window.__sideIds || 0) + 1;
+      var side = window.__sides[args.key] || { id: 'side-' + window.__sideIds, key: args.key, turns: [], running: false, ended: false };
+      side = { id: side.id, key: side.key, turns: side.turns.concat([{ question: args.text, answer: '', done: false, at: Date.now() }]), running: true, ended: false };
       window.__sides[args.key] = side;
       // The engine tells every window of the question, the one that asked included.
       setTimeout(function () { window.__emit('side', side); }, 0);
@@ -387,7 +389,19 @@ window.__TAURI_INTERNALS__ = {
     }
     if (cmd === 'side_get') return Promise.resolve((window.__sides || {})[(args || {}).key] || null);
     if (cmd === 'side_close') {
-      if (window.__sides) delete window.__sides[(args || {}).key];
+      var open = (window.__sides || {})[(args || {}).key];
+      if (open) {
+        window.__past = (window.__past || []).filter(function (k) { return k.id !== open.id; });
+        window.__past.push({ id: open.id, key: open.key, title: '', startedAt: Date.now(), lastAt: Date.now(), turns: open.turns.map(function (t) { return t.done ? t : Object.assign({}, t, { done: true, error: 'Closed before it answered.' }); }) });
+        delete window.__sides[open.key];
+      }
+      return Promise.resolve(null);
+    }
+    if (cmd === 'side_past') {
+      return Promise.resolve((window.__past || []).filter(function (k) { return k.key === (args || {}).key; }).sort(function (a, b) { return b.lastAt - a.lastAt; }));
+    }
+    if (cmd === 'side_forget') {
+      window.__past = (window.__past || []).filter(function (k) { return k.id !== (args || {}).id; });
       return Promise.resolve(null);
     }
     if (cmd === 'send_to_session') return Promise.resolve({ message: 'Sent (in the preview nothing is typed anywhere).', opened: false });

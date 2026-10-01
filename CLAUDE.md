@@ -104,8 +104,10 @@ The engine binary doubles as a CLI for checking behavior without a window:
   which needs the app.
 - `codealong --snapshot --side <session key> <question> [a follow-up…]`: asks a throwaway copy
   of a session, as `/side` in its box does (side.rs, `Adapter::side`), and prints the questions
-  with their answers. Real, but nothing of it is kept: a Claude Code copy writes no transcript,
-  a Codex one no rollout. It spends the account's usage, so use a scratch session.
+  with their answers. Real: the copy may do what its session may without asking, so a question
+  that asks for a change gets it made. Nothing of it is kept: a Claude Code copy writes no
+  transcript, a Codex one no rollout, and only the app keeps what was said (`sides.json`). It
+  spends the account's usage, so use a scratch session.
 - `codealong --snapshot --editor-icons`: the installed editors' app icons, as the Open in menus
   get them (`editors.rs`).
 - `codealong --snapshot --start-options`: where each account can start a session.
@@ -284,8 +286,10 @@ some work is, answer with one.
 - A side conversation (side.rs) is a harness's throwaway copy of a session, described by its
   adapter (`Adapter::side`: the process, and a `Dialect` that turns its lines into what was
   said, the tool it runs and the end of a turn, and questions into lines). The dialects are
-  tested without a process; side.rs runs them, one copy a session, and tells the windows
-  (`side` events). A copy mustn't be able to change anything, and must leave no record.
+  tested without a process; side.rs runs them, one copy a session, tells the windows (`side`
+  events), and keeps each turn as it ends (`sides.json`, read back by `side::past`). A copy
+  may do what its session may without asking and no more, is told to change nothing it isn't
+  asked to (`side::RULES`), has nobody to ask, and leaves no record in its harness.
 - A session's, worktree's, PR's or todo's right-click menu is defined once, in `src/menus.ts`,
   and every window (main, bar, peek, quick panel, desktop cards) builds it from there, saying
   what it can do. A new item goes there, not into one window's menu.
@@ -445,13 +449,18 @@ Claude Code
 - A headless fork that keeps no record is how Codealong asks on the side (side.rs; checked on
   2.1.286, 2026-09-30): `claude -p --input-format stream-json --output-format stream-json
   --verbose --include-partial-messages --resume <id> --fork-session --no-session-persistence
-  --permission-mode default`, run in the session's folder with its stdin kept open. A question
+  --permission-mode <mode>`, run in the session's folder with its stdin kept open. A question
   is a line `{"type":"user","message":{"role":"user","content":…}}`; the answer streams as
   `stream_event` lines (the API's events; `content_block_delta` with a `text_delta`), each tool
   call comes whole in an `assistant` line, and a `result` line ends the turn (`is_error`,
   `result`, `usage`). No transcript is written and the original is untouched. The flag wins
   over the account's `defaultMode`, and with nobody to ask, a call that would ask is refused
-  (`system` / `permission_denied`: a Write, `touch`), while reads and read-only commands run.
+  (`system` / `permission_denied`: in `default`, a Write or a `touch`), while reads and
+  read-only commands run; in `bypassPermissions` a Write went through (2026-10-01). The help
+  lists the modes as acceptEdits, auto, bypassPermissions, manual, dontAsk and plan; `default`,
+  which transcripts write, is still taken. The copy gets its session's own mode where that
+  acts without asking (`claude::side_mode`), else `default`. `--permission-prompts host` would
+  hand a `-p` run's prompts to whoever runs it; side.rs doesn't use it yet.
   It reads the session's prompt cache when it's on the session's model: forking an interactive
   haiku session of 35,000 tokens, the first question read 35,120 from the cache and wrote 594,
   and answered in 2.9 s. A resumed conversation sends the system prompt it recorded
@@ -701,8 +710,12 @@ Codex
   `mcpToolCall`…), ended by `turn/completed` (`turn.status`, `turn.error.message`). No rollout
   is written for the copy. `thread/start {ephemeral: true}` runs turns with nothing written
   too, and `thread/delete {threadId}` removes a thread and its rollout. Each turn's
-  `turn_context` line in a rollout names its `model` and `effort`; side.rs forks on the
-  thread's latest, in the read-only sandbox with `approvalPolicy: "never"`.
+  `turn_context` line in a rollout names its `model` and `effort`, its `approval_policy`
+  (untrusted, on-request, never, or a granular object) and its `sandbox_policy` (`type`
+  read-only, workspace-write or danger-full-access, with its roots); side.rs forks on the
+  thread's latest model, sandbox and approval policy (`codex::last_turn`), so the copy may do
+  what the thread may, and declines an approval that comes to it. Codex's own `/side` gives
+  its copy the thread's permissions too, and tells it to change nothing unless asked.
 - Each turn's `token_count` event carries `rate_limits` (`primary`/`secondary` windows with
   `used_percent`, `window_minutes`, `resets_at`; `limit_id` `codex` or per model; `plan_type`).
 - The desktop app is `/Applications/ChatGPT.app` (bundle id `com.openai.codex`; an older

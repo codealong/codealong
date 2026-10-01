@@ -642,11 +642,22 @@ pub fn conversation_items(v: &Value, at: i64) -> Vec<Item> {
     }
 }
 
-/// The model a thread's latest turn ran on: each turn's `turn_context` line names it. Read back
-/// from the end, since a turn's output can run to megabytes.
-fn last_model(rollout: &Path) -> Option<String> {
-    let len = std::fs::metadata(rollout).ok()?.len();
-    let mut model = None;
+/// How a thread's latest turn ran, as its `turn_context` line has it: a side conversation's
+/// copy runs the same way.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct TurnRan {
+    pub model: Option<String>,
+    /// `read-only`, `workspace-write` or `danger-full-access` (`sandbox_policy.type`).
+    pub sandbox: Option<String>,
+    /// `untrusted`, `on-request` or `never`.
+    pub approval: Option<String>,
+}
+
+/// A thread's latest `turn_context`. Read back from the end, since a turn's output can run to
+/// megabytes.
+fn last_turn(rollout: &Path) -> TurnRan {
+    let mut ran = TurnRan::default();
+    let Ok(len) = std::fs::metadata(rollout).map(|m| m.len()) else { return ran };
     scan_lines_back(rollout, 0, len, |line| {
         if !line.contains("\"turn_context\"") {
             return false;
@@ -655,10 +666,15 @@ fn last_model(rollout: &Path) -> Option<String> {
         if v.get("type").and_then(Value::as_str) != Some("turn_context") {
             return false;
         }
-        model = v.pointer("/payload/model").and_then(Value::as_str).filter(|m| !m.is_empty()).map(String::from);
+        let text = |at: &str| v.pointer(at).and_then(Value::as_str).filter(|t| !t.is_empty()).map(String::from);
+        ran = TurnRan {
+            model: text("/payload/model"),
+            sandbox: text("/payload/sandbox_policy/type").filter(|t| ["read-only", "workspace-write", "danger-full-access"].contains(&t.as_str())),
+            approval: text("/payload/approval_policy").filter(|t| ["untrusted", "on-request", "never"].contains(&t.as_str())),
+        };
         true
     });
-    model
+    ran
 }
 
 /// How Codealong talks to a side conversation's copy of a thread (side.rs, `Adapter::side`): an
@@ -667,12 +683,14 @@ fn last_model(rollout: &Path) -> Option<String> {
 /// the thread without a rollout of its own (it needs `excludeTurns`, and a parent that has a
 /// rollout), `thread/inject_items` puts the side conversation's rules after the copied history,
 /// and each question is a `turn/start`. The answer comes as `item/agentMessage/delta`
-/// notifications, each tool as an `item/started`, and `turn/completed` ends it. The copy's
-/// commands run in the read-only sandbox, and nothing is asked: `approvalPolicy` never.
+/// notifications, each tool as an `item/started`, and `turn/completed` ends it. The copy runs
+/// as the thread last did (`TurnRan`: its model, sandbox and approval policy), so it may do what
+/// the thread may; an approval that comes to Codealong, with nobody to ask, is declined. A
+/// thread that says nothing of how it ran is copied read-only, asking nothing.
 pub struct SideThread {
     thread: String,
     cwd: String,
-    model: Option<String>,
+    ran: TurnRan,
     /// The copy's thread, once Codex has made it.
     copy: Option<String>,
     /// The copy has its rules and takes questions.
@@ -690,8 +708,8 @@ impl SideThread {
     const FORK: i64 = 2;
     const INJECT: i64 = 3;
 
-    pub fn new(thread: &str, cwd: &Path, model: Option<String>) -> SideThread {
-        SideThread { thread: thread.to_string(), cwd: cwd.to_string_lossy().into_owned(), model, copy: None, ready: false, waiting: None, next: Self::INJECT, said: false }
+    pub fn new(thread: &str, cwd: &Path, ran: TurnRan) -> SideThread {
+        SideThread { thread: thread.to_string(), cwd: cwd.to_string_lossy().into_owned(), ran, copy: None, ready: false, waiting: None, next: Self::INJECT, said: false }
     }
 
     fn turn(&mut self, text: &str) -> Value {
@@ -734,8 +752,10 @@ impl crate::side::Dialect for SideThread {
                 }
                 match id.as_i64() {
                     Some(Self::INITIALIZE) => {
-                        let mut params = json!({ "threadId": self.thread, "ephemeral": true, "excludeTurns": true, "cwd": self.cwd, "approvalPolicy": "never", "sandbox": "read-only", "developerInstructions": crate::side::RULES });
-                        if let Some(m) = &self.model {
+                        let sandbox = self.ran.sandbox.as_deref().unwrap_or("read-only");
+                        let approval = self.ran.approval.as_deref().filter(|_| self.ran.sandbox.is_some()).unwrap_or("never");
+                        let mut params = json!({ "threadId": self.thread, "ephemeral": true, "excludeTurns": true, "cwd": self.cwd, "approvalPolicy": approval, "sandbox": sandbox, "developerInstructions": crate::side::RULES });
+                        if let Some(m) = &self.ran.model {
                             params["model"] = json!(m);
                         }
                         (Vec::new(), vec![json!({ "method": "initialized" }), json!({ "id": Self::FORK, "method": "thread/fork", "params": params })])
@@ -894,15 +914,16 @@ impl crate::harness::Adapter for Codex {
     }
 
     /// An ephemeral fork of the thread on an app-server of Codealong's own, as Codex's `/side`
-    /// makes one (`SideThread`), on the model the thread last ran on.
+    /// makes one (`SideThread`), on the model the thread last ran on and with its sandbox and
+    /// approval policy, so the copy may do what the thread may.
     fn side(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, cwd: &Path) -> anyhow::Result<crate::side::Recipe> {
-        let model = self.records(ctx.account, s).first().and_then(|p| last_model(p));
+        let turn = self.records(ctx.account, s).first().map(|p| last_turn(p)).unwrap_or_default();
         Ok(crate::side::Recipe {
             program: crate::appserver::codex_binary(),
             args: ["app-server", "--listen", "stdio://"].iter().map(|a| a.to_string()).collect(),
             env: vec![("CODEX_HOME".into(), ctx.account.home_path().to_string_lossy().into_owned())],
             unset: Vec::new(),
-            dialect: Box::new(SideThread::new(&s.id, cwd, model)),
+            dialect: Box::new(SideThread::new(&s.id, cwd, turn)),
         })
     }
 
@@ -1397,7 +1418,8 @@ mod tests {
     fn a_side_thread_is_copied_then_asked() {
         use crate::side::{Dialect, Event};
         use serde_json::json;
-        let mut t = SideThread::new("parent", Path::new("/w"), Some("gpt-x".into()));
+        let ran = TurnRan { model: Some("gpt-x".into()), sandbox: Some("workspace-write".into()), approval: Some("on-request".into()) };
+        let mut t = SideThread::new("parent", Path::new("/w"), ran);
         assert_eq!(t.open()[0]["method"], "initialize");
         // Asked before the copy is made, the question waits.
         assert!(t.ask("Why?").is_empty());
@@ -1405,7 +1427,8 @@ mod tests {
         assert_eq!(out[0], json!({"method": "initialized"}));
         assert_eq!(out[1]["method"], "thread/fork");
         let p = &out[1]["params"];
-        assert_eq!((&p["threadId"], &p["ephemeral"], &p["excludeTurns"], &p["sandbox"], &p["approvalPolicy"], &p["model"], &p["cwd"]), (&json!("parent"), &json!(true), &json!(true), &json!("read-only"), &json!("never"), &json!("gpt-x"), &json!("/w")));
+        // It runs as the thread last did, so it may do what the thread may.
+        assert_eq!((&p["threadId"], &p["ephemeral"], &p["excludeTurns"], &p["sandbox"], &p["approvalPolicy"], &p["model"], &p["cwd"]), (&json!("parent"), &json!(true), &json!(true), &json!("workspace-write"), &json!("on-request"), &json!("gpt-x"), &json!("/w")));
         let out = t.hear(&json!({"id": 2, "result": {"thread": {"id": "copy", "ephemeral": true}}})).1;
         assert_eq!((&out[0]["method"], &out[0]["params"]["threadId"]), (&json!("thread/inject_items"), &json!("copy")));
         assert_eq!(out[0]["params"]["items"][0]["content"][0]["text"], crate::side::RULES);
@@ -1428,35 +1451,42 @@ mod tests {
         assert_eq!(heard, [Event::Said("Looking.".into()), Event::Tool("`git log -3`".into()), Event::Tool("docs · search".into()), Event::Said("\n\n".into()), Event::Said("Because.".into()), Event::Done(None)]);
         // The next question goes straight in.
         assert_eq!(t.ask("And?")[0]["id"], 5);
-        // Nothing is allowed that would have to be asked about, and Codealong lends it no tools.
+        // What would have to be asked of you is declined, and Codealong lends it no tools.
         assert_eq!(t.hear(&json!({"id": 9, "method": "item/commandExecution/requestApproval", "params": {}})).1, [json!({"id": 9, "result": {"decision": "decline"}})]);
         assert_eq!(t.hear(&json!({"id": 10, "method": "item/tool/call", "params": {}})).1[0]["error"]["code"], -32601);
         let failed = t.hear(&json!({"method": "turn/completed", "params": {"threadId": "copy", "turn": {"status": "failed", "error": {"message": "usage limit"}}}})).0;
         assert_eq!(failed, [Event::Done(Some("Codex: usage limit".into()))]);
         // A thread that can't be copied says why, to the question that waited.
-        let mut t = SideThread::new("gone", Path::new("/w"), None);
+        let mut t = SideThread::new("gone", Path::new("/w"), TurnRan::default());
         t.ask("Why?");
         let out = t.hear(&json!({"id": 1, "result": {}})).1;
-        assert!(out[1]["params"].get("model").is_none());
+        // And one that says nothing of how it ran is copied read-only, asking nothing.
+        let p = &out[1]["params"];
+        assert!(p.get("model").is_none());
+        assert_eq!((&p["sandbox"], &p["approvalPolicy"]), (&json!("read-only"), &json!("never")));
         assert_eq!(t.hear(&json!({"id": 2, "error": {"code": -32600, "message": "no rollout found for thread id gone"}})).0, [Event::Done(Some("Codex: no rollout found for thread id gone".into()))]);
     }
 
     #[test]
-    fn a_threads_model_is_its_latest_turns() {
-        let dir = std::env::temp_dir().join(format!("codealong-codex-model-{}", std::process::id()));
+    fn a_copy_runs_as_the_threads_latest_turn_did() {
+        let dir = std::env::temp_dir().join(format!("codealong-codex-ran-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let rollout = dir.join("rollout.jsonl");
         let lines = [
             r#"{"timestamp":"2026-09-30T10:00:00.000Z","type":"session_meta","payload":{"id":"t"}}"#.to_string(),
-            r#"{"timestamp":"2026-09-30T10:00:01.000Z","type":"turn_context","payload":{"model":"gpt-old","effort":"low"}}"#.to_string(),
-            r#"{"timestamp":"2026-09-30T10:00:02.000Z","type":"turn_context","payload":{"model":"gpt-new","effort":"xhigh"}}"#.to_string(),
+            r#"{"timestamp":"2026-09-30T10:00:01.000Z","type":"turn_context","payload":{"model":"gpt-old","effort":"low","approval_policy":"never","sandbox_policy":{"type":"read-only"}}}"#.to_string(),
+            r#"{"timestamp":"2026-09-30T10:00:02.000Z","type":"turn_context","payload":{"model":"gpt-new","effort":"xhigh","approval_policy":"on-request","sandbox_policy":{"type":"workspace-write","network_access":false}}}"#.to_string(),
             // A command's output that only mentions one.
             format!(r#"{{"timestamp":"2026-09-30T10:00:03.000Z","type":"response_item","payload":{{"output":"grep \"turn_context\" {}"}}}}"#, "x".repeat(2000)),
         ];
         std::fs::write(&rollout, lines.join("\n") + "\n").unwrap();
-        assert_eq!(last_model(&rollout).as_deref(), Some("gpt-new"));
+        assert_eq!(last_turn(&rollout), TurnRan { model: Some("gpt-new".into()), sandbox: Some("workspace-write".into()), approval: Some("on-request".into()) });
+        // A policy that isn't one of the three names (a granular one) is left to Codex's settings.
+        std::fs::write(&rollout, r#"{"timestamp":"2026-09-30T10:00:01.000Z","type":"turn_context","payload":{"model":"gpt-new","approval_policy":{"granular":{}},"sandbox_policy":{"type":"external-sandbox"}}}"#).unwrap();
+        assert_eq!(last_turn(&rollout), TurnRan { model: Some("gpt-new".into()), sandbox: None, approval: None });
         std::fs::write(&rollout, &lines[0]).unwrap();
-        assert_eq!(last_model(&rollout), None);
+        assert_eq!(last_turn(&rollout), TurnRan::default());
+        assert_eq!(last_turn(&dir.join("none.jsonl")), TurnRan::default());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

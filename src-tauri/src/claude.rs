@@ -412,6 +412,23 @@ fn permission_mode(registry: Option<&Value>, transcripts: &[PathBuf]) -> Option<
     mode
 }
 
+/// The mode a side conversation's copy runs in, given the session's (`permission_mode`): the
+/// session's own where that lets it act without asking (it skips prompts, takes edits, or
+/// leaves the asking to Claude Code's own reviewer), so a copy asked to change something can,
+/// as the session could. Any other mode, and a session whose mode isn't written, gets the usual
+/// one, where what would ask is refused: a copy in plan mode would plan, and nothing says a
+/// session with no mode on record may act unasked.
+/// The flag always goes, since without it a copy would start in the account's default mode.
+fn side_mode(session: Option<&str>) -> &'static str {
+    match session {
+        Some("bypassPermissions") => "bypassPermissions",
+        Some("acceptEdits") => "acceptEdits",
+        Some("dontAsk") => "dontAsk",
+        Some("auto") => "auto",
+        _ => "default",
+    }
+}
+
 /// A transcript line's own `permissionMode`. A quote inside a string is escaped, so the key
 /// unescaped is never something a tool read or printed.
 fn line_mode(line: &str) -> Option<String> {
@@ -953,23 +970,26 @@ impl crate::harness::Adapter for ClaudeCode {
 
     /// Claude Code run headless on a fork of the session that keeps no record (checked on
     /// 2.1.286, 2026-09-30): `--resume <id> --fork-session --no-session-persistence` reads the
-    /// conversation as far as it's written and writes no transcript. `--permission-mode default`
-    /// holds whatever the account's settings say, and with nobody to ask, whatever would ask
-    /// (an edit, a command that changes things) is refused, while reads and commands that only
-    /// look go ahead. Nothing else about the run is changed (its tools, its system prompt, the
-    /// account's usual model), so its first question reads the session's prompt cache rather
-    /// than paying for the whole conversation again: a 35,000-token haiku session's copy read
-    /// 35,120 tokens from the cache and wrote 594. A session on another model than the
-    /// account's usual one gets its answers from the usual one: a transcript names the model
-    /// without its context size, so the session's own can't be asked for by name.
+    /// conversation as far as it's written and writes no transcript. It runs in the session's
+    /// own permission mode (`side_mode`), so it may do what the session may without asking, and
+    /// with nobody to ask, whatever would ask is refused: in the usual mode an edit or a command
+    /// that changes things, while reads and commands that only look go ahead. Nothing else
+    /// about the run is changed (its tools, its system prompt, the account's usual model), so
+    /// its first question reads the session's prompt cache rather than paying for the whole
+    /// conversation again: a 35,000-token haiku session's copy read 35,120 tokens from the cache
+    /// and wrote 594. A session on another model than the account's usual one gets its answers
+    /// from the usual one: a transcript names the model without its context size, so the
+    /// session's own can't be asked for by name.
     fn side(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, _cwd: &Path) -> anyhow::Result<crate::side::Recipe> {
         // A job with no transcript of its own yet has the conversation it goes on from, so far.
         let id = s.continues.as_deref().unwrap_or(&s.id);
         let home = ctx.account.home_path();
+        let registry = crate::send::claude_registry(&home, s);
+        let mode = side_mode(permission_mode(registry.as_ref(), &self.records(ctx.account, s)).as_deref());
         // `~/.claude` is where Claude Code looks with no folder named, whatever the app was
         // started with (install.rs runs `claude plugin` the same way).
         let usual = home == crate::util::home().join(".claude");
-        let args = ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--resume", id, "--fork-session", "--no-session-persistence", "--permission-mode", "default"];
+        let args = ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--resume", id, "--fork-session", "--no-session-persistence", "--permission-mode", mode];
         Ok(crate::side::Recipe {
             program: "claude".into(),
             args: args.iter().map(|a| a.to_string()).collect(),
@@ -2571,7 +2591,11 @@ mod tests {
         let usual = account("~/.claude");
         let r = ClaudeCode.side(&crate::harness::Ctx { account: &usual }, &s, Path::new("/w")).unwrap();
         assert_eq!(r.program, PathBuf::from("claude"));
+        // A session whose mode isn't written anywhere gets the usual one, where what would ask is refused.
         assert_eq!(r.args.join(" "), "-p --input-format stream-json --output-format stream-json --verbose --include-partial-messages --resume abc --fork-session --no-session-persistence --permission-mode default");
+        assert_eq!(side_mode(Some("bypassPermissions")), "bypassPermissions");
+        assert_eq!((side_mode(Some("acceptEdits")), side_mode(Some("auto"))), ("acceptEdits", "auto"));
+        assert_eq!((side_mode(Some("plan")), side_mode(Some("default")), side_mode(Some("manual")), side_mode(None)), ("default", "default", "default", "default"));
         assert!(r.env.is_empty() && r.unset.contains(&"CLAUDE_CONFIG_DIR"));
         // Another account's folder is named, and a job with no transcript yet copies the one it goes on from.
         s.continues = Some("before".into());

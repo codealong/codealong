@@ -27,8 +27,8 @@
 // A few of Codealong's own slash commands work in the box (slash.ts): `/fork [prompt]` forks the
 // session into a copy that goes on in the background, on the prompt when there is one, and you
 // stay where you are; `/side <question>` (or `/btw`) asks a throwaway copy of it, whose answer
-// shows above the box (SideStrip.tsx) while the session carries on, unaware. Any other `/…` goes
-// to the session as typed.
+// shows above the box (SideStrip.tsx) while the session carries on, unaware, and `/side` alone
+// shows the side conversations kept from before. Any other `/…` goes to the session as typed.
 //
 // While its turn runs, Escape in the box stops it where Codealong can reach the session (the
 // engine's `stoppable`), as Escape does in Claude Code and Codex, and so does the button while
@@ -42,6 +42,7 @@ import { filesToAttach, keepFiles } from '../attachInput';
 import { onDraftChange, readDraft, writeDraft } from '../drafts';
 import { sessionPlace } from '../harness';
 import { stoppable } from '../lanes';
+import { showSides } from '../side';
 import { slashCommand, slashMatches } from '../slash';
 import { attachmentsIn, insertAttachments, withoutAttachment } from '../todos';
 import type { Answers, Pending, Question, Sent, Session, Way } from '../types';
@@ -303,19 +304,22 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
   };
 
   // `/side`, and the question after it. The box clears at once and the question shows above it
-  // as soon as its copy is started; one that can't be asked is back in the box, with why.
+  // as soon as its copy is started; one that can't be asked is back in the box, with why. With no
+  // question it shows the side conversations kept from before.
   const [asking, setAsking] = useState(false);
   const askAside = (question: string) => {
     if (asking) return;
-    if (!question) {
-      setNote({ text: 'Ask it something: /side, then your question.', error: true });
-      return;
-    }
     const key = s.key;
     const typed = text;
-    setAsking(true);
     setNote(null);
     setText('');
+    if (!question) {
+      showSides(key, { kind: 'list' });
+      return;
+    }
+    // The open one shows, whatever was being read.
+    showSides(key, null);
+    setAsking(true);
     // The question shows as the engine tells of it (side.ts), as its answer does: what this
     // resolves with can be behind what's been heard since.
     sideAsk(key, question)

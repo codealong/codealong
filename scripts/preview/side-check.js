@@ -1,9 +1,10 @@
 // Checks /side in the reply box (SessionReply.tsx, slash.ts, SideStrip.tsx), in the bar's peek:
 // typing `/s` says what /side does; ⏎ on `/btw <question>` asks a copy of the session, sends the
 // session nothing, clears the box and shows the question above it; the answer shows as the engine
-// tells of it (the tool the copy runs, then its words); a second question joins the first; Close
-// ends it; a question that can't be asked is back in the box with why; and /side alone asks
-// nothing.
+// tells of it (the tool the copy runs, then its words, and what it did folded under the answer);
+// a second question joins the first; Close ends it and keeps it; a question that can't be asked
+// is back in the box with why; /side alone lists the ones kept, each opens to read, Delete
+// forgets one; and Earlier beside an open one lists them too.
 //   PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/side-check.js
 // Every step should say ok.
 (function () {
@@ -59,7 +60,7 @@
   };
   // What the engine would say, which the stub's next answer goes on from too.
   var tell = function (side) {
-    side = Object.assign({ key: key, running: true, ended: false }, side);
+    side = Object.assign({ id: (window.__sides && window.__sides[key] || {}).id || 'side-told', key: key, running: true, ended: false }, side);
     window.__sides = window.__sides || {};
     window.__sides[key] = side;
     window.__emit('side', side);
@@ -71,7 +72,7 @@
       check('no side conversation shows until one is asked', !strip());
       type(box(), '/s');
       await wait(50);
-      check('a / and the start of its name says what /side does', /^\/side <question>: /.test(noteText()), noteText());
+      check('a / and the start of its name says what /side does', /^\/side \[question\]: /.test(noteText()), noteText());
       type(box(), '/btw why a queue?');
       await wait(50);
       check('/btw is the same command', button().getAttribute('aria-label') === 'Run /side' && !button().disabled, button().getAttribute('aria-label'));
@@ -93,9 +94,11 @@
       tell({ turns: [{ question: 'why a queue?', answer: 'Because sends must keep their **order**.', done: false }] });
       await wait(50);
       check('then its answer as it comes', turns()[0].indexOf('Because sends must keep their order.') > 0 && !!strip().querySelector('.ca-side-a strong'), turns()[0]);
-      tell({ running: false, turns: [{ question: 'why a queue?', answer: 'Because sends must keep their **order**.', done: true }] });
+      tell({ running: false, turns: [{ question: 'why a queue?', answer: 'Because sends must keep their **order**.', tools: ['Bash · `git log -3`', 'Read · `send.rs`'], done: true }] });
       await wait(50);
       check('and nothing more once it has answered', !strip().querySelector('.ca-side-doing'));
+      var steps = strip().querySelector('.ca-side-steps');
+      check('but what it did, folded', !!steps && !steps.open && steps.querySelector('summary').textContent === '2 steps' && steps.textContent.indexOf('Read · send.rs') > 0, steps && steps.textContent);
 
       type(box(), '/side and without one?');
       await wait(50);
@@ -112,10 +115,46 @@
       await until(function () { return calls('send_to_session').length > sends; }, 5000);
       check('plain text still goes to the session', calls('side_ask').length === 2);
 
-      var closeButton = strip().querySelector('.ca-side-head button');
-      closeButton.click();
+      var headButton = function (label) { return Array.prototype.filter.call(strip().querySelectorAll('.ca-side-head button'), function (b) { return b.textContent.trim() === label; })[0]; };
+      check('with none from before, no way to them shows', !headButton('Earlier'));
+      headButton('Close').click();
       await until(function () { return !strip(); }, 5000);
       check('Close ends it', calls('side_close').length === 1 && calls('side_close')[0][1].key === key);
+
+      // What was closed is kept, with one from before.
+      window.__past.push({ id: 'old', key: key, title: 'x', startedAt: Date.now() - 7200000, lastAt: Date.now() - 7200000, turns: [{ question: 'is the queue tested?\nand where?', answer: 'In `send.rs`.', tools: ['Grep · `in_order`'], done: true }] });
+      var sentBefore = calls('send_to_session').length;
+      var askedBefore = calls('side_ask').length;
+      type(box(), '/side');
+      await wait(50);
+      enter();
+      await until(function () { return strip() && strip().querySelectorAll('.ca-side-kept').length === 2; }, 5000);
+      var rows = Array.prototype.map.call(strip().querySelectorAll('.ca-side-kept'), function (r) { return r.textContent; });
+      check('/side alone lists the ones kept, the latest first', rows[0].indexOf('why a queue?') === 0 && rows[0].indexOf('2 questions') > 0 && rows[1].indexOf('is the queue tested?') === 0 && rows[1].indexOf('and where') < 0 && rows[1].indexOf('2h ago · 1 question') > 0, rows.join(' / '));
+      check('asking and sending nothing', calls('side_ask').length === askedBefore && calls('send_to_session').length === sentBefore && box().value === '', box().value);
+      strip().querySelectorAll('.ca-side-kept')[1].click();
+      await until(function () { return turns().length === 1; }, 5000);
+      check('one opens to read', turns()[0].indexOf('is the queue tested?') === 0 && turns()[0].indexOf('In send.rs.') > 0 && strip().textContent.indexOf('closed') > 0 && !!strip().querySelector('.ca-side-steps'), strip().textContent);
+      headButton('Delete').click();
+      await until(function () { return strip().querySelectorAll('.ca-side-kept').length === 1; }, 5000);
+      check('Delete forgets it and goes back to the list', calls('side_forget').length === 1 && calls('side_forget')[0][1].id === 'old');
+      headButton('Close').click();
+      await until(function () { return !strip(); }, 5000);
+      check('Close puts the list away', calls('side_close').length === 1);
+
+      type(box(), '/side once more?');
+      await wait(50);
+      enter();
+      await until(function () { return turns().length === 1 && turns()[0].indexOf('once more?') === 0; }, 5000);
+      await until(function () { return !!headButton('Earlier'); }, 5000);
+      headButton('Earlier').click();
+      await until(function () { return strip().querySelectorAll('.ca-side-kept').length === 1; }, 5000);
+      check('Earlier, beside an open one, lists the ones before it', strip().querySelector('.ca-side-kept').textContent.indexOf('why a queue?') === 0);
+      headButton('Close').click();
+      await until(function () { return turns().length === 1; }, 5000);
+      check('and Close goes back to the open one', turns()[0].indexOf('once more?') === 0 && calls('side_close').length === 1);
+      headButton('Close').click();
+      await until(function () { return !strip(); }, 5000);
 
       failNext = true;
       type(box(), '/side where does it run?');
@@ -126,12 +165,6 @@
       check('and is back in the box', box().value === '/side where does it run?', box().value);
       failNext = false;
 
-      var before = calls('side_ask').length;
-      type(box(), '/side');
-      await wait(50);
-      enter();
-      await wait(100);
-      check('/side alone asks nothing', calls('side_ask').length === before && noteText().indexOf('Ask it something') === 0, noteText());
     } catch (e) {
       out.push('error: ' + e.message);
     }

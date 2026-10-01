@@ -23,6 +23,7 @@ describe('slashCommand', () => {
   it('takes /side, or /btw, with its question', () => {
     expect(slashCommand('/side why a queue?', claude)).toMatchObject({ command: { name: 'side' }, rest: 'why a queue?' });
     expect(slashCommand('/btw why a queue?', claude)).toMatchObject({ command: { name: 'side' }, rest: 'why a queue?' });
+    // Alone, it shows the ones kept from before (SessionReply.tsx).
     expect(slashCommand('/side', session('codex'))?.rest).toBe('');
     expect(slashCommand('/sidebar', claude)).toBeNull();
     // OpenCode has no throwaway copy, and a copy runs on the session's own Mac.

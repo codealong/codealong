@@ -114,8 +114,9 @@ pub trait Adapter: Sync {
 
     /// A throwaway copy of the session's conversation as far as it's written, to ask things of
     /// on the side while the session carries on, unaware: the process that runs the copy in
-    /// `cwd` and how to talk to it (side.rs). The copy may look but not change anything, and
-    /// the harness keeps no record of it.
+    /// `cwd` and how to talk to it (side.rs). The copy may do what the session itself may
+    /// without asking, and no more: it has nobody to ask, so what would ask is refused. The
+    /// harness keeps no record of it.
     fn side(&self, _ctx: &Ctx, _session: &Session, _cwd: &Path) -> Result<crate::side::Recipe> {
         bail!("{} has no side conversations.", self.harness().word())
     }

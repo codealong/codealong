@@ -4,7 +4,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { emit, emitTo, listen } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import type { AccountCfg, AccountInfo, AgentsStatus, Answers, Attachment, BarFeed, BarNote, Board, CloseOutcome, Config, ConfigView, DesktopFeed, DesktopPinned, DeviceFound, LineageFeed, DevicesView, EditorIcon, FoundAccount, HostedStream, IdlePlan, LabelColor, Lane, PeekOpen, PeekShown, Pending, PrDetail, PrItem, Route, Sent, Session, ShortcutStatus, Side, Started, StartOptions, StartSpec, TextFound, Theme, TodoSuggested, TranscriptPage, UpdateView, Way } from './types';
+import type { AccountCfg, AccountInfo, AgentsStatus, Answers, Attachment, BarFeed, BarNote, Board, CloseOutcome, Config, ConfigView, DesktopFeed, DesktopPinned, DeviceFound, LineageFeed, DevicesView, EditorIcon, FoundAccount, HostedStream, IdlePlan, LabelColor, Lane, PeekOpen, PeekShown, Pending, PrDetail, PrItem, Route, Sent, Session, ShortcutStatus, Side, SideKept, Started, StartOptions, StartSpec, TextFound, Theme, TodoSuggested, TranscriptPage, UpdateView, Way } from './types';
 import type { TodoOp } from './todos';
 
 export const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -422,7 +422,20 @@ export async function sideGet(key: string): Promise<Side | null> {
   return invoke<Side | null>('side_get', { key });
 }
 
-/** Ends a session's side conversation: its copy stops, and what was said is gone. */
+/** The side conversations kept for a session, the latest first: the open one too, as far as it's
+ *  been answered. */
+export async function sidePast(key: string): Promise<SideKept[]> {
+  if (!inTauri) return [];
+  return invoke<SideKept[]>('side_past', { key });
+}
+
+/** Forgets a kept side conversation. */
+export async function sideForget(id: string): Promise<void> {
+  if (!inTauri) return;
+  await invoke('side_forget', { id });
+}
+
+/** Ends a session's side conversation: its copy stops, and what was said is kept to read. */
 export async function sideClose(key: string): Promise<void> {
   if (!inTauri) return;
   await invoke('side_close', { key });

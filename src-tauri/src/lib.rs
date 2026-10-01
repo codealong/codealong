@@ -961,7 +961,19 @@ fn side_get(key: String) -> Option<side::Side> {
     side::get(&key)
 }
 
-/// Ends a session's side conversation: its copy stops, and what was said is gone.
+/// The side conversations kept for a session, the latest first, to read after they're closed.
+#[tauri::command(async)]
+fn side_past(key: String) -> Vec<side::Kept> {
+    side::past(&key)
+}
+
+/// Forgets a kept side conversation.
+#[tauri::command(async)]
+fn side_forget(id: String) {
+    side::forget(&id);
+}
+
+/// Ends a session's side conversation: its copy stops, and what was said is kept to read.
 #[tauri::command(async)]
 fn side_close(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String) -> Result<(), String> {
     actions::run(&engine, &peers, actions::SIDE_CLOSE, &key, serde_json::json!({})).map(|_| ())
@@ -1344,7 +1356,7 @@ pub fn run() {
             desktop::on_window_event(window, event);
         })
         .register_asynchronous_uri_scheme_protocol("codealong-image", |_ctx, request, responder| serve_image(request, responder))
-        .invoke_handler(tauri::generate_handler![get_board, session_at, idle_terminals, close_idle_terminals, close_session, open_target, open_config, editor_icons, mark_seen, snooze_sessions, refresh, refresh_usage, set_pinned, set_pinned_worktrees, set_preview, set_reusable, archive_session, rename_session, pr_detail, pr_card, pr_comment_asks, approve_pr, review_in_codex, open_url, run_in_terminal, get_accounts, save_accounts, set_preferred, found_accounts, get_config, save_config, save_config_text, sign_in, agents_status, install_agents, start_options, device_start_options, start_session, fork_session, side_ask, side_get, side_close, todo_op, canvas_load, canvas_save, save_attachment, import_attachment, open_attachment, expand_attachments, set_theme, open_project_window, fit_bar, show_main, peek_open, peek_ready, peek_fit, peek_focus, peek_hide, bar_feed, bar_on, set_bar_on, bar_mode, set_bar_mode, set_notch_open, notch_shape, open_from_bar, desktop_pins, pin_to_desktop, unpin_from_desktop, drag_to_desktop, desktop_feed, fit_desktop, desktop_hover, lineage_feed, show_quick, hide_quick, quick_ready, fit_quick, start_from_quick, route_quick, search_text, search_devices, devices, set_device_color, link_device, answer_link, unlink_device, device_link_code, link_code_qr, link_with_code, session_page, session_newer, session_pending, session_way, session_answer, session_stream, session_cancel, send_to_session, suggest_todo, dismiss_todo_hint, jev_key, set_jev_key, test_jev, quick_shortcut, pause_quick_shortcut, perf_mark, page_unfocused, popup_menu, update_status, check_for_updates, restart_to_update])
+        .invoke_handler(tauri::generate_handler![get_board, session_at, idle_terminals, close_idle_terminals, close_session, open_target, open_config, editor_icons, mark_seen, snooze_sessions, refresh, refresh_usage, set_pinned, set_pinned_worktrees, set_preview, set_reusable, archive_session, rename_session, pr_detail, pr_card, pr_comment_asks, approve_pr, review_in_codex, open_url, run_in_terminal, get_accounts, save_accounts, set_preferred, found_accounts, get_config, save_config, save_config_text, sign_in, agents_status, install_agents, start_options, device_start_options, start_session, fork_session, side_ask, side_get, side_past, side_forget, side_close, todo_op, canvas_load, canvas_save, save_attachment, import_attachment, open_attachment, expand_attachments, set_theme, open_project_window, fit_bar, show_main, peek_open, peek_ready, peek_fit, peek_focus, peek_hide, bar_feed, bar_on, set_bar_on, bar_mode, set_bar_mode, set_notch_open, notch_shape, open_from_bar, desktop_pins, pin_to_desktop, unpin_from_desktop, drag_to_desktop, desktop_feed, fit_desktop, desktop_hover, lineage_feed, show_quick, hide_quick, quick_ready, fit_quick, start_from_quick, route_quick, search_text, search_devices, devices, set_device_color, link_device, answer_link, unlink_device, device_link_code, link_code_qr, link_with_code, session_page, session_newer, session_pending, session_way, session_answer, session_stream, session_cancel, send_to_session, suggest_todo, dismiss_todo_hint, jev_key, set_jev_key, test_jev, quick_shortcut, pause_quick_shortcut, perf_mark, page_unfocused, popup_menu, update_status, check_for_updates, restart_to_update])
         .build(tauri::generate_context!())
         .expect("error while running Codealong")
         .run(|app, event| {

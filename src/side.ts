@@ -1,21 +1,67 @@
 // Side conversations as a window knows them (side.rs): what the engine last said of each
 // session's, kept for every box showing that session. A side conversation is a question about a
 // session answered by a throwaway copy of its conversation, while the session carries on,
-// unaware; it has one at a time, and it lasts until it's closed.
+// unaware; it has one at a time, and it lasts until it's closed. Codealong keeps what was asked
+// and answered, so the closed ones can be read again: a session's box shows them (`showSides`).
 
-import { useEffect, useSyncExternalStore } from 'react';
-import { onSide, sideGet } from './api';
-import type { Side, SideTurn } from './types';
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
+import { onSide, sideGet, sidePast } from './api';
+import type { Side, SideKept, SideTurn } from './types';
 
 const sides = new Map<string, Side>();
 const hearers = new Set<() => void>();
 let listening = false;
 
+const tell = () => {
+  for (const hear of hearers) hear();
+};
+
 /** Takes what the engine says of a side conversation: one with no turns has ended. */
 export function noteSide(side: Side): void {
   if (side.turns.length > 0) sides.set(side.key, side);
   else sides.delete(side.key);
-  for (const hear of hearers) hear();
+  tell();
+}
+
+/** What a session's box shows in place of its open side conversation: the list of the ones
+ *  kept, or one of them to read. Null shows the open one, if there is one. It's this window's. */
+export type SideView = { kind: 'list' } | { kind: 'past'; id: string } | null;
+
+const views = new Map<string, SideView>();
+
+export function showSides(key: string, view: SideView): void {
+  if (view) views.set(key, view);
+  else views.delete(key);
+  tell();
+}
+
+export function useSideView(key: string): SideView {
+  return useSyncExternalStore(subscribe, () => views.get(key) ?? null);
+}
+
+/** The side conversations kept for a session, the latest first, read again whenever `stamp`
+ *  changes (a turn ended, one closed) and when asked to (one was forgotten). */
+export function usePast(key: string, stamp: string): [SideKept[], () => void] {
+  const [past, setPast] = useState<SideKept[]>([]);
+  const [asked, setAsked] = useState(0);
+  useEffect(() => {
+    let live = true;
+    sidePast(key).then(
+      (kept) => {
+        if (live) setPast(kept);
+      },
+      () => {},
+    );
+    return () => {
+      live = false;
+    };
+  }, [key, stamp, asked]);
+  return [past, useCallback(() => setAsked((n) => n + 1), [])];
+}
+
+/** A kept side conversation in a line: its first question. */
+export function keptLine(kept: SideKept): string {
+  return kept.turns[0]?.question.split('\n')[0].trim() ?? '';
 }
 
 function subscribe(hear: () => void): () => void {

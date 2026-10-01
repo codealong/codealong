@@ -293,7 +293,7 @@ fn side_ask(engine: &Handle, c: &Call) -> Result<Value, String> {
     to_value(crate::side::ask(&engine.board(), &cfg()?, c.session()?, &c.text("text")).map_err(words)?)
 }
 
-/// Ends its side conversation: the copy stops, and what was said is gone.
+/// Ends its side conversation: the copy stops, and what was said is kept to read (`side::past`).
 fn side_close(_: &Handle, c: &Call) -> Result<Value, String> {
     crate::side::close(c.session()?);
     Ok(Value::Null)

@@ -34,8 +34,8 @@ export const COMMANDS: SlashCommand[] = [
     name: 'side',
     // Claude Code's own is /btw, Codex's /side.
     aliases: ['btw'],
-    args: '<question>',
-    about: 'a throwaway copy answers here; the session carries on, unaware',
+    args: '[question]',
+    about: 'a throwaway copy answers here; the session carries on, unaware. Alone, it shows the earlier ones',
     icon: 'help',
     // The copy runs beside the session, on its Mac (side.rs).
     takes: (s) => (s.harness === 'claude' || s.harness === 'codex') && !shortOf(s.key),
