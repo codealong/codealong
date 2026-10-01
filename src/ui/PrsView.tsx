@@ -9,7 +9,7 @@ import { prFlag } from '../prStatus';
 import type { Checks, GitInfo, Lane, PrItem, Session } from '../types';
 import { PinnedSection } from './PinnedSection';
 import { PrPills } from './PrPills';
-import { HarnessChip, Icon, PR_ICON, PR_WORD } from './primitives';
+import { HarnessChip, Icon, PR_ICON, PR_WORD, selects, WorktreeChip } from './primitives';
 import { useRowDrag, type DragProps } from './useRowDrag';
 
 export interface PrRowItem {
@@ -146,7 +146,7 @@ function PrRow({ item, domId, now, selected, approving, onSelect, onOpen, onAppr
       className={['ca-lane', 'ca-prrow', requested && 'is-requested', flag && `is-flag-${flag}`, selected && 'is-selected', drag?.pinIndex != null && 'is-pinned', drag?.extraClass].filter(Boolean).join(' ')}
       data-pin-index={drag?.pinIndex}
       onPointerDown={drag?.onPointerDown}
-      onMouseDown={onSelect}
+      onMouseDown={(e) => selects(e) && onSelect()}
       onDoubleClick={onOpen}
       onContextMenu={(e) => {
         e.preventDefault();
@@ -185,15 +185,14 @@ function PrRow({ item, domId, now, selected, approving, onSelect, onOpen, onAppr
                 {shown.map(({ lane, session }) => (
                   <HarnessChip key={session.key} session={session} onOpen={() => onOpenSession(lane, session)} inRow />
                 ))}
-                {item.sessions.length > shown.length && <span className="ca-prrow-more">+{item.sessions.length - shown.length}</span>}
+                {item.sessions.length > shown.length && (
+                  <span className="ca-chip ca-chip--more" title={item.sessions.slice(shown.length).map(({ session }) => `${session.account} · ${session.title}`).join('\n')}>
+                    +{item.sessions.length - shown.length}
+                  </span>
+                )}
               </span>
             )}
-            {item.lane && (
-              <span className="ca-tag" title={item.lane.path}>
-                <Icon name="folder" size={11} />
-                <span>{item.lane.callsign}</span>
-              </span>
-            )}
+            {item.lane && <WorktreeChip lane={item.lane} short />}
           </div>
           <span className="ca-lane-right ca-diff">
             +{pr.additions.toLocaleString('en-US')} −{pr.deletions.toLocaleString('en-US')}

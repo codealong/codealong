@@ -62,7 +62,7 @@
           .then(step('PR chip', '.ca-pr', function (o) {
             check('PR chip: a double-click opens the PR, not the session', o.length === 1 && o[0][0] === 'open_url', said(o));
           }))
-          .then(step('agent chip', '.ca-agentrow-line1 .ca-chip', function (o) {
+          .then(step('agent chip', '.ca-agentrow-chips .ca-chip[title*="to open in"]', function (o) {
             check('agent chip: a double-click opens the session once', o.length === 1 && o[0][0] === 'open_target', said(o));
           }))
           .then(step('todo chip', '.ca-todochip', function (o) {
@@ -75,7 +75,7 @@
         .then(step('app chip', '.ca-previewchip', function (o) {
           check('app chip: a double-click opens the app, not the session', o.length === 1 && o[0][1].targetId === 'l|preview', said(o));
         }))
-        .then(step('agent chip', '.ca-agentline-main .ca-chip', function (o) {
+        .then(step('agent chip', '.ca-agentline-main .ca-chip[title*="to open in"]', function (o) {
           check('agent chip: a double-click opens the session once', o.length === 1 && o[0][0] === 'open_target', said(o));
         }));
     })

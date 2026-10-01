@@ -5,7 +5,6 @@
 // desktop (useRowDrag.tsx).
 
 import { bySession, byStatusTime, startedOf } from '../lanes';
-import type { MouseEvent } from 'react';
 import type { DesktopPinned, Lane, Session, Status, Todo } from '../types';
 import { AgentRow } from './LaneRow';
 import { SectionHeader } from './primitives';
@@ -24,6 +23,15 @@ export type SessionSort = 'status' | 'started';
 export const SESSION_SORTS: { id: SessionSort; label: string; title: string }[] = [
   { id: 'status', label: 'Status', title: 'What needs you first, then your turns, working agents and snoozed ones, then the rest by when they were last active' },
   { id: 'started', label: 'Started', title: 'The newest session first' },
+];
+
+/** How much each session's row says: where it runs, its todo and its account on a second line,
+ *  or one line with its worktree and PR at the end. */
+export type SessionRows = 'two' | 'one';
+
+export const SESSION_ROWS: { id: SessionRows; label: string; title: string }[] = [
+  { id: 'two', label: 'Two lines', title: 'Under each session: its worktree, todo, account, PR and diff' },
+  { id: 'one', label: 'One line', title: 'Each session on one line, with its worktree and PR at the end' },
 ];
 
 /** The bar's groups, most urgent first: what needs you, turns that ended, then running agents. */
@@ -87,11 +95,13 @@ interface SessionsViewProps {
   rows: SessionItem[];
   /** Sorted by start, the rows show when each started where they'd show when it was last active. */
   sort: SessionSort;
+  /** Two lines a session, or one. */
+  lines: SessionRows;
   now: number;
   selectedKey: string | null;
   domId: (row: SessionItem) => string;
-  /** A row pressed, with the press: which button, which keys. */
-  onSelect: (row: SessionItem, e: MouseEvent) => void;
+  /** A row pressed with the primary button: a right-click leaves the selection alone. */
+  onSelect: (row: SessionItem) => void;
   onOpen: (row: SessionItem) => void;
   /** Right-click on a row. */
   onContextMenu: (row: SessionItem) => void;
@@ -116,7 +126,7 @@ interface SessionsViewProps {
 }
 
 export function SessionsView(props: SessionsViewProps) {
-  const { pinned, rows, sort, now, selectedKey, domId, onSelect, onOpen, onContextMenu, onPrMenu, onPrOpen, onPlacePinned, onUnpin, desktop, archived, showArchived, onToggleArchived, todosFor, onShowTodo } = props;
+  const { pinned, rows, sort, lines, now, selectedKey, domId, onSelect, onOpen, onContextMenu, onPrMenu, onPrOpen, onPlacePinned, onUnpin, desktop, archived, showArchived, onToggleArchived, todosFor, onShowTodo } = props;
   const byKey = (key: string) => pinned.find((r) => r.session.key === key) ?? rows.find((r) => r.session.key === key);
   // Only the pinned rows carry an index: the others join them when dropped among them.
   const drag = useRowDrag({
@@ -139,8 +149,9 @@ export function SessionsView(props: SessionsViewProps) {
       domId={domId(r)}
       now={now}
       age={sort === 'started' ? 'started' : 'active'}
+      slim={lines === 'one'}
       selected={r.key === selectedKey}
-      onSelect={(e) => onSelect(r, e)}
+      onSelect={() => onSelect(r)}
       onOpen={() => onOpen(r)}
       pinned={index != null}
       onContextMenu={() => onContextMenu(r)}

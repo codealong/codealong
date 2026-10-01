@@ -2,6 +2,7 @@
 
 import type { ButtonHTMLAttributes, MouseEvent as ReactMouseEvent, ReactNode } from 'react';
 import { Fragment } from 'react';
+import { deviceLabel } from '../devices';
 import { middleTruncate, withTimes } from '../format';
 import { sessionPlace } from '../harness';
 import type { Bay, GitInfo, Lane, LogoStatus, Pr, PrState, Session, Status, Surface } from '../types';
@@ -203,6 +204,36 @@ export function HarnessChip({ session, withStatus = true, onOpen, inRow = false,
       {inner}
     </button>
   );
+}
+
+/** A worktree as a chip, wherever a row names one: its name, after its repo when it has a name of
+ *  its own (the main worktree is its repo, then `main`), and after its device, in that device's
+ *  color, when it's on another of yours. `short` leaves it at the one name that tells it apart,
+ *  and a lane short of room does the same (see .ca-wtchip-more). */
+export function WorktreeChip({ lane, short = false }: { lane: Lane; short?: boolean }) {
+  const branch = lane.branch ?? (lane.detached ? `detached @ ${lane.detached}` : null);
+  const main = lane.origin === 'main';
+  const own = !main && lane.callsign !== lane.repo;
+  return (
+    <span className="ca-chip ca-wtchip" title={`${lane.device ? `On ${lane.device.name}: ` : ''}${lane.path}${branch ? `\nOn ${branch}` : ''}`}>
+      <Icon name="folder" size={12} />
+      {lane.device && (
+        <span className="ca-wtchip-device">
+          <i className={`ca-labeldot is-${lane.device.color}`} aria-hidden="true" />
+          {deviceLabel(lane.device.name)}
+        </span>
+      )}
+      {own && !short && <span className="ca-wtchip-more">{lane.repo} /</span>}
+      <span className="ca-wtchip-name">{main ? lane.repo : lane.callsign}</span>
+      {main && !short && <span className="ca-wtchip-more">/ main</span>}
+    </span>
+  );
+}
+
+/** Whether a press on a list's row selects it: the primary button, without ⌃, which macOS takes
+ *  as a right-click. A right-click opens the row's menu and leaves the selection where it was. */
+export function selects(e: { button: number; ctrlKey: boolean }): boolean {
+  return e.button === 0 && !e.ctrlKey;
 }
 
 /** A chip's double-click on a list's row, where a click selects the row: it does the chip's own

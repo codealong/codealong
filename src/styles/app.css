@@ -410,6 +410,44 @@ body.is-resizing * {
   color: var(--alert);
 }
 
+/* ---- Chips ----
+   A chip is one shape and size wherever it shows: 20 high with round ends, 11px text, a 12px
+   icon, 6px from the next. Its fill says what it is: neutral for something you can open (an
+   agent, a todo, a label), an outline for a place (a worktree, an app that isn't running), a
+   color for where something stands (a PR, its review and checks, Jev's read). Names a machine
+   gave are mono (accounts, worktrees, PR numbers); words are sans. The design system drew
+   agents round and everything else square; the lists mix them on one line, so they're all
+   round here, and `--chip-radius` is the one place that says so. */
+:root {
+  --chip-radius: var(--radius-pill);
+  --chip-gap: 6px;
+}
+.ca-chip,
+.ca-tag,
+.ca-pill,
+.ca-pr {
+  border-radius: var(--chip-radius);
+}
+.ca-tag,
+.ca-pill {
+  gap: 5px;
+  padding: 0 8px;
+  font: 500 11px/14px var(--font-sans);
+}
+.ca-tag:has(> .ca-icon:first-child),
+.ca-pill:has(> .ca-icon:first-child) {
+  padding-left: 6px;
+}
+.ca-pr {
+  padding: 0 8px 0 6px;
+}
+.ca-pr-word {
+  font: 500 11px/14px var(--font-sans);
+}
+.ca-chip--more {
+  padding: 0 8px;
+}
+
 /* Clickable sessions: a chip on a lane, a row in the inspector. */
 .ca-chip--button {
   border: 0;
@@ -1936,12 +1974,58 @@ body.is-resizing * {
     grid-column: 3 / 5;
   }
 }
-/* The second line: the worktree's agents, todo and notes (the lead), then its app and PR at the
-   right. It never wraps. Short of room, the app's address gives way first, down to its globe;
-   then the lead's pieces give way from the end. A board too narrow for two agents' chips shows
-   one and counts the rest. The PR always shows. */
+/* A lane of chips, on every list's rows (LaneRow.tsx, PrsView.tsx, TodoView.tsx): one line that
+   never wraps into view and never cuts a chip off. Each piece shows whole or not at all: one
+   that doesn't fit wraps onto a line that's cut off, the last pieces first. The empty first
+   piece, a line high, lets the real first one wrap away too. A chip that names something long
+   (a worktree, a todo) counts as about ten characters when that's decided, then grows into the
+   room that's left, and shortens with an ellipsis inside itself. The padding, which the margin
+   takes back, leaves room for a chip's focus ring, and the row gap keeps the second line out of
+   it. */
+.ca-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  align-items: center;
+  gap: 8px var(--chip-gap);
+  min-width: 0;
+  height: 20px;
+  margin: -4px;
+  padding: 4px;
+  overflow: clip;
+}
+.ca-chips::before {
+  content: '';
+  height: 20px;
+  margin-right: calc(0px - var(--chip-gap));
+}
+.ca-chips > .ca-chip.ca-todochip,
+.ca-chips > .ca-chip.ca-wtchip,
+.ca-prrow-fit > .ca-chip.ca-wtchip,
+.ca-chips > .ca-chip.ca-todorow-blocked {
+  flex: 1000 1 100px;
+  min-width: 0;
+  max-width: max-content;
+  overflow: hidden;
+}
+.ca-chips > .ca-todochip .ca-todochip-title {
+  max-width: 156px;
+}
+.ca-chips > .ca-todorow-blocked .ca-todorow-blocked-text {
+  max-width: 190px;
+}
+/* A row's second line: its lane (the lead), then what always shows at the right (a worktree's
+   app and PR, a session's PR and diff). Short of room, the app's address gives way first, down
+   to its globe; then the lead's pieces give way from the end. A board too narrow for two
+   agents' chips shows one and counts the rest. */
 .ca-lane-lead {
   flex: 1 1 auto;
+}
+.ca-lane-line2 {
+  gap: var(--chip-gap);
+}
+.ca-lane-right {
+  gap: var(--chip-gap);
 }
 .ca-lane-lead > .ca-chip--more.is-narrow {
   display: none;
@@ -1955,57 +2039,29 @@ body.is-resizing * {
     display: inline-flex;
   }
 }
-/* On an agent's line, what it's doing or said last gives way first (it only takes the room that's
-   left), then its todo and Jev's read, then its title. The text's own box would count what it's
-   doing as room the title needs, so its pieces sit on the line itself. */
-.ca-agentline-main > .ca-agentline-text {
-  display: contents;
-}
-.ca-agentline-tags {
-  flex: 0 100 auto;
-}
-.ca-agentline-tags:empty {
-  display: none;
-}
-/* Pieces that show whole or not at all: one that doesn't fit wraps onto a line that's cut off.
-   The empty first piece, a line high, lets the real first one wrap away too. A todo's title
-   counts as about ten characters when that's decided, then grows into the room that's left. The
-   padding, which the margin takes back, leaves room for a chip's focus ring, and the row gap
-   keeps the second line out of it. */
-.ca-lane-lead,
-.ca-agentline-tags {
-  display: flex;
-  flex-wrap: wrap;
-  align-content: flex-start;
-  align-items: center;
-  gap: 8px 4px;
-  min-width: 0;
-  height: 20px;
-  margin: -4px;
-  padding: 4px;
-  overflow: clip;
-}
-.ca-lane-lead::before,
-.ca-agentline-tags::before {
-  content: '';
-  height: 20px;
-  margin-right: -4px;
-}
 .ca-lane-lead > .ca-none {
   flex: none;
   margin-right: 4px;
   white-space: nowrap;
 }
-.ca-lane-lead > .ca-chip.ca-todochip,
-.ca-agentline-tags > .ca-chip.ca-todochip {
-  flex: 1000 1 100px;
-  min-width: 0;
-  max-width: max-content;
-  overflow: hidden;
+/* On an agent's line, what it's doing or said last gives way first (it only takes the room that's
+   left), then its lane (its todo, Jev's read and its account), then its title. The text's own
+   box would count what it's doing as room the title needs, so its pieces sit on the line itself.
+   The lane gives way a million times as fast as the title: at a hundred the title still lost a
+   pixel or two of a shortfall, enough to end in an ellipsis beside room the lane had left. */
+.ca-agentline-main > .ca-agentline-text {
+  display: contents;
 }
-.ca-lane-lead > .ca-todochip .ca-todochip-title,
-.ca-agentline-tags > .ca-todochip .ca-todochip-title {
-  max-width: 156px;
+.ca-agentline-tags {
+  flex: 0 1000000 auto;
+  margin-left: auto;
+}
+.ca-agentline-tags:empty {
+  display: none;
+}
+/* The line's own status, where the agent's chip used to lead it. */
+.ca-agentline-main > .ca-glyph {
+  flex: none;
 }
 
 /* A worktree's row with a line for each agent that needs you, is working or just finished:
@@ -2121,6 +2177,13 @@ body.is-resizing * {
 }
 .ca-agentline-age .ca-pinmark {
   margin-top: 0;
+}
+
+/* The row a right-click's menu is for, while the menu is up: ringed, not selected. */
+.ca-lane[data-menu],
+.ca-agentline[data-menu] {
+  outline: 2px solid var(--line-strong);
+  outline-offset: -2px;
 }
 
 /* Pinned rows carry a small mark under their age. */
@@ -2361,12 +2424,9 @@ body.is-resizing * {
   font: 400 12px/16px var(--font-mono);
   color: var(--ink-3);
 }
-.ca-prrow .ca-lane-line2 {
-  gap: 8px;
-}
 /* A PR row's second line. The pills and the diff always show; the rest takes the room that's
    left, in this order: the first 12 characters of the repo · branch · author line, the
-   agents with their +n, the worktree tag, then the rest of that line. A piece that doesn't fit
+   agents with their +n, the worktree's chip, then the rest of that line. A piece that doesn't fit
    wraps onto a second line that is cut off, so it shows whole or not at all, and the repo ·
    branch · author line takes back its room. The PR panel lists them all.
    The padding, which the margin takes back, leaves room for a chip's focus ring, and the gap
@@ -2378,7 +2438,7 @@ body.is-resizing * {
   flex-wrap: wrap;
   align-content: flex-start;
   align-items: center;
-  gap: 8px;
+  gap: 8px var(--chip-gap);
   min-width: 0;
   height: 20px;
   margin: -4px;
@@ -2404,15 +2464,7 @@ body.is-resizing * {
   display: flex;
   flex: none;
   align-items: center;
-  gap: 8px;
-}
-.ca-prrow .ca-tag {
-  max-width: 144px;
-}
-.ca-prrow .ca-tag > span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  gap: var(--chip-gap);
 }
 /* The diff keeps to the right edge, as in the Worktrees view. Beside an Approve button, where
    room is shortest, it doesn't hold its column's full width, so the pills keep their words. */
@@ -2421,10 +2473,6 @@ body.is-resizing * {
 }
 .ca-prrow.is-requested .ca-diff {
   min-width: 0;
-}
-.ca-prrow-more {
-  font: 500 11px/14px var(--font-mono);
-  color: var(--ink-3);
 }
 .ca-prrow-act {
   justify-content: center;
@@ -2441,7 +2489,7 @@ body.is-resizing * {
   display: inline-flex;
   flex: none;
   align-items: center;
-  gap: 4px;
+  gap: var(--chip-gap);
 }
 .ca-prpill {
   flex: none;
@@ -3877,7 +3925,7 @@ html.is-peek body {
   padding: 0 7px 0 6px;
   box-sizing: border-box;
   border: 0;
-  border-radius: var(--radius-xs);
+  border-radius: var(--chip-radius);
   background: var(--neutral-tint);
   color: var(--ink-2);
   font: 500 11px/14px var(--font-sans);
@@ -3951,17 +3999,6 @@ html.is-peek body {
   font-weight: 500;
 }
 .ca-todorow.is-done .ca-todorow-title {
-  color: var(--ink-3);
-}
-.ca-todorow-lane {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  font: 400 11px/14px var(--font-mono);
-  color: var(--ink-3);
-  white-space: nowrap;
-}
-.ca-todorow-lane .ca-icon {
   color: var(--ink-3);
 }
 .ca-chip.ca-todorow-waiting {
@@ -7472,39 +7509,89 @@ html.is-quick body {
   gap: var(--space-2);
   min-width: 0;
 }
-/* The worktree reads as a place, not an actor: outlined where the agent's chip is filled. */
+/* On one line (Rows, in the sidebar): what it's about, then its lane and PR at the line's end,
+   and its pin beside its age. What it's doing gives way first, then the lane, then the title,
+   as on an agent's line in Worktrees. */
+.ca-lane.is-agent.is-slim {
+  grid-template-columns: 32px minmax(0, 1fr) 64px;
+  min-height: 32px;
+}
+.ca-lane.is-agent.is-slim .ca-seg-glyph {
+  justify-content: center;
+  padding-top: 0;
+}
+.ca-lane.is-agent.is-slim .ca-seg-main {
+  padding-top: 0;
+  padding-bottom: 0;
+}
+.ca-lane.is-agent.is-slim .ca-agentrow-line1 > .ca-agentline-text {
+  display: contents;
+}
+.ca-lane.is-agent.is-slim .ca-agentrow-line1 {
+  font: 400 13px/18px var(--font-sans);
+}
+.ca-lane.is-agent.is-slim .ca-agentrow-line1 > .ca-pr {
+  margin-left: auto;
+}
+.ca-lane.is-agent.is-slim .ca-agentline-tags:not(:empty) + .ca-pr {
+  margin-left: calc(var(--chip-gap) - var(--space-2));
+}
+.ca-lane.is-agent.is-slim .ca-seg-age {
+  flex-direction: row-reverse;
+  justify-content: flex-start;
+  align-items: center;
+  gap: 4px;
+  padding: 0 var(--space-3) 0 0;
+}
+.ca-lane.is-agent.is-slim .ca-pinmark {
+  margin-top: 0;
+}
+/* The worktree reads as a place, not an actor: outlined where the agent's chip is filled. Its
+   name shortens with an ellipsis; its repo (or `main`, for a main worktree) is said beside it
+   only where the list is wide. */
 .ca-chip.ca-wtchip {
   flex: 0 1 auto;
   min-width: 0;
   gap: 4px;
+  overflow: hidden;
   background: transparent;
   box-shadow: inset 0 0 0 1px var(--line);
 }
-.ca-wtchip-part {
+.ca-wtchip > .ca-icon {
+  flex: none;
+}
+.ca-wtchip-more {
   flex: none;
   color: var(--ink-3);
 }
 .ca-wtchip-device {
   display: inline-flex;
+  flex: none;
   align-items: center;
   gap: 4px;
+  color: var(--ink-3);
   font-family: var(--font-sans);
 }
 .ca-wtchip-device .ca-labeldot {
   width: 6px;
   height: 6px;
 }
-.ca-wtchip-part::after {
+.ca-wtchip-device::after {
   content: '/';
-  margin-left: 4px;
   color: var(--ink-3);
   opacity: 0.6;
 }
 .ca-wtchip-name {
   min-width: 0;
+  max-width: 28ch;
   overflow: hidden;
   text-overflow: ellipsis;
   color: var(--ink-2);
+}
+@container board (max-width: 680px) {
+  .ca-wtchip-more {
+    display: none;
+  }
 }
 
 /* A device's badge (DeviceBadge.tsx): drawn as labels are, a colored square in a neutral chip, since
@@ -7518,7 +7605,7 @@ html.is-quick body {
   height: 16px;
   padding: 0 6px 0 5px;
   box-sizing: border-box;
-  border-radius: var(--radius-xs);
+  border-radius: var(--chip-radius);
   background: var(--neutral-tint);
   color: var(--ink-2);
   font: 500 10.5px/14px var(--font-sans);

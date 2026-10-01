@@ -2,7 +2,6 @@
 // commits against the default branch; what's happening, its agents, todo, app and PR; age. Each agent that needs you, is working or just finished gets a line of its own
 // on its worktree's row, so a worktree shows once however many agents run in it.
 
-import { deviceLabel } from '../devices';
 import { REUSE_WORDS } from '../reusable';
 import { DeviceBadge } from './DeviceBadge';
 import { memoRow } from './memoRow';
@@ -11,7 +10,7 @@ import { absolute, ago, agoPhrase, count, middleTruncate, untilShort } from '../
 import { startedOf, worktreeName, type AgentItem, type WorktreeRow } from '../lanes';
 import { untilWords } from '../snooze';
 import type { GitInfo, Lane, Session, Todo } from '../types';
-import { driftWords, HarnessChip, Icon, LaneGlyph, PrChip, Rich, StatusGlyph } from './primitives';
+import { driftWords, HarnessChip, Icon, LaneGlyph, PrChip, Rich, selects, STATUS_WORD, StatusGlyph, WorktreeChip } from './primitives';
 import { FlagChip, InsightChips, LooksFinished } from './InsightBits';
 import { PreviewChip } from './PreviewBits';
 import { TodoChips } from './TodoBits';
@@ -96,7 +95,7 @@ function shortCount(n: number): string {
  * and removed (with a dot for uncommitted files) over commits ahead and behind. What the branch
  * adds lines up in one column and what it lacks in the next, so rows read as a table.
  */
-function DeltaSeg({ git: g, onMouseDown, onDoubleClick }: { git: GitInfo | null; onMouseDown?: () => void; onDoubleClick?: () => void }) {
+function DeltaSeg({ git: g, onMouseDown, onDoubleClick }: { git: GitInfo | null; onMouseDown?: (e: ReactMouseEvent) => void; onDoubleClick?: () => void }) {
   const ahead = g?.baseAhead ?? 0;
   const behind = g?.baseBehind ?? 0;
   const added = g?.added ?? 0;
@@ -230,7 +229,7 @@ function WorktreeOnlyRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpe
       className={['ca-lane', 'is-worktree', `is-${lane.bay}`, selected && 'is-selected', pinned && 'is-pinned', away(lane) && 'is-away', extraClass].filter(Boolean).join(' ')}
       data-pin-index={pinIndex}
       onPointerDown={onPointerDown}
-      onMouseDown={() => onSelect(lane.id)}
+      onMouseDown={(e) => selects(e) && onSelect(lane.id)}
       onDoubleClick={() => onOpen(lane)}
       onContextMenu={menu(onContextMenu)}
     >
@@ -258,7 +257,7 @@ function WorktreeOnlyRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpe
           )}
         </div>
         <div className="ca-lane-line2">
-          <span className="ca-lane-lead">
+          <span className="ca-chips ca-lane-lead">
             <SessionChips
               sessions={chips}
               max={2}
@@ -316,6 +315,9 @@ function GroupRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpenTarget
   const footTodos = (worktreeTodos ?? []).filter((t) => !onLines.has(t));
   const foot = others.length > 0 || footTodos.length > 0 || lane.pr != null || lane.preview != null || lane.reuse === 'free';
   const selectFirst = () => onSelect(agents[0].key);
+  const pressFirst = (e: ReactMouseEvent) => {
+    if (selects(e)) selectFirst();
+  };
   return (
     <div
       role="group"
@@ -332,13 +334,13 @@ function GroupRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpenTarget
           <Icon name="grip-vertical" size={10} />
         </span>
       )}
-      <div className="ca-seg ca-seg-glyph" onMouseDown={selectFirst} onDoubleClick={() => onOpen(lane)}>
+      <div className="ca-seg ca-seg-glyph" onMouseDown={pressFirst} onDoubleClick={() => onOpen(lane)}>
         <LaneGlyph lane={lane} />
       </div>
-      <div className="ca-seg ca-seg-call" onMouseDown={selectFirst} onDoubleClick={() => onOpen(lane)} title={`${lane.path}. Double-click to open its most recent session.`}>
+      <div className="ca-seg ca-seg-call" onMouseDown={pressFirst} onDoubleClick={() => onOpen(lane)} title={`${lane.path}. Double-click to open its most recent session.`}>
         <WorktreeCell lane={lane} now={now} titled={false} />
       </div>
-      <DeltaSeg git={lane.git} onMouseDown={selectFirst} onDoubleClick={() => onOpen(lane)} />
+      <DeltaSeg git={lane.git} onMouseDown={pressFirst} onDoubleClick={() => onOpen(lane)} />
       <div className="ca-seg-lines">
         {agents.map((a, i) => (
           <AgentLine
@@ -356,9 +358,9 @@ function GroupRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpenTarget
           />
         ))}
         {foot && (
-          <div className="ca-agentline ca-agentline--foot" onMouseDown={selectFirst} onDoubleClick={() => onOpen(lane)}>
+          <div className="ca-agentline ca-agentline--foot" onMouseDown={pressFirst} onDoubleClick={() => onOpen(lane)}>
             <span className="ca-agentline-main">
-              <span className="ca-lane-lead">
+              <span className="ca-chips ca-lane-lead">
                 <SessionChips
                   sessions={others}
                   max={3}
@@ -415,8 +417,8 @@ interface AgentLineProps {
   onShowTodo?: (todo: Todo) => void;
 }
 
-/** One agent on its worktree's row: its chip (double-click to open), its title and what it's doing, its
- *  todo and Jev's read at the end of the line, and its age. */
+/** One agent on its worktree's row: its status, its title and what it's doing, then its todo,
+ *  Jev's read and its account's chip (double-click to open) at the end of the line, and its age. */
 function AgentLine({ item, now, domId, selected, pinned, onSelect, onOpen, onContextMenu, todos, onShowTodo }: AgentLineProps) {
   const s = item.session;
   return (
@@ -425,16 +427,17 @@ function AgentLine({ item, now, domId, selected, pinned, onSelect, onOpen, onCon
       role="option"
       aria-selected={selected}
       className={['ca-agentline', `is-${s.status === 'error' ? 'needs' : s.status}`, selected && 'is-selected'].filter(Boolean).join(' ')}
-      onMouseDown={onSelect}
+      onMouseDown={(e) => selects(e) && onSelect()}
       onDoubleClick={onOpen}
       onContextMenu={menu(onContextMenu)}
     >
       <span className="ca-agentline-main">
-        <HarnessChip session={s} onOpen={onOpen} inRow />
+        <StatusGlyph status={s.status} size={10} />
         <SessionText s={s} now={now} />
-        <span className="ca-agentline-tags">
+        <span className="ca-chips ca-agentline-tags">
           <TodoChips todos={todos} onShow={onShowTodo} inRow />
           <InsightChips session={s} />
+          <HarnessChip session={s} withStatus={false} onOpen={onOpen} inRow />
         </span>
       </span>
       <span className="ca-agentline-age" title={`Last active ${absolute(s.lastActivity)}. You last sent it a prompt ${agoPhrase(s.lastPromptAt, now)}, which sets its place in the list.`}>
@@ -452,8 +455,10 @@ interface AgentRowProps {
   now: number;
   /** What its age says: when it was last active, or when it started (Sessions sorted by start). */
   age?: 'active' | 'started';
+  /** On one line: what it's about, then its worktree and PR. */
+  slim?: boolean;
   selected: boolean;
-  onSelect: (e: ReactMouseEvent) => void;
+  onSelect: () => void;
   onOpen: () => void;
   pinned?: boolean;
   /** Right-click: the session's menu (open, pin, archive…). */
@@ -472,27 +477,6 @@ interface AgentRowProps {
   onShowTodo?: (todo: Todo) => void;
 }
 
-/** Where a session runs, as a chip: its worktree, after its repo when the worktree has a name of
- *  its own, and after its device, in that device's color, when it's on another of yours. */
-function WorktreeChip({ lane }: { lane: Lane }) {
-  const { branch } = laneSub(lane);
-  const name = worktreeName(lane);
-  const own = name !== lane.repo;
-  return (
-    <span className="ca-chip ca-wtchip" title={`${lane.device ? `On ${lane.device.name}: ` : ''}${lane.path}${branch ? `\nOn ${branch}` : ''}`}>
-      <Icon name="folder" size={12} />
-      {lane.device && (
-        <span className="ca-wtchip-part ca-wtchip-device">
-          <i className={`ca-labeldot is-${lane.device.color}`} aria-hidden="true" />
-          {deviceLabel(lane.device.name)}
-        </span>
-      )}
-      {own && <span className="ca-wtchip-part">{lane.repo}</span>}
-      <span className="ca-wtchip-name">{name}</span>
-    </span>
-  );
-}
-
 /** A snoozed session's chip: how long until it's back on the floating bar, as short as the age
  *  beside it, and the time in its tooltip. */
 function SnoozeChip({ session: s, now }: { session: Session; now: number }) {
@@ -506,23 +490,25 @@ function SnoozeChip({ session: s, now }: { session: Session; now: number }) {
 }
 
 /**
- * One session in the Sessions view: who and what on the first line (its agent, its title, what it
- * waits on you for, and what it's doing or said last), where and why on the second (its worktree,
- * todo and insights, and the worktree's PR and diff).
+ * One session in the Sessions view. On two lines: what it's about first (its title, what it waits
+ * on you for, and what it's doing or said last), then where and why (its worktree, todo and
+ * insights, its account, and the worktree's PR and diff). On one line (`slim`): what it's about,
+ * then its worktree and PR at the line's end.
  */
-function AgentRowView({ lane, session: s, domId, now, age, selected, onSelect, onOpen, pinned, onContextMenu, onPrMenu, onPrOpen, pinIndex, onPointerDown, extraClass, todos, onShowTodo }: AgentRowProps) {
+function AgentRowView({ lane, session: s, domId, now, age, slim = false, selected, onSelect, onOpen, pinned, onContextMenu, onPrMenu, onPrOpen, pinIndex, onPointerDown, extraClass, todos, onShowTodo }: AgentRowProps) {
   const started = age === 'started';
+  const pr = lane.pr && <PrChip pr={lane.pr} compact onMenu={onPrMenu} onOpen={onPrOpen} inRow />;
   return (
     <div
       id={domId}
       role="option"
       aria-selected={selected}
-      className={['ca-lane', 'is-agent', `is-${s.status === 'error' ? 'needs' : s.status}`, s.snoozedUntil != null && 'is-snoozed', selected && 'is-selected', pinned && 'is-pinned', away(lane) && 'is-away', extraClass]
+      className={['ca-lane', 'is-agent', slim && 'is-slim', `is-${s.status === 'error' ? 'needs' : s.status}`, s.snoozedUntil != null && 'is-snoozed', selected && 'is-selected', pinned && 'is-pinned', away(lane) && 'is-away', extraClass]
         .filter(Boolean)
         .join(' ')}
       data-pin-index={pinIndex}
       onPointerDown={onPointerDown}
-      onMouseDown={onSelect}
+      onMouseDown={(e) => selects(e) && onSelect()}
       onDoubleClick={onOpen}
       onContextMenu={menu(onContextMenu)}
     >
@@ -531,27 +517,42 @@ function AgentRowView({ lane, session: s, domId, now, age, selected, onSelect, o
           <Icon name="grip-vertical" size={10} />
         </span>
       )}
-      <div className="ca-seg ca-seg-glyph">
+      {/* One line leaves the account out: the status says it when pointed at. */}
+      <div className="ca-seg ca-seg-glyph" title={slim ? `${STATUS_WORD[s.status]} · ${s.account}` : undefined}>
         <StatusGlyph status={s.status} />
       </div>
-      <div className="ca-seg ca-seg-main">
-        <div className="ca-agentrow-line1">
-          <HarnessChip session={s} withStatus={false} onOpen={onOpen} inRow />
-          <SessionText s={s} now={now} />
+      {slim ? (
+        <div className="ca-seg ca-seg-main">
+          <div className="ca-agentrow-line1">
+            <SessionText s={s} now={now} />
+            <span className="ca-chips ca-agentline-tags">
+              <SnoozeChip session={s} now={now} />
+              <InsightChips session={s} />
+              <WorktreeChip lane={lane} short />
+            </span>
+            {pr}
+          </div>
         </div>
-        <div className="ca-lane-line2">
-          <span className="ca-lane-agents">
-            <WorktreeChip lane={lane} />
-            <SnoozeChip session={s} now={now} />
-            <TodoChips todos={todos} onShow={onShowTodo} inRow />
-            <InsightChips session={s} />
-          </span>
-          <span className="ca-lane-right">
-            {lane.pr && <PrChip pr={lane.pr} compact onMenu={onPrMenu} onOpen={onPrOpen} inRow />}
-            <Diff git={lane.git} />
-          </span>
+      ) : (
+        <div className="ca-seg ca-seg-main">
+          <div className="ca-agentrow-line1">
+            <SessionText s={s} now={now} />
+          </div>
+          <div className="ca-lane-line2">
+            <span className="ca-chips ca-lane-lead ca-agentrow-chips">
+              <WorktreeChip lane={lane} />
+              <SnoozeChip session={s} now={now} />
+              <TodoChips todos={todos} onShow={onShowTodo} inRow />
+              <InsightChips session={s} />
+              <HarnessChip session={s} withStatus={false} onOpen={onOpen} inRow />
+            </span>
+            <span className="ca-lane-right">
+              {pr}
+              <Diff git={lane.git} />
+            </span>
+          </div>
         </div>
-      </div>
+      )}
       <div
         className="ca-seg ca-seg-age"
         title={

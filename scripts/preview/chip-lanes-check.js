@@ -1,0 +1,155 @@
+// Checks the lanes of chips on the lists' rows (LaneRow.tsx, PrsView.tsx, TodoView.tsx, and
+// .ca-chips in app.css): every chip is one height and shape, and none is cut off, each showing
+// whole or not at all. In Sessions it also checks that a session's account is on the second
+// line, not the first; that Rows in the sidebar puts each session on one line and remembers it;
+// and in every list that a right-click (or ⌃-click) opens a row's menu without selecting it.
+//   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/chip-lanes-check.js
+//   PREVIEW_WAIT=60000 scripts/preview.sh <worktrees|prs|todo> '' scripts/preview/chip-lanes-check.js
+// PREVIEW_SIZE=1290,800 checks a narrow list, where the lanes are shortest. Every step should
+// say ok.
+(function () {
+  var out = [];
+  var say = function (t) { window.__t = t; };
+  setInterval(function () { if (window.__t) document.title = window.__t; }, 100);
+  var wait = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
+  var until = function (f, ms) {
+    var s = Date.now();
+    return new Promise(function (res, rej) {
+      (function p() { if (f()) return res(); if (Date.now() - s > ms) return rej(new Error('timeout')); setTimeout(p, 20); })();
+    });
+  };
+  var check = function (name, ok, why) { out.push(name + (ok ? ' ok' : ' FAIL') + (why ? ' (' + why + ')' : '')); };
+  var all = function (sel, root) { return Array.prototype.slice.call((root || document).querySelectorAll(sel)); };
+  var CHIPS = '.ca-chip, .ca-pr, .ca-tag, .ca-pill, .ca-labelchip';
+  var shown = function (el) { var r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+
+  // A lane's pieces: on its line and inside it, or wrapped onto the line that's cut off.
+  var lanes = function () {
+    var cut = [];
+    var seen = 0;
+    all('.ca-chips, .ca-prrow-fit').filter(shown).forEach(function (lane) {
+      var box = lane.getBoundingClientRect();
+      // The lane's padding is room for a focus ring, not for chips.
+      var right = box.right - 4;
+      var top = box.top + 4;
+      Array.prototype.forEach.call(lane.children, function (c) {
+        var r = c.getBoundingClientRect();
+        if (r.width === 0) return;
+        seen++;
+        var onLine = r.top < top + 10;
+        if (onLine && r.right > right + 0.5) cut.push((c.textContent || c.className).slice(0, 24) + ' +' + Math.round(r.right - right));
+        if (!onLine && r.top < box.bottom) cut.push((c.textContent || c.className).slice(0, 24) + ' peeks');
+      });
+    });
+    return { seen: seen, cut: cut };
+  };
+  // A chip that shortens does it inside itself: nothing of it spills past its own edge.
+  var spills = function () {
+    return all('.ca-wtchip, .ca-todochip').filter(shown).filter(function (c) {
+      return getComputedStyle(c).overflow === 'visible' && c.scrollWidth > c.clientWidth + 1;
+    }).map(function (c) { return c.textContent.slice(0, 20); });
+  };
+  var shapes = function () {
+    var odd = [];
+    all('[role="option"], .ca-lane').forEach(function (row) {
+      all(CHIPS, row).filter(shown).forEach(function (c) {
+        var s = getComputedStyle(c);
+        var h = Math.round(c.getBoundingClientRect().height);
+        if (h !== 20 || parseFloat(s.borderTopLeftRadius) < 10 || s.fontSize !== '11px') odd.push((c.textContent || '').slice(0, 16) + ' ' + h + 'px/' + s.borderTopLeftRadius + '/' + s.fontSize);
+      });
+    });
+    return odd;
+  };
+  var report = function (name) {
+    var l = lanes();
+    check(name + ': no chip is cut off', l.seen > 0 && l.cut.length === 0, l.seen + ' chips' + (l.cut.length ? ', ' + l.cut.slice(0, 4).join(' | ') : ''));
+    var sp = spills();
+    check(name + ': a long name shortens inside its chip', sp.length === 0, sp.slice(0, 4).join(' | '));
+    var odd = shapes();
+    check(name + ': every chip is one height, shape and text size', odd.length === 0, odd.slice(0, 4).join(' | '));
+  };
+
+  var fire = function (el, type, init) { el.dispatchEvent(new MouseEvent(type, Object.assign({ bubbles: true, cancelable: true }, init))); };
+  var isSelected = function (row) { return row.classList.contains('is-selected') || row.getAttribute('aria-selected') === 'true'; };
+  var selectedId = function () { var s = all('[role="option"]').filter(isSelected)[0]; return s ? s.id : ''; };
+  var menus = function () { return window.__calls.filter(function (c) { return c[0] === 'plugin:menu|new'; }).length; };
+  // A right-click, then a ⌃-click, on a row that isn't selected: its menu, and no selection.
+  var rightClicks = function () {
+    var row = all('[role="option"]').filter(function (r) { return shown(r) && !isSelected(r); })[0];
+    if (!row) {
+      out.push('right-click: no row to try, skipped');
+      return;
+    }
+    var before = selectedId();
+    var n = menus();
+    fire(row, 'mousedown', { button: 2 });
+    fire(row, 'contextmenu', { button: 2 });
+    return wait(300).then(function () {
+      check('a right-click opens the row’s menu', menus() === n + 1);
+      var kept = !isSelected(row) && selectedId() === before;
+      check('and leaves the selection alone', kept, kept ? '' : selectedId() + ' was ' + before);
+      n = menus();
+      fire(row, 'mousedown', { button: 0, ctrlKey: true });
+      fire(row, 'contextmenu', { button: 0, ctrlKey: true });
+      return wait(300);
+    }).then(function () {
+      check('a ⌃-click does the same', menus() === n + 1 && !isSelected(row) && selectedId() === before);
+      check('no ring is left on the row once its menu closes', !document.querySelector('[data-menu]'));
+      fire(row, 'mousedown', { button: 0 });
+      return wait(300);
+    }).then(function () {
+      check('a click still selects it', isSelected(row));
+    });
+  };
+
+  var rowsButton = function (label) { return all('.ca-side-rows button').filter(function (b) { return b.textContent === label; })[0]; };
+  var sessionRows = function () { return all('.ca-sessionlist .ca-lane.is-agent').filter(shown); };
+  var sessions = function () {
+    var rows = sessionRows();
+    var account = function (row) { return all('.ca-chip', row).filter(function (c) { return /Double-click to open in/.test(c.title); })[0]; };
+    check('a session’s first line has no chip but what it waits on you for', rows.every(function (r) { return all('.ca-agentrow-line1 .ca-chip', r).every(function (c) { return c.classList.contains('ca-insight'); }); }));
+    check('its account is on the second line, after its worktree', rows.every(function (r) {
+      var a = account(r);
+      var lane = r.querySelector('.ca-agentrow-chips');
+      return a && lane && a.parentElement === lane && lane.firstElementChild.classList.contains('ca-wtchip') && lane.lastElementChild === a;
+    }));
+    check('Rows starts on two lines', rowsButton('Two lines') && rowsButton('Two lines').classList.contains('is-on'));
+    var tall = rows[0].getBoundingClientRect().height;
+    rowsButton('One line').click();
+    return until(function () { return sessionRows().length > 0 && sessionRows().every(function (r) { return r.classList.contains('is-slim'); }); }, 3000)
+      .then(function () { return wait(200); })
+      .then(function () {
+        var slim = sessionRows();
+        var heights = slim.map(function (r) { return Math.round(r.getBoundingClientRect().height); });
+        // A row's hairline is part of its height.
+        check('One line: each session is one line high', heights.every(function (h) { return h <= 34; }) && tall > 50, 'from ' + Math.round(tall) + ' to ' + Math.max.apply(null, heights));
+        check('and it’s remembered', localStorage.getItem('codealong.sessionRows') === 'one');
+        check('with no account chip, and its account on its status', slim.every(function (r) { return !account(r) && /·/.test(r.querySelector('.ca-seg-glyph').title); }));
+        // A chip that wrapped away is still in the page, below its lane's one line.
+        var onLine = function (r) {
+          var lane = r.querySelector('.ca-agentline-tags');
+          return !!lane && all('.ca-chip', lane).some(function (c) { return c.getBoundingClientRect().top < lane.getBoundingClientRect().top + 14; });
+        };
+        var titles = slim.filter(function (r) { var t = r.querySelector('.ca-agentline-title'); return t.scrollWidth > t.clientWidth + 1 && onLine(r); });
+        check('a title gives way only after the chips have', titles.length === 0, titles.length + ' rows');
+        report('one line');
+        return rightClicks();
+      })
+      .then(function () {
+        rowsButton('Two lines').click();
+        return until(function () { return localStorage.getItem('codealong.sessionRows') === 'two'; }, 3000);
+      });
+  };
+
+  say('chip lanes check: waiting for the list');
+  until(function () { return document.querySelector('[role="option"]'); }, 20000)
+    .then(function () { return wait(800); })
+    .then(function () {
+      var label = document.querySelector('[role="listbox"]').getAttribute('aria-label');
+      report(label);
+      check('Rows shows only in Sessions', !!document.querySelector('.ca-side-rows') === (label === 'Sessions'));
+      return label === 'Sessions' ? sessions() : rightClicks();
+    })
+    .catch(function (e) { check('ran', false, String(e)); })
+    .then(function () { say('done: ' + out.join('; ')); });
+})();

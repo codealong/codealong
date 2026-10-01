@@ -1,5 +1,5 @@
 // The sidebar: what the window shows and what narrows it. The view, the devices, how recently
-// things were active, how Sessions is sorted, their statuses and views you saved, above
+// things were active, how Sessions is sorted and drawn, their statuses and views you saved, above
 // Settings. Devices and statuses toggle, any number of each: none picked shows all. Collapsed
 // it's a rail of the views and devices, whose filter button carries a badge while a filter
 // narrows the view. The project stays in the switcher at top left.
@@ -71,6 +71,10 @@ interface SidebarProps {
   sorts: SideSort[] | null;
   sort: string;
   onSort: (id: string) => void;
+  /** How the view's rows can be drawn (Sessions: on two lines or one); null where there's one way. */
+  rowStyles: SideSort[] | null;
+  rowStyle: string;
+  onRowStyle: (id: string) => void;
   statuses: SideStatus[];
   filter: readonly Filter[];
   /** Picks a status, or unpicks it. */
@@ -175,6 +179,18 @@ function Open(p: SidebarProps) {
             <div className="ca-segctl ca-side-sorts" role="radiogroup" aria-label="Sort by">
               {p.sorts.map((o) => (
                 <button key={o.id} type="button" role="radio" aria-checked={p.sort === o.id} className={p.sort === o.id ? 'is-on' : undefined} title={o.title} onClick={() => p.onSort(o.id)}>
+                  {o.label}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+        {p.rowStyles && (
+          <>
+            <div className="ca-label ca-side-label">Rows</div>
+            <div className="ca-segctl ca-side-sorts ca-side-rows" role="radiogroup" aria-label="Rows">
+              {p.rowStyles.map((o) => (
+                <button key={o.id} type="button" role="radio" aria-checked={p.rowStyle === o.id} className={p.rowStyle === o.id ? 'is-on' : undefined} title={o.title} onClick={() => p.onRowStyle(o.id)}>
                   {o.label}
                 </button>
               ))}

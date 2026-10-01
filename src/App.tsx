@@ -46,7 +46,7 @@ import { PrInspector } from './ui/PrInspector';
 import { usePrLinks } from './ui/PrLink';
 import { prIsOpen, prPlaces, prSections, PrsView, type PrRowItem } from './ui/PrsView';
 import { Resizer, usePanelWidth } from './ui/Resizer';
-import { SESSION_SORTS, SessionsView, sortSessions, waitingQueue, type SessionItem, type SessionSort } from './ui/SessionsView';
+import { SESSION_ROWS, SESSION_SORTS, SessionsView, sortSessions, waitingQueue, type SessionItem, type SessionRows, type SessionSort } from './ui/SessionsView';
 import { TodoPanel, TodoPickPanel } from './ui/TodoPanel';
 import { TodoComposer, TodoView, type ComposerContext, type SelectHow } from './ui/TodoView';
 import { CanvasView } from './ui/CanvasView';
@@ -94,6 +94,7 @@ const VIEW_KEY = 'codealong.view';
 const AGE_KEY = 'codealong.age';
 const GROUP_KEY = 'codealong.byDevice';
 const SESSION_SORT_KEY = 'codealong.sessionSort';
+const SESSION_ROWS_KEY = 'codealong.sessionRows';
 const SIDEBAR_WIDTH_KEY = 'codealong.sidebarWidth';
 const SIDEBAR_COLLAPSED_KEY = 'codealong.sidebarCollapsed';
 const INSPECTOR_WIDTH_KEY = 'codealong.inspectorWidth';
@@ -234,6 +235,15 @@ function storedSessionSort(): SessionSort {
     return SESSION_SORTS.some((o) => o.id === v) ? (v as SessionSort) : 'status';
   } catch {
     return 'status';
+  }
+}
+
+function storedSessionRows(): SessionRows {
+  try {
+    const v = window.localStorage.getItem(SESSION_ROWS_KEY);
+    return SESSION_ROWS.some((o) => o.id === v) ? (v as SessionRows) : 'two';
+  } catch {
+    return 'two';
   }
 }
 
@@ -538,6 +548,16 @@ export function App() {
       window.localStorage.setItem(SESSION_SORT_KEY, sort);
     } catch {
       // Storage can be unavailable; the order just won't persist.
+    }
+  }, []);
+  // How much each session's row says: two lines, or one.
+  const [sessionLines, setSessionLinesState] = useState<SessionRows>(storedSessionRows);
+  const setSessionLines = useCallback((rows: SessionRows) => {
+    setSessionLinesState(rows);
+    try {
+      window.localStorage.setItem(SESSION_ROWS_KEY, rows);
+    } catch {
+      // Storage can be unavailable; the rows just won't stay that way.
     }
   }, []);
 
@@ -2332,6 +2352,9 @@ export function App() {
           sorts={view === 'sessions' ? SESSION_SORTS : null}
           sort={sessionSort}
           onSort={(id) => setSessionSort(id as SessionSort)}
+          rowStyles={view === 'sessions' ? SESSION_ROWS : null}
+          rowStyle={sessionLines}
+          onRowStyle={(id) => setSessionLines(id as SessionRows)}
           statuses={sideStatuses}
           filter={bayFilter}
           onFilter={toggleBay}
@@ -2483,12 +2506,12 @@ export function App() {
                   openRow(r);
                 }}
                 onContextMenu={(r) => {
-                  // On one of the todos picked, the menu is for all of them.
+                  // On one of the todos picked, the menu is for all of them; on another, for that
+                  // one, and the selection stays where it was.
                   if (pickedKeys.has(r.key)) {
                     pickMenu(pickedRows);
                     return;
                   }
-                  selectTodoRow(r, 'one');
                   todoMenu(r);
                 }}
                 onOpenSession={(lane, session) => open(lane, session.openTarget)}
@@ -2544,12 +2567,13 @@ export function App() {
                 pinned={pinnedRows}
                 rows={sessionList}
                 sort={sessionSort}
+                lines={sessionLines}
                 now={now}
                 selectedKey={selected?.key ?? null}
                 domId={domId}
-                onSelect={(r, e) => {
+                onSelect={(r) => {
                   setSelectedKey(r.key);
-                  if (e.button === 0) focusBox();
+                  focusBox();
                 }}
                 onOpen={(r) => {
                   setSelectedKey(r.key);

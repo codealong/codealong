@@ -298,6 +298,16 @@ some work is, answer with one.
 - A session's, worktree's, PR's or todo's right-click menu is defined once, in `src/menus.ts`,
   and every window (main, bar, peek, quick panel, desktop cards) builds it from there, saying
   what it can do. A new item goes there, not into one window's menu.
+- Chips are one shape and size wherever they show (`--chip-radius`, 20 high, 11px text; the
+  Chips section of app.css says what each fill means), and one component a kind of thing in
+  `ui/primitives.tsx`: `HarnessChip` an agent, `WorktreeChip` a worktree, `PrChip` a PR
+  (`TodoChip` and `LabelChip` in `TodoBits.tsx`). A row's chips go in a `.ca-chips` lane, which
+  never cuts one off: each shows whole or wraps out of sight, the last first, and a long name
+  shortens inside its chip. `scripts/preview/chip-lanes-check.js` checks every list for it. A
+  session's account is said last, never before its title (asked 2026-10-01).
+- A right-click (or ⌃-click) on a list's row opens its menu and doesn't select it
+  (`primitives.tsx`'s `selects`); contextMenu.ts rings the row while the menu is up. A menu is
+  built from the row it's for, never from the selection.
 - Styles: tokens in `design/tokens.json` (`npm run tokens`), colors only through CSS
   variables. Dark values apply under `prefers-color-scheme` unless `data-theme` on the root
   says otherwise; it comes from `theme` in config.toml, which also sets the app's native

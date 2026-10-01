@@ -11,7 +11,7 @@ import { forwardRef, type ReactNode } from 'react';
 import { absolute, ago, middleTruncate } from '../format';
 import { attachmentsIn, blockedBy, SECTION_WORD, snippet, todoPr, type TodoItem, type TodoSection, type TodoSectionId } from '../todos';
 import type { Label, Lane, Session, Todo, TodoHint, TodoStatus } from '../types';
-import { HarnessChip, Icon, Kbd, PrChip } from './primitives';
+import { HarnessChip, Icon, Kbd, PrChip, selects, WorktreeChip } from './primitives';
 import { DueChip, LabelChip, TodoGlyph } from './TodoBits';
 import { useRowDrag, type DragProps } from './useRowDrag';
 
@@ -120,9 +120,9 @@ function TodoRow({ item, section, domId, now, selected, showProject, onSelect, o
       data-pin-index={drag?.pinIndex}
       onPointerDown={drag?.onPointerDown}
       onMouseDown={(e) => {
-        // A right-click (or ⌃-click) leaves the selection to the menu: on a picked row, the menu
-        // is for all of them.
-        if (e.button !== 0 || e.ctrlKey) return;
+        // A right-click (or ⌃-click) leaves the selection alone: on a picked row, the menu is for
+        // all of them.
+        if (!selects(e)) return;
         onSelect(e.metaKey ? 'toggle' : e.shiftKey ? 'range' : 'one');
       }}
       onDoubleClick={(e) => {
@@ -147,7 +147,7 @@ function TodoRow({ item, section, domId, now, selected, showProject, onSelect, o
           {detail && <span className="ca-lane-detail">{detail}</span>}
         </div>
         <div className="ca-lane-line2">
-          <span className="ca-lane-agents">
+          <span className="ca-chips ca-lane-lead">
             {showProject && todo.project && <span className="ca-tag">{todo.project}</span>}
             <DueChip todo={todo} now={now} />
             {item.labels.map((l) => (
@@ -180,7 +180,11 @@ function TodoRow({ item, section, domId, now, selected, showProject, onSelect, o
             {sessions.map(({ lane, session }) => (
               <HarnessChip key={session.key} session={session} onOpen={() => onOpenSession(lane, session)} />
             ))}
-            {more > 0 && <span className="ca-chip ca-chip--more">+{more}</span>}
+            {more > 0 && (
+              <span className="ca-chip ca-chip--more" title={item.sessions.slice(CHIPS_SHOWN).map(({ session }) => `${session.account} · ${session.title}`).join('\n')}>
+                +{more}
+              </span>
+            )}
             {waiting && (
               <span className="ca-chip ca-todorow-waiting" title="Started in an app. The session is linked when it shows up.">
                 <Icon name="clock" size={12} />
@@ -190,12 +194,13 @@ function TodoRow({ item, section, domId, now, selected, showProject, onSelect, o
           </span>
           <span className="ca-lane-right">
             {lanes.slice(0, 2).map((l) => (
-              <span key={l.id} className="ca-todorow-lane" title={l.path}>
-                <Icon name="branch" size={12} />
-                {middleTruncate(l.callsign, 24)}
-              </span>
+              <WorktreeChip key={l.id} lane={l} short />
             ))}
-            {lanes.length > 2 && <span className="ca-chip ca-chip--more">+{lanes.length - 2}</span>}
+            {lanes.length > 2 && (
+              <span className="ca-chip ca-chip--more" title={lanes.slice(2).map((l) => l.callsign).join('\n')}>
+                +{lanes.length - 2}
+              </span>
+            )}
             {pr && <PrChip pr={pr} compact />}
           </span>
         </div>

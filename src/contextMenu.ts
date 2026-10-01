@@ -34,6 +34,25 @@ export type MenuSpec = (MenuAction | MenuGroup | 'separator')[];
 
 type Items = NonNullable<MenuOptions['items']>;
 
+// A right-click doesn't select a list's row, so the row a menu is for is ringed while the menu
+// is up, as the Finder rings a file (`[data-menu]` in app.css). The row is the one the click
+// that asked for the menu landed on: a session's line on its worktree's row, else the row.
+// It's marked with an attribute, which React leaves alone when the row renders again.
+let pressed: Element | null = null;
+if (typeof document !== 'undefined') {
+  document.addEventListener(
+    'contextmenu',
+    (e) => {
+      pressed = e.target instanceof Element ? e.target.closest('[role="option"], .ca-lane') : null;
+      // Only for a menu asked for while this click is handled, not one a key or a button opens later.
+      setTimeout(() => {
+        pressed = null;
+      }, 0);
+    },
+    true,
+  );
+}
+
 function options(items: MenuSpec, path: string): Items {
   return items.map((it, i) => {
     const id = `${path}-${i}`;
@@ -49,13 +68,19 @@ function options(items: MenuSpec, path: string): Items {
 /** Shows a native menu at the pointer, or at `at` (window coordinates) to drop it from a button. */
 export async function showContextMenu(items: MenuSpec, at?: { x: number; y: number }): Promise<void> {
   if (!inTauri || items.length === 0) return;
-  const menu = await Menu.new({ items: options(items, 'ctx') });
+  const row = at ? null : pressed;
+  row?.setAttribute('data-menu', '');
   try {
-    // Not menu.popup(): Tauri's keeps a lock the next right-click's Menu.new needs while the
-    // menu is open, which hung the app (popup_menu in lib.rs).
-    await popupMenu(menu.rid, at);
+    const menu = await Menu.new({ items: options(items, 'ctx') });
+    try {
+      // Not menu.popup(): Tauri's keeps a lock the next right-click's Menu.new needs while the
+      // menu is open, which hung the app (popup_menu in lib.rs).
+      await popupMenu(menu.rid, at);
+    } finally {
+      await menu.close();
+    }
   } finally {
-    await menu.close();
+    row?.removeAttribute('data-menu');
   }
 }
 
