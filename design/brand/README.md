@@ -19,6 +19,12 @@ floating bar, browser icon and running Dock icon use that same status. The insta
 Finder icon uses the light gray idle node. UI and browser marks use the matching light/dark tokens;
 the Dock keeps its dark tile and uses the dark palette.
 
+On the bar, floating or in the notch, the node moves and the C holds still (`src/mark.ts`,
+`src/ui/MarkLive.tsx`). Breath loops while the status is Working. The others play once: Run as
+a session shows for the first time, working; Ripple as a turn ends; Ripple twice as a session
+or a PR's review starts to need you; Send as you send a session a message from Codealong. One
+that comes while another plays is dropped unless it's more urgent.
+
 `mark.svg` is the production vector master. `chosen-reference.png` preserves the
 approved concept, #115 “Node · soft,” selected September 25, 2026. The vector
 regularizes its curves and centers the silhouette for use at icon sizes.

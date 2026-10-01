@@ -23,10 +23,12 @@ import { barAhead, barView, observe, seenAhead, snoozeAhead, useAhead } from '..
 import { ALL_PROJECTS, inProject } from '../quick';
 import { snoozeMenu, untilWords } from '../snooze';
 import type { BarFeed, BarItem, BarRecent, BarReview, BarSnoozed, BarTodo, PeekShown, Status } from '../types';
-import { Icon, Mark, STATUS_WORD, StatusGlyph } from './primitives';
+import { MarkLive } from './MarkLive';
+import { Icon, STATUS_WORD, StatusGlyph } from './primitives';
 import { applyTheme } from './ThemeSwitch';
 import { NotchShell } from './Notch';
 import { LOGO_LABEL, useLogo } from '../logo';
+import { useMarkMoment } from '../mark';
 import { useNow } from './useNow';
 import { errorText, type Report } from '../report';
 import { openWhere, openWords } from '../open';
@@ -409,6 +411,8 @@ export function Bar() {
   // The theme from config.toml, as in the board's windows.
   const theme = feed?.theme ?? 'system';
   const logoStatus = useLogo(feed?.logoStatus);
+  // What the mark plays as something happens (mark.ts).
+  const moment = useMarkMoment(feed, ahead);
   // Docked in the notch it's dark whatever the theme, as the notch is.
   const docked = notch !== null;
   useEffect(() => {
@@ -830,6 +834,7 @@ export function Bar() {
         <NotchShell
           notch={notch}
           logoStatus={logoStatus}
+          moment={moment}
           counts={{ needs: byGroup.needs.length, reviews: reviews.length, unread: byGroup.unread.length, working: byGroup.working.length }}
           room={Math.min(MAX_WIDTH, window.screen.availWidth - SCREEN_ROOM)}
           project={picking ? <ProjectButton name={current} others={others} open={projectMenuOpen} onOpen={projectMenu} /> : null}
@@ -884,7 +889,7 @@ export function Bar() {
             if (!moved) void showMain();
           }}
         >
-          <Mark size={16} status={logoStatus} />
+          <MarkLive size={16} status={logoStatus} moment={moment} />
         </button>
         {picking && <ProjectButton name={current} others={others} open={projectMenuOpen} onOpen={projectMenu} />}
         {sections.flatMap((section, i) => [<span key={`divider-${i}`} className="ca-hud-divider" aria-hidden="true" />, ...section])}

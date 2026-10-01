@@ -2956,6 +2956,262 @@ html.is-bar body {
 .ca-hud-mark:hover {
   background: var(--surface-hover);
 }
+/* ---- The bar's mark in parts (MarkLive.tsx): the C holds still and the node, which carries the
+   status color, moves. Each part that moves is an element of its own, and only its transform and
+   opacity change, which WebKit runs on the compositor. The C's center is at 54.4% 50.1% of the
+   mark's box. mark.ts says when a moment plays and for how long: its lengths are these. ---- */
+.ca-lmark {
+  --mark-node: var(--logo-idle);
+  position: relative;
+  flex: none;
+  display: inline-block;
+  vertical-align: middle;
+}
+.ca-lmark[data-status="needs"] {
+  --mark-node: var(--attn-solid);
+}
+.ca-lmark[data-status="error"] {
+  --mark-node: var(--alert-solid);
+}
+.ca-lmark[data-status="unread"] {
+  --mark-node: var(--unread-solid);
+}
+.ca-lmark[data-status="working"] {
+  --mark-node: var(--logo-working);
+}
+.ca-lmark > *,
+.ca-lmark svg,
+.ca-lmark-arc {
+  position: absolute;
+  inset: 0;
+}
+.ca-lmark svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.ca-lmark-c,
+.ca-lmark-pop,
+.ca-lmark-node {
+  transform-origin: 54.4% 50.1%;
+}
+.ca-lmark-c {
+  fill: var(--ink);
+}
+.ca-lmark-node {
+  fill: var(--mark-node);
+  transition: fill 400ms ease;
+}
+/* Breath, while agents work: the one motion that loops, so the faintest. */
+@keyframes ca-mark-breath {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.5;
+    transform: scale(0.9);
+  }
+}
+.ca-lmark[data-status="working"] .ca-lmark-node {
+  animation: ca-mark-breath 3600ms cubic-bezier(0.37, 0, 0.63, 1) infinite;
+  will-change: transform, opacity;
+}
+/* Ripple, as a turn ends: the node beats, a ring leaves it and crosses the gap, and the C swells
+   a hair as it takes it in. Knock, for what needs you, beats twice first. */
+.ca-lmark > .ca-lmark-ring {
+  inset: auto;
+  left: calc(54.26% - 13.6%);
+  top: calc(50.1% - 13.6%);
+  width: 27.2%;
+  height: 27.2%;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 calc(var(--s) * 0.03) var(--mark-node);
+  opacity: 0;
+}
+@keyframes ca-mark-pop {
+  0% {
+    transform: scale(1);
+  }
+  16% {
+    transform: scale(0.88);
+  }
+  46% {
+    transform: scale(1.2);
+  }
+  72% {
+    transform: scale(0.97);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+@keyframes ca-mark-ring {
+  0% {
+    opacity: 0;
+    transform: scale(1);
+  }
+  15% {
+    opacity: 0.9;
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.72);
+  }
+}
+@keyframes ca-mark-swell {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.055);
+  }
+}
+.ca-lmark.is-ripple .ca-lmark-pop {
+  animation: ca-mark-pop 640ms cubic-bezier(0.3, 0, 0.3, 1) both;
+}
+.ca-lmark.is-ripple .ca-lmark-ring {
+  animation: ca-mark-ring 460ms cubic-bezier(0.2, 0.6, 0.3, 1) 200ms both;
+}
+.ca-lmark.is-ripple .ca-lmark-c {
+  animation: ca-mark-swell 520ms cubic-bezier(0.3, 0, 0.2, 1) 430ms both;
+}
+.ca-lmark.is-knock .ca-lmark-pop {
+  animation: ca-mark-pop 520ms cubic-bezier(0.3, 0, 0.3, 1) 2 both;
+}
+.ca-lmark.is-knock .ca-lmark-ring {
+  animation: ca-mark-ring 460ms cubic-bezier(0.2, 0.6, 0.3, 1) 690ms both;
+}
+.ca-lmark.is-knock .ca-lmark-c {
+  animation: ca-mark-swell 520ms cubic-bezier(0.3, 0, 0.2, 1) 920ms both;
+}
+/* Run, as a session starts: the node's color comes out of the C's opening at the lower lip,
+   travels round the C and goes into the upper lip. It's a turning gradient shown through the C's
+   shape. Its tail is longer than the opening is wide, so a part of it would show on the wrong
+   lip as it sets out and as it arrives: each half of the turn is shown through a sector that
+   leaves out the lip the color isn't at (angles clockwise from the top, the opening at 90: the
+   first shows 90 to 340, the second 200 to 450), and they swap halfway, when the color is within
+   both. The turn eases alike at both ends, so half its time is half its way, and it's already
+   moving as it sets out: the color comes from behind the lip, so it needn't start from rest. */
+.ca-lmark-run {
+  display: none;
+  -webkit-mask-size: 100% 100%;
+  mask-size: 100% 100%;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+}
+.ca-lmark.is-run .ca-lmark-run {
+  display: block;
+}
+.ca-lmark-arc.is-first {
+  clip-path: polygon(54.4% 50.1%, 134.4% 50.1%, 126.9% 83.9%, 105.8% 111.4%, 75.1% 127.4%, 40.5% 128.9%, 8.5% 115.6%, -14.9% 90.1%, -25.3% 57.1%, -20.8% 22.7%, -2.2% -6.5%, 27% -25.1%);
+}
+.ca-lmark-arc.is-second {
+  clip-path: polygon(54.4% 50.1%, 27% 125.3%, -2.2% 106.7%, -20.8% 77.5%, -25.3% 43.1%, -14.9% 10.1%, 8.5% -15.4%, 40.5% -28.7%, 75.1% -27.2%, 105.8% -11.2%, 126.9% 16.3%, 134.4% 50.1%);
+  opacity: 0;
+}
+/* Larger than the mark, so its corners never show as it turns about the C's center. */
+.ca-lmark-arc i {
+  position: absolute;
+  inset: -20%;
+  background: conic-gradient(from 0deg at 53.14% 50.07%, transparent 0deg 250deg, var(--mark-node) 338deg 352deg, transparent 360deg);
+  transform-origin: 53.14% 50.07%;
+  transform: rotate(110deg);
+}
+@keyframes ca-mark-run {
+  from {
+    transform: rotate(110deg);
+  }
+  to {
+    transform: rotate(540deg);
+  }
+}
+@keyframes ca-mark-run-first {
+  0% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+@keyframes ca-mark-run-second {
+  0% {
+    opacity: 0;
+  }
+  50%,
+  100% {
+    opacity: 1;
+  }
+}
+.ca-lmark.is-run .ca-lmark-arc i {
+  animation: ca-mark-run 1500ms cubic-bezier(0.3, 0.15, 0.7, 0.85) both;
+}
+.ca-lmark.is-run .ca-lmark-arc.is-first {
+  animation: ca-mark-run-first 1500ms step-end both;
+}
+.ca-lmark.is-run .ca-lmark-arc.is-second {
+  animation: ca-mark-run-second 1500ms step-end both;
+}
+/* Send, as you send a session something: the node pulls back and lets go, and a dot as wide as
+   the stem leaves through the C's opening. */
+.ca-lmark > .ca-lmark-dot {
+  inset: auto;
+  left: calc(77.3% - 3.6%);
+  top: calc(50.1% - 3.6%);
+  width: 7.2%;
+  height: 7.2%;
+  border-radius: 50%;
+  background: var(--mark-node);
+  opacity: 0;
+}
+@keyframes ca-mark-recoil {
+  0% {
+    transform: translateX(0);
+  }
+  22% {
+    transform: translateX(-3.5%);
+  }
+  55% {
+    transform: translateX(1.5%);
+  }
+  100% {
+    transform: translateX(0);
+  }
+}
+@keyframes ca-mark-dot {
+  0% {
+    opacity: 0;
+    transform: translateX(0) scale(1);
+  }
+  12% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(calc(var(--s) * 0.42)) scale(0.6);
+  }
+}
+.ca-lmark.is-send .ca-lmark-pop {
+  animation: ca-mark-recoil 520ms cubic-bezier(0.3, 0, 0.3, 1) both;
+}
+.ca-lmark.is-send .ca-lmark-dot {
+  animation: ca-mark-dot 620ms cubic-bezier(0.2, 0.7, 0.3, 1) 110ms both;
+}
+/* With Reduce Motion on, the node changes color and nothing moves. */
+@media (prefers-reduced-motion: reduce) {
+  .ca-lmark *,
+  .ca-lmark[data-status="working"] .ca-lmark-node {
+    animation: none !important;
+    will-change: auto;
+  }
+  .ca-lmark.is-run .ca-lmark-run {
+    display: none;
+  }
+}
 /* The project the bar shows, beside the mark; its menu is a native one. */
 .ca-hud-project {
   appearance: none;

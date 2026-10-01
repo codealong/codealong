@@ -476,7 +476,10 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   pushing an old one down; Your turn is the newest first. Pills that
   don't fit fold into one per group that lists them, and a session picked from that list, or
   from the recent pill's, shows in Codealong's window. The mark brings Codealong forward; drag
-  the bar by it or by its gaps. **In the notch**, the bar docks at the top of the screen instead:
+  the bar by it or by its gaps. Its node, the part that carries the status color, moves as things
+  happen: it breathes while agents work, beats as a turn ends (twice as something starts to need
+  you), sends its color once round the C as a new session starts working, and lets a dot go as
+  you send a session a message from Codealong. With Reduce Motion on it only changes color. **In the notch**, the bar docks at the top of the screen instead:
   one black shape with the notch, dark whatever the theme, showing the mark on the camera's
   left and, on its right, the most urgent thing and how many (Needs you, then PRs that wait on
   your review, then Your turn, then Working; a new one that needs you pulses). Rest the pointer on it for a moment, or click it,
@@ -801,6 +804,7 @@ light scan (no git, PRs or visitors).
 | `src-tauri/src/origins.rs`, `src/lineage.ts`, `src-tauri/src/lineage.rs`, `src/ui/DesktopLines.tsx` | Where sessions came from: Codealong's own record of starts and forks (`origins.json`), the line drawn between them on the canvas and between desktop cards, and the clear window under the cards that draws it there |
 | `src/ui/card/` | The card the Canvas view and the desktop share: what it shows, looked up from the board (`data.ts`), its face (`CardFace.tsx`), and the popover a canvas card opens (`CardPopover.tsx`). The canvas and the desktop add only where a card goes and what a click does |
 | `src-tauri/src/desktop.rs`, `src/ui/DesktopPin.tsx` | Cards pinned to the desktop: a window each, made as the bar's is, where a new one goes, `desktop.json`, and what each shows, cut from the board and sent only when it changes; the page draws the card the Canvas view draws (`ui/card/`). `drag_out` follows the pointer for a thing dragged out of a window |
+| `src/mark.ts`, `src/ui/MarkLive.tsx` | The mark's motion on the bar: what happened between two feeds (a new session working, a turn ended, something needs you, a message sent), which moment plays for it, and the mark in parts that move |
 | `src/ui/useRowDrag.tsx` | Dragging rows in the lists and the quick panel: among the pinned ones (pin, reorder), down to the list (unpin), out of the window (the desktop) |
 | `src/` | The React UI, built from the design system's components and tokens; `lanes.ts` groups the board and mirrors the engine's status rules for the age filter; `pins.ts` keeps the pinned lists; `ahead.ts` shows sessions marked seen, archived, renamed or sent a message at once, in every window, until a board shows it; `prStatus.ts` and `ui/PrPills.tsx` say where a PR stands and which PRs are your move; `bar.ts`, `ui/Bar.tsx` and `ui/Notch.tsx` lay out the bar, floating or in the notch; `ui/Picker.tsx` is the quick panel's filterable menus; `ui/SettingsDialog.tsx` and `ui/AccountsSection.tsx` are Settings |
 | `scripts/preview.sh` | Headless preview against real data, for screenshots and scripted checks |

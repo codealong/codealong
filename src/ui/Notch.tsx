@@ -14,8 +14,10 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { fitBar, notchShape, onNotchPointer, type Notch } from '../api';
 import { NOTCH, NOTCH_ORDER, notchClip, notchSizes, type Group, type NotchKind, type NotchState, type Size } from '../bar';
+import type { Moment } from '../mark';
 import type { LogoStatus, Status } from '../types';
-import { Icon, Mark, StatusGlyph } from './primitives';
+import { MarkLive } from './MarkLive';
+import { Icon, StatusGlyph } from './primitives';
 
 /** How long the pointer rests on the closed notch before it opens, and is off it before it
  *  closes. */
@@ -28,6 +30,8 @@ const WORD: Record<Group, string> = { needs: 'need you', unread: 'your turn', wo
 export interface NotchShellProps {
   notch: Notch;
   logoStatus: LogoStatus;
+  /** What the mark plays as something happens (mark.ts). */
+  moment: Moment | null;
   /** How many sessions are in each of the bar's groups, and how many open PRs wait on your
    *  review. */
   counts: Record<NotchKind, number>;
@@ -46,7 +50,7 @@ export interface NotchShellProps {
   children: ReactNode;
 }
 
-export function NotchShell({ notch, logoStatus, counts, room, project, held, keepOpen, onKeepOpen, onMark, onMenu, children }: NotchShellProps) {
+export function NotchShell({ notch, logoStatus, moment, counts, room, project, held, keepOpen, onKeepOpen, onMark, onMenu, children }: NotchShellProps) {
   const [open, setOpen] = useState(keepOpen);
   // The pointer is on the shape.
   const [on, setOn] = useState(false);
@@ -185,7 +189,7 @@ export function NotchShell({ notch, logoStatus, counts, room, project, held, kee
           <div className="ca-notch-side is-left">
             <div ref={left} className="ca-notch-side-in">
               <button type="button" className="ca-hud-mark" title="Show Codealong" tabIndex={open ? 0 : -1} onClick={(e) => (open ? onMark() : e.preventDefault())}>
-                <Mark size={16} status={logoStatus} />
+                <MarkLive size={16} status={logoStatus} moment={moment} />
               </button>
               {project && <span className="ca-notch-extra">{project}</span>}
             </div>
