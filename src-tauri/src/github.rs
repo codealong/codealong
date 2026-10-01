@@ -171,7 +171,20 @@ pub fn failed_for_test(message: &str) -> String {
     failed(anyhow!("{message}"), "PRs").to_string()
 }
 
-const RATE_LIMITED: &str = "GitHub: your account's rate limit is used up, so PRs wait until it resets";
+/// A failure (as `failed` words it) in a few words, for a notice's title.
+pub fn title(warning: &str) -> &'static str {
+    if rate_limited(warning) {
+        "GitHub rate limit reached"
+    } else if warning.contains("install the gh CLI") {
+        "GitHub CLI isn't installed"
+    } else if warning.contains("sign in again") {
+        "Signed out of GitHub"
+    } else {
+        "GitHub didn't answer"
+    }
+}
+
+const RATE_LIMITED: &str = "GitHub: your account's rate limit is used up, so PRs wait until it resets. `gh` and your agents draw on the same limit.";
 
 /// Whether a failure (as `failed` words it) is GitHub saying the account has no requests left.
 pub fn rate_limited(warning: &str) -> bool {
@@ -373,6 +386,20 @@ pub struct Stamp {
     pub at: i64,
 }
 
+/// Why GitHub gave no glance, as the board says it; and when the hour ends, when it's for want
+/// of points and GitHub said (`rate_limited`).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Failure {
+    pub text: String,
+    pub resets: Option<i64>,
+}
+
+impl From<anyhow::Error> for Failure {
+    fn from(e: anyhow::Error) -> Failure {
+        Failure { text: e.to_string(), resets: None }
+    }
+}
+
 /// What a glance saw.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Glance {
@@ -385,9 +412,10 @@ pub struct Glance {
     pub points: Option<Points>,
 }
 
-/// GraphQL points left in an hour of the account's, and when that hour ends. GitHub counts on
-/// more than one counter, each with an hour of its own: one query in ten was answered from a
-/// second one that had hardly been used (2026-10-01).
+/// GraphQL points left in an hour of the account's, and when that hour ends, as an answer's
+/// `X-RateLimit-*` headers say, a refusal's too. GitHub counts on more than one counter, each
+/// with an hour of its own: one query in ten was answered from a second one that had hardly been
+/// used (2026-10-01).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Points {
     pub left: u64,
@@ -410,17 +438,18 @@ fn glance_query(repos: usize) -> String {
     // GitHub refuses a query with a fragment it doesn't use.
     let fragment = if repos > 0 { GLANCE_FIELDS } else { "" };
     format!(
-        "query($requested: String!{vars}) {{\n  viewer {{ login }}\n  rateLimit {{ remaining resetAt }}\n{fields}  search(query: $requested, type: ISSUE, first: 50) {{ nodes {{ ... on PullRequest {{ number updatedAt repository {{ nameWithOwner }} }} }} }}\n}}\n{fragment}"
+        "query($requested: String!{vars}) {{\n  viewer {{ login }}\n{fields}  search(query: $requested, type: ISSUE, first: 50) {{ nodes {{ ... on PullRequest {{ number updatedAt repository {{ nameWithOwner }} }} }} }}\n}}\n{fragment}"
     )
 }
 
 /// A glance at every repo, `GLANCE_REPOS` to a query, asked at once. It fails only when no
 /// query was answered.
-pub fn glance(slugs: &[String]) -> Result<Glance> {
+pub fn glance(slugs: &[String]) -> std::result::Result<Glance, Failure> {
     let groups: Vec<&[String]> = if slugs.is_empty() { vec![slugs] } else { slugs.chunks(GLANCE_REPOS).collect() };
-    let answers: Vec<Result<Glance>> = std::thread::scope(|scope| {
+    let unanswered = || Failure { text: "GitHub: couldn't load PRs".into(), resets: None };
+    let answers: Vec<std::result::Result<Glance, Failure>> = std::thread::scope(|scope| {
         let asked: Vec<_> = groups.iter().map(|group| scope.spawn(move || glance_some(group))).collect();
-        asked.into_iter().map(|a| a.join().unwrap_or_else(|_| Err(anyhow!("GitHub: couldn't load PRs")))).collect()
+        asked.into_iter().map(|a| a.join().unwrap_or_else(|_| Err(unanswered()))).collect()
     });
     let mut seen: Option<Glance> = None;
     let mut failure = None;
@@ -434,25 +463,51 @@ pub fn glance(slugs: &[String]) -> Result<Glance> {
             (Err(e), _) => failure = failure.or(Some(e)),
         }
     }
-    seen.ok_or_else(|| failure.unwrap_or_else(|| anyhow!("GitHub: couldn't load PRs")))
+    seen.ok_or_else(|| failure.unwrap_or_else(unanswered))
 }
 
-fn glance_some(slugs: &[String]) -> Result<Glance> {
+fn glance_some(slugs: &[String]) -> std::result::Result<Glance, Failure> {
     let mut fields = vec![format!("query={}", glance_query(slugs.len())), format!("requested={REQUESTED_SEARCH}")];
     for (i, slug) in slugs.iter().enumerate() {
         let (owner, name) = slug.split_once('/').unwrap_or((slug, ""));
         fields.push(format!("o{i}={owner}"));
         fields.push(format!("n{i}={name}"));
     }
-    let mut args = vec!["api", "graphql"];
+    // With the answer's headers, which say how many points are left and when the hour ends.
+    let mut args = vec!["api", "graphql", "-i"];
     for field in &fields {
         args.extend(["-f", field.as_str()]);
     }
     let o = procs::run_output("gh", &args, None, Duration::from_secs(30)).map_err(|e| failed(e, "PRs"))?;
+    let (points, body) = answer_parts(&o.out);
     // A repo GitHub doesn't show you fails the command, with the others answered. With nothing
     // answered, why is in what it printed: a refusal for want of points comes as an error in
     // the answer.
-    parse_glance(&o.out, slugs).map_err(|_| failed(anyhow!("gh {} {}", o.err.trim(), o.out.chars().take(400).collect::<String>()), "PRs"))
+    match parse_glance(body, slugs) {
+        Ok(seen) => Ok(Glance { points, ..seen }),
+        Err(_) => {
+            let text = failed(anyhow!("gh {} {}", o.err.trim(), body.chars().take(400).collect::<String>()), "PRs").to_string();
+            let resets = points.filter(|_| rate_limited(&text)).map(|p| p.resets);
+            Err(Failure { text, resets })
+        }
+    }
+}
+
+/// An answer printed with its headers (`gh api -i`): the points its `X-RateLimit-*` headers
+/// tell of, and its body.
+fn answer_parts(out: &str) -> (Option<Points>, &str) {
+    if !out.starts_with("HTTP/") {
+        return (None, out);
+    }
+    let (head, body) = out.split_once("\r\n\r\n").or_else(|| out.split_once("\n\n")).unwrap_or((out, ""));
+    let header = |name: &str| {
+        head.lines().find_map(|line| {
+            let (key, value) = line.split_once(':')?;
+            key.trim().eq_ignore_ascii_case(name).then(|| value.trim())
+        })
+    };
+    let points = || Some(Points { left: header("x-ratelimit-remaining")?.parse().ok()?, resets: header("x-ratelimit-reset")?.parse::<i64>().ok()? * 1000 });
+    (points(), body)
 }
 
 pub fn parse_glance(json: &str, slugs: &[String]) -> Result<Glance> {
@@ -487,7 +542,7 @@ pub fn parse_glance(json: &str, slugs: &[String]) -> Result<Glance> {
         login: login.map(String::from),
         repos,
         requested: mark(&[who, &search.to_string()]),
-        points: data.get("rateLimit").and_then(|r| Some(Points { left: r.get("remaining")?.as_u64()?, resets: parse_rfc3339_ms(r.get("resetAt")?.as_str()?)? })),
+        points: None,
     })
 }
 
@@ -528,7 +583,7 @@ pub struct Ask {
 /// What a poll brings, as it comes.
 pub enum Answer {
     /// First: the glance, or why GitHub gave none.
-    Glance(std::result::Result<Glance, String>),
+    Glance(std::result::Result<Glance, Failure>),
     /// A repo's PRs, read from GitHub or as kept, and what they were read at.
     Repo(String, std::result::Result<RepoPrs, String>, Option<Stamp>),
     Requested(std::result::Result<Requested, String>, Option<Stamp>),
@@ -542,10 +597,10 @@ pub fn poll(ask: &Ask, on: &(dyn Fn(Answer) + Sync)) {
 
 fn poll_in(dir: &Path, ask: &Ask, on: &(dyn Fn(Answer) + Sync)) {
     let now = now_ms();
-    let seen = glance(&ask.slugs).map_err(|e| e.to_string());
+    let seen = glance(&ask.slugs);
     // Out of points: the reads would be refused too. An asker with nothing gets what's kept,
     // however old, and then hears why it's no newer.
-    if seen.as_ref().is_err_and(|e| rate_limited(e)) {
+    if seen.as_ref().is_err_and(|e| rate_limited(&e.text)) {
         for key in ask.slugs.iter().map(String::as_str).chain([REQUESTED]).filter(|key| !ask.have.contains_key(*key)) {
             if let Some(answer) = saved(dir, key).and_then(|kept| kept_answer(key, kept)) {
                 on(answer);
@@ -959,7 +1014,7 @@ mod tests {
                {"__typename":"StatusContext","context":"vercel","state":"SUCCESS"}]}}}}]}}]},
           "done":{"nodes":[{"number":1016,"title":"Prevent page shifts","url":"u","state":"MERGED","isDraft":false,"reviewDecision":"APPROVED","updatedAt":"2026-09-23T18:00:00Z","mergedAt":"2026-09-23T18:00:00Z","closedAt":"2026-09-23T18:00:00Z","headRefName":"app6","headRepositoryOwner":{"login":"ghempton"},"commits":{"nodes":[]}}]}}}}"#;
 
-    const GLANCE: &str = r#"{"data":{"viewer":{"login":"ghempton"},"rateLimit":{"remaining":4321,"resetAt":"2026-10-01T22:43:32Z"},
+    const GLANCE: &str = r#"{"data":{"viewer":{"login":"ghempton"},
       "r0":{"open":{"nodes":[{"number":1037,"updatedAt":"2026-09-23T20:00:00Z","headRefOid":"0ef4ed2","isDraft":false,"reviewDecision":"APPROVED","mergeStateStatus":"CLEAN","statusCheckRollup":{"state":"SUCCESS"}}]},"done":{"nodes":[{"number":1016,"updatedAt":"2026-09-23T18:00:00Z"}]}},
       "r1":{"open":{"nodes":[]},"done":{"nodes":[]}},
       "r2":null,
@@ -974,7 +1029,6 @@ mod tests {
     fn a_glance_marks_each_repo_and_changes_with_its_prs() {
         let seen = parse_glance(GLANCE, &slugs()).unwrap();
         assert_eq!(seen.login.as_deref(), Some("ghempton"));
-        assert_eq!(seen.points.map(|p| (p.left, p.resets)), Some((4321, parse_rfc3339_ms("2026-10-01T22:43:32Z").unwrap())));
         assert_eq!(seen.repos["gone/gone"], None, "a repo GitHub doesn't show you");
         let mark = |g: &Glance, slug: &str| g.repos[slug].clone().unwrap();
         assert_eq!(parse_glance(GLANCE, &slugs()).unwrap(), seen, "the same answer, the same marks");
@@ -1010,6 +1064,25 @@ mod tests {
         assert!(rate_limited(&said), "{said}");
         assert!(rate_limited(&failed(anyhow!("gh gh: You have exceeded a secondary rate limit."), "PRs").to_string()));
         assert!(!rate_limited(&failed(anyhow!("gh timed out after 30s"), "PRs").to_string()));
+        assert_eq!(title(&said), "GitHub rate limit reached");
+        assert_eq!(title(&failed(anyhow!("couldn't start gh: No such file"), "PRs").to_string()), "GitHub CLI isn't installed");
+        assert_eq!(title(&failed(anyhow!("gh HTTP 401: Bad credentials"), "PRs").to_string()), "Signed out of GitHub");
+        assert_eq!(title(&failed(anyhow!("gh timed out after 30s"), "PRs").to_string()), "GitHub didn't answer");
+    }
+
+    #[test]
+    fn an_answers_headers_say_what_points_are_left() {
+        let out = "HTTP/2.0 200 OK\r\nContent-Type: application/json; charset=utf-8\r\nX-Ratelimit-Remaining: 4944\r\nX-Ratelimit-Reset: 1790898270\r\nX-Ratelimit-Resource: graphql\r\n\r\n{\"data\":{}}";
+        let (points, body) = answer_parts(out);
+        assert_eq!(points, Some(Points { left: 4944, resets: 1_790_898_270_000 }));
+        assert_eq!(body, "{\"data\":{}}");
+        // A refusal has them too, and says when the hour ends.
+        let (points, body) = answer_parts("HTTP/2.0 200 OK\nx-ratelimit-remaining: 0\nx-ratelimit-reset: 1790898270\n\n{\"errors\":[]}");
+        assert_eq!((points.map(|p| p.left), body), (Some(0), "{\"errors\":[]}"));
+        // Without headers (gh couldn't reach GitHub, or printed only an error), all of it is the body.
+        assert_eq!(answer_parts("{\"data\":{}}"), (None, "{\"data\":{}}"));
+        assert_eq!(answer_parts(""), (None, ""));
+        assert_eq!(answer_parts("HTTP/2.0 502 Bad Gateway\r\n\r\n").0, None);
     }
 
     #[test]

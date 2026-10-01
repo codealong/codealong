@@ -519,6 +519,18 @@ export interface PluginState {
   from: string | null;
 }
 
+/** Something in the background that isn't working, said until it's put right or dismissed. */
+export interface Notice {
+  /** What it's about (`config`, `github`, `todos`…), one of each at most. */
+  key: string;
+  /** A few words. */
+  title: string;
+  /** The whole of it. */
+  text: string;
+  /** When what it tells of ends, where that's known: the hour of a rate limit. */
+  until?: number | null;
+}
+
 export interface Board {
   generatedAt: number;
   /** App-wide status from the engine; view and project filters do not change the logo. */
@@ -527,7 +539,8 @@ export interface Board {
   apps: { terminal: string; terminalId: string; editor: string; editorId: string; editors?: Profile[]; newTerminal?: NewTerminal };
   projects: ProjectSummary[];
   lanes: Lane[];
-  warnings: string[];
+  /** What isn't working in the background (notices.ts). */
+  notices: Notice[];
   loading: boolean;
   githubAt: number | null;
   usage: Usage[];

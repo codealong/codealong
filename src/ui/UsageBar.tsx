@@ -8,7 +8,7 @@
 // hovering it shows all of them in a card. When even those don't fit, the row scrolls sideways
 // (the mouse wheel scrolls it too).
 
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { agoPhrase, resetsPhrase, untilShort } from '../format';
 import { usageNote } from '../harness';
@@ -249,9 +249,11 @@ interface UsageBarProps {
   onSignIn: (account: string) => void;
   /** The board hasn't been read yet, so it lists no accounts, though config.toml may have some. */
   loading?: boolean;
+  /** What isn't working in the background (`ui/Notices.tsx`), at the bar's end. */
+  notices?: ReactNode;
 }
 
-export function UsageBar({ usage, now, onRefresh, onAccounts, onSignIn, loading }: UsageBarProps) {
+export function UsageBar({ usage, now, onRefresh, onAccounts, onSignIn, loading, notices }: UsageBarProps) {
   const reads = usage.filter((u) => u.harness === 'claude' && u.asOf).map((u) => u.asOf as number);
   const lastRead = reads.length ? Math.max(...reads) : null;
   const row = useRef<HTMLDivElement>(null);
@@ -351,6 +353,7 @@ export function UsageBar({ usage, now, onRefresh, onAccounts, onSignIn, loading 
       </div>
       {peeked && peek && peeked.meters.length > 0 && <UsageCard usage={peeked} now={now} anchor={peek.anchor} />}
       <div className="ca-usagebar-end">
+        {notices}
         <Button
           variant="ghost"
           size="sm"

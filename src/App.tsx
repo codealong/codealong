@@ -54,6 +54,8 @@ import { entitiesOf, homeLane, refId, type RefItem, type RefKind } from './canva
 import { useCanvas } from './canvas/useCanvas';
 import { ThemeSwitch, useTheme } from './ui/ThemeSwitch';
 import { UsageBar } from './ui/UsageBar';
+import { Notices } from './ui/Notices';
+import { keptDismissals, noticeId, shownNotices, useReportedNotices } from './notices';
 import { Sidebar, type SideStatus } from './ui/Sidebar';
 import { loadSaved, newSavedId, onSavedChange, sameView, storeSaved, suggestName, type SavedView, type ViewState } from './savedViews';
 import { useNow } from './ui/useNow';
@@ -87,6 +89,7 @@ const WINDOW_PROJECT = typeof window !== 'undefined' ? (window.__CODEALONG_PROJE
 const PROJECT_KEY = 'codealong.project';
 const VIEW_KEY = 'codealong.view';
 const AGE_KEY = 'codealong.age';
+const DISMISSED_KEY = 'codealong.dismissedNotices';
 const GROUP_KEY = 'codealong.byDevice';
 const SESSION_SORT_KEY = 'codealong.sessionSort';
 const SESSION_ROWS_KEY = 'codealong.sessionRows';
@@ -368,6 +371,35 @@ export function App() {
   const [approving, setApproving] = useState<Set<string>>(() => new Set());
   const [showParked, setShowParked] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  // What isn't working in the background (notices.ts): the engine's and this window's own,
+  // less the ones dismissed, which stay dismissed across launches while they still stand.
+  const reported = useReportedNotices();
+  const allNotices = useMemo(() => [...(board?.notices ?? []), ...reported], [board?.notices, reported]);
+  const [dismissed, setDismissed] = useState<string[]>(() => {
+    try {
+      const v: unknown = JSON.parse(window.localStorage.getItem(DISMISSED_KEY) ?? '[]');
+      return Array.isArray(v) ? v.filter((id): id is string => typeof id === 'string') : [];
+    } catch {
+      return [];
+    }
+  });
+  const boardRead = !!board && !board.loading;
+  useEffect(() => {
+    // Before the board is read it lists none, which isn't their having gone.
+    if (!boardRead) return;
+    setDismissed((d) => {
+      const kept = keptDismissals(d, allNotices);
+      return kept.length === d.length ? d : kept;
+    });
+  }, [allNotices, boardRead]);
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(DISMISSED_KEY, JSON.stringify(dismissed));
+    } catch {
+      // Storage is full or off: dismissals last until the window closes.
+    }
+  }, [dismissed]);
+  const notices = useMemo(() => shownNotices(allNotices, dismissed), [allNotices, dismissed]);
   // Settings, open at a section; at one account when a usage chip opened it. ⌘, comes back to
   // the section you left, as macOS settings do.
   const [settings, setSettings] = useState<{ section: SettingsSection; focus: string | null } | null>(null);
@@ -2320,6 +2352,7 @@ export function App() {
         onRefresh={() => void refreshUsage()}
         onAccounts={(account) => openSettings('accounts', account ?? null)}
         onSignIn={startSignIn}
+        notices={<Notices notices={notices} now={now} onDismiss={(n) => setDismissed((d) => [...d, noticeId(n)])} onOpen={() => openSettings('file')} />}
       />
       <div
         className={['ca-win-body', sideCollapsed && 'is-railed', panelKind === 'pr' && 'is-prs', panelKind === 'todo' && 'is-todo', panelKind === 'session' && 'is-session', panelKind === 'session' && panelMax && 'is-panel-max', view === 'canvas' && 'is-canvas', view === 'canvas' && canvasPanel && 'has-panel'].filter(Boolean).join(' ')}
@@ -2364,7 +2397,6 @@ export function App() {
           onSave={(name) => keepSaved([...savedViews, { id: newSavedId(), name, ...viewNow }])}
           filters={sideFilters}
           onSettings={() => openSettings()}
-          hasWarnings={(board?.warnings.length ?? 0) > 0}
           loading={loading}
           foot={
             <div className="ca-side-foot">
@@ -2374,27 +2406,6 @@ export function App() {
               </button>
               <ThemeSwitch theme={theme} onPick={pickTheme} />
             </div>
-          }
-          warnings={
-            <>
-              {board && board.warnings.length > 0 && (
-                <div className="ca-side-warnings" role="status">
-                  {board.warnings.map((w) =>
-                    w.includes('config.toml') ? (
-                      <button key={w} type="button" className="ca-warning is-link" title="Open config.toml in Settings" onClick={() => openSettings('file')}>
-                        <Icon name="alert" size={14} />
-                        <span>{w}</span>
-                      </button>
-                    ) : (
-                      <div key={w} className="ca-warning">
-                        <Icon name="alert" size={14} />
-                        <span>{w}</span>
-                      </div>
-                    ),
-                  )}
-                </div>
-              )}
-            </>
           }
         />
         {sideCollapsed ? <span aria-hidden="true" /> : <Resizer panel="before" cssVar="--sidebar-w" onResize={setSidebarWidth} />}

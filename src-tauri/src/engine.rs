@@ -76,7 +76,7 @@ pub enum Msg {
     Fs(Vec<PathBuf>),
     GitDone(PathBuf, GitInfo),
     /// What a poll of GitHub saw at a glance, before its answers.
-    GithubGlance(std::result::Result<github::Glance, String>),
+    GithubGlance(std::result::Result<github::Glance, github::Failure>),
     /// A repo's PRs and what they were read at. An empty slug marks the end of a GitHub batch.
     GithubDone(String, std::result::Result<github::RepoPrs, String>, Option<github::Stamp>),
     /// The PRs that wait on your review anywhere, from the same batch.
@@ -762,6 +762,9 @@ struct Engine {
     gh_points: Vec<github::Points>,
     /// GitHub said the account's rate limit is used up: it's left alone until then.
     gh_hold: Option<Instant>,
+    /// When the hour of that rate limit ends, where GitHub or a glance before said, for the
+    /// notice.
+    gh_resets: Option<i64>,
     /// PRs you approved here (slug, number) and when, until GitHub is asked after it.
     approved_here: HashMap<(String, u64), Instant>,
     gh_at: Option<i64>,
@@ -871,6 +874,7 @@ impl Engine {
             gh_all: false,
             gh_points: Vec::new(),
             gh_hold: None,
+            gh_resets: None,
             gh_again: false,
             gh_last: None,
             approved_here: HashMap::new(),
@@ -1811,7 +1815,7 @@ impl Engine {
 
     /// What a poll saw at a glance: GitHub answered, so the board is as GitHub has it now
     /// whether or not anything is read again.
-    fn on_glance(&mut self, seen: std::result::Result<github::Glance, String>) {
+    fn on_glance(&mut self, seen: std::result::Result<github::Glance, github::Failure>) {
         match seen {
             Ok(seen) => {
                 if seen.login.is_some() {
@@ -1823,6 +1827,7 @@ impl Engine {
                     self.gh_points.push(points);
                 }
                 self.gh_hold = None;
+                self.gh_resets = None;
                 // A repo GitHub doesn't show you says so next, at every poll.
                 if seen.repos.values().all(Option::is_some) {
                     self.gh_warning = None;
@@ -1830,10 +1835,10 @@ impl Engine {
                 self.gh_at = Some(now_ms());
             }
             Err(e) => {
-                if github::rate_limited(&e) {
-                    self.hold_github();
+                if github::rate_limited(&e.text) {
+                    self.hold_github(e.resets);
                 }
-                self.gh_warning = Some(e);
+                self.gh_warning = Some(e.text);
             }
         }
         self.dirty = true;
@@ -1847,18 +1852,43 @@ impl Engine {
             (None, Some(stamp)) => {
                 self.gh_stamps.insert(key.to_string(), stamp);
             }
-            (Some(e), _) if github::rate_limited(e) => self.hold_github(),
+            (Some(e), _) if github::rate_limited(e) => self.hold_github(None),
             _ => {}
         }
     }
 
-    /// GitHub refused for want of points: it's left alone until the hour ends, as the glances
-    /// said of the counter that was nearly spent, or for `GITHUB_HOLD` when none said.
-    fn hold_github(&mut self) {
+    /// GitHub refused for want of points: it's left alone until the hour ends, as the refusal
+    /// said (`resets`), else as the glances said of the counter that was nearly spent, or for
+    /// `GITHUB_HOLD` when nothing said.
+    fn hold_github(&mut self, resets: Option<i64>) {
         let now = now_ms();
-        let ends = self.gh_points.iter().filter(|p| p.resets > now && p.left < github::RESERVE).map(|p| p.resets).min();
-        let wait = ends.map_or(GITHUB_HOLD, |at| Duration::from_millis((at - now) as u64) + Duration::from_secs(5));
+        let spent = || self.gh_points.iter().filter(|p| p.left < github::RESERVE).map(|p| p.resets).min();
+        self.gh_resets = resets.or_else(spent).filter(|at| *at > now).or(self.gh_resets.filter(|at| *at > now));
+        let wait = self.gh_resets.map_or(GITHUB_HOLD, |at| Duration::from_millis((at - now) as u64) + Duration::from_secs(5));
         self.gh_hold = Some(Instant::now() + wait);
+    }
+
+    /// What isn't working in the background, as the windows say it: a few words for each, and
+    /// the whole of it.
+    fn notices(&self) -> Vec<Notice> {
+        let limited = self.gh_warning.as_deref().is_some_and(github::rate_limited);
+        let held = held_warning(&self.reads.out_for(HELD_WARN_AFTER));
+        let said: [(&str, &str, Option<&String>); 8] = [
+            ("config", "config.toml has a problem", self.config_warning.as_ref()),
+            ("github", self.gh_warning.as_deref().map_or("", github::title), self.gh_warning.as_ref()),
+            ("watch", "Live updates are off", self.watch_warning.as_ref()),
+            ("todos", "todos.json has a problem", self.todos_warning.as_ref()),
+            ("pr-links", "PR links weren't read", self.pr_links_warning.as_ref()),
+            ("previews", "Previews weren't read", self.previews_warning.as_ref()),
+            ("reusable", "Reusable worktrees weren't read", self.reusable_warning.as_ref()),
+            ("held", "Waiting to open a folder", held.as_ref()),
+        ];
+        said.into_iter()
+            .filter_map(|(key, title, text)| {
+                let until = if key == "github" && limited { self.gh_resets } else { None };
+                Some(Notice { key: key.into(), title: title.into(), text: text?.clone(), until })
+            })
+            .collect()
     }
 
     /// Asks GitHub now, or as soon as the request on its way returns, which may have been
@@ -2547,8 +2577,7 @@ impl Engine {
             new_terminal: self.cfg.apps.new_terminal,
         };
         let order: Vec<String> = self.cfg.projects.iter().map(|p| p.name.clone()).collect();
-        let held = held_warning(&self.reads.out_for(HELD_WARN_AFTER));
-        let warnings = [&self.config_warning, &self.gh_warning, &self.watch_warning, &self.todos_warning, &self.pr_links_warning, &self.previews_warning, &self.reusable_warning].into_iter().flatten().cloned().chain(held).collect();
+        let notices = self.notices();
         let (worked, unlinked) = prlinks::resolve(&self.pr_marks, &self.pr_store);
         let pr_links = board::PrLinks { worked, unlinked };
         let mut board = board::compose(board::Inputs {
@@ -2560,7 +2589,7 @@ impl Engine {
             prs: &self.prs,
             requested: &self.requested,
             project_order: &order,
-            warnings,
+            notices,
             loading: self.loading,
             github_at: self.gh_at,
             visitors: &self.visitors,
@@ -3128,17 +3157,32 @@ mod tests {
         engine.on_read("a/b", Some(&refused), None);
         assert!(engine.gh_hold.is_some_and(|until| until > Instant::now()));
         engine.gh_hold = None;
-        engine.on_glance(Err(refused.clone()));
+        let refusal = |resets: Option<i64>| Err(github::Failure { text: refused.clone(), resets });
+        engine.on_glance(refusal(None));
         assert!(engine.gh_hold.is_some_and(|until| until > Instant::now() + Duration::from_secs(9 * 60)), "nothing said when the hour ends");
         assert_eq!(engine.gh_warning.as_deref(), Some(refused.as_str()));
-        // A glance had said the hour was nearly spent, and when it ends: asked again then.
-        engine.gh_points = vec![github::Points { left: 4000, resets: now_ms() + 60_000 }, github::Points { left: 12, resets: now_ms() + 120_000 }];
-        engine.on_glance(Err(refused.clone()));
+        let said = engine.notices();
+        assert_eq!((said.len(), said[0].key.as_str(), said[0].title.as_str(), said[0].until), (1, "github", "GitHub rate limit reached", None));
+        // A glance had said the hour was nearly spent, and when it ends: asked again then, and
+        // the notice says when.
+        let ends = now_ms() + 120_000;
+        engine.gh_points = vec![github::Points { left: 4000, resets: now_ms() + 60_000 }, github::Points { left: 12, resets: ends }];
+        engine.on_glance(refusal(None));
         let wait = engine.gh_hold.unwrap() - Instant::now();
         assert!(wait > Duration::from_secs(120) && wait < Duration::from_secs(130), "{wait:?}");
+        assert_eq!(engine.notices()[0].until, Some(ends));
+        // The refusal itself says when: that's GitHub's word.
+        engine.on_glance(refusal(Some(ends + 60_000)));
+        assert_eq!(engine.notices()[0].until, Some(ends + 60_000));
+        let wait = engine.gh_hold.unwrap() - Instant::now();
+        assert!(wait > Duration::from_secs(180) && wait < Duration::from_secs(190), "{wait:?}");
+        // Another failure of GitHub's has no hour to wait out.
+        engine.gh_warning = Some("GitHub: couldn't load PRs for a/b".into());
+        assert_eq!((engine.notices()[0].title.as_str(), engine.notices()[0].until), ("GitHub didn't answer", None));
+        engine.gh_warning = Some(refused.clone());
         // And the next glance that's answered ends that.
         engine.on_glance(Ok(github::Glance::default()));
-        assert!(engine.gh_hold.is_none() && engine.gh_warning.is_none());
+        assert!(engine.gh_hold.is_none() && engine.gh_warning.is_none() && engine.notices().is_empty());
     }
 
     #[test]

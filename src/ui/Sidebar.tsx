@@ -96,9 +96,6 @@ interface SidebarProps {
   onSettings: () => void;
   /** Settings and the theme switch, at the foot of the open sidebar. */
   foot: ReactNode;
-  warnings: ReactNode;
-  /** The rail marks warnings (config.toml that doesn't parse, say) and opens the sidebar on them. */
-  hasWarnings: boolean;
   /** This Mac's board hasn't been read yet: no counts show, since they'd be other devices' alone. */
   loading: boolean;
 }
@@ -249,7 +246,6 @@ function Open(p: SidebarProps) {
       </div>
       <RestartToUpdate />
       {p.foot}
-      {p.warnings}
     </nav>
   );
 }
@@ -323,7 +319,6 @@ function Rail(p: SidebarProps) {
       <span className="ca-rail-sep" aria-hidden="true" />
       <RailButton icon="filter" label={filtered ? `Filtered: ${p.filters.join(', ')}. Show the sidebar` : 'Filters: show the sidebar'} active={filtered} badge={p.filters.length} tone="ink" onClick={p.onExpand} />
       <span className="ca-rail-fill" />
-      {p.hasWarnings && <RailButton icon="alert" label="Warnings: show the sidebar" alert onClick={p.onExpand} />}
       <RestartToUpdate compact />
       <RailButton icon="settings" label="Settings (⌘,)" onClick={p.onSettings} />
     </nav>

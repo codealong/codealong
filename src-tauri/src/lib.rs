@@ -1796,8 +1796,8 @@ pub fn snapshot_cli(args: &[String]) -> i32 {
 }
 
 fn print_table(board: &model::Board) {
-    for w in &board.warnings {
-        println!("! {w}");
+    for n in &board.notices {
+        println!("! {}", n.text);
     }
     for p in &board.projects {
         let repos: Vec<String> = p.repos.iter().map(|r| format!("{} {}", r.name, r.lanes)).collect();

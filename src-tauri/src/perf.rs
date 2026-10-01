@@ -269,7 +269,7 @@ impl Counters {
         let parts = [
             ("apps", hash_of(&board.apps)),
             ("projects", hash_of(&board.projects)),
-            ("warnings", hash_of(&board.warnings)),
+            ("notices", hash_of(&board.notices)),
             ("loading", hash_of(&board.loading)),
             ("githubAt", hash_of(&board.github_at)),
             ("usage", hash_of(&board.usage)),

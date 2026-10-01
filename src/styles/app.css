@@ -245,35 +245,6 @@ body.is-resizing * {
   box-sizing: border-box;
   min-width: 0;
 }
-.ca-side-warnings {
-  display: grid;
-  gap: 6px;
-  margin: 0 calc(-1 * var(--space-2));
-  padding: var(--space-3) var(--space-4) var(--space-4);
-  border-top: 1px solid var(--line);
-}
-.ca-warning {
-  display: flex;
-  gap: 6px;
-  font: 400 12px/16px var(--font-sans);
-  color: var(--alert);
-  -webkit-user-select: text;
-  user-select: text;
-}
-.ca-warning .ca-icon {
-  flex: none;
-  margin-top: 1px;
-}
-.ca-warning.is-link {
-  padding: 0;
-  border: 0;
-  background: transparent;
-  text-align: left;
-  cursor: pointer;
-}
-.ca-warning.is-link:hover span {
-  text-decoration: underline;
-}
 
 /* Board */
 .ca-board-list:focus {
@@ -1135,6 +1106,103 @@ body.is-resizing * {
   gap: 2px;
   flex: none;
 }
+/* ---- Notices: what isn't working in the background (ui/Notices.tsx) ----
+   A chip as high as the account chips beside it, in the alert colors: a few words that open
+   the whole of it, and a button that dismisses it. */
+.ca-notice {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  height: 26px;
+  margin-right: 6px;
+  box-sizing: border-box;
+  border-radius: var(--radius-pill);
+  background: var(--alert-tint);
+  color: var(--alert);
+  white-space: nowrap;
+}
+.ca-notice-open,
+.ca-notice-x {
+  display: inline-flex;
+  align-items: center;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: 500 12px/16px var(--font-sans);
+  cursor: pointer;
+}
+.ca-notice-open {
+  gap: 6px;
+  height: 100%;
+  padding: 0 4px 0 10px;
+  border-radius: var(--radius-pill) 0 0 var(--radius-pill);
+}
+.ca-notice-open:hover > span,
+.ca-notice.is-open .ca-notice-open > span {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.ca-notice-x {
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin-right: 3px;
+  padding: 0;
+  border-radius: 50%;
+  opacity: 0.7;
+}
+.ca-notice-x:hover {
+  background: var(--surface);
+  opacity: 1;
+}
+.ca-notice-open:focus-visible,
+.ca-notice-x:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+.ca-notice-card {
+  position: fixed;
+  z-index: 40;
+  display: grid;
+  gap: var(--space-3);
+  width: 320px;
+  max-width: calc(100vw - 16px);
+  padding: var(--space-3);
+  box-sizing: border-box;
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-popover);
+  color: var(--ink);
+  font: 400 12px/17px var(--font-sans);
+}
+.ca-notice-item {
+  display: grid;
+  gap: 4px;
+}
+.ca-notice-item + .ca-notice-item {
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--line);
+}
+.ca-notice-title {
+  font-weight: 600;
+}
+.ca-notice-text {
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+  -webkit-user-select: text;
+  user-select: text;
+}
+.ca-notice-until {
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+.ca-notice-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 4px;
+}
+
 /* Popup styles stay separate from the account and project cards in Settings. */
 .ca-usage-popover {
   position: fixed;

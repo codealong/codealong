@@ -99,7 +99,7 @@ pub struct Inputs<'a> {
     /// here, for the repos whose own PRs aren't read (`pr_items`).
     pub requested: &'a HashMap<String, Vec<PrRaw>>,
     pub project_order: &'a [String],
-    pub warnings: Vec<String>,
+    pub notices: Vec<crate::model::Notice>,
     pub loading: bool,
     pub github_at: Option<i64>,
     /// Pinned session keys, in order; they're never cut from a lane's list.
@@ -1317,7 +1317,7 @@ pub fn targets(seed: &LaneSeed, sessions: &[Session], pr: Option<&Pr>, preview: 
 }
 
 pub fn compose(inp: Inputs) -> Board {
-    let Inputs { now, apps, seeds, mut sessions, visitors, git, prs, requested, project_order, warnings, loading, github_at, pinned, github_login, pr_links, previews, reusable: marks } = inp;
+    let Inputs { now, apps, seeds, mut sessions, visitors, git, prs, requested, project_order, notices, loading, github_at, pinned, github_login, pr_links, previews, reusable: marks } = inp;
     for s in &mut sessions {
         let (h, d) = session_headline(s);
         s.headline = h;
@@ -1473,7 +1473,7 @@ pub fn compose(inp: Inputs) -> Board {
         apps: apps.clone(),
         projects,
         lanes,
-        warnings,
+        notices,
         loading,
         github_at,
         usage: Vec::new(),
@@ -1661,7 +1661,7 @@ mod tests {
             prs: &HashMap::from([("northwindai/atlas".to_string(), vec![pr(PrState::Open, 0)])]),
             requested: &HashMap::new(),
             project_order: &["Northwind".to_string()],
-            warnings: vec![],
+            notices: vec![],
             loading: false,
             github_at: None,
             pinned: &[],
@@ -1769,7 +1769,7 @@ mod tests {
             prs: &prs,
             requested: &HashMap::new(),
             project_order: &order,
-            warnings: vec![],
+            notices: vec![],
             loading: false,
             github_at: None,
             pinned: &[],
@@ -1795,7 +1795,7 @@ mod tests {
         maker.branch = Some("app4".into());
         let (git, visitors, prs) = (HashMap::new(), HashMap::new(), HashMap::new());
         let order = vec!["Northwind".to_string()];
-        let board = compose(Inputs { now: NOW, apps: &AppNames::default(), seeds: &seeds, sessions: vec![maker.clone()], visitors: &visitors, git: &git, prs: &prs, requested: &HashMap::new(), project_order: &order, warnings: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new() });
+        let board = compose(Inputs { now: NOW, apps: &AppNames::default(), seeds: &seeds, sessions: vec![maker.clone()], visitors: &visitors, git: &git, prs: &prs, requested: &HashMap::new(), project_order: &order, notices: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new() });
         let old = pr(PrState::Merged, 0);
         let links = PrLinks { worked: HashMap::from([("northwindai/atlas#1037".to_string(), vec![maker.key.clone()]), ("acme/tool#1037".to_string(), vec![maker.key.clone()])]), ..Default::default() };
         let renamed = HashMap::from([("northwindai/atlas".to_string(), "Northwind/atlas".to_string())]);
@@ -1907,7 +1907,7 @@ mod tests {
                 prs: &prs,
                 requested: &HashMap::new(),
                 project_order: &order,
-                warnings: vec![],
+                notices: vec![],
                 loading: false,
                 github_at: None,
                 pinned: &[],
@@ -1964,7 +1964,7 @@ mod tests {
             prs: &prs,
             requested: &HashMap::new(),
             project_order: &order,
-            warnings: vec![],
+            notices: vec![],
             loading: false,
             github_at: None,
             pinned: &[],
@@ -2009,7 +2009,7 @@ mod tests {
             prs: &prs,
             requested: &HashMap::new(),
             project_order: &order,
-            warnings: vec![],
+            notices: vec![],
             loading: false,
             github_at: None,
             pinned: &[],
@@ -2060,7 +2060,7 @@ mod tests {
                 prs: &prs,
                 requested: &HashMap::new(),
                 project_order: &order,
-                warnings: vec![],
+                notices: vec![],
                 loading: false,
                 github_at: None,
                 pinned: &[],
@@ -2621,7 +2621,7 @@ mod tests {
         let (git, prs, visitors) = (HashMap::new(), HashMap::new(), HashMap::new());
         let order = vec!["Northwind".to_string()];
         let hidden = |sessions: Vec<Session>| {
-            let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions, visitors: &visitors, git: &git, prs: &prs, requested: &HashMap::new(), project_order: &order, warnings: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new() });
+            let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions, visitors: &visitors, git: &git, prs: &prs, requested: &HashMap::new(), project_order: &order, notices: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new() });
             let lane = |p: &str| board.lanes.iter().find(|l| l.path == p).unwrap().clone();
             assert!(!lane(root).looks_finished);
             (lane(root).hidden, lane("/Users/me/notes").hidden)
@@ -2642,7 +2642,7 @@ mod tests {
         s.work = vec!["/r/codealong-pins".into(); 3];
         let (git, prs, visitors) = (HashMap::new(), HashMap::new(), HashMap::new());
         let order = vec!["Northwind".to_string()];
-        let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![s], visitors: &visitors, git: &git, prs: &prs, requested: &HashMap::new(), project_order: &order, warnings: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new() });
+        let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![s], visitors: &visitors, git: &git, prs: &prs, requested: &HashMap::new(), project_order: &order, notices: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new() });
         let lane = |p: &str| board.lanes.iter().find(|l| l.path == p).unwrap();
         assert_eq!(lane("/r/codealong-pins").bay, Bay::Working);
         assert_eq!(lane("/r/codealong-pins").sessions.len(), 1);
@@ -2953,7 +2953,7 @@ mod tests {
         maker.cwd = "/r/osprey".into();
         let (git, prs, order) = (HashMap::new(), HashMap::new(), vec!["Northwind".to_string()]);
         let visitors = HashMap::new();
-        let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![maker], visitors: &visitors, git: &git, prs: &prs, requested: &HashMap::new(), project_order: &order, warnings: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new() });
+        let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![maker], visitors: &visitors, git: &git, prs: &prs, requested: &HashMap::new(), project_order: &order, notices: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new() });
         let lane = board.lanes.iter().find(|l| l.path == scratch).unwrap();
         assert_eq!(lane.sessions.len(), 1);
         assert_eq!(lane.sessions[0].visitor.as_deref(), Some("made this worktree"));
@@ -2982,7 +2982,7 @@ mod tests {
             prs: &prs,
             requested: &HashMap::new(),
             project_order: &order,
-            warnings: vec![],
+            notices: vec![],
             loading: false,
             github_at: None,
             pinned: &[],
@@ -3025,7 +3025,7 @@ mod tests {
             prs: &prs,
             requested: &HashMap::new(),
             project_order: &order,
-            warnings: vec![],
+            notices: vec![],
             loading: false,
             github_at: None,
             pinned: &pinned,
@@ -3060,7 +3060,7 @@ mod tests {
             prs: &prs,
             requested: &HashMap::new(),
             project_order: &order,
-            warnings: vec![],
+            notices: vec![],
             loading: false,
             github_at: None,
             pinned: &[],
@@ -3090,7 +3090,7 @@ mod tests {
         let seeds = vec![seed("/r/atlas", "main"), seed("/r/atlas-pins", "pins"), other_repo, elsewhere, folder("/Users/me/Documents/Codex", true), folder("/Users/me/notes", false)];
         let (git, prs, visitors) = (HashMap::new(), HashMap::new(), HashMap::new());
         let order = vec!["Northwind".to_string()];
-        let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![], visitors: &visitors, git: &git, prs: &prs, requested: &HashMap::new(), project_order: &order, warnings: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new() });
+        let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![], visitors: &visitors, git: &git, prs: &prs, requested: &HashMap::new(), project_order: &order, notices: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new() });
         let near = |p: &str| terminal_neighbours(&board.lanes, Path::new(p));
         assert_eq!(near("/r/atlas-pins/src"), vec![vec!["/r/atlas-pins".to_string()], vec!["/r/atlas".to_string()], vec!["/r/kestrel".to_string()]]);
         assert_eq!(near("/tmp/scratch"), vec![vec!["/tmp/scratch".to_string()]]);

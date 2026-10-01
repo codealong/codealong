@@ -56,6 +56,8 @@
 # PREVIEW_TRANSCRIPT=<session key> shows that session's real conversation in its panel (its
 # newest page, from --snapshot --transcript) and what it waits on you to allow (--pending);
 # other sessions show their title and excerpt there.
+# PREVIEW_NOTICES=<file> shows the background failures in it (scripts/preview/notices-sample.json
+# has two) in the accounts bar, in place of the snapshot's, which usually has none.
 # PREVIEW_DEVICES=<file> shows your other devices from it (scripts/preview/devices-sample.json
 # has some): Settings › Devices, the sidebar's Devices, and a few of the board's own worktrees
 # shown as if they were on those devices.
@@ -111,6 +113,10 @@ if [ -n "${PREVIEW_CANVAS:-}" ]; then
 fi
 rm -f "$dir/usage-fixture.json"
 rm -f "$dir/devices-fixture.json"
+rm -f "$dir/notices-fixture.json"
+if [ -n "${PREVIEW_NOTICES:-}" ]; then
+  cp "$PREVIEW_NOTICES" "$dir/notices-fixture.json"
+fi
 if [ -n "${PREVIEW_DEVICES:-}" ]; then
   cp "$PREVIEW_DEVICES" "$dir/devices-fixture.json"
 fi

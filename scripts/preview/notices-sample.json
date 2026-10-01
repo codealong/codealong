@@ -1,0 +1,6 @@
+{
+  "notices": [
+    { "key": "github", "title": "GitHub rate limit reached", "text": "GitHub: your account's rate limit is used up, so PRs wait until it resets. `gh` and your agents draw on the same limit.", "untilIn": 12 },
+    { "key": "config", "title": "config.toml has a problem", "text": "config.toml: TOML parse error at line 14, column 9: invalid string, expected `\"`. Codealong is using the last good settings." }
+  ]
+}

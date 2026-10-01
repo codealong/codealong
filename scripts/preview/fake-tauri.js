@@ -95,7 +95,7 @@ function optionalJson(file) {
 // (PREVIEW_LOADING in preview.sh): loading, with nothing read yet but the settings. Other
 // devices (PREVIEW_DEVICES) still show, as their feeds kept from last time do.
 function loadingBoard(board) {
-  return Object.assign(board, { loading: true, generatedAt: 0, projects: [], lanes: [], warnings: [], githubAt: null, usage: [], pinned: [], pinnedWorktrees: [], pinnedPrs: [], prs: [], githubLogin: null, todos: [], labels: [], todoHints: {} });
+  return Object.assign(board, { loading: true, generatedAt: 0, projects: [], lanes: [], notices: [], githubAt: null, usage: [], pinned: [], pinnedWorktrees: [], pinnedPrs: [], prs: [], githubLogin: null, todos: [], labels: [], todoHints: {} });
 }
 function loadingFeed(feed) {
   return Object.assign(feed, { loading: true, generatedAt: 0, projects: [], items: [], recent: [], snoozed: [], reviews: [], todos: [] });
@@ -112,8 +112,16 @@ window.__TAURI_INTERNALS__ = {
         optionalJson('./usage-fixture.json'),
         optionalJson('./route-fixture.json'),
         optionalJson('./insights-fixture.json'),
+        optionalJson('./notices-fixture.json'),
       ]).then(function (all) {
         var board = all[1] ? withFixture(all[0], all[1]) : all[0];
+        // Background failures from notices-fixture.json (PREVIEW_NOTICES), `untilIn` minutes
+        // from now where one says when it ends.
+        if (all[5]) {
+          board.notices = all[5].notices.map(function (n) {
+            return Object.assign({}, n, { until: n.untilIn == null ? null : Date.now() + n.untilIn * 60e3 });
+          });
+        }
         if (all[4]) board = withInsights(board, all[4]);
         if (all[3]) board.jev = Object.assign({ model: 'jev-latest', quick_panel: false, sessions: false, todos: false, pull_requests: false }, board.jev, { quick_panel: true });
         return all[2] ? withUsage(board, all[2]) : board;

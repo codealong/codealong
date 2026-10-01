@@ -441,6 +441,11 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   ⌃⌘S, or the button beside the traffic lights, folds it to a rail of the views and devices
   whose filter button carries a badge while a filter narrows the view. The search at the top
   narrows every view too.
+- **Notices**: what stops working in the background (config.toml that doesn't read, GitHub
+  signed out or out of requests, a folder macOS is asking about) is a chip at the end of the
+  accounts bar, in a few words. A click shows the whole of it, when it ends where that's known
+  (GitHub's rate limit says until when), and what to open to fix it; its button dismisses it
+  until it happens again. Several are one chip that says how many.
 - **Light or dark**: follows macOS unless you pick light or dark with the buttons at the foot
   of the sidebar. The choice is saved in config.toml, and every window follows it.
 - **Resizable panels**: drag the inner edge of the sidebar or the panel on the right, and
@@ -815,6 +820,7 @@ light scan (no git, PRs or visitors).
 | `src-tauri/src/tailnet.rs`, `devicekey.rs` | Reaching them on your tailnet through Tailscale's command (iroh is in codealong-peer), and this device's key in the keychain |
 | `src/menus.ts`, `src/contextMenu.ts` | Right-click menus of sessions, worktrees, PRs and todos, each defined once and the same in every window (each says what it can do); native menus through Tauri |
 | `src/devices.ts`, `src/ui/DevicesSection.tsx` | Other devices' worktrees in the views, and Settings › Devices |
+| `src/notices.ts`, `src/ui/Notices.tsx` | Notices: what isn't working in the background, the engine's and a window's own, as a chip that can be dismissed |
 | `src/ui/Sidebar.tsx`, `src/savedViews.ts` | The sidebar: the view and what narrows it, open or folded to a rail, and saved views |
 | `src-tauri/src/cli.rs`, `server.rs`, `install.rs` | The `codealong` command (clap; JSON or tables; the app over its socket, else the files), the app's socket, and putting the skill and the command where agents find them |
 | `src-tauri/src/todos.rs`, `src/todos.ts` | Todos: the store and its changes, linking sessions started from a todo; the list's sections, filters and prompt |

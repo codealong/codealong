@@ -67,6 +67,25 @@ pub struct AccountInfo {
     pub email: Option<String>,
 }
 
+/// Something in the background that isn't working: a file that doesn't read, GitHub not
+/// answering. It's said in the windows until it's put right or you dismiss it. What goes wrong
+/// with something you just did is never one of these: the window you did it in says so.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Notice {
+    /// What it's about (`config`, `github`, `watch`, `todos`, `pr-links`, `previews`,
+    /// `reusable`, `held`), one of each at most. A window knows one it has dismissed by this
+    /// and its title.
+    pub key: String,
+    /// A few words, for where there's room for no more.
+    pub title: String,
+    /// The whole of it.
+    pub text: String,
+    /// When what it tells of ends, where that's known: the hour of a rate limit.
+    #[serde(default)]
+    pub until: Option<i64>,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Board {
@@ -77,7 +96,8 @@ pub struct Board {
     pub apps: AppNames,
     pub projects: Vec<ProjectSummary>,
     pub lanes: Vec<Lane>,
-    pub warnings: Vec<String>,
+    /// What isn't working in the background, for the windows to say until it's put right.
+    pub notices: Vec<Notice>,
     /// True until the first full scan has finished.
     pub loading: bool,
     /// When PRs were last loaded from GitHub.

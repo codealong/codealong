@@ -139,7 +139,8 @@ your build>` uses yours. `PREVIEW_TODOS=scripts/preview/todos-sample.json script
 sample todos linked to your real worktrees and sessions in place of your own, and
 `PREVIEW_USAGE=scripts/preview/usage-sample.json` sample plan usage in place of the snapshot's,
 which has no Claude numbers, and `PREVIEW_TRANSCRIPT=<session key>` that
-session's real conversation in its panel (others get placeholders), and `PREVIEW_FOUND=scripts/preview/found-sample.json` sample accounts
+session's real conversation in its panel (others get placeholders), and `PREVIEW_NOTICES=scripts/preview/notices-sample.json`
+sample notices in the accounts bar (a snapshot usually has none), and `PREVIEW_FOUND=scripts/preview/found-sample.json` sample accounts
 under Settings › Accounts › Found on this Mac, and `PREVIEW_DEVICES=scripts/preview/devices-sample.json` other devices
 (Settings › Devices, the sidebar's devices, a link ask, and a few of your worktrees shown as if on those devices), and `PREVIEW_CANVAS=<file>` opens the Canvas view on a saved
 document (one project's from canvas.json) in place of a fresh tidy, and `PREVIEW_LOADING=1` shows the windows as
@@ -306,6 +307,12 @@ some work is, answer with one.
   events), and keeps each turn as it ends (`sides.json`, read back by `side::past`). A copy
   may do what its session may without asking and no more, is told to change nothing it isn't
   asked to (`side::RULES`), has nobody to ask, and leaves no record in its harness.
+- What goes wrong in the background (a file that doesn't read, GitHub not answering) is a
+  notice: the engine's are `Board.notices` (`Engine::notices`: a key, a few words, the whole of
+  it, and when it ends where that's known), a window's own go through `reportNotice` in
+  `src/notices.ts`, and `ui/Notices.tsx` draws them all as one chip at the end of the accounts
+  bar, with a card for the whole of it and a dismiss that lasts while the notice stands. What
+  goes wrong with something you just did is a toast in the window you did it in, not a notice.
 - A session's, worktree's, PR's or todo's right-click menu is defined once, in `src/menus.ts`,
   and every window (main, bar, peek, quick panel, desktop cards) builds it from there, saying
   what it can do. A new item goes there, not into one window's menu.
@@ -1398,7 +1405,9 @@ GitHub
   connections each, 40 closed with two) are 5 points for a repo with none, the search 2.
   `rateLimit { cost remaining resetAt }` in a query says, and is free. Every minute for seven
   repos that was 2,200 points an hour, and each `--snapshot` (a preview takes one) 37 more, which
-  ran the account out by half past every hour (2026-10-01). So a poll is a glance first
+  ran the account out by half past every hour (2026-10-01). An answer's headers (`gh api -i`)
+  say what's left and when the hour ends, a refusal's too: `X-Ratelimit-Remaining`,
+  `X-Ratelimit-Reset` (seconds). So a poll is a glance first
   (github.rs, "Asking only for what changed"): one query for every repo, a point for eight of
   them, with each open PR's `updatedAt`, `headRefOid`, `mergeStateStatus` and `statusCheckRollup
   { state }` (a field of the PR itself, no connection) and the latest closed PR. A repo is read
