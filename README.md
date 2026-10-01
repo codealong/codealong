@@ -472,10 +472,11 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   started. Codealong reads what the harnesses record (Claude Code's `/fork`, `/background` and
   forked background jobs; Codex's forks and the threads its app makes for an agent; OpenCode's
   forks) and notes what they don't: a session started by an agent's `codealong start`, and a
-  fork into a terminal made from Codealong. A session's panel says what it was forked from or
-  started by and what came of it, each a click away, and so does its card's popover, on the
-  canvas and on the desktop: right-click one there and Pin to desktop puts its card beside the
-  one you're on. On the canvas, hovering or selecting a session draws a line from the session
+  fork into a terminal made from Codealong. A session's panel names the session it was forked
+  from or started by over its title, and lists the ones that came of it under the title, each
+  with its status; a click shows one and a right-click gives its menu. Its card's popover
+  lists them too, on the canvas and on the desktop: right-click one there and Pin to desktop
+  puts its card beside the one you're on. On the canvas, hovering or selecting a session draws a line from the session
   it came from and to the ones that came of it, and a session's card on the desktop does the
   same to the cards of those sessions pinned on the same screen.
 - **New window** (File › New window, ⌘⇧N): one more window on the project you're looking at.

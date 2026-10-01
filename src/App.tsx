@@ -1976,6 +1976,7 @@ export function App() {
         onShowTodo={showTodoFromPanel}
         lineage={lineageOf(session)}
         onShowSession={showSessionFromPanel}
+        onSessionMenu={(l, x) => sessionMenu(l, x, 'session')}
         onMoreMenu={(at) => void showContextMenu(sessionMenuSpec(lane, session, 'session'), at).catch((err: unknown) => setToast(String(err)))}
         onSeen={() => (row !== undefined ? seenAndOn(row, session, false) : markSeen([session.key]))}
         device={deviceOf(devices, session.key)}

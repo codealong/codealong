@@ -5,6 +5,9 @@
 // The top keeps to a few lines so the conversation has the room: the title with the ways to open
 // it and act on it, one line of where it stands and where it works, and one of the PRs it worked
 // on (each one's card on hover) and the todo it's on. The rest is in Details and the ⋯ menu.
+// A session that came of another (a fork, or started by its agent) names it in a line over the
+// title, and the sessions that came of it hang under the title, a few of them, each with its
+// status: a click shows one, a right-click gives its menu.
 //
 // In Sessions it works through what waits on you: ⌘⏎ in the box sends (or allows the call the
 // session waits on) and goes on to the next, the check (⌘E) marks a finished turn seen and goes
@@ -16,7 +19,7 @@ import { useMemo, useState } from 'react';
 import { below } from '../contextMenu';
 import { shortOf } from '../devices';
 import { folderTargets, opensInEditor, useEditorIcons } from '../editors';
-import { absolute, agoPhrase, duration, middleTruncate, tildePath } from '../format';
+import { absolute, ago, agoPhrase, duration, middleTruncate, tildePath } from '../format';
 import { HARNESS_WORD, sessionPlace } from '../harness';
 import { seenable, type Placed } from '../lanes';
 import { originWord } from '../lineage';
@@ -36,8 +39,9 @@ import { TodoGlyph } from './TodoBits';
 
 /** PRs shown before a "+N": a long session can have made many. */
 const PRS_SHOWN = 3;
-/** Sessions that came of this one shown before a "+N": an agent can start many. */
-const CAME_OF_SHOWN = 1;
+/** Sessions that came of this one listed under the title before "and N more": an agent can
+ *  start many, and the conversation needs the room. */
+const CAME_OF_SHOWN = 3;
 
 /** A session on the board and how it came of another. */
 export type Kin = Placed & { how: SessionOrigin['how'] };
@@ -62,9 +66,12 @@ interface SessionPanelProps {
   onPrMenu?: (pr: Pr) => void;
   todos?: Todo[];
   onShowTodo?: (todo: Todo) => void;
-  /** The session it came from and the ones that came of it (`Session.origin`), those on the board. */
+  /** The session it came from and the ones that came of it (`Session.origin`), those on the board:
+   *  the one it came from over the title, the ones that came of it under it, each showing its own
+   *  panel on a click and its own menu on a right-click. */
   lineage?: Lineage;
   onShowSession?: (lane: Lane, session: Session) => void;
+  onSessionMenu?: (lane: Lane, session: Session) => void;
   /** The session's right-click menu, from its ⋯ button. */
   onMoreMenu: (at: { x: number; y: number }) => void;
   /** Marks a finished turn seen, as the bar's peek does: the header offers it for Your turn and a
@@ -89,12 +96,13 @@ interface SessionPanelProps {
   onMaximize?: () => void;
 }
 
-export function SessionPanel({ lane, session: s, apps, now, onOpen, onShowLane, prs = [], onOpenPr, onPrMenu, todos, onShowTodo, lineage, onShowSession, onMoreMenu, onSeen, device, back, onSendFailed, queue, notice, onDone, autoFocus, maximized, onMaximize }: SessionPanelProps) {
+export function SessionPanel({ lane, session: s, apps, now, onOpen, onShowLane, prs = [], onOpenPr, onPrMenu, todos, onShowTodo, lineage, onShowSession, onSessionMenu, onMoreMenu, onSeen, device, back, onSendFailed, queue, notice, onDone, autoFocus, maximized, onMaximize }: SessionPanelProps) {
   const [details, setDetails] = useState(false);
   const [allPrs, setAllPrs] = useState(false);
   const [allTodos, setAllTodos] = useState(false);
   const [allKin, setAllKin] = useState(false);
-  const cameOf = lineage?.to ?? [];
+  // In the order they started, so the list holds still as they work.
+  const cameOf = useMemo(() => [...(lineage?.to ?? [])].sort((a, b) => (a.session.startedAt ?? a.session.lastPromptAt) - (b.session.startedAt ?? b.session.lastPromptAt)), [lineage]);
   const listed = useMemo(() => panelTodos(todos ?? []), [todos]);
   // The todo it's on: one in progress, else one still to do. Done ones wait behind "+N".
   const current = listed.find((t) => t.status !== 'done');
@@ -119,6 +127,7 @@ export function SessionPanel({ lane, session: s, apps, now, onOpen, onShowLane, 
             {back.label}
           </button>
         )}
+        {lineage?.from && <KinRow kin={lineage.from} now={now} parent onShow={onShowSession} onMenu={onSessionMenu} />}
         <div className="ca-sessinsp-top">
           <StatusGlyph status={s.status} size={14} />
           <h3 className="ca-sessinsp-title" title={s.title}>
@@ -151,6 +160,26 @@ export function SessionPanel({ lane, session: s, apps, now, onOpen, onShowLane, 
             <Button variant="ghost" size="sm" icon="dots" aria-label="More" title="New session here, pin, archive, copy and more" onClick={(e) => onMoreMenu(below(e.currentTarget))} />
           </div>
         </div>
+        {cameOf.length > 0 && (
+          <div className="ca-sessinsp-kids" role="list" aria-label="Sessions that came of this one">
+            {(allKin ? cameOf : cameOf.slice(0, CAME_OF_SHOWN)).map((k) => (
+              <KinRow key={k.session.key} kin={k} now={now} onShow={onShowSession} onMenu={onSessionMenu} />
+            ))}
+            {!allKin && cameOf.length > CAME_OF_SHOWN && (
+              <button
+                type="button"
+                className="ca-linkbtn ca-sessinsp-kids-more"
+                title={cameOf
+                  .slice(CAME_OF_SHOWN)
+                  .map((k) => `${k.how === 'fork' ? 'Forked into' : 'Started'} ${k.session.title}`)
+                  .join('\n')}
+                onClick={() => setAllKin(true)}
+              >
+                and {cameOf.length - CAME_OF_SHOWN} more
+              </button>
+            )}
+          </div>
+        )}
         <div className="ca-sessinsp-meta">
           <span>{s.stalledSince ? `Quiet since ${agoPhrase(s.stalledSince, now)}` : `${STATUS_WORD[s.status]} · ${since}`}</span>
           <span aria-hidden="true">·</span>
@@ -169,23 +198,6 @@ export function SessionPanel({ lane, session: s, apps, now, onOpen, onShowLane, 
         </div>
         {/* Hidden when it has nothing to show (app.css), Jev's chip included. */}
         <div className="ca-sessinsp-links">
-          {lineage?.from && <KinChip kin={lineage.from} phrase={originWord(lineage.from.how)} onShow={onShowSession} />}
-          {(allKin ? cameOf : cameOf.slice(0, CAME_OF_SHOWN)).map((k) => (
-            <KinChip key={k.session.key} kin={k} phrase={k.how === 'fork' ? 'Forked into' : 'Started'} onShow={onShowSession} />
-          ))}
-          {!allKin && cameOf.length > CAME_OF_SHOWN && (
-            <button
-              type="button"
-              className="ca-linkbtn ca-sessinsp-more"
-              title={cameOf
-                .slice(CAME_OF_SHOWN)
-                .map((k) => `${k.how === 'fork' ? 'Forked into' : 'Started'} ${k.session.title}`)
-                .join('\n')}
-              onClick={() => setAllKin(true)}
-            >
-              +{cameOf.length - CAME_OF_SHOWN}
-            </button>
-          )}
           {(allPrs ? prs : prs.slice(0, PRS_SHOWN)).map((pr) => (
             <PrChipCard key={pr.url} pr={pr} onOpen={() => onOpenPr?.(pr)} onMenu={onPrMenu && (() => onPrMenu(pr))} />
           ))}
@@ -304,15 +316,33 @@ export function SessionPanel({ lane, session: s, apps, now, onOpen, onShowLane, 
   );
 }
 
-/** A session this one came from or that came of it: the phrase and its title, showing its panel. */
-function KinChip({ kin, phrase, onShow }: { kin: Kin; phrase: string; onShow?: (lane: Lane, session: Session) => void }) {
+/** A session this one came from (`parent`, over the title) or that came of it (under the title,
+ *  hanging from it): its status, its title and how long since it last moved. A click shows it, a
+ *  right-click gives its menu. */
+function KinRow({ kin, now, parent = false, onShow, onMenu }: { kin: Kin; now: number; parent?: boolean; onShow?: (lane: Lane, session: Session) => void; onMenu?: (lane: Lane, session: Session) => void }) {
   const t = kin.session;
+  const phrase = parent ? originWord(kin.how) : kin.how === 'fork' ? 'Forked into' : 'Started';
   return (
-    <button type="button" className="ca-sessinsp-todo ca-sessinsp-kin" title={`${phrase} ${t.title}, in ${kin.lane.callsign}. Show it.`} onClick={() => onShow?.(kin.lane, t)}>
-      <Icon name={kin.how === 'fork' ? 'git-fork' : 'arrow-up-right'} size={12} />
-      <span>
-        <span className="ca-sessinsp-kin-phrase">{phrase}</span> {t.title}
-      </span>
+    <button
+      type="button"
+      role={parent ? undefined : 'listitem'}
+      className={parent ? 'ca-sessinsp-kin is-parent' : 'ca-sessinsp-kin'}
+      title={`${phrase} ${t.title}, in ${kin.lane.callsign}: ${STATUS_WORD[t.status].toLowerCase()}. Click to show it, right-click for its menu.`}
+      onClick={() => onShow?.(kin.lane, t)}
+      onContextMenu={
+        onMenu &&
+        ((e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onMenu(kin.lane, t);
+        })
+      }
+    >
+      {parent ? <span className="ca-sessinsp-kin-phrase">{phrase}</span> : <span className="ca-sessinsp-elbow" aria-hidden="true" />}
+      <StatusGlyph status={t.status} size={11} />
+      <span className="ca-sessinsp-kin-title">{t.title}</span>
+      {kin.how === 'fork' && !parent && <Icon name="git-fork" size={11} />}
+      <span className="ca-sessinsp-kin-age">{t.status === 'working' && t.statusSince ? duration(t.statusSince, now) : ago(t.lastActivity, now)}</span>
     </button>
   );
 }
