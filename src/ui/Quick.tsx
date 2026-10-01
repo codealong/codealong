@@ -56,6 +56,7 @@ import { prRefOf } from '../prLinks';
 import { ago, agoPhrase, resetsPhrase, tildePath } from '../format';
 import { HARNESS_WORD, usageNote } from '../harness';
 import { useLogo } from '../logo';
+import { useRowDrag } from './useRowDrag';
 import { prPills } from '../prStatus';
 import { ALL_PROJECTS, attentionRows, findPrs, findSessions, findTodos, FOUND_SESSIONS, inProject, laneBranch, laneGroups, MAX_ROWS, projectCounts, queryWords, queueAfter, queueRows, readyTodos, recallList, recentRows, shortcutLabel, stillSaid, TEXT_SEARCH_MIN, type Handled, type PrRow, type RowGroup, type SessionRow, type TodoRow, withPrompt as historyWith } from '../quick';
 import {
@@ -82,7 +83,7 @@ import { duplicateOf, rankedBy, suggestions, sureness, todoTitle, worthRouting, 
 import { dueWords } from '../due';
 import { liveOrLatest, sessionHomes } from '../lanes';
 import { attachmentsIn, blockedBy, insertAttachments, newTodo, snippet, todoItem, todoPrompt, todosPrompt, withoutAttachment } from '../todos';
-import type { Attachment, Board, DevicesView, Lane, Meter, PrItem, Route, Session, StartOptions, StartPlace, StartSpec, TextFound } from '../types';
+import type { Attachment, Board, DesktopPinned, DevicesView, Lane, Meter, PrItem, Route, Session, StartOptions, StartPlace, StartSpec, TextFound } from '../types';
 import { AttachmentStrip } from './DescriptionEditor';
 import { sessionWhy } from './PanelSession';
 import { Picker, type PickerOption, type PickerSection } from './Picker';
@@ -206,6 +207,23 @@ function prWhy(pr: PrItem): string {
 }
 
 /** A title with the typed words underlined. */
+/** What a result pins to the desktop when it's dragged out of the panel: its session or todo.
+ *  Null for what has no card: a session on another device or archived, a start, more results. */
+function deskPin(r: Row | undefined): DesktopPinned | null {
+  const session = r?.kind === 'session' ? r : r?.kind === 'suggest' && (r.s.kind === 'send' || r.s.kind === 'open') ? r.s : null;
+  if (session) return session.lane.device || session.session.archived ? null : { ref: 'session', key: session.session.key };
+  if (r?.kind === 'todo') return { ref: 'todo', key: r.item.todo.id };
+  return null;
+}
+
+/** What the pointer holds while it drags a result. */
+function deskTitle(r: Row | undefined): string {
+  if (r?.kind === 'session') return r.session.title;
+  if (r?.kind === 'suggest' && (r.s.kind === 'send' || r.s.kind === 'open')) return r.s.session.title;
+  if (r?.kind === 'todo') return r.item.todo.title || 'Untitled';
+  return '';
+}
+
 function Marked({ text, marks }: { text: string; marks: [number, number][] }) {
   if (marks.length === 0) return <>{text}</>;
   const out: ReactNode[] = [];
@@ -769,6 +787,14 @@ export function Quick() {
   const moreRow: MoreRow[] = !showAll && ranked.length > FOUND_SESSIONS ? [{ kind: 'more', key: 'more:found', group: 'found', count: ranked.length - FOUND_SESSIONS }] : [];
   const rows: Row[] = query ? [...suggested, ...(showAll ? ranked : ranked.slice(0, FOUND_SESSIONS)), ...moreRow, ...foundTodos, ...foundPrs] : [...(attention?.rows ?? []), ...(readyList?.rows ?? []), ...(recent?.rows ?? [])];
   const keys = [...rows.map((r) => r.key), COMPOSE];
+  // A result dragged out of the panel is pinned to the desktop: a session, a todo, or the
+  // session a suggestion is about (useRowDrag.tsx). Nothing here is put in order.
+  const rowsNow = useRef(rows);
+  rowsNow.current = rows;
+  const drag = useRowDrag({
+    desktop: (key) => deskPin(rowsNow.current.find((r) => r.key === key)),
+    label: (key) => deskTitle(rowsNow.current.find((r) => r.key === key)),
+  });
   const recallable = useMemo(() => recallList(draft?.text ?? null, history), [draft, history]);
   const active = activeKey && keys.includes(activeKey) ? activeKey : keys[0];
 
@@ -1565,6 +1591,7 @@ export function Quick() {
         if (e.target === e.currentTarget) void hideQuick();
       }}
     >
+      {drag.ghost}
       {replying && (
         <div ref={card} className="ca-quick is-reply" role="dialog" aria-label={`Answer ${replying.session.title}`} style={{ maxHeight: Math.min(REPLY_HEIGHT, room ? room - 2 * MARGIN : REPLY_HEIGHT) }}>
           <SessionPanel
@@ -1696,8 +1723,11 @@ export function Quick() {
                     {s.rows.map((r) => {
                       const n = rows.indexOf(r) + 1;
                       // What every row does with the pointer: hovering selects, a click does it, a
-                      // right-click has the rest.
+                      // right-click has the rest, and dragging it out of the panel pins it to the
+                      // desktop.
+                      const held = drag.rowProps(r.key, null, 0);
                       const handlers = {
+                        onPointerDown: held.onPointerDown,
                         onMouseMove: () => active !== r.key && setActiveKey(r.key),
                         onMouseDown: (e: React.MouseEvent) => e.preventDefault(),
                         onClick: (e: React.MouseEvent) => activate(r.key, e.altKey),
@@ -1714,7 +1744,7 @@ export function Quick() {
                             key={r.key}
                             role="option"
                             aria-selected={active === r.key}
-                            className={['ca-quick-row', 'is-suggest', active === r.key && 'is-active'].filter(Boolean).join(' ')}
+                            className={['ca-quick-row', 'is-suggest', active === r.key && 'is-active', held.extraClass].filter(Boolean).join(' ')}
                             title={`${said.title}\n${said.why}\n${pct}% likely, from ${route?.model ?? 'Jev'} in ${route?.ms ?? 0} ms · ⏎ does it${r.s.kind === 'send' ? ' · ⌥⏎ shows the session in Codealong' : r.s.kind === 'open' ? ' · ⌥⏎ opens the session where it lives' : ''}`}
                             {...handlers}
                           >
@@ -1739,7 +1769,7 @@ export function Quick() {
                             key={r.key}
                             role="option"
                             aria-selected={active === r.key}
-                            className={['ca-quick-row', 'is-todo', active === r.key && 'is-active'].filter(Boolean).join(' ')}
+                            className={['ca-quick-row', 'is-todo', active === r.key && 'is-active', held.extraClass].filter(Boolean).join(' ')}
                             title={`${t.title || 'Untitled'}\n⏎ ${opens} · ⌥⏎ shows the todo in Codealong`}
                             {...handlers}
                           >
@@ -1762,7 +1792,7 @@ export function Quick() {
                             key={r.key}
                             role="option"
                             aria-selected={active === r.key}
-                            className={['ca-quick-row', 'is-more', active === r.key && 'is-active'].filter(Boolean).join(' ')}
+                            className={['ca-quick-row', 'is-more', active === r.key && 'is-active', held.extraClass].filter(Boolean).join(' ')}
                             {...handlers}
                           >
                             <span className="ca-quick-plus">
@@ -1784,7 +1814,7 @@ export function Quick() {
                             key={r.key}
                             role="option"
                             aria-selected={active === r.key}
-                            className={['ca-quick-row', 'is-pr', active === r.key && 'is-active'].filter(Boolean).join(' ')}
+                            className={['ca-quick-row', 'is-pr', active === r.key && 'is-active', held.extraClass].filter(Boolean).join(' ')}
                             title={`${pr.title}\n${pr.repoSlug}#${pr.number} · ${pr.head}\n⏎ opens it on GitHub · ⌥⏎ shows it in Codealong`}
                             {...handlers}
                           >
@@ -1807,7 +1837,7 @@ export function Quick() {
                           key={r.key}
                           role="option"
                           aria-selected={active === r.key}
-                          className={['ca-quick-row', active === r.key && 'is-active', `is-${s2.status}`].filter(Boolean).join(' ')}
+                          className={['ca-quick-row', active === r.key && 'is-active', held.extraClass, `is-${s2.status}`].filter(Boolean).join(' ')}
                           title={`${s2.title}\n${s2.account} · ${r.lane.callsign}\n⏎ shows it in Codealong · ⇥ answers it here · ⌥⏎ opens it where it lives`}
                           {...handlers}
                         >

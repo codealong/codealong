@@ -27,6 +27,7 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   the row; in a panel, a click does. The views:
   - **Sessions**: every session in one list, with no headings. Pinned ones come first in your
     order (drag or ⌃⌘↑ ⌃⌘↓), each with a pin under its age, set a little apart from the rest.
+    Drag any session up among them to pin it there, and a pinned one down to the rest to unpin it.
     The sidebar's Sort by orders the rest. Status puts Needs you, Your turn and Working first, as
     the floating bar orders them, then the ones you snoozed, the soonest back first, then the
     rest by the day they were last active, the one you last sent a prompt first. Started puts the
@@ -156,8 +157,10 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     so rows hold still while agents work. Stuck
     agents (busy but silent for 30 minutes) show in Needs you with the command they're stuck
     on. The sidebar's statuses narrow each worktree to the agents they're about. Pin a worktree
-    with `p` or the right-click menu of the worktree or one of its agents, and reorder pins
-    by dragging or with ⌃⌘↑ ⌃⌘↓; a pinned worktree stays whatever the age filter says. Beside
+    with `p`, the right-click menu of the worktree or one of its agents, or by dragging its row
+    up to the top of the board, among the pinned ones; reorder pins by dragging or with ⌃⌘↑ ⌃⌘↓,
+    and drag one down to the bays to unpin it. A pinned worktree stays whatever the age filter
+    says. Beside
     its line diff, a row shows how far the worktree has moved from the default branch on the
     remote (`origin/main`), whatever its branch tracks: `↑3` for commits it has that the remote
     doesn't, `↓42` for commits the remote has that it doesn't. Canvas cards show the same.
@@ -469,8 +472,12 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   in the notch, and picking the one that's on turns it off, as do Window › Floating bar and Bar
   in the notch and the bar's own right-click menu.
 - **Pin to desktop** (a session's, worktree's or todo's right-click menu, in any view or on the
-  canvas, or a session's pill dragged off the bar): puts its card, the one the Canvas view shows, on the desktop, floating over every
-  window, on every Space and over full-screen apps as the floating bar does. A worktree's card
+  canvas; or drag it out of its window: a row out of the Sessions, Worktrees or Todo list, a
+  result out of the quick panel, a session's pill off the bar): puts its card, the one the Canvas
+  view shows, on the desktop, floating over every window, on every Space and over full-screen
+  apps as the floating bar does. A dragged card follows the pointer from where it leaves the
+  window and stays where you let go; back over the window, the drag pins nothing. A pinned row
+  dragged to the desktop leaves its list's pins: it moves there. A worktree's card
   lists its sessions that are running or waiting on you, and a todo's its sessions. Drag a card
   where you want it; it stays there across launches. Click a session (its card, a session line,
   or a todo's card) to open its peek beside the card, as the bar's pills do, with the keyboard in
@@ -773,7 +780,8 @@ light scan (no git, PRs or visitors).
 | `src-tauri/src/bar.rs`, `barfeed.rs` | The bar's window (a panel over every app, floating where you put it or docked in the notch, found from the screen's sides of the menu bar, where it takes clicks only on the shape it shows; Window › Floating bar and Bar in the notch) and the small feed of what it shows, sent only when that changes |
 | `src-tauri/src/origins.rs`, `src/lineage.ts`, `src-tauri/src/lineage.rs`, `src/ui/DesktopLines.tsx` | Where sessions came from: Codealong's own record of starts and forks (`origins.json`), the line drawn between them on the canvas and between desktop cards, and the clear window under the cards that draws it there |
 | `src/ui/card/` | The card the Canvas view and the desktop share: what it shows, looked up from the board (`data.ts`), its face (`CardFace.tsx`), and the popover a canvas card opens (`CardPopover.tsx`). The canvas and the desktop add only where a card goes and what a click does |
-| `src-tauri/src/desktop.rs`, `src/ui/DesktopPin.tsx` | Cards pinned to the desktop: a window each, made as the bar's is, where a new one goes, `desktop.json`, and what each shows, cut from the board and sent only when it changes; the page draws the card the Canvas view draws (`ui/card/`) |
+| `src-tauri/src/desktop.rs`, `src/ui/DesktopPin.tsx` | Cards pinned to the desktop: a window each, made as the bar's is, where a new one goes, `desktop.json`, and what each shows, cut from the board and sent only when it changes; the page draws the card the Canvas view draws (`ui/card/`). `drag_out` follows the pointer for a thing dragged out of a window |
+| `src/ui/useRowDrag.tsx` | Dragging rows in the lists and the quick panel: among the pinned ones (pin, reorder), down to the list (unpin), out of the window (the desktop) |
 | `src/` | The React UI, built from the design system's components and tokens; `lanes.ts` groups the board and mirrors the engine's status rules for the age filter; `pins.ts` keeps the pinned lists; `ahead.ts` shows sessions marked seen, archived, renamed or sent a message at once, in every window, until a board shows it; `prStatus.ts` and `ui/PrPills.tsx` say where a PR stands and which PRs are your move; `bar.ts`, `ui/Bar.tsx` and `ui/Notch.tsx` lay out the bar, floating or in the notch; `ui/Picker.tsx` is the quick panel's filterable menus; `ui/SettingsDialog.tsx` and `ui/AccountsSection.tsx` are Settings |
 | `scripts/preview.sh` | Headless preview against real data, for screenshots and scripted checks |
 | `design/tokens.json` | Design tokens; `npm run tokens` regenerates `src/styles/tokens.css` |

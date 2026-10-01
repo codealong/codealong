@@ -1,13 +1,15 @@
 // The Sessions view: every session in the project in one list, pinned ones first in your order
 // and marked with a pin. The rest go by status, as the floating bar orders them, or by when they
-// started. Drag a pinned session, or press ⌃⌘↑ ⌃⌘↓, to reorder.
+// started. Drag a pinned session, or press ⌃⌘↑ ⌃⌘↓, to reorder; drag any session up among them
+// to pin it there, a pinned one down to unpin it, and any out of the window to pin it to the
+// desktop (useRowDrag.tsx).
 
 import { bySession, byStatusTime, startedOf } from '../lanes';
 import type { MouseEvent } from 'react';
-import type { Lane, Session, Status, Todo } from '../types';
+import type { DesktopPinned, Lane, Session, Status, Todo } from '../types';
 import { AgentRow } from './LaneRow';
-import { SectionHeader, cx } from './primitives';
-import { useDragOrder, type DragProps } from './useDragOrder';
+import { SectionHeader } from './primitives';
+import { useRowDrag, type DragProps } from './useRowDrag';
 
 export interface SessionItem {
   kind: 'agent';
@@ -97,8 +99,13 @@ interface SessionsViewProps {
   onPrMenu: (row: SessionItem) => void;
   /** A click on the PR of a row's worktree: opens it on GitHub. */
   onPrOpen: (row: SessionItem) => void;
-  /** Moves a pinned session to insertion point `index` among the pinned ones showing. */
-  onMovePinned: (key: string, index: number) => void;
+  /** Puts a session at insertion point `index` among the pinned ones showing: a pinned one
+   *  moves there, another is pinned there. */
+  onPlacePinned: (key: string, index: number) => void;
+  /** Unpins a session: its row dragged from the pinned ones down to the list, or out of the window. */
+  onUnpin: (key: string) => void;
+  /** What a session's row pins to the desktop when it's dragged out of the window, if it can be. */
+  desktop: (row: SessionItem) => DesktopPinned | null;
   /** Archived sessions, listed under a fold at the end. */
   archived: SessionItem[];
   showArchived: boolean;
@@ -109,11 +116,22 @@ interface SessionsViewProps {
 }
 
 export function SessionsView(props: SessionsViewProps) {
-  const { pinned, rows, sort, now, selectedKey, domId, onSelect, onOpen, onContextMenu, onPrMenu, onPrOpen, onMovePinned, archived, showArchived, onToggleArchived, todosFor, onShowTodo } = props;
-  // Only the pinned rows carry a drag index, so a drop below them lands last among them.
-  const { listRef, dragging, rowProps } = useDragOrder(onMovePinned);
+  const { pinned, rows, sort, now, selectedKey, domId, onSelect, onOpen, onContextMenu, onPrMenu, onPrOpen, onPlacePinned, onUnpin, desktop, archived, showArchived, onToggleArchived, todosFor, onShowTodo } = props;
+  const byKey = (key: string) => pinned.find((r) => r.session.key === key) ?? rows.find((r) => r.session.key === key);
+  // Only the pinned rows carry an index: the others join them when dropped among them.
+  const drag = useRowDrag({
+    onPlace: onPlacePinned,
+    joins: true,
+    onLeave: onUnpin,
+    desktop: (key) => {
+      const r = byKey(key);
+      return r ? desktop(r) : null;
+    },
+    label: (key) => byKey(key)?.session.title ?? '',
+  });
 
-  const row = (r: SessionItem, drag?: DragProps) => (
+  /** A session's row: `index` is its place among the pinned ones; the archived aren't dragged. */
+  const row = (r: SessionItem, index: number | null, props?: DragProps) => (
     <AgentRow
       key={r.key}
       lane={r.lane}
@@ -124,13 +142,13 @@ export function SessionsView(props: SessionsViewProps) {
       selected={r.key === selectedKey}
       onSelect={(e) => onSelect(r, e)}
       onOpen={() => onOpen(r)}
-      pinned={drag != null}
+      pinned={index != null}
       onContextMenu={() => onContextMenu(r)}
       onPrMenu={() => onPrMenu(r)}
       onPrOpen={() => onPrOpen(r)}
       todos={todosFor?.(r.session.key)}
       onShowTodo={onShowTodo}
-      {...drag}
+      {...props}
     />
   );
 
@@ -138,9 +156,11 @@ export function SessionsView(props: SessionsViewProps) {
     <>
       {pinned.length + rows.length > 0 && (
         <section className="ca-bayblock ca-sessionlist">
-          <div ref={listRef} className={cx('ca-bay-lanes', dragging && 'is-dragging')}>
-            {pinned.map((r, i) => row(r, rowProps(r.session.key, i, pinned.length)))}
-            {rows.map((r) => row(r))}
+          <div className="ca-bay-lanes" data-drag-list>
+            {/* The first pin lands at the top of the list. */}
+            {pinned.length === 0 && drag.dropIndex === 0 && <div className="ca-dropline" />}
+            {pinned.map((r, i) => row(r, i, drag.rowProps(r.session.key, i, pinned.length)))}
+            {rows.map((r) => row(r, null, drag.rowProps(r.session.key, null, pinned.length)))}
           </div>
         </section>
       )}
@@ -156,9 +176,10 @@ export function SessionsView(props: SessionsViewProps) {
               </button>
             }
           />
-          {showArchived && <div className="ca-bay-lanes">{archived.map((r) => row(r))}</div>}
+          {showArchived && <div className="ca-bay-lanes">{archived.map((r) => row(r, null))}</div>}
         </section>
       )}
+      {drag.ghost}
     </>
   );
 }

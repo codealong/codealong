@@ -2113,22 +2113,24 @@ body.is-resizing * {
   cursor: pointer;
 }
 
-/* Reordering pinned rows (sessions or worktrees) by dragging them. */
-.ca-pinned .ca-lane,
-.ca-sessionlist .ca-lane[data-pin-index] {
+/* Dragging rows (useRowDrag.tsx): among the pinned ones, down to the list to unpin, out of the
+   window onto the desktop. The pinned rows, which you put in order, show a hand. */
+.ca-lane[data-pin-index] {
   cursor: grab;
 }
-.ca-bay-lanes.is-dragging,
-.ca-bay-lanes.is-dragging .ca-lane {
-  cursor: grabbing;
+.ca-dragging,
+.ca-dragging * {
+  cursor: grabbing !important;
   user-select: none;
   -webkit-user-select: none;
 }
-.ca-lane.is-drag-source {
+.ca-lane.is-drag-source,
+.ca-quick-row.is-drag-source {
   opacity: 0.45;
 }
 .ca-lane.is-drop-before::before,
-.ca-lane.is-drop-after::after {
+.ca-lane.is-drop-after::after,
+.ca-dropline::after {
   content: '';
   position: absolute;
   left: 0;
@@ -2143,6 +2145,14 @@ body.is-resizing * {
 .ca-lane.is-drop-after::after {
   bottom: -1px;
 }
+/* Where the first pin would land: the top of a list with none yet. It takes no room. */
+.ca-dropline {
+  position: relative;
+  height: 0;
+}
+.ca-dropline::after {
+  top: 0;
+}
 .ca-grip {
   position: absolute;
   top: 50%;
@@ -2153,10 +2163,46 @@ body.is-resizing * {
   transform: translateY(-50%);
   pointer-events: none;
 }
-.ca-pinned .ca-lane:hover .ca-grip,
-.ca-sessionlist .ca-lane[data-pin-index]:hover .ca-grip,
-.ca-lane.is-drag-source .ca-grip {
+.ca-lane:hover > .ca-grip,
+.ca-lane.is-drag-source > .ca-grip {
   opacity: 1;
+}
+/* What the pointer holds while it drags a row: the row's title, and what letting go would do
+   (Pin, Unpin). Outside the window the row's card takes over, on the desktop. */
+.ca-dragghost {
+  position: fixed;
+  top: 14px;
+  left: 12px;
+  z-index: 1000;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: 280px;
+  padding: 3px var(--space-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font: 500 12px/18px var(--font-sans);
+  box-shadow: var(--shadow-popover);
+  pointer-events: none;
+}
+.ca-dragghost.is-out {
+  display: none;
+}
+.ca-dragghost-act {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 3px;
+  color: var(--focus);
+  font-weight: 600;
+}
+.ca-dragghost-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 /* Sessions is one list with no headings: a strip of ground sets the pinned rows at its top
    apart from the rest, and each carries a solid pin, where no Pinned heading says so. */
@@ -3541,12 +3587,6 @@ html.is-peek body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.ca-lane.is-draggable {
-  cursor: grab;
-}
-.ca-lane.is-draggable:hover .ca-grip {
-  opacity: 1;
 }
 .ca-todo-done .ca-lane {
   opacity: 0.8;

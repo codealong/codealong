@@ -37,7 +37,8 @@ import { Inspector } from './ui/Inspector';
 import { SessionPanel } from './ui/SessionPanel';
 import { lineageOf } from './lineage';
 import { LaneRow } from './ui/LaneRow';
-import { PinnedSection, type PinDrag } from './ui/PinnedSection';
+import { PinnedSection } from './ui/PinnedSection';
+import { useRowDrag, type DragProps } from './ui/useRowDrag';
 import { BayHeader, Button, Icon, Kbd, StatusGlyph } from './ui/primitives';
 import { ALL_PROJECTS, openSwitcher, projectForDigit, ProjectSwitcher, type ActionCounts } from './ui/ProjectSwitcher';
 import { useLogo } from './logo';
@@ -1383,6 +1384,17 @@ export function App() {
   actionsRef.current = { session: (lane, s, pin) => menus.sessionActions(lane, s, sessionCan(lane, s, pin)), lane: (lane) => menus.laneActions(lane, laneCan(lane)) };
   const laneMenu = (lane: Lane) => void showContextMenu(laneMenuSpec(lane)).catch((e: unknown) => setToast(String(e)));
 
+  // A worktree's row dragged on the board: among the pinned ones to pin it there or move it, from
+  // them down to the bays to unpin it, out of the window onto the desktop (useRowDrag.tsx).
+  // What's on another device has no card here.
+  const laneDrag = useRowDrag({
+    onPlace: (id, index) => lanePins.place(pinnedLaneRows.map((r) => r.lane.id), id, index),
+    joins: true,
+    onLeave: lanePins.remove,
+    desktop: (id) => (laneById.get(id)?.device ? null : { ref: 'worktree', key: id }),
+    label: (id) => laneById.get(id)?.callsign ?? '',
+  });
+
   /** Moves a pinned session to insertion point `index` among the pinned ones showing. */
   const movePinnedSession = useCallback(
     (key: string, index: number) => sessionPins.move(pinnedRows.map((r) => r.session.key), key, index),
@@ -2021,8 +2033,8 @@ export function App() {
     }
   })();
 
-  /** A worktree's row on the board; `drag` when it's pinned. */
-  const laneRow = (r: WorktreeRow, drag?: PinDrag) => (
+  /** A worktree's row on the board: `index` is its place among the pinned ones. */
+  const laneRow = (r: WorktreeRow, index: number | null, drag: DragProps) => (
     <LaneRow
       key={r.key}
       row={r}
@@ -2032,7 +2044,7 @@ export function App() {
       onSelect={setSelectedKey}
       onOpen={(lane) => open(lane, lane.defaultTarget)}
       onOpenTarget={open}
-      pinned={drag != null}
+      pinned={index != null}
       onContextMenu={() => laneMenu(r.lane)}
       onAgentMenu={(s) => sessionMenu(r.lane, s, 'worktree')}
       onPrMenu={() => lanePrMenu(r.lane)}
@@ -2360,6 +2372,7 @@ export function App() {
             tabIndex={0}
             ref={listRef}
             className="ca-board-list"
+            data-drag-list
           >
             {view === 'todo' && board && (
               <TodoView
@@ -2449,7 +2462,9 @@ export function App() {
                 onContextMenu={(r) => sessionMenu(r.lane, r.session, 'session')}
                 onPrMenu={(r) => lanePrMenu(r.lane)}
                 onPrOpen={(r) => openLanePr(r.lane)}
-                onMovePinned={movePinnedSession}
+                onPlacePinned={(key, index) => sessionPins.place(pinnedRows.map((r) => r.session.key), key, index)}
+                onUnpin={sessionPins.remove}
+                desktop={(r) => (r.lane.device || r.session.archived ? null : { ref: 'session', key: r.session.key })}
                 archived={archivedItems}
                 showArchived={showArchived}
                 onToggleArchived={() => setShowArchived(!showArchived)}
@@ -2457,9 +2472,12 @@ export function App() {
                 onShowTodo={showTodo}
               />
             )}
+            {/* The first pin lands at the top of the board. */}
+            {view === 'worktrees' && pinnedLaneRows.length === 0 && laneDrag.dropIndex === 0 && <div className="ca-dropline" />}
             {view === 'worktrees' && pinnedLaneRows.length > 0 && (
-              <PinnedSection items={pinnedLaneRows} keyOf={(r) => r.lane.id} onMove={movePinnedLane} row={laneRow} />
+              <PinnedSection items={pinnedLaneRows} row={(r, i) => laneRow(r, i, laneDrag.rowProps(r.lane.id, i, pinnedLaneRows.length))} />
             )}
+            {view === 'worktrees' && laneDrag.ghost}
             {view === 'worktrees' &&
               shownGroups.map((g) => {
                 const groupParked = g.bays.flatMap((b) => b.rows).filter((r) => r.lane.parked).length;
@@ -2495,7 +2513,7 @@ export function App() {
                             }
                           />
                           <div className="ca-bay-lanes">
-                            {b.rows.map((r) => laneRow(r))}
+                            {b.rows.map((r) => laneRow(r, null, laneDrag.rowProps(r.lane.id, null, pinnedLaneRows.length)))}
                             {b.bay === 'idle' && foldParked && groupParked > 0 && (
                               <button type="button" className="ca-parked" onClick={() => setShowParked(true)}>
                                 Show {groupParked} parked {groupParked === 1 ? 'worktree' : 'worktrees'}

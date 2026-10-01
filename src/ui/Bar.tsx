@@ -12,7 +12,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { barMode, dragToDesktop, fitBar, getBarFeed, onBarDragEnd, onBarFeed, onBarMode, onBarNote, onPeekShown, peekHide, peekOpen, sessionAt, setBarMode, setNotchOpen, showMain, showQuick, type BarModeView, type PillRect } from '../api';
+import { barMode, dragToDesktop, fitBar, getBarFeed, onBarFeed, onDesktopDragEnd, onBarMode, onBarNote, onPeekShown, peekHide, peekOpen, sessionAt, setBarMode, setNotchOpen, showMain, showQuick, type BarModeView, type PillRect } from '../api';
 import { CLICK_WAIT_MS, elsewhereWaits, fitGroups, GROUPS, plain, projectWaits, type Group, type GroupFit, type WaitCounts } from '../bar';
 import { showContextMenu, type MenuAction, type MenuSpec } from '../contextMenu';
 import { useEditorIcons, type Apps } from '../editors';
@@ -336,7 +336,7 @@ export function Bar() {
   const press = useRef<{ key: string; x: number; y: number; dragged: boolean } | null>(null);
   // The session whose card is being dragged onto the desktop (desktop.rs `drag_out`).
   const [dragging, setDragging] = useState<string | null>(null);
-  useEffect(() => onBarDragEnd(() => setDragging(null)), []);
+  useEffect(() => onDesktopDragEnd(() => setDragging(null)), []);
   // What's pinned to the desktop, for the pill menu's Pin to desktop.
   const onDesktop = menus.useDesktopPins();
   // The editors, once a pill's menu has fetched them, for their icons in the next one.
@@ -590,7 +590,7 @@ export function Bar() {
     clickTimer.current = null;
     if (peekedNow.current.key) void peekHide();
     setDragging(i.key);
-    dragToDesktop(i.key).catch((err: unknown) => {
+    dragToDesktop({ ref: 'session', key: i.key }).catch((err: unknown) => {
       setDragging(null);
       setFailed({ anchor: i.key, message: errorText(err) });
     });

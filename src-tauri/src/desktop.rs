@@ -3,9 +3,10 @@
 //! floating bar does (DesktopPin.tsx draws it). You drag a card where you want it, a click opens
 //! what it shows, and its own right-click menu takes it off the desktop.
 //!
-//! A session can also be dragged off the bar's pills (floating or in the notch) onto the desktop:
-//! its card is pinned as the drag starts and follows the pointer until the button comes up
-//! (`drag_out`).
+//! A thing can also be dragged onto the desktop: a session off the bar's pills (floating or in the
+//! notch), a row out of a list in the main window, a result out of the quick panel. Its card is
+//! pinned as the drag leaves its window and follows the pointer until the button comes up
+//! (`drag_out`); let go back over that window, the drag pinned nothing.
 //!
 //! Each card is its own window, made the way the bar is (bar.rs): a non-activating panel, so a
 //! click in one leaves the app you're in active and never takes the keyboard. It gets what it
@@ -94,20 +95,36 @@ struct Desktop {
     drag: Mutex<Drag>,
 }
 
-/// A session being dragged off the bar, while the mouse button is down.
+/// A thing being dragged out of a window onto the desktop, while the mouse button is down.
 #[derive(Default)]
 struct Drag {
     /// Counts drags, so an old one's watch stops.
     n: u64,
     what: Option<Pinned>,
+    /// The window it's dragged out of: the bar, the quick panel, a main window.
+    home: String,
     /// The card's window once it's there, and whether the drag made it.
     card: Option<(String, bool)>,
-    /// Where a card pinned before was, for a drag that ends back on the bar.
+    /// The drag is making its card: a thing not pinned before gets one when the pointer first
+    /// leaves the window.
+    making: bool,
+    /// Where a card pinned before was, for a drag that ends back over its window.
     before: Option<Rect>,
+    /// The card is put away while the pointer is back over the window the drag came from.
+    parked: bool,
+    /// The pointer is off the window the drag came from, as that window was last told.
+    away: bool,
     /// Where the pointer was last.
     last: Option<(f64, f64)>,
-    /// The button came up before the card was made: on the bar (true) or off it.
+    /// The button came up before the card was made: over its window (true) or off it.
     ended: Option<bool>,
+}
+
+/// What the window a drag came from hears when the button comes up (`desktop-drag-end`).
+#[derive(Serialize, Clone, Copy, Debug)]
+struct DragEnd {
+    /// The card stayed on the desktop; false for a drag let go back over its window.
+    kept: bool,
 }
 
 #[derive(Default)]
@@ -380,31 +397,24 @@ pub fn held_at(p: (f64, f64), (w, h): (f64, f64)) -> Rect {
     Rect { x: p.0 - GRAB.0, y: p.1 + GRAB.1 - h, w, h }
 }
 
-/// Starts dragging a session's card off the bar: pinned now if it isn't (off the main thread,
-/// which making a window waits on), then moved with the pointer (`follow_drag`). The bar's page
-/// starts it once a pill has moved with the button down; the pointer is followed from here since
-/// the bar's window hears nothing of it once it leaves, and docked lets the clicks through. On the
-/// main thread.
-pub fn drag_out(app: &AppHandle, what: Pinned) {
+/// Starts dragging a thing out of the window `home` onto the desktop: the pointer is watched
+/// from here (`follow_drag`) until the button comes up, since a page can't place a window under
+/// it, hears little of the pointer once it leaves, and the docked bar lets clicks through. The
+/// window's page starts it once a pill or a row has moved with the button down. On the main
+/// thread.
+pub fn drag_out(app: &AppHandle, what: Pinned, home: &str) {
     let Some(state) = app.try_state::<Desktop>() else { return };
     let Some(p) = native::pointer() else { return };
     let existing = state.inner.lock().ok().and_then(|i| i.cards.iter().find(|(_, pin)| pin.what == what).map(|(l, pin)| (l.clone(), pin.frame)));
-    let make = existing.is_none();
     let n = {
         let Ok(mut d) = state.drag.lock() else { return };
         let n = d.n + 1;
         let (card, before) = existing.map_or((None, None), |(l, f)| (Some((l, false)), f));
-        *d = Drag { n, what: Some(what.clone()), card, before, last: Some(p), ended: None };
+        *d = Drag { n, what: Some(what), home: home.to_string(), card, making: false, before, parked: false, away: false, last: Some(p), ended: None };
         n
     };
-    if make {
-        let handle = app.clone();
-        std::thread::spawn(move || {
-            let made = pin(&handle, what, Some(held_at(p, START)));
-            let app = handle.clone();
-            let _ = handle.run_on_main_thread(move || made_for_drag(&app, n, made.ok()));
-        });
-    }
+    // Off the bar the card is there at once.
+    follow_drag(app, n);
     let handle = app.clone();
     std::thread::spawn(move || loop {
         std::thread::sleep(DRAG_EVERY);
@@ -419,11 +429,51 @@ pub fn drag_out(app: &AppHandle, what: Pinned) {
     });
 }
 
+/// Pins the dragged thing, its card held by the pointer at `p` (off the main thread, which
+/// making a window waits on), and hands the card to the drag (`made_for_drag`).
+fn make_for_drag(app: &AppHandle, n: u64, what: Pinned, p: (f64, f64)) {
+    let handle = app.clone();
+    std::thread::spawn(move || {
+        let made = pin(&handle, what, Some(held_at(p, START)));
+        let app = handle.clone();
+        let _ = handle.run_on_main_thread(move || made_for_drag(&app, n, made.ok()));
+    });
+}
+
+/// Whether the pointer at `p` is back over the window a drag came from: on the bar's card or
+/// docked shape, else anywhere in the window's frame. On the main thread.
+fn at_home(app: &AppHandle, home: &str, p: (f64, f64)) -> bool {
+    if home == crate::bar::LABEL {
+        return crate::bar::covers(app, p);
+    }
+    app.get_webview_window(home).is_some_and(|w| w.is_visible().unwrap_or(false) && native::frame(&w).is_some_and(|f| f.contains(p)))
+}
+
+/// What a dragged card does while the button is down, by where the pointer is.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Held {
+    /// It hangs from the pointer.
+    Follow,
+    /// It's put away: the pointer is back over the window the drag came from, whose page shows
+    /// where a drop there would go.
+    Park,
+}
+
+/// A card dragged off the bar stays under the pointer over the bar too, where the pill it came
+/// from is; out of any other window it's put away over that window, which it would cover.
+pub fn held(home_is_bar: bool, at_home: bool) -> Held {
+    if at_home && !home_is_bar {
+        Held::Park
+    } else {
+        Held::Follow
+    }
+}
+
 /// The card a drag pinned is there: it follows the pointer from now on, or if the button came up
 /// meanwhile, is dropped where the pointer last was. On the main thread.
 fn made_for_drag(app: &AppHandle, n: u64, label: Option<String>) {
     let Some(state) = app.try_state::<Desktop>() else { return };
-    let (what, last, on_bar) = {
+    let (what, last, home) = {
         let Ok(mut d) = state.drag.lock() else { return };
         if d.n != n {
             return;
@@ -432,47 +482,118 @@ fn made_for_drag(app: &AppHandle, n: u64, label: Option<String>) {
             d.what = None;
             return;
         };
-        let Some(on_bar) = d.ended else {
+        let Some(home) = d.ended else {
             d.card = Some((label, true));
+            // Put where the pointer is now, or away, without waiting for the next look.
+            d.parked = false;
+            drop(d);
+            follow_drag(app, n);
             return;
         };
-        (d.what.take(), d.last, on_bar)
+        (d.what.take(), d.last, home)
     };
     let Some(label) = label else { return };
     if let Some(p) = last {
         move_card(app, &label, p);
     }
-    drop_card(app, what, &label, true, None, on_bar);
+    drop_card(app, what, &label, true, None, home);
 }
 
-/// Moves the dragged card to the pointer, or once the button is up leaves it there, unless
-/// that's back on the bar. On the main thread.
+/// What a look at the pointer has a drag do.
+enum Step {
+    Nothing,
+    /// The thing isn't pinned yet and the pointer has left its window: pin it.
+    Make(Pinned),
+    Move(String),
+    Park(String, bool, Option<Rect>),
+    Drop(String, bool, Option<Pinned>, Option<Rect>),
+}
+
+/// Looks at the pointer for a drag: while the button is down the card hangs from it, made when
+/// the pointer first leaves the window the drag came from, and put away while it's back over
+/// that window; once the button is up the card is left where it is, unless that's over that
+/// window. On the main thread.
 fn follow_drag(app: &AppHandle, n: u64) {
     let Some(state) = app.try_state::<Desktop>() else { return };
     let Some(p) = native::pointer() else { return };
     let down = native::button_down();
-    let on_bar = !down && crate::bar::covers(app, p);
-    let dropped = {
+    let Some(home) = state.drag.lock().ok().filter(|d| d.n == n).map(|d| d.home.clone()) else { return };
+    let home_now = at_home(app, &home, p);
+    let mut left = None;
+    let step = {
         let Ok(mut d) = state.drag.lock() else { return };
         if d.n != n || d.what.is_none() || d.ended.is_some() {
             return;
         }
         d.last = Some(p);
-        if down {
-            d.card.clone().map(|(label, _)| (label, None))
-        } else {
-            d.ended = Some(on_bar);
-            // A card still being made is dropped by its maker (`made_for_drag`).
-            d.card.take().map(|(label, made)| (label, Some((made, d.what.take(), d.before.take()))))
+        if down && d.away == home_now {
+            d.away = !home_now;
+            left = Some(d.away);
+        }
+        let park = held(home == crate::bar::LABEL, home_now) == Held::Park;
+        // Let go off its window before a look saw it leave, it's pinned where it was let go.
+        let make = if down { !park } else { !home_now };
+        if !down {
+            d.ended = Some(home_now);
+        }
+        match (down, d.card.clone()) {
+            (true, Some((label, made))) => {
+                let turned = park != d.parked;
+                d.parked = park;
+                match (park, turned) {
+                    (false, _) => Step::Move(label),
+                    (true, true) => Step::Park(label, made, d.before),
+                    (true, false) => Step::Nothing,
+                }
+            }
+            (false, Some((label, made))) => {
+                d.card = None;
+                Step::Drop(label, made, d.what.take(), d.before.take())
+            }
+            // A card still being made is placed or dropped by its maker (`made_for_drag`).
+            (_, None) if make && !d.making => {
+                d.making = true;
+                d.what.clone().map_or(Step::Nothing, Step::Make)
+            }
+            (_, None) => Step::Nothing,
         }
     };
-    match dropped {
-        Some((label, None)) => move_card(app, &label, p),
-        Some((label, Some((made, what, before)))) => drop_card(app, what, &label, made, before, on_bar),
-        None => {}
+    match step {
+        Step::Nothing => {}
+        Step::Make(what) => make_for_drag(app, n, what, p),
+        Step::Move(label) => {
+            show_card(app, &label);
+            move_card(app, &label, p);
+        }
+        Step::Park(label, made, before) => park_card(app, &label, made, before),
+        Step::Drop(label, made, what, before) => drop_card(app, what, &label, made, before, home_now),
+    }
+    // The window's page shows where a drop on it would land only while the pointer is over it,
+    // and it may hear nothing of the pointer once it has left.
+    if let Some(away) = left {
+        let _ = app.emit_to(home.as_str(), "desktop-drag-away", away);
     }
     if !down {
-        let _ = app.emit_to(crate::bar::LABEL, "bar-drag-end", ());
+        let _ = app.emit_to(home.as_str(), "desktop-drag-end", DragEnd { kept: !home_now });
+    }
+}
+
+/// Puts a dragged card away while the pointer is back over the window it came from: a card the
+/// drag made can't be seen, and one pinned before goes back where it was. On the main thread.
+fn park_card(app: &AppHandle, label: &str, made: bool, before: Option<Rect>) {
+    let Some(window) = app.get_webview_window(label) else { return };
+    if made {
+        native::set_alpha(&window, 0.0);
+    } else if let Some(before) = before {
+        native::set_frame(&window, before);
+        remember_frame(app, label);
+    }
+}
+
+/// A card put away can be seen again. On the main thread.
+fn show_card(app: &AppHandle, label: &str) {
+    if let Some(window) = app.get_webview_window(label) {
+        native::set_alpha(&window, 1.0);
     }
 }
 
@@ -495,10 +616,11 @@ fn move_card(app: &AppHandle, label: &str, p: (f64, f64)) {
     }
 }
 
-/// Where a drag leaves its card: back on the bar, a card it made goes, and one pinned before goes
-/// back where it was; anywhere else it stays, kept on its screen. On the main thread.
-fn drop_card(app: &AppHandle, what: Option<Pinned>, label: &str, made: bool, before: Option<Rect>, on_bar: bool) {
-    if on_bar {
+/// Where a drag leaves its card: back over the window it came from (`home`), a card it made goes,
+/// and one pinned before goes back where it was; anywhere else it stays, kept on its screen. On
+/// the main thread.
+fn drop_card(app: &AppHandle, what: Option<Pinned>, label: &str, made: bool, before: Option<Rect>, home: bool) {
+    if home {
         match (made, what, before) {
             (true, Some(what), _) => unpin(app, &what),
             (false, _, Some(before)) => {
@@ -512,6 +634,7 @@ fn drop_card(app: &AppHandle, what: Option<Pinned>, label: &str, made: bool, bef
         return;
     }
     let Some(window) = app.get_webview_window(label) else { return };
+    native::set_alpha(&window, 1.0);
     let Some(frame) = native::frame(&window) else { return };
     let Some(screen) = screen_for(frame, &native::screens()) else { return };
     let kept = clamp(frame, screen);
@@ -690,6 +813,16 @@ mod tests {
         assert_eq!(held_at((500.0, 400.0), (304.0, 80.0)), r(464.0, 346.0, 304.0, 80.0));
         let f = held_at((500.0, 400.0), (304.0, 180.0));
         assert_eq!((f.x, f.top()), (464.0, 426.0));
+    }
+
+    #[test]
+    fn a_dragged_card_is_put_away_over_the_window_it_came_from_but_not_over_the_bar() {
+        // Out of a list or the quick panel: under the pointer outside, away over the window.
+        assert_eq!(held(false, false), Held::Follow);
+        assert_eq!(held(false, true), Held::Park);
+        // Off the bar it stays under the pointer, over the bar too.
+        assert_eq!(held(true, false), Held::Follow);
+        assert_eq!(held(true, true), Held::Follow);
     }
 
     #[test]

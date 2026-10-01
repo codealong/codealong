@@ -1,5 +1,6 @@
 // The Todo view: work you mean to hand an agent. In progress, Ready and Waiting come in your
-// order (drag, or ⌃⌘↑ ⌃⌘↓, to reorder), then Done under a fold. Waiting holds the todos marked as
+// order (drag, or ⌃⌘↑ ⌃⌘↓, to reorder), then Done under a fold. A todo dragged out of the window
+// is pinned to the desktop (useRowDrag.tsx). Waiting holds the todos marked as
 // waiting and the ones not started that wait on a todo that isn't done. A row shows when the todo
 // is due, its labels, what it waits on, the sessions on it with their status, and the worktree
 // it's in.
@@ -12,7 +13,7 @@ import { attachmentsIn, blockedBy, SECTION_WORD, snippet, todoPr, type TodoItem,
 import type { Label, Lane, Session, Todo, TodoHint, TodoStatus } from '../types';
 import { HarnessChip, Icon, Kbd, PrChip } from './primitives';
 import { DueChip, LabelChip, TodoGlyph } from './TodoBits';
-import { useDragOrder, type DragProps } from './useDragOrder';
+import { useRowDrag, type DragProps } from './useRowDrag';
 
 /** Where a new todo will be linked, when it's made from a worktree or a session. */
 export interface ComposerContext {
@@ -115,7 +116,7 @@ function TodoRow({ item, section, domId, now, selected, showProject, onSelect, o
       id={domId}
       role="option"
       aria-selected={selected}
-      className={['ca-lane', 'ca-todorow', `is-${todo.status}`, selected && 'is-selected', drag && 'is-draggable', drag?.extraClass].filter(Boolean).join(' ')}
+      className={['ca-lane', 'ca-todorow', `is-${todo.status}`, selected && 'is-selected', drag?.extraClass].filter(Boolean).join(' ')}
       data-pin-index={drag?.pinIndex}
       onPointerDown={drag?.onPointerDown}
       onMouseDown={(e) => {
@@ -250,7 +251,7 @@ function SectionHead({ id, count, hint }: { id: TodoSectionId; count: number; hi
 
 function Section({ section, props }: { section: TodoSection; props: TodoViewProps }) {
   const { todos, now, selectedKey, picked, domId, showProject, canReorder, onSelect, onOpen, onContextMenu, onOpenSession, onFilterLabel, onMove } = props;
-  const { listRef, dragging, rowProps } = useDragOrder((id, index) => onMove(section.id, id, index));
+  const drag = useTodoDrag(section.rows, (id, index) => onMove(section.id, id, index));
   const draggable = canReorder && section.rows.length > 1;
   return (
     <section className="ca-bayblock">
@@ -265,7 +266,7 @@ function Section({ section, props }: { section: TodoSection; props: TodoViewProp
           ) : undefined
         }
       />
-      <div ref={listRef} className={['ca-bay-lanes', dragging && 'is-dragging'].filter(Boolean).join(' ')}>
+      <div className="ca-bay-lanes" data-drag-list>
         {section.rows.map((r, i) => (
           <TodoRow
             key={r.key}
@@ -282,18 +283,31 @@ function Section({ section, props }: { section: TodoSection; props: TodoViewProp
             onFilterLabel={onFilterLabel}
             blocked={blockedBy(r.todo, todos)}
             hint={props.hints?.[r.todo.id]}
-            drag={draggable ? rowProps(r.todo.id, i, section.rows.length) : undefined}
+            drag={drag.rowProps(r.todo.id, draggable ? i : null, section.rows.length)}
           />
         ))}
       </div>
+      {drag.ghost}
     </section>
   );
+}
+
+/** Drags for a section's todos: into a new order when `onMove` is given, and out of the window
+ *  onto the desktop. */
+function useTodoDrag(rows: TodoItem[], onMove?: (id: string, index: number) => void) {
+  return useRowDrag({
+    onPlace: onMove,
+    desktop: (id) => ({ ref: 'todo', key: id }),
+    label: (id) => rows.find((r) => r.todo.id === id)?.todo.title || 'Untitled',
+  });
 }
 
 export function TodoView(props: TodoViewProps) {
   const { sections, todos, now, selectedKey, picked, domId, showProject, onSelect, onOpen, onContextMenu, onOpenSession, onFilterLabel, showDone, onToggleDone, composer, empty } = props;
   const open = sections.filter((s) => s.id !== 'done');
   const done = sections.find((s) => s.id === 'done');
+  // Done todos keep no order of yours; they can still go to the desktop.
+  const doneDrag = useTodoDrag(done?.rows ?? []);
   return (
     <>
       {composer}
@@ -329,10 +343,12 @@ export function TodoView(props: TodoViewProps) {
                   onOpenSession={onOpenSession}
                   onFilterLabel={onFilterLabel}
                   blocked={blockedBy(r.todo, todos)}
+                  drag={doneDrag.rowProps(r.todo.id, null, 0)}
                 />
               ))}
             </div>
           )}
+          {doneDrag.ghost}
         </section>
       )}
     </>

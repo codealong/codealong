@@ -423,11 +423,12 @@ fn pin_to_desktop(app: tauri::AppHandle, pin: desktop::Pinned) -> Result<(), Str
     desktop::pin(&app, pin, None).map(|_| ()).map_err(|e| format!("Couldn't pin it to the desktop: {e}"))
 }
 
-/// A session's pill on the bar is being dragged off it: its card follows the pointer onto the
-/// desktop (desktop.rs `drag_out`).
+/// A thing is being dragged out of the window that asks (a pill off the bar, a row out of a list,
+/// a result out of the quick panel): its card follows the pointer onto the desktop (desktop.rs
+/// `drag_out`).
 #[tauri::command]
-fn drag_to_desktop(app: tauri::AppHandle, key: String) {
-    desktop::drag_out(&app, desktop::Pinned { kind: desktop::Kind::Session, key });
+fn drag_to_desktop(app: tauri::AppHandle, window: tauri::Window, pin: desktop::Pinned) {
+    desktop::drag_out(&app, pin, window.label());
 }
 
 /// Takes a card off the desktop; from the card's own menu, that closes the window it came from.

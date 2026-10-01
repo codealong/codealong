@@ -1,24 +1,17 @@
-// The Pinned section at the top of the Worktrees view: rows in your order. Drag one, or press
-// ⌃⌘↑ ⌃⌘↓, to move it. Sessions has no headings: its pinned rows lead its one list.
+// The Pinned section at the top of the Worktrees and PRs views: rows in your order. Drag one, or
+// press ⌃⌘↑ ⌃⌘↓, to move it; drag any other row up here to pin it, and one of these down to the
+// list to unpin it (useRowDrag.tsx). Sessions has no headings: its pinned rows lead its one list.
 
 import type { ReactNode } from 'react';
 import { Kbd, SectionHeader } from './primitives';
-import { useDragOrder, type DragProps } from './useDragOrder';
-
-/** What a pinned row needs so it can be dragged. */
-export type PinDrag = DragProps;
 
 interface PinnedSectionProps<T> {
   items: T[];
-  /** The pinned key of an item: a session key, or a worktree's lane id. */
-  keyOf: (item: T) => string;
-  /** Moves a pin to insertion point `index` among the rows showing. */
-  onMove: (key: string, index: number) => void;
-  row: (item: T, drag: PinDrag) => ReactNode;
+  /** A pinned row, at its place among them. */
+  row: (item: T, index: number) => ReactNode;
 }
 
-export function PinnedSection<T>({ items, keyOf, onMove, row }: PinnedSectionProps<T>) {
-  const { listRef, dragging, rowProps } = useDragOrder(onMove);
+export function PinnedSection<T>({ items, row }: PinnedSectionProps<T>) {
   return (
     <section className="ca-bayblock ca-pinned">
       <SectionHeader
@@ -31,9 +24,7 @@ export function PinnedSection<T>({ items, keyOf, onMove, row }: PinnedSectionPro
           </>
         }
       />
-      <div ref={listRef} className={['ca-bay-lanes', dragging && 'is-dragging'].filter(Boolean).join(' ')}>
-        {items.map((item, index) => row(item, rowProps(keyOf(item), index, items.length)))}
-      </div>
+      <div className="ca-bay-lanes">{items.map((item, index) => row(item, index))}</div>
     </section>
   );
 }

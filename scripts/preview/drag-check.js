@@ -1,0 +1,225 @@
+// Checks dragging rows in the lists (useRowDrag.tsx): a row dragged up among the pinned ones is
+// pinned there, a pinned one dragged down to the list is unpinned, the drag tells the engine what
+// its card would be (drag_to_desktop, which pins it once the pointer leaves the window), and a
+// pinned row let go on the desktop leaves the list's pins. Todos reorder as before and go to the
+// desktop too.
+//   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/drag-check.js
+//   PREVIEW_WAIT=60000 scripts/preview.sh worktrees '' scripts/preview/drag-check.js
+//   PREVIEW_WAIT=60000 PREVIEW_TODOS=scripts/preview/todos-sample.json scripts/preview.sh todo '' scripts/preview/drag-check.js
+// Sessions and worktrees need three rows or more. Every step should say ok.
+(function () {
+  var out = [];
+  var say = function (t) { window.__t = t; };
+  setInterval(function () { if (window.__t) document.title = window.__t; }, 100);
+  var wait = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
+  var until = function (f, ms) {
+    var s = Date.now();
+    return new Promise(function (res, rej) {
+      (function p() { if (f()) return res(); if (Date.now() - s > ms) return rej(new Error('timeout')); setTimeout(p, 10); })();
+    });
+  };
+  var check = function (name, ok, why) { out.push(name + (ok ? ' ok' : ' FAIL') + (why ? ' (' + why + ')' : '')); };
+  var done = function () { say('done: ' + out.join(' · ')); };
+  // Calls since the last `mark()`. The stub finds listeners in __calls, so it's never emptied.
+  var from = 0;
+  var mark = function () { from = window.__calls.length; };
+  var calls = function (cmd) { return window.__calls.slice(from).filter(function (c) { return c[0] === cmd; }); };
+  var last = function (cmd) { var c = calls(cmd); return c.length ? c[c.length - 1][1] : null; };
+  var view = localStorage.getItem('codealong.view') || 'worktrees';
+  var all = function (sel) { return Array.prototype.slice.call(document.querySelectorAll(sel)); };
+  var pointer = function (target, type, x, y) {
+    target.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, button: 0, buttons: type === 'pointerup' ? 0 : 1, clientX: x, clientY: y, pointerId: 1, isPrimary: true, pointerType: 'mouse' }));
+  };
+  var mid = function (el) { var r = el.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2, top: r.top, bottom: r.bottom, h: r.height }; };
+  var ghost = function () { return document.querySelector('.ca-dragghost'); };
+  /** Presses on `el`, moves through `points`, and lets go at the last unless `hold`. */
+  var drag = function (el, points, hold) {
+    var m = mid(el);
+    pointer(el, 'pointerdown', m.x, m.top + 8);
+    points.forEach(function (p) { pointer(window, 'pointermove', p.x == null ? m.x : p.x, p.y); });
+    var end = points[points.length - 1];
+    if (!hold) pointer(window, 'pointerup', end.x == null ? m.x : end.x, end.y);
+  };
+
+  var lists = function () {
+    // The rows that can be pinned, the pinned ones among them, the command that saves the pins
+    // and what a row's key is.
+    if (view === 'sessions') {
+      return {
+        rows: function () { return all('.ca-sessionlist .ca-lane'); },
+        key: function (r) { return r.id.split('::').pop(); },
+        save: 'set_pinned', arg: 'keys', ref: 'session',
+      };
+    }
+    return {
+      rows: function () { return all('.ca-board-list > .ca-bayblock .ca-lane.is-worktree'); },
+      key: null,
+      save: 'set_pinned_worktrees', arg: 'ids', ref: 'worktree',
+    };
+  };
+
+  var pins = function () {
+    var L = lists();
+    var saved = function () { var s = last(L.save); return s ? s[L.arg] : null; };
+    var pinned = function () { return L.rows().filter(function (r) { return r.hasAttribute('data-pin-index'); }); };
+    var loose = function () { return L.rows().filter(function (r) { return !r.hasAttribute('data-pin-index'); }); };
+    var before, key;
+    return until(function () { return L.rows().length >= 3; }, 20000)
+      .then(function () {
+        check('every row can be dragged', L.rows().every(function (r) { return !!r.querySelector(':scope > .ca-grip'); }));
+        // A press that barely moves is a click.
+        var row = loose()[1] || loose()[0];
+        var m = mid(row);
+        pointer(row, 'pointerdown', m.x, m.y);
+        pointer(window, 'pointermove', m.x + 1, m.y + 1);
+        pointer(window, 'pointerup', m.x + 1, m.y + 1);
+        check('a press that barely moves drags nothing', calls('drag_to_desktop').length === 0 && calls(L.save).length === 0 && !ghost());
+
+        // Dragged to the top of the list, a row is pinned first.
+        before = pinned().length;
+        var top = (pinned()[0] || L.rows()[0]).getBoundingClientRect();
+        var into = before > 0 ? top.top + 4 : top.top - 6;
+        drag(row, [{ y: m.y - 20 }, { y: into }], true);
+        return wait(50).then(function () {
+          var d = last('drag_to_desktop');
+          key = d && d.pin.key;
+          check('a drag tells the engine what its card would be', calls('drag_to_desktop').length === 1 && d && d.pin.ref === L.ref && !!key, JSON.stringify(d));
+          check('the pointer holds the row and says Pin', !!ghost() && /Pin/.test(ghost().textContent) && ghost().textContent.length > 3, ghost() && ghost().textContent);
+          check('a line shows where it lands', before > 0 ? pinned()[0].classList.contains('is-drop-before') : !!document.querySelector('.ca-dropline'));
+          check('the row dims', row.classList.contains('is-drag-source'));
+          check('and the pointer grabs', document.documentElement.classList.contains('ca-dragging'));
+          pointer(window, 'pointerup', m.x, into);
+          return wait(50);
+        });
+      })
+      .then(function () {
+        var s = saved();
+        check('dropped there, it is pinned first', s && s[0] === key, JSON.stringify(s && s.slice(0, 3)));
+        check('and the drag is over', !ghost() && !document.documentElement.classList.contains('ca-dragging') && !document.querySelector('.is-drag-source'));
+        return until(function () { return pinned().length === before + 1; }, 2000);
+      })
+      .then(function () {
+        check('the list shows it pinned', pinned()[0].hasAttribute('data-pin-index'));
+        // Dragged after the last pinned row, another is pinned last.
+        var row = loose()[1] || loose()[0];
+        var end = pinned()[pinned().length - 1].getBoundingClientRect();
+        mark();
+        drag(row, [{ y: mid(row).y - 10 }, { y: end.bottom - 3 }]);
+        return wait(50).then(function () {
+          var s = saved();
+          var d = last('drag_to_desktop');
+          check('a row dropped under the pins is pinned last', s && d && s.indexOf(d.pin.key) === s.indexOf(key) + 1 || (s && d && s[s.length - 1] === d.pin.key), JSON.stringify(s && s.slice(0, 4)));
+          return until(function () { return pinned().length === before + 2; }, 2000);
+        });
+      })
+      .then(function () {
+        // A pinned row dragged down to the list is unpinned.
+        var row = pinned()[0];
+        var target = loose()[Math.min(2, loose().length - 1)];
+        mark();
+        drag(row, [{ y: mid(row).y + 10 }, { y: mid(target).y }], true);
+        return wait(50).then(function () {
+          check('over the list a pinned row says Unpin', !!ghost() && /Unpin/.test(ghost().textContent), ghost() && ghost().textContent);
+          check('with no line', !document.querySelector('.is-drop-before, .is-drop-after, .ca-dropline'));
+          // The engine says when the pointer has left the window, which the page may not hear of.
+          window.__emit('desktop-drag-away', true);
+          return wait(50);
+        }).then(function () {
+          check('the engine saying the pointer left puts away what it holds', getComputedStyle(ghost()).display === 'none');
+          window.__emit('desktop-drag-away', false);
+          return wait(50);
+        }).then(function () {
+          check('and saying it is back shows it again', getComputedStyle(ghost()).display !== 'none' && /Unpin/.test(ghost().textContent));
+          pointer(window, 'pointerup', mid(row).x, mid(target).y);
+          return wait(50);
+        }).then(function () {
+          var s = saved();
+          check('dropped there, it is unpinned', s && s.indexOf(key) < 0, JSON.stringify(s && s.slice(0, 3)));
+          return until(function () { return pinned().length === before + 1; }, 2000);
+        });
+      })
+      .then(function () {
+        // Off the list but in the window (the sidebar): nothing.
+        var row = pinned()[0];
+        mark();
+        drag(row, [{ y: mid(row).y + 10 }, { x: 20, y: mid(row).y + 40 }]);
+        return wait(50).then(function () {
+          check('dropped elsewhere in the window, nothing changes', calls(L.save).length === 0);
+        });
+      })
+      .then(function () {
+        // Out of the window: the engine's card takes over, and a pinned row leaves the pins
+        // once the engine says the card stayed.
+        var row = pinned()[0];
+        var k = null;
+        mark();
+        drag(row, [{ y: mid(row).y + 10 }, { x: -40, y: mid(row).y }], true);
+        return wait(50).then(function () {
+          k = last('drag_to_desktop').pin.key;
+          check('outside the window the pointer holds nothing here', !!ghost() && getComputedStyle(ghost()).display === 'none');
+          pointer(window, 'pointerup', -40, mid(row).y);
+          return wait(50);
+        }).then(function () {
+          check('let go out there, the list waits for the engine', calls(L.save).length === 0);
+          window.__emit('desktop-drag-end', { kept: true });
+          return wait(50);
+        }).then(function () {
+          var s = saved();
+          check('and a pinned row that stayed on the desktop is unpinned', s && s.indexOf(k) < 0, JSON.stringify(s && s.slice(0, 3)));
+        });
+      })
+      .then(function () {
+        // A row that wasn't pinned changes no pins by going to the desktop.
+        var row = loose()[0];
+        mark();
+        drag(row, [{ y: mid(row).y + 10 }, { x: -40, y: mid(row).y }]);
+        window.__emit('desktop-drag-end', { kept: true });
+        return wait(50).then(function () {
+          check('a row that was not pinned only gets its card', calls('drag_to_desktop').length === 1 && calls(L.save).length === 0);
+        });
+      })
+      .then(function () {
+        // The engine speaks first when the page saw no pointerup (a drop outside its window).
+        var row = pinned()[0];
+        if (!row) return;
+        mark();
+        drag(row, [{ y: mid(row).y + 10 }, { y: mid(row).y + 12 }], true);
+        window.__emit('desktop-drag-end', { kept: true });
+        return wait(50).then(function () {
+          check('the engine ends a drag the page lost sight of', !ghost() && calls(L.save).length === 1);
+        });
+      });
+  };
+
+  var todos = function () {
+    var rows = function () { return all('.ca-board-list .ca-todorow'); };
+    return until(function () { return rows().length >= 2; }, 20000)
+      .then(function () {
+        var section = rows()[0].parentElement;
+        var inSection = Array.prototype.slice.call(section.querySelectorAll('.ca-todorow'));
+        check('todos can be dragged', rows().every(function (r) { return !!r.querySelector(':scope > .ca-grip'); }));
+        if (inSection.length < 2) { check('a section with two todos to reorder', false, 'none in the sample'); return; }
+        var first = inSection[0];
+        var end = inSection[inSection.length - 1].getBoundingClientRect();
+        drag(first, [{ y: mid(first).y + 10 }, { y: end.bottom - 3 }], true);
+        return wait(50).then(function () {
+          var d = last('drag_to_desktop');
+          check('a todo is a todo on the desktop', d && d.pin.ref === 'todo', JSON.stringify(d));
+          check('the pointer holds its title, with nothing to pin', !!ghost() && !/Pin/.test(ghost().textContent) && ghost().textContent.length > 0, ghost() && ghost().textContent);
+          pointer(window, 'pointerup', mid(first).x, end.bottom - 3);
+          return wait(50);
+        }).then(function () {
+          var op = calls('todo_op').map(function (c) { return c[1].op; }).filter(function (o) { return o.op === 'order'; })[0];
+          check('dropped at the end of its section, it moves there', !!op, JSON.stringify(calls('todo_op').map(function (c) { return c[1]; })).slice(0, 200));
+        });
+      });
+  };
+
+  say('drag check: waiting for the ' + view + ' view');
+  (view === 'todo' ? todos() : pins())
+    .then(done)
+    .catch(function (e) {
+      out.push('FAIL ' + e);
+      done();
+    });
+})();

@@ -39,6 +39,7 @@ interface LaneRowProps {
   onPrOpen?: () => void;
   /** Position among pinned rows, for dragging them into a new order. */
   pinIndex?: number;
+  /** Starts a drag of the row (useRowDrag.tsx): among the pinned ones, or out of the window. */
   onPointerDown?: (e: ReactPointerEvent<HTMLDivElement>) => void;
   extraClass?: string;
   /** Todos the worktree or its sessions are linked to: a row without agent lines shows them. */
@@ -192,7 +193,7 @@ function SessionChips({ sessions, max, onOpen }: { sessions: Session[]; max: num
 
 function PinMark() {
   return (
-    <span className="ca-pinmark" title="Pinned: drag, or press ⌃⌘↑ ⌃⌘↓, to reorder">
+    <span className="ca-pinmark" title="Pinned: drag, or press ⌃⌘↑ ⌃⌘↓, to reorder. Drag it down to the list to unpin it.">
       <Icon name="pinned" size={12} />
     </span>
   );
@@ -233,7 +234,7 @@ function WorktreeOnlyRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpe
       onDoubleClick={() => onOpen(lane)}
       onContextMenu={menu(onContextMenu)}
     >
-      {pinIndex != null && (
+      {onPointerDown && (
         <span className="ca-grip" aria-hidden="true">
           <Icon name="grip-vertical" size={10} />
         </span>
@@ -326,7 +327,7 @@ function GroupRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpenTarget
       onPointerDown={onPointerDown}
       onContextMenu={menu(onContextMenu)}
     >
-      {pinIndex != null && (
+      {onPointerDown && (
         <span className="ca-grip" aria-hidden="true">
           <Icon name="grip-vertical" size={10} />
         </span>
@@ -463,6 +464,7 @@ interface AgentRowProps {
   onPrOpen?: () => void;
   /** Position among pinned rows, for dragging them into a new order. */
   pinIndex?: number;
+  /** Starts a drag of the row (useRowDrag.tsx): among the pinned ones, or out of the window. */
   onPointerDown?: (e: ReactPointerEvent<HTMLDivElement>) => void;
   extraClass?: string;
   /** Todos the session is linked to. */
@@ -524,7 +526,7 @@ function AgentRowView({ lane, session: s, domId, now, age, selected, onSelect, o
       onDoubleClick={onOpen}
       onContextMenu={menu(onContextMenu)}
     >
-      {pinIndex != null && (
+      {onPointerDown && (
         <span className="ca-grip" aria-hidden="true">
           <Icon name="grip-vertical" size={10} />
         </span>

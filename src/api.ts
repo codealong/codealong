@@ -670,16 +670,24 @@ export async function pinToDesktop(pin: DesktopPinned): Promise<void> {
   await invoke('pin_to_desktop', { pin });
 }
 
-/** A session's pill on the bar is being dragged off it: its card follows the pointer onto the
- *  desktop until the button comes up (desktop.rs `drag_out`). */
-export async function dragToDesktop(key: string): Promise<void> {
+/** A thing is being dragged in this window (a pill on the bar, a row in a list, a result in the
+ *  quick panel): once the pointer leaves the window its card follows it onto the desktop, until
+ *  the button comes up (desktop.rs `drag_out`). */
+export async function dragToDesktop(pin: DesktopPinned): Promise<void> {
   if (!inTauri) return;
-  await invoke('drag_to_desktop', { key });
+  await invoke('drag_to_desktop', { pin });
 }
 
-/** Calls `cb` when a drag off the bar is over, dropped or not. */
-export function onBarDragEnd(cb: () => void): () => void {
-  return onWindowEvent<null>('bar-drag-end', () => cb());
+/** Calls `cb` when the pointer of a drag this window started leaves the window (true) or comes
+ *  back over it: a page may hear nothing of a pointer outside its window. */
+export function onDesktopDragAway(cb: (away: boolean) => void): () => void {
+  return onWindowEvent<boolean>('desktop-drag-away', cb);
+}
+
+/** Calls `cb` when a drag this window started is over: `kept` when its card stayed on the
+ *  desktop, not when the button came up back over this window. */
+export function onDesktopDragEnd(cb: (kept: boolean) => void): () => void {
+  return onWindowEvent<{ kept: boolean }>('desktop-drag-end', (e) => cb(e.kept));
 }
 
 /** Takes a card off the desktop. */

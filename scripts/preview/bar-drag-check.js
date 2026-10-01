@@ -51,7 +51,7 @@
       pointer(el, 'pointermove', 104, 22, 1);
       pointer(el, 'pointermove', 120, 60, 1);
       var d = last('drag_to_desktop');
-      check('one that moves far enough drags its session off the bar', calls('drag_to_desktop').length === 1 && d && d.key === key, JSON.stringify(d));
+      check('one that moves far enough drags its session off the bar', calls('drag_to_desktop').length === 1 && d && d.pin.ref === 'session' && d.pin.key === key, JSON.stringify(d));
       pointer(el, 'pointermove', 160, 120, 1);
       check('once', calls('drag_to_desktop').length === 1);
       check('and no peek opens as it goes', calls('peek_open').length === 0, String(calls('peek_open').length));
@@ -64,7 +64,7 @@
       });
     })
     .then(function () {
-      window.__emit('bar-drag-end', null);
+      window.__emit('desktop-drag-end', { kept: true });
       return wait(100);
     })
     .then(function () {

@@ -22,6 +22,19 @@ export function reorderPinned(all: string[], shown: string[], key: string, index
   return all.map((k) => (slots.has(k) ? next[i++] : k));
 }
 
+/**
+ * Puts `key` at insertion point `index` among the pinned keys showing, and returns the full
+ * pinned list: a pin moves there, and a key that wasn't pinned is pinned there. With no pins
+ * showing, a new one goes to the top.
+ */
+export function placePinned(all: string[], shown: string[], key: string, index: number): string[] {
+  if (all.includes(key)) return reorderPinned(all, shown, key, index);
+  const at = Math.max(0, Math.min(shown.length, index));
+  // Before the pin showing at that point, or after the last one showing.
+  const i = at < shown.length ? all.indexOf(shown[at]) : shown.length > 0 ? all.indexOf(shown[shown.length - 1]) + 1 : 0;
+  return [...all.slice(0, i), key, ...all.slice(i)];
+}
+
 export interface Pins {
   /** In your order. */
   keys: string[];
@@ -30,6 +43,10 @@ export interface Pins {
   toggle: (key: string) => void;
   /** Moves `key` to insertion point `index` among `shown`, the pinned keys showing. */
   move: (shown: string[], key: string, index: number) => void;
+  /** Puts `key` at insertion point `index` among `shown`, pinning it if it isn't. */
+  place: (shown: string[], key: string, index: number) => void;
+  /** Unpins `key`. */
+  remove: (key: string) => void;
 }
 
 /**
@@ -61,5 +78,18 @@ export function usePins(saved: string[] | undefined, save: (keys: string[]) => P
     },
     [keys, update],
   );
-  return useMemo(() => ({ keys, set, toggle, move }), [keys, set, toggle, move]);
+  const place = useCallback(
+    (shown: string[], key: string, index: number) => {
+      const next = placePinned(keys, shown, key, index);
+      if (next !== keys) update(next);
+    },
+    [keys, update],
+  );
+  const remove = useCallback(
+    (key: string) => {
+      if (set.has(key)) update(keys.filter((k) => k !== key));
+    },
+    [keys, set, update],
+  );
+  return useMemo(() => ({ keys, set, toggle, move, place, remove }), [keys, set, toggle, move, place, remove]);
 }

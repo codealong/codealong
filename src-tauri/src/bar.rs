@@ -837,6 +837,15 @@ pub(crate) mod native {
         }
     }
 
+    /// How much of the window shows through: 0 leaves it up, where it was, and unseen.
+    pub fn set_alpha(w: &WebviewWindow, alpha: f64) {
+        if let Some(n) = ns(w) {
+            if n.alphaValue() != alpha {
+                n.setAlphaValue(alpha);
+            }
+        }
+    }
+
     /// Every screen, the one with the menu bar first.
     pub fn screens() -> Vec<Screen> {
         let Some(mtm) = MainThreadMarker::new() else { return Vec::new() };
@@ -893,6 +902,7 @@ pub(crate) mod native {
         None
     }
     pub fn set_frame(_: &WebviewWindow, _: Rect) {}
+    pub fn set_alpha(_: &WebviewWindow, _: f64) {}
     pub fn screens() -> Vec<Screen> {
         Vec::new()
     }
