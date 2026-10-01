@@ -12,9 +12,11 @@
 // A window says what it can do by what it passes: the main window can expand the panel, the peek
 // can keep the session on the desktop and a session kept there can be closed, and Rename in a
 // menu shows the name as a field. The rest of what can be done to it (snoozing, archiving,
-// pinning, showing it in Codealong) is in its ⋯ menu and its right-click menu, so the row of
-// buttons stays short and is the same in every window. What a window doesn't know (the PRs, the
-// todos, the sessions around it) it leaves out, and that line isn't there.
+// pinning, showing it in Codealong) is in its ⋯ menu, which a right-click anywhere on the header
+// gives too, so the row of buttons stays short and is the same in every window. A PR and a
+// session the header names keep their own menus, and the name's field its copy and paste. What a
+// window doesn't know (the PRs, the todos, the sessions around it) it leaves out, and that line
+// isn't there.
 
 import { useMemo, useRef, useState } from 'react';
 import { below } from '../contextMenu';
@@ -61,7 +63,8 @@ export interface SessionHeaderProps {
   lineage?: Lineage;
   onShowSession?: (lane: Lane, session: Session) => void;
   onSessionMenu?: (lane: Lane, session: Session) => void;
-  /** The session's menu (menus.ts), from the ⋯ button, below it. */
+  /** The session's menu (menus.ts): from the ⋯ button, below it, and at the pointer from a
+   *  right-click on the header. */
   onMenu?: (at?: { x: number; y: number }) => void;
   /** Marks a finished turn seen, where the window does more than the action alone (the main
    *  window goes on to the next); else `actions.seen` does. */
@@ -187,7 +190,18 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
   const branch = s.branch ?? lane.branch;
 
   return (
-    <header className="ca-sessinsp-head">
+    <header
+      className="ca-sessinsp-head"
+      onContextMenu={
+        onMenu &&
+        ((e) => {
+          // The name's field keeps its own menu, for copy and paste, as does anything inside with one.
+          if (e.defaultPrevented || (e.target instanceof Element && e.target.closest('input, textarea, [contenteditable="true"]'))) return;
+          e.preventDefault();
+          onMenu();
+        })
+      }
+    >
       {back && (
         <button type="button" className="ca-linkbtn ca-sessinsp-back" title={back.title ?? `Back to ${back.label}`} onClick={back.onBack}>
           <Icon name="chevron-left" size={12} />

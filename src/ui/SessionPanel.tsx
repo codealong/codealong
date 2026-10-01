@@ -5,7 +5,8 @@
 // floating bar's peek, a session kept on the desktop and the quick panel's reply view show it as a
 // card of their own (SessionCard.tsx, which wires it the same for all three), for the pill under
 // the pointer, the session kept and the one picked there, and a right-click anywhere on the card
-// but the box gives the session's menu.
+// but the box gives the session's menu. In a panel the header gives it (SessionHeader.tsx): the
+// conversation under it keeps a right-click for what's in it.
 //
 // Answered in turn, it works through what waits on you: ⌘⏎ in the box sends (or allows the call
 // the session waits on) and goes on to the next, the check (⌘E) marks a finished turn seen and

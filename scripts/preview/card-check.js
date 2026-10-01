@@ -33,7 +33,7 @@
   var has = function (list, text) { return list.some(function (t) { return t === text || t.indexOf(text + '=') === 0; }); };
   // Mark as seen is there for a session with a turn to see, which the header's check says.
   var whole = function (list, seenable) {
-    return has(list, 'Show in Codealong') && has(list, 'Pin to desktop') && has(list, 'Snooze') && list.some(function (t) { return /^(Archive|Archive in Codex)=Ctrl\+Cmd\+A$/.test(t); }) && list.indexOf('Pin session=Ctrl+Cmd+P') >= 0 && (list.indexOf('Mark as seen=Cmd+E') >= 0) === seenable;
+    return has(list, 'Show in Codealong') && has(list, 'Pin to desktop') && has(list, 'Snooze') && list.some(function (t) { return /^(Archive|Archive in Codex)=Ctrl\+Cmd\+A$/.test(t); }) && list.some(function (t) { return /^(Pin|Unpin) session=Ctrl\+Cmd\+P$/.test(t); }) && (list.indexOf('Mark as seen=Cmd+E') >= 0) === seenable;
   };
   var seenable = false;
 
