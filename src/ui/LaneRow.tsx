@@ -182,7 +182,7 @@ function SessionChips({ sessions, max, onOpen }: { sessions: Session[]; max: num
   return (
     <>
       {sessions.slice(0, max).map((s, i) => (
-        <HarnessChip key={s.key} session={s} className={i > 0 ? 'is-extra' : undefined} onOpen={() => onOpen(s)} />
+        <HarnessChip key={s.key} session={s} className={i > 0 ? 'is-extra' : undefined} onOpen={() => onOpen(s)} inRow />
       ))}
       {more(max, 'is-wide')}
       {max > 1 && more(1, 'is-narrow')}
@@ -272,7 +272,7 @@ function WorktreeOnlyRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpe
               </span>
             )}
             <FreeChip lane={lane} />
-            <TodoChips todos={todos} onShow={onShowTodo} />
+            <TodoChips todos={todos} onShow={onShowTodo} inRow />
             <LooksFinished lane={lane} />
           </span>
           <LaneLinks lane={lane} now={now} onOpenTarget={onOpenTarget} onPrMenu={onPrMenu} onPrOpen={onPrOpen} />
@@ -293,7 +293,7 @@ function LaneLinks({ lane, now, onOpenTarget, onPrMenu, onPrOpen }: { lane: Lane
       <PreviewChip preview={lane.preview} now={now} onOpen={() => onOpenTarget(lane, 'l|preview')} />
       {lane.pr && (
         <span className="ca-lane-right">
-          <PrChip pr={lane.pr} compact onMenu={onPrMenu} onOpen={onPrOpen} />
+          <PrChip pr={lane.pr} compact onMenu={onPrMenu} onOpen={onPrOpen} inRow />
         </span>
       )}
     </>
@@ -366,7 +366,7 @@ function GroupRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpenTarget
                     onOpenTarget(lane, s.openTarget);
                   }}
                 />
-                <TodoChips todos={footTodos} onShow={onShowTodo} />
+                <TodoChips todos={footTodos} onShow={onShowTodo} inRow />
                 <FreeChip lane={lane} />
               </span>
               <LaneLinks lane={lane} now={now} onOpenTarget={onOpenTarget} onPrMenu={onPrMenu} onPrOpen={onPrOpen} />
@@ -414,7 +414,7 @@ interface AgentLineProps {
   onShowTodo?: (todo: Todo) => void;
 }
 
-/** One agent on its worktree's row: its chip (click to open), its title and what it's doing, its
+/** One agent on its worktree's row: its chip (double-click to open), its title and what it's doing, its
  *  todo and Jev's read at the end of the line, and its age. */
 function AgentLine({ item, now, domId, selected, pinned, onSelect, onOpen, onContextMenu, todos, onShowTodo }: AgentLineProps) {
   const s = item.session;
@@ -429,16 +429,10 @@ function AgentLine({ item, now, domId, selected, pinned, onSelect, onOpen, onCon
       onContextMenu={menu(onContextMenu)}
     >
       <span className="ca-agentline-main">
-        <HarnessChip
-          session={s}
-          onOpen={() => {
-            onSelect();
-            onOpen();
-          }}
-        />
+        <HarnessChip session={s} onOpen={onOpen} inRow />
         <SessionText s={s} now={now} />
         <span className="ca-agentline-tags">
-          <TodoChips todos={todos} onShow={onShowTodo} />
+          <TodoChips todos={todos} onShow={onShowTodo} inRow />
           <InsightChips session={s} />
         </span>
       </span>
@@ -540,18 +534,18 @@ function AgentRowView({ lane, session: s, domId, now, age, selected, onSelect, o
       </div>
       <div className="ca-seg ca-seg-main">
         <div className="ca-agentrow-line1">
-          <HarnessChip session={s} withStatus={false} onOpen={onOpen} />
+          <HarnessChip session={s} withStatus={false} onOpen={onOpen} inRow />
           <SessionText s={s} now={now} />
         </div>
         <div className="ca-lane-line2">
           <span className="ca-lane-agents">
             <WorktreeChip lane={lane} />
             <SnoozeChip session={s} now={now} />
-            <TodoChips todos={todos} onShow={onShowTodo} />
+            <TodoChips todos={todos} onShow={onShowTodo} inRow />
             <InsightChips session={s} />
           </span>
           <span className="ca-lane-right">
-            {lane.pr && <PrChip pr={lane.pr} compact onMenu={onPrMenu} onOpen={onPrOpen} />}
+            {lane.pr && <PrChip pr={lane.pr} compact onMenu={onPrMenu} onOpen={onPrOpen} inRow />}
             <Diff git={lane.git} />
           </span>
         </div>

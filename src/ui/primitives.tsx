@@ -169,7 +169,9 @@ export function Button({ variant = 'secondary', size = 'md', icon, kbd, children
   );
 }
 
-export function HarnessChip({ session, withStatus = true, onOpen, className }: { session: Session; withStatus?: boolean; onOpen?: () => void; className?: string }) {
+/** A session's account and where it runs. With `onOpen`, a click opens it where it runs; with
+ *  `inRow` too, it's on a list's row, where a click selects the row, so a double-click opens it. */
+export function HarnessChip({ session, withStatus = true, onOpen, inRow = false, className }: { session: Session; withStatus?: boolean; onOpen?: () => void; inRow?: boolean; className?: string }) {
   const where = sessionPlace(session, 'terminal');
   const title = `${session.account} · ${session.title} · ${STATUS_WORD[session.status]}`;
   const inner = (
@@ -179,9 +181,9 @@ export function HarnessChip({ session, withStatus = true, onOpen, className }: {
       <span>{session.account}</span>
     </>
   );
-  if (!onOpen) {
+  if (!onOpen || inRow) {
     return (
-      <span className={cx('ca-chip', className)} title={title}>
+      <span className={cx('ca-chip', className)} title={onOpen ? `${title}. Double-click to open in ${where}.` : title} onDoubleClick={onOpen && inRowOpen(onOpen)}>
         {inner}
       </span>
     );
@@ -203,10 +205,20 @@ export function HarnessChip({ session, withStatus = true, onOpen, className }: {
   );
 }
 
+/** A chip's double-click on a list's row, where a click selects the row: it does the chip's own
+ *  thing in place of the row's (opening the row's session). */
+export function inRowOpen(act: () => void) {
+  return (e: ReactMouseEvent) => {
+    e.stopPropagation();
+    act();
+  };
+}
+
 /** A PR's number, state and checks. With `onMenu`, a right-click on it shows the PR's own menu
  *  rather than the menu of the row it's on; with `onOpen`, a click opens it (on GitHub) rather
- *  than selecting the row. Without `titled`, it has no tooltip: a card shows instead (PrLink.tsx). */
-export function PrChip({ pr, compact = false, titled = true, onMenu, onOpen }: { pr: Pr; compact?: boolean; titled?: boolean; onMenu?: () => void; onOpen?: () => void }) {
+ *  than selecting the row, or with `inRow`, on a list's row, a double-click does. Without
+ *  `titled`, it has no tooltip: a card shows instead (PrLink.tsx). */
+export function PrChip({ pr, compact = false, titled = true, onMenu, onOpen, inRow = false }: { pr: Pr; compact?: boolean; titled?: boolean; onMenu?: () => void; onOpen?: () => void; inRow?: boolean }) {
   const c = pr.checks;
   const open = pr.state !== 'merged' && pr.state !== 'closed';
   const title = `#${pr.number} ${PR_WORD[pr.state]}: ${pr.title}`;
@@ -242,9 +254,9 @@ export function PrChip({ pr, compact = false, titled = true, onMenu, onOpen }: {
       )}
     </>
   );
-  if (!onOpen) {
+  if (!onOpen || inRow) {
     return (
-      <span className={cx('ca-pr', `ca-pr--${pr.state}`)} title={titled ? title : undefined} onContextMenu={onContextMenu}>
+      <span className={cx('ca-pr', `ca-pr--${pr.state}`)} title={titled ? (onOpen ? `${title}. Double-click to open it on GitHub.` : title) : undefined} onContextMenu={onContextMenu} onDoubleClick={onOpen && inRowOpen(onOpen)}>
         {inner}
       </span>
     );

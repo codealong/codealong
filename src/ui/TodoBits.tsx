@@ -5,7 +5,7 @@
 import { dueWords } from '../due';
 import type { Label, Todo, TodoStatus } from '../types';
 import { STATUS_WORD } from '../todos';
-import { Icon } from './primitives';
+import { Icon, inRowOpen } from './primitives';
 
 export function TodoGlyph({ status, waiting = false, size = 12, title }: { status: TodoStatus; waiting?: boolean; size?: number; title?: string }) {
   const word = waiting ? (status === 'in-progress' ? 'In progress, waiting' : 'Waiting') : STATUS_WORD[status];
@@ -24,16 +24,18 @@ export function LabelDot({ label }: { label: Label }) {
   return <i className={`ca-labeldot is-${label.color}`} aria-hidden="true" />;
 }
 
-export function LabelChip({ label, onClick, title }: { label: Label; onClick?: () => void; title?: string }) {
+/** A label. With `onClick`, a click runs it; with `inRow` too, it's on a list's row, where a click
+ *  selects the row, so a double-click does. */
+export function LabelChip({ label, onClick, title, inRow = false }: { label: Label; onClick?: () => void; title?: string; inRow?: boolean }) {
   const inner = (
     <>
       <LabelDot label={label} />
       <span>{label.name}</span>
     </>
   );
-  if (!onClick) {
+  if (!onClick || inRow) {
     return (
-      <span className="ca-labelchip" title={title}>
+      <span className="ca-labelchip" title={title} onDoubleClick={onClick && inRowOpen(onClick)}>
         {inner}
       </span>
     );
@@ -52,13 +54,14 @@ export function LabelChip({ label, onClick, title }: { label: Label; onClick?: (
   );
 }
 
-/** A todo on a session's or a worktree's row. Click it to show the todo. */
-export function TodoChip({ todo, onShow }: { todo: Todo; onShow?: (todo: Todo) => void }) {
+/** A todo on a session's or a worktree's row. Click it to show the todo, or double-click it with
+ *  `inRow`, on a list's row, where a click selects the row. */
+export function TodoChip({ todo, onShow, inRow = false }: { todo: Todo; onShow?: (todo: Todo) => void; inRow?: boolean }) {
   const title = todo.title || 'Untitled todo';
   const tip = `Todo · ${STATUS_WORD[todo.status]}: ${title}`;
-  if (!onShow) {
+  if (!onShow || inRow) {
     return (
-      <span className="ca-chip ca-todochip" title={tip}>
+      <span className="ca-chip ca-todochip" title={onShow ? `${tip}. Double-click to show it in Todo.` : tip} onDoubleClick={onShow && inRowOpen(() => onShow(todo))}>
         <TodoGlyph status={todo.status} size={10} />
         <span className="ca-todochip-title">{title}</span>
       </span>
@@ -80,12 +83,12 @@ export function TodoChip({ todo, onShow }: { todo: Todo; onShow?: (todo: Todo) =
 }
 
 /** A row's todo chips: the first one, and how many more. Open todos come before done ones. */
-export function TodoChips({ todos, onShow }: { todos: Todo[] | undefined; onShow?: (todo: Todo) => void }) {
+export function TodoChips({ todos, onShow, inRow = false }: { todos: Todo[] | undefined; onShow?: (todo: Todo) => void; inRow?: boolean }) {
   if (!todos || todos.length === 0) return null;
   const sorted = [...todos].sort((a, b) => Number(a.status === 'done') - Number(b.status === 'done'));
   return (
     <>
-      <TodoChip todo={sorted[0]} onShow={onShow} />
+      <TodoChip todo={sorted[0]} onShow={onShow} inRow={inRow} />
       {sorted.length > 1 && (
         <span className="ca-chip ca-chip--more" title={sorted.slice(1).map((t) => t.title || 'Untitled todo').join('\n')}>
           +{sorted.length - 1}

@@ -21,7 +21,10 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   all. ⌃Tab and ⌃⇧Tab go through the views (`v` too, outside Sessions), ⌥↑ ⌥↓ move along a
   list as the arrows do, and ⌃⌘↑ ⌃⌘↓ reorder what's pinned. A session's or worktree's
   actions have letters (`p` pin, `a` archive, `r` rename, `e` mark seen) and chords that work
-  in every view (⌃⌘P, ⌃⌘A, ⌃⌘R, ⌘E); the right-click menu shows them. The views:
+  in every view (⌃⌘P, ⌃⌘A, ⌃⌘R, ⌘E); the right-click menu shows them. A click on a row's
+  chips selects the row, as a click anywhere on it does, and a double-click does the chip's own
+  thing (its PR on GitHub, the session where it runs, its todo, its app) in place of opening
+  the row; in a panel, a click does. The views:
   - **Sessions**: every session in one list, with no headings. Pinned ones come first in your
     order (drag or ⌃⌘↑ ⌃⌘↓), each with a pin under its age, set a little apart from the rest.
     The sidebar's Sort by orders the rest. Status puts Needs you, Your turn and Working first, as
@@ -184,7 +187,7 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     all of them, and `x`, `w` and Delete act on all of them.
     Link worktrees and sessions you already have from the todo, or from a session's or
     worktree's right-click menu (Add to todo). A session or worktree on a todo shows the
-    todo's chip; click it to go to the todo.
+    todo's chip; double-click it (click it in a panel) to go to the todo.
     With Jev on for todos (Settings › Jev, `[jev] todos`), a session that starts outside a todo
     is linked to the open todo it's for when Jev is sure; a todo whose linked sessions ended
     their turns, or whose PR merged, shows Looks done when Jev reads it as finished (Mark done,
@@ -234,7 +237,7 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   makes it yours, as Codex's Open button remembers its last.
   A session's tab that comes forward on another screen than the pointer's is outlined for a
   moment, and `move_pointer` moves the pointer to it.
-- **Previews**: a worktree's app opens in the browser (⌘5, the chip on its row, the link under
+- **Previews**: a worktree's app opens in the browser (⌘5, a double-click on the chip on its row, the link under
   its folder in its panel and in its sessions' panels, or its right-click menu). Its URL is set there (Set preview URL…) or with `codealong preview set
   <url>`, which a repo's own dev scripts or instructions can run, since only they know where a
   dev proxy serves each worktree's app (`https://feature.app.test`). A server listening in the

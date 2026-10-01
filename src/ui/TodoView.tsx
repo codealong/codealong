@@ -150,7 +150,7 @@ function TodoRow({ item, section, domId, now, selected, showProject, onSelect, o
             {showProject && todo.project && <span className="ca-tag">{todo.project}</span>}
             <DueChip todo={todo} now={now} />
             {item.labels.map((l) => (
-              <LabelChip key={l.id} label={l} title={`Show only “${l.name}”`} onClick={() => onFilterLabel(l)} />
+              <LabelChip key={l.id} label={l} title={`Double-click to show only “${l.name}”`} onClick={() => onFilterLabel(l)} inRow />
             ))}
             {todo.waiting && todo.status !== 'done' && (
               <span className="ca-chip ca-todorow-blocked" title={`Marked as waiting${todo.waiting.since > 0 ? ` ${ago(todo.waiting.since, now)} ago` : ''}${todo.waiting.note ? `: ${todo.waiting.note}` : '.'}`}>

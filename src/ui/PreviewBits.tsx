@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react';
 import { getConfig, setPreview } from '../api';
 import { absolute, duration } from '../format';
 import type { ChromeProfile, Lane, Preview } from '../types';
-import { Button, Icon } from './primitives';
+import { Button, Icon, inRowOpen } from './primitives';
 import { errorText } from '../report';
 
 /** A URL as rows show it: `feature.app.test`, `localhost:5173/admin`. */
@@ -55,24 +55,19 @@ export function ChromeProfileSelect({ value, profiles, none, onChange }: { value
   );
 }
 
-/** A worktree's app on its row: where it opens, green while it runs. A click opens it. */
+/** A worktree's app on its row: where it opens, green while it runs. A double-click opens it: a
+ *  click selects the row. */
 export function PreviewChip({ preview: p, now, onOpen }: { preview: Preview | undefined; now: number; onOpen: () => void }) {
   if (!p) return null;
   return (
-    <button
-      type="button"
-      className={['ca-chip', 'ca-chip--button', 'ca-previewchip', p.server ? 'is-up' : 'is-down'].join(' ')}
-      title={`${p.url}. ${previewState(p, now)}${profileNote(p)} Click to open it.`}
-      onMouseDown={(e) => e.stopPropagation()}
-      onDoubleClick={(e) => e.stopPropagation()}
-      // A double-click on a row often lands here: open once, not twice.
-      onClick={(e) => {
-        if (e.detail < 2) onOpen();
-      }}
+    <span
+      className={['ca-chip', 'ca-previewchip', p.server ? 'is-up' : 'is-down'].join(' ')}
+      title={`${p.url}. ${previewState(p, now)}${profileNote(p)} Double-click to open it.`}
+      onDoubleClick={inRowOpen(onOpen)}
     >
       <Icon name="world" size={12} />
       <span className="ca-previewchip-host">{previewHost(p.url)}</span>
-    </button>
+    </span>
   );
 }
 

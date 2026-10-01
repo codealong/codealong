@@ -170,7 +170,7 @@ function PrRow({ item, domId, now, selected, approving, onSelect, onOpen, onAppr
             {shown.length > 0 && (
               <span className="ca-prrow-agents">
                 {shown.map(({ lane, session }) => (
-                  <HarnessChip key={session.key} session={session} onOpen={() => onOpenSession(lane, session)} />
+                  <HarnessChip key={session.key} session={session} onOpen={() => onOpenSession(lane, session)} inRow />
                 ))}
                 {item.sessions.length > shown.length && <span className="ca-prrow-more">+{item.sessions.length - shown.length}</span>}
               </span>
