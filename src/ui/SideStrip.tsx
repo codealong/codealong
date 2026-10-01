@@ -15,10 +15,10 @@ import { Icon, Rich } from './primitives';
 /** The strip's top line: what this is, a few words about it, and what can be done with it. */
 function Head({ title, about, children }: { title: string; about: string; children: ReactNode }) {
   return (
-    <header className="ca-side-head">
+    <header className="ca-sidestrip-head">
       <Icon name="help" size={14} />
-      <span className="ca-side-title">{title}</span>
-      <span className="ca-side-about">{about}</span>
+      <span className="ca-sidestrip-title">{title}</span>
+      <span className="ca-sidestrip-about">{about}</span>
       {children}
     </header>
   );
@@ -32,11 +32,11 @@ function Turns({ turns, current }: { turns: SideTurn[]; current: number }) {
         const state = turnState(t, i === current);
         const steps = t.tools ?? [];
         return (
-          <div key={i} className="ca-side-turn">
-            <div className="ca-side-q">{t.question}</div>
+          <div key={i} className="ca-sidestrip-turn">
+            <div className="ca-sidestrip-q">{t.question}</div>
             {/* What it did to answer: the one it's on while it works, all of them to unfold after. */}
             {t.done && steps.length > 0 && (
-              <details className="ca-side-steps">
+              <details className="ca-sidestrip-steps">
                 <summary>{steps.length === 1 ? '1 step' : `${steps.length} steps`}</summary>
                 {steps.map((line, n) => (
                   <div key={n}>
@@ -45,18 +45,18 @@ function Turns({ turns, current }: { turns: SideTurn[]; current: number }) {
                 ))}
               </details>
             )}
-            {t.answer && <Markdown text={t.answer} className="ca-side-a" />}
+            {t.answer && <Markdown text={t.answer} className="ca-sidestrip-a" />}
             {t.tool && (
-              <div className="ca-side-doing" role="status">
+              <div className="ca-sidestrip-doing" role="status">
                 <Rich text={t.tool} now={0} />
               </div>
             )}
             {state && (
-              <div className="ca-side-doing" role="status">
+              <div className="ca-sidestrip-doing" role="status">
                 {state}
               </div>
             )}
-            {t.error && <div className="ca-side-error">{t.error}</div>}
+            {t.error && <div className="ca-sidestrip-error">{t.error}</div>}
           </div>
         );
       })}
@@ -91,7 +91,7 @@ export function SideStrip({ session }: { session: Session }) {
 
   if (reading) {
     return (
-      <section className="ca-side" aria-label="Side conversation">
+      <section className="ca-sidestrip" aria-label="Side conversation">
         <Head title="On the side" about={`${agoPhrase(reading.lastAt, now)} · closed. A new question starts a new copy, which knows none of this.`}>
           <button type="button" className="ca-linkbtn" onClick={() => showSides(key, { kind: 'list' })}>
             Earlier
@@ -109,7 +109,7 @@ export function SideStrip({ session }: { session: Session }) {
           </button>
           {hide}
         </Head>
-        <div className="ca-side-turns">
+        <div className="ca-sidestrip-turns">
           <Turns turns={reading.turns} current={-1} />
         </div>
       </section>
@@ -118,16 +118,16 @@ export function SideStrip({ session }: { session: Session }) {
 
   if (view) {
     return (
-      <section className="ca-side" aria-label="Side conversations">
+      <section className="ca-sidestrip" aria-label="Side conversations">
         <Head title="Side conversations" about="Kept by Codealong. The session never saw them.">
           {hide}
         </Head>
-        <div className="ca-side-turns">
-          {earlier.length === 0 && <div className="ca-side-doing">{side ? 'None before the one that’s open.' : 'None with this session yet. /side, then a question, starts one.'}</div>}
+        <div className="ca-sidestrip-turns">
+          {earlier.length === 0 && <div className="ca-sidestrip-doing">{side ? 'None before the one that’s open.' : 'None with this session yet. /side, then a question, starts one.'}</div>}
           {earlier.map((k) => (
-            <button key={k.id} type="button" className="ca-side-kept" onClick={() => showSides(key, { kind: 'past', id: k.id })}>
-              <span className="ca-side-kept-q">{keptLine(k)}</span>
-              <span className="ca-side-kept-when">
+            <button key={k.id} type="button" className="ca-sidestrip-kept" onClick={() => showSides(key, { kind: 'past', id: k.id })}>
+              <span className="ca-sidestrip-kept-q">{keptLine(k)}</span>
+              <span className="ca-sidestrip-kept-when">
                 {agoPhrase(k.lastAt, now)} · {many(k.turns.length, 'question')}
               </span>
             </button>
@@ -143,7 +143,7 @@ export function SideStrip({ session }: { session: Session }) {
     void sideClose(key).catch(() => {});
   };
   return (
-    <section className="ca-side" aria-label="Side conversation">
+    <section className="ca-sidestrip" aria-label="Side conversation">
       <Head title="On the side" about={side.ended ? 'Its copy has ended. Another question starts a new one.' : 'A throwaway copy answers. The session never sees this.'}>
         {earlier.length > 0 && (
           <button type="button" className="ca-linkbtn" title={`${many(earlier.length, 'side conversation')} from before`} onClick={() => showSides(key, { kind: 'list' })}>
@@ -155,7 +155,7 @@ export function SideStrip({ session }: { session: Session }) {
         </button>
       </Head>
       <div
-        className="ca-side-turns"
+        className="ca-sidestrip-turns"
         ref={scroller}
         onScroll={(e) => {
           const el = e.currentTarget;

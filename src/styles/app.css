@@ -6298,7 +6298,7 @@ html.is-quick body {
 
 /* A session's side conversation (SideStrip.tsx), above the box that asks it: set apart from the
    thread, which it's no part of, and never taller than a share of the window, scrolling inside. */
-.ca-side {
+.ca-sidestrip {
   flex: none;
   display: flex;
   flex-direction: column;
@@ -6309,11 +6309,11 @@ html.is-quick body {
   border-top: 1px solid var(--line);
   background: var(--surface-sunken);
 }
-.ca-side + .ca-composer {
+.ca-sidestrip + .ca-composer {
   border-top: 0;
   background: var(--surface-sunken);
 }
-.ca-side-head {
+.ca-sidestrip-head {
   flex: none;
   display: flex;
   align-items: baseline;
@@ -6321,14 +6321,14 @@ html.is-quick body {
   color: var(--ink-2);
   font: 600 12px/16px var(--font-sans);
 }
-.ca-side-head .ca-icon {
+.ca-sidestrip-head .ca-icon {
   flex: none;
   align-self: center;
 }
-.ca-side-title {
+.ca-sidestrip-title {
   flex: none;
 }
-.ca-side-about {
+.ca-sidestrip-about {
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -6337,18 +6337,18 @@ html.is-quick body {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.ca-side-turns {
+.ca-sidestrip-turns {
   display: grid;
   gap: 12px;
   min-height: 0;
   overflow-y: auto;
 }
-.ca-side-turn {
+.ca-sidestrip-turn {
   display: grid;
   gap: 6px;
   min-width: 0;
 }
-.ca-side-q {
+.ca-sidestrip-q {
   justify-self: start;
   max-width: 100%;
   box-sizing: border-box;
@@ -6360,49 +6360,49 @@ html.is-quick body {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-.ca-side-a {
+.ca-sidestrip-a {
   color: var(--ink);
   font: 400 13px/19px var(--font-sans);
   overflow-wrap: anywhere;
 }
-.ca-side-doing {
+.ca-sidestrip-doing {
   color: var(--ink-3);
   font: 400 12px/16px var(--font-sans);
   overflow-wrap: anywhere;
 }
-.ca-side-error {
+.ca-sidestrip-error {
   color: var(--alert);
   font: 400 12px/16px var(--font-sans);
   overflow-wrap: anywhere;
 }
-.ca-side-q,
-.ca-side-a,
-.ca-side-error,
-.ca-side-steps > div {
+.ca-sidestrip-q,
+.ca-sidestrip-a,
+.ca-sidestrip-error,
+.ca-sidestrip-steps > div {
   -webkit-user-select: text;
   user-select: text;
 }
 /* What a copy did to answer, folded under how many steps it took. */
-.ca-side-steps {
+.ca-sidestrip-steps {
   color: var(--ink-3);
   font: 400 12px/16px var(--font-sans);
   overflow-wrap: anywhere;
 }
-.ca-side-steps > summary {
+.ca-sidestrip-steps > summary {
   width: fit-content;
   cursor: pointer;
 }
-.ca-side-steps > summary:hover {
+.ca-sidestrip-steps > summary:hover {
   color: var(--ink);
 }
-.ca-side-steps > div {
+.ca-sidestrip-steps > div {
   margin: 4px 0 0 14px;
 }
 /* A kept side conversation in the list: its first question, then when and how long it was. */
-.ca-side-turns:has(> .ca-side-kept) {
+.ca-sidestrip-turns:has(> .ca-sidestrip-kept) {
   gap: 2px;
 }
-.ca-side-kept {
+.ca-sidestrip-kept {
   display: flex;
   align-items: baseline;
   gap: 10px;
@@ -6416,19 +6416,19 @@ html.is-quick body {
   text-align: left;
   cursor: pointer;
 }
-.ca-side-kept:hover,
-.ca-side-kept:focus-visible {
+.ca-sidestrip-kept:hover,
+.ca-sidestrip-kept:focus-visible {
   outline: none;
   background: var(--neutral-tint);
 }
-.ca-side-kept-q {
+.ca-sidestrip-kept-q {
   flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.ca-side-kept-when {
+.ca-sidestrip-kept-when {
   flex: none;
   color: var(--ink-3);
   font-size: 12px;

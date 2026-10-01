@@ -36,6 +36,9 @@
     .then(function () {
       var box = document.querySelector('.ca-side-scroll');
       check('the sidebar never scrolls sideways', box.scrollWidth <= box.clientWidth && getComputedStyle(box).overflowX === 'hidden', box.scrollWidth + ' in ' + box.clientWidth);
+      var side = document.querySelector('.ca-side').getBoundingClientRect();
+      var body = document.querySelector('.ca-win-body').getBoundingClientRect();
+      check('and reaches the bottom of the window', Math.abs(side.bottom - body.bottom) < 1 && Math.abs(side.top - body.top) < 1, side.top + ' to ' + side.bottom + ' in ' + body.top + ' to ' + body.bottom);
       check('with no All devices row', !nav('All devices'));
       chip('Your turn').click();
       chip('Needs you').click();

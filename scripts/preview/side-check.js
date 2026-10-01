@@ -50,8 +50,8 @@
   var box = function () { return document.querySelector('.ca-composer textarea'); };
   var button = function () { return document.querySelector('.ca-composer-send'); };
   var noteText = function () { var n = document.querySelector('.ca-composer-note'); return n ? n.textContent : ''; };
-  var strip = function () { return document.querySelector('.ca-side'); };
-  var turns = function () { return Array.prototype.map.call(document.querySelectorAll('.ca-side-turn'), function (t) { return t.textContent; }); };
+  var strip = function () { return document.querySelector('.ca-sidestrip'); };
+  var turns = function () { return Array.prototype.map.call(document.querySelectorAll('.ca-sidestrip-turn'), function (t) { return t.textContent; }); };
   var calls = function (name) { return window.__calls.filter(function (c) { return c[0] === name; }); };
   var enter = function () { box().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); };
   var type = function (el, text) {
@@ -93,11 +93,11 @@
       check('shows the tool the copy runs', turns()[0].indexOf('Bash · git log -3') > 0 && turns()[0].indexOf('Reading') < 0, turns()[0]);
       tell({ turns: [{ question: 'why a queue?', answer: 'Because sends must keep their **order**.', done: false }] });
       await wait(50);
-      check('then its answer as it comes', turns()[0].indexOf('Because sends must keep their order.') > 0 && !!strip().querySelector('.ca-side-a strong'), turns()[0]);
+      check('then its answer as it comes', turns()[0].indexOf('Because sends must keep their order.') > 0 && !!strip().querySelector('.ca-sidestrip-a strong'), turns()[0]);
       tell({ running: false, turns: [{ question: 'why a queue?', answer: 'Because sends must keep their **order**.', tools: ['Bash · `git log -3`', 'Read · `send.rs`'], done: true }] });
       await wait(50);
-      check('and nothing more once it has answered', !strip().querySelector('.ca-side-doing'));
-      var steps = strip().querySelector('.ca-side-steps');
+      check('and nothing more once it has answered', !strip().querySelector('.ca-sidestrip-doing'));
+      var steps = strip().querySelector('.ca-sidestrip-steps');
       check('but what it did, folded', !!steps && !steps.open && steps.querySelector('summary').textContent === '2 steps' && steps.textContent.indexOf('Read · send.rs') > 0, steps && steps.textContent);
 
       type(box(), '/side and without one?');
@@ -115,7 +115,7 @@
       await until(function () { return calls('send_to_session').length > sends; }, 5000);
       check('plain text still goes to the session', calls('side_ask').length === 2);
 
-      var headButton = function (label) { return Array.prototype.filter.call(strip().querySelectorAll('.ca-side-head button'), function (b) { return b.textContent.trim() === label; })[0]; };
+      var headButton = function (label) { return Array.prototype.filter.call(strip().querySelectorAll('.ca-sidestrip-head button'), function (b) { return b.textContent.trim() === label; })[0]; };
       check('with none from before, no way to them shows', !headButton('Earlier'));
       headButton('Close').click();
       await until(function () { return !strip(); }, 5000);
@@ -128,15 +128,15 @@
       type(box(), '/side');
       await wait(50);
       enter();
-      await until(function () { return strip() && strip().querySelectorAll('.ca-side-kept').length === 2; }, 5000);
-      var rows = Array.prototype.map.call(strip().querySelectorAll('.ca-side-kept'), function (r) { return r.textContent; });
+      await until(function () { return strip() && strip().querySelectorAll('.ca-sidestrip-kept').length === 2; }, 5000);
+      var rows = Array.prototype.map.call(strip().querySelectorAll('.ca-sidestrip-kept'), function (r) { return r.textContent; });
       check('/side alone lists the ones kept, the latest first', rows[0].indexOf('why a queue?') === 0 && rows[0].indexOf('2 questions') > 0 && rows[1].indexOf('is the queue tested?') === 0 && rows[1].indexOf('and where') < 0 && rows[1].indexOf('2h ago · 1 question') > 0, rows.join(' / '));
       check('asking and sending nothing', calls('side_ask').length === askedBefore && calls('send_to_session').length === sentBefore && box().value === '', box().value);
-      strip().querySelectorAll('.ca-side-kept')[1].click();
+      strip().querySelectorAll('.ca-sidestrip-kept')[1].click();
       await until(function () { return turns().length === 1; }, 5000);
-      check('one opens to read', turns()[0].indexOf('is the queue tested?') === 0 && turns()[0].indexOf('In send.rs.') > 0 && strip().textContent.indexOf('closed') > 0 && !!strip().querySelector('.ca-side-steps'), strip().textContent);
+      check('one opens to read', turns()[0].indexOf('is the queue tested?') === 0 && turns()[0].indexOf('In send.rs.') > 0 && strip().textContent.indexOf('closed') > 0 && !!strip().querySelector('.ca-sidestrip-steps'), strip().textContent);
       headButton('Delete').click();
-      await until(function () { return strip().querySelectorAll('.ca-side-kept').length === 1; }, 5000);
+      await until(function () { return strip().querySelectorAll('.ca-sidestrip-kept').length === 1; }, 5000);
       check('Delete forgets it and goes back to the list', calls('side_forget').length === 1 && calls('side_forget')[0][1].id === 'old');
       headButton('Close').click();
       await until(function () { return !strip(); }, 5000);
@@ -148,8 +148,8 @@
       await until(function () { return turns().length === 1 && turns()[0].indexOf('once more?') === 0; }, 5000);
       await until(function () { return !!headButton('Earlier'); }, 5000);
       headButton('Earlier').click();
-      await until(function () { return strip().querySelectorAll('.ca-side-kept').length === 1; }, 5000);
-      check('Earlier, beside an open one, lists the ones before it', strip().querySelector('.ca-side-kept').textContent.indexOf('why a queue?') === 0);
+      await until(function () { return strip().querySelectorAll('.ca-sidestrip-kept').length === 1; }, 5000);
+      check('Earlier, beside an open one, lists the ones before it', strip().querySelector('.ca-sidestrip-kept').textContent.indexOf('why a queue?') === 0);
       headButton('Close').click();
       await until(function () { return turns().length === 1; }, 5000);
       check('and Close goes back to the open one', turns()[0].indexOf('once more?') === 0 && calls('side_close').length === 1);
