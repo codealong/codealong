@@ -313,6 +313,12 @@ some work is, answer with one.
   reader gathers a session's inputs and calls them, and the engine the rest. `src/lanes.ts` mirrors `bay_of`, the agent bays'
   headlines and the order of sessions and lanes (`sort_sessions`, `lane_prompt_at`) for the
   filters; keep them in step.
+- What the main window's views list (the bays, the sessions with the pinned first, the PRs and
+  todos in their sections, the sidebar's and switcher's counts) is worked out from the board,
+  the filters and the search in `src/boardLists.ts`, as pure functions with tests that
+  `useBoardLists` keeps between pushes; a new list or filter goes there, not into `App.tsx`.
+  The quick panel's words for a start and for Jev's suggestions are pure functions of the
+  choice in `start.ts`, `route.ts` and `quick.ts`, with tests that pin them.
 - The engine's subsystems are structs of their own with `on_*` methods, GitHub's being the first
   (`ghpoll.rs`, `GhPoll`): the engine keeps one field for it, hands it the worktrees and the
   time with each call and hears whether the board changed, `compose` reads the rest, what it
@@ -420,6 +426,11 @@ some work is, answer with one.
   that's there but doesn't parse is an error and is never overwritten, since another build may
   have written a shape this one doesn't know; only a cache or a window's place may read as
   empty instead (`store::read_or_default`).
+- What a window remembers in localStorage (a view, a filter, a width, a project picked) is read
+  and written through `src/stored.ts`: `useStored` with a codec for the kind of value, or
+  `readStored`/`writeStored` where a change isn't always kept. A key and the way its value is
+  written never change, or people's choices are lost. A value that a listener, timer or
+  callback reads after its render is `useLatest` (`latest.ts`).
 - What AppKit is told about the windows that float (the bar, its peek, the quick panel, the
   cards and sessions kept on the desktop, the lines between cards) is in `src-tauri/src/panel.rs`
   and nowhere else: a window's module says what kind of panel it is (`panel::Config`) and when
