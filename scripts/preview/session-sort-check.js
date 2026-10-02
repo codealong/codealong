@@ -2,18 +2,8 @@
 // first, each with its pin, and a drag still reorders them; the sidebar's Sort by switches
 // between status and start, remembers it, and shows only in Sessions.
 //   scripts/preview.sh sessions '' scripts/preview/session-sort-check.js
-// It needs a project with two pinned sessions or more. Every step should say ok.
+// It needs a project with two pinned sessions or more.
 (function () {
-  var out = [];
-  var say = function (t) { window.__t = t; };
-  setInterval(function () { if (window.__t) document.title = window.__t; }, 100);
-  var until = function (f, ms) {
-    var s = Date.now();
-    return new Promise(function (res, rej) {
-      (function p() { if (f()) return res(); if (Date.now() - s > ms) return rej(new Error('timeout')); setTimeout(p, 10); })();
-    });
-  };
-  var check = function (name, ok, why) { out.push(name + (ok ? ' ok' : ' FAIL') + (why ? ' (' + why + ')' : '')); };
   var rows = function () { return Array.prototype.slice.call(document.querySelectorAll('.ca-sessionlist .ca-lane')); };
   var ids = function () { return rows().map(function (r) { return r.id; }).join(','); };
   var sortButton = function (label) {
@@ -70,9 +60,7 @@
     })
     .then(function () {
       check('Sort by shows only in Sessions', !document.querySelector('.ca-side-sorts'));
-      say(out.join('; '));
     })
-    .catch(function (e) {
-      say(out.join('; ') + '; FAIL ' + e.message);
-    });
+    .then(done)
+    .catch(stopped);
 })();

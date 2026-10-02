@@ -2,25 +2,20 @@
 // window says it's reading rather than listing nothing, or only other devices' worktrees, selects
 // none of those, keeps its project and gives no counts, until the board comes; the floating bar
 // says it's reading until its feed comes.
-//   PREVIEW_LOADING=1 PREVIEW_DEVICES=scripts/preview/devices-sample.json PREVIEW_WAIT=60000 scripts/preview.sh sessions Northwind scripts/preview/loading-check.js
+//   PREVIEW_LOADING=1 PREVIEW_DEVICES=scripts/preview/devices-sample.json PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/loading-check.js
 //   PREVIEW_LOADING=1 PREVIEW_WAIT=60000 scripts/preview.sh bar '' scripts/preview/loading-check.js
-// Every step should say ok.
 (function () {
-  var out = [];
-  var say = function (t) { window.__t = t; };
-  setInterval(function () { if (window.__t) document.title = window.__t; }, 100);
-  var until = function (f, ms) {
-    var s = Date.now();
-    return new Promise(function (res, rej) {
-      (function p() { if (f()) return res(); if (Date.now() - s > ms) return rej(new Error('timeout')); setTimeout(p, 10); })();
-    });
-  };
-  var check = function (name, ok, why) { out.push(name + (ok ? ' ok' : ' FAIL') + (why ? ' (' + why + ')' : '')); };
-  var all = function (sel) { return Array.prototype.slice.call(document.querySelectorAll(sel)); };
   var text = function (sel) { var el = document.querySelector(sel); return el ? el.textContent : ''; };
   var json = function (file) { return fetch(file).then(function (r) { return r.json(); }); };
-  var done = function () { say('done: ' + out.join(' · ')); };
-  var fail = function (e) { out.push('FAIL ' + e.message); done(); };
+  // The main window should keep the project it had before launch: a run that names none gets
+  // the board's first, put there before the app starts.
+  if (!window.__CODEALONG_BAR__ && !localStorage.getItem('codealong.project')) {
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', './board.json', false);
+    xhr.send();
+    var first = JSON.parse(xhr.responseText).projects[0];
+    if (first) localStorage.setItem('codealong.project', first.name);
+  }
 
   if (window.__CODEALONG_BAR__) {
     say('loading check: waiting for the bar');
@@ -34,7 +29,7 @@
           });
         });
       })
-      .then(done, fail);
+      .then(done, stopped);
     return;
   }
 
@@ -65,5 +60,5 @@
         });
       });
     })
-    .then(done, fail);
+    .then(done, stopped);
 })();

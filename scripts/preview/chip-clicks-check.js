@@ -4,19 +4,8 @@
 // row's. Sessions has PR, agent and todo chips, Worktrees the app's.
 //   PREVIEW_TODOS=scripts/preview/todos-sample.json PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/chip-clicks-check.js
 //   PREVIEW_WAIT=60000 scripts/preview.sh worktrees '' scripts/preview/chip-clicks-check.js
-// Every step should say ok; a chip no row has says so and is skipped.
+// A chip no row has is noted and skipped.
 (function () {
-  var out = [];
-  var say = function (t) { window.__t = t; };
-  setInterval(function () { if (window.__t) document.title = window.__t; }, 100);
-  var wait = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
-  var until = function (f, ms) {
-    var s = Date.now();
-    return new Promise(function (res, rej) {
-      (function p() { if (f()) return res(); if (Date.now() - s > ms) return rej(new Error('timeout')); setTimeout(p, 20); })();
-    });
-  };
-  var check = function (name, ok, why) { out.push(name + (ok ? ' ok' : ' FAIL') + (why ? ' (' + why + ')' : '')); };
   var list = function () { return document.querySelector('[role="listbox"]'); };
   var fire = function (el, type, detail) { el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, detail: detail })); };
   var click = function (el) { fire(el, 'mousedown', 1); fire(el, 'mouseup', 1); fire(el, 'click', 1); };
@@ -35,7 +24,7 @@
     return function () {
       var chip = chipOn(sel);
       if (!chip) {
-        out.push(name + ': no row has one, skipped');
+        note(name + ': no row has one, skipped');
         return;
       }
       var row = chip.closest('[role="option"]');
@@ -80,5 +69,5 @@
         }));
     })
     .catch(function (e) { check('ran', false, String(e)); })
-    .then(function () { say('done: ' + out.join('; ')); });
+    .then(done);
 })();

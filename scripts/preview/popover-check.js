@@ -3,13 +3,7 @@
 // what came of it, a click on one of those selects its card, and a right-click gives that
 // session's menu with Pin to desktop. Run it on a canvas holding a session with an origin:
 //   PREVIEW_CANVAS=<doc> PREVIEW_WAIT=60000 scripts/preview.sh canvas <project> scripts/preview/popover-check.js
-// Every step should say ok.
 (function () {
-  var out = [];
-  var say = function (t) { window.__t = t; };
-  setInterval(function () { if (window.__t) document.title = window.__t; }, 100);
-  var wait = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
-  var check = function (name, ok, why) { out.push(name + (ok ? ' ok' : ' FAIL') + (why ? ' (' + why + ')' : '')); };
   var move = function (el, x, y) { el.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: x, clientY: y })); };
   var pop = function () { return document.querySelector('.ca-cv-popover'); };
   var run = async function () {
@@ -22,12 +16,12 @@
       });
       if (!card) await wait(100);
     }
-    if (!card) return say('done: no session on the canvas that came of another or had one come of it');
+    if (!card) return stopped('no session on the canvas that came of another or had one come of it');
     var r = card.getBoundingClientRect();
     move(card, r.left + 20, r.top + r.height / 2);
     await wait(700);
     check('opens after resting on the card', !!pop());
-    if (!pop()) return say('done: ' + out.join('; '));
+    if (!pop()) return done();
     var p = pop().getBoundingClientRect();
     // Across the gap: over empty canvas between the card and the popover, then on the popover.
     var gapX = p.left > r.right ? (r.right + p.left) / 2 : (p.right + r.left) / 2;
@@ -41,7 +35,7 @@
     var line = pop().querySelector('.ca-cvp-sessionbtn');
     check('its sessions take clicks', !!line);
     if (line) {
-      line.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 5, clientY: 5 }));
+      rightClick(line, { clientX: 5, clientY: 5 });
       await wait(400);
       var items = (window.__menu() || []).map(function (x) { return x[0]; });
       check('a right-click gives its menu with Pin to desktop', items.indexOf('Pin to desktop') >= 0 || items.indexOf('Remove from desktop') >= 0, items.slice(0, 6).join(' / '));
@@ -55,7 +49,7 @@
     move(document.querySelector('.ca-cv'), 5, 300);
     await wait(700);
     check('goes once the pointer leaves both', !pop());
-    say('done: ' + out.join('; '));
+    done();
   };
   // Sessions with kin, from the board the preview serves.
   var xhr = new XMLHttpRequest();
@@ -64,5 +58,5 @@
   var board = JSON.parse(xhr.responseText);
   window.__kin = new Set();
   board.lanes.forEach(function (l) { l.sessions.forEach(function (s) { if (s.origin) { window.__kin.add(s.key); window.__kin.add(s.origin.key); } }); });
-  setTimeout(run, 1500);
+  setTimeout(function () { run().catch(stopped); }, 1500);
 })();

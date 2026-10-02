@@ -5,20 +5,7 @@
 // Escape meanwhile asks nothing more and closes the peek as usual, as ⌘. asks nothing more; and
 // the button goes once the session's turn has ended.
 //   PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/stop-check.js
-// Every step should say ok.
 (function () {
-  var out = [];
-  var say = function (t) { window.__t = t; };
-  setInterval(function () { if (window.__t) document.title = window.__t; }, 100);
-  var wait = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
-  var until = function (f, ms) {
-    var s = Date.now();
-    return new Promise(function (res, rej) {
-      (function p() { if (f()) return res(); if (Date.now() - s > ms) return rej(new Error('timeout')); setTimeout(p, 10); })();
-    });
-  };
-  var check = function (name, ok, why) { out.push(name + (ok ? ' ok' : ' FAIL') + (why ? ' (' + why + ')' : '')); };
-
   // This runs before the app's script: pick a session to peek at, and have it working with a
   // turn Codealong can stop.
   var xhr = new XMLHttpRequest();
@@ -27,7 +14,7 @@
   var board = JSON.parse(xhr.responseText);
   var picked = null;
   board.lanes.forEach(function (l) { l.sessions.forEach(function (s) { if (!picked && !s.archived && !l.hidden) picked = s; }); });
-  if (!picked) { say('done: no session to peek at'); return; }
+  if (!picked) { stopped('no session to peek at'); return; }
   var key = picked.key;
   localStorage.setItem('codealong.preview.peek', key);
   localStorage.removeItem('codealong.draft.' + key);
@@ -50,10 +37,6 @@
   var hides = function () { return window.__calls.filter(function (c) { return c[0] === 'peek_hide'; }).length; };
   var cmdDot = function () { window.dispatchEvent(new KeyboardEvent('keydown', { key: '.', metaKey: true, bubbles: true, cancelable: true })); };
   var escape = function () { box().dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); };
-  var type = function (el, text) {
-    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(el, text);
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-  };
 
   (async function () {
     try {
@@ -90,6 +73,6 @@
     } catch (e) {
       check('ran', false, String(e) + ' note: ' + noteText());
     }
-    say('done: ' + out.join('; '));
+    done();
   })();
 })();

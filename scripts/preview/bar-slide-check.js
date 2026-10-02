@@ -2,19 +2,7 @@
 // pills shift as sessions change groups, the one that slides under a still pointer doesn't open
 // the peek, and a move on it does.
 //   PREVIEW_WAIT=60000 scripts/preview.sh bar '' scripts/preview/bar-slide-check.js
-// Every step should say ok.
 (function () {
-  var out = [];
-  var say = function (t) { window.__t = t; };
-  setInterval(function () { if (window.__t) document.title = window.__t; }, 100);
-  var wait = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
-  var until = function (f, ms) {
-    var s = Date.now();
-    return new Promise(function (res, rej) {
-      (function p() { if (f()) return res(); if (Date.now() - s > ms) return rej(new Error('timeout')); setTimeout(p, 10); })();
-    });
-  };
-  var check = function (name, ok, why) { out.push(name + (ok ? ' ok' : ' FAIL') + (why ? ' (' + why + ')' : '')); };
   var opens = function () { return window.__calls.filter(function (c) { return c[0] === 'peek_open'; }); };
   var at = function (type, el, x, y, from) {
     el.dispatchEvent(new PointerEvent(type, { bubbles: true, screenX: x, screenY: y, clientX: x, clientY: y, relatedTarget: from || null, pointerType: 'mouse' }));
@@ -50,8 +38,8 @@
         return wait(400);
       }).then(function () {
         check('coming back onto the bar points at the pill', opens().length === 3 && opens()[2][1].key === a.dataset.key, String(opens().length));
-        say('done: ' + out.join('; '));
+        done();
       });
     })
-    .catch(function (e) { say('done: ' + out.join('; ') + '; stopped: ' + e.message); });
+    .catch(stopped);
 })();

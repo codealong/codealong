@@ -5,20 +5,7 @@
 // puts the cursor in the box, and Escape there gives the list its keys back. (A synthetic press
 // doesn't focus the list first as a real one does.)
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/panel-queue-check.js
-// Every step should say ok.
 (function () {
-  var out = [];
-  var say = function (t) { window.__t = t; };
-  setInterval(function () { if (window.__t) document.title = window.__t; }, 100);
-  var wait = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
-  var until = function (f, ms) {
-    var s = Date.now();
-    return new Promise(function (res, rej) {
-      (function p() { if (f()) return res(); if (Date.now() - s > ms) return rej(new Error('timeout')); setTimeout(p, 10); })();
-    });
-  };
-  var check = function (name, ok, why) { out.push(name + (ok ? ' ok' : ' FAIL') + (why ? ' (' + why + ')' : '')); };
-
   // This runs before the app's script: the board it gets has four sessions waiting on you, made
   // from real ones, and nothing else waiting. The second waits on a call to allow.
   localStorage.setItem('codealong.project', 'All projects');
@@ -67,12 +54,6 @@
   var note = function () { var t = document.querySelector('.ca-sessinsp .ca-composer:not(.is-approval) .ca-composer-note'); return t ? t.textContent : ''; };
   var box = function () { return document.querySelector('.ca-sessinsp .ca-composer textarea'); };
   var row = function (i) { return document.getElementById('row-' + picked[i].lane + '::' + picked[i].key); };
-  var key = function (el, init) { el.dispatchEvent(new KeyboardEvent('keydown', Object.assign({ bubbles: true, cancelable: true }, init))); };
-  var type = function (el, text) {
-    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(el, text);
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-  };
-  var calls = function (cmd) { return window.__calls.filter(function (c) { return c[0] === cmd; }); };
   var on = function (name) { return until(function () { return title() === name; }, 3000).catch(function () {}); };
 
   say('panel queue check: waiting for the list');
@@ -129,5 +110,5 @@
       check('Escape in the box gives the list its keys back', document.activeElement === document.querySelector('[role="listbox"]'), document.activeElement && document.activeElement.className);
     })
     .catch(function (e) { check('ran', false, String(e) + ' at ' + title()); })
-    .then(function () { say('done: ' + out.join('; ')); });
+    .then(done);
 })();

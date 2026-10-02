@@ -3,22 +3,9 @@
 // Chrome has more than one, and picking it opens `s|<key>|chrome`; its panel's Open menu lists it
 // apart from the ways to open the session. Needs a session on this Mac that used Claude in
 // Chrome, and a PREVIEW_BIN built with chrometabs.rs if the shared build predates it.
-//   PREVIEW_BIN=<engine> PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/chrome-check.js
-// Every step should say ok.
+//   PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/chrome-check.js
 (function () {
-  var out = [];
-  var say = function (t) { window.__t = t; };
-  setInterval(function () { if (window.__t) document.title = window.__t; }, 100);
-  var wait = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
-  var until = function (f, ms) {
-    var s = Date.now();
-    return new Promise(function (res, rej) {
-      (function p() { var v = f(); if (v) return res(v); if (Date.now() - s > ms) return rej(new Error('timeout')); setTimeout(p, 20); })();
-    });
-  };
-  var check = function (name, ok, why) { out.push(name + (ok ? ' ok' : ' FAIL') + (why ? ' (' + why + ')' : '')); };
-  var menus = function () { return window.__calls.filter(function (c) { return c[0] === 'plugin:menu|new'; }).length; };
-  var labels = function () { return window.__menu().map(function (m) { return m[0]; }); };
+  var labels = menuLabels;
   var opens = function () { return window.__calls.filter(function (c) { return c[0] === 'open_target'; }).map(function (c) { return c[1].targetId; }); };
   var lane, s, target;
 
@@ -44,7 +31,7 @@
     })
     .then(function (row) {
       var before = menus();
-      row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+      rightClick(row);
       return until(function () { return menus() > before; }, 3000).then(function () {
         var l = labels();
         var i = l.indexOf(target.label);
@@ -64,8 +51,8 @@
       return wait(200).then(function () {
         var items = Array.prototype.map.call(document.querySelectorAll('.ca-sessinsp .ca-openin .ca-menu [role="menuitem"]'), function (el) { return el.textContent; });
         check('its panel offers it too', items.some(function (t) { return t.indexOf(target.label) >= 0; }), items.join(' | '));
-        say('done: ' + out.join('; '));
       });
     })
-    .catch(function (e) { say('done: FAIL ' + e.message + ' after ' + out.join('; ')); });
+    .then(done)
+    .catch(stopped);
 })();

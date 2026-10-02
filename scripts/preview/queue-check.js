@@ -4,20 +4,7 @@
 // one comes round again, and after the last the panel closes. The other keys for getting about are
 // the ones Sessions and the notch have (queue.ts): ⌥⇧↑ ⌥⇧↓, ⌃- ⌃⇧- and ⌥↑ ⌥↓ along the list.
 //   PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/queue-check.js
-// Every step should say ok.
 (function () {
-  var out = [];
-  var say = function (t) { window.__t = t; };
-  setInterval(function () { if (window.__t) document.title = window.__t; }, 100);
-  var wait = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
-  var until = function (f, ms) {
-    var s = Date.now();
-    return new Promise(function (res, rej) {
-      (function p() { if (f()) return res(); if (Date.now() - s > ms) return rej(new Error('timeout')); setTimeout(p, 10); })();
-    });
-  };
-  var check = function (name, ok, why) { out.push(name + (ok ? ' ok' : ' FAIL') + (why ? ' (' + why + ')' : '')); };
-
   // This runs before the app's script: the board it gets has four sessions waiting on you, made
   // from real ones, and nothing else waiting.
   localStorage.setItem('codealong.quick.project', 'All projects');
@@ -66,11 +53,6 @@
   var input = function () { return document.querySelector('.ca-quick-input textarea'); };
   var box = function () { return document.querySelector('.ca-reply .ca-composer textarea'); };
   var button = function (label) { return document.querySelector('.ca-reply .ca-sessinsp-head button[aria-label="' + label + '"]'); };
-  var key = function (el, init) { el.dispatchEvent(new KeyboardEvent('keydown', Object.assign({ bubbles: true, cancelable: true }, init))); };
-  var type = function (el, text) {
-    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(el, text);
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-  };
   var called = function (cmd) { return window.__calls.filter(function (c) { return c[0] === cmd; }).length; };
   var on = function (name) { return until(function () { return title() === name; }, 3000).catch(function () {}); };
 
@@ -164,5 +146,5 @@
       );
     })
     .catch(function (e) { check('ran', false, String(e) + ' at ' + title()); })
-    .then(function () { say('done: ' + out.join('; ')); });
+    .then(done);
 })();

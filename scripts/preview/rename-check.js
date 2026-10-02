@@ -7,32 +7,14 @@
 //   PREVIEW_PIN=session scripts/preview.sh desktop '' scripts/preview/rename-check.js
 //   scripts/preview.sh quick '' scripts/preview/rename-check.js
 //   scripts/preview.sh peek '' scripts/preview/rename-check.js
-// Every step should say ok. The board needs a Claude Code, Codex or OpenCode session.
+// The board needs a Claude Code, Codex or OpenCode session.
 (function () {
-  var out = [];
-  var say = function (t) { window.__t = t; };
-  setInterval(function () { if (window.__t) document.title = window.__t; }, 50);
-  var wait = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
-  var until = function (f, ms) {
-    var s = Date.now();
-    return new Promise(function (res, rej) {
-      (function p() { if (f()) return res(); if (Date.now() - s > ms) return rej(new Error('timeout')); setTimeout(p, 10); })();
-    });
-  };
-  var check = function (name, ok, why) { out.push(name + (ok ? ' ok' : ' FAIL' + (why ? ' (' + why + ')' : ''))); };
-  var calls = function (cmd) { return window.__calls.filter(function (c) { return c[0] === cmd; }).map(function (c) { return c[1]; }); };
-  var right = function (el) { el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })); };
-  var labels = function () { return window.__menu().map(function (m) { return m[0]; }); };
+  var calls = sent;
+  var labels = menuLabels;
   var choose = function (label) { var m = window.__menu().filter(function (x) { return x[0] === label; })[0]; if (m) m[1](); return !!m; };
-  var type = function (el, text) {
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, text);
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-  };
   var key = function (el, k) { el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true })); };
   var renames = function () { return calls('rename_session'); };
   var NAME = 'Renamed in a preview';
-  var done = function () { say('done: ' + out.join('; ')); };
-  var stopped = function (e) { say('done: ' + out.join('; ') + '; stopped: ' + e.message); };
   var surface = window.__CODEALONG_PEEK__ ? 'peek' : window.__CODEALONG_QUICK__ ? 'quick' : window.__CODEALONG_DESKTOP__ ? 'desktop' : window.__CODEALONG_BAR__ ? 'bar' : 'main';
   say('rename check (' + surface + '): waiting');
 
@@ -44,7 +26,7 @@
     until(function () { return rows().length > 0; }, 20000)
       .then(function () {
         row = rows()[0];
-        right(row);
+        rightClick(row);
         return wait(200);
       })
       .then(function () {
@@ -104,7 +86,7 @@
     // A card's menu is its session's once its feed has come.
     var menuUp = function () {
       if (!target()) return false;
-      right(target());
+      rightClick(target());
       return window.__menu().length > 1;
     };
     until(menuUp, 20000)
@@ -128,7 +110,7 @@
     var sessionRow = function () { return document.querySelector('.ca-quick-row:not(.is-suggest):not(.is-todo):not(.is-more):not(.is-pr)'); };
     until(function () { return calls('quick_ready').length > 0 && !!sessionRow(); }, 20000)
       .then(function () {
-        right(sessionRow());
+        rightClick(sessionRow());
         return wait(200);
       })
       .then(function () {

@@ -7,20 +7,7 @@
 // forgets one; Earlier beside an open one lists them too; and the session's header says how many
 // it has, which shows the only one, or the list, and puts it away again.
 //   PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/side-check.js
-// Every step should say ok.
 (function () {
-  var out = [];
-  var say = function (t) { window.__t = t; };
-  setInterval(function () { if (window.__t) document.title = window.__t; }, 100);
-  var wait = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
-  var until = function (f, ms) {
-    var s = Date.now();
-    return new Promise(function (res, rej) {
-      (function p() { if (f()) return res(); if (Date.now() - s > ms) return rej(new Error('timeout')); setTimeout(p, 10); })();
-    });
-  };
-  var check = function (name, ok, why) { out.push(name + (ok ? ' ok' : ' FAIL') + (why ? ' (' + why + ')' : '')); };
-
   // A Claude Code session to peek at, idle and taking messages.
   var xhr = new XMLHttpRequest();
   xhr.open('GET', './board.json', false);
@@ -28,7 +15,7 @@
   var board = JSON.parse(xhr.responseText);
   var picked = null;
   board.lanes.forEach(function (l) { l.sessions.forEach(function (s) { if (!picked && !s.archived && !l.hidden && s.harness === 'claude') picked = s; }); });
-  if (!picked) { say('done: no Claude Code session to peek at'); return; }
+  if (!picked) { stopped('no Claude Code session to peek at'); return; }
   var key = picked.key;
   localStorage.setItem('codealong.preview.peek', key);
   localStorage.removeItem('codealong.draft.' + key);
@@ -53,12 +40,7 @@
   var noteText = function () { var n = document.querySelector('.ca-composer-note'); return n ? n.textContent : ''; };
   var strip = function () { return document.querySelector('.ca-sidestrip'); };
   var turns = function () { return Array.prototype.map.call(document.querySelectorAll('.ca-sidestrip-turn'), function (t) { return t.textContent; }); };
-  var calls = function (name) { return window.__calls.filter(function (c) { return c[0] === name; }); };
   var enter = function () { box().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); };
-  var type = function (el, text) {
-    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(el, text);
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-  };
   // What the engine would say, which the stub's next answer goes on from too.
   var tell = function (side) {
     side = Object.assign({ id: (window.__sides && window.__sides[key] || {}).id || 'side-told', key: key, running: true, ended: false }, side);
@@ -184,8 +166,8 @@
       failNext = false;
 
     } catch (e) {
-      out.push('error: ' + e.message);
+      return stopped(e);
     }
-    say('done: ' + out.join(' | '));
+    done();
   })();
 })();

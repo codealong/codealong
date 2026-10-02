@@ -4,22 +4,8 @@
 // page itself keeps nothing and sends no more; the card fills its window from then on; and a
 // button in the header drags nothing.
 //   PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/peek-drag-check.js
-// Every step should say ok. keep-check.js has the rest of keeping a session.
+// keep-check.js has the rest of keeping a session.
 (function () {
-  var out = [];
-  var say = function (t) { window.__t = t; };
-  setInterval(function () { if (window.__t) document.title = window.__t; }, 100);
-  var wait = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
-  var until = function (f, ms) {
-    var s = Date.now();
-    return new Promise(function (res, rej) {
-      (function p() { if (f()) return res(); if (Date.now() - s > ms) return rej(new Error('timeout')); setTimeout(p, 10); })();
-    });
-  };
-  var check = function (name, ok, why) { out.push(name + (ok ? ' ok' : ' FAIL') + (why ? ' (' + why + ')' : '')); };
-  var done = function () { say('done: ' + out.join(' · ')); };
-  var calls = function (cmd) { return window.__calls.filter(function (c) { return c[0] === cmd; }); };
-  var last = function (cmd) { var c = calls(cmd); return c.length ? c[c.length - 1][1] : null; };
   var head = function () { return document.querySelector('.ca-peek .ca-sessinsp-head'); };
   var button = function (label) { return document.querySelector('.ca-peek .ca-sessinsp-head button[aria-label="' + label + '"]'); };
   var pointer = function (el, type, x, y, buttons) {
@@ -67,8 +53,5 @@
       check('nor put away', calls('peek_hide').length === 0);
     })
     .then(done)
-    .catch(function (e) {
-      out.push('FAIL ' + e);
-      done();
-    });
+    .catch(stopped);
 })();

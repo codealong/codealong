@@ -7,20 +7,7 @@
 // ⌃⌘A pin, rename and archive, ⇧⌘F expands, ⌥↑ ⌥↓ move along, ⌃Tab goes through the views, and
 // the right-click menu shows the chords.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/seen-next-check.js
-// Every step should say ok.
 (function () {
-  var out = [];
-  var say = function (t) { window.__t = t; };
-  setInterval(function () { if (window.__t) document.title = window.__t; }, 100);
-  var wait = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
-  var until = function (f, ms) {
-    var s = Date.now();
-    return new Promise(function (res, rej) {
-      (function p() { if (f()) return res(); if (Date.now() - s > ms) return rej(new Error('timeout')); setTimeout(p, 10); })();
-    });
-  };
-  var check = function (name, ok, why) { out.push(name + (ok ? ' ok' : ' FAIL') + (why ? ' (' + why + ')' : '')); };
-
   localStorage.setItem('codealong.project', 'All projects');
   localStorage.removeItem('codealong.sessionPanelMax');
   var now = Date.now();
@@ -71,11 +58,9 @@
   var list = function () { return document.querySelector('[role="listbox"]'); };
   var body = function () { return document.querySelector('.ca-win-body'); };
   var row = function (i) { return document.getElementById('row-' + picked[i].lane + '::' + picked[i].key); };
-  var key = function (el, init) { el.dispatchEvent(new KeyboardEvent('keydown', Object.assign({ bubbles: true, cancelable: true }, init))); };
   var seenKeys = function () { return window.__calls.filter(function (c) { return c[0] === 'mark_seen'; }).map(function (c) { return c[1].keys.join(','); }); };
   var on = function (name) { return until(function () { return title() === name; }, 3000).catch(function () {}); };
 
-  var calls = function (cmd) { return window.__calls.filter(function (c) { return c[0] === cmd; }); };
   var boxed = function () { return document.activeElement === box(); };
   var press = function (el, init) {
     var ev = new KeyboardEvent('keydown', Object.assign({ bubbles: true, cancelable: true }, init));
@@ -234,7 +219,7 @@
       return until(function () { return row(0); }, 3000);
     })
     .then(function () {
-      row(0).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+      rightClick(row(0));
       return wait(300);
     })
     .then(function () {
@@ -246,5 +231,5 @@
       check('the menu shows the chords', /^Rename…=Ctrl\+Cmd\+R, (Pin|Unpin) session=Ctrl\+Cmd\+P, (For 15 minutes=Ctrl\+Cmd\+1, For 1 hour=Ctrl\+Cmd\+2, For 3 hours=Ctrl\+Cmd\+3, Until [^=]+=Ctrl\+Cmd\+4, )?((Close terminal|End background job)=Ctrl\+Cmd\+W, )?Archive=Ctrl\+Cmd\+A$/.test(keys.join(', ')), keys.join(', '));
     })
     .catch(function (e) { check('ran', false, String(e) + ' at ' + title()); })
-    .then(function () { say('done: ' + out.join('; ')); });
+    .then(done);
 })();

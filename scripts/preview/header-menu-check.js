@@ -3,27 +3,13 @@
 // session the header names keep their own menus, one menu a click; and the conversation under
 // the header gives none.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/header-menu-check.js
-// Every step should say ok; "skipped" where the session shown names no PR or session. The cards
+// A step is noted as skipped where the session shown names no PR or session. The cards
 // (the peek, a kept session, the quick panel) have the same header: card-check.js.
 (function () {
-  var out = [];
-  var say = function (t) { window.__t = t; };
-  setInterval(function () { if (window.__t) document.title = window.__t; }, 100);
-  var wait = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
-  var until = function (f, ms) {
-    var s = Date.now();
-    return new Promise(function (res, rej) {
-      (function p() { if (f()) return res(); if (Date.now() - s > ms) return rej(new Error('timeout')); setTimeout(p, 10); })();
-    });
-  };
-  var check = function (name, ok, why) { out.push(name + (ok ? ' ok' : ' FAIL') + (why ? ' (' + why + ')' : '')); };
-  var done = function () { say('done: ' + out.join('; ')); };
-  var calls = function (cmd) { return window.__calls.filter(function (c) { return c[0] === cmd; }); };
-  var menus = function () { return calls('plugin:menu|new').length; };
   var labels = function () { return window.__menu().map(function (m) { return m[0]; }).join('|'); };
   // The menu is long (every todo is in it), so a step says how many items, not which.
   var count = function () { return window.__menu().length + ' items'; };
-  var right = function (el) { el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 40, clientY: 40 })); };
+  var right = function (el) { rightClick(el, { clientX: 40, clientY: 40 }); };
   var head = function () { return document.querySelector('.ca-sessinsp .ca-sessinsp-head'); };
   var rows = function () { return document.querySelectorAll('.ca-lane.is-agent, .ca-agentline'); };
   var session = '';
@@ -62,7 +48,7 @@
     })
     .then(function () {
       var pr = head().querySelector('.ca-sessinsp-links .ca-pr');
-      if (!pr) return void out.push('a PR’s own menu skipped');
+      if (!pr) return void note('a PR’s own menu skipped');
       var n = menus();
       right(pr);
       return wait(300).then(function () {
@@ -71,7 +57,7 @@
     })
     .then(function () {
       var kin = head().querySelector('.ca-sessinsp-kin');
-      if (!kin) return void out.push('a named session’s own menu skipped');
+      if (!kin) return void note('a named session’s own menu skipped');
       var n = menus();
       right(kin);
       return wait(300).then(function () {
@@ -80,7 +66,7 @@
     })
     .then(function () {
       var thread = document.querySelector('.ca-sessinsp .ca-thread') || document.querySelector('.ca-sessinsp .ca-composer');
-      if (!thread) return void out.push('the conversation skipped');
+      if (!thread) return void note('the conversation skipped');
       var n = menus();
       right(thread);
       return wait(300).then(function () {
@@ -88,8 +74,5 @@
       });
     })
     .then(done)
-    .catch(function (e) {
-      out.push('FAIL ' + e);
-      done();
-    });
+    .catch(stopped);
 })();

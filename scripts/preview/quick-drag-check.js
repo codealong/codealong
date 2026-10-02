@@ -3,23 +3,9 @@
 // once the pointer leaves the panel), the click the drag ends in picks nothing, a plain click
 // still picks, and the row that starts a session can't be dragged.
 //   PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/quick-drag-check.js
-// Every step should say ok. The board needs a session the panel lists.
+// The board needs a session the panel lists.
 (function () {
-  var out = [];
-  var say = function (t) { window.__t = t; };
-  setInterval(function () { if (window.__t) document.title = window.__t; }, 100);
-  var wait = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
-  var until = function (f, ms) {
-    var s = Date.now();
-    return new Promise(function (res, rej) {
-      (function p() { if (f()) return res(); if (Date.now() - s > ms) return rej(new Error('timeout')); setTimeout(p, 10); })();
-    });
-  };
-  var check = function (name, ok, why) { out.push(name + (ok ? ' ok' : ' FAIL') + (why ? ' (' + why + ')' : '')); };
-  var done = function () { say('done: ' + out.join(' · ')); };
   localStorage.setItem('codealong.quick.project', 'All projects');
-  var calls = function (cmd) { return window.__calls.filter(function (c) { return c[0] === cmd; }); };
-  var last = function (cmd) { var c = calls(cmd); return c.length ? c[c.length - 1][1] : null; };
   var pointer = function (target, type, x, y) {
     target.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, button: 0, buttons: type === 'pointerup' ? 0 : 1, clientX: x, clientY: y, pointerId: 1, isPrimary: true, pointerType: 'mouse' }));
   };
@@ -73,8 +59,5 @@
         done();
       });
     })
-    .catch(function (e) {
-      out.push('FAIL ' + e);
-      done();
-    });
+    .catch(stopped);
 })();

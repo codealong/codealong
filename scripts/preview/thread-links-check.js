@@ -6,17 +6,6 @@
 // As PREVIEW_INIT (with PREVIEW_NAME=thread-links) it leaves the panel open on it, the publish's
 // output showing, for a screenshot.
 (function () {
-  var out = [];
-  var say = function (t) { window.__t = t; };
-  setInterval(function () { if (window.__t) document.title = window.__t; }, 100);
-  var until = function (f, ms) {
-    var s = Date.now();
-    return new Promise(function (res, rej) {
-      (function p() { if (f()) return res(); if (Date.now() - s > ms) return rej(new Error('timeout')); setTimeout(p, 10); })();
-    });
-  };
-  var check = function (name, ok, why) { out.push(name + (ok ? ' ok' : ' FAIL') + (why ? ' (' + why + ')' : '')); };
-
   localStorage.setItem('codealong.project', 'All projects');
   var URL = 'https://claude.ai/artifact/VuawMfgy2qCBAFhpc6dC3H';
   var FILE = '/private/tmp/claude-501/-Users-me-projects-osprey/20898bb3/scratchpad/security-dashboard.html';
@@ -107,10 +96,6 @@
         });
       });
     })
-    .then(function () {
-      say('done: ' + out.join('; '));
-    })
-    .catch(function (e) {
-      say('done: ' + out.join('; ') + ' ERROR ' + e.message);
-    });
+    .then(done)
+    .catch(stopped);
 })();

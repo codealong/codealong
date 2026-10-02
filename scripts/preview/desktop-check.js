@@ -8,31 +8,12 @@
 //   PREVIEW_WAIT=60000 PREVIEW_PIN=worktree scripts/preview.sh desktop '' scripts/preview/desktop-check.js
 //   PREVIEW_WAIT=60000 PREVIEW_PIN=session scripts/preview.sh desktop '' scripts/preview/desktop-check.js
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/desktop-check.js
-// Every step should say ok.
 (function () {
-  var out = [];
-  var say = function (t) { window.__t = t; };
-  setInterval(function () { if (window.__t) document.title = window.__t; }, 100);
-  var wait = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
-  var until = function (f, ms) {
-    var s = Date.now();
-    return new Promise(function (res, rej) {
-      (function p() { if (f()) return res(); if (Date.now() - s > ms) return rej(new Error('timeout')); setTimeout(p, 10); })();
-    });
-  };
-  var check = function (name, ok, why) { out.push(name + (ok ? ' ok' : ' FAIL') + (why ? ' (' + why + ')' : '')); };
-  var calls = function (cmd) { return window.__calls.filter(function (c) { return c[0] === cmd; }); };
-  var last = function (cmd) { var c = calls(cmd); return c.length ? c[c.length - 1][1] : null; };
-  var lastMenu = function () { var m = calls('plugin:menu|new'); return m.length ? m[m.length - 1][1].options.items : []; };
   var texts = function (items) { return items.map(function (i) { return i.item === 'Separator' ? '-' : i.text; }); };
   var find = function (items, text) { return items.filter(function (i) { return i.text === text; })[0]; };
-  var pick = function (item) { window['_' + item.handler.id]({ index: 0, message: item.id }); };
-  var right = function (el) { el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })); };
   // A click as the n-th of a run, as WebKit counts them.
   var click = function (el, n) { el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: n })); };
   var twice = function (el) { click(el, 1); click(el, 2); };
-  var done = function () { say('done: ' + out.join(' · ')); };
-  var failed = function (e) { out.push('FAIL ' + e); done(); };
 
   if (window.__CODEALONG_DESKTOP__ && window.__CODEALONG_PIN__ === 'session') {
     say('desktop check: waiting for the card');
@@ -62,7 +43,7 @@
         check('without the peek opening again', calls('peek_open').length === 1, String(calls('peek_open').length));
         done();
       })
-      .catch(failed);
+      .catch(stopped);
     return;
   }
 
@@ -106,7 +87,7 @@
         twice(line);
         var o = last('open_from_bar');
         check('a double-click on a line opens that session where it lives', calls('open_from_bar').length === opens + 1 && o.laneId === feed.lanes[0].id && o.targetId === s.openTarget, JSON.stringify(o));
-        right(document.querySelector('.ca-desk-card'));
+        rightClick(document.querySelector('.ca-desk-card'));
         return wait(500);
       })
       .then(function () {
@@ -126,14 +107,14 @@
       .then(function () {
         var card = document.querySelector('.ca-desk .ca-cv-card');
         check('a card the board lost says so, with its last title', card.classList.contains('is-gone') && /Old name/.test(card.textContent) && /No longer on the board/.test(card.textContent), card.textContent);
-        right(document.querySelector('.ca-desk-card'));
+        rightClick(document.querySelector('.ca-desk-card'));
         return wait(200);
       })
       .then(function () {
         check('and its menu only removes it', texts(lastMenu()).join('|') === 'Remove from desktop', texts(lastMenu()).join('|'));
         done();
       })
-      .catch(failed);
+      .catch(stopped);
     return;
   }
 
@@ -142,7 +123,7 @@
   say('desktop check: waiting for sessions');
   until(function () { return !!row() && calls('desktop_pins').length; }, 20000)
     .then(function () {
-      right(row());
+      rightClick(row());
       return wait(200);
     })
     .then(function () {
@@ -157,7 +138,7 @@
       return wait(200);
     })
     .then(function () {
-      right(row());
+      rightClick(row());
       return wait(200);
     })
     .then(function () {
@@ -169,5 +150,5 @@
       check('the same session', off && off.pin.ref === 'session' && off.pin.key === key, JSON.stringify(off));
       done();
     })
-    .catch(failed);
+    .catch(stopped);
 })();

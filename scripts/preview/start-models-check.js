@@ -3,24 +3,11 @@
 // Antigravity's `agy models`) offers them, one that lists none offers only itself, and a start
 // on one asks for it in the terminal, with the worktree choice left to a harness that makes one.
 //   PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/start-models-check.js
-// Every step should say ok. It needs an account of each kind in config.toml; one that's missing
-// says so and its steps are skipped.
+// It needs an account of each kind in config.toml; one that's missing is noted and its steps
+// are skipped.
 (function () {
-  var out = [];
-  var say = function (t) { window.__t = t; };
-  setInterval(function () { if (window.__t) document.title = window.__t; }, 100);
-  var wait = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
-  var until = function (f, ms) {
-    var s = Date.now();
-    return new Promise(function (res, rej) {
-      (function p() { if (f()) return res(); if (Date.now() - s > ms) return rej(new Error('timeout')); setTimeout(p, 10); })();
-    });
-  };
-  var check = function (name, ok, why) { out.push(name + (ok ? ' ok' : ' FAIL') + (why ? ' (' + why + ')' : '')); };
-  var key = function (el, init) { el.dispatchEvent(new KeyboardEvent('keydown', Object.assign({ bubbles: true, cancelable: true }, init))); };
   var agentChip = function () { return document.querySelector('.ca-quick-agent .ca-quick-chip'); };
   var options = function () { return Array.prototype.slice.call(document.querySelectorAll('.ca-picker-opt')); };
-  var calls = function (cmd) { return window.__calls.filter(function (c) { return c[0] === cmd; }); };
   var listed = null;
 
   localStorage.setItem('codealong.quick.project', 'All projects');
@@ -46,7 +33,7 @@
       });
       var other = listed.find(function (a) { return a.harness !== 'claude' && (a.models || []).length > 0 && a.places.length > 0; });
       if (!other) {
-        out.push('no account besides Claude Code lists models here: the rest skipped');
+        note('no account besides Claude Code lists models here: the rest skipped');
         return null;
       }
       var model = other.models[other.models.length - 1];
@@ -72,6 +59,6 @@
         });
       });
     })
-    .then(function () { say('done: ' + out.join(' | ')); })
-    .catch(function (e) { say('done: ' + out.join(' | ') + ' | FAIL ' + e.message); });
+    .then(done)
+    .catch(stopped);
 })();

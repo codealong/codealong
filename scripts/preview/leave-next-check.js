@@ -5,20 +5,7 @@
 // went; the strip's Snooze button does too; ⌘E on the one that runs, which has nothing to mark
 // seen, goes on as ⌘] does; and archiving one that didn't wait on you goes on to nothing.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/leave-next-check.js
-// Every step should say ok.
 (function () {
-  var out = [];
-  var say = function (t) { window.__t = t; };
-  setInterval(function () { if (window.__t) document.title = window.__t; }, 100);
-  var wait = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
-  var until = function (f, ms) {
-    var s = Date.now();
-    return new Promise(function (res, rej) {
-      (function p() { if (f()) return res(); if (Date.now() - s > ms) return rej(new Error('timeout')); setTimeout(p, 10); })();
-    });
-  };
-  var check = function (name, ok, why) { out.push(name + (ok ? ' ok' : ' FAIL') + (why ? ' (' + why + ')' : '')); };
-
   // This runs before the app's script: the board it gets has five sessions waiting on you and one
   // running, made from real ones on this device, and nothing else waiting. The third has a
   // terminal to close.
@@ -147,5 +134,5 @@
       check('archiving one that didn’t wait on you is no step through the queue', archived.length === 2 && archived[1].key === picked[5].key && !/archived\./.test(strip()), title() + ' / ' + strip());
     })
     .catch(function (e) { check('ran', false, String(e) + ' at ' + title()); })
-    .then(function () { say('done: ' + out.join('; ')); });
+    .then(done);
 })();

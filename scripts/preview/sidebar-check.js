@@ -3,19 +3,7 @@
 // when picked; ⌃⌘S folds the sidebar to a rail whose filter button counts the filters on and
 // opens it again; and a saved view's menu deletes it.
 //   PREVIEW_DEVICES=scripts/preview/devices-sample.json scripts/preview.sh sessions '' scripts/preview/sidebar-check.js
-// Every step should say ok.
 (function () {
-  var out = [];
-  var say = function (t) { window.__t = t; };
-  setInterval(function () { if (window.__t) document.title = window.__t; }, 100);
-  var wait = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
-  var until = function (f, ms) {
-    var s = Date.now();
-    return new Promise(function (res, rej) {
-      (function p() { if (f()) return res(); if (Date.now() - s > ms) return rej(new Error('timeout')); setTimeout(p, 10); })();
-    });
-  };
-  var check = function (name, ok, why) { out.push(name + (ok ? ' ok' : ' FAIL') + (why ? ' (' + why + ')' : '')); };
   var nav = function (label) {
     return Array.prototype.filter.call(document.querySelectorAll('.ca-side .ca-nav'), function (b) { var l = b.querySelector('.ca-nav-label'); return l && l.textContent === label; })[0];
   };
@@ -129,7 +117,7 @@
       return wait(50);
     })
     .then(function () {
-      nav('My turns').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+      rightClick(nav('My turns'));
       return wait(100);
     })
     .then(function () {
@@ -142,5 +130,5 @@
       check('and it’s gone', !nav('My turns') && saved().length === 0, JSON.stringify(saved()));
     })
     .catch(function (e) { check('ran', false, String(e)); })
-    .then(function () { say('done: ' + out.join('; ')); });
+    .then(done);
 })();

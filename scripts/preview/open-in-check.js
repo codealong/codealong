@@ -6,23 +6,10 @@
 // session's header has the same under its Open button, the terminal's saying which folder.
 // Needs two or more editors installed, and a PREVIEW_BIN built with editors.rs if the shared
 // build predates it.
-//   PREVIEW_BIN=<engine> scripts/preview.sh worktrees '' scripts/preview/open-in-check.js
-// Every step should say ok.
+//   scripts/preview.sh worktrees '' scripts/preview/open-in-check.js
 (function () {
-  var out = [];
-  var say = function (t) { window.__t = t; };
-  setInterval(function () { if (window.__t) document.title = window.__t; }, 100);
-  var wait = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
-  var until = function (f, ms) {
-    var s = Date.now();
-    return new Promise(function (res, rej) {
-      (function p() { if (f()) return res(); if (Date.now() - s > ms) return rej(new Error('timeout')); setTimeout(p, 10); })();
-    });
-  };
-  var check = function (name, ok, why) { out.push(name + (ok ? ' ok' : ' FAIL') + (why ? ' (' + why + ')' : '')); };
   var opens = function () { return window.__calls.filter(function (c) { return c[0] === 'open_target'; }).map(function (c) { return c[1].targetId; }); };
-  var right = function (el) { el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })); };
-  var labels = function () { return window.__menu().map(function (m) { return m[0]; }); };
+  var labels = menuLabels;
   var lastItems = function () { var m = window.__calls.filter(function (c) { return c[0] === 'plugin:menu|new'; }).pop(); return m ? m[1].options.items : []; };
   var pick = function (label) { var m = window.__menu().filter(function (x) { return x[0] === label; })[0]; if (m) m[1](); return !!m; };
   var board;
@@ -43,7 +30,7 @@
     })
     .then(function () {
       var others = board.editors.filter(function (e) { return e.id !== board.editorId; });
-      right(document.querySelector('.ca-board .ca-lane'));
+      rightClick(document.querySelector('.ca-board .ca-lane'));
       return wait(200).then(function () {
         var l = labels();
         check('a worktree opens in your editor', l.indexOf('Open in ' + board.editor) >= 0, l.slice(0, 6).join(' | '));
@@ -80,7 +67,7 @@
       return until(function () { return document.querySelector('.ca-board .ca-lane.is-agent'); }, 5000);
     })
     .then(function () {
-      right(document.querySelector('.ca-board .ca-lane.is-agent'));
+      rightClick(document.querySelector('.ca-board .ca-lane.is-agent'));
       return wait(200).then(function () {
         var l = labels();
         var sub = l.filter(function (x) { return x.indexOf('Open folder in › ') === 0; });
@@ -91,7 +78,7 @@
         return wait(100).then(function () {
           var last = board.editors.filter(function (e) { return e.name === all[all.length - 1]; })[0];
           check('it opens there', opens().pop() === 'l|editor|' + (last && last.id), opens().join());
-          right(document.querySelector('.ca-board .ca-lane.is-agent'));
+          rightClick(document.querySelector('.ca-board .ca-lane.is-agent'));
           return wait(200);
         }).then(function () {
           pick(sub[0]);
@@ -127,5 +114,5 @@
       });
     })
     .catch(function (e) { check('ran', false, String(e)); })
-    .then(function () { say(out.join('; ')); });
+    .then(done);
 })();

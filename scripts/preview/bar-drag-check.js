@@ -3,31 +3,14 @@
 // (drag_to_desktop, which moves the card with the pointer), the click it ends in does nothing, and
 // the pill looks lifted until the engine says the drag is over. And the pill's menu pins it.
 //   PREVIEW_WAIT=60000 scripts/preview.sh bar '' scripts/preview/bar-drag-check.js
-// Every step should say ok.
 (function () {
-  var out = [];
-  var say = function (t) { window.__t = t; };
-  setInterval(function () { if (window.__t) document.title = window.__t; }, 100);
-  var wait = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
-  var until = function (f, ms) {
-    var s = Date.now();
-    return new Promise(function (res, rej) {
-      (function p() { if (f()) return res(); if (Date.now() - s > ms) return rej(new Error('timeout')); setTimeout(p, 10); })();
-    });
-  };
-  var check = function (name, ok, why) { out.push(name + (ok ? ' ok' : ' FAIL') + (why ? ' (' + why + ')' : '')); };
-  var calls = function (cmd) { return window.__calls.filter(function (c) { return c[0] === cmd; }); };
-  var last = function (cmd) { var c = calls(cmd); return c.length ? c[c.length - 1][1] : null; };
-  var lastMenu = function () { var m = calls('plugin:menu|new'); return m.length ? m[m.length - 1][1].options.items : []; };
   var find = function (items, text) { return items.filter(function (i) { return i.text === text; })[0]; };
-  var pick = function (item) { window['_' + item.handler.id]({ index: 0, message: item.id }); };
   var pointer = function (el, type, x, y, buttons) {
     el.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, button: type === 'pointerdown' ? 0 : -1, buttons: buttons, screenX: x, screenY: y, clientX: x, clientY: y, pointerType: 'mouse' }));
   };
   var click = function (el) { el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 })); };
   var pill = function () { return document.querySelector('.ca-hud [data-key]'); };
   var shows = function () { return calls('show_main').length; };
-  var done = function () { say('done: ' + out.join(' · ')); };
 
   say('bar drag check: waiting for pills');
   var key = null;
@@ -71,7 +54,7 @@
       check('and settles when the engine says the drag is over', !pill().classList.contains('is-dragged'));
       // The menu asks for the session first, which takes a while on a busy Mac.
       var menus = calls('plugin:menu|new').length;
-      pill().dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+      rightClick(pill());
       return until(function () { return calls('plugin:menu|new').length > menus; }, 5000).then(function () { return wait(50); });
     })
     .then(function () {
@@ -86,7 +69,7 @@
     .then(function () {
       // The menu asks for the session first, which takes a while on a busy Mac.
       var menus = calls('plugin:menu|new').length;
-      pill().dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+      rightClick(pill());
       return until(function () { return calls('plugin:menu|new').length > menus; }, 5000).then(function () { return wait(50); });
     })
     .then(function () {
@@ -97,8 +80,5 @@
       check('the same session', p && p.pin.key === key, JSON.stringify(p));
       done();
     })
-    .catch(function (e) {
-      out.push('FAIL ' + e);
-      done();
-    });
+    .catch(stopped);
 })();

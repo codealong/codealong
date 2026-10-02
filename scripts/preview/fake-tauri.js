@@ -10,8 +10,13 @@
 // Native menus aren't drawn, but they're made and "shown" as if they were, so a right-click
 // runs to the end. `window.__menu()` lists the last menu's items as [label, pick] pairs;
 // pick() runs an item as choosing it would.
+//
+// A command with no answer here resolves null, which is right for the many that only do
+// something, and wrong for a new one the page shows the answer of: `window.__unknown` names each
+// command that went unanswered, once, and prelude.js says them beside a check's result.
 window.__CODEALONG_PREVIEW__ = true;
 window.__calls = [];
+window.__unknown = [];
 // Todos from todos-fixture.json (PREVIEW_TODOS in preview.sh) in place of the board's own, with
 // "$lane:N" and "$session:N" as the project's Nth most recent worktree and session, a wait's
 // `sinceAgo` in minutes, and `dueIn` as a due date that many days from today.
@@ -467,6 +472,7 @@ window.__TAURI_INTERNALS__ = {
       var name = cmd === 'import_attachment' ? String(args.path).split('/').pop() : decodeURIComponent(((options || {}).headers || {})['x-name'] || 'file');
       return Promise.resolve(png ? { kind: 'image', path: 'images/0123456789abcdef.png', name: name } : { kind: 'file', path: 'files/fedcba9876543210/' + name.replace(/[^\w.-]+/g, '-'), name: name });
     }
+    if (window.__unknown.indexOf(cmd) < 0) window.__unknown.push(cmd);
     return Promise.resolve(null);
   },
   transformCallback: function (cb) {

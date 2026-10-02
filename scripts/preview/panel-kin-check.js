@@ -2,16 +2,11 @@
 // the one it came from is a line over the title, the ones that came of it are rows under it, each
 // with its status; a right-click on one gives that session's menu, and a click shows its panel.
 // A session that started several lists the latest and "+N more" beside it, which lists the rest.
-//   PREVIEW_WAIT=90000 scripts/preview.sh sessions <project> scripts/preview/panel-kin-check.js
+//   PREVIEW_WAIT=90000 scripts/preview.sh sessions '' scripts/preview/panel-kin-check.js
 // The bar's peek has the same header (SessionHeader.tsx); there a click on one opens it in the peek:
 //   PREVIEW_TRANSCRIPT=<key of a session with kin> PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/panel-kin-check.js
-// Every step should say ok; "skipped" where the board has no such session.
+// A step is noted as skipped where the board has no such session.
 (function () {
-  var out = [];
-  var say = function (t) { window.__t = t; };
-  setInterval(function () { if (window.__t) document.title = window.__t; }, 100);
-  var wait = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
-  var check = function (name, ok, why) { out.push(name + (ok ? ' ok' : ' FAIL') + (why ? ' (' + why + ')' : '')); };
   var xhr = new XMLHttpRequest();
   xhr.open('GET', './board.json', false);
   xhr.send();
@@ -47,8 +42,8 @@
     check('and the open button’s words fit', !open || open.scrollWidth <= open.clientWidth, open ? open.textContent : 'no split button');
     check('with the sessions around it', rows.length > 0 || !!parent, (parent ? 'from: ' + parent.textContent + ' ' : '') + rows.length + ' rows');
     var row = rows[0] || parent;
-    if (!row) return say('done: ' + out.join('; '));
-    row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 30, clientY: 30 }));
+    if (!row) return done();
+    rightClick(row, { clientX: 30, clientY: 30 });
     await wait(400);
     var items = (window.__menu() || []).map(function (x) { return x[0]; });
     check('a right-click gives its menu', items.indexOf('Pin to desktop') >= 0, items.length + ' items');
@@ -58,13 +53,13 @@
     await wait(400);
     var opened = window.__calls.filter(function (c) { return c[0] === 'peek_open'; });
     check('a click opens it in the peek', opened.length === 1 && !!want && opened[0][1].key === want.key, JSON.stringify(opened.map(function (c) { return c[1].key; })));
-    say('done: ' + out.join('; '));
+    done();
   };
   var run = async function () {
     if (window.__CODEALONG_PEEK__) return peek();
     // One that came of another and had one come of it.
     var mid = all.find(function (s) { return s.origin && has(s.origin.key) && kids(s).length > 0; });
-    if (!mid || !(await select(mid.title))) out.push('a session between two skipped');
+    if (!mid || !(await select(mid.title))) note('a session between two skipped');
     else {
       var parent = document.querySelector('.ca-sessinsp-kin.is-parent');
       var rows = document.querySelectorAll('.ca-sessinsp-kids .ca-sessinsp-kin');
@@ -76,7 +71,7 @@
       check('the title is beside the buttons', tools.top < name.bottom && name.right <= tools.left + 1, Math.round(name.width) + ' wide');
       check('the chips are gone', !document.querySelector('.ca-sessinsp-links .ca-sessinsp-kin'));
       var row = rows[0];
-      row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 30, clientY: 30 }));
+      rightClick(row, { clientX: 30, clientY: 30 });
       await wait(400);
       var items = (window.__menu() || []).map(function (x) { return x[0]; });
       check('a right-click gives its menu', items.indexOf('Pin to desktop') >= 0 && items.some(function (x) { return /^Rename/.test(x); }), items.length + ' items');
@@ -89,7 +84,7 @@
     }
     // One that started many.
     var many = all.find(function (s) { return kids(s).length > 1; });
-    if (!many || !(await select(many.title))) out.push('a session with several skipped');
+    if (!many || !(await select(many.title))) note('a session with several skipped');
     else {
       var shownRows = function () { return document.querySelectorAll('.ca-sessinsp-kids .ca-sessinsp-kin'); };
       var more = document.querySelector('.ca-sessinsp-kids-more');
@@ -106,7 +101,7 @@
       await wait(300);
       check('and puts them away again', shownRows().length === 1);
     }
-    say('done: ' + out.join('; '));
+    done();
   };
-  setTimeout(run, 1500);
+  setTimeout(function () { run().catch(stopped); }, 1500);
 })();

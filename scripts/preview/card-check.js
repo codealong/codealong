@@ -6,24 +6,10 @@
 //   PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/card-check.js
 //   PREVIEW_WAIT=60000 scripts/preview.sh kept '' scripts/preview/card-check.js
 //   PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/card-check.js
-// Every step should say ok. Marking seen is checked where the session shown waits on you.
+// Marking seen is checked where the session shown waits on you.
 (function () {
-  var out = [];
-  var say = function (t) { window.__t = t; };
-  setInterval(function () { if (window.__t) document.title = window.__t; }, 100);
-  var wait = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
-  var until = function (f, ms) {
-    var s = Date.now();
-    return new Promise(function (res, rej) {
-      (function p() { if (f()) return res(); if (Date.now() - s > ms) return rej(new Error('timeout')); setTimeout(p, 10); })();
-    });
-  };
-  var check = function (name, ok, why) { out.push(name + (ok ? ' ok' : ' FAIL') + (why ? ' (' + why + ')' : '')); };
-  var done = function () { say('done: ' + out.join(' · ')); };
   localStorage.setItem('codealong.quick.project', 'All projects');
   var quick = window.__CODEALONG_QUICK__ === true;
-  var calls = function (cmd) { return window.__calls.filter(function (c) { return c[0] === cmd; }); };
-  var last = function (cmd) { var c = calls(cmd); return c.length ? c[c.length - 1][1] : null; };
   var head = function () { return document.querySelector('.ca-reply .ca-sessinsp-head'); };
   var button = function (label) { return document.querySelector('.ca-reply .ca-sessinsp-head button[aria-label="' + label + '"]'); };
   var key = function (init) { window.dispatchEvent(new KeyboardEvent('keydown', Object.assign({ bubbles: true, cancelable: true }, init))); };
@@ -56,7 +42,7 @@
       var first = said(menu());
       check('⋯ has the session’s menu, with its shortcuts', whole(first, seenable), first.join(', '));
       var n = calls('plugin:menu|new').length;
-      document.querySelector('.ca-reply .ca-sessinsp-meta').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+      rightClick(document.querySelector('.ca-reply .ca-sessinsp-meta'));
       return wait(200).then(function () {
         var second = said(menu());
         check('a right-click has the same menu', calls('plugin:menu|new').length === n + 1 && second.join('|') === first.join('|'), second.join(', '));
@@ -97,8 +83,5 @@
       });
     })
     .then(done)
-    .catch(function (e) {
-      out.push('FAIL ' + e);
-      done();
-    });
+    .catch(stopped);
 })();

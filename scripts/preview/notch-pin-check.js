@@ -4,18 +4,7 @@
 // pinned (`bar-mode`) opens it at once.
 //   PREVIEW_WAIT=40000 scripts/preview.sh notch '' scripts/preview/notch-pin-check.js
 (function () {
-  var out = [];
-  var say = function (t) { window.__t = t; };
-  setInterval(function () { if (window.__t) document.title = window.__t; }, 100);
-  var wait = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
-  var until = function (f, ms) {
-    var s = Date.now();
-    return new Promise(function (res, rej) {
-      (function p() { if (f()) return res(); if (Date.now() - s > ms) return rej(new Error('timeout')); setTimeout(p, 10); })();
-    });
-  };
-  var check = function (name, ok, why) { out.push(name + (ok ? ' ok' : ' FAIL') + (why ? ' (' + why + ')' : '')); };
-  var calls = function (cmd) { return window.__calls.filter(function (c) { return c[0] === cmd; }).map(function (c) { return c[1]; }); };
+  var calls = sent;
   var notch = function () { return document.querySelector('.ca-notch'); };
   var shape = function () { return document.querySelector('.ca-notch-shape'); };
   var pin = function () { return document.querySelector('.ca-notch-pin'); };
@@ -56,7 +45,7 @@
     })
     .then(function () {
       check('stays open with the pointer gone', isOpen());
-      shape().dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+      rightClick(shape());
       return wait(300);
     })
     .then(function () {
@@ -78,6 +67,6 @@
       window.__emit('bar-mode', Object.assign({}, window.__BAR_MODE__, { keepOpen: true }));
       return until(isOpen, 1000).then(function () { check('pinned from elsewhere, it opens at once', true); });
     })
-    .then(function () { say('done: ' + out.join(' · ')); })
-    .catch(function (e) { say('done: ' + out.concat(['error ' + e.message]).join(' · ')); });
+    .then(done)
+    .catch(stopped);
 })();

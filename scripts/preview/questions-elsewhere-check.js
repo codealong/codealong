@@ -6,17 +6,6 @@
 // As PREVIEW_INIT (with PREVIEW_NAME=questions-elsewhere) it leaves the panel open, the answered
 // call opened, for a screenshot.
 (function () {
-  var out = [];
-  var say = function (t) { window.__t = t; };
-  setInterval(function () { if (window.__t) document.title = window.__t; }, 100);
-  var until = function (f, ms) {
-    var s = Date.now();
-    return new Promise(function (res, rej) {
-      (function p() { if (f()) return res(); if (Date.now() - s > ms) return rej(new Error('timeout')); setTimeout(p, 10); })();
-    });
-  };
-  var check = function (name, ok, why) { out.push(name + (ok ? ' ok' : ' FAIL') + (why ? ' (' + why + ')' : '')); };
-
   localStorage.setItem('codealong.project', 'All projects');
   var picked = null;
   var earlier = [
@@ -121,6 +110,6 @@
       check('your picks marked', pickedText.join('|') === 'Lesson status (Recommended)|Mon|Fri', pickedText.join('|'));
       if (window.__questions_screenshot) done.scrollIntoView({ block: 'start' });
     })
-    .then(function () { say('done: ' + out.join(', ')); })
-    .catch(function (e) { say('done: ' + out.concat(['error ' + e.message]).join(', ')); });
+    .then(done)
+    .catch(stopped);
 })();

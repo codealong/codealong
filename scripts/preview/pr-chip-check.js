@@ -9,26 +9,9 @@
 //   PREVIEW_WAIT=60000 scripts/preview.sh worktrees '' scripts/preview/pr-chip-check.js
 //   PREVIEW_WAIT=60000 PREVIEW_PIN=session scripts/preview.sh desktop '' scripts/preview/pr-chip-check.js
 //   PREVIEW_WAIT=60000 PREVIEW_PIN=worktree scripts/preview.sh desktop '' scripts/preview/pr-chip-check.js
-// Every step should say ok.
 (function () {
-  var out = [];
-  var say = function (t) { window.__t = t; };
-  setInterval(function () { if (window.__t) document.title = window.__t; }, 100);
-  var wait = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
-  var until = function (f, ms) {
-    var s = Date.now();
-    return new Promise(function (res, rej) {
-      (function p() { if (f()) return res(); if (Date.now() - s > ms) return rej(new Error('timeout')); setTimeout(p, 10); })();
-    });
-  };
-  var check = function (name, ok, why) { out.push(name + (ok ? ' ok' : ' FAIL') + (why ? ' (' + why + ')' : '')); };
-  var calls = function (cmd) { return window.__calls.filter(function (c) { return c[0] === cmd; }); };
-  var last = function (cmd) { var c = calls(cmd); return c.length ? c[c.length - 1][1] : null; };
-  var lastMenu = function () { var m = calls('plugin:menu|new'); return m.length ? m[m.length - 1][1].options.items : []; };
   var texts = function (items) { return items.map(function (i) { return i.item === 'Separator' ? '-' : i.text; }); };
   var find = function (items, text) { return items.filter(function (i) { return i.text === text; })[0]; };
-  var pick = function (item) { window['_' + item.handler.id]({ index: 0, message: item.id }); };
-  var right = function (el) { el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })); };
   var press = function (el) {
     el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, buttons: 1 }));
     el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
@@ -42,8 +25,6 @@
   };
   // The chip's number, before its checks' count.
   var number = function (chip) { return (chip.querySelector(':scope > span').textContent.match(/#(\d+)/) || [])[1]; };
-  var done = function () { say('done: ' + out.join(' · ')); };
-  var failed = function (e) { out.push('FAIL ' + e); done(); };
 
   if (window.__CODEALONG_DESKTOP__) {
     var pr = { number: 4242, title: 'A PR for the check', url: 'https://github.com/example/app/pull/4242', state: 'open', checks: { passed: 3, failed: 0, pending: 0, failing: [] }, merge: null, updatedAt: Date.now(), mergedAt: null, closedAt: null };
@@ -81,7 +62,7 @@
         }).then(function () {
           check('a double-click on it opens it once', calls('open_url').length === 2, String(calls('open_url').length));
           check('and not the ' + kind, calls('open_from_bar').length === opens && calls('show_main').length === 0, String(calls('open_from_bar').length));
-          right(document.querySelector('.ca-desk-card'));
+          rightClick(document.querySelector('.ca-desk-card'));
           return wait(200);
         });
       })
@@ -100,7 +81,7 @@
         }
         done();
       })
-      .catch(failed);
+      .catch(stopped);
     return;
   }
 
@@ -129,7 +110,7 @@
       return wait(100).then(function () {
         check('a double-click on it opens it once', calls('open_url').length === 2, String(calls('open_url').length));
         check('and not the session', calls('open_target').length === opens, String(calls('open_target').length));
-        right(chipRow().row);
+        rightClick(chipRow().row);
         return wait(200);
       });
     })
@@ -144,5 +125,5 @@
       check('on GitHub', calls('open_url').length === 3 && new RegExp('/pull/' + n + '$').test(last('open_url').url), JSON.stringify(last('open_url')));
       done();
     })
-    .catch(failed);
+    .catch(stopped);
 })();

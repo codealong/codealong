@@ -4,22 +4,11 @@
 // line, not the first; that Rows in the sidebar puts each session on one line and remembers it;
 // and in every list that a right-click (or ⌃-click) opens a row's menu without selecting it.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/chip-lanes-check.js
-//   PREVIEW_WAIT=60000 scripts/preview.sh <worktrees|prs|todo> '' scripts/preview/chip-lanes-check.js
-// PREVIEW_SIZE=1290,800 checks a narrow list, where the lanes are shortest. Every step should
-// say ok.
+//   PREVIEW_WAIT=60000 scripts/preview.sh worktrees '' scripts/preview/chip-lanes-check.js
+//   PREVIEW_WAIT=60000 scripts/preview.sh prs '' scripts/preview/chip-lanes-check.js
+//   PREVIEW_WAIT=60000 scripts/preview.sh todo '' scripts/preview/chip-lanes-check.js
+// PREVIEW_SIZE=1290,800 checks a narrow list, where the lanes are shortest.
 (function () {
-  var out = [];
-  var say = function (t) { window.__t = t; };
-  setInterval(function () { if (window.__t) document.title = window.__t; }, 100);
-  var wait = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
-  var until = function (f, ms) {
-    var s = Date.now();
-    return new Promise(function (res, rej) {
-      (function p() { if (f()) return res(); if (Date.now() - s > ms) return rej(new Error('timeout')); setTimeout(p, 20); })();
-    });
-  };
-  var check = function (name, ok, why) { out.push(name + (ok ? ' ok' : ' FAIL') + (why ? ' (' + why + ')' : '')); };
-  var all = function (sel, root) { return Array.prototype.slice.call((root || document).querySelectorAll(sel)); };
   var CHIPS = '.ca-chip, .ca-pr, .ca-tag, .ca-pill, .ca-labelchip';
   var shown = function (el) { var r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
 
@@ -72,12 +61,11 @@
   var fire = function (el, type, init) { el.dispatchEvent(new MouseEvent(type, Object.assign({ bubbles: true, cancelable: true }, init))); };
   var isSelected = function (row) { return row.classList.contains('is-selected') || row.getAttribute('aria-selected') === 'true'; };
   var selectedId = function () { var s = all('[role="option"]').filter(isSelected)[0]; return s ? s.id : ''; };
-  var menus = function () { return window.__calls.filter(function (c) { return c[0] === 'plugin:menu|new'; }).length; };
   // A right-click, then a ⌃-click, on a row that isn't selected: its menu, and no selection.
   var rightClicks = function () {
     var row = all('[role="option"]').filter(function (r) { return shown(r) && !isSelected(r); })[0];
     if (!row) {
-      out.push('right-click: no row to try, skipped');
+      note('right-click: no row to try, skipped');
       return;
     }
     var before = selectedId();
@@ -151,5 +139,5 @@
       return label === 'Sessions' ? sessions() : rightClicks();
     })
     .catch(function (e) { check('ran', false, String(e)); })
-    .then(function () { say('done: ' + out.join('; ')); });
+    .then(done);
 })();

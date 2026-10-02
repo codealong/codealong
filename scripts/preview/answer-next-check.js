@@ -3,20 +3,7 @@
 // sessions that ask you something and one whose turn ended. ⌘⏎ in the box for your own answer
 // sends it and goes on, the strip saying how it went; the Answer button answers and stays.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/answer-next-check.js
-// Every step should say ok.
 (function () {
-  var out = [];
-  var say = function (t) { window.__t = t; };
-  setInterval(function () { if (window.__t) document.title = window.__t; }, 100);
-  var wait = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
-  var until = function (f, ms) {
-    var s = Date.now();
-    return new Promise(function (res, rej) {
-      (function p() { if (f()) return res(); if (Date.now() - s > ms) return rej(new Error('timeout')); setTimeout(p, 10); })();
-    });
-  };
-  var check = function (name, ok, why) { out.push(name + (ok ? ' ok' : ' FAIL') + (why ? ' (' + why + ')' : '')); };
-
   localStorage.setItem('codealong.project', 'All projects');
   localStorage.setItem('codealong.view', 'sessions');
   localStorage.removeItem('codealong.sessionPanelMax');
@@ -75,10 +62,6 @@
   var asks = function () { return document.querySelector('.ca-sessinsp .ca-composer.is-questions'); };
   var own = function () { return asks().querySelector('.ca-question-own'); };
   var button = function (text) { return Array.prototype.filter.call(asks().querySelectorAll('button'), function (b) { return b.textContent.trim().indexOf(text) === 0; })[0]; };
-  var type = function (el, text) {
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, text);
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-  };
   var answers = function () { return window.__calls.filter(function (c) { return c[0] === 'session_answer'; }).map(function (c) { return c[1]; }); };
   var on = function (name) { return until(function () { return title() === name; }, 3000).catch(function () {}); };
 
@@ -118,5 +101,5 @@
       check('the Answer button answers and stays', a.length === 2 && a[1].key === picked[1].key && a[1].answers['Which color do you prefer?'] === 'Red' && title() === 'Queue B', title() + ' ' + JSON.stringify(a[1]));
     })
     .catch(function (e) { check('ran', false, String(e) + ' at ' + title()); })
-    .then(function () { say('done: ' + out.join('; ')); });
+    .then(done);
 })();

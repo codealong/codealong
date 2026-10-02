@@ -3,18 +3,6 @@
 // worked; once in a while at most, and never for a focused page or a key outside a text field.
 //   PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/caret-check.js
 (function () {
-  var out = [];
-  var say = function (t) { window.__t = t; };
-  setInterval(function () { if (window.__t) document.title = window.__t; }, 100);
-  var wait = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
-  var until = function (f, ms) {
-    var s = Date.now();
-    return new Promise(function (res, rej) {
-      (function p() { if (f()) return res(); if (Date.now() - s > ms) return rej(new Error('timeout')); setTimeout(p, 10); })();
-    });
-  };
-  var check = function (name, ok, why) { out.push(name + (ok ? ' ok' : ' FAIL') + (why ? ' (' + why + ')' : '')); };
-  var calls = function (cmd) { return window.__calls.filter(function (c) { return c[0] === cmd; }); };
   var focused = true;
   document.hasFocus = function () { return focused; };
   var key = function (el) { el.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', bubbles: true })); };
@@ -40,6 +28,6 @@
       });
     })
     .then(function () { check('not on every key', calls('page_unfocused').length === 1); })
-    .then(function () { say('done: ' + out.join(' · ')); })
-    .catch(function (e) { say('done: ' + out.concat(['error ' + e.message]).join(' · ')); });
+    .then(done)
+    .catch(stopped);
 })();

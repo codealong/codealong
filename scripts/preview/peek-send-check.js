@@ -4,20 +4,7 @@
 // a message from Codealong rather than typed puts a note on the bar; and one that fails while no
 // box shows says so on the bar and in the next box, with the text back to send.
 //   PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/peek-send-check.js
-// Every step should say ok.
 (function () {
-  var out = [];
-  var say = function (t) { window.__t = t; };
-  setInterval(function () { if (window.__t) document.title = window.__t; }, 100);
-  var wait = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
-  var until = function (f, ms) {
-    var s = Date.now();
-    return new Promise(function (res, rej) {
-      (function p() { if (f()) return res(); if (Date.now() - s > ms) return rej(new Error('timeout')); setTimeout(p, 10); })();
-    });
-  };
-  var check = function (name, ok, why) { out.push(name + (ok ? ' ok' : ' FAIL') + (why ? ' (' + why + ')' : '')); };
-
   // This runs before the app's script: pick a session that doesn't wait on you, with no draft.
   var xhr = new XMLHttpRequest();
   xhr.open('GET', './board.json', false);
@@ -26,7 +13,7 @@
   var picked = null;
   var pickedLane = null;
   board.lanes.forEach(function (l) { l.sessions.forEach(function (s) { if (!picked && s.status !== 'needs' && !s.archived && !l.hidden) { picked = s; pickedLane = l; } }); });
-  if (!picked) { say('done: no session to peek at'); return; }
+  if (!picked) { stopped('no session to peek at'); return; }
   var key = picked.key;
   var item = 'codealong.draft.' + key;
   localStorage.setItem('codealong.preview.peek', key);
@@ -45,12 +32,7 @@
   var note = function () { var n = document.querySelector('.ca-peek .ca-composer-note'); return n ? n.textContent : ''; };
   var bubbles = function () { return Array.prototype.map.call(document.querySelectorAll('.ca-peek .ca-thread-said.is-ahead'), function (b) { return b.querySelector('.ca-meta').textContent + ': ' + b.querySelector('.ca-thread-you').textContent; }); };
   var sendButton = function () { return document.querySelector('.ca-peek .ca-composer-send[aria-label="Send"]'); };
-  var type = function (el, text) {
-    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(el, text);
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-  };
   var enter = function (el) { el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); };
-  var calls = function (name) { return window.__calls.filter(function (c) { return c[0] === name; }); };
   var barNotes = function () { return calls('plugin:event|emit_to').filter(function (c) { return c[1] && c[1].event === 'bar-note'; }); };
   var stored = function () { var v = localStorage.getItem(item); return v == null ? null : JSON.parse(v).text; };
   var opens = 1;
@@ -118,7 +100,7 @@
       check('the next box says how it went', note() === 'Ghostty said no.', note());
       check('with the text back to send', box().value === 'And lunch' && !box().disabled && sendButton() && !sendButton().disabled, box().value);
       check('and it’s gone from the thread', bubbles().every(function (b) { return b.indexOf('And lunch') < 0; }), JSON.stringify(bubbles()));
-      say('done: ' + out.join('; '));
+      done();
     })
-    .catch(function (e) { say('done: ' + out.join('; ') + '; stopped: ' + e.message); });
+    .catch(stopped);
 })();

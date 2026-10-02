@@ -3,20 +3,7 @@
 // panel; a session listed under another worktree once its commands move there stays selected;
 // and a session started from the quick panel isn't selected when it shows up.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/hold-check.js
-// Every step should say ok.
 (function () {
-  var out = [];
-  var say = function (t) { window.__t = t; };
-  setInterval(function () { if (window.__t) document.title = window.__t; }, 100);
-  var wait = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
-  var until = function (f, ms) {
-    var s = Date.now();
-    return new Promise(function (res, rej) {
-      (function p() { if (f()) return res(); if (Date.now() - s > ms) return rej(new Error('timeout')); setTimeout(p, 10); })();
-    });
-  };
-  var check = function (name, ok, why) { out.push(name + (ok ? ' ok' : ' FAIL') + (why ? ' (' + why + ')' : '')); };
-
   // This runs before the app's script: four real sessions from different worktrees, A waiting on
   // you, C with a turn to read, B and D idle; every other session idle.
   localStorage.setItem('codealong.project', 'All projects');
@@ -113,5 +100,5 @@
       check('and isn’t selected when it does', title() === 'Hold C', title());
     })
     .catch(function (e) { check('ran', false, String(e) + ' at ' + title()); })
-    .then(function () { say('done: ' + out.join('; ')); });
+    .then(done);
 })();

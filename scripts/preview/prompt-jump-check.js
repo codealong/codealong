@@ -9,20 +9,7 @@
 // pages already read.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/prompt-jump-check.js
 //   PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/prompt-jump-check.js
-// Every step should say ok.
 (function () {
-  var out = [];
-  var say = function (t) { window.__t = t; };
-  setInterval(function () { if (window.__t) document.title = window.__t; }, 100);
-  var wait = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
-  var until = function (f, ms) {
-    var s = Date.now();
-    return new Promise(function (res, rej) {
-      (function p() { if (f()) return res(); if (Date.now() - s > ms) return rej(new Error('timeout')); setTimeout(p, 10); })();
-    });
-  };
-  var check = function (name, ok, why) { out.push(name + (ok ? ' ok' : ' FAIL') + (why ? ' (' + why + ')' : '')); };
-
   localStorage.setItem('codealong.project', 'All projects');
   localStorage.setItem('codealong.quick.project', 'All projects');
   var now = Date.now();
@@ -272,5 +259,5 @@
       });
     })
     .catch(function (e) { if (e !== 'quick') check('ran', false, String(e) + ' picked ' + !!picked + ' ' + !!pickedB + ' quick ' + quick()); })
-    .then(function () { say('done: ' + out.join(' | ')); });
+    .then(done);
 })();

@@ -5,17 +5,6 @@
 // shell call:
 //   PREVIEW_TRANSCRIPT=<key> PREVIEW_WAIT=40000 scripts/preview.sh sessions '' scripts/preview/run-code-check.js
 (function () {
-  var out = [];
-  var say = function (t) { window.__t = t; };
-  setInterval(function () { if (window.__t) document.title = window.__t; }, 100);
-  var until = function (f, ms) {
-    var s = Date.now();
-    return new Promise(function (res, rej) {
-      (function p() { if (f()) return res(); if (Date.now() - s > ms) return rej(new Error('timeout')); setTimeout(p, 10); })();
-    });
-  };
-  var check = function (name, ok, why) { out.push(name + (ok ? ' ok' : ' FAIL') + (why ? ' (' + why + ')' : '')); };
-
   localStorage.setItem('codealong.project', 'All projects');
   var picked = null;
   var fail = false;
@@ -101,10 +90,6 @@
         });
       });
     })
-    .then(function () {
-      say('done: ' + out.join('; '));
-    })
-    .catch(function (e) {
-      say('done: ' + out.join('; ') + ' ERROR ' + e.message);
-    });
+    .then(done)
+    .catch(stopped);
 })();

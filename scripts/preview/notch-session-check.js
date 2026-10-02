@@ -11,19 +11,7 @@
 // size it keeps. ⌃⌘1 snoozes it.
 //   PREVIEW_SIZE=1512,980 PREVIEW_WAIT=150000 scripts/preview.sh notch '' scripts/preview/notch-session-check.js
 (function () {
-  var out = [];
-  var say = function (t) { window.__t = t; };
-  setInterval(function () { if (window.__t) document.title = window.__t; }, 100);
-  var wait = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
-  var until = function (f, ms, what) {
-    var s = Date.now();
-    return new Promise(function (res, rej) {
-      (function p() { if (f()) return res(); if (Date.now() - s > ms) return rej(new Error('timeout: ' + what)); setTimeout(p, 10); })();
-    });
-  };
-  // Why is said only of what fails: Chrome cuts a title at 4,096 characters, and this check is long.
-  var check = function (name, ok, why) { out.push(name + (ok ? ' ok' : ' FAIL' + (why ? ' (' + why + ')' : ''))); };
-  var calls = function (cmd) { return window.__calls.filter(function (c) { return c[0] === cmd; }).map(function (c) { return c[1]; }); };
+  var calls = sent;
   var notch = function () { return document.querySelector('.ca-notch'); };
   var shape = function () { return document.querySelector('.ca-notch-shape'); };
   var is = function (state) { return notch() && notch().classList.contains('is-' + state); };
@@ -290,7 +278,7 @@
       return until(function () { return is('pills') && pill(items[0].key); }, 2000, 'the pills, to rename');
     })
     .then(function () {
-      pill(items[0].key).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+      rightClick(pill(items[0].key));
       return until(function () { return window.__menu().length > 0; }, 3000, 'a pill’s menu');
     })
     .then(function () {
@@ -429,6 +417,6 @@
       escape();
       return wait(300);
     })
-    .then(function () { say('done: ' + out.join(' · ')); })
-    .catch(function (e) { say('done: ' + out.concat(['error ' + e.message + ' (showing “' + title() + '”, ' + notch().className + ')']).join(' · ')); });
+    .then(done)
+    .catch(function (e) { stopped(e.message + ' (showing “' + title() + '”, ' + notch().className + ')'); });
 })();

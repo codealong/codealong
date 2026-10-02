@@ -3,20 +3,7 @@
 // with the prompt, clears the box, leaves the peek open and says what happened; a fork that fails
 // puts what was typed back with why; and any other `/…` is sent to the session as typed.
 //   PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/fork-check.js
-// Every step should say ok.
 (function () {
-  var out = [];
-  var say = function (t) { window.__t = t; };
-  setInterval(function () { if (window.__t) document.title = window.__t; }, 100);
-  var wait = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
-  var until = function (f, ms) {
-    var s = Date.now();
-    return new Promise(function (res, rej) {
-      (function p() { if (f()) return res(); if (Date.now() - s > ms) return rej(new Error('timeout')); setTimeout(p, 10); })();
-    });
-  };
-  var check = function (name, ok, why) { out.push(name + (ok ? ' ok' : ' FAIL') + (why ? ' (' + why + ')' : '')); };
-
   // A Claude Code session to peek at, idle and taking messages.
   var xhr = new XMLHttpRequest();
   xhr.open('GET', './board.json', false);
@@ -24,7 +11,7 @@
   var board = JSON.parse(xhr.responseText);
   var picked = null;
   board.lanes.forEach(function (l) { l.sessions.forEach(function (s) { if (!picked && !s.archived && !l.hidden && s.harness === 'claude') picked = s; }); });
-  if (!picked) { say('done: no Claude Code session to peek at'); return; }
+  if (!picked) { stopped('no Claude Code session to peek at'); return; }
   var key = picked.key;
   localStorage.setItem('codealong.preview.peek', key);
   localStorage.removeItem('codealong.draft.' + key);
@@ -48,12 +35,7 @@
   var box = function () { return document.querySelector('.ca-composer textarea'); };
   var button = function () { return document.querySelector('.ca-composer-send'); };
   var noteText = function () { var n = document.querySelector('.ca-composer-note'); return n ? n.textContent : ''; };
-  var calls = function (name) { return window.__calls.filter(function (c) { return c[0] === name; }); };
   var enter = function () { box().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); };
-  var type = function (el, text) {
-    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(el, text);
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-  };
 
   (async function () {
     try {
@@ -96,8 +78,8 @@
       check('and goes to the session as typed', sent[sent.length - 1][1].text === '/compact', JSON.stringify(sent[sent.length - 1][1]));
       check('not to a fork', calls('fork_session').length === 2);
     } catch (e) {
-      out.push('error: ' + e.message);
+      return stopped(e);
     }
-    say('done: ' + out.join(' | '));
+    done();
   })();
 })();

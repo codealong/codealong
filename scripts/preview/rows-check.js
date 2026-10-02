@@ -5,20 +5,9 @@
 // that worktree's rows again while every other row, in the list and the sidebar, skips rendering;
 // a todo linked later appears; a double-click opens where the latest push says the session lives;
 // the arrow keys move the selection; and a hidden window catches up when it's shown.
-//   PREVIEW_WAIT=120000 scripts/preview.sh worktrees '' scripts/preview/rows-check.js   (or sessions)
-// Every step should say ok.
+//   PREVIEW_WAIT=120000 scripts/preview.sh worktrees '' scripts/preview/rows-check.js
+//   PREVIEW_WAIT=120000 scripts/preview.sh sessions '' scripts/preview/rows-check.js
 (function () {
-  var out = [];
-  var say = function (t) { window.__t = t; };
-  setInterval(function () { if (window.__t) document.title = window.__t; }, 100);
-  var wait = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
-  var until = function (f, ms) {
-    var s = Date.now();
-    return new Promise(function (res, rej) {
-      (function p() { if (f()) return res(); if (Date.now() - s > ms) return rej(new Error('timeout')); setTimeout(p, 10); })();
-    });
-  };
-  var check = function (name, ok, why) { out.push(name + (ok ? ' ok' : ' FAIL') + (why ? ' (' + why + ')' : '')); };
   var hidden = false;
   Object.defineProperty(document, 'hidden', { configurable: true, get: function () { return hidden; } });
 
@@ -242,5 +231,5 @@
         return until(shows, 3000).then(function () { check('shown on a later push', true); }, function () { check('shown on a later push', false); });
       });
     });
-  }).then(function () { say('done: ' + out.join(', ')); }, function (e) { say('done: error ' + e.message + ' after ' + out.join(', ')); });
+  }).then(done, stopped);
 })();

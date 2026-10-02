@@ -10,15 +10,23 @@
 #            desktop for a card pinned to the desktop, lineage for the lines between desktop
 #            cards over stand-ins for them (default worktrees)
 #   project  the project to show (default: the first one)
-#   check.js optional script run in the page; whatever it puts in document.title is printed
-#            (use it to click things and read window.__calls). Without it, a screenshot is
-#            written to $PREVIEW_DIR/<view>.png.
+#   check.js optional script run in the page, after scripts/preview/prelude.js, which gives it
+#            check(), until(), calls() and the rest, and done(), which puts its result in
+#            document.title: "done: PASS 7/7", or "done: FAIL 5/7 <name>: <why>; …". The result
+#            is printed, with the commands the stub had no answer for and what the check noted
+#            on lines after it, and the run exits 0 only for a PASS: a check that fails, or
+#            never says done, exits 1. Without a check, a screenshot is written to
+#            $PREVIEW_DIR/<view>.png. scripts/checks.sh runs every check there is.
 #
 # PREVIEW_INIT=<file.js> runs a script in the page before either, for a screenshot of a state
 # a click gets to (a dialog, say); PREVIEW_NAME names that screenshot instead of the view.
-# PREVIEW_WAIT=<ms> runs a check on the real clock, for one that times work
-# (scripts/preview/push-bench.js): its title is printed once it starts with "done: ", or when
-# the wait runs out. By default time is virtual and stands still while scripts run.
+# PREVIEW_WAIT=<ms> runs a check on the real clock, for one that times work or waits on frames:
+# its result is read once its title starts with "done: ", or when the wait runs out. By default
+# time is virtual and stands still while scripts run. A bench (scripts/preview/*-bench.js) says
+# what it measured in place of a result, which is printed as it is.
+# PREVIEW_PREPARE=only builds the UI and takes the snapshots into $PREVIEW_DIR and stops there;
+# PREVIEW_PREPARE=skip renders from what such a run left, so many runs share one build and one
+# board (scripts/checks.sh does both).
 #
 # PREVIEW_SCHEME=dark renders as if macOS were in dark mode (the screenshot is <view>-dark.png).
 # Under theme = "system" the page follows it; "light" and "dark" in config.toml win over it.
@@ -90,11 +98,34 @@ shot="$dir/${PREVIEW_NAME:-$view}${PREVIEW_SCHEME:+-$PREVIEW_SCHEME}.png"
 # Every checkout builds into one directory, so the engine there may be another session's build:
 # PREVIEW_BIN points at a copy of your own.
 bin="${PREVIEW_BIN:-$(scripts/target-dir.sh)/release/codealong}"
+prepare="${PREVIEW_PREPARE:-}"
+if [ ! -x "$bin" ]; then
+  echo "No engine at $bin: the snapshots come from a release build (cargo build --release in src-tauri), or PREVIEW_BIN." >&2
+  exit 1
+fi
 
-npm run build >/dev/null
-mkdir -p "$dir"
-rm -rf "$dir/assets"
-cp -R dist/. "$dir/"
+# The build and the snapshots, which PREVIEW_PREPARE=skip takes from an earlier run.
+if [ "$prepare" != skip ]; then
+  npm run build >/dev/null
+  mkdir -p "$dir"
+  rm -rf "$dir/assets"
+  cp -R dist/. "$dir/"
+  "$bin" --snapshot >"$dir/board.json" 2>/dev/null
+  # The floating bar gets its own small feed from the engine, not the board.
+  { [ "$view" = bar ] || [ "$view" = notch ] || [ "$prepare" = only ]; } && "$bin" --snapshot --bar >"$dir/bar-feed.json" 2>/dev/null
+  "$bin" --snapshot --accounts >"$dir/accounts.json" 2>/dev/null
+  "$bin" --snapshot --start-options >"$dir/start-options.json" 2>/dev/null
+  "$bin" --snapshot --editor-icons >"$dir/editor-icons.json" 2>/dev/null
+  "$bin" --snapshot --config >"$dir/config.json" 2>/dev/null
+  if [ -z "${PREVIEW_FOUND:-}" ] || [ "$prepare" = only ]; then
+    "$bin" --snapshot --found >"$dir/found-here.json" 2>/dev/null
+  fi
+elif [ ! -f "$dir/board.json" ]; then
+  echo "PREVIEW_PREPARE=skip, but $dir has no build and snapshots: run with PREVIEW_PREPARE=only first." >&2
+  exit 1
+fi
+[ "$prepare" = only ] && exit 0
+
 cp scripts/preview/fake-tauri.js "$dir/"
 # What a PREVIEW_* variable names goes beside the page under the name fake-tauri.js reads, and
 # the last run's is taken away.
@@ -111,13 +142,6 @@ fixture canvas "${PREVIEW_CANVAS:-}"
 fixture usage "${PREVIEW_USAGE:-}"
 fixture devices "${PREVIEW_DEVICES:-}"
 fixture notices "${PREVIEW_NOTICES:-}"
-"$bin" --snapshot >"$dir/board.json" 2>/dev/null
-# The floating bar gets its own small feed from the engine, not the board.
-{ [ "$view" = bar ] || [ "$view" = notch ]; } && "$bin" --snapshot --bar >"$dir/bar-feed.json" 2>/dev/null
-"$bin" --snapshot --accounts >"$dir/accounts.json" 2>/dev/null
-"$bin" --snapshot --start-options >"$dir/start-options.json" 2>/dev/null
-"$bin" --snapshot --editor-icons >"$dir/editor-icons.json" 2>/dev/null
-"$bin" --snapshot --config >"$dir/config.json" 2>/dev/null
 rm -f "$dir/transcript.json" "$dir/transcript-key.json" "$dir/pending.json"
 if [ -n "${PREVIEW_TRANSCRIPT:-}" ]; then
   "$bin" --snapshot --transcript "$PREVIEW_TRANSCRIPT" ${PREVIEW_BEFORE:+--before "$PREVIEW_BEFORE"} >"$dir/transcript.json" 2>/dev/null
@@ -130,11 +154,7 @@ rm -rf "$dir/images"
 if [ -d "$images" ]; then
   cp -R "$images" "$dir/images"
 fi
-if [ -n "${PREVIEW_FOUND:-}" ]; then
-  cp "$PREVIEW_FOUND" "$dir/found.json"
-else
-  "$bin" --snapshot --found >"$dir/found.json" 2>/dev/null
-fi
+cp "${PREVIEW_FOUND:-$dir/found-here.json}" "$dir/found.json"
 
 setup="localStorage.setItem('codealong.view','$view');localStorage.setItem('codealong.age','all');"
 [ -n "$project" ] && setup="$setup localStorage.setItem('codealong.project','$project');"
@@ -194,9 +214,14 @@ if [ "$view" = kept ]; then
   on_desktop is-peek
 fi
 tail=""
+# A check starts from prelude.js, and so may a PREVIEW_INIT script (a check can be one).
+if [ -n "${PREVIEW_INIT:-}" ] || [ -n "$check" ]; then
+  cp scripts/preview/prelude.js "$dir/"
+  tail='<script src="./prelude.js"></script>'
+fi
 if [ -n "${PREVIEW_INIT:-}" ]; then
   cp "$PREVIEW_INIT" "$dir/init.js"
-  tail='<script src="./init.js"></script>'
+  tail="$tail"'<script src="./init.js"></script>'
 fi
 if [ -n "$check" ]; then
   cp "$check" "$dir/check.js"
@@ -206,28 +231,75 @@ sed -e "s#<head>#<head><script src=\"./fake-tauri.js\"></script><script>$setup</
 
 (cd "$dir" && exec python3 -m http.server "$port" --bind 127.0.0.1 >/dev/null 2>&1) &
 server=$!
-trap 'kill $server 2>/dev/null || true' EXIT
+browser=""
+work=""
+trap 'kill $server $browser 2>/dev/null || true; [ -z "$browser" ] || wait $browser 2>/dev/null || true; [ -z "$work" ] || rm -rf "$work" 2>/dev/null || true' EXIT
 sleep 1
 url="http://127.0.0.1:$port/preview.html"
+
+# Prints what a check's title says after "done: ", its result first and then, on lines of their
+# own, what prelude.js put after it. A check passes only by saying PASS; a bench says what it
+# measured, and that's all that's asked of it.
+report() {
+  local title="$1" result
+  case "$check" in
+    *-bench.js)
+      echo "${title#done: }"
+      return 0
+      ;;
+  esac
+  case "$title" in
+    done:*) result="${title#done: }" ;;
+    *) result="FAIL 0/0 no result: the check never said done (the page's title is \"$title\")" ;;
+  esac
+  printf '%s\n' "$result" | awk '{ n = split($0, part, / ## /); for (i = 1; i <= n; i++) print part[i] }'
+  case "$result" in
+    PASS\ *) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+if [ -n "$check" ]; then
+  # Chrome runs beside this script, not under it, so a run that's stopped (checks.sh gives each
+  # one so long) takes its browser and its server with it.
+  trap 'exit 130' INT TERM HUP
+  work="$(mktemp -d)"
+fi
 if [ -n "$check" ] && [ -n "${PREVIEW_WAIT:-}" ]; then
   # Virtual time stands still while scripts run, so a check that times work runs on the real
   # clock, and its title is read from Chrome's debugging endpoint once it says "done: " (or the
-  # wait runs out): --dump-dom would read the page as soon as it loads.
+  # wait runs out): --dump-dom would read the page as soon as it loads. The endpoint gives the
+  # title as HTML.
   debug_port="$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')"
-  profile="$(mktemp -d)"
-  "$chrome" --headless=new --disable-gpu --enable-unsafe-swiftshader ${scheme:+"$scheme"} --window-size="$size" --remote-debugging-port="$debug_port" --user-data-dir="$profile" "$url" >/dev/null 2>&1 &
+  "$chrome" --headless=new --disable-gpu --enable-unsafe-swiftshader ${scheme:+"$scheme"} --window-size="$size" --remote-debugging-port="$debug_port" --user-data-dir="$work/profile" "$url" >/dev/null 2>&1 &
   browser=$!
-  trap 'kill $server $browser 2>/dev/null || true; rm -rf "$profile"' EXIT
   title=""
   deadline=$((SECONDS + PREVIEW_WAIT / 1000))
   while [ $SECONDS -lt $deadline ]; do
     sleep 1
-    title="$(curl -s "http://127.0.0.1:$debug_port/json/list" | python3 -c 'import json, sys; print(next((t["title"] for t in json.load(sys.stdin) if t.get("type") == "page"), ""))' 2>/dev/null || true)"
+    title="$(curl -s "http://127.0.0.1:$debug_port/json/list" | python3 -c 'import html, json, sys; print(html.unescape(next((t["title"] for t in json.load(sys.stdin) if t.get("type") == "page"), "")))' 2>/dev/null || true)"
     case "$title" in done:*) break ;; esac
   done
-  echo "${title#done: }"
+  report "$title" || exit 1
 elif [ -n "$check" ]; then
-  "$chrome" --headless=new --disable-gpu --enable-unsafe-swiftshader ${scheme:+"$scheme"} --window-size="$size" --virtual-time-budget=8000 --dump-dom "$url" 2>/dev/null | sed -n 's#.*<title>\(.*\)</title>.*#\1#p'
+  "$chrome" --headless=new --disable-gpu --enable-unsafe-swiftshader ${scheme:+"$scheme"} --window-size="$size" --virtual-time-budget=8000 --user-data-dir="$work/profile" --dump-dom "$url" >"$work/dom.html" 2>/dev/null &
+  browser=$!
+  # Under a heavy load Chrome can print the page and then never exit: once the page is out it
+  # gets a few seconds more, then it's stopped.
+  printed=0
+  while kill -0 "$browser" 2>/dev/null; do
+    if grep -q '</html>' "$work/dom.html"; then
+      printed=$((printed + 1))
+      if [ $printed -gt 25 ]; then
+        kill "$browser" 2>/dev/null || true
+        break
+      fi
+    fi
+    sleep 0.2
+  done
+  wait "$browser" 2>/dev/null || true
+  title="$(python3 -c 'import html, re, sys; m = re.search(r"<title>(.*?)</title>", sys.stdin.read(), re.S); print(" ".join(html.unescape(m.group(1)).split()) if m else "")' <"$work/dom.html")"
+  report "$title" || exit 1
 else
   "$chrome" --headless=new --disable-gpu --enable-unsafe-swiftshader ${scheme:+"$scheme"} --hide-scrollbars --force-device-scale-factor=1 --window-size="$size" --virtual-time-budget=6000 --screenshot="$shot" "$url" 2>/dev/null
   echo "$shot"

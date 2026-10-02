@@ -1,35 +1,14 @@
 // Checks the quick panel's Mac and effort choices (Quick.tsx): ⌘D picks another Mac, whose
 // accounts are asked of it; the agent menu's ← → set the effort, which the chip shows and Haiku
 // doesn't take; and ⌘⏎ starts on that Mac's worktree at that effort.
-//   PREVIEW_DEVICES=scripts/preview/devices-sample.json PREVIEW_WAIT=60000 \
-//     scripts/preview.sh quick '' scripts/preview/start-effort-check.js
-// Every step should say ok.
+//   PREVIEW_DEVICES=scripts/preview/devices-sample.json PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/start-effort-check.js
 (function () {
-  var out = [];
-  var say = function (t) { window.__t = t; };
-  setInterval(function () { if (window.__t) document.title = window.__t; }, 100);
-  var wait = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
-  var until = function (f, ms) {
-    var s = Date.now();
-    return new Promise(function (res, rej) {
-      (function p() { if (f()) return res(); if (Date.now() - s > ms) return rej(new Error('timeout')); setTimeout(p, 10); })();
-    });
-  };
-  var check = function (name, ok, why) { out.push(name + (ok ? ' ok' : ' FAIL') + (why ? ' (' + why + ')' : '')); };
-
   localStorage.setItem('codealong.quick.project', 'All projects');
   var MINI = '9f8e7d6c5b';
-  var key = function (el, init) { el.dispatchEvent(new KeyboardEvent('keydown', Object.assign({ bubbles: true, cancelable: true }, init))); };
-  var type = function (el, text) {
-    var proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-    Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, text);
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-  };
   var chips = function () { return Array.prototype.slice.call(document.querySelectorAll('.ca-quick-bar .ca-quick-chip')); };
   var deviceChip = function () { return chips().find(function (b) { return b.title.indexOf('⌘D') >= 0; }); };
   var agentChip = function () { return document.querySelector('.ca-quick-agent .ca-quick-chip'); };
   var filter = function () { return document.querySelector('.ca-picker-filter'); };
-  var calls = function (cmd) { return window.__calls.filter(function (c) { return c[0] === cmd; }); };
   var effortOn = function () { var b = document.querySelector('.ca-picker-foot [aria-checked="true"]'); return b ? b.textContent : null; };
   var agentText = function () { return agentChip() ? agentChip().textContent : ''; };
 
@@ -115,5 +94,5 @@
       check('where effort goes', ['terminal', 'background', 'codealong'].indexOf(spec.place) >= 0, spec.place);
     })
     .catch(function (e) { check('ran', false, String(e) + ' at ' + agentText()); })
-    .then(function () { say('done: ' + out.join('; ')); });
+    .then(done);
 })();

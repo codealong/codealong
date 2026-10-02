@@ -3,20 +3,7 @@
 // bar's buttons and what they say, a session passed over quickly left out, one only just come to
 // kept for Forward, and the search left alone when the list has the session as it's filtered.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/history-check.js
-// Every step should say ok.
 (function () {
-  var out = [];
-  var say = function (t) { window.__t = t; };
-  setInterval(function () { if (window.__t) document.title = window.__t; }, 100);
-  var wait = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
-  var until = function (f, ms) {
-    var s = Date.now();
-    return new Promise(function (res, rej) {
-      (function p() { if (f()) return res(); if (Date.now() - s > ms) return rej(new Error('timeout')); setTimeout(p, 10); })();
-    });
-  };
-  var check = function (name, ok, why) { out.push(name + (ok ? ' ok' : ' FAIL') + (why ? ' (' + why + ')' : '')); };
-
   // This runs before the app's script: four of the board's real sessions get names to go by, and
   // the window starts with no history.
   localStorage.setItem('codealong.project', 'All projects');
@@ -60,10 +47,6 @@
   var button = function (name) { return document.querySelector('.ca-histnav button[aria-label="' + name + '"]'); };
   var off = function (name) { return button(name).getAttribute('aria-disabled') === 'true'; };
   var on = function (name) { return until(function () { return title() === name; }, 3000).catch(function () {}); };
-  var type = function (el, text) {
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, text);
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-  };
   var look = function (i, name) {
     click(i);
     return on(name).then(function () { return wait(LOOK); });
@@ -172,5 +155,5 @@
       check('the history is kept for the next launch', !!kept && kept.keys[kept.at] === picked[1].key, JSON.stringify(kept && kept.at));
     })
     .catch(function (e) { check('ran', false, String(e) + ' at ' + title()); })
-    .then(function () { say('done: ' + out.join('; ')); });
+    .then(done);
 })();

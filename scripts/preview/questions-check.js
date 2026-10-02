@@ -6,17 +6,6 @@
 // As PREVIEW_INIT (with PREVIEW_NAME=questions) it leaves the panel open, with picks, for a
 // screenshot.
 (function () {
-  var out = [];
-  var say = function (t) { window.__t = t; };
-  setInterval(function () { if (window.__t) document.title = window.__t; }, 100);
-  var until = function (f, ms) {
-    var s = Date.now();
-    return new Promise(function (res, rej) {
-      (function p() { if (f()) return res(); if (Date.now() - s > ms) return rej(new Error('timeout')); setTimeout(p, 10); })();
-    });
-  };
-  var check = function (name, ok, why) { out.push(name + (ok ? ' ok' : ' FAIL') + (why ? ' (' + why + ')' : '')); };
-
   localStorage.setItem('codealong.project', 'All projects');
   var picked = null;
   var pending = {
@@ -65,10 +54,6 @@
     return Array.prototype.filter.call(box().querySelectorAll('button'), function (b) { return b.textContent.trim() === text; })[0];
   };
   var own = function (i) { return box().querySelectorAll('.ca-question-own')[i]; };
-  var type = function (el, text) {
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, text);
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-  };
   var tick = function () { return new Promise(function (r) { setTimeout(r, 30); }); };
   var on = function (b) { return b.getAttribute('aria-checked') === 'true'; };
 
@@ -107,6 +92,6 @@
         check('sends the picks', c.id === 'ask-7' && a['Which color do you prefer?'] === 'Green' && JSON.stringify(a['Which days suit you?']) === '["Mon","Wed"]', JSON.stringify(c));
       });
     })
-    .then(function () { say('done: ' + out.join(', ')); })
-    .catch(function (e) { say('done: ' + out.concat(['error ' + e.message]).join(', ')); });
+    .then(done)
+    .catch(stopped);
 })();

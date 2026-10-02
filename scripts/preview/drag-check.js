@@ -7,27 +7,14 @@
 //   PREVIEW_WAIT=60000 scripts/preview.sh worktrees '' scripts/preview/drag-check.js
 //   PREVIEW_WAIT=60000 scripts/preview.sh prs '' scripts/preview/drag-check.js
 //   PREVIEW_WAIT=60000 PREVIEW_TODOS=scripts/preview/todos-sample.json scripts/preview.sh todo '' scripts/preview/drag-check.js
-// Sessions, worktrees and PRs need three rows or more. Every step should say ok.
+// Sessions, worktrees and PRs need three rows or more.
 (function () {
-  var out = [];
-  var say = function (t) { window.__t = t; };
-  setInterval(function () { if (window.__t) document.title = window.__t; }, 100);
-  var wait = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
-  var until = function (f, ms) {
-    var s = Date.now();
-    return new Promise(function (res, rej) {
-      (function p() { if (f()) return res(); if (Date.now() - s > ms) return rej(new Error('timeout')); setTimeout(p, 10); })();
-    });
-  };
-  var check = function (name, ok, why) { out.push(name + (ok ? ' ok' : ' FAIL') + (why ? ' (' + why + ')' : '')); };
-  var done = function () { say('done: ' + out.join(' · ')); };
   // Calls since the last `mark()`. The stub finds listeners in __calls, so it's never emptied.
   var from = 0;
   var mark = function () { from = window.__calls.length; };
   var calls = function (cmd) { return window.__calls.slice(from).filter(function (c) { return c[0] === cmd; }); };
   var last = function (cmd) { var c = calls(cmd); return c.length ? c[c.length - 1][1] : null; };
   var view = localStorage.getItem('codealong.view') || 'worktrees';
-  var all = function (sel) { return Array.prototype.slice.call(document.querySelectorAll(sel)); };
   var pointer = function (target, type, x, y) {
     target.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, button: 0, buttons: type === 'pointerup' ? 0 : 1, clientX: x, clientY: y, pointerId: 1, isPrimary: true, pointerType: 'mouse' }));
   };
@@ -228,7 +215,7 @@
     if (view !== 'prs') return;
     var row = all('.ca-board-list .ca-prrow').filter(function (r) { return !r.hasAttribute('data-pin-index'); })[0];
     row.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
-    row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+    rightClick(row);
     return wait(200).then(function () {
       var menus = window.__calls.filter(function (c) { return c[0] === 'plugin:menu|new'; });
       var items = menus.length ? menus[menus.length - 1][1].options.items.map(function (i) { return i.text; }) : [];
@@ -245,8 +232,5 @@
   say('drag check: waiting for the ' + view + ' view');
   (view === 'todo' ? todos() : pins().then(prMenu))
     .then(done)
-    .catch(function (e) {
-      out.push('FAIL ' + e);
-      done();
-    });
+    .catch(stopped);
 })();

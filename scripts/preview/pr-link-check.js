@@ -5,21 +5,7 @@
 // link then has an icon too; a right-click has the PR's menu; Show in Codealong opens the PR in
 // the PRs view.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/pr-link-check.js
-// Every step should say ok.
 (function () {
-  var out = [];
-  var say = function (t) { window.__t = t; };
-  setInterval(function () { if (window.__t) document.title = window.__t; }, 100);
-  var until = function (f, ms) {
-    var s = Date.now();
-    return new Promise(function (res, rej) {
-      (function p() { if (f()) return res(); if (Date.now() - s > ms) return rej(new Error('timeout')); setTimeout(p, 10); })();
-    });
-  };
-  var wait = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
-  var check = function (name, ok, why) { out.push(name + (ok ? ' ok' : ' FAIL') + (why ? ' (' + why + ')' : '')); };
-  var calls = function (cmd) { return window.__calls.filter(function (c) { return c[0] === cmd; }); };
-  var lastMenu = function () { var m = calls('plugin:menu|new'); return m.length ? m[m.length - 1][1].options.items : []; };
   var texts = function (items) { return items.map(function (i) { return i.item === 'Separator' ? '-' : i.text; }); };
 
   localStorage.setItem('codealong.project', 'All projects');
@@ -108,7 +94,7 @@
     })
     .then(function () {
       check('a key closes it', true);
-      links()[0].dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+      rightClick(links()[0]);
       return until(function () { return lastMenu().length > 0; }, 2000);
     })
     .then(function () {
@@ -127,6 +113,6 @@
       check('which shows it in the PRs view', document.querySelector('.ca-prinsp .ca-insp-call').textContent === '#' + picked.pr.number);
       check('and closes the card', !card());
     })
-    .catch(function (e) { out.push('error: ' + e.message); })
-    .then(function () { say('done: ' + out.join('; ')); });
+    .then(done)
+    .catch(stopped);
 })();

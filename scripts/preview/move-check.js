@@ -3,18 +3,7 @@
 // asks for move_session with the session and the account, and says what happened. And a session
 // forked from one on another account (a move, start.rs `move_to`) says Moved from over its title.
 //   PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/move-check.js
-// Every step should say ok.
 (function () {
-  var out = [];
-  var say = function (t) { window.__t = t; };
-  setInterval(function () { if (window.__t) document.title = window.__t; }, 100);
-  var until = function (f, ms) {
-    var s = Date.now();
-    return new Promise(function (res, rej) {
-      (function p() { var v = f(); if (v) return res(v); if (Date.now() - s > ms) return rej(new Error('timeout')); setTimeout(p, 20); })();
-    });
-  };
-  var check = function (name, ok, why) { out.push(name + (ok ? ' ok' : ' FAIL') + (why ? ' (' + why + ')' : '')); };
   var get = function (file) {
     var xhr = new XMLHttpRequest();
     xhr.open('GET', file, false);
@@ -34,7 +23,7 @@
       if (others.length === 1) { picked = s; other = others[0].name; }
     });
   });
-  if (!picked) { say('done: no Claude Code session with exactly one other Claude Code account to move to'); return; }
+  if (!picked) { stopped('no Claude Code session with exactly one other Claude Code account to move to'); return; }
   // One on the other account, to have been moved from.
   var from = null;
   board.lanes.forEach(function (l) { l.sessions.forEach(function (s) { if (!from && s.harness === 'claude' && s.account === other) from = s; }); });
@@ -53,8 +42,6 @@
       return b;
     });
   };
-  var calls = function (name) { return window.__calls.filter(function (c) { return c[0] === name; }); };
-  var menus = function () { return calls('plugin:menu|new').length; };
 
   (async function () {
     try {
@@ -77,12 +64,12 @@
         await until(function () { return calls('move_session').length > 0; }, 3000);
         var asked = calls('move_session')[0][1];
         check('picking it asks to move the session there', asked.key === key && asked.account === other, JSON.stringify(asked));
-        await new Promise(function (r) { setTimeout(r, 300); });
+        await wait(300);
         check('and says what happened', document.body.textContent.indexOf('Moved “x” to ' + other) >= 0 || calls('peek_hide').length > 0);
       }
-      say('done: ' + out.join('; '));
     } catch (e) {
-      say('done: FAIL ' + e.message + '; ' + out.join('; '));
+      return stopped(e);
     }
+    done();
   })();
 })();

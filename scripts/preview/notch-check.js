@@ -6,21 +6,10 @@
 // as the page's events do. The session it shows under its pills has notch-session-check.js.
 //   PREVIEW_WAIT=40000 scripts/preview.sh notch '' scripts/preview/notch-check.js
 (function () {
-  var out = [];
-  var say = function (t) { window.__t = t; };
-  setInterval(function () { if (window.__t) document.title = window.__t; }, 100);
-  var wait = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
-  var until = function (f, ms) {
-    var s = Date.now();
-    return new Promise(function (res, rej) {
-      (function p() { if (f()) return res(); if (Date.now() - s > ms) return rej(new Error('timeout')); setTimeout(p, 10); })();
-    });
-  };
-  var check = function (name, ok, why) { out.push(name + (ok ? ' ok' : ' FAIL') + (why ? ' (' + why + ')' : '')); };
   var notch = function () { return document.querySelector('.ca-notch'); };
   var shape = function () { return document.querySelector('.ca-notch-shape'); };
   var isOpen = function () { return notch() && notch().classList.contains('is-open'); };
-  var calls = function (cmd) { return window.__calls.filter(function (c) { return c[0] === cmd; }).map(function (c) { return c[1]; }); };
+  var calls = sent;
   var fits = function () { return calls('fit_bar').map(function (a) { return a.width + 'x' + a.height; }); };
   var lastShape = function () { var s = calls('notch_shape'); return s[s.length - 1]; };
   // The clip's left inset as drawn now, from its computed value: inset(0px 123px 34px round …),
@@ -124,6 +113,6 @@
       window.__emit('notch-pointer', false);
       return until(function () { return !isOpen(); }, 1500).then(function () { check('closes on it', true); });
     })
-    .then(function () { say('done: ' + out.join(', ')); })
-    .catch(function (e) { say('done: ' + out.concat(['error ' + e.message]).join(', ')); });
+    .then(done)
+    .catch(stopped);
 })();

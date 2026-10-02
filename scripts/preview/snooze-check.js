@@ -2,34 +2,17 @@
 // snoozes it, a folded pill's snoozes all of its sessions, and the snoozed pill opens, wakes or
 // wakes all. It needs sessions in the feed's `snoozed`, which the engine lists only for sessions
 // you snoozed; a PREVIEW_BIN that moves a few there does for a preview.
-//   PREVIEW_WAIT=60000 PREVIEW_BIN=<engine that snoozes some> scripts/preview.sh bar '' scripts/preview/snooze-check.js
-// Every step should say ok.
+//   PREVIEW_WAIT=60000 scripts/preview.sh bar '' scripts/preview/snooze-check.js
 (function () {
-  var out = [];
-  var say = function (t) { window.__t = t; };
-  setInterval(function () { if (window.__t) document.title = window.__t; }, 100);
-  var wait = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
-  var until = function (f, ms) {
-    var s = Date.now();
-    return new Promise(function (res, rej) {
-      (function p() { if (f()) return res(); if (Date.now() - s > ms) return rej(new Error('timeout')); setTimeout(p, 10); })();
-    });
-  };
-  var check = function (name, ok, why) { out.push(name + (ok ? ' ok' : ' FAIL') + (why ? ' (' + why + ')' : '')); };
-  var calls = function (cmd) { return window.__calls.filter(function (c) { return c[0] === cmd; }); };
-  var lastMenu = function () { var m = calls('plugin:menu|new'); return m.length ? m[m.length - 1][1].options.items : []; };
   var texts = function (items) { return items.map(function (i) { return i.item === 'Separator' ? '-' : i.text; }); };
   var find = function (items, text) { return items.filter(function (i) { return i.text && i.text.indexOf(text) === 0; })[0]; };
-  // Runs a menu item's action as a click on it would.
-  var pick = function (item) { window['_' + item.handler.id]({ index: 0, message: item.id }); };
-  var right = function (el) { el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })); };
   var snoozes = function () { return calls('snooze_sessions').map(function (c) { return c[1]; }); };
 
   say('snooze check: waiting for pills');
   until(function () { return document.querySelector('.ca-hud [data-key]') && document.querySelector('.ca-hud .is-snoozed'); }, 20000)
     .then(function () {
       var pill = document.querySelector('.ca-hud [data-key]');
-      right(pill);
+      rightClick(pill);
       return wait(200).then(function () {
         var menu = lastMenu();
         var group = find(menu, 'Snooze');
@@ -88,6 +71,6 @@
         });
       });
     })
-    .catch(function (e) { out.push('error ' + e); })
-    .then(function () { say('done: ' + out.join(' · ')); });
+    .then(done)
+    .catch(stopped);
 })();
