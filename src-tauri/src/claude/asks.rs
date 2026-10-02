@@ -24,6 +24,7 @@ use anyhow::{anyhow, Result};
 use serde_json::{json, Value};
 
 use super::conversation::{claude_input, questions_of};
+use super::registry::{registry_of, INPUT_NEEDED, PERMISSION_PROMPT};
 use super::transcript::tool_request;
 use crate::model::{Harness, Session, Status};
 use crate::transcript::clip_input;
@@ -235,17 +236,18 @@ pub fn hold(stream: &mut UnixStream, asked: Asked, watch: Watch, changed: &dyn F
 /// prompt, and no result for the call has been written since the request came.
 fn still_asked(w: &Watch, id: &str) -> bool {
     let Some(asked) = held().iter().find(|h| h.asked.id == id).map(|h| h.asked.clone()) else { return false };
-    let registry = std::fs::read_to_string(w.home.join("sessions").join(format!("{}.json", w.pid))).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok());
-    let waiting = registry.is_some_and(|r| r.get("sessionId").and_then(Value::as_str) == Some(asked.session.as_str()) && waits_on(&r, &asked.tool));
+    let waiting = registry_of(&w.home, w.pid).is_some_and(|r| r.session_id == asked.session && r.waits_on(prompt_of(&asked.tool)));
     waiting && !call_answered(&w.record, &asked, w.from)
 }
 
-/// Claude Code's registry says the session has the tool's prompt up (`requires_action`): a
-/// permission prompt, or for questions, "input needed".
-pub fn waits_on(registry: &Value, tool: &str) -> bool {
-    let f = |k: &str| registry.get(k).and_then(Value::as_str);
-    let prompt = if tool == QUESTIONS { "input needed" } else { "permission prompt" };
-    f("status") == Some("waiting") && f("waitingFor") == Some(prompt)
+/// What Claude Code's registry says a session waits on while the tool's prompt is up: a
+/// permission prompt, or for questions, input.
+fn prompt_of(tool: &str) -> &'static str {
+    if tool == QUESTIONS {
+        INPUT_NEEDED
+    } else {
+        PERMISSION_PROMPT
+    }
 }
 
 /// Whether a result for the request's call (a call of its tool, with its input) was written at
@@ -326,8 +328,7 @@ pub fn session_process(home: &Path, session: &str) -> Option<u32> {
     let mut pid = std::process::id();
     for _ in 0..6 {
         pid = crate::procs::parent_pid(pid).filter(|&p| p > 1)?;
-        let registry = std::fs::read_to_string(home.join("sessions").join(format!("{pid}.json"))).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok());
-        if registry.is_some_and(|r| r.get("sessionId").and_then(Value::as_str) == Some(session)) {
+        if registry_of(home, pid).is_some_and(|r| r.session_id == session) {
             return Some(pid);
         }
     }
@@ -587,10 +588,17 @@ mod tests {
 
     #[test]
     fn the_registry_says_when_a_prompt_is_up() {
-        assert!(waits_on(&json!({ "status": "waiting", "waitingFor": "permission prompt" }), "Bash"));
-        assert!(!waits_on(&json!({ "status": "waiting", "waitingFor": "input needed" }), "Bash"));
-        assert!(waits_on(&json!({ "status": "waiting", "waitingFor": "input needed" }), QUESTIONS));
-        assert!(!waits_on(&json!({ "status": "busy" }), "Bash"));
+        let entry = |says: Value| {
+            let mut v = json!({ "pid": 1, "sessionId": "abc", "cwd": "/r" });
+            v.as_object_mut().unwrap().extend(says.as_object().unwrap().clone());
+            crate::claude::registry::parse_registry(&v.to_string()).unwrap()
+        };
+        assert!(entry(json!({ "status": "waiting", "waitingFor": "permission prompt" })).waits_on(prompt_of("Bash")));
+        assert!(!entry(json!({ "status": "waiting", "waitingFor": "input needed" })).waits_on(prompt_of("Bash")));
+        assert!(entry(json!({ "status": "waiting", "waitingFor": "input needed" })).waits_on(prompt_of(QUESTIONS)));
+        assert!(!entry(json!({ "status": "busy" })).waits_on(prompt_of("Bash")));
+        // A field in a shape Codealong doesn't know is as good as missing, and the entry still reads.
+        assert!(!entry(json!({ "status": "waiting", "waitingFor": { "kind": "permission prompt" }, "peerProtocol": "1" })).waits_on(prompt_of("Bash")));
     }
 
     #[test]

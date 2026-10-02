@@ -42,14 +42,16 @@ use conversation::{idle_since, last_prompt_taken_back, mark_taken_back, open_pro
 use daemon::{daemon_press_escape, daemon_socket};
 use mode::permission_mode;
 use names::name_transcript;
-use registry::{read_registry, Forks};
-use routes::{claude_registry, claude_routes};
+use registry::{read_registry, registry_of, session_entry, Forks, INPUT_NEEDED, PERMISSION_PROMPT};
+use routes::claude_routes;
 use side::{side_mode, SideCopy};
 use start::{background_args, claude_resume_input, default_model, fork_as, fork_command, start_background, stop_command, EFFORTS, MODELS};
 use transcript::{parse_transcript, reply_text, tool_request, transcript_cwd, transcript_files, typed_text, PLAN, Parsed};
 use trust::{state_file, trust_folder};
 
 pub use conversation::conversation_items;
+#[cfg(test)]
+pub use registry::parse_registry;
 pub use registry::RegistryEntry;
 pub use transcript::TranscriptInfo;
 
@@ -161,13 +163,13 @@ impl crate::harness::Adapter for ClaudeCode {
 
     fn routes(&self, account: &crate::config::AccountCfg, s: &crate::model::Session) -> Vec<crate::send::Route> {
         let home = account.home_path();
-        let registry = claude_registry(&home, s);
+        let registry = session_entry(&home, s);
         let mode = permission_mode(registry.as_ref(), &self.records(account, s));
         claude_routes(s, registry.as_ref(), &home, daemon_socket(&home).as_deref(), mode)
     }
 
     fn skips_permission_prompts(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> bool {
-        let registry = claude_registry(&ctx.account.home_path(), s);
+        let registry = session_entry(&ctx.account.home_path(), s);
         registry.is_some() && permission_mode(registry.as_ref(), &self.records(ctx.account, s)).as_deref() == Some("bypassPermissions")
     }
 
@@ -194,7 +196,7 @@ impl crate::harness::Adapter for ClaudeCode {
         }
         // Questions the hook didn't hand over (the plugin isn't in the account, or the app started
         // after they were asked) still show here, to answer where the session runs.
-        if let Some((call, _)) = waiting_on(self, ctx, s, "input needed").filter(|(c, _)| !c.questions.is_empty()) {
+        if let Some((call, _)) = waiting_on(self, ctx, s, INPUT_NEEDED).filter(|(c, _)| !c.questions.is_empty()) {
             return Some(crate::harness::Pending {
                 id: call.id.clone().unwrap_or_default(),
                 label: format!("Asks you · {}", one_line(&call.questions[0].question, 160)),
@@ -321,7 +323,7 @@ impl crate::harness::Adapter for ClaudeCode {
     fn side(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, _cwd: &Path) -> anyhow::Result<crate::side::Recipe> {
         let id = resume_from(ctx.account, s);
         let home = ctx.account.home_path();
-        let registry = claude_registry(&home, s);
+        let registry = session_entry(&home, s);
         let mode = side_mode(permission_mode(registry.as_ref(), &self.records(ctx.account, s)).as_deref());
         // `~/.claude` is where Claude Code looks with no folder named, whatever the app was
         // started with (install.rs runs `claude plugin` the same way).
@@ -395,13 +397,12 @@ impl crate::harness::Adapter for ClaudeCode {
     /// go to whatever the terminal shows then (two in a row open Claude Code's rewind).
     fn interrupt(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> anyhow::Result<String> {
         let home = ctx.account.home_path();
-        let registry = claude_registry(&home, s).ok_or_else(|| anyhow::anyhow!("It isn't running any more."))?;
-        let status = registry.get("status").and_then(Value::as_str).unwrap_or_default();
-        if !matches!(status, "busy" | "waiting") {
+        let registry = session_entry(&home, s).ok_or_else(|| anyhow::anyhow!("It isn't running any more."))?;
+        if !matches!(registry.status.as_str(), "busy" | "waiting") {
             anyhow::bail!("Its turn has already ended.");
         }
-        if registry.get("kind").and_then(Value::as_str) == Some("bg") {
-            let job = registry.get("jobId").and_then(Value::as_str).ok_or_else(|| anyhow::anyhow!("Claude Code didn't record which job it is."))?;
+        if registry.kind.as_deref() == Some("bg") {
+            let job = registry.job_id.as_deref().ok_or_else(|| anyhow::anyhow!("Claude Code didn't record which job it is."))?;
             let socket = daemon_socket(&home).ok_or_else(|| anyhow::anyhow!("Its account's background service isn't running."))?;
             daemon_press_escape(&socket, &home.join("daemon/control.key"), job)?;
         } else {
@@ -982,16 +983,14 @@ fn record(a: &ClaudeCode, ctx: &crate::harness::Ctx, s: &crate::model::Session) 
 /// Code's own record of the session says it's waiting on a permission prompt, and the call is
 /// the last one in its transcript with no result yet.
 fn waiting_call(a: &ClaudeCode, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> Option<(Item, u32)> {
-    waiting_on(a, ctx, s, "permission prompt")
+    waiting_on(a, ctx, s, PERMISSION_PROMPT)
 }
 
 /// The call a live session's prompt is up for, when its registry says it waits `for` that
 /// (a "permission prompt", or "input needed" for questions), and its process.
 fn waiting_on(a: &ClaudeCode, ctx: &crate::harness::Ctx, s: &crate::model::Session, what: &str) -> Option<(Item, u32)> {
     let pid = s.pid?;
-    let reg: Value = serde_json::from_str(&std::fs::read_to_string(ctx.account.home_path().join("sessions").join(format!("{pid}.json"))).ok()?).ok()?;
-    let field = |k: &str| reg.get(k).and_then(Value::as_str);
-    if field("sessionId") != Some(s.id.as_str()) || field("status") != Some("waiting") || field("waitingFor") != Some(what) {
+    if !registry_of(&ctx.account.home_path(), pid).is_some_and(|r| r.session_id == s.id && r.waits_on(what)) {
         return None;
     }
     let page = crate::transcript::file_page(&record(a, ctx, s).ok()?, conversation_items, None, 40).ok()?;
@@ -1017,7 +1016,7 @@ mod tests {
         let account = crate::config::AccountCfg { name: "claude".into(), harness: "claude".into(), home: home.to_string_lossy().into(), command: None, start: None, preferred: false, acp: None };
         let ctx = crate::harness::Ctx { account: &account };
         let session = Session { status: crate::model::Status::Needs, live: true, pid: Some(4242), title: "Limits".into(), cwd: "/x".into(), ..Session::new(Harness::Claude, "claude", id) };
-        let registry = |waiting_for: &str| std::fs::write(home.join("sessions/4242.json"), serde_json::json!({ "pid": 4242, "sessionId": id, "status": "waiting", "waitingFor": waiting_for }).to_string()).unwrap();
+        let registry = |waiting_for: &str| std::fs::write(home.join("sessions/4242.json"), serde_json::json!({ "pid": 4242, "sessionId": id, "cwd": "/x", "status": "waiting", "waitingFor": waiting_for }).to_string()).unwrap();
 
         // The call's questions come with it, for the panel to show as questions.
         let page = ClaudeCode.conversation(&ctx, &session, None, 50).unwrap();

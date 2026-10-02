@@ -520,6 +520,7 @@ fn copy(text: &str) -> Result<()> {
 mod tests {
     use super::*;
     use crate::claude::routes::claude_routes;
+    use crate::claude::RegistryEntry;
     use crate::model::{Harness, Session, Status, Surface};
     use serde_json::Value;
     use std::time::Instant;
@@ -544,7 +545,7 @@ mod tests {
     }
 
     /// The ways `send` would try, with the registry and daemon given rather than read.
-    fn route_for(s: &Session, registry: Option<&Value>, home: &Path, daemon: Option<&Path>) -> Result<Vec<Route>> {
+    fn route_for(s: &Session, registry: Option<&RegistryEntry>, home: &Path, daemon: Option<&Path>) -> Result<Vec<Route>> {
         ensure_not_waiting(s, &Sender::You)?;
         Ok(if s.harness == Harness::Claude {
             claude_routes(s, registry, home, daemon, None)
@@ -554,10 +555,10 @@ mod tests {
         })
     }
 
-    fn registry(extra: Value) -> Value {
-        let mut r = json!({ "pid": 42, "sessionId": "abc", "peerProtocol": 1, "messagingSocketPath": "/tmp/cc-socks/42.sock", "kind": "interactive" });
+    fn registry(extra: Value) -> RegistryEntry {
+        let mut r = json!({ "pid": 42, "sessionId": "abc", "cwd": "/tmp", "peerProtocol": 1, "messagingSocketPath": "/tmp/cc-socks/42.sock", "kind": "interactive" });
         r.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
-        r
+        crate::claude::parse_registry(&r.to_string()).unwrap()
     }
 
     #[test]

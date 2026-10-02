@@ -8,16 +8,26 @@ use std::path::Path;
 use serde::Deserialize;
 use serde_json::Value;
 
+use crate::model::Session;
 use crate::procs;
 use crate::util::mtime_ms;
 
-#[derive(Debug, Clone, PartialEq)]
+/// What a session that says it's `waiting` waits on (`waitingFor`): its permission prompt.
+pub const PERMISSION_PROMPT: &str = "permission prompt";
+/// Or its questions (`AskUserQuestion`).
+pub const INPUT_NEEDED: &str = "input needed";
+
+/// A process's entry in the registry, `<home>/sessions/<pid>.json`: what a running Claude Code
+/// says of itself. Everything that reads one reads it as this (`registry_of`).
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct RegistryEntry {
     pub pid: u32,
     pub session_id: String,
     pub cwd: String,
     /// `busy`, `idle`, `shell`, `waiting`, `blocked`…
     pub status: String,
+    /// What a `waiting` session waits on (`PERMISSION_PROMPT`, `INPUT_NEEDED`).
+    pub waiting_for: Option<String>,
     pub kind: Option<String>,
     /// Set on a background job (`kind: "bg"`): what `claude attach` takes.
     pub job_id: Option<String>,
@@ -36,6 +46,20 @@ pub struct RegistryEntry {
     /// For a background job that goes on from another session's conversation (a fork, or a
     /// window's `/background`), that session's id, from the service's roster.
     pub resumes: Option<String>,
+    /// The socket it listens on for other sessions' messages, and the protocol it speaks there.
+    pub messaging_socket: Option<String>,
+    pub peer_protocol: Option<u64>,
+    /// The Claude app's own id for a session it runs (`local_…`), which names the app's record
+    /// of it.
+    pub host_session: Option<String>,
+}
+
+impl RegistryEntry {
+    /// Whether the session has a prompt of this kind up (`requires_action`): it says it waits,
+    /// and on that.
+    pub fn waits_on(&self, what: &str) -> bool {
+        self.status == "waiting" && self.waiting_for.as_deref() == Some(what)
+    }
 }
 
 #[derive(Deserialize)]
@@ -55,15 +79,23 @@ struct RawRegistry {
     name_source: Option<String>,
     started_at: Option<i64>,
     status_updated_at: Option<i64>,
+    // Read as they come: one of these in a shape Codealong doesn't know mustn't cost the
+    // board the session.
+    waiting_for: Option<Value>,
+    messaging_socket_path: Option<Value>,
+    peer_protocol: Option<Value>,
+    host_session_id: Option<Value>,
 }
 
 pub fn parse_registry(text: &str) -> Option<RegistryEntry> {
     let raw: RawRegistry = serde_json::from_str(text).ok()?;
+    let text_of = |v: Option<Value>| v.as_ref().and_then(Value::as_str).map(String::from);
     Some(RegistryEntry {
         pid: raw.pid,
         session_id: raw.session_id?,
         cwd: raw.cwd?,
         status: raw.status.unwrap_or_else(|| "idle".into()),
+        waiting_for: text_of(raw.waiting_for),
         kind: raw.kind,
         job_id: raw.job_id,
         parked_job: raw.parked_job_id,
@@ -74,7 +106,22 @@ pub fn parse_registry(text: &str) -> Option<RegistryEntry> {
         started_at: raw.started_at,
         status_updated_at: raw.status_updated_at,
         resumes: None,
+        messaging_socket: text_of(raw.messaging_socket_path),
+        peer_protocol: raw.peer_protocol.as_ref().and_then(Value::as_u64),
+        host_session: text_of(raw.host_session_id),
     })
+}
+
+/// The entry of the process `pid`, whatever it says of itself: a window whose conversation
+/// moved away, a spare and a side conversation's copy have one too, and only `read_registry`
+/// leaves them out.
+pub fn registry_of(home: &Path, pid: u32) -> Option<RegistryEntry> {
+    parse_registry(&std::fs::read_to_string(home.join("sessions").join(format!("{pid}.json"))).ok()?)
+}
+
+/// A live session's entry, while its process is still that session's.
+pub fn session_entry(home: &Path, session: &Session) -> Option<RegistryEntry> {
+    registry_of(home, session.pid?).filter(|r| r.session_id == session.id)
 }
 
 /// The conversation a background job goes on from, from the service's roster

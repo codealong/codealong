@@ -8,7 +8,7 @@ use serde_json::Value;
 
 use super::ClaudeCode;
 use super::peer::{FROM_CODEALONG, FROM_YOU};
-use super::routes::claude_registry;
+use super::registry::session_entry;
 use super::transcript::{read_range, tool_request, typed_text, you_typed};
 use crate::transcript::{clip_input, clip_output, item, kept_whole, text_of, Image, Item};
 use crate::util::{one_line, parse_rfc3339_ms};
@@ -269,11 +269,11 @@ pub(super) fn idle_since(home: &Path, s: &crate::model::Session) -> Option<i64> 
     if s.surface == crate::model::Surface::App {
         return None;
     }
-    let reg = claude_registry(home, s)?;
-    if reg.get("status").and_then(Value::as_str) != Some("idle") {
+    let reg = session_entry(home, s)?;
+    if reg.status != "idle" {
         return None;
     }
-    reg.get("statusUpdatedAt").and_then(Value::as_i64)
+    reg.status_updated_at
 }
 
 /// Marks the prompts among `items` that Claude Code took back. Only a prompt with nothing from

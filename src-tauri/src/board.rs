@@ -1478,7 +1478,7 @@ mod tests {
             name_source: Some("derived".into()),
             started_at: Some(NOW - 3_600_000),
             status_updated_at: Some(updated),
-            resumes: None,
+            ..Default::default()
         }
     }
 

@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 use serde_json::Value;
 
+use super::registry::RegistryEntry;
 use crate::util::scan_lines_back;
 
 /// How far back a transcript is read for the mode its latest prompt went in.
@@ -12,8 +13,8 @@ const MODE_SCAN: u64 = 8 * 1024 * 1024;
 /// The permission mode a live session runs in, as its files have it: a Claude app session's is
 /// in the app's record of it (`hostSessionId` names it), where the app keeps the mode you pick;
 /// otherwise it's the mode its latest prompt went in, which its transcript writes on that line.
-pub(super) fn permission_mode(registry: Option<&Value>, transcripts: &[PathBuf]) -> Option<String> {
-    let app = registry.and_then(|r| r.get("hostSessionId")).and_then(Value::as_str);
+pub(super) fn permission_mode(registry: Option<&RegistryEntry>, transcripts: &[PathBuf]) -> Option<String> {
+    let app = registry.and_then(|r| r.host_session.as_deref());
     if let Some(mode) = app.and_then(|id| super::app::permission_mode(&super::app::records_dir(), id)) {
         return Some(mode);
     }
