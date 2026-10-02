@@ -2681,7 +2681,7 @@ fn board_hash(board: &mut Board) -> u64 {
     }
 }
 
-/// How often the harness databases are looked at for changes (`check_databases`).
+/// How often the harness databases are looked at for changes (`glance_readers`).
 const DATABASES_EVERY: Duration = Duration::from_millis(1500);
 
 /// Databases harnesses keep their sessions in. They run in WAL mode, so while a session runs

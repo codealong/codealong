@@ -275,6 +275,15 @@ some work is, answer with one.
   reader gathers a session's inputs and calls them, and the engine the rest. `src/lanes.ts` mirrors `bay_of`, the agent bays'
   headlines and the order of sessions and lanes (`sort_sessions`, `lane_prompt_at`) for the
   filters; keep them in step.
+- The engine's subsystems are structs of their own with `on_*` methods, GitHub's being the first
+  (`ghpoll.rs`, `GhPoll`): the engine keeps one field for it, hands it the worktrees and the
+  time with each call and hears whether the board changed, `compose` reads the rest, what it
+  asks in the background comes back as one `Msg` for its `on_event`, and its rules are tested
+  with made-up clocks, as throttle.rs's are.
+- Work the engine waits on from another thread (a flag that says it's on its way) is sent with
+  `throttle::background`, whose `ended` runs however the work ends, a panic and a thread that
+  never started included, so the flag always comes off; a git run that panics still answers
+  (`engine::git_worker`).
 - What Codealong does to a session, whichever device it's on, is a request in
   `src-tauri/src/actions.rs` (`REQUESTS`: its name and what it does here), and who may ask for it
   from another device is its `Reach` in codealong-peer's `api::REQUESTS` (read, organize, or
@@ -334,8 +343,9 @@ some work is, answer with one.
   may do what its session may without asking and no more, is told to change nothing it isn't
   asked to (`side::RULES`), has nobody to ask, and leaves no record in its harness.
 - What goes wrong in the background (a file that doesn't read, GitHub not answering) is a
-  notice: the engine's are `Board.notices` (`Engine::notices`: a key, a few words, the whole of
-  it, and when it ends where that's known), a window's own go through `reportNotice` in
+  notice: the engine's are `Board.notices` (`Engine::notices`, GitHub's from `GhPoll::notice`:
+  a key, a few words, the whole of it, and when it ends where that's known), a window's own go
+  through `reportNotice` in
   `src/notices.ts`, and `ui/Notices.tsx` draws them all as one chip at the end of the accounts
   bar, with a card for the whole of it and a dismiss that lasts while the notice stands. What
   goes wrong with something you just did is a toast in the window you did it in, not a notice.
@@ -963,7 +973,7 @@ OpenCode (2.0.16, from its source at that tag and its files here)
 - `opencode.db` runs in WAL mode: while a session runs only `opencode.db-wal` changes, and
   FSEvents doesn't report those writes (SQLite writes through a file it holds open; a watcher
   saw OpenCode's other files and a probe file change, never the WAL). So the engine stats the
-  database and its WAL every 1.5 s (`engine::check_databases`) and rereads on a change.
+  database and its WAL every 1.5 s (`Engine::glance_readers`) and rereads on a change.
 - Sign-in is `opencode auth login`; credentials live in the database (`credential`, and
   `account` for OpenCode Go) or a legacy `auth.json`. There are no plan limits to read.
 - Creating a session through the API in a folder made OpenCode point its `global` project
@@ -1461,8 +1471,8 @@ GitHub
   `review-requested:@me` search), asked when a glance says the repo changed (below); PR detail from GraphQL `bodyHTML` plus the REST files
   endpoint; approving with `gh pr review --approve`. Only repos with a worktree off the default
   branch are asked that way (`board::polled_slugs`); one more query each poll searches all of
-  GitHub for open PRs that wait on your review (`github::fetch_requested`), and the board lists
-  its finds for the other repos checked out here. Who asked for a review is the `actor` of the
+  GitHub for open PRs that wait on your review (`github::fetch_requested_text`), and the board
+  lists its finds for the other repos checked out here. Who asked for a review is the `actor` of the
   PR's `ReviewRequestedEvent` (`timelineItems`), with the `requestedReviewer` it named; it's
   often not the author (a teammate asks for a review of a bot's PR).
 - GraphQL is charged in points, 5,000 an hour for an account, shared with everything else that
@@ -1474,7 +1484,8 @@ GitHub
   ran the account out by half past every hour (2026-10-01). An answer's headers (`gh api -i`)
   say what's left and when the hour ends, a refusal's too: `X-Ratelimit-Remaining`,
   `X-Ratelimit-Reset` (seconds). So a poll is a glance first
-  (github.rs, "Asking only for what changed"): one query for every repo, a point for eight of
+  (github.rs, "Asking only for what changed", has what a poll reads; ghpoll.rs when one goes):
+  one query for every repo, a point for eight of
   them, with each open PR's `updatedAt`, `headRefOid`, `mergeStateStatus` and `statusCheckRollup
   { state }` (a field of the PR itself, no connection) and the latest closed PR. A repo is read
   in full when its glance changed, each minute while its checks run, and every ten minutes (only
@@ -1483,6 +1494,16 @@ GitHub
   from GitHub only what changed. A PR's `updatedAt` doesn't move when a check finishes, nor
   when its base moves; the checks' state and the merge state do. `mergeStateStatus` is what
   takes the time, 40 ms a PR.
+- When GitHub is asked is ghpoll.rs's (`Schedule`): a poll a minute, a window's refresh no
+  sooner than 20 s after the last poll, everything read in full after something you did there
+  from Codealong (an approval), and nothing while GitHub is left alone. What `gh` says went
+  wrong is `github::Failure` (not installed, signed out, rate limited with when the hour ends,
+  or anything else in the notice's own words): its `Display` is the notice's text and
+  `title` its few words, and nothing compares sentences. A refusal for want of points holds
+  GitHub off until the hour ends, as the refusal's headers said, else as an earlier glance said
+  of a counter under 500, else for ten minutes; the next glance that's answered ends the hold.
+  The end of a poll is a message of its own (`ghpoll::Event::PollEnded`), sent however the
+  poll's thread ends.
 - `gh api graphql` exits 1 when any part of a query failed (a repo you can't see is `null` under
   its alias, with a `NOT_FOUND` error) and still prints the rest. `gh api rate_limit` isn't to
   go by: it showed 126 GraphQL points used while the queries' own `rateLimit` said 2,073, a
