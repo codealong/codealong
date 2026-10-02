@@ -17,11 +17,10 @@
 //! conversation at a time; what's asked while the copy answers waits its turn.
 
 use std::collections::{HashMap, VecDeque};
-use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, Command, Stdio};
+use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context, Result};
@@ -30,6 +29,7 @@ use serde_json::Value;
 
 use crate::config::Config;
 use crate::model::Board;
+use crate::rpc;
 use crate::store;
 use crate::util::{now_ms, truncate};
 
@@ -141,8 +141,8 @@ struct Proc {
     /// Which of the session's copies this is: a line from an earlier one is dropped.
     id: u64,
     pid: u32,
-    stdin: ChildStdin,
-    child: Child,
+    /// Its process, which ends with this.
+    client: rpc::Client,
     dialect: Box<dyn Dialect>,
 }
 
@@ -361,43 +361,23 @@ fn recipe(board: &Board, cfg: &Config, key: &str) -> Result<(Recipe, PathBuf, St
 
 fn spawn(key: &str, id: u64, recipe: Recipe, cwd: &Path) -> Result<Proc> {
     let mut cmd = Command::new(&recipe.program);
-    cmd.args(&recipe.args).current_dir(cwd).env("PATH", crate::procs::user_path()).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    cmd.args(&recipe.args).current_dir(cwd).env("PATH", crate::procs::user_path());
     for (k, v) in &recipe.env {
         cmd.env(k, v);
     }
     for k in &recipe.unset {
         cmd.env_remove(k);
     }
-    let mut child = cmd.spawn().with_context(|| format!("Couldn't start {} for a side conversation.", recipe.program.display()))?;
-    let (Some(stdin), Some(stdout), Some(stderr)) = (child.stdin.take(), child.stdout.take(), child.stderr.take()) else {
-        let _ = child.kill();
-        bail!("Couldn't reach the copy's process.");
-    };
-    // What it last complained of, for when it ends without answering.
-    let complaint = Arc::new(Mutex::new(String::new()));
-    {
-        let complaint = complaint.clone();
-        std::thread::spawn(move || {
-            for line in BufReader::new(stderr).lines().map_while(std::result::Result::ok) {
-                if !line.trim().is_empty() {
-                    *complaint.lock().unwrap_or_else(|e| e.into_inner()) = line.trim().to_string();
-                }
-            }
-        });
-    }
-    {
-        let key = key.to_string();
-        std::thread::spawn(move || {
-            for line in BufReader::new(stdout).lines().map_while(std::result::Result::ok) {
-                if let Ok(v) = serde_json::from_str::<Value>(&line) {
-                    heard(&key, id, &v);
-                }
-            }
-            let why = complaint.lock().unwrap_or_else(|e| e.into_inner()).clone();
-            stopped(&key, id, &why);
-        });
-    }
-    let mut proc = Proc { id, pid: child.id(), stdin, child, dialect: recipe.dialect };
+    // Every line it writes is the dialect's to make sense of, the answers to what the dialect
+    // asked too: nothing is asked through the client, which only carries the lines.
+    let of = key.to_string();
+    let client = rpc::Client::spawn(cmd, rpc::Stderr::Tail, rpc::Wire::Bare, move |_, line| match line {
+        rpc::Heard::Line(v) => heard(&of, id, v),
+        // What it last complained of, for when it ends without answering.
+        rpc::Heard::Closed(said) => stopped(&of, id, said.last().map(String::as_str).unwrap_or("")),
+    })
+    .with_context(|| format!("Couldn't start {} for a side conversation.", recipe.program.display()))?;
+    let mut proc = Proc { id, pid: client.pid(), client, dialect: recipe.dialect };
     let lines = proc.dialect.open();
     write(&mut proc, &lines);
     Ok(proc)
@@ -407,11 +387,10 @@ fn spawn(key: &str, id: u64, recipe: Recipe, cwd: &Path) -> Result<Proc> {
 /// says so.
 fn write(p: &mut Proc, lines: &[Value]) {
     for l in lines {
-        if writeln!(p.stdin, "{l}").is_err() {
+        if p.client.send(l).is_err() {
             return;
         }
     }
-    let _ = p.stdin.flush();
 }
 
 /// A line from copy `id` of the session's conversation.
@@ -488,11 +467,8 @@ fn stopped(key: &str, id: u64, complaint: &str) {
         if o.proc.as_ref().map(|p| p.id) != Some(id) {
             return;
         }
-        if let Some(mut p) = o.proc.take() {
-            std::thread::spawn(move || {
-                let _ = p.child.wait();
-            });
-        }
+        // Dropped, which reaps its process.
+        o.proc = None;
         let why = if complaint.is_empty() { "The copy stopped before it answered.".to_string() } else { format!("The copy stopped: {}", truncate(complaint, 300)) };
         for t in o.side.turns.iter_mut().filter(|t| !t.done) {
             t.done = true;
@@ -533,19 +509,7 @@ fn end_idle(idle: Duration) {
 /// Ends a copy's process: its input closes, which both harnesses' processes leave on, and it's
 /// killed if it's still there a moment later (mid-answer, say).
 fn end(p: Proc) {
-    let Proc { stdin, mut child, .. } = p;
-    drop(stdin);
-    std::thread::spawn(move || {
-        let until = Instant::now() + Duration::from_millis(1500);
-        while Instant::now() < until {
-            if matches!(child.try_wait(), Ok(Some(_))) {
-                return;
-            }
-            std::thread::sleep(Duration::from_millis(100));
-        }
-        let _ = child.kill();
-        let _ = child.wait();
-    });
+    p.client.end(Duration::from_millis(1500));
 }
 
 #[cfg(test)]
