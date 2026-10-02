@@ -292,6 +292,7 @@ export function CanvasView(props: CanvasViewProps) {
     ro.observe(el);
     return () => ro.disconnect();
     // Once: the camera is the view's own from here on.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run again as the cards change, it would apply the camera each time, which puts a card's popover away
   }, []);
 
   // A project's own camera when the project changes.
@@ -318,6 +319,7 @@ export function CanvasView(props: CanvasViewProps) {
   useEffect(() => {
     if (focus) showItem(focus.id);
     // Only when asked again, not as the canvas changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- n counts the asks; fitting the card again as the canvas changes would take the view from where you moved it
   }, [focus?.n]);
 
   // Asked to show what matches: fit it, or say there's none on the canvas.
@@ -943,7 +945,7 @@ export function CanvasView(props: CanvasViewProps) {
   const selectedId = selectedRef?.kind === 'ref' ? itemId(selectedRef) : null;
   useEffect(() => {
     onSelectItem(selectedRef?.kind === 'ref' ? selectedRef : null);
-    // selectedRef changes as the card moves; the id is what matters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- selectedRef changes as the card moves; the id is what matters
   }, [selectedId, onSelectItem]);
   useEffect(() => () => onSelectItem(null), [onSelectItem]);
 

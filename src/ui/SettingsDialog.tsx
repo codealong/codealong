@@ -953,7 +953,8 @@ export function ListField({ items, placeholder, addLabel, onChange }: { items: s
   useEffect(() => {
     setRows(items);
     setAdded(false);
-  }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on what the list holds: a new array with the same entries mustn't put back a row being typed
+  }, [key]);
 
   const commit = (next: string[]) => {
     const clean = next.map((r) => r.trim()).filter(Boolean);

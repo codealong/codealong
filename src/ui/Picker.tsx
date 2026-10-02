@@ -59,7 +59,8 @@ export function Picker({ sections, value, placeholder, onPick, onClose, empty = 
   // A new filter starts from the best match.
   useEffect(() => {
     if (words.length > 0) setActive(pickable[0]?.id ?? null);
-  }, [words.join(' ')]); // eslint-disable-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the words typed: options that change under the same filter leave the highlight where you moved it
+  }, [words.join(' ')]);
 
   useEffect(() => {
     box.current?.querySelector('.ca-picker-opt.is-on')?.scrollIntoView({ block: 'nearest' });
