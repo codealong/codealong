@@ -14,6 +14,7 @@ repos or naming. Behavior comes from what the harnesses record and from `config.
 
 ```bash
 npm run typecheck                       # tsc
+npm run lint                            # eslint: only the rules of hooks and their dependency lists
 npm test                                # vitest (format, lanes, pins, sections)
 (cd src-tauri && cargo test)            # engine rules, parsers, usage, config, launch scripts; codealong-peer's too
 (cd src-tauri && cargo build --release) # the engine binary; cargo test does NOT rebuild it
@@ -188,7 +189,7 @@ spaces runs in one worktree two seconds apart, publishes git-only changes in two
 batches (session changes still go out at once), runs git at nice 10, and puts the engine and
 git threads in the utility QoS class. At launch, worktrees with the latest activity go first.
 
-Done means: typecheck and tests pass, the engine builds without warnings, UI changes are
+Done means: typecheck, lint and tests pass, the engine builds without warnings, UI changes are
 previewed, and the work has landed (next section).
 
 ## Landing work
