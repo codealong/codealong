@@ -21,8 +21,9 @@ use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder, Window, WindowEvent};
 
-use crate::bar::{clamp, native, screen_for, Rect, EDGE, TOP_GAP};
+use crate::bar::native;
 use crate::config::{support_dir, Theme};
+use crate::geometry::{clamp, place, screen_for, screen_holding, Rect, EDGE, TOP_GAP};
 use crate::model::{Board, Lane, PrItem};
 use crate::todos::{Label, Todo};
 
@@ -350,11 +351,11 @@ fn place_and_show(app: &AppHandle, label: &str) {
         let others: Vec<Rect> = inner.cards.iter().filter(|(l, _)| l != label).filter_map(|(_, p)| p.frame).collect();
         let Some((_, pin)) = inner.cards.iter_mut().find(|(l, _)| l == label) else { return };
         // Where it was left, by its top left corner, if that screen is still there.
-        let left = pin.frame.and_then(|r| screens.iter().find(|s| s.frame.contains(r.center())).map(|s| clamp(Rect { x: r.x, y: r.top() - h, w, h }, s.visible)));
+        let left = pin.frame.and_then(|r| screen_holding(r.center(), &screens).map(|s| clamp(Rect::from_top_left(r.x, r.top(), w, h), s.visible)));
         let frame = match left {
             Some(r) => r,
             None => {
-                let at = native::pointer().and_then(|p| screens.iter().find(|s| s.frame.contains(p))).or(screens.first()).map(|s| s.visible);
+                let at = native::pointer().and_then(|p| screen_holding(p, &screens)).or(screens.first().copied()).map(|s| s.visible);
                 let Some(screen) = at else { return };
                 new_frame(w, h, screen, &others)
             }
@@ -410,7 +411,7 @@ pub fn pin(app: &AppHandle, what: Pinned, at: Option<Rect>) -> Result<String> {
 
 /// A card's window frame held by the pointer at `p`, at the window's size.
 pub fn held_at(p: (f64, f64), (w, h): (f64, f64)) -> Rect {
-    Rect { x: p.0 - GRAB.0, y: p.1 + GRAB.1 - h, w, h }
+    Rect::from_top_left(p.0 - GRAB.0, p.1 + GRAB.1, w, h)
 }
 
 /// Starts dragging a thing out of the window `home` onto the desktop: the pointer is watched
@@ -751,7 +752,7 @@ pub fn fit(app: &AppHandle, label: &str, width: f64, height: f64) {
         let Some(window) = handle.get_webview_window(&label) else { return };
         let Some(current) = native::frame(&window) else { return };
         let Some(screen) = screen_for(current, &native::screens()) else { return };
-        let next = crate::bar::place(current, width.ceil(), height.ceil(), screen);
+        let next = place(current, width.ceil(), height.ceil(), screen);
         if next != current {
             native::set_frame(&window, next);
             // Keeping its top edge doesn't move the window as Tauri sees it, so no Moved comes;

@@ -31,6 +31,7 @@ mod engine;
 #[cfg(test)]
 #[path = "../peer/src/fixtures.rs"]
 mod fixtures;
+mod geometry;
 mod flash;
 mod ghpoll;
 mod git;
@@ -369,7 +370,7 @@ fn open_from_bar(app: tauri::AppHandle, engine: State<'_, engine::Handle>, lane_
 /// the desktop (where the window's page measured it), with `focus` ready to type into, or with
 /// `rename` its name ready to change (peek.rs).
 #[tauri::command]
-fn peek_open(app: tauri::AppHandle, window: tauri::WebviewWindow, engine: State<'_, engine::Handle>, key: String, pill: Option<bar::Rect>, focus: Option<bool>, rename: Option<bool>) -> Result<(), String> {
+fn peek_open(app: tauri::AppHandle, window: tauri::WebviewWindow, engine: State<'_, engine::Handle>, key: String, pill: Option<geometry::PageRect>, focus: Option<bool>, rename: Option<bool>) -> Result<(), String> {
     let target = engine.read(|b| peek::target(b, &key)).ok_or_else(|| "That session isn't on the board any more.".to_string())?;
     let rename = rename.unwrap_or(false);
     // Kept on the desktop, it's up already: its own window comes forward, to type into if asked.
@@ -754,7 +755,7 @@ fn bar_mode(app: tauri::AppHandle) -> bar::ModeView {
 /// clicks only on it.
 #[tauri::command]
 fn notch_shape(app: tauri::AppHandle, x: f64, y: f64, w: f64, h: f64) {
-    bar::set_shape(&app, bar::Rect { x, y, w, h });
+    bar::set_shape(&app, geometry::PageRect { x, y, w, h });
 }
 
 /// Floats the bar, docks it in the notch, or turns it off.
@@ -781,7 +782,7 @@ fn notch_keys(app: tauri::AppHandle, on: bool) {
 #[tauri::command]
 fn keep_notch_session(app: tauri::AppHandle, window: tauri::WebviewWindow, key: String, x: f64, y: f64, w: f64, h: f64) -> Result<(), String> {
     let host = bar::native::frame(&window).ok_or_else(|| "The bar isn't there.".to_string())?;
-    let card = peek::pill_on_screen(host, bar::Rect { x, y, w, h });
+    let card = geometry::PageRect { x, y, w, h }.to_screen(host);
     kept::keep(&app, key, card, true).map(|_| ()).map_err(|e| e.to_string())
 }
 

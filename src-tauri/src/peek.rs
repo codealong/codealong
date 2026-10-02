@@ -27,7 +27,7 @@ use anyhow::{anyhow, Result};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder, Window, WindowEvent};
 
-use crate::bar::{Rect, Screen};
+use crate::geometry::{screen_for, PageRect, Rect, Screen, CARD_MARGIN};
 use crate::config::Theme;
 use crate::model::{Board, Lane, Session};
 
@@ -52,7 +52,7 @@ const MIN_ROOM: f64 = 360.0;
 /// The bar's page leaves this much room around its card (Bar.tsx), as a desktop card's page does
 /// (DesktopPin.tsx); docked in the notch, the frame the peek goes by has it around the shape
 /// (`bar::peek_frame`).
-const BAR_MARGIN: f64 = crate::bar::CARD_MARGIN;
+const BAR_MARGIN: f64 = CARD_MARGIN;
 /// Space between the bar's card and the peek's: no less than `NEAR`, so the peek's window starts
 /// where the bar's card ends.
 const GAP: f64 = 8.0;
@@ -104,12 +104,6 @@ impl Place {
     }
 }
 
-/// A pill the page of the bar or of a desktop card measured (CSS pixels from the top left of its
-/// window) on the screen.
-pub fn pill_on_screen(host: Rect, pill: Rect) -> Rect {
-    Rect { x: host.x + pill.x, y: host.top() - pill.y - pill.h, w: pill.w, h: pill.h }
-}
-
 /// Where the peek goes for a pill: under the bar's card (`bar` is its window, or a desktop card's),
 /// centered on the pill and kept on the screen, or over it when there's too little room under it
 /// and more over it.
@@ -133,8 +127,7 @@ pub fn dragged(from: Rect, began: (f64, f64), pointer: (f64, f64)) -> Rect {
 
 /// Whether the pointer is on the peek or on the pill it came from.
 pub fn over(p: (f64, f64), peek: Rect, pill: Option<Rect>) -> bool {
-    let near = |r: Rect| Rect { x: r.x - PILL_SLACK, y: r.y - PILL_SLACK, w: r.w + 2.0 * PILL_SLACK, h: r.h + 2.0 * PILL_SLACK };
-    peek.contains(p) || pill.is_some_and(|r| near(r).contains(p))
+    peek.contains(p) || pill.is_some_and(|r| r.outset(PILL_SLACK).contains(p))
 }
 
 /// What the bar and the page hear about the peek.
@@ -251,10 +244,10 @@ pub fn target(board: &Board, key: &str) -> Option<Target> {
 /// a card on the desktop, and the pill as that window's page measured it) or, with `focus`, ready
 /// to type into, its name with `rename`. Without a pill it opens where it last was. A hover
 /// doesn't take the peek from a session you're typing to. On the main thread.
-pub fn open(app: &AppHandle, target: Target, pill: Option<(Rect, Rect)>, focus: bool, rename: bool) -> Result<()> {
+pub fn open(app: &AppHandle, target: Target, pill: Option<(Rect, PageRect)>, focus: bool, rename: bool) -> Result<()> {
     let Some(state) = app.try_state::<Peek>() else { return Ok(()) };
     let bar = crate::bar::frame(app);
-    let pill = pill.map(|(host, p)| (host, pill_on_screen(host, p)));
+    let pill = pill.map(|(host, p)| (host, p.to_screen(host)));
     let key = target.session.key.clone();
     let (id, room, below) = {
         let mut s = state.inner.lock().map_err(|_| anyhow!("The peek is unavailable."))?;
@@ -274,7 +267,7 @@ pub fn open(app: &AppHandle, target: Target, pill: Option<(Rect, Rect)>, focus: 
         let screens = native::screens();
         let host = s.host.or(bar);
         let anchor = s.pill.or(host);
-        let screen = anchor.and_then(|a| screens.iter().find(|x| x.frame.contains(a.center())).or(screens.first()).map(|x| x.visible));
+        let screen = anchor.and_then(|a| screen_for(a, &screens));
         // The bar docked in the notch keeps room in its window for the shape's shadow, so the peek
         // goes by the shape (`bar::peek_frame`).
         let by = if host.is_some() && host == bar { crate::bar::peek_frame(app) } else { host };
@@ -864,13 +857,6 @@ mod tests {
 
     fn r(x: f64, y: f64, w: f64, h: f64) -> Rect {
         Rect { x, y, w, h }
-    }
-
-    #[test]
-    fn finds_the_pill_on_the_screen() {
-        // A bar at the top of the screen; the page measures from its window's top left.
-        let bar = r(500.0, 800.0, 600.0, 56.0);
-        assert_eq!(pill_on_screen(bar, r(100.0, 17.0, 120.0, 22.0)), r(600.0, 817.0, 120.0, 22.0));
     }
 
     #[test]

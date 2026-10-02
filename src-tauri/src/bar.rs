@@ -34,6 +34,7 @@ use tauri::menu::{CheckMenuItem, MenuItemKind, PredefinedMenuItem, WINDOW_SUBMEN
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder, Window, WindowEvent, Wry};
 
 use crate::config::support_dir;
+use crate::geometry::{clamp, place, screen_for, screen_holding, PageRect, Rect, Screen, CARD_MARGIN, TOP_GAP};
 
 pub const LABEL: &str = "bar";
 const MENU_ID: &str = "floating-bar";
@@ -44,10 +45,6 @@ const CHECK_EVERY: Duration = Duration::from_secs(1);
 const POINTER_EVERY: Duration = Duration::from_millis(40);
 /// The bar's size before its page has measured itself.
 const START: (f64, f64) = (240.0, 48.0);
-/// Space between a newly placed bar and the menu bar.
-pub(crate) const TOP_GAP: f64 = 6.0;
-/// Room kept at the sides of the screen.
-pub(crate) const EDGE: f64 = 8.0;
 /// The width of the notch drawn on a screen without one: about the hardware's on a 14-inch
 /// MacBook Pro (185 points).
 const DRAWN_NOTCH_WIDTH: f64 = 180.0;
@@ -107,79 +104,17 @@ pub fn notch_frame(n: Notch, w: f64, h: f64) -> Rect {
     Rect { x: (n.x - w / 2.0).round(), y: n.top - h, w, h }
 }
 
-/// A rectangle in screen points as AppKit gives them: the origin at the bottom left of the main
-/// screen, y growing up.
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Rect {
-    pub x: f64,
-    pub y: f64,
-    pub w: f64,
-    pub h: f64,
-}
-
-impl Rect {
-    pub(crate) fn top(&self) -> f64 {
-        self.y + self.h
-    }
-    pub(crate) fn right(&self) -> f64 {
-        self.x + self.w
-    }
-    pub(crate) fn center(&self) -> (f64, f64) {
-        (self.x + self.w / 2.0, self.y + self.h / 2.0)
-    }
-    pub(crate) fn contains(&self, (x, y): (f64, f64)) -> bool {
-        x >= self.x && x <= self.right() && y >= self.y && y <= self.top()
-    }
-}
-
-/// A screen: all of it, and the part the menu bar and Dock leave free.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Screen {
-    pub frame: Rect,
-    pub visible: Rect,
-}
-
-/// Where the bar goes at a new size. It keeps its top edge and the side it's nearest: a bar in
-/// the left third of the screen grows to the right, one in the right third grows to the left, and
-/// one in the middle stays centered. It stays on the screen.
-pub fn place(current: Rect, w: f64, h: f64, screen: Rect) -> Rect {
-    let (cx, _) = current.center();
-    let third = (cx - screen.x) / screen.w;
-    let x = if third < 1.0 / 3.0 {
-        current.x
-    } else if third > 2.0 / 3.0 {
-        current.right() - w
-    } else {
-        cx - w / 2.0
-    };
-    clamp(Rect { x, y: current.top() - h, w, h }, screen)
-}
-
-/// Moves the rectangle onto the screen, narrowing it only when it's wider than the screen.
-pub(crate) fn clamp(r: Rect, screen: Rect) -> Rect {
-    let w = r.w.min(screen.w - 2.0 * EDGE).max(1.0);
-    let h = r.h.min(screen.h).max(1.0);
-    let x = r.x.min(screen.right() - EDGE - w).max(screen.x + EDGE);
-    let y = r.y.min(screen.top() - h).max(screen.y);
-    Rect { x, y, w, h }
-}
-
 /// Where the bar starts: where you left it if that's still on a screen, else top center of the
 /// first screen, just under the menu bar.
 pub fn start_frame(saved: Option<Rect>, screens: &[Screen]) -> Option<Rect> {
     if let Some(r) = saved {
-        if let Some(s) = screens.iter().find(|s| s.frame.contains(r.center())) {
+        if let Some(s) = screen_holding(r.center(), screens) {
             return Some(clamp(r, s.visible));
         }
     }
     let v = screens.first()?.visible;
     let (w, h) = saved.map(|r| (r.w, r.h)).unwrap_or(START);
     Some(clamp(Rect { x: v.x + (v.w - w) / 2.0, y: v.top() - TOP_GAP - h, w, h }, v))
-}
-
-/// The usable area of the screen a rectangle is on: the one holding its center, else the first.
-pub(crate) fn screen_for(r: Rect, screens: &[Screen]) -> Option<Rect> {
-    screens.iter().find(|s| s.frame.contains(r.center())).or(screens.first()).map(|s| s.visible)
 }
 
 /// What `bar.json` keeps.
@@ -231,7 +166,7 @@ struct Bar {
     notch: Mutex<Option<Notch>>,
     /// The shape the docked bar shows, in its window's points from the top left (`notch_shape`),
     /// and whether the pointer was last on it.
-    shape: Mutex<Option<Rect>>,
+    shape: Mutex<Option<PageRect>>,
     on_shape: AtomicBool,
     /// Docked, it has the keyboard, for the session it shows under its pills.
     keys: AtomicBool,
@@ -332,9 +267,8 @@ pub fn setup(app: &AppHandle) -> Result<()> {
 
 /// Whether a point on the screen is on the docked bar's shape, given where its window is and
 /// the shape in the window's points from its top left.
-pub fn on_shape(p: (f64, f64), window: Rect, shape: Rect) -> bool {
-    let (x, y) = (p.0 - window.x, window.top() - p.1);
-    x >= shape.x && x <= shape.x + shape.w && y >= shape.y && y <= shape.y + shape.h
+pub fn on_shape(p: (f64, f64), window: Rect, shape: PageRect) -> bool {
+    shape.contains(window.page_point(p))
 }
 
 /// Docked: the window takes clicks while the pointer is on the shape and lets them through
@@ -360,7 +294,7 @@ fn watch_pointer(app: &AppHandle) {
 }
 
 /// The shape the docked bar's page shows now, in the window's points from its top left.
-pub fn set_shape(app: &AppHandle, shape: Rect) {
+pub fn set_shape(app: &AppHandle, shape: PageRect) {
     let Some(state) = app.try_state::<Bar>() else { return };
     if let Ok(mut s) = state.shape.lock() {
         *s = Some(shape);
@@ -497,9 +431,6 @@ pub fn frame(app: &AppHandle) -> Option<Rect> {
     native::frame(&app.get_webview_window(LABEL)?)
 }
 
-/// The room the floating bar's page leaves around its card, for its shadow (Bar.tsx `MARGIN`).
-pub(crate) const CARD_MARGIN: f64 = 12.0;
-
 /// The frame the peek opens by (peek.rs `place`): the floating bar's window, whose card sits
 /// `CARD_MARGIN` inside it; docked, the shape the page shows with that margin around it, since
 /// the window keeps room for the shape's shadow as well. On the main thread.
@@ -515,13 +446,13 @@ pub fn peek_frame(app: &AppHandle) -> Option<Rect> {
 /// Whether a point on the screen is on the bar: the floating bar's card, or the docked shape.
 /// On the main thread.
 pub fn covers(app: &AppHandle, p: (f64, f64)) -> bool {
-    is_on(app) && peek_frame(app).is_some_and(|f| Rect { x: f.x + CARD_MARGIN, y: f.y + CARD_MARGIN, w: f.w - 2.0 * CARD_MARGIN, h: f.h - 2.0 * CARD_MARGIN }.contains(p))
+    is_on(app) && peek_frame(app).is_some_and(|f| f.inset(CARD_MARGIN).contains(p))
 }
 
 /// A docked shape, given in its window's points from the top left, on the screen with the
 /// floating card's margin around it.
-pub fn shape_frame(window: Rect, shape: Rect) -> Rect {
-    Rect { x: window.x + shape.x - CARD_MARGIN, y: window.top() - shape.y - shape.h - CARD_MARGIN, w: shape.w + 2.0 * CARD_MARGIN, h: shape.h + 2.0 * CARD_MARGIN }
+pub fn shape_frame(window: Rect, shape: PageRect) -> Rect {
+    shape.to_screen(window).outset(CARD_MARGIN)
 }
 
 /// Whether the bar is on.
@@ -1040,26 +971,6 @@ mod tests {
     }
 
     #[test]
-    fn grows_from_the_side_it_is_nearest() {
-        // Middle third: stays centered.
-        assert_eq!(place(r(650.0, 800.0, 200.0, 40.0), 400.0, 40.0, SCREEN), r(550.0, 800.0, 400.0, 40.0));
-        // Left third: keeps its left edge.
-        assert_eq!(place(r(100.0, 800.0, 200.0, 40.0), 400.0, 40.0, SCREEN), r(100.0, 800.0, 400.0, 40.0));
-        // Right third: keeps its right edge.
-        assert_eq!(place(r(1200.0, 800.0, 200.0, 40.0), 400.0, 40.0, SCREEN), r(1000.0, 800.0, 400.0, 40.0));
-    }
-
-    #[test]
-    fn keeps_its_top_edge_and_stays_on_screen() {
-        assert_eq!(place(r(650.0, 800.0, 200.0, 40.0), 200.0, 50.0, SCREEN), r(650.0, 790.0, 200.0, 50.0));
-        // Near the left edge a centered bar would spill off; it's pushed back on.
-        assert_eq!(place(r(10.0, 100.0, 40.0, 40.0), 300.0, 40.0, SCREEN).x, 10.0);
-        assert_eq!(place(r(600.0, 100.0, 300.0, 40.0), 2000.0, 40.0, SCREEN), r(8.0, 100.0, 1484.0, 40.0));
-        // Dragged partly above the usable area, it comes back under it.
-        assert_eq!(place(r(600.0, 880.0, 300.0, 40.0), 300.0, 40.0, SCREEN).y, 860.0);
-    }
-
-    #[test]
     fn starts_where_it_was_left_if_that_screen_is_still_there() {
         let main = Screen { frame: SCREEN, visible: r(0.0, 0.0, 1500.0, 875.0) };
         let left = Screen { frame: r(-1920.0, 0.0, 1920.0, 1080.0), visible: r(-1920.0, 0.0, 1920.0, 1055.0) };
@@ -1133,7 +1044,7 @@ mod tests {
     fn the_pointer_is_on_the_shape_only_within_it() {
         // A window at the top of a 1117-point screen, the shape 285 by 32 centered in its 735.
         let window = r(496.0, 1039.0, 735.0, 78.0);
-        let shape = r(225.0, 0.0, 285.0, 32.0);
+        let shape = PageRect { x: 225.0, y: 0.0, w: 285.0, h: 32.0 };
         assert!(on_shape((863.0, 1110.0), window, shape));
         assert!(on_shape((721.0, 1117.0), window, shape), "its top left corner");
         assert!(!on_shape((863.0, 1080.0), window, shape), "under it, in the window");
@@ -1144,7 +1055,7 @@ mod tests {
     fn the_peek_opens_by_the_shape_not_the_window() {
         // The window keeps room for the shadow under the shape; the peek goes by the shape.
         let window = r(390.0, 1007.0, 948.0, 110.0);
-        let f = shape_frame(window, r(108.0, 0.0, 731.0, 66.0));
+        let f = shape_frame(window, PageRect { x: 108.0, y: 0.0, w: 731.0, h: 66.0 });
         assert_eq!(f, r(486.0, 1039.0, 755.0, 90.0));
         // Its card's bottom, as peek.rs finds it, is the shape's.
         assert_eq!(f.y + CARD_MARGIN, 1117.0 - 66.0);

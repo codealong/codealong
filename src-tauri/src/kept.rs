@@ -18,7 +18,7 @@ use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder, Window, WindowEvent};
 
-use crate::bar::{Rect, Screen};
+use crate::geometry::{screen_for, Rect, Screen};
 use crate::config::support_dir;
 use crate::peek::native;
 
@@ -160,7 +160,7 @@ fn make_window(app: &AppHandle, label: &str) -> Result<()> {
 /// on the first screen. No smaller than a kept window gets.
 pub fn on_a_screen(frame: Rect, screens: &[Screen]) -> Rect {
     let frame = Rect { w: frame.w.max(crate::peek::MIN_SIZE.0), h: frame.h.max(crate::peek::MIN_SIZE.1), ..frame };
-    let Some(v) = screens.iter().find(|s| s.frame.contains(frame.center())).or(screens.first()).map(|s| s.visible) else { return frame };
+    let Some(v) = screen_for(frame, screens) else { return frame };
     // Whole on the screen, moved no further than that takes: the window keeps room around its
     // card for the shadow, so it may touch the screen's edge.
     let (w, h) = (frame.w.min(v.w), frame.h.min(v.h));
@@ -281,7 +281,7 @@ pub fn sized(frame: Rect, width: f64, height: f64, screen: Option<Rect>) -> Rect
 pub fn resize(app: &AppHandle, label: &str, width: f64, height: f64) {
     let (Some(state), Some(window)) = (app.try_state::<State>(), app.get_webview_window(label)) else { return };
     let Some(current) = native::frame(&window) else { return };
-    let screen = crate::bar::screen_for(current, &native::screens());
+    let screen = screen_for(current, &native::screens());
     let next = sized(current, width.ceil(), height.ceil(), screen);
     if next == current {
         return;

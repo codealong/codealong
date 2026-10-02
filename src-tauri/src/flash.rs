@@ -94,6 +94,7 @@ mod native {
     use tauri::AppHandle;
 
     use super::Frame;
+    use crate::geometry::{PageRect, Rect};
 
     #[repr(C)]
     #[derive(Clone, Copy)]
@@ -278,10 +279,15 @@ mod native {
 
     fn show(window: Frame, ticket: u64) {
         let Some(mtm) = MainThreadMarker::new() else { return };
-        // AppKit's origin is the bottom left of the main screen, y growing up.
-        let main_h = unsafe { CGDisplayBounds(CGMainDisplayID()) }.size.y;
-        let (w, h) = (window.w + 2.0 * MARGIN, window.h + 2.0 * MARGIN);
-        let rect = NSRect::new(NSPoint::new(window.x - MARGIN, main_h - (window.y + window.h) - MARGIN), NSSize::new(w, h));
+        // AppKit's origin is the bottom left of the main screen, y growing up, and the window
+        // list's is that screen's top left, y growing down: the main screen is to a window there
+        // what a window is to its page.
+        // SAFETY: both take and return plain values, and the main display always has an ID.
+        let main = frame(unsafe { CGDisplayBounds(CGMainDisplayID()) });
+        let host = Rect { x: 0.0, y: 0.0, w: main.w, h: main.h };
+        let around = PageRect { x: window.x, y: window.y, w: window.w, h: window.h }.to_screen(host).outset(MARGIN);
+        let (w, h) = (around.w, around.h);
+        let rect = NSRect::new(NSPoint::new(around.x, around.y), NSSize::new(w, h));
         // SAFETY: a borderless window made and used on the main thread, kept alive in SHOWING.
         let win = unsafe { NSWindow::initWithContentRect_styleMask_backing_defer(mtm.alloc(), rect, NSWindowStyleMask::Borderless, NSBackingStoreType::Buffered, false) };
         unsafe { win.setReleasedWhenClosed(false) };

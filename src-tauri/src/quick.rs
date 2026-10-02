@@ -27,7 +27,7 @@ use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder, Window, WindowEvent};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
 
-use crate::bar::{Rect, Screen};
+use crate::geometry::{screen_at, screen_holding, Rect, Screen};
 use crate::start::Place;
 use crate::{engine, perf};
 
@@ -222,7 +222,7 @@ pub fn ready(app: &AppHandle, height: Option<f64>) {
 /// screen's usable part.
 fn room(state: &Quick) -> Option<f64> {
     let (x, top) = (*state.anchor.lock().ok()?)?;
-    let screen = native::screens().into_iter().find(|s| s.frame.contains((x + WIDTH / 2.0, top - 1.0)))?;
+    let screen = screen_holding((x + WIDTH / 2.0, top - 1.0), &native::screens())?;
     Some(top - screen.visible.y)
 }
 
@@ -529,8 +529,7 @@ mod native {
     /// The screen the pointer is on, else the first.
     pub fn pointer_screen() -> Option<Screen> {
         let p = NSEvent::mouseLocation();
-        let all = screens();
-        all.iter().find(|s| s.frame.contains((p.x, p.y))).or(all.first()).copied()
+        super::screen_at((p.x, p.y), &screens())
     }
 }
 

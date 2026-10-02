@@ -14,15 +14,13 @@ use anyhow::Result;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
-use crate::bar::{native, Rect, Screen};
+use crate::bar::native;
 use crate::config::Theme;
 use crate::desktop;
+use crate::geometry::{screen_at, PageRect, Rect, Screen, CARD_MARGIN};
 use crate::model::Board;
 
 pub const LABEL: &str = "lineage";
-/// Room around a card in its window for its shadow (DesktopPin.tsx's MARGIN): the card itself is
-/// this far in.
-const SHADOW: f64 = 12.0;
 /// How far a line can bow out past the cards it joins, with its arrowhead (lineage.ts's
 /// `connector`): where there's less room than this on the left, it bows out on the right.
 const BOW: f64 = 100.0;
@@ -32,21 +30,13 @@ const EVERY: Duration = Duration::from_millis(40);
 /// window that's off the screen, so it would show the old lines for a moment when it came back.
 const EMPTIED: Duration = Duration::from_millis(150);
 
-/// A card as the page gets it: in the window's points, from its top left, y down.
-#[derive(Serialize, Clone, Copy, Debug, PartialEq)]
-pub struct Card {
-    pub x: f64,
-    pub y: f64,
-    pub w: f64,
-    pub h: f64,
-}
-
+/// A line as the page gets it, its cards in the window's points, from its top left, y down.
 #[derive(Serialize, Clone, Debug, PartialEq)]
 pub struct Line {
     /// The card of the session the other came from.
-    pub from: Card,
+    pub from: PageRect,
     /// The card of the session that came of it.
-    pub to: Card,
+    pub to: PageRect,
     /// Where the line bows out when the cards are one over the other.
     pub side: &'static str,
 }
@@ -215,8 +205,7 @@ fn follow(app: &AppHandle, n: u64, label: &str) {
     if ties.is_empty() {
         return clear(app);
     }
-    let screens = native::screens();
-    let Some(screen) = screens.iter().find(|s| s.frame.contains(on.center())).or(screens.first()).copied() else { return clear(app) };
+    let Some(screen) = screen_at(on.center(), &native::screens()) else { return clear(app) };
     let (frame, lines) = layout(&ties, screen);
     if lines.is_empty() {
         return clear(app);
@@ -305,11 +294,11 @@ fn inset(r: Rect, by: f64) -> Rect {
 pub fn layout(ties: &[(Rect, Rect)], screen: Screen) -> (Rect, Vec<Line>) {
     let frame = screen.frame;
     let here = |r: &Rect| frame.contains(r.center());
-    let page = |r: Rect| Card { x: r.x - frame.x, y: frame.top() - r.top(), w: r.w, h: r.h };
+    let page = |r: Rect| PageRect::from_screen(r, frame);
     let lines = ties
         .iter()
         .filter(|(a, b)| here(a) && here(b))
-        .map(|(a, b)| (inset(*a, SHADOW), inset(*b, SHADOW)))
+        .map(|(a, b)| (inset(*a, CARD_MARGIN), inset(*b, CARD_MARGIN)))
         .map(|(a, b)| Line { from: page(a), to: page(b), side: if a.x.min(b.x) - BOW < screen.visible.x { "right" } else { "left" } })
         .collect();
     (frame, lines)
@@ -332,7 +321,7 @@ mod tests {
         let lower = r(1200.0, 700.0, 304.0, 80.0);
         let (frame, lines) = layout(&[(upper, lower)], SCREEN);
         assert_eq!(frame, SCREEN.frame);
-        assert_eq!(lines, vec![Line { from: Card { x: 1212.0, y: 900.0 - 848.0, w: 280.0, h: 56.0 }, to: Card { x: 1212.0, y: 900.0 - 768.0, w: 280.0, h: 56.0 }, side: "left" }]);
+        assert_eq!(lines, vec![Line { from: PageRect { x: 1212.0, y: 900.0 - 848.0, w: 280.0, h: 56.0 }, to: PageRect { x: 1212.0, y: 900.0 - 768.0, w: 280.0, h: 56.0 }, side: "left" }]);
     }
 
     #[test]
@@ -357,7 +346,7 @@ mod tests {
         let screen = Screen { frame: r(918.0, 1117.0, 1920.0, 1080.0), visible: r(918.0, 1117.0, 1920.0, 1080.0) };
         let (frame, lines) = layout(&[(r(1662.0, 1487.0, 304.0, 81.0), r(1972.0, 1480.0, 304.0, 81.0))], screen);
         assert_eq!(frame, screen.frame);
-        assert_eq!(lines[0].from, Card { x: 1674.0 - 918.0, y: 2197.0 - 1556.0, w: 280.0, h: 57.0 });
+        assert_eq!(lines[0].from, PageRect { x: 1674.0 - 918.0, y: 2197.0 - 1556.0, w: 280.0, h: 57.0 });
         assert_eq!(lines[0].to.x, 1984.0 - 918.0);
     }
 }
