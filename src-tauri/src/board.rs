@@ -137,10 +137,6 @@ fn plain(s: &str) -> String {
     s.replace('`', "'")
 }
 
-fn short_id(id: &str) -> String {
-    id.chars().take(7).collect()
-}
-
 /// Claude Code sessions whose conversation moved to the background, and the jobs it moved to.
 ///
 /// Moving a conversation to the background starts a job with a session of its own that goes on
@@ -258,7 +254,6 @@ pub fn claude_session(
         Status::Working => tr.and_then(|t| t.last_tool.clone()),
         _ => tr.and_then(|t| t.last_text.clone().or_else(|| t.last_prompt.clone())),
     };
-    let key = format!("claude:{}:{}", account.name, id);
     let attach_command = reg
         .filter(|r| r.kind.as_deref() == Some("bg"))
         .and_then(|r| r.job_id.clone())
@@ -269,17 +264,10 @@ pub fn claude_session(
         (Surface::Cli, true) => "focus",
         (Surface::Cli, false) => "resume",
     };
+    let known = Session::new(Harness::Claude, &account.name, &id);
     Some(Session {
-        open_target: format!("s|{key}|{action}"),
-        visitor: None,
-        headline: String::new(),
-        detail: None,
-        key,
-        short_id: short_id(&id),
+        open_target: format!("s|{}|{action}", known.key),
         resume_command: Some(format!("{} --resume {}", account.command(), id)),
-        id,
-        harness: Harness::Claude,
-        account: account.name.clone(),
         surface,
         status,
         live: reg.is_some(),
@@ -300,20 +288,11 @@ pub fn claude_session(
         last_activity,
         excerpt,
         branch: tr.and_then(|t| t.git_branch.clone()),
-        archived: false,
         attach_command,
-        continues: None,
-        origin: None,
         stalled_since,
         background: background.then(|| quiet.running.unwrap_or_default().to_string()),
         app_account: account.home_path() == crate::util::home().join(".claude"),
-        insight: None,
-        asks: false,
-        hosted: false,
-        stoppable: false,
-        snoozed_until: None,
-        earlier: false,
-        chrome: None,
+        ..known
     })
 }
 
@@ -332,7 +311,7 @@ fn codex_origin(account: &AccountCfg, th: &ThreadInfo) -> Option<SessionOrigin> 
         (None, Some(id)) => (id, OriginHow::Started),
         (None, None) => return None,
     };
-    (id != &th.id).then(|| SessionOrigin { key: format!("codex:{}:{id}", account.name), how })
+    (id != &th.id).then(|| SessionOrigin { key: Session::key_for(Harness::Codex, &account.name, id), how })
 }
 
 /// A Codex thread. Threads have no process of their own, so they are never Stopped.
@@ -357,7 +336,6 @@ pub fn codex_session(account: &AccountCfg, th: &ThreadInfo, name: Option<&str>, 
         Status::Working => th.last_user_message.clone(),
         _ => th.last_agent_message.clone(),
     };
-    let key = format!("codex:{}:{}", account.name, th.id);
     // A thread shows where it's open: its terminal, else where it was made. `codex resume`
     // opens any of them in a terminal.
     let surface = if th.cli || terminal.is_some() { Surface::Cli } else { Surface::App };
@@ -366,16 +344,9 @@ pub fn codex_session(account: &AccountCfg, th: &ThreadInfo, name: Option<&str>, 
         (Surface::Cli, Some(_)) => "focus",
         (Surface::Cli, None) => "resume",
     };
+    let known = Session::new(Harness::Codex, &account.name, &th.id);
     Session {
-        open_target: format!("s|{key}|{action}"),
-        visitor: None,
-        headline: String::new(),
-        detail: None,
-        key,
-        id: th.id.clone(),
-        short_id: short_id(&th.id),
-        harness: Harness::Codex,
-        account: account.name.clone(),
+        open_target: format!("s|{}|{action}", known.key),
         surface,
         status,
         live: (th.turn_open && fresh) || terminal.is_some(),
@@ -384,8 +355,6 @@ pub fn codex_session(account: &AccountCfg, th: &ThreadInfo, name: Option<&str>, 
         cwd: th.cwd.clone(),
         work: th.work.clone(),
         reply_tail: th.last_agent_tail.clone(),
-        first_prompt: None,
-        name: None,
         started_at: th.started_at,
         // Waiting on you since its oldest unanswered call, not since the turn before it ended:
         // Needs you is a queue by that time.
@@ -400,19 +369,8 @@ pub fn codex_session(account: &AccountCfg, th: &ThreadInfo, name: Option<&str>, 
         resume_command: Some(format!("{} resume {}", account.command(), th.id)),
         app_account: account.home_path() == crate::util::home().join(".codex"),
         branch: th.branch.clone(),
-        archived: false,
-        attach_command: None,
-        continues: None,
         origin: codex_origin(account, th),
-        stalled_since: None,
-        background: None,
-        insight: None,
-        asks: false,
-        hosted: false,
-        stoppable: false,
-        snoozed_until: None,
-        earlier: false,
-        chrome: None,
+        ..known
     }
 }
 
@@ -444,49 +402,27 @@ pub fn opencode_session(account: &AccountCfg, row: &SessionRow, live: Option<&Li
         Status::Working => row.last_tool.clone().or_else(|| row.last_prompt.clone()),
         _ => row.last_text.clone().or_else(|| row.last_prompt.clone()),
     };
-    let key = format!("opencode:{}:{}", account.name, row.id);
     let action = if terminal.is_some() { "focus" } else { "resume" };
+    let known = Session::new(Harness::Opencode, &account.name, &row.id);
     Session {
-        open_target: format!("s|{key}|{action}"),
-        visitor: None,
-        headline: String::new(),
-        detail: None,
-        key,
-        id: row.id.clone(),
+        open_target: format!("s|{}|{action}", known.key),
+        // Every id starts `ses_`, which says nothing.
         short_id: short_id(row.id.trim_start_matches("ses_")),
-        harness: Harness::Opencode,
-        account: account.name.clone(),
-        surface: Surface::Cli,
         status,
         live: running || terminal.is_some(),
         pid: terminal,
         title: truncate(&plain(&title), 90),
         cwd: row.directory.clone(),
-        work: Vec::new(),
         reply_tail: row.last_text_tail.clone(),
-        first_prompt: None,
-        name: None,
         started_at: Some(row.created_at),
         status_since: if running { row.last_prompt_at } else { row.idle_at },
         last_prompt_at: row.last_prompt_at.unwrap_or(row.created_at),
         last_activity: row.last_ts,
         excerpt,
         resume_command: Some(format!("{} --session {}", account.command(), row.id)),
-        app_account: false,
-        branch: None,
         archived: row.archived_at.is_some(),
-        attach_command: None,
-        continues: None,
-        origin: row.fork_of.as_ref().map(|id| SessionOrigin { key: format!("opencode:{}:{id}", account.name), how: OriginHow::Fork }),
-        stalled_since: None,
-        background: None,
-        insight: None,
-        asks: false,
-        hosted: false,
-        stoppable: false,
-        snoozed_until: None,
-        earlier: false,
-        chrome: None,
+        origin: row.fork_of.as_ref().map(|id| SessionOrigin { key: Session::key_for(Harness::Opencode, &account.name, id), how: OriginHow::Fork }),
+        ..known
     }
 }
 
@@ -523,7 +459,6 @@ pub fn antigravity_session(account: &AccountCfg, c: &Conversation, process: Opti
         Status::Working => c.tail.last_tool.clone().or_else(|| c.preview.clone()),
         _ => c.tail.last_text.clone().or_else(|| c.preview.clone()),
     };
-    let key = format!("antigravity:{}:{}", account.name, c.id);
     // Its terminal, when it's the command line's own UI rather than a print run.
     let terminal = process.filter(|p| p.terminal).map(|p| p.pid);
     let action = match (c.cli, terminal) {
@@ -531,16 +466,9 @@ pub fn antigravity_session(account: &AccountCfg, c: &Conversation, process: Opti
         (true, Some(_)) => "focus",
         (true, None) => "resume",
     };
+    let known = Session::new(Harness::Antigravity, &account.name, &c.id);
     Session {
-        open_target: format!("s|{key}|{action}"),
-        visitor: None,
-        headline: String::new(),
-        detail: None,
-        key,
-        id: c.id.clone(),
-        short_id: short_id(&c.id),
-        harness: Harness::Antigravity,
-        account: account.name.clone(),
+        open_target: format!("s|{}|{action}", known.key),
         surface: if c.cli { Surface::Cli } else { Surface::App },
         status,
         live: matches!(status, Status::Working | Status::Needs) || process.is_some(),
@@ -551,28 +479,12 @@ pub fn antigravity_session(account: &AccountCfg, c: &Conversation, process: Opti
         reply_tail: c.tail.last_text_tail.clone(),
         // The preview is the conversation's opening, as the app lists it.
         first_prompt: c.preview.clone(),
-        name: None,
-        started_at: None,
         status_since: if status == Status::Working { c.last_input } else { Some(c.last_modified) },
         last_prompt_at: c.last_input.unwrap_or(c.last_modified),
         last_activity: c.last_modified,
         excerpt,
         resume_command: c.cli.then(|| format!("{} --conversation {}", crate::antigravity::cli_command(account), c.id)),
-        app_account: false,
-        branch: None,
-        archived: false,
-        attach_command: None,
-        continues: None,
-        origin: None,
-        stalled_since: None,
-        background: None,
-        insight: None,
-        asks: false,
-        hosted: false,
-        stoppable: false,
-        snoozed_until: None,
-        earlier: false,
-        chrome: None,
+        ..known
     }
 }
 
@@ -1414,11 +1326,7 @@ pub fn compose(inp: Inputs) -> Board {
         let looks_finished = !reuse_on && looks_finished(seed.origin, pr.as_ref(), &sessions);
         let looks_reusable = looks_reusable(seed, mark.is_some(), g.as_ref(), prs);
         lanes.push(Lane {
-            id: seed.path.to_string_lossy().into_owned(),
-            project: seed.project.clone(),
-            repo: seed.repo.clone(),
             repo_slug: seed.repo_slug.clone(),
-            path: seed.path.to_string_lossy().into_owned(),
             callsign: seed.callsign.clone(),
             origin: seed.origin,
             branch: seed.branch.clone(),
@@ -1436,11 +1344,10 @@ pub fn compose(inp: Inputs) -> Board {
             last_activity,
             targets,
             default_target,
-            device: None,
-            repo_slug_now: None,
             preview,
             reuse,
             looks_reusable,
+            ..Lane::new(&seed.path.to_string_lossy(), &seed.project, &seed.repo)
         });
     }
     lanes.sort_by(lane_order);
