@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { arrowhead, cameOf, connector, pathOf, pointAt, polyline } from './lineage';
+import { arrowhead, cameOf, cameWord, connector, lineageOf, originWord, pathOf, pointAt, polyline } from './lineage';
 import * as fx from './testing/fixtures';
 
 const card = (x: number, y: number) => ({ x, y, w: 200, h: 50 });
@@ -72,5 +72,19 @@ describe('cameOf', () => {
     const all = [s('a'), s('b', 'a'), s('c', 'b'), s('d', 'a')];
     expect(cameOf('a', all).map((x) => x.session.key)).toEqual(['b', 'd']);
     expect(cameOf('d', all)).toEqual([]);
+  });
+});
+
+describe('lineageOf', () => {
+  it('tells a fork into another account as a move', () => {
+    const lane = fx.lane();
+    const placed = (key: string, account: string, from?: string) => ({ lane, session: fx.session({ key, account, origin: from ? { key: from, how: 'fork' } : undefined }) });
+    const all = [placed('claude:claude:a', 'claude'), placed('claude:claude2:b', 'claude2', 'claude:claude:a'), placed('claude:claude:c', 'claude', 'claude:claude:a')];
+    const homes = new Map(all.map((p) => [p.session.key, p]));
+    const moved = lineageOf(all[1].session, homes);
+    expect(moved.from?.session.key).toBe('claude:claude:a');
+    expect(originWord(moved.from!.how)).toBe('Moved from');
+    // The original lists the move apart from a fork in its own account.
+    expect(lineageOf(all[0].session, homes).to.map((k) => `${cameWord(k.how)} ${k.session.key}`)).toEqual(['Moved to claude:claude2:b', 'Forked into claude:claude:c']);
   });
 });

@@ -7,7 +7,7 @@ import { dueWords } from '../../due';
 import { absolute, agoPhrase, ago, duration, tildePath } from '../../format';
 import { HARNESS_WORD, sessionPlace } from '../../harness';
 import type { Placed } from '../../lanes';
-import { cameOf, originWord } from '../../lineage';
+import { cameWord, lineageOf, originWord, type KinHow } from '../../lineage';
 import { blockedBy, sectionOf, SECTION_WORD, snippet } from '../../todos';
 import type { RefItem } from '../../canvas/model';
 import type { Lane, Pr, Session, Todo } from '../../types';
@@ -256,11 +256,8 @@ const KIN_SHOWN = 6;
 /** Where a session came from and what came of it, as lines that take clicks: the popover's way to
  *  them, and, through their menus, to pinning them beside it on the desktop. */
 function Kin({ session: s, homes, line }: { session: Session; homes: Map<string, Placed>; line: (lane: Lane, s: Session) => ReactNode }) {
-  const from = s.origin ? homes.get(s.origin.key) : undefined;
-  const kids = cameOf(s.key, homes.values());
-  const forks = kids.filter((k) => k.session.origin?.how === 'fork');
-  const started = kids.filter((k) => k.session.origin?.how !== 'fork');
-  if (!from && kids.length === 0) return null;
+  const { from, to } = lineageOf(s, homes);
+  if (!from && to.length === 0) return null;
   const group = (label: string, list: Placed[]) =>
     list.length > 0 && (
       <>
@@ -269,11 +266,13 @@ function Kin({ session: s, homes, line }: { session: Session; homes: Map<string,
         {list.length > KIN_SHOWN && <div className="ca-cvp-dim">and {list.length - KIN_SHOWN} more</div>}
       </>
     );
+  const came = (how: KinHow) => group(cameWord(how), to.filter((k) => k.how === how));
   return (
     <div className="ca-cvp-list">
-      {from && s.origin && group(originWord(s.origin.how), [from])}
-      {group('Forked into', forks)}
-      {group('Started', started)}
+      {from && group(originWord(from.how), [from])}
+      {came('fork')}
+      {came('moved')}
+      {came('started')}
     </div>
   );
 }

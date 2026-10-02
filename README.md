@@ -79,6 +79,11 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     forward, and you stay on the session: a Claude Code copy is a background job, an OpenCode
     copy runs in its service, and a Codex copy runs In Codealong (over its ACP adapter).
     Whatever follows `/fork` is the copy's first prompt; with nothing, the copy waits for one.
+    Move to, in a Claude Code session's right-click menu, moves it to another of your Claude
+    Code accounts (one that's signed in): the conversation goes on in a new terminal under that
+    account, and the session is closed and archived; its panel and the copy's say where it went.
+    Not mid-turn. The first reply there reads the whole conversation again, since the old
+    account's prompt cache doesn't carry over.
     `/side <question>` (or `/btw`) asks something about a Claude Code or Codex session on the
     side: a throwaway copy of its conversation answers above the box, and the session carries
     on and never hears of it. The copy reads files and runs commands to answer, and is told to
@@ -565,8 +570,8 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   started. Codealong reads what the harnesses record (Claude Code's `/fork`, `/background` and
   forked background jobs; Codex's forks and the threads its app makes for an agent; OpenCode's
   forks) and notes what they don't: a session started by an agent's `codealong start`, and a
-  fork into a terminal made from Codealong. A session's panel names the session it was forked
-  from or started by over its title, and shows the latest one that came of it under the title,
+  fork into a terminal made from Codealong or a move to another account. A session's panel
+  names the session it was forked from, moved from or started by over its title, and shows the latest one that came of it under the title,
   with its status and a "+N more" for the rest; a click shows one and a right-click gives its
   menu, so Pin to desktop there
   puts its card beside the one you're on. The bar's peek and the quick panel's reply view have

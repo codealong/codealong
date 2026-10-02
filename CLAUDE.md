@@ -410,8 +410,8 @@ asks `harness::adapter(session.harness)` or `harness::of(account)`. Adding one:
      `resume` (`Session::resume_command`) and `attach` for every harness;
    - sending (send.rs): `routes`, best first, `resume` for what a new terminal types to go on
      with one that isn't running, `typed_attachments`, `clears_before_typing`, `takes_messages`;
-   - acting on it: `fork`, `fork_background`, `side`, `stop`, `rename`, `interrupts` and
-     `interrupt`, `archive`, `skips_permission_prompts`, `runs_its_commands`;
+   - acting on it: `fork`, `fork_background`, `move_to`, `side`, `stop`, `rename`,
+     `interrupts` and `interrupt`, `archive`, `skips_permission_prompts`, `runs_its_commands`;
    - starting (start.rs): `places`, `start_in_terminal`, `background_command` and
      `start_in_background`, `app_link` and `start_in_app`, `models`, `takes_model`,
      `offers_model`, `efforts`, `default_model`, `makes_worktrees`, `before_start`,
@@ -566,6 +566,15 @@ Claude Code
   the conversation so far included, at once; without one it prints `(idle — send a prompt to
   start)` and has none until its first prompt, so the board shows it with the conversation it
   copies (`claude::resumed_from`).
+- `--resume` takes a transcript's path as well as an ID (2.1.287: an argument ending in `.jsonl`
+  is read as a file), from any account's folder, and the copy is written under the account that
+  runs it, `--fork-session --session-id` naming it as above. That's how Codealong moves a
+  session to another account (`claude::move_to`). Checked 2026-10-02 between two accounts in
+  different orgs, in a terminal and with `-p`: a Sonnet conversation with signed thinking blocks
+  went on under the other account and remembered what it had said, and Haiku took it on too.
+  Its first reply there wrote the whole conversation to the cache (about 20k of 30k tokens read
+  fresh): a prompt cache is its org's own. `--no-session-persistence` wrote nothing but an empty
+  `memory` folder for the project.
 - `/btw <question>` in a session asks a separate call over the conversation's context that has
   no tools and answers once; the answer shows in that terminal only and isn't written to the
   transcript, so typing it into a session from outside is no use. The same thing is the

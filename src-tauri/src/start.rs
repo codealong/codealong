@@ -472,6 +472,49 @@ pub fn fork_background(board: &Board, cfg: &Config, key: &str, prompt: &str) -> 
     Ok(Started { key: copy, message: Some(message) })
 }
 
+/// Moves a session to `to`, another account of its harness (`Adapter::move_to`): a copy goes on
+/// from what it had written, in a new terminal in its folder under `to`, and the session itself
+/// is closed where Codealong can close it. Not mid-turn: the copy would see the turn cut off.
+/// The caller archives the session once this returns.
+pub fn move_to(board: &Board, cfg: &Config, key: &str, to: &str) -> Result<Started> {
+    let (s, account, lane, cwd) = to_fork(board, cfg, key)?;
+    let target = move_target(cfg, s, account, to)?;
+    if crate::harness::turn_running(s) {
+        bail!("“{}” is in the middle of a turn. Stop it or let it finish, then move it.", s.title);
+    }
+    let adapter = crate::harness::adapter(s.harness);
+    let copy = adapter.move_to(&crate::harness::Ctx { account }, s, target)?;
+    adapter.before_start(target, &cwd);
+    let near = crate::board::terminal_neighbours(&board.lanes, &cwd);
+    launch::terminal_run(&cfg.apps.terminal, launch::Placement { new_terminal: cfg.apps.new_terminal, near: &near }, &cwd, &copy.input, &copy.env)?;
+    // A fork from another account is how the windows tell a move (lineage.ts), so the shared
+    // model needs no word for it that older devices wouldn't read.
+    if let Some(copy) = &copy.key {
+        crate::origins::record(copy, key, crate::model::OriginHow::Fork);
+    }
+    let left = if !s.live {
+        String::new()
+    } else {
+        match crate::idle::close_one(board, cfg, key) {
+            Ok(_) => " Its old terminal is closed.".to_string(),
+            Err(e) => format!(" The old one is still running: {e:#}"),
+        }
+    };
+    Ok(Started { key: copy.key, message: Some(format!("Moved “{}” to {to}: it goes on in a new terminal in {}.{left}", s.title, lane.callsign)) })
+}
+
+/// The account a session can move to by that name: another account of the session's harness.
+fn move_target<'a>(cfg: &'a Config, s: &crate::model::Session, account: &AccountCfg, to: &str) -> Result<&'a AccountCfg> {
+    let target = cfg.accounts.iter().find(|a| a.name == to).ok_or_else(|| anyhow!("There's no account named {to} in config.toml."))?;
+    if target.name == account.name {
+        bail!("“{}” is on {to} already.", s.title);
+    }
+    if crate::harness::of(target).map(|a| a.harness()) != Some(s.harness) {
+        bail!("{to} isn't a {} account; a session moves only between accounts of its own harness.", s.harness.word());
+    }
+    Ok(target)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -826,5 +869,17 @@ mod tests {
         assert_eq!(a.len(), 36);
         assert_eq!(&a[14..15], "4");
         assert_ne!(a, new_session_id());
+    }
+
+    #[test]
+    fn a_session_moves_only_to_another_account_of_its_harness() {
+        let cfg = Config { accounts: vec![account("claude", "claude", "~/.claude", None), account("claude2", "claude", "~/.claude2", None), account("codex", "codex", "~/.codex", None)], ..Config::default() };
+        let s = crate::model::Session { title: "Photo tools".into(), ..crate::fixtures::session("claude:claude:abc") };
+        let from = &cfg.accounts[0];
+        assert_eq!(move_target(&cfg, &s, from, "claude2").unwrap().name, "claude2");
+        let err = |to: &str| move_target(&cfg, &s, from, to).unwrap_err().to_string();
+        assert_eq!(err("claude"), "“Photo tools” is on claude already.");
+        assert_eq!(err("codex"), "codex isn't a Claude Code account; a session moves only between accounts of its own harness.");
+        assert_eq!(err("claude3"), "There's no account named claude3 in config.toml.");
     }
 }

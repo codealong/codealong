@@ -25,7 +25,7 @@ import { folderTargets, opensInEditor, useEditorIcons } from '../editors';
 import { absolute, ago, agoPhrase, duration, middleTruncate, tildePath } from '../format';
 import { HARNESS_WORD, sessionName, sessionPlace } from '../harness';
 import { seenable } from '../lanes';
-import { originWord, type Kin, type Lineage } from '../lineage';
+import { cameWord, originWord, type Kin, type Lineage } from '../lineage';
 import type { SessionActions } from '../menus';
 import { untilWords } from '../snooze';
 import type { Board, DeviceView, Lane, Pr, Session, Target, Todo } from '../types';
@@ -145,7 +145,7 @@ function NameField({ title, onDone }: { title: string; onDone: (name: string | n
  *  right-click gives its menu. */
 function KinRow({ kin, now, parent = false, onShow, onMenu }: { kin: Kin; now: number; parent?: boolean; onShow?: (lane: Lane, session: Session) => void; onMenu?: (lane: Lane, session: Session) => void }) {
   const t = kin.session;
-  const phrase = parent ? originWord(kin.how) : kin.how === 'fork' ? 'Forked into' : 'Started';
+  const phrase = parent ? originWord(kin.how) : cameWord(kin.how);
   return (
     <button
       type="button"
@@ -164,7 +164,7 @@ function KinRow({ kin, now, parent = false, onShow, onMenu }: { kin: Kin; now: n
       {parent ? <span className="ca-sessinsp-kin-phrase">{phrase}</span> : <span className="ca-sessinsp-elbow" aria-hidden="true" />}
       <StatusGlyph status={t.status} size={11} />
       <span className="ca-sessinsp-kin-title">{t.title}</span>
-      {kin.how === 'fork' && !parent && <Icon name="git-fork" size={11} />}
+      {kin.how !== 'started' && !parent && <Icon name={kin.how === 'fork' ? 'git-fork' : 'user'} size={11} />}
       <span className="ca-sessinsp-kin-age">{t.status === 'working' && t.statusSince ? duration(t.statusSince, now) : ago(t.lastActivity, now)}</span>
     </button>
   );
@@ -270,7 +270,7 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
                       ? 'Show only the latest'
                       : cameOf
                           .slice(1)
-                          .map((x) => `${x.how === 'fork' ? 'Forked into' : 'Started'} ${x.session.title}`)
+                          .map((x) => `${cameWord(x.how)} ${x.session.title}`)
                           .join('\n')
                   }
                   onClick={() => setAllKin(!allKin)}

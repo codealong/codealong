@@ -167,6 +167,15 @@ pub trait Adapter: Sync {
         bail!("{} can't fork a session in the background.", self.harness().word())
     }
 
+    /// A copy of the session's conversation as far as it's written that goes on under `to`,
+    /// another account of the same harness, in a new terminal: what to type there. The session
+    /// itself is left as it is; moving it (start.rs) closes it after. A harness whose accounts
+    /// can't read each other's conversations, or would refuse what another account's model
+    /// wrote, can't.
+    fn move_to(&self, _ctx: &Ctx, _session: &Session, _to: &AccountCfg) -> Result<Typed> {
+        bail!("{} can't move a session to another account.", self.harness().word())
+    }
+
     /// A throwaway copy of the session's conversation as far as it's written, to ask things of
     /// on the side while the session carries on, unaware: the process that runs the copy in
     /// `cwd` and how to talk to it (side.rs). The copy may do what the session itself may

@@ -414,6 +414,13 @@ export async function forkSession(key: string, { background = false, prompt = ''
   return invoke<Started | null>('fork_session', { key, background, prompt });
 }
 
+/** Moves a session to `account`, another account of its harness (start.rs `move_to`): a copy goes
+ *  on in a new terminal under that account, and the session is closed and archived. */
+export async function moveSession(key: string, account: string): Promise<Started | null> {
+  if (!inTauri) throw new Error('Moving a session needs the app.');
+  return invoke<Started | null>('move_session', { key, account });
+}
+
 /** Asks something about a session on the side (side.rs): a throwaway copy of its conversation
  *  answers, and the session carries on, unaware. Resolves with the side conversation, the
  *  question in it; the answer comes through `onSide`. */

@@ -1,5 +1,5 @@
-// Where sessions came from (`Session.origin`): a fork of another session, or started by another
-// session's agent. The Canvas view and the cards pinned to the desktop draw a line from the
+// Where sessions came from (`Session.origin`): a fork of another session (or a move, from
+// another account), or started by another session's agent. The Canvas view and the cards pinned to the desktop draw a line from the
 // session it came from to the one that came of it while either is hovered or selected; this is
 // the line's shape, which both draw the same way.
 //
@@ -86,13 +86,28 @@ export function pathOf(c: Curve): string {
   return `M ${p(c.a)} C ${p(c.c1)}, ${p(c.c2)}, ${p(c.b)}`;
 }
 
+/** How a session came of another, as the windows tell it. A fork into another account of its
+ *  harness is a move (start.rs `move_to`), told by the accounts alone: the shared model has no
+ *  word for it, so devices on older builds still read the origin. */
+export type KinHow = SessionOrigin['how'] | 'moved';
+
+/** How `to` came of `from`, its origin saying `how`. */
+export function kinHow(how: SessionOrigin['how'], from: Session, to: Session): KinHow {
+  return how === 'fork' && from.account !== to.account ? 'moved' : how;
+}
+
 /** How a session came of another, as a phrase before that one's title. */
-export function originWord(how: SessionOrigin['how']): string {
-  return how === 'fork' ? 'Forked from' : 'Started by';
+export function originWord(how: KinHow): string {
+  return how === 'fork' ? 'Forked from' : how === 'moved' ? 'Moved from' : 'Started by';
+}
+
+/** What came of a session, as a phrase before that one's title. */
+export function cameWord(how: KinHow): string {
+  return how === 'fork' ? 'Forked into' : how === 'moved' ? 'Moved to' : 'Started';
 }
 
 /** A session on the board and how it came of another, or that one of it. */
-export type Kin = Placed & { how: SessionOrigin['how'] };
+export type Kin = Placed & { how: KinHow };
 
 /** Where a session came from and what came of it, as far as the board has them. */
 export interface Lineage {
@@ -104,8 +119,8 @@ export interface Lineage {
 export function lineageOf(session: Session, homes: Map<string, Placed>): Lineage {
   const from = session.origin ? homes.get(session.origin.key) : undefined;
   return {
-    from: from && session.origin ? { ...from, how: session.origin.how } : null,
-    to: cameOf(session.key, homes.values()).map((p) => ({ ...p, how: p.session.origin?.how ?? 'started' })),
+    from: from && session.origin ? { ...from, how: kinHow(session.origin.how, from.session, session) } : null,
+    to: cameOf(session.key, homes.values()).map((p) => ({ ...p, how: kinHow(p.session.origin?.how ?? 'started', session, p.session) })),
   };
 }
 

@@ -3,20 +3,20 @@
 // floating bar's pills, the peek, the quick panel's rows, cards on the desktop. A window says
 // what it can do (`SessionCan` and the others), and an item shows when the window can do it and
 // the thing allows it, always in the same order. What works the same from every window (mark
-// seen, snooze, close, archive, fork, pin to the desktop, copy) is done here, and says how it
-// went through the window's `Report`: a toast in the main window, a note on the bar.
+// seen, snooze, close, archive, fork, move, pin to the desktop, copy) is done here, and says how
+// it went through the window's `Report`: a toast in the main window, a note on the bar.
 
 import { useEffect, useState } from 'react';
-import { closeSession, desktopPins, forkSession, onDesktopPins, openUrl, pinToDesktop, sessionCancel, setReusable, showQuick, unpinFromDesktop } from './api';
+import { closeSession, desktopPins, forkSession, getAccounts, moveSession, onDesktopPins, openUrl, pinToDesktop, sessionCancel, setReusable, showQuick, unpinFromDesktop } from './api';
 import { archiveAhead, seenAhead } from './ahead';
 import type { MenuAction, MenuGroup, MenuSpec } from './contextMenu';
 import { shortOf } from './devices';
 import { folderMenu, openInMenu, opensInEditor, type AppIcons, type Apps } from './editors';
-import { renames } from './harness';
+import { MOVES_ACCOUNTS, renames } from './harness';
 import { chromeLabel, openLabel } from './open';
 import { closable, seenable, stoppable } from './lanes';
 import { snoozeChordIndex, snoozeMenu } from './snooze';
-import type { DesktopPinned, Lane, Pr, Session } from './types';
+import type { AccountInfo, DesktopPinned, Lane, Pr, Session } from './types';
 import { errorText, type Report } from './report';
 
 /** The editors installed here and their icons, for Open folder in and Open in. */
@@ -24,6 +24,23 @@ export interface Editors {
   apps: Apps;
   icons: AppIcons;
 }
+
+// The accounts in config.toml, for Move to: a menu is built at once, so they're read ahead, as a
+// window loads this, and again as a session's menu is built (a minute apart at most), for the
+// next one to have an account added or signed in since.
+let accounts: AccountInfo[] = [];
+let accountsRead = -Infinity;
+
+function readAccounts(): void {
+  if (Date.now() - accountsRead < 60_000) return;
+  accountsRead = Date.now();
+  getAccounts().then(
+    (list) => (accounts = list),
+    () => {},
+  );
+}
+
+readAccounts();
 
 /** Groups of items, with a line between the ones that have any. */
 function sections(...groups: MenuSpec[]): MenuSpec {
@@ -133,6 +150,7 @@ export interface SessionActions {
   reply?: MenuAction;
   newSession?: MenuAction;
   fork?: MenuAction;
+  move?: MenuAction | MenuGroup;
   stop?: MenuAction;
   rename?: MenuAction;
   seen?: MenuAction;
@@ -163,6 +181,16 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
         if (started?.message) report.info(started.message);
       })
       .catch((e: unknown) => report.error(errorText(e)));
+  // Moving opens a terminal on this Mac, as a fork does, and closes the session's own.
+  const moveTo = here && s.resumeCommand && MOVES_ACCOUNTS.includes(s.harness) ? accounts.filter((a) => a.harness === s.harness && a.name !== s.account && a.signedIn).map((a) => a.name) : [];
+  const move = (to: string) =>
+    busy(`Moving ${s.title} to ${to}…`, moveSession(s.key, to))
+      .then((started) => {
+        can.left?.('archived');
+        if (started?.message) report.info(started.message);
+      })
+      .catch((e: unknown) => report.error(errorText(e)));
+  const moveItem = (to: string, label: string): MenuAction => ({ label, run: () => void move(to) });
   const archive = can.archive ?? ((archived: boolean) => (archived ? settle('archived')(archiveAhead(s.key, true)) : void archiveAhead(s.key, false).catch((e: unknown) => report.error(errorText(e)))));
   return {
     open: { label: openLabel(lane, s, can.terminal), run: () => can.open(lane, s.openTarget) },
@@ -176,6 +204,7 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
     newSession: newSessionItem(lane, can.newSession),
     // Forks open in a terminal, where only sessions that resume in one can go.
     fork: s.resumeCommand ? { label: 'Fork in terminal', run: () => void fork() } : undefined,
+    move: moveTo.length > 1 ? { label: 'Move to', items: moveTo.map((to) => moveItem(to, to)) } : moveTo.length === 1 ? moveItem(moveTo[0], `Move to ${moveTo[0]}`) : undefined,
     // The session carries on, waiting for you.
     stop: stoppable(s) ? { label: 'Stop turn', run: () => void said(`Stopping ${s.title}…`, sessionCancel(s.key)) } : undefined,
     rename: can.rename && renames(s) ? { label: 'Rename…', run: can.rename } : undefined,
@@ -207,7 +236,7 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
  *  copying it. */
 const SESSION_MENU = [
   ['heading'],
-  ['open', 'folder', 'pr', 'chrome', 'reveal', 'reply', 'newSession', 'fork'],
+  ['open', 'folder', 'pr', 'chrome', 'reveal', 'reply', 'newSession', 'fork', 'move'],
   ['todos'],
   ['stop', 'rename', 'seen', 'pin', 'desktop', 'snooze', 'close', 'archive'],
   ['copyId', 'copyResume', 'canvas'],
@@ -215,6 +244,7 @@ const SESSION_MENU = [
 
 /** A session's menu, as every window has it. */
 export function sessionMenu(lane: Lane, s: Session, can: SessionCan): MenuSpec {
+  readAccounts();
   const extras = {
     heading: can.heading ? [{ label: `${s.title} · ${lane.callsign}`, enabled: false, run: () => {} }] : [],
     todos: can.todos ?? [],

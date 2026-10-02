@@ -18,6 +18,7 @@ use crate::{acp, config, harness, peerfeed, send, transcript};
 /// What only happens on the device a session runs on: another device can't ask for them, so
 /// they have names here but none in `api`.
 pub const FORK_TERMINAL: &str = "session-fork-terminal";
+pub const MOVE: &str = "session-move";
 pub const CLOSE: &str = "session-close";
 pub const SIDE_ASK: &str = "session-side-ask";
 pub const SIDE_CLOSE: &str = "session-side-close";
@@ -80,6 +81,8 @@ const REQUESTS: &[Request] = &[
     Request { name: api::SESSION_FORK, only_here: None, here: fork },
     // A fork into a terminal opens one, and closing one ends it: both need someone at that Mac.
     Request { name: FORK_TERMINAL, only_here: Some("Fork it on the Mac it runs on."), here: fork_terminal },
+    // A move opens a terminal too, and closes the session's own.
+    Request { name: MOVE, only_here: Some("Move it on the Mac it runs on."), here: move_session },
     Request { name: CLOSE, only_here: Some("Close it on the Mac it runs on."), here: close },
     // A side conversation's copy runs on the session's Mac, and its answer goes to the windows there.
     Request { name: SIDE_ASK, only_here: Some("Ask it on the side on the Mac it runs on."), here: side_ask },
@@ -280,6 +283,18 @@ fn fork(engine: &Handle, c: &Call) -> Result<Value, String> {
 /// Forks it into a new terminal in its folder (`start::fork`).
 fn fork_terminal(engine: &Handle, c: &Call) -> Result<Value, String> {
     to_value(crate::start::fork(&engine.board(), &cfg()?, c.session()?).map_err(words)?)
+}
+
+/// Moves it to another account of its harness, `account` (`start::move_to`): the copy goes on
+/// in a new terminal, and the session is closed and archived: from here on the conversation is
+/// the copy's.
+fn move_session(engine: &Handle, c: &Call) -> Result<Value, String> {
+    let key = c.session()?;
+    let started = crate::start::move_to(&engine.board(), &cfg()?, key, &c.text("account")).map_err(words)?;
+    if let Err(e) = engine.archive(key, true) {
+        eprintln!("Moved {key}, but couldn't archive it: {e:#}");
+    }
+    to_value(started)
 }
 
 /// Closes its terminal tab, or stops it when it's a background job (idle.rs). Says what happened.
