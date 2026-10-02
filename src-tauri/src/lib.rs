@@ -63,6 +63,7 @@ mod repos;
 mod reusable;
 mod send;
 mod route;
+mod rpc;
 mod runcode;
 mod search;
 mod side;
