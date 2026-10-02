@@ -342,6 +342,11 @@ some work is, answer with one.
   events), and keeps each turn as it ends (`sides.json`, read back by `side::past`). A copy
   may do what its session may without asking and no more, is told to change nothing it isn't
   asked to (`side::RULES`), has nobody to ask, and leaves no record in its harness.
+- A child process that speaks JSON lines on its stdin and stdout (Codex's app-server, an ACP
+  adapter, a side conversation's copy) goes through `rpc.rs`, which starts it, reads its lines
+  on a thread, gives each answer to the request that waits for it and every other line to the
+  caller, keeps what stderr last said for the error, and kills and reaps it when its client
+  is dropped: a new one doesn't spawn and read for itself.
 - What goes wrong in the background (a file that doesn't read, GitHub not answering) is a
   notice: the engine's are `Board.notices` (`Engine::notices`, GitHub's from `GhPoll::notice`:
   a key, a few words, the whole of it, and when it ends where that's known), a window's own go
