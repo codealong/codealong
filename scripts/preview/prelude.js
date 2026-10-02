@@ -78,6 +78,10 @@
       text += ' ' + short(failed.map(function (r) { return r.name + (r.why == null || r.why === '' ? '' : ': ' + short(r.why, 300)); }).join('; '), 2400);
     }
     if ((window.__unknown || []).length) text += ' ## unanswered: ' + window.__unknown.join(', ');
+    // preview.sh sizes the window so the page is the size asked for; a Chrome that frames its
+    // windows differently would show up here.
+    var asked = window.__PREVIEW_SIZE__;
+    if (asked && asked !== innerWidth + ',' + innerHeight) notes.push('the page is ' + innerWidth + ' by ' + innerHeight + ', not the ' + asked.replace(',', ' by ') + ' asked for');
     if (notes.length) text += ' ## note: ' + short(notes.join('; '), 3000);
     window.say('done: ' + text.slice(0, 4000));
   };

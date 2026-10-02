@@ -228,6 +228,7 @@ fi
 if [ -n "$check" ]; then
   cp "$check" "$dir/check.js"
   tail="$tail"'<script src="./check.js"></script>'
+  setup="$setup window.__PREVIEW_SIZE__='$size';"
 fi
 sed -e "s#<head>#<head><script src=\"./fake-tauri.js\"></script><script>$setup</script>#" -e "s#</body>#$tail</body>#" "$dir/index.html" >"$dir/preview.html"
 
@@ -283,13 +284,21 @@ if [ -n "$check" ]; then
   trap 'exit 130' INT TERM HUP
   work="$(mktemp -d)"
 fi
+# A check's window is a browser window, whose size takes in its frame: as an app window (the
+# real clock) a title bar, 32 points on Chrome 154, and on virtual time, where --dump-dom wants
+# a browser window, its tabs and toolbar, 87. The page gets that much more, so it's the size
+# asked for, as the screenshot is; the bar, 64 points high, had no page at all before, and a
+# hidden page's timers barely run. A browser window is 500 points wide at least. prelude.js
+# notes the size the page got when it isn't the one asked for.
+width="${size%%,*}"
+height="${size##*,}"
 if [ -n "$check" ] && [ -n "${PREVIEW_WAIT:-}" ]; then
   # Virtual time stands still while scripts run, so a check that times work runs on the real
   # clock, and its title is read from Chrome's debugging endpoint once it says "done: " (or the
   # wait runs out): --dump-dom would read the page as soon as it loads. The endpoint gives the
   # title as HTML.
   debug_port="$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')"
-  "$chrome" --headless=new --disable-gpu --enable-unsafe-swiftshader ${scheme:+"$scheme"} --window-size="$size" --remote-debugging-port="$debug_port" --user-data-dir="$work/profile" "$url" >/dev/null 2>&1 &
+  "$chrome" --headless=new --disable-gpu --enable-unsafe-swiftshader ${scheme:+"$scheme"} --window-size="$width,$((height + 32))" --remote-debugging-port="$debug_port" --user-data-dir="$work/profile" --app="$url" >/dev/null 2>&1 &
   browser=$!
   title=""
   started=$SECONDS
@@ -305,7 +314,7 @@ if [ -n "$check" ] && [ -n "${PREVIEW_WAIT:-}" ]; then
   done
   report "$title" || exit $?
 elif [ -n "$check" ]; then
-  "$chrome" --headless=new --disable-gpu --enable-unsafe-swiftshader ${scheme:+"$scheme"} --window-size="$size" --virtual-time-budget=8000 --user-data-dir="$work/profile" --dump-dom "$url" >"$work/dom.html" 2>/dev/null &
+  "$chrome" --headless=new --disable-gpu --enable-unsafe-swiftshader ${scheme:+"$scheme"} --window-size="$width,$((height + 87))" --virtual-time-budget=8000 --user-data-dir="$work/profile" --dump-dom "$url" >"$work/dom.html" 2>/dev/null &
   browser=$!
   # Under a heavy load Chrome can print the page and then never exit: once the page is out it
   # gets a few seconds more, then it's stopped.
