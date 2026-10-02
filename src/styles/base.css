@@ -1,16 +1,13 @@
 /* Base elements and the small text styles everything uses: the page and its fonts, inline code
-   (.ca-ic), code, meta text, labels, empty notes, key-value lists; and what reduced motion turns
-   off. Read this and the other shared files before styling something new. */
+   (.ca-ic), code, meta text, labels, empty notes, key-value lists. What reduced motion turns off
+   goes after the rule it overrides, beside it (.ca-btn in controls.css, .ca-lane in rows.css).
+   Read this and the other shared files before styling something new. */
 
 .ca-ic { font-family: var(--font-mono); font-size: 0.9em; padding: 0 3px; border-radius: var(--radius-xs); background: var(--neutral-tint); color: inherit; white-space: nowrap; }
 .ca-code { font-family: var(--font-mono); font-size: 11px; }
 .ca-meta { font: var(--type-meta); color: var(--ink-3); font-variant-numeric: tabular-nums; }
 .ca-label { margin: 0; font: var(--type-label); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); }
 .ca-none { font: var(--type-meta); color: var(--ink-3); }
-
-@media (prefers-reduced-motion: reduce) {
-  .ca-lane, .ca-btn { transition: none; }
-}
 
 .ca-kv { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 6px 8px; margin: 0; font: var(--type-meta); }
 .ca-kv dt { color: var(--ink-3); }

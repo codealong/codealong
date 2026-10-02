@@ -17,6 +17,10 @@
 .ca-btn--ghost { background: transparent; border-color: transparent; color: var(--ink-2); }
 .ca-btn--ghost:hover { background: var(--surface-hover); color: var(--ink); }
 .ca-btn--ghost .ca-kbd { margin-left: 2px; }
+/* After .ca-btn, which it overrides: of two rules alike the later wins. */
+@media (prefers-reduced-motion: reduce) {
+  .ca-btn { transition: none; }
+}
 
 .ca-segctl { display: inline-flex; padding: 2px; border-radius: var(--radius-sm); background: var(--neutral-tint); }
 .ca-segctl button { height: 24px; padding: 0 12px; border: 0; border-radius: 4px; background: transparent; color: var(--ink-2); font: 500 12px/16px var(--font-sans); cursor: pointer; }
