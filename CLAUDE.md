@@ -76,10 +76,14 @@ asks the app over `codealong.sock` (`server.rs`: JSON lines, `status`, `board`, 
 file is stale. `codealong reference` (hidden) prints the same text. A debug binary run with a
 subcommand `main.rs` doesn't know starts the app headless and takes the socket; kill it by pid.
 
-The engine binary doubles as a CLI for checking behavior without a window:
+The engine binary doubles as a CLI for checking behavior without a window (snapshot.rs, whose
+`MODES` lists them with their arguments). A session's modes are the app's own actions
+(actions.rs) over a board read once, asked as another device asks them: they do what a window's
+do, for a session Codealong runs and behind the same settings, and a send isn't yours.
 
 - `codealong --snapshot [--table] [--no-github] [--usage]`: the board as JSON (or a table).
   Claude usage is read only with `--usage`; the usage endpoint rate-limits (see below).
+- `codealong --snapshot --bar`: what the floating bar would show (`barfeed.rs`).
 - `codealong --snapshot --accounts`: configured accounts and sign-in state.
 - `codealong --snapshot --found`: accounts on this Mac that config.toml doesn't list
   (`detect.rs`); `cargo test this_macs_accounts -- --ignored --nocapture` prints all of them.
@@ -91,10 +95,18 @@ The engine binary doubles as a CLI for checking behavior without a window:
   to it in a conversation gets it on hover (`pr_card`: GitHub's facts, and the worktrees and
   sessions here that worked on it).
 - `codealong --snapshot --route <text> [--project <name>]`: what Jev suggests for text typed in
-  the quick panel (one TypeSafe call; needs the key).
+  the quick panel (one TypeSafe call; needs the key, and `[jev] quick_panel` on).
 - `codealong --snapshot --transcript <session key> [--before <cursor>]`: a page of a session's
   conversation (prompts, replies, tool calls and their output) read from its own record, as its
   panel gets it (`transcript.rs`).
+- `codealong --snapshot --pending <session key>`: what a session waits on you to allow, as its
+  panel shows it (`Adapter::pending`).
+- `codealong --snapshot --answer <session key> <id> <allow|deny|always> [answers]`: answers it,
+  as the panel's buttons do; `answers` are its questions' answers, as JSON. Real: use it only
+  on a session of your own.
+- `codealong --snapshot --send <session key> <text> [--now]`: sends a session a message where it
+  runs, as another device does (send.rs), into the turn it's taking with `--now`: one that would
+  only open the session for someone to send is an error. Real.
 - `codealong --snapshot --rename <session key> <name>`: names a session where its harness keeps
   names, as Rename… in its menu does (`Adapter::rename`). It renames it for real: use a scratch
   session, or a `HOME` of your own with scratch accounts.

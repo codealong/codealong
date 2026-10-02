@@ -28,7 +28,9 @@ pub const SIDE_CLOSE: &str = "session-side-close";
 pub enum From {
     /// A window on this device: you, at this Mac.
     Here,
-    /// A linked device, whose request peers.rs has let through (`api::reach`).
+    /// A linked device, whose request peers.rs has let through (`api::reach`); or the engine's
+    /// `--snapshot`, which like a device isn't you at a window: what it sends claims nothing of
+    /// yours, and nothing is left for someone here to finish.
     Device,
 }
 
@@ -114,6 +116,13 @@ pub fn run(engine: &Handle, peers: &Peers, name: &str, key: &str, params: Value)
         },
         None => (req.here)(engine, &Call { key, params: &params, from: From::Here }),
     }
+}
+
+/// Does `name` for the session `key` on this device, as `from` asks it, whatever board the
+/// handle is over: `--snapshot`'s modes go through it over a board read once (snapshot.rs).
+pub fn local(engine: &Handle, from: From, name: &str, key: &str, params: Value) -> Result<Value, String> {
+    let req = find(name).ok_or_else(|| format!("Codealong doesn't know how to {name}."))?;
+    (req.here)(engine, &Call { key, params: &params, from })
 }
 
 /// Asks another device for `name`, waiting as long as its kind takes: a read briefly, an action

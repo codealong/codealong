@@ -1,0 +1,388 @@
+//! `codealong --snapshot …`: the engine without a window, for checking what it does. With no
+//! mode it reads everything once and prints the board. A mode (`MODES`) prints one thing the app
+//! shows, or does one thing it does, over a board read once. A session's modes are the app's own
+//! actions (actions.rs), asked as another device asks them, so each does what a window's does,
+//! for a session Codealong runs too, behind the same settings; and none of them claims to be you
+//! at a window.
+
+use serde::Serialize;
+use serde_json::{json, Value};
+
+use crate::actions::{self, From};
+use crate::{api, barfeed, config, detect, editors, engine, github, harness, model, route, send, side, start, usage, util};
+
+/// The command line, read one way for every mode.
+struct Args<'a>(&'a [String]);
+
+impl<'a> Args<'a> {
+    fn has(&self, flag: &str) -> bool {
+        self.0.iter().any(|a| a == flag)
+    }
+
+    /// What follows `flag` on the line, in order: a mode's own arguments. Nothing when the flag
+    /// isn't there.
+    fn after(&self, flag: &str) -> &'a [String] {
+        self.0.iter().position(|a| a == flag).map(|i| &self.0[i + 1..]).unwrap_or_default()
+    }
+
+    /// An option's value: the argument after it, wherever it is on the line.
+    fn option(&self, flag: &str) -> Option<&'a str> {
+        self.after(flag).first().map(String::as_str)
+    }
+}
+
+/// How a mode ends when it has nothing to print.
+enum Stop {
+    /// The line doesn't read as the mode's: its usage is printed, and the exit code is 2.
+    Usage,
+    /// It went wrong, in these words: exit code 1.
+    Failed(String),
+}
+
+/// What a mode prints; nothing for an empty text.
+type Done = Result<String, Stop>;
+
+fn failed(e: anyhow::Error) -> Stop {
+    Stop::Failed(format!("{e:#}"))
+}
+
+fn pretty(v: &impl Serialize) -> String {
+    serde_json::to_string_pretty(v).unwrap_or_default()
+}
+
+struct Mode {
+    flag: &'static str,
+    /// Its arguments, after `codealong --snapshot <flag>`.
+    takes: &'static str,
+    /// Gets the whole line, and what follows its flag.
+    run: fn(&Args, &[String]) -> Done,
+}
+
+/// Every mode, in the order the line is looked through for them: the first one there runs.
+const MODES: &[Mode] = &[
+    Mode { flag: "--pending", takes: "<session key>", run: pending },
+    Mode { flag: "--answer", takes: "<session key> <id> <allow|deny|always> [answers to its questions, as JSON]", run: answer },
+    Mode { flag: "--stop", takes: "<session key>", run: stop },
+    Mode { flag: "--send", takes: "<session key> <text> [--now]", run: send_text },
+    Mode { flag: "--fork", takes: "<session key> [prompt]", run: fork },
+    Mode { flag: "--side", takes: "<session key> <question> [a follow-up…]", run: side_ask },
+    Mode { flag: "--rename", takes: "<session key> <name>", run: rename },
+    Mode { flag: "--transcript", takes: "<session key> [--before <cursor>]", run: transcript },
+    Mode { flag: "--editor-icons", takes: "", run: editor_icons },
+    Mode { flag: "--start-options", takes: "", run: start_options },
+    Mode { flag: "--start-plan", takes: "<folder> <account> <terminal|background|claude-app|codex-app> [prompt] [--model <model>] [--effort <level>] [--worktree]", run: start_plan },
+    Mode { flag: "--route", takes: "<text> [--project <name>]", run: route_text },
+    Mode { flag: "--config", takes: "", run: |_, _| Ok(pretty(&config::view())) },
+    Mode { flag: "--found", takes: "", run: |_, _| Ok(pretty(&detect::unlisted())) },
+    Mode { flag: "--accounts", takes: "", run: accounts },
+    Mode { flag: "--pr-card", takes: "<owner/name> <number>", run: pr_card },
+    Mode { flag: "--pr", takes: "<owner/name> <number>", run: pr },
+    Mode { flag: "--open", takes: "<lane id> <target id>", run: open },
+];
+
+/// `codealong --snapshot [--table] [--no-github] [--usage]`: one pass over everything, printed as
+/// JSON, or as a table. GitHub is asked unless `--no-github` says not to; Claude usage is read
+/// only with `--usage`.
+/// `codealong --snapshot --bar [--no-github]`: what the floating bar would show.
+/// `codealong --snapshot --accounts`: the configured accounts, each with whether it's signed in.
+/// `codealong --snapshot --found`: accounts on this Mac that config.toml doesn't list.
+/// `codealong --snapshot --config`: the settings and config.toml, as Settings gets them.
+/// `codealong --snapshot --editor-icons`: the installed editors' app icons, as the Open in
+/// menus get them.
+/// `codealong --snapshot --open <lane id> <target id>`: opens a target the way a click does.
+/// `codealong --snapshot --pr <owner/name> <number>`: a PR's detail, as the PR panel gets it.
+/// `codealong --snapshot --pr-card <owner/name> <number>`: a PR the board doesn't list, as a link
+/// to it in a conversation gets it.
+/// `codealong --snapshot --route <text> [--project <name>]`: where the quick panel would suggest
+/// sending it (asks TypeSafe; needs the key, and `[jev] quick_panel` on).
+/// `codealong --snapshot --transcript <session key> [--before <cursor>]`: a page of a session's
+/// conversation, as its panel gets it.
+/// `codealong --snapshot --pending <session key>`: what a session waits on you to allow, as its
+/// panel shows it.
+/// `codealong --snapshot --answer <session key> <id> <allow|deny|always> [answers]`: answers it,
+/// as the panel's buttons do; `answers` are its questions' answers, as JSON.
+/// `codealong --snapshot --send <session key> <text> [--now]`: sends a session a message, as
+/// another device does; `--now` sends it into the turn it's taking, as Send now does.
+/// `codealong --snapshot --rename <session key> <name>`: names a session where its harness keeps
+/// names, as Rename… in its menu does.
+/// `codealong --snapshot --stop <session key>`: stops the turn it's taking, as its Stop does.
+/// `codealong --snapshot --fork <session key> [prompt]`: forks it into the background, as `/fork`
+/// in its box does.
+/// `codealong --snapshot --side <session key> <question> [a follow-up…]`: asks a throwaway copy
+/// of it, as `/side` in its box does, and prints the questions with their answers.
+/// `codealong --snapshot --start-options`: where each account can start a session.
+/// `codealong --snapshot --start-plan <folder> <account> <place> [prompt] [--model <model>]
+/// [--effort <level>] [--worktree]`: what starting one would do, without doing it.
+pub fn cli(args: &[String]) -> i32 {
+    let args = Args(args);
+    let Some(mode) = MODES.iter().find(|m| args.has(m.flag)) else {
+        return print_board(&args);
+    };
+    match (mode.run)(&args, args.after(mode.flag)) {
+        Ok(text) => {
+            if !text.is_empty() {
+                println!("{text}");
+            }
+            0
+        }
+        Err(Stop::Usage) => {
+            eprintln!("usage: codealong --snapshot {} {}", mode.flag, mode.takes);
+            2
+        }
+        Err(Stop::Failed(why)) => {
+            eprintln!("{why}");
+            1
+        }
+    }
+}
+
+/// The board, read once with git and, unless the line says otherwise, GitHub: as JSON, as a
+/// table, or as the floating bar's feed.
+fn print_board(args: &Args) -> i32 {
+    let started = std::time::Instant::now();
+    let board = engine::snapshot(!args.has("--no-github"), args.has("--usage"));
+    if args.has("--bar") {
+        println!("{}", pretty(&barfeed::feed(&board)));
+        return 0;
+    }
+    if args.has("--table") {
+        print_table(&board);
+    } else {
+        match serde_json::to_string_pretty(&board) {
+            Ok(json) => println!("{json}"),
+            Err(e) => {
+                eprintln!("{e}");
+                return 1;
+            }
+        }
+    }
+    eprintln!("snapshot: {} lanes in {} ms", board.lanes.len(), started.elapsed().as_millis());
+    0
+}
+
+fn print_table(board: &model::Board) {
+    for n in &board.notices {
+        println!("! {}", n.text);
+    }
+    for p in &board.projects {
+        let repos: Vec<String> = p.repos.iter().map(|r| format!("{} {}", r.name, r.lanes)).collect();
+        println!("# {} ({} lanes): {}", p.name, p.lanes, repos.join(", "));
+    }
+    for lane in board.lanes.iter().filter(|l| !l.hidden) {
+        let sessions: Vec<String> = lane.sessions.iter().take(4).map(|s| format!("{}:{:?}", s.account, s.status).to_lowercase()).collect();
+        let pr = lane.pr.as_ref().map(|p| format!("#{} {:?}", p.number, p.state).to_lowercase()).unwrap_or_default();
+        println!(
+            "{:<8} {:<30} {:<14} {:<60} | {:<40} [{}] {}{}",
+            format!("{:?}", lane.bay).to_lowercase(),
+            util::truncate(&lane.callsign, 30),
+            util::truncate(&lane.repo, 14),
+            util::truncate(&lane.headline, 60),
+            util::truncate(lane.detail.as_deref().unwrap_or(""), 40),
+            sessions.join(" "),
+            pr,
+            if lane.parked { " (parked)" } else { "" }
+        );
+    }
+}
+
+/// The board the modes act on: read now, with git but without GitHub or usage, and no engine
+/// behind it.
+fn board_now() -> engine::Handle {
+    engine::Handle::over(engine::snapshot(false, false))
+}
+
+/// One of the app's actions on a session of this device, over a board read now. It's asked as
+/// another device asks it: a send isn't yours, and one that would only open the session for
+/// someone to send is an error.
+fn act(name: &str, key: &str, params: Value) -> Result<Value, Stop> {
+    actions::local(&board_now(), From::Device, name, key, params).map_err(Stop::Failed)
+}
+
+/// What an action said happened, in its sentence.
+fn said(v: Value) -> Done {
+    Ok(v.as_str().unwrap_or_default().to_string())
+}
+
+fn pending(_: &Args, rest: &[String]) -> Done {
+    let [key, ..] = rest else { return Err(Stop::Usage) };
+    Ok(pretty(&act(api::SESSION_PENDING, key, json!({}))?))
+}
+
+fn answer(_: &Args, rest: &[String]) -> Done {
+    let [key, id, answer, more @ ..] = rest else { return Err(Stop::Usage) };
+    let answer: harness::Answer = serde_json::from_value(Value::String(answer.clone())).map_err(|_| Stop::Usage)?;
+    let answers: Option<Value> = more.first().map(|a| serde_json::from_str(a)).transpose().map_err(|_| Stop::Usage)?;
+    said(act(api::SESSION_ANSWER, key, json!({ "id": id, "answer": answer, "answers": answers }))?)
+}
+
+fn stop(_: &Args, rest: &[String]) -> Done {
+    let [key, ..] = rest else { return Err(Stop::Usage) };
+    said(act(api::SESSION_CANCEL, key, json!({}))?)
+}
+
+fn send_text(args: &Args, rest: &[String]) -> Done {
+    let [key, text, ..] = rest else { return Err(Stop::Usage) };
+    let sent: send::Sent = serde_json::from_value(act(api::SESSION_SEND, key, json!({ "text": text, "now": args.has("--now") }))?).map_err(|e| Stop::Failed(e.to_string()))?;
+    Ok(sent.message)
+}
+
+fn fork(_: &Args, rest: &[String]) -> Done {
+    let [key, more @ ..] = rest else { return Err(Stop::Usage) };
+    let prompt = more.first().map(String::as_str).unwrap_or("");
+    Ok(pretty(&act(api::SESSION_FORK, key, json!({ "prompt": prompt }))?))
+}
+
+fn side_ask(_: &Args, rest: &[String]) -> Done {
+    let [key, questions @ ..] = rest else { return Err(Stop::Usage) };
+    if questions.is_empty() {
+        return Err(Stop::Usage);
+    }
+    let engine = board_now();
+    for q in questions {
+        if let Err(e) = actions::local(&engine, From::Device, actions::SIDE_ASK, key, json!({ "text": q })) {
+            side::close(key);
+            return Err(Stop::Failed(e));
+        }
+    }
+    // Answers take as long as they take; a copy that stops says so.
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(600);
+    while side::get(key).is_some_and(|s| s.running) && std::time::Instant::now() < until {
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
+    let asked = pretty(&side::get(key));
+    side::close(key);
+    // The copy's process gets a moment to leave by itself.
+    std::thread::sleep(std::time::Duration::from_millis(1700));
+    Ok(asked)
+}
+
+fn rename(_: &Args, rest: &[String]) -> Done {
+    let [key, name, ..] = rest else { return Err(Stop::Usage) };
+    // The name as the action keeps it, for saying what it's called now.
+    let name = harness::session_name(name).map_err(failed)?;
+    act(api::SESSION_RENAME, key, json!({ "name": name }))?;
+    Ok(format!("Renamed it {name}."))
+}
+
+fn transcript(args: &Args, rest: &[String]) -> Done {
+    let [key, ..] = rest else { return Err(Stop::Usage) };
+    let before: Option<u64> = args.option("--before").and_then(|b| b.parse().ok());
+    Ok(pretty(&act(api::SESSION_PAGE, key, json!({ "before": before }))?))
+}
+
+fn editor_icons(_: &Args, _: &[String]) -> Done {
+    Ok(serde_json::to_string(&editors::icons()).unwrap_or_default())
+}
+
+fn start_options(_: &Args, _: &[String]) -> Done {
+    let cfg = config::load().ok().flatten().unwrap_or_default();
+    // A harness whose list of models is asked for in the background (Antigravity's) has
+    // none on the first ask: the app asks as it starts, and a one-off waits a moment here.
+    let mut options = start::options_for(&cfg);
+    let waits = |o: &start::StartOptions| o.accounts.iter().any(|a| a.models.is_empty() && !a.places.is_empty() && harness::adapter(a.harness).takes_model());
+    for _ in 0..20 {
+        if !waits(&options) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(250));
+        options = start::options_for(&cfg);
+    }
+    Ok(pretty(&options))
+}
+
+fn start_plan(args: &Args, rest: &[String]) -> Done {
+    let [folder, name, place, more @ ..] = rest else { return Err(Stop::Usage) };
+    let place: start::Place = serde_json::from_value(Value::String(place.clone())).map_err(|_| Stop::Usage)?;
+    let cfg = config::load().ok().flatten().unwrap_or_default();
+    let Some(account) = cfg.accounts.iter().find(|a| &a.name == name) else {
+        return Err(Stop::Failed(format!("There's no account named {name}.")));
+    };
+    let prompt = more.first().filter(|p| !p.starts_with("--")).cloned().unwrap_or_default();
+    let plan = start::plan(account, place, &util::expand(folder), &prompt, &start::new_session_id(), args.option("--model"), args.option("--effort"), args.has("--worktree"));
+    Ok(pretty(&plan))
+}
+
+fn route_text(args: &Args, rest: &[String]) -> Done {
+    let [text, ..] = rest else { return Err(Stop::Usage) };
+    let project = args.option("--project").unwrap_or(route::ALL_PROJECTS);
+    Ok(pretty(&act(api::ROUTE, "", json!({ "project": project, "text": text }))?))
+}
+
+fn accounts(_: &Args, _: &[String]) -> Done {
+    let cfg = config::load().ok().flatten().unwrap_or_default();
+    let list: Vec<model::AccountInfo> = cfg.accounts.iter().map(usage::describe).collect();
+    Ok(pretty(&list))
+}
+
+/// A repo and a PR's number, as two arguments.
+fn repo_and_number(rest: &[String]) -> Result<(&str, u64), Stop> {
+    match rest {
+        [repo, number, ..] => number.parse().map(|n| (repo.as_str(), n)).map_err(|_| Stop::Usage),
+        _ => Err(Stop::Usage),
+    }
+}
+
+fn pr_card(_: &Args, rest: &[String]) -> Done {
+    let (repo, number) = repo_and_number(rest)?;
+    Ok(pretty(&engine::snapshot_pr_card(repo, number).map_err(failed)?))
+}
+
+fn pr(_: &Args, rest: &[String]) -> Done {
+    let (repo, number) = repo_and_number(rest)?;
+    Ok(pretty(&github::detail(repo, number).map_err(failed)?))
+}
+
+fn open(_: &Args, rest: &[String]) -> Done {
+    let [lane, target, ..] = rest else { return Err(Stop::Usage) };
+    engine::open_on(&engine::snapshot(false, false), lane, target).map_err(failed)?;
+    Ok(String::new())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn line(words: &[&str]) -> Vec<String> {
+        std::iter::once("codealong").chain(words.iter().copied()).map(String::from).collect()
+    }
+
+    #[test]
+    fn a_modes_arguments_follow_its_flag_and_options_go_anywhere() {
+        let l = line(&["--snapshot", "--transcript", "claude:claude:abc", "--before", "4096"]);
+        let args = Args(&l);
+        assert!(args.has("--transcript") && !args.has("--table"));
+        assert_eq!(args.after("--transcript").first().map(String::as_str), Some("claude:claude:abc"));
+        assert_eq!(args.option("--before"), Some("4096"));
+        assert!(args.after("--send").is_empty() && args.option("--project").is_none());
+        // An option ahead of the mode is still its option.
+        let l = line(&["--snapshot", "--project", "Spur", "--route", "fix the build"]);
+        let args = Args(&l);
+        assert_eq!((args.option("--project"), args.after("--route")), (Some("Spur"), &["fix the build".to_string()][..]));
+    }
+
+    #[test]
+    fn the_first_mode_in_the_tables_order_runs_and_a_short_line_is_a_usage_error() {
+        let pick = |words: &[&str]| {
+            let l = line(words);
+            MODES.iter().find(|m| Args(&l).has(m.flag)).map(|m| m.flag)
+        };
+        assert_eq!(pick(&["--snapshot", "--table", "--no-github"]), None);
+        assert_eq!(pick(&["--snapshot", "--accounts"]), Some("--accounts"));
+        // `--pr` isn't taken for `--pr-card`, nor a session's mode for an option after it.
+        assert_eq!(pick(&["--snapshot", "--pr-card", "o/r", "7"]), Some("--pr-card"));
+        assert_eq!(pick(&["--snapshot", "--start-plan", "/r", "claude", "terminal", "--worktree"]), Some("--start-plan"));
+        // Each of these stops at its arguments, before anything is read or done.
+        for words in [&["--snapshot", "--send", "claude:claude:abc"][..], &["--snapshot", "--stop"], &["--snapshot", "--answer", "k", "id"], &["--snapshot", "--answer", "k", "id", "maybe"], &["--snapshot", "--rename", "k"], &["--snapshot", "--pr", "o/r", "seven"], &["--snapshot", "--start-plan", "/r", "claude", "the moon"], &["--snapshot", "--side", "k"]] {
+            assert_eq!(cli(&line(words)), 2, "{words:?}");
+        }
+    }
+
+    #[test]
+    fn every_mode_has_its_line_in_the_notes() {
+        // CLAUDE.md lists the modes for whoever checks behaviour without a window.
+        let notes = include_str!("../../CLAUDE.md");
+        for m in MODES {
+            assert!(notes.contains(&format!("--snapshot {}", m.flag)), "CLAUDE.md doesn't say what --snapshot {} does", m.flag);
+        }
+    }
+}

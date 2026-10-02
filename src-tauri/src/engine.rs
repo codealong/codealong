@@ -157,6 +157,16 @@ impl Handle {
         Handle { tx, board: Arc::new(RwLock::new(Board::default())) }
     }
 
+    /// A handle on a board read once (`snapshot`, `light_snapshot`), with no engine behind it,
+    /// for `--snapshot`'s modes: what goes through a handle does the same over it. A message
+    /// for the engine is taken and dropped, so whoever waits for the board that shows a change
+    /// hears at once that none will, as a window does from an engine too busy to say.
+    pub fn over(board: Board) -> Handle {
+        let (tx, rx) = channel();
+        std::thread::spawn(move || for _ in rx {});
+        Handle { tx, board: Arc::new(RwLock::new(board)) }
+    }
+
     pub fn board(&self) -> Board {
         self.board.read().map(|b| b.clone()).unwrap_or_default()
     }
