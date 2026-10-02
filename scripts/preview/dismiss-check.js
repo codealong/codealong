@@ -5,20 +5,7 @@
 // window's own Escape (leaving several picked todos) doesn't run too; and the project menu
 // closes the same two ways.
 //   PREVIEW_TODOS=scripts/preview/todos-sample.json PREVIEW_WAIT=60000 scripts/preview.sh todo '' scripts/preview/dismiss-check.js
-// Every step should say ok.
 (function () {
-  var out = [];
-  var say = function (t) { window.__t = t; };
-  setInterval(function () { if (window.__t) document.title = window.__t; }, 100);
-  var wait = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
-  var until = function (f, ms) {
-    var s = Date.now();
-    return new Promise(function (res, rej) {
-      (function p() { if (f()) return res(); if (Date.now() - s > ms) return rej(new Error('timeout')); setTimeout(p, 20); })();
-    });
-  };
-  var check = function (name, ok, why) { out.push(name + (ok ? ' ok' : ' FAIL') + (why ? ' (' + why + ')' : '')); };
-  var q = function (sel) { return document.querySelector(sel); };
   // A press as WebKit sends it: the pointer event, then the mouse event it stands for.
   var press = function (el) {
     el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, buttons: 1 }));
@@ -39,7 +26,7 @@
   };
 
   say('dismiss check: waiting for the todos');
-  until(function () { return rows().length > 1; }, 20000)
+  until(function () { return rows().length > 1; }, 20000, 'the todos')
     .then(function () {
       // A todo without a due date, so its Due line has the chip that adds one.
       var row = rows().filter(function (r) { return !r.querySelector('.ca-duechip'); })[0] || rows()[0];
@@ -65,14 +52,14 @@
     .then(function () {
       // An agent's chip on a todo's row is a button that keeps its mousedown from the row.
       var chip = q('.ca-todorow .ca-chip--button');
-      if (!chip) return out.push('a press on a chip that stops its mousedown: no row has one, skipped');
+      if (!chip) return note('a press on a chip that stops its mousedown: no row has one, skipped');
       press(chip);
       return wait(100).then(function () { check('a press on a chip that stops its mousedown closes it', !labels()); });
     })
     .then(openLabels)
     .then(function () {
       var due = add('.ca-duepick-anchor');
-      if (!due) return out.push('another picker: the todo has a due date, skipped');
+      if (!due) return note('another picker: the todo has a due date, skipped');
       press(due);
       due.click();
       return until(function () { return q('.ca-duepick'); }, 3000).then(function () {
@@ -112,6 +99,6 @@
       var e = escape(document.body);
       check('with nothing up, Escape is left to the window', !e.defaultPrevented);
     })
-    .catch(function (e) { check('ran', false, String(e)); })
-    .then(function () { say('done: ' + out.join('; ')); });
+    .then(done)
+    .catch(stopped);
 })();

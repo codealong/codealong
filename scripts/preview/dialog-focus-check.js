@@ -3,21 +3,9 @@
 // dialog itself), Tab and ⇧Tab go round its controls and never out to the window behind, a Tab
 // from outside comes in, Escape closes it, and what had the keyboard before has it again.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/dialog-focus-check.js
-// Every step should say ok. A scripted Tab moves nothing by itself, so where the page leaves the
-// key alone the check moves the focus to the next control in the page, as the browser would.
+// A scripted Tab moves nothing by itself, so where the page leaves the key alone the check moves
+// the focus to the next control in the page, as the browser would.
 (function () {
-  var out = [];
-  var say = function (t) { window.__t = t; };
-  setInterval(function () { if (window.__t) document.title = window.__t; }, 100);
-  var wait = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
-  var until = function (f, ms) {
-    var s = Date.now();
-    return new Promise(function (res, rej) {
-      (function p() { if (f()) return res(); if (Date.now() - s > ms) return rej(new Error('timeout')); setTimeout(p, 20); })();
-    });
-  };
-  var check = function (name, ok, why) { out.push(name + (ok ? ' ok' : ' FAIL') + (why ? ' (' + why + ')' : '')); };
-  var q = function (sel) { return document.querySelector(sel); };
   var dialog = function () { return q('.ca-dialog'); };
   var active = function () { return document.activeElement; };
   var named = function (el) { return !el ? 'nothing' : el === document.body ? 'the page' : (el.getAttribute('aria-label') || el.textContent || el.tagName).trim().slice(0, 30) || el.tagName; };
@@ -31,9 +19,9 @@
     var e = new KeyboardEvent('keydown', { key: 'Tab', shiftKey: !!back, bubbles: true, cancelable: true });
     el.dispatchEvent(e);
     if (e.defaultPrevented) return;
-    var all = stops(document);
-    var i = all.indexOf(el);
-    var next = back ? all[(i <= 0 ? all.length : i) - 1] : all[(i + 1) % all.length];
+    var every = stops(document);
+    var i = every.indexOf(el);
+    var next = back ? every[(i <= 0 ? every.length : i) - 1] : every[(i + 1) % every.length];
     if (next) next.focus();
   };
   var escape = function () {
@@ -65,7 +53,7 @@
 
   var opener = null;
   say('dialog focus check: waiting for the list');
-  until(function () { return q('[role="listbox"] [role="option"]') && q('.ca-side-config'); }, 20000)
+  until(function () { return q('[role="listbox"] [role="option"]') && q('.ca-side-config'); }, 20000, 'the list and Settings')
     .then(function () { return wait(300); })
     .then(function () {
       opener = q('.ca-side-config');
@@ -91,7 +79,7 @@
       row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
       return wait(300).then(function () {
         var item = window.__menu().filter(function (m) { return /^Rename…/.test(m[0]); })[0];
-        if (!item) return out.push('Rename: the first session takes no name here, skipped');
+        if (!item) return note('Rename: the first session takes no name here, skipped');
         item[1]();
         return until(dialog, 5000).then(function () { return wait(300); }).then(function () {
           var field = q('.ca-renamedlg input');
@@ -106,6 +94,6 @@
         });
       });
     })
-    .catch(function (e) { check('ran', false, String(e)); })
-    .then(function () { say('done: ' + out.join('; ')); });
+    .then(done)
+    .catch(stopped);
 })();
