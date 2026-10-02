@@ -103,7 +103,7 @@
 }
 /* A prompt ⌘⇧↑ or ⌘⇧↓ brought up, marked for a moment. */
 .ca-thread-said.is-landed .ca-thread-you {
-  animation: ca-thread-landed 1.2s ease-out;
+  animation: ca-thread-landed var(--dur-sweep) ease-out;
 }
 @keyframes ca-thread-landed {
   from {

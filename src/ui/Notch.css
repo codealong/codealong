@@ -52,7 +52,7 @@ html.is-notch body {
 .ca-notch.is-hover .ca-notch-ear,
 .ca-notch.is-hover .ca-notch-shadow {
   --ease: ease-out;
-  --takes: 0.18s;
+  --takes: var(--dur-base);
 }
 .ca-notch.is-open .ca-notch-shape,
 .ca-notch.is-open .ca-notch-ear,
@@ -115,11 +115,11 @@ html.is-notch body {
 /* What shows only open: the project beside the mark, the counts after the first. */
 .ca-notch-extra {
   opacity: 0;
-  transition: opacity 0.12s ease-out;
+  transition: opacity var(--dur-fast) ease-out;
 }
 .ca-notch.is-open .ca-notch-extra {
   opacity: 1;
-  transition: opacity 0.2s ease-out 0.12s;
+  transition: opacity 0.2s ease-out var(--dur-fast);
 }
 .ca-notch-count {
   appearance: none;
@@ -197,12 +197,12 @@ html.is-notch body {
   width: max-content;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.12s ease-out;
+  transition: opacity var(--dur-fast) ease-out;
 }
 .ca-notch.is-open .ca-notch-body {
   opacity: 1;
   pointer-events: auto;
-  transition: opacity 0.2s ease-out 0.12s;
+  transition: opacity 0.2s ease-out var(--dur-fast);
 }
 /* A session under the pills (NotchSession.tsx): the card the peek shows, as wide as the shape
    and as tall as it opens, on the notch's own black with a line between it and the pills. It
@@ -215,7 +215,7 @@ html.is-notch body {
   border-top: 1px solid var(--line);
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.12s ease-out;
+  transition: opacity var(--dur-fast) ease-out;
 }
 .ca-notch.is-session .ca-notch-session {
   opacity: 1;

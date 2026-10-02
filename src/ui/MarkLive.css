@@ -272,7 +272,7 @@
 }
 .ca-hud-mark:active .ca-lmark-pop {
   scale: 0.92;
-  transition: scale 120ms ease-out;
+  transition: scale var(--dur-fast) ease-out;
 }
 /* With Reduce Motion on, the node changes color and nothing moves. */
 @media (prefers-reduced-motion: reduce) {
