@@ -87,7 +87,7 @@ import {
 import { duplicateOf, rankedBy, suggestions, sureness, todoTitle, worthRouting, type Suggestion } from '../route';
 import { dueWords } from '../due';
 import { liveOrLatest, sessionHomes } from '../lanes';
-import { attachmentsIn, blockedBy, insertAttachments, newTodo, snippet, todoItem, todoPrompt, todosPrompt, withoutAttachment } from '../todos';
+import { attachmentsIn, blockedBy, insertAttachments, newTodo, snippet, todoItem, todoProjects, todoPrompt, todosPrompt, withoutAttachment } from '../todos';
 import type { Attachment, Board, DesktopPinned, DevicesView, Lane, Meter, PrItem, Route, Session, StartOptions, StartPlace, StartSpec, TextFound } from '../types';
 import { AttachmentStrip } from './DescriptionEditor';
 import { sessionWhy } from './PanelSession';
@@ -1050,11 +1050,14 @@ export function Quick() {
     }
     const s = todoSession(r);
     show(
-      menus.todoMenu(r.item.todo.id, {
+      menus.todoMenu(r.item.todo, {
         report: menuReport,
         start: () => prepareTodo(r),
         session: s ? { ...s, open: () => openSession(s.lane, s.session) } : undefined,
         reveal: () => revealTodo(r),
+        // Straight to the engine, whose board shows it. Deleting is left to the main window,
+        // which can put a todo back.
+        edit: { run: (op) => void todoOp(op).catch((e: unknown) => menuReport.error(errorText(e))), todos: board?.todos, labels: board?.labels, projects: todoProjects(projects) },
         desktop: onDesktop,
       }),
     );

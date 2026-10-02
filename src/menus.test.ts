@@ -1,10 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MenuSpec } from './contextMenu';
-import { chordLetter, chordSigns, chorded, keyed, laneActions, laneMenu, prMenu, sessionActions, sessionMenu, todoMenu, type SessionCan } from './menus';
+import { chordLetter, chordSigns, chorded, keyed, laneActions, laneMenu, prMenu, sessionActions, sessionMenu, todoMenu, todoPanelMenu, todosMenu, toggleWaiting, type SessionCan, type TodoEdit } from './menus';
 import { openLabel } from './open';
 import type { Report } from './report';
 import * as fx from './testing/fixtures';
-import type { Lane, Session } from './types';
+import type { TodoOp } from './todos';
+import type { Label, Lane, Session, Todo } from './types';
 
 const report: Report = { error: () => {}, info: () => {} };
 const noop = () => {};
@@ -170,7 +171,137 @@ describe('prMenu and todoMenu', () => {
       'Copy link',
       'Copy branch name',
     ]);
-    expect(labels(todoMenu('t1', { report, start: noop, session: s, desktop: new Set() }))).toEqual(['Start session…', 'Open claude: Fix login', '-', 'Pin to desktop', '-', 'Copy todo ID']);
+    expect(labels(todoMenu(fx.todo(), { report, start: noop, session: s, desktop: new Set() }))).toEqual(['Start session…', 'Open claude: Fix login', '-', 'Pin to desktop', '-', 'Copy as prompt', 'Copy todo ID']);
+  });
+});
+
+describe('the todo menus', () => {
+  // A Friday, so the days offered are Today, Tomorrow, Monday and Next Friday.
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 9, 2, 12));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** An item by its path of labels, through submenus. */
+  const find = (spec: MenuSpec, ...path: string[]): MenuSpec[number] | undefined => {
+    const [first, ...rest] = path;
+    const hit = spec.find((i) => i !== 'separator' && i.label === first);
+    if (!hit || rest.length === 0) return hit;
+    return hit !== 'separator' && 'items' in hit ? find(hit.items, ...rest) : undefined;
+  };
+  const pick = (spec: MenuSpec, ...path: string[]) => {
+    const hit = find(spec, ...path);
+    if (!hit || hit === 'separator' || 'items' in hit) throw new Error(`no item ${path.join(' › ')}`);
+    hit.run();
+  };
+  const checked = (spec: MenuSpec) => spec.flatMap((i) => (i !== 'separator' && !('items' in i) && i.checked ? [i.label] : []));
+  const submenu = (spec: MenuSpec, label: string) => {
+    const hit = find(spec, label);
+    return hit && hit !== 'separator' && 'items' in hit ? hit.items : [];
+  };
+
+  const bug: Label = { id: 'l1', name: 'Bug', color: 'red' };
+  const ui: Label = { id: 'l2', name: 'UI', color: 'blue' };
+  const editing = (todos: Todo[], over: Partial<TodoEdit> = {}) => {
+    const ops: TodoOp[] = [];
+    const edit: TodoEdit = { run: (op) => ops.push(op), todos, labels: [bug, ui], projects: ['Api', 'Web'], ...over };
+    return { ops, edit };
+  };
+
+  it("has a todo's status, waiting, due date, labels and project where the window has them all", () => {
+    const t = fx.todo({ status: 'in-progress', labels: ['l1'], project: 'Api' });
+    const { ops, edit } = editing([t], { pickDate: noop });
+    const menu = todoMenu(t, { report, start: noop, edit, desktop: new Set(), remove: noop });
+    expect(labels(menu)).toEqual([
+      'Start session…',
+      '-',
+      'Todo',
+      'In progress',
+      'Done',
+      'Mark as waiting',
+      '-',
+      'Due date ›',
+      'Labels ›',
+      'Move to project ›',
+      '-',
+      'Pin to desktop',
+      '-',
+      'Copy as prompt',
+      'Copy todo ID',
+      '-',
+      'Delete todo',
+    ]);
+    expect(checked(menu)).toEqual(['In progress']);
+    expect(labels(submenu(menu, 'Due date'))).toEqual(['Today', 'Tomorrow', 'Monday', 'Next Friday', 'Pick a date…']);
+    expect(checked(submenu(menu, 'Labels'))).toEqual(['Bug']);
+    expect(checked(submenu(menu, 'Move to project'))).toEqual(['Api']);
+    pick(menu, 'Done');
+    pick(menu, 'Due date', 'Tomorrow');
+    pick(menu, 'Labels', 'Bug');
+    pick(menu, 'Labels', 'UI');
+    pick(menu, 'Move to project', 'Web');
+    pick(menu, 'Mark as waiting');
+    expect(ops).toEqual([
+      { op: 'update', id: 't1', patch: { status: 'done' } },
+      { op: 'update', id: 't1', patch: { due: '2026-10-03' } },
+      { op: 'update', id: 't1', patch: { labels: [] } },
+      { op: 'update', id: 't1', patch: { labels: ['l1', 'l2'] } },
+      { op: 'update', id: 't1', patch: { project: 'Web' } },
+      { op: 'update', id: 't1', patch: { waiting: { note: '', since: 0 } } },
+    ]);
+  });
+
+  it('leaves out what a window can’t change: a desktop card has its status and due date', () => {
+    const t = fx.todo({ due: '2026-10-02' });
+    const ops: TodoOp[] = [];
+    const menu = todoMenu(t, { report, start: noop, reveal: noop, edit: { run: (op) => ops.push(op) }, desktop: new Set() });
+    expect(labels(menu)).toEqual(['Start session…', 'Show in Codealong', '-', 'Todo', 'In progress', 'Done', '-', 'Due date ›', '-', 'Pin to desktop', '-', 'Copy as prompt', 'Copy todo ID']);
+    // No picker here, and the day it's due is checked.
+    expect(labels(submenu(menu, 'Due date'))).toEqual(['Today', 'Tomorrow', 'Monday', 'Next Friday', '-', 'Remove due date']);
+    expect(checked(submenu(menu, 'Due date'))).toEqual(['Today']);
+    pick(menu, 'Due date', 'Remove due date');
+    expect(ops).toEqual([{ op: 'update', id: 't1', patch: { due: null } }]);
+  });
+
+  it('acts on all of several todos, and checks what they all are', () => {
+    const a = fx.todo({ id: 'a', status: 'done', due: '2026-10-05' });
+    const b = fx.todo({ id: 'b', status: 'done', due: '2026-10-05' });
+    const { ops, edit } = editing([a, b], { pickDate: noop });
+    const menu = todosMenu([a, b], { report, start: noop, edit, remove: noop });
+    // Done ones can't wait.
+    expect(labels(menu)).toEqual(['Start one session for 2 todos…', '-', 'Todo', 'In progress', 'Done', 'Due date ›', '-', 'Copy as prompt', 'Copy todo IDs', '-', 'Delete 2 todos']);
+    expect(checked(menu)).toEqual(['Done']);
+    expect(labels(submenu(menu, 'Due date'))).toEqual(['Today', 'Tomorrow', 'Monday', 'Next Friday', '-', 'Remove due dates']);
+    expect(checked(submenu(menu, 'Due date'))).toEqual(['Monday']);
+    pick(menu, 'Todo');
+    expect(ops).toEqual([
+      { op: 'update', id: 'a', patch: { status: 'todo' } },
+      { op: 'update', id: 'b', patch: { status: 'todo' } },
+    ]);
+  });
+
+  it("has what the todo panel has no control for in its ⋯ menu", () => {
+    const t = fx.todo();
+    expect(labels(todoPanelMenu(t, { report, edit: editing([t]).edit, remove: noop }))).toEqual(['Move to project ›', 'Copy as prompt', 'Copy todo ID', '-', 'Delete todo']);
+    expect(labels(todoPanelMenu(t, { report }))).toEqual(['Copy as prompt', 'Copy todo ID']);
+  });
+
+  it('says what stopping a wait changed, with the undo where the window has one', () => {
+    const t = fx.todo({ title: 'Docs', waiting: { note: '', since: 0 } });
+    const said: string[] = [];
+    const { ops, edit } = editing([t]);
+    toggleWaiting([t], edit, { error: noop, info: (m) => said.push(m) });
+    expect(said).toEqual(['“Docs” no longer waits.']);
+    expect(ops).toEqual([{ op: 'update', id: 't1', patch: { waiting: null } }]);
+    let undo: TodoOp[] = [];
+    toggleWaiting([t], { ...edit, stopped: (_said, u) => (undo = u) }, report);
+    expect(undo).toEqual([{ op: 'update', id: 't1', patch: { waiting: { note: '', since: 0 }, dependsOn: [] } }]);
+    // Without every todo it can't tell what a todo waits on, so it does nothing.
+    toggleWaiting([t], { run: (op) => ops.push(op) }, report);
+    expect(ops).toHaveLength(2);
   });
 });
 

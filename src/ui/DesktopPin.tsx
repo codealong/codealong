@@ -10,7 +10,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { desktopHover, fitDesktop, getDesktopFeed, onDesktopFeed, onPeekShown, openUrl, peekHide, peekOpen, showMain, showQuick, unpinFromDesktop, type PillRect } from '../api';
+import { desktopHover, fitDesktop, getDesktopFeed, onDesktopFeed, onPeekShown, openUrl, peekHide, peekOpen, showMain, showQuick, todoOp, unpinFromDesktop, type PillRect } from '../api';
 import { boardView, lanesAhead, observe, useAhead } from '../ahead';
 import { CLICK_WAIT_MS, plain } from '../bar';
 import { showContextMenu, type MenuSpec } from '../contextMenu';
@@ -208,11 +208,14 @@ export function DesktopPin() {
       case 'todo': {
         const t = data.todo;
         const s = liveOrLatest(data.sessions);
-        return menus.todoMenu(t.id, {
+        return menus.todoMenu(t, {
           report: said,
           start: () => void showQuick({ todo: t.id, project: t.project || null }),
           session: s ? { ...s, open: () => openSession(s.lane, s.session) } : undefined,
           reveal: () => void showMain({ kind: 'todo', id: t.id }),
+          // Its status and due date: the card's feed has neither the other todos (for waiting),
+          // every label, nor the projects.
+          edit: { run: (op) => void todoOp(op).catch(fail) },
           desktop: onDesktop,
         });
       }

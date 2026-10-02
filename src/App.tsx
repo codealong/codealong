@@ -12,8 +12,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSPr
 import { below, showContextMenu, type MenuAction, type MenuSpec } from './contextMenu';
 import { useEditorIcons } from './editors';
 import { AGENT_BAY, buildBays, filterByAge, homeOf, inboxCounts, liveOrLatest, narrowed, prNeedsWork, rowItems, seenable, sessionPrs, worktreeRow, sessionHomes, type BoardRow, type Filter, type WorktreeRow } from './lanes';
-import { answerLink, approvePr, barMode, getDevices, onDevices, dismissTodoHint, expandAttachments, getBoard, onBarMode, onBoard, onCloseIdle, onNewWindow, onQuickStart, onReveal, onSettings, onCheckUpdates, openConfig, openProjectWindow, openUrl, refresh, refreshUsage, reviewInCodex, setBarMode, startOptions, startSession, setPinned, setPinnedPrs, setPinnedWorktrees, setTheme, showQuick, signIn, windowLabel, type BarMode, type Reveal } from './api';
-import { dueChoices } from './due';
+import { answerLink, approvePr, barMode, getDevices, onDevices, dismissTodoHint, getBoard, onBarMode, onBoard, onCloseIdle, onNewWindow, onQuickStart, onReveal, onSettings, onCheckUpdates, openConfig, openProjectWindow, openUrl, refresh, refreshUsage, reviewInCodex, setBarMode, startOptions, startSession, setPinned, setPinnedPrs, setPinnedWorktrees, setTheme, showQuick, signIn, windowLabel, type BarMode, type Reveal } from './api';
 import { middleTruncate } from './format';
 import * as menus from './menus';
 import { prRefOf } from './prLinks';
@@ -23,7 +22,7 @@ import { reuse } from './reuse';
 import { reorderPinned, usePins } from './pins';
 import { reviewLane, reviewPicks, reviewPrompt } from './review';
 import { remembered } from './start';
-import { blockedBy, COLOR_WORD, depsOf, newTodo, pickTo, pickToggle, sectionOf, snippet, STATUSES, STATUS_WORD, todoIndex, todoInFilter, todoInQuery, todoItem, todoPrompt, todosPrompt, todoSections, useTodoStore, type TodoItem, type TodoPick, type TodoSectionId } from './todos';
+import { COLOR_WORD, newTodo, pickTo, pickToggle, todoIndex, todoProjects, todoInFilter, todoInQuery, todoItem, todoPrompt, todosPrompt, todoSections, useTodoStore, type TodoItem, type TodoPick, type TodoSectionId } from './todos';
 import type { Bay, Board, DevicesView, Label, Lane, Pr, PrItem, Session, StartOptions, Theme, Todo, TodoStatus } from './types';
 import { byDevice, deviceOf, needsOn, shortOf, withDevices, workingOn, type DeviceFilter } from './devices';
 import { DeviceBadge } from './ui/DeviceBadge';
@@ -1096,41 +1095,25 @@ export function App() {
 
   const setTodoStatus = (t: Todo, status: TodoStatus) => runTodo({ op: 'update', id: t.id, patch: { status } });
 
-  /** Moves todos to Waiting by hand, or back out. Any not under Waiting are marked; when all
-   *  are, stopping ends each one's mark and its waits on todos that aren't done, so it's ready at
-   *  once. The toast can put that back. */
-  const toggleWaiting = (list: Todo[]) => {
-    const ts = list.filter((t) => t.status !== 'done');
-    const out = ts.filter((t) => sectionOf(t, todoStore.todos) !== 'waiting');
-    if (out.length > 0) {
-      for (const t of out) runTodo({ op: 'update', id: t.id, patch: { waiting: { note: '', since: 0 } } });
-      return;
-    }
-    if (ts.length === 0) return;
-    // One an agent is on leaves Waiting with its mark; one not started, only once it waits on
-    // nothing.
-    const stopped = ts.map((t) => {
-      const open = t.status === 'todo' ? blockedBy(t, todoStore.todos) : [];
-      const before = { waiting: t.waiting ?? null, dependsOn: depsOf(t) };
-      const dependsOn = depsOf(t).filter((d) => !open.some((o) => o.id === d));
-      runTodo({ op: 'update', id: t.id, patch: { waiting: null, ...(open.length > 0 ? { dependsOn } : {}) } });
-      return { t, open, before };
-    });
-    const [{ t, open }] = stopped;
-    const on = open.length === 0 ? '' : open.length === 1 ? ` on “${open[0].title || 'Untitled'}”` : ` on ${open.length} todos`;
-    const message = stopped.length === 1 ? `“${t.title || 'Untitled'}” no longer waits${on}.` : `${stopped.length} todos no longer wait.`;
-    setTodoUndo({ message, icon: 'hourglass', undo: () => stopped.forEach((x) => runTodo({ op: 'update', id: x.t.id, patch: x.before })) });
+  /** The projects a todo can be in: every one but Elsewhere. */
+  const projectsForTodos = useMemo(() => todoProjects(projects), [projects]);
+
+  /** How this window changes todos, for their menus (menus.ts): through the store, which shows a
+   *  change at once, with an undo for stopping waits and the panel's picker for any day. */
+  const todoEdit: menus.TodoEdit = {
+    run: runTodo,
+    todos: todoStore.todos,
+    labels: todoStore.labels,
+    projects: projectsForTodos,
+    pickDate: (t) => {
+      showTodo(t);
+      setDuePick(t.id);
+    },
+    stopped: (message, undo) => setTodoUndo({ message, icon: 'hourglass', undo: () => undo.forEach((op) => void runTodo(op)) }),
   };
 
-  /** The right-click item that moves todos into Waiting or out of it, named for what it ends. */
-  const waitingItem = (list: Todo[]): MenuSpec => {
-    const ts = list.filter((t) => t.status !== 'done');
-    if (ts.length === 0) return [];
-    if (ts.some((t) => sectionOf(t, todoStore.todos) !== 'waiting')) return [{ label: 'Mark as waiting', run: () => toggleWaiting(ts) }];
-    const open = ts.length === 1 && ts[0].status === 'todo' ? blockedBy(ts[0], todoStore.todos) : [];
-    const label = ts.length > 1 || ts[0].waiting || open.length === 0 ? 'Stop waiting' : open.length === 1 ? `Stop waiting on “${snippet(open[0].title || 'Untitled', 44)}”` : `Stop waiting on ${open.length} todos`;
-    return [{ label, run: () => toggleWaiting(ts) }];
-  };
+  /** Moves todos to Waiting by hand, or back out (`waitingChange`); the toast can put a stop back. */
+  const toggleWaiting = (list: Todo[]) => menus.toggleWaiting(list, todoEdit, report);
 
   /** Deletes todos; the toast can put them back where they were. */
   const deleteTodos = (ts: Todo[]) => {
@@ -1195,71 +1178,17 @@ export function App() {
     ]).catch((e: unknown) => setToast(String(e)));
   };
 
-  /** The labels as checkmarks that put them on a todo or take them off. */
-  const labelItems = (t: Todo): MenuSpec =>
-    todoStore.labels.map((l) => ({
-      label: l.name,
-      checked: t.labels.includes(l.id),
-      run: () => runTodo({ op: 'update', id: t.id, patch: { labels: t.labels.includes(l.id) ? t.labels.filter((x) => x !== l.id) : [...t.labels, l.id] } }),
-    }));
-
-  /** The Due date submenu: the days `dueChoices` offers, any day in the panel's picker (for one
-   *  todo), and taking it off. A day is checked when every todo is due then. */
-  const dueItems = (ts: Todo[]): MenuSpec => {
-    const set = (due: string | null) => ts.forEach((t) => runTodo({ op: 'update', id: t.id, patch: { due } }));
-    const same = ts.every((t) => t.due === ts[0].due) ? ts[0].due : null;
-    return [
-      ...dueChoices(Date.now()).map((c) => ({ label: c.label, checked: same === c.due, run: () => set(c.due) })),
-      ...(ts.length === 1
-        ? [
-            {
-              label: 'Pick a date…',
-              run: () => {
-                showTodo(ts[0]);
-                setDuePick(ts[0].id);
-              },
-            },
-          ]
-        : []),
-      ...(ts.some((t) => t.due) ? ['separator' as const, { label: ts.length === 1 ? 'Remove due date' : 'Remove due dates', run: () => set(null) }] : []),
-    ];
-  };
-
-  /** The projects a todo can be in: every one but Elsewhere. */
-  const todoProjects = useMemo(() => projects.filter((p) => p.name !== ELSEWHERE).map((p) => p.name), [projects]);
-
-  /** Projects a todo can move to, the one it's in checked. */
-  const projectItems = (t: Todo): MenuSpec =>
-    projects
-      .filter((p) => p.name !== ELSEWHERE)
-      .map((p) => ({ label: p.name, checked: t.project === p.name, run: () => runTodo({ op: 'update', id: t.id, patch: { project: p.name } }) }));
-
-  /** Copies todos as the prompt they'd start a session with, attachments as their paths. */
-  const copyPrompt = (ts: Todo[]) => {
-    expandAttachments(todosPrompt(ts))
-      .then((text) => copy(text, ts.length > 1 ? 'todos as a prompt' : 'todo as a prompt'))
-      .catch((e: unknown) => setToast(String(e)));
-  };
-
   /** A todo's right-click menu. */
   const todoMenu = (r: TodoItem) => void showContextMenu(todoMenuSpec(r)).catch((e: unknown) => setToast(String(e)));
   const todoMenuSpec = (r: TodoItem): MenuSpec => {
     const t = r.todo;
     const agent = liveOrLatest(r.sessions);
-    return menus.todoMenu(t.id, {
+    return menus.todoMenu(t, {
       report,
       start: () => startForTodo(r),
       session: agent ? { ...agent, open: () => open(agent.lane, agent.session.openTarget) } : undefined,
-      edit: [
-        ...STATUSES.map((st) => ({ label: STATUS_WORD[st], checked: t.status === st, run: () => setTodoStatus(t, st) })),
-        ...waitingItem([t]),
-        'separator',
-        { label: 'Due date', items: dueItems([t]) },
-        { label: 'Labels', items: labelItems(t) },
-        { label: 'Move to project', items: projectItems(t) },
-      ],
+      edit: todoEdit,
       desktop: onDesktop,
-      copyPrompt: () => copyPrompt([t]),
       canvas: canvasItem('todo', t.id),
       remove: () => deleteTodos([t]),
     });
@@ -1268,34 +1197,14 @@ export function App() {
   /** The right-click menu of several todos picked together, and their panel's ⋯ menu. */
   const pickMenuSpec = (rows: TodoItem[]): MenuSpec => {
     const ts = rows.map((r) => r.todo);
-    return [
-      { label: `Start one session for ${rows.length} todos…`, run: () => startForTodos(rows) },
-      'separator',
-      ...STATUSES.map((st) => ({ label: STATUS_WORD[st], checked: ts.every((t) => t.status === st), run: () => ts.forEach((t) => setTodoStatus(t, st)) })),
-      ...waitingItem(ts),
-      { label: 'Due date', items: dueItems(ts) },
-      'separator',
-      { label: 'Copy as prompt', run: () => copyPrompt(ts) },
-      { label: 'Copy todo IDs', run: () => copy(ts.map((t) => t.id).join(' '), 'todo IDs') },
-      'separator',
-      { label: `Delete ${rows.length} todos`, run: () => deleteTodos(ts) },
-    ];
+    return menus.todosMenu(ts, { report, start: () => startForTodos(rows), edit: todoEdit, remove: () => deleteTodos(ts) });
   };
   const pickMenu = (rows: TodoItem[], at?: { x: number; y: number }) => void showContextMenu(pickMenuSpec(rows), at).catch((e: unknown) => setToast(String(e)));
 
   /** The panel's ⋯ menu. */
   const todoMoreMenu = (r: TodoItem, at: { x: number; y: number }) => {
     const t = r.todo;
-    void showContextMenu(
-      [
-        { label: 'Move to project', items: projectItems(t) },
-        { label: 'Copy as prompt', run: () => copyPrompt([t]) },
-        { label: 'Copy todo ID', run: () => copy(t.id, 'todo ID') },
-        'separator',
-        { label: 'Delete todo', run: () => deleteTodos([t]) },
-      ],
-      at,
-    ).catch((e: unknown) => setToast(String(e)));
+    void showContextMenu(menus.todoPanelMenu(t, { report, edit: todoEdit, remove: () => deleteTodos([t]) }), at).catch((e: unknown) => setToast(String(e)));
   };
 
   /** Link…: the project's worktrees (pinned first) and recent sessions a todo isn't linked to. */
@@ -2019,7 +1928,7 @@ export function App() {
       hint={board?.jev?.todos ? board.todoHints?.[item.todo.id] : null}
       onDismissHint={() => void dismissTodoHint(item.todo.id)}
       suggest={!!board?.jev?.todos}
-      projects={todoProjects}
+      projects={projectsForTodos}
       pickDue={duePick === item.todo.id}
       onPickDue={duePicked}
     />

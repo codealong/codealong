@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { filesToAttach } from './attachInput';
 import { sessionHomes } from './lanes';
-import { applyOp, attachmentsIn, blockedBy, cantWaitOn, dependents, inlines, insertAttachments, nextColor, panelTodos, pickTo, pickToggle, pieces, sectionOf, snippet, todoIndex, todoInFilter, todoInQuery, todoItem, todoPrompt, todosPrompt, todoSections, todoSuggestions, waitsOn, worthSuggesting, withoutAttachment, type TodoPatch, type TodoStore } from './todos';
+import { applyOp, attachmentsIn, blockedBy, cantWaitOn, dependents, inlines, insertAttachments, nextColor, panelTodos, pickTo, pickToggle, pieces, sectionOf, snippet, todoIndex, todoInFilter, todoInQuery, todoItem, todoPrompt, todosPrompt, todoSections, todoSuggestions, waitingChange, waitsOn, worthSuggesting, withoutAttachment, type TodoPatch, type TodoStore } from './todos';
 import * as fx from './testing/fixtures';
 import { NOW } from './testing/fixtures';
 import type { Label, Lane, Session, Todo } from './types';
@@ -236,6 +236,37 @@ describe('waiting', () => {
   it('starts a new todo’s wait when it’s made', () => {
     const made = applyOp({ todos: [], labels: [] }, { op: 'create', todo: todo('a', { waiting: { note: 'vendor', since: 3 } }) }, NOW + 7);
     expect(made.todos[0].waiting).toEqual({ note: 'vendor', since: NOW + 7 });
+  });
+
+  it('marks the ones not waiting yet, and leaves done ones out', () => {
+    const all = [todo('a'), todo('b', { waiting: { note: '', since: NOW } }), todo('c', { status: 'done' })];
+    const w = waitingChange(all, all);
+    expect(w).toEqual({ label: 'Mark as waiting', ops: [{ op: 'update', id: 'a', patch: { waiting: { note: '', since: 0 } } }], undo: [], said: null });
+    expect(waitingChange([all[2]], all)).toBeNull();
+  });
+
+  it('stops a mark, and a wait on todos not done once it isn’t started, with what puts it back', () => {
+    const blocker = todo('x', { title: 'Ship the API' });
+    const marked = todo('a', { title: 'Docs', waiting: { note: 'Sam', since: NOW } });
+    const blocked = todo('b', { title: 'Release', dependsOn: ['x', 'y'] });
+    const all = [blocker, marked, blocked, todo('y', { status: 'done' })];
+    expect(waitingChange([marked], all)).toEqual({
+      label: 'Stop waiting',
+      ops: [{ op: 'update', id: 'a', patch: { waiting: null } }],
+      undo: [{ op: 'update', id: 'a', patch: { waiting: { note: 'Sam', since: NOW }, dependsOn: [] } }],
+      said: '“Docs” no longer waits.',
+    });
+    // It names the one todo it waits on, and keeps its wait on the done one.
+    expect(waitingChange([blocked], all)).toEqual({
+      label: 'Stop waiting on “Ship the API”',
+      ops: [{ op: 'update', id: 'b', patch: { waiting: null, dependsOn: ['y'] } }],
+      undo: [{ op: 'update', id: 'b', patch: { waiting: null, dependsOn: ['x', 'y'] } }],
+      said: '“Release” no longer waits on “Ship the API”.',
+    });
+    // One an agent is on keeps its waits.
+    const going = todo('c', { status: 'in-progress', dependsOn: ['x'], waiting: { note: '', since: NOW } });
+    expect(waitingChange([going], [...all, going])?.ops).toEqual([{ op: 'update', id: 'c', patch: { waiting: null } }]);
+    expect(waitingChange([marked, blocked], all)).toMatchObject({ label: 'Stop waiting', said: '2 todos no longer wait.' });
   });
 });
 

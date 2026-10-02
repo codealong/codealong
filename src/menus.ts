@@ -7,17 +7,19 @@
 // it went through the window's `Report`: a toast in the main window, a note on the bar.
 
 import { useEffect, useState } from 'react';
-import { closeSession, desktopPins, forkSession, getAccounts, moveSession, onDesktopPins, openUrl, pinToDesktop, sessionCancel, setReusable, showQuick, unpinFromDesktop } from './api';
+import { closeSession, desktopPins, expandAttachments, forkSession, getAccounts, moveSession, onDesktopPins, openUrl, pinToDesktop, sessionCancel, setReusable, showQuick, unpinFromDesktop } from './api';
 import { archiveAhead, seenAhead } from './ahead';
 import type { MenuAction, MenuGroup, MenuSpec } from './contextMenu';
 import { shortOf } from './devices';
+import { dueChoices } from './due';
 import { folderMenu, openInMenu, opensInEditor, type AppIcons, type Apps } from './editors';
 import { MOVES_ACCOUNTS, renames } from './harness';
 import { chromeLabel, openLabel } from './open';
 import { closable, seenable, stoppable } from './lanes';
 import { QUEUE_CHORDS } from './queue';
 import { snoozeChordIndex, snoozeMenu } from './snooze';
-import type { AccountInfo, DesktopPinned, Lane, Pr, Session } from './types';
+import { STATUSES, STATUS_WORD, todosPrompt, waitingChange, type TodoOp } from './todos';
+import type { AccountInfo, DesktopPinned, Label, Lane, Pr, Session, Todo } from './types';
 import { errorText, type Report } from './report';
 
 /** The editors installed here and their icons, for Open folder in and Open in. */
@@ -472,6 +474,96 @@ export function prMenu(pr: Pick<Pr, 'url' | 'number'> & { head?: string | null; 
   );
 }
 
+/** How a window changes todos, for the items that do: status, waiting, due date, labels and
+ *  project. An item shows only where the window has what it needs. */
+export interface TodoEdit {
+  /** Runs a change: through the main window's store, which shows it at once, or straight to the
+   *  engine (`todoOp`), whose board shows it. */
+  run: (op: TodoOp) => void;
+  /** Every todo, for Mark as waiting and Stop waiting: what a todo waits on is other todos. */
+  todos?: Todo[];
+  /** The labels to put on a todo or take off, for Labels. */
+  labels?: Label[];
+  /** The projects a todo can be in, for Move to project. */
+  projects?: string[];
+  /** Pick a date…: the todo panel's date picker. */
+  pickDate?: (t: Todo) => void;
+  /** Says what stopping waits changed, with the changes that put it back (the main window's
+   *  undo). Without it, the window's report says it. */
+  stopped?: (said: string, undo: TodoOp[]) => void;
+}
+
+/** Mark as waiting or Stop waiting (`waitingChange`), from a menu or a key. */
+export function toggleWaiting(ts: Todo[], edit: TodoEdit, report: Report) {
+  const w = edit.todos && waitingChange(ts, edit.todos);
+  if (!w) return;
+  for (const op of w.ops) edit.run(op);
+  if (w.said) {
+    if (edit.stopped) edit.stopped(w.said, w.undo);
+    else report.info(w.said);
+  }
+}
+
+/** Todo, In progress and Done, the one they're all at checked. */
+function statusItems(ts: Todo[], edit: TodoEdit): MenuSpec {
+  return STATUSES.map((st) => ({ label: STATUS_WORD[st], checked: ts.every((t) => t.status === st), run: () => ts.forEach((t) => edit.run({ op: 'update', id: t.id, patch: { status: st } })) }));
+}
+
+function waitingItems(ts: Todo[], edit: TodoEdit, report: Report): MenuSpec {
+  const w = edit.todos && waitingChange(ts, edit.todos);
+  return w ? [{ label: w.label, run: () => toggleWaiting(ts, edit, report) }] : [];
+}
+
+/** The Due date submenu: the days `dueChoices` offers, any day in the panel's picker (for one
+ *  todo), and taking it off. A day is checked when every todo is due then. */
+function dueItem(ts: Todo[], edit: TodoEdit): MenuGroup {
+  const set = (due: string | null) => ts.forEach((t) => edit.run({ op: 'update', id: t.id, patch: { due } }));
+  const same = ts.every((t) => t.due === ts[0].due) ? ts[0].due : null;
+  const pick = edit.pickDate;
+  return {
+    label: 'Due date',
+    items: [
+      ...dueChoices(Date.now()).map((c) => ({ label: c.label, checked: same === c.due, run: () => set(c.due) })),
+      ...(ts.length === 1 && pick ? [{ label: 'Pick a date…', run: () => pick(ts[0]) }] : []),
+      ...(ts.some((t) => t.due) ? ['separator' as const, { label: ts.length === 1 ? 'Remove due date' : 'Remove due dates', run: () => set(null) }] : []),
+    ],
+  };
+}
+
+/** Labels: each one, checked where the todo wears it, putting it on or taking it off. */
+function labelsItems(t: Todo, edit: TodoEdit): MenuSpec {
+  const labels = edit.labels;
+  if (!labels) return [];
+  const items = labels.map((l) => ({
+    label: l.name,
+    checked: t.labels.includes(l.id),
+    run: () => edit.run({ op: 'update', id: t.id, patch: { labels: t.labels.includes(l.id) ? t.labels.filter((x) => x !== l.id) : [...t.labels, l.id] } }),
+  }));
+  return [{ label: 'Labels', items }];
+}
+
+/** Move to project: the projects, the one it's in checked. */
+function projectItems(t: Todo, edit: TodoEdit): MenuSpec {
+  const projects = edit.projects;
+  if (!projects) return [];
+  return [{ label: 'Move to project', items: projects.map((p) => ({ label: p, checked: t.project === p, run: () => edit.run({ op: 'update', id: t.id, patch: { project: p } }) })) }];
+}
+
+/** Copy as prompt: the prompt the todos would start a session with, attachments as their paths. */
+function copyPromptItem(ts: Todo[], report: Report): MenuAction {
+  const what = ts.length > 1 ? 'todos as a prompt' : 'todo as a prompt';
+  const copy = () =>
+    expandAttachments(todosPrompt(ts)).then(
+      (text) =>
+        navigator.clipboard.writeText(text).then(
+          () => report.info(`Copied the ${what}.`),
+          () => report.error(`Couldn't copy the ${what}.`),
+        ),
+      (e: unknown) => report.error(errorText(e)),
+    );
+  return { label: 'Copy as prompt', run: () => void copy() };
+}
+
 export interface TodoCan {
   report: Report;
   /** Start session…: the quick panel on its prompt. */
@@ -480,21 +572,19 @@ export interface TodoCan {
   session?: { lane: Lane; session: Session; open: () => void };
   /** Shows it in the main window, from the other windows. */
   reveal?: () => void;
-  /** Its status, labels and project, where the todos are kept (the main window). */
-  edit?: MenuSpec;
+  /** Changing its status, waiting, due date, labels and project, as far as the window can. */
+  edit?: TodoEdit;
   /** What's on the desktop, as `ref:key`, for Pin to desktop. */
   desktop?: ReadonlySet<string>;
-  /** Copy as prompt: its prompt, attachments as their paths. */
-  copyPrompt?: () => void;
   canvas?: MenuSpec;
-  /** Delete todo. */
+  /** Delete todo, where it can be put back (the main window's undo). */
   remove?: () => void;
 }
 
-/** A todo's menu: starting a session for it, opening its session, showing it; the window's own
- *  (status, labels, project); pinning it; copying it; deleting it. */
-export function todoMenu(id: string, can: TodoCan): MenuSpec {
-  const { report } = can;
+/** A todo's menu: starting a session for it, opening its session, showing it; its status,
+ *  waiting, due date, labels and project; pinning it; copying it; deleting it. */
+export function todoMenu(t: Todo, can: TodoCan): MenuSpec {
+  const { report, edit } = can;
   const s = can.session;
   return sections(
     [
@@ -502,9 +592,27 @@ export function todoMenu(id: string, can: TodoCan): MenuSpec {
       ...(s ? [{ label: `Open ${s.session.account}: ${s.session.title.slice(0, 48)}`, run: s.open }] : []),
       ...(can.reveal ? [{ label: 'Show in Codealong', run: can.reveal }] : []),
     ],
-    can.edit ?? [],
-    can.desktop ? [desktopItem('todo', id, can.desktop, report)] : [],
-    [...(can.copyPrompt ? [{ label: 'Copy as prompt', run: can.copyPrompt }] : []), ...some(copyItem('Copy todo ID', id, 'todo ID', report)), ...(can.canvas ?? [])],
+    edit ? [...statusItems([t], edit), ...waitingItems([t], edit, report), 'separator', dueItem([t], edit), ...labelsItems(t, edit), ...projectItems(t, edit)] : [],
+    can.desktop ? [desktopItem('todo', t.id, can.desktop, report)] : [],
+    [copyPromptItem([t], report), ...some(copyItem('Copy todo ID', t.id, 'todo ID', report)), ...(can.canvas ?? [])],
     can.remove ? [{ label: 'Delete todo', run: can.remove }] : [],
   );
+}
+
+/** The menu of several todos picked together: one session for them all; their status, waiting
+ *  and due date; copying them; deleting them. */
+export function todosMenu(ts: Todo[], can: Pick<TodoCan, 'report' | 'start' | 'edit' | 'remove'>): MenuSpec {
+  const { report, edit } = can;
+  return sections(
+    [{ label: `Start one session for ${ts.length} todos…`, run: can.start }],
+    edit ? [...statusItems(ts, edit), ...waitingItems(ts, edit, report), dueItem(ts, edit)] : [],
+    [copyPromptItem(ts, report), ...some(copyItem('Copy todo IDs', ts.map((t) => t.id).join(' '), 'todo IDs', report))],
+    can.remove ? [{ label: `Delete ${ts.length} todos`, run: can.remove }] : [],
+  );
+}
+
+/** The todo panel's ⋯ menu: what the panel has no control for. */
+export function todoPanelMenu(t: Todo, can: Pick<TodoCan, 'report' | 'edit' | 'remove'>): MenuSpec {
+  const { report, edit } = can;
+  return sections([...(edit ? projectItems(t, edit) : []), copyPromptItem([t], report), ...some(copyItem('Copy todo ID', t.id, 'todo ID', report))], can.remove ? [{ label: 'Delete todo', run: can.remove }] : []);
 }

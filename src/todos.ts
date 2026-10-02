@@ -152,6 +152,55 @@ export function waitsOnTodos(todo: Todo, todos: Todo[]): Todo[] {
   return depsOf(todo).flatMap((d) => todos.find((t) => t.id === d) ?? []);
 }
 
+/** The projects a todo can be in: every one but Elsewhere, which holds folders outside your
+ *  projects. */
+export function todoProjects(projects: { name: string }[]): string[] {
+  return projects.filter((p) => p.name !== 'Elsewhere').map((p) => p.name);
+}
+
+/** What Mark as waiting or Stop waiting does to todos, from a menu or W in the Todo view. */
+export interface WaitingChange {
+  /** The item's name: Mark as waiting, else Stop waiting, on what it waits on when that's one
+   *  todo not started. */
+  label: string;
+  ops: TodoOp[];
+  /** What puts back what stopping changed; nothing when it marked them. */
+  undo: TodoOp[];
+  /** What stopping changed, in a sentence; null when it marked them. */
+  said: string | null;
+}
+
+/**
+ * Moving todos into Waiting by hand, or back out (`todos` is every todo, since what one waits on
+ * is others). Any not done and not under Waiting are marked; when all are, stopping ends each
+ * one's mark and its waits on todos that aren't done, so it's ready at once. Null when they're
+ * all done.
+ */
+export function waitingChange(list: Todo[], todos: Todo[]): WaitingChange | null {
+  const ts = list.filter((t) => t.status !== 'done');
+  if (ts.length === 0) return null;
+  const out = ts.filter((t) => sectionOf(t, todos) !== 'waiting');
+  if (out.length > 0) return { label: 'Mark as waiting', ops: out.map((t): TodoOp => ({ op: 'update', id: t.id, patch: { waiting: { note: '', since: 0 } } })), undo: [], said: null };
+  // One an agent is on leaves Waiting with its mark; one not started, only once it waits on
+  // nothing.
+  const stopped = ts.map((t) => {
+    const open = t.status === 'todo' ? blockedBy(t, todos) : [];
+    const dependsOn = depsOf(t).filter((d) => !open.some((o) => o.id === d));
+    const op: TodoOp = { op: 'update', id: t.id, patch: { waiting: null, ...(open.length > 0 ? { dependsOn } : {}) } };
+    const undo: TodoOp = { op: 'update', id: t.id, patch: { waiting: t.waiting ?? null, dependsOn: depsOf(t) } };
+    return { t, open, op, undo };
+  });
+  const [{ t, open }] = stopped;
+  const on = open.length === 0 ? '' : open.length === 1 ? ` on “${open[0].title || 'Untitled'}”` : ` on ${open.length} todos`;
+  const label = stopped.length > 1 || t.waiting || open.length === 0 ? 'Stop waiting' : open.length === 1 ? `Stop waiting on “${snippet(open[0].title || 'Untitled', 44)}”` : `Stop waiting on ${open.length} todos`;
+  return {
+    label,
+    ops: stopped.map((x) => x.op),
+    undo: stopped.map((x) => x.undo),
+    said: stopped.length === 1 ? `“${t.title || 'Untitled'}” no longer waits${on}.` : `${stopped.length} todos no longer wait.`,
+  };
+}
+
 /** The todos that wait on `todo`, in list order. */
 export function dependents(todo: Todo, todos: Todo[]): Todo[] {
   return todos.filter((t) => t.id !== todo.id && depsOf(t).includes(todo.id));
