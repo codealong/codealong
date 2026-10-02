@@ -1,0 +1,214 @@
+{
+  "about": "A session's conversation with one of everything in it, and a call that waits to be allowed: style-scenes.mjs answers session_page and session_pending with it for any session. `ago` is minutes before now.",
+  "page": {
+    "items": [
+      {
+        "kind": "note",
+        "text": "Compacted the conversation",
+        "failed": false,
+        "cursor": 0,
+        "n": 0,
+        "ago": 20
+      },
+      {
+        "kind": "you",
+        "text": "Make the retry wait for the paste to land.\n\nThe log is attached: [send.log](files/fedcba9876543210/send.log)",
+        "failed": false,
+        "cursor": 1,
+        "n": 0,
+        "ago": 19
+      },
+      {
+        "kind": "tool",
+        "text": "Read \u00b7 `src-tauri/src/send.rs`",
+        "failed": false,
+        "cursor": 2,
+        "n": 0,
+        "id": "t1",
+        "input": "src-tauri/src/send.rs",
+        "ago": 18
+      },
+      {
+        "kind": "result",
+        "text": "",
+        "failed": false,
+        "cursor": 3,
+        "n": 0,
+        "id": "t1",
+        "output": "pub fn send(key: &str, text: &str) -> Result<Sent, String> {\n    let route = routes(key).into_iter().next().ok_or(\"no way in\")?;\n    route.send(text)\n}",
+        "ago": 17
+      },
+      {
+        "kind": "tool",
+        "text": "Bash \u00b7 `cargo test send`",
+        "failed": false,
+        "cursor": 4,
+        "n": 0,
+        "id": "t2",
+        "input": "cargo test send -- --nocapture",
+        "shell": true,
+        "cwd": "/Users/you/projects/widgets",
+        "ago": 16
+      },
+      {
+        "kind": "result",
+        "text": "",
+        "failed": true,
+        "cursor": 5,
+        "n": 0,
+        "id": "t2",
+        "output": "running 3 tests\ntest send::retries ... FAILED\nsee https://example.com/logs/123 for the run\n\nerror: test failed",
+        "ago": 15
+      },
+      {
+        "kind": "tool",
+        "text": "Edit \u00b7 `src-tauri/src/send.rs`",
+        "failed": false,
+        "cursor": 6,
+        "n": 0,
+        "id": "t3",
+        "input": "-    route.send(text)\n+    retry(3, || route.send(text))",
+        "ago": 14
+      },
+      {
+        "kind": "result",
+        "text": "",
+        "failed": false,
+        "cursor": 7,
+        "n": 0,
+        "id": "t3",
+        "output": "Edited 1 file",
+        "ago": 13
+      },
+      {
+        "kind": "you",
+        "text": "Stop, use two tries.",
+        "failed": false,
+        "cursor": 8,
+        "n": 0,
+        "withdrawn": true,
+        "ago": 12
+      },
+      {
+        "kind": "tool",
+        "text": "Asks you \u00b7 Which route first?",
+        "failed": false,
+        "cursor": 9,
+        "n": 0,
+        "id": "t4",
+        "questions": [
+          {
+            "question": "Which route first?",
+            "header": "Route",
+            "options": [
+              {
+                "label": "Typed",
+                "description": "Into the terminal's tab"
+              },
+              {
+                "label": "Socket",
+                "description": "The session's own socket"
+              }
+            ]
+          },
+          {
+            "question": "Which shells should it cover?",
+            "options": [
+              {
+                "label": "zsh"
+              },
+              {
+                "label": "bash"
+              },
+              {
+                "label": "fish"
+              }
+            ],
+            "multiSelect": true
+          }
+        ],
+        "ago": 11
+      },
+      {
+        "kind": "result",
+        "text": "",
+        "failed": false,
+        "cursor": 10,
+        "n": 0,
+        "id": "t4",
+        "answers": {
+          "Which route first?": [
+            "Typed"
+          ],
+          "Which shells should it cover?": [
+            "zsh",
+            "A shell of my own"
+          ]
+        },
+        "ago": 10
+      },
+      {
+        "kind": "tool",
+        "text": "Artifact \u00b7 publish",
+        "failed": false,
+        "cursor": 11,
+        "n": 0,
+        "id": "t5",
+        "input": "retry-notes.html",
+        "ago": 9
+      },
+      {
+        "kind": "result",
+        "text": "",
+        "failed": false,
+        "cursor": 12,
+        "n": 0,
+        "id": "t5",
+        "output": "Published",
+        "link": {
+          "url": "https://claude.ai/artifact/example",
+          "title": "Retry notes",
+          "note": "Updated \u00b7 version 2"
+        },
+        "ago": 8
+      },
+      {
+        "kind": "agent",
+        "text": "# Retry\n\n## What changed\n\nThe retry now waits for the **paste to land** before pressing Return, and gives up after *three* tries. See `send.rs` and [the earlier fix](https://github.com/example/widgets/pull/12).\n\n### Steps\n\n1. Read the tab's mark.\n2. Paste, then check the box holds the text.\n3. Press Return.\n\n- A paste that didn't land is typed again.\n- One that landed twice is cleared first.\n\n> Messages to one session arrive in the order you sent them.\n\n```bash\ncargo test send -- --nocapture\n```\n\n```ts\nexport function waitingAfter(list: string[], key: string): string | null {\n  return list[list.indexOf(key) + 1] ?? null;\n}\n```\n\n| Route | Waits | Tries |\n| :--- | :-: | ---: |\n| Typed | 2 s | 3 |\n| Socket | none | 1 |\n\n---\n\n#### Left for later\n\nNothing here stops a turn that is already running.",
+        "failed": false,
+        "cursor": 13,
+        "n": 0,
+        "ago": 7
+      },
+      {
+        "kind": "you",
+        "text": "And the socket route?",
+        "failed": false,
+        "cursor": 14,
+        "n": 0,
+        "ago": 6
+      },
+      {
+        "kind": "tool",
+        "text": "Bash \u00b7 `git push`",
+        "failed": false,
+        "cursor": 15,
+        "n": 0,
+        "id": "t6",
+        "input": "git push origin HEAD:main",
+        "shell": true,
+        "ago": 5
+      }
+    ],
+    "before": null,
+    "after": 16
+  },
+  "pending": {
+    "id": "t6",
+    "label": "Bash \u00b7 `git push origin HEAD:main`",
+    "input": "git push origin HEAD:main",
+    "cannot": null,
+    "always": true,
+    "alwaysRule": "Allow git push in this folder from now on."
+  }
+}

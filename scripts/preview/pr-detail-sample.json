@@ -1,0 +1,119 @@
+{
+  "about": "A PR's detail with reviews, comments, files and a description that has one of everything: style-scenes.mjs answers pr_detail with it for any PR. `ago` is minutes before now.",
+  "bodyHtml": "<h1>Retry</h1><h2>What</h2><p>Waits for a paste to <strong>land</strong> before pressing Return, with <code>retry(3, \u2026)</code> around the send. Follows <a href=\"https://github.com/example/widgets/pull/12\">#12</a>.</p><ul><li>Typed route: checks the box</li><li class=\"task-list-item\"><input type=\"checkbox\" disabled checked> Socket route: unchanged</li></ul><ol><li>Read the mark</li><li>Paste</li></ol><blockquote><p>Messages arrive in order.</p></blockquote><pre><code>cargo test send</code></pre><div class=\"highlight highlight-source-rust\"><pre>fn retry() {}</pre></div><table><thead><tr><th>Route</th><th>Tries</th></tr></thead><tbody><tr><td>Typed</td><td>3</td></tr></tbody></table><h3>Notes</h3><p><img src=\"logos/placeholder.svg\" alt=\"diagram\"></p><hr><details><summary>Log</summary><p>All passed.</p></details><h4>Later</h4><p>Nothing.</p>",
+  "mergeable": "CONFLICTING",
+  "commits": 4,
+  "reviews": [
+    {
+      "author": "reviewer-one",
+      "state": "APPROVED",
+      "ago": 60
+    },
+    {
+      "author": "reviewer-two",
+      "state": "CHANGES_REQUESTED",
+      "ago": 120
+    },
+    {
+      "author": "reviewer-three",
+      "state": "COMMENTED",
+      "ago": 150
+    }
+  ],
+  "requested": [
+    "reviewer-four"
+  ],
+  "comments": [
+    {
+      "id": "c1",
+      "author": "reviewer-two",
+      "body": "Three tries is too many when the tab is gone: give up at once then.",
+      "url": "https://github.com/example/widgets/pull/13#discussion_r1",
+      "path": "src-tauri/src/send.rs",
+      "resolved": false,
+      "mine": false,
+      "ago": 120
+    },
+    {
+      "id": "c2",
+      "author": "you",
+      "body": "Done in the next commit.",
+      "url": "https://github.com/example/widgets/pull/13#issuecomment-2",
+      "path": null,
+      "resolved": false,
+      "mine": true,
+      "ago": 121
+    },
+    {
+      "id": "c3",
+      "author": "reviewer-one",
+      "body": "Nit: name the constant.",
+      "url": null,
+      "path": "src-tauri/src/send.rs",
+      "resolved": true,
+      "mine": false,
+      "ago": 60
+    },
+    {
+      "id": "c4",
+      "author": "reviewer-three",
+      "body": "Does this cover Terminal too?",
+      "url": "https://github.com/example/widgets/pull/13#issuecomment-4",
+      "path": null,
+      "resolved": false,
+      "mine": false,
+      "ago": 150
+    },
+    {
+      "id": "c5",
+      "author": "reviewer-three",
+      "body": "And iTerm2?",
+      "url": "https://github.com/example/widgets/pull/13#issuecomment-5",
+      "path": null,
+      "resolved": false,
+      "mine": false,
+      "ago": 151
+    },
+    {
+      "id": "c6",
+      "author": "reviewer-one",
+      "body": "Looks right to me now.",
+      "url": "https://github.com/example/widgets/pull/13#issuecomment-6",
+      "path": null,
+      "resolved": false,
+      "mine": false,
+      "ago": 153
+    }
+  ],
+  "files": [
+    {
+      "path": "src-tauri/src/send.rs",
+      "status": "modified",
+      "additions": 12,
+      "deletions": 3,
+      "patch": "@@ -10,7 +10,9 @@ pub fn send(key: &str, text: &str) -> Result<Sent, String> {\n     let route = routes(key).into_iter().next().ok_or(\"no way in\")?;\n-    route.send(text)\n+    retry(3, || route.send(text))\n }\n"
+    },
+    {
+      "path": "src-tauri/src/retry.rs",
+      "status": "added",
+      "additions": 40,
+      "deletions": 0,
+      "patch": "@@ -0,0 +1,3 @@\n+pub fn retry<T>(n: usize, f: impl Fn() -> Result<T, String>) -> Result<T, String> {\n+    (0..n).find_map(|_| f().ok()).ok_or_else(|| \"gave up\".into())\n+}\n"
+    },
+    {
+      "path": "src-tauri/src/old_send.rs",
+      "status": "removed",
+      "additions": 0,
+      "deletions": 88,
+      "patch": null
+    },
+    {
+      "path": "docs/sending.md",
+      "status": "renamed",
+      "additions": 1,
+      "deletions": 1,
+      "patch": "@@ -1 +1 @@\n-# Send\n+# Sending\n"
+    }
+  ],
+  "moreFiles": true
+}
