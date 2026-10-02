@@ -892,6 +892,8 @@ light scan (no git, PRs or visitors).
 | `src/ui/useRowDrag.tsx` | Dragging rows in the lists and the quick panel: among the pinned ones (pin, reorder), down to the list (unpin), out of the window (the desktop) |
 | `src/` | The React UI, built from the design system's components and tokens; `lanes.ts` groups the board and mirrors the engine's status rules for the age filter; `pins.ts` keeps the pinned lists; `history.ts` the sessions you looked at, for going back and forward; `ahead.ts` shows sessions marked seen, archived, renamed or sent a message at once, in every window, until a board shows it; `prStatus.ts` and `ui/PrPills.tsx` say where a PR stands and which PRs are your move; `bar.ts`, `ui/Bar.tsx` and `ui/Notch.tsx` lay out the bar, floating or in the notch; `ui/Picker.tsx` is the quick panel's filterable menus; `ui/SettingsDialog.tsx` and `ui/AccountsSection.tsx` are Settings |
 | `scripts/preview.sh` | Headless preview against real data, for screenshots and scripted checks |
+| `src/styles/` | The stylesheets: `app.css` is the index, only `@import`s in cascade order with `tokens.css` first; the files several components share sit beside it (base elements, glyphs, cards, controls, chips, rows, nav, menus, trees, the dialog and panel shells), and each component's own styles next to it (`src/ui/Sidebar.css`). `styles.test.ts` keeps each class in one file, every styled class one the UI renders, and every file in the index once |
+| `scripts/preview/style-diff.mjs` | Records every scene's computed styles before and after a change to the stylesheets and compares them |
 | `design/tokens.json` | Design tokens; `npm run tokens` regenerates `src/styles/tokens.css` |
 
 ## License

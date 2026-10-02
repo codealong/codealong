@@ -433,8 +433,8 @@ some work is, answer with one.
   todos', and the todo panel's ⋯) takes how the window changes todos (`TodoEdit`): an item shows
   where the window has what it needs, so a card on the desktop has a todo's status and due date
   but not its labels.
-- Chips are one shape and size wherever they show (`--chip-radius`, 20 high, 11px text; the
-  Chips section of app.css says what each fill means), and one component a kind of thing in
+- Chips are one shape and size wherever they show (`--chip-radius`, 20 high, 11px text;
+  `src/styles/chips.css` says what each fill means), and one component a kind of thing in
   `ui/primitives.tsx`: `HarnessChip` an agent, `WorktreeChip` a worktree, `PrChip` a PR
   (`TodoChip` and `LabelChip` in `TodoBits.tsx`). A row's chips go in a `.ca-chips` lane, which
   never cuts one off: each shows whole or wraps out of sight, the last first, and a long name
@@ -448,12 +448,29 @@ some work is, answer with one.
 - A right-click (or ⌃-click) on a list's row opens its menu and doesn't select it
   (`primitives.tsx`'s `selects`); contextMenu.ts rings the row while the menu is up. A menu is
   built from the row it's for, never from the selection.
-- Styles: tokens in `design/tokens.json` (`npm run tokens`), colors only through CSS
-  variables. Dark values apply under `prefers-color-scheme` unless `data-theme` on the root
-  says otherwise; it comes from `theme` in config.toml, which also sets the app's native
-  appearance (window chrome, menus) in `lib.rs`. `src/styles/components.css` is the design
-  system's bundle; app styles go in `src/styles/app.css`. Icons are Tabler outline paths in
-  `src/ui/icons.ts`.
+- Styles: plain global CSS, every class named `ca-…` (not modules: names stay as they are, and
+  `scripts/preview/` selects by them). A component's styles go in a file beside it
+  (`src/ui/Sidebar.css` next to `Sidebar.tsx`; `src/App.css` is the main window's, and each
+  window has its own: Bar, Notch, Peek, Quick, DesktopPin, DesktopLines, CanvasView), and what
+  several share in `src/styles/`: `base.css` (elements, inline code, meta text, labels),
+  `glyphs.css`, `cards.css`, `controls.css` (buttons, fields, switches), `chips.css`, `rows.css`
+  (list rows, bays), `nav.css`, `menus.css`, `tree.css`, `dialog.css` and `panel.css` (the
+  dialog's and the right-hand panel's shells). Read those before styling something new.
+  `src/styles/app.css` is the one stylesheet code imports (in `main.tsx`), and holds only
+  `@import`s, `tokens.css` first: their order is the cascade (of two equally specific rules the
+  later wins), so a new file goes in at its place, not at the end, and moving one changes what
+  wins. `src/styles/styles.test.ts` fails when a class is defined (named alone) in two files,
+  when a rule in a component's file names none of its own classes (another file's class is
+  styled there only beside one of its own: `.ca-peek .ca-thread` lives in Peek.css), when a
+  `ca-` class styled is one nothing in `src/` spells (names built at run time are listed in its
+  `BUILT`), when a stylesheet isn't in the index exactly once or other code imports one, and when
+  `tokens.css` isn't what `npm run tokens` writes from `design/tokens.json`. After moving rules
+  or reordering the index, `scripts/preview/style-diff.mjs` (its header says how) records every
+  scene's computed styles from the build before and the build after and compares them, element
+  by element, light and dark. Colors only through CSS variables; dark values apply under
+  `prefers-color-scheme` unless `data-theme` on the root says otherwise; it comes from `theme` in
+  config.toml, which also sets the app's native appearance (window chrome, menus) in `lib.rs`.
+  Icons are Tabler outline paths in `src/ui/icons.ts`.
 - UI copy is sentence case and plain words. Comments explain why, in plain sentences.
 - `rustfmt` isn't installed here, so Rust formatting is unchecked; match the surrounding code.
 
@@ -1562,7 +1579,7 @@ Tauri and macOS (from the Tauri 2.11 and tao 0.35 sources)
   in a WKWebView set up like the app's (checked 2026-09-27), and 7 to 37 ms once it did it all
   inside its opening script.
 - WebKit hands an element's transform animation to the compositor but repaints a rotating path
-  inside an SVG every frame: the working glyph turns its whole `<svg>` instead (app.css). With the
+  inside an SVG every frame: the working glyph turns its whole `<svg>` instead (glyphs.css). With the
   bar's small feed, that took the bar's web process from 7.6% of a core to 0.7% (2026-09-25).
 - WebKit also slows a visible page's timers while its app isn't frontmost: the bar's 1 s timer
   ran a second late around the clock until the bar opted out (`background_throttling`).
