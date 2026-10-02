@@ -12,7 +12,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSPr
 import { below, showContextMenu, type MenuAction, type MenuSpec } from './contextMenu';
 import { useEditorIcons } from './editors';
 import { AGENT_BAY, homeOf, liveOrLatest, narrowed, rowItems, seenable, sessionPrs, worktreeRow, type BoardRow, type Filter, type WorktreeRow } from './lanes';
-import { answerLink, approvePr, barMode, getDevices, onDevices, dismissTodoHint, onBarMode, onCloseIdle, onNewWindow, onQuickStart, onReveal, onSettings, onCheckUpdates, openConfig, openProjectWindow, openUrl, refresh, refreshUsage, reviewInCodex, setBarMode, startOptions, startSession, setPinned, setPinnedPrs, setPinnedWorktrees, setTheme, showQuick, signIn, windowLabel, type BarMode, type Reveal } from './api';
+import { answerLink, approvePr, barMode, getDevices, onDevices, dismissTodoHint, onBarMode, onCloseIdle, onNewWindow, onReveal, onSettings, onCheckUpdates, openConfig, openProjectWindow, openUrl, refresh, refreshUsage, reviewInCodex, setBarMode, startOptions, startSession, setPinned, setPinnedPrs, setPinnedWorktrees, setTheme, showQuick, signIn, windowLabel, type BarMode, type Reveal } from './api';
 import { middleTruncate } from './format';
 import * as menus from './menus';
 import { prRefOf } from './prLinks';
@@ -56,13 +56,14 @@ import { clearNotice, keptDismissals, noticeId, reportNotice, shownNotices, useR
 import { Sidebar, type SideStatus } from './ui/Sidebar';
 import { loadSaved, newSavedId, onSavedChange, sameView, storeSaved, suggestName, type SavedView, type ViewState } from './savedViews';
 import { useNow } from './ui/useNow';
-import { errorText, type Report } from './report';
+import { errorText } from './report';
 import { historyChord, useSessionHistory } from './history';
 import { QUEUE_CHORDS, queueKey } from './queue';
 import { SESSION_READS, shownSession as queueShown, useWaitingQueue } from './useWaitingQueue';
 import { openWhere, where } from './open';
 import { asText, flag, oneOf, strings, useStored } from './stored';
 import { useBoard } from './useBoard';
+import { Toasts, useToasts } from './ui/Toasts';
 import { laneInQuery, prInFilter, prInQuery, sessionInFilter, sessionInQuery, useBoardLists } from './boardLists';
 import { inProject } from './quick';
 
@@ -207,13 +208,14 @@ export function App() {
   const [prPanelWidth, setPrPanelWidth] = usePanelWidth(PR_PANEL_WIDTH_KEY);
   const [todoPanelWidth, setTodoPanelWidth] = usePanelWidth(TODO_PANEL_WIDTH_KEY);
   const [sessionPanelWidth, setSessionPanelWidth] = usePanelWidth(SESSION_PANEL_WIDTH_KEY);
-  const [undo, setUndo] = useState<{ key: string; title: string } | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [showDonePrs, setShowDonePrs] = useState(false);
   // PRs being approved, by key: the button waits on GitHub.
   const [approving, setApproving] = useState<Set<string>>(() => new Set());
   const [showParked, setShowParked] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
+  // What went wrong with something you did here, what's under way, and the ways back (Toasts.tsx).
+  const toasts = useToasts();
+  const { setToast, track, report, setTodoUndo } = toasts;
   // What isn't working in the background (notices.ts): the engine's and this window's own,
   // less the ones dismissed, which stay dismissed across launches while they still stand.
   const reported = useReportedNotices();
@@ -258,26 +260,13 @@ export function App() {
     const laneId = at.laneId && shortOf(at.laneId) ? null : at.laneId;
     void showQuick({ ...at, laneId, project: projectNow.current, opener: windowLabel() });
   }, []);
-  // Opens and starts still waiting on their app: a spinner shows once one takes a moment.
-  const [busy, setBusy] = useState<{ id: number; label: string }[]>([]);
-  const busySeq = useRef(0);
   /** Marks sessions seen, shown at once; the engine turning it down puts them back and says why. */
-  const markSeen = useCallback((keys: string[]) => {
-    seenAhead(keys).catch((e: unknown) => setToast(errorText(e)));
-  }, []);
-  const track = useCallback(<T,>(label: string, work: Promise<T>): Promise<T> => {
-    const id = ++busySeq.current;
-    const timer = window.setTimeout(() => setBusy((b) => [...b, { id, label }]), 300);
-    const done = () => {
-      window.clearTimeout(timer);
-      setBusy((b) => b.filter((x) => x.id !== id));
-    };
-    work.then(done, done);
-    return work;
-  }, []);
-  /** How this window's menus say how things went (menus.ts): a toast, and the spinner while
-   *  something takes a moment. */
-  const report = useMemo<Report>(() => ({ error: setToast, info: setToast, busy: track }), [track]);
+  const markSeen = useCallback(
+    (keys: string[]) => {
+      seenAhead(keys).catch((e: unknown) => setToast(errorText(e)));
+    },
+    [setToast],
+  );
   const now = useNow(15_000);
   const searchRef = useRef<HTMLInputElement>(null);
   const gPending = useRef(false);
@@ -287,12 +276,6 @@ export function App() {
     window.addEventListener('focus', onFocus);
     return () => window.removeEventListener('focus', onFocus);
   }, []);
-
-  useEffect(() => {
-    if (!toast) return;
-    const id = window.setTimeout(() => setToast(null), 6000);
-    return () => window.clearTimeout(id);
-  }, [toast]);
 
   // The theme from config.toml, or the one just picked here until the board has it.
   const [pickedTheme, setPickedTheme] = useState<Theme | null>(null);
@@ -308,7 +291,7 @@ export function App() {
       setPickedTheme(null);
       setToast(String(e));
     });
-  }, []);
+  }, [setToast]);
 
   const pickProject = useCallback(
     (name: string) => {
@@ -352,7 +335,6 @@ export function App() {
   const [composer, setComposer] = useState<{ text: string; context: ComposerContext | null }>({ text: '', context: null });
   const composerRef = useRef<HTMLInputElement>(null);
   const [composerFocus, setComposerFocus] = useState(0);
-  const [todoUndo, setTodoUndo] = useState<{ message: string; icon?: string; undo: () => void } | null>(null);
 
   // What each view lists, from the board, the filters and the search (boardLists.ts).
   const {
@@ -449,11 +431,6 @@ export function App() {
     composerRef.current?.focus();
     composerRef.current?.select();
   }, [composerFocus]);
-  useEffect(() => {
-    if (!todoUndo) return;
-    const id = window.setTimeout(() => setTodoUndo(null), 8000);
-    return () => window.clearTimeout(id);
-  }, [todoUndo]);
 
   // Nothing is listed until the board is read, so nothing can be selected: not the other devices'
   // rows that come first.
@@ -552,7 +529,7 @@ export function App() {
       }
       open(row.lane, row.kind === 'agent' ? row.session.openTarget : row.lane.defaultTarget);
     },
-    [open, newSession],
+    [open, newSession, setToast],
   );
 
   /** Approves a PR as you, in one click. */
@@ -568,7 +545,7 @@ export function App() {
           return next;
         }),
       );
-  }, []);
+  }, [setToast]);
 
   const copy = useCallback((text: string | null | undefined, what: string) => {
     if (!text) return;
@@ -576,7 +553,7 @@ export function App() {
       .writeText(text)
       .then(() => setToast(`Copied the ${what}.`))
       .catch(() => setToast(`Couldn't copy the ${what}.`));
-  }, []);
+  }, [setToast]);
 
   const move = useCallback(
     (delta: number) => {
@@ -677,19 +654,17 @@ export function App() {
   };
 
   /** Archives a session (Codex threads in Codex itself), or unarchives it. */
-  const setArchived = useCallback((key: string, archived: boolean, title: string) => {
-    setUndo(archived ? { key, title } : null);
-    archiveAhead(key, archived).catch((e: unknown) => {
-      setUndo(null);
-      setToast(errorText(e));
-    });
-  }, []);
-
-  useEffect(() => {
-    if (!undo) return;
-    const id = window.setTimeout(() => setUndo(null), 8000);
-    return () => window.clearTimeout(id);
-  }, [undo]);
+  const setArchivedUndo = toasts.setArchived;
+  const setArchived = useCallback(
+    (key: string, archived: boolean, title: string) => {
+      setArchivedUndo(archived ? { key, title } : null);
+      archiveAhead(key, archived).catch((e: unknown) => {
+        setArchivedUndo(null);
+        setToast(errorText(e));
+      });
+    },
+    [setArchivedUndo, setToast],
+  );
 
   /** Opens the quick panel for a todo: in its worktree, with the todo as the prompt. */
   const startForTodo = useCallback(
@@ -1436,29 +1411,6 @@ export function App() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [visible, selected, pickedRows, selectedLane, startLaneId, move, open, openRow, copy, settings, previewFor, renaming, openSettings, newSession, startForTodo, startForTodos, view, setView, runQueue, markSeen, sessionPins, lanePins, prPins, pinnedRows, pinnedLaneRows, pinnedPrRows, shownBays, movePinnedSession, movePinnedLane, projects, pickProject, toggleSidebar, panelMax, togglePanelMax]);
-
-  // Starts this window asked the quick panel for. A spinner shows while the harness takes the
-  // session; then what's next. The new session isn't selected when it shows up: by then you may
-  // be reading another, and the panel stays on what you picked. A failed start brings the panel
-  // back with what you wrote and why.
-  useEffect(() => {
-    const timers = new Map<number, number>();
-    const off = onQuickStart((e) => {
-      if (e.phase === 'begin') {
-        timers.set(e.id, window.setTimeout(() => setBusy((b) => [...b, { id: e.id, label: e.label }]), 300));
-        return;
-      }
-      window.clearTimeout(timers.get(e.id));
-      timers.delete(e.id);
-      setBusy((b) => b.filter((x) => x.id !== e.id));
-      if (e.message) setToast(e.message);
-    });
-    return () => {
-      off();
-      timers.forEach((t) => window.clearTimeout(t));
-    };
-  }, []);
-
 
   const toggleBay = (f: Filter) => {
     setBayFilter((fs) => (fs.includes(f) ? fs.filter((x) => x !== f) : [...fs, f]));
@@ -2253,50 +2205,7 @@ export function App() {
       {closeIdle && <CloseIdleDialog onClose={() => setCloseIdle(false)} onDone={setToast} />}
       {previewLane && <PreviewDialog lane={previewLane} onClose={() => setPreviewFor(null)} />}
       {renamed && <RenameDialog lane={renamed.lane} session={renamed.session} onClose={() => setRenaming(null)} onFailed={setToast} />}
-      {busy.length > 0 && !toast && (
-        <div className="ca-toast is-busy" role="status" aria-live="polite">
-          <StatusGlyph status="working" size={14} title="In progress" />
-          <span>{busy[busy.length - 1].label}</span>
-        </div>
-      )}
-      {undo && !toast && busy.length === 0 && (
-        <div className="ca-toast" role="status">
-          <Icon name="archive" size={16} />
-          <span>Archived “{undo.title}”.</span>
-          <button
-            type="button"
-            className="ca-toast-action"
-            onClick={() => {
-              setArchived(undo.key, false, undo.title);
-              setUndo(null);
-            }}
-          >
-            Undo
-          </button>
-        </div>
-      )}
-      {todoUndo && !toast && !undo && busy.length === 0 && (
-        <div className="ca-toast" role="status">
-          <Icon name={todoUndo.icon ?? 'trash'} size={16} />
-          <span>{todoUndo.message}</span>
-          <button
-            type="button"
-            className="ca-toast-action"
-            onClick={() => {
-              todoUndo.undo();
-              setTodoUndo(null);
-            }}
-          >
-            Undo
-          </button>
-        </div>
-      )}
-      {toast && (
-        <div className="ca-toast" role="status" onClick={() => setToast(null)}>
-          <Icon name="alert" size={16} />
-          <span>{toast}</span>
-        </div>
-      )}
+      <Toasts state={toasts} onUnarchive={(u) => setArchived(u.key, false, u.title)} />
     </div>
   );
 }
