@@ -146,6 +146,7 @@ export function Peek({ kept = false }: { kept?: boolean }) {
         }
       };
       stop = onBoard(take);
+      // The board's pushes come too, so one that didn't read comes with the next.
       void getBoard().then(take, () => {});
     });
     return () => {
@@ -284,7 +285,7 @@ export function Peek({ kept = false }: { kept?: boolean }) {
     sizing.current = null;
     if (!d?.moved) return;
     cancelAnimationFrame(d.frame);
-    void (kept ? keptResize(d.to[0], d.to[1]) : peekResize(d.to[0], d.to[1]).then(keepSession)).catch(() => {});
+    void (kept ? keptResize(d.to[0], d.to[1]) : peekResize(d.to[0], d.to[1]).then(keepSession)).catch((e: unknown) => host.report.error(errorText(e)));
   };
 
   // The header drags the window, as a card's face drags a card: a kept session's as any window

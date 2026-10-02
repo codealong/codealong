@@ -79,11 +79,14 @@ import {
   settledPlace,
   remember,
   remembered,
+  START_OPTIONS_NOTICE,
+  startOptionsFailed,
   takesModel,
   withLists,
   type AgentOption,
   type AutoPick,
 } from '../start';
+import { clearNotice, failedNotice, reportNotice } from '../notices';
 import { duplicateOf, rankedBy, suggestions, sureness, todoTitle, worthRouting, type Suggestion } from '../route';
 import { dueWords } from '../due';
 import { liveOrLatest, sessionHomes } from '../lanes';
@@ -355,9 +358,10 @@ export function Quick() {
         .then((o) => {
           cachedOptions.current = { at: Date.now(), options: o };
           setOptions(o);
+          clearNotice(START_OPTIONS_NOTICE);
         })
-        // A failed read leaves the copy there is.
-        .catch(() => {})
+        // A failed read leaves the copy there is, and says so until a read works.
+        .catch((e: unknown) => reportNotice(startOptionsFailed(e)))
         .finally(() => {
           reading = false;
         });
@@ -407,8 +411,11 @@ export function Quick() {
       // follows them.
       if (b?.devices?.enabled)
         getDevices()
-          .then((d) => d && setDevices(d))
-          .catch(() => {});
+          .then((d) => {
+            if (d) setDevices(d);
+            clearNotice('quick-devices');
+          })
+          .catch((e: unknown) => reportNotice(failedNotice('quick-devices', 'Can’t read your other devices', 'The quick panel couldn’t read your other Macs, so it can’t start sessions there', e)));
     };
     const openNow = (by: 'script' | 'page', ctx: QuickOpen, b: Board | null) => {
       opening.current = by;
@@ -666,6 +673,7 @@ export function Quick() {
     const id = window.setTimeout(() => {
       searchText(textFor.split(' '))
         .then((found) => live && setTextSearch({ for: textFor, found }))
+        // What matches by title still shows, and the search is asked again as typing goes on.
         .catch(() => undefined);
     }, TEXT_AFTER_MS);
     return () => {

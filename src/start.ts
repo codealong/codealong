@@ -4,7 +4,15 @@
 // first (config.toml's `preferred`), so it keeps to the agents you'd rather use while they have
 // room. start.rs's `auto_pick` has the same rule for `codealong start`.
 
-import type { Meter, StartAccount, StartOptions, StartPlace, Usage } from './types';
+import { failedNotice } from './notices';
+import type { Meter, Notice, StartAccount, StartOptions, StartPlace, Usage } from './types';
+
+/** The notice while where each account can start a session can't be read (the main window's
+ *  Review with and the quick panel ask), which ends once it's read. */
+export const START_OPTIONS_NOTICE = 'start-options';
+export function startOptionsFailed(e: unknown): Notice {
+  return failedNotice(START_OPTIONS_NOTICE, 'Can’t read where sessions start', 'Couldn’t read where each account can start a session, so the last answer read stands', e);
+}
 
 /** An account's name, or `auto` for Auto. */
 export type Choice = string;

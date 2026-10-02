@@ -16,6 +16,7 @@ export function DesktopLines() {
     const stop = onLineageFeed(setFeed);
     getLineageFeed()
       .then((first) => setFeed((current) => current ?? first))
+      // The engine pushes the feed as it changes, so one that didn't read comes with the next.
       .catch(() => {});
     return stop;
   }, []);

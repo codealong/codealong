@@ -45,6 +45,7 @@ import { cx, Icon, Rich, StatusGlyph } from './primitives';
 import { QuestionList } from './QuestionList';
 import { RunContext, type RunPlace } from './RunButton';
 import { errorText } from '../report';
+import { clearNotice, failedNotice, reportNotice } from '../notices';
 
 /** Loads the page before once you're this close to the top. */
 const NEAR_TOP = 240;
@@ -324,6 +325,7 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
     let live = true;
     sessionStream(s.key)
       .then((st) => live && setStream(st))
+      // Only the reply ahead of its record: the record shows it once it's written.
       .catch(() => {});
     const off = onHostedStream((st) => {
       if (st.key !== s.key) return;
@@ -370,6 +372,7 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
     // The prompt before the first page, read back a page at a time.
     const lookBack = async (read: number, at: number | null) => {
       for (let i = 0; i < LOOK_BACK && at != null; i++) {
+        // Only a heading for the prompt before the first page; without it there's none.
         const p = await pageAt(s.key, at).catch(() => null);
         if (!p || read !== reading.current) return;
         const you = [...p.items].reverse().find((it) => it.kind === 'you');
@@ -403,19 +406,21 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
     const read = reading.current;
     if (!loaded || error || landed.current !== read) return;
     let live = true;
+    const notice = `conversation:${s.key}`;
     sessionNewer(s.key, after.current)
       .then((p) => {
+        clearNotice(notice);
         if (!live || read !== reading.current || p.items.length === 0) return;
         after.current = p.after;
         if (atEnd.current) anchor.current = { kind: 'end' };
         const fresh = new Set(p.items.map((it) => it.cursor));
         setItems((old) => [...old.filter((it) => !fresh.has(it.cursor)), ...p.items]);
       })
-      .catch(() => {});
+      .catch((e: unknown) => reportNotice(failedNotice(notice, 'A conversation isn’t updating', `Couldn’t read what’s new in “${s.title}”; it’s asked again as the session goes on`, e)));
     return () => {
       live = false;
     };
-  }, [s.lastActivity, s.status, loaded, error, s.key]);
+  }, [s.lastActivity, s.status, s.title, loaded, error, s.key]);
 
   useLayoutEffect(() => {
     const el = scroller.current;

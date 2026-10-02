@@ -195,6 +195,7 @@ export function useRowDrag(options: RowDragOptions) {
         d.active = true;
         document.documentElement.classList.add('ca-dragging');
         // The engine watches the pointer from here on, for when it leaves the window.
+        // The list's own drop still works without it; a drop past the window then pins no card.
         if (d.pin) void dragToDesktop(d.pin).catch(() => {});
         if (d.scroller && canOrder(d)) d.frame = requestAnimationFrame(scroll);
       }

@@ -57,6 +57,7 @@ export function useLiveSession(told: Told | null, shown: boolean): LiveSession {
   const up = shown && key !== null;
   useEffect(() => {
     if (!up) return;
+    // The board's pushes come while the card is up, so one that didn't read comes with the next.
     void getBoard().then(takeBoard, () => {});
     return onBoard((b) => {
       observe(boardView(b.generatedAt, [b.lanes]));

@@ -187,6 +187,7 @@ export function DevicesPane({ cfg, disabled, onSave, now }: DevicesPaneProps) {
                     void run('make', async () => {
                       const c = await deviceLinkCode();
                       setCode(c);
+                      // The code shows in words either way; the picture is for a phone's camera.
                       setQr(await linkCodeQr(c).catch(() => null));
                       return null;
                     })

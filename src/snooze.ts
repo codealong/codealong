@@ -56,9 +56,10 @@ export function snoozeChordIndex(key: string): number {
 }
 
 /** The Snooze submenu for sessions: the times, and Wake now for one that's snoozed already. With
- *  `chords` each time says its chord, where the window takes them. */
-export function snoozeMenu(keys: string[], now: number, opts: { label?: string; until?: number | null; onDone?: (act: Promise<void>) => void; chords?: boolean } = {}): MenuGroup {
-  const done = opts.onDone ?? ((act: Promise<void>) => void act.catch(() => {}));
+ *  `chords` each time says its chord, where the window takes them. `onDone` gets each snooze as
+ *  it goes, to say how it went the window's way. */
+export function snoozeMenu(keys: string[], now: number, opts: { label?: string; until?: number | null; onDone: (act: Promise<void>) => void; chords?: boolean }): MenuGroup {
+  const done = opts.onDone;
   const items: (MenuAction | 'separator')[] = snoozeChoices(now).map((c, i) => ({ label: c.label, run: () => done(snoozeAhead(keys, c.until)), ...(opts.chords && SNOOZE_CHORDS[i] ? { accelerator: SNOOZE_CHORDS[i] } : {}) }));
   if (opts.until) items.push('separator', { label: 'Wake now', run: () => done(snoozeAhead(keys, null)) });
   return { label: opts.label ?? (opts.until ? `Snoozed until ${untilWords(opts.until, now)}` : 'Snooze'), items };

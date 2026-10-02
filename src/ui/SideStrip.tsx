@@ -139,6 +139,8 @@ export function SideStrip({ session }: { session: Session }) {
   if (!side) return null;
   const close = () => {
     noteSide({ id: side.id, key, turns: [], running: false, ended: true });
+    // The strip lets it go either way. Closing one here can't fail (side.rs); only another device
+    // that doesn't answer can, and its copy goes on there whatever this window says.
     void sideClose(key).catch(() => {});
   };
   return (

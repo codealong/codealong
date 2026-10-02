@@ -400,6 +400,7 @@ export function Bar() {
     });
     getBarFeed()
       .then((first) => setFeed((current) => current ?? first))
+      // The engine pushes the feed as it changes, so one that didn't read comes with the next.
       .catch(() => {});
     return stop;
   }, []);
@@ -540,6 +541,7 @@ export function Bar() {
       () => {
         hoverTimer.current = null;
         hoverFor.current = null;
+        // A hover has nowhere to say a peek didn't open; the next hover asks again.
         void peekOpen(i.key, rectOf(el)).catch(() => {});
       },
       p.key ? PEEK_SWITCH_MS : PEEK_AFTER_MS,

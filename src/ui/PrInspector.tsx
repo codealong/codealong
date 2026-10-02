@@ -15,6 +15,7 @@ import { PrPills } from './PrPills';
 import { Button, cx, Icon } from './primitives';
 import { ChecksSummary, PrGlyph, prIsOpen, syncWords, type PrPlace, type PrRowItem } from './PrsView';
 import { errorText } from '../report';
+import { clearNotice, failedNotice, reportNotice } from '../notices';
 
 /** Details already fetched, by PR and last update, so going back to a PR is instant. */
 const cache = new Map<string, PrDetail>();
@@ -183,9 +184,10 @@ export function PrInspector({ item, now, approving, onApprove, onReview, onShowS
     prCommentAsks(pr.title, ask)
       .then((a) => {
         askCache.set(cacheKey, a);
+        clearNotice('jev-pr-comments');
         if (live) setAsks({ key: cacheKey, asks: a });
       })
-      .catch(() => {});
+      .catch((e: unknown) => reportNotice(failedNotice('jev-pr-comments', 'Jev can’t read PR comments', `Jev couldn’t say which comments on “${pr.title}” ask for something`, e)));
     return () => {
       live = false;
     };

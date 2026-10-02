@@ -2,6 +2,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import { watchCaret } from './caret';
+import { drawNoticesHere } from './notices';
 import { Bar } from './ui/Bar';
 import { DesktopLines } from './ui/DesktopLines';
 import { DesktopPin } from './ui/DesktopPin';
@@ -43,6 +44,9 @@ if (isQuick) document.documentElement.classList.add('is-quick');
 if (isPeek) document.documentElement.classList.add('is-peek');
 if (isDesktop) document.documentElement.classList.add('is-desktop');
 if (isLineage) document.documentElement.classList.add('is-lineage');
+// The board's windows draw the notices, at the end of the accounts bar: their own, and those the
+// other windows hand on.
+if (!isBar && !isQuick && !isPeek && !isDesktop && !isLineage) drawNoticesHere();
 
 createRoot(document.getElementById('root')!).render(<StrictMode>{isBar ? <Bar /> : isQuick ? <Quick /> : isPeek ? <Peek kept={isKept} /> : isDesktop ? <DesktopPin /> : isLineage ? <DesktopLines /> : <App />}</StrictMode>);
 

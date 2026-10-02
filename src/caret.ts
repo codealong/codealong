@@ -27,6 +27,8 @@ export function watchCaret(): void {
       pageUnfocused()
         .then(() => new Promise((r) => requestAnimationFrame(() => window.setTimeout(r, 50))))
         .then(() => perfMark(`typing into a text field WebKit had as unfocused: ${document.hasFocus() ? 'focused again' : 'still unfocused'} after the repair`))
+        // A repair that didn't go leaves the field as it was, and its line in the perf log is
+        // all this is for.
         .catch(() => {});
     },
     { capture: true },

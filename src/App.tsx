@@ -21,7 +21,7 @@ import { archiveAhead, boardAhead, boardView, lanesAhead, observe, seenAhead, us
 import { reuse } from './reuse';
 import { reorderPinned, usePins } from './pins';
 import { reviewLane, reviewPicks, reviewPrompt } from './review';
-import { remembered } from './start';
+import { remembered, START_OPTIONS_NOTICE, startOptionsFailed } from './start';
 import { COLOR_WORD, newTodo, pickTo, pickToggle, todoIndex, todoProjects, todoInFilter, todoInQuery, todoItem, todoPrompt, todosPrompt, todoSections, useTodoStore, type TodoItem, type TodoPick, type TodoSectionId } from './todos';
 import type { Bay, Board, DevicesView, Label, Lane, Pr, PrItem, Session, StartOptions, Theme, Todo, TodoStatus } from './types';
 import { byDevice, deviceOf, needsOn, shortOf, withDevices, workingOn, type DeviceFilter } from './devices';
@@ -53,7 +53,7 @@ import { useCanvas } from './canvas/useCanvas';
 import { ThemeSwitch, useTheme } from './ui/ThemeSwitch';
 import { UsageBar } from './ui/UsageBar';
 import { Notices } from './ui/Notices';
-import { keptDismissals, noticeId, shownNotices, useReportedNotices } from './notices';
+import { clearNotice, keptDismissals, noticeId, reportNotice, shownNotices, useReportedNotices } from './notices';
 import { Sidebar, type SideStatus } from './ui/Sidebar';
 import { loadSaved, newSavedId, onSavedChange, sameView, storeSaved, suggestName, type SavedView, type ViewState } from './savedViews';
 import { useNow } from './ui/useNow';
@@ -1264,10 +1264,12 @@ export function App() {
   const startOpts = useRef<StartOptions | null>(null);
   const loadStartOpts = useCallback(() => {
     startOptions()
-      .then((o) => (startOpts.current = o))
-      .catch(() => {
-        // Keeps the last answer.
-      });
+      .then((o) => {
+        startOpts.current = o;
+        clearNotice(START_OPTIONS_NOTICE);
+      })
+      // Keeps the last answer, and says so until a read works.
+      .catch((e: unknown) => reportNotice(startOptionsFailed(e)));
   }, []);
   useEffect(loadStartOpts, [loadStartOpts]);
   /** Review with…'s items for a PR: its review page in the Codex app, or a session on a review

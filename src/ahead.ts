@@ -567,6 +567,7 @@ export function sendAhead(s: Session, text: string, { toDraft = true, now = fals
   };
   const before = tails.get(key) ?? Promise.resolve();
   const flight = before
+    // Only waits for the one before, which says how it went itself.
     .catch(() => {})
     .then(() => {
       // One before it didn't go, so this one didn't either: it's in the box already.

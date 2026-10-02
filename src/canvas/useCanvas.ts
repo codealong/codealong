@@ -4,6 +4,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { canvasLoad, canvasSave } from '../api';
+import { clearNotice, failedNotice, reportNotice } from '../notices';
 import { addRef, emptyDoc, itemId, readDoc, refId, sync, tidy, type CanvasDoc, type Entities, type RefKind } from './model';
 
 const SAVE_AFTER_MS = 600;
@@ -44,7 +45,11 @@ export function useCanvas(project: string, shown: boolean, read: boolean, e: Ent
     window.clearTimeout(timer.current);
     const p = pending.current;
     pending.current = null;
-    if (p) canvasSave(p.project, p.doc).catch(() => {});
+    if (!p) return;
+    canvasSave(p.project, p.doc).then(
+      () => clearNotice('canvas'),
+      (e: unknown) => reportNotice(failedNotice('canvas', 'The canvas isn’t saving', `Couldn’t save the ${p.project} canvas; it saves again with the next change`, e)),
+    );
   }, []);
   const save = useCallback(
     (p: string, doc: CanvasDoc) => {

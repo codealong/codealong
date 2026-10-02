@@ -29,12 +29,13 @@ describe('snooze', () => {
   });
 
   it('offers Wake now for a session that is snoozed already, and says until when', () => {
-    const fresh = snoozeMenu(['k'], NOW);
+    const onDone = () => {};
+    const fresh = snoozeMenu(['k'], NOW, { onDone });
     expect(fresh.label).toBe('Snooze');
     expect(fresh.items.map((i) => (i === 'separator' ? '-' : i.label))).toEqual(['For 15 minutes', 'For 1 hour', 'For 3 hours', 'Until tomorrow 9 AM']);
-    const snoozed = snoozeMenu(['k'], NOW, { until: at(28, 15, 40) });
+    const snoozed = snoozeMenu(['k'], NOW, { until: at(28, 15, 40), onDone });
     expect(snoozed.label).toBe('Snoozed until 3:40 PM');
     expect(snoozed.items.slice(-2).map((i) => (i === 'separator' ? '-' : i.label))).toEqual(['-', 'Wake now']);
-    expect(snoozeMenu(['a', 'b'], NOW, { label: 'Snooze these' }).label).toBe('Snooze these');
+    expect(snoozeMenu(['a', 'b'], NOW, { label: 'Snooze these', onDone }).label).toBe('Snooze these');
   });
 });

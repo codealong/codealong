@@ -15,6 +15,7 @@ export function useUpdates(): UpdateView | null {
       .then((v) => {
         if (live && v) setView(v);
       })
+      // Where updates stand comes again with the next check, which the app pushes.
       .catch(() => {});
     const off = onUpdateStatus(setView);
     return () => {
