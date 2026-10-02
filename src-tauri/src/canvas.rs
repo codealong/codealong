@@ -4,15 +4,12 @@
 //! newer window's fields survive an older engine.
 
 use std::path::PathBuf;
-use std::sync::Mutex;
 
 use anyhow::{bail, Result};
 use serde_json::{Map, Value};
 
 use crate::config::support_dir;
-
-/// Windows save as you move things; this keeps two of them from interleaving a read and a write.
-static WRITING: Mutex<()> = Mutex::new(());
+use crate::store;
 
 pub fn path() -> PathBuf {
     support_dir().join("canvas.json")
@@ -25,22 +22,15 @@ pub fn load(project: &str) -> Result<Value> {
 
 /// Replaces a project's document, leaving the others as they are.
 pub fn save(project: &str, doc: Value) -> Result<()> {
-    let _held = WRITING.lock().unwrap_or_else(|e| e.into_inner());
+    // Windows save as you move things; the lock keeps two of them from interleaving a read and
+    // a write.
+    let _lock = store::lock(&path())?;
     let text = with_document(&read()?, project, doc)?;
-    std::fs::create_dir_all(support_dir())?;
-    let p = path();
-    let tmp = p.with_extension("json.tmp");
-    std::fs::write(&tmp, text)?;
-    std::fs::rename(&tmp, &p)?;
-    Ok(())
+    store::write(&path(), text)
 }
 
 fn read() -> Result<String> {
-    match std::fs::read_to_string(path()) {
-        Ok(t) => Ok(t),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
-        Err(e) => bail!("Couldn't read canvas.json: {e}"),
-    }
+    Ok(store::text(&path())?.unwrap_or_default())
 }
 
 fn document(text: &str, project: &str) -> Value {

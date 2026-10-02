@@ -60,14 +60,11 @@ impl Memory {
     }
 
     pub fn load() -> Memory {
-        std::fs::read_to_string(Self::path()).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
+        crate::store::read_or_default(&Self::path())
     }
 
     pub fn save(&self) {
-        if let Ok(text) = serde_json::to_string_pretty(self) {
-            let _ = std::fs::create_dir_all(crate::config::support_dir());
-            let _ = std::fs::write(Self::path(), text);
-        }
+        let _ = crate::store::save(&Self::path(), self);
     }
 
     /// The todos that look done now: answered for what's linked to them now, likely enough, and

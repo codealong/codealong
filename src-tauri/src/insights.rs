@@ -240,8 +240,8 @@ fn path() -> PathBuf {
 
 impl Store {
     pub fn load() -> Store {
-        let kept = std::fs::read_to_string(path()).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
-        Store { kept, ..Default::default() }
+        // Jev's answers can be asked for again: a file that doesn't read starts over.
+        Store { kept: crate::store::read_or_default(&path()), ..Default::default() }
     }
 
     /// The answer for a session, when it's for the moment the session is in.
@@ -284,11 +284,7 @@ impl Store {
         self.kept.retain(|_, k| now - k.seen_at < KEEP_MS);
         self.dirty = false;
         if let Ok(text) = serde_json::to_string(&self.kept) {
-            let _ = std::fs::create_dir_all(crate::config::support_dir());
-            let tmp = path().with_extension("json.tmp");
-            if std::fs::write(&tmp, text).is_ok() {
-                let _ = std::fs::rename(&tmp, path());
-            }
+            let _ = crate::store::write(&path(), text);
         }
     }
 }

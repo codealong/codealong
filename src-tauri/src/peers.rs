@@ -1383,34 +1383,26 @@ fn cache_path(dir: &Path) -> PathBuf {
 }
 
 fn load_linked(dir: &Path) -> Vec<Linked> {
-    #[derive(Deserialize)]
+    #[derive(Deserialize, Default)]
     struct File {
         #[serde(default)]
         linked: Vec<Linked>,
     }
-    std::fs::read_to_string(linked_path(dir)).ok().and_then(|t| serde_json::from_str::<File>(&t).ok()).map(|f| f.linked).unwrap_or_default()
+    crate::store::read_or_default::<File>(&linked_path(dir)).linked
 }
 
 fn save_linked(dir: &Path, linked: &[Linked]) {
     let text = serde_json::to_string_pretty(&json!({ "linked": linked })).unwrap_or_default();
-    write_atomic(&linked_path(dir), &text);
+    let _ = crate::store::write(&linked_path(dir), text);
 }
 
 fn load_cache(dir: &Path) -> HashMap<String, Cached> {
-    std::fs::read_to_string(cache_path(dir)).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
+    crate::store::read_or_default(&cache_path(dir))
 }
 
 fn save_cache(dir: &Path, cache: &HashMap<String, Cached>) {
     if let Ok(text) = serde_json::to_string(cache) {
-        write_atomic(&cache_path(dir), &text);
-    }
-}
-
-fn write_atomic(path: &Path, text: &str) {
-    let _ = std::fs::create_dir_all(path.parent().unwrap_or(Path::new(".")));
-    let tmp = path.with_extension("json.tmp");
-    if std::fs::write(&tmp, text).is_ok() {
-        let _ = std::fs::rename(&tmp, path);
+        let _ = crate::store::write(&cache_path(dir), text);
     }
 }
 

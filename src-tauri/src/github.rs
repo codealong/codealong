@@ -746,16 +746,8 @@ fn saved(dir: &Path, key: &str) -> Option<Saved> {
 
 /// Keeps an answer, in one step, readable only by you: it has private repos' PRs.
 fn save(dir: &Path, key: &str, stamp: &Stamp, answer: &str) {
-    use std::io::Write;
-    use std::os::unix::fs::OpenOptionsExt;
-    let path = saved_path(dir, key);
-    let part = path.with_extension(format!("{}.part", std::process::id()));
     let text = serde_json::json!({ "glance": stamp.glance, "at": stamp.at, "answer": answer }).to_string();
-    let _ = std::fs::create_dir_all(dir);
-    let wrote = std::fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(&part).and_then(|mut f| f.write_all(text.as_bytes()));
-    if wrote.and_then(|_| std::fs::rename(&part, &path)).is_err() {
-        let _ = std::fs::remove_file(&part);
-    }
+    let _ = crate::store::write_private(&saved_path(dir, key), text);
 }
 
 /// Says a kept answer still stands now.

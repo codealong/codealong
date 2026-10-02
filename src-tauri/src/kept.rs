@@ -48,15 +48,11 @@ struct Saved {
 
 impl Saved {
     fn load() -> Saved {
-        std::fs::read_to_string(support_dir().join("kept.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
+        crate::store::read_or_default(&support_dir().join("kept.json"))
     }
 
     fn save(&self) {
-        if std::fs::create_dir_all(support_dir()).is_ok() {
-            if let Ok(text) = serde_json::to_string_pretty(self) {
-                let _ = std::fs::write(support_dir().join("kept.json"), text);
-            }
-        }
+        let _ = crate::store::save(&support_dir().join("kept.json"), self);
     }
 }
 

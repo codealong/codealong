@@ -51,7 +51,7 @@ struct Cache {
 }
 
 fn load() -> Cache {
-    std::fs::read_to_string(cache_path()).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
+    crate::store::read_or_default(&cache_path())
 }
 
 fn save(cache: &mut Cache) {
@@ -63,8 +63,7 @@ fn save(cache: &mut Cache) {
         }
     }
     if let Ok(text) = serde_json::to_string(cache) {
-        let _ = std::fs::create_dir_all(crate::config::support_dir());
-        let _ = std::fs::write(cache_path(), text);
+        let _ = crate::store::write(&cache_path(), text);
     }
 }
 

@@ -411,11 +411,7 @@ pub fn write(cfg: &Config) -> Result<String> {
 
 /// Writes config.toml through a temporary file, so the watcher never reads half a file.
 fn write_atomic(text: &str) -> Result<()> {
-    let path = config_path();
-    let tmp = path.with_extension("toml.tmp");
-    std::fs::write(&tmp, text).with_context(|| format!("writing {}", tmp.display()))?;
-    std::fs::rename(&tmp, &path).with_context(|| format!("saving {}", path.display()))?;
-    Ok(())
+    crate::store::write(&config_path(), text)
 }
 
 pub const HARNESSES: [&str; 4] = ["claude", "codex", "opencode", "antigravity"];
