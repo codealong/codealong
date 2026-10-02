@@ -568,10 +568,10 @@ mod tests {
 
         let profiles = vec![
             chrome::Profile { id: "Dev".into(), name: "Dev".into(), dir: "Profile 3".into(), email: None },
-            chrome::Profile { id: "northwind.com".into(), name: "northwind.com".into(), dir: "Profile 12".into(), email: None },
+            chrome::Profile { id: "spruce.example".into(), name: "spruce.example".into(), dir: "Profile 12".into(), email: None },
         ];
         let u = Use { page: Some(Tab { id: 1, title: "Users".into(), url: "https://example.com/".into() }), profile: Some("Profile 12".into()), ..Default::default() };
-        assert_eq!(u.for_board(&profiles).unwrap().profile.as_deref(), Some("northwind.com"));
+        assert_eq!(u.for_board(&profiles).unwrap().profile.as_deref(), Some("spruce.example"));
         // With one profile there's no need to say which.
         assert_eq!(u.for_board(&profiles[1..]).unwrap().profile, None);
     }

@@ -342,14 +342,14 @@ mod tests {
     fn names_the_projects_in_your_order_for_the_bars_menu() {
         let b = Board {
             projects: serde_json::from_value(serde_json::json!([
-                { "name": "Northwind", "lanes": 3, "repos": [] },
-                { "name": "Kestrel", "lanes": 1, "repos": [] },
+                { "name": "Spruce", "lanes": 3, "repos": [] },
+                { "name": "Spur", "lanes": 1, "repos": [] },
                 { "name": "Elsewhere", "lanes": 2, "repos": [] }
             ]))
             .expect("projects"),
             ..Board::default()
         };
-        assert_eq!(feed(&b).projects, vec!["Northwind", "Kestrel", "Elsewhere"]);
+        assert_eq!(feed(&b).projects, vec!["Spruce", "Spur", "Elsewhere"]);
     }
 
     #[test]

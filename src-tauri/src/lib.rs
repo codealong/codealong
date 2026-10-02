@@ -1839,14 +1839,14 @@ mod tests {
 
     #[test]
     fn another_window_takes_the_first_free_label() {
-        assert_eq!(project_window_label("Kestrel"), "project-kestrel");
+        assert_eq!(project_window_label("Spur"), "project-spur");
         assert_eq!(project_window_label("All projects"), "project-all-projects");
-        assert_eq!(another_window_label("Kestrel", |_| false), "project-kestrel");
-        let open = ["project-kestrel", "project-kestrel:2"];
-        assert_eq!(another_window_label("Kestrel", |l| open.contains(&l)), "project-kestrel:3");
+        assert_eq!(another_window_label("Spur", |_| false), "project-spur");
+        let open = ["project-spur", "project-spur:2"];
+        assert_eq!(another_window_label("Spur", |l| open.contains(&l)), "project-spur:3");
         // A project whose own label looks like a second window's still gets its own.
-        assert_eq!(project_window_label("Kestrel 2"), "project-kestrel-2");
-        assert_ne!(another_window_label("Kestrel", |l| l == "project-kestrel"), project_window_label("Kestrel 2"));
+        assert_eq!(project_window_label("Spur 2"), "project-spur-2");
+        assert_ne!(another_window_label("Spur", |l| l == "project-spur"), project_window_label("Spur 2"));
     }
 
     #[test]
@@ -1859,14 +1859,14 @@ mod tests {
         let allowed = |label: &str| listed.iter().any(|w| *w == label || w.strip_suffix('*').is_some_and(|prefix| label.starts_with(prefix)));
         let card = format!("{}1", desktop::PREFIX);
         let kept = format!("{}1", kept::PREFIX);
-        for label in ["main", project_window_label("Kestrel").as_str(), bar::LABEL, peek::LABEL, quick::LABEL, card.as_str(), kept.as_str(), lineage::LABEL] {
+        for label in ["main", project_window_label("Spur").as_str(), bar::LABEL, peek::LABEL, quick::LABEL, card.as_str(), kept.as_str(), lineage::LABEL] {
             assert!(allowed(label), "{label} isn't in capabilities/default.json");
         }
     }
 
     #[test]
     fn menu_commands_go_only_to_windows_that_show_the_board() {
-        for label in ["main", project_window_label("Kestrel").as_str(), another_window_label("Kestrel", |l| l == "project-kestrel").as_str()] {
+        for label in ["main", project_window_label("Spur").as_str(), another_window_label("Spur", |l| l == "project-spur").as_str()] {
             assert!(shows_board(label), "{label}");
         }
         // These say they're key while they aren't, or never show a dialog.

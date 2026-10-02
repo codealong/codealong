@@ -109,7 +109,7 @@ mod tests {
         "profiles_order": ["Default", "Profile 12", "Profile 3", "Profile 4"],
         "info_cache": {
             "Profile 3": {"name": "Dev", "user_name": ""},
-            "Default": {"name": "Gordon", "user_name": "me@example.com"},
+            "Default": {"name": "Gwen", "user_name": "me@example.com"},
             "Profile 12": {"name": "Work", "user_name": "me@work.example"},
             "Profile 4": {"name": "dev"},
             "Profile 9": {"name": "Spare"}
@@ -125,7 +125,7 @@ mod tests {
         assert_eq!(all[2].email, None);
         // Two profiles share a name, so config.toml names each by its folder.
         let ids: Vec<&str> = all.iter().map(|p| p.id.as_str()).collect();
-        assert_eq!(ids, ["Gordon", "Work", "Profile 3", "Profile 4", "Spare"]);
+        assert_eq!(ids, ["Gwen", "Work", "Profile 3", "Profile 4", "Spare"]);
         assert!(parse("{}").is_empty());
         assert!(parse("not json").is_empty());
     }
@@ -140,7 +140,7 @@ mod tests {
         assert_eq!(dir("profile 3"), Some("Profile 3"));
         assert_eq!(dir("Default"), Some("Default"));
         assert_eq!(dir("Nope"), None);
-        assert!(resolve_in(&all, "Nope").unwrap_err().to_string().contains("Its profiles: Gordon, Work, Profile 3"));
+        assert!(resolve_in(&all, "Nope").unwrap_err().to_string().contains("Its profiles: Gwen, Work, Profile 3"));
         assert!(resolve_in(&[], "Work").unwrap_err().to_string().contains("no profiles"));
     }
 }

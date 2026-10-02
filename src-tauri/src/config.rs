@@ -992,9 +992,9 @@ mod tests {
                 AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: None, start: None, preferred: false, acp: None },
             ],
             projects: vec![ProjectCfg {
-                name: "Northwind".into(),
-                repos: vec!["github.com/northwindai/*".into()],
-                folders: vec!["~/projects/atlasai/osprey".into()],
+                name: "Spruce".into(),
+                repos: vec!["github.com/sprucehq/*".into()],
+                folders: vec!["~/projects/sparkhq/vault".into()],
                 chrome_profile: Some("Work".into()),
             }],
             jev: JevCfg { model: "jev-1.13.0".into(), quick_panel: true, sessions: false, todos: true, pull_requests: false },
@@ -1012,7 +1012,7 @@ mod tests {
     fn saving_accounts_keeps_the_rest_of_the_file() {
         let text = render(&Config {
             accounts: vec![AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: Some("claude".into()), start: None, preferred: false, acp: None }],
-            projects: vec![ProjectCfg { name: "Northwind".into(), repos: vec!["github.com/northwindai/*".into()], folders: vec![], chrome_profile: None }],
+            projects: vec![ProjectCfg { name: "Spruce".into(), repos: vec!["github.com/sprucehq/*".into()], folders: vec![], chrome_profile: None }],
             ..Config::default()
         });
         let text = text.replace("[apps]\n", "[apps]\n# my editor of choice\n");
@@ -1066,7 +1066,7 @@ mod tests {
         // A file written before there was a theme: no [appearance] table.
         let text = render(&Config {
             accounts: vec![AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: Some("claude".into()), start: None, preferred: false, acp: None }],
-            projects: vec![ProjectCfg { name: "Northwind".into(), repos: vec!["github.com/northwindai/*".into()], folders: vec![], chrome_profile: None }],
+            projects: vec![ProjectCfg { name: "Spruce".into(), repos: vec!["github.com/sprucehq/*".into()], folders: vec![], chrome_profile: None }],
             ..Config::default()
         });
         let start = text.find(APPEARANCE_COMMENT).unwrap();
@@ -1147,8 +1147,8 @@ mod tests {
                 AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: None, start: None, preferred: false, acp: None },
             ],
             projects: vec![
-                ProjectCfg { name: "Northwind".into(), repos: vec!["github.com/northwindai/*".into()], folders: vec!["~/projects/atlasai/osprey".into()], chrome_profile: None },
-                ProjectCfg { name: "Kestrel".into(), repos: vec!["github.com/kestrelhq/*".into()], folders: vec![], chrome_profile: None },
+                ProjectCfg { name: "Spruce".into(), repos: vec!["github.com/sprucehq/*".into()], folders: vec!["~/projects/sparkhq/vault".into()], chrome_profile: None },
+                ProjectCfg { name: "Spur".into(), repos: vec!["github.com/spurhq/*".into()], folders: vec![], chrome_profile: None },
             ],
             jev: JevCfg::default(),
             router: None,
@@ -1259,7 +1259,7 @@ mod tests {
     fn checks_what_the_form_and_the_text_can_save() {
         assert!(check(&full()).is_ok());
         let mut bad = full();
-        bad.projects[1].name = "Northwind".into();
+        bad.projects[1].name = "Spruce".into();
         assert!(check(&bad).unwrap_err().contains("Two projects"));
         let mut bad = full();
         bad.projects[0].repos.push(" ".into());
@@ -1325,14 +1325,14 @@ mod tests {
     #[test]
     fn suggests_projects_by_owner() {
         let mut owners = BTreeMap::new();
-        owners.insert("kestrelhq".to_string(), 3);
-        owners.insert("northwindai".to_string(), 9);
-        owners.insert("ghempton".to_string(), 2);
-        let names: BTreeMap<&str, &str> = [("northwindai", "Northwind"), ("kestrelhq", "Kestrel")].into();
+        owners.insert("spurhq".to_string(), 3);
+        owners.insert("sprucehq".to_string(), 9);
+        owners.insert("gwen".to_string(), 2);
+        let names: BTreeMap<&str, &str> = [("sprucehq", "Spruce"), ("spurhq", "Spur")].into();
         let p = suggest_projects(&owners, |o| names.get(o).map(|n| n.to_string()));
-        assert_eq!(p[0].name, "ghempton");
-        assert_eq!(p[1].name, "Northwind");
-        assert_eq!(p[2].name, "Kestrel");
-        assert_eq!(p[2].repos, vec!["github.com/kestrelhq/*".to_string()]);
+        assert_eq!(p[0].name, "gwen");
+        assert_eq!(p[1].name, "Spruce");
+        assert_eq!(p[2].name, "Spur");
+        assert_eq!(p[2].repos, vec!["github.com/spurhq/*".to_string()]);
     }
 }

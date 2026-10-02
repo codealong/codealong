@@ -1457,14 +1457,14 @@ mod tests {
         RegistryEntry {
             pid: 1,
             session_id: "abc1234567".into(),
-            cwd: "/r/atlas-quarry/apps/server".into(),
+            cwd: "/r/spark-portal/apps/server".into(),
             status: status.into(),
             kind: Some("interactive".into()),
             job_id: None,
             parked_job: None,
             spare: false,
             entrypoint: Some("cli".into()),
-            name: Some("atlas-quarry-8f".into()),
+            name: Some("spark-portal-8f".into()),
             name_source: Some("derived".into()),
             started_at: Some(NOW - 3_600_000),
             status_updated_at: Some(updated),
@@ -1475,8 +1475,8 @@ mod tests {
     fn tr() -> TranscriptInfo {
         TranscriptInfo {
             session_id: "abc1234567".into(),
-            cwd: "/r/atlas-quarry/apps/server".into(),
-            title: Some("Quarry daily log + photo sync".into()),
+            cwd: "/r/spark-portal/apps/server".into(),
+            title: Some("Portal daily log + photo sync".into()),
             pending_tool: Some("Bash · `yarn mikro-orm migration:up`".into()),
             last_tool: Some("running `yarn test`".into()),
             last_text: Some("Done.".into()),
@@ -1488,11 +1488,11 @@ mod tests {
     fn seed(path: &str, branch: &str) -> LaneSeed {
         LaneSeed {
             path: PathBuf::from(path),
-            project: "Northwind".into(),
-            repo: "atlas".into(),
-            repo_slug: Some("northwindai/atlas".into()),
-            head_owners: vec!["northwindai".into(), "ghempton".into()],
-            callsign: "quarry".into(),
+            project: "Spruce".into(),
+            repo: "spark".into(),
+            repo_slug: Some("sprucehq/spark".into()),
+            head_owners: vec!["sprucehq".into(), "gwen".into()],
+            callsign: "portal".into(),
             origin: Origin::Script,
             branch: Some(branch.into()),
             head: Some("0ef4ed2".into()),
@@ -1507,17 +1507,17 @@ mod tests {
         PrRaw {
             number: 1037,
             title: "Let the agent add and caption project photos".into(),
-            url: "https://github.com/northwindai/atlas/pull/1037".into(),
+            url: "https://github.com/sprucehq/spark/pull/1037".into(),
             state,
-            head_ref: "quarry".into(),
-            head_owner: Some("ghempton".into()),
+            head_ref: "portal".into(),
+            head_owner: Some("gwen".into()),
             head_oid: Some("0ef4ed2".into()),
             updated_at: NOW - 3_600_000,
             merged_at: if state == PrState::Merged { Some(NOW - 7_200_000) } else { None },
             closed_at: None,
             checks: Checks { passed: 11, failed, failing: (0..failed).map(|i| format!("check-{i}")).collect(), ..Default::default() },
             merge: Merge::Unknown,
-            author: Some("ghempton".into()),
+            author: Some("gwen".into()),
             base_ref: Some("main".into()),
             created_at: NOW - 86_400_000,
             additions: 120,
@@ -1532,26 +1532,26 @@ mod tests {
     fn lists_review_requests_in_repos_checked_out_only_on_their_default_branch() {
         let mut site = seed("/r/site", "main");
         site.repo = "site".into();
-        site.repo_slug = Some("northwindai/site".into());
-        let seeds = [seed("/r/atlas-quarry", "quarry"), site];
-        assert_eq!(polled_slugs(&seeds), BTreeSet::from(["northwindai/atlas".to_string()]));
+        site.repo_slug = Some("sprucehq/site".into());
+        let seeds = [seed("/r/spark-portal", "portal"), site];
+        assert_eq!(polled_slugs(&seeds), BTreeSet::from(["sprucehq/spark".to_string()]));
         let asked = |number: u64| PrRaw { number, review_requested: true, ..pr(PrState::Open, 0) };
         // The site's PRs were read before its last worktree left its branch: #5 has since been
         // reviewed, #7 still waits and is newer from the search. The repo read on its own keeps
         // its own word: the search's copy of #1037 doesn't count there.
         let prs = HashMap::from([
-            ("northwindai/atlas".to_string(), vec![pr(PrState::Open, 0)]),
-            ("northwindai/site".to_string(), vec![asked(5), PrRaw { title: "Old title".into(), ..asked(7) }]),
+            ("sprucehq/spark".to_string(), vec![pr(PrState::Open, 0)]),
+            ("sprucehq/site".to_string(), vec![asked(5), PrRaw { title: "Old title".into(), ..asked(7) }]),
         ]);
         let requested = HashMap::from([
-            ("northwindai/site".to_string(), vec![asked(7), asked(9)]),
-            ("northwindai/atlas".to_string(), vec![asked(1037)]),
+            ("sprucehq/site".to_string(), vec![asked(7), asked(9)]),
+            ("sprucehq/spark".to_string(), vec![asked(1037)]),
             ("acme/elsewhere".to_string(), vec![asked(3)]),
         ]);
         let mut got: Vec<(String, bool, String)> = pr_items(&seeds, &[], &prs, &requested, None, &PrLinks::default()).into_iter().map(|p| (p.key, p.review_requested, p.project)).collect();
         got.sort();
-        let want = [("northwindai/site#5", false), ("northwindai/site#7", true), ("northwindai/site#9", true), ("northwindai/atlas#1037", false)];
-        assert_eq!(got, want.map(|(k, r)| (k.to_string(), r, "Northwind".to_string())));
+        let want = [("sprucehq/site#5", false), ("sprucehq/site#7", true), ("sprucehq/site#9", true), ("sprucehq/spark#1037", false)];
+        assert_eq!(got, want.map(|(k, r)| (k.to_string(), r, "Spruce".to_string())));
         let items = pr_items(&seeds, &[], &prs, &requested, None, &PrLinks::default());
         assert_eq!(items.iter().find(|p| p.number == 7).map(|p| p.title.as_str()), Some("Let the agent add and caption project photos"));
     }
@@ -1561,18 +1561,18 @@ mod tests {
         compose(Inputs {
             now: NOW,
             apps: &AppNames::default(),
-            seeds: &[seed("/r/atlas-quarry", "quarry")],
+            seeds: &[seed("/r/spark-portal", "portal")],
             sessions: vec![session],
             visitors: &HashMap::new(),
             git: &HashMap::new(),
-            prs: &HashMap::from([("northwindai/atlas".to_string(), vec![pr(PrState::Open, 0)])]),
+            prs: &HashMap::from([("sprucehq/spark".to_string(), vec![pr(PrState::Open, 0)])]),
             requested: &HashMap::new(),
-            project_order: &["Northwind".to_string()],
+            project_order: &["Spruce".to_string()],
             notices: vec![],
             loading: false,
             github_at: None,
             pinned: &[],
-            github_login: Some("ghempton"),
+            github_login: Some("gwen"),
             pr_links: &PrLinks::default(),
             previews: &Previews::default(),
             reusable: &HashMap::new(),
@@ -1654,18 +1654,18 @@ mod tests {
     #[test]
     fn links_prs_to_the_worktrees_and_sessions_on_their_branch() {
         let apps = AppNames::default();
-        let mut s = seed("/r/atlas-quarry", "quarry");
-        s.repo_slug = Some("northwindai/atlas".into());
+        let mut s = seed("/r/spark-portal", "portal");
+        s.repo_slug = Some("sprucehq/spark".into());
         let seeds = vec![s];
         let a = acct("claude2");
         let mut on_branch = claude_session(&a, Some(&reg("idle", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
-        on_branch.branch = Some("quarry".into());
+        on_branch.branch = Some("portal".into());
         let mut elsewhere = on_branch.clone();
         elsewhere.key = "claude:claude2:other".into();
         elsewhere.branch = Some("app4".into());
-        let prs = HashMap::from([("northwindai/atlas".to_string(), vec![pr(PrState::Open, 0)])]);
+        let prs = HashMap::from([("sprucehq/spark".to_string(), vec![pr(PrState::Open, 0)])]);
         let (git, visitors) = (HashMap::new(), HashMap::new());
-        let order = vec!["Northwind".to_string()];
+        let order = vec!["Spruce".to_string()];
         let board = compose(Inputs {
             now: NOW,
             apps: &apps,
@@ -1680,37 +1680,37 @@ mod tests {
             loading: false,
             github_at: None,
             pinned: &[],
-            github_login: Some("ghempton"),
+            github_login: Some("gwen"),
             pr_links: &PrLinks::default(),
             previews: &Previews::default(),
             reusable: &HashMap::new(),
         });
         assert_eq!(board.prs.len(), 1);
         let p = &board.prs[0];
-        assert_eq!(p.key, "northwindai/atlas#1037");
+        assert_eq!(p.key, "sprucehq/spark#1037");
         assert!(p.mine);
-        assert_eq!(p.lanes, vec!["/r/atlas-quarry".to_string()]);
-        assert_eq!(p.sessions, vec![PrSession { key: on_branch.key, lane: "/r/atlas-quarry".into() }]);
-        assert_eq!(board.github_login.as_deref(), Some("ghempton"));
+        assert_eq!(p.lanes, vec!["/r/spark-portal".to_string()]);
+        assert_eq!(p.sessions, vec![PrSession { key: on_branch.key, lane: "/r/spark-portal".into() }]);
+        assert_eq!(board.github_login.as_deref(), Some("gwen"));
     }
 
     #[test]
     fn a_pr_the_board_doesnt_list_is_matched_in_the_project_repo_a_link_names() {
-        let seeds = vec![seed("/r/atlas-quarry", "quarry")];
+        let seeds = vec![seed("/r/spark-portal", "portal")];
         let a = acct("claude2");
         let mut maker = claude_session(&a, Some(&reg("idle", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
         maker.branch = Some("app4".into());
         let (git, visitors, prs) = (HashMap::new(), HashMap::new(), HashMap::new());
-        let order = vec!["Northwind".to_string()];
+        let order = vec!["Spruce".to_string()];
         let board = compose(Inputs { now: NOW, apps: &AppNames::default(), seeds: &seeds, sessions: vec![maker.clone()], visitors: &visitors, git: &git, prs: &prs, requested: &HashMap::new(), project_order: &order, notices: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new() });
         let old = pr(PrState::Merged, 0);
-        let links = PrLinks { worked: HashMap::from([("northwindai/atlas#1037".to_string(), vec![maker.key.clone()]), ("acme/tool#1037".to_string(), vec![maker.key.clone()])]), ..Default::default() };
-        let renamed = HashMap::from([("northwindai/atlas".to_string(), "Northwind/atlas".to_string())]);
+        let links = PrLinks { worked: HashMap::from([("sprucehq/spark#1037".to_string(), vec![maker.key.clone()]), ("acme/tool#1037".to_string(), vec![maker.key.clone()])]), ..Default::default() };
+        let renamed = HashMap::from([("sprucehq/spark".to_string(), "Spruce/spark".to_string())]);
         // In another case, or by the repo's name now: the project's repo, and the session its
         // records say made it.
-        for slug in ["NorthwindAI/Atlas", "northwind/atlas"] {
-            let item = pr_card(&seeds, &board.lanes, slug, &renamed, &old, Some("ghempton"), &links);
-            assert_eq!((item.key.as_str(), item.project.as_str(), item.repo.as_str()), ("northwindai/atlas#1037", "Northwind", "atlas"), "{slug}");
+        for slug in ["SpruceHQ/Spark", "spruce/spark"] {
+            let item = pr_card(&seeds, &board.lanes, slug, &renamed, &old, Some("gwen"), &links);
+            assert_eq!((item.key.as_str(), item.project.as_str(), item.repo.as_str()), ("sprucehq/spark#1037", "Spruce", "spark"), "{slug}");
             assert_eq!(item.sessions.iter().map(|x| x.key.as_str()).collect::<Vec<_>>(), vec![maker.key.as_str()], "{slug}");
             assert!(item.mine);
         }
@@ -1723,19 +1723,19 @@ mod tests {
 
     #[test]
     fn main_checkouts_and_reused_worktrees_are_reusable_unless_marked_otherwise() {
-        let main = LaneSeed { origin: Origin::Main, ..seed("/r/atlas", "app") };
-        let wt = seed("/r/atlas-app3", "app3");
+        let main = LaneSeed { origin: Origin::Main, ..seed("/r/spark", "app") };
+        let wt = seed("/r/spark-app3", "app3");
         let none = HashMap::new();
         assert!(reusable(&main, &none, None));
         assert!(!reusable(&wt, &none, None));
-        let marks = HashMap::from([("/r/atlas".to_string(), false), ("/r/atlas-app3".to_string(), true)]);
+        let marks = HashMap::from([("/r/spark".to_string(), false), ("/r/spark-app3".to_string(), true)]);
         assert!(!reusable(&main, &marks, None));
         assert!(reusable(&wt, &marks, None));
         // One that took new work three times or more has been reused, unless marked otherwise.
         let git = |n: u32| GitInfo { new_work_count: Some(n), ..Default::default() };
         assert!(reusable(&wt, &none, Some(&git(3))));
         assert!(!reusable(&wt, &none, Some(&git(2))));
-        assert!(!reusable(&wt, &HashMap::from([("/r/atlas-app3".to_string(), false)]), Some(&git(9))));
+        assert!(!reusable(&wt, &HashMap::from([("/r/spark-app3".to_string(), false)]), Some(&git(9))));
         // A plain folder, an app's chats and a repo outside your projects never are.
         let all = HashMap::from([("/r/notes".to_string(), true)]);
         assert!(!reusable(&LaneSeed { origin: Origin::Folder, ..seed("/r/notes", "x") }, &all, None));
@@ -1745,15 +1745,15 @@ mod tests {
 
     #[test]
     fn a_branch_that_carried_several_merged_prs_looks_reusable() {
-        let wt = seed("/r/atlas-app3", "app3");
+        let wt = seed("/r/spark-app3", "app3");
         let merged = |n: u64, owner: &str| PrRaw { number: n, head_ref: "app3".into(), head_owner: Some(owner.into()), ..pr(PrState::Merged, 0) };
-        let prs = |list: Vec<PrRaw>| HashMap::from([("northwindai/atlas".to_string(), list)]);
-        let two = prs(vec![merged(1, "ghempton"), merged(2, "ghempton")]);
+        let prs = |list: Vec<PrRaw>| HashMap::from([("sprucehq/spark".to_string(), list)]);
+        let two = prs(vec![merged(1, "gwen"), merged(2, "gwen")]);
         assert!(looks_reusable(&wt, false, None, &two));
         // A teammate's `app3` from their fork says the same of the name.
-        assert!(looks_reusable(&wt, false, None, &prs(vec![merged(1, "ghempton"), merged(2, "someone")])));
+        assert!(looks_reusable(&wt, false, None, &prs(vec![merged(1, "gwen"), merged(2, "someone")])));
         // One merged PR is a branch's usual life, and an open one hasn't landed.
-        assert!(!looks_reusable(&wt, false, None, &prs(vec![merged(1, "ghempton"), PrRaw { state: PrState::Open, ..merged(2, "ghempton") }])));
+        assert!(!looks_reusable(&wt, false, None, &prs(vec![merged(1, "gwen"), PrRaw { state: PrState::Open, ..merged(2, "gwen") }])));
         // One that has been reused is reusable already, so it isn't suggested.
         let git = |n: u32| GitInfo { new_work_count: Some(n), ..Default::default() };
         assert!(!looks_reusable(&wt, false, Some(&git(3)), &two));
@@ -1761,7 +1761,7 @@ mod tests {
         // Marked either way, or reusable already, it isn't suggested; nor is the default branch.
         assert!(!looks_reusable(&wt, true, Some(&git(9)), &two));
         assert!(!looks_reusable(&LaneSeed { origin: Origin::Main, ..wt.clone() }, false, Some(&git(9)), &two));
-        let on_main = |n| PrRaw { head_ref: "main".into(), ..merged(n, "ghempton") };
+        let on_main = |n| PrRaw { head_ref: "main".into(), ..merged(n, "gwen") };
         assert!(!looks_reusable(&LaneSeed { branch: Some("main".into()), ..wt.clone() }, false, None, &prs(vec![on_main(1), on_main(2)])));
     }
 
@@ -1793,7 +1793,7 @@ mod tests {
 
     #[test]
     fn a_reused_worktree_sets_aside_the_sessions_from_before_its_latest_work() {
-        let path = "/r/atlas-app3";
+        let path = "/r/spark-app3";
         let seeds = vec![seed(path, "app3")];
         let base = claude_session(&acct("claude"), Some(&reg("idle", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
         let at = |key: &str, status: Status, ago: i64| Session { key: key.into(), id: key.into(), cwd: path.into(), status, live: false, last_activity: NOW - ago, last_prompt_at: NOW - ago, ..base.clone() };
@@ -1802,7 +1802,7 @@ mod tests {
         let asked = at("c:asked", Status::Needs, 6 * 3_600_000);
         let fresh = at("c:fresh", Status::Idle, 60_000);
         let git = HashMap::from([(PathBuf::from(path), GitInfo { reset_at: Some(NOW - 2 * 3_600_000), base_ahead: Some(0), ..Default::default() })]);
-        let (visitors, prs, order) = (HashMap::new(), HashMap::new(), vec!["Northwind".to_string()]);
+        let (visitors, prs, order) = (HashMap::new(), HashMap::new(), vec!["Spruce".to_string()]);
         let board_with = |sessions: Vec<Session>, marks: &HashMap<String, bool>| {
             compose(Inputs {
                 now: NOW,
@@ -1846,21 +1846,21 @@ mod tests {
     #[test]
     fn a_session_working_in_a_worktree_from_the_checkout_goes_by_the_worktrees_branch() {
         let apps = AppNames::default();
-        let mut wt = seed("/r/atlas-quarry", "quarry");
-        wt.repo_slug = Some("northwindai/atlas".into());
-        let mut main = seed("/r/atlas", "main");
-        main.repo_slug = Some("northwindai/atlas".into());
+        let mut wt = seed("/r/spark-portal", "portal");
+        wt.repo_slug = Some("sprucehq/spark".into());
+        let mut main = seed("/r/spark", "main");
+        main.repo_slug = Some("sprucehq/spark".into());
         main.default_branch = Some("main".into());
         let seeds = vec![main, wt];
         let a = acct("claude2");
         // Started in the checkout on main, then made the worktree and did all its work there.
         let mut s = claude_session(&a, Some(&reg("idle", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
-        s.cwd = "/r/atlas".into();
+        s.cwd = "/r/spark".into();
         s.branch = Some("main".into());
-        s.work = vec!["/r/atlas-quarry".into(); 5];
-        let prs = HashMap::from([("northwindai/atlas".to_string(), vec![pr(PrState::Open, 0)])]);
+        s.work = vec!["/r/spark-portal".into(); 5];
+        let prs = HashMap::from([("sprucehq/spark".to_string(), vec![pr(PrState::Open, 0)])]);
         let (git, visitors) = (HashMap::new(), HashMap::new());
-        let order = vec!["Northwind".to_string()];
+        let order = vec!["Spruce".to_string()];
         let board = compose(Inputs {
             now: NOW,
             apps: &apps,
@@ -1880,17 +1880,17 @@ mod tests {
             previews: &Previews::default(),
             reusable: &HashMap::new(),
         });
-        assert_eq!(board.prs[0].sessions, vec![PrSession { key: s.key, lane: "/r/atlas-quarry".into() }]);
+        assert_eq!(board.prs[0].sessions, vec![PrSession { key: s.key, lane: "/r/spark-portal".into() }]);
     }
 
     #[test]
     fn a_long_lived_branch_holds_only_its_latest_pr() {
         let apps = AppNames::default();
-        let seeds = vec![seed("/r/atlas-quarry", "quarry")];
+        let seeds = vec![seed("/r/spark-portal", "portal")];
         let a = acct("claude2");
         let mut earlier = claude_session(&a, None, Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
         earlier.key = "claude:claude2:earlier".into();
-        earlier.branch = Some("quarry".into());
+        earlier.branch = Some("portal".into());
         earlier.started_at = Some(NOW - 8 * DAY_MS);
         earlier.last_activity = NOW - 6 * DAY_MS;
         let mut latest = earlier.clone();
@@ -1903,9 +1903,9 @@ mod tests {
         first.head_oid = Some("1111111".into());
         first.created_at = NOW - 10 * DAY_MS;
         first.merged_at = Some(NOW - 5 * DAY_MS);
-        let prs = HashMap::from([("northwindai/atlas".to_string(), vec![first, pr(PrState::Open, 0)])]);
+        let prs = HashMap::from([("sprucehq/spark".to_string(), vec![first, pr(PrState::Open, 0)])]);
         let (git, visitors) = (HashMap::new(), HashMap::new());
-        let order = vec!["Northwind".to_string()];
+        let order = vec!["Spruce".to_string()];
         let board = compose(Inputs {
             now: NOW,
             apps: &apps,
@@ -1926,8 +1926,8 @@ mod tests {
             reusable: &HashMap::new(),
         });
         let get = |n: u64| board.prs.iter().find(|p| p.number == n).unwrap();
-        let listed = |key: &str| PrSession { key: key.into(), lane: "/r/atlas-quarry".into() };
-        assert_eq!(get(1037).lanes, vec!["/r/atlas-quarry".to_string()]);
+        let listed = |key: &str| PrSession { key: key.into(), lane: "/r/spark-portal".into() };
+        assert_eq!(get(1037).lanes, vec!["/r/spark-portal".to_string()]);
         assert_eq!(get(1037).sessions, vec![listed(&latest.key)]);
         assert!(get(1015).lanes.is_empty(), "the worktree holds the newer PR, as the Worktrees view shows");
         assert_eq!(get(1015).sessions, vec![listed(&earlier.key)], "its sessions still show, under the worktree they ran in");
@@ -1936,13 +1936,13 @@ mod tests {
     #[test]
     fn prs_link_the_sessions_that_made_or_worked_in_their_worktree() {
         let apps = AppNames::default();
-        let scratch = "/private/tmp/claude-501/-r-osprey/abc12345-0000-0000-0000-000000000000/scratchpad/atlas-nx-cache";
-        let seeds = vec![seed("/r/osprey", "main"), seed(scratch, "nx-cache")];
+        let scratch = "/private/tmp/claude-501/-r-vault/abc12345-0000-0000-0000-000000000000/scratchpad/spark-nx-cache";
+        let seeds = vec![seed("/r/vault", "main"), seed(scratch, "nx-cache")];
         let a = acct("claude");
         let mut maker = claude_session(&a, Some(&reg("idle", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
         maker.id = "abc12345-0000-0000-0000-000000000000".into();
         maker.key = format!("claude:claude:{}", maker.id);
-        maker.cwd = "/r/osprey".into();
+        maker.cwd = "/r/vault".into();
         // A session records the branch of the folder it runs in, not the one it made.
         maker.branch = Some("main".into());
         let mut helper = maker.clone();
@@ -1954,9 +1954,9 @@ mod tests {
         earlier.started_at = Some(NOW - 3 * DAY_MS);
         earlier.last_activity = NOW - 2 * DAY_MS;
         let visitors = HashMap::from([(PathBuf::from(scratch), vec![helper.key.clone(), earlier.key.clone()])]);
-        let (git, order) = (HashMap::new(), vec!["Northwind".to_string()]);
+        let (git, order) = (HashMap::new(), vec!["Spruce".to_string()]);
         let board_with = |p: PrRaw| {
-            let prs = HashMap::from([("northwindai/atlas".to_string(), vec![PrRaw { head_ref: "nx-cache".into(), ..p }])]);
+            let prs = HashMap::from([("sprucehq/spark".to_string(), vec![PrRaw { head_ref: "nx-cache".into(), ..p }])]);
             compose(Inputs {
                 now: NOW,
                 apps: &apps,
@@ -2003,7 +2003,7 @@ mod tests {
         assert!(!stopped.live);
         assert_eq!(stopped.resume_command.as_deref(), Some("claude2 --resume abc1234567"));
         assert_eq!(stopped.open_target, "s|claude:claude2:abc1234567|resume");
-        assert_eq!(stopped.title, "Quarry daily log + photo sync");
+        assert_eq!(stopped.title, "Portal daily log + photo sync");
     }
 
     #[test]
@@ -2076,7 +2076,7 @@ mod tests {
         assert_eq!(stuck.status, Status::Needs);
         assert_eq!(stuck.stalled_since, Some(NOW - 3 * DAY_MS));
         assert_eq!(stuck.excerpt.as_deref(), Some(format!("Stuck on `gcloud auth login` for {{for:{}}}", NOW - 3 * DAY_MS).as_str()));
-        assert_eq!(session_headline(&stuck).0, "`claude2` is stuck · Quarry daily log + photo sync");
+        assert_eq!(session_headline(&stuck).0, "`claude2` is stuck · Portal daily log + photo sync");
         let silent = claude_session(&a, Some(&r), Some(&t), 0, NOW, &Quiet::default()).unwrap();
         assert!(silent.excerpt.as_deref().unwrap_or_default().starts_with("No activity for {for:"));
         // A subagent still writing its log keeps the session working.
@@ -2197,7 +2197,7 @@ mod tests {
         apply_insight(&mut s, &insight(|i| (i.background, i.background_p) = (Some("stalled".into()), Some(0.8))));
         assert_eq!(s.status, Status::Needs);
         assert!(s.stalled_since.is_some());
-        assert_eq!(session_headline(&s).0, "`claude2` is stuck · Quarry daily log + photo sync");
+        assert_eq!(session_headline(&s).0, "`claude2` is stuck · Portal daily log + photo sync");
     }
 
     #[test]
@@ -2240,12 +2240,12 @@ mod tests {
     fn a_background_command_that_sits_still_is_left_running() {
         let a = acct("claude2");
         let r = reg("shell", NOW - DAY_MS);
-        let login = "northwind login --host https://app.northwind.com";
+        let login = "spruce login --host https://app.spruce.example";
         let at = |active_at| Quiet { subagent_at: None, running: Some(login), background_active_at: Some(active_at) };
         let busy = claude_session(&a, Some(&r), Some(&tr()), 0, NOW, &at(NOW - 60_000)).unwrap();
         assert_eq!(busy.status, Status::Working);
         let left = claude_session(&a, Some(&r), Some(&tr()), 0, NOW, &at(NOW - BACKGROUND_QUIET_MS)).unwrap();
-        assert_eq!((left.status, left.excerpt.as_deref()), (Status::Unread, Some("Left running · `northwind login --host https://app.northwind.com`")));
+        assert_eq!((left.status, left.excerpt.as_deref()), (Status::Unread, Some("Left running · `spruce login --host https://app.spruce.example`")));
         assert_eq!(left.background.as_deref(), Some(login));
         let seen = claude_session(&a, Some(&r), Some(&tr()), NOW, NOW, &at(NOW - BACKGROUND_QUIET_MS)).unwrap();
         assert_eq!(seen.status, Status::Idle);
@@ -2452,10 +2452,10 @@ mod tests {
 
     #[test]
     fn assigns_sessions_to_the_deepest_lane() {
-        let seeds = vec![seed("/r/atlas", "app"), seed("/r/atlas/.claude/worktrees/bold-fermi-1ac421", "claude/bold-fermi")];
-        assert_eq!(best_seed(&seeds, Path::new("/r/atlas/.claude/worktrees/bold-fermi-1ac421/src")), Some(1));
-        assert_eq!(best_seed(&seeds, Path::new("/r/atlas/apps")), Some(0));
-        assert_eq!(best_seed(&seeds, Path::new("/r/atlas-app2")), None);
+        let seeds = vec![seed("/r/spark", "app"), seed("/r/spark/.claude/worktrees/bold-fermi-1ac421", "claude/bold-fermi")];
+        assert_eq!(best_seed(&seeds, Path::new("/r/spark/.claude/worktrees/bold-fermi-1ac421/src")), Some(1));
+        assert_eq!(best_seed(&seeds, Path::new("/r/spark/apps")), Some(0));
+        assert_eq!(best_seed(&seeds, Path::new("/r/spark-app2")), None);
     }
 
     #[test]
@@ -2498,18 +2498,18 @@ mod tests {
     fn work_in_an_apps_chats_does_not_keep_a_session_there() {
         let root = "/Users/me/Library/Application Support/Claude/scratch-workspaces";
         let chats = LaneSeed { project: ELSEWHERE.into(), origin: Origin::Folder, elsewhere: true, chats: true, ..seed(root, "main") };
-        let seeds = vec![seed("/r/atlas-infra", "main"), chats];
+        let seeds = vec![seed("/r/spark-infra", "main"), chats];
         let scratch = format!("{root}/a/b/scratch-2026-09-29-347017");
         let mut s = claude_session(&acct("claude"), Some(&reg("busy", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
         s.cwd = scratch.clone();
         s.work = vec![scratch.clone(), scratch.clone()];
         let at = |s: &Session| session_seed(&seeds, s).map(|i| seeds[i].path.to_string_lossy().into_owned());
         assert_eq!(at(&s).as_deref(), Some(root), "a chat with nowhere else to be");
-        s.cwd = "/r/atlas-infra".into();
-        assert_eq!(at(&s).as_deref(), Some("/r/atlas-infra"), "given a folder, it goes there, though its shell is still in the chat's");
+        s.cwd = "/r/spark-infra".into();
+        assert_eq!(at(&s).as_deref(), Some("/r/spark-infra"), "given a folder, it goes there, though its shell is still in the chat's");
         s.cwd = scratch.clone();
-        s.work.insert(0, "/r/atlas-infra".into());
-        assert_eq!(at(&s).as_deref(), Some("/r/atlas-infra"), "one that worked in a repo is about that repo");
+        s.work.insert(0, "/r/spark-infra".into());
+        assert_eq!(at(&s).as_deref(), Some("/r/spark-infra"), "one that worked in a repo is about that repo");
     }
 
     #[test]
@@ -2526,7 +2526,7 @@ mod tests {
         };
         let chat = session_in("chat", &format!("{root}/a/b/scratch-2026-09-28-045217"), "idle");
         let (git, prs, visitors) = (HashMap::new(), HashMap::new(), HashMap::new());
-        let order = vec!["Northwind".to_string()];
+        let order = vec!["Spruce".to_string()];
         let hidden = |sessions: Vec<Session>| {
             let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions, visitors: &visitors, git: &git, prs: &prs, requested: &HashMap::new(), project_order: &order, notices: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new() });
             let lane = |p: &str| board.lanes.iter().find(|l| l.path == p).unwrap().clone();
@@ -2548,7 +2548,7 @@ mod tests {
         s.cwd = "/r/codealong".into();
         s.work = vec!["/r/codealong-pins".into(); 3];
         let (git, prs, visitors) = (HashMap::new(), HashMap::new(), HashMap::new());
-        let order = vec!["Northwind".to_string()];
+        let order = vec!["Spruce".to_string()];
         let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![s], visitors: &visitors, git: &git, prs: &prs, requested: &HashMap::new(), project_order: &order, notices: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new() });
         let lane = |p: &str| board.lanes.iter().find(|l| l.path == p).unwrap();
         assert_eq!(lane("/r/codealong-pins").bay, Bay::Working);
@@ -2559,24 +2559,24 @@ mod tests {
 
     #[test]
     fn finds_prs_by_branch_and_owner() {
-        let s = seed("/r/atlas-quarry", "quarry");
+        let s = seed("/r/spark-portal", "portal");
         let mut prs = HashMap::new();
-        prs.insert("northwindai/atlas".to_string(), vec![pr(PrState::Approved, 0)]);
+        prs.insert("sprucehq/spark".to_string(), vec![pr(PrState::Approved, 0)]);
         assert_eq!(find_pr(&s, &prs, NOW).map(|p| p.number), Some(1037));
         let mut other_owner = pr(PrState::Open, 0);
         other_owner.head_owner = Some("stranger".into());
-        prs.insert("northwindai/atlas".to_string(), vec![other_owner]);
+        prs.insert("sprucehq/spark".to_string(), vec![other_owner]);
         assert!(find_pr(&s, &prs, NOW).is_none());
         let mut main = s.clone();
         main.branch = Some("main".into());
         assert!(find_pr(&main, &prs, NOW).is_none());
         let mut old = pr(PrState::Merged, 0);
         old.merged_at = Some(NOW - 8 * DAY_MS);
-        prs.insert("northwindai/atlas".to_string(), vec![old]);
+        prs.insert("sprucehq/spark".to_string(), vec![old]);
         assert!(find_pr(&s, &prs, NOW).is_none());
         let mut moved_on = pr(PrState::Merged, 0);
         moved_on.head_oid = Some("ffffff0".into());
-        prs.insert("northwindai/atlas".to_string(), vec![moved_on]);
+        prs.insert("sprucehq/spark".to_string(), vec![moved_on]);
         assert!(find_pr(&s, &prs, NOW).is_none(), "a reused branch drops its merged PR");
     }
 
@@ -2586,9 +2586,9 @@ mod tests {
         let needs = claude_session(&a, Some(&reg("waiting", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
         let working = claude_session(&a, Some(&reg("busy", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
         let unread = claude_session(&a, Some(&reg("idle", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
-        let open_pr = find_pr(&seed("/r", "quarry"), &HashMap::from([("northwindai/atlas".to_string(), vec![pr(PrState::Open, 0)])]), NOW);
-        let failing = find_pr(&seed("/r", "quarry"), &HashMap::from([("northwindai/atlas".to_string(), vec![pr(PrState::Open, 2)])]), NOW);
-        let merged = find_pr(&seed("/r", "quarry"), &HashMap::from([("northwindai/atlas".to_string(), vec![pr(PrState::Merged, 0)])]), NOW);
+        let open_pr = find_pr(&seed("/r", "portal"), &HashMap::from([("sprucehq/spark".to_string(), vec![pr(PrState::Open, 0)])]), NOW);
+        let failing = find_pr(&seed("/r", "portal"), &HashMap::from([("sprucehq/spark".to_string(), vec![pr(PrState::Open, 2)])]), NOW);
+        let merged = find_pr(&seed("/r", "portal"), &HashMap::from([("sprucehq/spark".to_string(), vec![pr(PrState::Merged, 0)])]), NOW);
         assert_eq!(bay_of(&[working.clone(), needs.clone()], None), (Bay::Needs, Status::Needs));
         // A PR that needs work doesn't make the worktree need you: its agents do.
         assert_eq!(bay_of(&[unread.clone()], failing.as_ref()), (Bay::Unread, Status::Unread));
@@ -2606,35 +2606,35 @@ mod tests {
         let needs = claude_session(&a, Some(&reg("waiting", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
         // One whose reply asks you something asks you; it isn't waiting for approval.
         let asking = Session { asks: true, excerpt: Some("Asks you · Want the PR?".into()), ..needs.clone() };
-        assert_eq!(session_headline(&asking), ("`claude2` asks you · Quarry daily log + photo sync".into(), Some("Want the PR?".into())));
+        assert_eq!(session_headline(&asking), ("`claude2` asks you · Portal daily log + photo sync".into(), Some("Want the PR?".into())));
         // So does one whose question is held through the plugin, though what you type doesn't
         // answer it.
         let held = Session { asks: false, excerpt: Some("Asks you · Which color?".into()), ..needs.clone() };
-        assert_eq!(session_headline(&held), ("`claude2` asks you · Quarry daily log + photo sync".into(), Some("Which color?".into())));
+        assert_eq!(session_headline(&held), ("`claude2` asks you · Portal daily log + photo sync".into(), Some("Which color?".into())));
         // Needs you with nothing to say: the title is in the headline, nothing under it.
-        assert_eq!(session_headline(&Session { excerpt: None, ..needs.clone() }), ("`claude2` needs you · Quarry daily log + photo sync".to_string(), None));
+        assert_eq!(session_headline(&Session { excerpt: None, ..needs.clone() }), ("`claude2` needs you · Portal daily log + photo sync".to_string(), None));
         // A finished turn is its title alone: its glyph and bay say it finished.
         let done = Session { status: Status::Unread, excerpt: Some("Pushed the fix".into()), ..needs.clone() };
-        assert_eq!(session_headline(&done), ("`claude2` · Quarry daily log + photo sync".to_string(), Some("Pushed the fix".to_string())));
+        assert_eq!(session_headline(&done), ("`claude2` · Portal daily log + photo sync".to_string(), Some("Pushed the fix".to_string())));
         assert_eq!(
             headline(Bay::Needs, &[needs], None, None),
-            ("`claude2` is waiting for approval · Quarry daily log + photo sync".to_string(), Some("Bash · `yarn mikro-orm migration:up`".to_string()))
+            ("`claude2` is waiting for approval · Portal daily log + photo sync".to_string(), Some("Bash · `yarn mikro-orm migration:up`".to_string()))
         );
         let working = claude_session(&a, Some(&reg("busy", NOW - 5_000)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
         let (h, d) = headline(Bay::Working, &[working], None, None);
-        assert_eq!(h, "`claude2` · Quarry daily log + photo sync");
+        assert_eq!(h, "`claude2` · Portal daily log + photo sync");
         assert_eq!(d, Some(format!("{{for:{}}} · running `yarn test`", NOW - 5_000)));
         // A message sent while it works restarts the clock.
         let nudged = TranscriptInfo { last_prompt_at: Some(NOW - 2_000), ..tr() };
         let working = claude_session(&a, Some(&reg("busy", NOW - 5_000)), Some(&nudged), 0, NOW, &Quiet::default()).unwrap();
         assert_eq!(headline(Bay::Working, &[working], None, None).1, Some(format!("{{for:{}}} · running `yarn test`", NOW - 2_000)));
-        let failing = find_pr(&seed("/r", "quarry"), &HashMap::from([("northwindai/atlas".to_string(), vec![pr(PrState::Open, 2)])]), NOW);
+        let failing = find_pr(&seed("/r", "portal"), &HashMap::from([("sprucehq/spark".to_string(), vec![pr(PrState::Open, 2)])]), NOW);
         assert_eq!(
             headline(Bay::Review, &[], failing.as_ref(), None),
             ("#1037 · checks failing".to_string(), Some("`check-0` · `check-1`".to_string()))
         );
         let review = |state: PrState, merge: Merge| {
-            let pr = find_pr(&seed("/r", "quarry"), &HashMap::from([("northwindai/atlas".to_string(), vec![PrRaw { merge, ..pr(state, 0) }])]), NOW);
+            let pr = find_pr(&seed("/r", "portal"), &HashMap::from([("sprucehq/spark".to_string(), vec![PrRaw { merge, ..pr(state, 0) }])]), NOW);
             headline(Bay::Review, &[], pr.as_ref(), None)
         };
         assert_eq!(review(PrState::Approved, Merge::Clean), ("#1037 approved · ready to merge".to_string(), Some("11 checks passed".to_string())));
@@ -2649,32 +2649,32 @@ mod tests {
     #[test]
     fn a_worktrees_url_opens_on_the_server_it_names() {
         let server = |port: u16, page: bool, ancestors: Vec<u32>| crate::previews::Server {
-            lane: PathBuf::from("/r/atlas-quarry"),
+            lane: PathBuf::from("/r/spark-portal"),
             pid: port as u32,
             port,
             name: "node".into(),
-            cwd: PathBuf::from("/r/atlas-quarry/apps/app"),
+            cwd: PathBuf::from("/r/spark-portal/apps/app"),
             started_ms: NOW - 60_000,
             page,
-            title: page.then(|| "Northwind".to_string()),
+            title: page.then(|| "Spruce".to_string()),
             ancestors,
         };
         let (api, app, storybook) = (server(3040, false, vec![3040, 900]), server(5210, true, vec![5210, 900]), server(6006, true, vec![6006, 1]));
         let servers = [&api, &app, &storybook];
-        let entry = |url: &str, port: Option<u16>| crate::previews::Entry { worktree: "/r/atlas-quarry".into(), url: url.into(), port, chrome_profile: None, at: NOW };
+        let entry = |url: &str, port: Option<u16>| crate::previews::Entry { worktree: "/r/spark-portal".into(), url: url.into(), port, chrome_profile: None, at: NOW };
         let port_of = |p: &Option<Preview>| p.as_ref().and_then(|p| p.server.as_ref()).map(|s| s.port);
 
         // A URL a proxy serves opens on the worktree's page, the lowest port when two serve one.
-        let proxied = lane_preview(Some(&entry("https://quarry.app.test", None)), &servers, &[], None);
+        let proxied = lane_preview(Some(&entry("https://portal.app.test", None)), &servers, &[], None);
         assert_eq!(port_of(&proxied), Some(5210));
-        assert!(proxied.as_ref().is_some_and(|p| p.set && p.url == "https://quarry.app.test"));
+        assert!(proxied.as_ref().is_some_and(|p| p.set && p.url == "https://portal.app.test"));
         // The port given with it, or the one a local URL names, picks the server, page or not.
-        assert_eq!(port_of(&lane_preview(Some(&entry("https://quarry.app.test", Some(3040))), &servers, &[], None)), Some(3040));
+        assert_eq!(port_of(&lane_preview(Some(&entry("https://portal.app.test", Some(3040))), &servers, &[], None)), Some(3040));
         assert_eq!(port_of(&lane_preview(Some(&entry("http://localhost:6006", None)), &servers, &[], None)), Some(6006));
         // Nothing listening: set, not running.
-        let down = lane_preview(Some(&entry("https://quarry.app.test", None)), &[], &[], None).unwrap();
+        let down = lane_preview(Some(&entry("https://portal.app.test", None)), &[], &[], None).unwrap();
         assert!(down.set && down.server.is_none());
-        assert!(lane_preview(Some(&entry("https://quarry.app.test", Some(5299))), &servers, &[], None).unwrap().server.is_none());
+        assert!(lane_preview(Some(&entry("https://portal.app.test", Some(5299))), &servers, &[], None).unwrap().server.is_none());
         // With no URL set, a page served there opens at localhost; an API alone isn't an app.
         let found = lane_preview(None, &servers, &[], None).unwrap();
         assert_eq!((found.url.as_str(), found.set), ("http://localhost:5210", false));
@@ -2688,15 +2688,15 @@ mod tests {
         assert_eq!(found.server.unwrap().session.as_deref(), Some(started.key.as_str()));
         // It's opened from the worktree's menus, and says where and whether it runs.
         let apps = AppNames { editor: "Cursor".into(), ..Default::default() };
-        let (t, default) = targets(&seed("/r/atlas-quarry", "quarry"), &[], None, proxied.as_ref(), &apps);
+        let (t, default) = targets(&seed("/r/spark-portal", "portal"), &[], None, proxied.as_ref(), &apps);
         let open = t.iter().find(|x| x.id == "l|preview").unwrap();
-        assert_eq!((open.label.as_str(), open.detail.as_deref()), ("Open preview", Some("quarry.app.test · node on port 5210")));
+        assert_eq!((open.label.as_str(), open.detail.as_deref()), ("Open preview", Some("portal.app.test · node on port 5210")));
         assert_eq!(default.as_deref(), Some("l|terminal"));
-        let (t, _) = targets(&seed("/r/atlas-quarry", "quarry"), &[], None, Some(&down), &apps);
-        assert_eq!(t.iter().find(|x| x.id == "l|preview").unwrap().detail.as_deref(), Some("quarry.app.test · not running"));
+        let (t, _) = targets(&seed("/r/spark-portal", "portal"), &[], None, Some(&down), &apps);
+        assert_eq!(t.iter().find(|x| x.id == "l|preview").unwrap().detail.as_deref(), Some("portal.app.test · not running"));
 
         // It opens in the project's Chrome profile unless the worktree names its own.
-        let mut own = entry("https://quarry.app.test", None);
+        let mut own = entry("https://portal.app.test", None);
         let project = lane_preview(Some(&own), &servers, &[], Some("Work")).unwrap();
         assert_eq!((project.chrome_profile.as_deref(), project.chrome_profile_set), (Some("Work"), false));
         own.chrome_profile = Some("Dev".into());
@@ -2704,8 +2704,8 @@ mod tests {
         assert_eq!((mine.chrome_profile.as_deref(), mine.chrome_profile_set), (Some("Dev"), true));
         assert_eq!(lane_preview(None, &servers, &[], Some("Work")).unwrap().chrome_profile.as_deref(), Some("Work"));
         assert_eq!(lane_preview(None, &servers, &[], None).unwrap().chrome_profile, None);
-        let (t, _) = targets(&seed("/r/atlas-quarry", "quarry"), &[], None, Some(&mine), &apps);
-        assert_eq!(t.iter().find(|x| x.id == "l|preview").unwrap().detail.as_deref(), Some("quarry.app.test · node on port 5210 · Chrome's Dev profile"));
+        let (t, _) = targets(&seed("/r/spark-portal", "portal"), &[], None, Some(&mine), &apps);
+        assert_eq!(t.iter().find(|x| x.id == "l|preview").unwrap().detail.as_deref(), Some("portal.app.test · node on port 5210 · Chrome's Dev profile"));
     }
 
     #[test]
@@ -2713,14 +2713,14 @@ mod tests {
         let apps = AppNames { terminal: "Ghostty".into(), terminal_id: "ghostty".into(), editor: "Cursor".into(), editor_id: "cursor".into(), ..Default::default() };
         let a = acct("claude2");
         let live = claude_session(&a, Some(&reg("waiting", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
-        let (t, default) = targets(&seed("/r/atlas-quarry", "quarry"), &[live], None, None, &apps);
+        let (t, default) = targets(&seed("/r/spark-portal", "portal"), &[live], None, None, &apps);
         assert_eq!(t[0].label, "Respond in Ghostty");
         assert_eq!(default.as_deref(), Some("s|claude:claude2:abc1234567|focus"));
         assert!(t.iter().all(|x| !x.id.ends_with("|claude-app")), "claude2 isn't the Claude app's account");
         assert!(t.iter().any(|x| x.label == "Open in Cursor"));
         let main = AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: None, start: None, preferred: false, acp: None };
         let mine = claude_session(&main, Some(&reg("waiting", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
-        let (t, _) = targets(&seed("/r/atlas-quarry", "quarry"), &[mine], None, None, &apps);
+        let (t, _) = targets(&seed("/r/spark-portal", "portal"), &[mine], None, None, &apps);
         assert!(t[1].disabled && t[1].id.ends_with("|claude-app"), "live elsewhere, so offered but disabled");
         let (none, default) = targets(&seed("/r/x", "x"), &[], None, None, &apps);
         assert_eq!(default.as_deref(), Some("l|terminal"));
@@ -2841,34 +2841,34 @@ mod tests {
     #[test]
     fn scratchpad_worktrees_show_the_session_that_made_them() {
         let apps = AppNames::default();
-        let scratch = "/private/tmp/claude-501/-r-osprey/abc12345-0000-0000-0000-000000000000/scratchpad/atlas-nx-cache";
-        let seeds = vec![seed("/r/osprey", "main"), seed(scratch, "nx-cache")];
+        let scratch = "/private/tmp/claude-501/-r-vault/abc12345-0000-0000-0000-000000000000/scratchpad/spark-nx-cache";
+        let seeds = vec![seed("/r/vault", "main"), seed(scratch, "nx-cache")];
         let a = acct("claude");
         let mut maker = claude_session(&a, Some(&reg("busy", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
         maker.id = "abc12345-0000-0000-0000-000000000000".into();
         maker.key = format!("claude:claude:{}", maker.id);
-        maker.cwd = "/r/osprey".into();
-        let (git, prs, order) = (HashMap::new(), HashMap::new(), vec!["Northwind".to_string()]);
+        maker.cwd = "/r/vault".into();
+        let (git, prs, order) = (HashMap::new(), HashMap::new(), vec!["Spruce".to_string()]);
         let visitors = HashMap::new();
         let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![maker], visitors: &visitors, git: &git, prs: &prs, requested: &HashMap::new(), project_order: &order, notices: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new() });
         let lane = board.lanes.iter().find(|l| l.path == scratch).unwrap();
         assert_eq!(lane.sessions.len(), 1);
         assert_eq!(lane.sessions[0].visitor.as_deref(), Some("made this worktree"));
         assert_eq!(lane.bay, Bay::Idle, "the maker works in another lane, so it doesn't make this one Working");
-        assert_eq!(lane.headline, "Made by `claude` · Quarry daily log + photo sync");
+        assert_eq!(lane.headline, "Made by `claude` · Portal daily log + photo sync");
         assert_eq!(lane.default_target.as_deref(), Some("s|claude:claude:abc12345-0000-0000-0000-000000000000|focus"));
-        assert_eq!(board.lanes.iter().find(|l| l.path == "/r/osprey").unwrap().sessions.len(), 1);
+        assert_eq!(board.lanes.iter().find(|l| l.path == "/r/vault").unwrap().sessions.len(), 1);
     }
 
     #[test]
     fn archived_sessions_stay_listed_but_out_of_the_lanes_status() {
         let apps = AppNames::default();
-        let seeds = vec![seed("/r/atlas-quarry", "quarry")];
+        let seeds = vec![seed("/r/spark-portal", "portal")];
         let a = acct("claude2");
         let mut needs = claude_session(&a, Some(&reg("waiting", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
         needs.archived = true;
         let (git, prs, visitors) = (HashMap::new(), HashMap::new(), HashMap::new());
-        let order = vec!["Northwind".to_string()];
+        let order = vec!["Spruce".to_string()];
         let board = compose(Inputs {
             now: NOW,
             apps: &apps,
@@ -2898,7 +2898,7 @@ mod tests {
     #[test]
     fn pinned_sessions_are_never_cut_from_a_lane() {
         let apps = AppNames::default();
-        let seeds = vec![seed("/r/atlas-quarry", "quarry")];
+        let seeds = vec![seed("/r/spark-portal", "portal")];
         let a = acct("claude2");
         let sessions: Vec<Session> = (0..MAX_SESSIONS_PER_LANE + 5)
             .map(|i| {
@@ -2911,7 +2911,7 @@ mod tests {
         let oldest = format!("claude:claude2:s{}", MAX_SESSIONS_PER_LANE + 4);
         let pinned = vec![oldest.clone()];
         let (git, prs, visitors) = (HashMap::new(), HashMap::new(), HashMap::new());
-        let order = vec!["Northwind".to_string()];
+        let order = vec!["Spruce".to_string()];
         let board = compose(Inputs {
             now: NOW,
             apps: &apps,
@@ -2940,13 +2940,13 @@ mod tests {
     #[test]
     fn composes_a_board() {
         let apps = AppNames::default();
-        let seeds = vec![seed("/r/atlas-quarry", "quarry"), seed("/r/atlas-app3", "app3")];
+        let seeds = vec![seed("/r/spark-portal", "portal"), seed("/r/spark-app3", "app3")];
         let a = acct("claude2");
         let needs = claude_session(&a, Some(&reg("waiting", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
         let git = HashMap::new();
         let prs = HashMap::new();
-        let order = vec!["Northwind".to_string()];
-        let visitors = HashMap::from([(PathBuf::from("/r/atlas-app3"), vec!["claude:claude2:abc1234567".to_string()])]);
+        let order = vec!["Spruce".to_string()];
+        let visitors = HashMap::from([(PathBuf::from("/r/spark-app3"), vec!["claude:claude2:abc1234567".to_string()])]);
         let board = compose(Inputs {
             now: NOW,
             apps: &apps,
@@ -2971,25 +2971,25 @@ mod tests {
         assert_eq!(board.lanes[0].sessions.len(), 1);
         assert_eq!(board.lanes[1].bay, Bay::Idle, "a visitor doesn't change the bay");
         assert_eq!(board.lanes[1].sessions[0].visitor.as_deref(), Some("worked here"));
-        assert_eq!(board.lanes[1].headline, "Worked on by `claude2` · Quarry daily log + photo sync");
-        assert_eq!(board.lanes[0].sessions[0].headline, "`claude2` is waiting for approval · Quarry daily log + photo sync");
+        assert_eq!(board.lanes[1].headline, "Worked on by `claude2` · Portal daily log + photo sync");
+        assert_eq!(board.lanes[0].sessions[0].headline, "`claude2` is waiting for approval · Portal daily log + photo sync");
         assert_eq!(board.projects[0].lanes, 2);
     }
 
     #[test]
     fn a_new_terminal_goes_beside_its_worktree_then_its_repo_then_its_project() {
         let apps = AppNames::default();
-        let mut other_repo = seed("/r/kestrel", "main");
-        other_repo.repo = "kestrel".into();
+        let mut other_repo = seed("/r/spur", "main");
+        other_repo.repo = "spur".into();
         let mut elsewhere = seed("/tmp/scratch", "main");
         (elsewhere.project, elsewhere.origin) = ("Elsewhere".into(), Origin::Other);
         let folder = |path: &str, chats: bool| LaneSeed { project: ELSEWHERE.into(), origin: Origin::Folder, elsewhere: true, chats, exact: !chats, ..seed(path, "main") };
-        let seeds = vec![seed("/r/atlas", "main"), seed("/r/atlas-pins", "pins"), other_repo, elsewhere, folder("/Users/me/Documents/Codex", true), folder("/Users/me/notes", false)];
+        let seeds = vec![seed("/r/spark", "main"), seed("/r/spark-pins", "pins"), other_repo, elsewhere, folder("/Users/me/Documents/Codex", true), folder("/Users/me/notes", false)];
         let (git, prs, visitors) = (HashMap::new(), HashMap::new(), HashMap::new());
-        let order = vec!["Northwind".to_string()];
+        let order = vec!["Spruce".to_string()];
         let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![], visitors: &visitors, git: &git, prs: &prs, requested: &HashMap::new(), project_order: &order, notices: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new() });
         let near = |p: &str| terminal_neighbours(&board.lanes, Path::new(p));
-        assert_eq!(near("/r/atlas-pins/src"), vec![vec!["/r/atlas-pins".to_string()], vec!["/r/atlas".to_string()], vec!["/r/kestrel".to_string()]]);
+        assert_eq!(near("/r/spark-pins/src"), vec![vec!["/r/spark-pins".to_string()], vec!["/r/spark".to_string()], vec!["/r/spur".to_string()]]);
         assert_eq!(near("/tmp/scratch"), vec![vec!["/tmp/scratch".to_string()]]);
         assert_eq!(near("/Users/me/Documents/Codex/2026-09-27/can-you"), vec![vec!["/Users/me/Documents/Codex".to_string()]], "other folders elsewhere aren't company");
         assert_eq!(near("/Users/me"), vec![vec!["/Users/me".to_string()]]);

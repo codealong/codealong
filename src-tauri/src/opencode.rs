@@ -1011,10 +1011,10 @@ mod tests {
     fn reads_sessions_with_their_latest_messages() {
         let db = db_with(
             "INSERT INTO session_v2 (id, directory, title, time_created, time_updated, time_idle, idle_outcome) VALUES \
-             ('ses_a', '/r/kestrel', 'Fix the build', 1000, 5000, 4000, 'succeeded'), \
-             ('ses_old', '/r/kestrel', 'Old', 10, 20, 20, 'succeeded'), \
-             ('ses_pinned', '/r/kestrel', 'Pinned', 10, 30, 30, 'succeeded');\
-             INSERT INTO session_v2 (id, parent_id, directory, time_created, time_updated) VALUES ('ses_sub', 'ses_a', '/r/kestrel', 1000, 5000);\
+             ('ses_a', '/r/spur', 'Fix the build', 1000, 5000, 4000, 'succeeded'), \
+             ('ses_old', '/r/spur', 'Old', 10, 20, 20, 'succeeded'), \
+             ('ses_pinned', '/r/spur', 'Pinned', 10, 30, 30, 'succeeded');\
+             INSERT INTO session_v2 (id, parent_id, directory, time_created, time_updated) VALUES ('ses_sub', 'ses_a', '/r/spur', 1000, 5000);\
              INSERT INTO session_message (id, session_id, type, seq, time_created, time_updated, data) VALUES \
              ('msg_1', 'ses_a', 'user', 1, 1500, 1500, '{\"text\":\"Fix the build\\nplease\",\"files\":[]}'), \
              ('msg_2', 'ses_a', 'assistant', 2, 1600, 3900, '{\"content\":[{\"type\":\"text\",\"text\":\"Looking.\"},{\"type\":\"tool\",\"name\":\"bash\",\"state\":{\"status\":\"completed\",\"input\":{\"command\":\"npm test\"}}},{\"type\":\"text\",\"text\":\"Done.\\nTwo files changed.\"}]}'), \
@@ -1051,7 +1051,7 @@ mod tests {
     #[test]
     fn tells_terminals_from_other_opencode_processes() {
         assert_eq!(terminal_args("/Users/me/.opencode/bin/opencode"), Some((None, None)));
-        assert_eq!(terminal_args("opencode --session ses_a /r/kestrel"), Some((Some("ses_a".into()), Some(PathBuf::from("/r/kestrel")))));
+        assert_eq!(terminal_args("opencode --session ses_a /r/spur"), Some((Some("ses_a".into()), Some(PathBuf::from("/r/spur")))));
         assert_eq!(terminal_args("opencode --prompt hello --auto"), Some((None, None)));
         assert_eq!(terminal_args("opencode mini"), Some((None, None)));
         assert_eq!(terminal_args("opencode serve --service"), None);

@@ -525,8 +525,8 @@ mod tests {
         let table = "\
   100     1   0:05.00 claude
   200   100   0:01.00 node mcp-server.js
-  300   100   0:00.01 /bin/zsh -c source snap.sh && eval 'northwind login --host x | tail -5' < /dev/null && pwd -P
-  301   300   0:00.88 node northwind login --host x
+  300   100   0:00.01 /bin/zsh -c source snap.sh && eval 'spruce login --host x | tail -5' < /dev/null && pwd -P
+  301   300   0:00.88 node spruce login --host x
   302   300   0:00.00 tail -5
   303   301 1:02:03.45 helper
   400     1   0:00.10 other

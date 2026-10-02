@@ -232,7 +232,7 @@ mod tests {
     fn comments_and_blank_lines_are_left_out() {
         let block = "# Install first\nnpm ci\n\n# then build\nnpm run build   # takes a minute\n";
         assert_eq!(typed(block), "npm ci\nnpm run build\n");
-        assert_eq!(typed("claude mcp list                          # expect: plugin:northwind ✔ Connected"), "claude mcp list\n");
+        assert_eq!(typed("claude mcp list                          # expect: plugin:spruce ✔ Connected"), "claude mcp list\n");
         assert_eq!(typed("make;# done"), "make;\n");
         assert_eq!(input("# only a note\n\n   # and another"), None);
         assert_eq!(input(""), None);

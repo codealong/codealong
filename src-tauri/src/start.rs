@@ -588,7 +588,7 @@ mod tests {
             account("opencode", "opencode", "/Users/me/.local/share/opencode", Some("opencode")),
             account("antigravity", "antigravity", "/Users/me/.gemini/antigravity", None),
         ];
-        let o = options(&accounts, "Ghostty", vec!["/r/kestrel".into()], Path::new("/Users/me"), |a| (a.name == "claude2").then(|| "claude-fable-5-1".to_string()));
+        let o = options(&accounts, "Ghostty", vec!["/r/spur".into()], Path::new("/Users/me"), |a| (a.name == "claude2").then(|| "claude-fable-5-1".to_string()));
         assert_eq!(places(&o, "claude"), vec![Place::Terminal, Place::Background, Place::ClaudeApp, Place::Codealong]);
         assert_eq!(places(&o, "claude2"), vec![Place::Terminal, Place::Background, Place::Codealong]);
         assert_eq!(places(&o, "codex"), vec![Place::CodexApp, Place::Terminal, Place::Codealong]);
@@ -598,7 +598,7 @@ mod tests {
         assert!(o.accounts[5].unavailable.as_deref().unwrap_or("").contains("its own window"));
         assert_eq!(o.accounts[4].default_model, None);
         assert_eq!(o.accounts[0].places[0].label, "Ghostty");
-        assert_eq!(o.codex_projects, vec!["/r/kestrel".to_string()]);
+        assert_eq!(o.codex_projects, vec!["/r/spur".to_string()]);
         assert_eq!(o.accounts[1].default_model.as_deref(), Some("claude-fable-5-1"));
         assert_eq!(o.accounts[0].default_model, None);
         assert!(o.claude_models.iter().any(|m| m.id == "opus[1m]"));
@@ -682,8 +682,8 @@ mod tests {
         let a = account("claude2", "claude", "~/.claude2", Some("claude2"));
         let id = "0b7c2a4e-1d2f-4e3a-9b8c-7d6e5f4a3b2c";
         let prompt = "Fix the \"flaky\" test\nthen run `npm test` and $(say done)";
-        let Plan::Terminal { cwd, input, env } = plan(&a, Place::Terminal, Path::new("/r/atlas-app4"), &format!("  {prompt}\n"), id, None, None, false) else { panic!() };
-        assert_eq!(cwd, PathBuf::from("/r/atlas-app4"));
+        let Plan::Terminal { cwd, input, env } = plan(&a, Place::Terminal, Path::new("/r/spark-app4"), &format!("  {prompt}\n"), id, None, None, false) else { panic!() };
+        assert_eq!(cwd, PathBuf::from("/r/spark-app4"));
         assert_eq!(input, format!("claude2 --session-id {id} \"$CODEALONG_PROMPT\"\n"));
         let session = (SESSION_VAR.to_string(), format!("claude:claude2:{id}"));
         assert_eq!(env, vec![session.clone(), (PROMPT_VAR.to_string(), prompt.to_string())]);
@@ -791,8 +791,8 @@ mod tests {
     fn asks_claude_code_for_a_new_worktree_before_anything_it_could_take_as_its_name() {
         let a = account("claude2", "claude", "~/.claude2", Some("claude2"));
         let id = "0b7c2a4e-1d2f-4e3a-9b8c-7d6e5f4a3b2c";
-        let Plan::Terminal { cwd, input, .. } = plan(&a, Place::Terminal, Path::new("/r/atlas"), "Fix it", id, Some("opus"), None, true) else { panic!() };
-        assert_eq!(cwd, PathBuf::from("/r/atlas"));
+        let Plan::Terminal { cwd, input, .. } = plan(&a, Place::Terminal, Path::new("/r/spark"), "Fix it", id, Some("opus"), None, true) else { panic!() };
+        assert_eq!(cwd, PathBuf::from("/r/spark"));
         assert_eq!(input, format!("claude2 --worktree --session-id {id} --model 'opus' \"$CODEALONG_PROMPT\"\n"));
         // The apps choose their own worktrees.
         let claude = account("claude", "claude", "~/.claude", Some("claude"));

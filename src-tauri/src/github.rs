@@ -996,63 +996,63 @@ mod tests {
 
     #[test]
     fn reads_a_repos_name_now() {
-        assert_eq!(slug_of("northwindai/atlas\n").as_deref(), Some("northwindai/atlas"));
-        assert_eq!(slug_of("Kestrel-HQ/kestrel.web").as_deref(), Some("Kestrel-HQ/kestrel.web"));
-        for bad in ["", "null", "northwindai", "a/b/c", "gh: Not Found (HTTP 404)"] {
+        assert_eq!(slug_of("sprucehq/spark\n").as_deref(), Some("sprucehq/spark"));
+        assert_eq!(slug_of("Spur-HQ/spur.web").as_deref(), Some("Spur-HQ/spur.web"));
+        for bad in ["", "null", "sprucehq", "a/b/c", "gh: Not Found (HTTP 404)"] {
             assert_eq!(slug_of(bad), None, "{bad}");
         }
     }
 
     /// A repo's PRs as GitHub answers: an open one whose checks are running, and a merged one.
-    const PRS: &str = r#"{"data":{"viewer":{"login":"ghempton"},"requested":{"nodes":[{"number":1037}]},"repository":{
-          "open":{"nodes":[{"number":1037,"title":"Let the agent add and caption project photos","url":"https://github.com/northwindai/atlas/pull/1037","state":"OPEN","isDraft":false,"reviewDecision":"APPROVED","mergeStateStatus":"UNSTABLE","updatedAt":"2026-09-23T20:00:00Z","mergedAt":null,"closedAt":null,"headRefName":"quarry","headRefOid":"0ef4ed2","headRepositoryOwner":{"login":"ghempton"},
+    const PRS: &str = r#"{"data":{"viewer":{"login":"gwen"},"requested":{"nodes":[{"number":1037}]},"repository":{
+          "open":{"nodes":[{"number":1037,"title":"Let the agent add and caption project photos","url":"https://github.com/sprucehq/spark/pull/1037","state":"OPEN","isDraft":false,"reviewDecision":"APPROVED","mergeStateStatus":"UNSTABLE","updatedAt":"2026-09-23T20:00:00Z","mergedAt":null,"closedAt":null,"headRefName":"portal","headRefOid":"0ef4ed2","headRepositoryOwner":{"login":"gwen"},
              "commits":{"nodes":[{"commit":{"statusCheckRollup":{"contexts":{"nodes":[
                {"__typename":"CheckRun","name":"server:test","status":"COMPLETED","conclusion":"SUCCESS"},
                {"__typename":"CheckRun","name":"docker-smoke","status":"COMPLETED","conclusion":"FAILURE"},
                {"__typename":"CheckRun","name":"lint","status":"IN_PROGRESS","conclusion":null},
                {"__typename":"CheckRun","name":"deploy","status":"COMPLETED","conclusion":"SKIPPED"},
                {"__typename":"StatusContext","context":"vercel","state":"SUCCESS"}]}}}}]}}]},
-          "done":{"nodes":[{"number":1016,"title":"Prevent page shifts","url":"u","state":"MERGED","isDraft":false,"reviewDecision":"APPROVED","updatedAt":"2026-09-23T18:00:00Z","mergedAt":"2026-09-23T18:00:00Z","closedAt":"2026-09-23T18:00:00Z","headRefName":"app6","headRepositoryOwner":{"login":"ghempton"},"commits":{"nodes":[]}}]}}}}"#;
+          "done":{"nodes":[{"number":1016,"title":"Prevent page shifts","url":"u","state":"MERGED","isDraft":false,"reviewDecision":"APPROVED","updatedAt":"2026-09-23T18:00:00Z","mergedAt":"2026-09-23T18:00:00Z","closedAt":"2026-09-23T18:00:00Z","headRefName":"app6","headRepositoryOwner":{"login":"gwen"},"commits":{"nodes":[]}}]}}}}"#;
 
-    const GLANCE: &str = r#"{"data":{"viewer":{"login":"ghempton"},
+    const GLANCE: &str = r#"{"data":{"viewer":{"login":"gwen"},
       "r0":{"open":{"nodes":[{"number":1037,"updatedAt":"2026-09-23T20:00:00Z","headRefOid":"0ef4ed2","isDraft":false,"reviewDecision":"APPROVED","mergeStateStatus":"CLEAN","statusCheckRollup":{"state":"SUCCESS"}}]},"done":{"nodes":[{"number":1016,"updatedAt":"2026-09-23T18:00:00Z"}]}},
       "r1":{"open":{"nodes":[]},"done":{"nodes":[]}},
       "r2":null,
-      "search":{"nodes":[{"number":7,"updatedAt":"2026-09-23T19:00:00Z","repository":{"nameWithOwner":"Kestrelhq/Kestrel"}}]}},
+      "search":{"nodes":[{"number":7,"updatedAt":"2026-09-23T19:00:00Z","repository":{"nameWithOwner":"Spurhq/Spur"}}]}},
       "errors":[{"type":"NOT_FOUND","path":["r2"],"message":"Could not resolve to a Repository with the name 'gone/gone'."}]}"#;
 
     fn slugs() -> Vec<String> {
-        vec!["northwindai/atlas".into(), "kestrelhq/kestrel".into(), "gone/gone".into()]
+        vec!["sprucehq/spark".into(), "spurhq/spur".into(), "gone/gone".into()]
     }
 
     #[test]
     fn a_glance_marks_each_repo_and_changes_with_its_prs() {
         let seen = parse_glance(GLANCE, &slugs()).unwrap();
-        assert_eq!(seen.login.as_deref(), Some("ghempton"));
+        assert_eq!(seen.login.as_deref(), Some("gwen"));
         assert_eq!(seen.repos["gone/gone"], None, "a repo GitHub doesn't show you");
         let mark = |g: &Glance, slug: &str| g.repos[slug].clone().unwrap();
         assert_eq!(parse_glance(GLANCE, &slugs()).unwrap(), seen, "the same answer, the same marks");
 
         // A PR's checks finish: only its repo's mark moves.
         let checked = parse_glance(&GLANCE.replace(r#"{"state":"SUCCESS"}"#, r#"{"state":"FAILURE"}"#), &slugs()).unwrap();
-        assert_ne!(mark(&checked, "northwindai/atlas"), mark(&seen, "northwindai/atlas"));
-        assert_eq!(mark(&checked, "kestrelhq/kestrel"), mark(&seen, "kestrelhq/kestrel"));
+        assert_ne!(mark(&checked, "sprucehq/spark"), mark(&seen, "sprucehq/spark"));
+        assert_eq!(mark(&checked, "spurhq/spur"), mark(&seen, "spurhq/spur"));
         assert_eq!(checked.requested, seen.requested);
 
         // A closed PR changes: it's the latest updated one.
         let closed = parse_glance(&GLANCE.replace("2026-09-23T18:00:00Z", "2026-09-23T18:30:00Z"), &slugs()).unwrap();
-        assert_ne!(mark(&closed, "northwindai/atlas"), mark(&seen, "northwindai/atlas"));
+        assert_ne!(mark(&closed, "sprucehq/spark"), mark(&seen, "sprucehq/spark"));
 
         // The search lists another PR of a repo, as it does when a team you're on is asked:
         // the search's mark moves, and that repo's, whatever case its name is in.
         let asked = parse_glance(&GLANCE.replace(r#""number":7,"#, r#""number":8,"#), &slugs()).unwrap();
         assert_ne!(asked.requested, seen.requested);
-        assert_ne!(mark(&asked, "kestrelhq/kestrel"), mark(&seen, "kestrelhq/kestrel"));
-        assert_eq!(mark(&asked, "northwindai/atlas"), mark(&seen, "northwindai/atlas"));
+        assert_ne!(mark(&asked, "spurhq/spur"), mark(&seen, "spurhq/spur"));
+        assert_eq!(mark(&asked, "sprucehq/spark"), mark(&seen, "sprucehq/spark"));
 
         // Another sign-in sees other requests.
-        let other = parse_glance(&GLANCE.replace("ghempton", "someone"), &slugs()).unwrap();
-        assert_ne!(mark(&other, "kestrelhq/kestrel"), mark(&seen, "kestrelhq/kestrel"));
+        let other = parse_glance(&GLANCE.replace("gwen", "someone"), &slugs()).unwrap();
+        assert_ne!(mark(&other, "spurhq/spur"), mark(&seen, "spurhq/spur"));
     }
 
     #[test]
@@ -1128,7 +1128,7 @@ mod tests {
 
     /// `read` for a repo, with GitHub answering `PRS` and counting how often it's asked.
     fn read_repo(dir: &Path, ask: &Ask, mark: Option<&str>, now: i64, asked: &std::cell::Cell<u32>) -> Option<(std::result::Result<RepoPrs, String>, Option<Stamp>)> {
-        read(dir, ask, "northwindai/atlas", mark, now, &|| {
+        read(dir, ask, "sprucehq/spark", mark, now, &|| {
             asked.set(asked.get() + 1);
             Ok(PRS.to_string())
         }, &parse, &|repo: &RepoPrs| busy(&repo.prs, now))
@@ -1140,7 +1140,7 @@ mod tests {
         let asked = std::cell::Cell::new(0);
         // Long after the PR in `PRS` last changed: its pending check keeps nothing busy.
         let now = 1_795_000_000_000;
-        let slug = "northwindai/atlas";
+        let slug = "sprucehq/spark";
         let mut ask = Ask { slugs: vec![slug.into()], ..Ask::default() };
 
         // Nothing had, nothing kept: GitHub is asked, and the answer kept with its glance.
@@ -1199,9 +1199,9 @@ mod tests {
     fn a_snapshot_takes_answers_confirmed_lately() {
         use std::os::unix::fs::PermissionsExt;
         let dir = scratch("fresh");
-        let slugs = vec!["northwindai/atlas".to_string()];
+        let slugs = vec!["sprucehq/spark".to_string()];
         let stamp = Stamp { glance: "a".into(), at: 1 };
-        let search = r#"{"data":{"viewer":{"login":"ghempton"},"search":{"nodes":[]}}}"#;
+        let search = r#"{"data":{"viewer":{"login":"gwen"},"search":{"nodes":[]}}}"#;
         assert!(fresh(&dir, &slugs, SystemTime::now()).is_none(), "nothing kept");
         save(&dir, REQUESTED, &stamp, search);
         assert!(fresh(&dir, &slugs, SystemTime::now()).is_none(), "a repo's answer is missing");
@@ -1229,7 +1229,7 @@ mod tests {
     #[test]
     fn kept_answers_are_files_named_for_their_repos() {
         let dir = Path::new("/c");
-        assert_eq!(saved_path(dir, "Northwindai/spec.book"), Path::new("/c/northwindai~spec.book.json"));
+        assert_eq!(saved_path(dir, "Sprucehq/spa.rk"), Path::new("/c/sprucehq~spa.rk.json"));
         assert_eq!(saved_path(dir, REQUESTED), Path::new("/c/requested.json"));
         assert_eq!(saved_path(dir, "../x"), Path::new("/c/..~x.json"));
     }
@@ -1240,7 +1240,7 @@ mod tests {
         let prs = repo.prs;
         assert_eq!(prs.len(), 2);
         assert_eq!(prs[0].state, PrState::Approved);
-        assert_eq!(prs[0].head_owner.as_deref(), Some("ghempton"));
+        assert_eq!(prs[0].head_owner.as_deref(), Some("gwen"));
         assert_eq!(prs[0].head_oid.as_deref(), Some("0ef4ed2"));
         assert_eq!((prs[0].checks.passed, prs[0].checks.failed, prs[0].checks.pending, prs[0].checks.skipped), (2, 1, 1, 1));
         assert_eq!(prs[0].checks.failing, vec!["docker-smoke".to_string()]);
@@ -1248,7 +1248,7 @@ mod tests {
         assert_eq!(prs[1].state, PrState::Merged);
         assert_eq!(prs[1].merge, Merge::Unknown);
         assert!(prs[1].merged_at.is_some());
-        assert_eq!(repo.login.as_deref(), Some("ghempton"));
+        assert_eq!(repo.login.as_deref(), Some("gwen"));
         assert!(prs[0].review_requested);
         assert!(!prs[1].review_requested);
     }
@@ -1257,10 +1257,10 @@ mod tests {
     fn reads_a_request_to_you_from_the_pr() {
         // #1 you've just approved (the search hasn't caught up), #2 was just asked of you (nor
         // has it), #3 waits on a team you're on, #4 on someone else.
-        let open = [(1, r#"[{"requestedReviewer":{"__typename":"User","login":"whather"}}]"#), (2, r#"[{"requestedReviewer":{"__typename":"User","login":"GHempton"}}]"#), (3, r#"[{"requestedReviewer":{"__typename":"Team"}}]"#), (4, r#"[{"requestedReviewer":{"__typename":"User","login":"whather"}}]"#)]
+        let open = [(1, r#"[{"requestedReviewer":{"__typename":"User","login":"whather"}}]"#), (2, r#"[{"requestedReviewer":{"__typename":"User","login":"GWen"}}]"#), (3, r#"[{"requestedReviewer":{"__typename":"Team"}}]"#), (4, r#"[{"requestedReviewer":{"__typename":"User","login":"whather"}}]"#)]
             .map(|(n, asked)| format!(r#"{{"number":{n},"title":"t","url":"u","state":"OPEN","isDraft":false,"reviewDecision":null,"updatedAt":"2026-09-30T20:00:00Z","headRefName":"b{n}","commits":{{"nodes":[]}},"reviewRequests":{{"nodes":{asked}}}}}"#))
             .join(",");
-        let json = format!(r#"{{"data":{{"viewer":{{"login":"ghempton"}},"requested":{{"nodes":[{{"number":1}},{{"number":3}}]}},"repository":{{"open":{{"nodes":[{open}]}},"done":{{"nodes":[]}}}}}}}}"#);
+        let json = format!(r#"{{"data":{{"viewer":{{"login":"gwen"}},"requested":{{"nodes":[{{"number":1}},{{"number":3}}]}},"repository":{{"open":{{"nodes":[{open}]}},"done":{{"nodes":[]}}}}}}}}"#);
         let asked: Vec<_> = parse(&json).unwrap().prs.iter().map(|p| (p.number, p.review_requested)).collect();
         assert_eq!(asked, vec![(1, false), (2, true), (3, true), (4, false)]);
     }
@@ -1268,10 +1268,10 @@ mod tests {
     #[test]
     fn reads_who_asked_for_your_review() {
         let event = |actor: &str, reviewer: &str| format!(r#"{{"actor":{{"login":"{actor}"}},"requestedReviewer":{reviewer}}}"#);
-        let (me, other, team) = (r#"{"__typename":"User","login":"GHempton"}"#, r#"{"__typename":"User","login":"ana"}"#, r#"{"__typename":"Team"}"#);
+        let (me, other, team) = (r#"{"__typename":"User","login":"GWen"}"#, r#"{"__typename":"User","login":"ana"}"#, r#"{"__typename":"Team"}"#);
         let asker = |events: &[String]| {
             let n: Value = serde_json::from_str(&format!(r#"{{"timelineItems":{{"nodes":[{}]}}}}"#, events.join(","))).unwrap();
-            asker_of(&n, Some("ghempton"))
+            asker_of(&n, Some("gwen"))
         };
         // The latest request to you, whoever else was asked since, and not the author's own.
         assert_eq!(asker(&[event("bot", me), event("ken", me), event("lee", other), event("lee", team)]).as_deref(), Some("ken"));
@@ -1280,7 +1280,7 @@ mod tests {
         assert_eq!(asker(&[event("ken", "null")]).as_deref(), Some("ken"));
         assert_eq!(asker(&[event("ken", other)]), None);
         assert_eq!(asker(&[]), None);
-        assert_eq!(asker_of(&serde_json::json!({}), Some("ghempton")), None);
+        assert_eq!(asker_of(&serde_json::json!({}), Some("gwen")), None);
     }
 
     #[test]
@@ -1290,14 +1290,14 @@ mod tests {
         let pr = |slug: &str, n: u64, asked: &str| {
             format!(r#"{{"number":{n},"title":"t","url":"u","state":"OPEN","isDraft":false,"reviewDecision":null,"updatedAt":"2026-09-30T20:00:00Z","headRefName":"b{n}","commits":{{"nodes":[]}},"reviewRequests":{{"nodes":{asked}}},"repository":{{"nameWithOwner":"{slug}"}}}}"#)
         };
-        let me = r#"[{"requestedReviewer":{"__typename":"User","login":"ghempton"}}]"#;
+        let me = r#"[{"requestedReviewer":{"__typename":"User","login":"gwen"}}]"#;
         let nodes = [pr("acme/site", 1, me), pr("acme/site", 2, "[]"), pr("acme/tool", 3, r#"[{"requestedReviewer":{"__typename":"Team"}}]"#), pr("acme/tool", 7, me), "{}".to_string()].join(",");
-        let json = format!(r#"{{"data":{{"viewer":{{"login":"ghempton"}},"search":{{"nodes":[{nodes}]}}}}}}"#);
+        let json = format!(r#"{{"data":{{"viewer":{{"login":"gwen"}},"search":{{"nodes":[{nodes}]}}}}}}"#);
         let found = parse_requested(&json).unwrap();
         let got: Vec<(&str, u64)> = found.prs.iter().map(|(slug, p)| (slug.as_str(), p.number)).collect();
         assert_eq!(got, vec![("acme/site", 1), ("acme/tool", 3), ("acme/tool", 7)]);
         assert!(found.prs.iter().all(|(_, p)| p.review_requested));
-        assert_eq!(found.login.as_deref(), Some("ghempton"));
+        assert_eq!(found.login.as_deref(), Some("gwen"));
     }
 
     #[test]
@@ -1318,12 +1318,12 @@ mod tests {
             {"author":{"login":"ken"},"state":"COMMENTED","submittedAt":"2026-09-23T11:00:00Z"},
             {"author":{"login":"ana"},"state":"COMMENTED","submittedAt":"2026-09-23T12:00:00Z"},
             {"author":{"login":"ana"},"state":"CHANGES_REQUESTED","submittedAt":"2026-09-23T13:00:00Z"}]},
-          "reviewRequests":{"nodes":[{"requestedReviewer":{"__typename":"User","login":"ghempton"}},{"requestedReviewer":{"__typename":"Team","name":"platform"}}]}}}}}"#;
+          "reviewRequests":{"nodes":[{"requestedReviewer":{"__typename":"User","login":"gwen"}},{"requestedReviewer":{"__typename":"Team","name":"platform"}}]}}}}}"#;
         let files = r#"[{"filename":"src/a.ts","status":"modified","additions":3,"deletions":1,"patch":"@@ -1 +1 @@"},{"filename":"big.lock","status":"modified","additions":900,"deletions":800}]"#;
         let d = parse_detail(graph, files).unwrap();
         let states: Vec<(&str, &str)> = d.reviews.iter().map(|r| (r.author.as_str(), r.state.as_str())).collect();
         assert_eq!(states, vec![("ken", "APPROVED"), ("ana", "CHANGES_REQUESTED")]);
-        assert_eq!(d.requested, vec!["ghempton".to_string(), "platform".to_string()]);
+        assert_eq!(d.requested, vec!["gwen".to_string(), "platform".to_string()]);
         assert_eq!(d.files.len(), 2);
         assert!(d.files[1].patch.is_none());
         assert_eq!(d.commits, 3);

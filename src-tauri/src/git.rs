@@ -153,10 +153,10 @@ mod tests {
 
     #[test]
     fn parses_porcelain_v2() {
-        let out = "# branch.oid 0ef4ed2\n# branch.head quarry\n# branch.upstream ghempton/quarry\n# branch.ab +3 -1\n1 .M N... 100644 100644 100644 a b src/x.ts\n? new-file.ts\n? other.ts\n";
+        let out = "# branch.oid 0ef4ed2\n# branch.head portal\n# branch.upstream gwen/portal\n# branch.ab +3 -1\n1 .M N... 100644 100644 100644 a b src/x.ts\n? new-file.ts\n? other.ts\n";
         assert_eq!(
             parse_status(out),
-            StatusSummary { upstream: Some("ghempton/quarry".into()), ahead: 3, behind: 1, dirty: 3 }
+            StatusSummary { upstream: Some("gwen/portal".into()), ahead: 3, behind: 1, dirty: 3 }
         );
     }
 

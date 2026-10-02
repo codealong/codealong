@@ -342,9 +342,9 @@ mod tests {
             root: PathBuf::from(root),
             git_dir: PathBuf::from(root).join(".git"),
             name: file_name(Path::new(root)),
-            identity: Some("github.com/northwindai/atlas".into()),
-            github: Some(("northwindai".into(), "atlas".into())),
-            github_owners: vec!["northwindai".into(), "ghempton".into()],
+            identity: Some("github.com/sprucehq/spark".into()),
+            github: Some(("sprucehq".into(), "spark".into())),
+            github_owners: vec!["sprucehq".into(), "gwen".into()],
         }
     }
 
@@ -370,8 +370,8 @@ mod tests {
 
     #[test]
     fn normalizes_remote_urls() {
-        assert_eq!(normalize_url("git@github.com:northwindai/atlas.git").as_deref(), Some("github.com/northwindai/atlas"));
-        assert_eq!(normalize_url("https://github.com/kestrelhq/kestrel.git/").as_deref(), Some("github.com/kestrelhq/kestrel"));
+        assert_eq!(normalize_url("git@github.com:sprucehq/spark.git").as_deref(), Some("github.com/sprucehq/spark"));
+        assert_eq!(normalize_url("https://github.com/spurhq/spur.git/").as_deref(), Some("github.com/spurhq/spur"));
         assert_eq!(normalize_url("ssh://git@GitHub.com/o/r").as_deref(), Some("github.com/o/r"));
         assert_eq!(normalize_url("https://user:tok@github.com/o/r").as_deref(), Some("github.com/o/r"));
         assert_eq!(normalize_url("nonsense"), None);
@@ -379,19 +379,19 @@ mod tests {
 
     #[test]
     fn reads_remotes_and_github_slugs() {
-        let cfg = "[core]\n\tbare = false\n[remote \"ghempton\"]\n\turl = git@github.com:ghempton/atlas.git\n[remote \"origin\"]\n\turl = git@github.com:northwindai/atlas.git\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n";
+        let cfg = "[core]\n\tbare = false\n[remote \"gwen\"]\n\turl = git@github.com:gwen/spark.git\n[remote \"origin\"]\n\turl = git@github.com:sprucehq/spark.git\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n";
         let remotes = parse_remotes(cfg);
         assert_eq!(remotes.len(), 2);
-        assert_eq!(remotes[1], ("origin".to_string(), "git@github.com:northwindai/atlas.git".to_string()));
-        assert_eq!(github_of("github.com/northwindai/atlas"), Some(("northwindai".into(), "atlas".into())));
+        assert_eq!(remotes[1], ("origin".to_string(), "git@github.com:sprucehq/spark.git".to_string()));
+        assert_eq!(github_of("github.com/sprucehq/spark"), Some(("sprucehq".into(), "spark".into())));
         assert_eq!(github_of("gitlab.com/a/b"), None);
     }
 
     #[test]
     fn matches_patterns() {
-        assert!(matches("github.com/northwindai/atlas", "github.com/northwindai/*"));
-        assert!(!matches("github.com/northwindaix/atlas", "github.com/northwindai/*"));
-        assert!(matches("github.com/kestrelhq/kestrel", "github.com/kestrelhq/kestrel"));
+        assert!(matches("github.com/sprucehq/spark", "github.com/sprucehq/*"));
+        assert!(!matches("github.com/sprucehqx/spark", "github.com/sprucehq/*"));
+        assert!(matches("github.com/spurhq/spur", "github.com/spurhq/spur"));
     }
 
     #[test]
@@ -405,28 +405,28 @@ mod tests {
     #[test]
     fn derives_callsigns_and_origins() {
         let home = PathBuf::from("/Users/me");
-        let c = checkout("/Users/me/projects/atlasai/atlas");
+        let c = checkout("/Users/me/projects/sparkhq/spark");
         let cs = |p: &str, b: Option<&str>| callsign(&c, Path::new(p), b, &home);
-        assert_eq!(cs("/Users/me/projects/atlasai/atlas", Some("app")), "atlas");
-        assert_eq!(cs("/Users/me/projects/atlasai/atlas-app4", Some("app4")), "app4");
-        assert_eq!(cs("/Users/me/.codex/worktrees/e8e5/atlas", Some("codex/class-c-secure-configuration")), "class-c-secure-configuration");
-        assert_eq!(cs("/Users/me/.codex/worktrees/5941/atlas", None), "codex-5941");
-        assert_eq!(cs("/Users/me/projects/atlasai/atlas/.claude/worktrees/bold-fermi-1ac421", Some("claude/bold-fermi-1ac421")), "bold-fermi");
-        assert_eq!(cs("/Users/me/projects/atlasai/atlas-app4/.claude/worktrees/keen-fox", Some("worktree-keen-fox")), "keen-fox");
-        assert_eq!(cs("/private/tmp/atlas-fix-vulns-2026-09-21", Some("codex/fix-vulns")), "fix-vulns-2026-09-21");
-        assert_eq!(cs("/Users/me/projects/kestrelhq/kestrel-worktrees/lumen-diag", Some("lumen-diag")), "lumen-diag");
+        assert_eq!(cs("/Users/me/projects/sparkhq/spark", Some("app")), "spark");
+        assert_eq!(cs("/Users/me/projects/sparkhq/spark-app4", Some("app4")), "app4");
+        assert_eq!(cs("/Users/me/.codex/worktrees/e8e5/spark", Some("codex/class-c-secure-configuration")), "class-c-secure-configuration");
+        assert_eq!(cs("/Users/me/.codex/worktrees/5941/spark", None), "codex-5941");
+        assert_eq!(cs("/Users/me/projects/sparkhq/spark/.claude/worktrees/bold-fermi-1ac421", Some("claude/bold-fermi-1ac421")), "bold-fermi");
+        assert_eq!(cs("/Users/me/projects/sparkhq/spark-app4/.claude/worktrees/keen-fox", Some("worktree-keen-fox")), "keen-fox");
+        assert_eq!(cs("/private/tmp/spark-fix-vulns-2026-09-21", Some("codex/fix-vulns")), "fix-vulns-2026-09-21");
+        assert_eq!(cs("/Users/me/projects/spurhq/spur-worktrees/lumen-diag", Some("lumen-diag")), "lumen-diag");
 
         let or = |p: &str| origin(&c, Path::new(p), &home);
-        assert_eq!(or("/Users/me/projects/atlasai/atlas"), Origin::Main);
-        assert_eq!(or("/Users/me/projects/atlasai/atlas-app4"), Origin::Script);
-        assert_eq!(or("/Users/me/.codex/worktrees/e8e5/atlas"), Origin::Codex);
-        assert_eq!(or("/Users/me/projects/atlasai/atlas/.claude/worktrees/bold-fermi-1ac421"), Origin::ClaudeApp);
-        assert_eq!(or("/Users/me/projects/atlasai/atlas-app4/.claude/worktrees/keen-fox"), Origin::ClaudeApp);
-        assert_eq!(or("/private/tmp/atlas-fix-vulns-2026-09-21"), Origin::Temp);
-        let scratch = "/private/tmp/claude-501/-Users-me-projects-osprey/59530ddd-e0c9-4a13-8eed-6b14db725855/scratchpad/atlas-nx-cache";
+        assert_eq!(or("/Users/me/projects/sparkhq/spark"), Origin::Main);
+        assert_eq!(or("/Users/me/projects/sparkhq/spark-app4"), Origin::Script);
+        assert_eq!(or("/Users/me/.codex/worktrees/e8e5/spark"), Origin::Codex);
+        assert_eq!(or("/Users/me/projects/sparkhq/spark/.claude/worktrees/bold-fermi-1ac421"), Origin::ClaudeApp);
+        assert_eq!(or("/Users/me/projects/sparkhq/spark-app4/.claude/worktrees/keen-fox"), Origin::ClaudeApp);
+        assert_eq!(or("/private/tmp/spark-fix-vulns-2026-09-21"), Origin::Temp);
+        let scratch = "/private/tmp/claude-501/-Users-me-projects-vault/59530ddd-e0c9-4a13-8eed-6b14db725855/scratchpad/spark-nx-cache";
         assert_eq!(or(scratch), Origin::Scratchpad);
         assert_eq!(scratchpad_owner(Path::new(scratch)).as_deref(), Some("59530ddd-e0c9-4a13-8eed-6b14db725855"));
         assert_eq!(cs(scratch, Some("nx-cache")), "nx-cache");
-        assert_eq!(scratchpad_owner(Path::new("/private/tmp/atlas-x")), None);
+        assert_eq!(scratchpad_owner(Path::new("/private/tmp/spark-x")), None);
     }
 }

@@ -1470,7 +1470,7 @@ mod tests {
         let id = "01a0e375-0b36-77c1-8bf9-908e396b259e";
         assert_eq!(terminal_args("codex Reply with just the word pong."), Some((None, None)));
         assert_eq!(terminal_args("/opt/homebrew/bin/codex"), Some((None, None)));
-        assert_eq!(terminal_args("codex -m gpt-5 -C /r/kestrel -i /a.png /b.png -- fix it"), Some((None, Some(PathBuf::from("/r/kestrel")))));
+        assert_eq!(terminal_args("codex -m gpt-5 -C /r/spur -i /a.png /b.png -- fix it"), Some((None, Some(PathBuf::from("/r/spur")))));
         assert_eq!(terminal_args(&format!("codex resume {id} carry on")), Some((Some(id.into()), None)));
         assert_eq!(terminal_args("codex resume --last"), Some((None, None)));
         assert_eq!(terminal_args("codex resume the work"), Some((None, None)));
@@ -1508,15 +1508,15 @@ mod tests {
         }
     }
 
-    const META_USER: &str = r#"{"timestamp":"2026-09-21T15:47:36.000Z","type":"session_meta","payload":{"id":"01a0c4a6-bc7b-7212-b766-77fcc7a15d43","cwd":"/Users/me/projects/atlasai/atlas-infra","originator":"Codex Desktop","source":"vscode","thread_source":"user","git":{"branch":"main"}}}"#;
+    const META_USER: &str = r#"{"timestamp":"2026-09-21T15:47:36.000Z","type":"session_meta","payload":{"id":"01a0c4a6-bc7b-7212-b766-77fcc7a15d43","cwd":"/Users/me/projects/sparkhq/spark-infra","originator":"Codex Desktop","source":"vscode","thread_source":"user","git":{"branch":"main"}}}"#;
 
     #[test]
     fn reads_the_app_project_folders() {
         let home = crate::fixtures::scratch("codex-state");
         assert!(app_project_roots(&home).is_empty());
-        let state = r#"{"project-order":["local-a"],"local-projects":{"local-a":{"id":"local-a","name":"kestrel","rootPaths":["/r/kestrel"]},"local-b":{"id":"local-b","rootPaths":["/r/atlas"]}},"electron-saved-workspace-roots":["/r/kestrel","/r/atlas-app4"],"thread-writable-roots":{"t":["/elsewhere"]}}"#;
+        let state = r#"{"project-order":["local-a"],"local-projects":{"local-a":{"id":"local-a","name":"spur","rootPaths":["/r/spur"]},"local-b":{"id":"local-b","rootPaths":["/r/spark"]}},"electron-saved-workspace-roots":["/r/spur","/r/spark-app4"],"thread-writable-roots":{"t":["/elsewhere"]}}"#;
         std::fs::write(home.join(".codex-global-state.json"), state).unwrap();
-        assert_eq!(app_project_roots(&home), vec!["/r/atlas", "/r/atlas-app4", "/r/kestrel"]);
+        assert_eq!(app_project_roots(&home), vec!["/r/spark", "/r/spark-app4", "/r/spur"]);
     }
 
     #[test]
@@ -1583,7 +1583,7 @@ mod tests {
     }
 
     const TURN_STARTED: &str = r#"{"timestamp":"2026-09-24T18:03:59.377Z","ordinal":1,"type":"event_msg","payload":{"type":"task_started","turn_id":"u","started_at":1790273038}}"#;
-    const PROMPT_ITEM: &str = r#"{"timestamp":"2026-09-24T18:04:01.042Z","ordinal":9,"type":"event_msg","payload":{"type":"item_completed","thread_id":"t","turn_id":"u","item":{"type":"UserMessage","id":"i","content":[{"type":"text","text":"Find the forwarded Kestrel issue and diagnose it\n","text_elements":[]}]}}}"#;
+    const PROMPT_ITEM: &str = r#"{"timestamp":"2026-09-24T18:04:01.042Z","ordinal":9,"type":"event_msg","payload":{"type":"item_completed","thread_id":"t","turn_id":"u","item":{"type":"UserMessage","id":"i","content":[{"type":"text","text":"Find the forwarded Spur issue and diagnose it\n","text_elements":[]}]}}}"#;
     const TURN_COMPLETE: &str = r#"{"timestamp":"2026-09-24T18:30:00.000Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"u","last_agent_message":"Found it: the webhook retries twice."}}"#;
     const TOKEN_COUNT: &str = r#"{"timestamp":"2026-09-24T18:31:00.000Z","type":"event_msg","payload":{"type":"token_count","info":null}}"#;
 
@@ -1606,27 +1606,27 @@ mod tests {
     fn reads_prompts_from_items() {
         let mut info = parse_meta(META_USER).unwrap();
         apply_events(&mut info, &format!("{PROMPT_ITEM}\n"));
-        assert_eq!(info.last_user_message.as_deref(), Some("Find the forwarded Kestrel issue and diagnose it"));
+        assert_eq!(info.last_user_message.as_deref(), Some("Find the forwarded Spur issue and diagnose it"));
         assert_eq!(info.last_prompt_at, parse_rfc3339_ms("2026-09-24T18:04:01.042Z"));
     }
 
     #[test]
     fn records_where_commands_ran_and_files_changed() {
         let mut info = parse_meta(META_USER).unwrap();
-        let tail = r#"{"timestamp":"2026-09-24T18:04:02.000Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"CommandExecution","command":["/bin/zsh","-lc","git status"],"cwd":"file:///Users/me/projects/atlasai/atlas-infra"}}}
-{"timestamp":"2026-09-24T18:04:03.000Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"CommandExecution","command":["/bin/zsh","-lc","cd ../atlas-fix && yarn test"],"cwd":"file:///Users/me/projects/atlasai/atlas-infra"}}}
+        let tail = r#"{"timestamp":"2026-09-24T18:04:02.000Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"CommandExecution","command":["/bin/zsh","-lc","git status"],"cwd":"file:///Users/me/projects/sparkhq/spark-infra"}}}
+{"timestamp":"2026-09-24T18:04:03.000Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"CommandExecution","command":["/bin/zsh","-lc","cd ../spark-fix && yarn test"],"cwd":"file:///Users/me/projects/sparkhq/spark-infra"}}}
 {"timestamp":"2026-09-24T18:04:04.000Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"CommandExecution","command":["/bin/zsh","-lc","ls"],"cwd":"file:///Users/me/projects/my%20app"}}}
-{"timestamp":"2026-09-24T18:04:05.000Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"FileChange","changes":{"/Users/me/projects/atlasai/atlas-fix/src/a.ts":{"type":"update"}}}}}
+{"timestamp":"2026-09-24T18:04:05.000Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"FileChange","changes":{"/Users/me/projects/sparkhq/spark-fix/src/a.ts":{"type":"update"}}}}}
 {"timestamp":"2026-09-24T18:04:06.000Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"Reasoning","id":"r"}}}
 "#;
         apply_events(&mut info, tail);
         assert_eq!(
             info.work,
             [
-                "/Users/me/projects/atlasai/atlas-infra",
-                "/Users/me/projects/atlasai/atlas-fix",
+                "/Users/me/projects/sparkhq/spark-infra",
+                "/Users/me/projects/sparkhq/spark-fix",
                 "/Users/me/projects/my app",
-                "/Users/me/projects/atlasai/atlas-fix/src/a.ts",
+                "/Users/me/projects/sparkhq/spark-fix/src/a.ts",
             ]
         );
     }
@@ -1691,7 +1691,7 @@ mod tests {
         let (info, off) = parse_rollout(&path, 0, None).unwrap();
         assert!(info.turn_open);
         assert_eq!(info.turn_started_at, parse_rfc3339_ms("2026-09-24T18:03:59.377Z"));
-        assert_eq!(info.last_user_message.as_deref(), Some("Find the forwarded Kestrel issue and diagnose it"));
+        assert_eq!(info.last_user_message.as_deref(), Some("Find the forwarded Spur issue and diagnose it"));
         assert_eq!(info.last_agent_message, None);
         assert_eq!(Some(info.last_ts), parse_rfc3339_ms("2026-09-24T18:31:00.000Z"));
         assert_eq!(off, len);
@@ -1714,7 +1714,7 @@ mod tests {
         assert!(!info.turn_open);
         assert_eq!(info.last_complete_at, parse_rfc3339_ms("2026-09-24T18:30:00.000Z"));
         assert_eq!(info.last_agent_message.as_deref(), Some("Found it: the webhook retries twice."));
-        assert_eq!(info.last_user_message.as_deref(), Some("Find the forwarded Kestrel issue and diagnose it"));
+        assert_eq!(info.last_user_message.as_deref(), Some("Find the forwarded Spur issue and diagnose it"));
         assert_eq!(info.last_prompt_at, parse_rfc3339_ms("2026-09-24T18:04:01.042Z"));
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -1725,7 +1725,7 @@ mod tests {
         let (info, _) = parse_rollout(&path, 0, None).unwrap();
         assert!(!info.turn_open);
         assert_eq!(info.last_agent_message.as_deref(), Some("Found it: the webhook retries twice."));
-        assert_eq!(info.last_user_message.as_deref(), Some("Find the forwarded Kestrel issue and diagnose it"));
+        assert_eq!(info.last_user_message.as_deref(), Some("Find the forwarded Spur issue and diagnose it"));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

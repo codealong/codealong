@@ -790,14 +790,14 @@ mod tests {
         let hex = proto::key_hex(&key);
         save_linked(&dir, &[Linked { key: hex.clone(), name: "Mac mini".into(), linked_at: 1 }]);
         let mut replica = Replica::default();
-        replica.device.name = "Gordon's Mac mini".into();
+        replica.device.name = "Gwen's Mac mini".into();
         replica.device.remote_control = true;
         write_json(&dir.join("device-feeds.json"), &HashMap::from([(hex.clone(), Cached { last_seen: 5, replica })]));
 
         let c = Client::new(dir.clone(), SecretKey::generate(), "iPhone".into(), "0.1.0".into(), proto::PHONE, Box::new(|| {}));
         let d = c.devices();
         assert_eq!(d.len(), 1);
-        assert_eq!((d[0].name.as_str(), d[0].online, d[0].remote_control, d[0].last_seen), ("Gordon's Mac mini", false, true, Some(5)));
+        assert_eq!((d[0].name.as_str(), d[0].online, d[0].remote_control, d[0].last_seen), ("Gwen's Mac mini", false, true, Some(5)));
         assert_eq!(d[0].short, &hex[..10]);
         assert!(c.ask(&hex[..10], "session-page", Value::Null, Duration::from_millis(10)).unwrap_err().contains("isn't connected"));
         c.unlink(&hex).unwrap();

@@ -404,7 +404,7 @@ mod tests {
         assert_eq!(command_dir("cat /Users/me/projects/app/src/a.ts", base).as_deref(), Some(base));
         assert_eq!(command_dir("npm test > /dev/null 2>&1", base).as_deref(), Some(base));
         assert_eq!(command_dir("curl -s https://example.com/api/x | jq .", base).as_deref(), Some(base));
-        assert_eq!(command_dir("gh pr merge 10 --repo northwindai/osprey --squash", base).as_deref(), Some(base));
+        assert_eq!(command_dir("gh pr merge 10 --repo sprucehq/vault --squash", base).as_deref(), Some(base));
         assert_eq!(command_dir("sed -i '' 's/old/new/' src/a.ts", base).as_deref(), Some(base));
         // A leading `cd` says where it works, whatever else the command names.
         assert_eq!(command_dir("cd ../app-fix && cargo build > /tmp/build.log", base).as_deref(), Some("/Users/me/projects/app-fix"));

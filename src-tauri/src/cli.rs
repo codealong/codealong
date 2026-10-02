@@ -3142,10 +3142,10 @@ mod tests {
         let cli = Cli::try_parse_from(["codealong", "todo", "add", "Fix the tests", "-l", "bug", "--worktree", "."]).unwrap();
         let Cmd::Todo { cmd: TodoCmd::Add(a) } = cli.cmd else { panic!() };
         assert_eq!((a.title.as_str(), a.label.as_slice(), a.worktree.as_deref()), ("Fix the tests", &["bug".to_string()][..], Some(".")));
-        let cli = Cli::try_parse_from(["codealong", "sessions", "find", "osprey", "evidence", "--account", "claude2", "--since", "3d"]).unwrap();
+        let cli = Cli::try_parse_from(["codealong", "sessions", "find", "vault", "evidence", "--account", "claude2", "--since", "3d"]).unwrap();
         let Cmd::Sessions(s) = cli.cmd else { panic!() };
         let Some(SessionsCmd::Find { query, filter }) = s.cmd else { panic!() };
-        assert_eq!((query.join(" "), filter.account.as_deref(), filter.since.as_str()), ("osprey evidence".into(), Some("claude2"), "3d"));
+        assert_eq!((query.join(" "), filter.account.as_deref(), filter.since.as_str()), ("vault evidence".into(), Some("claude2"), "3d"));
         let cli = Cli::try_parse_from(["codealong", "sessions", "--live", "--json"]).unwrap();
         assert!(cli.json && matches!(cli.cmd, Cmd::Sessions(SessionsArgs { cmd: None, .. })));
         assert!(Cli::try_parse_from(["codealong", "todo", "add"]).is_err());

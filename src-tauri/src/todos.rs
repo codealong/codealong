@@ -848,10 +848,10 @@ mod tests {
 
     fn lanes() -> FakeLanes {
         FakeLanes(HashMap::from([
-            ("/r/app", ("Northwind", "northwindai/atlas")),
-            ("/r/app3", ("Northwind", "northwindai/atlas")),
-            ("/u/.codex/worktrees/e8e5/app", ("Northwind", "northwindai/atlas")),
-            ("/r/kestrel", ("Kestrel", "kestrelhq/kestrel")),
+            ("/r/app", ("Spruce", "sprucehq/spark")),
+            ("/r/app3", ("Spruce", "sprucehq/spark")),
+            ("/u/.codex/worktrees/e8e5/app", ("Spruce", "sprucehq/spark")),
+            ("/r/spur", ("Spur", "spurhq/spur")),
         ]))
     }
 
@@ -1133,7 +1133,7 @@ mod tests {
         t.sessions = vec!["claude:claude2:s1".into()];
         s.apply(TodoOp::Create { todo: t }, &lanes(), 5).unwrap();
         assert_eq!(s.todos[0].status, TodoStatus::InProgress);
-        assert_eq!(s.todos[0].project, "Northwind");
+        assert_eq!(s.todos[0].project, "Spruce");
     }
 
     #[test]
@@ -1179,8 +1179,8 @@ mod tests {
         assert_eq!(s.todos[0].status, TodoStatus::InProgress);
         // A worktree alone doesn't mean an agent is on it; it does give the todo a project.
         let mut s = store(&["b"]);
-        s.apply(TodoOp::Link { id: "b".into(), worktree: Some("/r/kestrel".into()), session: None, linked: true }, &lanes(), 20).unwrap();
-        assert_eq!((s.todos[0].status, s.todos[0].project.as_str()), (TodoStatus::Todo, "Kestrel"));
+        s.apply(TodoOp::Link { id: "b".into(), worktree: Some("/r/spur".into()), session: None, linked: true }, &lanes(), 20).unwrap();
+        assert_eq!((s.todos[0].status, s.todos[0].project.as_str()), (TodoStatus::Todo, "Spur"));
     }
 
     #[test]
@@ -1231,7 +1231,7 @@ mod tests {
         assert!(s.started("a", Some("/r/app3"), Some("claude:claude2:uuid"), None, &lanes(), 100));
         let t = &s.todos[0];
         assert_eq!((t.worktrees.clone(), t.sessions.clone()), (vec!["/r/app3".to_string()], vec!["claude:claude2:uuid".to_string()]));
-        assert_eq!((t.status, t.done_at, t.project.as_str()), (TodoStatus::InProgress, None, "Northwind"));
+        assert_eq!((t.status, t.done_at, t.project.as_str()), (TodoStatus::InProgress, None, "Spruce"));
         // In a new worktree, only the session is linked: it won't be in the one it started from.
         let mut s = store(&["b"]);
         s.started("b", None, Some("claude:claude:new-wt"), None, &lanes(), 100);
@@ -1247,7 +1247,7 @@ mod tests {
             // Too early, the wrong account, the wrong repo, or another harness: not it.
             session("codex:codex:old", "/r/app", "codex", "codex", at - 10 * 60_000),
             session("codex:codex2:x", "/r/app", "codex", "codex2", at + 5_000),
-            session("codex:codex:kestrel", "/r/kestrel", "codex", "codex", at + 5_000),
+            session("codex:codex:spur", "/r/spur", "codex", "codex", at + 5_000),
             session("claude:claude:c", "/r/app", "claude", "claude", at + 5_000),
             // Codex made a worktree of its own for the thread.
             session("codex:codex:new", "/u/.codex/worktrees/e8e5/app", "codex", "codex", at + 20_000),

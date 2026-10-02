@@ -1717,8 +1717,8 @@ mod tests {
     #[test]
     fn other_devices_worktrees_go_into_this_devices_projects_by_repo() {
         let projects = vec![
-            ProjectCfg { name: "Kestrel".into(), repos: vec!["github.com/kestrelhq/*".into()], folders: vec![], chrome_profile: None },
-            ProjectCfg { name: "Northwind".into(), repos: vec!["github.com/northwindai/*".into()], folders: vec![], chrome_profile: None },
+            ProjectCfg { name: "Spur".into(), repos: vec!["github.com/spurhq/*".into()], folders: vec![], chrome_profile: None },
+            ProjectCfg { name: "Spruce".into(), repos: vec!["github.com/sprucehq/*".into()], folders: vec![], chrome_profile: None },
             ProjectCfg { name: "Notes".into(), repos: vec![], folders: vec!["~/notes".into()], chrome_profile: None },
         ];
         let with = |slug: Option<&str>, project: &str, hidden: bool| {
@@ -1729,32 +1729,32 @@ mod tests {
             l
         };
         let none = HashMap::new();
-        // The Mac mini calls it "kestrelhq" (or has no project for it at all): here it's Kestrel.
-        let mut l = with(Some("KestrelHQ/kestrel"), "kestrelhq", false);
+        // The Mac mini calls it "spurhq" (or has no project for it at all): here it's Spur.
+        let mut l = with(Some("SpurHQ/spur"), "spurhq", false);
         project_here(&mut l, &projects, &none);
-        assert_eq!(l.project, "Kestrel");
-        let mut l = with(Some("kestrelhq/lumen"), "Elsewhere", true);
+        assert_eq!(l.project, "Spur");
+        let mut l = with(Some("spurhq/lumen"), "Elsewhere", true);
         project_here(&mut l, &projects, &none);
-        assert_eq!((l.project.as_str(), l.hidden), ("Kestrel", false), "out of Elsewhere, and shown");
-        // Its checkout still has the org's old name; GitHub's name for it now is Northwind's.
-        let mut l = with(Some("atlasai/atlas"), "atlasai", false);
+        assert_eq!((l.project.as_str(), l.hidden), ("Spur", false), "out of Elsewhere, and shown");
+        // Its checkout still has the org's old name; GitHub's name for it now is Spruce's.
+        let mut l = with(Some("sparkhq/spark"), "sparkhq", false);
         project_here(&mut l, &projects, &none);
-        assert_eq!(l.project, "atlasai", "nothing here says it's the same repo");
-        l.repo_slug_now = Some("northwindai/atlas".into());
+        assert_eq!(l.project, "sparkhq", "nothing here says it's the same repo");
+        l.repo_slug_now = Some("sprucehq/spark".into());
         project_here(&mut l, &projects, &none);
-        assert_eq!(l.project, "Northwind");
+        assert_eq!(l.project, "Spruce");
         // Where this device's own worktrees of the repo are comes first: a project that has
         // the repo by its folder, or by the old name that this device's own checkout has.
         let mut mine = with(Some("acme/notes"), "Notes", false);
-        let mut old = with(Some("atlasai/atlas"), "atlasai", false);
-        old.repo_slug_now = Some("northwindai/atlas".into());
+        let mut old = with(Some("sparkhq/spark"), "sparkhq", false);
+        old.repo_slug_now = Some("sprucehq/spark".into());
         let here = repos_here(&[mine.clone(), old, with(Some("acme/app"), "Elsewhere", true)]);
         let mut l = with(Some("acme/notes"), "Acme", false);
         project_here(&mut l, &projects, &here);
         assert_eq!(l.project, "Notes");
-        let mut l = with(Some("NorthwindAI/atlas"), "Northwind", false);
+        let mut l = with(Some("SpruceHQ/spark"), "Spruce", false);
         project_here(&mut l, &[], &here);
-        assert_eq!(l.project, "atlasai", "the Mac mini's view of the MacBook's worktree");
+        assert_eq!(l.project, "sparkhq", "the Mac mini's view of the MacBook's worktree");
         // Elsewhere isn't a project: its repos go by the rest.
         let mut l = with(Some("acme/app"), "Acme", false);
         project_here(&mut l, &projects, &here);

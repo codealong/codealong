@@ -178,7 +178,7 @@ mod tests {
 
     #[test]
     fn reads_pr_links() {
-        assert_eq!(from_url("https://github.com/northwindai/atlas/pull/1057").as_deref(), Some("northwindai/atlas#1057"));
+        assert_eq!(from_url("https://github.com/sprucehq/spark/pull/1057").as_deref(), Some("sprucehq/spark#1057"));
         assert_eq!(from_url("https://github.com/o/r/pull/12/files#diff").as_deref(), Some("o/r#12"));
         assert_eq!(from_url("https://github.com/o/r/pull/new/branch"), None);
         assert_eq!(from_url("https://github.com/o/r/issues/3"), None);
@@ -186,14 +186,14 @@ mod tests {
 
     #[test]
     fn finds_the_prs_a_session_made_or_changed() {
-        let claude = r#"{"type":"user","timestamp":"1970-01-01T00:00:01.000Z","toolUseResult":{"stdout":"https://github.com/NorthwindAI/atlas/pull/1057","gitOperation":{"pr":{"number":1057,"url":"https://github.com/NorthwindAI/atlas/pull/1057","action":"created"}}}}"#;
+        let claude = r#"{"type":"user","timestamp":"1970-01-01T00:00:01.000Z","toolUseResult":{"stdout":"https://github.com/SpruceHQ/spark/pull/1057","gitOperation":{"pr":{"number":1057,"url":"https://github.com/SpruceHQ/spark/pull/1057","action":"created"}}}}"#;
         let push = r#"{"type":"user","toolUseResult":{"stdout":"To github.com:o/r.git","gitOperation":{"push":{"branch":"x"}}}}"#;
         let codex = r#"{"timestamp":"1970-01-01T00:00:02.000Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"CommandExecution","command":["/bin/zsh","-c","gh pr create --draft --title x"],"stdout":"Warning: 1 uncommitted change\nhttps://github.com/o/infra/pull/59\n"}}}"#;
         let codex_view = r#"{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"CommandExecution","command":["/bin/zsh","-c","gh pr view 58 --json url"],"stdout":"https://github.com/o/infra/pull/58\n"}}}"#;
         let attach = r#"{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"McpToolCall","server":"codex_app","tool":"attach_artifact","arguments":{"artifact_type":"pull_request","url":"https://github.com/o/infra/pull/60"}}}}"#;
         let asked = r#"{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"UserMessage","content":[{"type":"text","text":"run gh pr create, CommandExecution"}]}}}"#;
         let text = [claude, push, codex, codex_view, attach, asked].join("\n");
-        assert_eq!(pr_marks(&text), vec![("northwindai/atlas#1057".to_string(), 1000), ("o/infra#59".to_string(), 2000), ("o/infra#60".to_string(), 0)]);
+        assert_eq!(pr_marks(&text), vec![("sprucehq/spark#1057".to_string(), 1000), ("o/infra#59".to_string(), 2000), ("o/infra#60".to_string(), 0)]);
     }
 
     #[test]

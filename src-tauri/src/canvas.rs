@@ -79,12 +79,12 @@ mod tests {
     #[test]
     fn a_project_is_saved_beside_the_others() {
         let first = with_document("", "Codealong", json!({ "items": [1] })).unwrap();
-        let both = with_document(&first, "Kestrel", json!({ "items": [2] })).unwrap();
+        let both = with_document(&first, "Spur", json!({ "items": [2] })).unwrap();
         assert_eq!(document(&both, "Codealong"), json!({ "items": [1] }));
-        assert_eq!(document(&both, "Kestrel"), json!({ "items": [2] }));
+        assert_eq!(document(&both, "Spur"), json!({ "items": [2] }));
         let replaced = with_document(&both, "Codealong", json!({ "items": [] })).unwrap();
         assert_eq!(document(&replaced, "Codealong"), json!({ "items": [] }));
-        assert_eq!(document(&replaced, "Kestrel"), json!({ "items": [2] }));
+        assert_eq!(document(&replaced, "Spur"), json!({ "items": [2] }));
     }
 
     #[test]

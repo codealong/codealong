@@ -2733,20 +2733,20 @@ mod tests {
     }
 
     const HEAD: &str = r#"{"type":"permission-mode","mode":"default"}
-{"type":"user","cwd":"/Users/me/projects/atlasai/atlas-quarry","sessionId":"25b09e0e","gitBranch":"quarry","entrypoint":"cli","timestamp":"2026-09-23T14:00:00.000Z","message":{"role":"user","content":"Can you make a photo write tool?"}}
+{"type":"user","cwd":"/Users/me/projects/sparkhq/spark-portal","sessionId":"25b09e0e","gitBranch":"portal","entrypoint":"cli","timestamp":"2026-09-23T14:00:00.000Z","message":{"role":"user","content":"Can you make a photo write tool?"}}
 "#;
 
     #[test]
     fn reads_identity_titles_and_pending_tools() {
-        let tail = r#"{"type":"custom-title","customTitle":"Quarry daily log + photo sync","sessionId":"25b09e0e"}
+        let tail = r#"{"type":"custom-title","customTitle":"Portal daily log + photo sync","sessionId":"25b09e0e"}
 {"type":"assistant","timestamp":"2026-09-23T15:00:00.000Z","message":{"content":[{"type":"text","text":"Running the migration now."},{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"yarn mikro-orm migration:up"}}]}}
 {"type":"last-prompt","lastPrompt":"apply the migration"}
 "#;
         let info = parse_lines(HEAD, tail);
-        assert_eq!(info.cwd, "/Users/me/projects/atlasai/atlas-quarry");
+        assert_eq!(info.cwd, "/Users/me/projects/sparkhq/spark-portal");
         assert_eq!(info.session_id, "25b09e0e");
-        assert_eq!(info.git_branch.as_deref(), Some("quarry"));
-        assert_eq!(info.title.as_deref(), Some("Quarry daily log + photo sync"));
+        assert_eq!(info.git_branch.as_deref(), Some("portal"));
+        assert_eq!(info.title.as_deref(), Some("Portal daily log + photo sync"));
         assert_eq!(info.first_prompt.as_deref(), Some("Can you make a photo write tool?"));
         assert_eq!(info.pending_tool.as_deref(), Some("Bash · `yarn mikro-orm migration:up`"));
         assert_eq!(info.last_tool.as_deref(), Some("running `yarn mikro-orm migration:up`"));
@@ -2767,20 +2767,20 @@ mod tests {
 
     #[test]
     fn records_where_commands_ran_and_edits_landed() {
-        let tail = r#"{"type":"assistant","cwd":"/Users/me/projects/atlasai/atlas-quarry","message":{"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"git worktree add ../atlas-fix"}}]}}
-{"type":"assistant","cwd":"/Users/me/projects/atlasai/atlas-quarry","message":{"content":[{"type":"tool_use","id":"t2","name":"Bash","input":{"command":"cd ../atlas-fix && yarn test"}}]}}
-{"type":"assistant","cwd":"/Users/me/projects/atlasai/atlas-quarry","message":{"content":[{"type":"tool_use","id":"t3","name":"Edit","input":{"file_path":"/Users/me/projects/atlasai/atlas-fix/src/a.ts"}}]}}
-{"type":"assistant","cwd":"/Users/me/projects/atlasai/atlas-fix","message":{"content":[{"type":"tool_use","id":"t4","name":"Bash","input":{"command":"yarn lint"}}]}}
-{"type":"assistant","cwd":"/Users/me/projects/atlasai/atlas-fix","message":{"content":[{"type":"tool_use","id":"t5","name":"Read","input":{"file_path":"/Users/me/projects/atlasai/atlas/README.md"}}]}}
+        let tail = r#"{"type":"assistant","cwd":"/Users/me/projects/sparkhq/spark-portal","message":{"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"git worktree add ../spark-fix"}}]}}
+{"type":"assistant","cwd":"/Users/me/projects/sparkhq/spark-portal","message":{"content":[{"type":"tool_use","id":"t2","name":"Bash","input":{"command":"cd ../spark-fix && yarn test"}}]}}
+{"type":"assistant","cwd":"/Users/me/projects/sparkhq/spark-portal","message":{"content":[{"type":"tool_use","id":"t3","name":"Edit","input":{"file_path":"/Users/me/projects/sparkhq/spark-fix/src/a.ts"}}]}}
+{"type":"assistant","cwd":"/Users/me/projects/sparkhq/spark-fix","message":{"content":[{"type":"tool_use","id":"t4","name":"Bash","input":{"command":"yarn lint"}}]}}
+{"type":"assistant","cwd":"/Users/me/projects/sparkhq/spark-fix","message":{"content":[{"type":"tool_use","id":"t5","name":"Read","input":{"file_path":"/Users/me/projects/sparkhq/spark/README.md"}}]}}
 "#;
         let info = parse_lines(HEAD, tail);
         // Making the worktree names a folder outside the one it runs in, so it isn't work there.
         assert_eq!(
             info.work,
             [
-                "/Users/me/projects/atlasai/atlas-fix",
-                "/Users/me/projects/atlasai/atlas-fix/src/a.ts",
-                "/Users/me/projects/atlasai/atlas-fix",
+                "/Users/me/projects/sparkhq/spark-fix",
+                "/Users/me/projects/sparkhq/spark-fix/src/a.ts",
+                "/Users/me/projects/sparkhq/spark-fix",
             ]
         );
         assert_eq!(info.last_tool.as_deref(), Some("reading `README.md`"));
@@ -2815,7 +2815,7 @@ mod tests {
         let text = format!("{big}{HEAD}");
         std::fs::write(&path, text).unwrap();
         let head = read_head_info(&path).unwrap();
-        assert_eq!(head.cwd, "/Users/me/projects/atlasai/atlas-quarry");
+        assert_eq!(head.cwd, "/Users/me/projects/sparkhq/spark-portal");
         assert_eq!(head.first_prompt.as_deref(), Some("Can you make a photo write tool?"));
         let (head, info, state) = parse_transcript(&path, 1, None).unwrap();
         assert_eq!(info.session_id, "25b09e0e");
@@ -2893,9 +2893,9 @@ mod tests {
 
     #[test]
     fn parses_registry_entries() {
-        let e = parse_registry(r#"{"pid":22303,"sessionId":"9f62","cwd":"/x","status":"busy","kind":"interactive","entrypoint":"cli","name":"atlas-app4-4b","nameSource":"derived","startedAt":1,"statusUpdatedAt":2}"#).unwrap();
+        let e = parse_registry(r#"{"pid":22303,"sessionId":"9f62","cwd":"/x","status":"busy","kind":"interactive","entrypoint":"cli","name":"spark-app4-4b","nameSource":"derived","startedAt":1,"statusUpdatedAt":2}"#).unwrap();
         assert_eq!(e.status, "busy");
-        assert_eq!(e.name.as_deref(), Some("atlas-app4-4b"));
+        assert_eq!(e.name.as_deref(), Some("spark-app4-4b"));
         assert_eq!(e.parked_job, None);
         assert!(!e.spare);
         assert!(parse_registry(r#"{"pid":1}"#).is_none());
@@ -2990,7 +2990,7 @@ mod tests {
         let plan = serde_json::json!({ "plan": "# Fix the build\n\n1. Pin the toolchain" });
         assert_eq!(tool_request("ExitPlanMode", &plan), PLAN);
         assert_eq!(claude_input("ExitPlanMode", &plan), "# Fix the build\n\n1. Pin the toolchain");
-        assert_eq!(tool_request("mcp__northwind__search", &Value::Null), "northwind · search");
+        assert_eq!(tool_request("mcp__spruce__search", &Value::Null), "spruce · search");
         // The row already names the worktree a leading `cd` goes to.
         let input = serde_json::json!({"command": "cd /Users/me/projects/app-fix && yarn test"});
         assert_eq!(tool_request("Bash", &input), "Bash · `yarn test`");

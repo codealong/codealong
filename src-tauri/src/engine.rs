@@ -3121,8 +3121,8 @@ mod tests {
         engine.gh_warning = Some("GitHub: couldn't load PRs for a/b".into());
         let now = now_ms();
         let points = |left: u64, resets: i64| Some(github::Points { left, resets: now + resets });
-        engine.on_glance(Ok(github::Glance { login: Some("ghempton".into()), points: points(120, 60_000), ..github::Glance::default() }));
-        assert_eq!((engine.gh_warning.as_deref(), engine.gh_login.as_deref()), (None, Some("ghempton")));
+        engine.on_glance(Ok(github::Glance { login: Some("gwen".into()), points: points(120, 60_000), ..github::Glance::default() }));
+        assert_eq!((engine.gh_warning.as_deref(), engine.gh_login.as_deref()), (None, Some("gwen")));
         assert!(engine.gh_at.is_some());
         // GitHub's other counter answers, with plenty left; then the first again, with fewer.
         // What's left is the fewest, until that hour ends.
@@ -3185,19 +3185,19 @@ mod tests {
         let (tx, _rx) = channel();
         let mut engine = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
         let seed = |path: &str, slug: &str| LaneSeed { repo_slug: Some(slug.into()), origin: Origin::Main, ..folder_seed(PathBuf::from(path), "P", "repo", false) };
-        engine.seeds = vec![seed("/x/atlas", "AtlasAI/atlas"), seed("/x/kestrel", "kestrelhq/kestrel")];
-        engine.on_repo_names(vec![("atlasai/atlas".into(), Some("northwindai/atlas".into())), ("kestrelhq/kestrel".into(), Some("kestrelhq/kestrel".into()))]);
+        engine.seeds = vec![seed("/x/spark", "SparkHQ/spark"), seed("/x/spur", "spurhq/spur")];
+        engine.on_repo_names(vec![("sparkhq/spark".into(), Some("sprucehq/spark".into())), ("spurhq/spur".into(), Some("spurhq/spur".into()))]);
         assert!(engine.dirty, "a rename changes the board");
         let board = engine.compose();
         let now = |path: &str| board.lanes.iter().find(|l| l.path == path).map(|l| l.repo_slug_now.clone());
-        assert_eq!(now("/x/atlas"), Some(Some("northwindai/atlas".to_string())));
-        assert_eq!(now("/x/kestrel"), Some(None), "a repo that kept its name says nothing more");
+        assert_eq!(now("/x/spark"), Some(Some("sprucehq/spark".to_string())));
+        assert_eq!(now("/x/spur"), Some(None), "a repo that kept its name says nothing more");
         // Every repo has its answer, so there's nothing to ask GitHub.
         engine.fetch_repo_names();
         assert!(!engine.repo_names_inflight);
 
         engine.dirty = false;
-        engine.on_repo_names(vec![("kestrelhq/kestrel".into(), Some("kestrelhq/kestrel".into()))]);
+        engine.on_repo_names(vec![("spurhq/spur".into(), Some("spurhq/spur".into()))]);
         assert!(!engine.dirty, "a repo that kept its name changes nothing");
     }
 
@@ -3207,7 +3207,7 @@ mod tests {
 
         let (tx, _rx) = channel();
         let mut engine = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
-        let slug = "northwindai/atlas".to_string();
+        let slug = "sprucehq/spark".to_string();
         let pr = PrRaw {
             number: 1089,
             title: "Tune issue verification".into(),
@@ -3231,7 +3231,7 @@ mod tests {
             requested_by: None,
         };
         let asked = |e: &Engine| e.prs[&slug][0].review_requested;
-        let answer = |requested: bool| Ok(github::RepoPrs { login: Some("ghempton".into()), prs: vec![PrRaw { review_requested: requested, ..pr.clone() }] });
+        let answer = |requested: bool| Ok(github::RepoPrs { login: Some("gwen".into()), prs: vec![PrRaw { review_requested: requested, ..pr.clone() }] });
         engine.prs.insert(slug.clone(), vec![pr.clone()]);
 
         // A poll is on its way when you approve.
@@ -3456,23 +3456,23 @@ mod tests {
 
     #[test]
     fn counts_real_work_not_mentions() {
-        let n = "atlas-validate-ghostscript-20260923";
-        assert!(worked_in(r#"{"cmd":"git worktree add /tmp/atlas-validate-ghostscript-20260923 origin/main"}"#, n));
-        assert!(worked_in(r#"{"cmd":"git worktree add -b codex/x /tmp/atlas-validate-ghostscript-20260923"}"#, n));
-        assert!(worked_in(r#"{"arguments":"{\"cmd\":\"yarn test\",\"workdir\":\"/private/tmp/atlas-validate-ghostscript-20260923\"}"}"#, n));
-        assert!(worked_in(r#"{"command":"cd /private/tmp/atlas-validate-ghostscript-20260923 && git status"}"#, n));
-        assert!(!worked_in(r#"{"command":"cd ~/projects/codealong && grep -F atlas-validate-ghostscript-20260923 logs"}"#, n));
-        assert!(!worked_in(r#"{"content":"/private/tmp/atlas-validate-ghostscript-20260923  aad4df0 [codex/x]"}"#, n));
+        let n = "spark-validate-ghostscript-20260923";
+        assert!(worked_in(r#"{"cmd":"git worktree add /tmp/spark-validate-ghostscript-20260923 origin/main"}"#, n));
+        assert!(worked_in(r#"{"cmd":"git worktree add -b codex/x /tmp/spark-validate-ghostscript-20260923"}"#, n));
+        assert!(worked_in(r#"{"arguments":"{\"cmd\":\"yarn test\",\"workdir\":\"/private/tmp/spark-validate-ghostscript-20260923\"}"}"#, n));
+        assert!(worked_in(r#"{"command":"cd /private/tmp/spark-validate-ghostscript-20260923 && git status"}"#, n));
+        assert!(!worked_in(r#"{"command":"cd ~/projects/codealong && grep -F spark-validate-ghostscript-20260923 logs"}"#, n));
+        assert!(!worked_in(r#"{"content":"/private/tmp/spark-validate-ghostscript-20260923  aad4df0 [codex/x]"}"#, n));
         assert_eq!(super::line_time(r#"{"timestamp":"1970-01-01T00:00:01.000Z","cmd":"x"}"#), Some(1000));
     }
 
     #[test]
     fn a_worktree_next_to_the_checkout_counts_only_by_its_whole_name() {
-        let n = "atlas-org-redis-keys";
-        assert!(worked_in(r#"{"command":"cd /Users/me/projects/atlas && git worktree add -q -b me/org-redis-keys ../atlas-org-redis-keys origin/main"}"#, n));
-        assert!(worked_in(r#"{"command":"cd /Users/me/projects/atlas-org-redis-keys/apps/server && npx vitest run"}"#, n));
-        assert!(!worked_in(r#"{"command":"cd /Users/me/projects/atlas-org-redis-keys-v2 && git status"}"#, n));
-        assert!(!worked_in(r#"{"command":"cd /Users/me/projects/old-atlas-org-redis-keys && git status"}"#, n));
-        assert!(!worked_in(r#"{"type":"user","message":{"content":[{"type":"tool_result","content":"Bash cd /Users/me/projects/atlas-org-redis-keys && ls"}]}}"#, n));
+        let n = "spark-org-redis-keys";
+        assert!(worked_in(r#"{"command":"cd /Users/me/projects/spark && git worktree add -q -b me/org-redis-keys ../spark-org-redis-keys origin/main"}"#, n));
+        assert!(worked_in(r#"{"command":"cd /Users/me/projects/spark-org-redis-keys/apps/server && npx vitest run"}"#, n));
+        assert!(!worked_in(r#"{"command":"cd /Users/me/projects/spark-org-redis-keys-v2 && git status"}"#, n));
+        assert!(!worked_in(r#"{"command":"cd /Users/me/projects/old-spark-org-redis-keys && git status"}"#, n));
+        assert!(!worked_in(r#"{"type":"user","message":{"content":[{"type":"tool_result","content":"Bash cd /Users/me/projects/spark-org-redis-keys && ls"}]}}"#, n));
     }
 }
