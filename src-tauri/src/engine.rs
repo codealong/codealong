@@ -77,10 +77,12 @@ pub enum Msg {
     GitDone(PathBuf, GitInfo),
     /// What a poll of GitHub saw at a glance, before its answers.
     GithubGlance(std::result::Result<github::Glance, github::Failure>),
-    /// A repo's PRs and what they were read at. An empty slug marks the end of a GitHub batch.
-    GithubDone(String, std::result::Result<github::RepoPrs, String>, Option<github::Stamp>),
-    /// The PRs that wait on your review anywhere, from the same batch.
-    RequestedDone(std::result::Result<github::Requested, String>, Option<github::Stamp>),
+    /// A repo's PRs and what they were read at.
+    GithubDone(String, std::result::Result<github::RepoPrs, github::Failure>, Option<github::Stamp>),
+    /// The PRs that wait on your review anywhere, from the same poll.
+    RequestedDone(std::result::Result<github::Requested, github::Failure>, Option<github::Stamp>),
+    /// A poll of GitHub is over: everything it had to say has been sent.
+    GithubEnd,
     RefreshGithub,
     /// A PR you approved from Codealong, by its slug on the board and its number. The reply is
     /// the time of the board that shows it, published at once.
@@ -763,7 +765,7 @@ struct Engine {
     /// The open PRs GitHub's search says wait on your review, by the slug a project's repo has
     /// here: the board lists them for the repos `prs` doesn't read (`board::pr_items`).
     requested: HashMap<String, Vec<PrRaw>>,
-    gh_warning: Option<String>,
+    gh_warning: Option<github::Failure>,
     gh_inflight: bool,
     /// Ask GitHub again once the request on its way returns (`refetch_github`).
     gh_again: bool,
@@ -1324,6 +1326,7 @@ impl Engine {
                     self.on_read(github::REQUESTED, result.as_ref().err(), stamp);
                     self.on_requested(result);
                 }
+                Ok(Msg::GithubEnd) => self.on_github_end(),
                 Ok(Msg::RefreshGithub) => self.fetch_github(false),
                 Ok(Msg::Approved(slug, number, reply)) => {
                     self.on_approved(slug, number);
@@ -1786,7 +1789,7 @@ impl Engine {
                     github::Answer::Requested(result, stamp) => Msg::RequestedDone(result, stamp),
                 });
             });
-            let _ = tx.send(Msg::GithubDone(String::new(), Ok(github::RepoPrs::default()), None));
+            let _ = tx.send(Msg::GithubEnd);
         });
     }
 
@@ -1812,10 +1815,10 @@ impl Engine {
                 self.gh_at = Some(now_ms());
             }
             Err(e) => {
-                if github::rate_limited(&e.text) {
-                    self.hold_github(e.resets);
+                if let github::Failure::RateLimited { resets } = e {
+                    self.hold_github(resets);
                 }
-                self.gh_warning = Some(e.text);
+                self.gh_warning = Some(e);
             }
         }
         self.dirty = true;
@@ -1824,12 +1827,12 @@ impl Engine {
     /// A poll's answer for a repo, or for the search (`github::REQUESTED`): what it was read at
     /// is noted, so the next polls leave it be until its glance changes. A refusal for want of
     /// points holds GitHub off, as one of a glance does.
-    fn on_read(&mut self, key: &str, failure: Option<&String>, stamp: Option<github::Stamp>) {
+    fn on_read(&mut self, key: &str, failure: Option<&github::Failure>, stamp: Option<github::Stamp>) {
         match (failure, stamp) {
             (None, Some(stamp)) => {
                 self.gh_stamps.insert(key.to_string(), stamp);
             }
-            (Some(e), _) if github::rate_limited(e) => self.hold_github(None),
+            (Some(github::Failure::RateLimited { resets }), _) => self.hold_github(*resets),
             _ => {}
         }
     }
@@ -1848,11 +1851,12 @@ impl Engine {
     /// What isn't working in the background, as the windows say it: a few words for each, and
     /// the whole of it.
     fn notices(&self) -> Vec<Notice> {
-        let limited = self.gh_warning.as_deref().is_some_and(github::rate_limited);
+        let limited = self.gh_warning.as_ref().is_some_and(github::Failure::rate_limited);
+        let github = self.gh_warning.as_ref().map(|w| w.to_string());
         let held = held_warning(&self.reads.out_for(HELD_WARN_AFTER));
         let said: [(&str, &str, Option<&String>); 10] = [
             ("config", "config.toml has a problem", self.config_warning.as_ref()),
-            ("github", self.gh_warning.as_deref().map_or("", github::title), self.gh_warning.as_ref()),
+            ("github", self.gh_warning.as_ref().map_or("", github::Failure::title), github.as_ref()),
             ("watch", "Live updates are off", self.watch_warning.as_ref()),
             ("todos", "todos.json has a problem", self.todos_warning.as_ref()),
             ("todos-lock", "Todos can't be changed", self.todos_lock_warning.as_ref()),
@@ -1898,14 +1902,15 @@ impl Engine {
         self.refetch_github();
     }
 
-    fn on_github(&mut self, slug: String, result: std::result::Result<github::RepoPrs, String>) {
-        if slug.is_empty() {
-            self.gh_inflight = false;
-            if std::mem::take(&mut self.gh_again) {
-                self.fetch_github(true);
-            }
-            return;
+    /// The poll on its way is over. One asked for meanwhile goes now.
+    fn on_github_end(&mut self) {
+        self.gh_inflight = false;
+        if std::mem::take(&mut self.gh_again) {
+            self.fetch_github(true);
         }
+    }
+
+    fn on_github(&mut self, slug: String, result: std::result::Result<github::RepoPrs, github::Failure>) {
         match result {
             Ok(mut repo) => {
                 // An answer to a request sent before you approved a PR here still asks for your
@@ -1938,7 +1943,7 @@ impl Engine {
     /// GitHub's search for the PRs that wait on your review, each filed under the repo it's in
     /// here, by the name GitHub has for it now; a repo no project covers is left out, as its
     /// PRs are.
-    fn on_requested(&mut self, result: std::result::Result<github::Requested, String>) {
+    fn on_requested(&mut self, result: std::result::Result<github::Requested, github::Failure>) {
         let found = match result {
             Ok(found) => found,
             Err(e) => {
@@ -3200,11 +3205,12 @@ mod tests {
         let stamp = github::Stamp { glance: "a".into(), at: 1 };
 
         // A glance: GitHub answered, whatever is read after it.
-        engine.gh_warning = Some("GitHub: couldn't load PRs for a/b".into());
+        let unloaded = || github::Failure::Other("GitHub: couldn't load PRs for a/b".into());
+        engine.gh_warning = Some(unloaded());
         let now = now_ms();
         let points = |left: u64, resets: i64| Some(github::Points { left, resets: now + resets });
         engine.on_glance(Ok(github::Glance { login: Some("gwen".into()), points: points(120, 60_000), ..github::Glance::default() }));
-        assert_eq!((engine.gh_warning.as_deref(), engine.gh_login.as_deref()), (None, Some("gwen")));
+        assert_eq!((engine.gh_warning.clone(), engine.gh_login.as_deref()), (None, Some("gwen")));
         assert!(engine.gh_at.is_some());
         // GitHub's other counter answers, with plenty left; then the first again, with fewer.
         // What's left is the fewest, until that hour ends.
@@ -3217,27 +3223,28 @@ mod tests {
         engine.on_glance(Ok(github::Glance { points: points(4790, 1_800_000), ..github::Glance::default() }));
         assert_eq!(engine.gh_points.iter().map(|p| p.left).collect::<Vec<_>>(), vec![4790]);
         // A repo GitHub doesn't show you: its failure, which comes next, isn't cleared first.
-        engine.gh_warning = Some("GitHub: couldn't load PRs for a/b".into());
+        engine.gh_warning = Some(unloaded());
         engine.on_glance(Ok(github::Glance { repos: HashMap::from([("a/b".to_string(), None)]), ..github::Glance::default() }));
         assert!(engine.gh_warning.is_some());
 
         // What an answer was read at is noted; a failure keeps the one before.
         engine.on_read("a/b", None, Some(stamp.clone()));
-        engine.on_read("a/b", Some(&"GitHub: couldn't load PRs for a/b".to_string()), None);
+        engine.on_read("a/b", Some(&unloaded()), None);
         assert_eq!(engine.gh_stamps.get("a/b"), Some(&stamp));
         assert!(engine.gh_hold.is_none());
 
         // Out of points, said by a glance or by a read: GitHub is left alone for a while.
-        let refused = github::failed_for_test("gh gh: API rate limit exceeded for user ID 1.");
+        let refused = github::Failure::RateLimited { resets: None };
         engine.on_read("a/b", Some(&refused), None);
         assert!(engine.gh_hold.is_some_and(|until| until > Instant::now()));
         engine.gh_hold = None;
-        let refusal = |resets: Option<i64>| Err(github::Failure { text: refused.clone(), resets });
+        let refusal = |resets: Option<i64>| Err(github::Failure::RateLimited { resets });
         engine.on_glance(refusal(None));
         assert!(engine.gh_hold.is_some_and(|until| until > Instant::now() + Duration::from_secs(9 * 60)), "nothing said when the hour ends");
-        assert_eq!(engine.gh_warning.as_deref(), Some(refused.as_str()));
+        assert_eq!(engine.gh_warning, Some(refused.clone()));
         let said = engine.notices();
         assert_eq!((said.len(), said[0].key.as_str(), said[0].title.as_str(), said[0].until), (1, "github", "GitHub rate limit reached", None));
+        assert_eq!(said[0].text, "GitHub: your account's rate limit is used up, so PRs wait until it resets. `gh` and your agents draw on the same limit.");
         // A glance had said the hour was nearly spent, and when it ends: asked again then, and
         // the notice says when.
         let ends = now_ms() + 120_000;
@@ -3252,8 +3259,9 @@ mod tests {
         let wait = engine.gh_hold.unwrap() - Instant::now();
         assert!(wait > Duration::from_secs(180) && wait < Duration::from_secs(190), "{wait:?}");
         // Another failure of GitHub's has no hour to wait out.
-        engine.gh_warning = Some("GitHub: couldn't load PRs for a/b".into());
+        engine.gh_warning = Some(unloaded());
         assert_eq!((engine.notices()[0].title.as_str(), engine.notices()[0].until), ("GitHub didn't answer", None));
+        assert_eq!(engine.notices()[0].text, "GitHub: couldn't load PRs for a/b");
         engine.gh_warning = Some(refused.clone());
         // And the next glance that's answered ends that.
         engine.on_glance(Ok(github::Glance::default()));
@@ -3341,7 +3349,7 @@ mod tests {
         // That poll was answered before GitHub had your review.
         engine.on_github(slug.clone(), answer(true));
         assert!(!asked(&engine), "an answer asked for before the approval doesn't bring it back");
-        engine.on_github(String::new(), Ok(github::RepoPrs::default()));
+        engine.on_github_end();
         assert!(!engine.gh_again);
         assert!(engine.gh_all, "and everything is read then, whatever its glance says");
 

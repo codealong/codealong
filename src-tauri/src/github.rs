@@ -126,7 +126,7 @@ fn slug_of(out: &str) -> Option<String> {
 }
 
 /// A repo's PRs as GitHub answers (`QUERY`), for `parse`.
-fn fetch_text(owner: &str, name: &str) -> Result<String> {
+fn fetch_text(owner: &str, name: &str) -> std::result::Result<String, Failure> {
     let owner_arg = format!("owner={owner}");
     let name_arg = format!("name={name}");
     let query_arg = format!("query={QUERY}{PR_FIELDS}{ASKED_FIELDS}");
@@ -137,58 +137,74 @@ fn fetch_text(owner: &str, name: &str) -> Result<String> {
         None,
         Duration::from_secs(30),
     )
-    .map_err(|e| failed(e, &format!("PRs for {owner}/{name}")))
+    .map_err(|e| failed(&e, &format!("PRs for {owner}/{name}")))
 }
 
 /// The open PRs that wait on your review, wherever they are (`REQUESTED_QUERY`), as GitHub
 /// answers, for `parse_requested`.
-fn fetch_requested_text() -> Result<String> {
+fn fetch_requested_text() -> std::result::Result<String, Failure> {
     let query_arg = format!("query={REQUESTED_QUERY}{PR_FIELDS}{ASKED_FIELDS}");
     let requested_arg = format!("requested={REQUESTED_SEARCH}");
     procs::run("gh", &["api", "graphql", "-f", &query_arg, "-f", &requested_arg], None, Duration::from_secs(30))
-        .map_err(|e| failed(e, "the PRs that wait on your review"))
+        .map_err(|e| failed(&e, "the PRs that wait on your review"))
 }
 
 const REQUESTED_SEARCH: &str = "is:pr is:open archived:false review-requested:@me sort:updated-desc";
 
-/// What a failed `gh` call for `what` says on the board.
-fn failed(e: anyhow::Error, what: &str) -> anyhow::Error {
+/// What went wrong asking `gh`. The board says it in `Display`'s words, and the engine goes by
+/// which it is: an account out of requests is left alone until its hour ends.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Failure {
+    /// `gh` couldn't be started: it isn't on this Mac.
+    NotInstalled,
+    /// `gh` isn't signed in, or GitHub turned its sign-in away.
+    SignedOut,
+    /// The account has no requests left this hour; when the hour ends, where GitHub said.
+    RateLimited { resets: Option<i64> },
+    /// Anything else, in the words the board says it in.
+    Other(String),
+}
+
+impl std::fmt::Display for Failure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Failure::NotInstalled => "GitHub: install the gh CLI and sign in with `gh auth login` to see PRs",
+            Failure::SignedOut => "GitHub: sign in again with `gh auth login` to see PRs",
+            Failure::RateLimited { .. } => "GitHub: your account's rate limit is used up, so PRs wait until it resets. `gh` and your agents draw on the same limit.",
+            Failure::Other(text) => text,
+        })
+    }
+}
+
+impl Failure {
+    /// In a few words, for a notice's title.
+    pub fn title(&self) -> &'static str {
+        match self {
+            Failure::RateLimited { .. } => "GitHub rate limit reached",
+            Failure::NotInstalled => "GitHub CLI isn't installed",
+            Failure::SignedOut => "Signed out of GitHub",
+            Failure::Other(_) => "GitHub didn't answer",
+        }
+    }
+
+    /// Whether it's GitHub saying the account has no requests left.
+    pub fn rate_limited(&self) -> bool {
+        matches!(self, Failure::RateLimited { .. })
+    }
+}
+
+/// Why a `gh` call for `what` failed, from what `gh` said.
+fn failed(e: &anyhow::Error, what: &str) -> Failure {
     let msg = e.to_string();
     if msg.contains("couldn't start") {
-        anyhow!("GitHub: install the gh CLI and sign in with `gh auth login` to see PRs")
+        Failure::NotInstalled
     } else if msg.contains("auth login") || msg.contains("401") {
-        anyhow!("GitHub: sign in again with `gh auth login` to see PRs")
+        Failure::SignedOut
     } else if msg.to_lowercase().contains("rate limit") {
-        anyhow!("{RATE_LIMITED}")
+        Failure::RateLimited { resets: None }
     } else {
-        anyhow!("GitHub: couldn't load {what}")
+        Failure::Other(format!("GitHub: couldn't load {what}"))
     }
-}
-
-/// What the board says when `gh` fails with `message`, for the engine's tests.
-#[cfg(test)]
-pub fn failed_for_test(message: &str) -> String {
-    failed(anyhow!("{message}"), "PRs").to_string()
-}
-
-/// A failure (as `failed` words it) in a few words, for a notice's title.
-pub fn title(warning: &str) -> &'static str {
-    if rate_limited(warning) {
-        "GitHub rate limit reached"
-    } else if warning.contains("install the gh CLI") {
-        "GitHub CLI isn't installed"
-    } else if warning.contains("sign in again") {
-        "Signed out of GitHub"
-    } else {
-        "GitHub didn't answer"
-    }
-}
-
-const RATE_LIMITED: &str = "GitHub: your account's rate limit is used up, so PRs wait until it resets. `gh` and your agents draw on the same limit.";
-
-/// Whether a failure (as `failed` words it) is GitHub saying the account has no requests left.
-pub fn rate_limited(warning: &str) -> bool {
-    warning == RATE_LIMITED
 }
 
 /// One PR, as the board reads PRs, for a link to one the board doesn't list; and who `gh` is
@@ -196,17 +212,12 @@ pub fn rate_limited(warning: &str) -> bool {
 pub fn one(slug: &str, number: u64) -> Result<(PrRaw, Option<String>)> {
     let (owner, name) = slug.split_once('/').ok_or_else(|| anyhow!("bad repo {slug}"))?;
     let args = [format!("query={ONE_QUERY}{PR_FIELDS}"), format!("owner={owner}"), format!("name={name}"), format!("number={number}")];
-    let out = procs::run("gh", &["api", "graphql", "-f", &args[0], "-f", &args[1], "-f", &args[2], "-F", &args[3]], None, Duration::from_secs(20)).map_err(|e| {
-        let msg = e.to_string();
-        if msg.contains("couldn't start") {
-            anyhow!("Install the gh CLI and sign in with `gh auth login` to see PRs.")
-        } else if msg.contains("auth login") || msg.contains("401") {
-            anyhow!("Sign in again with `gh auth login` to see PRs.")
-        } else if msg.contains("Could not resolve") {
-            anyhow!("GitHub has no PR #{number} in {slug} that you can see.")
-        } else {
-            anyhow!("GitHub didn't answer for {slug}#{number}.")
-        }
+    // Said where the link is, in a sentence of its own: nothing here is a notice.
+    let out = procs::run("gh", &["api", "graphql", "-f", &args[0], "-f", &args[1], "-f", &args[2], "-F", &args[3]], None, Duration::from_secs(20)).map_err(|e| match failed(&e, "the PR") {
+        Failure::NotInstalled => anyhow!("Install the gh CLI and sign in with `gh auth login` to see PRs."),
+        Failure::SignedOut => anyhow!("Sign in again with `gh auth login` to see PRs."),
+        _ if e.to_string().contains("Could not resolve") => anyhow!("GitHub has no PR #{number} in {slug} that you can see."),
+        _ => anyhow!("GitHub didn't answer for {slug}#{number}."),
     })?;
     parse_one(&out)
 }
@@ -386,20 +397,6 @@ pub struct Stamp {
     pub at: i64,
 }
 
-/// Why GitHub gave no glance, as the board says it; and when the hour ends, when it's for want
-/// of points and GitHub said (`rate_limited`).
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct Failure {
-    pub text: String,
-    pub resets: Option<i64>,
-}
-
-impl From<anyhow::Error> for Failure {
-    fn from(e: anyhow::Error) -> Failure {
-        Failure { text: e.to_string(), resets: None }
-    }
-}
-
 /// What a glance saw.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Glance {
@@ -410,6 +407,26 @@ pub struct Glance {
     /// The mark of the search for PRs that wait on your review.
     pub requested: String,
     pub points: Option<Points>,
+}
+
+/// What a glance says of one repo.
+enum Seen<'a> {
+    /// Its mark, which changes when its PRs do.
+    Mark(&'a str),
+    /// GitHub doesn't show you the repo.
+    Hidden,
+    /// Nothing: its query failed, or GitHub gave no glance at all.
+    Unknown,
+}
+
+impl Glance {
+    fn seen(&self, slug: &str) -> Seen<'_> {
+        match self.repos.get(slug) {
+            Some(Some(mark)) => Seen::Mark(mark),
+            Some(None) => Seen::Hidden,
+            None => Seen::Unknown,
+        }
+    }
 }
 
 /// GraphQL points left in an hour of the account's, and when that hour ends, as an answer's
@@ -446,7 +463,7 @@ fn glance_query(repos: usize) -> String {
 /// query was answered.
 pub fn glance(slugs: &[String]) -> std::result::Result<Glance, Failure> {
     let groups: Vec<&[String]> = if slugs.is_empty() { vec![slugs] } else { slugs.chunks(GLANCE_REPOS).collect() };
-    let unanswered = || Failure { text: "GitHub: couldn't load PRs".into(), resets: None };
+    let unanswered = || Failure::Other("GitHub: couldn't load PRs".into());
     let answers: Vec<std::result::Result<Glance, Failure>> = std::thread::scope(|scope| {
         let asked: Vec<_> = groups.iter().map(|group| scope.spawn(move || glance_some(group))).collect();
         asked.into_iter().map(|a| a.join().unwrap_or_else(|_| Err(unanswered()))).collect()
@@ -478,18 +495,18 @@ fn glance_some(slugs: &[String]) -> std::result::Result<Glance, Failure> {
     for field in &fields {
         args.extend(["-f", field.as_str()]);
     }
-    let o = procs::run_output("gh", &args, None, Duration::from_secs(30)).map_err(|e| failed(e, "PRs"))?;
+    let o = procs::run_output("gh", &args, None, Duration::from_secs(30)).map_err(|e| failed(&e, "PRs"))?;
     let (points, body) = answer_parts(&o.out);
     // A repo GitHub doesn't show you fails the command, with the others answered. With nothing
     // answered, why is in what it printed: a refusal for want of points comes as an error in
     // the answer.
     match parse_glance(body, slugs) {
         Ok(seen) => Ok(Glance { points, ..seen }),
-        Err(_) => {
-            let text = failed(anyhow!("gh {} {}", o.err.trim(), body.chars().take(400).collect::<String>()), "PRs").to_string();
-            let resets = points.filter(|_| rate_limited(&text)).map(|p| p.resets);
-            Err(Failure { text, resets })
-        }
+        Err(_) => Err(match failed(&anyhow!("gh {} {}", o.err.trim(), body.chars().take(400).collect::<String>()), "PRs") {
+            // The refusal's own headers say when the hour ends.
+            Failure::RateLimited { .. } => Failure::RateLimited { resets: points.map(|p| p.resets) },
+            other => other,
+        }),
     }
 }
 
@@ -585,8 +602,8 @@ pub enum Answer {
     /// First: the glance, or why GitHub gave none.
     Glance(std::result::Result<Glance, Failure>),
     /// A repo's PRs, read from GitHub or as kept, and what they were read at.
-    Repo(String, std::result::Result<RepoPrs, String>, Option<Stamp>),
-    Requested(std::result::Result<Requested, String>, Option<Stamp>),
+    Repo(String, std::result::Result<RepoPrs, Failure>, Option<Stamp>),
+    Requested(std::result::Result<Requested, Failure>, Option<Stamp>),
 }
 
 /// One poll: a glance, then the PRs of each repo whose answer no longer stands, and the search
@@ -600,7 +617,7 @@ fn poll_in(dir: &Path, ask: &Ask, on: &(dyn Fn(Answer) + Sync)) {
     let seen = glance(&ask.slugs);
     // Out of points: the reads would be refused too. An asker with nothing gets what's kept,
     // however old, and then hears why it's no newer.
-    if seen.as_ref().is_err_and(|e| rate_limited(&e.text)) {
+    if seen.as_ref().is_err_and(Failure::rate_limited) {
         for key in ask.slugs.iter().map(String::as_str).chain([REQUESTED]).filter(|key| !ask.have.contains_key(*key)) {
             if let Some(answer) = saved(dir, key).and_then(|kept| kept_answer(key, kept)) {
                 on(answer);
@@ -615,20 +632,21 @@ fn poll_in(dir: &Path, ask: &Ask, on: &(dyn Fn(Answer) + Sync)) {
     let ask = &Ask { thrifty: ask.thrifty || short, ..ask.clone() };
     std::thread::scope(|scope| {
         scope.spawn(move || {
-            let read = read(dir, ask, REQUESTED, glance.map(|g| g.requested.as_str()), now, &fetch_requested_text, &parse_requested, &|_| false);
+            let mark = glance.map(|g| g.requested.as_str());
+            let read = Reading { dir, ask, key: REQUESTED, mark, now, fetch: &fetch_requested_text, parse: &parse_requested, busy: &|_| false }.read();
             if let Some((result, stamp)) = read {
                 on(Answer::Requested(result, stamp));
             }
         });
         for slug in &ask.slugs {
             scope.spawn(move || {
-                let mark = match glance.map(|g| g.repos.get(slug)) {
-                    Some(Some(None)) => return on(Answer::Repo(slug.clone(), Err(format!("GitHub: couldn't load PRs for {slug}")), None)),
-                    Some(Some(Some(mark))) => Some(mark.as_str()),
-                    _ => None,
+                let mark = match glance.map_or(Seen::Unknown, |g| g.seen(slug)) {
+                    Seen::Hidden => return on(Answer::Repo(slug.clone(), Err(Failure::Other(format!("GitHub: couldn't load PRs for {slug}"))), None)),
+                    Seen::Mark(mark) => Some(mark),
+                    Seen::Unknown => None,
                 };
                 let Some((owner, name)) = slug.split_once('/') else { return };
-                let read = read(dir, ask, slug, mark, now, &|| fetch_text(owner, name), &parse, &|repo: &RepoPrs| busy(&repo.prs, now));
+                let read = Reading { dir, ask, key: slug, mark, now, fetch: &|| fetch_text(owner, name), parse: &parse, busy: &|repo: &RepoPrs| busy(&repo.prs, now) }.read();
                 if let Some((result, stamp)) = read {
                     on(Answer::Repo(slug.clone(), result, stamp));
                 }
@@ -637,50 +655,65 @@ fn poll_in(dir: &Path, ask: &Ask, on: &(dyn Fn(Answer) + Sync)) {
     });
 }
 
-/// One answer of a poll. None when what the asker has stands; else the kept answer when that
-/// stands, else GitHub's, asked now and kept. `mark` is its glance, None when GitHub gave none.
-#[allow(clippy::too_many_arguments, clippy::type_complexity)]
-fn read<T>(
-    dir: &Path,
-    ask: &Ask,
-    key: &str,
-    mark: Option<&str>,
+/// One answer a poll may bring: which it is, what's known of it, and how it's asked for and
+/// read.
+struct Reading<'a, T> {
+    /// Where answers are kept.
+    dir: &'a Path,
+    ask: &'a Ask,
+    /// A repo's slug, or `REQUESTED`.
+    key: &'a str,
+    /// Its glance, None when GitHub gave none.
+    mark: Option<&'a str>,
     now: i64,
-    fetch: &dyn Fn() -> Result<String>,
-    parse: &dyn Fn(&str) -> Result<T>,
-    busy: &dyn Fn(&T) -> bool,
-) -> Option<(std::result::Result<T, String>, Option<Stamp>)> {
-    if !ask.all {
-        match (ask.have.get(key), mark) {
-            (Some(have), Some(mark)) if stands(have, mark, ask.busy.contains(key), ask.thrifty, now) => {
-                confirm(dir, key);
-                return None;
-            }
-            // Without a glance, what's had stands until it would be read again anyway.
-            (Some(have), None) if now - have.at < RESYNC_MS => return None,
-            _ => {}
-        }
-        if let (Some(mark), Some(kept)) = (mark, saved(dir, key)) {
-            if let Ok(answer) = parse(&kept.answer) {
-                if stands(&kept.stamp, mark, ask.busy.contains(key) || busy(&answer), ask.thrifty, now) {
+    /// Asks GitHub.
+    fetch: &'a dyn Fn() -> std::result::Result<String, Failure>,
+    parse: &'a dyn Fn(&str) -> Result<T>,
+    /// Whether an answer's checks are running (`busy`).
+    busy: &'a dyn Fn(&T) -> bool,
+}
+
+/// What a read brings: the answer or why there's none, and what it was read at.
+type Brought<T> = (std::result::Result<T, Failure>, Option<Stamp>);
+
+impl<T> Reading<'_, T> {
+    /// None when what the asker has stands; else the kept answer when that stands, else
+    /// GitHub's, asked now and kept.
+    fn read(&self) -> Option<Brought<T>> {
+        let Reading { dir, ask, key, mark, now, .. } = *self;
+        if !ask.all {
+            match (ask.have.get(key), mark) {
+                (Some(have), Some(mark)) if stands(have, mark, ask.busy.contains(key), ask.thrifty, now) => {
                     confirm(dir, key);
-                    return Some((Ok(answer), Some(kept.stamp)));
+                    return None;
+                }
+                // Without a glance, what's had stands until it would be read again anyway.
+                (Some(have), None) if now - have.at < RESYNC_MS => return None,
+                _ => {}
+            }
+            if let (Some(mark), Some(kept)) = (mark, saved(dir, key)) {
+                if let Ok(answer) = (self.parse)(&kept.answer) {
+                    if stands(&kept.stamp, mark, ask.busy.contains(key) || (self.busy)(&answer), ask.thrifty, now) {
+                        confirm(dir, key);
+                        return Some((Ok(answer), Some(kept.stamp)));
+                    }
                 }
             }
         }
+        let stamp = Stamp { glance: mark.unwrap_or_default().to_string(), at: now };
+        let read = (self.fetch)().and_then(|text| {
+            // An answer that doesn't read is said in the reader's own words, as it was.
+            let answer = (self.parse)(&text).map_err(|e| Failure::Other(e.to_string()))?;
+            if mark.is_some() {
+                save(dir, key, &stamp, &text);
+            }
+            Ok(answer)
+        });
+        Some(match read {
+            Ok(answer) => (Ok(answer), Some(stamp)),
+            Err(e) => (Err(e), None),
+        })
     }
-    let stamp = Stamp { glance: mark.unwrap_or_default().to_string(), at: now };
-    let read = fetch().and_then(|text| {
-        let answer = parse(&text)?;
-        if mark.is_some() {
-            save(dir, key, &stamp, &text);
-        }
-        Ok(answer)
-    });
-    Some(match read {
-        Ok(answer) => (Ok(answer), Some(stamp)),
-        Err(e) => (Err(e.to_string()), None),
-    })
 }
 
 /// Everything a poll would bring, for an engine that starts with nothing and doesn't stay
@@ -1052,14 +1085,42 @@ mod tests {
         // Out of points: errors and no data.
         assert!(parse_glance(r#"{"errors":[{"type":"RATE_LIMITED","message":"API rate limit exceeded for user ID 1."}]}"#, &slugs()).is_err());
         assert!(parse_glance("", &slugs()).is_err());
-        let said = failed(anyhow!("gh gh: API rate limit exceeded for user ID 1."), "PRs").to_string();
-        assert!(rate_limited(&said), "{said}");
-        assert!(rate_limited(&failed(anyhow!("gh gh: You have exceeded a secondary rate limit."), "PRs").to_string()));
-        assert!(!rate_limited(&failed(anyhow!("gh timed out after 30s"), "PRs").to_string()));
-        assert_eq!(title(&said), "GitHub rate limit reached");
-        assert_eq!(title(&failed(anyhow!("couldn't start gh: No such file"), "PRs").to_string()), "GitHub CLI isn't installed");
-        assert_eq!(title(&failed(anyhow!("gh HTTP 401: Bad credentials"), "PRs").to_string()), "Signed out of GitHub");
-        assert_eq!(title(&failed(anyhow!("gh timed out after 30s"), "PRs").to_string()), "GitHub didn't answer");
+        let said = failed(&anyhow!("gh gh: API rate limit exceeded for user ID 1."), "PRs");
+        assert!(said.rate_limited(), "{said}");
+        assert!(failed(&anyhow!("gh gh: You have exceeded a secondary rate limit."), "PRs").rate_limited());
+        assert!(!failed(&anyhow!("gh timed out after 30s"), "PRs").rate_limited());
+        assert_eq!(said.title(), "GitHub rate limit reached");
+        assert_eq!(failed(&anyhow!("couldn't start gh: No such file"), "PRs").title(), "GitHub CLI isn't installed");
+        assert_eq!(failed(&anyhow!("gh HTTP 401: Bad credentials"), "PRs").title(), "Signed out of GitHub");
+        assert_eq!(failed(&anyhow!("gh timed out after 30s"), "PRs").title(), "GitHub didn't answer");
+    }
+
+    /// The board says each failure in the words it always has: a window knows a notice it has
+    /// dismissed by them.
+    #[test]
+    fn a_failure_is_said_in_the_same_words() {
+        let said = |message: &str| failed(&anyhow!("{message}"), "PRs for a/b");
+        assert_eq!(said("couldn't start gh: No such file"), Failure::NotInstalled);
+        assert_eq!(said("couldn't start gh: No such file").to_string(), "GitHub: install the gh CLI and sign in with `gh auth login` to see PRs");
+        assert_eq!(said("gh To get started with GitHub CLI, please run:  gh auth login"), Failure::SignedOut);
+        assert_eq!(said("gh HTTP 401: Bad credentials").to_string(), "GitHub: sign in again with `gh auth login` to see PRs");
+        assert_eq!(said("gh gh: API rate limit exceeded for user ID 1."), Failure::RateLimited { resets: None });
+        assert_eq!(
+            Failure::RateLimited { resets: Some(1) }.to_string(),
+            "GitHub: your account's rate limit is used up, so PRs wait until it resets. `gh` and your agents draw on the same limit."
+        );
+        assert_eq!(said("gh timed out after 30s"), Failure::Other("GitHub: couldn't load PRs for a/b".into()));
+        assert_eq!(said("gh timed out after 30s").to_string(), "GitHub: couldn't load PRs for a/b");
+        // Sign-in is looked at before the rate limit, as it was.
+        assert_eq!(said("gh HTTP 401: rate limit"), Failure::SignedOut);
+    }
+
+    #[test]
+    fn a_glance_says_what_it_saw_of_a_repo() {
+        let seen = parse_glance(GLANCE, &slugs()).unwrap();
+        assert!(matches!(seen.seen("sprucehq/spark"), Seen::Mark(mark) if Some(mark) == seen.repos["sprucehq/spark"].as_deref()));
+        assert!(matches!(seen.seen("gone/gone"), Seen::Hidden));
+        assert!(matches!(seen.seen("never/asked"), Seen::Unknown), "a repo whose query failed isn't listed");
     }
 
     #[test]
@@ -1119,11 +1180,12 @@ mod tests {
     }
 
     /// `read` for a repo, with GitHub answering `PRS` and counting how often it's asked.
-    fn read_repo(dir: &Path, ask: &Ask, mark: Option<&str>, now: i64, asked: &std::cell::Cell<u32>) -> Option<(std::result::Result<RepoPrs, String>, Option<Stamp>)> {
-        read(dir, ask, "sprucehq/spark", mark, now, &|| {
+    fn read_repo(dir: &Path, ask: &Ask, mark: Option<&str>, now: i64, asked: &std::cell::Cell<u32>) -> Option<Brought<RepoPrs>> {
+        let fetch = || -> std::result::Result<String, Failure> {
             asked.set(asked.get() + 1);
             Ok(PRS.to_string())
-        }, &parse, &|repo: &RepoPrs| busy(&repo.prs, now))
+        };
+        Reading { dir, ask, key: "sprucehq/spark", mark, now, fetch: &fetch, parse: &parse, busy: &|repo: &RepoPrs| busy(&repo.prs, now) }.read()
     }
 
     #[test]
@@ -1181,8 +1243,13 @@ mod tests {
         assert_eq!(saved(&dir, slug).unwrap().stamp.glance, "b");
 
         // A failure has no stamp, so the next poll asks again.
-        let failing = read::<RepoPrs>(&dir, &fresh, "a/b", Some("a"), now, &|| Err(anyhow!("GitHub: couldn't load PRs for a/b")), &parse, &|_| false).unwrap();
-        assert_eq!((failing.0.unwrap_err().as_str(), failing.1), ("GitHub: couldn't load PRs for a/b", None));
+        let refused = || -> std::result::Result<String, Failure> { Err(Failure::Other("GitHub: couldn't load PRs for a/b".into())) };
+        let failing = Reading::<RepoPrs> { dir: &dir, ask: &fresh, key: "a/b", mark: Some("a"), now, fetch: &refused, parse: &parse, busy: &|_| false }.read().unwrap();
+        assert_eq!((failing.0.unwrap_err().to_string().as_str(), failing.1), ("GitHub: couldn't load PRs for a/b", None));
+        assert!(saved(&dir, "a/b").is_none());
+        // An answer that doesn't read is a failure in the reader's words, and isn't kept.
+        let garbled = Reading::<RepoPrs> { dir: &dir, ask: &fresh, key: "a/b", mark: Some("a"), now, fetch: &|| Ok("{}".into()), parse: &parse, busy: &|_| false }.read().unwrap();
+        assert_eq!(garbled.0.unwrap_err(), Failure::Other("no repository in response".into()));
         assert!(saved(&dir, "a/b").is_none());
         let _ = std::fs::remove_dir_all(&dir);
     }
