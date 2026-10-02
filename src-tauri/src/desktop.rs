@@ -859,27 +859,18 @@ mod tests {
     }
 
     fn session(key: &str, visitor: bool) -> crate::model::Session {
-        serde_json::from_value(serde_json::json!({
-            "key": key, "id": key, "shortId": key, "harness": "claude", "account": "claude", "surface": "cli",
-            "status": "working", "live": true, "pid": null, "title": format!("Title {key}"), "cwd": "/r", "work": [],
-            "name": null, "startedAt": null, "statusSince": 1, "lastActivity": 1, "lastPromptAt": 1, "excerpt": null,
-            "resumeCommand": null, "appAccount": false, "openTarget": format!("s|{key}|focus"),
-            "visitor": if visitor { serde_json::json!("elsewhere") } else { serde_json::Value::Null },
-            "headline": "", "detail": null, "branch": null, "archived": false, "attachCommand": null, "stalledSince": null
-        }))
-        .expect("a session")
+        crate::model::Session {
+            status: crate::model::Status::Working,
+            status_since: Some(1),
+            last_activity: 1,
+            last_prompt_at: 1,
+            visitor: visitor.then(|| "elsewhere".to_string()),
+            ..crate::fixtures::session(key)
+        }
     }
 
     fn lane(id: &str, sessions: Vec<crate::model::Session>) -> Lane {
-        let mut l: Lane = serde_json::from_value(serde_json::json!({
-            "id": id, "project": "P", "repo": "r", "repoSlug": null, "path": id, "callsign": format!("cs-{id}"),
-            "origin": "main", "branch": null, "detached": null, "bay": "idle", "glyph": "idle", "parked": false,
-            "hidden": false, "headline": "", "detail": null, "sessions": [], "pr": null, "git": null,
-            "lastActivity": 0, "targets": [], "defaultTarget": null
-        }))
-        .expect("a lane");
-        l.sessions = sessions;
-        l
+        Lane { callsign: format!("cs-{id}"), ..crate::fixtures::lane(id, sessions) }
     }
 
     fn todo(id: &str, worktrees: &[&str], sessions: &[&str], labels: &[&str]) -> Todo {

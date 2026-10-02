@@ -1421,26 +1421,11 @@ mod tests {
     use std::net::TcpListener;
 
     fn session(key: &str, status: Status) -> Session {
-        serde_json::from_value(json!({
-            "key": key, "id": key, "shortId": key, "harness": "claude", "account": "claude", "surface": "cli",
-            "status": status, "live": true, "pid": 7, "title": format!("Title {key}"), "cwd": "/r", "work": [],
-            "name": null, "startedAt": null, "statusSince": 1, "lastActivity": 1, "lastPromptAt": 1, "excerpt": null,
-            "resumeCommand": null, "appAccount": false, "openTarget": "", "visitor": null,
-            "headline": "", "detail": null, "branch": null, "archived": false, "attachCommand": null, "stalledSince": null
-        }))
-        .unwrap()
+        Session { status, pid: Some(7), status_since: Some(1), last_activity: 1, last_prompt_at: 1, open_target: String::new(), ..crate::fixtures::session(key) }
     }
 
     fn lane(id: &str, sessions: Vec<Session>) -> Lane {
-        let mut l: Lane = serde_json::from_value(json!({
-            "id": id, "project": "P", "repo": "r", "repoSlug": null, "path": id, "callsign": "c",
-            "origin": "main", "branch": null, "detached": null, "bay": "idle", "glyph": "idle", "parked": false,
-            "hidden": false, "headline": "", "detail": null, "sessions": [], "pr": null, "git": null,
-            "lastActivity": 0, "targets": [], "defaultTarget": null
-        }))
-        .unwrap();
-        l.sessions = sessions;
-        l
+        Lane { callsign: "c".into(), ..crate::fixtures::lane(id, sessions) }
     }
 
     struct Device {

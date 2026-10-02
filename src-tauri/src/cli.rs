@@ -3119,6 +3119,7 @@ fn table_text(head: &[&str], rows: Vec<Vec<String>>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::fixtures::lane;
 
     #[test]
     fn status_says_a_claude_accounts_plugin() {
@@ -3236,27 +3237,9 @@ mod tests {
     }
 
     fn session(key: &str, live: bool, visitor: Option<&str>) -> Session {
-        serde_json::from_value(serde_json::json!({
-            "key": key, "id": key, "shortId": key, "harness": "claude", "account": "claude", "surface": "cli",
-            "status": "idle", "live": live, "pid": null, "title": format!("Title {key}"), "cwd": "/r", "work": [],
-            "name": null, "startedAt": null, "statusSince": 0, "lastActivity": 0, "lastPromptAt": 0, "excerpt": null,
-            "resumeCommand": null, "appAccount": false, "openTarget": format!("s|{key}|focus"), "visitor": visitor,
-            "headline": "", "detail": null, "branch": null, "archived": false, "attachCommand": null, "stalledSince": null
-        }))
-        .expect("a session")
+        Session { live, status_since: Some(0), visitor: visitor.map(String::from), ..crate::fixtures::session(key) }
     }
 
-    fn lane(id: &str, sessions: Vec<Session>) -> Lane {
-        let mut l: Lane = serde_json::from_value(serde_json::json!({
-            "id": id, "project": "P", "repo": "r", "repoSlug": null, "path": id, "callsign": id.trim_start_matches('/'),
-            "origin": "main", "branch": null, "detached": null, "bay": "idle", "glyph": "idle", "parked": false,
-            "hidden": false, "headline": "", "detail": null, "sessions": [], "pr": null, "git": null,
-            "lastActivity": 0, "targets": [], "defaultTarget": null
-        }))
-        .expect("a lane");
-        l.sessions = sessions;
-        l
-    }
 
     fn todo(id: &str, status: TodoStatus, sessions: &[&str], worktrees: &[&str]) -> Todo {
         let strings = |xs: &[&str]| xs.iter().map(|x| x.to_string()).collect();

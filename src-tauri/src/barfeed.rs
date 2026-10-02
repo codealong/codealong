@@ -240,26 +240,11 @@ mod tests {
     const NOW: i64 = 1_790_200_000_000;
 
     fn session(key: &str, status: Status, since: i64) -> Session {
-        serde_json::from_value(serde_json::json!({
-            "key": key, "id": key, "shortId": key, "harness": "claude", "account": "claude", "surface": "cli",
-            "status": status, "live": true, "pid": null, "title": format!("Title {key}"), "cwd": "/r", "work": [],
-            "name": null, "startedAt": null, "statusSince": since, "lastActivity": since, "lastPromptAt": since, "excerpt": null,
-            "resumeCommand": null, "appAccount": false, "openTarget": format!("s|{key}|focus"), "visitor": null,
-            "headline": "", "detail": null, "branch": null, "archived": false, "attachCommand": null, "stalledSince": null
-        }))
-        .expect("a session")
+        Session { status, status_since: Some(since), last_activity: since, last_prompt_at: since, ..crate::fixtures::session(key) }
     }
 
     fn lane(id: &str, sessions: Vec<Session>, hidden: bool) -> Lane {
-        let mut l: Lane = serde_json::from_value(serde_json::json!({
-            "id": id, "project": "P", "repo": "r", "repoSlug": null, "path": id, "callsign": id.trim_start_matches('/'),
-            "origin": "main", "branch": null, "detached": null, "bay": "idle", "glyph": "idle", "parked": false,
-            "hidden": hidden, "headline": "", "detail": null, "sessions": [], "pr": null, "git": null,
-            "lastActivity": 0, "targets": [], "defaultTarget": null
-        }))
-        .expect("a lane");
-        l.sessions = sessions;
-        l
+        Lane { hidden, ..crate::fixtures::lane(id, sessions) }
     }
 
     fn board(lanes: Vec<Lane>, prs: Vec<PrItem>) -> Board {

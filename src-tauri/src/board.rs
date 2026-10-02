@@ -2822,17 +2822,7 @@ mod tests {
             let t = TranscriptInfo { last_prompt_at: Some(prompt), last_ts: since, ..tr() };
             claude_session(&a, Some(&reg(status, since)), Some(&t), NOW, NOW, &Quiet::default()).unwrap()
         };
-        let lane = |id: &str, bay: Bay, sessions: Vec<Session>| -> Lane {
-            let mut l: Lane = serde_json::from_value(serde_json::json!({
-                "id": id, "project": "P", "repo": "r", "repoSlug": null, "path": id, "callsign": id,
-                "origin": "main", "branch": null, "detached": null, "bay": "idle", "glyph": "idle", "parked": false,
-                "hidden": false, "headline": "", "detail": null, "sessions": [], "pr": null, "git": null,
-                "lastActivity": 0, "targets": [], "defaultTarget": null
-            }))
-            .expect("a lane");
-            (l.bay, l.sessions) = (bay, sessions);
-            l
-        };
+        let lane = |id: &str, bay: Bay, sessions: Vec<Session>| Lane { bay, ..crate::fixtures::lane(id, sessions) };
         let mut snoozed = session("waiting", NOW - 90 * MIN, NOW - 100 * MIN);
         snoozed.snoozed_until = Some(NOW + 60 * MIN);
         let mut lanes = vec![

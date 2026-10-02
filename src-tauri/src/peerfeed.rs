@@ -153,30 +153,25 @@ pub fn for_windows(short: &str, tag: &DeviceTag, replica: &Replica) -> Vec<Lane>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{Session, Status};
+    use crate::model::{Session, Status, Target};
 
     fn session(key: &str, status: Status) -> Session {
-        serde_json::from_value(serde_json::json!({
-            "key": key, "id": key, "shortId": key, "harness": "claude", "account": "claude", "surface": "cli",
-            "status": status, "live": true, "pid": 42, "title": format!("Title {key}"), "cwd": "/r", "work": [],
-            "name": null, "startedAt": null, "statusSince": 1, "lastActivity": 1, "lastPromptAt": 1, "excerpt": null,
-            "resumeCommand": "claude --resume x", "appAccount": true, "openTarget": format!("s|{key}|focus"), "visitor": null,
-            "headline": "", "detail": null, "branch": null, "archived": false, "attachCommand": "claude attach j", "stalledSince": null
-        }))
-        .expect("a session")
+        Session {
+            status,
+            pid: Some(42),
+            status_since: Some(1),
+            last_activity: 1,
+            last_prompt_at: 1,
+            resume_command: Some("claude --resume x".into()),
+            app_account: true,
+            attach_command: Some("claude attach j".into()),
+            ..crate::fixtures::session(key)
+        }
     }
 
     fn lane(id: &str, sessions: Vec<Session>) -> Lane {
-        let mut l: Lane = serde_json::from_value(serde_json::json!({
-            "id": id, "project": "P", "repo": "r", "repoSlug": null, "path": id, "callsign": "c",
-            "origin": "main", "branch": null, "detached": null, "bay": "idle", "glyph": "idle", "parked": false,
-            "hidden": false, "headline": "", "detail": null, "sessions": [], "pr": null, "git": null,
-            "lastActivity": 0, "targets": [{"id": "l|terminal", "icon": "t", "label": "Terminal", "detail": null, "kbd": null, "disabled": false, "group": "lane"}],
-            "defaultTarget": "l|terminal"
-        }))
-        .expect("a lane");
-        l.sessions = sessions;
-        l
+        let terminal = Target { id: "l|terminal".into(), icon: "t".into(), label: "Terminal".into(), detail: None, kbd: None, disabled: false, group: "lane".into() };
+        Lane { callsign: "c".into(), targets: vec![terminal], default_target: Some("l|terminal".into()), ..crate::fixtures::lane(id, sessions) }
     }
 
     fn board(lanes: Vec<Lane>) -> Board {
