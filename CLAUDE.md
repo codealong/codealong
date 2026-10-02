@@ -321,14 +321,17 @@ some work is, answer with one.
   `throttle::background`, whose `ended` runs however the work ends, a panic and a thread that
   never started included, so the flag always comes off; a git run that panics still answers
   (`engine::git_worker`).
-- What Codealong does to a session, whichever device it's on, is a request in
-  `src-tauri/src/actions.rs` (`REQUESTS`: its name and what it does here), and who may ask for it
-  from another device is its `Reach` in codealong-peer's `api::REQUESTS` (read, organize, or
-  control, which needs remote control on). A window's command goes through `actions::run`, which
-  asks the session's device when it's elsewhere; a device's request through `actions::answer`;
-  the `codealong` command's through the socket's `run` (`actions::run_as`, `From::Command`),
-  which each request's `command` rule narrows. A new session action is a line in each, not a
-  command with its own remote branch.
+- What Codealong does to a session or a worktree, or asks of a device, whichever device it's on,
+  is a request in `src-tauri/src/actions.rs` (`REQUESTS`: its name, what it does here, how it
+  crosses to another device when that isn't the default, and, as `only_here`, why it can't when
+  it needs someone at that Mac), and who may ask for it from another device is its `Reach` in
+  codealong-peer's `api::REQUESTS` (read, organize, or control, which needs remote control on).
+  A window's command goes through `actions::run` (a session's key or a worktree's lane id names
+  the device), `run_on` (a device by its short id) or `run_keys` (sessions on several devices,
+  one request each), which ask the other device when it's elsewhere; a device's request through
+  `actions::answer`; the `codealong` command's through the socket's `run` (`actions::run_as`,
+  `From::Command`), which each request's `command` rule narrows. A new session action is a line
+  in each, not a command with its own remote branch or its own "that's on another device".
 - A terminal is a module under `src-tauri/src/launch/` (`ghostty.rs`, `iterm.rs`,
   `terminal_app.rs`, `tmux.rs`) that knows its scripts and commands, with a struct implementing
   `launch::Terminal`, listed in `launch::TERMINALS`: its name, profile and bundle ID, opening a

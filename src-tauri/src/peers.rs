@@ -591,14 +591,10 @@ impl Peers {
                 let me = self.clone();
                 let words = words.to_vec();
                 std::thread::spawn(move || {
-                    let got = me.ask(&short, codealong_peer::api::SEARCH, json!({ "words": words }), Duration::from_secs(4));
-                    match got.and_then(|v| serde_json::from_value::<crate::search::Found>(v).map_err(|e| e.to_string())) {
-                        Ok(mut found) => {
-                            for h in &mut found.hits {
-                                h.key = peerfeed::remote_key(&short, &h.key);
-                            }
-                            DeviceFound { device: short, name, found: Some(found), error: None }
-                        }
+                    // How long a device is given, and the keys its sessions have here, are the request's (actions.rs).
+                    let got = crate::actions::ask_device(&me, codealong_peer::api::SEARCH, &short, json!({ "words": words }));
+                    match got.and_then(crate::actions::typed::<crate::search::Found>) {
+                        Ok(found) => DeviceFound { device: short, name, found: Some(found), error: None },
                         Err(e) => DeviceFound { device: short, name, found: None, error: Some(e) },
                     }
                 })

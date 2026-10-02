@@ -60,7 +60,8 @@ pub enum Request {
     /// command may ask for (`actions::command_may_ask`).
     DeviceAsk { device: String, request: String, params: Value },
     /// One of the app's requests about a session (actions.rs `REQUESTS`: `session-send`,
-    /// `session-cancel`, `session-fork`…), for the session `key` with `params`, asked as the
+    /// `session-cancel`, `session-fork`…), for the session or worktree `key` with `params`
+    /// (empty for a request about neither), asked as the
     /// command (`actions::From::Command`): what a window may ask, less what is its user's alone.
     /// `from` is the session that ran the command, when it found one, which a message says it's
     /// from (send.rs).
@@ -214,7 +215,7 @@ fn handle_request(engine: &Handle, peers: &Peers, app: &tauri::AppHandle, req: s
         Request::DeviceCode => answered(peers.link_code()),
         Request::DeviceUseCode { code } => answered(peers.link_with_code(&code)),
         Request::DeviceAsk { device, request, params } => answered(crate::actions::command_may_ask(&request, &params).and_then(|_| peers.ask(&device, &request, params, Duration::from_secs(40)))),
-        Request::Run { name, key, params, from } => answered(crate::actions::run_as(engine, peers, &crate::actions::From::Command(from), &name, &key, params)),
+        Request::Run { name, key, params, from } => answered(crate::actions::run_as(engine, peers, &crate::actions::From::Command(from), &name, crate::actions::On::Key(&key), params)),
         Request::Show { reveal } => match crate::front::show_main(app, Some(reveal)) {
             // A bare binary isn't what its ID opens: that's whichever bundle has it.
             Ok(()) => Reply::ok(std::env::current_exe().ok().and_then(|exe| crate::updates::bundle_of(&exe)).map(|_| app.config().identifier.clone())),

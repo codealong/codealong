@@ -1,16 +1,19 @@
-//! What a device does about its sessions when asked, in one table (`REQUESTS`): each request's
-//! name (what one device asks another: codealong-peer's `api`), what it does on this device, and,
-//! for the few that need someone at the Mac a session runs on, why another device can't ask for
-//! it. A window's command about a session goes through `run`, which does it here or asks the
-//! device the session is on; a linked device's request goes through `answer`, which does it
-//! here; and the `codealong` command's goes through `run_as` (the app's socket, server.rs) or,
-//! with the app closed, `local`. So a request does the same whether a window here, another Mac,
-//! a phone or the command asks. Who may ask for it from elsewhere is `api::REQUESTS`'s to say,
-//! once, and what the command may not ask for is each request's `command` here.
+//! What a device does about its sessions and worktrees when asked, in one table (`REQUESTS`):
+//! each request's name (what one device asks another: codealong-peer's `api`), what it does on
+//! this device, how it crosses to another, and, for those that need someone at the Mac a session
+//! or worktree is on, why another device can't ask for it. A window's command goes through
+//! `run`, which does it here or asks the device that the session, the worktree or the command
+//! names (`On`); a linked device's request goes through `answer`, which does it here; and the
+//! `codealong` command's goes through `run_as` (the app's socket, server.rs) or, with the app
+//! closed, `local`. So a request does the same whether a window here, another Mac, a phone or
+//! the command asks. Who may ask for it from elsewhere is `api::REQUESTS`'s to say, once, and
+//! what the command may not ask for is each request's `command` here.
 
+use std::collections::BTreeMap;
 use std::time::Duration;
 
 use codealong_peer::api::{self, Reach};
+use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
 
 use crate::engine::Handle;
@@ -24,6 +27,35 @@ pub const MOVE: &str = "session-move";
 pub const CLOSE: &str = "session-close";
 pub const SIDE_ASK: &str = "session-side-ask";
 pub const SIDE_CLOSE: &str = "session-side-close";
+pub const OPEN: &str = "open-target";
+pub const SNOOZE: &str = "session-snooze";
+pub const PREVIEW: &str = "worktree-preview";
+pub const REUSABLE: &str = "worktree-reusable";
+
+/// Which device a request goes to.
+#[derive(Clone, Copy, Debug)]
+pub enum On<'a> {
+    /// The one a session's key or a worktree's lane id names: another device's start with its
+    /// part (`peerfeed::split_remote`), and that device knows them by the rest.
+    Key(&'a str),
+    /// A device by its short id, or this one with none, for a request about no one session or
+    /// worktree.
+    Device(Option<&'a str>),
+}
+
+impl<'a> On<'a> {
+    /// The other device it goes to (none for this one), and what that device calls the session
+    /// or worktree (empty for none).
+    fn split(self) -> (Option<&'a str>, &'a str) {
+        match self {
+            On::Key(key) => match peerfeed::split_remote(key) {
+                Some((device, own)) => (Some(device), own),
+                None => (None, key),
+            },
+            On::Device(device) => (device, ""),
+        }
+    }
+}
 
 /// Who's asking.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -41,8 +73,8 @@ pub enum From {
     Command(Option<String>),
 }
 
-/// A request as a function gets it: `key` names the session on this device (empty for a
-/// request about none), `params` the rest.
+/// A request as a function gets it: `key` names the session or worktree on this device (empty
+/// for a request about none), `params` the rest.
 pub struct Call<'a> {
     pub key: &'a str,
     pub params: &'a Value,
@@ -76,10 +108,19 @@ struct Request {
     /// may not.
     command: fn(&Value) -> Result<(), String>,
     here: fn(&Handle, &Call) -> Result<Value, String>,
+    /// What another device is asked, given the params and what it calls the session or worktree
+    /// (empty for a request to a device): the params with that as their `key`, unless the
+    /// request says otherwise.
+    there: fn(Value, &str) -> Result<Value, String>,
+    /// What another device's answer says here, given its short id: what it said, unless the
+    /// request says otherwise.
+    back: fn(Value, &str) -> Result<Value, String>,
+    /// How long another device is given to answer, when not as long as its kind takes (`ask`).
+    wait: Option<Duration>,
 }
 
 /// A request any linked device can make and the command too; each line says what differs.
-const ANY: Request = Request { name: "", only_here: None, command: |_| Ok(()), here: |_, _| Ok(Value::Null) };
+const ANY: Request = Request { name: "", only_here: None, command: |_| Ok(()), here: |_, _| Ok(Value::Null), there: with_key, back: |v, _| Ok(v), wait: None };
 
 const REQUESTS: &[Request] = &[
     Request { name: api::SESSION_PAGE, here: page, ..ANY },
@@ -93,10 +134,11 @@ const REQUESTS: &[Request] = &[
     Request { name: api::SESSION_ARCHIVE, here: archive, ..ANY },
     Request { name: api::SESSION_RENAME, here: rename, ..ANY },
     Request { name: api::MARK_SEEN, here: mark_seen, ..ANY },
-    Request { name: api::SEARCH, here: search, ..ANY },
+    // A search runs as you type, so a device slow to answer is left out rather than waited for.
+    Request { name: api::SEARCH, here: search, back: found_back, wait: Some(Duration::from_secs(4)), ..ANY },
     Request { name: api::ROUTE, here: route, ..ANY },
     Request { name: api::START_OPTIONS, here: start_options, ..ANY },
-    Request { name: api::START, here: start, ..ANY },
+    Request { name: api::START, here: start, there: start_there, back: started_back, ..ANY },
     Request { name: api::SESSION_FORK, here: fork, ..ANY },
     // A fork into a terminal opens one, and closing one ends it: both need someone at that Mac.
     Request { name: FORK_TERMINAL, only_here: Some("Fork it on the Mac it runs on."), here: fork_terminal, ..ANY },
@@ -109,6 +151,13 @@ const REQUESTS: &[Request] = &[
     // borrow.
     Request { name: SIDE_ASK, only_here: Some("Ask it on the side on the Mac it runs on."), here: side_ask, command: side_in_windows, ..ANY },
     Request { name: SIDE_CLOSE, only_here: Some("Its side conversation is on the Mac it runs on."), here: side_close, command: side_in_windows, ..ANY },
+    // What a click opens is on the screen of the device it's on.
+    Request { name: OPEN, only_here: Some("That's on another device: it opens there, and its sessions show in their panel here."), here: open, ..ANY },
+    // Snoozes keep sessions off the floating bar, which shows only this Mac's.
+    Request { name: SNOOZE, only_here: Some("Snooze it on the Mac it runs on."), here: snooze, ..ANY },
+    // A worktree's preview and reuse mark are kept on its Mac, with its other settings.
+    Request { name: PREVIEW, only_here: Some("That worktree is on another device; set its preview there."), here: set_preview, ..ANY },
+    Request { name: REUSABLE, only_here: Some("That worktree is on another device; mark it there."), here: set_reusable, ..ANY },
 ];
 
 fn find(name: &str) -> Option<&'static Request> {
@@ -136,28 +185,89 @@ fn move_in_windows(_: &Value) -> Result<(), String> {
     Err("A session is moved to another account in Codealong's windows.".into())
 }
 
-/// Does `name` for the session `key` from a window here: on this device, or, for a session on
-/// another device, by asking that device (with the key it knows the session by).
+/// Does `name` for the session or worktree `key` from a window here: on this device, or, for
+/// one on another device, by asking that device (with the key it knows it by).
 pub fn run(engine: &Handle, peers: &Peers, name: &str, key: &str, params: Value) -> Result<Value, String> {
-    run_as(engine, peers, &From::Here, name, key, params)
+    run_as(engine, peers, &From::Here, name, On::Key(key), params)
+}
+
+/// `run` for a request about no one session or worktree, on a device by its short id, or on
+/// this one with none.
+pub fn run_on(engine: &Handle, peers: &Peers, name: &str, device: Option<&str>, params: Value) -> Result<Value, String> {
+    run_as(engine, peers, &From::Here, name, On::Device(device), params)
 }
 
 /// `run`, for whoever asks on this device: a window, or the `codealong` command through the
 /// app's socket (server.rs), which may not ask for all a window may.
-pub fn run_as(engine: &Handle, peers: &Peers, from: &From, name: &str, key: &str, params: Value) -> Result<Value, String> {
+pub fn run_as(engine: &Handle, peers: &Peers, from: &From, name: &str, on: On, params: Value) -> Result<Value, String> {
     let req = asked(from, name, &params)?;
-    match peerfeed::split_remote(key) {
-        Some((device, own)) => {
-            elsewhere(req, from)?;
-            // The command may leave out a request's params; the device reads the key from them.
-            let mut params = if params.is_null() { json!({}) } else { params };
-            if let Value::Object(m) = &mut params {
-                m.insert("key".into(), json!(own));
-            }
-            ask(peers, device, name, params)
-        }
-        None => (req.here)(engine, &Call { key, params: &params, from }),
+    match on.split() {
+        (Some(device), own) => ask_there(peers, req, from, device, own, params),
+        (None, key) => (req.here)(engine, &Call { key, params: &params, from }),
     }
+}
+
+/// Does `name` for sessions on any device, from a window here: one request a device, with the
+/// `keys` each knows its sessions by in `params`. Another device's goes in the background, since
+/// the window hears of the change from that device's feed, and one the table keeps on the
+/// session's Mac (`only_here`) isn't sent. Returns this device's answer, if any were here.
+pub fn run_keys(engine: &Handle, peers: &Peers, name: &str, keys: Vec<String>, params: Value) -> Option<Value> {
+    let req = find(name)?;
+    let mut answer = None;
+    for (device, keys) in by_device(keys) {
+        let mut params = params.clone();
+        if let Value::Object(m) = &mut params {
+            m.insert("keys".into(), json!(keys));
+        }
+        match device {
+            None => answer = (req.here)(engine, &Call { key: "", params: &params, from: &From::Here }).ok(),
+            Some(device) if elsewhere(req, &From::Here).is_ok() => {
+                let peers = peers.clone();
+                std::thread::spawn(move || {
+                    let _ = ask_there(&peers, req, &From::Here, &device, "", params);
+                });
+            }
+            Some(_) => {}
+        }
+    }
+    answer
+}
+
+/// Sessions' keys by the device each is on (None for this one), as that device knows them.
+fn by_device(keys: Vec<String>) -> BTreeMap<Option<String>, Vec<String>> {
+    let mut by: BTreeMap<Option<String>, Vec<String>> = BTreeMap::new();
+    for key in keys {
+        match peerfeed::split_remote(&key) {
+            Some((device, own)) => by.entry(Some(device.to_string())).or_default().push(own.to_string()),
+            None => by.entry(None).or_default().push(key),
+        }
+    }
+    by
+}
+
+/// Has another device do `req`, as `from` asks it here: what it's asked and what its answer says
+/// here are the request's to say (`there`, `back`).
+fn ask_there(peers: &Peers, req: &Request, from: &From, device: &str, own: &str, params: Value) -> Result<Value, String> {
+    elsewhere(req, from)?;
+    let params = (req.there)(params, own)?;
+    (req.back)(ask(peers, req, device, params)?, device)
+}
+
+/// `name` from another device, from a window here: for what asks every linked device at once
+/// (`Peers::search`), which says which devices.
+pub fn ask_device(peers: &Peers, name: &str, device: &str, params: Value) -> Result<Value, String> {
+    let req = asked(&From::Here, name, &params)?;
+    ask_there(peers, req, &From::Here, device, "", params)
+}
+
+/// The params another device is asked with, by default: with the key it knows the session or
+/// worktree by, when the request is about one. The command may leave out a request's params.
+fn with_key(params: Value, own: &str) -> Result<Value, String> {
+    let mut params = if params.is_null() { json!({}) } else { params };
+    if let (Value::Object(m), false) = (&mut params, own.is_empty()) {
+        m.insert("key".into(), json!(own));
+    }
+    Ok(params)
 }
 
 /// Whether `from` may have another device do `req`: not what needs someone at the Mac a session
@@ -200,11 +310,16 @@ fn asked(from: &From, name: &str, params: &Value) -> Result<&'static Request, St
     Ok(req)
 }
 
-/// Asks another device for `name`, waiting as long as its kind takes: a read briefly, an action
-/// longer (it may start an app, or type into a terminal).
-pub fn ask(peers: &Peers, device: &str, name: &str, params: Value) -> Result<Value, String> {
-    let wait = if api::reach(name) == Some(Reach::Read) { Duration::from_secs(15) } else { Duration::from_secs(40) };
-    peers.ask(device, name, params, wait)
+/// Asks another device for `req`, waiting as long as the request says, else as its kind takes:
+/// a read briefly, an action longer (it may start an app, or type into a terminal).
+fn ask(peers: &Peers, req: &Request, device: &str, params: Value) -> Result<Value, String> {
+    let kind = if api::reach(req.name) == Some(Reach::Read) { Duration::from_secs(15) } else { Duration::from_secs(40) };
+    peers.ask(device, req.name, params, req.wait.unwrap_or(kind))
+}
+
+/// A request's answer as the type it is, for a window's command.
+pub fn typed<T: DeserializeOwned>(v: Value) -> Result<T, String> {
+    serde_json::from_value(v).map_err(|e| e.to_string())
 }
 
 /// Answers a linked device's request (peers.rs has checked it may make it) as a window's would be.
@@ -350,6 +465,15 @@ fn search(_: &Handle, c: &Call) -> Result<Value, String> {
     to_value(crate::search::typed(&words))
 }
 
+/// What another device found, by the keys its sessions have here.
+fn found_back(v: Value, device: &str) -> Result<Value, String> {
+    let mut found: crate::search::Found = typed(v)?;
+    for h in &mut found.hits {
+        h.key = peerfeed::remote_key(device, &h.key);
+    }
+    to_value(found)
+}
+
 /// Where typed text goes, as the quick panel suggests it (route.rs).
 fn route(engine: &Handle, c: &Call) -> Result<Value, String> {
     let project = c.params.get("project").and_then(Value::as_str).filter(|p| !p.is_empty()).unwrap_or(crate::route::ALL_PROJECTS);
@@ -363,8 +487,25 @@ fn start_options(_: &Handle, _: &Call) -> Result<Value, String> {
 
 /// Starts a session in a worktree here and links it to its todos.
 fn start(engine: &Handle, c: &Call) -> Result<Value, String> {
-    let spec: crate::start::StartSpec = c.params.get("spec").cloned().and_then(|s| serde_json::from_value(s).ok()).ok_or("The request has no start.")?;
-    to_value(crate::start::start_here(engine, &spec).map_err(words)?)
+    to_value(crate::start::start_here(engine, &spec_of(c.params)?).map_err(words)?)
+}
+
+fn spec_of(params: &Value) -> Result<crate::start::StartSpec, String> {
+    params.get("spec").cloned().and_then(|s| serde_json::from_value(s).ok()).ok_or_else(|| "The request has no start.".to_string())
+}
+
+/// A start in another device's worktree, as that device knows it, with none of the todos: they
+/// are this device's, and it has its own list.
+fn start_there(params: Value, lane: &str) -> Result<Value, String> {
+    let spec = crate::start::StartSpec { lane_id: lane.to_string(), todos: Vec::new(), from: None, ..spec_of(&params)? };
+    Ok(json!({ "spec": spec }))
+}
+
+/// The session another device started, by the key it has here.
+fn started_back(v: Value, device: &str) -> Result<Value, String> {
+    let mut started: crate::start::Started = typed(v)?;
+    started.key = started.key.map(|k| peerfeed::remote_key(device, &k));
+    to_value(started)
 }
 
 /// Forks it into a copy that goes on without a window, on `prompt` when there's one
@@ -454,6 +595,35 @@ fn side_close(_: &Handle, c: &Call) -> Result<Value, String> {
     Ok(Value::Null)
 }
 
+/// Opens one of a worktree's targets (`target`), as a click does: a session's terminal, the
+/// worktree in an editor (`engine::open_on`).
+fn open(engine: &Handle, c: &Call) -> Result<Value, String> {
+    engine.open(c.key, &c.text("target")).map_err(words)?;
+    Ok(Value::Null)
+}
+
+/// Snoozes sessions (`keys`) until `until` (ms since the epoch), or wakes them with none.
+fn snooze(engine: &Handle, c: &Call) -> Result<Value, String> {
+    let keys: Vec<String> = c.params.get("keys").cloned().and_then(|k| serde_json::from_value(k).ok()).unwrap_or_default();
+    let until = c.params.get("until").and_then(Value::as_i64);
+    Ok(shown_at(c, engine.snooze(keys, until)))
+}
+
+/// Sets the worktree's preview URL and the Chrome profile it opens in, or clears them with no
+/// URL (previews.rs).
+fn set_preview(engine: &Handle, c: &Call) -> Result<Value, String> {
+    let text = |name: &str| c.params.get(name).and_then(Value::as_str);
+    let port = c.u64("port").and_then(|p| u16::try_from(p).ok());
+    let at = engine.set_preview(c.key, text("url"), port, text("chromeProfile")).map_err(words)?;
+    Ok(shown_at(c, at))
+}
+
+/// Marks the worktree reusable or not (reusable.rs).
+fn set_reusable(engine: &Handle, c: &Call) -> Result<Value, String> {
+    let at = engine.set_reusable(c.key, c.flag("on")).map_err(words)?;
+    Ok(shown_at(c, at))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -485,6 +655,63 @@ mod tests {
         assert!(err.contains("update it here"), "{err}");
         let err = answer(&engine, api::SESSION_PAGE, json!({})).unwrap_err();
         assert_eq!(err, "The request names no session.");
+    }
+
+    fn no_devices() -> (Peers, crate::fixtures::Scratch) {
+        let dir = crate::fixtures::scratch("actions");
+        let hooks = crate::peers::Hooks { board: Box::new(crate::model::Board::default), answer: Box::new(|_, _| Err("no".into())), emit: Box::new(|_| {}) };
+        (Peers::new(dir.to_path_buf(), hooks), dir)
+    }
+
+    #[test]
+    fn what_is_on_another_device_goes_there_unless_it_needs_someone_at_that_mac() {
+        let (peers, _dir) = no_devices();
+        let engine = Handle::for_tests();
+        // A worktree's targets open, and its preview and reuse mark are set, on its own Mac.
+        let lane = "@a1b2c3d4e5:/Users/sam/app";
+        for (name, words) in [(OPEN, "it opens there"), (PREVIEW, "set its preview there"), (REUSABLE, "mark it there")] {
+            let err = run(&engine, &peers, name, lane, json!({ "target": "editor", "on": true })).unwrap_err();
+            assert!(err.contains(words), "{name}: {err}");
+        }
+        // What another device can do is asked of it: this one has none linked, so the asking fails.
+        let spec = json!({ "spec": { "laneId": lane, "account": "claude", "place": "terminal", "prompt": "", "worktree": false, "todos": [] } });
+        assert!(run(&engine, &peers, api::START, lane, spec).unwrap_err().contains("isn't linked"));
+        assert!(run_on(&engine, &peers, api::START_OPTIONS, Some("a1b2c3d4e5"), json!({})).unwrap_err().contains("isn't linked"));
+        // Snoozing another device's session is left undone, and this device's answers.
+        assert_eq!(run_keys(&engine, &peers, SNOOZE, vec!["@a1b2c3d4e5:claude:claude:abc".into()], json!({ "until": 1 })), None);
+        assert_eq!(run_keys(&engine, &peers, SNOOZE, vec!["@a1b2c3d4e5:claude:claude:abc".into(), "claude:claude:def".into()], json!({ "until": 1 })), Some(Value::Null));
+    }
+
+    #[test]
+    fn sessions_are_asked_for_on_the_device_each_is_on() {
+        let by = by_device(vec!["claude:claude:a".into(), "@a1b2c3d4e5:codex:codex:b".into(), "@f6e5d4c3b2:claude:claude:c".into(), "@a1b2c3d4e5:claude:claude:d".into()]);
+        let by: Vec<(Option<&str>, Vec<&str>)> = by.iter().map(|(d, k)| (d.as_deref(), k.iter().map(String::as_str).collect())).collect();
+        assert_eq!(by, vec![(None, vec!["claude:claude:a"]), (Some("a1b2c3d4e5"), vec!["codex:codex:b", "claude:claude:d"]), (Some("f6e5d4c3b2"), vec!["claude:claude:c"])]);
+    }
+
+    #[test]
+    fn another_device_is_asked_what_it_always_was() {
+        // A session's request carries the key that device knows it by; a device's, none.
+        let page = find(api::SESSION_PAGE).unwrap();
+        assert_eq!((page.there)(json!({ "before": 7 }), "claude:claude:abc").unwrap(), json!({ "before": 7, "key": "claude:claude:abc" }));
+        assert_eq!((page.there)(Value::Null, "claude:claude:abc").unwrap(), json!({ "key": "claude:claude:abc" }));
+        let seen = find(api::MARK_SEEN).unwrap();
+        assert_eq!((seen.there)(json!({ "keys": ["claude:claude:abc"] }), "").unwrap(), json!({ "keys": ["claude:claude:abc"] }));
+        // A start goes with the worktree as that device knows it and none of this device's todos,
+        // and the session it started comes back by the key it has here.
+        let start = find(api::START).unwrap();
+        let spec = json!({ "laneId": "@a1b2c3d4e5:/Users/sam/app", "account": "claude", "place": "background", "prompt": "Fix the build", "model": null, "effort": null, "worktree": false, "todos": ["t-1"], "from": "claude:claude:me" });
+        let there = (start.there)(json!({ "spec": spec }), "/Users/sam/app").unwrap();
+        assert_eq!(there, json!({ "spec": { "laneId": "/Users/sam/app", "account": "claude", "place": "background", "prompt": "Fix the build", "model": null, "effort": null, "worktree": false, "todos": [] } }));
+        let back = (start.back)(json!({ "key": "claude:claude:new", "message": "Started." }), "a1b2c3d4e5").unwrap();
+        assert_eq!(back["key"], "@a1b2c3d4e5:claude:claude:new");
+        // What a search found there is named by the keys its sessions have here, and a device
+        // slow to answer is left out after a few seconds.
+        let search = find(api::SEARCH).unwrap();
+        let found = json!({ "hits": [{ "key": "claude:claude:s1", "snippet": "the webhook", "you": false, "at": 1 }], "building": false, "off": false });
+        let back = (search.back)(found, "a1b2c3d4e5").unwrap();
+        assert_eq!(back["hits"][0]["key"], "@a1b2c3d4e5:claude:claude:s1");
+        assert_eq!(search.wait, Some(Duration::from_secs(4)));
     }
 
     #[test]

@@ -138,12 +138,9 @@ fn get_board(engine: State<'_, engine::Handle>) -> model::Board {
 }
 
 #[tauri::command(async)]
-fn open_target(app: tauri::AppHandle, engine: State<'_, engine::Handle>, lane_id: String, target_id: String) -> Result<(), String> {
-    if peerfeed::split_remote(&lane_id).is_some() {
-        return Err("That's on another device: it opens there, and its sessions show in their panel here.".into());
-    }
+fn open_target(app: tauri::AppHandle, engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, lane_id: String, target_id: String) -> Result<(), String> {
     let from = flash::pointer();
-    engine.open(&lane_id, &target_id).map_err(|e| e.to_string())?;
+    actions::run(&engine, &peers, actions::OPEN, &lane_id, serde_json::json!({ "target": target_id }))?;
     flash_focused(&app, &engine, &lane_id, &target_id, from);
     Ok(())
 }
@@ -199,41 +196,20 @@ fn close_session(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peer
     actions::run(&engine, &peers, actions::CLOSE, &key, serde_json::json!({})).map(|v| v.as_str().unwrap_or_default().to_string())
 }
 
-/// Returns the time of the board that shows the sessions on this device seen (none when they're
-/// all on other devices, whose feeds show it as they come in), for the window's own copy.
+/// Marks sessions seen, each on the device it's on: its status changes there, and so on every
+/// device. Returns the time of the board that shows the sessions on this device seen (none when
+/// they're all on other devices, whose feeds show it as they come in), for the window's own copy.
 #[tauri::command(async)]
 fn mark_seen(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, keys: Vec<String>) -> Option<i64> {
-    let (elsewhere, here): (Vec<String>, Vec<String>) = keys.into_iter().partition(|k| peerfeed::split_remote(k).is_some());
-    // Seen goes to the device the session is on: its status changes there, and so on every device.
-    let mut by_device: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
-    for k in &elsewhere {
-        if let Some((device, key)) = peerfeed::split_remote(k) {
-            by_device.entry(device.to_string()).or_default().push(key.to_string());
-        }
-    }
-    for (device, keys) in by_device {
-        let peers = peers.inner().clone();
-        std::thread::spawn(move || {
-            let _ = actions::ask(&peers, &device, api::MARK_SEEN, serde_json::json!({ "keys": keys }));
-        });
-    }
-    if here.is_empty() {
-        return None;
-    }
-    actions::run(&engine, &peers, api::MARK_SEEN, "", serde_json::json!({ "keys": here })).ok().and_then(|v| v.as_i64())
+    actions::run_keys(&engine, &peers, api::MARK_SEEN, keys, serde_json::json!({})).and_then(|v| v.as_i64())
 }
 
-/// Snoozes sessions until `until` (ms since the epoch), or wakes them with none. Only this Mac's:
-/// the floating bar, which snoozes keep sessions off, shows only this Mac's. Returns the time of
-/// the board that shows it, as `mark_seen` does.
+/// Snoozes sessions until `until` (ms since the epoch), or wakes them with none. Only this Mac's
+/// (`actions::SNOOZE`): another device's are left as they are. Returns the time of the board that
+/// shows it, as `mark_seen` does.
 #[tauri::command(async)]
-fn snooze_sessions(engine: State<'_, engine::Handle>, keys: Vec<String>, until: Option<i64>) -> Option<i64> {
-    let here: Vec<String> = keys.into_iter().filter(|k| peerfeed::split_remote(k).is_none()).collect();
-    if here.is_empty() {
-        None
-    } else {
-        engine.snooze(here, until)
-    }
+fn snooze_sessions(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, keys: Vec<String>, until: Option<i64>) -> Option<i64> {
+    actions::run_keys(&engine, &peers, actions::SNOOZE, keys, serde_json::json!({ "until": until })).and_then(|v| v.as_i64())
 }
 
 #[tauri::command]
@@ -255,21 +231,15 @@ fn set_pinned(engine: State<'_, engine::Handle>, keys: Vec<String>) {
 /// clears them with no URL. Returns the time of the board that shows it, when the engine says
 /// in time.
 #[tauri::command(async)]
-fn set_preview(engine: State<'_, engine::Handle>, lane_id: String, url: Option<String>, port: Option<u16>, chrome_profile: Option<String>) -> Result<Option<i64>, String> {
-    if peerfeed::split_remote(&lane_id).is_some() {
-        return Err("That worktree is on another device; set its preview there.".into());
-    }
-    engine.set_preview(&lane_id, url.as_deref(), port, chrome_profile.as_deref()).map_err(|e| format!("{e:#}"))
+fn set_preview(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, lane_id: String, url: Option<String>, port: Option<u16>, chrome_profile: Option<String>) -> Result<Option<i64>, String> {
+    actions::run(&engine, &peers, actions::PREVIEW, &lane_id, serde_json::json!({ "url": url, "port": port, "chromeProfile": chrome_profile })).map(|v| v.as_i64())
 }
 
 /// Marks a worktree reusable or not (reusable.rs). Returns the time of the board that shows it,
 /// when the engine says in time.
 #[tauri::command(async)]
-fn set_reusable(engine: State<'_, engine::Handle>, lane_id: String, on: bool) -> Result<Option<i64>, String> {
-    if peerfeed::split_remote(&lane_id).is_some() {
-        return Err("That worktree is on another device; mark it there.".into());
-    }
-    engine.set_reusable(&lane_id, on).map_err(|e| format!("{e:#}"))
+fn set_reusable(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, lane_id: String, on: bool) -> Result<Option<i64>, String> {
+    actions::run(&engine, &peers, actions::REUSABLE, &lane_id, serde_json::json!({ "on": on })).map(|v| v.as_i64())
 }
 
 #[tauri::command]
@@ -562,27 +532,26 @@ fn fit_quick(app: tauri::AppHandle, height: f64) {
 /// worktree on another device starts there, where whatever it opens comes forward.
 #[tauri::command(async)]
 fn start_from_quick(app: tauri::AppHandle, engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, spec: start::StartSpec) -> Result<start::Started, String> {
-    if let Some((device, lane)) = peerfeed::split_remote(&spec.lane_id) {
-        return start_on_device(&peers, device, lane, &spec);
-    }
-    let started = start::start_here(&engine, &spec).map_err(|e| format!("{e:#}"))?;
-    start::note(&engine, &spec);
-    if let Some(bundle) = quick::start_app(spec.place, &engine.board().apps.terminal_id) {
-        front::bring_forward(&app, bundle);
+    let started = actions::typed(actions::run(&engine, &peers, api::START, &spec.lane_id, serde_json::json!({ "spec": spec }))?)?;
+    if peerfeed::split_remote(&spec.lane_id).is_none() {
+        start::note(&engine, &spec);
+        if let Some(bundle) = quick::start_app(spec.place, &engine.board().apps.terminal_id) {
+            front::bring_forward(&app, bundle);
+        }
     }
     Ok(started)
 }
 
 /// Where what's typed in the quick panel should go, from Jev (route.rs).
 #[tauri::command(async)]
-fn route_quick(engine: State<'_, engine::Handle>, project: String, text: String) -> Result<route::Route, String> {
-    route::suggest(&engine.board(), &project, &text).map_err(|e| format!("{e:#}"))
+fn route_quick(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, project: String, text: String) -> Result<route::Route, String> {
+    actions::typed(actions::run_on(&engine, &peers, api::ROUTE, None, serde_json::json!({ "project": project, "text": text }))?)
 }
 
 /// Sessions whose prompts and replies have every word (search.rs), for the quick panel.
 #[tauri::command(async)]
-fn search_text(words: Vec<String>) -> search::Found {
-    search::typed(&words)
+fn search_text(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, words: Vec<String>) -> Result<search::Found, String> {
+    actions::typed(actions::run_on(&engine, &peers, api::SEARCH, None, serde_json::json!({ "words": words }))?)
 }
 
 /// A page of a session's conversation, from its own record (transcript.rs): the newest when
@@ -960,8 +929,8 @@ fn search_devices(peers: State<'_, peers::Peers>, words: Vec<String>) -> Vec<pee
 
 /// Where each account can start a session, for the new-session sheet.
 #[tauri::command(async)]
-fn start_options() -> Result<start::StartOptions, String> {
-    start::options_here().map_err(|e| format!("{e:#}"))
+fn start_options(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>) -> Result<start::StartOptions, String> {
+    actions::typed(actions::run_on(&engine, &peers, api::START_OPTIONS, None, serde_json::json!({}))?)
 }
 
 /// Starts a session in a worktree: in the terminal, or in the Claude or Codex app. A start from
@@ -969,10 +938,7 @@ fn start_options() -> Result<start::StartOptions, String> {
 /// an app picks the session's ID.
 #[tauri::command(async)]
 fn start_session(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, spec: start::StartSpec) -> Result<start::Started, String> {
-    if let Some((device, lane)) = peerfeed::split_remote(&spec.lane_id) {
-        return start_on_device(&peers, device, lane, &spec);
-    }
-    start::start_here(&engine, &spec).map_err(|e| format!("{e:#}"))
+    actions::typed(actions::run(&engine, &peers, api::START, &spec.lane_id, serde_json::json!({ "spec": spec }))?)
 }
 
 /// Moves a session to another account of its harness (`start::move_to`): a copy goes on in a new
@@ -1044,21 +1010,10 @@ fn side_close(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>,
     actions::run(&engine, &peers, actions::SIDE_CLOSE, &key, serde_json::json!({})).map(|_| ())
 }
 
-/// Starts a session in a worktree of another device, which runs it with its own accounts.
-fn start_on_device(peers: &peers::Peers, device: &str, lane: &str, spec: &start::StartSpec) -> Result<start::Started, String> {
-    // Its todos are this device's; the other device has its own list.
-    let spec = start::StartSpec { lane_id: lane.to_string(), todos: Vec::new(), from: None, ..spec.clone() };
-    let got = actions::ask(peers, device, api::START, serde_json::json!({ "spec": spec }))?;
-    let mut started: start::Started = serde_json::from_value(got).map_err(|e| e.to_string())?;
-    started.key = started.key.map(|k| peerfeed::remote_key(device, &k));
-    Ok(started)
-}
-
 /// Where each account on another device can start a session, asked of that device.
 #[tauri::command(async)]
-fn device_start_options(peers: State<'_, peers::Peers>, device: String) -> Result<start::StartOptions, String> {
-    let got = actions::ask(&peers, &device, api::START_OPTIONS, serde_json::json!({}))?;
-    serde_json::from_value(got).map_err(|e| e.to_string())
+fn device_start_options(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, device: String) -> Result<start::StartOptions, String> {
+    actions::typed(actions::run_on(&engine, &peers, api::START_OPTIONS, Some(&device), serde_json::json!({}))?)
 }
 
 /// A project's canvas as the window last saved it, or null.
