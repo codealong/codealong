@@ -9,7 +9,7 @@ import { agentsStatus, foundAccounts, getAccounts, installAgents, saveAccounts, 
 import { agoPhrase } from '../format';
 import { HARNESSES, HARNESS_WORD } from '../harness';
 import type { AccountCfg, AccountInfo, FoundAccount, Harness, StartPlace, Usage } from '../types';
-import { Button, Icon, Rich } from './primitives';
+import { Button, Icon, Rich, Seg } from './primitives';
 import { asOfPhrase, UsageMeter } from './UsageBar';
 
 interface Draft {
@@ -285,26 +285,18 @@ export function AccountsSection({ focus, usage, terminal, now, onSaved }: Accoun
     >
       <div className="ca-acct-form-head">
         <span className="ca-ucard-name">{draft.original ? `Edit ${draft.original}` : 'New account'}</span>
-        <div className="ca-segctl" role="radiogroup" aria-label="Harness">
-          {HARNESSES.map((h) => (
-            <button
-              key={h}
-              type="button"
-              role="radio"
-              aria-checked={draft.harness === h}
-              className={draft.harness === h ? 'is-on' : undefined}
-              onClick={() => {
-                if (draft.original) {
-                  setDraft({ ...draft, harness: h });
-                } else {
-                  setDraft({ original: null, touched: { home: false, command: false }, ...suggestAccount(h, accounts ?? []) });
-                }
-              }}
-            >
-              {HARNESS_WORD[h]}
-            </button>
-          ))}
-        </div>
+        <Seg
+          label="Harness"
+          options={HARNESSES.map((h) => ({ id: h, label: HARNESS_WORD[h] }))}
+          value={draft.harness}
+          onPick={(h) => {
+            if (draft.original) {
+              setDraft({ ...draft, harness: h });
+            } else {
+              setDraft({ original: null, touched: { home: false, command: false }, ...suggestAccount(h, accounts ?? []) });
+            }
+          }}
+        />
       </div>
       <label className="ca-field">
         <span>Name</span>
@@ -335,13 +327,7 @@ export function AccountsSection({ focus, usage, terminal, now, onSaved }: Accoun
       {draftPlaces.length > 1 && (
         <div className="ca-field">
           <span id="ca-acct-start">New sessions start in</span>
-          <div className="ca-segctl" role="radiogroup" aria-labelledby="ca-acct-start">
-            {[null, ...draftPlaces].map((p) => (
-              <button key={p ?? 'last'} type="button" role="radio" aria-checked={draftStart === p} className={draftStart === p ? 'is-on' : undefined} onClick={() => setDraft({ ...draft, start: p })}>
-                {p ? placeName(p, terminal) : 'Last used'}
-              </button>
-            ))}
-          </div>
+          <Seg labelledBy="ca-acct-start" options={[null, ...draftPlaces].map((p) => ({ id: p, label: p ? placeName(p, terminal) : 'Last used' }))} value={draftStart} onPick={(p) => setDraft({ ...draft, start: p })} />
           <small>Where the quick panel and codealong start open a new session on this account. You can still pick another place there.</small>
         </div>
       )}

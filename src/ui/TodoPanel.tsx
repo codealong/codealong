@@ -17,7 +17,7 @@ import { blockedBy, cantWaitOn, dependents, depsOf, newId, nextColor, SECTION_WO
 import type { Label, Lane, Session, Todo, TodoHint, TodoSuggested } from '../types';
 import { DescriptionEditor } from './DescriptionEditor';
 import { PanelSession } from './PanelSession';
-import { Button, Icon, Kbd, LaneGlyph } from './primitives';
+import { Button, Icon, Kbd, LaneGlyph, Seg } from './primitives';
 import { LabelDot, TodoGlyph } from './TodoBits';
 
 /** How long the title and description have to rest before Jev is asked about them. */
@@ -515,13 +515,7 @@ export function TodoPanel({ item, todos, onShowTodo, labels, lanes, now, onRun, 
         <Button variant="primary" icon="player-play" title="Start a session for this todo (⌘N). ⌘-click other todos in the list to start them with it, in one session." onClick={onStart}>
           Start session
         </Button>
-        <div className="ca-segctl" role="radiogroup" aria-label="Status">
-          {STATUSES.map((st) => (
-            <button key={st} type="button" role="radio" aria-checked={todo.status === st} className={todo.status === st ? 'is-on' : undefined} onClick={() => update({ status: st })}>
-              {STATUS_WORD[st]}
-            </button>
-          ))}
-        </div>
+        <Seg label="Status" options={STATUSES.map((st) => ({ id: st, label: STATUS_WORD[st] }))} value={todo.status} onPick={(status) => update({ status })} />
       </div>
 
       {hint && todo.status !== 'done' && (

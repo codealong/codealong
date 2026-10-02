@@ -10,7 +10,7 @@ import { agoPhrase } from '../format';
 import type { Filter } from '../lanes';
 import type { SavedView } from '../savedViews';
 import type { DevicesView, Label, Status } from '../types';
-import { cx, Icon, NavItem, StatusGlyph } from './primitives';
+import { cx, Icon, NavItem, Seg, StatusGlyph } from './primitives';
 import { LabelDot } from './TodoBits';
 import { RestartToUpdate } from './Updates';
 
@@ -163,35 +163,25 @@ function Open(p: SidebarProps) {
           </>
         )}
         <div className="ca-label ca-side-label">Active in</div>
-        <div className={cx('ca-segctl ca-side-ages', !p.ageApplies && 'is-off')} role="radiogroup" aria-label="Active in" title={p.ageApplies ? undefined : 'This view shows everything, whatever its age'}>
-          {p.ages.map((a) => (
-            <button key={a.id} type="button" role="radio" aria-checked={p.age === a.id} className={p.age === a.id ? 'is-on' : undefined} title={p.ageApplies ? a.title : undefined} disabled={!p.ageApplies} onClick={() => p.onAge(a.id)}>
-              {a.label}
-            </button>
-          ))}
-        </div>
+        <Seg
+          className={cx('ca-side-ages', !p.ageApplies && 'is-off')}
+          label="Active in"
+          title={p.ageApplies ? undefined : 'This view shows everything, whatever its age'}
+          options={p.ageApplies ? p.ages : p.ages.map((a) => ({ ...a, title: undefined }))}
+          value={p.age}
+          disabled={!p.ageApplies}
+          onPick={p.onAge}
+        />
         {p.sorts && (
           <>
             <div className="ca-label ca-side-label">Sort by</div>
-            <div className="ca-segctl ca-side-sorts" role="radiogroup" aria-label="Sort by">
-              {p.sorts.map((o) => (
-                <button key={o.id} type="button" role="radio" aria-checked={p.sort === o.id} className={p.sort === o.id ? 'is-on' : undefined} title={o.title} onClick={() => p.onSort(o.id)}>
-                  {o.label}
-                </button>
-              ))}
-            </div>
+            <Seg className="ca-side-sorts" label="Sort by" options={p.sorts} value={p.sort} onPick={p.onSort} />
           </>
         )}
         {p.rowStyles && (
           <>
             <div className="ca-label ca-side-label">Rows</div>
-            <div className="ca-segctl ca-side-sorts ca-side-rows" role="radiogroup" aria-label="Rows">
-              {p.rowStyles.map((o) => (
-                <button key={o.id} type="button" role="radio" aria-checked={p.rowStyle === o.id} className={p.rowStyle === o.id ? 'is-on' : undefined} title={o.title} onClick={() => p.onRowStyle(o.id)}>
-                  {o.label}
-                </button>
-              ))}
-            </div>
+            <Seg className="ca-side-sorts ca-side-rows" label="Rows" options={p.rowStyles} value={p.rowStyle} onPick={p.onRowStyle} />
           </>
         )}
         <SideLabel label="Status" onClear={p.filter.length > 0 ? p.onClearFilters : undefined} />

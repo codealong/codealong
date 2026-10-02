@@ -6,7 +6,7 @@
 
 import { useMemo, useState } from 'react';
 import { PR_SCOPES, SESSION_AGES, TODO_AGES, tidyPlan, type CanvasDoc, type Entities, type Filter, type Include, type RefItem, type RefKind, type Scope, type TidyMode, type TidyOptions, type TidyPlan } from '../canvas/model';
-import { Icon } from './primitives';
+import { Icon, Seg } from './primitives';
 
 const LAYOUTS: { id: TidyMode; label: string; title: string }[] = [
   { id: 'worktree', label: 'By worktree', title: 'A frame per repo, a column per worktree' },
@@ -28,18 +28,6 @@ export function tidySummary(plan: TidyPlan): string {
   const on = counted(plan.added);
   if (!off && !on) return 'Nothing comes off or on; the cards are laid out again.';
   return [off && `Takes off ${off}`, on && `brings on ${on}`].filter(Boolean).join('; ').replace(/^b/, 'B') + '.';
-}
-
-function Seg<T extends string>({ options, value, onPick, label }: { options: { id: T; label: string; title: string }[]; value: T; onPick: (v: T) => void; label: string }) {
-  return (
-    <div className="ca-segctl" role="radiogroup" aria-label={label}>
-      {options.map((o) => (
-        <button key={o.id} type="button" role="radio" aria-checked={value === o.id} className={value === o.id ? 'is-on' : undefined} title={o.title} onClick={() => onPick(o.id)}>
-          {o.label}
-        </button>
-      ))}
-    </div>
-  );
 }
 
 function Check({ label, on, onChange, title }: { label: string; on: boolean; onChange: (on: boolean) => void; title: string }) {

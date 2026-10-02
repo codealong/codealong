@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { closeIdleTerminals, idleTerminals } from '../api';
 import type { CloseOutcome, IdlePlan, KeptTerminal } from '../types';
-import { Button, Icon } from './primitives';
+import { Button, Icon, Seg } from './primitives';
 
 const HOUR = 3600e3;
 export const WAITS: { ms: number; label: string }[] = [
@@ -171,13 +171,7 @@ export function CloseIdleDialog({ onClose, onDone }: Props) {
         {!failed && (
           <div className="ca-idle-wait">
             <span>Idle for at least</span>
-            <div className="ca-segctl" role="radiogroup" aria-label="Idle for at least">
-              {WAITS.map((w) => (
-                <button key={w.ms} type="button" role="radio" aria-checked={after === w.ms} className={after === w.ms ? 'is-on' : undefined} disabled={closing} onClick={() => setAfter(w.ms)}>
-                  {w.label}
-                </button>
-              ))}
-            </div>
+            <Seg label="Idle for at least" options={WAITS.map((w) => ({ id: w.ms, label: w.label }))} value={after} disabled={closing} onPick={setAfter} />
           </div>
         )}
         <div className="ca-dialog-body">{body}</div>

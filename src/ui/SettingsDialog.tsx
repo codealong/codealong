@@ -14,7 +14,8 @@ import { AgentsSection } from './AgentsSection';
 import { DevicesPane } from './DevicesSection';
 import { ChromeProfileSelect } from './PreviewBits';
 import { UpdatesFields } from './Updates';
-import { Button, Icon, NavItem } from './primitives';
+import { Button, Icon, NavItem, Seg } from './primitives';
+import { THEMES } from './ThemeSwitch';
 import { errorText } from '../report';
 
 export type SettingsSection = 'general' | 'accounts' | 'agents' | 'devices' | 'projects' | 'jev' | 'advanced' | 'file';
@@ -28,12 +29,6 @@ const SECTIONS: { id: SettingsSection; label: string; icon: string }[] = [
   { id: 'jev', label: 'Jev', icon: 'sparkles' },
   { id: 'advanced', label: 'Advanced', icon: 'gauge' },
   { id: 'file', label: 'config.toml', icon: 'file' },
-];
-
-const THEMES: { id: Theme; label: string }[] = [
-  { id: 'system', label: 'Follow macOS' },
-  { id: 'light', label: 'Light' },
-  { id: 'dark', label: 'Dark' },
 ];
 
 const NEW_TERMINALS: { id: NewTerminal; label: string; says: string }[] = [
@@ -222,16 +217,13 @@ function GeneralPane({ cfg, view, theme, onPickTheme, disabled, onSave, now }: P
         </label>
         <div className="ca-field">
           <span>New terminals open as</span>
-          <div className="ca-segctl ca-settings-theme" role="radiogroup" aria-label="New terminals open as">
-            {NEW_TERMINALS.map((t) => {
-              const on = (cfg.apps.new_terminal ?? 'project') === t.id;
-              return (
-                <button key={t.id} type="button" role="radio" aria-checked={on} className={on ? 'is-on' : undefined} onClick={() => !on && void onSave({ ...cfg, apps: { ...cfg.apps, new_terminal: t.id } })}>
-                  {t.label}
-                </button>
-              );
-            })}
-          </div>
+          <Seg
+            className="ca-settings-theme"
+            label="New terminals open as"
+            options={NEW_TERMINALS}
+            value={cfg.apps.new_terminal ?? 'project'}
+            onPick={(id) => id !== (cfg.apps.new_terminal ?? 'project') && void onSave({ ...cfg, apps: { ...cfg.apps, new_terminal: id } })}
+          />
           <small>
             {cfg.apps.terminal === 'terminal'
               ? 'Terminal can’t open a tab for another app, so new terminals always open as windows there.'
@@ -250,13 +242,7 @@ function GeneralPane({ cfg, view, theme, onPickTheme, disabled, onSave, now }: P
         </label>
         <div className="ca-field">
           <span>Appearance</span>
-          <div className="ca-segctl ca-settings-theme" role="radiogroup" aria-label="Theme">
-            {THEMES.map((t) => (
-              <button key={t.id} type="button" role="radio" aria-checked={theme === t.id} className={theme === t.id ? 'is-on' : undefined} onClick={() => theme !== t.id && onPickTheme(t.id)}>
-                {t.label}
-              </button>
-            ))}
-          </div>
+          <Seg className="ca-settings-theme" label="Theme" look="text" options={THEMES} value={theme} onPick={(t) => theme !== t && onPickTheme(t)} />
           <small>Every window follows, and so do the window chrome and menus.</small>
         </div>
         <UpdatesFields cfg={cfg} onSave={(next) => void onSave(next)} now={now} />

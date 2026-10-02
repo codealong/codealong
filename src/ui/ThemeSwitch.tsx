@@ -3,9 +3,10 @@
 
 import { useEffect } from 'react';
 import type { Theme } from '../types';
-import { Icon } from './primitives';
+import { Seg, type SegOption } from './primitives';
 
-const THEMES: { id: Theme; label: string; icon: string }[] = [
+/** The themes, as the sidebar's switch draws them (icons) and Settings names them (words). */
+export const THEMES: SegOption<Theme>[] = [
   { id: 'system', label: 'Follow macOS', icon: 'device-desktop' },
   { id: 'light', label: 'Light', icon: 'sun' },
   { id: 'dark', label: 'Dark', icon: 'moon' },
@@ -25,22 +26,5 @@ export function useTheme(theme: Theme) {
 }
 
 export function ThemeSwitch({ theme, onPick }: { theme: Theme; onPick: (theme: Theme) => void }) {
-  return (
-    <div className="ca-segctl ca-theme" role="radiogroup" aria-label="Theme">
-      {THEMES.map((t) => (
-        <button
-          key={t.id}
-          type="button"
-          role="radio"
-          aria-checked={theme === t.id}
-          aria-label={t.label}
-          title={t.label}
-          className={theme === t.id ? 'is-on' : undefined}
-          onClick={() => theme !== t.id && onPick(t.id)}
-        >
-          <Icon name={t.icon} size={14} />
-        </button>
-      ))}
-    </div>
-  );
+  return <Seg className="ca-theme" label="Theme" look="icon" options={THEMES} value={theme} onPick={(t) => theme !== t && onPick(t)} />;
 }

@@ -93,7 +93,7 @@ import { AttachmentStrip } from './DescriptionEditor';
 import { sessionWhy } from './PanelSession';
 import { Picker, type PickerOption, type PickerSection } from './Picker';
 import { SessionCard } from './SessionCard';
-import { Icon, Kbd, Mark, STATUS_WORD, StatusGlyph } from './primitives';
+import { Icon, Kbd, Mark, Seg, STATUS_WORD, StatusGlyph } from './primitives';
 import { projectForDigit, projectKey } from './ProjectSwitcher';
 import { usePrLinks } from './PrLink';
 import { PrGlyph } from './PrsView';
@@ -1425,23 +1425,14 @@ export function Quick() {
     efforts.length > 0 ? (
       <>
         <span className="ca-picker-foot-label">Effort</span>
-        <div className="ca-segctl" role="radiogroup" aria-label="Effort">
-          {[{ id: null, label: 'Default' }, ...efforts].map((e) => (
-            <button
-              key={e.id ?? 'default'}
-              type="button"
-              role="radio"
-              aria-checked={effort === e.id}
-              className={effort === e.id ? 'is-on' : undefined}
-              title={e.id === null ? 'The account’s own: settings.json’s effortLevel, else the model’s' : e.id === 'max' ? 'Deepest reasoning. It can use a great many tokens; for the hardest tasks.' : undefined}
-              // The filter keeps the keyboard.
-              onMouseDown={(ev) => ev.preventDefault()}
-              onClick={() => setEffort(e.id)}
-            >
-              {e.label}
-            </button>
-          ))}
-        </div>
+        <Seg
+          label="Effort"
+          options={[{ id: null, label: 'Default', title: 'The account’s own: settings.json’s effortLevel, else the model’s' }, ...efforts.map((e) => ({ id: e.id as string | null, label: e.label, title: e.id === 'max' ? 'Deepest reasoning. It can use a great many tokens; for the hardest tasks.' : undefined }))]}
+          value={effort}
+          // The filter keeps the keyboard.
+          keepsFocus
+          onPick={setEffort}
+        />
         <span className="ca-picker-foot-note">
           {harness && harness !== 'claude' ? `${HARNESS_WORD[harness]} picks its own` : modelFamily(effortModel) === 'haiku' ? 'Haiku takes none' : <Kbd keys={['←', '→']} />}
         </span>
@@ -1996,14 +1987,7 @@ export function Quick() {
             {picker === 'agent' && <Picker className="is-wide" sections={agentSections} value={agentNow} placeholder="Account or model" onPick={pickAgent} onClose={() => { setPicker(null); refocus(); }} foot={effortFoot} onStep={effortFoot ? stepEffort : undefined} />}
           </div>
           {places.length > 1 ? (
-            <div className="ca-segctl ca-quick-places" role="radiogroup" aria-label="Opens in">
-              {places.map((p) => (
-                <button key={p.place} type="button" role="radio" aria-checked={placeNow === p.place} className={placeNow === p.place ? 'is-on' : undefined} onClick={() => pickPlace(p.place)}>
-                  <Icon name={placeIcon(p.place)} size={13} />
-                  {p.label}
-                </button>
-              ))}
-            </div>
+            <Seg className="ca-quick-places" label="Opens in" iconSize={13} options={places.map((p) => ({ id: p.place, label: p.label, icon: placeIcon(p.place) }))} value={placeNow} onPick={pickPlace} />
           ) : places.length === 1 ? (
             <span className="ca-quick-place">
               <Icon name={placeIcon(places[0].place)} size={13} />

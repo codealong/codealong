@@ -170,6 +170,70 @@ export function Button({ variant = 'secondary', size = 'md', icon, kbd, children
   );
 }
 
+/** One choice of a segmented control. */
+export interface SegOption<T> {
+  id: T;
+  label: string;
+  title?: string;
+  /** Drawn before the label, or in its place (`look`). */
+  icon?: string;
+  disabled?: boolean;
+}
+
+interface SegProps<T> {
+  options: readonly SegOption<T>[];
+  /** The choice that's on. Null is a choice of its own where an option has it for its id (the
+   *  account's own effort), and otherwise none of them. */
+  value: T | null;
+  onPick: (id: T) => void;
+  /** What it chooses, for a screen reader: in words, or the id of the element that says it. */
+  label?: string;
+  labelledBy?: string;
+  className?: string;
+  title?: string;
+  disabled?: boolean;
+  /** What a choice draws: its icon then its label, its label alone (`text`), or its icon alone
+   *  (`icon`), where the label is its name and, with no title of its own, its tooltip. */
+  look?: 'both' | 'text' | 'icon';
+  iconSize?: number;
+  /** Choices that turn on and off, none of which need be on (where the bar goes): buttons that
+   *  say whether they're pressed, where the others are radios. */
+  toggles?: boolean;
+  /** A press leaves the keyboard where it is: under a menu whose filter is being typed in. */
+  keepsFocus?: boolean;
+}
+
+/** A segmented control: a few choices side by side, one of them on. Every one in the app is
+ *  this, so they look, read and say what's on the same way. Picking the choice that's on calls
+ *  `onPick` too; a caller for whom that would do something says so itself. */
+export function Seg<T extends string | number | null>({ options, value, onPick, label, labelledBy, className, title, disabled, look = 'both', iconSize = 14, toggles = false, keepsFocus = false }: SegProps<T>) {
+  return (
+    <div className={cx('ca-segctl', className)} role={toggles ? 'group' : 'radiogroup'} aria-label={label} aria-labelledby={labelledBy} title={title}>
+      {options.map((o) => {
+        const on = value === o.id;
+        return (
+          <button
+            key={String(o.id)}
+            type="button"
+            role={toggles ? undefined : 'radio'}
+            aria-checked={toggles ? undefined : on}
+            aria-pressed={toggles ? on : undefined}
+            aria-label={look === 'icon' ? o.label : undefined}
+            className={on ? 'is-on' : undefined}
+            title={o.title ?? (look === 'icon' ? o.label : undefined)}
+            disabled={disabled || o.disabled}
+            onMouseDown={keepsFocus ? (e) => e.preventDefault() : undefined}
+            onClick={() => onPick(o.id)}
+          >
+            {o.icon && look !== 'text' && <Icon name={o.icon} size={iconSize} />}
+            {look !== 'icon' && o.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 /** A session's account and where it runs. With `onOpen`, a click opens it where it runs; with
  *  `inRow` too, it's on a list's row, where a click selects the row, so a double-click opens it. */
 export function HarnessChip({ session, withStatus = true, onOpen, inRow = false, className }: { session: Session; withStatus?: boolean; onOpen?: () => void; inRow?: boolean; className?: string }) {

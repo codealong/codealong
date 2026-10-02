@@ -38,7 +38,7 @@ import { lineageOf } from './lineage';
 import { LaneRow } from './ui/LaneRow';
 import { PinnedSection } from './ui/PinnedSection';
 import { useRowDrag, type DragProps } from './ui/useRowDrag';
-import { BayHeader, Button, Icon, Kbd, StatusGlyph } from './ui/primitives';
+import { BayHeader, Button, Icon, Kbd, Seg, StatusGlyph } from './ui/primitives';
 import { ALL_PROJECTS, openSwitcher, projectForDigit, ProjectSwitcher, type ActionCounts } from './ui/ProjectSwitcher';
 import { useLogo } from './logo';
 import { PrInspector } from './ui/PrInspector';
@@ -2308,28 +2308,19 @@ export function App() {
           )}
         </label>
         <div className="ca-bar-tools" data-tauri-drag-region>
-          <div className="ca-segctl ca-barplace" role="group" aria-label="Agents bar">
-            <button
-              type="button"
-              className={barPlace === 'floating' ? 'is-on' : undefined}
-              aria-pressed={barPlace === 'floating'}
-              aria-label="Floating bar"
-              title={barPlace === 'floating' ? 'Hide the floating bar' : 'Floating bar: the agents that need you, on top of every window, where you put it'}
-              onClick={() => pickBarPlace('floating')}
-            >
-              <Icon name="capsule-horizontal" size={15} />
-            </button>
-            <button
-              type="button"
-              className={barPlace === 'notch' ? 'is-on' : undefined}
-              aria-pressed={barPlace === 'notch'}
-              aria-label="Bar in the notch"
-              title={barPlace === 'notch' ? 'Hide the bar in the notch' : 'In the notch: the agents that need you, around the notch at the top of the screen, opening when you point at it'}
-              onClick={() => pickBarPlace('notch')}
-            >
-              <Icon name="notch" size={15} />
-            </button>
-          </div>
+          <Seg
+            className="ca-barplace"
+            label="Agents bar"
+            toggles
+            look="icon"
+            iconSize={15}
+            options={[
+              { id: 'floating', label: 'Floating bar', icon: 'capsule-horizontal', title: barPlace === 'floating' ? 'Hide the floating bar' : 'Floating bar: the agents that need you, on top of every window, where you put it' },
+              { id: 'notch', label: 'Bar in the notch', icon: 'notch', title: barPlace === 'notch' ? 'Hide the bar in the notch' : 'In the notch: the agents that need you, around the notch at the top of the screen, opening when you point at it' },
+            ]}
+            value={barPlace === 'off' ? null : barPlace}
+            onPick={pickBarPlace}
+          />
         </div>
         <Button
           size="sm"
