@@ -28,7 +28,7 @@ export type CardBoard = Pick<Board, 'prs' | 'lanes' | 'todos'> & { pinned?: stri
  *  for every window: the apps, what's on the desktop, the pin and the shortcuts. */
 export type WindowCan = Pick<menus.SessionCan, 'report' | 'open' | 'reveal' | 'reply' | 'rename' | 'left'>;
 
-interface SessionCardProps extends Pick<SessionPanelProps, 'queue' | 'notice' | 'hotkeys' | 'autoFocus' | 'keys' | 'back' | 'renaming' | 'onRename' | 'onKeep' | 'keepTitle' | 'onClose' | 'onSending' | 'onSent' | 'onFailed' | 'onAnswered' | 'onDone' | 'onLoaded'> {
+interface SessionCardProps extends Pick<SessionPanelProps, 'queue' | 'notice' | 'hotkeys' | 'autoFocus' | 'keys' | 'back' | 'renaming' | 'onRename' | 'onKeep' | 'keepTitle' | 'onClose' | 'closeTitle' | 'onSending' | 'onSent' | 'onFailed' | 'onAnswered' | 'onDone' | 'onLoaded'> {
   lane: Lane;
   session: Session;
   /** The terminal's name and the editors installed, for the ways to open it. */

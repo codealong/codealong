@@ -12,12 +12,12 @@
 // renames it and the peek closes. While it's up, the
 // session follows the board, and the peek stays on it as its pill moves along the bar.
 //
-// The pin in its header keeps the session on the desktop, and so does dragging the peek's right
-// edge, its far edge or the corner between them to make it bigger, or dragging it somewhere else
-// by its header: the session gets a window of its own where the peek is let go (kept.rs), which
-// this page draws too (`kept`). There it stays up
-// whatever you do: sending leaves it open, its header drags it, its edges size it, and its ×
-// (or ⌘W) takes it off the desktop. It comes back at launch where it was left.
+// Its header's × puts it away, as Escape does. The pin there keeps the session on the desktop,
+// and so does dragging the peek's right edge, its far edge or the corner between them to make it
+// bigger, or dragging it somewhere else by its header: the session gets a window of its own where
+// the peek is let go (kept.rs), which this page draws too (`kept`). There it stays up whatever
+// you do: sending leaves it open, its header drags it, its edges size it, and its × (or ⌘W)
+// takes it off the desktop. It comes back at launch where it was left.
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -398,7 +398,8 @@ export function Peek({ kept = false }: { kept?: boolean }) {
           renaming={open.rename || renameAsked === session.key}
           onRename={renamed}
           onKeep={kept ? undefined : keep}
-          onClose={kept ? () => void keptClose() : undefined}
+          onClose={kept ? () => void keptClose() : away}
+          closeTitle={kept ? undefined : 'Close (esc)'}
           onSending={away}
           onSent={(sent) => {
             // What you'd want to know goes on the bar: the prompt is on the clipboard, say, or it

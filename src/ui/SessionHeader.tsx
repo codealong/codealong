@@ -79,8 +79,10 @@ export interface SessionHeaderProps {
    *  says how, where it isn't the peek's way. */
   onKeep?: () => void;
   keepTitle?: string;
-  /** Takes a session kept on the desktop off it. */
+  /** Puts the card away: the peek, or a session kept on the desktop, which leaves it.
+   *  `closeTitle` says how, where it isn't a kept session's way. */
   onClose?: () => void;
+  closeTitle?: string;
   /** Its name is a field, ready to change; `onRename` hears the new one, or null when it's left
    *  as it was. */
   renaming?: boolean;
@@ -168,7 +170,7 @@ function KinRow({ kin, now, parent = false, onShow, onMenu }: { kin: Kin; now: n
   );
 }
 
-export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane, prs = [], onOpenPr, onPrMenu, todos, onShowTodo, lineage, onShowSession, onSessionMenu, onMenu, onSeen, actions, onKeep, keepTitle, onClose, renaming, onRename, device, back, next, maximized, onMaximize, compact }: SessionHeaderProps) {
+export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane, prs = [], onOpenPr, onPrMenu, todos, onShowTodo, lineage, onShowSession, onSessionMenu, onMenu, onSeen, actions, onKeep, keepTitle, onClose, closeTitle, renaming, onRename, device, back, next, maximized, onMaximize, compact }: SessionHeaderProps) {
   const [details, setDetails] = useState(false);
   const [allPrs, setAllPrs] = useState(false);
   const [allTodos, setAllTodos] = useState(false);
@@ -250,7 +252,7 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
           )}
           {!compact && <Button variant="ghost" size="sm" icon="info-circle" aria-label="Details" aria-expanded={details} title={details ? 'Hide the details' : 'Details: its account, ID, folder and times'} className={details ? 'ca-sessinsp-detailsbtn is-on' : 'ca-sessinsp-detailsbtn'} onClick={() => setDetails(!details)} />}
           {onMenu && <Button variant="ghost" size="sm" icon="dots" aria-label="More" aria-haspopup="menu" title="Snooze, archive, pin, rename, fork, copy and more" onClick={(e) => onMenu(below(e.currentTarget))} />}
-          {onClose && <Button variant="ghost" size="sm" icon="x" aria-label="Close" title="Close: it leaves the desktop (⌘W)" onClick={onClose} />}
+          {onClose && <Button variant="ghost" size="sm" icon="x" aria-label="Close" title={closeTitle ?? 'Close: it leaves the desktop (⌘W)'} onClick={onClose} />}
         </div>
       </div>
       {cameOf.length > 0 && (
