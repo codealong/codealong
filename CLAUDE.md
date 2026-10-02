@@ -328,6 +328,12 @@ some work is, answer with one.
   `src/notices.ts`, and `ui/Notices.tsx` draws them all as one chip at the end of the accounts
   bar, with a card for the whole of it and a dismiss that lasts while the notice stands. What
   goes wrong with something you just did is a toast in the window you did it in, not a notice.
+- Codealong's small JSON files next to the config (todos.json, state.json, origins.json…) are
+  read, locked and written through `src-tauri/src/store.rs`: a write is a temporary file of its
+  own and a rename, and a read-modify-write is `store::change`, under the file's `.lock`. A file
+  that's there but doesn't parse is an error and is never overwritten, since another build may
+  have written a shape this one doesn't know; only a cache or a window's place may read as
+  empty instead (`store::read_or_default`).
 - A session's, worktree's, PR's or todo's right-click menu is defined once, in `src/menus.ts`,
   and every window (main, bar, peek, quick panel, desktop cards) builds it from there, saying
   what it can do. A new item goes there, not into one window's menu.
