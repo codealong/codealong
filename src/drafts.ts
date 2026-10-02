@@ -82,7 +82,7 @@ export function writeDraft(key: string, text: string, store: DraftStorage | null
 }
 
 /** A prompt the session took back before its agent saw it, put back in its box as Claude Code
- *  puts it back in its own (claude.rs): once for each prompt (`id` names it), and only when the
+ *  puts it back in its own (claude/conversation.rs): once for each prompt (`id` names it), and only when the
  *  box is empty, unless you asked for it (`asked`), which adds it after what's there. Says
  *  whether it put it there. */
 export function putBack(key: string, id: string, text: string, asked = false, store: DraftStorage | null = storage(), now = Date.now()): boolean {

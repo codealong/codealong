@@ -19,7 +19,7 @@
 // sign of taking, well after, says so, with a way to open the session and look.
 //
 // A prompt the session took back before its agent saw it (Claude Code does when a turn is
-// stopped before any reply, claude.rs) stays in view, faint, saying so. Claude Code puts it back
+// stopped before any reply, claude/conversation.rs) stays in view, faint, saying so. Claude Code puts it back
 // in its own input box, and the latest one goes back in the box below too, once.
 //
 // ⌘⇧↑ and ⌘⇧↓ bring your previous or next prompt to the top of the view, as Ghostty and iTerm2

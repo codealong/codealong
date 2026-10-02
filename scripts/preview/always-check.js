@@ -1,4 +1,4 @@
-// Checks the panel's Always for a call held through the plugin's hook (asks.rs): a session
+// Checks the panel's Always for a call held through the plugin's hook (claude/asks.rs): a session
 // waiting on a call Claude Code offers to allow from now on shows Always beside Deny and Allow,
 // with what it adds on hover, and clicking it answers `always`.
 //   PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/always-check.js

@@ -321,6 +321,11 @@ some work is, answer with one.
   what they share (where a new tab goes, the launcher, waiting for a shell, TTYs and their marks,
   taking turns). `launch/stage.rs` stands in for the Mac in tests that pin what each terminal is
   sent, script by script: a change to a script, its arguments or their order shows there.
+- Everything Codealong knows of a harness's files, sockets and commands is in its module
+  (`claude/`, `codex/`, `opencode.rs`, `antigravity.rs`; "Adding a harness" has how), as a
+  terminal's is in its own. send.rs, usage.rs, transcript.rs and search.rs keep what every
+  harness shares (choosing a way in, typing into a terminal and resuming; a usage meter; paging
+  a file of lines; the index) and ask the adapter for the rest.
 - A card is one design wherever it is: the Canvas view's cards and the cards pinned to the
   desktop draw the same face, from `src/ui/card/` (`data.ts`, `CardFace.tsx`; `CardPopover.tsx` is
   the popover a canvas card opens, and the desktop has none: a panel beside a card was tried and
@@ -419,11 +424,18 @@ some work is, answer with one.
 
 ## Adding a harness
 
-A harness is a module (`claude.rs`, `codex.rs`, `opencode.rs`, `antigravity.rs`) that knows its
-files and commands, with two things in it that the rest of the app goes through (`harness.rs`):
-an `Adapter`, which answers for a session and for an account, and a `Reader`, which reads its
-sessions for the board. Nothing outside a harness's module branches on which harness it is: it
-asks `harness::adapter(session.harness)` or `harness::of(account)`. Adding one:
+A harness is a module that knows its files, sockets and commands: a folder split by subject
+for the big ones (`claude/`, `codex/`, the adapter and the reader in `mod.rs` and each file's
+first lines saying what it holds), a file for the others (`opencode.rs`, `antigravity.rs`). Two
+things in it are what the rest of the app goes through (`harness.rs`): an `Adapter`, which
+answers for a session and for an account, and a `Reader`, which reads its sessions for the
+board. Nothing outside a harness's module branches on which harness it is: it asks
+`harness::adapter(session.harness)` or `harness::of(account)`, or every adapter
+(`harness::all()`) for what any of them may have, such as the PR a line of a record says a
+session made. What a harness's own sockets and windows are written is pinned byte for byte by
+tests beside the code that writes it (`the_daemon_is_written_these_lines`,
+`a_sessions_socket_is_written_these_lines`, `the_codex_apps_windows_are_written_these_frames`):
+a change to what's sent shows there. Adding one:
 
 1. A variant of `model::Harness` with its name in `Harness::word` and its config string in
    `Harness::config` and `from_config` (codealong-peer's `model.rs`), in `config::HARNESSES`, and
@@ -436,9 +448,12 @@ asks `harness::adapter(session.harness)` or `harness::of(account)`. Adding one:
      JSON lines given a line parser), `pending`, `answer`, `answer_questions`, `open_calls`;
    - opening: `targets`, and `open` for a way of its own (its app); the engine does `focus`,
      `resume` (`Session::resume_command`) and `attach` for every harness;
-   - sending (send.rs): `routes`, best first, `resume` for what a new terminal types to go on
-     with one that isn't running, `typed_attachments`, `clears_before_typing`, `takes_messages`,
-     and for Send now `steers` and `sends_now_with` (the keys typed in place of Return);
+   - sending (send.rs): `routes`, best first: typing into its terminal and resuming it in a new
+     one (`resume` for what that types) are send.rs's, and a way in of its own (its service, a
+     socket, its app) is a type in its module that implements `send::Own` and sends by it, told
+     whose the message is and whether it goes in now (`send::Delivery`); `typed_attachments`,
+     `clears_before_typing`, `takes_messages`, and for Send now `steers` and `sends_now_with`
+     (the keys typed in place of Return);
    - acting on it: `fork`, `fork_background`, `move_to`, `side`, `stop`, `rename`,
      `interrupts` and `interrupt`, `archive`, `skips_permission_prompts`, `runs_its_commands`;
    - starting (start.rs): `places`, `start_in_terminal`, `background_command` and
@@ -448,9 +463,15 @@ asks `harness::adapter(session.harness)` or `harness::of(account)`. Adding one:
    - search (search.rs): `search_files` and `prose` for records that are files of lines, `said`
      for messages kept in a database;
    - its accounts: `installed`, `signed_in`, `sign_in_command`, `folder_use`, `skills_dir`,
-     `acp_command`, `session_cwds` (first run's projects), `chats` (the folder of sessions it
-     starts without a folder of yours, which get one lane), `no_limits`, and `polls_usage` with
-     `read_usage` for usage asked from somewhere slow.
+     `installs_plugin` (Codealong goes in as a plugin, not a skill copy), `acp_command`,
+     `session_cwds` (first run's projects), `chats` (the folder of sessions it starts without a
+     folder of yours, which get one lane), `no_limits`, and `polls_usage` with `read_usage` for
+     usage asked from somewhere slow;
+   - the engine: `scratch_owner` (the session a scratch folder of its own is for, whose worktrees
+     show it), `databases` (the ones in WAL mode, whose `-wal` the watcher keeps), and, for its
+     records read as text without parsing, `output_marks` and `folder_marks` (a tool's output,
+     and what comes before the folder a command ran in) and `pr_needles` with `pr_made` (a PR
+     the session made, for prlinks.rs).
 3. A `harness::Reader` in the module, which `Adapter::reader` makes and the engine keeps without
    looking inside: what the harness's files said at the last read, the folders to watch, taking
    in the files that change (`owns`, `apply`), what the watcher never says (`tick` every ten
@@ -459,13 +480,15 @@ asks `harness::adapter(session.harness)` or `harness::of(account)`. Adding one:
    where each came from (`Session::origin`: what it's a fork of, or which session started it)
    when its records say. Plan usage that comes with the sessions is `Reader::usage`. A database
    is opened with `harness::open_database`, which reads a WAL database its writer has closed.
-4. What's still said harness by harness, and so needs a line for a new one: a new way a prompt
-   gets in is a `send::Route` with its transport in send.rs (and a `Way` in codealong-peer, for
-   what the reply box says); a new place a session starts is a `Place` there too;
-   `board::session_headline`'s words for an approval, mirrored in `src/lanes.ts`; and the UI's
-   own lists, which the engine doesn't send: names and apps in `src/harness.ts`, which sessions
-   take `/fork` and `/side` in `src/slash.ts`, a new account's defaults and help in
-   `src/ui/AccountsSection.tsx`, the reply box's words in `src/ui/SessionReply.tsx`.
+4. What's still said harness by harness, and so needs a line for a new one: a new way in of its
+   own needs a `Way` in codealong-peer, for what the reply box says (`send::Own::way`); a new
+   place a session starts is a `Place` there too; a worktree folder the harness makes for itself
+   is known by its path in repos.rs (`callsign`, `origin`, with an `Origin` of its own in
+   codealong-peer); `board::session_headline`'s words for an approval, mirrored in
+   `src/lanes.ts`; and the UI's own lists, which the engine doesn't send: names and apps in
+   `src/harness.ts`, which sessions take `/fork` and `/side` in `src/slash.ts`, a new account's
+   defaults and help in `src/ui/AccountsSection.tsx`, the reply box's words in
+   `src/ui/SessionReply.tsx`.
 
 ## Harness facts
 
@@ -482,7 +505,7 @@ Claude Code
   runs detached, can't wait for typing, and wakes the session when it finishes, so it's never
   stuck. It can sit there forever, though (a dev server, a sign-in waiting on a browser): the
   command's processes are the shells under the session's process with `eval '…'` in their
-  arguments (its MCP servers aren't), and `procs::command_trees` reads what they use.
+  arguments (its MCP servers aren't), and `claude::shells::command_trees` reads what they use.
 - Transcripts: `<home>/projects/<encoded cwd>/<session>.jsonl`; subagents log to
   `<session>/subagents/agent-*.jsonl`. `ai-title` lines (the terminal tab's title) and
   `gitBranch` fields repeat through the file, so the tail has the current ones. Claude Code
@@ -503,8 +526,8 @@ Claude Code
   stay, the registry goes idle, and the next line written has the line before the prompt as its
   `parentUuid` (after a session's first prompt, with nothing before it, the next prompt goes on
   from the prompt's last attachment instead). With text in the box, Escape interrupts as it
-  does later, and writes `[Request interrupted by user]`. `claude.rs` marks such a prompt
-  `withdrawn` (`fate_of`).
+  does later, and writes `[Request interrupted by user]`. claude/conversation.rs marks such a
+  prompt `withdrawn` (`fate_of`).
 - Clearing the input box from outside (2.1.285, in tmux): Ctrl+C with text there clears it, and
   the text goes to the prompt history; in an empty box it only says to press it again to exit,
   which a second within the next second does. Ctrl+L is bound to `chat:clearInput` but runs the
@@ -526,7 +549,7 @@ Claude Code
   a turn, or a `queued_command` attachment when a busy turn takes it in, either with `origin:
   {kind: "peer", name, body}`: `name` is the envelope's `from-name` (older lines put it in
   `from`), `body` the text inside the envelope. What you send a Claude app session from Codealong
-  is one of these, named `Codealong` and starting with `send::FROM_YOU`; the panel shows it as
+  is one of these, named `Codealong` and starting with `claude::peer::FROM_YOU`; the panel shows it as
   yours and it counts as your prompt. A subagent's report back comes the same way, with
   `handback: true`.
 - A line's `cwd` is the shell's folder. After a command that `cd`s outside the session's
@@ -554,7 +577,7 @@ Claude Code
   background start takes over. Until then its registry entry says `"spare": true`, `kind: bg`,
   `status: idle`, `name` its job ID, and it has no transcript; Claude Code clears the mark when
   its first turn starts (`busy`). Claude Code's own session lookups skip spares, and so does
-  `claude::read_registry` (checked 2026-09-30, one spare per account on this Mac).
+  `claude::registry::read_registry` (checked 2026-09-30, one spare per account on this Mac).
 - A Bash call's `tool_use` is in the transcript before its command runs, and the command's
   shell, a background one too, is a child of the session's process: the `codealong` command
   finds the session that runs it by its parent processes. A terminal keeps
@@ -582,8 +605,8 @@ Claude Code
   transcript and takes the latest `custom-title` there as its own, terminal title included; a
   re-stamp skips a line equal to the last of its type within 32 KB. Checked on 2.1.285
   (2026-09-29): a session `/rename`d in tmux, renamed from outside, then exited, kept the new
-  name, and `claude --resume` listed it by it. `claude.rs`'s `rename` writes both, never the
-  registry, which the running process owns.
+  name, and `claude --resume` listed it by it. The adapter's `rename` (claude/names.rs) writes
+  both, never the registry, which the running process owns.
 - `--resume <id> --fork-session` opens a copy of the conversation as far as it's written (a
   turn still running shows as interrupted in the copy) while the original carries on.
   `--session-id <uuid>` names the copy; with `--resume` it's taken only alongside
@@ -594,11 +617,11 @@ Claude Code
   says `{mode: "resume", sessionId: <id>, fork: true}`. With a prompt it writes its transcript,
   the conversation so far included, at once; without one it prints `(idle — send a prompt to
   start)` and has none until its first prompt, so the board shows it with the conversation it
-  copies (`claude::resumed_from`).
+  copies (`claude::registry::resumed_from`).
 - `--resume` takes a transcript's path as well as an ID (2.1.287: an argument ending in `.jsonl`
   is read as a file), from any account's folder, and the copy is written under the account that
   runs it, `--fork-session --session-id` naming it as above. That's how Codealong moves a
-  session to another account (`claude::move_to`). In a terminal the copy writes its transcript
+  session to another account (`ClaudeCode::move_to`). In a terminal the copy writes its transcript
   only at its first prompt (checked in tmux): until then the registry has it, and the board
   shows it with the conversation it was moved with (`Reader::moved_copy`, from origins.json). Checked 2026-10-02 between two accounts in
   different orgs, in a terminal and with `-p`: a Sonnet conversation with signed thinking blocks
@@ -626,7 +649,7 @@ Claude Code
   read-only commands run; in `bypassPermissions` a Write went through (2026-10-01). The help
   lists the modes as acceptEdits, auto, bypassPermissions, manual, dontAsk and plan; `default`,
   which transcripts write, is still taken. The copy gets its session's own mode where that
-  acts without asking (`claude::side_mode`), else `default`. `--permission-prompts host` would
+  acts without asking (`claude::side::side_mode`), else `default`. `--permission-prompts host` would
   hand a `-p` run's prompts to whoever runs it; side.rs doesn't use it yet.
   It reads the session's prompt cache when it's on the session's model: forking an interactive
   haiku session of 35,000 tokens, the first question read 35,120 from the cache and wrote 594,
@@ -635,7 +658,7 @@ Claude Code
   passes, so what the copy is told goes in its first message. While it runs it's in the
   registry as any session is (`kind: "interactive"`, `entrypoint: "sdk-cli"`, a messaging
   socket, a derived name), and its `SessionStart` (matcher `fork`) and `PermissionRequest`
-  hooks run: `claude::read_registry` and the app's permission hook skip a copy's process.
+  hooks run: `claude::registry::read_registry` and the app's permission hook skip a copy's process.
   A transcript's `message.model` has no context size (`claude-opus-5-5`, where the session ran
   `opus[1m]`), so the copy runs on the account's usual model, not one named from the transcript.
 - `--model` takes a full name or an alias for the newest model of a family: `sonnet`, `opus`,
@@ -694,9 +717,10 @@ Claude Code
   envelope, `<cross-session-message from-name="…" from-mode="bypass|prompting">`, in Claude
   Code's order (`from`, `from-session`, `hop-chain`, `from-name`, `from-mode`, `from-plugin`):
   it reads the envelope only if writing it again gives the same text. `bypass` is
-  `bypassPermissions` (and `plan` entered from it). `send.rs` uses the socket for Claude app
-  sessions and claims `bypass` for what you type in Codealong's windows to a session in that
-  mode, never for the command line or another device (checked on 2.1.281, 2026-09-27).
+  `bypassPermissions` (and `plan` entered from it). Codealong uses the socket for Claude app
+  sessions (claude/peer.rs) and claims `bypass` for what you type in Codealong's windows to a
+  session in that mode, never for the command line or another device (checked on 2.1.281,
+  2026-09-27).
 - A Claude app session's mode is in the app's record of it (`local_<id>.json`,
   `permissionMode`; the registry's `hostSessionId` names the record); a terminal session's is
   on its transcript's prompt lines (`permissionMode`).
@@ -709,7 +733,7 @@ Claude Code
   `reply` pastes and presses Return. `attach` (`{"proto":1,"op":"attach","short","auth","cols",
   "rows","attachId"}`; `caps`, if given, must be an object: null is refused as malformed) answers
   one JSON line and hands whatever comes after the request line to the job's terminal as typed,
-  so an Escape written there stops the turn as in a terminal (`send::daemon_press_escape`,
+  so an Escape written there stops the turn as in a terminal (`claude::daemon::daemon_press_escape`,
   checked 2026-09-29). Attaching sizes the job's terminal to the attacher's and redraws it;
   detaching gives a terminal still attached its own size back. The daemon drops an attached
   connection whose unread output piles up.
@@ -723,8 +747,9 @@ Claude Code
   "human"}`. With the box empty it sends the prompts already queued. Ctrl+X Enter
   (`chat:queueSubmit`) queues one for after the turn. Checked on 2.1.287 in tmux and in a
   background job through `attach` (2026-10-02): the paste, then the two keys a moment later,
-  which `send.rs` does for Send now (`claude::SEND_NOW`). Transcripts also have `queue-operation`
-  lines (`enqueue`, `dequeue`, `remove`, with the prompt as `content`) as the queue changes.
+  which Send now types, in a terminal (send.rs) or a job (claude/daemon.rs): `claude::SEND_NOW`.
+  Transcripts also have `queue-operation` lines (`enqueue`, `dequeue`, `remove`, with the prompt
+  as `content`) as the queue changes.
 - The socket's `priority` takes `now`, `next` (the default) and `later`, but `now` is no send now:
   in a terminal session (2.1.287) a `now` message sent during a 40-second command waited for it
   to end and then started a turn of its own, and a headless `-p --input-format stream-json` run,
@@ -740,7 +765,7 @@ Claude Code
   The prompt lists `1. Yes`, `2. Yes, and always allow…`, `3. No`; the digit alone answers it
   (no Return), and Escape cancels it, which denies the call and ends the turn ("Interrupted ·
   What should Claude do instead?"). A stray digit with no prompt up lands in the input box, so
-  `claude.rs`'s adapter presses a key only while the registry and the transcript both agree the
+  the adapter (claude/mod.rs) presses a key only while the registry and the transcript both agree the
   prompt is up for the call you saw. Read-only commands (`git status`, `ls`) aren't asked about.
   Only typed keys answer it: a bracketed paste goes to Claude Code's paste handler, never to its
   keys, so a pasted `1` does nothing. Where the terminal has the kitty keyboard protocol it pushes
@@ -758,7 +783,7 @@ Claude Code
   `<file>.lock`, made with mkdir, its time freshened every 5 s, stale after 10), re-reading the
   file under it and applying only its own change, and running sessions reread it every second. So
   a write under that lock, in one step (temp file and rename), survives a running session's next
-  write: `claude::trust_folder` does this when Codealong starts or forks a Claude Code session in
+  write: `claude::trust::trust_folder` does this when Codealong starts or forks a Claude Code session in
   a folder, adding only that entry. It strips `hasCompletedProjectOnboarding`, `history`,
   `projectOnboardingSeenCount` and `devIntentsDetected` from project entries whenever it saves.
 - A `PermissionRequest` hook (checked on 2.1.284, from its code and a session in tmux with a
@@ -782,7 +807,8 @@ Claude Code
   needed`). On 2.1.284 the call's own transcript line can be missing while its prompt is up: a
   session's first call was written as its prompt showed, but a later one only with its result,
   four minutes after, when it was answered. So a prompt's call can't be read from the
-  transcript until then (`claude.rs`'s keypress path looks for it there); the hook has it.
+  transcript until then (the adapter's keypress path, in claude/mod.rs, looks for it there); the
+  hook has it.
 - An image that came with a prompt is in the prompt's own line (checked on 2.1.281 to 2.1.287,
   2026-10-02): `message.content` is a list, with an `image` part each (`source: {type: "base64",
   media_type, data}`; PNG, JPEG and WebP seen) beside the `text`, and the line's `imagePasteIds`
@@ -808,7 +834,7 @@ Claude Code
   `updated` false on the first publish. One made from a type says `created_from_type: true`
   with no `artifact_id`; `open` says `opened: true`; a read keeps `url` and `title` under `read`
   (beside `artifactRead`), and a list has `artifacts`. Checked on about 130 calls here,
-  2026-10-02. `claude::artifact_of` makes the link the conversation shows (`Item.link`).
+  2026-10-02. `claude::conversation::artifact_of` makes the link the conversation shows (`Item.link`).
 - A peer message to a session that bypasses permissions is held ("Held message from another
   session", Deny first) unless its settings say `"crossSessionInbound": "accept"`; typing into
   its terminal isn't held. Under the Claude app (stream-json) a hold is only a `{"type":
@@ -871,7 +897,7 @@ Claude app
   no repo, so the engine lists every such session in one lane, Claude app chats
   (`engine::chat_roots`); a session with no lane would be on no list at all. Its first prompt
   line has two text parts: the app's `<system-reminder>` saying so, then what you typed
-  (`claude::typed_text` skips the reminder).
+  (`claude::transcript::typed_text` skips the reminder).
 
 Codex
 
@@ -921,7 +947,7 @@ Codex
   `turn_context` line in a rollout names its `model` and `effort`, its `approval_policy`
   (untrusted, on-request, never, or a granular object) and its `sandbox_policy` (`type`
   read-only, workspace-write or danger-full-access, with its roots); side.rs forks on the
-  thread's latest model, sandbox and approval policy (`codex::last_turn`), so the copy may do
+  thread's latest model, sandbox and approval policy (`codex::side::last_turn`), so the copy may do
   what the thread may, and declines an approval that comes to it. Codex's own `/side` gives
   its copy the thread's permissions too, and tells it to change nothing unless asked.
 - A prompt's images are in the rollout twice (2,900 rollouts here, 2026-10-02). Its
@@ -932,7 +958,7 @@ Codex
   it, with nothing of the conversation between, a `response_item` `message` with role `user`
   has what the model got: an `input_image` part each, always a `data:` URL. The same kind of
   line carries an image a tool hands the model, and what follows that isn't a prompt.
-  `codex::sent_images` reads that line and the prompt after it takes them (transcript.rs,
+  `codex::conversation::sent_images` reads that line and the prompt after it takes them (transcript.rs,
   `shown`).
 - Each turn's `token_count` event carries `rate_limits` (`primary`/`secondary` windows with
   `used_percent`, `window_minutes`, `resets_at`; `limit_id` `codex` or per model; `plan_type`).
@@ -951,7 +977,7 @@ Codex
   discovery for any other goes unanswered until the router gives up after 10 s. Opening
   `codex://threads/<id>` makes the window take it within about 2 s, but it takes it as it starts
   loading: a turn sent in the next second went out with an empty model ("The '' model is not
-  supported") and the app's default reviewer, so `send::codex_start_turn` waits 2 s more.
+  supported") and the app's default reviewer, so `codex::ipc::codex_start_turn` waits 2 s more.
 - `thread-follower-interrupt-turn` to the owning window stops a thread's turn as the app's Stop
   does from a window that doesn't own it: `params: {conversationId, mode: "user-stop"}`, version
   3 (4 with `expectedTurnId`, which stops the turn only while it's still the one running; 26.924's
@@ -965,7 +991,7 @@ Codex
   additionalContext?, toolOutput?}`. The window reads the thread's folders from `restoreMessage`
   (`context.workspaceRoots`, `cwd`) and puts it back in the box if the steer is turned down, so it
   must be the composer's message: `{id, text, context: {prompt, addedFiles, fileAttachments,
-  ideContext, imageAttachments, workspaceRoots}, cwd, createdAt}`, which `send::codex_steer_request`
+  ideContext, imageAttachments, workspaceRoots}, cwd, createdAt}`, which `codex::ipc::codex_steer_request`
   builds as the app does for a plain prompt. The window sends `turn/steer {threadId, input,
   expectedTurnId}` and refuses a thread whose turn has ended ("Cannot steer conversation … because
   its active turn already ended"). The router answers `request-timeout`, `client-disconnected` or
@@ -976,7 +1002,7 @@ Codex
   your own, then `thread/inject_items` with one item (an empty list is refused), since the
   rollout isn't written until the history has something in it and the app can't open a thread
   without its rollout ("rollout_not_found"). Opened in the app and sent its first turn through
-  the window socket, it runs in the app like one typed there (`start::codex_app_start`). A turn
+  the window socket, it runs in the app like one typed there (the Codex adapter's `start_in_app`). A turn
   in a thread with no turns needs `model` (and `effort`) in its request, or the window sends an
   empty model. Such a thread says `originator: "codealong"`; the app's thread list doesn't
   filter on originator for local threads.
@@ -994,7 +1020,7 @@ Codex
   id Codex picks (the app-server's `thread/fork {threadId, cwd, …}` does the same), and a typed-in prompt pasted into the TUI is sent with Return, which while
   a turn runs sends it into the turn (a steer); Tab queues it for after ("Press
   {key:composer.queue} to queue a message when a task is running; otherwise it sends
-  immediately", 0.157.1's keymap help). `codex::terminals` finds TUIs by `ps` (the daemon, `exec` and bundled copies aren't
+  immediately", 0.157.1's keymap help). `codex::terminals::terminals` finds TUIs by `ps` (the daemon, `exec` and bundled copies aren't
   terminals) and `pair_terminals` gives each its `resume` id or its folder's newest CLI thread
   active since it started. Escape in the TUI stops a running turn ("Conversation interrupted", `turn_aborted`),
   leaving its background terminals running. While its box's text ends in an `@` word a list of
