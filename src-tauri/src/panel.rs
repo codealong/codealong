@@ -1,13 +1,15 @@
 //! The panels: the one place Codealong talks to AppKit about the windows that float over other
 //! apps. The bar, its peek, the quick panel, the sessions kept on the desktop, the cards pinned
-//! there and the lines between them are each a Tauri window turned into a non-activating NSPanel, the only kind macOS puts on another app's
-//! full-screen Space, and here is how one is made, shown, given the keyboard and has it taken,
-//! hidden, and given back its class before it's destroyed, with the level each floats at
-//! (`Level`). A window's own module says what kind of panel it is (`Config`) and when each of
-//! these happens; it never reaches AppKit itself.
+//! there and the lines between them are each a Tauri window turned into a non-activating NSPanel,
+//! the only kind macOS puts on another app's full-screen Space, and here is how one is made,
+//! shown, given the keyboard and has it taken, hidden, and given back its class before it's
+//! destroyed, with the level each floats at (`Level`), which the outline flash.rs draws goes by
+//! too. A window's own module says what kind of panel it is (`Config`) and when each of these
+//! happens; it never reaches AppKit itself.
 //!
 //! Nearly everything here is odd for a reason, found by the plain way failing, and much of it
-//! could only be checked by hand in the running app: the comments say which, and when.
+//! can only be checked by hand in the running app: CLAUDE.md's "Tauri and macOS" says what was,
+//! when, and what hasn't been yet.
 //!
 //! All of it is the main thread's. Off it these functions do nothing and answer nothing, and a
 //! debug build stops to say so (`main_thread`).
@@ -40,9 +42,12 @@ pub enum Level {
     Card,
     /// A session kept on the desktop: with the cards there.
     Kept,
-    /// The floating bar: above other apps' floating panels too (the status item level, still
-    /// under menus), like other apps' floating panels.
+    /// The floating bar: the status item level, still under menus. `always_on_top` alone is
+    /// AppKit's floating level, where other apps' floating panels can cover a window.
     FloatingBar,
+    /// The outline round a terminal that came forward on another screen (flash.rs): with the
+    /// floating bar.
+    Outline,
     /// The bar's peek: over the floating bar it opens by.
     Peek,
     /// The bar docked in the notch: over the menu bar (level 24) and its status items (25), as
@@ -59,7 +64,7 @@ impl Level {
     pub fn raw(self) -> NSWindowLevel {
         match self {
             Level::Lines => NSStatusWindowLevel - 1,
-            Level::Card | Level::Kept | Level::FloatingBar => NSStatusWindowLevel,
+            Level::Card | Level::Kept | Level::FloatingBar | Level::Outline => NSStatusWindowLevel,
             Level::Peek => NSStatusWindowLevel + 1,
             Level::DockedBar => NSMainMenuWindowLevel + 2,
             Level::Quick => NSMainMenuWindowLevel + 3,
@@ -402,8 +407,9 @@ pub fn hide(w: &WebviewWindow) {
     }
 }
 
-/// Runs `f` with the window and its page's view, on the main thread.
-fn with_page(w: &WebviewWindow, f: impl FnOnce(&NSWindow, &NSResponder) + Send + 'static) {
+/// Runs `f` with a window and its page's view, on the main thread: any window's, not only a
+/// panel's.
+pub fn with_page(w: &WebviewWindow, f: impl FnOnce(&NSWindow, &NSResponder) + Send + 'static) {
     let window = w.clone();
     let _ = w.with_webview(move |webview| {
         let Some(n) = ns(&window) else { return };
@@ -501,9 +507,14 @@ pub fn frame(w: &WebviewWindow) -> Option<Rect> {
     ns(w).map(|n| rect(n.frame()))
 }
 
+/// A rectangle as AppKit takes it.
+pub fn ns_rect(r: Rect) -> NSRect {
+    NSRect::new(NSPoint::new(r.x, r.y), NSSize::new(r.w, r.h))
+}
+
 pub fn set_frame(w: &WebviewWindow, r: Rect) {
     if let Some(n) = ns(w) {
-        n.setFrame_display(NSRect::new(NSPoint::new(r.x, r.y), NSSize::new(r.w, r.h)), true);
+        n.setFrame_display(ns_rect(r), true);
     }
 }
 
@@ -569,7 +580,7 @@ mod tests {
         // The quick panel is over them all, the docked bar and the peek too.
         assert!(at(Level::Quick) > at(Level::DockedBar) && at(Level::Quick) > at(Level::Peek));
         // As AppKit counts them: the menu bar is 24 and its status items 25.
-        assert_eq!([Level::Lines, Level::Card, Level::Kept, Level::FloatingBar, Level::Peek, Level::DockedBar, Level::Quick].map(at), [24, 25, 25, 25, 26, 26, 27]);
+        assert_eq!([Level::Lines, Level::Card, Level::Kept, Level::FloatingBar, Level::Outline, Level::Peek, Level::DockedBar, Level::Quick].map(at), [24, 25, 25, 25, 25, 26, 26, 27]);
     }
 
     /// Which of a panel's answers a class gives itself, rather than leaving them to NSPanel.

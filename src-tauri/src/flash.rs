@@ -89,12 +89,13 @@ mod native {
     use objc2::rc::Retained;
     use objc2::runtime::AnyObject;
     use objc2::{msg_send, MainThreadMarker};
-    use objc2_app_kit::{NSBackingStoreType, NSBox, NSBoxType, NSColor, NSRunningApplication, NSStatusWindowLevel, NSTitlePosition, NSWindow, NSWindowCollectionBehavior, NSWindowStyleMask};
-    use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
+    use objc2_app_kit::{NSBackingStoreType, NSBox, NSBoxType, NSColor, NSRunningApplication, NSTitlePosition, NSWindow, NSWindowStyleMask};
+    use objc2_foundation::NSString;
     use tauri::AppHandle;
 
     use super::Frame;
     use crate::geometry::{PageRect, Rect};
+    use crate::panel::{self, Level, Spaces};
 
     #[repr(C)]
     #[derive(Clone, Copy)]
@@ -286,8 +287,7 @@ mod native {
         let main = frame(unsafe { CGDisplayBounds(CGMainDisplayID()) });
         let host = Rect { x: 0.0, y: 0.0, w: main.w, h: main.h };
         let around = PageRect { x: window.x, y: window.y, w: window.w, h: window.h }.to_screen(host).outset(MARGIN);
-        let (w, h) = (around.w, around.h);
-        let rect = NSRect::new(NSPoint::new(around.x, around.y), NSSize::new(w, h));
+        let rect = panel::ns_rect(around);
         // SAFETY: a borderless window made and used on the main thread, kept alive in SHOWING.
         let win = unsafe { NSWindow::initWithContentRect_styleMask_backing_defer(mtm.alloc(), rect, NSWindowStyleMask::Borderless, NSBackingStoreType::Buffered, false) };
         unsafe { win.setReleasedWhenClosed(false) };
@@ -295,17 +295,13 @@ mod native {
         win.setBackgroundColor(Some(&NSColor::clearColor()));
         win.setHasShadow(false);
         win.setIgnoresMouseEvents(true);
-        win.setLevel(NSStatusWindowLevel);
-        win.setCollectionBehavior(
-            NSWindowCollectionBehavior::CanJoinAllSpaces
-                | NSWindowCollectionBehavior::Stationary
-                | NSWindowCollectionBehavior::IgnoresCycle
-                | NSWindowCollectionBehavior::FullScreenAuxiliary
-                | NSWindowCollectionBehavior::Transient,
-        );
+        win.setLevel(Level::Outline.raw());
+        // On every Space as the panels are, and as both kinds of them are for Mission Control:
+        // left in place, and not shown as a window of its own.
+        win.setCollectionBehavior(Spaces::Stationary.behavior() | Spaces::Transient.behavior());
         win.setExcludedFromWindowsMenu(true);
         let accent = NSColor::controlAccentColor();
-        let outline = NSBox::initWithFrame(mtm.alloc(), NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(w, h)));
+        let outline = NSBox::initWithFrame(mtm.alloc(), panel::ns_rect(Rect { x: 0.0, y: 0.0, w: around.w, h: around.h }));
         outline.setBoxType(NSBoxType::Custom);
         outline.setTitlePosition(NSTitlePosition::NoTitle);
         outline.setBorderColor(&accent);
