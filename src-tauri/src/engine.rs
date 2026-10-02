@@ -1687,22 +1687,14 @@ impl Engine {
     }
 
     fn load_previews(&mut self) {
-        match previews::load() {
-            Ok(store) => {
-                self.previews.set = store.previews;
-                self.previews_warning = None;
-            }
-            Err(e) => self.previews_warning = Some(format!("{e:#}")),
+        if let Some(store) = read_or_warn(previews::load(), &mut self.previews_warning) {
+            self.previews.set = store.previews;
         }
     }
 
     fn load_reusable(&mut self) {
-        match reusable::load() {
-            Ok(store) => {
-                self.reusable = store.by_path();
-                self.reusable_warning = None;
-            }
-            Err(e) => self.reusable_warning = Some(format!("{e:#}")),
+        if let Some(store) = read_or_warn(reusable::load(), &mut self.reusable_warning) {
+            self.reusable = store.by_path();
         }
     }
 
@@ -2380,12 +2372,8 @@ impl Engine {
     }
 
     fn load_pr_links(&mut self) {
-        match prlinks::load() {
-            Ok(store) => {
-                self.pr_store = store;
-                self.pr_links_warning = None;
-            }
-            Err(e) => self.pr_links_warning = Some(format!("{e:#}")),
+        if let Some(store) = read_or_warn(prlinks::load(), &mut self.pr_links_warning) {
+            self.pr_store = store;
         }
     }
 
@@ -2490,18 +2478,17 @@ impl Engine {
     /// state.json, read again. One that doesn't read is left alone: the engine goes on with what
     /// it has in memory, a first run's state at launch, and says so (`notices`).
     fn load_state(&mut self) {
-        match SeenState::load() {
-            Ok(state) => {
-                self.seen = state;
-                self.state_warning = None;
-                self.state_unreadable = false;
-            }
-            Err(e) => {
+        let read = read_or_warn(SeenState::load(), &mut self.state_warning);
+        self.state_unreadable = read.is_none();
+        match read {
+            Some(state) => self.seen = state,
+            None => {
                 if self.seen.first_run == 0 {
                     self.seen = SeenState::fresh();
                 }
-                self.state_warning = Some(format!("{e:#} What you pin, archive, snooze and mark seen meanwhile lasts only until Codealong quits."));
-                self.state_unreadable = true;
+                if let Some(why) = &mut self.state_warning {
+                    why.push_str(" What you pin, archive, snooze and mark seen meanwhile lasts only until Codealong quits.");
+                }
             }
         }
     }
@@ -2571,17 +2558,11 @@ impl Engine {
     }
 
     fn load_todos(&mut self) {
-        match todos::load() {
-            Ok((store, text)) => {
-                self.todos = store;
-                self.todos_text = text;
-                self.todos_warning = None;
-                self.todos_unreadable = false;
-            }
-            Err(e) => {
-                self.todos_warning = Some(format!("{e:#}"));
-                self.todos_unreadable = true;
-            }
+        let read = read_or_warn(todos::load(), &mut self.todos_warning);
+        self.todos_unreadable = read.is_none();
+        if let Some((store, text)) = read {
+            self.todos = store;
+            self.todos_text = text;
         }
     }
 
@@ -2783,6 +2764,13 @@ impl todos::Lanes for LaneIndex {
 /// What every worktree of a repo shares: its GitHub slug, else its project and name.
 fn repo_identity(l: &Lane) -> String {
     l.repo_slug.clone().unwrap_or_else(|| format!("{}/{}", l.project, l.repo))
+}
+
+/// What one of the stores' files said, or none, with why as its warning for the board
+/// (`Engine::notices`): what was read before stays as it is until the file reads again.
+fn read_or_warn<T>(read: Result<T>, warning: &mut Option<String>) -> Option<T> {
+    *warning = read.as_ref().err().map(|e| format!("{e:#}"));
+    read.ok()
 }
 
 /// Says which folders the scan has been waiting a while to open: most likely macOS is asking
