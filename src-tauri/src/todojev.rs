@@ -314,6 +314,18 @@ pub struct SuggestRequest {
     deps: Vec<String>,
 }
 
+/// What Jev suggests for a todo being written, on this board: its project, labels and the
+/// todos it waits on. An error when `[jev] todos` is off or there's nothing to ask.
+pub fn suggest(board: &Board, id: Option<&str>, title: &str, description: &str, project: &str) -> anyhow::Result<Suggested> {
+    let cfg = crate::config::load()?.unwrap_or_default();
+    if !cfg.jev.todos {
+        anyhow::bail!("Todo suggestions are off.");
+    }
+    let projects: Vec<String> = board.projects.iter().map(|p| p.name.clone()).filter(|p| p != crate::board::ELSEWHERE).collect();
+    let req = suggest_request(cfg.jev.model.trim(), id, title, description, project, &projects, &board.labels, &board.todos, board).ok_or_else(|| anyhow::anyhow!("Nothing to suggest."))?;
+    Ok(suggest_read(&req, &jev::ask(&req.body)?))
+}
+
 pub fn suggest_request(model: &str, id: Option<&str>, title: &str, description: &str, project: &str, projects: &[String], labels: &[Label], todos: &[Todo], board: &Board) -> Option<SuggestRequest> {
     if title.trim().is_empty() {
         return None;

@@ -564,54 +564,24 @@ fn start_from_quick(app: tauri::AppHandle, engine: State<'_, engine::Handle>, pe
     if let Some((device, lane)) = peerfeed::split_remote(&spec.lane_id) {
         return start_on_device(&peers, device, lane, &spec);
     }
-    let started = start_and_link(&engine, &spec)?;
-    note_start(&engine, &spec);
+    let started = start::start_here(&engine, &spec).map_err(|e| format!("{e:#}"))?;
+    start::note(&engine, &spec);
     if let Some(bundle) = quick::start_app(spec.place, &engine.board().apps.terminal_id) {
         front::bring_forward(&app, bundle);
     }
     Ok(started)
 }
 
-/// Keeps whether a start went into a new worktree, where one was on offer, for Jev's next
-/// suggestion in that repo (starts.rs).
-fn note_start(engine: &engine::Handle, spec: &start::StartSpec) {
-    let cfg = config::load().ok().flatten().unwrap_or_default();
-    if !start::offers_worktree(&cfg, spec) {
-        return;
-    }
-    let Some(repo) = engine.board().lanes.iter().find(|l| l.id == spec.lane_id).map(|l| format!("{}/{}", l.project, l.repo)) else {
-        return;
-    };
-    if let Err(e) = starts::record(&repo, spec.worktree) {
-        eprintln!("codealong: couldn't note the start in starts.json: {e:#}");
-    }
-}
-
 /// Where what's typed in the quick panel should go, from Jev (route.rs).
 #[tauri::command(async)]
 fn route_quick(engine: State<'_, engine::Handle>, project: String, text: String) -> Result<route::Route, String> {
-    route_here(&engine, &project, &text)
-}
-
-/// Where typed text goes on this Mac's board, for its quick panel or a linked phone's.
-fn route_here(engine: &engine::Handle, project: &str, text: &str) -> Result<route::Route, String> {
-    let cfg = config::load().map_err(|e| format!("{e:#}"))?.unwrap_or_default();
-    if !cfg.jev.quick_panel {
-        return Err("Suggestions in the quick panel are off.".into());
-    }
-    route::route(&engine.board(), &cfg, project, text).map_err(|e| format!("{e:#}"))
+    route::suggest(&engine.board(), &project, &text).map_err(|e| format!("{e:#}"))
 }
 
 /// Sessions whose prompts and replies have every word (search.rs), for the quick panel.
 #[tauri::command(async)]
 fn search_text(words: Vec<String>) -> search::Found {
-    let words: Vec<String> = words.iter().map(|w| w.trim().to_lowercase()).filter(|w| !w.is_empty()).collect();
-    let t = std::time::Instant::now();
-    let found = search::find(&words, 200);
-    if perf::enabled() {
-        perf::log(&format!("search: {} words, {} sessions in {} ms", words.len(), found.hits.len(), t.elapsed().as_millis()));
-    }
-    found
+    search::typed(&words)
 }
 
 /// A page of a session's conversation, from its own record (transcript.rs): the newest when
@@ -674,27 +644,11 @@ fn send_to_session(engine: State<'_, engine::Handle>, peers: State<'_, peers::Pe
     actions::run(&engine, &peers, api::SESSION_SEND, &key, serde_json::json!({ "text": text, "now": now.unwrap_or(false) }))
 }
 
-/// Sends to a session on this device; the socket (server.rs) does the same for `codealong session
-/// send`.
-pub(crate) fn send_here(engine: &engine::Handle, key: &str, text: &str, sender: send::Sender, now: bool) -> Result<send::Sent, String> {
-    let cfg = config::load().map_err(|e| format!("{e:#}"))?.unwrap_or_default();
-    send::send(&engine.board(), &cfg, key, text, sender, now).map_err(|e| format!("{e:#}"))
-}
-
 /// What Jev suggests for a todo being written: its project, labels and the todos it waits on
 /// (todojev.rs). Errors when `[jev] todos` is off or there's nothing to ask.
 #[tauri::command(async)]
 fn suggest_todo(engine: State<'_, engine::Handle>, id: Option<String>, title: String, description: String, project: String) -> Result<todojev::Suggested, String> {
-    let cfg = config::load().map_err(|e| format!("{e:#}"))?.unwrap_or_default();
-    if !cfg.jev.todos {
-        return Err("Todo suggestions are off.".into());
-    }
-    let board = engine.board();
-    let projects: Vec<String> = board.projects.iter().map(|p| p.name.clone()).filter(|p| p != board::ELSEWHERE).collect();
-    let req = todojev::suggest_request(cfg.jev.model.trim(), id.as_deref(), &title, &description, &project, &projects, &board.labels, &board.todos, &board)
-        .ok_or_else(|| "Nothing to suggest.".to_string())?;
-    let response = jev::ask(&req.body).map_err(|e| format!("{e:#}"))?;
-    Ok(todojev::suggest_read(&req, &response))
+    todojev::suggest(&engine.board(), id.as_deref(), &title, &description, &project).map_err(|e| format!("{e:#}"))
 }
 
 /// "Looks done" was wrong for this todo, until something linked to it moves on.
@@ -941,8 +895,6 @@ fn install_agents(command: bool, accounts: Vec<String>) -> Result<install::Agent
     install::install(command, &accounts).map_err(|e| format!("{e:#}"))
 }
 
-/// Where each account can start a session, for the new-session sheet.
-
 /// Your other devices as Settings › Devices and the views show them (peers.rs).
 #[tauri::command]
 fn devices(peers: State<'_, peers::Peers>) -> peers::DevicesView {
@@ -998,17 +950,17 @@ fn link_with_code(peers: State<'_, peers::Peers>, code: String) -> Result<String
 /// What was said in sessions on your other devices, searched on each of them.
 #[tauri::command(async)]
 fn search_devices(peers: State<'_, peers::Peers>, words: Vec<String>) -> Vec<peers::DeviceFound> {
-    let words: Vec<String> = words.iter().map(|w| w.trim().to_lowercase()).filter(|w| !w.is_empty()).collect();
+    let words = search::tidy(&words);
     if words.is_empty() {
         return Vec::new();
     }
     peers.search(&words)
 }
 
+/// Where each account can start a session, for the new-session sheet.
 #[tauri::command(async)]
 fn start_options() -> Result<start::StartOptions, String> {
-    let cfg = config::load().map_err(|e| format!("{e:#}"))?.unwrap_or_default();
-    Ok(start::options_for(&cfg))
+    start::options_here().map_err(|e| format!("{e:#}"))
 }
 
 /// Starts a session in a worktree: in the terminal, or in the Claude or Codex app. A start from
@@ -1019,7 +971,7 @@ fn start_session(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peer
     if let Some((device, lane)) = peerfeed::split_remote(&spec.lane_id) {
         return start_on_device(&peers, device, lane, &spec);
     }
-    start_and_link(&engine, &spec)
+    start::start_here(&engine, &spec).map_err(|e| format!("{e:#}"))
 }
 
 /// Moves a session to another account of its harness (`start::move_to`): a copy goes on in a new
@@ -1106,30 +1058,6 @@ fn start_on_device(peers: &peers::Peers, device: &str, lane: &str, spec: &start:
 fn device_start_options(peers: State<'_, peers::Peers>, device: String) -> Result<start::StartOptions, String> {
     let got = actions::ask(&peers, &device, api::START_OPTIONS, serde_json::json!({}))?;
     serde_json::from_value(got).map_err(|e| e.to_string())
-}
-
-/// Starts a session and links it to its todos; the socket (server.rs) does the same for the
-/// `codealong start` command.
-pub(crate) fn start_and_link(engine: &engine::Handle, spec: &start::StartSpec) -> Result<start::Started, String> {
-    let cfg = config::load().map_err(|e| format!("{e:#}"))?.unwrap_or_default();
-    let started = start::start(&engine.board(), &cfg, spec).map_err(|e| format!("{e:#}"))?;
-    origins::started(spec.from.as_deref(), started.key.as_deref(), &spec.lane_id, &spec.account);
-    if !spec.todos.is_empty() {
-        // One start for all of them: todos started together wait for the same session.
-        let pending = match (&started.key, spec.place) {
-            (Some(_), _) => None,
-            (None, place) => Some(todos::PendingStart {
-                lane: spec.lane_id.clone(),
-                harness: cfg.accounts.iter().find(|a| a.name == spec.account).map(|a| a.harness.clone()).unwrap_or_else(|| if place == start::Place::CodexApp { "codex" } else { "claude" }.into()),
-                account: spec.account.clone(),
-                at: util::now_ms(),
-            }),
-        };
-        // A session in a new worktree won't be in the one it started from: only it is linked.
-        let lane = (!(spec.worktree && matches!(spec.place, start::Place::Terminal | start::Place::Background))).then(|| spec.lane_id.clone());
-        engine.todo_started(spec.todos.clone(), lane, started.key.clone(), pending);
-    }
-    Ok(started)
 }
 
 /// A project's canvas as the window last saved it, or null.

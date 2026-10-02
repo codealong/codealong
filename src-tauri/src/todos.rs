@@ -17,13 +17,15 @@
 //! day wherever you read it. It only says when you mean it done by: the list keeps your order,
 //! and nothing moves or changes status when the day comes.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use anyhow::{bail, Result};
 use serde::{Deserialize, Deserializer, Serialize};
 
+use crate::board::ELSEWHERE;
 use crate::config::support_dir;
+use crate::model::Lane;
 use crate::util::{civil_from_days, days_from_civil};
 
 /// How long a start in an app waits for its session to show up before it's forgotten.
@@ -339,6 +341,33 @@ pub trait Lanes {
     fn repo_of(&self, lane: &str) -> Option<String>;
 }
 
+/// Each worktree's project and repo, by lane id, as a board has them: what the engine, the
+/// `codealong` command and a start from todos link by. It's a copy, so nothing holds the board
+/// while todos change.
+#[derive(Default)]
+pub struct LaneIndex(HashMap<String, (String, String)>);
+
+impl LaneIndex {
+    pub fn of(lanes: &[Lane]) -> LaneIndex {
+        LaneIndex(lanes.iter().map(|l| (l.id.clone(), (l.project.clone(), repo_identity(l)))).collect())
+    }
+}
+
+impl Lanes for LaneIndex {
+    /// None for a worktree outside every project: a todo isn't filed under Elsewhere.
+    fn project_of(&self, lane: &str) -> Option<String> {
+        self.0.get(lane).map(|(p, _)| p.clone()).filter(|p| p != ELSEWHERE)
+    }
+    fn repo_of(&self, lane: &str) -> Option<String> {
+        self.0.get(lane).map(|(_, r)| r.clone())
+    }
+}
+
+/// What every worktree of a repo shares: its GitHub slug, else its project and name.
+fn repo_identity(l: &Lane) -> String {
+    l.repo_slug.clone().unwrap_or_else(|| format!("{}/{}", l.project, l.repo))
+}
+
 fn valid_id(id: &str) -> bool {
     !id.is_empty() && id.len() <= 64 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
@@ -357,7 +386,7 @@ fn usable_id(id: &str, fallback: &str) -> String {
 /// each todo following theirs. Nothing someone wrote by hand is dropped for its id.
 fn repaired(mut s: TodoStore) -> TodoStore {
     let mut seen = HashSet::new();
-    let mut renamed = std::collections::HashMap::new();
+    let mut renamed = HashMap::new();
     for (i, l) in s.labels.iter_mut().enumerate() {
         let usable = usable_id(&l.id, &format!("l-{}", i + 1));
         let mut id = usable.clone();
@@ -815,7 +844,25 @@ pub fn save(store: &TodoStore) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
+
+    #[test]
+    fn a_boards_worktrees_are_indexed_by_project_and_repo() {
+        use crate::fixtures::lane;
+        let lanes = [
+            Lane { repo_slug: Some("sprucehq/spark".into()), ..lane("/r/app", Vec::new()) },
+            lane("/r/tools", Vec::new()),
+            Lane { project: ELSEWHERE.into(), ..lane("/tmp/x", Vec::new()) },
+        ];
+        let index = LaneIndex::of(&lanes);
+        // A repo's worktrees share its GitHub slug; a repo without one, its project and name.
+        assert_eq!(index.repo_of("/r/app").as_deref(), Some("sprucehq/spark"));
+        assert_eq!(index.repo_of("/r/tools").as_deref(), Some("P/r"));
+        assert_eq!(index.project_of("/r/app").as_deref(), Some("P"));
+        // A todo isn't filed under Elsewhere, though its worktree still has a repo to link by.
+        assert_eq!(index.project_of("/tmp/x"), None);
+        assert_eq!(index.repo_of("/tmp/x"), Some(format!("{ELSEWHERE}/r")));
+        assert_eq!((index.project_of("/gone"), LaneIndex::default().repo_of("/r/app")), (None, None));
+    }
 
     struct FakeLanes(HashMap<&'static str, (&'static str, &'static str)>);
 

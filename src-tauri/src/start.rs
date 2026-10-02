@@ -8,11 +8,13 @@ use anyhow::{anyhow, bail, Result};
 use serde::Serialize;
 
 use crate::attachments::{self, Style};
-use crate::config::{AccountCfg, Config};
+use crate::config::{self, AccountCfg, Config};
+use crate::engine::Handle;
 use crate::harness::{Adapter, StartAsk};
 use crate::launch;
 use crate::model::{Board, Harness, Meter, Severity, Usage};
-use crate::util::{home, tilde};
+use crate::todos::PendingStart;
+use crate::util::{home, now_ms, tilde};
 
 /// The environment variable a terminal start hands the prompt over in. The command Codealong
 /// types stays short and needs no quoting, whatever the prompt holds.
@@ -274,6 +276,12 @@ pub fn options_for(cfg: &Config) -> StartOptions {
     options(&cfg.accounts, &launch::terminal_name(&cfg.apps.terminal), projects, &home(), |a| crate::harness::of(a).and_then(|h| h.default_model(a)))
 }
 
+/// The sheet's options for the accounts config.toml has now: what a window's new-session sheet
+/// and another device's get.
+pub fn options_here() -> Result<StartOptions> {
+    Ok(options_for(&config::load()?.unwrap_or_default()))
+}
+
 /// The launch for one start, as its harness takes it (`Adapter::start_in_terminal`,
 /// `background_command`, `app_link`): a command line gets the prompt, with its attachments
 /// written out the way that harness reads files, and the model, effort and new worktree it
@@ -421,6 +429,70 @@ pub fn start(board: &Board, cfg: &Config, spec: &StartSpec) -> Result<Started> {
     }
 }
 
+/// What a start from todos leaves to link them by (`TodoStore::started`): the worktree it's
+/// linked to, and the session, when Codealong chose its ID, or the start to wait for.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Linked {
+    pub ids: Vec<String>,
+    /// None for a session in a new worktree.
+    pub lane: Option<String>,
+    pub session: Option<String>,
+    pub pending: Option<PendingStart>,
+}
+
+/// How a start's todos are linked, or none for a start from no todo. `harness` is the
+/// account's, as config.toml names it.
+fn linked(spec: &StartSpec, started: &Started, harness: &str, now: i64) -> Option<Linked> {
+    if spec.todos.is_empty() {
+        return None;
+    }
+    // One start for all of them: todos started together wait for the same session.
+    let pending = started.key.is_none().then(|| PendingStart { lane: spec.lane_id.clone(), harness: harness.to_string(), account: spec.account.clone(), at: now });
+    // A session in a new worktree won't be in the one it started from: only it is linked.
+    let lane = (!(spec.worktree && matches!(spec.place, Place::Terminal | Place::Background))).then(|| spec.lane_id.clone());
+    Some(Linked { ids: spec.todos.clone(), lane, session: started.key.clone(), pending })
+}
+
+/// Starts a session and links it to its todos, each to the session, or to the next one of that
+/// account in the repo when an app picks the session's ID. `record` writes the link down: the
+/// engine does for the app (`start_here`), and the `codealong` command writes todos.json itself
+/// when the app is closed.
+pub fn start_and_link(board: &Board, cfg: &Config, spec: &StartSpec, record: impl FnOnce(Linked) -> Result<()>) -> Result<Started> {
+    let started = start(board, cfg, spec)?;
+    crate::origins::started(spec.from.as_deref(), started.key.as_deref(), &spec.lane_id, &spec.account);
+    // `start` found the account, or it would have failed.
+    let harness = cfg.accounts.iter().find(|a| a.name == spec.account).map(|a| a.harness.as_str());
+    if let Some(link) = harness.and_then(|h| linked(spec, &started, h, now_ms())) {
+        record(link)?;
+    }
+    Ok(started)
+}
+
+/// Starts a session on this device and links it to its todos through the engine: a window's
+/// start, another device's, and `codealong start` with the app up (server.rs).
+pub fn start_here(engine: &Handle, spec: &StartSpec) -> Result<Started> {
+    let cfg = config::load()?.unwrap_or_default();
+    start_and_link(&engine.board(), &cfg, spec, |link| {
+        engine.todo_started(link.ids, link.lane, link.session, link.pending);
+        Ok(())
+    })
+}
+
+/// Keeps whether a start went into a new worktree, where one was on offer, for Jev's next
+/// suggestion in that repo (starts.rs).
+pub fn note(engine: &Handle, spec: &StartSpec) {
+    let cfg = config::load().ok().flatten().unwrap_or_default();
+    if !offers_worktree(&cfg, spec) {
+        return;
+    }
+    let Some(repo) = engine.read(|b| b.lanes.iter().find(|l| l.id == spec.lane_id).map(|l| format!("{}/{}", l.project, l.repo))) else {
+        return;
+    };
+    if let Err(e) = crate::starts::record(&repo, spec.worktree) {
+        eprintln!("codealong: couldn't note the start in starts.json: {e:#}");
+    }
+}
+
 /// A session to fork, with its account, the worktree it's in and the folder the copy starts in:
 /// the session's own, or its worktree's when that's gone.
 fn to_fork<'a>(board: &'a Board, cfg: &'a Config, key: &str) -> Result<(&'a crate::model::Session, &'a AccountCfg, &'a crate::model::Lane, PathBuf)> {
@@ -535,6 +607,29 @@ mod tests {
     }
 
     const NOW: i64 = 1_790_200_000_000;
+
+    #[test]
+    fn a_start_from_todos_links_them_to_its_session_or_waits_for_it() {
+        let spec = |place: Place, worktree: bool, todos: &[&str]| StartSpec { lane_id: "/r/app".into(), account: "codex".into(), place, prompt: String::new(), model: None, effort: None, worktree, todos: todos.iter().map(|t| t.to_string()).collect(), from: None };
+        let known = Started { key: Some("claude:claude:abc".into()), message: None };
+        let unknown = Started { key: None, message: None };
+        // No todo, nothing to link.
+        assert_eq!(linked(&spec(Place::Terminal, false, &[]), &known, "claude", NOW), None);
+        // Codealong chose the session's ID: every todo is linked to it and to its worktree at once.
+        let link = linked(&spec(Place::Terminal, false, &["t-1", "t-2"]), &known, "claude", NOW).unwrap();
+        assert_eq!(link, Linked { ids: vec!["t-1".into(), "t-2".into()], lane: Some("/r/app".into()), session: known.key.clone(), pending: None });
+        // An app picks the ID: the todos wait for the account's next session there, by the
+        // account's own harness.
+        let link = linked(&spec(Place::CodexApp, false, &["t-1"]), &unknown, "codex", NOW).unwrap();
+        assert_eq!(link.pending, Some(PendingStart { lane: "/r/app".into(), harness: "codex".into(), account: "codex".into(), at: NOW }));
+        assert_eq!((link.lane.as_deref(), link.session), (Some("/r/app"), None));
+        // A session in a new worktree isn't in the one it started from, on a command line; the
+        // apps have their own worktree choice, which the spec's doesn't reach.
+        for place in [Place::Terminal, Place::Background] {
+            assert_eq!(linked(&spec(place, true, &["t-1"]), &known, "claude", NOW).unwrap().lane, None);
+        }
+        assert_eq!(linked(&spec(Place::ClaudeApp, true, &["t-1"]), &unknown, "claude", NOW).unwrap().lane.as_deref(), Some("/r/app"));
+    }
     const HOUR: i64 = 3_600_000;
 
     /// An account's 5-hour and weekly use, and in how many hours its week resets.

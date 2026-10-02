@@ -2278,9 +2278,8 @@ impl Engine {
     }
 
     /// Each lane's project and repo, for linking todos.
-    fn lane_index(&self) -> LaneIndex {
-        let board = self.board.read().map(|b| b.lanes.iter().map(|l| (l.id.clone(), (l.project.clone(), repo_identity(l)))).collect()).unwrap_or_default();
-        LaneIndex(board)
+    fn lane_index(&self) -> todos::LaneIndex {
+        self.board.read().map(|b| todos::LaneIndex::of(&b.lanes)).unwrap_or_default()
     }
 
     /// Links sessions that starts in the apps were waiting for, from the board just composed.
@@ -2301,7 +2300,7 @@ impl Engine {
                 })
             })
             .collect();
-        let lanes = LaneIndex(board.lanes.iter().map(|l| (l.id.clone(), (l.project.clone(), repo_identity(l)))).collect());
+        let lanes = todos::LaneIndex::of(&board.lanes);
         let changed = self.todos.resolve_pending(&sessions, &lanes, now_ms());
         if changed {
             self.save_todos();
@@ -2321,7 +2320,7 @@ impl Engine {
                 l.sessions.iter().filter(|s| s.visitor.is_none()).map(move |s| origins::Candidate { key: &s.key, lane: &l.id, account: &s.account, started: s.started_at.unwrap_or(s.last_activity) })
             })
             .collect();
-        let lanes = LaneIndex(board.lanes.iter().map(|l| (l.id.clone(), (l.project.clone(), repo_identity(l)))).collect());
+        let lanes = todos::LaneIndex::of(&board.lanes);
         origins::resolve_pending(&sessions, &lanes, now_ms())
     }
 
@@ -2498,23 +2497,6 @@ impl Visitors {
         self.by_lane = found;
         true
     }
-}
-
-/// Each lane's project and repo identity, by lane id.
-struct LaneIndex(HashMap<String, (String, String)>);
-
-impl todos::Lanes for LaneIndex {
-    fn project_of(&self, lane: &str) -> Option<String> {
-        self.0.get(lane).map(|(p, _)| p.clone()).filter(|p| p != ELSEWHERE)
-    }
-    fn repo_of(&self, lane: &str) -> Option<String> {
-        self.0.get(lane).map(|(_, r)| r.clone())
-    }
-}
-
-/// What every worktree of a repo shares: its GitHub slug, else its project and name.
-fn repo_identity(l: &Lane) -> String {
-    l.repo_slug.clone().unwrap_or_else(|| format!("{}/{}", l.project, l.repo))
 }
 
 /// What one of the stores' files said, or none, with why as its warning for the board

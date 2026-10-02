@@ -709,12 +709,13 @@ impl Client {
                 None => bail!("The app stopped answering."),
             },
             false => {
-                let lanes: Box<dyn todos::Lanes> = match needs_lanes {
-                    true => Box::new(BoardLanes(self.board()?.lanes.iter().map(|l| (l.id.clone(), (l.project.clone(), repo_identity(l)))).collect())),
-                    false => Box::new(BoardLanes(HashMap::new())),
+                // Only a link looks a worktree up, and the board takes a moment to read.
+                let lanes = match needs_lanes {
+                    true => todos::LaneIndex::of(&self.board()?.lanes),
+                    false => todos::LaneIndex::default(),
                 };
                 let now = now_ms();
-                todos::change(|store| Ok((store.apply(op, lanes.as_ref(), now)?, ()))).map(|(_, changed, _)| changed)
+                todos::change(|store| Ok((store.apply(op, &lanes, now)?, ()))).map(|(_, changed, _)| changed)
             }
         };
         self.board = None;
@@ -735,24 +736,22 @@ impl Client {
             bail!("Starting a session in Codealong needs the app running.");
         }
         let cfg = self.cfg().clone();
-        let started = start::start(self.board()?, &cfg, spec)?;
-        crate::origins::started(spec.from.as_deref(), started.key.as_deref(), &spec.lane_id, &spec.account);
-        if !spec.todos.is_empty() {
-            let pending = match (&started.key, spec.place) {
-                (Some(_), _) => None,
-                (None, place) => Some(todos::PendingStart { lane: spec.lane_id.clone(), harness: cfg.accounts.iter().find(|a| a.name == spec.account).map(|a| a.harness.clone()).unwrap_or_else(|| if place == Place::CodexApp { "codex" } else { "claude" }.into()), account: spec.account.clone(), at: now_ms() }),
-            };
-            let lane = (!(spec.worktree && matches!(spec.place, Place::Terminal | Place::Background))).then(|| spec.lane_id.clone());
-            let lanes = BoardLanes(self.board()?.lanes.iter().map(|l| (l.id.clone(), (l.project.clone(), repo_identity(l)))).collect());
-            let key = started.key.clone();
+        let board = self.board()?;
+        // No engine to hand the todos' start to: it's written to todos.json from here, under
+        // its lock.
+        let started = start::start_and_link(board, &cfg, spec, |link| {
+            let lanes = todos::LaneIndex::of(&board.lanes);
             let now = now_ms();
             todos::change(|store| {
                 let mut changed = false;
-                for id in &spec.todos {
-                    changed |= store.started(id, lane.as_deref(), key.as_deref(), pending.clone(), &lanes, now);
+                for id in &link.ids {
+                    changed |= store.started(id, link.lane.as_deref(), link.session.as_deref(), link.pending.clone(), &lanes, now);
                 }
                 Ok((changed, ()))
             })?;
+            Ok(())
+        })?;
+        if !spec.todos.is_empty() {
             self.board = None;
         }
         Ok(started)
@@ -793,21 +792,6 @@ impl Client {
         }
         Ok(())
     }
-}
-
-struct BoardLanes(HashMap<String, (String, String)>);
-
-impl todos::Lanes for BoardLanes {
-    fn project_of(&self, lane: &str) -> Option<String> {
-        self.0.get(lane).map(|(p, _)| p.clone()).filter(|p| p != crate::board::ELSEWHERE)
-    }
-    fn repo_of(&self, lane: &str) -> Option<String> {
-        self.0.get(lane).map(|(_, r)| r.clone())
-    }
-}
-
-fn repo_identity(l: &Lane) -> String {
-    l.repo_slug.clone().unwrap_or_else(|| format!("{}/{}", l.project, l.repo))
 }
 
 fn run(cmd: Cmd, c: &mut Client, json: bool) -> Result<()> {

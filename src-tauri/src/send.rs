@@ -253,6 +253,14 @@ pub fn moved_words(board: &Board, key: &str, copy: &str) -> String {
     format!("{title} moved to {account} and goes on there as {copy}. Send to that session instead.")
 }
 
+/// Sends to a session on this device, on the board the windows have and the settings as they
+/// stand: what a window's reply box, another device's request and `codealong session send`
+/// through the app all come to.
+pub fn send_here(engine: &crate::engine::Handle, key: &str, text: &str, sender: Sender, now: bool) -> Result<Sent> {
+    let cfg = crate::config::load()?.unwrap_or_default();
+    send(&engine.board(), &cfg, key, text, sender, now)
+}
+
 /// How a message from you would reach the session with this key, for its box to say before you
 /// send it: the first of its ways in (`Adapter::routes`) that applies, as `send` tries them. None
 /// for a session Codealong runs itself, which its box says in its own words.

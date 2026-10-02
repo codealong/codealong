@@ -203,7 +203,7 @@ fn answer_call(engine: &Handle, c: &Call) -> Result<Value, String> {
 /// needs someone here.
 fn send_prompt(engine: &Handle, c: &Call) -> Result<Value, String> {
     let sender = if c.from == From::Here { send::Sender::You } else { send::Sender::Elsewhere };
-    let sent = crate::send_here(engine, c.session()?, &c.text("text"), sender, c.flag("now"))?;
+    let sent = send::send_here(engine, c.session()?, &c.text("text"), sender, c.flag("now")).map_err(words)?;
     if c.from == From::Device && sent.opened {
         return Err(format!("It needs someone at this device: {}", sent.message));
     }
@@ -259,24 +259,24 @@ fn mark_seen(engine: &Handle, c: &Call) -> Result<Value, String> {
 /// What was said in this device's sessions.
 fn search(_: &Handle, c: &Call) -> Result<Value, String> {
     let words: Vec<String> = c.params.get("words").cloned().and_then(|w| serde_json::from_value(w).ok()).unwrap_or_default();
-    to_value(crate::search_text(words))
+    to_value(crate::search::typed(&words))
 }
 
 /// Where typed text goes, as the quick panel suggests it (route.rs).
 fn route(engine: &Handle, c: &Call) -> Result<Value, String> {
     let project = c.params.get("project").and_then(Value::as_str).filter(|p| !p.is_empty()).unwrap_or(crate::route::ALL_PROJECTS);
-    to_value(crate::route_here(engine, project, &c.text("text"))?)
+    to_value(crate::route::suggest(&engine.board(), project, &c.text("text")).map_err(words)?)
 }
 
 /// Where each account here can start a session.
 fn start_options(_: &Handle, _: &Call) -> Result<Value, String> {
-    to_value(crate::start_options()?)
+    to_value(crate::start::options_here().map_err(words)?)
 }
 
 /// Starts a session in a worktree here and links it to its todos.
 fn start(engine: &Handle, c: &Call) -> Result<Value, String> {
     let spec: crate::start::StartSpec = c.params.get("spec").cloned().and_then(|s| serde_json::from_value(s).ok()).ok_or("The request has no start.")?;
-    to_value(crate::start_and_link(engine, &spec)?)
+    to_value(crate::start::start_here(engine, &spec).map_err(words)?)
 }
 
 /// Forks it into a copy that goes on without a window, on `prompt` when there's one

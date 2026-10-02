@@ -181,6 +181,23 @@ pub fn find(words: &[String], limit: usize) -> Found {
     Found { hits, building: !ix.ready, off: false }
 }
 
+/// What a window or another device finds for the words it typed: tidied (`tidy`), at most 200
+/// sessions, and timed in the perf log.
+pub fn typed(words: &[String]) -> Found {
+    let words = tidy(words);
+    let t = Instant::now();
+    let found = find(&words, 200);
+    if crate::perf::enabled() {
+        crate::perf::log(&format!("search: {} words, {} sessions in {} ms", words.len(), found.hits.len(), t.elapsed().as_millis()));
+    }
+    found
+}
+
+/// Words as typed, made ready to search by: trimmed, in lower case, the empty ones gone.
+pub fn tidy(words: &[String]) -> Vec<String> {
+    words.iter().map(|w| w.trim().to_lowercase()).filter(|w| !w.is_empty()).collect()
+}
+
 /// Builds the whole index now and searches it: for the command, when the app isn't running.
 pub fn find_now(scope: Scope, words: &[String], limit: usize) -> Found {
     configure(scope);

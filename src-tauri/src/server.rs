@@ -201,10 +201,7 @@ fn handle_request(engine: &Handle, peers: &Peers, app: &tauri::AppHandle, req: s
         Request::Search { words } => Reply::ok(crate::search::find(&words, 1000)),
         Request::IdleTerminals { after_ms } => Reply::ok(crate::idle::plan_now(&engine.board(), after_ms)),
         Request::CloseIdle { keys, after_ms } => Reply::ok(crate::idle::close(&engine.board(), &keys, after_ms)),
-        Request::Start { spec } => match crate::start_and_link(engine, &spec) {
-            Ok(started) => Reply::ok(started),
-            Err(e) => Reply::err(e),
-        },
+        Request::Start { spec } => answered(crate::start::start_here(engine, &spec).map_err(|e| format!("{e:#}"))),
         Request::Devices => Reply::ok(devices(peers)),
         Request::DeviceLink { key } => answered(peers.link(&key)),
         Request::DeviceAnswer { key, accept } => answered(peers.answer_link(&key, accept)),
@@ -212,7 +209,7 @@ fn handle_request(engine: &Handle, peers: &Peers, app: &tauri::AppHandle, req: s
         Request::DeviceCode => answered(peers.link_code()),
         Request::DeviceUseCode { code } => answered(peers.link_with_code(&code)),
         Request::DeviceAsk { device, request, params } => answered(peers.ask(&device, &request, params, Duration::from_secs(40))),
-        Request::Send { key, text, from } => answered(crate::send_here(engine, &key, &text, crate::send::Sender::Agent(from), false)),
+        Request::Send { key, text, from } => answered(crate::send::send_here(engine, &key, &text, crate::send::Sender::Agent(from), false).map_err(|e| format!("{e:#}"))),
         Request::Show { reveal } => match crate::front::show_main(app, Some(reveal)) {
             // A bare binary isn't what its ID opens: that's whichever bundle has it.
             Ok(()) => Reply::ok(std::env::current_exe().ok().and_then(|exe| crate::updates::bundle_of(&exe)).map(|_| app.config().identifier.clone())),
