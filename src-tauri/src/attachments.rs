@@ -17,6 +17,11 @@
 //! - The Claude app's and Codex's new-session links take text only (their `file` parameters are
 //!   dropped or go elsewhere), and OpenCode has no `--add-dir`, so the agent gets the path and
 //!   opens the file itself.
+//!
+//! A session's record has a prompt as it went out, so its conversation reads each path as the
+//! reference it was (`written_in`). The images a prompt came with from elsewhere (pasted into a
+//! terminal, attached in a harness's own app) are in the record itself; reading the conversation
+//! keeps those here too (`keep_image_in`, from transcript.rs), so they show in place the same way.
 
 use std::path::{Path, PathBuf};
 
@@ -190,6 +195,16 @@ pub fn keep(bytes: &[u8], name: &str) -> Result<Attachment> {
     keep_in(&images_dir(), &files_dir(), bytes, name)
 }
 
+/// Keeps an image a window can show, and says how text refers to it (`images/<hash>.<ext>`).
+/// Anything else isn't kept: this is for the images a session's record holds (transcript.rs),
+/// where what can't be shown in place is no file of yours to keep.
+pub fn keep_image_in(images: &Path, bytes: &[u8]) -> Option<String> {
+    let ext = image_kind(bytes).filter(|_| bytes.len() <= MAX_IMAGE_BYTES)?;
+    let kept = format!("{}.{ext}", hash16(bytes));
+    write_once(&images.join(&kept), bytes).ok()?;
+    Some(format!("{IMAGES}{kept}"))
+}
+
 /// Keeps a copy of a file dropped from the Finder.
 pub fn import(path: &Path) -> Result<Attachment> {
     let meta = std::fs::metadata(path).with_context(|| format!("reading {}", path.display()))?;
@@ -319,19 +334,98 @@ pub fn expand(text: &str, style: Style) -> String {
 }
 
 /// Text that went out with full paths (`Style::Path`) as a window writes it again, each kept
-/// file by its `images/…` or `files/…` reference, so it shows as it did when you sent it.
+/// file by its `images/…` or `files/…` reference, so it shows as it did when you sent it. Any
+/// other path under the folders (a name Codealong wouldn't have made) stays as it is.
 pub fn shorten_in(text: &str, images: &Path, files: &Path) -> String {
-    let dir = |d: &Path| format!("{}/", d.to_string_lossy().trim_end_matches('/'));
-    text.replace(&dir(images), IMAGES).replace(&dir(files), FILES)
+    let mut out = text.to_string();
+    for (dir, prefix, valid) in [(images, IMAGES, valid_image as fn(&str) -> bool), (files, FILES, valid_file)] {
+        let dir = format!("{}/", dir.to_string_lossy().trim_end_matches('/'));
+        let mut short = String::with_capacity(out.len());
+        let mut rest = out.as_str();
+        while let Some(i) = rest.find(&dir) {
+            let body = &rest[i + dir.len()..];
+            let len = body.find(|c: char| !(safe_char(c) || c == '/')).unwrap_or(body.len());
+            short.push_str(&rest[..i]);
+            short.push_str(if valid(body[..len].trim_end_matches('.')) { prefix } else { &dir });
+            rest = body;
+        }
+        short.push_str(rest);
+        out = short;
+    }
+    out
 }
 
 pub fn shorten(text: &str) -> String {
     shorten_in(text, &images_dir(), &files_dir())
 }
 
+/// How text refers to a kept file named by its path alone: an image as `![image](images/…)`,
+/// which shows in place, any other file as `[<name>](files/…)`.
+fn reference_to(path: &str) -> Option<String> {
+    if path.strip_prefix(IMAGES).is_some_and(valid_image) {
+        return Some(format!("![image]({path})"));
+    }
+    let rest = path.strip_prefix(FILES).filter(|r| valid_file(r))?;
+    Some(format!("[{}]({path})", rest.split_once('/')?.1))
+}
+
+/// A prompt as a session's record has it, written as a window writes it: each kept file by its
+/// reference again, whichever way it went out, as a full path (`shorten`) or as Claude Code's
+/// file mention, `@"<path>"` (`@<path>` once Claude Code's own list of files has rewritten it).
+/// So its images show in place, as they did in the box it was sent from.
+pub fn written_in(text: &str, images: &Path, files: &Path) -> String {
+    let text = shorten_in(text, images, files);
+    let mut out = String::with_capacity(text.len());
+    let mut last = 0;
+    for (at, _) in text.match_indices('@') {
+        // A mention starts a word.
+        if at < last || !text[..at].chars().next_back().map_or(true, char::is_whitespace) {
+            continue;
+        }
+        let quoted = text[at + 1..].starts_with('"');
+        let body = at + 1 + quoted as usize;
+        let len = text[body..].find(|c: char| !(safe_char(c) || c == '/')).unwrap_or(text.len() - body);
+        if quoted && !text[body + len..].starts_with('"') {
+            continue;
+        }
+        // Without quotes, one at the end of a sentence doesn't take its full stop.
+        let path = if quoted { &text[body..body + len] } else { text[body..body + len].trim_end_matches('.') };
+        let Some(reference) = reference_to(path) else { continue };
+        out.push_str(&text[last..at]);
+        out.push_str(&reference);
+        last = body + path.len() + quoted as usize;
+    }
+    out.push_str(&text[last..]);
+    out
+}
+
+/// A prompt's text with the images it came with, each by its reference (`images/…`) where the
+/// text names it, `[Image #2]` (Claude Code's mark for the second image pasted into a session),
+/// else on a line of its own after the text. One the text already shows isn't shown twice.
+pub fn with_images(text: &str, kept: &[(Option<u32>, String)]) -> String {
+    let mut out = text.to_string();
+    for (number, path) in kept {
+        if out.contains(&format!("({path})")) {
+            continue;
+        }
+        let reference = format!("![image]({path})");
+        match number.map(|n| format!("[Image #{n}]")).filter(|mark| out.contains(mark.as_str())) {
+            Some(mark) => out = out.replacen(&mark, &reference, 1),
+            None => {
+                if !out.is_empty() && !out.ends_with('\n') {
+                    out.push('\n');
+                }
+                out.push_str(&reference);
+            }
+        }
+    }
+    out
+}
+
 /// Removes attachments no todo refers to any more, once they've sat unused for 30 days: one cut
 /// from a description, or a todo deleted and restored, is still there for a while, and so is one
-/// a session was started with for as long as Claude Code keeps the session.
+/// a session was started with for as long as Claude Code keeps the session. An image kept from a
+/// session's record goes the same way, and is kept again when its conversation is next read.
 pub fn collect_garbage(texts: &[&str]) {
     collect_garbage_in(&images_dir(), &files_dir(), texts, std::time::SystemTime::now() - std::time::Duration::from_millis(30 * DAY_MS as u64));
 }
@@ -475,6 +569,55 @@ mod tests {
         let (images, files) = (Path::new("/Users/me/Library/Application Support/Codealong/images"), Path::new("/Users/me/Library/Application Support/Codealong/files"));
         let text = "The export fails:\n[Crash report 1.log](files/0123456789abcdef/Crash-report-1-.log)\nand ![image](images/fedcba9876543210.png), not /Users/me/images/x.png";
         assert_eq!(shorten_in(&expand_in(text, images, files, Style::Path), images, files), text);
+        // A path there that's no kept file's (a listing of the folder, say) is left whole.
+        let listing = "ls /Users/me/Library/Application Support/Codealong/images/ shows /Users/me/Library/Application Support/Codealong/images/notes.txt";
+        assert_eq!(shorten_in(listing, images, files), listing);
+    }
+
+    #[test]
+    fn a_recorded_prompt_reads_as_it_was_written() {
+        let (images, files) = (Path::new("/Users/me/Library/Application Support/Codealong/images"), Path::new("/Users/me/Library/Application Support/Codealong/files"));
+        let text = "Seeing this\n![image](images/0123456789abcdef.png)\nand [Crash report 1.log](files/0123456789abcdef/Crash-report-1-.log), then images/fedcba9876543210.jpg.";
+        // As Claude Code got it, each file a mention: the image shows again, the file by its kept name.
+        assert_eq!(
+            written_in(&expand_in(text, images, files, Style::Mention), images, files),
+            "Seeing this\n![image](images/0123456789abcdef.png)\nand [Crash-report-1-.log](files/0123456789abcdef/Crash-report-1-.log), then ![image](images/fedcba9876543210.jpg)."
+        );
+        // As the others got it, by full path: just as it was written.
+        assert_eq!(written_in(&expand_in(text, images, files, Style::Path), images, files), text);
+        // A mention Claude Code's list of files rewrote has lost its quotes; a trailing space is the box's.
+        assert_eq!(written_in("Look @/Users/me/Library/Application Support/Codealong/images/0123456789abcdef.png ", images, files), "Look ![image](images/0123456789abcdef.png) ");
+        // Other mentions, an address, and a quote that never closes stay as they are.
+        for same in ["See @src/lanes.ts and @\"my notes.md\"", "mail me@images/0123456789abcdef.png", "@\"images/0123456789abcdef.png", "@images/nope.png", "@\"/Users/me/Desktop/images/0123456789abcdef.png\""] {
+            assert_eq!(written_in(same, images, files), same);
+        }
+    }
+
+    #[test]
+    fn images_a_prompt_came_with_show_where_it_names_them() {
+        let kept = |n: Option<u32>, name: &str| (n, format!("images/{name}"));
+        let (a, b) = ("0123456789abcdef.png", "fedcba9876543210.webp");
+        // Claude Code numbers what's pasted into a session, and the text says where each went.
+        assert_eq!(with_images("Before [Image #3] and after [Image #4]", &[kept(Some(3), a), kept(Some(4), b)]), format!("Before ![image](images/{a}) and after ![image](images/{b})"));
+        // Attached in an app, the text doesn't name them: each goes after it, on its own line.
+        assert_eq!(with_images("Why is this cut off?", &[kept(None, a), kept(Some(2), b)]), format!("Why is this cut off?\n![image](images/{a})\n![image](images/{b})"));
+        assert_eq!(with_images("", &[kept(None, a)]), format!("![image](images/{a})"));
+        // One the text already shows (Codealong sent it by path, and the harness attached it) shows once.
+        let sent = format!("Look:\n![image](images/{a})");
+        assert_eq!(with_images(&sent, &[kept(None, a)]), sent);
+        assert_eq!(with_images("[Image #1]", &[]), "[Image #1]");
+    }
+
+    #[test]
+    fn only_images_a_window_can_show_are_kept_from_a_record() {
+        let (images, files) = (crate::fixtures::scratch("attach-rec-i"), crate::fixtures::scratch("attach-rec-f"));
+        let path = keep_image_in(&images, PNG).unwrap();
+        // The same name as when it's pasted into Codealong, so one sent from here is kept once.
+        assert_eq!(path, keep_in(&images, &files, PNG, "image.png").unwrap().path);
+        assert!(locate_in(&images, &files, &path).unwrap().exists());
+        assert_eq!(keep_image_in(&images, b"<svg xmlns='http://www.w3.org/2000/svg'/>"), None);
+        assert_eq!(keep_image_in(&images, b""), None);
+        assert_eq!(std::fs::read_dir(&*files).unwrap().count(), 0, "nothing else is kept");
     }
 
     #[test]

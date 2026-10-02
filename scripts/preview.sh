@@ -55,7 +55,8 @@
 #
 # PREVIEW_TRANSCRIPT=<session key> shows that session's real conversation in its panel (its
 # newest page, from --snapshot --transcript) and what it waits on you to allow (--pending);
-# other sessions show their title and excerpt there.
+# other sessions show their title and excerpt there. PREVIEW_BEFORE=<cursor> shows the page
+# before that place in its record (a byte offset at a line's start) in place of the newest.
 # PREVIEW_NOTICES=<file> shows the background failures in it (scripts/preview/notices-sample.json
 # has two) in the accounts bar, in place of the snapshot's, which usually has none.
 # PREVIEW_DEVICES=<file> shows your other devices from it (scripts/preview/devices-sample.json
@@ -123,11 +124,6 @@ fi
 if [ -n "${PREVIEW_USAGE:-}" ]; then
   cp "$PREVIEW_USAGE" "$dir/usage-fixture.json"
 fi
-images="${PREVIEW_IMAGES:-$HOME/Library/Application Support/Codealong/images}"
-rm -rf "$dir/images"
-if [ -d "$images" ]; then
-  cp -R "$images" "$dir/images"
-fi
 "$bin" --snapshot >"$dir/board.json" 2>/dev/null
 # The floating bar gets its own small feed from the engine, not the board.
 { [ "$view" = bar ] || [ "$view" = notch ]; } && "$bin" --snapshot --bar >"$dir/bar-feed.json" 2>/dev/null
@@ -137,9 +133,15 @@ fi
 "$bin" --snapshot --config >"$dir/config.json" 2>/dev/null
 rm -f "$dir/transcript.json" "$dir/transcript-key.json" "$dir/pending.json"
 if [ -n "${PREVIEW_TRANSCRIPT:-}" ]; then
-  "$bin" --snapshot --transcript "$PREVIEW_TRANSCRIPT" >"$dir/transcript.json" 2>/dev/null
+  "$bin" --snapshot --transcript "$PREVIEW_TRANSCRIPT" ${PREVIEW_BEFORE:+--before "$PREVIEW_BEFORE"} >"$dir/transcript.json" 2>/dev/null
   "$bin" --snapshot --pending "$PREVIEW_TRANSCRIPT" >"$dir/pending.json" 2>/dev/null
   echo "{\"key\": \"$PREVIEW_TRANSCRIPT\"}" >"$dir/transcript-key.json"
+fi
+# After the conversation is read: reading it keeps the images its prompts came with.
+images="${PREVIEW_IMAGES:-$HOME/Library/Application Support/Codealong/images}"
+rm -rf "$dir/images"
+if [ -d "$images" ]; then
+  cp -R "$images" "$dir/images"
 fi
 if [ -n "${PREVIEW_FOUND:-}" ]; then
   cp "$PREVIEW_FOUND" "$dir/found.json"

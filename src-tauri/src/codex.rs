@@ -9,7 +9,7 @@ use serde_json::Value;
 use crate::config::AccountCfg;
 use crate::harness::{Applied, Look, NewLines};
 use crate::model::{Harness, Session, Usage};
-use crate::transcript::{clip_input, clip_output, item, kept_whole, text_of, Item, Page};
+use crate::transcript::{clip_input, clip_output, item, kept_whole, text_of, Image, Item, Page, IMAGES};
 /// The Codex app's bundle ID. The ChatGPT chat app has the same name, so the app is known by this.
 pub const APP_BUNDLE_ID: &str = "com.openai.codex";
 
@@ -586,7 +586,12 @@ fn call_what(p: &Value, name: &str) -> String {
 /// commands, file changes, MCP calls and searches with what they gave back.
 pub fn conversation_items(v: &Value, at: i64) -> Vec<Item> {
     if let Some((you, t)) = prose_of(v) {
-        return vec![item(at, if you { "you" } else { "agent" }, t)];
+        let images = if you { prompt_images(v) } else { Vec::new() };
+        return vec![Item { images, ..item(at, if you { "you" } else { "agent" }, t) }];
+    }
+    let sent = sent_images(v);
+    if !sent.is_empty() {
+        return vec![Item { images: sent, ..item(at, IMAGES, "") }];
     }
     let Some(p) = (v.get("type").and_then(Value::as_str) == Some("event_msg")).then(|| v.get("payload")).flatten() else { return Vec::new() };
     match p.get("type").and_then(Value::as_str) {
@@ -644,6 +649,17 @@ pub fn conversation_items(v: &Value, at: i64) -> Vec<Item> {
                     let label = if kind == "web.search" { format!("Web search · {}", one_line(&s("query"), 80)) } else { kind };
                     vec![item(at, "tool", label)]
                 }
+                // A prompt with no words (`prose_of` has the others): only its images, when it
+                // came with any.
+                Some("UserMessage") => {
+                    let parts = it.get("content").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
+                    let pictured = parts.iter().any(|p| matches!(p.get("type").and_then(Value::as_str), Some("image" | "local_image")));
+                    if pictured && text_of(it.get("content").unwrap_or(&Value::Null)).trim().is_empty() {
+                        vec![Item { images: prompt_images(v), ..item(at, "you", "") }]
+                    } else {
+                        Vec::new()
+                    }
+                }
                 Some("ImageView") => vec![item(at, "tool", format!("Viewed an image{}", it.get("path").and_then(Value::as_str).map(|p| format!(" · {}", code(&crate::util::file_name(Path::new(p))))).unwrap_or_default()))],
                 Some("ContextCompaction") => vec![item(at, "note", "The conversation was compacted here")],
                 _ => Vec::new(),
@@ -651,6 +667,43 @@ pub fn conversation_items(v: &Value, at: i64) -> Vec<Item> {
         }
         _ => Vec::new(),
     }
+}
+
+// A prompt's images are in the rollout twice. The `UserMessage` item names each as you gave it:
+// an `image` part with the image itself (a `data:` URL), or a `local_image` part with a path,
+// which for one pasted in is a temporary file that's gone within days (none of 232 here were
+// still there). The line before it (a `response_item` `message` with role `user`, at most one
+// line between them, none that's part of the conversation) has what the model got: an
+// `input_image` part for each, always the image itself. So a prompt takes its images from the
+// line before it (transcript.rs, `shown`), and from its own `image` parts without one. The
+// same kind of line carries an image a tool hands the model; what follows that isn't a prompt,
+// and it's dropped. Checked on 2,900 rollouts here, 2026-10-02.
+
+/// The images in a prompt's own `UserMessage` item.
+fn prompt_images(v: &Value) -> Vec<Image> {
+    let parts = v.pointer("/payload/item/content").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
+    parts.iter().filter(|p| p.get("type").and_then(Value::as_str) == Some("image")).filter_map(|p| Image::from_data_url(p.get("image_url")?.as_str()?)).collect()
+}
+
+/// The images on a line that hands the model a user message, which a prompt's are.
+fn sent_images(v: &Value) -> Vec<Image> {
+    let Some(p) = v.get("payload").filter(|_| v.get("type").and_then(Value::as_str) == Some("response_item")) else { return Vec::new() };
+    if p.get("type").and_then(Value::as_str) != Some("message") || p.get("role").and_then(Value::as_str) != Some("user") {
+        return Vec::new();
+    }
+    let parts = p.get("content").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
+    parts.iter().filter(|p| p.get("type").and_then(Value::as_str) == Some("input_image")).filter_map(|p| Image::from_data_url(p.get("image_url")?.as_str()?)).collect()
+}
+
+/// A page with the images of the prompt it starts with: they're on the line before the prompt,
+/// which the page before this one has, or the read before this one took.
+pub fn with_images_before(rollout: &Path, mut page: Page) -> Page {
+    let Some(first) = page.items.first().filter(|it| it.kind == "you").map(|it| it.cursor) else { return page };
+    let before = crate::transcript::file_page(rollout, conversation_items, Some(first), 1).ok().and_then(|p| p.items.into_iter().last());
+    if let Some(images) = before.filter(|it| it.kind == IMAGES) {
+        page.items.insert(0, images);
+    }
+    page
 }
 
 /// How a thread's latest turn ran, as its `turn_context` line has it: a side conversation's
@@ -893,7 +946,8 @@ impl crate::harness::Adapter for Codex {
     }
 
     fn conversation(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, before: Option<u64>, limit: usize) -> anyhow::Result<Page> {
-        crate::transcript::file_page(&record(self, ctx, s)?, conversation_items, before, limit)
+        let rollout = record(self, ctx, s)?;
+        Ok(with_images_before(&rollout, crate::transcript::file_page(&rollout, conversation_items, before, limit)?))
     }
 
     /// A thread in a terminal is typed into; any other goes through the app.
@@ -908,7 +962,8 @@ impl crate::harness::Adapter for Codex {
     }
 
     fn conversation_after(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, after: u64) -> anyhow::Result<Page> {
-        crate::transcript::file_newer(&record(self, ctx, s)?, conversation_items, after)
+        let rollout = record(self, ctx, s)?;
+        Ok(with_images_before(&rollout, crate::transcript::file_newer(&rollout, conversation_items, after)?))
     }
 
     fn open_calls(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> Vec<String> {

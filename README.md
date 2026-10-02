@@ -107,7 +107,9 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     agent's replies as Markdown, and every tool call, which opens to its input and output; runs
     of calls fold into one line. An artifact Claude Code published shows under its call as its
     title, a link that opens it, with what the call did (Published · version 3), and stays out
-    of a fold; web links in a tool's output open too. It opens at the newest and loads older pages as you scroll up,
+    of a fold; web links in a tool's output open too. A prompt shows the images you sent with it
+    in place, whether you sent them from Codealong, pasted them into the session's terminal or
+    attached them in the Claude or Codex app; click one to open it. It opens at the newest and loads older pages as you scroll up,
     and follows the session as it goes. A link to a GitHub PR, in a reply or a prompt, reads
     `name#123` with the PR's state as its icon; hovering it shows a card with where the PR stands
     (review, checks, branches, size), the worktrees that hold it and the sessions that worked on

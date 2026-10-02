@@ -8,6 +8,11 @@
 //! numbers (`seq`) in OpenCode. Claude Code writes a tool's result as a line of its own after
 //! the call; the result comes as an item of its own with the call's id, and the panel puts the
 //! two together, whichever page each came in.
+//!
+//! A prompt of yours reads as you wrote it (`shown`): the files Codealong sent with it by their
+//! references again, and the images it came with from elsewhere (a screenshot pasted into the
+//! terminal, one attached in the harness's app), which the record holds, kept with Codealong's
+//! own images and referred to the same way, so the panel shows them all in place.
 
 use std::collections::BTreeMap;
 use std::io::{Read, Seek, SeekFrom};
@@ -17,6 +22,7 @@ use anyhow::Result;
 use serde::Serialize;
 use serde_json::Value;
 
+use crate::attachments;
 use crate::config::Config;
 use crate::harness::{adapter, find, Ctx};
 use crate::model::Board;
@@ -28,6 +34,28 @@ const OUTPUT_MAX: usize = 6000;
 const CHUNK: u64 = 256 * 1024;
 /// Lines past this are skipped rather than parsed: a pasted image or a huge tool output.
 const LINE_MAX: usize = 16 * 1024 * 1024;
+
+/// The kind of an item that only carries a prompt's images, for a record that keeps them on a
+/// line of its own ahead of the prompt (Codex). `shown` hands them to the prompt that follows;
+/// no such item leaves the engine.
+pub const IMAGES: &str = "images";
+
+/// An image a prompt came with, as the session's record has it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Image {
+    /// Its number where the prompt's text names it (`[Image #2]`).
+    pub number: Option<u32>,
+    /// Its bytes in base64, as the record holds them.
+    pub base64: String,
+}
+
+impl Image {
+    /// From a `data:image/png;base64,…` URL, which is how Codex records one.
+    pub fn from_data_url(url: &str) -> Option<Image> {
+        let (kind, base64) = url.strip_prefix("data:image/")?.split_once(',')?;
+        kind.ends_with(";base64").then(|| Image { number: None, base64: base64.to_string() })
+    }
+}
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -69,6 +97,10 @@ pub struct Item {
     /// published), on the call's result: its line in the panel links to it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub link: Option<crate::harness::Link>,
+    /// The images a prompt of yours came with, as its record has them, until `shown` keeps them
+    /// and puts them in its text.
+    #[serde(skip)]
+    pub images: Vec<Image>,
     /// Where its line starts (or its message number); with `n`, unique in the session.
     pub cursor: u64,
     pub n: u32,
@@ -93,13 +125,41 @@ pub type Parse = fn(&Value, i64) -> Vec<Item>;
 /// Up to about `limit` items of a session's conversation before `before` (from the newest when none).
 pub fn page(board: &Board, cfg: &Config, key: &str, before: Option<u64>, limit: usize) -> Result<Page> {
     let (s, account) = find(board, cfg, key)?;
-    adapter(s.harness).conversation(&Ctx { account }, s, before, limit)
+    Ok(shown(adapter(s.harness).conversation(&Ctx { account }, s, before, limit)?))
 }
 
 /// What came after `after`, oldest first.
 pub fn newer(board: &Board, cfg: &Config, key: &str, after: u64) -> Result<Page> {
     let (s, account) = find(board, cfg, key)?;
-    adapter(s.harness).conversation_after(&Ctx { account }, s, after)
+    Ok(shown(adapter(s.harness).conversation_after(&Ctx { account }, s, after)?))
+}
+
+/// A page as a window shows it: each prompt of yours as you wrote it, with its images.
+fn shown(page: Page) -> Page {
+    shown_in(page, &attachments::images_dir(), &attachments::files_dir())
+}
+
+fn shown_in(mut page: Page, images: &Path, files: &Path) -> Page {
+    // Images on a line of their own are the next prompt's.
+    let mut carried: Vec<Image> = Vec::new();
+    for it in page.items.iter_mut() {
+        let before = std::mem::take(&mut carried);
+        if it.kind == IMAGES {
+            carried = std::mem::take(&mut it.images);
+            continue;
+        }
+        if it.kind != "you" {
+            continue;
+        }
+        let own = std::mem::take(&mut it.images);
+        let with = if before.is_empty() { own } else { before };
+        // One that isn't an image a window shows is left out, and the text keeps its mark for it.
+        let kept: Vec<(Option<u32>, String)> = with.iter().filter_map(|i| Some((i.number, attachments::keep_image_in(images, &data_encoding::BASE64.decode(i.base64.as_bytes()).ok()?)?))).collect();
+        it.text = attachments::with_images(&attachments::written_in(&it.text, images, files), &kept);
+    }
+    // A prompt that was only images, none of them to show, has nothing to say.
+    page.items.retain(|it| it.kind != IMAGES && !(it.kind == "you" && it.text.is_empty()));
+    page
 }
 
 /// The end of the last whole line: a line still being written waits for the next read.
@@ -212,7 +272,7 @@ fn items_of(line: &[u8], parse: Parse, cursor: u64) -> Vec<Item> {
 }
 
 pub fn item(at: i64, kind: &'static str, text: impl Into<String>) -> Item {
-    Item { at, kind, text: text.into(), id: None, input: None, output: None, failed: false, shell: false, cwd: None, withdrawn: false, questions: Vec::new(), answers: BTreeMap::new(), link: None, cursor: 0, n: 0 }
+    Item { at, kind, text: text.into(), id: None, input: None, output: None, failed: false, shell: false, cwd: None, withdrawn: false, questions: Vec::new(), answers: BTreeMap::new(), link: None, images: Vec::new(), cursor: 0, n: 0 }
 }
 
 /// The tool calls among `items` that have no result yet, oldest first, for records that keep a
@@ -268,7 +328,7 @@ mod tests {
     /// A page goes to other devices as it is; the phone app reads it with codealong-peer's `Page`.
     #[test]
     fn pages_read_back_on_other_devices() {
-        let item = |kind: &'static str, id: Option<&str>, output: Option<&str>| Item { at: 7, kind, text: format!("{kind} text"), id: id.map(String::from), input: output.map(|_| "cargo test".to_string()), output: output.map(String::from), failed: kind == "result", shell: false, cwd: None, withdrawn: false, questions: Vec::new(), answers: BTreeMap::new(), link: None, cursor: 40, n: 2 };
+        let item = |kind: &'static str, id: Option<&str>, output: Option<&str>| Item { at: 7, kind, text: format!("{kind} text"), id: id.map(String::from), input: output.map(|_| "cargo test".to_string()), output: output.map(String::from), failed: kind == "result", shell: false, cwd: None, withdrawn: false, questions: Vec::new(), answers: BTreeMap::new(), link: None, images: Vec::new(), cursor: 40, n: 2 };
         let page = Page { items: vec![Item { withdrawn: true, ..item("you", None, None) }, item("agent", None, None), item("tool", Some("t1"), None), item("result", Some("t1"), Some("ok")), item("note", None, None)], before: Some(12), after: 900 };
         let theirs: codealong_peer::api::Page = serde_json::from_value(serde_json::to_value(&page).unwrap()).unwrap();
         assert_eq!((theirs.before, theirs.after, theirs.items.len()), (Some(12), 900, 5));
@@ -369,6 +429,110 @@ mod tests {
                 ("note", "From another session, “review”: Looks good"),
             ]
         );
+    }
+
+    /// Enough of a PNG to be known as one.
+    const PNG: &[u8] = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR";
+
+    /// Folders of their own for what showing a page keeps, in place of Codealong's.
+    fn kept_dirs(tag: &str) -> (crate::fixtures::Scratch, PathBuf, PathBuf) {
+        let dir = crate::fixtures::scratch(tag);
+        let (images, files) = (dir.join("images"), dir.join("files"));
+        (dir, images, files)
+    }
+
+    fn said(page: &Page) -> Vec<(&str, &str)> {
+        page.items.iter().map(|i| (i.kind, i.text.as_str())).collect()
+    }
+
+    #[test]
+    fn a_claude_prompt_shows_the_images_it_came_with() {
+        let (_dir, images, files) = kept_dirs("shown-claude");
+        let (png, other) = (data_encoding::BASE64.encode(PNG), data_encoding::BASE64.encode(&[PNG, b"2"].concat()));
+        let image = |data: &str| serde_json::json!({"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": data}});
+        let prompt = |ids: &[u32], content: Value| serde_json::json!({"type": "user", "origin": {"kind": "human"}, "timestamp": "2026-09-26T10:00:00Z", "imagePasteIds": ids, "message": {"role": "user", "content": content}}).to_string();
+        let lines = [
+            // Pasted into the terminal: Claude Code numbers them through the session, and the text says where each is.
+            prompt(&[3, 4], serde_json::json!([{"type": "text", "text": "This [Image #3] should look like [Image #4]"}, image(&png), image(&other)])),
+            // Attached in the Claude app: the text doesn't name it.
+            prompt(&[1], serde_json::json!([image(&png), {"type": "text", "text": "Why is this cut off?"}])),
+            prompt(&[1], serde_json::json!([image(&other)])),
+            // Sent while it worked.
+            serde_json::json!({"type": "attachment", "timestamp": "2026-09-26T10:00:03Z", "attachment": {"type": "queued_command", "imagePasteIds": [5], "origin": {"kind": "human"}, "prompt": [{"type": "text", "text": "Also this [Image #5]"}, image(&png)]}}).to_string(),
+            // Sent from Codealong, which hands Claude Code a kept image as a file mention.
+            prompt(&[], Value::String(format!("Seeing this \n@\"{}\"", images.join("0123456789abcdef.png").display()))),
+            // Nothing a window can show: the text keeps its mark.
+            prompt(&[6], serde_json::json!([{"type": "text", "text": "And [Image #6]"}, image(&data_encoding::BASE64.encode(b"%PDF-1.7"))])),
+            prompt(&[7], serde_json::json!([image("not base64")])),
+        ];
+        let p = write(&lines.iter().map(String::as_str).collect::<Vec<_>>());
+        let raw = file_page(&p, crate::claude::conversation_items, None, 100).unwrap();
+        assert_eq!(raw.items.iter().map(|i| i.images.len()).collect::<Vec<_>>(), [2, 1, 1, 1, 0, 1, 1]);
+        assert_eq!(raw.items[0].images[1], Image { number: Some(4), base64: other.clone() });
+        let page = shown_in(raw, &images, &files);
+        // Each is kept under the name it has when it's pasted into Codealong.
+        let (a, b) = (attachments::keep_image_in(&images, PNG).unwrap(), attachments::keep_image_in(&images, &[PNG, b"2"].concat()).unwrap());
+        assert!(attachments::locate_in(&images, &files, &a).unwrap().exists() && a != b);
+        assert_eq!(
+            said(&page),
+            [
+                ("you", format!("This ![image]({a}) should look like ![image]({b})").as_str()),
+                ("you", format!("Why is this cut off?\n![image]({a})").as_str()),
+                ("you", format!("![image]({b})").as_str()),
+                ("you", format!("Also this ![image]({a})").as_str()),
+                ("you", "Seeing this \n![image](images/0123456789abcdef.png)"),
+                ("you", "And [Image #6]"),
+            ]
+        );
+        assert!(page.items.iter().all(|i| i.images.is_empty()));
+        assert_eq!(std::fs::read_dir(&images).unwrap().count(), 2, "nothing else is kept");
+    }
+
+    #[test]
+    fn a_codex_prompt_shows_the_images_it_came_with() {
+        let (_dir, images, files) = kept_dirs("shown-codex");
+        let url = format!("data:image/png;base64,{}", data_encoding::BASE64.encode(PNG));
+        // What the model got, a line ahead of the prompt, and the prompt as Codex records it:
+        // a pasted image by a temporary file's path, an attached one by itself.
+        let got = serde_json::json!({"timestamp": "2026-09-26T10:00:00Z", "type": "response_item", "payload": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "## My request:\nWhy is this cut off?"}, {"type": "input_text", "text": "<image name=[Image #1]>"}, {"type": "input_image", "image_url": url, "detail": "high"}]}}).to_string();
+        let prompt = |parts: Value| serde_json::json!({"timestamp": "2026-09-26T10:00:00Z", "type": "event_msg", "payload": {"type": "item_completed", "item": {"type": "UserMessage", "content": parts}}}).to_string();
+        let pasted = serde_json::json!({"type": "local_image", "path": "/var/folders/x/T/codex-clipboard-1.png"});
+        let started = r#"{"timestamp":"2026-09-26T10:00:00Z","type":"event_msg","payload":{"type":"task_started"}}"#;
+        let reply = r#"{"timestamp":"2026-09-26T10:00:02Z","type":"event_msg","payload":{"type":"agent_message","message":"Looking."}}"#;
+        let command = r#"{"timestamp":"2026-09-26T10:00:03Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"CommandExecution","command":["/bin/zsh","-lc","npm test"],"exit_code":0}}}"#;
+        let lines = [
+            got.clone(),
+            started.to_string(),
+            prompt(serde_json::json!([{"type": "text", "text": "\n# Files mentioned by the user:\n\n## codex-clipboard-1.png: /var/folders/x/T/codex-clipboard-1.png\n\n## My request:\nWhy is this cut off?\n"}, pasted])),
+            reply.to_string(),
+            // An image a tool hands the model comes on the same kind of line; it's nobody's prompt.
+            got.clone(),
+            command.to_string(),
+            prompt(serde_json::json!([{"type": "text", "text": "And this one"}, {"type": "image", "image_url": url}])),
+            got.clone(),
+            prompt(serde_json::json!([pasted])),
+        ];
+        let p = write(&lines.iter().map(String::as_str).collect::<Vec<_>>());
+        let read = |before: Option<u64>, limit: usize| crate::codex::with_images_before(&p, file_page(&p, crate::codex::conversation_items, before, limit).unwrap());
+        let page = shown_in(read(None, 100), &images, &files);
+        let a = attachments::keep_image_in(&images, PNG).unwrap();
+        let shot = format!("![image]({a})");
+        assert_eq!(
+            said(&page),
+            [("you", format!("Why is this cut off?\n{shot}").as_str()), ("agent", "Looking."), ("tool", "Shell · `npm test`"), ("you", format!("And this one\n{shot}").as_str()), ("you", shot.as_str())]
+        );
+        // A page that starts with a prompt reads its images from the line before it.
+        let last = read(None, 1);
+        assert_eq!(last.items.iter().map(|i| i.kind).collect::<Vec<_>>(), [IMAGES, "you"]);
+        let before = last.before;
+        assert_eq!(said(&shown_in(last, &images, &files)), [("you", shot.as_str())]);
+        // The page before ends with that line, which is no item of its own.
+        let earlier = shown_in(read(before, 2), &images, &files);
+        assert_eq!(said(&earlier), [("you", format!("And this one\n{shot}").as_str())]);
+        // A prompt that names only a file since gone, with nothing ahead of it, has nothing to show.
+        let gone = write(&[prompt(serde_json::json!([pasted])).as_str(), reply]);
+        let page = shown_in(crate::codex::with_images_before(&gone, file_page(&gone, crate::codex::conversation_items, None, 100).unwrap()), &images, &files);
+        assert_eq!(said(&page), [("agent", "Looking.")]);
     }
 
     #[test]

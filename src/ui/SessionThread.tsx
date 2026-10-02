@@ -9,6 +9,11 @@
 // so under its line, as a link to it, and stays out of a fold; web links in a tool's output open
 // too.
 //
+// A prompt of yours shows its images in place, whichever way they went: sent from Codealong,
+// pasted into the session's terminal, or attached in its harness's app. The engine keeps the
+// ones a record holds with Codealong's own and writes each as text refers to a kept image
+// (transcript.rs), so they show as an image in a todo's description does; a click opens one.
+//
 // A message you sent shows at the end as it goes (ahead.ts): sending, then sent, until the
 // session's record has it and it shows from there. One that went but that the session shows no
 // sign of taking, well after, says so, with a way to open the session and look.
@@ -277,6 +282,15 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
   // How the view should land after the next render: at the end, or where it was from the end.
   const anchor = useRef<{ kind: 'end' } | { kind: 'keep'; fromEnd: number } | null>(null);
   const atEnd = useRef(true);
+  // Where the view was last put at the end. While it hasn't moved from there you're at the end,
+  // whatever has taken room below since: a prompt's image can lay out, and the scroll that put
+  // the view there be heard, before the image's load is.
+  const endAt = useRef<number | null>(null);
+  const toEnd = useCallback((el: HTMLElement) => {
+    el.scrollTop = el.scrollHeight;
+    endAt.current = el.scrollTop;
+    atEnd.current = true;
+  }, []);
 
   // The prompt the keys last brought up, and how far down the view it sat: the next key goes on
   // from it while it's still there, and from the top of the view once you've scrolled.
@@ -408,10 +422,30 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
     const a = anchor.current;
     if (!el || !a) return;
     anchor.current = null;
-    el.scrollTop = a.kind === 'end' ? el.scrollHeight : el.scrollHeight - a.fromEnd;
+    if (a.kind === 'end') toEnd(el);
+    else el.scrollTop = el.scrollHeight - a.fromEnd;
     // A first page too short to scroll can't be scrolled up to load more: load it now.
     if (el.scrollHeight <= el.clientHeight + NEAR_TOP) loadOlder();
-  }, [items, loadOlder, stream]);
+  }, [items, loadOlder, stream, toEnd]);
+
+  // An image in a prompt takes its room when it loads, after the view was placed. One that loads
+  // while you're at the end keeps you there, and one above what's in view leaves that where it
+  // was. WebKit holds no place by itself as content above grows, and the thread asks Chrome not to
+  // (overflow-anchor), so the two go the same way.
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    const onImage = (e: Event) => {
+      const img = e.target;
+      if (!(img instanceof HTMLImageElement)) return;
+      if (atEnd.current) toEnd(el);
+      else if (img.getBoundingClientRect().top < el.getBoundingClientRect().top) el.scrollTop += img.offsetHeight;
+    };
+    // A load doesn't bubble; it's heard on its way down.
+    el.addEventListener('load', onImage, true);
+    return () => el.removeEventListener('load', onImage, true);
+    // The view is another element once an error has shown in its place.
+  }, [error, toEnd]);
 
   const loadedNow = useRef(onLoaded);
   loadedNow.current = onLoaded;
@@ -422,7 +456,8 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
   const onScroll = () => {
     const el = scroller.current;
     if (!el) return;
-    atEnd.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+    if (endAt.current != null && Math.abs(el.scrollTop - endAt.current) >= 1) endAt.current = null;
+    atEnd.current = endAt.current != null || el.scrollHeight - el.scrollTop - el.clientHeight < 40;
     if (el.scrollTop < NEAR_TOP) loadOlder();
     pin();
   };
@@ -491,7 +526,8 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
         return;
       }
       jumped.current = null;
-      el.scrollTop = dir < 0 ? 0 : el.scrollHeight;
+      if (dir < 0) el.scrollTop = 0;
+      else toEnd(el);
       return;
     }
     bringUp(el, to);
@@ -542,9 +578,11 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
   // Your prompts' words by key, for the pin: those read, the one before them, and yours on the way.
   const promptText = useMemo(() => {
     const words = new Map<string, string>();
-    if (earlier) words.set(keyOf(earlier), snippet(earlier.text, 1200));
-    for (const it of items) if (it.kind === 'you') words.set(keyOf(it), snippet(it.text, 1200));
-    for (const a of showing) if (a.change.kind === 'send') words.set(`ahead:${a.id}`, snippet(a.change.text, 1200));
+    // A prompt that was only an image has no words of its own.
+    const of = (text: string) => snippet(text, 1200) || 'Image';
+    if (earlier) words.set(keyOf(earlier), of(earlier.text));
+    for (const it of items) if (it.kind === 'you') words.set(keyOf(it), of(it.text));
+    for (const a of showing) if (a.change.kind === 'send') words.set(`ahead:${a.id}`, of(a.change.text));
     return words;
   }, [items, earlier, showing]);
   useLayoutEffect(pin, [items, loaded, promptText, earlier]);
@@ -555,9 +593,9 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
   const shownSends = useRef(0);
   useLayoutEffect(() => {
     const el = scroller.current;
-    if (el && showing.length > shownSends.current) el.scrollTop = el.scrollHeight;
+    if (el && showing.length > shownSends.current) toEnd(el);
     shownSends.current = showing.length;
-  }, [showing.length]);
+  }, [showing.length, toEnd]);
   // The latest prompt the session took back goes back in the box below, as Claude Code puts it
   // back in its own, while nothing came after it and nothing of yours is on its way.
   const lastItem = items[items.length - 1];

@@ -16,7 +16,7 @@ use crate::config::AccountCfg;
 use crate::harness::{Applied, Look, NewLines};
 use crate::model::{Harness, OriginHow, Session, SessionOrigin, Usage};
 use crate::procs;
-use crate::transcript::{clip_input, clip_output, item, kept_whole, text_of, Item, Page};
+use crate::transcript::{clip_input, clip_output, item, kept_whole, text_of, Image, Item, Page};
 use crate::util::{code, command_dir, file_name, mtime_ms, note_work, one_line, parallel_map, parse_rfc3339_ms, read_head, resolve, scan_lines_back, without_cd};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -481,8 +481,13 @@ pub fn conversation_items(v: &Value, at: i64) -> Vec<Item> {
             if let Some(peer) = line_peer(v) {
                 return vec![peer_item(at, &peer)];
             }
+            let images = images_of(v.pointer("/message/content"), v.get("imagePasteIds"));
             if let Some(t) = typed_text(v) {
-                return vec![item(at, "you", t)];
+                return vec![Item { images, ..item(at, "you", t) }];
+            }
+            // A prompt that was only images, as the Claude app sends one, says nothing else.
+            if !images.is_empty() && you_typed(v) && text_of(v.pointer("/message/content").unwrap_or(&Value::Null)).trim().is_empty() {
+                return vec![Item { images, ..item(at, "you", "") }];
             }
             if flag("isMeta") {
                 return Vec::new();
@@ -520,7 +525,7 @@ pub fn conversation_items(v: &Value, at: i64) -> Vec<Item> {
             if t.is_empty() || t.starts_with('<') {
                 return Vec::new();
             }
-            vec![item(at, "you", t)]
+            vec![Item { images: images_of(v.pointer("/attachment/prompt"), v.pointer("/attachment/imagePasteIds")), ..item(at, "you", t) }]
         }
         Some("assistant") => {
             let Some(parts) = v.pointer("/message/content").and_then(Value::as_array) else { return Vec::new() };
@@ -555,6 +560,19 @@ pub fn conversation_items(v: &Value, at: i64) -> Vec<Item> {
         }
         _ => Vec::new(),
     }
+}
+
+/// The images a prompt came with, which Claude Code keeps in the prompt's own line: a screenshot
+/// pasted into the terminal, which the text names `[Image #N]` by the line's `imagePasteIds`
+/// (numbered through the session, in the images' order), or one attached in the Claude app,
+/// which the text doesn't name.
+fn images_of(content: Option<&Value>, paste_ids: Option<&Value>) -> Vec<Image> {
+    let parts = content.and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
+    let data: Vec<&str> = parts.iter().filter(|p| p.get("type").and_then(Value::as_str) == Some("image")).filter_map(|p| p.pointer("/source/data").and_then(Value::as_str)).collect();
+    let numbers: Vec<u32> = paste_ids.and_then(Value::as_array).map(|ids| ids.iter().filter_map(|n| n.as_u64().map(|n| n as u32)).collect()).unwrap_or_default();
+    // The numbers are the images' only when there's one for each.
+    let numbered = numbers.len() == data.len();
+    data.iter().enumerate().map(|(i, d)| Image { number: numbered.then(|| numbers[i]), base64: d.to_string() }).collect()
 }
 
 /// A message from another session, as Claude Code records it: `origin: {kind: "peer", name,

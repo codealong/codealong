@@ -140,7 +140,7 @@ your build>` uses yours. `PREVIEW_TODOS=scripts/preview/todos-sample.json script
 sample todos linked to your real worktrees and sessions in place of your own, and
 `PREVIEW_USAGE=scripts/preview/usage-sample.json` sample plan usage in place of the snapshot's,
 which has no Claude numbers, and `PREVIEW_TRANSCRIPT=<session key>` that
-session's real conversation in its panel (others get placeholders), and `PREVIEW_NOTICES=scripts/preview/notices-sample.json`
+session's real conversation in its panel (others get placeholders; `PREVIEW_BEFORE=<cursor>` shows the page before that byte offset in its record), and `PREVIEW_NOTICES=scripts/preview/notices-sample.json`
 sample notices in the accounts bar (a snapshot usually has none), and `PREVIEW_FOUND=scripts/preview/found-sample.json` sample accounts
 under Settings › Accounts › Found on this Mac, and `PREVIEW_DEVICES=scripts/preview/devices-sample.json` other devices
 (Settings › Devices, the sidebar's devices, a link ask, and a few of your worktrees shown as if on those devices), and `PREVIEW_CANVAS=<file>` opens the Canvas view on a saved
@@ -733,6 +733,20 @@ Claude Code
   session's first call was written as its prompt showed, but a later one only with its result,
   four minutes after, when it was answered. So a prompt's call can't be read from the
   transcript until then (`claude.rs`'s keypress path looks for it there); the hook has it.
+- An image that came with a prompt is in the prompt's own line (checked on 2.1.281 to 2.1.287,
+  2026-10-02): `message.content` is a list, with an `image` part each (`source: {type: "base64",
+  media_type, data}`; PNG, JPEG and WebP seen) beside the `text`, and the line's `imagePasteIds`
+  has a number for each, in order, counted through the session (a later prompt's are `[3]`,
+  `[5, 6, 7]`). Pasted into the terminal, the text names each where it was pasted, `[Image #3]`,
+  and the text part comes first; attached in the Claude app, the image comes first and the text
+  doesn't name it. A prompt sent while it worked has the same list as its `queued_command`
+  attachment's `prompt`, with `imagePasteIds` on the attachment. A `@"<path>"` mention stays in
+  the text as typed, and the file it attached is the next line, `attachment: {type: "file",
+  filename, displayPath, content}`, an image's content `{type: "image", file: {base64, type,
+  originalSize, dimensions}}`; Codealong doesn't read that line. `transcript.rs` keeps
+  each image with Codealong's own (`attachments::keep_image_in`) and writes it into the prompt's
+  text as a kept image is written, so the panel shows it; a mention of a kept file reads as its
+  reference again (`attachments::written_in`).
 - An `AskUserQuestion` call's result line has `toolUseResult: {questions, answers, annotations}`:
   `answers` keyed by each question's text, a choice's label or your own words, several as a list
   (older versions joined them into one string with commas). Declined, the result is an error,
@@ -860,6 +874,16 @@ Codex
   thread's latest model, sandbox and approval policy (`codex::last_turn`), so the copy may do
   what the thread may, and declines an approval that comes to it. Codex's own `/side` gives
   its copy the thread's permissions too, and tells it to change nothing unless asked.
+- A prompt's images are in the rollout twice (2,900 rollouts here, 2026-10-02). Its
+  `UserMessage` item has a part each: `image` with `image_url`, a `data:image/png;base64,…` URL
+  (attached in the app), or `local_image` with a `path`, which for one pasted in is a temporary
+  file (`$TMPDIR/codex-clipboard-<uuid>.png`) that's gone within days: none of 232 were still
+  there. The text never names them, and a prompt can be images alone. One or two lines before
+  it, with nothing of the conversation between, a `response_item` `message` with role `user`
+  has what the model got: an `input_image` part each, always a `data:` URL. The same kind of
+  line carries an image a tool hands the model, and what follows that isn't a prompt.
+  `codex::sent_images` reads that line and the prompt after it takes them (transcript.rs,
+  `shown`).
 - Each turn's `token_count` event carries `rate_limits` (`primary`/`secondary` windows with
   `used_percent`, `window_minutes`, `resets_at`; `limit_id` `codex` or per model; `plan_type`).
 - The desktop app is `/Applications/ChatGPT.app` (bundle id `com.openai.codex`; an older

@@ -111,27 +111,39 @@ export function AttachmentStrip({ items, onRemove }: { items: Attachment[]; onRe
   );
 }
 
+/** A kept image in text: a click opens it. One that isn't on this Mac (it was sent from another
+ *  device, or cleared since) says so in place of a broken picture. */
+function KeptImage({ name, alt }: { name: string; alt: string }) {
+  const [missing, setMissing] = useState(false);
+  if (missing) {
+    return (
+      <span className="ca-desc-noimg">
+        <Icon name="photo" size={13} />
+        Image not on this Mac
+      </span>
+    );
+  }
+  return (
+    <button
+      type="button"
+      className="ca-desc-img"
+      title="Open in Preview"
+      onClick={(e) => {
+        e.stopPropagation();
+        open(`images/${name}`);
+      }}
+    >
+      <img src={imageUrl(name)} alt={alt} draggable={false} onError={() => setMissing(true)} />
+    </button>
+  );
+}
+
 /** A description as it reads: paragraphs with their links and files, and images. */
 export function DescriptionView({ text }: { text: string }) {
   return (
     <>
       {pieces(text).map((p, i): ReactNode => {
-        if (p.kind === 'image') {
-          return (
-            <button
-              key={i}
-              type="button"
-              className="ca-desc-img"
-              title="Open in Preview"
-              onClick={(e) => {
-                e.stopPropagation();
-                open(`images/${p.name}`);
-              }}
-            >
-              <img src={imageUrl(p.name)} alt={p.alt} draggable={false} />
-            </button>
-          );
-        }
+        if (p.kind === 'image') return <KeptImage key={`${i}:${p.name}`} name={p.name} alt={p.alt} />;
         const t = p.text.replace(/^\n+|\n+$/g, '');
         return t ? (
           <p key={i} className="ca-desc-text">
