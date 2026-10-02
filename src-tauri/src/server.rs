@@ -15,7 +15,7 @@ use serde_json::Value;
 
 use crate::config::support_dir;
 use crate::engine::Handle;
-use crate::peers::Peers;
+use crate::peers::{AskView, DeviceView, DevicesView, FoundView, MeView, Peers};
 use crate::start::StartSpec;
 use crate::todos::TodoOp;
 
@@ -208,7 +208,7 @@ fn handle_request(engine: &Handle, peers: &Peers, app: &tauri::AppHandle, req: s
         Request::IdleTerminals { after_ms } => Reply::ok(crate::idle::plan_now(&engine.board(), after_ms)),
         Request::CloseIdle { keys, after_ms } => Reply::ok(crate::idle::close(&engine.board(), &keys, after_ms)),
         Request::Start { spec } => answered(crate::start::start_here(engine, &spec).map_err(|e| format!("{e:#}"))),
-        Request::Devices => Reply::ok(devices(peers)),
+        Request::Devices => Reply::ok(DevicesSummary::of(peers.view())),
         Request::DeviceLink { key } => answered(peers.link(&key)),
         Request::DeviceAnswer { key, accept } => answered(peers.answer_link(&key, accept)),
         Request::DeviceUnlink { key } => answered(peers.unlink(&key)),
@@ -253,24 +253,46 @@ fn answered<T: Serialize>(r: std::result::Result<T, String>) -> Reply {
     }
 }
 
-/// The devices view for the command: counts in place of the worktrees, which are big.
-fn devices(peers: &Peers) -> Value {
-    let view = peers.view();
-    let mut v = serde_json::to_value(&view).unwrap_or(Value::Null);
-    if let Some(list) = v.get_mut("devices").and_then(Value::as_array_mut) {
-        for d in list {
-            let prefix = format!("@{}:", d.get("short").and_then(Value::as_str).unwrap_or_default());
-            let lanes: Vec<_> = view.lanes.iter().filter(|l| l.id.starts_with(&prefix)).collect();
-            let sessions = lanes.iter().flat_map(|l| &l.sessions).filter(|s| s.visitor.is_none());
-            d["worktrees"] = lanes.len().into();
-            d["sessions"] = sessions.clone().count().into();
-            d["needs"] = sessions.filter(|s| matches!(s.status, crate::model::Status::Needs | crate::model::Status::Error)).count().into();
-        }
+/// Your other devices as the command gets them (`devices`): Settings › Devices' view, with how
+/// many worktrees and sessions each linked Mac has in place of the worktrees themselves, which
+/// are big.
+#[derive(Serialize, Deserialize, Debug, Default)]
+#[serde(default, rename_all = "camelCase")]
+pub struct DevicesSummary {
+    pub enabled: bool,
+    pub me: MeView,
+    pub devices: Vec<DeviceSummary>,
+    pub phones: Vec<DeviceView>,
+    pub found: Vec<FoundView>,
+    pub asks: Vec<AskView>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Default)]
+#[serde(default, rename_all = "camelCase")]
+pub struct DeviceSummary {
+    #[serde(flatten)]
+    pub device: DeviceView,
+    pub worktrees: usize,
+    pub sessions: usize,
+    /// Its sessions that wait on you, or stopped on an error.
+    pub needs: usize,
+}
+
+impl DevicesSummary {
+    pub fn of(view: DevicesView) -> DevicesSummary {
+        let devices = view
+            .devices
+            .into_iter()
+            .map(|device| {
+                let prefix = format!("@{}:", device.short);
+                let lanes: Vec<_> = view.lanes.iter().filter(|l| l.id.starts_with(&prefix)).collect();
+                let sessions = lanes.iter().flat_map(|l| &l.sessions).filter(|s| s.visitor.is_none());
+                let needs = sessions.clone().filter(|s| matches!(s.status, crate::model::Status::Needs | crate::model::Status::Error)).count();
+                DeviceSummary { worktrees: lanes.len(), sessions: sessions.count(), needs, device }
+            })
+            .collect();
+        DevicesSummary { enabled: view.enabled, me: view.me, devices, phones: view.phones, found: view.found, asks: view.asks }
     }
-    if let Some(o) = v.as_object_mut() {
-        o.remove("lanes");
-    }
-    v
 }
 
 /// Hands the running app a hook's permission request and waits, however long it takes, for the
@@ -364,6 +386,27 @@ mod tests {
         assert!(!opened_plainly(&args(&["codealong", "todos"])));
         let quit: Request = serde_json::from_str(r#"{"method":"quit"}"#).unwrap();
         assert!(matches!(quit, Request::Quit));
+    }
+
+    #[test]
+    fn the_devices_view_counts_each_macs_worktrees_in_place_of_them() {
+        use crate::fixtures::{lane, session};
+        use crate::model::{Session, Status};
+        let needs = Session { status: Status::Needs, ..session("@9f8e7d6c5b:claude:claude:a") };
+        let visiting = Session { visitor: Some("claude:claude:b".into()), ..session("@9f8e7d6c5b:claude:claude:v") };
+        let view = DevicesView {
+            enabled: true,
+            devices: vec![DeviceView { key: "9f8e7d6c5b4a3928".into(), short: "9f8e7d6c5b".into(), name: "Mac mini".into(), ..Default::default() }],
+            phones: vec![DeviceView { short: "b7c6d5e4f3".into(), kind: "phone".into(), ..Default::default() }],
+            lanes: vec![lane("@9f8e7d6c5b:/a", vec![needs, visiting]), lane("@9f8e7d6c5b:/b", vec![session("@9f8e7d6c5b:codex:codex:c")]), lane("@0000000000:/c", vec![])],
+            ..Default::default()
+        };
+        let summary = DevicesSummary::of(view);
+        let d = &summary.devices[0];
+        assert_eq!((d.worktrees, d.sessions, d.needs), (2, 2, 1), "a visitor isn't one of its sessions");
+        let v = serde_json::to_value(&summary).unwrap();
+        assert!(v.get("lanes").is_none() && v["phones"][0].get("worktrees").is_none(), "{v}");
+        assert_eq!((v["devices"][0]["name"].as_str(), v["devices"][0]["needs"].as_u64()), (Some("Mac mini"), Some(1)));
     }
 
     #[test]

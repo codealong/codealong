@@ -150,8 +150,8 @@ pub struct DevicesView {
     pub lanes: Vec<Lane>,
 }
 
-#[derive(Serialize, Clone, Debug, Default)]
-#[serde(rename_all = "camelCase")]
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(default, rename_all = "camelCase")]
 pub struct MeView {
     pub key: String,
     pub short: String,
@@ -167,8 +167,8 @@ pub struct MeView {
     pub error: Option<String>,
 }
 
-#[derive(Serialize, Clone, Debug, Default)]
-#[serde(rename_all = "camelCase")]
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(default, rename_all = "camelCase")]
 pub struct DeviceView {
     pub key: String,
     pub short: String,
@@ -191,8 +191,8 @@ pub struct DeviceView {
     pub kind: String,
 }
 
-#[derive(Serialize, Clone, Debug, Default)]
-#[serde(rename_all = "camelCase")]
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(default, rename_all = "camelCase")]
 pub struct FoundView {
     pub key: String,
     pub short: String,
@@ -202,8 +202,8 @@ pub struct FoundView {
     pub asking: bool,
 }
 
-#[derive(Serialize, Clone, Debug, Default)]
-#[serde(rename_all = "camelCase")]
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(default, rename_all = "camelCase")]
 pub struct AskView {
     pub key: String,
     pub short: String,
@@ -592,7 +592,7 @@ impl Peers {
                 let words = words.to_vec();
                 std::thread::spawn(move || {
                     // How long a device is given, and the keys its sessions have here, are the request's (actions.rs).
-                    let got = crate::actions::ask_device(&me, codealong_peer::api::SEARCH, &short, json!({ "words": words }));
+                    let got = crate::actions::ask_device(&me, codealong_peer::api::SEARCH, &short, crate::actions::params::Search { words });
                     match got.and_then(crate::actions::typed::<crate::search::Found>) {
                         Ok(found) => DeviceFound { device: short, name, found: Some(found), error: None },
                         Err(e) => DeviceFound { device: short, name, found: None, error: Some(e) },
@@ -1042,7 +1042,7 @@ fn handle(inner: &Arc<Inner>, key: &str, serial: u64, tx: &Sender<Msg>, msg: Msg
             let linked = Inner::is_linked(&st, key);
             let reply = match st.conns.get_mut(key) {
                 Some(c) if linked => {
-                    c.watching = params.get("keys").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).map(String::from).collect();
+                    c.watching = codealong_peer::api::params::Keys::deserialize(&params).map(|p| p.keys.into_iter().collect()).unwrap_or_default();
                     Msg::Res { id, ok: true, result: None, error: None }
                 }
                 _ => Msg::Res { id, ok: false, result: None, error: Some(format!("{} isn't linked with this device.", inner.my_name(&st))) },

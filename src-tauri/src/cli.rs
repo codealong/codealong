@@ -16,7 +16,7 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use serde::Serialize;
 use serde_json::{json, Value};
 
-use crate::actions;
+use crate::actions::{self, params};
 use crate::api;
 use crate::attachments;
 use crate::board;
@@ -803,8 +803,9 @@ impl Client {
     /// (`actions::From::Command`, with `from` the session running it when that's been looked
     /// for): through the app, which does what its windows do, or from here over the board when
     /// it's closed or older than the command.
-    fn act(&mut self, name: &str, key: &str, params: Value, from: Option<String>) -> Result<Value> {
+    fn act(&mut self, name: &str, key: &str, params: impl Serialize, from: Option<String>) -> Result<Value> {
         self.note();
+        let params = serde_json::to_value(params)?;
         if self.app.is_some() {
             match server::ask(&Request::Run { name: name.to_string(), key: key.to_string(), params: params.clone(), from: from.clone() }) {
                 Some(Ok(v)) => return Ok(v),
@@ -854,12 +855,14 @@ fn run(cmd: Cmd, c: &mut Client, json: bool) -> Result<()> {
         Cmd::Session { cmd: SessionCmd::Send(args) } => session_send(c, args, json),
         Cmd::Session { cmd: SessionCmd::Pending { key } } => session_pending(c, &key, json),
         Cmd::Session { cmd: SessionCmd::Answer(a) } => {
-            let AnswerArg::Deny = a.answer;
-            session_act(c, &a.key, api::SESSION_ANSWER, json!({ "id": a.id, "answer": "deny" }), json)
+            let answer = match a.answer {
+                AnswerArg::Deny => api::Answer::Deny,
+            };
+            session_act(c, &a.key, api::SESSION_ANSWER, params::Answer { id: a.id, answer: Some(answer), ..Default::default() }, json)
         }
-        Cmd::Session { cmd: SessionCmd::Stop { key } } => session_act(c, &key, api::SESSION_CANCEL, json!({}), json),
-        Cmd::Session { cmd: SessionCmd::Rename { key, name } } => session_act(c, &key, api::SESSION_RENAME, json!({ "name": name }), json),
-        Cmd::Session { cmd: SessionCmd::Fork { key, prompt } } => session_act(c, &key, api::SESSION_FORK, json!({ "prompt": prompt.unwrap_or_default() }), json),
+        Cmd::Session { cmd: SessionCmd::Stop { key } } => session_act(c, &key, api::SESSION_CANCEL, params::Session::default(), json),
+        Cmd::Session { cmd: SessionCmd::Rename { key, name } } => session_act(c, &key, api::SESSION_RENAME, params::Rename { name, ..Default::default() }, json),
+        Cmd::Session { cmd: SessionCmd::Fork { key, prompt } } => session_act(c, &key, api::SESSION_FORK, params::Fork { prompt: prompt.unwrap_or_default(), ..Default::default() }, json),
         Cmd::Session { cmd: SessionCmd::Hook { event } } => {
             session_hook(&event);
             Ok(())
@@ -923,17 +926,33 @@ fn ask_app(req: &Request) -> Result<Value> {
     }
 }
 
+/// A list in the devices view.
+#[derive(Clone, Copy)]
+enum Listed {
+    /// Linked Macs.
+    Linked,
+    Phones,
+    /// Your devices on your tailnet that aren't linked.
+    Found,
+    /// Devices asking to link.
+    Asks,
+}
+
 /// A device named on the command line, by name, short id or the start of its key, among the ones
-/// the view lists: linked, found on the tailnet, asking. Its key and name.
-fn which_device(view: &Value, named: &str, lists: &[&str]) -> Result<(String, String)> {
+/// in the view's `lists`. Its key and name.
+fn which_device(view: &server::DevicesSummary, named: &str, lists: &[Listed]) -> Result<(String, String)> {
     let named = named.trim();
     let lower = named.to_lowercase();
+    let one = |key: &str, short: &str, name: &str| (key.to_string(), short.to_string(), name.to_string());
     let all: Vec<(String, String, String)> = lists
         .iter()
-        .flat_map(|list| view.get(*list).and_then(Value::as_array).cloned().unwrap_or_default())
-        .map(|d| {
-            let s = |k: &str| d.get(k).and_then(Value::as_str).unwrap_or_default().to_string();
-            (s("key"), s("short"), s("name"))
+        .flat_map(|list| -> Vec<(String, String, String)> {
+            match list {
+                Listed::Linked => view.devices.iter().map(|d| one(&d.device.key, &d.device.short, &d.device.name)).collect(),
+                Listed::Phones => view.phones.iter().map(|d| one(&d.key, &d.short, &d.name)).collect(),
+                Listed::Found => view.found.iter().map(|d| one(&d.key, &d.short, &d.name)).collect(),
+                Listed::Asks => view.asks.iter().map(|d| one(&d.key, &d.short, &d.name)).collect(),
+            }
         })
         .collect();
     let hits: Vec<&(String, String, String)> = all.iter().filter(|(k, short, name)| name.to_lowercase() == lower || short == named || (named.len() >= 4 && k.starts_with(named))).collect();
@@ -948,7 +967,7 @@ fn devices_cmd(c: &mut Client, cmd: Option<DevicesCmd>, json: bool) -> Result<()
     if c.app.is_none() {
         bail!("Devices need the Codealong app running on this device.");
     }
-    let view = ask_app(&Request::Devices)?;
+    let view: server::DevicesSummary = serde_json::from_value(ask_app(&Request::Devices)?).context("reading the app's devices")?;
     let said = |text: String, v: Value| -> Result<()> {
         if json {
             print_json(&v)
@@ -960,18 +979,18 @@ fn devices_cmd(c: &mut Client, cmd: Option<DevicesCmd>, json: bool) -> Result<()
     match cmd {
         None => devices_list(&view, json),
         Some(DevicesCmd::Link { device }) => {
-            let (key, name) = which_device(&view, &device, &["found"])?;
+            let (key, name) = which_device(&view, &device, &[Listed::Found])?;
             let code = ask_app(&Request::DeviceLink { key })?;
             let code = code.as_str().unwrap_or_default().to_string();
             said(format!("Asked {name}. Say yes there when it shows {code}."), json!({ "device": name, "code": code }))
         }
         Some(DevicesCmd::Answer { device, no }) => {
-            let (key, name) = which_device(&view, &device, &["asks"])?;
+            let (key, name) = which_device(&view, &device, &[Listed::Asks])?;
             ask_app(&Request::DeviceAnswer { key, accept: !no })?;
             said(if no { format!("Said no to {name}.") } else { format!("Linked with {name}.") }, json!({ "device": name, "linked": !no }))
         }
         Some(DevicesCmd::Unlink { device }) => {
-            let (key, name) = which_device(&view, &device, &["devices", "phones"])?;
+            let (key, name) = which_device(&view, &device, &[Listed::Linked, Listed::Phones])?;
             ask_app(&Request::DeviceUnlink { key })?;
             said(format!("Unlinked {name}."), json!({ "device": name, "linked": false }))
         }
@@ -986,7 +1005,7 @@ fn devices_cmd(c: &mut Client, cmd: Option<DevicesCmd>, json: bool) -> Result<()
             said(format!("Linked with {name}."), json!({ "device": name, "linked": true }))
         }
         Some(DevicesCmd::Ask { device, method, params }) => {
-            let (key, _) = which_device(&view, &device, &["devices"])?;
+            let (key, _) = which_device(&view, &device, &[Listed::Linked])?;
             let params: Value = match params {
                 Some(p) => serde_json::from_str(&p).context("the parameters aren't JSON")?,
                 None => json!({}),
@@ -997,46 +1016,43 @@ fn devices_cmd(c: &mut Client, cmd: Option<DevicesCmd>, json: bool) -> Result<()
     }
 }
 
-fn devices_list(view: &Value, json: bool) -> Result<()> {
+fn devices_list(view: &server::DevicesSummary, json: bool) -> Result<()> {
     if json {
-        return print_json(view);
+        // As a JSON value, whose keys come out in order, as the app's reply's did.
+        return print_json(&serde_json::to_value(view)?);
     }
-    let s = |v: &Value, k: &str| v.get(k).and_then(Value::as_str).unwrap_or_default().to_string();
-    if !view.get("enabled").and_then(Value::as_bool).unwrap_or(false) {
+    if !view.enabled {
         println!("Devices is off on this device: turn it on in Settings › Devices, or [devices] enabled = true in config.toml.");
         return Ok(());
     }
-    let me = view.get("me").cloned().unwrap_or_default();
-    let tailscale = match s(&me, "tailscale").as_str() {
-        "running" => format!("on {}{}", s(&me, "tailnet"), me.get("address").and_then(Value::as_str).map(|a| format!(", listening at {a}")).unwrap_or_default()),
+    let me = &view.me;
+    let tailscale = match me.tailscale.as_str() {
+        "running" => format!("on {}{}", me.tailnet.as_deref().unwrap_or_default(), me.address.as_deref().map(|a| format!(", listening at {a}")).unwrap_or_default()),
         "missing" => "not installed".into(),
         "stopped" => "not connected".into(),
         _ => "off".into(),
     };
-    println!("This device: {} ({}). Tailscale: {tailscale}. iroh: {}. Remote control: {}.", s(&me, "name"), s(&me, "short"), s(&me, "iroh"), if me.get("remoteControl").and_then(Value::as_bool).unwrap_or(false) { "on" } else { "off" });
-    if let Some(e) = me.get("error").and_then(Value::as_str) {
+    println!("This device: {} ({}). Tailscale: {tailscale}. iroh: {}. Remote control: {}.", me.name, me.short, me.iroh, if me.remote_control { "on" } else { "off" });
+    if let Some(e) = &me.error {
         println!("{e}");
     }
     let mut rows = Vec::new();
-    for d in view.get("devices").and_then(Value::as_array).into_iter().flatten() {
-        let online = d.get("online").and_then(Value::as_bool).unwrap_or(false);
-        let state = if online { format!("connected, {}", s(d, "via")) } else { d.get("lastSeen").and_then(Value::as_i64).map(|t| format!("last seen {} ago", ago(now_ms() - t))).unwrap_or_else(|| "not connected".into()) };
-        let n = |k: &str| d.get(k).and_then(Value::as_u64).unwrap_or(0).to_string();
-        rows.push(vec![s(d, "name"), s(d, "short"), state, if d.get("remoteControl").and_then(Value::as_bool).unwrap_or(false) { "on".into() } else { "off".into() }, n("worktrees"), n("sessions"), n("needs")]);
+    for d in &view.devices {
+        let via = d.device.via.and_then(|v| serde_json::to_value(v).ok()).and_then(|v| v.as_str().map(String::from)).unwrap_or_default();
+        let state = if d.device.online { format!("connected, {via}") } else { d.device.last_seen.map(|t| format!("last seen {} ago", ago(now_ms() - t))).unwrap_or_else(|| "not connected".into()) };
+        rows.push(vec![d.device.name.clone(), d.device.short.clone(), state, if d.device.remote_control { "on".into() } else { "off".into() }, d.worktrees.to_string(), d.sessions.to_string(), d.needs.to_string()]);
     }
     // Phones only watch: no worktrees, and remote control is this device's to give, not theirs.
-    for p in view.get("phones").and_then(Value::as_array).into_iter().flatten() {
-        let online = p.get("online").and_then(Value::as_bool).unwrap_or(false);
-        let kind = if s(p, "kind") == "tablet" { "tablet" } else { "phone" };
-        let state = if online { format!("{kind}, connected") } else { p.get("lastSeen").and_then(Value::as_i64).map(|t| format!("{kind}, last seen {} ago", ago(now_ms() - t))).unwrap_or_else(|| format!("{kind}, not connected")) };
-        rows.push(vec![s(p, "name"), s(p, "short"), state, String::new(), String::new(), String::new(), String::new()]);
+    for p in &view.phones {
+        let kind = if p.kind == "tablet" { "tablet" } else { "phone" };
+        let state = if p.online { format!("{kind}, connected") } else { p.last_seen.map(|t| format!("{kind}, last seen {} ago", ago(now_ms() - t))).unwrap_or_else(|| format!("{kind}, not connected")) };
+        rows.push(vec![p.name.clone(), p.short.clone(), state, String::new(), String::new(), String::new(), String::new()]);
     }
-    for f in view.get("found").and_then(Value::as_array).into_iter().flatten() {
-        let asking = f.get("asking").and_then(Value::as_bool).unwrap_or(false);
-        rows.push(vec![s(f, "name"), s(f, "short"), if asking { format!("asked to link, code {}", s(f, "code")) } else { "on your tailnet, not linked".into() }, String::new(), String::new(), String::new(), String::new()]);
+    for f in &view.found {
+        rows.push(vec![f.name.clone(), f.short.clone(), if f.asking { format!("asked to link, code {}", f.code) } else { "on your tailnet, not linked".into() }, String::new(), String::new(), String::new(), String::new()]);
     }
-    for a in view.get("asks").and_then(Value::as_array).into_iter().flatten() {
-        rows.push(vec![s(a, "name"), s(a, "short"), format!("asks to link, code {}", s(a, "code")), String::new(), String::new(), String::new(), String::new()]);
+    for a in &view.asks {
+        rows.push(vec![a.name.clone(), a.short.clone(), format!("asks to link, code {}", a.code), String::new(), String::new(), String::new(), String::new()]);
     }
     if rows.is_empty() {
         println!("No other devices yet.");
@@ -1538,7 +1554,7 @@ fn session_send(c: &mut Client, a: SendArgs, json: bool) -> Result<()> {
     if text.trim().is_empty() {
         bail!("Give a message, --message-file or --attach.");
     }
-    let sent = serde_json::from_value(c.act(api::SESSION_SEND, &to, json!({ "text": text }), from.clone())?).context("reading what the send said")?;
+    let sent = serde_json::from_value(c.act(api::SESSION_SEND, &to, params::Send { text, ..Default::default() }, from.clone())?).context("reading what the send said")?;
     if json {
         return print_json(&SendOut { to, from, sent });
     }
@@ -1555,7 +1571,7 @@ struct PendingOut {
 
 fn session_pending(c: &mut Client, key: &str, json: bool) -> Result<()> {
     let key = resolve_session(c, key)?;
-    let pending = serde_json::from_value(c.act(api::SESSION_PENDING, &key, json!({}), None)?).context("reading what it waits on")?;
+    let pending = serde_json::from_value(c.act(api::SESSION_PENDING, &key, params::Session::default(), None)?).context("reading what it waits on")?;
     let out = PendingOut { session: key, pending };
     if json {
         return print_json(&out);
@@ -1593,7 +1609,7 @@ struct ActOut {
 
 /// Stops, renames, forks or denies, through the app's own action (actions.rs), and says what
 /// happened.
-fn session_act(c: &mut Client, key: &str, name: &str, params: Value, json: bool) -> Result<()> {
+fn session_act(c: &mut Client, key: &str, name: &str, params: impl Serialize, json: bool) -> Result<()> {
     let key = resolve_session(c, key)?;
     let got = c.act(name, &key, params, None)?;
     let (said, copy) = match got {
@@ -3518,18 +3534,25 @@ mod tests {
 
     #[test]
     fn devices_are_named_by_name_short_id_or_key() {
-        let view = json!({
-            "devices": [{ "key": "9f8e7d6c5b4a3928", "short": "9f8e7d6c5b", "name": "Mac mini" }],
+        // As the app sends the view, and what an app of another build leaves out reads as empty.
+        let view: server::DevicesSummary = serde_json::from_value(json!({
+            "devices": [{ "key": "9f8e7d6c5b4a3928", "short": "9f8e7d6c5b", "name": "Mac mini", "worktrees": 3 }],
             "phones": [{ "key": "b7c6d5e4f3a29180", "short": "b7c6d5e4f3", "name": "Sam's iPhone", "kind": "phone" }],
             "found": [{ "key": "7c6b5a4938271605", "short": "7c6b5a4938", "name": "iMac" }, { "key": "7c6b00000000", "short": "7c6b000000", "name": "iMac Pro" }]
-        });
-        assert_eq!(which_device(&view, "mac MINI", &["devices"]).unwrap().1, "Mac mini");
-        assert_eq!(which_device(&view, "9f8e7d6c5b", &["devices"]).unwrap().0, "9f8e7d6c5b4a3928");
-        assert_eq!(which_device(&view, "7c6b5a", &["found"]).unwrap().1, "iMac");
-        assert!(which_device(&view, "7c6b", &["found"]).is_err(), "two keys start that way");
-        assert!(which_device(&view, "iMac", &["devices"]).is_err(), "only the lists asked for");
+        }))
+        .unwrap();
+        assert_eq!((view.devices[0].worktrees, view.devices[0].sessions), (3, 0));
+        assert_eq!(which_device(&view, "mac MINI", &[Listed::Linked]).unwrap().1, "Mac mini");
+        assert_eq!(which_device(&view, "9f8e7d6c5b", &[Listed::Linked]).unwrap().0, "9f8e7d6c5b4a3928");
+        assert_eq!(which_device(&view, "7c6b5a", &[Listed::Found]).unwrap().1, "iMac");
+        assert!(which_device(&view, "7c6b", &[Listed::Found]).is_err(), "two keys start that way");
+        assert!(which_device(&view, "iMac", &[Listed::Linked]).is_err(), "only the lists asked for");
         // Unlinking takes a phone too.
-        assert_eq!(which_device(&view, "sam's iphone", &["devices", "phones"]).unwrap().0, "b7c6d5e4f3a29180");
+        assert_eq!(which_device(&view, "sam's iphone", &[Listed::Linked, Listed::Phones]).unwrap().0, "b7c6d5e4f3a29180");
+        // The summary keeps a device's own fields beside its counts, as the app wrote them by hand.
+        let back = serde_json::to_value(&view).unwrap();
+        assert_eq!((back["devices"][0]["name"].as_str(), back["devices"][0]["worktrees"].as_u64()), (Some("Mac mini"), Some(3)));
+        assert!(back.get("lanes").is_none());
     }
 
     #[test]

@@ -140,7 +140,7 @@ fn get_board(engine: State<'_, engine::Handle>) -> model::Board {
 #[tauri::command(async)]
 fn open_target(app: tauri::AppHandle, engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, lane_id: String, target_id: String) -> Result<(), String> {
     let from = flash::pointer();
-    actions::run(&engine, &peers, actions::OPEN, &lane_id, serde_json::json!({ "target": target_id }))?;
+    actions::run(&engine, &peers, actions::OPEN, &lane_id, actions::params::Open { target: target_id.clone() })?;
     flash_focused(&app, &engine, &lane_id, &target_id, from);
     Ok(())
 }
@@ -201,7 +201,7 @@ fn close_session(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peer
 /// they're all on other devices, whose feeds show it as they come in), for the window's own copy.
 #[tauri::command(async)]
 fn mark_seen(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, keys: Vec<String>) -> Option<i64> {
-    actions::run_keys(&engine, &peers, api::MARK_SEEN, keys, serde_json::json!({})).and_then(|v| v.as_i64())
+    actions::run_keys(&engine, &peers, api::MARK_SEEN, keys, actions::params::Keys::default()).and_then(|v| v.as_i64())
 }
 
 /// Snoozes sessions until `until` (ms since the epoch), or wakes them with none. Only this Mac's
@@ -209,7 +209,7 @@ fn mark_seen(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, 
 /// shows it, as `mark_seen` does.
 #[tauri::command(async)]
 fn snooze_sessions(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, keys: Vec<String>, until: Option<i64>) -> Option<i64> {
-    actions::run_keys(&engine, &peers, actions::SNOOZE, keys, serde_json::json!({ "until": until })).and_then(|v| v.as_i64())
+    actions::run_keys(&engine, &peers, actions::SNOOZE, keys, actions::params::Snooze { keys: Vec::new(), until }).and_then(|v| v.as_i64())
 }
 
 #[tauri::command]
@@ -232,14 +232,14 @@ fn set_pinned(engine: State<'_, engine::Handle>, keys: Vec<String>) {
 /// in time.
 #[tauri::command(async)]
 fn set_preview(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, lane_id: String, url: Option<String>, port: Option<u16>, chrome_profile: Option<String>) -> Result<Option<i64>, String> {
-    actions::run(&engine, &peers, actions::PREVIEW, &lane_id, serde_json::json!({ "url": url, "port": port, "chromeProfile": chrome_profile })).map(|v| v.as_i64())
+    actions::run(&engine, &peers, actions::PREVIEW, &lane_id, actions::params::Preview { url, port, chrome_profile }).map(|v| v.as_i64())
 }
 
 /// Marks a worktree reusable or not (reusable.rs). Returns the time of the board that shows it,
 /// when the engine says in time.
 #[tauri::command(async)]
 fn set_reusable(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, lane_id: String, on: bool) -> Result<Option<i64>, String> {
-    actions::run(&engine, &peers, actions::REUSABLE, &lane_id, serde_json::json!({ "on": on })).map(|v| v.as_i64())
+    actions::run(&engine, &peers, actions::REUSABLE, &lane_id, actions::params::Reusable { on }).map(|v| v.as_i64())
 }
 
 #[tauri::command]
@@ -532,7 +532,7 @@ fn fit_quick(app: tauri::AppHandle, height: f64) {
 /// worktree on another device starts there, where whatever it opens comes forward.
 #[tauri::command(async)]
 fn start_from_quick(app: tauri::AppHandle, engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, spec: start::StartSpec) -> Result<start::Started, String> {
-    let started = actions::typed(actions::run(&engine, &peers, api::START, &spec.lane_id, serde_json::json!({ "spec": spec }))?)?;
+    let started = actions::typed(actions::run(&engine, &peers, api::START, &spec.lane_id, actions::params::Start { spec: spec.clone() })?)?;
     if peerfeed::split_remote(&spec.lane_id).is_none() {
         start::note(&engine, &spec);
         if let Some(bundle) = quick::start_app(spec.place, &engine.board().apps.terminal_id) {
@@ -545,54 +545,54 @@ fn start_from_quick(app: tauri::AppHandle, engine: State<'_, engine::Handle>, pe
 /// Where what's typed in the quick panel should go, from Jev (route.rs).
 #[tauri::command(async)]
 fn route_quick(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, project: String, text: String) -> Result<route::Route, String> {
-    actions::typed(actions::run_on(&engine, &peers, api::ROUTE, None, serde_json::json!({ "project": project, "text": text }))?)
+    actions::typed(actions::run_on(&engine, &peers, api::ROUTE, None, actions::params::Route { project, text })?)
 }
 
 /// Sessions whose prompts and replies have every word (search.rs), for the quick panel.
 #[tauri::command(async)]
 fn search_text(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, words: Vec<String>) -> Result<search::Found, String> {
-    actions::typed(actions::run_on(&engine, &peers, api::SEARCH, None, serde_json::json!({ "words": words }))?)
+    actions::typed(actions::run_on(&engine, &peers, api::SEARCH, None, actions::params::Search { words })?)
 }
 
 /// A page of a session's conversation, from its own record (transcript.rs): the newest when
 /// `before` is none, else what came before it.
 #[tauri::command(async)]
 fn session_page(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, before: Option<u64>) -> Result<serde_json::Value, String> {
-    actions::run(&engine, &peers, api::SESSION_PAGE, &key, serde_json::json!({ "before": before }))
+    actions::run(&engine, &peers, api::SESSION_PAGE, &key, actions::params::Page { before, ..Default::default() })
 }
 
 /// What a session waiting on you wants to do, when it's a tool call Codealong can answer for it
 /// (`harness::Adapter::pending`).
 #[tauri::command(async)]
 fn session_pending(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String) -> Result<serde_json::Value, String> {
-    actions::run(&engine, &peers, api::SESSION_PENDING, &key, serde_json::json!({}))
+    actions::run(&engine, &peers, api::SESSION_PENDING, &key, actions::params::Session::default())
 }
 
 /// How a message sent to a session would reach it, for its box's placeholder (send.rs `way_in`).
 #[tauri::command(async)]
 fn session_way(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String) -> Result<serde_json::Value, String> {
-    actions::run(&engine, &peers, api::SESSION_WAY, &key, serde_json::json!({}))
+    actions::run(&engine, &peers, api::SESSION_WAY, &key, actions::params::Session::default())
 }
 
 /// Allows or denies the tool call `id` a session waits on, if it's still the one waiting; or,
 /// with `answers`, answers the questions it asks (`Pending::questions`).
 #[tauri::command(async)]
 fn session_answer(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, id: String, answer: harness::Answer, answers: Option<serde_json::Value>) -> Result<String, String> {
-    let said = actions::run(&engine, &peers, api::SESSION_ANSWER, &key, serde_json::json!({ "id": id, "answer": answer, "answers": answers }))?;
+    let said = actions::run(&engine, &peers, api::SESSION_ANSWER, &key, actions::params::Answer { id, answer: Some(answer), answers, ..Default::default() })?;
     Ok(said.as_str().unwrap_or_default().to_string())
 }
 
 /// What a session said and did after `after`, as it goes on.
 #[tauri::command(async)]
 fn session_newer(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, after: u64) -> Result<serde_json::Value, String> {
-    actions::run(&engine, &peers, api::SESSION_NEWER, &key, serde_json::json!({ "after": after }))
+    actions::run(&engine, &peers, api::SESSION_NEWER, &key, actions::params::Newer { after, ..Default::default() })
 }
 
 /// The reply a session Codealong runs is writing, for a panel that opens mid-turn, known by the
 /// key the window has for it.
 #[tauri::command(async)]
 fn session_stream(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String) -> Option<acp::Stream> {
-    let got = actions::run(&engine, &peers, api::SESSION_STREAM, &key, serde_json::json!({})).ok()?;
+    let got = actions::run(&engine, &peers, api::SESSION_STREAM, &key, actions::params::Session::default()).ok()?;
     let mut s: acp::Stream = serde_json::from_value(got).ok()?;
     s.key = key;
     Some(s)
@@ -601,7 +601,7 @@ fn session_stream(engine: State<'_, engine::Handle>, peers: State<'_, peers::Pee
 /// Stops the turn a session is taking, here or on another device, and says what happened.
 #[tauri::command(async)]
 fn session_cancel(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String) -> Result<String, String> {
-    let said = actions::run(&engine, &peers, api::SESSION_CANCEL, &key, serde_json::json!({}))?;
+    let said = actions::run(&engine, &peers, api::SESSION_CANCEL, &key, actions::params::Session::default())?;
     // Devices before stops reached every harness answered with nothing.
     Ok(said.as_str().unwrap_or("Stopped.").to_string())
 }
@@ -611,7 +611,7 @@ fn session_cancel(engine: State<'_, engine::Handle>, peers: State<'_, peers::Pee
 /// sends is what you typed. A device from before Send now reads no `now` and sends it as usual.
 #[tauri::command(async)]
 fn send_to_session(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, text: String, now: Option<bool>) -> Result<serde_json::Value, String> {
-    actions::run(&engine, &peers, api::SESSION_SEND, &key, serde_json::json!({ "text": text, "now": now.unwrap_or(false) }))
+    actions::run(&engine, &peers, api::SESSION_SEND, &key, actions::params::Send { text, now: now.unwrap_or(false), ..Default::default() })
 }
 
 /// What Jev suggests for a todo being written: its project, labels and the todos it waits on
@@ -780,14 +780,14 @@ fn run_in_terminal(app: tauri::AppHandle, window: tauri::WebviewWindow, engine: 
 /// `mark_seen` does.
 #[tauri::command(async)]
 fn archive_session(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, archived: bool) -> Result<Option<i64>, String> {
-    actions::run(&engine, &peers, api::SESSION_ARCHIVE, &key, serde_json::json!({ "archived": archived })).map(|v| v.as_i64())
+    actions::run(&engine, &peers, api::SESSION_ARCHIVE, &key, actions::params::Archive { archived, ..Default::default() }).map(|v| v.as_i64())
 }
 
 /// Names a session where its harness keeps its name, so the harness shows it too. Returns the
 /// time of the board that shows it, as `mark_seen` does.
 #[tauri::command(async)]
 fn rename_session(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, name: String) -> Result<Option<i64>, String> {
-    actions::run(&engine, &peers, api::SESSION_RENAME, &key, serde_json::json!({ "name": name })).map(|v| v.as_i64())
+    actions::run(&engine, &peers, api::SESSION_RENAME, &key, actions::params::Rename { name, ..Default::default() }).map(|v| v.as_i64())
 }
 
 #[tauri::command(async)]
@@ -938,7 +938,7 @@ fn start_options(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peer
 /// an app picks the session's ID.
 #[tauri::command(async)]
 fn start_session(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, spec: start::StartSpec) -> Result<start::Started, String> {
-    actions::typed(actions::run(&engine, &peers, api::START, &spec.lane_id, serde_json::json!({ "spec": spec }))?)
+    actions::typed(actions::run(&engine, &peers, api::START, &spec.lane_id, actions::params::Start { spec: spec.clone() })?)
 }
 
 /// Moves a session to another account of its harness (`start::move_to`): a copy goes on in a new
@@ -946,7 +946,7 @@ fn start_session(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peer
 /// its kept window show the copy once the board has it, so neither says it's gone meanwhile.
 #[tauri::command(async)]
 fn move_session(app: tauri::AppHandle, engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, account: String) -> Result<start::Started, String> {
-    let got = actions::run(&engine, &peers, actions::MOVE, &key, serde_json::json!({ "account": account }))?;
+    let got = actions::run(&engine, &peers, actions::MOVE, &key, actions::params::Move { account })?;
     let started: start::Started = serde_json::from_value(got).map_err(|e| e.to_string())?;
     if let Some(copy) = started.key.clone() {
         let engine = engine.inner().clone();
@@ -971,7 +971,7 @@ fn move_session(app: tauri::AppHandle, engine: State<'_, engine::Handle>, peers:
 #[tauri::command(async)]
 fn fork_session(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, background: Option<bool>, prompt: Option<String>) -> Result<start::Started, String> {
     let got = if background == Some(true) {
-        actions::run(&engine, &peers, api::SESSION_FORK, &key, serde_json::json!({ "prompt": prompt.unwrap_or_default() }))?
+        actions::run(&engine, &peers, api::SESSION_FORK, &key, actions::params::Fork { prompt: prompt.unwrap_or_default(), ..Default::default() })?
     } else {
         actions::run(&engine, &peers, actions::FORK_TERMINAL, &key, serde_json::json!({}))?
     };
@@ -983,7 +983,7 @@ fn fork_session(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers
 /// in it; the answer comes as `side` events.
 #[tauri::command(async)]
 fn side_ask(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, text: String) -> Result<serde_json::Value, String> {
-    actions::run(&engine, &peers, actions::SIDE_ASK, &key, serde_json::json!({ "text": text }))
+    actions::run(&engine, &peers, actions::SIDE_ASK, &key, actions::params::Side { text })
 }
 
 /// A session's side conversation, for a window that starts showing the session.

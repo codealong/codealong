@@ -25,7 +25,7 @@ use iroh::{PublicKey, SecretKey};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::api;
+use crate::api::{self, params};
 use crate::feed::Replica;
 use crate::net::{Iroh, Ticket};
 use crate::proto::{self, Msg, VERSION};
@@ -311,47 +311,47 @@ impl Client {
     /// A page of a session's conversation on `device`, back from `before` (from the newest when
     /// none). `key` is the session's key there.
     pub fn page(&self, device: &str, key: &str, before: Option<u64>) -> std::result::Result<api::Page, String> {
-        read(self.ask(device, api::SESSION_PAGE, json!({ "key": key, "before": before }), READ_WAIT)?)
+        read(self.ask(device, api::SESSION_PAGE, of(params::Page { key: key.into(), before }), READ_WAIT)?)
     }
 
     /// Sessions on `device` whose prompts and replies have every word. Keys are the device's own.
     pub fn search(&self, device: &str, words: &[String]) -> std::result::Result<api::Found, String> {
-        read(self.ask(device, api::SEARCH, json!({ "words": words }), READ_WAIT)?)
+        read(self.ask(device, api::SEARCH, of(params::Search { words: words.to_vec() }), READ_WAIT)?)
     }
 
     /// Where `text` goes on `device`'s board, as its quick panel would suggest (`api::Route`), in
     /// `project` (its name there; empty for all). Session keys and lane ids are the device's own.
     pub fn route(&self, device: &str, project: &str, text: &str) -> std::result::Result<api::Route, String> {
-        read(self.ask(device, api::ROUTE, json!({ "project": project, "text": text }), ROUTE_WAIT)?)
+        read(self.ask(device, api::ROUTE, of(params::Route { project: project.into(), text: text.into() }), ROUTE_WAIT)?)
     }
 
     /// What a session on `device` said and did after `after`.
     pub fn newer(&self, device: &str, key: &str, after: u64) -> std::result::Result<api::Page, String> {
-        read(self.ask(device, api::SESSION_NEWER, json!({ "key": key, "after": after }), READ_WAIT)?)
+        read(self.ask(device, api::SESSION_NEWER, of(params::Newer { key: key.into(), after }), READ_WAIT)?)
     }
 
     /// What a session on `device` waits on you to allow, when it's a tool call it can answer.
     pub fn pending(&self, device: &str, key: &str) -> std::result::Result<Option<api::Pending>, String> {
-        read(self.ask(device, api::SESSION_PENDING, json!({ "key": key }), READ_WAIT)?)
+        read(self.ask(device, api::SESSION_PENDING, of(params::Session { key: key.into() }), READ_WAIT)?)
     }
 
     /// Allows or denies tool call `id`, if it's still the one the session waits on. Says how it went.
     pub fn answer(&self, device: &str, key: &str, id: &str, answer: api::Answer) -> std::result::Result<String, String> {
-        read(self.ask(device, api::SESSION_ANSWER, json!({ "key": key, "id": id, "answer": answer }), ACT_WAIT)?)
+        read(self.ask(device, api::SESSION_ANSWER, of(params::Answer { key: key.into(), id: id.into(), answer: Some(answer), answers: None }), ACT_WAIT)?)
     }
 
     /// Sends a session on `device` a prompt, where it runs there.
     pub fn send(&self, device: &str, key: &str, text: &str) -> std::result::Result<api::Sent, String> {
-        read(self.ask(device, api::SESSION_SEND, json!({ "key": key, "text": text }), ACT_WAIT)?)
+        read(self.ask(device, api::SESSION_SEND, of(params::Send { key: key.into(), text: text.into(), now: false }), ACT_WAIT)?)
     }
 
     pub fn archive(&self, device: &str, key: &str, archived: bool) -> std::result::Result<(), String> {
-        self.ask(device, api::SESSION_ARCHIVE, json!({ "key": key, "archived": archived }), ACT_WAIT).map(|_| ())
+        self.ask(device, api::SESSION_ARCHIVE, of(params::Archive { key: key.into(), archived }), ACT_WAIT).map(|_| ())
     }
 
     /// Marks sessions on `device` seen, so Your turn clears there and everywhere else.
     pub fn mark_seen(&self, device: &str, keys: &[String]) -> std::result::Result<(), String> {
-        self.ask(device, api::MARK_SEEN, json!({ "keys": keys }), ACT_WAIT).map(|_| ())
+        self.ask(device, api::MARK_SEEN, of(params::Keys { keys: keys.to_vec() }), ACT_WAIT).map(|_| ())
     }
 
     /// Where each of `device`'s accounts can start a session, and the models it can ask for.
@@ -361,13 +361,13 @@ impl Client {
 
     /// Starts a session on `device`, in one of its worktrees (`spec.lane_id`, its own id there).
     pub fn start_session(&self, device: &str, spec: &api::StartSpec) -> std::result::Result<api::Started, String> {
-        read(self.ask(device, api::START, json!({ "spec": spec }), ACT_WAIT)?)
+        read(self.ask(device, api::START, of(params::Start { spec: spec.clone() }), ACT_WAIT)?)
     }
 
     /// Forks a session on `device` into a copy that goes on without a window there, on `prompt`
     /// when it isn't empty.
     pub fn fork(&self, device: &str, key: &str, prompt: &str) -> std::result::Result<api::Started, String> {
-        read(self.ask(device, api::SESSION_FORK, json!({ "key": key, "prompt": prompt }), ACT_WAIT)?)
+        read(self.ask(device, api::SESSION_FORK, of(params::Fork { key: key.into(), prompt: prompt.into() }), ACT_WAIT)?)
     }
 
     /// Asks `device` to send the replies of these sessions (keys there) as they're written, in
@@ -379,11 +379,11 @@ impl Client {
         if !knows {
             return false;
         }
-        if self.ask(&hex, api::SESSION_WATCH, json!({ "keys": keys }), READ_WAIT).is_err() {
+        if self.ask(&hex, api::SESSION_WATCH, of(params::Keys { keys: keys.to_vec() }), READ_WAIT).is_err() {
             return false;
         }
         for key in keys {
-            if let Ok(Some(s)) = self.ask(&hex, api::SESSION_STREAM, json!({ "key": key }), READ_WAIT).and_then(read::<Option<api::Stream>>) {
+            if let Ok(Some(s)) = self.ask(&hex, api::SESSION_STREAM, of(params::Session { key: key.clone() }), READ_WAIT).and_then(read::<Option<api::Stream>>) {
                 let mut st = self.0.lock();
                 if !(s.text.is_empty() && s.tool.is_none()) {
                     st.streams.entry(hex.clone()).or_default().insert(key.clone(), s);
@@ -402,7 +402,7 @@ impl Client {
 
     /// Stops the turn a session Codealong runs on `device` is taking.
     pub fn cancel(&self, device: &str, key: &str) -> std::result::Result<(), String> {
-        self.ask(device, api::SESSION_CANCEL, json!({ "key": key }), ACT_WAIT).map(|_| ())
+        self.ask(device, api::SESSION_CANCEL, of(params::Session { key: key.into() }), ACT_WAIT).map(|_| ())
     }
 
     /// A linked device's whole key, from it or its short id.
@@ -429,6 +429,11 @@ impl Client {
 }
 
 /// An answer read as what the request returns.
+/// A request's params as the JSON it carries.
+fn of(p: impl Serialize) -> Value {
+    serde_json::to_value(p).unwrap_or_default()
+}
+
 fn read<T: serde::de::DeserializeOwned>(v: Value) -> std::result::Result<T, String> {
     serde_json::from_value(v).map_err(|e| format!("The other device's answer didn't read: {e}"))
 }

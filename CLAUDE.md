@@ -294,7 +294,8 @@ some work is, answer with one.
   engine's Cargo workspace): the messages and key proofs (`proto`, re-exported as
   `crate::peerproto`), link codes and iroh (`net`, as `crate::irohnet`), feeds (`feed`), the
   connection (`wire`), what devices ask each other for and get back (`api`: the request names,
-  `Pending`, `Answer` and `Sent`, which harness.rs and send.rs re-export), a device that only
+  what each carries (`api::params`), `Pending`, `Answer` and `Sent`, which harness.rs and send.rs
+  re-export), a device that only
   watches (`client`), and the worktree and session model their feeds carry (`model`; the
   engine's `model.rs` re-exports it and keeps the board). So a new field on a session or lane
   goes in `peer/src/model.rs`, with its neutral value in `Session::new` or `Lane::new` there,
@@ -331,7 +332,8 @@ some work is, answer with one.
   one request each), which ask the other device when it's elsewhere; a device's request through
   `actions::answer`; the `codealong` command's through the socket's `run` (`actions::run_as`,
   `From::Command`), which each request's `command` rule narrows. A new session action is a line
-  in each, not a command with its own remote branch or its own "that's on another device".
+  in each, with its params a struct (`api::params`, or actions.rs's `params` for one that stays
+  on its Mac), not a command with its own remote branch or its own "that's on another device".
 - A terminal is a module under `src-tauri/src/launch/` (`ghostty.rs`, `iterm.rs`,
   `terminal_app.rs`, `tmux.rs`) that knows its scripts and commands, with a struct implementing
   `launch::Terminal`, listed in `launch::TERMINALS`: its name, profile and bundle ID, opening a

@@ -40,6 +40,131 @@ pub const SESSION_WAY: &str = "session-way";
 /// which needs someone at the Mac.
 pub const SESSION_FORK: &str = "session-fork";
 
+/// What each request carries, as its makers write it (the engine's windows and command, and a
+/// device that only watches, client.rs) and the device asked reads it (the engine's actions.rs).
+/// `key` is the session's key as the device asked knows it: a window's own request leaves it
+/// out, and the engine adds it when the request goes to another device. Every field reads as
+/// empty when it's missing, as the requests of older devices may leave it out. Where makers
+/// once wrote a request differently, the shape is the engine's windows', which every Mac has
+/// read from other Macs (`answers: null`, `now: false`, which Macs before them ignore).
+pub mod params {
+    use serde::{Deserialize, Serialize};
+    use serde_json::Value;
+
+    use super::StartSpec;
+
+    /// For a request about a session that carries nothing else: `session-pending`,
+    /// `session-way`, `session-stream`, `session-cancel`.
+    #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+    #[serde(default)]
+    pub struct Session {
+        #[serde(skip_serializing_if = "String::is_empty")]
+        pub key: String,
+    }
+
+    /// `session-page`: the newest page without `before`, else the one before that cursor.
+    #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+    #[serde(default)]
+    pub struct Page {
+        #[serde(skip_serializing_if = "String::is_empty")]
+        pub key: String,
+        pub before: Option<u64>,
+    }
+
+    /// `session-newer`: what was said after the cursor `after`.
+    #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+    #[serde(default)]
+    pub struct Newer {
+        #[serde(skip_serializing_if = "String::is_empty")]
+        pub key: String,
+        pub after: u64,
+    }
+
+    /// `session-answer`: allows or denies the call `id`, or with `answers` answers the
+    /// questions it asks (keyed by each question's text).
+    #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+    #[serde(default)]
+    pub struct Answer {
+        #[serde(skip_serializing_if = "String::is_empty")]
+        pub key: String,
+        pub id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub answer: Option<super::Answer>,
+        pub answers: Option<Value>,
+    }
+
+    /// `session-send`: a prompt, into the turn the session is taking at once with `now`.
+    #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+    #[serde(default)]
+    pub struct Send {
+        #[serde(skip_serializing_if = "String::is_empty")]
+        pub key: String,
+        pub text: String,
+        pub now: bool,
+    }
+
+    /// `session-archive`: archives, or unarchives with `archived` false.
+    #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+    #[serde(default)]
+    pub struct Archive {
+        #[serde(skip_serializing_if = "String::is_empty")]
+        pub key: String,
+        pub archived: bool,
+    }
+
+    impl Default for Archive {
+        fn default() -> Archive {
+            Archive { key: String::new(), archived: true }
+        }
+    }
+
+    /// `session-rename`.
+    #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+    #[serde(default)]
+    pub struct Rename {
+        #[serde(skip_serializing_if = "String::is_empty")]
+        pub key: String,
+        pub name: String,
+    }
+
+    /// `session-fork`: the copy starts on `prompt`, or waits for one when it's empty.
+    #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+    #[serde(default)]
+    pub struct Fork {
+        #[serde(skip_serializing_if = "String::is_empty")]
+        pub key: String,
+        pub prompt: String,
+    }
+
+    /// Sessions by key: `mark-seen`, `session-watch`.
+    #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+    #[serde(default)]
+    pub struct Keys {
+        pub keys: Vec<String>,
+    }
+
+    /// `search`: sessions whose prompts and replies have every word.
+    #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+    #[serde(default)]
+    pub struct Search {
+        pub words: Vec<String>,
+    }
+
+    /// `route`: where `text` goes among `project`'s worktrees (empty for all of them).
+    #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+    #[serde(default)]
+    pub struct Route {
+        pub project: String,
+        pub text: String,
+    }
+
+    /// `start`: a session in one of the device's worktrees.
+    #[derive(Serialize, Deserialize, Clone, Debug)]
+    pub struct Start {
+        pub spec: StartSpec,
+    }
+}
+
 /// Who may make a request of a device, as the device asked decides it (the engine's peers.rs).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Reach {
@@ -430,6 +555,41 @@ mod tests {
         assert!(json.contains(r#""before":0"#) && !json.contains("\"input\":null"), "{json}");
         assert_eq!(serde_json::to_value(Answer::Allow).unwrap(), "allow");
     }
+
+    /// Each request's params write what its makers wrote before they were typed, and read what
+    /// any device sends, older ones included.
+    #[test]
+    fn requests_carry_what_they_always_did() {
+        use serde_json::json;
+        fn v(p: impl Serialize) -> serde_json::Value {
+            serde_json::to_value(p).unwrap()
+        }
+        let key = || "claude:claude:abc".to_string();
+        assert_eq!(v(&params::Session::default()), json!({}));
+        assert_eq!(v(&params::Session { key: key() }), json!({ "key": "claude:claude:abc" }));
+        assert_eq!(v(&params::Page { key: String::new(), before: None }), json!({ "before": null }));
+        assert_eq!(v(&params::Page { key: key(), before: Some(120) }), json!({ "key": "claude:claude:abc", "before": 120 }));
+        assert_eq!(v(&params::Newer { key: key(), after: 400 }), json!({ "key": "claude:claude:abc", "after": 400 }));
+        let answer = params::Answer { key: String::new(), id: "t1".into(), answer: Some(Answer::Deny), answers: None };
+        assert_eq!(v(&answer), json!({ "id": "t1", "answer": "deny", "answers": null }));
+        let picks = params::Answer { answers: Some(json!({ "Which?": "This" })), answer: Some(Answer::Allow), ..answer };
+        assert_eq!(v(&picks), json!({ "id": "t1", "answer": "allow", "answers": { "Which?": "This" } }));
+        assert_eq!(v(&params::Send { key: String::new(), text: "hi".into(), now: false }), json!({ "text": "hi", "now": false }));
+        assert_eq!(v(&params::Archive { key: key(), archived: false }), json!({ "key": "claude:claude:abc", "archived": false }));
+        assert_eq!(v(&params::Rename { key: String::new(), name: "Fix it".into() }), json!({ "name": "Fix it" }));
+        assert_eq!(v(&params::Fork { key: String::new(), prompt: String::new() }), json!({ "prompt": "" }));
+        assert_eq!(v(&params::Keys { keys: vec![key()] }), json!({ "keys": ["claude:claude:abc"] }));
+        assert_eq!(v(&params::Search { words: vec!["webhook".into()] }), json!({ "words": ["webhook"] }));
+        assert_eq!(v(&params::Route { project: "All projects".into(), text: "fix it".into() }), json!({ "project": "All projects", "text": "fix it" }));
+        let spec = StartSpec { lane_id: "/r/app".into(), account: "claude".into(), place: Place::Terminal, prompt: String::new(), model: None, effort: None, worktree: false, todos: vec![], from: None };
+        assert_eq!(v(&params::Start { spec }), json!({ "spec": { "laneId": "/r/app", "account": "claude", "place": "terminal", "prompt": "", "model": null, "effort": null, "worktree": false, "todos": [] } }));
+        // What an older device leaves out reads as empty, an archive as one.
+        let read = |j: serde_json::Value| (serde_json::from_value::<params::Answer>(j.clone()).unwrap(), serde_json::from_value::<params::Archive>(j).unwrap());
+        let (answer, archive) = read(json!({ "key": "claude:claude:abc" }));
+        assert_eq!((answer.answer, answer.answers, archive.archived), (None, None, true));
+        assert_eq!(serde_json::from_value::<params::Send>(json!({ "key": "k", "text": "hi" })).unwrap().now, false);
+    }
+
 }
 
 // ---- the quick panel: what was said, and where typed text goes ----

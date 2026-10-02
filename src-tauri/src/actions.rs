@@ -14,6 +14,7 @@ use std::time::Duration;
 
 use codealong_peer::api::{self, Reach};
 use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::engine::Handle;
@@ -31,6 +32,60 @@ pub const OPEN: &str = "open-target";
 pub const SNOOZE: &str = "session-snooze";
 pub const PREVIEW: &str = "worktree-preview";
 pub const REUSABLE: &str = "worktree-reusable";
+
+/// What each request carries: those another device can make, as codealong-peer has them, and
+/// those that stay on their Mac, as a window writes them.
+pub mod params {
+    use serde::{Deserialize, Serialize};
+
+    pub use codealong_peer::api::params::*;
+
+    /// `session-move`: the account of its harness it goes on under.
+    #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+    #[serde(default)]
+    pub struct Move {
+        pub account: String,
+    }
+
+    /// `session-side-ask`: the question for its side conversation.
+    #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+    #[serde(default)]
+    pub struct Side {
+        pub text: String,
+    }
+
+    /// `open-target`: one of a worktree's open targets, as the board lists them.
+    #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+    #[serde(default)]
+    pub struct Open {
+        pub target: String,
+    }
+
+    /// `session-snooze`: until when (ms since the epoch), or awake with none.
+    #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+    #[serde(default)]
+    pub struct Snooze {
+        pub keys: Vec<String>,
+        pub until: Option<i64>,
+    }
+
+    /// `worktree-preview`: its URL (none clears it), the port that serves it and the Chrome
+    /// profile it opens in over its project's.
+    #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+    #[serde(default, rename_all = "camelCase")]
+    pub struct Preview {
+        pub url: Option<String>,
+        pub port: Option<u16>,
+        pub chrome_profile: Option<String>,
+    }
+
+    /// `worktree-reusable`.
+    #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+    #[serde(default)]
+    pub struct Reusable {
+        pub on: bool,
+    }
+}
 
 /// Which device a request goes to.
 #[derive(Clone, Copy, Debug)]
@@ -87,16 +142,12 @@ impl Call<'_> {
         Some(self.key).filter(|k| !k.is_empty()).ok_or_else(|| "The request names no session.".to_string())
     }
 
-    fn text(&self, name: &str) -> String {
-        self.params.get(name).and_then(Value::as_str).unwrap_or_default().to_string()
-    }
-
-    fn flag(&self, name: &str) -> bool {
-        self.params.get(name).and_then(Value::as_bool).unwrap_or(false)
-    }
-
-    fn u64(&self, name: &str) -> Option<u64> {
-        self.params.get(name).and_then(Value::as_u64)
+    /// Its params, as the request's type (`params`) reads them: what a maker left out reads as
+    /// empty, and so do params left out altogether.
+    fn read<T: DeserializeOwned>(&self) -> Result<T, String> {
+        let none = json!({});
+        let params = if self.params.is_null() { &none } else { self.params };
+        T::deserialize(params).map_err(|e| format!("The request doesn't read: {e}"))
     }
 }
 
@@ -187,19 +238,20 @@ fn move_in_windows(_: &Value) -> Result<(), String> {
 
 /// Does `name` for the session or worktree `key` from a window here: on this device, or, for
 /// one on another device, by asking that device (with the key it knows it by).
-pub fn run(engine: &Handle, peers: &Peers, name: &str, key: &str, params: Value) -> Result<Value, String> {
+pub fn run(engine: &Handle, peers: &Peers, name: &str, key: &str, params: impl Serialize) -> Result<Value, String> {
     run_as(engine, peers, &From::Here, name, On::Key(key), params)
 }
 
 /// `run` for a request about no one session or worktree, on a device by its short id, or on
 /// this one with none.
-pub fn run_on(engine: &Handle, peers: &Peers, name: &str, device: Option<&str>, params: Value) -> Result<Value, String> {
+pub fn run_on(engine: &Handle, peers: &Peers, name: &str, device: Option<&str>, params: impl Serialize) -> Result<Value, String> {
     run_as(engine, peers, &From::Here, name, On::Device(device), params)
 }
 
 /// `run`, for whoever asks on this device: a window, or the `codealong` command through the
 /// app's socket (server.rs), which may not ask for all a window may.
-pub fn run_as(engine: &Handle, peers: &Peers, from: &From, name: &str, on: On, params: Value) -> Result<Value, String> {
+pub fn run_as(engine: &Handle, peers: &Peers, from: &From, name: &str, on: On, params: impl Serialize) -> Result<Value, String> {
+    let params = to_value(params)?;
     let req = asked(from, name, &params)?;
     match on.split() {
         (Some(device), own) => ask_there(peers, req, from, device, own, params),
@@ -211,8 +263,9 @@ pub fn run_as(engine: &Handle, peers: &Peers, from: &From, name: &str, on: On, p
 /// `keys` each knows its sessions by in `params`. Another device's goes in the background, since
 /// the window hears of the change from that device's feed, and one the table keeps on the
 /// session's Mac (`only_here`) isn't sent. Returns this device's answer, if any were here.
-pub fn run_keys(engine: &Handle, peers: &Peers, name: &str, keys: Vec<String>, params: Value) -> Option<Value> {
+pub fn run_keys(engine: &Handle, peers: &Peers, name: &str, keys: Vec<String>, params: impl Serialize) -> Option<Value> {
     let req = find(name)?;
+    let params = to_value(params).ok()?;
     let mut answer = None;
     for (device, keys) in by_device(keys) {
         let mut params = params.clone();
@@ -255,7 +308,8 @@ fn ask_there(peers: &Peers, req: &Request, from: &From, device: &str, own: &str,
 
 /// `name` from another device, from a window here: for what asks every linked device at once
 /// (`Peers::search`), which says which devices.
-pub fn ask_device(peers: &Peers, name: &str, device: &str, params: Value) -> Result<Value, String> {
+pub fn ask_device(peers: &Peers, name: &str, device: &str, params: impl Serialize) -> Result<Value, String> {
+    let params = to_value(params)?;
     let req = asked(&From::Here, name, &params)?;
     ask_there(peers, req, &From::Here, device, "", params)
 }
@@ -296,7 +350,8 @@ pub fn command_may_ask(name: &str, params: &Value) -> Result<(), String> {
 /// Does `name` for the session `key` on this device, as `from` asks it, whatever board the
 /// handle is over: `--snapshot`'s modes go through it over a board read once (snapshot.rs), and
 /// the `codealong` command when the app is closed (cli.rs).
-pub fn local(engine: &Handle, from: &From, name: &str, key: &str, params: Value) -> Result<Value, String> {
+pub fn local(engine: &Handle, from: &From, name: &str, key: &str, params: impl Serialize) -> Result<Value, String> {
+    let params = to_value(params)?;
     let req = asked(from, name, &params)?;
     (req.here)(engine, &Call { key, params: &params, from })
 }
@@ -344,12 +399,14 @@ fn words(e: anyhow::Error) -> String {
 /// A page of the conversation, from its own record (transcript.rs): the newest without
 /// `before`, else what came before it.
 fn page(engine: &Handle, c: &Call) -> Result<Value, String> {
-    to_value(transcript::page(&engine.board(), &cfg()?, c.session()?, c.u64("before"), 60).map_err(words)?)
+    let p: params::Page = c.read()?;
+    to_value(transcript::page(&engine.board(), &cfg()?, c.session()?, p.before, 60).map_err(words)?)
 }
 
 /// What it said and did after `after`, as it goes on.
 fn newer(engine: &Handle, c: &Call) -> Result<Value, String> {
-    to_value(transcript::newer(&engine.board(), &cfg()?, c.session()?, c.u64("after").unwrap_or(0)).map_err(words)?)
+    let p: params::Newer = c.read()?;
+    to_value(transcript::newer(&engine.board(), &cfg()?, c.session()?, p.after).map_err(words)?)
 }
 
 /// What it waits on you to allow, when Codealong can answer for it (`Adapter::pending`).
@@ -381,16 +438,16 @@ fn stream(_: &Handle, c: &Call) -> Result<Value, String> {
 /// `answers`, answers the questions it asks (`Pending::questions`).
 fn answer_call(engine: &Handle, c: &Call) -> Result<Value, String> {
     let key = c.session()?;
-    let answer: harness::Answer = c.params.get("answer").cloned().and_then(|a| serde_json::from_value(a).ok()).ok_or("The request has no answer.")?;
-    let id = c.text("id");
+    let p: params::Answer = c.read()?;
+    let (answer, id) = (p.answer.ok_or("The request has no answer.")?, p.id);
     if acp::hosts(key) {
         return acp::answer(key, &id, answer).map(Value::String).map_err(words);
     }
     let (cfg, board) = (cfg()?, engine.board());
     let (s, account) = harness::find(&board, &cfg, key).map_err(words)?;
     let ctx = harness::Ctx { account };
-    match c.params.get("answers").filter(|a| !a.is_null()) {
-        Some(a) => harness::adapter(s.harness).answer_questions(&ctx, s, &id, a),
+    match p.answers.filter(|a| !a.is_null()) {
+        Some(a) => harness::adapter(s.harness).answer_questions(&ctx, s, &id, &a),
         None => harness::adapter(s.harness).answer(&ctx, s, &id, answer),
     }
     .map(Value::String)
@@ -406,7 +463,8 @@ fn send_prompt(engine: &Handle, c: &Call) -> Result<Value, String> {
         From::Device => send::Sender::Elsewhere,
         From::Command(session) => send::Sender::Agent(session.clone()),
     };
-    let sent = send::send_here(engine, c.session()?, &c.text("text"), sender, c.flag("now")).map_err(words)?;
+    let p: params::Send = c.read()?;
+    let sent = send::send_here(engine, c.session()?, &p.text, sender, p.now).map_err(words)?;
     if *c.from == From::Device && sent.opened {
         return Err(format!("It needs someone at this device: {}", sent.message));
     }
@@ -436,20 +494,21 @@ fn shown_at(c: &Call, at: Option<i64>) -> Value {
 
 /// Archives it, or unarchives it with `archived: false` (Codex threads in Codex itself).
 fn archive(engine: &Handle, c: &Call) -> Result<Value, String> {
-    let archived = c.params.get("archived").and_then(Value::as_bool).unwrap_or(true);
-    let at = engine.archive(c.session()?, archived).map_err(words)?;
+    let p: params::Archive = c.read()?;
+    let at = engine.archive(c.session()?, p.archived).map_err(words)?;
     Ok(shown_at(c, at))
 }
 
 /// Names it where its harness keeps its name, so the harness shows it too.
 fn rename(engine: &Handle, c: &Call) -> Result<Value, String> {
-    let at = engine.rename(c.session()?, &c.text("name")).map_err(words)?;
+    let p: params::Rename = c.read()?;
+    let at = engine.rename(c.session()?, &p.name).map_err(words)?;
     Ok(shown_at(c, at))
 }
 
 /// Marks finished turns seen, several sessions at once (`keys`).
 fn mark_seen(engine: &Handle, c: &Call) -> Result<Value, String> {
-    let keys: Vec<String> = c.params.get("keys").cloned().and_then(|k| serde_json::from_value(k).ok()).unwrap_or_default();
+    let keys = c.read::<params::Keys>()?.keys;
     Ok(match c.from {
         From::Here => json!(engine.mark_seen_shown(keys)),
         From::Device | From::Command(_) => {
@@ -461,8 +520,7 @@ fn mark_seen(engine: &Handle, c: &Call) -> Result<Value, String> {
 
 /// What was said in this device's sessions.
 fn search(_: &Handle, c: &Call) -> Result<Value, String> {
-    let words: Vec<String> = c.params.get("words").cloned().and_then(|w| serde_json::from_value(w).ok()).unwrap_or_default();
-    to_value(crate::search::typed(&words))
+    to_value(crate::search::typed(&c.read::<params::Search>()?.words))
 }
 
 /// What another device found, by the keys its sessions have here.
@@ -476,8 +534,9 @@ fn found_back(v: Value, device: &str) -> Result<Value, String> {
 
 /// Where typed text goes, as the quick panel suggests it (route.rs).
 fn route(engine: &Handle, c: &Call) -> Result<Value, String> {
-    let project = c.params.get("project").and_then(Value::as_str).filter(|p| !p.is_empty()).unwrap_or(crate::route::ALL_PROJECTS);
-    to_value(crate::route::suggest(&engine.board(), project, &c.text("text")).map_err(words)?)
+    let p: params::Route = c.read()?;
+    let project = Some(p.project.as_str()).filter(|p| !p.is_empty()).unwrap_or(crate::route::ALL_PROJECTS);
+    to_value(crate::route::suggest(&engine.board(), project, &p.text).map_err(words)?)
 }
 
 /// Where each account here can start a session.
@@ -491,14 +550,14 @@ fn start(engine: &Handle, c: &Call) -> Result<Value, String> {
 }
 
 fn spec_of(params: &Value) -> Result<crate::start::StartSpec, String> {
-    params.get("spec").cloned().and_then(|s| serde_json::from_value(s).ok()).ok_or_else(|| "The request has no start.".to_string())
+    params::Start::deserialize(params).map(|p| p.spec).map_err(|_| "The request has no start.".to_string())
 }
 
 /// A start in another device's worktree, as that device knows it, with none of the todos: they
 /// are this device's, and it has its own list.
 fn start_there(params: Value, lane: &str) -> Result<Value, String> {
     let spec = crate::start::StartSpec { lane_id: lane.to_string(), todos: Vec::new(), from: None, ..spec_of(&params)? };
-    Ok(json!({ "spec": spec }))
+    to_value(params::Start { spec })
 }
 
 /// The session another device started, by the key it has here.
@@ -511,7 +570,8 @@ fn started_back(v: Value, device: &str) -> Result<Value, String> {
 /// Forks it into a copy that goes on without a window, on `prompt` when there's one
 /// (`start::fork_background`).
 fn fork(engine: &Handle, c: &Call) -> Result<Value, String> {
-    to_value(crate::start::fork_background(&engine.board(), &cfg()?, c.session()?, &c.text("prompt")).map_err(words)?)
+    let p: params::Fork = c.read()?;
+    to_value(crate::start::fork_background(&engine.board(), &cfg()?, c.session()?, &p.prompt).map_err(words)?)
 }
 
 /// Forks it into a new terminal in its folder (`start::fork`).
@@ -524,10 +584,11 @@ fn fork_terminal(engine: &Handle, c: &Call) -> Result<Value, String> {
 /// the copy's, and so are the todos it was on and its place among the pinned sessions.
 fn move_session(engine: &Handle, c: &Call) -> Result<Value, String> {
     let key = c.session()?;
+    let account = c.read::<params::Move>()?.account;
     let cfg = cfg()?;
     let stopped = stop_to_move(engine, &cfg, key)?;
     let board = engine.board();
-    let mut started = crate::start::move_to(&board, &cfg, key, &c.text("account")).map_err(words)?;
+    let mut started = crate::start::move_to(&board, &cfg, key, &account).map_err(words)?;
     if stopped {
         started.message = started.message.map(|m| format!("{m} Its turn was stopped first, so the copy goes on from where it was interrupted."));
     }
@@ -586,7 +647,8 @@ fn close(engine: &Handle, c: &Call) -> Result<Value, String> {
 /// Asks a throwaway copy of it `text`, on the side (side.rs): the session carries on, unaware.
 /// Returns the side conversation with the question in it; the answer goes to the windows.
 fn side_ask(engine: &Handle, c: &Call) -> Result<Value, String> {
-    to_value(crate::side::ask(&engine.board(), &cfg()?, c.session()?, &c.text("text")).map_err(words)?)
+    let p: params::Side = c.read()?;
+    to_value(crate::side::ask(&engine.board(), &cfg()?, c.session()?, &p.text).map_err(words)?)
 }
 
 /// Ends its side conversation: the copy stops, and what was said is kept to read (`side::past`).
@@ -598,29 +660,27 @@ fn side_close(_: &Handle, c: &Call) -> Result<Value, String> {
 /// Opens one of a worktree's targets (`target`), as a click does: a session's terminal, the
 /// worktree in an editor (`engine::open_on`).
 fn open(engine: &Handle, c: &Call) -> Result<Value, String> {
-    engine.open(c.key, &c.text("target")).map_err(words)?;
+    engine.open(c.key, &c.read::<params::Open>()?.target).map_err(words)?;
     Ok(Value::Null)
 }
 
 /// Snoozes sessions (`keys`) until `until` (ms since the epoch), or wakes them with none.
 fn snooze(engine: &Handle, c: &Call) -> Result<Value, String> {
-    let keys: Vec<String> = c.params.get("keys").cloned().and_then(|k| serde_json::from_value(k).ok()).unwrap_or_default();
-    let until = c.params.get("until").and_then(Value::as_i64);
-    Ok(shown_at(c, engine.snooze(keys, until)))
+    let p: params::Snooze = c.read()?;
+    Ok(shown_at(c, engine.snooze(p.keys, p.until)))
 }
 
 /// Sets the worktree's preview URL and the Chrome profile it opens in, or clears them with no
 /// URL (previews.rs).
 fn set_preview(engine: &Handle, c: &Call) -> Result<Value, String> {
-    let text = |name: &str| c.params.get(name).and_then(Value::as_str);
-    let port = c.u64("port").and_then(|p| u16::try_from(p).ok());
-    let at = engine.set_preview(c.key, text("url"), port, text("chromeProfile")).map_err(words)?;
+    let p: params::Preview = c.read()?;
+    let at = engine.set_preview(c.key, p.url.as_deref(), p.port, p.chrome_profile.as_deref()).map_err(words)?;
     Ok(shown_at(c, at))
 }
 
 /// Marks the worktree reusable or not (reusable.rs).
 fn set_reusable(engine: &Handle, c: &Call) -> Result<Value, String> {
-    let at = engine.set_reusable(c.key, c.flag("on")).map_err(words)?;
+    let at = engine.set_reusable(c.key, c.read::<params::Reusable>()?.on).map_err(words)?;
     Ok(shown_at(c, at))
 }
 

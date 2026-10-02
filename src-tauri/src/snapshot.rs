@@ -6,9 +6,9 @@
 //! at a window.
 
 use serde::Serialize;
-use serde_json::{json, Value};
+use serde_json::Value;
 
-use crate::actions::{self, From};
+use crate::actions::{self, params, From};
 use crate::{api, barfeed, config, detect, editors, engine, github, harness, model, route, send, side, start, usage, util};
 
 /// The command line, read one way for every mode.
@@ -194,7 +194,7 @@ fn board_now() -> engine::Handle {
 /// One of the app's actions on a session of this device, over a board read now. It's asked as
 /// another device asks it: a send isn't yours, and one that would only open the session for
 /// someone to send is an error.
-fn act(name: &str, key: &str, params: Value) -> Result<Value, Stop> {
+fn act(name: &str, key: &str, params: impl serde::Serialize) -> Result<Value, Stop> {
     actions::local(&board_now(), &From::Device, name, key, params).map_err(Stop::Failed)
 }
 
@@ -205,31 +205,31 @@ fn said(v: Value) -> Done {
 
 fn pending(_: &Args, rest: &[String]) -> Done {
     let [key, ..] = rest else { return Err(Stop::Usage) };
-    Ok(pretty(&act(api::SESSION_PENDING, key, json!({}))?))
+    Ok(pretty(&act(api::SESSION_PENDING, key, params::Session::default())?))
 }
 
 fn answer(_: &Args, rest: &[String]) -> Done {
     let [key, id, answer, more @ ..] = rest else { return Err(Stop::Usage) };
     let answer: harness::Answer = serde_json::from_value(Value::String(answer.clone())).map_err(|_| Stop::Usage)?;
     let answers: Option<Value> = more.first().map(|a| serde_json::from_str(a)).transpose().map_err(|_| Stop::Usage)?;
-    said(act(api::SESSION_ANSWER, key, json!({ "id": id, "answer": answer, "answers": answers }))?)
+    said(act(api::SESSION_ANSWER, key, params::Answer { id: id.clone(), answer: Some(answer), answers, ..Default::default() })?)
 }
 
 fn stop(_: &Args, rest: &[String]) -> Done {
     let [key, ..] = rest else { return Err(Stop::Usage) };
-    said(act(api::SESSION_CANCEL, key, json!({}))?)
+    said(act(api::SESSION_CANCEL, key, params::Session::default())?)
 }
 
 fn send_text(args: &Args, rest: &[String]) -> Done {
     let [key, text, ..] = rest else { return Err(Stop::Usage) };
-    let sent: send::Sent = serde_json::from_value(act(api::SESSION_SEND, key, json!({ "text": text, "now": args.has("--now") }))?).map_err(|e| Stop::Failed(e.to_string()))?;
+    let sent: send::Sent = serde_json::from_value(act(api::SESSION_SEND, key, params::Send { text: text.clone(), now: args.has("--now"), ..Default::default() })?).map_err(|e| Stop::Failed(e.to_string()))?;
     Ok(sent.message)
 }
 
 fn fork(_: &Args, rest: &[String]) -> Done {
     let [key, more @ ..] = rest else { return Err(Stop::Usage) };
     let prompt = more.first().map(String::as_str).unwrap_or("");
-    Ok(pretty(&act(api::SESSION_FORK, key, json!({ "prompt": prompt }))?))
+    Ok(pretty(&act(api::SESSION_FORK, key, params::Fork { prompt: prompt.to_string(), ..Default::default() })?))
 }
 
 fn side_ask(_: &Args, rest: &[String]) -> Done {
@@ -239,7 +239,7 @@ fn side_ask(_: &Args, rest: &[String]) -> Done {
     }
     let engine = board_now();
     for q in questions {
-        if let Err(e) = actions::local(&engine, &From::Device, actions::SIDE_ASK, key, json!({ "text": q })) {
+        if let Err(e) = actions::local(&engine, &From::Device, actions::SIDE_ASK, key, params::Side { text: q.clone() }) {
             side::close(key);
             return Err(Stop::Failed(e));
         }
@@ -260,14 +260,14 @@ fn rename(_: &Args, rest: &[String]) -> Done {
     let [key, name, ..] = rest else { return Err(Stop::Usage) };
     // The name as the action keeps it, for saying what it's called now.
     let name = harness::session_name(name).map_err(failed)?;
-    act(api::SESSION_RENAME, key, json!({ "name": name }))?;
+    act(api::SESSION_RENAME, key, params::Rename { name: name.clone(), ..Default::default() })?;
     Ok(format!("Renamed it {name}."))
 }
 
 fn transcript(args: &Args, rest: &[String]) -> Done {
     let [key, ..] = rest else { return Err(Stop::Usage) };
     let before: Option<u64> = args.option("--before").and_then(|b| b.parse().ok());
-    Ok(pretty(&act(api::SESSION_PAGE, key, json!({ "before": before }))?))
+    Ok(pretty(&act(api::SESSION_PAGE, key, params::Page { before, ..Default::default() })?))
 }
 
 fn editor_icons(_: &Args, _: &[String]) -> Done {
@@ -305,7 +305,7 @@ fn start_plan(args: &Args, rest: &[String]) -> Done {
 fn route_text(args: &Args, rest: &[String]) -> Done {
     let [text, ..] = rest else { return Err(Stop::Usage) };
     let project = args.option("--project").unwrap_or(route::ALL_PROJECTS);
-    Ok(pretty(&act(api::ROUTE, "", json!({ "project": project, "text": text }))?))
+    Ok(pretty(&act(api::ROUTE, "", params::Route { project: project.to_string(), text: text.clone() })?))
 }
 
 fn accounts(_: &Args, _: &[String]) -> Done {
