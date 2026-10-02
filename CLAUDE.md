@@ -439,6 +439,15 @@ Claude Code
   characters and all (`^L^[[200~…`), so a key goes a moment before the paste. Typed into a box
   holding a prompt Claude Code put back, a prompt is added to it and both go as one, so
   send.rs presses Ctrl+C first then, while the session is idle.
+- While the text in the input box ends in an `@` word (`@src`, or `@"<path>"` with nothing after
+  its closing quote), a list of files shows and Return picks from it instead of sending (2.1.287,
+  in tmux, 2026-10-02): the prompt stays in the box, the word swapped for the pick, and
+  `@"<path>"` comes back as `@<path>`, which attaches nothing once it's sent if the path has a
+  space. An `@` inside a word opens no list, nor does a mention with anything after it, a space
+  included, and the prompt is recorded without that space. A reply sent from Codealong with its
+  image last sat in the box that way until someone pressed Return there (five in a week of
+  transcripts, minutes to hours late), so a prompt pasted into a box that would end in a mention
+  ends in a space (`send::boxed`).
 - Another session's message (checked on 2.1.28x) is a `user` line marked `isMeta` when it starts
   a turn, or a `queued_command` attachment when a busy turn takes it in, either with `origin:
   {kind: "peer", name, body}`: `name` is the envelope's `from-name` (older lines put it in
@@ -839,7 +848,9 @@ Codex
   turn runs. `codex::terminals` finds TUIs by `ps` (the daemon, `exec` and bundled copies aren't
   terminals) and `pair_terminals` gives each its `resume` id or its folder's newest CLI thread
   active since it started. Escape in the TUI stops a running turn ("Conversation interrupted", `turn_aborted`),
-  leaving its background terminals running.
+  leaving its background terminals running. While its box's text ends in an `@` word a list of
+  files and plugins shows ("enter/tab insert"), and Return inserts the pick instead of sending
+  (`@READ` became `@Spreadsheets`); a space after the word closes it (0.157.1, 2026-10-02).
 - `codex://threads/new?path=<folder>&prompt=<text>` opens a new thread there with the prompt
   filled in (it also takes `originUrl`, `projectId`, `mode` and `browserUrl`, and no images;
   nothing in 26.924's link parser sends it);

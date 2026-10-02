@@ -393,13 +393,13 @@ fn attempt(route: &Route, session: &Session, account: &AccountCfg, cfg: &Config,
     match route {
         Route::Daemon { socket, key_file, job } => {
             let key = std::fs::read_to_string(key_file).map_err(|e| anyhow!("Claude Code's daemon key: {e}"))?;
-            daemon_reply(socket, key.trim(), job, &attachments::expand(text, Style::Mention))?;
+            daemon_reply(socket, key.trim(), job, &boxed(&attachments::expand(text, Style::Mention)))?;
             sent(if busy { format!("Queued for {title}; the background session takes it after its current step.") } else { format!("Sent to {title} in the background.") })
         }
         Route::Type { pid } => {
             let adapter = crate::harness::adapter(session.harness);
             let clear = adapter.clears_before_typing(account, session);
-            match launch::terminal_type_session(*pid, Path::new(&session.cwd), &attachments::expand(text, adapter.typed_attachments()), clear) {
+            match launch::terminal_type_session(*pid, Path::new(&session.cwd), &boxed(&attachments::expand(text, adapter.typed_attachments())), clear) {
                 Ok(launch::Typed::Into(app)) => sent(if busy { format!("Typed into {title} in {app}; it takes it after its current step.") } else { format!("Typed into {title} in {app}.") }),
                 Ok(launch::Typed::Nowhere(why)) => Ok(Tried::Passed(Some(why))),
                 Err(_) => Err(MayHaveArrived(format!("Codealong started typing this into {title}, and its terminal didn't confirm it went in: look there before sending it again.")).into()),
@@ -455,6 +455,34 @@ fn attempt(route: &Route, session: &Session, account: &AccountCfg, cfg: &Config,
             opened("Antigravity is open and the prompt is on the clipboard. Paste it there to send it.".to_string())
         }
     }
+}
+
+/// A prompt as it's pasted into a session's input box, for the Return that follows to send it.
+/// While the text ends in an `@` word, Claude Code and Codex both show a list to pick from
+/// (files; Codex its plugins too), and Return picks from it instead of sending: the prompt
+/// stays in the box unsent, its last word swapped for the pick. Claude Code's `@"<path>"` loses
+/// its quotes that way, so a path with a space in it isn't attached once the prompt is sent by
+/// hand. A space after the word closes the list (Claude Code leaves the space out of the
+/// prompt), so a prompt that ends in one, as one with an image last does, gets a space.
+fn boxed(text: &str) -> Cow<'_, str> {
+    let t = text.trim_end();
+    if ends_in_mention(t) {
+        Cow::Owned(format!("{t} "))
+    } else {
+        Cow::Borrowed(text)
+    }
+}
+
+/// Whether the text ends in an `@` word: `@"<path>"`, which may have spaces in it, or a word
+/// that starts with `@`. An `@` inside a word (an email address) isn't one.
+fn ends_in_mention(text: &str) -> bool {
+    let starts_word = |i: usize| text[..i].chars().next_back().map_or(true, char::is_whitespace);
+    if let Some(body) = text.strip_suffix('"') {
+        if body.rfind("@\"").is_some_and(|i| starts_word(i) && !body[i + 2..].contains('"')) {
+            return true;
+        }
+    }
+    text.rsplit(char::is_whitespace).next().is_some_and(|word| word.starts_with('@'))
 }
 
 /// What a prompt sent on a session's socket says it did. `untyped` is why it wasn't typed into
@@ -885,6 +913,21 @@ pub fn codex_interrupt_turn(codex_home: &Path, thread: &str) -> Result<()> {
 mod tests {
     use super::*;
     use crate::model::{Harness, Session, Status, Surface};
+
+    #[test]
+    fn a_pasted_prompt_never_ends_in_a_mention() {
+        let image = "@\"/Users/me/Library/Application Support/Codealong/images/0123456789abcdef.png\"";
+        // An image last, as the reply box writes one: Return would pick it from the list.
+        assert_eq!(boxed(&format!("How do we fix these? \n{image}")), format!("How do we fix these? \n{image} "));
+        assert_eq!(boxed(&format!("{image}\n")), format!("{image} "));
+        assert_eq!(boxed("look at @src"), "look at @src ");
+        assert_eq!(boxed("@"), "@ ");
+        assert_eq!(boxed("see @\"a.png\""), "see @\"a.png\" ");
+        // Text after it, or an @ that starts no word, opens no list: the prompt goes as it is.
+        for sent in [format!("{image} Is there a bug there?"), format!("See {image}."), "mail gordon@example".to_string(), "he said \"no @ here\"".to_string(), "x@\"y z\"".to_string(), "plain\n".to_string(), String::new()] {
+            assert_eq!(boxed(&sent), sent);
+        }
+    }
 
     fn session(harness: Harness, surface: Surface, status: Status, live: bool, pid: Option<u32>) -> Session {
         Session {
