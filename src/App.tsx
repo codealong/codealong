@@ -12,18 +12,17 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSPr
 import { below, showContextMenu, type MenuAction, type MenuSpec } from './contextMenu';
 import { useEditorIcons } from './editors';
 import { AGENT_BAY, buildBays, filterByAge, homeOf, inboxCounts, liveOrLatest, narrowed, prNeedsWork, rowItems, seenable, sessionPrs, worktreeRow, sessionHomes, type BoardRow, type Filter, type WorktreeRow } from './lanes';
-import { answerLink, approvePr, barMode, getDevices, onDevices, dismissTodoHint, getBoard, onBarMode, onBoard, onCloseIdle, onNewWindow, onQuickStart, onReveal, onSettings, onCheckUpdates, openConfig, openProjectWindow, openUrl, refresh, refreshUsage, reviewInCodex, setBarMode, startOptions, startSession, setPinned, setPinnedPrs, setPinnedWorktrees, setTheme, showQuick, signIn, windowLabel, type BarMode, type Reveal } from './api';
+import { answerLink, approvePr, barMode, getDevices, onDevices, dismissTodoHint, onBarMode, onCloseIdle, onNewWindow, onQuickStart, onReveal, onSettings, onCheckUpdates, openConfig, openProjectWindow, openUrl, refresh, refreshUsage, reviewInCodex, setBarMode, startOptions, startSession, setPinned, setPinnedPrs, setPinnedWorktrees, setTheme, showQuick, signIn, windowLabel, type BarMode, type Reveal } from './api';
 import { middleTruncate } from './format';
 import * as menus from './menus';
 import { prRefOf } from './prLinks';
-import { usePerf } from './perf';
-import { archiveAhead, boardAhead, boardView, lanesAhead, observe, seenAhead, useAhead } from './ahead';
+import { archiveAhead, boardView, lanesAhead, observe, seenAhead } from './ahead';
 import { reuse } from './reuse';
 import { reorderPinned, usePins } from './pins';
 import { reviewLane, reviewPicks, reviewPrompt } from './review';
 import { remembered, START_OPTIONS_NOTICE, startOptionsFailed } from './start';
 import { COLOR_WORD, newTodo, pickTo, pickToggle, todoIndex, todoProjects, todoInFilter, todoInQuery, todoItem, todoPrompt, todosPrompt, todoSections, useTodoStore, type TodoItem, type TodoPick, type TodoSectionId } from './todos';
-import type { Bay, Board, DevicesView, Label, Lane, Pr, PrItem, Session, StartOptions, Theme, Todo, TodoStatus } from './types';
+import type { Bay, DevicesView, Label, Lane, Pr, PrItem, Session, StartOptions, Theme, Todo, TodoStatus } from './types';
 import { byDevice, deviceOf, needsOn, shortOf, withDevices, workingOn, type DeviceFilter } from './devices';
 import { DeviceBadge } from './ui/DeviceBadge';
 import { LABEL_COLORS } from './types';
@@ -63,6 +62,7 @@ import { QUEUE_CHORDS, queueKey } from './queue';
 import { SESSION_READS, shownSession as queueShown, useWaitingQueue } from './useWaitingQueue';
 import { openWhere, where } from './open';
 import { asText, flag, oneOf, strings, useStored } from './stored';
+import { useBoard } from './useBoard';
 
 const ELSEWHERE = 'Elsewhere';
 /** The chords Sessions' box hands the list: ⌥↑ ⌥↓ (with ⇧, to what waits on you), ⌃⌘ with a
@@ -237,10 +237,8 @@ function inField(el: Element | null, search: HTMLInputElement | null): boolean {
 const widthVar = (width: number | null) => (width == null ? undefined : `${width}px`);
 
 export function App() {
-  const [engineBoard, setBoard] = useState<Board | null>(null);
-  // Changes you made that the engine hasn't shown yet (ahead.ts), on top of the board it sent.
-  const ahead = useAhead();
-  const board = useMemo(() => (engineBoard ? boardAhead(engineBoard, ahead) : null), [engineBoard, ahead]);
+  // The board, with changes you made that the engine hasn't shown yet on top (useBoard.ts).
+  const { engine: engineBoard, board, ahead, loadError, loading } = useBoard();
   // Your other devices (src-tauri/src/peers.rs): their worktrees join this device's in every view,
   // the sidebar's Devices narrow the views to one of them, and Worktrees can group by device.
   const [devices, setDevices] = useState<DevicesView | null>(null);
@@ -255,11 +253,6 @@ export function App() {
     void getDevices().then((d) => d && show(d));
     return onDevices(show);
   }, []);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  // Until the engine's first scan has finished, the board has none of this Mac's sessions,
-  // worktrees, todos or PRs: the views say they're being read rather than show nothing, or only
-  // the other devices' worktrees, which come in first from what their feeds kept.
-  const loading = !loadError && (!engineBoard || engineBoard.loading);
   // A project window keeps its choice to itself; the main window's is remembered.
   const [project, setProject] = useStored(WINDOW_PROJECT ? null : PROJECT_KEY, asText, WINDOW_PROJECT);
   const [bayFilter, setBayFilter] = useState<readonly Filter[]>([]);
@@ -360,36 +353,6 @@ export function App() {
   const now = useNow(15_000);
   const searchRef = useRef<HTMLInputElement>(null);
   const gPending = useRef(false);
-
-  const boardArrived = useRef<number | null>(null);
-  usePerf(engineBoard, boardArrived);
-  useEffect(() => {
-    getBoard()
-      .then((b) => setBoard((prev) => (prev ? reuse(prev, b) : b)))
-      .catch((e: unknown) => setLoadError(String(e)));
-    // A window that can't be seen keeps only the latest push and shows it when it's seen again:
-    // the engine publishes many times a minute, and every render of a board no one sees is waste.
-    let held: Board | null = null;
-    const show = (b: Board) => {
-      boardArrived.current = performance.now();
-      setBoard((prev) => (prev ? reuse(prev, b) : b));
-    };
-    const onVisible = () => {
-      if (document.hidden || !held) return;
-      const b = held;
-      held = null;
-      show(b);
-    };
-    document.addEventListener('visibilitychange', onVisible);
-    const off = onBoard((b) => {
-      if (document.hidden) held = b;
-      else show(b);
-    });
-    return () => {
-      off();
-      document.removeEventListener('visibilitychange', onVisible);
-    };
-  }, []);
 
   useEffect(() => {
     const onFocus = () => void refresh();
