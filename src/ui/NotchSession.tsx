@@ -234,6 +234,16 @@ export function useNotchSession(items: BarItem[], known: (key: string) => boolea
         goOn(null);
         return;
       }
+      // ⌘E from a session that doesn't wait on you (it runs, say) goes on as ⌘] does: there's
+      // nothing to mark seen. Marking one seen is its card's (SessionCard.tsx), and goes on from
+      // there; one that waits on a call to allow stays.
+      if (mod && !e.shiftKey && e.key.toLowerCase() === 'e') {
+        if (!waitingItems(itemsNow.current).some((i) => i.key === shownNow.current)) {
+          e.preventDefault();
+          goOn(null);
+        }
+        return;
+      }
       const vertical = e.key === 'ArrowUp' || e.key === 'ArrowDown';
       if (vertical && e.altKey && !e.metaKey && !e.ctrlKey) {
         e.preventDefault();

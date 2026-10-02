@@ -41,6 +41,8 @@
     if (cmd !== 'get_board') return p;
     return p.then(function (board) {
       var seen = {};
+      // None pinned, whatever is today: ⌃⌘P pins the one it's pressed on.
+      board.pinned = [];
       board.lanes.forEach(function (l) {
         l.sessions.forEach(function (s) {
           if (s.status === 'needs' || s.status === 'error' || s.status === 'unread') s.status = 'idle';
@@ -241,7 +243,7 @@
       var keys = made.length ? flat(made[made.length - 1][1].options.items) : [];
       // The first was marked seen, so its menu has no Mark as seen.
       // Whether it's pinned, and whether it has a terminal to close, are the board's today.
-      check('the menu shows the chords', /^Rename…=Ctrl\+Cmd\+R, (Pin|Unpin) session=Ctrl\+Cmd\+P, ((Close terminal|End background job)=Ctrl\+Cmd\+W, )?Archive=Ctrl\+Cmd\+A$/.test(keys.join(', ')), keys.join(', '));
+      check('the menu shows the chords', /^Rename…=Ctrl\+Cmd\+R, (Pin|Unpin) session=Ctrl\+Cmd\+P, (For 15 minutes=Ctrl\+Cmd\+1, For 1 hour=Ctrl\+Cmd\+2, For 3 hours=Ctrl\+Cmd\+3, Until [^=]+=Ctrl\+Cmd\+4, )?((Close terminal|End background job)=Ctrl\+Cmd\+W, )?Archive=Ctrl\+Cmd\+A$/.test(keys.join(', ')), keys.join(', '));
     })
     .catch(function (e) { check('ran', false, String(e) + ' at ' + title()); })
     .then(function () { say('done: ' + out.join('; ')); });

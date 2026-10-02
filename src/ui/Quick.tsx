@@ -81,7 +81,7 @@ import {
 } from '../start';
 import { duplicateOf, rankedBy, suggestions, sureness, todoTitle, worthRouting, type Suggestion } from '../route';
 import { dueWords } from '../due';
-import { liveOrLatest, sessionHomes } from '../lanes';
+import { liveOrLatest, seenable, sessionHomes } from '../lanes';
 import { attachmentsIn, blockedBy, insertAttachments, newTodo, snippet, todoItem, todoPrompt, todosPrompt, withoutAttachment } from '../todos';
 import type { Attachment, Board, DesktopPinned, DevicesView, Lane, Meter, PrItem, Route, Session, StartOptions, StartPlace, StartSpec, TextFound } from '../types';
 import { AttachmentStrip } from './DescriptionEditor';
@@ -1258,15 +1258,21 @@ export function Quick() {
         else void hideQuick();
         return;
       }
-      // Answering a session, only ⌘Q, ⌘H and ⌘] mean something here: the list's keys are for the
-      // list, and the session's own (⌘E, ⌃⌘A, ⌃⌘R, ⌃⌘P) are its card's (SessionCard.tsx). ] goes
-      // by its key's code, which layouts that type it with ⌥ keep.
+      // Answering a session, only ⌘Q, ⌘H and ⌘] mean something here, and ⌘E on a session that
+      // doesn't wait on you: the list's keys are for the list, and the session's own (⌘E, ⌃⌘A,
+      // ⌃⌘R, ⌃⌘P) are its card's (SessionCard.tsx). ] goes by its key's code, which layouts that
+      // type it with ⌥ keep.
       if (replying) {
         const k = e.key.toLowerCase();
         if (e.metaKey && !e.ctrlKey && !e.altKey && (k === 'q' || k === 'h')) {
           e.preventDefault();
           void hideQuick();
         } else if (e.metaKey && !e.ctrlKey && !e.shiftKey && e.code === 'BracketRight' && queued) {
+          e.preventDefault();
+          skip();
+        } else if (e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey && k === 'e' && queued && !seenable(replying.session) && !queue.some((r) => r.session.key === replying.session.key)) {
+          // ⌘E from a session that doesn't wait on you (it runs now, say) goes on as ⌘] does:
+          // there's nothing to mark seen.
           e.preventDefault();
           skip();
         }

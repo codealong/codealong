@@ -138,9 +138,12 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     the button while the box is empty; it says Stopping until the turn has ended. To work through what waits on
     you, ⌘⏎ in the box sends and goes on to the next session listed that waits on you (Needs
     you the longest wait first, then Your turn), or, while the session waits on a call that can
-    be allowed here, allows it and goes on; ⏎ sends and stays. ⌘E (or the check at the top
+    be allowed here, allows it and goes on; ⏎ sends and stays. ⌘⏎ on an answer you typed to a
+    session's questions answers and goes on too. ⌘E (or the check at the top
     of the panel) marks a finished turn seen and goes on, and the keys stay where they were,
-    so ⌘E works down the list or from box to box. ⌘] or ⌥⇧↓ skips to the next, ⌥⇧↑ goes back
+    so ⌘E works down the list or from box to box; from a session that doesn't wait on you (one
+    that runs, say) it goes on as ⌘] does. Snoozing, closing or archiving a session that waits
+    on you goes on to the next as well, by its key, the strip's button or its menu. ⌘] or ⌥⇧↓ skips to the next, ⌥⇧↑ goes back
     to the one before, and a skipped one comes round again after the rest. ⇧⌘F (or the button
     beside the check) expands
     the panel to the whole window, the list and sidebar out of the way while you work through
@@ -516,7 +519,7 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   keyboard from the click, with the cursor in the box, and works through what waits on you as a
   session's panel in Sessions does, with the same keys: ⌘⏎ sends (or allows what the session
   waits on) and goes on to the next that waits on you, ⌘E marks a finished turn seen and goes
-  on, ⌘] or ⌥⇧↓ skips to the next and ⌥⇧↑ goes back, ⌥↑ ⌥↓ step along the bar's sessions, the
+  on (from one that runs it goes on all the same), ⌘] or ⌥⇧↓ skips to the next and ⌥⇧↑ goes back, ⌥↑ ⌥↓ step along the bar's sessions, the
   running ones too, and ⌃- and ⌃⇧- go back and forward through the ones you looked at there. A
   strip over the header says how many more wait and how the last one went, and has what's
   commonly done to the session as buttons that say their keys, as its panel in Sessions has:

@@ -1,6 +1,6 @@
 // Checks the quick panel's reply view working through what waits on you (Quick.tsx, quick.ts
 // `queueAfter`): three sessions that need you and one whose turn ended, the longest wait first;
-// ⇥ answers the first, ⌘] skips, archiving, sending and marking seen go on to the next, a skipped
+// ⇥ answers the first, ⌘] skips, ⌘E on one that has started running does too, archiving, sending and marking seen go on to the next, a skipped
 // one comes round again, and after the last the panel closes.
 //   PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/queue-check.js
 // Every step should say ok.
@@ -28,6 +28,13 @@
     { status: 'unread', since: now - 10 * 60e3 },
   ];
   var picked = [];
+  // The board as the panel got it, to push again with a session's status changed.
+  var boardNow;
+  var push = function (key, status) {
+    var b = JSON.parse(JSON.stringify(boardNow));
+    b.lanes.forEach(function (l) { l.sessions.forEach(function (s) { if (s.key === key) { s.status = status; if (status === 'working') s.asks = false; else s.asks = true; } }); });
+    window.__emit('board', b);
+  };
   var real = window.__TAURI_INTERNALS__.invoke;
   window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {
     var p = real(cmd, args, options);
@@ -48,6 +55,7 @@
           picked.push(s.key);
         });
       });
+      boardNow = board;
       return board;
     });
   };
@@ -75,6 +83,26 @@
     .then(function () {
       check('⇥ answers the longest wait first', title() === 'Queue A', title());
       check('the strip says what’s left', /3 more waiting on you/.test(strip()), strip());
+      key(window, { key: ']', code: 'BracketRight', metaKey: true });
+      return on('Queue B');
+    })
+    .then(function () {
+      // B starts running while it shows: nothing to mark seen, so ⌘E goes on as ⌘] does.
+      push(picked[1], 'working');
+      return wait(300);
+    })
+    .then(function () {
+      key(window, { key: 'e', code: 'KeyE', metaKey: true });
+      return on('Queue A');
+    })
+    .then(function () {
+      // From one that doesn't wait on you, the next is the first that does.
+      check('⌘E on one that runs goes on to what waits, and marks nothing seen', title() === 'Queue A' && called('mark_seen') === 0, title());
+      // It waits on you again.
+      push(picked[1], 'needs');
+      return wait(300);
+    })
+    .then(function () {
       key(window, { key: ']', code: 'BracketRight', metaKey: true });
       return on('Queue B');
     })

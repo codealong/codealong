@@ -508,22 +508,25 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onAllowNext,
   const answerable = !!pending && !pending.cannot && !asks;
   const allowRef = useRef(answer);
   allowRef.current = answer;
+  // Where it goes on to next is read once the answer is in, as it is then.
+  const nextRef = useRef(onNext);
+  nextRef.current = onNext;
+  /** After an answer ⌘⏎ gave: on to the next that waits on you, where there's one to go on to. */
+  const andNext = (said: string) => nextRef.current?.(said);
   useEffect(() => {
     if (!keys || !answerable) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || !e.metaKey || e.altKey || e.ctrlKey || e.shiftKey || e.key !== 'Enter') return;
       e.preventDefault();
-      allowRef.current('allow');
+      // With the keyboard anywhere in the window, as from the box: it allows and goes on.
+      allowRef.current('allow', andNext);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [keys, answerable]);
-  // Where it goes on to next is read once the answer is in, as it is then.
-  const nextRef = useRef(onNext);
-  nextRef.current = onNext;
   useEffect(() => {
     if (!onAllowNext) return;
-    onAllowNext(answerable ? () => allowRef.current('allow', (said) => nextRef.current?.(said)) : null);
+    onAllowNext(answerable ? () => allowRef.current('allow', andNext) : null);
     return () => onAllowNext(null);
   }, [onAllowNext, answerable]);
 
@@ -571,7 +574,7 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onAllowNext,
         keys={keys}
         busy={busy}
         note={note}
-        onAnswer={(answers) => answer('allow', undefined, answers)}
+        onAnswer={(answers, on) => answer('allow', on ? andNext : undefined, answers)}
         onDecline={() => answer('deny')}
       />
     );
@@ -618,7 +621,9 @@ interface QuestionsProps {
   keys?: boolean;
   busy: boolean;
   note: { text: string; error: boolean } | null;
-  onAnswer: (answers: Answers) => void;
+  /** Your picks; `on` when ⌘⏎ gave them, which goes on to the next that waits on you as it
+   *  does from the box. The button answers and stays. */
+  onAnswer: (answers: Answers, on: boolean) => void;
   onDecline: () => void;
 }
 
@@ -652,16 +657,16 @@ function Questions({ questions, where, onOpen, keys, busy, note, onAnswer, onDec
     setOwn((all) => ({ ...all, [q.question]: text }));
     if (!q.multiSelect && text.trim()) setPicks((all) => ({ ...all, [q.question]: [] }));
   };
-  const answerRef = useRef(() => {});
-  answerRef.current = () => {
-    if (ready && !busy) onAnswer(answers);
+  const answerRef = useRef((_on: boolean) => {});
+  answerRef.current = (on) => {
+    if (ready && !busy) onAnswer(answers, on);
   };
   useEffect(() => {
     if (!keys) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || !e.metaKey || e.altKey || e.ctrlKey || e.shiftKey || e.key !== 'Enter') return;
       e.preventDefault();
-      answerRef.current();
+      answerRef.current(true);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -693,7 +698,20 @@ function Questions({ questions, where, onOpen, keys, busy, note, onAnswer, onDec
               );
             })}
           </div>
-          <input className="ca-question-own" type="text" placeholder={q.options.length ? 'Or type your own answer' : 'Type your answer'} value={own[q.question] ?? ''} disabled={busy} onChange={(e) => type(q, e.target.value)} />
+          <input
+            className="ca-question-own"
+            type="text"
+            placeholder={q.options.length ? 'Or type your own answer' : 'Type your answer'}
+            value={own[q.question] ?? ''}
+            disabled={busy}
+            onChange={(e) => type(q, e.target.value)}
+            onKeyDown={(e) => {
+              // ⌘⏎ from an answer you typed, in every window: it answers and goes on.
+              if (e.key !== 'Enter' || !e.metaKey || e.altKey || e.ctrlKey || e.shiftKey || e.nativeEvent.isComposing) return;
+              e.preventDefault();
+              answerRef.current(true);
+            }}
+          />
         </div>
       ))}
       <div className="ca-composer-foot">
@@ -701,7 +719,7 @@ function Questions({ questions, where, onOpen, keys, busy, note, onAnswer, onDec
         <Button size="sm" disabled={busy} onClick={onDecline}>
           Decline
         </Button>
-        <Button variant="primary" size="sm" icon="check" kbd={keys ? ['⌘', '⏎'] : undefined} disabled={busy || !ready} onClick={() => answerRef.current()}>
+        <Button variant="primary" size="sm" icon="check" kbd={keys ? ['⌘', '⏎'] : undefined} disabled={busy || !ready} onClick={() => answerRef.current(false)}>
           Answer
         </Button>
       </div>

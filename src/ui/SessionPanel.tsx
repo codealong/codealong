@@ -141,7 +141,12 @@ export function QueueStrip({ queue, notice, hotkeys, session, actions, onSeen }:
   const gap = <span className="ca-hotkeys-gap" aria-hidden="true" />;
   const buttons: ReactNode = (
     <div className="ca-hotkeys" role="toolbar" aria-label="What’s commonly done to this session">
-      <Hotkey label="Seen" keys={sign('seen')} title={next && queue?.waiting !== false ? 'Mark as seen and go on to the next' : 'Mark as seen: it goes idle and leaves what waits on you'} run={seen && (() => seen())} />
+      <Hotkey
+        label="Seen"
+        keys={sign('seen')}
+        title={!seen ? (next && queue?.waiting === false ? 'Nothing to mark as seen here: ⌘E goes on to the next' : 'Nothing to mark as seen here') : next && queue?.waiting !== false ? 'Mark as seen and go on to the next' : 'Mark as seen: it goes idle and leaves what waits on you'}
+        run={seen && (() => seen())}
+      />
       <Hotkey label="Snooze" keys="⌃⌘1–4" title={snooze ? `Snooze: it waits apart until its time comes. ${snoozeKeys(snooze)}` : 'It can’t be snoozed'} run={snooze && ((el) => void showContextMenu(snooze.items, below(el)).catch(() => {}))} />
       <Hotkey label={close?.label === 'End background job' ? 'End job' : 'Close terminal'} keys={sign('close')} title={close ? `${close.label}: the conversation stays, to go on with later` : 'It has no terminal of its own to close'} run={close && (() => close.run())} />
       <Hotkey label={archive?.label === 'Unarchive' ? 'Unarchive' : 'Archive'} keys={sign('archive')} title={archive?.label ?? 'Archive'} run={archive && (() => archive.run())} />

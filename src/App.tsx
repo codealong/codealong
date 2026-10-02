@@ -956,12 +956,28 @@ export function App() {
   };
   /** Marks a finished turn seen and, when it was waiting on you, goes on to the next that is. The
    *  keyboard stays where it was: on the list, `e` works down it; from a box, the next one's box
-   *  takes the cursor. */
+   *  takes the cursor. From a session that doesn't wait on you (it runs, say) there's nothing to
+   *  mark seen, and it goes on as ⌘] does: ⌘E is done with this one. One that waits on a call
+   *  to allow stays: ⌘E doesn't answer it. */
   const seenAndOn = (from: string, s: Session, box: boolean) => {
-    if (!seenable(s)) return;
     const waiting = waitingNow.current.some((r) => r.session.key === s.key);
+    if (!seenable(s)) {
+      if (!waiting) goOn(from, s, null, box);
+      return;
+    }
     markSeen([s.key]);
     if (waiting) goOn(from, s, 'marked seen.', box);
+  };
+  /** A session's menu, its chords or the strip's buttons took it off what waits on you (snoozed,
+   *  closed, archived, marked seen): from the one shown in Sessions, on to the next that waits, as
+   *  ⌘E goes, the keyboard staying where it was. One that didn't wait on you stays as it is:
+   *  archiving down a list of old sessions doesn't jump to one that needs you. */
+  const leftAndOn = (lane: Lane, s: Session, done: menus.Left) => {
+    if (!waitingNow.current.some((r) => r.session.key === s.key)) return;
+    goOn(`${lane.id}::${s.key}`, s, `${done}.`, !!document.activeElement?.closest('.ca-sessinsp .ca-composer'));
+    // A snooze shows at once and ends by itself: when its time comes the session waits on you
+    // again, with the status it had.
+    if (done === 'snoozed') handled.current.delete(s.key);
   };
   useEffect(() => {
     if (!queueNote) return;
@@ -1464,7 +1480,11 @@ export function App() {
           : { label: lanePins.set.has(lane.id) ? 'Unpin worktree' : 'Pin worktree', run: () => toggleLanePin(lane) },
       desktop: onDesktop,
       rename: () => setRenaming(s.key),
-      archive: (archived) => setArchived(s.key, archived, s.title),
+      archive: (archived) => {
+        if (archived) leftAndOn(lane, s, 'archived');
+        setArchived(s.key, archived, s.title);
+      },
+      left: (done) => leftAndOn(lane, s, done),
       canvas: canvasItem('session', s.key),
   });
   const sessionMenuSpec = (lane: Lane, s: Session, pin: 'session' | 'worktree'): MenuSpec => menus.sessionMenu(lane, s, sessionCan(lane, s, pin));
@@ -1688,8 +1708,8 @@ export function App() {
         if (selected?.kind === 'agent') goOn(selected.key, selected.session, null);
         return;
       }
-      // ⌘E marks a finished turn seen and goes on, from the panel's box too. Elsewhere it marks
-      // seen as `e` does (below).
+      // ⌘E marks a finished turn seen and goes on, from the panel's box too; from a session that
+      // doesn't wait on you it goes on as ⌘] does. Elsewhere it marks seen as `e` does (below).
       if (mod && !e.ctrlKey && !e.shiftKey && !e.altKey && key === 'e' && view === 'sessions') {
         e.preventDefault();
         if (selected?.kind === 'agent') seenAndOn(selected.key, selected.session, inBox);

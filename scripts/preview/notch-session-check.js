@@ -131,6 +131,24 @@
       check('on one that doesn’t wait the strip says what does, not what more', !!note && /^3 waiting on you/.test(note.textContent), note ? note.textContent : 'no strip');
       var labels = Array.prototype.map.call(document.querySelectorAll('.ca-notch-session .ca-hotkeys .ca-hotkey'), function (b) { return b.textContent; });
       check('the strip has the common actions with their keys', labels.join('|') === 'Seen⌘E|Snooze⌃⌘1–4|' + labels[2] + '|Archive⌃⌘A|Back⌃-|Next⌘]|esc' && /⌃⌘W$/.test(labels[2]), labels.join('|'));
+      // Nothing to mark seen on one that runs: ⌘E goes on as ⌘] does.
+      key({ key: 'e', metaKey: true });
+      return until(shows(items[0]), 3000, '⌘E from one running');
+    })
+    .then(function () {
+      check('⌘E from one that runs goes on to the first that waits, and marks nothing seen', calls('mark_seen').length === 0, JSON.stringify(calls('mark_seen')));
+      key({ key: 'ArrowDown', altKey: true });
+      return until(shows(items[1]), 3000, 'back along the bar');
+    })
+    .then(function () {
+      key({ key: 'ArrowDown', altKey: true });
+      return until(shows(items[2]), 3000, 'back along the bar');
+    })
+    .then(function () {
+      key({ key: 'ArrowDown', altKey: true });
+      return until(shows(items[3]), 3000, 'back to the one running');
+    })
+    .then(function () {
       key({ key: ']', code: 'BracketRight', metaKey: true });
       return until(shows(items[0]), 3000, '⌘] from one running');
     })
