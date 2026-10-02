@@ -2168,7 +2168,7 @@ export function App() {
       worktreeTodos={todoLinks.byWorktree.get(r.lane.id)}
       todosFor={todosFor}
       onShowTodo={showTodo}
-      {...drag}
+      drag={drag}
     />
   );
 

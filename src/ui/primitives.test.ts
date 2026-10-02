@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import * as fx from '../testing/fixtures';
 import type { GitInfo } from '../types';
-import { Chip, chipHandlers, driftWords, HarnessChip, MoreChip, PrChip, Seg } from './primitives';
+import { Chip, chipHandlers, driftWords, HarnessChip, MoreChip, PrChip, Row, rowMenu, Seg, selects } from './primitives';
 
 describe('driftWords', () => {
   const git = (g: Partial<GitInfo>): GitInfo => fx.git({ base: 'origin/main', baseAhead: 0, baseBehind: 0, ...g });
@@ -145,5 +145,43 @@ describe('MoreChip', () => {
   it('counts what a row left out and names it on hover', () => {
     expect(renderToStaticMarkup(createElement(MoreChip, { names: ['a', 'b'], className: 'is-wide' }))).toBe('<span class="ca-chip ca-chip--more is-wide" title="a\nb">+2</span>');
     expect(renderToStaticMarkup(createElement(MoreChip, { names: [] }))).toBe('');
+  });
+});
+
+describe('Row', () => {
+  const html = (props: object) => renderToStaticMarkup(createElement(Row, props, 'x'));
+
+  it('is an option that says whether it is selected', () => {
+    expect(html({ id: 'row-a', className: 'ca-lane is-agent' })).toBe('<div id="row-a" role="option" aria-selected="false" class="ca-lane is-agent">x</div>');
+    expect(html({ className: 'ca-lane', selected: true })).toBe('<div role="option" aria-selected="true" class="ca-lane is-selected">x</div>');
+  });
+
+  it('is a named group where it holds rows of its own', () => {
+    expect(html({ role: 'group', label: 'main, 2 agents', className: 'ca-lane is-group' })).toBe('<div role="group" aria-label="main, 2 agents" class="ca-lane is-group">x</div>');
+  });
+
+  it('carries its place and a grip when it can be dragged', () => {
+    const out = html({ className: 'ca-lane', drag: { pinIndex: 1, onPointerDown: () => {}, extraClass: 'is-drop-before' } });
+    expect(out).toMatch(/^<div role="option" aria-selected="false" class="ca-lane is-drop-before" data-pin-index="1"><span class="ca-grip" aria-hidden="true"><svg/);
+    expect(html({ className: 'ca-lane', drag: { onPointerDown: () => {} } })).not.toContain('data-pin-index');
+  });
+});
+
+describe('a row and the mouse', () => {
+  it('is selected by the main button, not by a right-click or a ⌃-click', () => {
+    expect(selects({ button: 0, ctrlKey: false })).toBe(true);
+    expect(selects({ button: 2, ctrlKey: false })).toBe(false);
+    expect(selects({ button: 0, ctrlKey: true })).toBe(false);
+  });
+
+  it('shows its menu on a right-click, in place of any other', () => {
+    const show = vi.fn();
+    const e = { preventDefault: vi.fn(), stopPropagation: vi.fn() };
+    rowMenu(show)?.(e);
+    expect(show).toHaveBeenCalledTimes(1);
+    expect(e.preventDefault).toHaveBeenCalled();
+    // A session's line on its worktree's row: the worktree's menu doesn't come up too.
+    expect(e.stopPropagation).toHaveBeenCalled();
+    expect(rowMenu(undefined)).toBeUndefined();
   });
 });

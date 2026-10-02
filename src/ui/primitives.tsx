@@ -9,6 +9,7 @@ import type { Bay, GitInfo, Lane, LogoStatus, Pr, PrState, Session, Status, Surf
 import { LOGO_LABEL } from '../logo';
 import { ICONS } from './icons';
 import { MARK_PATHS, MARK_VIEW_BOX } from './brand';
+import type { DragProps } from './useRowDrag';
 import { useFocusTrap } from './focusTrap';
 import { useEscape } from './useDismiss';
 
@@ -442,6 +443,64 @@ export function WorktreeChip({ lane, short = false }: { lane: Lane; short?: bool
  *  as a right-click. A right-click opens the row's menu and leaves the selection where it was. */
 export function selects(e: { button: number; ctrlKey: boolean }): boolean {
   return e.button === 0 && !e.ctrlKey;
+}
+
+/** A row's answer to a right-click: its own menu in place of the webview's, and in place of
+ *  the menu of a row it's on (an agent's line on its worktree's row). */
+export function rowMenu(show: (() => void) | undefined): ((e: Pick<ReactMouseEvent, 'preventDefault' | 'stopPropagation'>) => void) | undefined {
+  if (!show) return undefined;
+  return (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    show();
+  };
+}
+
+interface RowProps {
+  id?: string;
+  /** An `option` (the default) is a row the list selects. A `group` holds rows of its own (a
+   *  worktree's agents, each a line): it isn't selected itself, and `label` says what it is. */
+  role?: 'option' | 'group';
+  label?: string;
+  selected?: boolean;
+  className?: string;
+  /** Dragging it (`useRowDrag`'s `rowProps`): where it starts, its place among the ordered rows,
+   *  the marks of a drag under way, and with them the grip at its start. */
+  drag?: DragProps;
+  /** A press with the main button selects it; the event says which keys were held. */
+  onSelect?: (e: ReactMouseEvent) => void;
+  /** A double-click opens it. */
+  onOpen?: (e: ReactMouseEvent) => void;
+  /** A right-click (or ⌃-click) opens its menu and doesn't select it: the menu is for the row
+   *  under the pointer, which contextMenu.ts rings while the menu is up. */
+  onMenu?: () => void;
+  children?: ReactNode;
+}
+
+/** A list's row: every list's rows are this, so a press, a double-click, a right-click and a
+ *  drag mean the same in each. What's in the row, and its classes, are the list's own. */
+export function Row({ id, role = 'option', label, selected = false, className, drag, onSelect, onOpen, onMenu, children }: RowProps) {
+  return (
+    <div
+      id={id}
+      role={role}
+      aria-label={label}
+      aria-selected={role === 'option' ? selected : undefined}
+      className={cx(className, selected && 'is-selected', drag?.extraClass)}
+      data-pin-index={drag?.pinIndex}
+      onPointerDown={drag?.onPointerDown}
+      onMouseDown={onSelect && ((e) => selects(e) && onSelect(e))}
+      onDoubleClick={onOpen}
+      onContextMenu={rowMenu(onMenu)}
+    >
+      {drag && (
+        <span className="ca-grip" aria-hidden="true">
+          <Icon name="grip-vertical" size={10} />
+        </span>
+      )}
+      {children}
+    </div>
+  );
 }
 
 /** A PR's number, state and checks. With `onMenu`, a right-click on it shows the PR's own menu

@@ -21,6 +21,29 @@ export function looseEqual(a: unknown, b: unknown, depth: number): boolean {
   return ka.every((k) => k in b && looseEqual((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k], depth - 1));
 }
 
+type Fn = (...args: unknown[]) => unknown;
+
+function plain(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && Object.getPrototypeOf(v) === Object.prototype;
+}
+
+/** `props` with a stand-in (`standIn(key)`) for each callback, and for each callback one level
+ *  into a plain object (`standIn(key, field)`): props that go together, as a row's `drag` does,
+ *  carry callbacks too. `reads` are left as they are. */
+export function stoodIn(props: Record<string, unknown>, reads: readonly string[], standIn: (key: string, field?: string) => Fn): Record<string, unknown> {
+  const passed = { ...props };
+  for (const k of Object.keys(passed)) {
+    const v = passed[k];
+    if (reads.includes(k)) continue;
+    if (typeof v === 'function') passed[k] = standIn(k);
+    else if (plain(v)) {
+      const fields = Object.keys(v).filter((f) => typeof v[f] === 'function');
+      if (fields.length > 0) passed[k] = { ...v, ...Object.fromEntries(fields.map((f) => [f, standIn(k, f)])) };
+    }
+  }
+  return passed;
+}
+
 /** `Component`, skipping renders whose props are `looseEqual` to the last ones. Functions it
  *  calls while rendering (`reads`) are compared as values instead: the row must render again
  *  when one changes, so pass ones that stay the same while their answers do. */
@@ -34,17 +57,20 @@ export function memoRow<P extends object>(Component: ComponentType<P>, reads: (k
     // skipped render never leaves the row calling an old closure.
     const latest = useRef(props);
     latest.current = props;
-    const stand = useRef(new Map<string, (...args: unknown[]) => unknown>());
-    const passed = { ...props } as Record<string, unknown>;
-    for (const k of Object.keys(passed)) {
-      if (typeof passed[k] !== 'function' || (reads as string[]).includes(k)) continue;
-      let f = stand.current.get(k);
+    const stand = useRef(new Map<string, Fn>());
+    const passed = stoodIn(props as Record<string, unknown>, reads, (k, field) => {
+      const path = field === undefined ? k : `${k}.${field}`;
+      let f = stand.current.get(path);
       if (!f) {
-        f = (...args: unknown[]) => (latest.current as Record<string, (...a: unknown[]) => unknown>)[k]?.(...args);
-        stand.current.set(k, f);
+        f = (...args: unknown[]) => {
+          const now = (latest.current as Record<string, unknown>)[k];
+          const call = field === undefined ? now : (now as Record<string, unknown> | undefined)?.[field];
+          return typeof call === 'function' ? (call as Fn)(...args) : undefined;
+        };
+        stand.current.set(path, f);
       }
-      passed[k] = f;
-    }
+      return f;
+    });
     return createElement(Inner as unknown as ComponentType<Record<string, unknown>>, passed);
   }
   Row.displayName = `memoRow(${Component.displayName ?? Component.name})`;

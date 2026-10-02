@@ -141,7 +141,7 @@ export function SessionsView(props: SessionsViewProps) {
   });
 
   /** A session's row: `index` is its place among the pinned ones; the archived aren't dragged. */
-  const row = (r: SessionItem, index: number | null, props?: DragProps) => (
+  const row = (r: SessionItem, index: number | null, held?: DragProps) => (
     <AgentRow
       key={r.key}
       lane={r.lane}
@@ -159,7 +159,7 @@ export function SessionsView(props: SessionsViewProps) {
       onPrOpen={() => onPrOpen(r)}
       todos={todosFor?.(r.session.key)}
       onShowTodo={onShowTodo}
-      {...props}
+      drag={held}
     />
   );
 

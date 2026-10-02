@@ -5,12 +5,13 @@
 import { REUSE_WORDS } from '../reusable';
 import { DeviceBadge } from './DeviceBadge';
 import { memoRow } from './memoRow';
-import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
+import type { MouseEvent as ReactMouseEvent } from 'react';
 import { absolute, ago, agoPhrase, count, middleTruncate, untilShort } from '../format';
 import { startedOf, worktreeName, type AgentItem, type WorktreeRow } from '../lanes';
 import { untilWords } from '../snooze';
 import type { GitInfo, Lane, Session, Todo } from '../types';
-import { Chip, driftWords, HarnessChip, Icon, LaneGlyph, MoreChip, PrChip, Rich, selects, STATUS_WORD, StatusGlyph, WorktreeChip } from './primitives';
+import { Chip, cx, driftWords, HarnessChip, Icon, LaneGlyph, MoreChip, PrChip, Rich, Row, selects, STATUS_WORD, StatusGlyph, WorktreeChip } from './primitives';
+import type { DragProps } from './useRowDrag';
 import { FlagChip, InsightChips, LooksFinished } from './InsightBits';
 import { PreviewChip } from './PreviewBits';
 import { TodoChips } from './TodoBits';
@@ -36,11 +37,8 @@ interface LaneRowProps {
   onPrMenu?: () => void;
   /** A click on its PR: opens it on GitHub. */
   onPrOpen?: () => void;
-  /** Position among pinned rows, for dragging them into a new order. */
-  pinIndex?: number;
-  /** Starts a drag of the row (useRowDrag.tsx): among the pinned ones, or out of the window. */
-  onPointerDown?: (e: ReactPointerEvent<HTMLDivElement>) => void;
-  extraClass?: string;
+  /** Dragging the row (useRowDrag.tsx): among the pinned ones, or out of the window. */
+  drag?: DragProps;
   /** Todos the worktree or its sessions are linked to: a row without agent lines shows them. */
   todos?: Todo[];
   /** Todos linked to the worktree itself: a row with agent lines shows them at its foot. */
@@ -193,17 +191,6 @@ function PinMark() {
   );
 }
 
-/** Right-click handler that shows our menu instead of the webview's. */
-function menu(show: (() => void) | undefined) {
-  return show
-    ? (e: { preventDefault: () => void; stopPropagation: () => void }) => {
-        e.preventDefault();
-        e.stopPropagation();
-        show();
-      }
-    : undefined;
-}
-
 function LaneRowView(props: LaneRowProps) {
   return props.row.agents.length > 0 ? <GroupRow {...props} /> : <WorktreeOnlyRow {...props} />;
 }
@@ -212,27 +199,20 @@ function LaneRowView(props: LaneRowProps) {
 export const LaneRow = memoRow(LaneRowView, ['domId', 'todosFor']);
 
 /** A worktree with no agent that needs you, is working or just finished: its sentence, and chips for its recent sessions. */
-function WorktreeOnlyRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpenTarget, pinned, onContextMenu, onPrMenu, onPrOpen, pinIndex, onPointerDown, extraClass, todos, onShowTodo }: LaneRowProps) {
+function WorktreeOnlyRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpenTarget, pinned, onContextMenu, onPrMenu, onPrOpen, drag, todos, onShowTodo }: LaneRowProps) {
   const { lane } = row;
   const chips = currentSessions(lane, now);
   const selected = selectedKey === lane.id;
   return (
-    <div
+    <Row
       id={domId(lane.id)}
-      role="option"
-      aria-selected={selected}
-      className={['ca-lane', 'is-worktree', `is-${lane.bay}`, selected && 'is-selected', pinned && 'is-pinned', away(lane) && 'is-away', extraClass].filter(Boolean).join(' ')}
-      data-pin-index={pinIndex}
-      onPointerDown={onPointerDown}
-      onMouseDown={(e) => selects(e) && onSelect(lane.id)}
-      onDoubleClick={() => onOpen(lane)}
-      onContextMenu={menu(onContextMenu)}
+      selected={selected}
+      className={cx('ca-lane', 'is-worktree', `is-${lane.bay}`, pinned && 'is-pinned', away(lane) && 'is-away')}
+      drag={drag}
+      onSelect={() => onSelect(lane.id)}
+      onOpen={() => onOpen(lane)}
+      onMenu={onContextMenu}
     >
-      {onPointerDown && (
-        <span className="ca-grip" aria-hidden="true">
-          <Icon name="grip-vertical" size={10} />
-        </span>
-      )}
       <div className="ca-seg ca-seg-glyph">
         <LaneGlyph lane={lane} />
       </div>
@@ -277,7 +257,7 @@ function WorktreeOnlyRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpe
         {lane.lastActivity ? ago(lane.lastActivity, now) : ''}
         {pinned && <PinMark />}
       </div>
-    </div>
+    </Row>
   );
 }
 
@@ -299,7 +279,7 @@ function LaneLinks({ lane, now, onOpenTarget, onPrMenu, onPrOpen }: { lane: Lane
  * A worktree with agents that need you, are working or just finished: the worktree once on the
  * left, and a line for each agent, which you select, open and right-click like a row of its own.
  */
-function GroupRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpenTarget, pinned, onContextMenu, onAgentMenu, onPrMenu, onPrOpen, pinIndex, onPointerDown, extraClass, worktreeTodos, todosFor, onShowTodo }: LaneRowProps) {
+function GroupRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpenTarget, pinned, onContextMenu, onAgentMenu, onPrMenu, onPrOpen, drag, worktreeTodos, todosFor, onShowTodo }: LaneRowProps) {
   const { lane, agents } = row;
   const listed = new Set(agents.map((a) => a.session.key));
   // Recent sessions without a line of their own: finished a while ago, or visiting.
@@ -314,21 +294,13 @@ function GroupRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpenTarget
     if (selects(e)) selectFirst();
   };
   return (
-    <div
+    <Row
       role="group"
-      aria-label={`${lane.callsign}, ${agents.length} ${agents.length === 1 ? 'agent' : 'agents'}`}
-      className={['ca-lane', 'is-worktree', 'is-group', `is-${lane.bay}`, agents.length > 1 && 'is-tall', hasSelection && 'has-selection', pinned && 'is-pinned', away(lane) && 'is-away', extraClass]
-        .filter(Boolean)
-        .join(' ')}
-      data-pin-index={pinIndex}
-      onPointerDown={onPointerDown}
-      onContextMenu={menu(onContextMenu)}
+      label={`${lane.callsign}, ${agents.length} ${agents.length === 1 ? 'agent' : 'agents'}`}
+      className={cx('ca-lane', 'is-worktree', 'is-group', `is-${lane.bay}`, agents.length > 1 && 'is-tall', hasSelection && 'has-selection', pinned && 'is-pinned', away(lane) && 'is-away')}
+      drag={drag}
+      onMenu={onContextMenu}
     >
-      {onPointerDown && (
-        <span className="ca-grip" aria-hidden="true">
-          <Icon name="grip-vertical" size={10} />
-        </span>
-      )}
       <div className="ca-seg ca-seg-glyph" onMouseDown={pressFirst} onDoubleClick={() => onOpen(lane)}>
         <LaneGlyph lane={lane} />
       </div>
@@ -373,7 +345,7 @@ function GroupRow({ row, now, selectedKey, domId, onSelect, onOpen, onOpenTarget
           </div>
         )}
       </div>
-    </div>
+    </Row>
   );
 }
 
@@ -417,15 +389,7 @@ interface AgentLineProps {
 function AgentLine({ item, now, domId, selected, pinned, onSelect, onOpen, onContextMenu, todos, onShowTodo }: AgentLineProps) {
   const s = item.session;
   return (
-    <div
-      id={domId}
-      role="option"
-      aria-selected={selected}
-      className={['ca-agentline', `is-${s.status === 'error' ? 'needs' : s.status}`, selected && 'is-selected'].filter(Boolean).join(' ')}
-      onMouseDown={(e) => selects(e) && onSelect()}
-      onDoubleClick={onOpen}
-      onContextMenu={menu(onContextMenu)}
-    >
+    <Row id={domId} selected={selected} className={cx('ca-agentline', `is-${s.status === 'error' ? 'needs' : s.status}`)} onSelect={onSelect} onOpen={onOpen} onMenu={onContextMenu}>
       <span className="ca-agentline-main">
         <StatusGlyph status={s.status} size={10} />
         <SessionText s={s} now={now} />
@@ -439,7 +403,7 @@ function AgentLine({ item, now, domId, selected, pinned, onSelect, onOpen, onCon
         {ago(s.lastActivity, now)}
         {pinned && <PinMark />}
       </span>
-    </div>
+    </Row>
   );
 }
 
@@ -462,11 +426,8 @@ interface AgentRowProps {
   onPrMenu?: () => void;
   /** A click on its worktree's PR: opens it on GitHub. */
   onPrOpen?: () => void;
-  /** Position among pinned rows, for dragging them into a new order. */
-  pinIndex?: number;
-  /** Starts a drag of the row (useRowDrag.tsx): among the pinned ones, or out of the window. */
-  onPointerDown?: (e: ReactPointerEvent<HTMLDivElement>) => void;
-  extraClass?: string;
+  /** Dragging the row (useRowDrag.tsx): among the pinned ones, or out of the window. */
+  drag?: DragProps;
   /** Todos the session is linked to. */
   todos?: Todo[];
   onShowTodo?: (todo: Todo) => void;
@@ -490,28 +451,19 @@ function SnoozeChip({ session: s, now }: { session: Session; now: number }) {
  * insights, its account, and the worktree's PR and diff). On one line (`slim`): what it's about,
  * then its worktree and PR at the line's end.
  */
-function AgentRowView({ lane, session: s, domId, now, age, slim = false, selected, onSelect, onOpen, pinned, onContextMenu, onPrMenu, onPrOpen, pinIndex, onPointerDown, extraClass, todos, onShowTodo }: AgentRowProps) {
+function AgentRowView({ lane, session: s, domId, now, age, slim = false, selected, onSelect, onOpen, pinned, onContextMenu, onPrMenu, onPrOpen, drag, todos, onShowTodo }: AgentRowProps) {
   const started = age === 'started';
   const pr = lane.pr && <PrChip pr={lane.pr} compact onMenu={onPrMenu} onOpen={onPrOpen} inRow />;
   return (
-    <div
+    <Row
       id={domId}
-      role="option"
-      aria-selected={selected}
-      className={['ca-lane', 'is-agent', slim && 'is-slim', `is-${s.status === 'error' ? 'needs' : s.status}`, s.snoozedUntil != null && 'is-snoozed', selected && 'is-selected', pinned && 'is-pinned', away(lane) && 'is-away', extraClass]
-        .filter(Boolean)
-        .join(' ')}
-      data-pin-index={pinIndex}
-      onPointerDown={onPointerDown}
-      onMouseDown={(e) => selects(e) && onSelect()}
-      onDoubleClick={onOpen}
-      onContextMenu={menu(onContextMenu)}
+      selected={selected}
+      className={cx('ca-lane', 'is-agent', slim && 'is-slim', `is-${s.status === 'error' ? 'needs' : s.status}`, s.snoozedUntil != null && 'is-snoozed', pinned && 'is-pinned', away(lane) && 'is-away')}
+      drag={drag}
+      onSelect={onSelect}
+      onOpen={onOpen}
+      onMenu={onContextMenu}
     >
-      {onPointerDown && (
-        <span className="ca-grip" aria-hidden="true">
-          <Icon name="grip-vertical" size={10} />
-        </span>
-      )}
       {/* One line leaves the account out: the status says it when pointed at. */}
       <div className="ca-seg ca-seg-glyph" title={slim ? `${STATUS_WORD[s.status]} · ${s.account}` : undefined}>
         <StatusGlyph status={s.status} />
@@ -559,7 +511,7 @@ function AgentRowView({ lane, session: s, domId, now, age, slim = false, selecte
         {ago(started ? startedOf(s) : s.lastActivity, now)}
         {pinned && <PinMark />}
       </div>
-    </div>
+    </Row>
   );
 }
 

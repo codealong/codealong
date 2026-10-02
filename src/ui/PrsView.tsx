@@ -9,7 +9,7 @@ import { prFlag } from '../prStatus';
 import type { Checks, GitInfo, Lane, PrItem, Session } from '../types';
 import { PinnedSection } from './PinnedSection';
 import { PrPills } from './PrPills';
-import { HarnessChip, Icon, MoreChip, PR_ICON, PR_WORD, selects, WorktreeChip } from './primitives';
+import { cx, HarnessChip, Icon, MoreChip, PR_ICON, PR_WORD, Row, WorktreeChip } from './primitives';
 import { useRowDrag, type DragProps } from './useRowDrag';
 
 export interface PrRowItem {
@@ -139,25 +139,15 @@ function PrRow({ item, domId, now, selected, approving, onSelect, onOpen, onAppr
   const flag = prFlag(pr);
   const shown = item.sessions.slice(0, 2);
   return (
-    <div
+    <Row
       id={domId}
-      role="option"
-      aria-selected={selected}
-      className={['ca-lane', 'ca-prrow', requested && 'is-requested', flag && `is-flag-${flag}`, selected && 'is-selected', drag?.pinIndex != null && 'is-pinned', drag?.extraClass].filter(Boolean).join(' ')}
-      data-pin-index={drag?.pinIndex}
-      onPointerDown={drag?.onPointerDown}
-      onMouseDown={(e) => selects(e) && onSelect()}
-      onDoubleClick={onOpen}
-      onContextMenu={(e) => {
-        e.preventDefault();
-        onContextMenu();
-      }}
+      selected={selected}
+      className={cx('ca-lane', 'ca-prrow', requested && 'is-requested', flag && `is-flag-${flag}`, drag?.pinIndex != null && 'is-pinned')}
+      drag={drag}
+      onSelect={onSelect}
+      onOpen={onOpen}
+      onMenu={onContextMenu}
     >
-      {drag && (
-        <span className="ca-grip" aria-hidden="true">
-          <Icon name="grip-vertical" size={10} />
-        </span>
-      )}
       <div className="ca-seg ca-seg-glyph">
         <PrGlyph pr={pr} />
       </div>
@@ -217,7 +207,7 @@ function PrRow({ item, domId, now, selected, approving, onSelect, onOpen, onAppr
       <div className="ca-seg ca-seg-age" title={`Updated ${absolute(pr.updatedAt)}`}>
         {ago(pr.updatedAt, now)}
       </div>
-    </div>
+    </Row>
   );
 }
 

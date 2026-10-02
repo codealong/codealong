@@ -11,7 +11,7 @@ import { forwardRef, type ReactNode } from 'react';
 import { absolute, ago, middleTruncate } from '../format';
 import { attachmentsIn, blockedBy, SECTION_WORD, snippet, todoPr, type TodoItem, type TodoSection, type TodoSectionId } from '../todos';
 import type { Label, Lane, Session, Todo, TodoHint, TodoStatus } from '../types';
-import { Chip, HarnessChip, Icon, Kbd, MoreChip, PrChip, selects, WorktreeChip } from './primitives';
+import { Chip, cx, HarnessChip, Icon, Kbd, MoreChip, PrChip, Row, WorktreeChip } from './primitives';
 import { DueChip, LabelChip, TodoGlyph } from './TodoBits';
 import { useRowDrag, type DragProps } from './useRowDrag';
 
@@ -108,32 +108,19 @@ function TodoRow({ item, section, domId, now, selected, showProject, onSelect, o
   const waiting = todo.pending.length > 0;
   const attached = attachmentsIn(todo.description);
   return (
-    <div
+    <Row
       id={domId}
-      role="option"
-      aria-selected={selected}
-      className={['ca-lane', 'ca-todorow', `is-${todo.status}`, selected && 'is-selected', drag?.extraClass].filter(Boolean).join(' ')}
-      data-pin-index={drag?.pinIndex}
-      onPointerDown={drag?.onPointerDown}
-      onMouseDown={(e) => {
-        // A right-click (or ⌃-click) leaves the selection alone: on a picked row, the menu is for
-        // all of them.
-        if (!selects(e)) return;
-        onSelect(e.metaKey ? 'toggle' : e.shiftKey ? 'range' : 'one');
-      }}
-      onDoubleClick={(e) => {
+      selected={selected}
+      className={cx('ca-lane', 'ca-todorow', `is-${todo.status}`)}
+      drag={drag}
+      // ⌘ adds it to the ones picked or leaves it out, ⇧ picks the rows up to it. A right-click
+      // leaves the selection alone: on a picked row, the menu is for all of them.
+      onSelect={(e) => onSelect(e.metaKey ? 'toggle' : e.shiftKey ? 'range' : 'one')}
+      onOpen={(e) => {
         if (!e.metaKey && !e.shiftKey) onOpen();
       }}
-      onContextMenu={(e) => {
-        e.preventDefault();
-        onContextMenu();
-      }}
+      onMenu={onContextMenu}
     >
-      {drag && (
-        <span className="ca-grip" aria-hidden="true">
-          <Icon name="grip-vertical" size={10} />
-        </span>
-      )}
       <div className="ca-seg ca-seg-glyph">
         <TodoGlyph status={todo.status} waiting={section === 'waiting'} />
       </div>
@@ -196,7 +183,7 @@ function TodoRow({ item, section, domId, now, selected, showProject, onSelect, o
       <div className="ca-seg ca-seg-age" title={absolute(item.lastActivity)}>
         {ago(item.lastActivity, now)}
       </div>
-    </div>
+    </Row>
   );
 }
 
