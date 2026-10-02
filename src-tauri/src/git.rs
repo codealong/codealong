@@ -79,9 +79,7 @@ fn git_dir(path: &Path) -> Option<PathBuf> {
     if dot.is_dir() {
         return Some(dot);
     }
-    let text = std::fs::read_to_string(&dot).ok()?;
-    let dir = PathBuf::from(text.trim().strip_prefix("gitdir:")?.trim());
-    Some(if dir.is_absolute() { dir } else { path.join(dir) })
+    crate::repos::linked_gitdir(path)
 }
 
 /// A reflog line's time, in ms, when it starts new work. A line is `<old> <new> <who> <seconds>

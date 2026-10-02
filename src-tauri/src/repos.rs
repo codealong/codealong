@@ -94,6 +94,15 @@ pub fn discover(roots: &[PathBuf], depth: usize) -> Vec<Checkout> {
     out
 }
 
+/// The git folder a linked worktree's `.git` file names (`<main>/.git/worktrees/<name>`). Git
+/// writes it relative to the worktree when `worktree.useRelativePaths` is set (from 2.48), so
+/// a relative one is joined to the worktree.
+pub fn linked_gitdir(worktree: &Path) -> Option<PathBuf> {
+    let text = std::fs::read_to_string(worktree.join(".git")).ok()?;
+    let dir = PathBuf::from(text.trim().strip_prefix("gitdir:")?.trim());
+    Some(if dir.is_absolute() { dir } else { worktree.join(dir) })
+}
+
 /// The worktree root containing `path` and the main checkout it belongs to.
 pub fn locate(path: &Path) -> Option<(PathBuf, PathBuf)> {
     let mut dir = Some(path);
@@ -103,9 +112,7 @@ pub fn locate(path: &Path) -> Option<(PathBuf, PathBuf)> {
             return Some((d.to_path_buf(), d.to_path_buf()));
         }
         if git.is_file() {
-            let text = std::fs::read_to_string(&git).ok()?;
-            let gitdir = PathBuf::from(text.trim().strip_prefix("gitdir:")?.trim());
-            let gitdir = if gitdir.is_absolute() { gitdir } else { d.join(gitdir) };
+            let gitdir = linked_gitdir(d)?;
             let common = std::fs::read_to_string(gitdir.join("commondir")).ok()?;
             let common = gitdir.join(common.trim());
             let common = std::fs::canonicalize(&common).unwrap_or(common);
@@ -339,6 +346,28 @@ mod tests {
             github: Some(("northwindai".into(), "atlas".into())),
             github_owners: vec!["northwindai".into(), "ghempton".into()],
         }
+    }
+
+    #[test]
+    fn a_worktree_with_a_relative_gitdir_is_located() {
+        // As `git worktree add` writes them with `worktree.useRelativePaths` (git 2.48).
+        let root = std::env::temp_dir().join(format!("codealong-relative-gitdir-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let (main, wt) = (root.join("main"), root.join("wt"));
+        let admin = main.join(".git/worktrees/wt");
+        std::fs::create_dir_all(&admin).unwrap();
+        std::fs::create_dir_all(&wt).unwrap();
+        std::fs::write(admin.join("commondir"), "../..\n").unwrap();
+        std::fs::write(wt.join(".git"), "gitdir: ../main/.git/worktrees/wt\n").unwrap();
+        let gitdir = linked_gitdir(&wt).unwrap();
+        assert_eq!(std::fs::canonicalize(&gitdir).unwrap(), std::fs::canonicalize(&admin).unwrap());
+        let (worktree, checkout) = locate(&wt.join("src")).or_else(|| locate(&wt)).unwrap();
+        assert_eq!(worktree, wt);
+        assert_eq!(std::fs::canonicalize(checkout).unwrap(), std::fs::canonicalize(&main).unwrap());
+        // An absolute one reads as it's written.
+        std::fs::write(wt.join(".git"), format!("gitdir: {}\n", admin.display())).unwrap();
+        assert_eq!(linked_gitdir(&wt).unwrap(), admin);
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

@@ -2948,17 +2948,11 @@ struct WorktreeFiles {
 
 fn read_worktree(path: &Path) -> WorktreeFiles {
     // A linked worktree's `.git` is a file that names its git folder; a main checkout's is that folder.
-    let gitdir = if path.join(".git").is_file() { linked_gitdir(path) } else { None };
+    // Made canonical, as the watcher's paths are, so a change under it is matched to its lane.
+    let gitdir = if path.join(".git").is_file() { crate::repos::linked_gitdir(path).map(|d| std::fs::canonicalize(&d).unwrap_or(d)) } else { None };
     let mut b = GitignoreBuilder::new(path);
     b.add(path.join(".gitignore"));
     WorktreeFiles { gitdir, ignore: b.build().ok() }
-}
-
-/// `<main>/.git/worktrees/<name>` for a linked worktree, from its `.git` file.
-fn linked_gitdir(worktree: &Path) -> Option<PathBuf> {
-    let text = std::fs::read_to_string(worktree.join(".git")).ok()?;
-    let gitdir = PathBuf::from(text.trim().strip_prefix("gitdir:")?.trim());
-    Some(std::fs::canonicalize(&gitdir).unwrap_or(gitdir))
 }
 
 fn spawn_git_workers(back: Sender<Msg>) -> Sender<(PathBuf, Option<String>)> {
