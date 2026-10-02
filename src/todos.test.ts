@@ -1,74 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { filesToAttach } from './attachInput';
 import { sessionHomes } from './lanes';
-import { applyOp, attachmentsIn, blockedBy, cantWaitOn, dependents, inlines, insertAttachments, newTodo, nextColor, panelTodos, pickTo, pickToggle, pieces, sectionOf, snippet, todoIndex, todoInFilter, todoInQuery, todoItem, todoPrompt, todosPrompt, todoSections, todoSuggestions, waitsOn, worthSuggesting, withoutAttachment, type TodoPatch, type TodoStore } from './todos';
+import { applyOp, attachmentsIn, blockedBy, cantWaitOn, dependents, inlines, insertAttachments, nextColor, panelTodos, pickTo, pickToggle, pieces, sectionOf, snippet, todoIndex, todoInFilter, todoInQuery, todoItem, todoPrompt, todosPrompt, todoSections, todoSuggestions, waitsOn, worthSuggesting, withoutAttachment, type TodoPatch, type TodoStore } from './todos';
+import * as fx from './testing/fixtures';
+import { NOW } from './testing/fixtures';
 import type { Label, Lane, Session, Todo } from './types';
 
-const NOW = 1_790_000_000_000;
-
-function todo(id: string, fields: Partial<Todo> = {}): Todo {
-  return newTodo({ id, title: `Todo ${id}`, ...fields }, NOW);
-}
-
-function session(key: string, fields: Partial<Session> = {}): Session {
-  return {
-    key,
-    id: key.split(':')[2] ?? key,
-    shortId: 'abc1234',
-    harness: 'claude',
-    account: 'claude',
-    surface: 'cli',
-    status: 'idle',
-    live: false,
-    pid: null,
-    title: `Session ${key}`,
-    cwd: '/r/app',
-    name: null,
-    startedAt: NOW - 1000,
-    statusSince: null,
-    lastActivity: NOW - 1000,
-    lastPromptAt: NOW - 1000,
-    excerpt: null,
-    branch: null,
-    archived: false,
-    attachCommand: null,
-    stalledSince: null,
-    resumeCommand: null,
-    appAccount: false,
-    openTarget: `s|${key}|focus`,
-    visitor: null,
-    headline: '',
-    detail: null,
-    ...fields,
-  };
-}
-
-function lane(id: string, sessions: Session[], fields: Partial<Lane> = {}): Lane {
-  return {
-    id,
-    project: 'Northwind',
-    repo: 'app',
-    repoSlug: 'northwindai/app',
-    path: id,
-    callsign: id.split('/').pop() ?? id,
-    origin: 'script',
-    branch: 'main',
-    detached: null,
-    bay: 'idle',
-    glyph: 'idle',
-    parked: false,
-    hidden: false,
-    headline: '',
-    detail: null,
-    sessions,
-    pr: null,
-    git: null,
-    lastActivity: NOW,
-    targets: [],
-    defaultTarget: null,
-    ...fields,
-  };
-}
+const todo = (id: string, fields: Partial<Todo> = {}): Todo => fx.todo({ id, ...fields });
+const session = (key: string, fields: Partial<Session> = {}): Session => fx.session({ key, ...fields });
+const lane = (id: string, sessions: Session[], fields: Partial<Lane> = {}): Lane => fx.lane({ id, sessions, ...fields });
 
 const store = (...todos: Todo[]): TodoStore => ({ todos, labels: [] });
 
@@ -112,7 +52,7 @@ describe('the list', () => {
   const working = session('claude:claude:w', { status: 'working', live: true, lastActivity: NOW });
   const idle = session('claude:claude:i', { lastActivity: NOW - 50_000 });
   const visitor = session('claude:claude:w', { visitor: 'worked here' });
-  const lanes = [lane('/r/app', [working, idle]), lane('/r/app3', [visitor], { pr: { number: 7, title: 'x', url: '', state: 'open', checks: { passed: 0, failed: 2, pending: 0, skipped: 0, failing: [] }, merge: 'blocked', updatedAt: NOW, mergedAt: null, closedAt: null } })];
+  const lanes = [lane('/r/app', [working, idle]), lane('/r/app3', [visitor], { pr: fx.pr({ title: 'x', url: '', checks: fx.checks({ failed: 2 }), merge: 'blocked' }) })];
   const byId = new Map(lanes.map((l) => [l.id, l]));
   const homes = sessionHomes(lanes);
   const bug: Label = { id: 'l1', name: 'Bug', color: 'red' };
@@ -370,7 +310,7 @@ describe('suggestions from Jev', () => {
     const s = todoSuggestions(
       {
         projects: [
-          ['Northwind', 0.9],
+          ['Acme', 0.9],
           ['Blog', 0.1],
         ],
         labels: [
@@ -389,18 +329,18 @@ describe('suggestions from Jev', () => {
       me,
       labels,
       all,
-      ['Northwind', 'Blog'],
+      ['Acme', 'Blog'],
     );
-    expect(s.project).toBe('Northwind');
+    expect(s.project).toBe('Acme');
     expect(s.labels.map((l) => l.id)).toEqual(['l2']);
     expect(s.dependsOn.map((t) => t.id)).toEqual(['b']);
   });
 
   it('leaves the project alone when it is already there or Jev is unsure', () => {
-    const me = todo('me', { project: 'Northwind' });
+    const me = todo('me', { project: 'Acme' });
     const none = { labels: [], dependsOn: [] };
-    expect(todoSuggestions({ ...none, projects: [['Northwind', 0.9]] }, me, labels, [me], ['Northwind', 'Blog']).project).toBeNull();
-    expect(todoSuggestions({ ...none, projects: [['Blog', 0.6]] }, me, labels, [me], ['Northwind', 'Blog']).project).toBeNull();
+    expect(todoSuggestions({ ...none, projects: [['Acme', 0.9]] }, me, labels, [me], ['Acme', 'Blog']).project).toBeNull();
+    expect(todoSuggestions({ ...none, projects: [['Blog', 0.6]] }, me, labels, [me], ['Acme', 'Blog']).project).toBeNull();
   });
 
   it('asks once the title says something', () => {

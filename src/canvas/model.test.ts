@@ -1,74 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { newTodo } from '../todos';
-import type { Lane, Session, Todo } from '../types';
+import * as fx from '../testing/fixtures';
+import { NOW } from '../testing/fixtures';
+import type { Lane, PrItem, Session, Todo } from '../types';
 import { addRef, FRAME_GAP, settleDrop, CARD_H, clearDoc, CARD_W, COLUMN_MAX, emptyDoc, entitiesOf, freeSpot, itemId, links, originLinks, overlaps, readDoc, rectOf, DEFAULT_SCOPE, DEFAULT_TIDY, DEFAULT_INCLUDE, refId, sync, tidy, tidyPlan, type CanvasDoc, type FrameItem, type RefItem } from './model';
 
-const NOW = 1_790_000_000_000;
 const DAY = 24 * 60 * 60 * 1000;
 
-function session(key: string, fields: Partial<Session> = {}): Session {
-  return {
-    key,
-    id: key,
-    shortId: 'abc1234',
-    harness: 'claude',
-    account: 'claude',
-    surface: 'cli',
-    status: 'idle',
-    live: false,
-    pid: null,
-    title: `Session ${key}`,
-    cwd: '/r/app',
-    name: null,
-    startedAt: NOW - 1000,
-    statusSince: null,
-    lastActivity: NOW - 1000,
-    lastPromptAt: NOW - 1000,
-    excerpt: null,
-    branch: null,
-    archived: false,
-    attachCommand: null,
-    stalledSince: null,
-    resumeCommand: null,
-    appAccount: false,
-    openTarget: `s|${key}|focus`,
-    visitor: null,
-    headline: '',
-    detail: null,
-    ...fields,
-  };
-}
-
-function lane(id: string, sessions: Session[], fields: Partial<Lane> = {}): Lane {
-  return {
-    id,
-    project: 'Northwind',
-    repo: 'app',
-    repoSlug: 'northwindai/app',
-    path: id,
-    callsign: id,
-    origin: 'script',
-    branch: id,
-    detached: null,
-    bay: 'idle',
-    glyph: 'idle',
-    parked: false,
-    hidden: false,
-    headline: '',
-    detail: null,
-    sessions,
-    pr: null,
-    git: null,
-    lastActivity: Math.max(NOW - 5000, ...sessions.map((s) => s.lastActivity)),
-    targets: [],
-    defaultTarget: null,
-    ...fields,
-  };
-}
-
-function todo(id: string, fields: Partial<Todo> = {}): Todo {
-  return newTodo({ id, title: `Todo ${id}`, project: 'Northwind', ...fields }, NOW);
-}
+const session = (key: string, fields: Partial<Session> = {}): Session => fx.session({ key, ...fields });
+// A worktree on a branch of its own name, last active five seconds ago or when its sessions were.
+const lane = (id: string, sessions: Session[], fields: Partial<Lane> = {}): Lane =>
+  fx.lane({ id, sessions, branch: id, lastActivity: Math.max(NOW - 5000, ...sessions.map((s) => s.lastActivity)), ...fields });
+const todo = (id: string, fields: Partial<Todo> = {}): Todo => fx.todo({ id, project: 'Acme', ...fields });
 
 function ents(lanes: Lane[], todos: Todo[] = []) {
   return entitiesOf(null, lanes, todos, () => true);
@@ -361,8 +303,8 @@ describe('tidy with ages', () => {
 
 describe('bring in', () => {
   const lanes = [lane('a', [session('s1')]), lane('b', []), lane('c', [])];
-  const pr = (key: string, fields: object) => ({ key, repoSlug: 'o/app', repo: 'app', project: 'Northwind', number: 1, title: key, url: '', state: 'open', author: null, mine: false, reviewRequested: false, head: key, base: 'main', checks: { passed: 0, failed: 0, pending: 0, skipped: 0, failing: [] }, merge: 'clean', additions: 0, deletions: 0, changedFiles: 0, createdAt: NOW, updatedAt: NOW, mergedAt: null, closedAt: null, lanes: [], sessions: [], ...fields });
-  const board = { prs: [pr('mine', { mine: true, lanes: ['c'] }), pr('theirs', {}), pr('shut', { mine: true, state: 'merged' })] } as never;
+  const pr = (key: string, fields: Partial<PrItem> = {}): PrItem => fx.prItem({ key, title: key, head: key, author: null, merge: 'clean', ...fields });
+  const board = fx.board({ prs: [pr('mine', { mine: true, lanes: ['c'] }), pr('theirs'), pr('shut', { mine: true, state: 'merged' })] });
   const e = entitiesOf(board, lanes, [todo('t', { worktrees: ['b'] })], () => true);
   const ids = (include: Partial<typeof DEFAULT_SCOPE.include>) => refs(sync({ ...emptyDoc(), scope: { ...DEFAULT_SCOPE, include: { ...DEFAULT_SCOPE.include, ...include } } }, e, NOW)).map(itemId).sort();
 
