@@ -11,8 +11,8 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { below, showContextMenu, type MenuAction, type MenuSpec } from './contextMenu';
 import { useEditorIcons } from './editors';
-import { homeOf, liveOrLatest, narrowed, rowItems, sessionPrs, worktreeRow, type BoardRow, type Filter, type WorktreeRow } from './lanes';
-import { answerLink, approvePr, barMode, getDevices, onDevices, dismissTodoHint, onBarMode, onCloseIdle, onNewWindow, onReveal, onSettings, onCheckUpdates, openConfig, openProjectWindow, openUrl, refresh, refreshUsage, reviewInCodex, setBarMode, startOptions, startSession, setPinned, setPinnedPrs, setPinnedWorktrees, setTheme, showQuick, signIn, windowLabel, type BarMode, type Reveal } from './api';
+import { homeOf, liveOrLatest, narrowed, rowItems, worktreeRow, type BoardRow, type Filter, type WorktreeRow } from './lanes';
+import { answerLink, approvePr, barMode, getDevices, onDevices, onBarMode, onCloseIdle, onNewWindow, onReveal, onSettings, onCheckUpdates, openConfig, openProjectWindow, openUrl, refresh, refreshUsage, reviewInCodex, setBarMode, startOptions, startSession, setPinned, setPinnedPrs, setPinnedWorktrees, setTheme, showQuick, signIn, windowLabel, type BarMode, type Reveal } from './api';
 import { middleTruncate } from './format';
 import * as menus from './menus';
 import { prRefOf } from './prLinks';
@@ -23,27 +23,22 @@ import { reviewLane, reviewPicks, reviewPrompt } from './review';
 import { remembered, START_OPTIONS_NOTICE, startOptionsFailed } from './start';
 import { todoInFilter, todoInQuery, todoPrompt, useTodoStore, type TodoItem } from './todos';
 import type { DevicesView, Lane, Pr, PrItem, Session, StartOptions, Theme, Todo } from './types';
-import { deviceOf, shortOf, type DeviceFilter } from './devices';
+import { shortOf, type DeviceFilter } from './devices';
 import { DeviceBadge } from './ui/DeviceBadge';
 import { SettingsDialog, type SettingsSection } from './ui/SettingsDialog';
 import { CloseIdleDialog } from './ui/CloseIdleDialog';
 import { PreviewDialog } from './ui/PreviewBits';
 import { RenameDialog } from './ui/RenameDialog';
-import { Inspector } from './ui/Inspector';
-import { SessionPanel } from './ui/SessionPanel';
-import { lineageOf } from './lineage';
 import { LaneRow } from './ui/LaneRow';
 import { PinnedSection } from './ui/PinnedSection';
 import { useRowDrag, type DragProps } from './ui/useRowDrag';
 import { BayHeader, Button, cx, Icon, Kbd, Seg, StatusGlyph } from './ui/primitives';
 import { ALL_PROJECTS, ProjectSwitcher } from './ui/ProjectSwitcher';
 import { useLogo } from './logo';
-import { PrInspector } from './ui/PrInspector';
 import { usePrLinks } from './ui/PrLink';
 import { prIsOpen, PrsView, type PrRowItem } from './ui/PrsView';
 import { Resizer, usePanelWidth } from './ui/Resizer';
 import { SESSION_ROWS, SESSION_SORTS, SessionsView, type SessionItem, type SessionRows, type SessionSort } from './ui/SessionsView';
-import { TodoPanel, TodoPickPanel } from './ui/TodoPanel';
 import { TodoComposer, TodoView } from './ui/TodoView';
 import { CanvasView } from './ui/CanvasView';
 import { entitiesOf, homeLane, refId, type RefItem, type RefKind } from './canvas/model';
@@ -65,6 +60,7 @@ import { useBoard } from './useBoard';
 import { useLatest } from './latest';
 import { useMainKeys } from './mainKeys';
 import { useTodoView } from './useTodoView';
+import { canvasPicked, MainPanel } from './ui/MainPanel';
 import { Toasts, useToasts } from './ui/Toasts';
 import { laneInQuery, prInFilter, prInQuery, sessionInFilter, sessionInQuery, useBoardLists } from './boardLists';
 import { inProject } from './quick';
@@ -300,7 +296,6 @@ export function App() {
   // The Todo view: the project's todos as the engine has them, with this window's changes on top
   // until the engine's board shows them.
   const todoStore = useTodoStore(board, setToast);
-  const runTodo = todoStore.run;
   const [showDoneTodos, setShowDoneTodos] = useState(false);
   const [labelFilter, setLabelFilter] = useState<string | null>(null);
 
@@ -1053,159 +1048,8 @@ export function App() {
     else showTodo(t);
   };
 
-  /** The panels on the right, as each view shows them. */
-  const todoPanel = (item: TodoItem) =>
-    drilledPanel(item.key, middleTruncate(item.todo.title, 40)) ?? (
-    <TodoPanel
-      key={item.todo.id}
-      item={item}
-      todos={todoStore.todos}
-      onShowTodo={showTodoFromPanel}
-      labels={todoStore.labels}
-      lanes={laneById}
-      now={now}
-      onRun={runTodo}
-      onStart={() => startForTodo(item)}
-      onShowSession={(_lane, session) => setDrill({ from: item.key, key: session.key })}
-      onOpenSession={(lane, session) => open(lane, session.openTarget)}
-      onShowLane={showLaneFromPanel}
-      onLaneMenu={(lane) => laneMenu(lane)}
-      onSessionMenu={(lane, s) => sessionMenu(lane, s, 'worktree')}
-      onLinkMenu={(at) => todoLinkMenu(item, at)}
-      onMoreMenu={(at) => todoMoreMenu(item, at)}
-      onLabelMenu={labelMenu}
-      onError={setToast}
-      hint={board?.jev?.todos ? board.todoHints?.[item.todo.id] : null}
-      onDismissHint={() => void dismissTodoHint(item.todo.id)}
-      suggest={!!board?.jev?.todos}
-      projects={projectsForTodos}
-      pickDue={duePick === item.todo.id}
-      onPickDue={duePicked}
-    />
-  );
-  /** Several todos picked together: one session for all of them. */
-  const todoPickPanel = (rows: TodoItem[]) => (
-    <TodoPickPanel
-      items={rows}
-      todos={todoStore.todos}
-      showProject={current === ALL_PROJECTS}
-      onStart={() => startForTodos(rows)}
-      onShow={(r) => selectTodoRow(r, 'one')}
-      onLeaveOut={(r) => selectTodoRow(r, 'toggle')}
-      onMoreMenu={(at) => pickMenu(rows, at)}
-    />
-  );
-  const prPanel = (item: PrRowItem) =>
-    drilledPanel(item.key, `PR #${item.pr.number}`) ?? (
-    <PrInspector
-      key={item.pr.key}
-      item={item}
-      now={now}
-      approving={approving.has(item.pr.key)}
-      onApprove={() => approve(item.pr)}
-      onReview={(el) => reviewMenuFrom(item.pr, el)}
-      onShowSession={(_lane, session) => setDrill({ from: item.key, key: session.key })}
-      onOpenSession={(lane, session) => open(lane, session.openTarget)}
-      onShowLane={showLaneFromPanel}
-      onLaneMenu={laneMenu}
-      onSessionMenu={(lane, s) => sessionMenu(lane, s, 'worktree')}
-    />
-  );
-  const inspector = (lane: Lane | null, focusKey: string | null) => (
-    <Inspector
-      lane={lane}
-      focusKey={focusKey}
-      apps={board?.apps ?? { terminal: 'Terminal', terminalId: '', editor: 'Editor', editorId: '' }}
-      now={now}
-      onOpen={(id) => open(lane, id)}
-      onNewSession={() => lane && newSession({ laneId: lane.id })}
-      todos={lane ? todoLinks.byLane.get(lane.id) : undefined}
-      todosFor={todosFor}
-      onShowTodo={showTodoFromPanel}
-      onPrMenu={() => lane && lanePrMenu(lane)}
-      onReviewPr={lane?.pr ? (el) => lane.pr && reviewMenuFrom(reviewedPr(lane, lane.pr), el) : undefined}
-      onSetPreview={lane && !lane.device ? () => setPreviewFor(lane.id) : undefined}
-    />
-  );
-
-  /** A session's own panel: its last prompt and response, how to open it, its details. Given its
-   *  row in Sessions, it works through what waits on you from there. */
-  const sessionPanel = (lane: Lane, session: Session, back?: { label: string; onBack: () => void }, row?: string) => {
-    // In Sessions it works through what waits on you: what's left after it, and how the last went.
-    const queued = row !== undefined;
-    return (
-      <SessionPanel
-        key={session.key}
-        lane={lane}
-        session={session}
-        apps={board?.apps ?? { terminal: 'Terminal', terminalId: '', editor: 'Editor', editorId: '' }}
-        now={now}
-        onOpen={(id) => open(lane, id)}
-        onShowLane={showLaneFromPanel}
-        prs={sessionPrs(board?.prs ?? [], lane, session)}
-        onOpenPr={(p) => openUrl(p.url).catch((e: unknown) => setToast(String(e)))}
-        onPrMenu={(p) => prChipMenu(lane, p)}
-        todos={todoLinks.bySession.get(session.key)}
-        onShowTodo={showTodoFromPanel}
-        lineage={lineageOf(session, homes)}
-        onShowSession={showSessionFromPanel}
-        onSessionMenu={(l, x) => sessionMenu(l, x, 'session')}
-        onMenu={(at) => void showContextMenu(sessionMenuSpec(lane, session, 'session'), at).catch((err: unknown) => setToast(String(err)))}
-        // The keyboard stays where it was: the next one's box doesn't take the cursor.
-        onSeen={() => (queued ? void runQueue('seen', false) : markSeen([session.key]))}
-        device={deviceOf(devices, session.key)}
-        back={back}
-        onFailed={(why) => {
-          // Not dealt with after all: it comes round again.
-          queue.again(session.key);
-          setToast(`Didn’t send to ${session.title}, so it’s back in its box: ${why}`);
-        }}
-        queue={queued ? queue.queue : undefined}
-        notice={queued ? queue.notice : null}
-        // In Sessions the strip is always there, with what's commonly done to a session and the
-        // keys for it. Back and forward are in the title bar.
-        hotkeys={row !== undefined ? {} : undefined}
-        actions={row !== undefined ? actionsRef.current.session(lane, session, 'session') : undefined}
-        onDone={queued ? (done) => void queue.answered(session.key, done) : undefined}
-        autoFocus={row !== undefined && boxFocus === row}
-        maximized={row !== undefined && panelMax}
-        onMaximize={row !== undefined ? togglePanelMax : undefined}
-      />
-    );
-  };
-  /** The session a PR's or todo's panel was asked to show, in its place, with the way back. */
-  const drilledPanel = (from: string, label: string) => {
-    if (drill?.from !== from) return null;
-    for (const lane of lanes) {
-      const session = lane.sessions.find((x) => x.key === drill.key);
-      if (session) return sessionPanel(lane, session, { label, onBack: () => setDrill(null) });
-    }
-    return null;
-  };
-
-  /** The canvas's selected card as its view's panel shows it; null when nothing (or a gone card) is selected. */
-  const canvasPanel = (() => {
-    if (view !== 'canvas' || !canvasSel) return null;
-    const e = canvasEntities;
-    switch (canvasSel.ref) {
-      case 'worktree': {
-        const lane = e.lanes.get(canvasSel.key);
-        return lane ? { kind: 'lane' as const, node: inspector(lane, null) } : null;
-      }
-      case 'session': {
-        const p = e.sessions.get(canvasSel.key);
-        return p ? { kind: 'session' as const, node: sessionPanel(p.lane, p.session) } : null;
-      }
-      case 'todo': {
-        const item = todoItems.find((r) => r.todo.id === canvasSel.key);
-        return item ? { kind: 'todo' as const, node: todoPanel(item) } : null;
-      }
-      case 'pr': {
-        const pr = e.prs.get(canvasSel.key);
-        return pr ? { kind: 'pr' as const, node: prPanel(prRowOf(pr)) } : null;
-      }
-    }
-  })();
+  // The canvas's selected card, which the panel on the right shows on the canvas.
+  const canvasPick = view === 'canvas' ? canvasPicked(canvasSel, canvasEntities, todoItems) : null;
 
   /** A worktree's row on the board: `index` is its place among the pinned ones. */
   const laneRow = (r: WorktreeRow, index: number | null, drag: DragProps) => (
@@ -1232,7 +1076,7 @@ export function App() {
   );
 
   // Which panel is on the right, for its width: the view's own, or on the canvas the selected card's.
-  const panelKind = view === 'canvas' ? (canvasPanel?.kind ?? null) : view === 'prs' ? 'pr' : view === 'todo' ? 'todo' : view === 'sessions' && selected?.kind === 'agent' ? 'session' : 'lane';
+  const panelKind = view === 'canvas' ? (canvasPick?.kind ?? null) : view === 'prs' ? 'pr' : view === 'todo' ? 'todo' : view === 'sessions' && selected?.kind === 'agent' ? 'session' : 'lane';
   const panelWidth = { pr: prPanelWidth, todo: todoPanelWidth, session: sessionPanelWidth, lane: inspectorWidth };
   const setPanelWidth = { pr: setPrPanelWidth, todo: setTodoPanelWidth, session: setSessionPanelWidth, lane: setInspectorWidth };
   // The worktree the preview URL sheet is for, as the latest board has it.
@@ -1400,7 +1244,7 @@ export function App() {
         notices={<Notices notices={notices} now={now} onDismiss={(n) => setDismissed((d) => [...d, noticeId(n)])} onOpen={() => openSettings('file')} />}
       />
       <div
-        className={cx('ca-win-body', sideCollapsed && 'is-railed', panelKind === 'pr' && 'is-prs', panelKind === 'todo' && 'is-todo', panelKind === 'session' && 'is-session', panelKind === 'session' && panelMax && 'is-panel-max', view === 'canvas' && 'is-canvas', view === 'canvas' && canvasPanel && 'has-panel')}
+        className={cx('ca-win-body', sideCollapsed && 'is-railed', panelKind === 'pr' && 'is-prs', panelKind === 'todo' && 'is-todo', panelKind === 'session' && 'is-session', panelKind === 'session' && panelMax && 'is-panel-max', view === 'canvas' && 'is-canvas', view === 'canvas' && canvasPick && 'has-panel')}
         style={{ '--sidebar-w': widthVar(sidebarWidth), '--panel-w': widthVar(panelKind ? panelWidth[panelKind] : null) } as CSSProperties}
       >
         <Sidebar
@@ -1701,31 +1545,51 @@ export function App() {
           )}
         </main>
         {panelKind && <Resizer panel="after" cssVar="--panel-w" onResize={setPanelWidth[panelKind]} />}
-        {view === 'canvas' ? (
-          canvasPanel?.node ?? null
-        ) : view === 'todo' ? (
-          pickedRows.length > 0 ? (
-            todoPickPanel(pickedRows)
-          ) : selected?.kind === 'todo' ? (
-            todoPanel(selected)
-          ) : (
-            <aside className="ca-insp ca-insp--empty">
-              <p>{projectTodos.length || loading ? 'Select a todo to see its description, labels and the sessions on it.' : 'Todos are work you mean to hand an agent. Add one on the left.'}</p>
-            </aside>
-          )
-        ) : view === 'prs' ? (
-          selected?.kind === 'pr' ? (
-            prPanel(selected)
-          ) : (
-            <aside className="ca-insp ca-insp--empty">
-              <p>Select a PR to see its description, reviews and changes.</p>
-            </aside>
-          )
-        ) : view === 'sessions' && selected?.kind === 'agent' ? (
-          sessionPanel(selected.lane, selected.session, undefined, selected.key)
-        ) : (
-          inspector(selectedLane, selected?.kind === 'agent' ? selected.session.key : null)
-        )}
+        <MainPanel
+          view={view}
+          selected={selected}
+          selectedLane={selectedLane}
+          canvasPicked={canvasPick}
+          board={board}
+          now={now}
+          loading={loading}
+          lanes={lanes}
+          laneById={laneById}
+          homes={homes}
+          devices={devices}
+          current={current}
+          projectTodos={projectTodos}
+          todoStore={todoStore}
+          todoLinks={todoLinks}
+          todosFor={todosFor}
+          prRowOf={prRowOf}
+          pickedRows={pickedRows}
+          todo={{ startForTodo, startForTodos, todoLinkMenu, todoMoreMenu, labelMenu, projectsForTodos, duePick, duePicked, selectTodoRow, pickMenu }}
+          approving={approving}
+          drill={drill}
+          setDrill={setDrill}
+          queue={queue}
+          boxFocus={boxFocus}
+          panelMax={panelMax}
+          togglePanelMax={togglePanelMax}
+          actionsRef={actionsRef}
+          open={open}
+          newSession={newSession}
+          showLaneFromPanel={showLaneFromPanel}
+          showSessionFromPanel={showSessionFromPanel}
+          showTodoFromPanel={showTodoFromPanel}
+          laneMenu={laneMenu}
+          sessionMenu={sessionMenu}
+          sessionMenuSpec={sessionMenuSpec}
+          lanePrMenu={lanePrMenu}
+          prChipMenu={prChipMenu}
+          approve={approve}
+          reviewMenuFrom={reviewMenuFrom}
+          reviewedPr={reviewedPr}
+          setPreviewFor={setPreviewFor}
+          markSeen={markSeen}
+          setToast={setToast}
+        />
       </div>
       {settings && (
         <SettingsDialog
