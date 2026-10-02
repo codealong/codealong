@@ -18,7 +18,7 @@ export function tokensCss(t) {
   };
   const decls = (tokens, theme) => tokens.map((x) => `  --${x.name}: ${value(x.value, theme)};`).join('\n');
   const themed = [...t.color.tokens, ...(t.shadow?.tokens ?? [])];
-  const plain = ['spacing', 'radius', 'size', 'duration'].flatMap((k) => t[k]?.tokens ?? []);
+  const plain = ['spacing', 'radius', 'size', 'duration', 'stacking'].flatMap((k) => t[k]?.tokens ?? []);
   const families = Object.entries(t.type.families).map(([k, v]) => `  --font-${k}: ${v};`).join('\n');
   // A style's letter spacing isn't part of the shorthand: a rule that wants it sets it beside.
   const type = t.type.groups

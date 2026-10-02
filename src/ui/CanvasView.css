@@ -201,7 +201,7 @@
    onto it: its text selects, and its PR chips and session lines take clicks. */
 .ca-cv-popover {
   position: absolute;
-  z-index: 5;
+  z-index: var(--z-canvas-popover);
   display: grid;
   /* Its width, whatever its longest line: those end in an ellipsis. */
   grid-template-columns: minmax(0, 1fr);
@@ -235,7 +235,7 @@
   position: absolute;
   left: 50%;
   bottom: 16px;
-  z-index: 4;
+  z-index: var(--z-canvas-toolbar);
   display: flex;
   align-items: center;
   gap: 2px;

@@ -55,7 +55,7 @@
 }
 .ca-notice-card {
   position: fixed;
-  z-index: 40;
+  z-index: var(--z-popover);
   display: grid;
   gap: var(--space-3);
   width: 320px;

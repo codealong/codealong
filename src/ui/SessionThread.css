@@ -57,7 +57,7 @@
 .ca-thread-pin {
   position: sticky;
   top: calc(-1 * var(--space-3));
-  z-index: 2;
+  z-index: var(--z-pinned);
   height: 0;
   margin-bottom: -10px;
 }

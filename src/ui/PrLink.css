@@ -14,7 +14,7 @@
    the pointer, so its rows and buttons can be used; the link's hover and the card's are one. */
 .ca-prhover {
   position: fixed;
-  z-index: 40;
+  z-index: var(--z-popover);
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: var(--space-1);

@@ -22,7 +22,7 @@
   position: fixed;
   top: 14px;
   left: 12px;
-  z-index: 1000;
+  z-index: var(--z-dragging);
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);

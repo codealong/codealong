@@ -4,7 +4,7 @@
    the sidebar and the board. */
 .ca-resizer {
   position: relative;
-  z-index: 3;
+  z-index: var(--z-resizer);
   width: 6px;
   margin-left: -1px;
   cursor: col-resize;

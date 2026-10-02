@@ -162,7 +162,7 @@
 /* Popup styles stay separate from the account and project cards in Settings. */
 .ca-usage-popover {
   position: fixed;
-  z-index: 40;
+  z-index: var(--z-popover);
   display: grid;
   gap: 10px;
   width: max-content;

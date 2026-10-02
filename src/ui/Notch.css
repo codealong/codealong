@@ -233,7 +233,7 @@ html.is-notch body {
 .ca-notch-grip {
   position: absolute;
   bottom: 0;
-  z-index: 2;
+  z-index: var(--z-grip);
 }
 .ca-notch-grip.is-bottom {
   right: 22px;

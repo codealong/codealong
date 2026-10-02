@@ -38,7 +38,7 @@ html.is-peek body {
    right edge, the edge away from the bar, and the corner between them. */
 .ca-peek-grip {
   position: absolute;
-  z-index: 2;
+  z-index: var(--z-grip);
 }
 .ca-peek-grip.is-side {
   top: 16px;
