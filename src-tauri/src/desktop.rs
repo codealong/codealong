@@ -15,7 +15,6 @@
 
 use std::collections::HashMap;
 use std::sync::Mutex;
-use std::time::Duration;
 
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
@@ -37,8 +36,6 @@ const PANEL: panel::Config = panel::Config { keys: panel::Keys::WhenAsked, level
 /// Where the pointer holds a card it drags off the bar, from the window's top left: on the card's
 /// first line, a little in from its left edge.
 const GRAB: (f64, f64) = (36.0, 26.0);
-/// How often a dragged card follows the pointer.
-const DRAG_EVERY: Duration = Duration::from_millis(16);
 
 /// What a card shows.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -413,18 +410,8 @@ pub fn drag_out(app: &AppHandle, what: Pinned, home: &str) {
     };
     // Off the bar the card is there at once.
     follow_drag(app, n);
-    let handle = app.clone();
-    std::thread::spawn(move || loop {
-        std::thread::sleep(DRAG_EVERY);
-        let going = handle.try_state::<Desktop>().is_some_and(|s| s.drag.lock().is_ok_and(|d| d.n == n && d.what.is_some() && d.ended.is_none()));
-        if !going {
-            break;
-        }
-        let app = handle.clone();
-        if handle.run_on_main_thread(move || follow_drag(&app, n)).is_err() {
-            break;
-        }
-    });
+    let going = move |app: &AppHandle| app.try_state::<Desktop>().is_some_and(|s| s.drag.lock().is_ok_and(|d| d.n == n && d.what.is_some() && d.ended.is_none()));
+    panel::poll(app, panel::DRAG_EVERY, going, move |app| follow_drag(app, n));
 }
 
 /// Pins the dragged thing, its card held by the pointer at `p` (off the main thread, which

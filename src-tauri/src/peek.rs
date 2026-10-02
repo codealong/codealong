@@ -65,9 +65,6 @@ const LEAVE_AFTER: Duration = Duration::from_millis(350);
 const WATCH_EVERY: Duration = Duration::from_millis(60);
 /// How long an open waits for the page before showing anyway.
 const READY_WAIT: Duration = Duration::from_millis(400);
-/// How often the peek is put where the pointer has taken it while its header is dragged, as a
-/// card dragged to the desktop is (desktop.rs).
-const DRAG_EVERY: Duration = Duration::from_millis(16);
 /// The peek's panel: a click in it gives it the keyboard, and until then it says it has it, so
 /// its page gets hover and tooltips. It's one level over the floating bar, on whichever Space is
 /// in front, full-screen ones too, coming and going.
@@ -377,18 +374,8 @@ pub fn drag(app: &AppHandle, dx: f64, dy: f64) {
     };
     // Where the pointer is already, without waiting for the next look.
     follow_drag(app, n);
-    let handle = app.clone();
-    std::thread::spawn(move || loop {
-        std::thread::sleep(DRAG_EVERY);
-        let going = handle.try_state::<Peek>().is_some_and(|s| s.inner.lock().is_ok_and(|s| s.drags == n && s.drag.is_some()));
-        if !going {
-            break;
-        }
-        let app = handle.clone();
-        if handle.run_on_main_thread(move || follow_drag(&app, n)).is_err() {
-            break;
-        }
-    });
+    let going = move |app: &AppHandle| app.try_state::<Peek>().is_some_and(|s| s.inner.lock().is_ok_and(|s| s.drags == n && s.drag.is_some()));
+    panel::poll(app, panel::DRAG_EVERY, going, move |app| follow_drag(app, n));
 }
 
 /// Looks at the pointer for a drag of the peek's header: the peek goes where the pointer has
@@ -488,18 +475,8 @@ fn tell(app: &AppHandle) {
 /// it has been off both the peek and its pill for a moment. The bar's page only knows its own
 /// window, and the peek's page gets no pointer moves off itself.
 fn watch_pointer(app: &AppHandle, n: u64) {
-    let handle = app.clone();
-    std::thread::spawn(move || loop {
-        std::thread::sleep(WATCH_EVERY);
-        let current = handle.try_state::<Peek>().and_then(|s| s.inner.lock().ok().map(|s| s.watch == n && s.visible && !s.engaged));
-        if current != Some(true) {
-            break;
-        }
-        let app = handle.clone();
-        if handle.run_on_main_thread(move || look(&app, n)).is_err() {
-            break;
-        }
-    });
+    let current = move |app: &AppHandle| app.try_state::<Peek>().and_then(|s| s.inner.lock().ok().map(|s| s.watch == n && s.visible && !s.engaged)) == Some(true);
+    panel::poll(app, WATCH_EVERY, current, move |app| look(app, n));
 }
 
 fn look(app: &AppHandle, n: u64) {

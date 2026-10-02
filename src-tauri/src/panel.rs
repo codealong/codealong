@@ -30,6 +30,9 @@ use crate::geometry::{Rect, Screen};
 /// front) and writes down where it was moved to: the bar, the cards and the sessions kept on the
 /// desktop.
 pub const CHECK_EVERY: Duration = Duration::from_secs(1);
+/// How often a window dragged from here is put where the pointer has taken it: a card dragged
+/// onto the desktop, the peek dragged by its header.
+pub const DRAG_EVERY: Duration = Duration::from_millis(16);
 
 /// The level a window floats at, lowest first. Two windows at one level go by which was ordered
 /// front last.
@@ -194,6 +197,25 @@ pub fn builder<'a>(app: &'a AppHandle, label: &str, page: Page<'_>) -> WebviewWi
         // window that's up over other apps is nearly always: updates and hovers came late.
         .background_throttling(tauri::utils::config::BackgroundThrottlingPolicy::Disabled)
         .visible(false)
+}
+
+/// Looks at something every `every` for as long as `going` says to: the pointer, while a window
+/// follows it or waits for it to leave. The waiting is on a thread of its own and each look,
+/// `step`, on the main thread, where the pointer and the windows are read. The first look is one
+/// wait from now. It ends when `going` says no, which is asked before each look, or once the app
+/// takes nothing more for its main thread.
+pub fn poll(app: &AppHandle, every: Duration, going: impl Fn(&AppHandle) -> bool + Send + 'static, step: impl Fn(&AppHandle) + Send + Copy + 'static) {
+    let handle = app.clone();
+    std::thread::spawn(move || loop {
+        std::thread::sleep(every);
+        if !going(&handle) {
+            break;
+        }
+        let app = handle.clone();
+        if handle.run_on_main_thread(move || step(&app)).is_err() {
+            break;
+        }
+    });
 }
 
 /// AppKit is the main thread's. Off it there's no marker, so the caller does nothing, as these
