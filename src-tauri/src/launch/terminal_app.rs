@@ -6,12 +6,68 @@ use std::path::Path;
 
 use anyhow::Result;
 
-use super::{fresh_line, launcher, pasted, sh_quote, typed_line, wait_for_shell};
+use super::{close_tty_terminals, focus_on_tty, fresh_line, launcher, pasted, sh_quote, type_on_tty, typed_line, wait_for_shell, HostKind, Placement, Terminal, TerminalHost, Typed};
 
 const APP: &str = "Terminal";
 
 fn osascript(script: &str, args: &[&str]) -> Result<String> {
     super::osascript_in(APP, script, args)
+}
+
+pub struct AppleTerminal;
+
+impl Terminal for AppleTerminal {
+    fn kind(&self) -> HostKind {
+        HostKind::Terminal
+    }
+
+    fn name(&self) -> &'static str {
+        APP
+    }
+
+    fn profile(&self) -> Option<&'static str> {
+        Some("terminal")
+    }
+
+    fn bundle(&self) -> Option<&'static str> {
+        Some("com.apple.Terminal")
+    }
+
+    /// Terminal comes with macOS.
+    fn installed(&self) -> bool {
+        true
+    }
+
+    /// Terminal starts a login shell per tab, as Ghostty does.
+    fn runs_as(&self, process: &str) -> bool {
+        process == "Terminal"
+    }
+
+    /// Terminal can't open a tab from a script: always a window.
+    fn run(&self, _place: Placement, dir: &Path, input: &str, env: &[(String, String)]) -> Result<()> {
+        open(dir, input, env)
+    }
+
+    fn focus(&self, at: &str) -> Result<bool> {
+        focus(at)
+    }
+
+    fn focus_session(&self, _profile: &str, _pid: u32, tty: &Path, _title: &str, _cwd: &Path) -> Result<Option<TerminalHost>> {
+        focus_on_tty(&AppleTerminal, tty)
+    }
+
+    /// Terminal can't press a key without Return, so there the box stays as it is.
+    fn type_session(&self, pid: u32, _cwd: &Path, text: &str, _clear: bool) -> Result<Typed> {
+        type_on_tty(APP, pid, text, None, type_text)
+    }
+
+    fn closes_tabs(&self) -> bool {
+        true
+    }
+
+    fn close_sessions(&self, sessions: &[(u32, &Path)]) -> Result<Vec<Result<()>>> {
+        close_tty_terminals(sessions, APP, ttys, in_front, close)
+    }
 }
 
 /// Finds the tab on a TTY: `{window id, tab index}`, or missing value. Windows are held by id

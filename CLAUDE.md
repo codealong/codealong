@@ -281,6 +281,17 @@ some work is, answer with one.
   control, which needs remote control on). A window's command goes through `actions::run`, which
   asks the session's device when it's elsewhere; a device's request through `actions::answer`.
   A new session action is a line in each, not a command with its own remote branch.
+- A terminal is a module under `src-tauri/src/launch/` (`ghostty.rs`, `iterm.rs`,
+  `terminal_app.rs`, `tmux.rs`) that knows its scripts and commands, with a struct implementing
+  `launch::Terminal`, listed in `launch::TERMINALS`: its name, profile and bundle ID, opening a
+  tab on a command with an environment, focusing a session's tab (and again once its app is the
+  active one), typing into it, pressing a key there (Terminal can't press one alone) and closing
+  it; what one can't do has a default that says so. Nothing outside a terminal's module branches
+  on which terminal it is: it asks `launch::terminal_app(profile)` for the one config.toml names,
+  or `launch::terminal_kind(pid)` for the one a session's process runs under. `launch.rs` keeps
+  what they share (where a new tab goes, the launcher, waiting for a shell, TTYs and their marks,
+  taking turns). `launch/stage.rs` stands in for the Mac in tests that pin what each terminal is
+  sent, script by script: a change to a script, its arguments or their order shows there.
 - A card is one design wherever it is: the Canvas view's cards and the cards pinned to the
   desktop draw the same face, from `src/ui/card/` (`data.ts`, `CardFace.tsx`; `CardPopover.tsx` is
   the popover a canvas card opens, and the desktop has none: a panel beside a card was tried and

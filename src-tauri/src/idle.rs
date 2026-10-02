@@ -122,7 +122,7 @@ pub fn plan(board: &Board, now: i64, after_ms: i64, closable: impl Fn(u32) -> bo
     for (pid, sessions) in by_pid {
         let kept = |s: &Session, why: String| Kept { key: s.key.clone(), title: s.title.clone(), account: s.account.clone(), why };
         if !closable(pid) {
-            out.kept.extend(sessions.iter().map(|(s, _)| kept(s, "not in a Ghostty, iTerm2 or Terminal tab".into())));
+            out.kept.extend(sessions.iter().map(|(s, _)| kept(s, format!("not in a {} tab", crate::launch::closes_tabs_in()))));
             continue;
         }
         let verdicts: Vec<_> = sessions.iter().map(|(s, _)| verdict(s, now, after_ms)).collect();
@@ -151,8 +151,7 @@ pub fn plan(board: &Board, now: i64, after_ms: i64, closable: impl Fn(u32) -> bo
 
 /// The plan for the board as it is now, with where each process runs asked of the kernel.
 pub fn plan_now(board: &Board, after_ms: i64) -> Plan {
-    use crate::launch::HostKind;
-    plan(board, crate::util::now_ms(), after_ms, |pid| matches!(crate::launch::terminal_kind(pid), Some(HostKind::Ghostty | HostKind::ITerm2 | HostKind::Terminal)))
+    plan(board, crate::util::now_ms(), after_ms, |pid| crate::launch::terminal_kind(pid).is_some_and(|t| t.closes_tabs()))
 }
 
 /// Closes the terminals of `keys` that the board, looked at again now, still says can close.

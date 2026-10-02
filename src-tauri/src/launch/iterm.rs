@@ -5,12 +5,82 @@ use std::path::Path;
 
 use anyhow::Result;
 
-use super::{fresh_line, launcher, pasted, placement, sh_quote, typed_line, wait_for_shell, Key, Placement, Tab};
+use super::{app_installed, close_tty_terminals, focus_on_tty, fresh_line, launcher, pasted, placement, sh_quote, tty_of, type_on_tty, typed_line, wait_for_shell, HostKind, Key, Placement, Tab, Terminal, TerminalHost, Typed};
 
 const APP: &str = "iTerm2";
 
 fn osascript(script: &str, args: &[&str]) -> Result<String> {
     super::osascript_in(APP, script, args)
+}
+
+pub struct ITerm2;
+
+impl Terminal for ITerm2 {
+    fn kind(&self) -> HostKind {
+        HostKind::ITerm2
+    }
+
+    fn name(&self) -> &'static str {
+        APP
+    }
+
+    fn profile(&self) -> Option<&'static str> {
+        Some("iterm2")
+    }
+
+    fn bundle(&self) -> Option<&'static str> {
+        Some("com.googlecode.iterm2")
+    }
+
+    fn installed(&self) -> bool {
+        app_installed("iTerm.app")
+    }
+
+    /// iTerm2 starts its tabs' shells under a server of its own (`iTermServer-3.7.3`), which
+    /// carries on if iTerm2 restarts.
+    fn runs_as(&self, process: &str) -> bool {
+        process == "iTerm2" || process.starts_with("iTermServer")
+    }
+
+    fn run(&self, place: Placement, dir: &Path, input: &str, env: &[(String, String)]) -> Result<()> {
+        open(place, dir, input, env)
+    }
+
+    fn tabs(&self) -> Result<Vec<Tab>> {
+        sessions()
+    }
+
+    fn focus(&self, at: &str) -> Result<bool> {
+        focus(at)
+    }
+
+    fn focus_session(&self, _profile: &str, _pid: u32, tty: &Path, _title: &str, _cwd: &Path) -> Result<Option<TerminalHost>> {
+        focus_on_tty(&ITerm2, tty)
+    }
+
+    fn type_session(&self, pid: u32, _cwd: &Path, text: &str, clear: bool) -> Result<Typed> {
+        type_on_tty(APP, pid, text, clear.then_some(press), type_text)
+    }
+
+    fn presses_keys(&self) -> bool {
+        true
+    }
+
+    fn key_target(&self, pid: u32, _cwd: &Path) -> Result<Option<String>> {
+        Ok(tty_of(pid).map(|t| t.to_string_lossy().into_owned()))
+    }
+
+    fn press(&self, at: &str, key: Key) -> Result<()> {
+        press(at, key)
+    }
+
+    fn closes_tabs(&self) -> bool {
+        true
+    }
+
+    fn close_sessions(&self, sessions: &[(u32, &Path)]) -> Result<Vec<Result<()>>> {
+        close_tty_terminals(sessions, APP, ttys, in_front, close)
+    }
 }
 
 /// Finds the session on a TTY: `{window id, tab index, session index}`, or missing value.

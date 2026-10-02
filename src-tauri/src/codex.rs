@@ -964,7 +964,7 @@ impl crate::harness::Adapter for Codex {
         match (s.surface, s.pid) {
             (crate::model::Surface::Cli, Some(pid)) => {
                 let Some(host) = crate::launch::terminal_host(pid, Path::new(&s.cwd))? else {
-                    anyhow::bail!("It isn't in a terminal Codealong can press keys in ({}). Open it to stop it there.", crate::launch::PRESSES_KEYS_IN);
+                    anyhow::bail!("It isn't in a terminal Codealong can press keys in ({}). Open it to stop it there.", crate::launch::presses_keys_in());
                 };
                 crate::launch::press_key(&host, crate::launch::Key::Escape)?;
             }

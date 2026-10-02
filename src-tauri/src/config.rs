@@ -590,7 +590,7 @@ pub struct Profile {
 /// What the Settings form offers for `[apps]`: the terminal profiles installed here (see
 /// launch.rs), and the editors installed here (editors.rs).
 pub fn terminal_profiles() -> Vec<Profile> {
-    crate::launch::TERMINALS.iter().filter(|t| t.installed()).map(|t| Profile { id: t.id.into(), name: t.name.into() }).collect()
+    crate::launch::profiles().filter(|(_, t)| t.installed()).map(|(id, t)| Profile { id: id.into(), name: t.name().into() }).collect()
 }
 pub fn editor_profiles() -> Vec<Profile> {
     crate::editors::installed()
@@ -670,7 +670,7 @@ pub fn check(cfg: &Config) -> std::result::Result<(), String> {
         return Err("The terminal and editor need a profile name.".into());
     }
     if crate::launch::terminal_app(&cfg.apps.terminal).is_none() {
-        return Err(format!("[apps] terminal is {:?}; use \"ghostty\", \"iterm2\" or \"terminal\".", cfg.apps.terminal));
+        return Err(format!("[apps] terminal is {:?}; use {}.", cfg.apps.terminal, crate::launch::profile_names()));
     }
     crate::quick::parse_shortcut(&cfg.shortcuts.quick_panel).map_err(|e| format!("[shortcuts] quick_panel: {e}"))?;
     Ok(())

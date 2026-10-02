@@ -1,10 +1,17 @@
-//! Opening things where they live: the terminal profiles (Ghostty, iTerm2 and Terminal, through
-//! AppleScript) and the Claude and Codex deep links. Editors are in editors.rs. See *Apps*.
+//! Opening things where they live: the terminals and the Claude and Codex deep links. Editors
+//! are in editors.rs. See *Apps*.
+//!
+//! Each terminal is a module of its own behind `Terminal` (Ghostty, iTerm2 and Terminal through
+//! AppleScript, tmux through its command). What's here is what they share: where a new terminal
+//! goes, the launcher that sets up a new tab's shell, waiting for that shell, a process's TTY
+//! and which terminal it runs under, marks on a TTY, and focus requests taking turns.
 
+mod ghostty;
 mod iterm;
 #[cfg(test)]
 mod stage;
 mod terminal_app;
+mod tmux;
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -17,21 +24,110 @@ use crate::config::NewTerminal;
 use crate::procs;
 use crate::util::{home, sh_quote};
 
-/// A terminal app Codealong opens sessions in, finds their tabs in and types into: the profiles
-/// `[apps] terminal` names.
-#[derive(Debug, PartialEq, Eq)]
-pub struct TerminalApp {
-    pub id: &'static str,
-    pub name: &'static str,
-    pub bundle: &'static str,
-    /// The app bundle's name in /Applications or ~/Applications.
-    app: &'static str,
-}
+/// A terminal Codealong drives: an app it opens sessions in, finds their tabs in, types into and
+/// closes (Ghostty, iTerm2 and Terminal, each through AppleScript), or tmux, which runs inside
+/// one of those and takes typing through its own command. Each has a module under `launch/` that
+/// knows its scripts and its ways, with a struct that answers here for what the rest of the app
+/// asks of a terminal; what one can't do has a default that says so. Nothing outside those
+/// modules branches on which terminal it is: it asks `terminal_app(profile)` for the one
+/// config.toml names, or `terminal_kind(pid)` for the one a session's process runs under. A new
+/// terminal is a module, a variant of `HostKind` and a line in `TERMINALS`.
+///
+/// A tab is addressed by what its terminal finds it again by (`at`): Ghostty's terminal id, the
+/// TTY in iTerm2 and Terminal, a tmux pane.
+pub trait Terminal: Sync {
+    fn kind(&self) -> HostKind;
 
-impl TerminalApp {
-    /// Terminal comes with macOS; the others are wherever apps get installed.
-    pub fn installed(&self) -> bool {
-        self.id == "terminal" || app_installed(self.app)
+    /// Its name, the way messages say it.
+    fn name(&self) -> &'static str;
+
+    /// What `[apps] terminal` in config.toml calls it. None for one that isn't an app sessions
+    /// open in (tmux).
+    fn profile(&self) -> Option<&'static str> {
+        None
+    }
+
+    /// The app it's in, by bundle ID, to bring forward; tmux runs in whatever terminal its client
+    /// does.
+    fn bundle(&self) -> Option<&'static str> {
+        None
+    }
+
+    /// Whether it's on this Mac: an app wherever apps get installed.
+    fn installed(&self) -> bool;
+
+    /// Whether a process of this name is the terminal, or its own: the nearest such process
+    /// above a session's says which terminal the session runs in (`kind_by`).
+    fn runs_as(&self, process: &str) -> bool;
+
+    /// Whether Codealong can talk to it when a session runs under it. An app that's running
+    /// takes scripts wherever it's installed.
+    fn reachable(&self) -> bool {
+        true
+    }
+
+    /// Opens a new terminal at `dir` with `env` set in its shell, and types `input` (a command
+    /// plus return) there. The shell expands variables in `input` from `env`.
+    fn run(&self, _place: Placement, _dir: &Path, _input: &str, _env: &[(String, String)]) -> Result<()> {
+        bail!("Codealong can't open a terminal in {}.", self.name())
+    }
+
+    /// Opens a new terminal at `dir`, optionally typing `input` (a command plus return).
+    fn open(&self, place: Placement, dir: &Path, input: Option<&str>) -> Result<()> {
+        self.run(place, dir, input.unwrap_or(""), &[])
+    }
+
+    /// Its tabs, each with what it's addressed by, its folder and its title. One that doesn't
+    /// say (Terminal lists no titles or folders of its tabs) has none.
+    fn tabs(&self) -> Result<Vec<Tab>> {
+        Ok(Vec::new())
+    }
+
+    /// Brings forward the tab `at`. `Ok(false)` when it has no such tab.
+    fn focus(&self, _at: &str) -> Result<bool> {
+        Ok(false)
+    }
+
+    /// Brings forward the tab a live session's process runs in, and says which it is. None when
+    /// there's no such tab. The default is for a terminal with no tabs of its own to look in
+    /// (tmux): the one tab titled like the session in `profile`'s app.
+    fn focus_session(&self, profile: &str, _pid: u32, _tty: &Path, title: &str, cwd: &Path) -> Result<Option<TerminalHost>> {
+        focus_by_title(profile, title, cwd)
+    }
+
+    /// Types `text` into the tab a session's process runs in and presses Return, pressing the
+    /// key that clears the input box first for `clear`, where it can press one
+    /// (`terminal_type_session`).
+    fn type_session(&self, pid: u32, cwd: &Path, text: &str, clear: bool) -> Result<Typed>;
+
+    /// Whether Codealong can press a single key there. Terminal presses Return after whatever
+    /// a script types, and Claude Code takes "1" and Return arriving together as typed text, not
+    /// as the digit that answers its prompt.
+    fn presses_keys(&self) -> bool {
+        false
+    }
+
+    /// The tab a session's process runs in, found (for Ghostty, marked) now, to press keys in:
+    /// what `press` takes. An error from one that can't press one key alone.
+    fn key_target(&self, _pid: u32, _cwd: &Path) -> Result<Option<String>> {
+        bail!("{} can't press a single key for Codealong. Open it to answer.", self.name())
+    }
+
+    /// Presses one key in the tab `at`, as if typed: no paste, no Return.
+    fn press(&self, _at: &str, _key: Key) -> Result<()> {
+        bail!("{} can't press a single key for Codealong.", self.name())
+    }
+
+    /// Whether it has tabs Codealong can close once the sessions in them have ended (idle.rs).
+    fn closes_tabs(&self) -> bool {
+        false
+    }
+
+    /// Ends sessions' processes and closes the tabs they ran in, all at once
+    /// (`close_session_terminals`). One result per `(pid, folder)`, in order; an error when it
+    /// couldn't be asked at all.
+    fn close_sessions(&self, _sessions: &[(u32, &Path)]) -> Result<Vec<Result<()>>> {
+        bail!("Codealong can't close {} tabs.", self.name())
     }
 }
 
@@ -44,219 +140,63 @@ fn app_installed(app: &str) -> bool {
     [PathBuf::from("/Applications"), home().join("Applications")].iter().any(|d| d.join(app).is_dir())
 }
 
-/// The terminal profiles, in the order Settings lists them and a new config.toml picks the first
-/// one installed.
-pub const TERMINALS: [TerminalApp; 3] = [
-    TerminalApp { id: "ghostty", name: "Ghostty", bundle: "com.mitchellh.ghostty", app: "Ghostty.app" },
-    TerminalApp { id: "iterm2", name: "iTerm2", bundle: "com.googlecode.iterm2", app: "iTerm.app" },
-    TerminalApp { id: "terminal", name: "Terminal", bundle: "com.apple.Terminal", app: "Terminal.app" },
-];
+/// Every terminal: the profiles first, in the order Settings lists them and a new config.toml
+/// picks the first one installed.
+pub static TERMINALS: [&dyn Terminal; 4] = [&ghostty::Ghostty, &iterm::ITerm2, &terminal_app::AppleTerminal, &tmux::Tmux];
 
-pub fn terminal_app(id: &str) -> Option<&'static TerminalApp> {
-    TERMINALS.iter().find(|t| t.id == id)
+fn terminal(kind: HostKind) -> &'static dyn Terminal {
+    *TERMINALS.iter().find(|t| t.kind() == kind).expect("every kind has a terminal")
+}
+
+/// The terminals `[apps] terminal` can name, each with its profile.
+pub fn profiles() -> impl Iterator<Item = (&'static str, &'static dyn Terminal)> {
+    TERMINALS.iter().filter_map(|t| Some((t.profile()?, *t)))
+}
+
+/// The terminal a profile names.
+pub fn terminal_app(id: &str) -> Option<&'static dyn Terminal> {
+    profiles().find(|(profile, _)| *profile == id).map(|(_, t)| t)
 }
 
 pub fn terminal_name(id: &str) -> String {
-    terminal_app(id).map_or_else(|| id.to_string(), |t| t.name.to_string())
+    terminal_app(id).map_or_else(|| id.to_string(), |t| t.name().to_string())
 }
 
 /// The bundle ID of a terminal profile's app, to bring it forward.
 pub fn bundle_id(profile: &str) -> Option<&'static str> {
-    terminal_app(profile).map(|t| t.bundle)
+    terminal_app(profile).and_then(|t| t.bundle())
 }
 
 /// The profile a config.toml without one uses: the first terminal installed here.
 pub fn default_terminal() -> &'static str {
-    TERMINALS.iter().find(|t| t.installed()).map_or("terminal", |t| t.id)
+    profiles().find(|(_, t)| t.installed()).map_or("terminal", |(profile, _)| profile)
+}
+
+/// Names as a sentence lists a choice of them: "a", "a or b", "a, b or c".
+fn any_of(names: &[String]) -> String {
+    match names {
+        [] => String::new(),
+        [one] => one.clone(),
+        [rest @ .., last] => format!("{} or {last}", rest.join(", ")),
+    }
+}
+
+/// The names of the terminals that can do something, as a sentence lists them.
+fn terminals_that(can: impl Fn(&dyn Terminal) -> bool) -> String {
+    any_of(&TERMINALS.iter().filter(|t| can(**t)).map(|t| t.name().to_string()).collect::<Vec<_>>())
+}
+
+/// The profiles `[apps] terminal` takes, as config.toml writes them, for messages.
+pub fn profile_names() -> String {
+    any_of(&profiles().map(|(profile, _)| format!("{profile:?}")).collect::<Vec<_>>())
 }
 
 fn unknown_profile(profile: &str) -> anyhow::Error {
-    anyhow!("There's no terminal profile called {profile:?}. Use \"ghostty\", \"iterm2\" or \"terminal\" in config.toml.")
+    anyhow!("There's no terminal profile called {profile:?}. Use {} in config.toml.", profile_names())
 }
-
-/// Arguments: where it goes (`window`, `front` for a tab in the front window, or `beside` for a
-/// tab in the frontmost window holding any of the terminals listed next), those terminal ids one
-/// per line (or ""), the folder, the input to type (or ""), then any `KEY=VALUE` environment
-/// entries. A tab with no window to go in becomes a window.
-const GHOSTTY_NEW: &str = r#"
-on run argv
-  set placeAt to item 1 of argv
-  set nearIds to paragraphs of (item 2 of argv)
-  set thePath to item 3 of argv
-  set theInput to item 4 of argv
-  set theEnv to {}
-  if (count of argv) > 4 then set theEnv to items 5 thru -1 of argv
-  tell application "Ghostty"
-    if theInput is "" then
-      set cfg to {initial working directory:thePath}
-    else if theEnv is {} then
-      set cfg to {initial working directory:thePath, initial input:theInput}
-    else
-      set cfg to {initial working directory:thePath, initial input:theInput, environment variables:theEnv}
-    end if
-    set dest to missing value
-    if placeAt is "front" then
-      if (count of windows) > 0 then set dest to id of front window
-    else if placeAt is "beside" then
-      -- Windows come front to back, so the one nearest the front wins. Held by id: see GHOSTTY_FOCUS.
-      set wids to id of every window
-      repeat with wid in wids
-        set tids to id of every terminal of window id (contents of wid)
-        repeat with t in nearIds
-          if tids contains (contents of t) then
-            set dest to contents of wid
-            exit repeat
-          end if
-        end repeat
-        if dest is not missing value then exit repeat
-      end repeat
-    end if
-    if dest is missing value then
-      new window with configuration cfg
-    else
-      new tab in window id dest with configuration cfg
-      try
-        activate window window id dest
-      end try
-    end if
-    activate
-  end tell
-  return "ok"
-end run
-"#;
-
-/// Three questions give three lists, which only line up if no terminal opened or closed in
-/// between, so it asks for the ids again to check, and gives up with nothing rather than pair
-/// a terminal with another's folder. The separator is set outside the tell: inside it, `tab`
-/// is Ghostty's tab class, and the lines came out joined by the word "tab".
-const GHOSTTY_LIST: &str = r#"
-on run argv
-  set out to ""
-  set sep to character id 9
-  tell application "Ghostty"
-    repeat 3 times
-      set ids to id of every terminal
-      set dirs to working directory of every terminal
-      set names to name of every terminal
-      set again to id of every terminal
-      if again = ids and (count of dirs) = (count of ids) and (count of names) = (count of ids) then
-        repeat with i from 1 to count of ids
-          set out to out & (item i of ids) & sep & (item i of dirs) & sep & (item i of names) & linefeed
-        end repeat
-        return out
-      end if
-    end repeat
-  end tell
-  return out
-end run
-"#;
-
-/// `tag <marker> <seconds>`: waits up to that long for the terminal whose folder contains the
-/// marker and focuses it. `id <terminal id>`: focuses that terminal. Returns the focused
-/// terminal's id. The wait is timed, not counted: with many terminals open each look takes
-/// longer. Once the tab is selected, the rest is best effort, so a slow or refused step can't
-/// turn a tab that was found into an error.
-///
-/// Windows, tabs and terminals are held by id, never by position. Ghostty lists windows front
-/// to back, and a loop over them (`repeat with w in windows`) makes `w` "window 3", asked
-/// afresh each time it's used: once selecting the tab brought its window forward, "window 3"
-/// was the window that had been in front of it, and that one came forward instead.
-const GHOSTTY_FOCUS: &str = r#"
-on run argv
-  set mode to item 1 of argv
-  set want to item 2 of argv
-  if mode is "tag" then
-    set waitFor to (item 3 of argv) as integer
-    set started to current date
-    -- The clock is read outside `tell`: inside, `current date` goes to Ghostty first.
-    repeat
-      -- One question, so the id comes with its own folder.
-      tell application "Ghostty" to set found to id of every terminal whose working directory contains want
-      if found is not {} then exit repeat
-      if ((current date) - started) > waitFor then return ""
-      delay 0.1
-    end repeat
-    set want to item 1 of found
-  end if
-  if focusTerminal(want) then return want
-  return ""
-end run
-
-on focusTerminal(want)
-  tell application "Ghostty"
-    set ws to every window whose id of every terminal contains want
-    if ws is {} then
-      -- In no window (the quick terminal): Ghostty's own focus still brings it forward.
-      if not (exists terminal id want) then return false
-    else
-      set w to item 1 of ws
-      set tbs to every tab of w whose id of every terminal contains want
-      if tbs is not {} then select tab (item 1 of tbs)
-      try
-        activate window w
-      end try
-    end if
-    try
-      focus terminal id want
-    end try
-    try
-      activate
-    end try
-  end tell
-  return true
-end focusTerminal
-"#;
-
-/// `<marker> <seconds>`: waits up to that long for the terminal whose folder contains the
-/// marker and returns its id, or "" when none shows. Unlike GHOSTTY_FOCUS it brings nothing
-/// forward: typing into a session shouldn't take you away from where you are.
-const GHOSTTY_FIND: &str = r#"
-on run argv
-  set want to item 1 of argv
-  set waitFor to (item 2 of argv) as integer
-  set started to current date
-  repeat
-    tell application "Ghostty" to set found to id of every terminal whose working directory contains want
-    if found is not {} then return item 1 of found
-    if ((current date) - started) > waitFor then return ""
-    delay 0.1
-  end repeat
-end run
-"#;
-
-/// `<terminal id> <text> [action]`: pastes the text into that terminal, then presses Return.
-/// Ghostty pastes it bracketed when the program asked for that (Claude Code and Codex do), so a
-/// prompt of several lines arrives whole. Return comes a moment later, so the program has
-/// taken the paste as a paste before it sees the key. An action given is performed first
-/// (`GHOSTTY_CTRL_C`).
-const GHOSTTY_TYPE: &str = r#"
-on run argv
-  set want to item 1 of argv
-  set theText to item 2 of argv
-  tell application "Ghostty"
-    if not (exists terminal id want) then return ""
-    if (count of argv) > 2 then
-      perform action (item 3 of argv) on terminal id want
-      delay 0.2
-    end if
-    input text theText to terminal id want
-    delay 0.3
-    send key "enter" to terminal id want
-  end tell
-  return want
-end run
-"#;
-
-/// Ghostty's action that types Ctrl+C: `text:` takes a Zig string literal.
-const GHOSTTY_CTRL_C: &str = "text:\\x03";
 
 /// How long after pressing a key before a paste, so the program reads them apart.
 const CLEAR_WAIT: Duration = Duration::from_millis(200);
-
-/// How long to wait for Ghostty to show a session's marker. It's there within a fraction of a
-/// second normally; on a Mac busy enough to fall seconds behind, a short wait reported tabs as
-/// missing that Ghostty then showed.
-const GHOSTTY_MARK_WAIT_SECS: &str = "8";
 
 /// How long Codealong waits for Ghostty. It can be slow to answer while it launches, while it's
 /// busy, or while macOS asks whether Codealong may control it (asked again after each rebuild).
@@ -275,10 +215,6 @@ impl std::fmt::Display for NotAllowed {
 }
 
 impl std::error::Error for NotAllowed {}
-
-fn osascript(script: &str, args: &[&str]) -> Result<String> {
-    osascript_in("Ghostty", script, args)
-}
 
 /// Runs a script that talks to `app` (its name, for what goes wrong).
 pub fn osascript_in(app: &'static str, script: &str, args: &[&str]) -> Result<String> {
@@ -383,57 +319,23 @@ pub struct Placement<'a> {
 
 /// Opens a new terminal at `path`, optionally typing `input` (a command plus return).
 pub fn terminal_open(profile: &str, place: Placement, path: &Path, input: Option<&str>) -> Result<()> {
-    installed(profile)?;
-    match profile {
-        "ghostty" => {
-            let dir = path.to_string_lossy();
-            let (at, beside) = ghostty_placement(place);
-            match osascript(GHOSTTY_NEW, &[at, &beside, &dir, input.unwrap_or("")]) {
-                Ok(_) => Ok(()),
-                Err(e) if input.is_none() => {
-                    // Without Automation permission a plain window still works.
-                    let arg = format!("--working-directory={dir}");
-                    procs::open(&["-na", "Ghostty.app", "--args", &arg], Duration::from_secs(10)).map_err(|_| e)
-                }
-                Err(e) => Err(e),
-            }
-        }
-        "iterm2" => iterm::open(place, path, input.unwrap_or(""), &[]),
-        // Terminal can't open a tab from a script: always a window.
-        "terminal" => terminal_app::open(path, input.unwrap_or(""), &[]),
-        other => Err(unknown_profile(other)),
-    }
+    opens_in(profile)?.open(place, path, input)
 }
 
 /// Opens a new terminal at `path` with `env` set in its shell, and types `input` (a command
 /// plus return). The shell expands variables in `input` from `env`.
 pub fn terminal_run(profile: &str, place: Placement, path: &Path, input: &str, env: &[(String, String)]) -> Result<()> {
-    installed(profile)?;
-    match profile {
-        "ghostty" => {
-            let dir = path.to_string_lossy();
-            let (at, beside) = ghostty_placement(place);
-            let entries: Vec<String> = env.iter().map(|(k, v)| format!("{k}={v}")).collect();
-            let mut args: Vec<&str> = vec![at, &beside, &dir, input];
-            args.extend(entries.iter().map(String::as_str));
-            osascript(GHOSTTY_NEW, &args).map(|_| ())
-        }
-        "iterm2" => iterm::open(place, path, input, env),
-        "terminal" => terminal_app::open(path, input, env),
-        other => Err(unknown_profile(other)),
-    }
+    opens_in(profile)?.run(place, path, input, env)
 }
 
-/// Says so when a profile's app isn't here, rather than letting AppleScript ask where it is.
-fn installed(profile: &str) -> Result<()> {
+/// The terminal a profile names, to open something in. Says so when its app isn't here, rather
+/// than letting AppleScript ask where it is.
+fn opens_in(profile: &str) -> Result<&'static dyn Terminal> {
     match terminal_app(profile) {
-        Some(app) if !app.installed() => bail!("{} isn't installed. Install it, or pick another terminal in Settings.", app.name),
-        _ => Ok(()),
+        Some(app) if !app.installed() => bail!("{} isn't installed. Install it, or pick another terminal in Settings.", app.name()),
+        Some(app) => Ok(app),
+        None => Err(unknown_profile(profile)),
     }
-}
-
-fn ghostty_placement(place: Placement) -> (&'static str, String) {
-    placement(place, ghostty_terminals)
 }
 
 /// The first two arguments of a script that opens a terminal: where it goes, and the tabs it
@@ -471,17 +373,6 @@ pub struct Tab {
     pub id: String,
     pub cwd: String,
     pub name: String,
-}
-
-fn ghostty_terminals() -> Result<Vec<Tab>> {
-    Ok(osascript(GHOSTTY_LIST, &[])?
-        .lines()
-        .filter_map(|line| {
-            let mut parts = line.splitn(3, '\t');
-            Some(Tab { id: parts.next()?.to_string(), cwd: parts.next()?.to_string(), name: parts.next().unwrap_or("").to_string() })
-        })
-        .filter(|t| !t.id.is_empty())
-        .collect())
 }
 
 /// Focus requests take turns, and one still waiting when a newer one comes in is dropped. On a
@@ -573,15 +464,12 @@ pub fn terminal_focus_session(profile: &str, pid: u32, title: &str, cwd: &Path) 
         // Clicked again while this one waited: the newer click decides what comes forward.
         return Ok(true);
     };
-    let kind = terminal_kind(pid);
+    let terminal = terminal_kind(pid);
     // Asked before the tab is raised: `follow` is for an app that wasn't the active one then.
-    let behind = kind.and_then(HostKind::bundle).or_else(|| bundle_id(profile)).filter(|app| !app_active(app));
-    let on_tty = tty.to_string_lossy().into_owned();
-    let raised = match kind {
-        Some(HostKind::Ghostty) => ghostty_focus_session(pid, &tty, title, cwd)?.map(Raised::Ghostty),
-        Some(HostKind::ITerm2) => iterm::focus(&on_tty)?.then(|| Raised::ITerm2(on_tty)),
-        Some(HostKind::Terminal) => terminal_app::focus(&on_tty)?.then(|| Raised::Terminal(on_tty)),
-        Some(HostKind::Tmux) | None => focus_by_title(profile, title, cwd)?,
+    let behind = terminal.and_then(|t| t.bundle()).or_else(|| bundle_id(profile)).filter(|app| !app_active(app));
+    let raised = match terminal {
+        Some(terminal) => terminal.focus_session(profile, pid, &tty, title, cwd)?,
+        None => focus_by_title(profile, title, cwd)?,
     };
     let found = raised.is_some();
     if let (Some(raised), Some(app)) = (raised, behind) {
@@ -590,21 +478,17 @@ pub fn terminal_focus_session(profile: &str, pid: u32, title: &str, cwd: &Path) 
     Ok(found)
 }
 
-/// A tab that was brought forward, by what its app finds it again by: Ghostty's terminal id, the
-/// TTY in iTerm2 and Terminal.
-enum Raised {
-    Ghostty(String),
-    ITerm2(String),
-    Terminal(String),
+/// A session's tab, found: the terminal it's in and what that terminal finds it again by
+/// (Ghostty's terminal id, the TTY in iTerm2 and Terminal, a tmux pane). A key is pressed in it,
+/// and a tab that was brought forward is raised again by it.
+pub struct TerminalHost {
+    terminal: &'static dyn Terminal,
+    at: String,
 }
 
-impl Raised {
+impl TerminalHost {
     fn again(&self) {
-        let _ = match self {
-            Raised::Ghostty(id) => osascript(GHOSTTY_FOCUS, &["id", id]).map(|_| true),
-            Raised::ITerm2(tty) => iterm::focus(tty),
-            Raised::Terminal(tty) => terminal_app::focus(tty),
-        };
+        let _ = self.terminal.focus(&self.at);
     }
 }
 
@@ -622,7 +506,7 @@ const FOLLOW_WAIT: Duration = Duration::from_secs(2);
 /// active and raises the tab again, which moves nothing when it's in front already. A newer
 /// click drops it, as it drops a focus still waiting its turn. The switch itself isn't checked
 /// by hand yet (2026-10-01).
-fn follow(ticket: u64, app: &'static str, raised: Raised) {
+fn follow(ticket: u64, app: &'static str, raised: TerminalHost) {
     std::thread::spawn(move || {
         let newest = || FOCUS_TURNS.newest.load(Ordering::SeqCst) == ticket;
         if !wait_until(FOLLOW_WAIT, || app_active(app), || !newest()) {
@@ -660,49 +544,20 @@ fn wait_until(limit: Duration, ready: impl Fn() -> bool, dropped: impl Fn() -> b
     }
 }
 
-/// The id of the Ghostty terminal it brought forward, None when the session's tab isn't found.
-fn ghostty_focus_session(pid: u32, tty: &Path, title: &str, cwd: &Path) -> Result<Option<String>> {
-    let terminals = ghostty_terminals()?;
-    let mark = format!("{MARK_PREFIX}{pid}-{}", crate::util::now_ms());
-    let mut failed = None;
-    if write_osc7(tty, &mark).is_ok() {
-        let found = osascript(GHOSTTY_FOCUS, &["tag", &mark, GHOSTTY_MARK_WAIT_SECS]);
-        let id = found.as_deref().map(str::trim).unwrap_or_default().to_string();
-        let real = terminals
-            .iter()
-            .find(|t| t.id == id)
-            .map(|t| t.cwd.clone())
-            // A mark left over (the app quit halfway through) isn't the folder to put back.
-            .filter(|c| !c.is_empty() && !c.starts_with(MARK_PREFIX))
-            .unwrap_or_else(|| cwd.to_string_lossy().into_owned());
-        let _ = write_osc7(tty, &real);
-        match found {
-            Ok(_) if !id.is_empty() => return Ok(Some(id)),
-            Ok(_) => {}
-            // Ghostty was too slow or refused: say that, unless the fallback finds the tab.
-            Err(e) => failed = Some(e),
-        }
-    }
-    match pick_by_title(&terminals, title, cwd) {
-        Some(id) => Ok((!osascript(GHOSTTY_FOCUS, &["id", &id])?.trim().is_empty()).then_some(id)),
-        None => failed.map_or(Ok(None), Err),
+/// The one tab in `profile`'s app titled like the session (see `pick_by_title`). Terminal lists
+/// no titles or folders of its tabs, so it has none.
+fn focus_by_title(profile: &str, title: &str, cwd: &Path) -> Result<Option<TerminalHost>> {
+    let Some(terminal) = terminal_app(profile) else { return Ok(None) };
+    match pick_by_title(&terminal.tabs()?, title, cwd) {
+        Some(at) => Ok(terminal.focus(&at)?.then(|| TerminalHost { terminal, at })),
+        None => Ok(None),
     }
 }
 
-/// The one tab in `profile`'s app titled like the session (see `pick_by_title`). Terminal lists
-/// no titles or folders of its tabs, so it has none.
-fn focus_by_title(profile: &str, title: &str, cwd: &Path) -> Result<Option<Raised>> {
-    match profile {
-        "ghostty" => match pick_by_title(&ghostty_terminals()?, title, cwd) {
-            Some(id) => Ok((!osascript(GHOSTTY_FOCUS, &["id", &id])?.trim().is_empty()).then(|| Raised::Ghostty(id))),
-            None => Ok(None),
-        },
-        "iterm2" => match pick_by_title(&iterm::sessions()?, title, cwd) {
-            Some(tty) => Ok(iterm::focus(&tty)?.then(|| Raised::ITerm2(tty))),
-            None => Ok(None),
-        },
-        _ => Ok(None),
-    }
+/// Focusing where each tab has a TTY (iTerm2, Terminal): the tab on the session's.
+fn focus_on_tty(terminal: &'static dyn Terminal, tty: &Path) -> Result<Option<TerminalHost>> {
+    let at = tty.to_string_lossy().into_owned();
+    Ok(terminal.focus(&at)?.then(|| TerminalHost { terminal, at }))
 }
 
 /// How typing into a session's terminal went, when nothing went wrong while typing.
@@ -727,114 +582,34 @@ pub enum Typed {
 /// Ctrl+L doesn't clear it (2.1.285 binds it to clearing the screen). The key goes a moment
 /// before the paste: arriving together, Claude Code takes both for one paste.
 pub fn terminal_type_session(pid: u32, cwd: &Path, text: &str, clear: bool) -> Result<Typed> {
-    let kind = terminal_kind(pid);
-    let tty = || tty_of(pid).map(|t| t.to_string_lossy().into_owned());
-    match kind {
-        Some(HostKind::Tmux) => match tmux_pane_of(pid) {
-            Some(pane) => {
-                if clear {
-                    press_key(&TerminalHost::Tmux(pane.clone()), Key::CtrlC)?;
-                    std::thread::sleep(CLEAR_WAIT);
-                }
-                tmux_type(&pane, text).map(|_| Typed::Into("tmux"))
-            }
-            None => Ok(Typed::Nowhere("Codealong couldn't find its tmux pane".into())),
-        },
-        Some(HostKind::Ghostty) => {
-            let id = match ghostty_terminal_of(pid, cwd) {
-                Ok(Some(id)) => id,
-                Ok(None) => return Ok(Typed::Nowhere("Codealong couldn't find its Ghostty tab".into())),
-                // Nothing was typed yet, so another way can take it; say why this one didn't.
-                Err(e) if e.is::<NotAllowed>() => return Ok(Typed::Nowhere(not_allowed_why("Ghostty"))),
-                Err(_) => return Ok(Typed::Nowhere("Ghostty didn't answer in time".into())),
-            };
-            let first: &[&str] = if clear { &[GHOSTTY_CTRL_C] } else { &[] };
-            if osascript(GHOSTTY_TYPE, &[&[id.as_str(), text], first].concat())?.trim().is_empty() {
-                // Its tab closed between finding it and typing: nothing went in.
-                return Ok(Typed::Nowhere("its Ghostty tab closed".into()));
-            }
-            Ok(Typed::Into("Ghostty"))
-        }
-        Some(k @ (HostKind::ITerm2 | HostKind::Terminal)) => {
-            let name = k.name();
-            let Some(tty) = tty() else { return Ok(Typed::Nowhere(format!("Codealong couldn't find its {name} tab"))) };
-            let typed = if k == HostKind::ITerm2 {
-                // Terminal can't press a key without Return, so there the box stays as it is.
-                if clear {
-                    iterm::press(&tty, Key::CtrlC)?;
-                    std::thread::sleep(CLEAR_WAIT);
-                }
-                iterm::type_text(&tty, text)
-            } else {
-                terminal_app::type_text(&tty, text)
-            };
-            match typed {
-                Ok(true) => Ok(Typed::Into(name)),
-                // The script finds the tab before typing, so a missing one got nothing.
-                Ok(false) => Ok(Typed::Nowhere(format!("Codealong couldn't find its {name} tab"))),
-                // macOS refused the whole script: nothing went in.
-                Err(e) if e.is::<NotAllowed>() => Ok(Typed::Nowhere(not_allowed_why(name))),
-                Err(e) => Err(e),
-            }
-        }
-        None => Ok(Typed::Nowhere("it isn't in a Ghostty, iTerm2, Terminal or tmux tab".into())),
+    match terminal_kind(pid) {
+        Some(terminal) => terminal.type_session(pid, cwd, text, clear),
+        None => Ok(Typed::Nowhere(format!("it isn't in a {} tab", terminals_that(|_| true)))),
+    }
+}
+
+/// Typing where each tab has a TTY (iTerm2, Terminal): into the tab on the process's, by the
+/// app's own way to type there. `clear` is its way to press one key, where the input box is to
+/// be cleared first and it has one.
+fn type_on_tty(app: &'static str, pid: u32, text: &str, clear: Option<fn(&str, Key) -> Result<()>>, type_text: fn(&str, &str) -> Result<bool>) -> Result<Typed> {
+    let Some(tty) = tty_of(pid).map(|t| t.to_string_lossy().into_owned()) else { return Ok(Typed::Nowhere(format!("Codealong couldn't find its {app} tab"))) };
+    if let Some(press) = clear {
+        press(&tty, Key::CtrlC)?;
+        std::thread::sleep(CLEAR_WAIT);
+    }
+    match type_text(&tty, text) {
+        Ok(true) => Ok(Typed::Into(app)),
+        // The script finds the tab before typing, so a missing one got nothing.
+        Ok(false) => Ok(Typed::Nowhere(format!("Codealong couldn't find its {app} tab"))),
+        // macOS refused the whole script: nothing went in.
+        Err(e) if e.is::<NotAllowed>() => Ok(Typed::Nowhere(not_allowed_why(app))),
+        Err(e) => Err(e),
     }
 }
 
 fn not_allowed_why(app: &str) -> String {
     format!("Codealong isn't allowed to control {app} (System Settings → Privacy & Security → Automation)")
 }
-
-/// The Ghostty terminal a process runs in, found by writing a unique folder report to its TTY
-/// and asking Ghostty which terminal shows it; then the real folder is reported again.
-fn ghostty_terminal_of(pid: u32, cwd: &Path) -> Result<Option<String>> {
-    let Some(tty) = tty_of(pid) else { return Ok(None) };
-    // A mark takes over the TTY's folder report, as focusing's does, so the two never run at
-    // once. A send takes no ticket: it mustn't make a click waiting before it lose its turn.
-    let _turn = FOCUS_TURNS.lock.lock().unwrap_or_else(|e| e.into_inner());
-    let terminals = ghostty_terminals()?;
-    let mark = format!("{MARK_PREFIX}{pid}-{}", crate::util::now_ms());
-    write_osc7(&tty, &mark)?;
-    let found = osascript(GHOSTTY_FIND, &[&mark, GHOSTTY_MARK_WAIT_SECS]);
-    let id = found.as_deref().map(str::trim).unwrap_or_default().to_string();
-    let real = terminals
-        .iter()
-        .find(|t| t.id == id)
-        .map(|t| t.cwd.clone())
-        .filter(|c| !c.is_empty() && !c.starts_with(MARK_PREFIX))
-        .unwrap_or_else(|| cwd.to_string_lossy().into_owned());
-    let _ = write_osc7(&tty, &real);
-    found?;
-    Ok((!id.is_empty()).then_some(id))
-}
-
-/// The terminal you're in: Ghostty's focused one in its front window while Ghostty is the app
-/// in front, else "". Closing it would pull it from under you.
-const GHOSTTY_IN_FRONT: &str = r#"
-on run argv
-  tell application "Ghostty"
-    if not frontmost then return ""
-    try
-      return id of focused terminal of selected tab of front window
-    end try
-  end tell
-  return ""
-end run
-"#;
-
-/// `<terminal id>...`: closes those terminals, skipping any that closed by themselves already.
-const GHOSTTY_CLOSE: &str = r#"
-on run argv
-  tell application "Ghostty"
-    repeat with t in argv
-      try
-        if exists terminal id (contents of t) then close terminal id (contents of t)
-      end try
-    end repeat
-  end tell
-  return "ok"
-end run
-"#;
 
 /// Ends sessions' processes and closes the terminal tabs they ran in (idle.rs), all at once for
 /// each app: with dozens of tabs on a busy Mac, one tab at a time took minutes. The processes get
@@ -843,24 +618,20 @@ end run
 /// the shell is left at its prompt. One result per `(pid, folder)`, in order.
 pub fn close_session_terminals(sessions: &[(u32, &Path)]) -> Vec<Result<()>> {
     let mut out: Vec<Option<Result<()>>> = sessions.iter().map(|_| None).collect();
-    let kinds: Vec<Option<HostKind>> = sessions.iter().map(|(pid, _)| terminal_kind(*pid)).collect();
-    for kind in [HostKind::Ghostty, HostKind::ITerm2, HostKind::Terminal] {
-        let at: Vec<usize> = (0..sessions.len()).filter(|&i| kinds[i] == Some(kind)).collect();
+    let kinds: Vec<Option<HostKind>> = sessions.iter().map(|(pid, _)| terminal_kind(*pid).map(|t| t.kind())).collect();
+    for terminal in TERMINALS.iter().filter(|t| t.closes_tabs()) {
+        let at: Vec<usize> = (0..sessions.len()).filter(|&i| kinds[i] == Some(terminal.kind())).collect();
         if at.is_empty() {
             continue;
         }
         let group: Vec<(u32, &Path)> = at.iter().map(|&i| sessions[i]).collect();
-        let results = match kind {
-            HostKind::Ghostty => close_ghostty_terminals(&group),
-            HostKind::ITerm2 => close_tty_terminals(&group, "iTerm2", iterm::ttys, iterm::in_front, iterm::close),
-            _ => close_tty_terminals(&group, "Terminal", terminal_app::ttys, terminal_app::in_front, terminal_app::close),
-        };
+        let results = terminal.close_sessions(&group);
         let results = results.unwrap_or_else(|e| group.iter().map(|_| Err(anyhow!("{e}"))).collect());
         for (i, r) in at.into_iter().zip(results) {
             out[i] = Some(r);
         }
     }
-    out.into_iter().map(|r| r.unwrap_or_else(|| Err(anyhow!("It isn't in a Ghostty, iTerm2 or Terminal tab.")))).collect()
+    out.into_iter().map(|r| r.unwrap_or_else(|| Err(anyhow!("It isn't in a {} tab.", closes_tabs_in())))).collect()
 }
 
 /// Closing where each tab has a TTY (iTerm2, Terminal): the tabs the app lists that hold these
@@ -929,84 +700,7 @@ fn hang_up(pids: &[u32]) -> Vec<bool> {
     pids.iter().map(|p| !alive(*p)).collect()
 }
 
-fn close_ghostty_terminals(sessions: &[(u32, &Path)]) -> Result<Vec<Result<()>>> {
-    // Marks take over TTYs' folder reports, as focusing's do, so the two never run at once.
-    let _turn = FOCUS_TURNS.lock.lock().unwrap_or_else(|e| e.into_inner());
-    let before = ghostty_terminals()?;
-    let stamp = crate::util::now_ms();
-    let mut out: Vec<Result<()>> = Vec::new();
-    // (index, tty, mark) for each process that has a terminal.
-    let mut marked = Vec::new();
-    for (i, (pid, _)) in sessions.iter().enumerate() {
-        let mark = format!("{MARK_PREFIX}{pid}-{stamp}");
-        match tty_of(*pid) {
-            Some(tty) if write_osc7(&tty, &mark).is_ok() => {
-                marked.push((i, tty, mark));
-                out.push(Ok(()));
-            }
-            Some(_) => out.push(Err(anyhow!("Couldn't reach its terminal."))),
-            None => out.push(Err(anyhow!("It has no terminal tab."))),
-        }
-    }
-    // Wait for Ghostty to show the marks, looking at every terminal at once.
-    let mut ids: Vec<Option<String>> = vec![None; marked.len()];
-    let started = std::time::Instant::now();
-    loop {
-        let now = ghostty_terminals().unwrap_or_default();
-        for (j, (_, _, mark)) in marked.iter().enumerate() {
-            if ids[j].is_none() {
-                ids[j] = now.iter().find(|t| t.cwd.contains(mark.as_str())).map(|t| t.id.clone());
-            }
-        }
-        if ids.iter().all(Option::is_some) || started.elapsed() > Duration::from_secs(8) {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(200));
-    }
-    // Put each terminal's real folder back.
-    for (j, (i, tty, _)) in marked.iter().enumerate() {
-        let real = ids[j]
-            .as_ref()
-            .and_then(|id| before.iter().find(|t| &t.id == id))
-            .map(|t| t.cwd.clone())
-            .filter(|c| !c.is_empty() && !c.starts_with(MARK_PREFIX))
-            .unwrap_or_else(|| sessions[*i].1.to_string_lossy().into_owned());
-        let _ = write_osc7(tty, &real);
-    }
-    let front = osascript(GHOSTTY_IN_FRONT, &[]).map(|s| s.trim().to_string()).unwrap_or_default();
-    // (index, terminal id) of the ones to end.
-    let mut ending = Vec::new();
-    for (j, (i, _, _)) in marked.iter().enumerate() {
-        match &ids[j] {
-            None => out[*i] = Err(anyhow!("Couldn't find its Ghostty tab.")),
-            Some(id) if !front.is_empty() && *id == front => out[*i] = Err(anyhow!("It's the tab you're in.")),
-            Some(id) => ending.push((*i, id.clone())),
-        }
-    }
-    let exited = hang_up(&ending.iter().map(|(i, _)| sessions[*i].0).collect::<Vec<_>>());
-    let mut closing = Vec::new();
-    for ((i, id), gone) in ending.iter().zip(exited) {
-        if gone {
-            closing.push(id.as_str());
-        } else {
-            out[*i] = Err(anyhow!("Its process (pid {}) didn't exit, so the tab stays.", sessions[*i].0));
-        }
-    }
-    if !closing.is_empty() {
-        // A moment for the shells to draw their prompts, which tells Ghostty it's safe to close.
-        std::thread::sleep(Duration::from_millis(500));
-        if let Err(e) = osascript(GHOSTTY_CLOSE, &closing) {
-            for (i, id) in &ending {
-                if closing.contains(&id.as_str()) {
-                    out[*i] = Err(anyhow!("Its process ended, but the tab didn't close: {e}"));
-                }
-            }
-        }
-    }
-    Ok(out)
-}
-
-/// Which terminal a process runs in, by its parents: cheap enough to ask on every look.
+/// Which terminal: one for each `Terminal`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HostKind {
     Ghostty,
@@ -1015,40 +709,19 @@ pub enum HostKind {
     Tmux,
 }
 
-impl HostKind {
-    /// The app's name, the way messages say it.
-    pub fn name(self) -> &'static str {
-        match self {
-            HostKind::Ghostty => "Ghostty",
-            HostKind::ITerm2 => "iTerm2",
-            HostKind::Terminal => "Terminal",
-            HostKind::Tmux => "tmux",
-        }
-    }
-
-    /// The app it's in, to bring forward; tmux runs in whatever terminal its client does.
-    pub fn bundle(self) -> Option<&'static str> {
-        match self {
-            HostKind::Ghostty => bundle_id("ghostty"),
-            HostKind::ITerm2 => bundle_id("iterm2"),
-            HostKind::Terminal => bundle_id("terminal"),
-            HostKind::Tmux => None,
-        }
-    }
-
-    /// Whether Codealong can press a single key there. Terminal presses Return after whatever
-    /// a script types, and Claude Code takes "1" and Return arriving together as typed text, not
-    /// as the digit that answers its prompt.
-    pub fn presses_keys(self) -> bool {
-        self != HostKind::Terminal
-    }
+/// The terminals Codealong can press keys in, for messages.
+pub fn presses_keys_in() -> String {
+    terminals_that(|t| t.presses_keys())
 }
 
-/// The terminals Codealong can press keys in, for messages.
-pub const PRESSES_KEYS_IN: &str = "Ghostty, iTerm2 or tmux";
+/// The terminals whose tabs Codealong can close, for messages.
+pub fn closes_tabs_in() -> String {
+    terminals_that(|t| t.closes_tabs())
+}
 
-pub fn terminal_kind(pid: u32) -> Option<HostKind> {
-    kind_by(pid, parent_and_name).filter(|k| *k != HostKind::Tmux || tmux_bin().is_some())
+/// The terminal a process runs in, by its parents: cheap enough to ask on every look.
+pub fn terminal_kind(pid: u32) -> Option<&'static dyn Terminal> {
+    kind_by(pid, parent_and_name).map(terminal).filter(|t| t.reachable())
 }
 
 /// A process's parent and name, as the kernel has them.
@@ -1068,14 +741,7 @@ fn kind_by(pid: u32, step: impl Fn(u32) -> Option<(u32, String)>) -> Option<Host
     let mut at = pid;
     for _ in 0..16 {
         let (ppid, name) = step(at)?;
-        let kind = match name.as_str() {
-            "ghostty" => Some(HostKind::Ghostty),
-            "iTerm2" => Some(HostKind::ITerm2),
-            n if n.starts_with("iTermServer") => Some(HostKind::ITerm2),
-            "Terminal" => Some(HostKind::Terminal),
-            "tmux" => Some(HostKind::Tmux),
-            _ => None,
-        };
+        let kind = TERMINALS.iter().find(|t| t.runs_as(&name)).map(|t| t.kind());
         if kind.is_some() {
             return kind;
         }
@@ -1087,23 +753,11 @@ fn kind_by(pid: u32, step: impl Fn(u32) -> Option<(u32, String)>) -> Option<Host
     None
 }
 
-/// A terminal to press keys in: a Ghostty terminal by id, an iTerm2 session by its TTY, or a
-/// tmux pane.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum TerminalHost {
-    Ghostty(String),
-    ITerm2(String),
-    Tmux(String),
-}
-
-/// The terminal a session's process runs in, found (for Ghostty, marked) now, to press keys in.
+/// The tab a session's process runs in, found (for Ghostty, marked) now, to press keys in.
 /// An error for Terminal, which can't press one key alone.
 pub fn terminal_host(pid: u32, cwd: &Path) -> Result<Option<TerminalHost>> {
     Ok(match terminal_kind(pid) {
-        Some(HostKind::Ghostty) => ghostty_terminal_of(pid, cwd)?.map(TerminalHost::Ghostty),
-        Some(HostKind::ITerm2) => tty_of(pid).map(|t| TerminalHost::ITerm2(t.to_string_lossy().into_owned())),
-        Some(HostKind::Terminal) => bail!("Terminal can't press a single key for Codealong. Open it to answer."),
-        Some(HostKind::Tmux) => tmux_pane_of(pid).map(TerminalHost::Tmux),
+        Some(terminal) => terminal.key_target(pid, cwd)?.map(|at| TerminalHost { terminal, at }),
         None => None,
     })
 }
@@ -1118,87 +772,7 @@ pub enum Key {
 
 /// Presses one key in a terminal, as if typed: no paste, no Return.
 pub fn press_key(host: &TerminalHost, key: Key) -> Result<()> {
-    match host {
-        TerminalHost::Ghostty(id) => {
-            // `send key` makes a key event without text, and Ghostty writes nothing for a
-            // character key without text: only keys with codes of their own, like Escape, get
-            // through. A digit goes through Ghostty's `text:` action, which writes it to the
-            // program as typing it does; `input text` would paste it, and Claude Code's prompt
-            // ignores pastes.
-            match key {
-                Key::Digit1 => osascript(GHOSTTY_ACTION, &[id, "text:1"])?,
-                Key::Escape => osascript(GHOSTTY_KEY, &[id, "escape"])?,
-                Key::CtrlC => osascript(GHOSTTY_ACTION, &[id, GHOSTTY_CTRL_C])?,
-            };
-            Ok(())
-        }
-        TerminalHost::ITerm2(tty) => iterm::press(tty, key),
-        TerminalHost::Tmux(pane) => {
-            let name = match key {
-                Key::Digit1 => "1",
-                Key::Escape => "Escape",
-                Key::CtrlC => "C-c",
-            };
-            let bin = tmux_bin().ok_or_else(|| anyhow!("tmux isn't installed where Codealong looks for it."))?;
-            procs::run(&bin.to_string_lossy(), &["send-keys", "-t", pane, name], None, Duration::from_secs(5))?;
-            Ok(())
-        }
-    }
-}
-
-/// `<terminal id> <key name>`: presses one key in that terminal.
-const GHOSTTY_KEY: &str = r#"
-on run argv
-  tell application "Ghostty"
-    if not (exists terminal id (item 1 of argv)) then error "That terminal is gone."
-    send key (item 2 of argv) to terminal id (item 1 of argv)
-  end tell
-  return "ok"
-end run
-"#;
-
-/// `<terminal id> <action>`: performs one of Ghostty's actions (as keybindings name them) in
-/// that terminal; it answers false for one it didn't perform.
-const GHOSTTY_ACTION: &str = r#"
-on run argv
-  tell application "Ghostty"
-    if not (exists terminal id (item 1 of argv)) then error "That terminal is gone."
-    if not (perform action (item 2 of argv) on terminal id (item 1 of argv)) then error "Ghostty didn't take the key."
-  end tell
-  return "ok"
-end run
-"#;
-
-fn tmux_bin() -> Option<std::path::PathBuf> {
-    #[cfg(test)]
-    if let Some(staged) = stage::tmux_bin() {
-        return Some(staged);
-    }
-    ["/opt/homebrew/bin/tmux", "/usr/local/bin/tmux", "/usr/bin/tmux"].iter().map(std::path::PathBuf::from).find(|p| p.is_file())
-}
-
-/// The tmux pane whose TTY is the process's.
-fn tmux_pane_of(pid: u32) -> Option<String> {
-    let tty = tty_of(pid)?;
-    let bin = tmux_bin()?;
-    let out = procs::run(&bin.to_string_lossy(), &["list-panes", "-a", "-F", "#{pane_tty} #{pane_id}"], None, Duration::from_secs(5)).ok()?;
-    tmux_pane_for(&out, &tty.to_string_lossy())
-}
-
-/// From `list-panes -F '#{pane_tty} #{pane_id}'`, the pane on `tty`.
-fn tmux_pane_for(list: &str, tty: &str) -> Option<String> {
-    list.lines().find_map(|l| l.split_once(' ').filter(|(t, _)| *t == tty).map(|(_, id)| id.trim().to_string()))
-}
-
-/// Pastes `text` into the pane (bracketed, so a prompt of several lines arrives whole), then
-/// presses Return a moment later, as `GHOSTTY_TYPE` does.
-fn tmux_type(pane: &str, text: &str) -> Result<()> {
-    let bin = tmux_bin().ok_or_else(|| anyhow!("tmux isn't installed where Codealong looks for it."))?.to_string_lossy().into_owned();
-    procs::run_stdin(&bin, &["load-buffer", "-b", "codealong", "-"], text, Duration::from_secs(5))?;
-    procs::run(&bin, &["paste-buffer", "-p", "-d", "-b", "codealong", "-t", pane], None, Duration::from_secs(5))?;
-    std::thread::sleep(Duration::from_millis(300));
-    procs::run(&bin, &["send-keys", "-t", pane, "Enter"], None, Duration::from_secs(5))?;
-    Ok(())
+    host.terminal.press(&host.at, key)
 }
 
 /// The terminal device a process writes to, or None for a background process.
@@ -1322,6 +896,9 @@ pub fn codex_review_url(pr_url: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use super::ghostty::{osascript, terminal_of as ghostty_terminal_of, terminals as ghostty_terminals};
+    use super::ghostty::{GHOSTTY_ACTION, GHOSTTY_CLOSE, GHOSTTY_FIND, GHOSTTY_FOCUS, GHOSTTY_IN_FRONT, GHOSTTY_KEY, GHOSTTY_LIST, GHOSTTY_NEW, GHOSTTY_TYPE};
+    use super::tmux::pane_for as tmux_pane_for;
     use super::*;
 
     #[test]
@@ -1461,8 +1038,8 @@ mod tests {
                 let tty = tty.to_string_lossy();
                 let _ = if profile == "iterm2" { iterm::close(&[&tty]) } else { terminal_app::close(&[&tty]) };
             }
-            assert_eq!(kind.and_then(HostKind::bundle), bundle_id(profile), "{profile}");
-            assert_eq!(typed, Typed::Into(terminal_app(profile).unwrap().name), "{profile}");
+            assert_eq!(kind.and_then(|t| t.bundle()), bundle_id(profile), "{profile}");
+            assert_eq!(typed, Typed::Into(terminal_app(profile).unwrap().name()), "{profile}");
             assert_eq!(got, want, "{profile}'s program got {:?}", String::from_utf8_lossy(&got));
         }
     }
@@ -1609,7 +1186,7 @@ end run
     fn ghostty_finds_a_tab() {
         let pid: u32 = std::env::var("CODEALONG_TEST_PID").expect("CODEALONG_TEST_PID").parse().unwrap();
         let t = std::time::Instant::now();
-        let kind = terminal_kind(pid);
+        let kind = terminal_kind(pid).map(|t| t.kind());
         println!("terminal: {kind:?}, tty {:?}, in {:?}", tty_of(pid), t.elapsed());
         assert_eq!(kind, Some(HostKind::Ghostty));
         let t = std::time::Instant::now();
@@ -1660,7 +1237,7 @@ end run
             }
             std::thread::sleep(Duration::from_millis(100));
         }
-        let host = TerminalHost::Ghostty(id.clone());
+        let host = TerminalHost { terminal: &ghostty::Ghostty, at: id.clone() };
         let pressed = press_key(&host, Key::Digit1).and_then(|_| press_key(&host, Key::Escape));
         for _ in 0..50 {
             if std::fs::metadata(&out).map(|m| m.len() >= 2).unwrap_or(false) {

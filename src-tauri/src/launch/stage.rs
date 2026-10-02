@@ -483,7 +483,7 @@ mod tests {
             ]
         );
         assert!(p.log.is_empty(), "nothing is asked of any app");
-        assert_eq!(PRESSES_KEYS_IN, "Ghostty, iTerm2 or tmux");
+        assert_eq!(presses_keys_in(), "Ghostty, iTerm2 or tmux");
     }
 
     #[test]
@@ -621,9 +621,9 @@ mod tests {
     #[test]
     fn a_tab_raised_again_is_found_the_way_its_app_finds_it() {
         let p = played(|_| Ok("x\n".into()), || {
-            Raised::Ghostty("T2".into()).again();
-            Raised::ITerm2("/dev/ttys201".into()).again();
-            Raised::Terminal("/dev/ttys301".into()).again();
+            for (profile, at) in [("ghostty", "T2"), ("iterm2", "/dev/ttys201"), ("terminal", "/dev/ttys301")] {
+                TerminalHost { terminal: terminal_app(profile).unwrap(), at: at.into() }.again();
+            }
         });
         assert_eq!(p.log, [r#"GHOSTTY_FOCUS ["id", "T2"]"#, r#"ITERM_FOCUS+SESSION_ON ["/dev/ttys201"]"#, r#"TERMINAL_FOCUS+TAB_ON ["/dev/ttys301"]"#]);
     }
