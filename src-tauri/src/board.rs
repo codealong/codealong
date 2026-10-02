@@ -1941,7 +1941,7 @@ mod tests {
         let a = acct("claude");
         let mut maker = claude_session(&a, Some(&reg("idle", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
         maker.id = "abc12345-0000-0000-0000-000000000000".into();
-        maker.key = format!("claude:claude:{}", maker.id);
+        maker.key = Session::key_for(Harness::Claude, "claude", &maker.id);
         maker.cwd = "/r/vault".into();
         // A session records the branch of the folder it runs in, not the one it made.
         maker.branch = Some("main".into());
@@ -2521,7 +2521,7 @@ mod tests {
         let a = acct("claude");
         let session_in = |id: &str, cwd: &str, status: &str| {
             let mut s = claude_session(&a, Some(&reg(status, NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
-            (s.id, s.key, s.cwd) = (id.into(), format!("claude:claude:{id}"), cwd.into());
+            (s.id, s.key, s.cwd) = (id.into(), Session::key_for(Harness::Claude, "claude", id), cwd.into());
             s
         };
         let chat = session_in("chat", &format!("{root}/a/b/scratch-2026-09-28-045217"), "idle");
@@ -2846,7 +2846,7 @@ mod tests {
         let a = acct("claude");
         let mut maker = claude_session(&a, Some(&reg("busy", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
         maker.id = "abc12345-0000-0000-0000-000000000000".into();
-        maker.key = format!("claude:claude:{}", maker.id);
+        maker.key = Session::key_for(Harness::Claude, "claude", &maker.id);
         maker.cwd = "/r/vault".into();
         let (git, prs, order) = (HashMap::new(), HashMap::new(), vec!["Spruce".to_string()]);
         let visitors = HashMap::new();
@@ -2903,7 +2903,7 @@ mod tests {
         let sessions: Vec<Session> = (0..MAX_SESSIONS_PER_LANE + 5)
             .map(|i| {
                 let mut s = claude_session(&a, None, Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
-                s.key = format!("claude:claude2:s{i}");
+                s.key = Session::key_for(Harness::Claude, "claude2", &format!("s{i}"));
                 s.last_activity = NOW - i as i64 * 60_000;
                 s
             })
