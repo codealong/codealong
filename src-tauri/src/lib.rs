@@ -32,6 +32,7 @@ mod engine;
 #[path = "../peer/src/fixtures.rs"]
 mod fixtures;
 mod flash;
+mod ghpoll;
 mod git;
 mod harness;
 mod held;
