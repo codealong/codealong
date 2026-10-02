@@ -698,6 +698,10 @@ fn last_turn(rollout: &Path) -> TurnRan {
 /// as the thread last did (`TurnRan`: its model, sandbox and approval policy), so it may do what
 /// the thread may; an approval that comes to Codealong, with nobody to ask, is declined. A
 /// thread that says nothing of how it ran is copied read-only, asking nothing.
+///
+/// It numbers its own requests and reads their answers itself, rather than asking through the
+/// client that carries its lines (rpc.rs): a `Dialect` only turns lines into lines, which is
+/// what lets the test below run it without a process. The handshake is appserver.rs's.
 pub struct SideThread {
     thread: String,
     cwd: String,
@@ -732,7 +736,7 @@ impl SideThread {
 
 impl crate::side::Dialect for SideThread {
     fn open(&mut self) -> Vec<Value> {
-        vec![serde_json::json!({ "id": Self::INITIALIZE, "method": "initialize", "params": { "clientInfo": { "name": "codealong", "title": "Codealong", "version": env!("CARGO_PKG_VERSION") } } })]
+        vec![crate::rpc::request_line(Self::INITIALIZE, crate::appserver::INITIALIZE, crate::appserver::initialize_params())]
     }
 
     fn ask(&mut self, text: &str) -> Vec<Value> {
@@ -769,7 +773,7 @@ impl crate::side::Dialect for SideThread {
                         if let Some(m) = &self.ran.model {
                             params["model"] = json!(m);
                         }
-                        (Vec::new(), vec![json!({ "method": "initialized" }), json!({ "id": Self::FORK, "method": "thread/fork", "params": params })])
+                        (Vec::new(), vec![crate::rpc::note_line(crate::appserver::INITIALIZED, Value::Null), json!({ "id": Self::FORK, "method": "thread/fork", "params": params })])
                     }
                     Some(Self::FORK) => {
                         self.copy = line.pointer("/result/thread/id").and_then(Value::as_str).map(String::from);
@@ -1750,6 +1754,16 @@ mod tests {
         assert_eq!(f.key, None);
         // The terminal it opens is paired with its folder's newest thread, not the one it forked.
         assert_eq!(terminal_args("codex fork 01a0e375-1c2d-7e3f-8a9b-0c1d2e3f4a5b"), Some((None, None)));
+    }
+
+    /// The handshake is appserver.rs's, and reads on the wire as the copy always wrote it.
+    #[test]
+    fn a_side_thread_opens_with_the_app_servers_handshake() {
+        use crate::side::Dialect;
+        use serde_json::json;
+        let mut t = SideThread::new("parent", Path::new("/w"), TurnRan::default());
+        assert_eq!(t.open(), [json!({ "id": 1, "method": "initialize", "params": { "clientInfo": { "name": "codealong", "title": "Codealong", "version": env!("CARGO_PKG_VERSION") } } })]);
+        assert_eq!(t.hear(&json!({"id": 1, "result": {}})).1[0].to_string(), r#"{"method":"initialized"}"#);
     }
 
     #[test]
