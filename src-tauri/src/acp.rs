@@ -15,11 +15,8 @@
 //! are remembered (`hosted.json`); sending to one after a restart resumes it in a new process.
 
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, Command, Stdio};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::mpsc::{channel, Sender};
+use std::process::Command;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
@@ -30,6 +27,7 @@ use serde_json::{json, Value};
 use crate::config::{self, AccountCfg};
 use crate::harness::{Answer, Pending};
 use crate::model::{Harness, Session, Status};
+use crate::rpc::{self, Failure};
 use crate::store;
 use crate::util::{now_ms, sh_quote, truncate};
 
@@ -91,10 +89,8 @@ struct Hosted {
 /// One adapter process.
 struct Agent {
     account: String,
-    stdin: Mutex<ChildStdin>,
-    child: Mutex<Child>,
-    next: AtomicU64,
-    waiting: Mutex<HashMap<u64, Sender<std::result::Result<Value, String>>>>,
+    /// The process, which is killed when this goes.
+    client: rpc::Client,
     /// Its `agentCapabilities`.
     caps: Mutex<Value>,
 }
@@ -248,43 +244,29 @@ pub fn install_adapters() -> Result<String> {
 }
 
 impl Agent {
-    fn send(&self, message: &Value) -> Result<()> {
-        let mut line = message.to_string();
-        line.push('\n');
-        let mut w = self.stdin.lock().unwrap_or_else(|e| e.into_inner());
-        w.write_all(line.as_bytes())?;
-        w.flush()?;
-        Ok(())
-    }
-
     /// Sends a request and waits for its answer; None waits as long as the process lives.
     fn request(&self, method: &str, params: Value, timeout: Option<Duration>) -> Result<Value> {
-        let id = self.next.fetch_add(1, Ordering::SeqCst);
-        let (tx, rx) = channel();
-        self.waiting.lock().unwrap_or_else(|e| e.into_inner()).insert(id, tx);
-        if let Err(e) = self.send(&json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params })) {
-            self.waiting.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
-            return Err(e);
-        }
-        let got = match timeout {
-            Some(t) => rx.recv_timeout(t).map_err(|e| match e {
-                std::sync::mpsc::RecvTimeoutError::Timeout => anyhow!("{} didn't answer {method} in time.", self.account),
-                std::sync::mpsc::RecvTimeoutError::Disconnected => anyhow!("{}'s agent stopped.", self.account),
+        self.client.request(method, params, timeout).map_err(|e| match e {
+            Failure::Timeout => anyhow!("{} didn't answer {method} in time.", self.account),
+            Failure::Closed(_) => anyhow!("{}'s agent stopped.", self.account),
+            Failure::Refused(e) => anyhow!("{}", e.get("message").and_then(Value::as_str).unwrap_or("error")),
+            Failure::Write(e) => e.into(),
+        })
+    }
+
+    /// The protocol's handshake: who's asking and what Codealong lends the agent. It answers
+    /// with what it can do.
+    fn initialize(&self) -> Result<Value> {
+        self.request(
+            "initialize",
+            json!({
+                "protocolVersion": 1,
+                "clientInfo": rpc::client_info(),
+                // The agents read and write files and run commands with their own tools.
+                "clientCapabilities": { "fs": { "readTextFile": false, "writeTextFile": false }, "terminal": false },
             }),
-            None => rx.recv().map_err(|_| anyhow!("{}'s agent stopped.", self.account)),
-        };
-        if got.is_err() {
-            self.waiting.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
-        }
-        got?.map_err(|e| anyhow!("{e}"))
-    }
-
-    fn notify(&self, method: &str, params: Value) -> Result<()> {
-        self.send(&json!({ "jsonrpc": "2.0", "method": method, "params": params }))
-    }
-
-    fn respond(&self, id: &Value, result: Value) -> Result<()> {
-        self.send(&json!({ "jsonrpc": "2.0", "id": id, "result": result }))
+            Some(REQUEST_TIMEOUT),
+        )
     }
 
     fn can(&self, what: &str) -> bool {
@@ -294,7 +276,6 @@ impl Agent {
             other => caps.pointer(&format!("/sessionCapabilities/{other}")).is_some(),
         }
     }
-
 }
 
 /// The account's adapter process, started when there isn't one.
@@ -304,47 +285,33 @@ fn agent(a: &AccountCfg) -> Result<Arc<Agent>> {
     }
     let (command, env) = adapter_command(a).map_err(|e| anyhow!(e))?;
     // Through a shell, so an account's command may set variables the way it does in a terminal.
-    let mut child = Command::new("/bin/sh")
-        .args(["-c", &format!("exec {command}")])
-        .envs(env)
-        .env("PATH", adapter_path())
-        .current_dir(crate::util::home())
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::from(log_file(&a.name)))
-        .spawn()
-        .with_context(|| format!("Couldn't start {}'s agent ({command}).", a.name))?;
-    let stdin = child.stdin.take().ok_or_else(|| anyhow!("no stdin"))?;
-    let stdout = child.stdout.take().ok_or_else(|| anyhow!("no stdout"))?;
-    let ag = Arc::new(Agent { account: a.name.clone(), stdin: Mutex::new(stdin), child: Mutex::new(child), next: AtomicU64::new(1), waiting: Mutex::new(HashMap::new()), caps: Mutex::new(Value::Null) });
-    let reader = ag.clone();
-    std::thread::spawn(move || read(reader, BufReader::new(stdout)));
-    let init = ag.request(
-        "initialize",
-        json!({
-            "protocolVersion": 1,
-            "clientInfo": { "name": "codealong", "title": "Codealong", "version": env!("CARGO_PKG_VERSION") },
-            // The agents read and write files and run commands with their own tools.
-            "clientCapabilities": { "fs": { "readTextFile": false, "writeTextFile": false }, "terminal": false },
-        }),
-        Some(REQUEST_TIMEOUT),
-    );
-    let init = match init {
+    let mut cmd = Command::new("/bin/sh");
+    cmd.args(["-c", &format!("exec {command}")]).envs(env).env("PATH", adapter_path()).current_dir(crate::util::home());
+    let ag = connect(&a.name, cmd, log_file(&a.name)).with_context(|| format!("Couldn't start {}'s agent ({command}).", a.name))?;
+    let init = match ag.initialize() {
         Ok(v) => v,
-        Err(e) => {
-            let _ = ag.child.lock().map(|mut c| c.kill());
-            bail!("{}'s agent didn't start ({e:#}). Its log: {}", a.name, crate::util::tilde(&log_path(&a.name)));
-        }
+        // Its process is killed as `ag` goes, here and below.
+        Err(e) => bail!("{}'s agent didn't start ({e:#}). Its log: {}", a.name, crate::util::tilde(&log_path(&a.name))),
     };
     *ag.caps.lock().unwrap_or_else(|e| e.into_inner()) = init.get("agentCapabilities").cloned().unwrap_or(Value::Null);
     let mut st = state();
     // Another start may have raced this one; the first one in stays.
     if let Some(existing) = st.agents.get(&a.name) {
-        let _ = ag.child.lock().map(|mut c| c.kill());
         return Ok(existing.clone());
     }
     st.agents.insert(a.name.clone(), ag.clone());
     Ok(ag)
+}
+
+/// Starts an account's adapter process, with its stderr in `log`. What it writes that isn't an
+/// answer is heard on its client's thread (`hear`), and so is its end (`stopped`).
+fn connect(account: &str, cmd: Command, log: std::fs::File) -> std::io::Result<Arc<Agent>> {
+    let of = account.to_string();
+    let client = rpc::Client::spawn(cmd, rpc::Stderr::Log(log), rpc::Wire::JsonRpc2, move |link, heard| match heard {
+        rpc::Heard::Line(msg) => hear(&of, link, msg),
+        rpc::Heard::Closed(_) => stopped(&of, link),
+    })?;
+    Ok(Arc::new(Agent { account: account.to_string(), client, caps: Mutex::new(Value::Null) }))
 }
 
 /// The login shell's PATH, and where OpenCode's installer puts it, which only an interactive
@@ -363,40 +330,29 @@ fn log_file(account: &str) -> std::fs::File {
     std::fs::OpenOptions::new().create(true).append(true).open(&path).or_else(|_| std::fs::File::create("/dev/null")).expect("/dev/null opens")
 }
 
-/// Reads the process's messages until it ends.
-fn read(ag: Arc<Agent>, out: BufReader<std::process::ChildStdout>) {
-    for line in out.lines().map_while(std::result::Result::ok) {
-        let Ok(msg) = serde_json::from_str::<Value>(&line) else { continue };
-        let method = msg.get("method").and_then(Value::as_str);
-        match (method, msg.get("id")) {
-            (None, Some(id)) => {
-                let Some(id) = id.as_u64() else { continue };
-                if let Some(tx) = ag.waiting.lock().unwrap_or_else(|e| e.into_inner()).remove(&id) {
-                    let r = match msg.get("error") {
-                        Some(e) => Err(e.get("message").and_then(Value::as_str).unwrap_or("error").to_string()),
-                        None => Ok(msg.get("result").cloned().unwrap_or(Value::Null)),
-                    };
-                    let _ = tx.send(r);
-                }
-            }
-            (Some("session/update"), _) => on_update(&ag, msg.get("params").unwrap_or(&Value::Null)),
-            (Some("session/request_permission"), Some(id)) => on_permission(&ag, id.clone(), msg.get("params").unwrap_or(&Value::Null)),
-            (Some(_), Some(id)) => {
-                // Files and terminals are the agents' own; nothing else was offered.
-                let _ = ag.send(&json!({ "jsonrpc": "2.0", "id": id, "error": { "code": -32601, "message": "Codealong doesn't offer that." } }));
-            }
-            _ => {}
+/// A message from an account's process that isn't the answer to a request of Codealong's.
+fn hear(account: &str, link: &rpc::Link, msg: &Value) {
+    let method = msg.get("method").and_then(Value::as_str);
+    match (method, msg.get("id")) {
+        (Some("session/update"), _) => on_update(account, msg.get("params").unwrap_or(&Value::Null)),
+        (Some("session/request_permission"), Some(id)) => on_permission(account, link, id.clone(), msg.get("params").unwrap_or(&Value::Null)),
+        (Some(_), Some(id)) => {
+            // Files and terminals are the agents' own; nothing else was offered.
+            let _ = link.refuse(id, -32601, "Codealong doesn't offer that.");
         }
+        _ => {}
     }
-    // The process ended: its requests fail, and its sessions stop until they're sent to again.
-    ag.waiting.lock().unwrap_or_else(|e| e.into_inner()).clear();
-    let _ = ag.child.lock().map(|mut c| c.wait());
+}
+
+/// An account's process ended. Its requests have failed (the client fails them first), and its
+/// sessions stop until they're sent to again.
+fn stopped(account: &str, link: &rpc::Link) {
     {
         let mut st = state();
-        if st.agents.get(&ag.account).is_some_and(|a| Arc::ptr_eq(a, &ag)) {
-            st.agents.remove(&ag.account);
+        if st.agents.get(account).is_some_and(|a| std::ptr::eq::<rpc::Link>(&*a.client, link)) {
+            st.agents.remove(account);
         }
-        for h in st.sessions.values_mut().filter(|h| h.account == ag.account && h.loaded) {
+        for h in st.sessions.values_mut().filter(|h| h.account == account && h.loaded) {
             h.loaded = false;
             if h.running {
                 h.running = false;
@@ -410,14 +366,14 @@ fn read(ag: Arc<Agent>, out: BufReader<std::process::ChildStdout>) {
     notify(Change::Board);
 }
 
-fn session_key(ag: &Agent, params: &Value) -> Option<String> {
+fn session_key(account: &str, params: &Value) -> Option<String> {
     let id = params.get("sessionId").and_then(Value::as_str)?;
     let st = state();
-    st.sessions.iter().find(|(_, h)| h.account == ag.account && h.id == id).map(|(k, _)| k.clone())
+    st.sessions.iter().find(|(_, h)| h.account == account && h.id == id).map(|(k, _)| k.clone())
 }
 
-fn on_update(ag: &Agent, params: &Value) {
-    let Some(key) = session_key(ag, params) else { return };
+fn on_update(account: &str, params: &Value) {
+    let Some(key) = session_key(account, params) else { return };
     let u = params.get("update").unwrap_or(&Value::Null);
     let kind = u.get("sessionUpdate").and_then(Value::as_str).unwrap_or("");
     let stream = {
@@ -448,13 +404,15 @@ fn on_update(ag: &Agent, params: &Value) {
     notify(Change::Stream(stream));
 }
 
+/// A tool call's title on one line, all of it and as it's written: `util::one_line` keeps only
+/// a text's first line, and takes Markdown's links and bold out of it.
 fn one_line(s: &str) -> String {
     s.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-fn on_permission(ag: &Agent, rpc: Value, params: &Value) {
-    let Some(key) = session_key(ag, params) else {
-        let _ = ag.respond(&rpc, json!({ "outcome": { "outcome": "cancelled" } }));
+fn on_permission(account: &str, link: &rpc::Link, rpc: Value, params: &Value) {
+    let Some(key) = session_key(account, params) else {
+        let _ = link.respond(&rpc, json!({ "outcome": { "outcome": "cancelled" } }));
         return;
     };
     let call = params.get("toolCall").unwrap_or(&Value::Null);
@@ -665,9 +623,9 @@ pub fn cancel(key: &str) -> Result<()> {
     };
     let ag = state().agents.get(&account).cloned().ok_or_else(|| anyhow!("That session isn't running."))?;
     if let Some(p) = permission {
-        ag.respond(&p.rpc, json!({ "outcome": { "outcome": "cancelled" } }))?;
+        ag.client.respond(&p.rpc, json!({ "outcome": { "outcome": "cancelled" } }))?;
     }
-    ag.notify("session/cancel", json!({ "sessionId": id }))?;
+    ag.client.notify("session/cancel", json!({ "sessionId": id }))?;
     notify(Change::Board);
     Ok(())
 }
@@ -697,7 +655,7 @@ pub fn answer(key: &str, id: &str, answer: Answer) -> Result<String> {
     };
     let option = wanted.iter().find_map(|k| p.options.iter().find(|(_, kind)| kind == k)).map(|(o, _)| o.clone()).ok_or_else(|| anyhow!("The agent offered no way to answer that."))?;
     let ag = state().agents.get(&account).cloned().ok_or_else(|| anyhow!("That session's agent stopped."))?;
-    ag.respond(&p.rpc, json!({ "outcome": { "outcome": "selected", "optionId": option } }))?;
+    ag.client.respond(&p.rpc, json!({ "outcome": { "outcome": "selected", "optionId": option } }))?;
     notify(Change::Board);
     Ok(match answer {
         Answer::Allow => "Allowed.".into(),
@@ -868,6 +826,60 @@ mod tests {
         wait_until("the second turn to end", 180, || !state().sessions[&key].running);
         println!("streamed: {:?}", streamed.lock().unwrap());
         assert!(state().sessions[&key].error.is_none());
+    }
+
+    /// What an adapter is written, line for line, by the handshake, by answering and cancelling
+    /// what it asks, and by stopping a turn; and what its end does to its sessions. Against a
+    /// stand-in that keeps each line it reads in a file.
+    #[test]
+    fn an_adapter_is_written_the_protocols_lines() {
+        let dir = store::test_dir("acp-lines");
+        let heard = dir.join("heard");
+        let ask = |id: &str, session: &str| format!(r#"echo '{{"jsonrpc":"2.0","id":"{id}","method":"session/request_permission","params":{{"sessionId":"{session}","toolCall":{{"toolCallId":"call-{id}","title":"Run   ls"}},"options":[{{"optionId":"ok","kind":"allow_once"}},{{"optionId":"no","kind":"reject_once"}}]}}}}'"#);
+        let script = [
+            r#"while IFS= read -r line; do printf '%s\n' "$line" >> "$1"; case "$line" in"#.to_string(),
+            // Once greeted it asks about a session of the account's, about one that's nobody's,
+            // and for something Codealong doesn't lend.
+            format!(r#"*'"method":"initialize"'*) echo '{{"jsonrpc":"2.0","id":1,"result":{{"agentCapabilities":{{"loadSession":true}}}}}}'; {}; {}; echo '{{"jsonrpc":"2.0","id":9,"method":"fs/read_text_file","params":{{}}}}';;"#, ask("p1", "s1"), ask("p2", "nobody")),
+            // Allowed, it asks again; told to stop, it leaves.
+            format!(r#"*'"optionId"'*) {};;"#, ask("p3", "s1")),
+            r#"*'"method":"session/cancel"'*) exit 0;; esac; done"#.to_string(),
+        ]
+        .join(" ");
+        let mut cmd = Command::new("/bin/sh");
+        cmd.args(["-c", &script, "sh"]).arg(&heard);
+        let account = "test-adapter-lines";
+        let key = key_of(Harness::Codex, account, "s1");
+        state().sessions.insert(key.clone(), Hosted { account: account.into(), id: "s1".into(), cwd: "/w".into(), loaded: true, running: true, ..Default::default() });
+        let ag = connect(account, cmd, std::fs::File::create(dir.join("log")).unwrap()).unwrap();
+        state().agents.insert(account.into(), ag.clone());
+        let wrote = || std::fs::read_to_string(&heard).unwrap_or_default().lines().map(String::from).collect::<Vec<_>>();
+
+        assert_eq!(ag.initialize().unwrap(), json!({ "agentCapabilities": { "loadSession": true } }));
+        wait_until("its questions to be heard", 10, || pending(&key).is_some() && wrote().len() == 3);
+        let p = pending(&key).unwrap();
+        assert_eq!((p.id.as_str(), p.label.as_str(), p.always), ("call-p1", "Run ls", false));
+        assert_eq!(answer(&key, "call-p1", Answer::Allow).unwrap(), "Allowed.");
+        wait_until("it to ask again", 10, || pending(&key).is_some_and(|p| p.id == "call-p3"));
+        cancel(&key).unwrap();
+        wait_until("it to leave", 10, || !state().agents.contains_key(account));
+
+        assert_eq!(
+            wrote(),
+            [
+                format!(r#"{{"id":1,"jsonrpc":"2.0","method":"initialize","params":{{"clientCapabilities":{{"fs":{{"readTextFile":false,"writeTextFile":false}},"terminal":false}},"clientInfo":{{"name":"codealong","title":"Codealong","version":"{}"}},"protocolVersion":1}}}}"#, env!("CARGO_PKG_VERSION")),
+                r#"{"id":"p2","jsonrpc":"2.0","result":{"outcome":{"outcome":"cancelled"}}}"#.to_string(),
+                r#"{"error":{"code":-32601,"message":"Codealong doesn't offer that."},"id":9,"jsonrpc":"2.0"}"#.to_string(),
+                r#"{"id":"p1","jsonrpc":"2.0","result":{"outcome":{"optionId":"ok","outcome":"selected"}}}"#.to_string(),
+                r#"{"id":"p3","jsonrpc":"2.0","result":{"outcome":{"outcome":"cancelled"}}}"#.to_string(),
+                r#"{"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"s1"}}"#.to_string(),
+            ]
+        );
+        // Its turn ended with it, and what's asked of it now says so.
+        let h = state().sessions.remove(&key).unwrap();
+        assert_eq!((h.loaded, h.running, h.error.as_deref()), (false, false, Some("Its agent stopped.")));
+        assert_eq!(ag.request("session/new", json!({}), None).unwrap_err().to_string(), "test-adapter-lines's agent stopped.");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
