@@ -95,10 +95,10 @@ pub trait Terminal: Sync {
         focus_by_title(profile, title, cwd)
     }
 
-    /// Types `text` into the tab a session's process runs in and presses Return, pressing the
-    /// key that clears the input box first for `clear`, where it can press one
+    /// Types `text` into the tab a session's process runs in and sends it with `submit`,
+    /// pressing the key that clears the input box first for `clear`, where it can press one
     /// (`terminal_type_session`).
-    fn type_session(&self, pid: u32, cwd: &Path, text: &str, clear: bool) -> Result<Typed>;
+    fn type_session(&self, pid: u32, cwd: &Path, text: &str, clear: bool, submit: Submit) -> Result<Typed>;
 
     /// Whether Codealong can press a single key there. Terminal presses Return after whatever
     /// a script types, and Claude Code takes "1" and Return arriving together as typed text, not
@@ -240,7 +240,7 @@ fn typed_line(input: &str) -> &str {
 /// `text` as a bracketed paste, with any Escape in it taken out, for an app whose script types
 /// exactly what it's given (iTerm2, Terminal): a program that takes bracketed pastes (Claude Code,
 /// Codex) gets it whole.
-fn pasted(text: &str) -> String {
+pub(crate) fn pasted(text: &str) -> String {
     format!("\x1b[200~{}\x1b[201~", text.replace('\x1b', ""))
 }
 
@@ -581,9 +581,13 @@ pub enum Typed {
 /// and keeps the text in its history; in an empty box it only says to press it again to exit.
 /// Ctrl+L doesn't clear it (2.1.285 binds it to clearing the screen). The key goes a moment
 /// before the paste: arriving together, Claude Code takes both for one paste.
-pub fn terminal_type_session(pid: u32, cwd: &Path, text: &str, clear: bool) -> Result<Typed> {
+///
+/// `submit` is what sends it once it's in: Return, or keys typed in its place, which a terminal
+/// that can't press keys alone (Terminal) has none of, so nothing is typed there.
+pub fn terminal_type_session(pid: u32, cwd: &Path, text: &str, clear: bool, submit: Submit) -> Result<Typed> {
     match terminal_kind(pid) {
-        Some(terminal) => terminal.type_session(pid, cwd, text, clear),
+        Some(terminal) if matches!(submit, Submit::Keys(_)) && !terminal.presses_keys() => Ok(Typed::Nowhere(format!("{} can't press the keys that send it now", terminal.name()))),
+        Some(terminal) => terminal.type_session(pid, cwd, text, clear, submit),
         None => Ok(Typed::Nowhere(format!("it isn't in a {} tab", terminals_that(|_| true)))),
     }
 }
@@ -591,7 +595,7 @@ pub fn terminal_type_session(pid: u32, cwd: &Path, text: &str, clear: bool) -> R
 /// Typing where each tab has a TTY (iTerm2, Terminal): into the tab on the process's, by the
 /// app's own way to type there. `clear` is its way to press one key, where the input box is to
 /// be cleared first and it has one.
-fn type_on_tty(app: &'static str, pid: u32, text: &str, clear: Option<fn(&str, Key) -> Result<()>>, type_text: fn(&str, &str) -> Result<bool>) -> Result<Typed> {
+fn type_on_tty(app: &'static str, pid: u32, text: &str, clear: Option<fn(&str, Key) -> Result<()>>, type_text: impl FnOnce(&str, &str) -> Result<bool>) -> Result<Typed> {
     let Some(tty) = tty_of(pid).map(|t| t.to_string_lossy().into_owned()) else { return Ok(Typed::Nowhere(format!("Codealong couldn't find its {app} tab"))) };
     if let Some(press) = clear {
         press(&tty, Key::CtrlC)?;
@@ -760,6 +764,15 @@ pub fn terminal_host(pid: u32, cwd: &Path) -> Result<Option<TerminalHost>> {
         Some(terminal) => terminal.key_target(pid, cwd)?.map(|at| TerminalHost { terminal, at }),
         None => None,
     })
+}
+
+/// What sends a prompt once it's typed into a session's box: Return, or keys of the harness's
+/// own typed in its place (`Adapter::sends_now_with`), which only a terminal that presses keys
+/// can type (`Terminal::presses_keys`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Submit {
+    Return,
+    Keys(&'static str),
 }
 
 /// A key a harness's own prompt answers to.
@@ -1017,7 +1030,7 @@ mod tests {
             terminal_run(profile, Placement { new_terminal: NewTerminal::Window, near: &[] }, &dir, &input, &[]).unwrap();
             let pid: u32 = written(&ready).and_then(|p| p.trim().parse().ok()).unwrap_or_else(|| panic!("{profile}'s shell never started"));
             let kind = terminal_kind(pid);
-            let typed = terminal_type_session(pid, &dir, "ab\ncd", false).unwrap();
+            let typed = terminal_type_session(pid, &dir, "ab\ncd", false, Submit::Return).unwrap();
             if profile == "iterm2" {
                 let host = terminal_host(pid, &dir).unwrap().expect("iTerm2 presses keys");
                 press_key(&host, Key::Digit1).and_then(|_| press_key(&host, Key::Escape)).unwrap();

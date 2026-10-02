@@ -58,7 +58,7 @@ const SCRIPTS: &[(&str, u64)] = &[
     ("GHOSTTY_LIST", 0xb5f37a7f6c1d405c),
     ("GHOSTTY_FOCUS", 0xb14d181bda8dc4d7),
     ("GHOSTTY_FIND", 0xca41f3863d4f0749),
-    ("GHOSTTY_TYPE", 0x6b936a1b5070ff95),
+    ("GHOSTTY_TYPE", 0x1564f2adc9419537),
     ("GHOSTTY_IN_FRONT", 0x27cafb0b698ccc18),
     ("GHOSTTY_CLOSE", 0x838b3e2c07f8f8ef),
     ("GHOSTTY_KEY", 0xe38cd6b6c3f7bf31),
@@ -68,7 +68,7 @@ const SCRIPTS: &[(&str, u64)] = &[
     ("ITERM_IN_FRONT", 0x77aa4e86c8f0c7b0),
     ("ITERM_TTYS", 0x7ea1519eae6b1ee2),
     ("ITERM_FOCUS+SESSION_ON", 0xb050549c0c27a8b5),
-    ("ITERM_TYPE+SESSION_ON", 0x0b4a579ad44298fa),
+    ("ITERM_TYPE+SESSION_ON", 0x53024d4295554970),
     ("ITERM_TYPE_LINE+SESSION_ON", 0x9a72e6983148ca8d),
     ("ITERM_PRESS+SESSION_ON", 0xdd3dee147c2951f2),
     ("ITERM_CLOSE+SESSION_ON", 0xd63cd2b0deb962da),
@@ -638,7 +638,7 @@ mod tests {
                 _ => panic!("unexpected {} {:?}", s.what, s.args),
             })
         };
-        let p = played(answer, || terminal_type_session(IN_GHOSTTY, Path::new("/r/elsewhere"), "Fix it\nand \u{1b}that", false));
+        let p = played(answer, || terminal_type_session(IN_GHOSTTY, Path::new("/r/elsewhere"), "Fix it\nand \u{1b}that", false, Submit::Return));
         assert_eq!(p.got.unwrap(), Typed::Into("Ghostty"));
         assert_eq!(
             p.log,
@@ -647,14 +647,18 @@ mod tests {
                 "osc7 /dev/ttys101 /tmp/codealong-100010-NOW",
                 r#"GHOSTTY_FIND ["/tmp/codealong-100010-NOW", "8"]"#,
                 "osc7 /dev/ttys101 /r/app",
-                r#"GHOSTTY_TYPE ["T1", "Fix it\nand \u{1b}that"]"#,
+                r#"GHOSTTY_TYPE ["T1", "Fix it\nand \u{1b}that", "", ""]"#,
             ]
         );
         // Clearing the box first is Ghostty's Ctrl+C action, in the same script.
-        let p = played(answer, || terminal_type_session(IN_GHOSTTY, Path::new("/r/app"), "Fix it", true));
+        let p = played(answer, || terminal_type_session(IN_GHOSTTY, Path::new("/r/app"), "Fix it", true, Submit::Return));
         assert_eq!(p.got.unwrap(), Typed::Into("Ghostty"));
-        assert_eq!(p.log[4], r#"GHOSTTY_TYPE ["T1", "Fix it", "text:\\x03"]"#);
+        assert_eq!(p.log[4], r#"GHOSTTY_TYPE ["T1", "Fix it", "text:\\x03", ""]"#);
         assert_eq!(p.log.len(), 5);
+        // Sent with keys in place of Return: Ghostty's text action types them.
+        let p = played(answer, || terminal_type_session(IN_GHOSTTY, Path::new("/r/app"), "Fix it", false, Submit::Keys("\x18\x13")));
+        assert_eq!(p.got.unwrap(), Typed::Into("Ghostty"));
+        assert_eq!(p.log[4], r#"GHOSTTY_TYPE ["T1", "Fix it", "", "text:\\x18\\x13"]"#);
 
         // Nothing typed, and why: another way can take it.
         let nowhere = |find: Result<&'static str, &'static str>, typed: Result<&'static str, &'static str>| {
@@ -667,7 +671,7 @@ mod tests {
                     };
                     r.map(String::from).map_err(String::from)
                 },
-                || terminal_type_session(IN_GHOSTTY, Path::new("/r/elsewhere"), "Fix it", false),
+                || terminal_type_session(IN_GHOSTTY, Path::new("/r/elsewhere"), "Fix it", false, Submit::Return),
             )
         };
         let p = nowhere(Ok("\n"), Ok("T1\n"));
@@ -686,7 +690,7 @@ mod tests {
         assert_eq!(err(p.got), "Codealong isn't allowed to control Ghostty. Turn it on in System Settings → Privacy & Security → Automation.");
         let p = nowhere(Ok("T1\n"), Err("boom"));
         assert_eq!(err(p.got), "Ghostty didn't respond: boom");
-        let p = played(|_| Err("boom".into()), || terminal_type_session(IN_GHOSTTY, Path::new("/r/app"), "Fix it", false));
+        let p = played(|_| Err("boom".into()), || terminal_type_session(IN_GHOSTTY, Path::new("/r/app"), "Fix it", false, Submit::Return));
         assert_eq!(p.got.unwrap(), Typed::Nowhere("Ghostty didn't answer in time".into()));
         assert_eq!(p.log, ["GHOSTTY_LIST []"]);
     }
@@ -694,31 +698,39 @@ mod tests {
     #[test]
     fn typing_into_a_session_in_iterm_or_terminal_pastes_on_its_tty() {
         let there = |s: &Sent| Ok(if s.what.contains("PRESS") { "ok\n".to_string() } else { format!("{}\n", s.args[0]) });
-        let p = played(there, || terminal_type_session(IN_ITERM, Path::new("/r/app"), "Fix it\nand \u{1b}that", false));
+        let p = played(there, || terminal_type_session(IN_ITERM, Path::new("/r/app"), "Fix it\nand \u{1b}that", false, Submit::Return));
         assert_eq!(p.got.unwrap(), Typed::Into("iTerm2"));
-        assert_eq!(p.log, [r#"ITERM_TYPE+SESSION_ON ["/dev/ttys201", "\u{1b}[200~Fix it\nand that\u{1b}[201~"]"#]);
+        assert_eq!(p.log, [r#"ITERM_TYPE+SESSION_ON ["/dev/ttys201", "\u{1b}[200~Fix it\nand that\u{1b}[201~", ""]"#]);
         // iTerm2 presses Ctrl+C alone first; Terminal can't press a key alone, so it only types.
-        let p = played(there, || terminal_type_session(IN_ITERM, Path::new("/r/app"), "Fix it", true));
+        let p = played(there, || terminal_type_session(IN_ITERM, Path::new("/r/app"), "Fix it", true, Submit::Return));
         assert_eq!(p.got.unwrap(), Typed::Into("iTerm2"));
-        assert_eq!(p.log, [r#"ITERM_PRESS+SESSION_ON ["/dev/ttys201", "\u{3}"]"#, r#"ITERM_TYPE+SESSION_ON ["/dev/ttys201", "\u{1b}[200~Fix it\u{1b}[201~"]"#]);
+        assert_eq!(p.log, [r#"ITERM_PRESS+SESSION_ON ["/dev/ttys201", "\u{3}"]"#, r#"ITERM_TYPE+SESSION_ON ["/dev/ttys201", "\u{1b}[200~Fix it\u{1b}[201~", ""]"#]);
+        // Sent with keys in place of Return: iTerm2 types them after the paste. Terminal can't
+        // press keys alone, so nothing is typed there.
+        let p = played(there, || terminal_type_session(IN_ITERM, Path::new("/r/app"), "Fix it", false, Submit::Keys("\x18\x13")));
+        assert_eq!(p.got.unwrap(), Typed::Into("iTerm2"));
+        assert_eq!(p.log, [r#"ITERM_TYPE+SESSION_ON ["/dev/ttys201", "\u{1b}[200~Fix it\u{1b}[201~", "\u{18}\u{13}"]"#]);
+        let p = played(there, || terminal_type_session(IN_TERMINAL, Path::new("/r/app"), "Fix it", false, Submit::Keys("\x18\x13")));
+        assert_eq!(p.got.unwrap(), Typed::Nowhere("Terminal can't press the keys that send it now".into()));
+        assert!(p.log.is_empty());
         for clear in [false, true] {
-            let p = played(there, move || terminal_type_session(IN_TERMINAL, Path::new("/r/app"), "Fix it\nand \u{1b}that", clear));
+            let p = played(there, move || terminal_type_session(IN_TERMINAL, Path::new("/r/app"), "Fix it\nand \u{1b}that", clear, Submit::Return));
             assert_eq!(p.got.unwrap(), Typed::Into("Terminal"));
             assert_eq!(p.log, [r#"TERMINAL_TYPE+TAB_ON ["/dev/ttys301", "\u{1b}[200~Fix it\nand that\u{1b}[201~"]"#]);
         }
 
         // No tab on the TTY, or macOS refusing the script: nothing went in, and why.
-        let p = played(|_| Ok("\n".into()), || (terminal_type_session(IN_ITERM, Path::new("/r/app"), "Fix it", false), terminal_type_session(IN_TERMINAL, Path::new("/r/app"), "Fix it", false)));
+        let p = played(|_| Ok("\n".into()), || (terminal_type_session(IN_ITERM, Path::new("/r/app"), "Fix it", false, Submit::Return), terminal_type_session(IN_TERMINAL, Path::new("/r/app"), "Fix it", false, Submit::Return)));
         assert_eq!(p.got.0.unwrap(), Typed::Nowhere("Codealong couldn't find its iTerm2 tab".into()));
         assert_eq!(p.got.1.unwrap(), Typed::Nowhere("Codealong couldn't find its Terminal tab".into()));
-        let p = played(|_| Err(NOT_ALLOWED.into()), || (terminal_type_session(IN_ITERM, Path::new("/r/app"), "Fix it", false), terminal_type_session(IN_TERMINAL, Path::new("/r/app"), "Fix it", false)));
+        let p = played(|_| Err(NOT_ALLOWED.into()), || (terminal_type_session(IN_ITERM, Path::new("/r/app"), "Fix it", false, Submit::Return), terminal_type_session(IN_TERMINAL, Path::new("/r/app"), "Fix it", false, Submit::Return)));
         assert_eq!(p.got.0.unwrap(), Typed::Nowhere("Codealong isn't allowed to control iTerm2 (System Settings → Privacy & Security → Automation)".into()));
         assert_eq!(p.got.1.unwrap(), Typed::Nowhere("Codealong isn't allowed to control Terminal (System Settings → Privacy & Security → Automation)".into()));
-        let p = played(|_| Err("boom".into()), || (terminal_type_session(IN_ITERM, Path::new("/r/app"), "Fix it", false), terminal_type_session(IN_TERMINAL, Path::new("/r/app"), "Fix it", false)));
+        let p = played(|_| Err("boom".into()), || (terminal_type_session(IN_ITERM, Path::new("/r/app"), "Fix it", false, Submit::Return), terminal_type_session(IN_TERMINAL, Path::new("/r/app"), "Fix it", false, Submit::Return)));
         assert_eq!(err(p.got.0), "iTerm2 didn't respond: boom");
         assert_eq!(err(p.got.1), "Terminal didn't respond: boom");
         // The key that clears the box failing is a failure, refused or not: nothing more is sent.
-        let p = played(|_| Err(NOT_ALLOWED.into()), || terminal_type_session(IN_ITERM, Path::new("/r/app"), "Fix it", true));
+        let p = played(|_| Err(NOT_ALLOWED.into()), || terminal_type_session(IN_ITERM, Path::new("/r/app"), "Fix it", true, Submit::Return));
         assert_eq!(err(p.got), "Codealong isn't allowed to control iTerm2. Turn it on in System Settings → Privacy & Security → Automation.");
         assert_eq!(p.log.len(), 1);
     }
@@ -726,7 +738,7 @@ mod tests {
     #[test]
     fn typing_into_a_session_in_tmux_pastes_into_its_pane() {
         let answer = |s: &Sent| Ok(if s.args[0] == "list-panes" { "/dev/ttys400 %1\n/dev/ttys401 %3\n".to_string() } else { String::new() });
-        let p = played(answer, || terminal_type_session(IN_TMUX, Path::new("/r/app"), "Fix it\nand that", false));
+        let p = played(answer, || terminal_type_session(IN_TMUX, Path::new("/r/app"), "Fix it\nand that", false, Submit::Return));
         assert_eq!(p.got.unwrap(), Typed::Into("tmux"));
         assert_eq!(
             p.log,
@@ -737,19 +749,25 @@ mod tests {
                 r#"/opt/homebrew/bin/tmux ["send-keys", "-t", "%3", "Enter"] (5s)"#,
             ]
         );
-        let p = played(answer, || terminal_type_session(IN_TMUX, Path::new("/r/app"), "Fix it", true));
+        let p = played(answer, || terminal_type_session(IN_TMUX, Path::new("/r/app"), "Fix it", true, Submit::Return));
         assert_eq!(p.got.unwrap(), Typed::Into("tmux"));
         assert_eq!(p.log[1], r#"/opt/homebrew/bin/tmux ["send-keys", "-t", "%3", "C-c"] (5s)"#);
         assert_eq!(p.log.len(), 5);
+        // Sent with keys in place of Return: each by its code, so a control character goes as
+        // the key it is.
+        let p = played(answer, || terminal_type_session(IN_TMUX, Path::new("/r/app"), "Fix it", false, Submit::Keys("\x18\x13")));
+        assert_eq!(p.got.unwrap(), Typed::Into("tmux"));
+        assert_eq!(p.log[3], r#"/opt/homebrew/bin/tmux ["send-keys", "-t", "%3", "-H", "18", "13"] (5s)"#);
+        assert_eq!(p.log.len(), 4);
 
-        let p = played(|_| Ok("/dev/ttys400 %1\n".into()), || terminal_type_session(IN_TMUX, Path::new("/r/app"), "Fix it", true));
+        let p = played(|_| Ok("/dev/ttys400 %1\n".into()), || terminal_type_session(IN_TMUX, Path::new("/r/app"), "Fix it", true, Submit::Return));
         assert_eq!(p.got.unwrap(), Typed::Nowhere("Codealong couldn't find its tmux pane".into()));
         assert_eq!(p.log.len(), 1);
-        let p = played(|s| if s.args[0] == "list-panes" { Ok("/dev/ttys401 %3\n".into()) } else { Err("no server".into()) }, || terminal_type_session(IN_TMUX, Path::new("/r/app"), "Fix it", false));
+        let p = played(|s| if s.args[0] == "list-panes" { Ok("/dev/ttys401 %3\n".into()) } else { Err("no server".into()) }, || terminal_type_session(IN_TMUX, Path::new("/r/app"), "Fix it", false, Submit::Return));
         assert_eq!(err(p.got), "no server");
 
         // In no terminal Codealong types into.
-        let p = played(|_| Ok(String::new()), || (terminal_type_session(IN_KITTY, Path::new("/r/app"), "Fix it", false), terminal_type_session(IN_BACKGROUND, Path::new("/r/app"), "Fix it", true)));
+        let p = played(|_| Ok(String::new()), || (terminal_type_session(IN_KITTY, Path::new("/r/app"), "Fix it", false, Submit::Return), terminal_type_session(IN_BACKGROUND, Path::new("/r/app"), "Fix it", true, Submit::Return)));
         assert_eq!(p.got.0.unwrap(), Typed::Nowhere("it isn't in a Ghostty, iTerm2, Terminal or tmux tab".into()));
         assert_eq!(p.got.1.unwrap(), Typed::Nowhere("it isn't in a Ghostty, iTerm2, Terminal or tmux tab".into()));
         assert!(p.log.is_empty());

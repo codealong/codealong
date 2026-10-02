@@ -146,7 +146,12 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     Ghostty, iTerm2, Terminal or tmux tab, pasted into its background job, as a message from
     Codealong, or through its app. While a turn runs that Codealong can stop, Escape in the box
     stops it, as it does in Claude Code and Codex (⌘. anywhere in the window too), and so does
-    the button while the box is empty; it says Stopping until the turn has ended. To work through what waits on
+    the button while the box is empty; it says Stopping until the turn has ended. While a turn
+    runs, ⏎ sends as the session's own box would (Claude Code takes it in once its current step
+    ends, the Codex app and OpenCode after the turn), and Send now (the bolt beside Send, or ⌃⏎
+    as in Claude Code) sends it into the turn at once where the session can take it so: Claude
+    Code's send now in its terminal or background job, which moves a running command to the
+    background so the agent reads it straight away, and Codex's and OpenCode's steer. To work through what waits on
     you, ⌘⏎ in the box sends and goes on to the next session listed that waits on you (Needs
     you the longest wait first, then Your turn), or, while the session waits on a call that can
     be allowed here, allows it and goes on; ⏎ sends and stays. ⌘⏎ on an answer you typed to a

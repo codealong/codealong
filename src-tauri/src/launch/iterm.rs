@@ -5,7 +5,7 @@ use std::path::Path;
 
 use anyhow::Result;
 
-use super::{app_installed, close_tty_terminals, focus_on_tty, fresh_line, launcher, pasted, placement, sh_quote, tty_of, type_on_tty, typed_line, wait_for_shell, HostKind, Key, Placement, Tab, Terminal, TerminalHost, Typed};
+use super::{app_installed, close_tty_terminals, focus_on_tty, fresh_line, launcher, pasted, placement, sh_quote, tty_of, type_on_tty, typed_line, wait_for_shell, HostKind, Key, Placement, Submit, Tab, Terminal, TerminalHost, Typed};
 
 const APP: &str = "iTerm2";
 
@@ -58,8 +58,8 @@ impl Terminal for ITerm2 {
         focus_on_tty(&ITerm2, tty)
     }
 
-    fn type_session(&self, pid: u32, _cwd: &Path, text: &str, clear: bool) -> Result<Typed> {
-        type_on_tty(APP, pid, text, clear.then_some(press), type_text)
+    fn type_session(&self, pid: u32, _cwd: &Path, text: &str, clear: bool, submit: Submit) -> Result<Typed> {
+        type_on_tty(APP, pid, text, clear.then_some(press), |tty, text| type_text(tty, text, submit))
     }
 
     fn presses_keys(&self) -> bool {
@@ -225,18 +225,24 @@ on run argv
 end run
 "#;
 
-/// `<tty> <text>`: writes the text into that session, then presses Return a moment later, as
-/// GHOSTTY_TYPE does. `write text` types exactly what it's given (plus a Return unless told
-/// not to), so the text comes wrapped as a bracketed paste already. Returns the TTY, or "" when
-/// no session has it, in which case nothing was typed.
+/// `<tty> <text> <then>`: writes the text into that session, then presses Return a moment later,
+/// as GHOSTTY_TYPE does, or types `then` in its place unless it's empty. `write text` types
+/// exactly what it's given (plus a Return unless told not to), so the text comes wrapped as a
+/// bracketed paste already, and `then` arrives as typed keys. Returns the TTY, or "" when no
+/// session has it, in which case nothing was typed.
 const TYPE: &str = r#"
 on run argv
   set s to sessionOn(item 1 of argv)
   if s is missing value then return ""
+  set thenKeys to item 3 of argv
   tell application "iTerm"
     tell s to write text (item 2 of argv) newline no
     delay 0.3
-    tell s to write text ""
+    if thenKeys is "" then
+      tell s to write text ""
+    else
+      tell s to write text thenKeys newline no
+    end if
   end tell
   return item 1 of argv
 end run
@@ -351,10 +357,14 @@ pub fn focus(tty: &str) -> Result<bool> {
     Ok(!osascript(&with_session_on(FOCUS), &[tty])?.trim().is_empty())
 }
 
-/// Types `text` into the session on `tty` as a paste, then Return. `Ok(false)` when there's no
-/// such session, so nothing was typed.
-pub fn type_text(tty: &str, text: &str) -> Result<bool> {
-    Ok(!osascript(&with_session_on(TYPE), &[tty, &pasted(text)])?.trim().is_empty())
+/// Types `text` into the session on `tty` as a paste, then sends it with `submit`. `Ok(false)`
+/// when there's no such session, so nothing was typed.
+pub fn type_text(tty: &str, text: &str, submit: Submit) -> Result<bool> {
+    let then = match submit {
+        Submit::Return => "",
+        Submit::Keys(keys) => keys,
+    };
+    Ok(!osascript(&with_session_on(TYPE), &[tty, &pasted(text), then])?.trim().is_empty())
 }
 
 /// Presses one key in the session on `tty`, as if typed: `write text` sends it as it is, so a

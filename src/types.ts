@@ -57,6 +57,10 @@ export interface Session {
   /** Its turn is running and Codealong can stop it (harness::stoppable): Stop sends its harness
    *  what its own Stop sends, or presses Escape in its terminal. */
   stoppable?: boolean;
+  /** Its turn is running and what you send can reach the agent in that turn at once, rather than
+   *  once the step it's on ends (harness::steerable): its reply box's Send now, Claude Code's
+   *  send-now key and Codex's steer. */
+  steerable?: boolean;
   /** Snoozed from Codealong until then: the floating bar and the mark leave it out of Needs you
    *  and Your turn until the time comes (board::apply_snooze). */
   snoozedUntil?: number;

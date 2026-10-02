@@ -221,6 +221,11 @@ pub struct Session {
     /// harness what its own Stop sends, or presses Escape in its terminal.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub stoppable: bool,
+    /// Its turn is running and what you send can reach the agent in that turn at once, rather
+    /// than once the step it's on ends (`harness::steerable`): its reply box's Send now, Claude
+    /// Code's send-now key and Codex's steer.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub steerable: bool,
     /// Snoozed from Codealong until then (`board::apply_snooze`): the floating bar and the mark
     /// leave it out of Needs you and Your turn until the time comes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -291,6 +296,7 @@ impl Session {
             asks: false,
             hosted: false,
             stoppable: false,
+            steerable: false,
             snoozed_until: None,
             earlier: false,
             chrome: None,

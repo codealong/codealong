@@ -6955,14 +6955,20 @@ html.is-quick body {
   resize: none;
   outline: none;
 }
-/* Send, or Stop while a turn runs and the box is empty: round, in the box's corner. */
+/* Send, or Stop while a turn runs and the box is empty: round, in the box's corner. Send now goes
+   before Send while the turn can take a message at once, quieter, as the second way to send. */
+.ca-composer-buttons {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 5px 5px 0;
+}
 .ca-composer-send {
   flex: none;
   display: inline-grid;
   place-items: center;
   width: 26px;
   height: 26px;
-  margin: 0 5px 5px 0;
   padding: 0;
   border: 0;
   border-radius: var(--radius-pill);
@@ -6984,6 +6990,14 @@ html.is-quick body {
 }
 .ca-composer-send.is-stop .ca-icon path {
   fill: currentColor;
+}
+.ca-composer-send.is-now {
+  background: var(--surface-sunken);
+  color: var(--ink-2);
+}
+.ca-composer-send.is-now:hover {
+  color: var(--ink);
+  opacity: 1;
 }
 .ca-composer-foot {
   display: flex;

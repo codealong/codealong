@@ -1014,6 +1014,19 @@ impl crate::harness::Adapter for Codex {
         Ok(vec![home.join("session_index.jsonl")])
     }
 
+    /// Its terminal UI sends what's typed into the running turn on Return, and queues it for
+    /// after the turn only on Tab ("Press {key:composer.queue} to queue a message when a task is
+    /// running; otherwise it sends immediately", 0.157.1), so a prompt typed there goes in now
+    /// whichever terminal it's in. The app's own threads take a steer through the window that
+    /// runs them (`send::codex_steer_turn`).
+    fn steers(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> bool {
+        match (s.surface, s.pid) {
+            (crate::model::Surface::Cli, Some(pid)) => crate::launch::terminal_kind(pid).is_some(),
+            (crate::model::Surface::Cli, None) => false,
+            _ => ctx.account.home_path().join("ipc/ipc.sock").exists(),
+        }
+    }
+
     /// The app's own Stop, through its windows' socket; Escape in a terminal, the key its
     /// terminal UI stops a turn with.
     fn interrupts(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> bool {

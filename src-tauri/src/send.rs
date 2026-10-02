@@ -103,10 +103,13 @@ pub fn without_byline(text: &str) -> &str {
 }
 
 /// What goes to the session: the text as it gets it, before its attachments are written out for
-/// the way in, and who it's from.
+/// the way in, who it's from, and whether it's to go in now.
 struct Message<'a> {
     text: Cow<'a, str>,
     sender: &'a Sender,
+    /// Sent now: into the turn the session is taking at once, rather than once the step it's on
+    /// ends (`harness::steerable`), by its harness's own way where the way in has one.
+    now: bool,
     /// An agent's: its text starts with the intro.
     byline: Option<Byline>,
     /// Whether its sender skips permission prompts itself, so that the message may say so to a
@@ -115,14 +118,14 @@ struct Message<'a> {
 }
 
 impl<'a> Message<'a> {
-    fn new(board: &Board, cfg: &Config, text: &'a str, sender: &'a Sender) -> Message<'a> {
+    fn new(board: &Board, cfg: &Config, text: &'a str, sender: &'a Sender, now: bool) -> Message<'a> {
         match sender {
             Sender::Agent(from) => {
                 let b = byline(board, from.as_deref());
                 let bypasses = from.as_deref().and_then(|k| crate::harness::find(board, cfg, k).ok()).is_some_and(|(s, account)| s.live && crate::harness::adapter(s.harness).skips_permission_prompts(&crate::harness::Ctx { account }, s));
-                Message { text: Cow::Owned(format!("{}\n\n{}", b.intro, text.trim())), sender, byline: Some(b), bypasses }
+                Message { text: Cow::Owned(format!("{}\n\n{}", b.intro, text.trim())), sender, now, byline: Some(b), bypasses }
             }
-            _ => Message { text: Cow::Borrowed(text), sender, byline: None, bypasses: *sender == Sender::You },
+            _ => Message { text: Cow::Borrowed(text), sender, now, byline: None, bypasses: *sender == Sender::You },
         }
     }
 
@@ -154,11 +157,13 @@ pub enum Route {
     Antigravity,
 }
 
-/// Sends `text` to the session with this key. The same text sent to the same session while it's
-/// still on its way (the peek closed and opened again, and you sent what it still showed, or
-/// another window sent it too) joins that send and gets its outcome, rather than going twice.
-pub fn send(board: &Board, cfg: &Config, session_key: &str, text: &str, sender: Sender) -> Result<Sent> {
-    join(session_key, text.trim(), || send_now(board, cfg, session_key, text, &sender))
+/// Sends `text` to the session with this key; `now` sends it into the turn the session is
+/// taking at once, where its way in can (`harness::steerable`), and otherwise as any send goes.
+/// The same text sent to the same session while it's still on its way (the peek closed and
+/// opened again, and you sent what it still showed, or another window sent it too) joins that
+/// send and gets its outcome, rather than going twice.
+pub fn send(board: &Board, cfg: &Config, session_key: &str, text: &str, sender: Sender, now: bool) -> Result<Sent> {
+    join(session_key, text.trim(), || deliver(board, cfg, session_key, text, &sender, now))
 }
 
 /// How a message from you would reach the session with this key, for its box to say before you
@@ -262,7 +267,7 @@ enum Tried {
     Passed(Option<String>),
 }
 
-fn send_now(board: &Board, cfg: &Config, session_key: &str, text: &str, sender: &Sender) -> Result<Sent> {
+fn deliver(board: &Board, cfg: &Config, session_key: &str, text: &str, sender: &Sender, now: bool) -> Result<Sent> {
     let session = board
         .lanes
         .iter()
@@ -273,7 +278,7 @@ fn send_now(board: &Board, cfg: &Config, session_key: &str, text: &str, sender: 
         bail!("There's nothing to send.");
     }
     let account = cfg.accounts.iter().find(|a| a.name == session.account).ok_or_else(|| anyhow!("There's no account named {} in config.toml.", session.account))?;
-    let msg = Message::new(board, cfg, text, sender);
+    let msg = Message::new(board, cfg, text, sender, now);
     if session.hosted {
         // Codealong runs it: the prompt goes in over its adapter, after the running turn if
         // there is one, and a question it waits on is answered from its panel.
@@ -387,20 +392,44 @@ pub fn claude_registry(home: &Path, session: &Session) -> Option<Value> {
 fn attempt(route: &Route, session: &Session, account: &AccountCfg, cfg: &Config, place: launch::Placement, msg: &Message, untyped: Option<&str>) -> Result<Tried> {
     let text: &str = &msg.text;
     let busy = session.status == Status::Working;
+    // Sending now matters only while a turn runs: otherwise the prompt starts one either way.
+    let now = msg.now && busy;
+    let adapter = crate::harness::adapter(session.harness);
     let title = quoted(&session.title);
     let sent = |message: String| Ok(Tried::Sent(Sent { message, opened: false, fell_back: false }));
     let opened = |message: String| Ok(Tried::Sent(Sent { message, opened: true, fell_back: false }));
     match route {
         Route::Daemon { socket, key_file, job } => {
+            let expanded = attachments::expand(text, Style::Mention);
+            let typed = boxed(&expanded);
+            // `reply` pastes and presses Return; its send-now keys go in through an attach.
+            if let Some(keys) = adapter.sends_now_with().filter(|_| now) {
+                daemon_type(socket, key_file, job, &[launch::pasted(&typed).as_bytes(), keys.as_bytes()])?;
+                return sent(format!("Sent now to {title} in the background: it reads it without waiting for its current step."));
+            }
             let key = std::fs::read_to_string(key_file).map_err(|e| anyhow!("Claude Code's daemon key: {e}"))?;
-            daemon_reply(socket, key.trim(), job, &boxed(&attachments::expand(text, Style::Mention)))?;
+            daemon_reply(socket, key.trim(), job, &typed)?;
             sent(if busy { format!("Queued for {title}; the background session takes it after its current step.") } else { format!("Sent to {title} in the background.") })
         }
         Route::Type { pid } => {
-            let adapter = crate::harness::adapter(session.harness);
             let clear = adapter.clears_before_typing(account, session);
-            match launch::terminal_type_session(*pid, Path::new(&session.cwd), &boxed(&attachments::expand(text, adapter.typed_attachments())), clear) {
-                Ok(launch::Typed::Into(app)) => sent(if busy { format!("Typed into {title} in {app}; it takes it after its current step.") } else { format!("Typed into {title} in {app}.") }),
+            // Sent now with its harness's keys where its terminal can press them; Return
+            // otherwise, which sends it into the running turn already where the harness has no
+            // keys of its own for that (Codex).
+            let keys = adapter.sends_now_with().filter(|_| now);
+            let presses = launch::terminal_kind(*pid).is_some_and(|k| k.presses_keys());
+            let submit = match keys {
+                Some(k) if presses => launch::Submit::Keys(k),
+                _ => launch::Submit::Return,
+            };
+            match launch::terminal_type_session(*pid, Path::new(&session.cwd), &boxed(&attachments::expand(text, adapter.typed_attachments())), clear, submit) {
+                Ok(launch::Typed::Into(app)) => sent(match (now, submit, keys) {
+                    (true, launch::Submit::Keys(_), _) => format!("Typed into {title} in {app} and sent now: it reads it without waiting for its current step."),
+                    (true, _, None) => format!("Typed into {title} in {app} and sent now: it takes it into the turn it's taking."),
+                    (true, _, Some(_)) => format!("Typed into {title} in {app}, which can't press the keys that send it now, so it takes it after its current step."),
+                    _ if busy => format!("Typed into {title} in {app}; it takes it after its current step."),
+                    _ => format!("Typed into {title} in {app}."),
+                }),
                 Ok(launch::Typed::Nowhere(why)) => Ok(Tried::Passed(Some(why))),
                 Err(_) => Err(MayHaveArrived(format!("Codealong started typing this into {title}, and its terminal didn't confirm it went in: look there before sending it again.")).into()),
             }
@@ -420,7 +449,7 @@ fn attempt(route: &Route, session: &Session, account: &AccountCfg, cfg: &Config,
             Ok(Tried::Sent(Sent { message: peer_note(&title, untyped, busy, held, msg.from_agent()), opened: false, fell_back: untyped.is_some() }))
         }
         Route::Resume => {
-            let (input, env) = crate::harness::adapter(session.harness).resume(account, &session.id, text)?;
+            let (input, env) = adapter.resume(account, &session.id, text)?;
             launch::terminal_run(&cfg.apps.terminal, place, Path::new(&session.cwd), &input, &env)?;
             sent(format!("Resumed {title} in {} with this prompt.", launch::terminal_name(&cfg.apps.terminal)))
         }
@@ -431,6 +460,15 @@ fn attempt(route: &Route, session: &Session, account: &AccountCfg, cfg: &Config,
         }
         Route::CodexApp => {
             let prompt = attachments::expand(text, Style::Path);
+            if now {
+                match codex_steer_turn(&account.home_path(), &session.id, &prompt, &session.cwd) {
+                    Ok(()) => return sent(format!("Sent now to {title} in Codex: it takes it into the turn it's taking.")),
+                    Err(e) if e.is::<MayHaveArrived>() => return Err(e),
+                    // Its turn ended meanwhile, or no window runs it: a turn starts on it, as
+                    // any send does.
+                    Err(_) => {}
+                }
+            }
             match codex_start_turn(&account.home_path(), &session.id, &prompt, None) {
                 Ok(()) => sent(if busy { format!("Sent to {title} in Codex; it takes it after its current turn.") } else { format!("Sent to {title} in Codex.") }),
                 // A prompt filled in for someone to send isn't a message an agent can leave.
@@ -445,9 +483,15 @@ fn attempt(route: &Route, session: &Session, account: &AccountCfg, cfg: &Config,
         }
         Route::Opencode => {
             let svc = crate::opencode::service(&account.home_path()).ok_or_else(|| anyhow!("OpenCode's service isn't running, so Codealong can't reach {title}. Open it and send it there."))?;
-            let body = json!({ "text": attachments::expand(text, Style::Path), "delivery": "queue" });
+            let body = json!({ "text": attachments::expand(text, Style::Path), "delivery": if now { "steer" } else { "queue" } });
             crate::opencode::post(&svc, &format!("/api/session/{}/prompt", urlencoding::encode(&session.id)), &body)?;
-            sent(if busy { format!("Queued for {title} in OpenCode; it takes it after its current step.") } else { format!("Sent to {title} in OpenCode.") })
+            sent(if now {
+                format!("Sent now to {title} in OpenCode: it takes it into the turn it's taking.")
+            } else if busy {
+                format!("Queued for {title} in OpenCode; it takes it after its current step.")
+            } else {
+                format!("Sent to {title} in OpenCode.")
+            })
         }
         Route::Antigravity => {
             copy(&attachments::expand(text, Style::Path))?;
@@ -574,11 +618,18 @@ pub fn daemon_attach_request(key: &str, job: &str, attach_id: &str) -> String {
 }
 
 /// Presses Escape in a background job's terminal. The daemon has no request for it, and its
-/// `reply` pastes text and presses Return, so this attaches as `claude attach` does, which hands
-/// what comes after the request line to the job's terminal as typed, and detaches. Attaching
-/// redraws the job and sizes its terminal to this one; detaching gives a terminal attached
-/// meanwhile its own size back.
+/// `reply` pastes text and presses Return.
 pub fn daemon_press_escape(socket: &Path, key_file: &Path, job: &str) -> Result<()> {
+    daemon_type(socket, key_file, job, &[b"\x1b"])
+}
+
+/// Types into a background job's terminal: attaches as `claude attach` does, which hands what
+/// comes after the request line to the job's terminal as typed, writes each of `writes` a moment
+/// apart (a key that arrives with the paste before it is taken as part of the paste), and
+/// detaches. Attaching redraws the job and sizes its terminal to this one; detaching gives a
+/// terminal attached meanwhile its own size back. Once writing has started, a failure may have
+/// left some of it there (`MayHaveArrived`).
+fn daemon_type(socket: &Path, key_file: &Path, job: &str, writes: &[&[u8]]) -> Result<()> {
     let key = std::fs::read_to_string(key_file).map_err(|_| anyhow!("Codealong can't read the background service's key."))?;
     let mut stream = UnixStream::connect(socket)?;
     stream.set_read_timeout(Some(Duration::from_secs(10)))?;
@@ -612,7 +663,12 @@ pub fn daemon_press_escape(socket: &Path, key_file: &Path, job: &str) -> Result<
         }
     };
     drain(&mut stream, 200);
-    stream.write_all(b"\x1b")?;
+    for (i, bytes) in writes.iter().enumerate() {
+        if i > 0 {
+            drain(&mut stream, 300);
+        }
+        stream.write_all(bytes).map_err(|e| MayHaveArrived(format!("Claude Code's background service stopped taking what Codealong typed into the job partway ({e}): look there before trying again.")))?;
+    }
     drain(&mut stream, 400);
     Ok(())
 }
@@ -874,6 +930,62 @@ pub fn codex_start_turn(codex_home: &Path, thread: &str, text: &str, model: Opti
     Ok(())
 }
 
+/// The request that sends a prompt into the turn a thread is taking, sent to the window that
+/// owns it: what the app sends when you steer from a window that doesn't (26.924's code; version
+/// 1). `restoreMessage` is the composer's message as the app makes one for a plain prompt,
+/// which the window reads the thread's folders from and puts back in the box if the steer is
+/// turned down.
+pub fn codex_steer_request(request_id: &str, client_id: &str, owner: &str, thread: &str, text: &str, message_id: &str, cwd: &str, at: i64) -> Value {
+    json!({
+        "type": "request",
+        "requestId": request_id,
+        "sourceClientId": client_id,
+        "version": 1,
+        "method": "thread-follower-steer-turn",
+        "targetClientId": owner,
+        "timeoutMs": 10_000,
+        "params": {
+            "conversationId": thread,
+            "clientUserMessageId": message_id,
+            "input": [{ "type": "text", "text": text, "text_elements": [] }],
+            "attachments": [],
+            "restoreMessage": {
+                "id": message_id,
+                "text": text,
+                "context": { "prompt": text, "addedFiles": [], "fileAttachments": [], "ideContext": null, "imageAttachments": [], "workspaceRoots": [cwd] },
+                "cwd": cwd,
+                "createdAt": at,
+            },
+        },
+    })
+}
+
+/// Sends `text` into the turn a Codex thread is taking in the app, through the window that runs
+/// it, as the app's own steer does: the turn takes it in at its next step. A thread no window
+/// has loaded isn't running in the app, and one whose turn has ended is turned down; either way
+/// nothing went. No answer once it's asked may mean it went (`MayHaveArrived`).
+pub fn codex_steer_turn(codex_home: &Path, thread: &str, text: &str, cwd: &str) -> Result<()> {
+    let deadline = Instant::now() + Duration::from_secs(12);
+    let mut ipc = Ipc::connect(codex_home, deadline)?;
+    let Some(owner) = ipc.owner(thread, (Instant::now() + Duration::from_secs(3)).min(deadline))? else {
+        bail!("No Codex window has this thread open, so it isn't running in the app.");
+    };
+    let id = start::new_session_id();
+    ipc.send(&codex_steer_request(&id, &ipc.client_id.clone(), &owner, thread, text, &start::new_session_id(), cwd, crate::util::now_ms()))?;
+    let unknown = |why: &str| MayHaveArrived(format!("Codealong asked Codex to send this into its running turn and didn't hear how it went ({why}): look there before sending it again."));
+    let r = ipc.response(&id, deadline).map_err(|e| unknown(&e.to_string()))?;
+    if r.get("resultType").and_then(Value::as_str) != Some("success") {
+        let why = r.get("error").and_then(Value::as_str).unwrap_or("no reason given");
+        // The router says these once it has handed the request to the window, which may go on
+        // with it; its other refusals, and the window's own, come before anything is sent.
+        if matches!(why, "request-timeout" | "client-disconnected" | "server-closed") {
+            return Err(unknown(why).into());
+        }
+        bail!("Codex didn't take it into the turn: {why}");
+    }
+    Ok(())
+}
+
 /// The request that stops the turn a thread is taking, sent to the window that owns it: what
 /// the app's own Stop sends from a window that doesn't (`user-stop`, which also pauses the
 /// thread's goal and stops its subagents). Without the turn's id the router expects version 3;
@@ -1010,7 +1122,7 @@ mod tests {
         // From another device, a Claude app session that skips prompts
         // would hold it where no one sees it: nothing is sent, and the error says why.
         let board = Board::default();
-        let msg = |sender: &'static Sender| Message::new(&board, &cfg, "hi", sender);
+        let msg = |sender: &'static Sender| Message::new(&board, &cfg, "hi", sender, false);
         let route = Route::Peer { socket: "/nonexistent/cc.sock".into(), session_id: "abc".into(), mode: Some("bypassPermissions".into()) };
         let err = attempt(&route, &app, &account, &cfg, place, &msg(&Sender::Elsewhere), None).map(|_| ()).unwrap_err();
         assert!(err.to_string().contains("can't show that"), "{err}");
@@ -1058,14 +1170,14 @@ mod tests {
         assert!(b.intro.contains("may be an agent's rather than your user's") && b.name == "codealong", "{b:?}");
         // The text starts with the byline, whichever way it goes; yours goes as it is.
         let agent = Sender::Agent(Some("claude:claude2:me".into()));
-        let msg = Message::new(&board, &Config::default(), "  Which test fails?\n", &agent);
+        let msg = Message::new(&board, &Config::default(), "  Which test fails?\n", &agent, false);
         assert_eq!(msg.text, format!("{}\n\nWhich test fails?", byline(&board, Some("claude:claude2:me")).intro));
         assert_eq!(msg.byline.map(|b| b.name).as_deref(), Some("Review the parser"));
         // A note of it in the session's panel leaves the byline out, either kind.
         assert_eq!(without_byline(&msg.text), "Which test fails?");
         assert_eq!(without_byline(&format!("{}\n\nAnd the docs?", byline(&board, None).intro)), "And the docs?");
         assert_eq!(without_byline("Plain words\n\nstay whole"), "Plain words\n\nstay whole");
-        assert_eq!(Message::new(&board, &Config::default(), "hi", &Sender::You).text, "hi");
+        assert_eq!(Message::new(&board, &Config::default(), "hi", &Sender::You, false).text, "hi");
     }
 
     #[test]
@@ -1129,7 +1241,7 @@ mod tests {
         let place = launch::Placement { new_terminal: cfg.apps.new_terminal, near: &[] };
         let s = session(Harness::Codex, Surface::App, Status::Idle, true, None);
         let agent = Sender::Agent(None);
-        let msg = Message::new(&Board::default(), &cfg, "hi", &agent);
+        let msg = Message::new(&Board::default(), &cfg, "hi", &agent, false);
         let err = attempt(&Route::CodexApp, &s, &account, &cfg, place, &msg, None).map(|_| ()).unwrap_err();
         assert!(err.to_string().contains("nothing was sent"), "{err}");
     }
@@ -1298,6 +1410,56 @@ mod tests {
         std::fs::write(home.join("ipc/ipc.sock"), "").unwrap();
         assert!(stoppable(&thread, Some(&account("codex"))));
         let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn offers_send_now_only_while_a_turn_runs_where_its_harness_takes_one() {
+        use crate::harness::steerable;
+        let home = scratch("steerable");
+        let account = |harness: &str| -> AccountCfg { serde_json::from_value(json!({ "name": "a", "harness": harness, "home": home.to_string_lossy() })).unwrap() };
+        // The Agent Client Protocol has no way to, and the Claude app takes messages only on its
+        // socket, where none goes in sooner.
+        let hosted = Session { hosted: true, ..session(Harness::Claude, Surface::Cli, Status::Working, true, None) };
+        assert!(!steerable(&hosted, Some(&account("claude"))));
+        assert!(!steerable(&session(Harness::Claude, Surface::App, Status::Working, true, Some(1)), Some(&account("claude"))));
+        assert!(!steerable(&session(Harness::Antigravity, Surface::Cli, Status::Working, true, Some(1)), Some(&account("antigravity"))));
+        // A Codex app thread takes a steer through the app's windows, while they're there to ask,
+        // and only while its turn runs.
+        let thread = session(Harness::Codex, Surface::App, Status::Working, true, None);
+        assert!(!steerable(&thread, Some(&account("codex"))));
+        std::fs::create_dir_all(home.join("ipc")).unwrap();
+        std::fs::write(home.join("ipc/ipc.sock"), "").unwrap();
+        assert!(steerable(&thread, Some(&account("codex"))));
+        for status in [Status::Idle, Status::Unread, Status::Needs] {
+            assert!(!steerable(&Session { status, ..thread.clone() }, Some(&account("codex"))));
+        }
+        assert!(!steerable(&Session { live: false, ..thread.clone() }, Some(&account("codex"))));
+        assert!(!steerable(&thread, None));
+        // A terminal session in no terminal Codealong types into.
+        assert!(!steerable(&session(Harness::Codex, Surface::Cli, Status::Working, true, Some(u32::MAX)), Some(&account("codex"))));
+        assert!(!steerable(&session(Harness::Claude, Surface::Cli, Status::Working, true, Some(u32::MAX)), Some(&account("claude"))));
+        let _ = std::fs::remove_dir_all(&home);
+
+        // What's typed after the prompt to send it now: Claude Code's Ctrl+X Ctrl+S; Return
+        // already does for Codex's terminal UI.
+        assert_eq!(crate::harness::adapter(Harness::Claude).sends_now_with(), Some("\u{18}\u{13}"));
+        assert_eq!(crate::harness::adapter(Harness::Codex).sends_now_with(), None);
+    }
+
+    #[test]
+    fn asks_the_codex_window_to_steer_as_the_app_does() {
+        let r = codex_steer_request("r", "me", "owner", "t1", "and the docs", "u1", "/r/app", 1_790_000_000_000);
+        assert_eq!((&r["method"], &r["version"], &r["targetClientId"], &r["sourceClientId"]), (&json!("thread-follower-steer-turn"), &json!(1), &json!("owner"), &json!("me")));
+        let p = &r["params"];
+        assert_eq!(p["conversationId"], "t1");
+        assert_eq!(p["input"], json!([{ "type": "text", "text": "and the docs", "text_elements": [] }]));
+        assert_eq!(p["attachments"], json!([]));
+        // The window reads the thread's folders from the message it would put back in the box,
+        // and its id is the message's.
+        let m = &p["restoreMessage"];
+        assert_eq!((&m["id"], &p["clientUserMessageId"]), (&json!("u1"), &json!("u1")));
+        assert_eq!((&m["text"], &m["cwd"], &m["createdAt"]), (&json!("and the docs"), &json!("/r/app"), &json!(1_790_000_000_000i64)));
+        assert_eq!(m["context"], json!({ "prompt": "and the docs", "addedFiles": [], "fileAttachments": [], "ideContext": null, "imageAttachments": [], "workspaceRoots": ["/r/app"] }));
     }
 
     #[test]

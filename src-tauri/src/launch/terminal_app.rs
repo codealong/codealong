@@ -6,7 +6,7 @@ use std::path::Path;
 
 use anyhow::Result;
 
-use super::{close_tty_terminals, focus_on_tty, fresh_line, launcher, pasted, sh_quote, type_on_tty, typed_line, wait_for_shell, HostKind, Placement, Terminal, TerminalHost, Typed};
+use super::{close_tty_terminals, focus_on_tty, fresh_line, launcher, pasted, sh_quote, type_on_tty, typed_line, wait_for_shell, HostKind, Placement, Submit, Terminal, TerminalHost, Typed};
 
 const APP: &str = "Terminal";
 
@@ -57,7 +57,9 @@ impl Terminal for AppleTerminal {
     }
 
     /// Terminal can't press a key without Return, so there the box stays as it is.
-    fn type_session(&self, pid: u32, _cwd: &Path, text: &str, _clear: bool) -> Result<Typed> {
+    /// Terminal presses Return after whatever its script types, so it sends with nothing else
+    /// (`terminal_type_session` asks it for nothing else).
+    fn type_session(&self, pid: u32, _cwd: &Path, text: &str, _clear: bool, _submit: Submit) -> Result<Typed> {
         type_on_tty(APP, pid, text, None, type_text)
     }
 

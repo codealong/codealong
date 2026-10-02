@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use anyhow::{anyhow, Result};
 
-use super::{tty_of, HostKind, Key, Terminal, Typed, CLEAR_WAIT};
+use super::{tty_of, HostKind, Key, Submit, Terminal, Typed, CLEAR_WAIT};
 use crate::procs;
 
 const NAME: &str = "tmux";
@@ -38,14 +38,14 @@ impl Terminal for Tmux {
         self.installed()
     }
 
-    fn type_session(&self, pid: u32, _cwd: &Path, text: &str, clear: bool) -> Result<Typed> {
+    fn type_session(&self, pid: u32, _cwd: &Path, text: &str, clear: bool, submit: Submit) -> Result<Typed> {
         match pane_of(pid) {
             Some(pane) => {
                 if clear {
                     self.press(&pane, Key::CtrlC)?;
                     std::thread::sleep(CLEAR_WAIT);
                 }
-                type_text(&pane, text).map(|_| Typed::Into(NAME))
+                type_text(&pane, text, submit).map(|_| Typed::Into(NAME))
             }
             None => Ok(Typed::Nowhere("Codealong couldn't find its tmux pane".into())),
         }
@@ -94,11 +94,20 @@ pub(super) fn pane_for(list: &str, tty: &str) -> Option<String> {
 
 /// Pastes `text` into the pane (bracketed, so a prompt of several lines arrives whole), then
 /// presses Return a moment later, as `GHOSTTY_TYPE` does.
-fn type_text(pane: &str, text: &str) -> Result<()> {
+fn type_text(pane: &str, text: &str, submit: Submit) -> Result<()> {
     let bin = bin().ok_or_else(|| anyhow!("tmux isn't installed where Codealong looks for it."))?.to_string_lossy().into_owned();
     procs::run_stdin(&bin, &["load-buffer", "-b", "codealong", "-"], text, Duration::from_secs(5))?;
     procs::run(&bin, &["paste-buffer", "-p", "-d", "-b", "codealong", "-t", pane], None, Duration::from_secs(5))?;
     std::thread::sleep(Duration::from_millis(300));
-    procs::run(&bin, &["send-keys", "-t", pane, "Enter"], None, Duration::from_secs(5))?;
+    match submit {
+        Submit::Return => procs::run(&bin, &["send-keys", "-t", pane, "Enter"], None, Duration::from_secs(5))?,
+        // Each character by its code (`-H`), so a control character goes as the key it is.
+        Submit::Keys(keys) => {
+            let codes: Vec<String> = keys.bytes().map(|b| format!("{b:02x}")).collect();
+            let mut args = vec!["send-keys", "-t", pane, "-H"];
+            args.extend(codes.iter().map(String::as_str));
+            procs::run(&bin, &args, None, Duration::from_secs(5))?
+        }
+    };
     Ok(())
 }

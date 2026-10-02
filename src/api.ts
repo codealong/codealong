@@ -483,10 +483,11 @@ export async function searchText(words: string[]): Promise<TextFound> {
   return invoke<TextFound>('search_text', { words });
 }
 
-/** Sends a prompt to a session that's already going, where it runs (send.rs). */
-export async function sendToSession(key: string, text: string): Promise<Sent> {
+/** Sends a prompt to a session that's already going, where it runs (send.rs); `now` sends it
+ *  into the turn it's taking at once, where its harness can be reached that way. */
+export async function sendToSession(key: string, text: string, now = false): Promise<Sent> {
   if (!inTauri) return { message: 'Sent.', opened: false };
-  return invoke<Sent>('send_to_session', { key, text });
+  return invoke<Sent>('send_to_session', { key, text, now });
 }
 
 /** Whether there's a TypeSafe API key in the keychain. */

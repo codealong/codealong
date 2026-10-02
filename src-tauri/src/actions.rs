@@ -50,6 +50,10 @@ impl Call<'_> {
         self.params.get(name).and_then(Value::as_str).unwrap_or_default().to_string()
     }
 
+    fn flag(&self, name: &str) -> bool {
+        self.params.get(name).and_then(Value::as_bool).unwrap_or(false)
+    }
+
     fn u64(&self, name: &str) -> Option<u64> {
         self.params.get(name).and_then(Value::as_u64)
     }
@@ -194,11 +198,12 @@ fn answer_call(engine: &Handle, c: &Call) -> Result<Value, String> {
     .map_err(words)
 }
 
-/// Sends it a prompt where it runs (send.rs). From another device, one that would only open
-/// with the prompt ready to send is refused: that needs someone here.
+/// Sends it a prompt where it runs (send.rs), into its running turn at once with `now`. From
+/// another device, one that would only open with the prompt ready to send is refused: that
+/// needs someone here.
 fn send_prompt(engine: &Handle, c: &Call) -> Result<Value, String> {
     let sender = if c.from == From::Here { send::Sender::You } else { send::Sender::Elsewhere };
-    let sent = crate::send_here(engine, c.session()?, &c.text("text"), sender)?;
+    let sent = crate::send_here(engine, c.session()?, &c.text("text"), sender, c.flag("now"))?;
     if c.from == From::Device && sent.opened {
         return Err(format!("It needs someone at this device: {}", sent.message));
     }

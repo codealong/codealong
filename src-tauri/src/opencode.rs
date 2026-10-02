@@ -900,6 +900,12 @@ impl crate::harness::Adapter for OpenCode {
         service(&ctx.account.home_path()).is_some()
     }
 
+    /// Its service takes a prompt for the running turn (`delivery: "steer"`) as well as after it
+    /// (`queue`).
+    fn steers(&self, ctx: &crate::harness::Ctx, _s: &crate::model::Session) -> bool {
+        service(&ctx.account.home_path()).is_some()
+    }
+
     /// Stops the run without `resume`, which would go straight on with a message steering it:
     /// a Stop leaves the session waiting for you.
     fn interrupt(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> anyhow::Result<String> {

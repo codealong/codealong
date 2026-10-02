@@ -772,7 +772,7 @@ impl Client {
             }
         }
         let cfg = self.cfg().clone();
-        crate::send::send(self.board()?, &cfg, key, text, crate::send::Sender::Agent(from))
+        crate::send::send(self.board()?, &cfg, key, text, crate::send::Sender::Agent(from), false)
     }
 
     /// Brings the app's main window forward on a session, worktree, PR or todo (`Reveal` in

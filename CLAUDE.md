@@ -409,7 +409,8 @@ asks `harness::adapter(session.harness)` or `harness::of(account)`. Adding one:
    - opening: `targets`, and `open` for a way of its own (its app); the engine does `focus`,
      `resume` (`Session::resume_command`) and `attach` for every harness;
    - sending (send.rs): `routes`, best first, `resume` for what a new terminal types to go on
-     with one that isn't running, `typed_attachments`, `clears_before_typing`, `takes_messages`;
+     with one that isn't running, `typed_attachments`, `clears_before_typing`, `takes_messages`,
+     and for Send now `steers` and `sends_now_with` (the keys typed in place of Return);
    - acting on it: `fork`, `fork_background`, `move_to`, `side`, `stop`, `rename`,
      `interrupts` and `interrupt`, `archive`, `skips_permission_prompts`, `runs_its_commands`;
    - starting (start.rs): `places`, `start_in_terminal`, `background_command` and
@@ -682,6 +683,25 @@ Claude Code
   checked 2026-09-29). Attaching sizes the job's terminal to the attacher's and redraws it;
   detaching gives a terminal still attached its own size back. The daemon drops an attached
   connection whose unread output piles up.
+- While a turn runs, Return in the input box queues the prompt for the turn to take in once the
+  step it's on ends (`priority: "next"`): a command running for minutes keeps it waiting that
+  long. Ctrl+X Ctrl+S (`chat:sendNow`; Ctrl+Enter too where the terminal tells the keys apart)
+  sends what's in the box now: the running command carries on in the background, its call
+  answered "Command was moved to the background (ID: …) so that a message that arrived while it
+  was running can reach you; it was not interrupted" (`toolUseResult.backgroundedToDeliverMessage`),
+  and the prompt goes in a second later as a `queued_command` attachment with `origin: {kind:
+  "human"}`. With the box empty it sends the prompts already queued. Ctrl+X Enter
+  (`chat:queueSubmit`) queues one for after the turn. Checked on 2.1.287 in tmux and in a
+  background job through `attach` (2026-10-02): the paste, then the two keys a moment later,
+  which `send.rs` does for Send now (`claude::SEND_NOW`). Transcripts also have `queue-operation`
+  lines (`enqueue`, `dequeue`, `remove`, with the prompt as `content`) as the queue changes.
+- The socket's `priority` takes `now`, `next` (the default) and `later`, but `now` is no send now:
+  in a terminal session (2.1.287) a `now` message sent during a 40-second command waited for it
+  to end and then started a turn of its own, and a headless `-p --input-format stream-json` run,
+  as the Claude app runs Claude Code, ended its turn after the command with no reply and answered
+  the message as a new one. The stream-json `control_request` `{subtype: "interrupt", send_now:
+  true, message_uuid}` (`interrupt_send_now_v1` on `system/init`) is the app's send now, and only
+  the process's stdin takes it, so a Claude app session can't be sent to now from outside.
 - Nothing from outside stops a Claude app session's turn: the app sends a stream-json
   `control_request` `{subtype: "interrupt"}` down the pipe it runs Claude Code through, and the
   session's socket takes only messages.
@@ -909,6 +929,19 @@ Codex
   stops its subagents; the rollout gets `turn_aborted`. A command already handed to a background
   terminal keeps running, as after Escape in the CLI ("1 background terminal running · /stop to
   close"); `thread/backgroundTerminals/clean {threadId}` ends those (checked 2026-09-29).
+- `thread-follower-steer-turn` (version 1) to the owning window sends a prompt into the turn a
+  thread is taking, as the app's steer does from a window that doesn't own it: `params:
+  {conversationId, clientUserMessageId, input, attachments, restoreMessage, serviceTier?,
+  additionalContext?, toolOutput?}`. The window reads the thread's folders from `restoreMessage`
+  (`context.workspaceRoots`, `cwd`) and puts it back in the box if the steer is turned down, so it
+  must be the composer's message: `{id, text, context: {prompt, addedFiles, fileAttachments,
+  ideContext, imageAttachments, workspaceRoots}, cwd, createdAt}`, which `send::codex_steer_request`
+  builds as the app does for a plain prompt. The window sends `turn/steer {threadId, input,
+  expectedTurnId}` and refuses a thread whose turn has ended ("Cannot steer conversation … because
+  its active turn already ended"). The router answers `request-timeout`, `client-disconnected` or
+  `server-closed` after it has handed a request on, and `no-client-found`,
+  `no-handler-for-request` or `request-version-mismatch` before (26.924's code). Not yet checked
+  by hand (2026-10-02): a steer sent this way, since that needs a running turn in the app.
 - A new thread can be started for the app to run: `thread/start {cwd}` from an app-server of
   your own, then `thread/inject_items` with one item (an empty list is refused), since the
   rollout isn't written until the history has something in it and the app can't open a thread
@@ -928,8 +961,10 @@ Codex
   through the daemon. There's no way to choose a new thread's id. `codex -- <prompt>` starts on
   a prompt (`-i` takes several images, so `--` ends them), `codex resume -- <id> <prompt>`
   continues one, `codex fork <id> [prompt]` opens a copy of one (an app's thread too) under a new
-  id Codex picks (the app-server's `thread/fork {threadId, cwd, …}` does the same), and a typed-in prompt pasted into the TUI is sent with Return, queued while a
-  turn runs. `codex::terminals` finds TUIs by `ps` (the daemon, `exec` and bundled copies aren't
+  id Codex picks (the app-server's `thread/fork {threadId, cwd, …}` does the same), and a typed-in prompt pasted into the TUI is sent with Return, which while
+  a turn runs sends it into the turn (a steer); Tab queues it for after ("Press
+  {key:composer.queue} to queue a message when a task is running; otherwise it sends
+  immediately", 0.157.1's keymap help). `codex::terminals` finds TUIs by `ps` (the daemon, `exec` and bundled copies aren't
   terminals) and `pair_terminals` gives each its `resume` id or its folder's newest CLI thread
   active since it started. Escape in the TUI stops a running turn ("Conversation interrupted", `turn_aborted`),
   leaving its background terminals running. While its box's text ends in an `@` word a list of
@@ -994,7 +1029,7 @@ OpenCode (2.0.16, from its source at that tag and its files here)
   with its `state.input` while its command runs (`state.status` not yet completed or error), so
   `codealong` finds the session that runs it there (checked with `opencode run`, 2026-09-27).
 - `POST /api/session/<id>/prompt` with `{text, delivery: "queue"|"steer"}` sends a session a
-  prompt; any TUI on that session shows it.
+  prompt, after the running turn or into it (Send now); any TUI on that session shows it.
 - `PATCH /api/session/<id>` with `{title}` renames a session (204; `time_updated` moves), as it
   takes `metadata` and `permissions` (checked against a service of its own, 2026-09-29).
 - `POST /api/session/<id>/interrupt` (body `{}` is fine) stops a session's run and answers

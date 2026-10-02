@@ -778,6 +778,26 @@ fn claude_input(name: &str, input: &Value) -> String {
     }
 }
 
+/// Claude Code's send-now key, Ctrl+X Ctrl+S (`chat:sendNow`; Ctrl+Enter is bound to it too, but
+/// a terminal without the kitty keyboard protocol sends it as Return). Pressed with a prompt in
+/// the box, it submits it, and the running turn takes it in at once: a command it was running
+/// carries on in the background ("moved to the background so that a message that arrived while it
+/// was running can reach you"), where Return would wait for the command to end. Checked on
+/// 2.1.287 in tmux and through the background service's attach (2026-10-02). The two keys may
+/// arrive together, but not with the paste before them, which they'd be taken as part of.
+pub const SEND_NOW: &str = "\x18\x13";
+
+/// Whether keys pressed for it reach it: in the terminal it runs in, where Codealong can press
+/// one there, or, for a background job, through its account's service.
+fn keys_reach(ctx: &crate::harness::Ctx, s: &Session) -> bool {
+    if s.surface != crate::model::Surface::Cli {
+        return false;
+    }
+    if s.attach_command.is_some() {
+        return crate::send::daemon_socket(&ctx.account.home_path()).is_some();
+    }
+    s.pid.and_then(crate::launch::terminal_kind).is_some_and(|k| k.presses_keys())
+}
 
 /// Claude Code (`harness::Adapter`): its transcript for the conversation, and its permission
 /// prompt answered through the plugin's hook when the hook handed the app the request
@@ -1085,13 +1105,18 @@ impl crate::harness::Adapter for ClaudeCode {
     /// Escape, Claude Code's own interrupt: pressed in the terminal it runs in, or, for a
     /// background job, through its account's service.
     fn interrupts(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> bool {
-        if s.surface != crate::model::Surface::Cli {
-            return false;
-        }
-        if s.attach_command.is_some() {
-            return crate::send::daemon_socket(&ctx.account.home_path()).is_some();
-        }
-        s.pid.and_then(crate::launch::terminal_kind).is_some_and(|k| k.presses_keys())
+        keys_reach(ctx, s)
+    }
+
+    /// Its send-now key, typed after the prompt where keys reach it (`sends_now_with`). A
+    /// Claude app session takes messages only on its socket, where `priority: "now"` waits for
+    /// a running command as `next` does, then ends the turn and starts another on the message.
+    fn steers(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> bool {
+        keys_reach(ctx, s)
+    }
+
+    fn sends_now_with(&self) -> Option<&'static str> {
+        Some(SEND_NOW)
     }
 
     /// Presses Escape only while its own record says a turn is running: busy, or waiting on a

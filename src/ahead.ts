@@ -551,9 +551,10 @@ const tails = new Map<string, Promise<unknown>>();
  * Sends a message to a session, shown at once. Resolves with what happened once it went. When it
  * doesn't go, it and every message sent after it are back in the session's draft, before
  * whatever's been written since, and each rejects with why. `toDraft: false` leaves the draft
- * alone, for a caller that puts the text back itself (the quick panel's input).
+ * alone, for a caller that puts the text back itself (the quick panel's input). `now` sends it
+ * into the turn the session is taking at once (Send now).
  */
-export function sendAhead(s: Session, text: string, { toDraft = true }: { toDraft?: boolean } = {}): Promise<Sent> {
+export function sendAhead(s: Session, text: string, { toDraft = true, now = false }: { toDraft?: boolean; now?: boolean } = {}): Promise<Sent> {
   const key = s.key;
   const a = made({ kind: 'send', key, text, working: s.status === 'working', starts: startsTurn(s) });
   put(a, true);
@@ -570,7 +571,7 @@ export function sendAhead(s: Session, text: string, { toDraft = true }: { toDraf
     .then(() => {
       // One before it didn't go, so this one didn't either: it's in the box already.
       if (mine.failed !== undefined) throw mine.failed;
-      return sendToSession(key, text);
+      return sendToSession(key, text, now);
     });
   tails.set(key, flight);
   const clear = () => {

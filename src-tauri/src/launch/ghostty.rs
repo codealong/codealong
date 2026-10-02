@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use anyhow::{anyhow, Result};
 
-use super::{app_installed, hang_up, not_allowed_why, pick_by_title, placement, tty_of, write_osc7, HostKind, Key, NotAllowed, Placement, Tab, Terminal, TerminalHost, Typed, FOCUS_TURNS, MARK_PREFIX};
+use super::{app_installed, hang_up, not_allowed_why, pick_by_title, placement, tty_of, write_osc7, HostKind, Key, NotAllowed, Placement, Submit, Tab, Terminal, TerminalHost, Typed, FOCUS_TURNS, MARK_PREFIX};
 use crate::procs;
 
 const APP: &str = "Ghostty";
@@ -80,7 +80,7 @@ impl Terminal for Ghostty {
     }
 
     /// Clearing the box first is Ghostty's own action for Ctrl+C, in the script that types.
-    fn type_session(&self, pid: u32, cwd: &Path, text: &str, clear: bool) -> Result<Typed> {
+    fn type_session(&self, pid: u32, cwd: &Path, text: &str, clear: bool, submit: Submit) -> Result<Typed> {
         let id = match terminal_of(pid, cwd) {
             Ok(Some(id)) => id,
             Ok(None) => return Ok(Typed::Nowhere("Codealong couldn't find its Ghostty tab".into())),
@@ -88,8 +88,12 @@ impl Terminal for Ghostty {
             Err(e) if e.is::<NotAllowed>() => return Ok(Typed::Nowhere(not_allowed_why(APP))),
             Err(_) => return Ok(Typed::Nowhere("Ghostty didn't answer in time".into())),
         };
-        let first: &[&str] = if clear { &[GHOSTTY_CTRL_C] } else { &[] };
-        if osascript(GHOSTTY_TYPE, &[&[id.as_str(), text], first].concat())?.trim().is_empty() {
+        let first = if clear { GHOSTTY_CTRL_C.to_string() } else { String::new() };
+        let then = match submit {
+            Submit::Return => String::new(),
+            Submit::Keys(keys) => text_action(keys),
+        };
+        if osascript(GHOSTTY_TYPE, &[id.as_str(), text, &first, &then])?.trim().is_empty() {
             // Its tab closed between finding it and typing: nothing went in.
             return Ok(Typed::Nowhere("its Ghostty tab closed".into()));
         }
@@ -277,24 +281,31 @@ on run argv
 end run
 "#;
 
-/// `<terminal id> <text> [action]`: pastes the text into that terminal, then presses Return.
-/// Ghostty pastes it bracketed when the program asked for that (Claude Code and Codex do), so a
-/// prompt of several lines arrives whole. Return comes a moment later, so the program has
-/// taken the paste as a paste before it sees the key. An action given is performed first
-/// (`GHOSTTY_CTRL_C`).
+/// `<terminal id> <text> <first> <then>`: pastes the text into that terminal, then presses
+/// Return, or performs `then` in its place (`text_action`, keys that send it otherwise). Ghostty
+/// pastes it bracketed when the program asked for that (Claude Code and Codex do), so a prompt of
+/// several lines arrives whole. Return comes a moment later, so the program has taken the paste
+/// as a paste before it sees the key. `first`, unless it's empty, is an action performed before
+/// the paste (`GHOSTTY_CTRL_C`).
 pub(super) const GHOSTTY_TYPE: &str = r#"
 on run argv
   set want to item 1 of argv
   set theText to item 2 of argv
+  set firstAction to item 3 of argv
+  set thenAction to item 4 of argv
   tell application "Ghostty"
     if not (exists terminal id want) then return ""
-    if (count of argv) > 2 then
-      perform action (item 3 of argv) on terminal id want
+    if firstAction is not "" then
+      perform action firstAction on terminal id want
       delay 0.2
     end if
     input text theText to terminal id want
     delay 0.3
-    send key "enter" to terminal id want
+    if thenAction is "" then
+      send key "enter" to terminal id want
+    else
+      perform action thenAction on terminal id want
+    end if
   end tell
   return want
 end run
@@ -302,6 +313,20 @@ end run
 
 /// Ghostty's action that types Ctrl+C: `text:` takes a Zig string literal.
 const GHOSTTY_CTRL_C: &str = "text:\\x03";
+
+/// Ghostty's action that types `chars` as typing them does: `text:` and the characters as a Zig
+/// string literal, every one that isn't printable ASCII (or is a quote or backslash) escaped.
+fn text_action(chars: &str) -> String {
+    let mut out = String::from("text:");
+    for c in chars.chars() {
+        match c {
+            ' '..='~' if c != '\\' && c != '"' => out.push(c),
+            c if (c as u32) < 0x80 => out.push_str(&format!("\\x{:02x}", c as u32)),
+            c => out.push_str(&format!("\\u{{{:x}}}", c as u32)),
+        }
+    }
+    out
+}
 
 /// How long to wait for Ghostty to show a session's marker. It's there within a fraction of a
 /// second normally; on a Mac busy enough to fall seconds behind, a short wait reported tabs as

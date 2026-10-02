@@ -104,6 +104,21 @@ pub trait Adapter: Sync {
         false
     }
 
+    /// Whether what you send can reach the agent in the turn it's taking at once, rather than
+    /// once the step it's on ends: its box's Send now. Asked of every session whose turn is
+    /// running each time the board is put together, so it only looks, cheaply. `send` carries it
+    /// out by the way the prompt goes: `sends_now_with` where it's typed, the Codex app's steer,
+    /// OpenCode's `steer` delivery.
+    fn steers(&self, _ctx: &Ctx, _session: &Session) -> bool {
+        false
+    }
+
+    /// The keys typed after a prompt in place of Return to send it now (`steers`): characters
+    /// as typing writes them. None where Return already sends it into the running turn.
+    fn sends_now_with(&self) -> Option<&'static str> {
+        None
+    }
+
     /// What a new terminal types to go on with a session that isn't running, on a prompt
     /// (`send::Route::Resume`), and the environment that carries the prompt: typed through the
     /// shell, as a new session's is, so no quoting of yours can break the command.
@@ -577,6 +592,13 @@ pub fn turn_running(s: &Session) -> bool {
 /// harness can reach.
 pub fn stoppable(s: &Session, account: Option<&AccountCfg>) -> bool {
     turn_running(s) && (s.hosted || account.is_some_and(|account| adapter(s.harness).interrupts(&Ctx { account }, s)))
+}
+
+/// Whether what you send to a session can reach the agent in the turn it's taking at once
+/// (`Adapter::steers`). The Agent Client Protocol has no way to, so a session Codealong runs
+/// itself takes a message after its turn; one stuck mid-turn takes nothing typed.
+pub fn steerable(s: &Session, account: Option<&AccountCfg>) -> bool {
+    s.live && s.status == crate::model::Status::Working && !s.hosted && account.is_some_and(|account| adapter(s.harness).steers(&Ctx { account }, s))
 }
 
 /// What one of a harness's folders holds (`Adapter::folder_use`).

@@ -34,6 +34,13 @@
 // engine's `stoppable`), as Escape does in Claude Code and Codex, and so does the button while
 // the box is empty, whose placeholder says so (⌘. too, from anywhere in the window). It sends what the harness's own Stop
 // sends, or presses Escape in its terminal. The session carries on, waiting for you.
+//
+// While its turn runs, ⏎ sends as the session's own box would: Claude Code takes the message in
+// once the step it's on ends (a command it's running included), the Codex app and OpenCode after
+// the turn. Where the session can take it sooner (the engine's `steerable`), the bolt beside Send
+// and ⌃⏎, Claude Code's own key for it, send it now, into the turn it's taking: Claude Code's send
+// now, which moves a running command to the background so the agent reads the message at once,
+// and Codex's and OpenCode's steer.
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent } from 'react';
 import { sendAhead, sending, useAhead } from '../ahead';
@@ -258,8 +265,9 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
     return () => window.removeEventListener('keydown', onKey);
   }, [canStop]);
 
-  /** Sends what's in the box; says whether there was anything to send. */
-  const send = (): boolean => {
+  /** Sends what's in the box, into the turn it's taking at once with `now`; says whether there was
+   *  anything to send. */
+  const send = (now = false): boolean => {
     const t = text.trim();
     if (!t || waiting) return false;
     setNote(null);
@@ -267,7 +275,7 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
     // What happens next is told to whichever box is showing then: this one may be gone by then
     // (the peek closes as it sends).
     const key = s.key;
-    sendAhead(s, t).then(
+    sendAhead(s, t, { now }).then(
       (sent) => {
         land(key, { text: sent?.message ?? 'Sent.', error: false });
         onSent?.(sent);
@@ -366,6 +374,8 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
   // With nothing in the box, the button stops a turn that can be stopped; with something, it
   // sends, the turn taking the message in as it works.
   const stopButton = canStop && empty;
+  // Into the turn it's taking at once, where it can be reached that way.
+  const canSendNow = !!s.steerable && !waiting;
   const said = note?.error
     ? note.text
     : going
@@ -376,7 +386,7 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
           ? 'Asking a copy of it…'
           : commands.length > 0
           ? commands.map((c) => `/${c.name} ${c.args}: ${c.about}`).join(' · ')
-          : (note?.text ?? (stopping ? 'Stopping…' : hint(waiting, !!onNext, !!onAllowNext)));
+          : (note?.text ?? (stopping ? 'Stopping…' : hint(waiting, !!onNext, !!onAllowNext, canSendNow)));
   return (
     <div className="ca-composer">
       <div
@@ -412,6 +422,12 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
               submit();
               return;
             }
+            // ⌃⏎ sends it now; the engine sends it as usual where it can't, or the turn has ended.
+            if (e.ctrlKey && !e.metaKey) {
+              e.preventDefault();
+              send(true);
+              return;
+            }
             if (e.metaKey && onAllowNext && (waiting || !text.trim())) {
               e.preventDefault();
               onAllowNext();
@@ -425,22 +441,29 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
           onPaste={paste}
           aria-label={`Message to ${s.title}`}
         />
-        {stopButton ? (
-          <button type="button" className="ca-composer-send is-stop" aria-label={stopping ? 'Stopping' : 'Stop'} title="Stop its turn (esc)" disabled={stopping} onClick={stop}>
-            <Icon name="player-stop" size={12} stroke={2} />
-          </button>
-        ) : (
-          <button
-            type="button"
-            className="ca-composer-send"
-            aria-label={command ? `Run /${command.command.name}` : 'Send'}
-            title={command ? `Run /${command.command.name} (⏎)` : waiting ? 'Send this once it isn’t waiting on you' : 'Send (⏎)'}
-            disabled={empty || (waiting && !command) || (!!command && (forking || asking))}
-            onClick={submit}
-          >
-            <Icon name={command?.command.icon ?? 'arrow-up'} size={16} stroke={2} />
-          </button>
-        )}
+        <div className="ca-composer-buttons">
+          {canSendNow && !empty && !command && (
+            <button type="button" className="ca-composer-send is-now" aria-label="Send now" title="Send now (⌃⏎), into the turn it’s taking" onClick={() => send(true)}>
+              <Icon name="bolt" size={14} stroke={2} />
+            </button>
+          )}
+          {stopButton ? (
+            <button type="button" className="ca-composer-send is-stop" aria-label={stopping ? 'Stopping' : 'Stop'} title="Stop its turn (esc)" disabled={stopping} onClick={stop}>
+              <Icon name="player-stop" size={12} stroke={2} />
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="ca-composer-send"
+              aria-label={command ? `Run /${command.command.name}` : 'Send'}
+              title={command ? `Run /${command.command.name} (⏎)` : waiting ? 'Send this once it isn’t waiting on you' : 'Send (⏎)'}
+              disabled={empty || (waiting && !command) || (!!command && (forking || asking))}
+              onClick={submit}
+            >
+              <Icon name={command?.command.icon ?? 'arrow-up'} size={16} stroke={2} />
+            </button>
+          )}
+        </div>
       </div>
       {said && (
         <span className={['ca-composer-note', note?.error && 'is-error'].filter(Boolean).join(' ')} role="status">
@@ -454,9 +477,9 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
 /** What the box has to say when nothing's happened: only the keys that aren't a chat box's usual
  *  ones. ⏎ sends and ⇧⏎ starts a new line, as everywhere, and the placeholder says Escape stops a
  *  turn while it can. */
-function hint(waiting: boolean | undefined, next: boolean, allowNext: boolean): string {
+function hint(waiting: boolean | undefined, next: boolean, allowNext: boolean, sendNow = false): string {
   if (waiting) return allowNext ? '⌘⏎ allow + next · send this once it isn’t waiting on you' : 'Send this once it isn’t waiting on you';
-  return next ? '⌘⏎ send + next' : '';
+  return [next && '⌘⏎ send + next', sendNow && '⌃⏎ send now, into the turn it’s taking'].filter(Boolean).join(' · ');
 }
 
 interface ApprovalProps {

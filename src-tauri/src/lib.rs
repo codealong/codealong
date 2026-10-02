@@ -669,18 +669,19 @@ fn session_cancel(engine: State<'_, engine::Handle>, peers: State<'_, peers::Pee
     Ok(said.as_str().unwrap_or("Stopped.").to_string())
 }
 
-/// Sends a prompt to a session that's already going, where it runs (send.rs). Only Codealong's
-/// windows call this, so what it sends is what you typed.
+/// Sends a prompt to a session that's already going, where it runs (send.rs); `now` sends it
+/// into the turn it's taking at once (Send now). Only Codealong's windows call this, so what it
+/// sends is what you typed. A device from before Send now reads no `now` and sends it as usual.
 #[tauri::command(async)]
-fn send_to_session(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, text: String) -> Result<serde_json::Value, String> {
-    actions::run(&engine, &peers, api::SESSION_SEND, &key, serde_json::json!({ "text": text }))
+fn send_to_session(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, text: String, now: Option<bool>) -> Result<serde_json::Value, String> {
+    actions::run(&engine, &peers, api::SESSION_SEND, &key, serde_json::json!({ "text": text, "now": now.unwrap_or(false) }))
 }
 
 /// Sends to a session on this device; the socket (server.rs) does the same for `codealong session
 /// send`.
-pub(crate) fn send_here(engine: &engine::Handle, key: &str, text: &str, sender: send::Sender) -> Result<send::Sent, String> {
+pub(crate) fn send_here(engine: &engine::Handle, key: &str, text: &str, sender: send::Sender, now: bool) -> Result<send::Sent, String> {
     let cfg = config::load().map_err(|e| format!("{e:#}"))?.unwrap_or_default();
-    send::send(&engine.board(), &cfg, key, text, sender).map_err(|e| format!("{e:#}"))
+    send::send(&engine.board(), &cfg, key, text, sender, now).map_err(|e| format!("{e:#}"))
 }
 
 /// What Jev suggests for a todo being written: its project, labels and the todos it waits on
@@ -1574,12 +1575,12 @@ pub fn snapshot_cli(args: &[String]) -> i32 {
     }
     if let Some(i) = args.iter().position(|a| a == "--send") {
         let (Some(key), Some(text)) = (args.get(i + 1), args.get(i + 2)) else {
-            eprintln!("usage: codealong --snapshot --send <session key> <text>");
+            eprintln!("usage: codealong --snapshot --send <session key> <text> [--now]");
             return 2;
         };
         let cfg = config::load().ok().flatten().unwrap_or_default();
         let board = engine::snapshot(false, false);
-        return match send::send(&board, &cfg, key, text, send::Sender::Elsewhere) {
+        return match send::send(&board, &cfg, key, text, send::Sender::Elsewhere, args.iter().any(|a| a == "--now")) {
             Ok(sent) => {
                 println!("{}", sent.message);
                 0
