@@ -1,6 +1,6 @@
 //! The panels: the one place Codealong talks to AppKit about the windows that float over other
-//! apps. The bar, the cards pinned to the desktop and the lines between them are each a Tauri
-//! window turned into a non-activating NSPanel, the only kind macOS puts on another app's
+//! apps. The bar, its peek, the sessions kept on the desktop, the cards pinned there and the
+//! lines between them are each a Tauri window turned into a non-activating NSPanel, the only kind macOS puts on another app's
 //! full-screen Space, and here is how one is made, shown, given the keyboard and has it taken,
 //! hidden, and given back its class before it's destroyed, with the level each floats at
 //! (`Level`). A window's own module says what kind of panel it is (`Config`) and when each of
@@ -18,14 +18,15 @@ use std::time::Duration;
 
 use objc2::runtime::{AnyClass, AnyObject, Bool, ClassBuilder, Sel};
 use objc2::{msg_send, sel, ClassType, MainThreadMarker};
-use objc2_app_kit::{NSEvent, NSMainMenuWindowLevel, NSPanel, NSResponder, NSScreen, NSStatusWindowLevel, NSWindow, NSWindowAnimationBehavior, NSWindowCollectionBehavior, NSWindowLevel, NSWindowOcclusionState, NSWindowStyleMask};
+use objc2_app_kit::{NSApplication, NSEvent, NSMainMenuWindowLevel, NSPanel, NSResponder, NSScreen, NSStatusWindowLevel, NSWindow, NSWindowAnimationBehavior, NSWindowCollectionBehavior, NSWindowLevel, NSWindowOcclusionState, NSWindowStyleMask};
 use objc2_foundation::{NSPoint, NSRect, NSSize};
 use tauri::{AppHandle, WebviewUrl, WebviewWindow, WebviewWindowBuilder, Wry};
 
 use crate::geometry::{Rect, Screen};
 
 /// How often a window that stays up checks that it is (macOS can leave one off the Space in
-/// front) and writes down where it was moved to: the bar, the cards on the desktop.
+/// front) and writes down where it was moved to: the bar, the cards and the sessions kept on the
+/// desktop.
 pub const CHECK_EVERY: Duration = Duration::from_secs(1);
 
 /// The level a window floats at, lowest first. Two windows at one level go by which was ordered
@@ -37,9 +38,13 @@ pub enum Level {
     Lines,
     /// A card pinned to the desktop: the status item level, as the floating bar.
     Card,
+    /// A session kept on the desktop: with the cards there.
+    Kept,
     /// The floating bar: above other apps' floating panels too (the status item level, still
     /// under menus), like other apps' floating panels.
     FloatingBar,
+    /// The bar's peek: over the floating bar it opens by.
+    Peek,
     /// The bar docked in the notch: over the menu bar (level 24) and its status items (25), as
     /// the notch apps do.
     DockedBar,
@@ -50,7 +55,8 @@ impl Level {
     pub fn raw(self) -> NSWindowLevel {
         match self {
             Level::Lines => NSStatusWindowLevel - 1,
-            Level::Card | Level::FloatingBar => NSStatusWindowLevel,
+            Level::Card | Level::Kept | Level::FloatingBar => NSStatusWindowLevel,
+            Level::Peek => NSStatusWindowLevel + 1,
             Level::DockedBar => NSMainMenuWindowLevel + 2,
         }
     }
@@ -70,6 +76,12 @@ pub enum Keys {
     /// only docked, while it shows a session to answer; floating, it never is, nor are the cards
     /// on the desktop and the lines between them.
     WhenAsked,
+    /// Key whenever AppKit offers, which a click in it does, and while it isn't it says it is, as
+    /// the floating bar's does and for the same reason: its page would otherwise get no pointer
+    /// moves, so nothing in it would show hover and no tooltip would appear. Taking the keyboard
+    /// (`take_keys`, `present`) turns that off first, so AppKit sees the panel isn't key yet and
+    /// makes it so. The peek and the sessions kept on the desktop.
+    OnClick,
 }
 
 /// Which Spaces a panel is on. All are on every Space and over full-screen apps, and kept out
@@ -78,6 +90,8 @@ pub enum Keys {
 pub enum Spaces {
     /// Left in place by Mission Control: the windows that stay up.
     Stationary,
+    /// Coming and going: Mission Control doesn't show it as a window of its own.
+    Transient,
 }
 
 impl Spaces {
@@ -86,8 +100,24 @@ impl Spaces {
         let everywhere = NSWindowCollectionBehavior::CanJoinAllSpaces | NSWindowCollectionBehavior::FullScreenAuxiliary | NSWindowCollectionBehavior::IgnoresCycle;
         match self {
             Spaces::Stationary => everywhere | NSWindowCollectionBehavior::Stationary,
+            Spaces::Transient => everywhere | NSWindowCollectionBehavior::Transient,
         }
     }
+}
+
+/// The steps `make` takes. The panels were made by copies of one piece of code before they
+/// shared this one, and two of the copies told AppKit the same things in different orders.
+/// Nobody could check the windows by hand when they were folded together (2026-10-02), so each
+/// window is still made exactly as it was; either order should do for any of them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Steps {
+    /// As bar.rs made the bar, the cards and the lines: first the panel, which says at once that
+    /// it allows tooltips, then its level and Spaces, which a window that couldn't be made a
+    /// panel gets too, as the plain window it is.
+    Two,
+    /// As peek.rs made the peek and the sessions kept on the desktop: all of it in one, with
+    /// tooltips allowed last, and none of it for a window that couldn't be made a panel.
+    One,
 }
 
 /// What kind of panel a window is made into (`make`).
@@ -104,6 +134,7 @@ pub struct Config {
     /// one of these is up: macOS shows a background app's tooltips only in windows that allow
     /// them.
     pub tooltips: bool,
+    pub steps: Steps,
 }
 
 /// What a window's page is, and what a click does to it, for `builder`.
@@ -169,8 +200,9 @@ fn ns(w: &WebviewWindow) -> Option<&NSWindow> {
 }
 
 /// The panels that have the keyboard or are taking it, by their address: the docked bar, while
-/// it shows a session to answer (`take_keys`). They answer AppKit truthfully about being key;
-/// the others say they are. The floating bar and the cards on the desktop are never here.
+/// it shows a session to answer, the peek, the sessions kept on the desktop. They answer AppKit
+/// truthfully about being key; the others say they are (`Keys`). The floating bar and the cards
+/// on the desktop are never here.
 static ENGAGED: Mutex<Vec<usize>> = Mutex::new(Vec::new());
 
 fn engaged(this: *const AnyObject) -> bool {
@@ -194,6 +226,9 @@ fn note(this: usize, on: bool) {
 /// The NSPanel subclass for a way with the keyboard, made the first time it's asked for. It
 /// overrides only what that way answers differently from a panel.
 fn class(keys: Keys, unconstrained: bool) -> &'static AnyClass {
+    extern "C" fn yes(_: &AnyObject, _: Sel) -> Bool {
+        Bool::YES
+    }
     extern "C" fn no(_: &AnyObject, _: Sel) -> Bool {
         Bool::NO
     }
@@ -217,6 +252,7 @@ fn class(keys: Keys, unconstrained: bool) -> &'static AnyClass {
     }
     let way = match keys {
         Keys::WhenAsked => "KeyWhenAsked",
+        Keys::OnClick => "KeyOnClick",
     };
     let name = CString::new(format!("CodealongPanel{way}{}", if unconstrained { "Unconstrained" } else { "" })).expect("a class name without a NUL");
     let made = match ClassBuilder::new(&name, NSPanel::class()) {
@@ -227,6 +263,7 @@ fn class(keys: Keys, unconstrained: bool) -> &'static AnyClass {
             unsafe {
                 match keys {
                     Keys::WhenAsked => builder.add_method(sel!(canBecomeKeyWindow), if_engaged as extern "C" fn(_, _) -> _),
+                    Keys::OnClick => builder.add_method(sel!(canBecomeKeyWindow), yes as extern "C" fn(_, _) -> _),
                 }
                 builder.add_method(sel!(canBecomeMainWindow), no as extern "C" fn(_, _) -> _);
                 builder.add_method(sel!(isKeyWindow), is_key as extern "C" fn(_, _) -> _);
@@ -253,21 +290,35 @@ pub struct Original(&'static AnyClass);
 ///
 /// Then it's put at its level, on every Space and over full-screen apps, kept out of ⌘` and the
 /// Window menu, and still up when Codealong is hidden (⌘H), without bringing its other windows
-/// back. A window that couldn't be made a panel is still put there, as the plain window it is.
+/// back.
 ///
 /// Returns the class it replaced, which a window must get back before it's destroyed
-/// (`unmake`). The bar and the lines never are.
+/// (`unmake`). The bar, its peek and the lines never are.
 pub fn make(w: &WebviewWindow, config: Config) -> Option<Original> {
     let n = ns(w)?;
-    let original = swap(n, config);
-    place(n, config);
+    let original = swap(n, config.keys, config.unconstrained);
+    match (config.steps, original.is_some()) {
+        (Steps::Two, made) => {
+            if made && config.tooltips {
+                n.setAllowsToolTipsWhenApplicationIsInactive(true);
+            }
+            place(n, config);
+        }
+        (Steps::One, true) => {
+            place(n, config);
+            if config.tooltips {
+                n.setAllowsToolTipsWhenApplicationIsInactive(true);
+            }
+        }
+        (Steps::One, false) => {}
+    }
     original
 }
 
 /// The class, and what makes a panel of it.
-fn swap(n: &NSWindow, config: Config) -> Option<Original> {
+fn swap(n: &NSWindow, keys: Keys, unconstrained: bool) -> Option<Original> {
     let obj: &AnyObject = n;
-    let panel = class(config.keys, config.unconstrained);
+    let panel = class(keys, unconstrained);
     let original = obj.class();
     // NSPanel keeps no storage of its own beyond NSWindow's, so the swap needs no more room
     // than tao's window already has; if that ever changes, the window stays a plain window.
@@ -281,9 +332,6 @@ fn swap(n: &NSWindow, config: Config) -> Option<Original> {
     n.setStyleMask(n.styleMask() | NSWindowStyleMask::NonactivatingPanel);
     // Panels hide when their app deactivates unless told not to.
     n.setHidesOnDeactivate(false);
-    if config.tooltips {
-        n.setAllowsToolTipsWhenApplicationIsInactive(true);
-    }
     Some(Original(original))
 }
 
@@ -313,6 +361,19 @@ pub fn unmake(w: &WebviewWindow, original: Original) {
 pub fn show(w: &WebviewWindow) {
     if let Some(n) = ns(w) {
         n.orderFrontRegardless();
+    }
+}
+
+/// Orders the panel in over every other app, without activating Codealong. With `keys` it takes
+/// the keyboard too; without, whatever app you're in keeps it, and the panel says it's key, as
+/// one up from a hover does.
+pub fn present(w: &WebviewWindow, keys: bool) {
+    let Some(n) = ns(w) else { return };
+    // WebKit reads whether the window is key as it's ordered on screen.
+    engage(n, keys);
+    n.orderFrontRegardless();
+    if keys {
+        take_keys(w);
     }
 }
 
@@ -363,6 +424,13 @@ pub fn drop_keys(w: &WebviewWindow) {
     engage(n, false);
     // WebKit reads whether the window is key as it's ordered on screen.
     n.orderFrontRegardless();
+}
+
+/// Another of Codealong's windows has the keyboard: the quick panel, a board window. While
+/// another app has it, Codealong has no key window.
+pub fn other_is_key(w: &WebviewWindow) -> bool {
+    let (Some(mtm), Some(n)) = (main_thread(), ns(w)) else { return false };
+    NSApplication::sharedApplication(mtm).keyWindow().is_some_and(|k| !std::ptr::eq(&*k, n))
 }
 
 /// Moves the panel to another level.
@@ -471,10 +539,13 @@ mod tests {
         assert!(at(Level::Lines) < at(Level::Card));
         assert!(at(Level::Card) <= at(Level::FloatingBar));
         assert!(at(Level::Card) < at(Level::DockedBar));
-        // Docked, the bar is over the menu bar and its status items.
+        assert_eq!(at(Level::Kept), at(Level::Card));
+        // Docked, the bar is over the menu bar and its status items, and the peek is over the
+        // floating bar and other apps' status items.
         assert!(at(Level::DockedBar) > NSMainMenuWindowLevel && at(Level::DockedBar) > NSStatusWindowLevel);
+        assert!(at(Level::Peek) > at(Level::FloatingBar) && at(Level::Peek) > NSStatusWindowLevel);
         // As AppKit counts them: the menu bar is 24 and its status items 25.
-        assert_eq!([Level::Lines, Level::Card, Level::FloatingBar, Level::DockedBar].map(at), [24, 25, 25, 26]);
+        assert_eq!([Level::Lines, Level::Card, Level::Kept, Level::FloatingBar, Level::Peek, Level::DockedBar].map(at), [24, 25, 25, 25, 26, 26]);
     }
 
     /// Which of a panel's answers a class gives itself, rather than leaving them to NSPanel.
@@ -491,6 +562,9 @@ mod tests {
         // The bar's, the cards' and the lines': all four.
         assert_eq!(overrides(Keys::WhenAsked, true), [true, true, true, true]);
         assert_eq!(overrides(Keys::WhenAsked, false), [true, true, true, false]);
+        // The peek's and a kept session's: AppKit places them as it places any window.
+        assert_eq!(overrides(Keys::OnClick, false), [true, true, true, false]);
+        assert!(!std::ptr::eq(class(Keys::OnClick, false), class(Keys::WhenAsked, false)));
         // Asked for again, it's the same class.
         assert!(std::ptr::eq(class(Keys::WhenAsked, true), class(Keys::WhenAsked, true)));
         assert!(!std::ptr::eq(class(Keys::WhenAsked, true), class(Keys::WhenAsked, false)));
@@ -514,8 +588,8 @@ mod tests {
 
     #[test]
     fn every_panel_is_on_every_space_and_out_of_the_window_cycle() {
-        let b = Spaces::Stationary.behavior();
-        assert!(b.contains(NSWindowCollectionBehavior::CanJoinAllSpaces | NSWindowCollectionBehavior::FullScreenAuxiliary | NSWindowCollectionBehavior::IgnoresCycle | NSWindowCollectionBehavior::Stationary));
-        assert!(!b.contains(NSWindowCollectionBehavior::Transient));
+        let everywhere = NSWindowCollectionBehavior::CanJoinAllSpaces | NSWindowCollectionBehavior::FullScreenAuxiliary | NSWindowCollectionBehavior::IgnoresCycle;
+        assert_eq!(Spaces::Stationary.behavior(), everywhere | NSWindowCollectionBehavior::Stationary);
+        assert_eq!(Spaces::Transient.behavior(), everywhere | NSWindowCollectionBehavior::Transient);
     }
 }

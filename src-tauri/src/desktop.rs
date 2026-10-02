@@ -33,7 +33,7 @@ pub const PREFIX: &str = "desktop-";
 const START: (f64, f64) = (304.0, 80.0);
 /// A card's panel, as the floating bar's: it never has the keyboard and says it's key, so its
 /// page gets hover and tooltips; it stays where it's put; and Mission Control leaves it in place.
-const PANEL: panel::Config = panel::Config { keys: panel::Keys::WhenAsked, level: panel::Level::Card, spaces: panel::Spaces::Stationary, unconstrained: true, tooltips: true };
+const PANEL: panel::Config = panel::Config { keys: panel::Keys::WhenAsked, level: panel::Level::Card, spaces: panel::Spaces::Stationary, unconstrained: true, tooltips: true, steps: panel::Steps::Two };
 /// Where the pointer holds a card it drags off the bar, from the window's top left: on the card's
 /// first line, a little in from its left edge.
 const GRAB: (f64, f64) = (36.0, 26.0);

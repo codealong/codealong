@@ -30,7 +30,7 @@ const EVERY: Duration = Duration::from_millis(40);
 /// window that's off the screen, so it would show the old lines for a moment when it came back.
 const EMPTIED: Duration = Duration::from_millis(150);
 /// The window's panel is made as a card's is (desktop.rs), and then put just under the cards.
-const PANEL: panel::Config = panel::Config { keys: panel::Keys::WhenAsked, level: panel::Level::Card, spaces: panel::Spaces::Stationary, unconstrained: true, tooltips: true };
+const PANEL: panel::Config = panel::Config { keys: panel::Keys::WhenAsked, level: panel::Level::Card, spaces: panel::Spaces::Stationary, unconstrained: true, tooltips: true, steps: panel::Steps::Two };
 
 /// A line as the page gets it, its cards in the window's points, from its top left, y down.
 #[derive(Serialize, Clone, Debug, PartialEq)]

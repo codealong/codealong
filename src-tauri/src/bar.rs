@@ -53,7 +53,7 @@ const DRAWN_NOTCH_HEIGHT: f64 = 24.0;
 /// its pills) and says it's key the rest of the time, so its page gets hover and tooltips; it
 /// stays where it's put, over the menu bar when it's docked; and Mission Control leaves it in
 /// place. It starts at the floating bar's level, and `place_for` moves it when it docks.
-const PANEL: panel::Config = panel::Config { keys: panel::Keys::WhenAsked, level: Level::FloatingBar, spaces: panel::Spaces::Stationary, unconstrained: true, tooltips: true };
+const PANEL: panel::Config = panel::Config { keys: panel::Keys::WhenAsked, level: Level::FloatingBar, spaces: panel::Spaces::Stationary, unconstrained: true, tooltips: true, steps: panel::Steps::Two };
 
 /// Where the bar shows: floating where you put it, docked in the notch, or not at all.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

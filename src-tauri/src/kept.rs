@@ -16,17 +16,17 @@ use std::time::Duration;
 
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder, Window, WindowEvent};
+use tauri::{AppHandle, Emitter, Manager, Window, WindowEvent};
 
 use crate::geometry::{screen_for, Rect, Screen};
 use crate::config::support_dir;
-use crate::peek::native;
+use crate::panel;
 
 /// The windows are `kept-1`, `kept-2`… in the order they were made since launch.
 pub const PREFIX: &str = "kept-";
-/// How often the windows are put back up if macOS left them off the Space in front, and where
-/// they were moved to is written down.
-const CHECK_EVERY: Duration = Duration::from_secs(1);
+/// A kept session's panel is the peek's, but with the cards on the desktop: at their level, and
+/// left in place by Mission Control.
+const PANEL: panel::Config = panel::Config { keys: panel::Keys::OnClick, level: panel::Level::Kept, spaces: panel::Spaces::Stationary, unconstrained: false, tooltips: true, steps: panel::Steps::One };
 /// How long a new window waits for its page before showing anyway: a page takes longer to load
 /// than the peek's, which is there already, takes to read a conversation.
 const READY_WAIT: Duration = Duration::from_millis(2500);
@@ -67,7 +67,7 @@ struct Inner {
     windows: Vec<(String, Kept)>,
     /// The windows made into panels, with the class each had before, which it gets back before
     /// it's destroyed.
-    panels: HashMap<String, Option<native::Original>>,
+    panels: HashMap<String, Option<panel::Original>>,
     /// The windows that are up: their pages have laid out their sessions.
     shown: HashSet<String>,
     /// The windows that take the keyboard as they show: kept from a peek that had it.
@@ -100,7 +100,7 @@ pub fn setup(app: &AppHandle) -> Result<()> {
     }
     let handle = app.clone();
     std::thread::Builder::new().name("codealong-kept".into()).spawn(move || loop {
-        std::thread::sleep(CHECK_EVERY);
+        std::thread::sleep(panel::CHECK_EVERY);
         let app = handle.clone();
         if handle.run_on_main_thread(move || keep_up(&app)).is_err() {
             break;
@@ -126,27 +126,10 @@ fn add(app: &AppHandle, kept: Kept, keys: bool) -> String {
 /// left. It shows once its page has laid the session out (`ready`), or after a moment without.
 /// Off the main thread, which making a window waits on.
 fn make_window(app: &AppHandle, label: &str) -> Result<()> {
-    WebviewWindowBuilder::new(app, label, WebviewUrl::App("index.html".into()))
-        .title("Codealong")
-        .initialization_script("window.__CODEALONG_KEPT__ = true;")
-        .inner_size(crate::peek::MIN_SIZE.0, crate::peek::MIN_SIZE.1)
-        .decorations(false)
-        .transparent(true)
-        .shadow(false)
-        .resizable(false)
-        .maximizable(false)
-        .minimizable(false)
-        .always_on_top(true)
-        .visible_on_all_workspaces(true)
-        .skip_taskbar(true)
-        .focused(false)
-        .accept_first_mouse(true)
-        // Up over other apps, where WebKit would slow its timers and drawing.
-        .background_throttling(tauri::utils::config::BackgroundThrottlingPolicy::Disabled)
-        .visible(false)
-        .build()?;
-    let (handle, panel) = (app.clone(), label.to_string());
-    app.run_on_main_thread(move || place(&handle, &panel))?;
+    let page = panel::Page { title: "Codealong", script: "window.__CODEALONG_KEPT__ = true;", size: crate::peek::MIN_SIZE, focusable: true, first_mouse: true };
+    panel::builder(app, label, page).build()?;
+    let (handle, placed) = (app.clone(), label.to_string());
+    app.run_on_main_thread(move || place(&handle, &placed))?;
     let (handle, waited) = (app.clone(), label.to_string());
     std::thread::spawn(move || {
         std::thread::sleep(READY_WAIT);
@@ -171,17 +154,17 @@ pub fn on_a_screen(frame: Rect, screens: &[Screen]) -> Rect {
 /// main thread.
 fn place(app: &AppHandle, label: &str) {
     let (Some(state), Some(window)) = (app.try_state::<State>(), app.get_webview_window(label)) else { return };
-    let original = native::make_panel(&window, true);
+    let original = panel::make(&window, PANEL);
     let frame = {
         let Ok(mut inner) = state.inner.lock() else { return };
         let Some((_, kept)) = inner.windows.iter_mut().find(|(l, _)| l == label) else { return };
-        kept.frame = on_a_screen(kept.frame, &native::screens());
+        kept.frame = on_a_screen(kept.frame, &panel::screens());
         let frame = kept.frame;
         inner.panels.insert(label.to_string(), original);
         inner.save();
         frame
     };
-    native::set_frame(&window, frame);
+    panel::set_frame(&window, frame);
 }
 
 /// The window's page has laid its session out: the window shows, and the peek it was kept from
@@ -197,7 +180,7 @@ pub fn ready(app: &AppHandle, label: &str) {
         let keys = inner.keys.remove(label);
         (inner.windows.iter().find(|(l, _)| l == label).map(|(_, k)| k.key.clone()), keys)
     };
-    native::show(&window, keys);
+    panel::present(&window, keys);
     if crate::peek::showing(app).map(|(k, _)| k) == key {
         crate::peek::hide(app);
     }
@@ -245,9 +228,9 @@ fn raise(app: &AppHandle, label: &str, keys: bool) {
     let up = state.inner.lock().is_ok_and(|i| i.shown.contains(label));
     if let (true, Some(window)) = (up, app.get_webview_window(label)) {
         if keys {
-            native::show(&window, true);
-        } else if !native::on_screen(&window) {
-            native::show(&window, false);
+            panel::present(&window, true);
+        } else if !panel::on_screen(&window) {
+            panel::present(&window, false);
         }
     }
 }
@@ -280,13 +263,13 @@ pub fn sized(frame: Rect, width: f64, height: f64, screen: Option<Rect>) -> Rect
 /// main thread.
 pub fn resize(app: &AppHandle, label: &str, width: f64, height: f64) {
     let (Some(state), Some(window)) = (app.try_state::<State>(), app.get_webview_window(label)) else { return };
-    let Some(current) = native::frame(&window) else { return };
-    let screen = screen_for(current, &native::screens());
+    let Some(current) = panel::frame(&window) else { return };
+    let screen = screen_for(current, &panel::screens());
     let next = sized(current, width.ceil(), height.ceil(), screen);
     if next == current {
         return;
     }
-    native::set_frame(&window, next);
+    panel::set_frame(&window, next);
     if let Ok(mut inner) = state.inner.lock() {
         if let Some((_, kept)) = inner.windows.iter_mut().find(|(l, _)| l == label) {
             kept.frame = next;
@@ -300,7 +283,7 @@ pub fn take_keys(app: &AppHandle, label: &str) {
     let Some(state) = app.try_state::<State>() else { return };
     let up = state.inner.lock().is_ok_and(|i| i.shown.contains(label));
     if let (true, Some(window)) = (up, app.get_webview_window(label)) {
-        native::take_keys(&window);
+        panel::take_keys(&window);
     }
 }
 
@@ -323,7 +306,7 @@ pub fn close(app: &AppHandle, label: &str) {
     let _ = app.run_on_main_thread(move || {
         let Some(w) = handle.get_webview_window(&label) else { return };
         if let Some(original) = original {
-            native::unmake_panel(&w, original);
+            panel::unmake(&w, original);
         }
         let _ = w.destroy();
     });
@@ -332,7 +315,7 @@ pub fn close(app: &AppHandle, label: &str) {
 /// Writes down where a window is now. On the main thread.
 fn remember_frame(app: &AppHandle, label: &str) {
     let (Some(state), Some(window)) = (app.try_state::<State>(), app.get_webview_window(label)) else { return };
-    let Some(frame) = native::frame(&window) else { return };
+    let Some(frame) = panel::frame(&window) else { return };
     if let Ok(mut inner) = state.inner.lock() {
         // Before it's placed, the frame is the builder's, not where it was left.
         if !inner.panels.contains_key(label) {
@@ -367,8 +350,8 @@ fn keep_up(app: &AppHandle) {
     for (label, frame) in &up {
         let Some(window) = app.get_webview_window(label) else { continue };
         let covered = up.iter().any(|(l, o)| l != label && overlap(*frame, *o));
-        if !covered && !native::on_screen(&window) {
-            native::show(&window, false);
+        if !covered && !panel::on_screen(&window) {
+            panel::present(&window, false);
         }
     }
 }
@@ -390,7 +373,7 @@ pub fn on_window_event(window: &Window, event: &WindowEvent) {
         WindowEvent::Focused(false) => {
             let up = app.try_state::<State>().is_some_and(|s| s.inner.lock().is_ok_and(|i| i.shown.contains(label)));
             if let (true, Some(w)) = (up, app.get_webview_window(label)) {
-                native::show(&w, false);
+                panel::present(&w, false);
             }
             let _ = app.emit_to(label, "kept-keys", false);
         }
