@@ -1,5 +1,14 @@
 //! Messages between Claude Code sessions: the envelope one goes in, and the socket a live
-//! session listens on for them (`messagingSocketPath`).
+//! session listens on for them (`messagingSocketPath`), which is a way in (`Message`). A
+//! Claude app session has no other: nothing there takes typing from outside.
+//!
+//! A session that skips permission prompts holds such a message for you to allow unless it
+//! claims the session's own permission class, and the Claude app has no way to show a held one.
+//! What you type in Codealong's windows on this Mac is yours, as if typed in the session, so it
+//! makes that claim; from another device it doesn't, and from an agent only when the agent's own
+//! session skips permission prompts too, as Claude Code's own messages between sessions claim
+//! their sender's class. So an agent can't use Codealong to get past the hold, and a Claude app
+//! session is told nothing rather than holding a message no one will see.
 
 use std::io::Write;
 use std::os::unix::net::UnixStream;
@@ -7,6 +16,10 @@ use std::time::Duration;
 
 use anyhow::{anyhow, bail, Result};
 use serde_json::json;
+
+use crate::attachments::{self, Style};
+use crate::model::Surface;
+use crate::send::{Delivery, Own, Sent, Way};
 
 /// The sender's name on what you send, and the line its text starts with. The session's
 /// transcript keeps both (conversation.rs, `sent_from_codealong`), which is how its panel knows the
@@ -68,7 +81,7 @@ pub fn peer_frame(session_id: &str, msg_id: &str, text: &str, claim: Option<&str
 
 /// Nothing comes back on the connection, so a successful write is all there is to see. Claude
 /// Code's own sender waits a moment before closing, so the line is read before the socket goes.
-pub fn peer_send(socket: &str, session_id: &str, text: &str, claim: Option<&str>, from: Option<&str>) -> Result<()> {
+fn peer_send(socket: &str, session_id: &str, text: &str, claim: Option<&str>, from: Option<&str>) -> Result<()> {
     let frame = peer_frame(session_id, &crate::start::new_session_id(), text, claim, from);
     // Claude Code caps a line at a million characters.
     if frame.len() > 1_000_000 {
@@ -88,7 +101,7 @@ pub fn peer_send(socket: &str, session_id: &str, text: &str, claim: Option<&str>
 /// session as a teammate's, not as yours, so it says it went that way, first, since the bar
 /// shows the start of it. `held`: the session skips permission prompts and the message claims
 /// no mode, so it asks you (or, for an agent's, its user) first.
-pub fn peer_note(title: &str, untyped: Option<&str>, busy: bool, held: bool, agent: bool) -> String {
+fn peer_note(title: &str, untyped: Option<&str>, busy: bool, held: bool, agent: bool) -> String {
     let lead = match untyped {
         Some(why) => format!("Sent as a message from Codealong, not typed into {title}: {why}."),
         None if busy && !held => format!("Sent to {title}; it reads it as it works."),
@@ -101,9 +114,47 @@ pub fn peer_note(title: &str, untyped: Option<&str>, busy: bool, held: bool, age
     }
 }
 
+/// The way in every live session has: a line on the socket it listens on for other sessions'
+/// messages. Claude Code tells the session it's another session's, which is why an agent's
+/// message goes this way and no other. `mode` is the permission mode the session runs in, when
+/// its files say.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Message {
+    pub socket: String,
+    pub session_id: String,
+    pub mode: Option<String>,
+}
+
+impl Own for Message {
+    fn way(&self) -> Way {
+        Way::Message
+    }
+
+    fn takes_agents(&self) -> bool {
+        true
+    }
+
+    fn deliver(&self, d: &Delivery) -> Result<Sent> {
+        let title = d.title();
+        let skips = self.mode.as_deref() == Some("bypassPermissions");
+        let claim = (skips && d.bypasses).then_some("bypass");
+        if skips && claim.is_none() && d.session.surface == Surface::App {
+            if d.from_agent() {
+                bail!("{title} skips permission prompts and your session doesn't, so Claude Code would hold your message for its user to allow, and the Claude app can't show that; nothing was sent.");
+            }
+            bail!("{title} skips permission prompts, so Claude Code would hold a message from here for you to allow, and the Claude app can't show that. Send it from Codealong on the Mac it runs on, or in the Claude app.");
+        }
+        peer_send(&self.socket, &self.session_id, &attachments::expand(d.text, Style::Path), claim, d.agent)?;
+        let held = skips && claim.is_none();
+        Ok(Sent { message: peer_note(&title, d.untyped, d.busy(), held, d.from_agent()), opened: false, fell_back: d.untyped.is_some() })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::AccountCfg;
+    use crate::model::{Harness, Session, Status};
     use serde_json::Value;
 
     #[test]
@@ -175,5 +226,34 @@ mod tests {
                 "\n"
             )
         );
+    }
+
+    #[test]
+    fn claims_the_sessions_class_only_for_a_sender_that_has_it() {
+        let account: AccountCfg = serde_json::from_value(json!({ "name": "claude", "harness": "claude", "home": "/h" })).unwrap();
+        let app = Session { surface: Surface::App, status: Status::Unread, live: true, pid: Some(42), title: "Fix the build".into(), cwd: "/tmp".into(), ..Session::new(Harness::Claude, "claude", "abc") };
+        // Whose a message is, as send.rs says it: yours here claims to skip prompts (`bypasses`),
+        // one from another device doesn't, and an agent's does only when its own session skips them.
+        let refused = |route: &Message, agent: Option<&str>, bypasses: bool| route.deliver(&Delivery { session: &app, account: &account, text: "hi", agent, bypasses, now: false, untyped: None }).map(|_| ()).unwrap_err().to_string();
+        // From another device, a Claude app session that skips prompts
+        // would hold it where no one sees it: nothing is sent, and the error says why.
+        let route = Message { socket: "/nonexistent/cc.sock".into(), session_id: "abc".into(), mode: Some("bypassPermissions".into()) };
+        let err = refused(&route, None, false);
+        assert!(err.contains("can't show that"), "{err}");
+        // Nor from an agent whose own session asks for permission.
+        let err = refused(&route, Some("codealong"), false);
+        assert!(err.contains("nothing was sent"), "{err}");
+        // What you type goes to the socket (here there's none to answer).
+        let err = refused(&route, None, true);
+        assert!(err.contains("socket didn't answer"), "{err}");
+        // So does an agent's whose session skips permission prompts too.
+        let err = refused(&route, Some("codealong"), true);
+        assert!(err.contains("socket didn't answer"), "{err}");
+        // A session that asks for permission takes it from anywhere.
+        let route = Message { socket: "/nonexistent/cc.sock".into(), session_id: "abc".into(), mode: Some("default".into()) };
+        let err = refused(&route, None, false);
+        assert!(err.contains("socket didn't answer"), "{err}");
+        let err = refused(&route, Some("codealong"), false);
+        assert!(err.contains("socket didn't answer"), "{err}");
     }
 }

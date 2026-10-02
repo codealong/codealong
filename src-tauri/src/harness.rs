@@ -59,8 +59,10 @@ pub trait Adapter: Sync {
         bail!("Codealong can't read {} conversations yet.", self.harness().word())
     }
 
-    /// The ways a prompt can reach the session, best first (`send.rs` tries them in order).
-    /// None: Codealong can't send it anything, and says to open it.
+    /// The ways a prompt can reach the session, best first (`send.rs` tries them in order):
+    /// typed into its terminal, a new terminal that resumes it, or a way of the harness's own,
+    /// a type of its module's that sends by it (`send::Own`). None: Codealong can't send it
+    /// anything, and says to open it.
     fn routes(&self, _account: &AccountCfg, _session: &Session) -> Vec<crate::send::Route> {
         Vec::new()
     }
@@ -97,9 +99,9 @@ pub trait Adapter: Sync {
         false
     }
 
-    /// Whether the harness has a way in of its own for another session's message
-    /// (`send::Route::Peer`), which tells the session whose it is. An agent's message then goes
-    /// only that way: typed into the terminal it would read as the user's own words.
+    /// Whether the harness has a way in of its own for another session's message (one of its
+    /// `routes` that `takes_agents`), which tells the session whose it is. An agent's message
+    /// then goes only that way: typed into the terminal it would read as the user's own words.
     fn takes_messages(&self) -> bool {
         false
     }
@@ -718,6 +720,9 @@ pub fn find<'a>(board: &'a crate::model::Board, cfg: &'a Config, key: &str) -> R
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::{Status, Surface};
+    use crate::send::{agent_routes, Route};
+    use serde_json::json;
 
     #[test]
     fn an_account_names_its_adapter_by_its_config_string() {
@@ -733,6 +738,114 @@ mod tests {
         for h in [Harness::Claude, Harness::Codex, Harness::Opencode, Harness::Antigravity] {
             assert_eq!(adapter(h).harness(), h);
         }
+    }
+
+    fn session(harness: Harness, surface: Surface, status: Status, live: bool, pid: Option<u32>) -> Session {
+        Session { harness, surface, status, live, pid, title: "Fix the build".into(), cwd: "/tmp".into(), ..Session::new(Harness::Claude, "claude", "abc") }
+    }
+
+    #[test]
+    fn agents_reach_claude_code_only_on_its_socket() {
+        let peer: Route = crate::claude::peer::Message { socket: "/tmp/cc-socks/42.sock".into(), session_id: "abc".into(), mode: None }.into();
+        let s = session(Harness::Claude, Surface::Cli, Status::Working, true, Some(42));
+        assert_eq!(agent_routes(&s, vec![Route::Type { pid: 42 }, peer.clone()]).unwrap(), vec![peer.clone()]);
+        let daemon: Route = crate::claude::daemon::Background { socket: "/tmp/d/control.sock".into(), key_file: "/h/daemon/control.key".into(), job: "6e07c149".into() }.into();
+        assert_eq!(agent_routes(&s, vec![daemon.clone(), peer.clone()]).unwrap(), vec![peer]);
+        // Typing into its terminal would read as its user's words.
+        let err = agent_routes(&s, vec![Route::Type { pid: 42 }]).unwrap_err();
+        assert!(err.to_string().contains("doesn't take messages from other sessions"), "{err}");
+        let err = agent_routes(&s, vec![daemon]).unwrap_err();
+        assert!(err.to_string().contains("doesn't take messages from other sessions"), "{err}");
+        // Other harnesses have no such socket; their terminal or service takes it.
+        let codex = session(Harness::Codex, Surface::Cli, Status::Idle, true, Some(9));
+        assert_eq!(agent_routes(&codex, vec![Route::Type { pid: 9 }]).unwrap(), vec![Route::Type { pid: 9 }]);
+        let app = session(Harness::Codex, Surface::App, Status::Idle, true, None);
+        let in_app = || -> Route { crate::codex::ipc::InApp.into() };
+        assert_eq!(agent_routes(&app, vec![in_app()]).unwrap(), vec![in_app()]);
+        let oc = session(Harness::Opencode, Surface::Cli, Status::Idle, true, Some(7));
+        let posted = || -> Route { crate::opencode::Posted.into() };
+        assert_eq!(agent_routes(&oc, vec![posted()]).unwrap(), vec![posted()]);
+        // A message doesn't start a session again, or wait on someone to send it.
+        for (s, route) in [
+            (session(Harness::Claude, Surface::Cli, Status::Stopped, false, None), Route::Resume),
+            (session(Harness::Claude, Surface::App, Status::Idle, false, None), crate::claude::app::InApp.into()),
+            (session(Harness::Codex, Surface::Cli, Status::Stopped, false, None), Route::Resume),
+        ] {
+            let err = agent_routes(&s, vec![route]).unwrap_err();
+            assert!(err.to_string().contains("isn't running"), "{err}");
+        }
+        let ag = session(Harness::Antigravity, Surface::App, Status::Idle, true, None);
+        assert!(agent_routes(&ag, vec![crate::antigravity::OnClipboard.into()]).unwrap_err().to_string().contains("clipboard"));
+    }
+
+    #[test]
+    fn offers_a_stop_only_while_a_turn_runs_where_codealong_can_reach_it() {
+        let hosted = |status, live, stalled: Option<i64>| Session { hosted: true, stalled_since: stalled, ..session(Harness::Claude, Surface::Cli, status, live, None) };
+        assert!(stoppable(&hosted(Status::Working, true, None), None));
+        // Stuck mid-turn, on a command waiting for input, say.
+        assert!(stoppable(&hosted(Status::Needs, true, Some(1)), None));
+        assert!(!stoppable(&hosted(Status::Idle, true, None), None));
+        assert!(!stoppable(&hosted(Status::Working, false, None), None));
+        // A turn that ended with a command left running in the background shows as working, with
+        // no turn to stop.
+        assert!(!stoppable(&Session { background: Some("gh pr checks --watch".into()), ..hosted(Status::Working, true, None) }, None));
+
+        let home = crate::fixtures::scratch("stoppable");
+        let account = |harness: &str| -> AccountCfg { serde_json::from_value(json!({ "name": "a", "harness": harness, "home": home.to_string_lossy() })).unwrap() };
+        // The Claude app runs its sessions' turns itself, and takes no stop from outside.
+        let app = session(Harness::Claude, Surface::App, Status::Working, true, Some(1));
+        assert!(!stoppable(&app, Some(&account("claude"))));
+        assert!(!stoppable(&session(Harness::Antigravity, Surface::App, Status::Working, true, None), Some(&account("antigravity"))));
+        // A Codex app thread stops through the app's windows, while they're there to ask.
+        let thread = session(Harness::Codex, Surface::App, Status::Working, true, None);
+        assert!(!stoppable(&thread, Some(&account("codex"))));
+        std::fs::create_dir_all(home.join("ipc")).unwrap();
+        std::fs::write(home.join("ipc/ipc.sock"), "").unwrap();
+        assert!(stoppable(&thread, Some(&account("codex"))));
+    }
+
+    #[test]
+    fn offers_send_now_only_while_a_turn_runs_where_its_harness_takes_one() {
+        let home = crate::fixtures::scratch("steerable");
+        let account = |harness: &str| -> AccountCfg { serde_json::from_value(json!({ "name": "a", "harness": harness, "home": home.to_string_lossy() })).unwrap() };
+        // The Agent Client Protocol has no way to, and the Claude app takes messages only on its
+        // socket, where none goes in sooner.
+        let hosted = Session { hosted: true, ..session(Harness::Claude, Surface::Cli, Status::Working, true, None) };
+        assert!(!steerable(&hosted, Some(&account("claude"))));
+        assert!(!steerable(&session(Harness::Claude, Surface::App, Status::Working, true, Some(1)), Some(&account("claude"))));
+        assert!(!steerable(&session(Harness::Antigravity, Surface::Cli, Status::Working, true, Some(1)), Some(&account("antigravity"))));
+        // A Codex app thread takes a steer through the app's windows, while they're there to ask,
+        // and only while its turn runs.
+        let thread = session(Harness::Codex, Surface::App, Status::Working, true, None);
+        assert!(!steerable(&thread, Some(&account("codex"))));
+        std::fs::create_dir_all(home.join("ipc")).unwrap();
+        std::fs::write(home.join("ipc/ipc.sock"), "").unwrap();
+        assert!(steerable(&thread, Some(&account("codex"))));
+        for status in [Status::Idle, Status::Unread, Status::Needs] {
+            assert!(!steerable(&Session { status, ..thread.clone() }, Some(&account("codex"))));
+        }
+        assert!(!steerable(&Session { live: false, ..thread.clone() }, Some(&account("codex"))));
+        assert!(!steerable(&thread, None));
+        // A terminal session in no terminal Codealong types into.
+        assert!(!steerable(&session(Harness::Codex, Surface::Cli, Status::Working, true, Some(u32::MAX)), Some(&account("codex"))));
+        assert!(!steerable(&session(Harness::Claude, Surface::Cli, Status::Working, true, Some(u32::MAX)), Some(&account("claude"))));
+
+        // What's typed after the prompt to send it now: Claude Code's Ctrl+X Ctrl+S; Return
+        // already does for Codex's terminal UI.
+        assert_eq!(adapter(Harness::Claude).sends_now_with(), Some("\u{18}\u{13}"));
+        assert_eq!(adapter(Harness::Codex).sends_now_with(), None);
+    }
+
+    #[test]
+    fn resumes_with_the_prompt_in_the_environment() {
+        let account = AccountCfg { name: "claude2".into(), harness: "claude".into(), home: "~/.claude2".into(), command: None, start: None, preferred: false, acp: None };
+        let (input, env) = adapter(Harness::Claude).resume(&account, "abc", "-v please").unwrap();
+        assert_eq!(input, format!("claude2 --resume abc \"${}\"\n", crate::start::PROMPT_VAR));
+        assert_eq!(env, vec![(crate::start::PROMPT_VAR.to_string(), " -v please".to_string())]);
+        let codex = AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: Some("codex".into()), start: None, preferred: false, acp: None };
+        let (input, env) = adapter(Harness::Codex).resume(&codex, "01a0e379", "-v please").unwrap();
+        assert_eq!(input, format!("codex resume -- 01a0e379 \"${}\"\n", crate::start::PROMPT_VAR));
+        assert_eq!(env, vec![(crate::start::PROMPT_VAR.to_string(), "-v please".to_string())]);
     }
 
     #[test]

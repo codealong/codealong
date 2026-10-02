@@ -432,6 +432,31 @@ fn tail_of(text: &str, own: Option<&str>) -> Tail {
     out
 }
 
+/// The only way in for a conversation in the app: nothing there takes a prompt from outside, so
+/// the app comes forward with the prompt on the clipboard to paste.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OnClipboard;
+
+impl crate::send::Own for OnClipboard {
+    fn way(&self) -> crate::send::Way {
+        crate::send::Way::Antigravity
+    }
+
+    fn takes_agents(&self) -> bool {
+        false
+    }
+
+    fn leaves_it_to_paste(&self) -> bool {
+        true
+    }
+
+    fn deliver(&self, d: &crate::send::Delivery) -> anyhow::Result<crate::send::Sent> {
+        crate::send::copy(&crate::attachments::expand(d.text, crate::attachments::Style::Path))?;
+        crate::launch::open_antigravity()?;
+        Ok(crate::send::opened("Antigravity is open and the prompt is on the clipboard. Paste it there to send it.".to_string()))
+    }
+}
+
 /// What a conversation was first asked, and when, from the start of its record.
 fn first_request(path: &Path) -> Option<(String, i64)> {
     use std::io::Read;
@@ -907,7 +932,7 @@ impl crate::harness::Adapter for Antigravity {
             (Surface::Cli, Some(pid), _) => vec![crate::send::Route::Type { pid }],
             (Surface::Cli, None, false) => vec![crate::send::Route::Resume],
             (Surface::Cli, None, true) => Vec::new(),
-            _ => vec![crate::send::Route::Antigravity],
+            _ => vec![OnClipboard.into()],
         }
     }
 
@@ -1196,7 +1221,7 @@ mod tests {
         assert_eq!(Antigravity.routes(&a, &session(&c, None)), [Route::Resume]);
         assert!(Antigravity.routes(&a, &session(&c, Some(&Process { terminal: false, ..ui.clone() }))).is_empty());
         // Nothing reaches the app's from outside.
-        assert_eq!(Antigravity.routes(&a, &session(&Conversation { cli: false, ..c.clone() }, None)), [Route::Antigravity]);
+        assert_eq!(Antigravity.routes(&a, &session(&Conversation { cli: false, ..c.clone() }, None)), [OnClipboard.into()]);
     }
 
     /// Runs a real print run of `agy` in a scratch folder and reads it as the engine does while

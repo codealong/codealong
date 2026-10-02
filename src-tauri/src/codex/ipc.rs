@@ -1,6 +1,6 @@
 //! The socket the Codex app's windows use to reach each other (`<CODEX_HOME>/ipc/ipc.sock`):
-//! starting a turn in a thread, sending a prompt into the turn it's taking, and stopping one,
-//! through the window that owns the thread.
+//! starting a turn in a thread, which is a way in (`InApp`), sending a prompt into the turn it's
+//! taking, and stopping one, through the window that owns the thread.
 
 use std::io::{Read, Write};
 use std::os::unix::net::UnixStream;
@@ -10,8 +10,9 @@ use std::time::{Duration, Instant};
 use anyhow::{anyhow, bail, Result};
 use serde_json::{json, Value};
 
+use crate::attachments::{self, Style};
 use crate::launch;
-use crate::send::MayHaveArrived;
+use crate::send::{opened, sent, Delivery, MayHaveArrived, Own, Sent, Way};
 
 /// A frame on the Codex app's IPC socket: a 4-byte little-endian length, then JSON.
 pub fn ipc_frame(message: &Value) -> Vec<u8> {
@@ -267,9 +268,51 @@ pub fn codex_interrupt_turn(codex_home: &Path, thread: &str) -> Result<()> {
     Ok(())
 }
 
+/// The way in for a thread the app has: a turn started through the app's own windows, as if
+/// you'd sent it there, else the app opens the thread with the prompt filled in to send.
+#[derive(Debug, Clone, PartialEq)]
+pub struct InApp;
+
+impl Own for InApp {
+    fn way(&self) -> Way {
+        Way::CodexApp
+    }
+
+    fn takes_agents(&self) -> bool {
+        true
+    }
+
+    fn deliver(&self, d: &Delivery) -> Result<Sent> {
+        let title = d.title();
+        let prompt = attachments::expand(d.text, Style::Path);
+        if d.now {
+            match codex_steer_turn(&d.account.home_path(), &d.session.id, &prompt, &d.session.cwd) {
+                Ok(()) => return Ok(sent(format!("Sent now to {title} in Codex: it takes it into the turn it's taking."))),
+                Err(e) if e.is::<MayHaveArrived>() => return Err(e),
+                // Its turn ended meanwhile, or no window runs it: a turn starts on it, as any
+                // send does.
+                Err(_) => {}
+            }
+        }
+        match codex_start_turn(&d.account.home_path(), &d.session.id, &prompt, None) {
+            Ok(()) => Ok(sent(if d.busy() { format!("Sent to {title} in Codex; it takes it after its current turn.") } else { format!("Sent to {title} in Codex.") })),
+            // A prompt filled in for someone to send isn't a message an agent can leave.
+            Err(e) if d.from_agent() => bail!("Codex didn't take it for {title} ({e}), so nothing was sent."),
+            Err(_) => {
+                // The app isn't running, didn't take the thread, or has changed how its
+                // windows talk: its own link fills the reply in instead.
+                launch::open_codex(&format!("{}?prompt={}", launch::codex_thread_url(&d.session.id), urlencoding::encode(&prompt)))?;
+                Ok(opened(format!("Codex has {title} open with the prompt filled in; send it there.")))
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::AccountCfg;
+    use crate::model::{Harness, Session, Status, Surface};
     use std::path::PathBuf;
 
     /// A folder of its own under the system's temporary one, short enough for a socket path.
@@ -427,5 +470,15 @@ mod tests {
         assert_eq!((&m["id"], &p["clientUserMessageId"]), (&json!("u1"), &json!("u1")));
         assert_eq!((&m["text"], &m["cwd"], &m["createdAt"]), (&json!("and the docs"), &json!("/r/app"), &json!(1_790_000_000_000i64)));
         assert_eq!(m["context"], json!({ "prompt": "and the docs", "addedFiles": [], "fileAttachments": [], "ideContext": null, "imageAttachments": [], "workspaceRoots": ["/r/app"] }));
+    }
+
+    #[test]
+    fn an_agent_leaves_no_codex_prompt_for_someone_to_send() {
+        // No Codex app answers here, so the turn can't start; what you send would open the
+        // thread with the prompt filled in, an agent's goes nowhere.
+        let account: AccountCfg = serde_json::from_value(json!({ "name": "codex", "harness": "codex", "home": "/nonexistent/codex" })).unwrap();
+        let s = Session { surface: Surface::App, status: Status::Idle, live: true, title: "Fix the build".into(), cwd: "/tmp".into(), ..Session::new(Harness::Codex, "codex", "abc") };
+        let err = InApp.deliver(&Delivery { session: &s, account: &account, text: "hi", agent: Some("codealong"), bypasses: false, now: false, untyped: None }).map(|_| ()).unwrap_err();
+        assert!(err.to_string().contains("nothing was sent"), "{err}");
     }
 }

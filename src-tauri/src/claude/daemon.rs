@@ -1,6 +1,7 @@
 //! Claude Code's background service, through its control socket
-//! (`/tmp/cc-daemon-<uid>/<hash>/control.sock`): handing a background job a prompt, and typing
-//! into its terminal (Escape, or a prompt with the keys that send it now).
+//! (`/tmp/cc-daemon-<uid>/<hash>/control.sock`): handing a background job a prompt, which is a
+//! way in (`Background`), and typing into its terminal (Escape, or a prompt with the keys that
+//! send it now).
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
@@ -11,7 +12,10 @@ use anyhow::{anyhow, bail, Result};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
-use crate::send::MayHaveArrived;
+use super::SEND_NOW;
+use crate::attachments::{self, Style};
+use crate::launch::pasted;
+use crate::send::{boxed, sent, Delivery, MayHaveArrived, Own, Sent, Way};
 
 /// Claude Code's daemon socket for an account, when its daemon is running.
 pub fn daemon_socket(home: &Path) -> Option<PathBuf> {
@@ -37,7 +41,7 @@ pub fn daemon_request(key: &str, job: &str, text: &str) -> String {
 /// Hands the prompt to a background job through Claude Code's daemon, which pastes it into the
 /// job's terminal. A job that's starting up or restarting says so; it's asked again for a
 /// couple of seconds, as Claude Code's own agent view does.
-pub fn daemon_reply(socket: &Path, key: &str, job: &str, text: &str) -> Result<()> {
+fn daemon_reply(socket: &Path, key: &str, job: &str, text: &str) -> Result<()> {
     let request = daemon_request(key, job, text);
     let mut last = String::new();
     for _ in 0..10 {
@@ -122,6 +126,39 @@ pub fn daemon_type(socket: &Path, key_file: &Path, job: &str, writes: &[&[u8]]) 
     }
     drain(&mut stream, 400);
     Ok(())
+}
+
+/// The way in for a background job: the daemon pastes the prompt into the job's terminal, where
+/// it reads as typed, so as its user's own words.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Background {
+    pub socket: PathBuf,
+    pub key_file: PathBuf,
+    pub job: String,
+}
+
+impl Own for Background {
+    fn way(&self) -> Way {
+        Way::Background
+    }
+
+    fn takes_agents(&self) -> bool {
+        false
+    }
+
+    fn deliver(&self, d: &Delivery) -> Result<Sent> {
+        let title = d.title();
+        let expanded = attachments::expand(d.text, Style::Mention);
+        let typed = boxed(&expanded);
+        // `reply` pastes and presses Return; the send-now keys go in through an attach.
+        if d.now {
+            daemon_type(&self.socket, &self.key_file, &self.job, &[pasted(&typed).as_bytes(), SEND_NOW.as_bytes()])?;
+            return Ok(sent(format!("Sent now to {title} in the background: it reads it without waiting for its current step.")));
+        }
+        let key = std::fs::read_to_string(&self.key_file).map_err(|e| anyhow!("Claude Code's daemon key: {e}"))?;
+        daemon_reply(&self.socket, key.trim(), &self.job, &typed)?;
+        Ok(sent(if d.busy() { format!("Queued for {title}; the background session takes it after its current step.") } else { format!("Sent to {title} in the background.") }))
+    }
 }
 
 #[cfg(test)]

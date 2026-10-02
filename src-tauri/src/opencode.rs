@@ -453,6 +453,40 @@ fn send(svc: &Service, method: &str, path: &str, body: &Value) -> anyhow::Result
     Ok(serde_json::from_str(&out).unwrap_or(Value::Null))
 }
 
+/// The way in for every session: the prompt posted to the service, which queues it for the
+/// session; any terminal on the session shows it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Posted;
+
+impl crate::send::Own for Posted {
+    fn way(&self) -> crate::send::Way {
+        crate::send::Way::Opencode
+    }
+
+    fn takes_agents(&self) -> bool {
+        true
+    }
+
+    fn deliver(&self, d: &crate::send::Delivery) -> anyhow::Result<crate::send::Sent> {
+        let title = d.title();
+        let svc = service(&d.account.home_path()).ok_or_else(|| anyhow::anyhow!("OpenCode's service isn't running, so Codealong can't reach {title}. Open it and send it there."))?;
+        post(&svc, &format!("/api/session/{}/prompt", urlencoding::encode(&d.session.id)), &prompt_body(&crate::attachments::expand(d.text, crate::attachments::Style::Path), d.now))?;
+        Ok(crate::send::sent(if d.now {
+            format!("Sent now to {title} in OpenCode: it takes it into the turn it's taking.")
+        } else if d.busy() {
+            format!("Queued for {title} in OpenCode; it takes it after its current step.")
+        } else {
+            format!("Sent to {title} in OpenCode.")
+        }))
+    }
+}
+
+/// What the service is posted for a prompt: queued, so a running turn takes it after its step,
+/// or, sent `now`, steered into the turn at once.
+fn prompt_body(text: &str, now: bool) -> Value {
+    serde_json::json!({ "text": text, "delivery": if now { "steer" } else { "queue" } })
+}
+
 /// A value for a double-quoted string in a curl config file, where backslash escapes apply.
 fn curl_quote(s: &str) -> String {
     s.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n").replace('\r', "\\r")
@@ -826,7 +860,7 @@ impl crate::harness::Adapter for OpenCode {
 
     /// Its service takes prompts for any session, whichever terminal shows it.
     fn routes(&self, _account: &crate::config::AccountCfg, _s: &crate::model::Session) -> Vec<crate::send::Route> {
-        vec![crate::send::Route::Opencode]
+        vec![Posted.into()]
     }
 
     fn conversation(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, before: Option<u64>, limit: usize) -> anyhow::Result<Page> {
@@ -1095,5 +1129,15 @@ mod tests {
         assert_eq!(f.key.as_deref(), Some("opencode:opencode:ses_f15f6e5a9ffe57CibPTgUS3IlW"));
         // A refusal (an empty session) has no copy in it.
         assert_eq!(forked_id(&serde_json::json!({"_tag": "InvalidRequestError", "kind": "empty_session"})), None);
+    }
+
+    #[test]
+    fn a_prompt_is_posted_to_the_service_queued() {
+        use crate::harness::Adapter as _;
+        let account = AccountCfg { name: "opencode".into(), harness: "opencode".into(), home: "/h".into(), command: None, start: None, preferred: false, acp: None };
+        let s = Session { status: crate::model::Status::Idle, live: true, pid: Some(7), ..Session::new(Harness::Opencode, "opencode", "ses_1") };
+        assert_eq!(OpenCode.routes(&account, &s), vec![Posted.into()]);
+        assert_eq!(prompt_body("two\nlines", false).to_string(), r#"{"delivery":"queue","text":"two\nlines"}"#);
+        assert_eq!(prompt_body("now", true).to_string(), r#"{"delivery":"steer","text":"now"}"#);
     }
 }

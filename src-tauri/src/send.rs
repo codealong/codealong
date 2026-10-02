@@ -1,18 +1,17 @@
 //! Sending a prompt to a session that already exists, the way its harness takes one in.
 //!
-//! Wherever it can, the prompt arrives as if you'd typed it: pasted into the session's Ghostty
-//! tab, handed to Claude Code's daemon for a background job, posted to OpenCode's service, or
-//! started as a turn by the Codex app itself. A Claude app session has no such way in, so it
-//! gets a message on Claude Code's own cross-session socket, which the session reads as coming
-//! from another session. A session that isn't running any more is resumed with the prompt.
+//! Each harness says which ways reach a session, best first (`Adapter::routes`), and they're
+//! tried in that order until one works. Two are the same for every harness and are done here:
+//! typing the prompt into the session's terminal, where it arrives as if you'd typed it, and
+//! resuming a session that isn't running in a new terminal, on the prompt. The others are a
+//! harness's own (`Own`: its background service, a socket its sessions listen on, its app),
+//! and its module sends by them.
 //!
-//! A session that skips permission prompts holds such a message for you to allow unless it
-//! claims the session's own permission class, and the Claude app has no way to show a held one.
-//! What you type in Codealong's windows here is yours, as if typed in the session, so it makes
-//! that claim; from another device it doesn't, and from an agent only when the agent's own
-//! session skips permission prompts too, as Claude Code's own messages between sessions claim
-//! their sender's class. So an agent can't use Codealong to get past the hold, and a Claude app
-//! session is told nothing rather than holding a message no one will see.
+//! What you type in Codealong's windows here is yours, as if typed in the session. A message
+//! from another device isn't known to be, and an agent's never is. Every way in is told whose
+//! a message is and whether its sender skips permission prompts itself, so a harness that
+//! holds another session's message for its user to allow can't be got past through Codealong
+//! (claude/peer.rs).
 //!
 //! A session that's waiting on you for a permission prompt, or stuck mid-turn, is never typed
 //! into: what's typed would answer the prompt. One whose last reply asks you something is at its
@@ -21,26 +20,22 @@
 //!
 //! An agent's message (`codealong session send`) is never yours. It starts with who sent it, that
 //! it isn't from the session's user, and how to answer, and it goes only the ways that don't read
-//! as the user's own words or need someone at this Mac: Claude Code's socket for messages between
-//! sessions, which tells the model as much and holds the message where the session skips
-//! permission prompts, and for the harnesses that have no such socket, their terminal or service.
-//! It never resumes a session that isn't running, and never leaves a prompt for someone to send.
+//! as the user's own words or need someone at this Mac: a harness's own way in for other
+//! sessions' messages where it has one (`Adapter::takes_messages`), which tells the model as
+//! much, and for the harnesses that have none, their terminal or service. It never resumes a
+//! session that isn't running, and never leaves a prompt for someone to send.
 
 use std::borrow::Cow;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
 use anyhow::{anyhow, bail, Result};
-use serde_json::json;
 
 use crate::attachments::{self, Style};
-use crate::claude::daemon::{daemon_reply, daemon_type};
-use crate::claude::peer::{peer_note, peer_send};
-use crate::codex::ipc::{codex_start_turn, codex_steer_turn};
 use crate::config::{AccountCfg, Config};
 use crate::launch;
-use crate::model::{Board, Session, Status, Surface};
+use crate::model::{Board, Session, Status};
 use crate::procs;
 
 /// How a send went, and how one would go; they go back to other devices too, so they're in
@@ -66,8 +61,7 @@ struct Byline {
     /// The line the message starts with: that it's another agent's and not the user's, whose,
     /// and how to answer it.
     intro: String,
-    /// The name its envelope carries on Claude Code's socket, which Claude Code shows as the
-    /// sender's.
+    /// The name its sender goes by, for a way in that says whose a message is.
     name: String,
 }
 
@@ -132,29 +126,110 @@ impl<'a> Message<'a> {
     fn from_agent(&self) -> bool {
         matches!(self.sender, Sender::Agent(_))
     }
+
+    /// The message as one of a harness's own ways in gets it.
+    fn delivery<'b>(&'b self, session: &'b Session, account: &'b AccountCfg, untyped: Option<&'b str>) -> Delivery<'b> {
+        Delivery { session, account, text: &self.text, agent: self.byline.as_ref().map(|b| b.name.as_str()), bypasses: self.bypasses, now: self.now_for(session), untyped }
+    }
+
+    /// Whether it goes in now: sending now matters only while a turn runs, since otherwise the
+    /// prompt starts one either way.
+    fn now_for(&self, session: &Session) -> bool {
+        self.now && session.status == Status::Working
+    }
 }
 
 /// How a prompt reaches a session, tried in order until one works.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum Route {
-    /// Claude Code's daemon, for a background job: pasted into the job's terminal as typed.
-    Daemon { socket: PathBuf, key_file: PathBuf, job: String },
-    /// Pasted into the session's Ghostty tab, then Return.
+    /// Pasted into the session's terminal tab, then Return.
     Type { pid: u32 },
-    /// A line on the session's cross-session socket; `mode` is the permission mode it runs in,
-    /// when its files say.
-    Peer { socket: String, session_id: String, mode: Option<String> },
     /// Not running: a new terminal resumes it with the prompt.
     Resume,
-    /// A Claude app session that isn't running: the app opens it, with the prompt on the
-    /// clipboard.
-    ClaudeApp,
-    /// A turn started through the Codex app's own IPC, else the app opens the thread with the
-    /// prompt filled in.
-    CodexApp,
-    Opencode,
-    /// Nothing takes a prompt from outside: the app comes forward with it on the clipboard.
-    Antigravity,
+    /// A way in of the harness's own, which its module sends by.
+    Own(Arc<dyn Own>),
+}
+
+/// One of a harness's own ways in, as its adapter lists it (`Adapter::routes`): its background
+/// service, a socket its sessions listen on, its app. The harness's module has the type, and
+/// with it everything about how a prompt goes that way.
+pub trait Own: std::fmt::Debug + Send + Sync {
+    /// What it comes to, for the session's box to say before you send (`way_in`). The words
+    /// go to other devices too, so they're codealong-peer's.
+    fn way(&self) -> Way;
+
+    /// Whether another agent's message may go this way: one that tells the session whose the
+    /// message is, or posts it with nobody needed at this Mac. Not one where it would read as
+    /// the session's user's own words, or that leaves the prompt for someone to send.
+    fn takes_agents(&self) -> bool;
+
+    /// Nothing takes the prompt this way: the harness takes none from outside, and it's only
+    /// left on the clipboard for someone at this Mac to paste. An agent is told as much.
+    fn leaves_it_to_paste(&self) -> bool {
+        false
+    }
+
+    /// Sends the message this way, and says how it went.
+    fn deliver(&self, d: &Delivery) -> Result<Sent>;
+}
+
+impl<T: Own + 'static> From<T> for Route {
+    fn from(own: T) -> Route {
+        Route::Own(Arc::new(own))
+    }
+}
+
+/// Two ways in are the same, for a test, when they read the same.
+#[cfg(test)]
+impl PartialEq for Route {
+    fn eq(&self, other: &Route) -> bool {
+        format!("{self:?}") == format!("{other:?}")
+    }
+}
+
+/// What a harness's own way in is handed to send.
+pub struct Delivery<'a> {
+    pub session: &'a Session,
+    pub account: &'a AccountCfg,
+    /// The text as the session gets it, before its attachments are written out for the way in.
+    pub text: &'a str,
+    /// An agent's message: the name its sender's session goes by, for a way in that says whose
+    /// a message is. None for yours.
+    pub agent: Option<&'a str>,
+    /// Whether its sender skips permission prompts itself, so that the message may say so to a
+    /// session that skips them too: you, or an agent whose own session does.
+    pub bypasses: bool,
+    /// Sent now, while the session's turn runs: into that turn at once, by the harness's own way
+    /// to (`harness::steerable`), rather than once the step it's on ends.
+    pub now: bool,
+    /// Why typing into the session's terminal didn't work, when that was tried first.
+    pub untyped: Option<&'a str>,
+}
+
+impl Delivery<'_> {
+    pub fn from_agent(&self) -> bool {
+        self.agent.is_some()
+    }
+
+    /// The session's title as a sentence names it.
+    pub fn title(&self) -> String {
+        quoted(&self.session.title)
+    }
+
+    /// The session is in the middle of a turn, and takes the prompt after it.
+    pub fn busy(&self) -> bool {
+        self.session.status == Status::Working
+    }
+}
+
+/// The prompt went, where it lives.
+pub fn sent(message: String) -> Sent {
+    Sent { message, opened: false, fell_back: false }
+}
+
+/// The prompt is in a window that came forward, for someone to send from there.
+pub fn opened(message: String) -> Sent {
+    Sent { message, opened: true, fell_back: false }
 }
 
 /// Sends `text` to the session with this key; `now` sends it into the turn the session is
@@ -196,14 +271,9 @@ pub fn way_in(board: &Board, cfg: &Config, key: &str) -> Result<Option<Way>> {
 /// as a send does.
 fn way_of(route: &Route, terminal: &dyn Fn(u32) -> Option<&'static str>, resume_in: &str) -> Option<Way> {
     Some(match route {
-        Route::Daemon { .. } => Way::Background,
         Route::Type { pid } => Way::Typed { app: terminal(*pid)?.to_string() },
-        Route::Peer { .. } => Way::Message,
         Route::Resume => Way::Resume { app: resume_in.to_string() },
-        Route::ClaudeApp => Way::ClaudeApp,
-        Route::CodexApp => Way::CodexApp,
-        Route::Opencode => Way::Opencode,
-        Route::Antigravity => Way::Antigravity,
+        Route::Own(own) => own.way(),
     })
 }
 
@@ -322,7 +392,7 @@ fn deliver(board: &Board, cfg: &Config, session_key: &str, text: &str, sender: &
 
 /// A session waiting on you is never typed into: what's typed would answer its prompt. One that
 /// only asks you something in its reply (`Session::asks`) takes the answer like any prompt.
-fn ensure_not_waiting(session: &Session, sender: &Sender) -> Result<()> {
+pub(crate) fn ensure_not_waiting(session: &Session, sender: &Sender) -> Result<()> {
     if session.status == Status::Needs && !session.asks {
         match sender {
             Sender::Agent(_) => bail!("{} is waiting on its user to answer a prompt, so nothing was sent. Try again once they have.", quoted(&session.title)),
@@ -333,21 +403,20 @@ fn ensure_not_waiting(session: &Session, sender: &Sender) -> Result<()> {
 }
 
 /// The ways in an agent's message may take, of the session's own. A harness with a way in for
-/// other sessions' messages (`Adapter::takes_messages`: Claude Code's socket, which tells the
-/// model a message is another session's and holds it for the user where the session skips
-/// permission prompts) takes it only that way: typed into its terminal or handed to its daemon,
-/// the message would read as its user's own words. The others take it typed or posted, the
-/// byline saying whose it is. A way that resumes a session or leaves the prompt for someone to
-/// send isn't for an agent.
-fn agent_routes(session: &Session, routes: Vec<Route>) -> Result<Vec<Route>> {
+/// other sessions' messages (`Adapter::takes_messages`: one that tells the model a message is
+/// another session's, and may hold it for the session's user) takes it only that way: typed
+/// into its terminal, the message would read as its user's own words. The others take it typed
+/// or by their own ways that take an agent's (`Own::takes_agents`), the byline saying whose it
+/// is. A way that resumes a session or leaves the prompt for someone to send isn't for an agent.
+pub(crate) fn agent_routes(session: &Session, routes: Vec<Route>) -> Result<Vec<Route>> {
     let adapter = crate::harness::adapter(session.harness);
-    let left_to_send = routes.iter().any(|r| matches!(r, Route::Antigravity));
+    let left_to_send = routes.iter().any(|r| matches!(r, Route::Own(own) if own.leaves_it_to_paste()));
     let kept: Vec<Route> = routes
         .into_iter()
         .filter(|r| match r {
-            Route::Peer { .. } | Route::CodexApp | Route::Opencode => true,
+            Route::Own(own) => own.takes_agents(),
             Route::Type { .. } => !adapter.takes_messages(),
-            Route::Daemon { .. } | Route::Resume | Route::ClaudeApp | Route::Antigravity => false,
+            Route::Resume => false,
         })
         .collect();
     if kept.is_empty() {
@@ -371,25 +440,10 @@ fn agent_routes(session: &Session, routes: Vec<Route>) -> Result<Vec<Route>> {
 fn attempt(route: &Route, session: &Session, account: &AccountCfg, cfg: &Config, place: launch::Placement, msg: &Message, untyped: Option<&str>) -> Result<Tried> {
     let text: &str = &msg.text;
     let busy = session.status == Status::Working;
-    // Sending now matters only while a turn runs: otherwise the prompt starts one either way.
-    let now = msg.now && busy;
+    let now = msg.now_for(session);
     let adapter = crate::harness::adapter(session.harness);
     let title = quoted(&session.title);
-    let sent = |message: String| Ok(Tried::Sent(Sent { message, opened: false, fell_back: false }));
-    let opened = |message: String| Ok(Tried::Sent(Sent { message, opened: true, fell_back: false }));
     match route {
-        Route::Daemon { socket, key_file, job } => {
-            let expanded = attachments::expand(text, Style::Mention);
-            let typed = boxed(&expanded);
-            // `reply` pastes and presses Return; its send-now keys go in through an attach.
-            if let Some(keys) = adapter.sends_now_with().filter(|_| now) {
-                daemon_type(socket, key_file, job, &[launch::pasted(&typed).as_bytes(), keys.as_bytes()])?;
-                return sent(format!("Sent now to {title} in the background: it reads it without waiting for its current step."));
-            }
-            let key = std::fs::read_to_string(key_file).map_err(|e| anyhow!("Claude Code's daemon key: {e}"))?;
-            daemon_reply(socket, key.trim(), job, &typed)?;
-            sent(if busy { format!("Queued for {title}; the background session takes it after its current step.") } else { format!("Sent to {title} in the background.") })
-        }
         Route::Type { pid } => {
             let clear = adapter.clears_before_typing(account, session);
             // Sent now with its harness's keys where its terminal can press them; Return
@@ -402,81 +456,23 @@ fn attempt(route: &Route, session: &Session, account: &AccountCfg, cfg: &Config,
                 _ => launch::Submit::Return,
             };
             match launch::terminal_type_session(*pid, Path::new(&session.cwd), &boxed(&attachments::expand(text, adapter.typed_attachments())), clear, submit) {
-                Ok(launch::Typed::Into(app)) => sent(match (now, submit, keys) {
+                Ok(launch::Typed::Into(app)) => Ok(Tried::Sent(sent(match (now, submit, keys) {
                     (true, launch::Submit::Keys(_), _) => format!("Typed into {title} in {app} and sent now: it reads it without waiting for its current step."),
                     (true, _, None) => format!("Typed into {title} in {app} and sent now: it takes it into the turn it's taking."),
                     (true, _, Some(_)) => format!("Typed into {title} in {app}, which can't press the keys that send it now, so it takes it after its current step."),
                     _ if busy => format!("Typed into {title} in {app}; it takes it after its current step."),
                     _ => format!("Typed into {title} in {app}."),
-                }),
+                }))),
                 Ok(launch::Typed::Nowhere(why)) => Ok(Tried::Passed(Some(why))),
                 Err(_) => Err(MayHaveArrived(format!("Codealong started typing this into {title}, and its terminal didn't confirm it went in: look there before sending it again.")).into()),
             }
         }
-        Route::Peer { socket, session_id, mode } => {
-            let skips = mode.as_deref() == Some("bypassPermissions");
-            let claim = (skips && msg.bypasses).then_some("bypass");
-            if skips && claim.is_none() && session.surface == Surface::App {
-                if msg.from_agent() {
-                    bail!("{title} skips permission prompts and your session doesn't, so Claude Code would hold your message for its user to allow, and the Claude app can't show that; nothing was sent.");
-                }
-                bail!("{title} skips permission prompts, so Claude Code would hold a message from here for you to allow, and the Claude app can't show that. Send it from Codealong on the Mac it runs on, or in the Claude app.");
-            }
-            let from = msg.byline.as_ref().map(|b| b.name.as_str());
-            peer_send(socket, session_id, &attachments::expand(text, Style::Path), claim, from)?;
-            let held = skips && claim.is_none();
-            Ok(Tried::Sent(Sent { message: peer_note(&title, untyped, busy, held, msg.from_agent()), opened: false, fell_back: untyped.is_some() }))
-        }
         Route::Resume => {
             let (input, env) = adapter.resume(account, &session.id, text)?;
             launch::terminal_run(&cfg.apps.terminal, place, Path::new(&session.cwd), &input, &env)?;
-            sent(format!("Resumed {title} in {} with this prompt.", launch::terminal_name(&cfg.apps.terminal)))
+            Ok(Tried::Sent(sent(format!("Resumed {title} in {} with this prompt.", launch::terminal_name(&cfg.apps.terminal)))))
         }
-        Route::ClaudeApp => {
-            copy(&attachments::expand(text, Style::Path))?;
-            launch::open_url(&crate::claude::app::claude_app_url(&session.id))?;
-            opened(format!("{title} is open in the Claude app and the prompt is on the clipboard. Paste it there to send it."))
-        }
-        Route::CodexApp => {
-            let prompt = attachments::expand(text, Style::Path);
-            if now {
-                match codex_steer_turn(&account.home_path(), &session.id, &prompt, &session.cwd) {
-                    Ok(()) => return sent(format!("Sent now to {title} in Codex: it takes it into the turn it's taking.")),
-                    Err(e) if e.is::<MayHaveArrived>() => return Err(e),
-                    // Its turn ended meanwhile, or no window runs it: a turn starts on it, as
-                    // any send does.
-                    Err(_) => {}
-                }
-            }
-            match codex_start_turn(&account.home_path(), &session.id, &prompt, None) {
-                Ok(()) => sent(if busy { format!("Sent to {title} in Codex; it takes it after its current turn.") } else { format!("Sent to {title} in Codex.") }),
-                // A prompt filled in for someone to send isn't a message an agent can leave.
-                Err(e) if msg.from_agent() => bail!("Codex didn't take it for {title} ({e}), so nothing was sent."),
-                Err(_) => {
-                    // The app isn't running, didn't take the thread, or has changed how its
-                    // windows talk: its own link fills the reply in instead.
-                    launch::open_codex(&format!("{}?prompt={}", launch::codex_thread_url(&session.id), urlencoding::encode(&prompt)))?;
-                    opened(format!("Codex has {title} open with the prompt filled in; send it there."))
-                }
-            }
-        }
-        Route::Opencode => {
-            let svc = crate::opencode::service(&account.home_path()).ok_or_else(|| anyhow!("OpenCode's service isn't running, so Codealong can't reach {title}. Open it and send it there."))?;
-            let body = json!({ "text": attachments::expand(text, Style::Path), "delivery": if now { "steer" } else { "queue" } });
-            crate::opencode::post(&svc, &format!("/api/session/{}/prompt", urlencoding::encode(&session.id)), &body)?;
-            sent(if now {
-                format!("Sent now to {title} in OpenCode: it takes it into the turn it's taking.")
-            } else if busy {
-                format!("Queued for {title} in OpenCode; it takes it after its current step.")
-            } else {
-                format!("Sent to {title} in OpenCode.")
-            })
-        }
-        Route::Antigravity => {
-            copy(&attachments::expand(text, Style::Path))?;
-            launch::open_antigravity()?;
-            opened("Antigravity is open and the prompt is on the clipboard. Paste it there to send it.".to_string())
-        }
+        Route::Own(own) => own.deliver(&msg.delivery(session, account, untyped)).map(Tried::Sent),
     }
 }
 
@@ -487,7 +483,7 @@ fn attempt(route: &Route, session: &Session, account: &AccountCfg, cfg: &Config,
 /// its quotes that way, so a path with a space in it isn't attached once the prompt is sent by
 /// hand. A space after the word closes the list (Claude Code leaves the space out of the
 /// prompt), so a prompt that ends in one, as one with an image last does, gets a space.
-fn boxed(text: &str) -> Cow<'_, str> {
+pub(crate) fn boxed(text: &str) -> Cow<'_, str> {
     let t = text.trim_end();
     if ends_in_mention(t) {
         Cow::Owned(format!("{t} "))
@@ -508,21 +504,20 @@ fn ends_in_mention(text: &str) -> bool {
     text.rsplit(char::is_whitespace).next().is_some_and(|word| word.starts_with('@'))
 }
 
-fn quoted(title: &str) -> String {
+pub(crate) fn quoted(title: &str) -> String {
     format!("“{}”", title.trim())
 }
 
-fn copy(text: &str) -> Result<()> {
+/// Puts a prompt on the clipboard, for a way in that leaves it to someone to paste.
+pub(crate) fn copy(text: &str) -> Result<()> {
     procs::run_stdin("/usr/bin/pbcopy", &[], text, Duration::from_secs(5)).map(|_| ())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::claude::routes::claude_routes;
-    use crate::claude::RegistryEntry;
     use crate::model::{Harness, Session, Status, Surface};
-    use serde_json::Value;
+    use serde_json::json;
     use std::time::Instant;
 
     #[test]
@@ -544,36 +539,36 @@ mod tests {
         Session { harness, surface, status, live, pid, title: "Fix the build".into(), cwd: "/tmp".into(), ..Session::new(Harness::Claude, "claude", "abc") }
     }
 
-    /// The ways `send` would try, with the registry and daemon given rather than read.
-    fn route_for(s: &Session, registry: Option<&RegistryEntry>, home: &Path, daemon: Option<&Path>) -> Result<Vec<Route>> {
-        ensure_not_waiting(s, &Sender::You)?;
-        Ok(if s.harness == Harness::Claude {
-            claude_routes(s, registry, home, daemon, None)
-        } else {
-            let account: AccountCfg = serde_json::from_value(json!({ "name": "a", "harness": "codex", "home": "/h" })).unwrap();
-            crate::harness::adapter(s.harness).routes(&account, s)
-        })
-    }
+    /// A stand-in for one of a harness's own ways in.
+    #[derive(Debug)]
+    struct Stand(Way);
 
-    fn registry(extra: Value) -> RegistryEntry {
-        let mut r = json!({ "pid": 42, "sessionId": "abc", "cwd": "/tmp", "peerProtocol": 1, "messagingSocketPath": "/tmp/cc-socks/42.sock", "kind": "interactive" });
-        r.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
-        crate::claude::parse_registry(&r.to_string()).unwrap()
+    impl Own for Stand {
+        fn way(&self) -> Way {
+            self.0.clone()
+        }
+
+        fn takes_agents(&self) -> bool {
+            false
+        }
+
+        fn deliver(&self, d: &Delivery) -> Result<Sent> {
+            Ok(sent(format!("Stood in for {}.", d.title())))
+        }
     }
 
     #[test]
     fn says_the_first_way_in_that_applies() {
         let in_ghostty = |pid: u32| (pid == 42).then_some("Ghostty");
         let first = |routes: &[Route]| routes.iter().find_map(|r| way_of(r, &in_ghostty, "iTerm2"));
-        let peer = Route::Peer { socket: "/tmp/cc-socks/42.sock".into(), session_id: "abc".into(), mode: None };
-        assert_eq!(first(&[Route::Type { pid: 42 }, peer.clone()]), Some(Way::Typed { app: "Ghostty".into() }));
-        // A session in no terminal Codealong can type into gets a message on its socket instead.
-        assert_eq!(first(&[Route::Type { pid: 7 }, peer.clone()]), Some(Way::Message));
+        let message: Route = Stand(Way::Message).into();
+        assert_eq!(first(&[Route::Type { pid: 42 }, message.clone()]), Some(Way::Typed { app: "Ghostty".into() }));
+        // A session in no terminal Codealong can type into goes by its next way in.
+        assert_eq!(first(&[Route::Type { pid: 7 }, message.clone()]), Some(Way::Message));
         assert_eq!(first(&[Route::Type { pid: 7 }]), None);
-        let daemon = Route::Daemon { socket: "/d.sock".into(), key_file: "/k".into(), job: "j".into() };
-        assert_eq!(first(&[daemon, peer]), Some(Way::Background));
+        assert_eq!(first(&[Stand(Way::Background).into(), message]), Some(Way::Background));
         assert_eq!(first(&[Route::Resume]), Some(Way::Resume { app: "iTerm2".into() }));
-        assert_eq!(first(&[Route::CodexApp]), Some(Way::CodexApp));
+        assert_eq!(first(&[Stand(Way::CodexApp).into()]), Some(Way::CodexApp));
     }
 
     #[test]
@@ -586,62 +581,34 @@ mod tests {
     #[test]
     fn never_types_into_a_session_waiting_on_you() {
         let s = session(Harness::Claude, Surface::Cli, Status::Needs, true, Some(42));
-        let err = route_for(&s, Some(&registry(json!({}))), Path::new("/h"), None).unwrap_err();
+        let err = ensure_not_waiting(&s, &Sender::You).unwrap_err();
         assert!(err.to_string().contains("waiting on you"), "{err}");
+        // One whose reply asks you something takes the answer like any prompt.
+        let asks = Session { asks: true, ..s };
+        assert!(ensure_not_waiting(&asks, &Sender::You).is_ok());
     }
 
+    /// One of a harness's own ways in is sent by the harness, with whose the message is and
+    /// what its sender may claim: only you, here, are taken to skip permission prompts.
     #[test]
-    fn answers_a_question_its_reply_asks_like_any_prompt() {
-        let mut s = session(Harness::Claude, Surface::Cli, Status::Needs, true, Some(42));
-        s.asks = true;
-        let routes = route_for(&s, Some(&registry(json!({ "status": "idle" }))), Path::new("/h"), None).unwrap();
-        assert_eq!(routes, vec![Route::Type { pid: 42 }, Route::Peer { socket: "/tmp/cc-socks/42.sock".into(), session_id: "abc".into(), mode: None }]);
-    }
-
-    #[test]
-    fn types_into_a_terminal_session_and_falls_back_to_its_socket() {
-        let s = session(Harness::Claude, Surface::Cli, Status::Working, true, Some(42));
-        let routes = route_for(&s, Some(&registry(json!({}))), Path::new("/h"), None).unwrap();
-        assert_eq!(routes, vec![Route::Type { pid: 42 }, Route::Peer { socket: "/tmp/cc-socks/42.sock".into(), session_id: "abc".into(), mode: None }]);
-    }
-
-    #[test]
-    fn tells_the_socket_route_the_mode_the_session_runs_in() {
-        let s = session(Harness::Claude, Surface::App, Status::Unread, true, Some(42));
-        let routes = claude_routes(&s, Some(&registry(json!({ "entrypoint": "claude-desktop" }))), Path::new("/h"), None, Some("bypassPermissions".into()));
-        assert_eq!(routes, vec![Route::Peer { socket: "/tmp/cc-socks/42.sock".into(), session_id: "abc".into(), mode: Some("bypassPermissions".into()) }]);
-    }
-
-    #[test]
-    fn claims_the_sessions_class_only_for_a_sender_that_has_it() {
+    fn a_way_in_of_a_harnesss_own_is_told_whose_the_message_is() {
         let account: AccountCfg = serde_json::from_value(json!({ "name": "claude", "harness": "claude", "home": "/h" })).unwrap();
         let cfg = Config::default();
         let place = launch::Placement { new_terminal: cfg.apps.new_terminal, near: &[] };
-        let app = session(Harness::Claude, Surface::App, Status::Unread, true, Some(42));
-        // From another device, a Claude app session that skips prompts
-        // would hold it where no one sees it: nothing is sent, and the error says why.
+        let s = session(Harness::Claude, Surface::App, Status::Unread, true, Some(42));
         let board = Board::default();
-        let msg = |sender: &'static Sender| Message::new(&board, &cfg, "hi", sender, false);
-        let route = Route::Peer { socket: "/nonexistent/cc.sock".into(), session_id: "abc".into(), mode: Some("bypassPermissions".into()) };
-        let err = attempt(&route, &app, &account, &cfg, place, &msg(&Sender::Elsewhere), None).map(|_| ()).unwrap_err();
-        assert!(err.to_string().contains("can't show that"), "{err}");
-        // Nor from an agent whose own session asks for permission.
         static AGENT: Sender = Sender::Agent(None);
-        let err = attempt(&route, &app, &account, &cfg, place, &msg(&AGENT), None).map(|_| ()).unwrap_err();
-        assert!(err.to_string().contains("nothing was sent"), "{err}");
-        // What you type goes to the socket (here there's none to answer).
-        let err = attempt(&route, &app, &account, &cfg, place, &msg(&Sender::You), None).map(|_| ()).unwrap_err();
-        assert!(err.to_string().contains("socket didn't answer"), "{err}");
-        // So does an agent's whose session skips permission prompts too.
-        let bypassing = Message { bypasses: true, ..msg(&AGENT) };
-        let err = attempt(&route, &app, &account, &cfg, place, &bypassing, None).map(|_| ()).unwrap_err();
-        assert!(err.to_string().contains("socket didn't answer"), "{err}");
-        // A session that asks for permission takes it from anywhere.
-        let route = Route::Peer { socket: "/nonexistent/cc.sock".into(), session_id: "abc".into(), mode: Some("default".into()) };
-        let err = attempt(&route, &app, &account, &cfg, place, &msg(&Sender::Elsewhere), None).map(|_| ()).unwrap_err();
-        assert!(err.to_string().contains("socket didn't answer"), "{err}");
-        let err = attempt(&route, &app, &account, &cfg, place, &msg(&AGENT), None).map(|_| ()).unwrap_err();
-        assert!(err.to_string().contains("socket didn't answer"), "{err}");
+        let told = |sender: &'static Sender| {
+            let msg = Message::new(&board, &cfg, "hi", sender, false);
+            let d = msg.delivery(&s, &account, Some("no tab"));
+            (d.agent.map(String::from), d.bypasses, d.from_agent(), d.untyped.map(String::from))
+        };
+        assert_eq!(told(&Sender::You), (None, true, false, Some("no tab".into())));
+        assert_eq!(told(&Sender::Elsewhere), (None, false, false, Some("no tab".into())));
+        assert_eq!(told(&AGENT), (Some("codealong".into()), false, true, Some("no tab".into())));
+        let msg = Message::new(&board, &cfg, "hi", &Sender::You, false);
+        let Tried::Sent(went) = attempt(&Stand(Way::Message).into(), &s, &account, &cfg, place, &msg, None).unwrap() else { panic!("it passed") };
+        assert_eq!(went.message, "Stood in for “Fix the build”.");
     }
 
     fn board_with(s: Session) -> Board {
@@ -680,169 +647,10 @@ mod tests {
     }
 
     #[test]
-    fn agents_reach_claude_code_only_on_its_socket() {
-        let peer = Route::Peer { socket: "/tmp/cc-socks/42.sock".into(), session_id: "abc".into(), mode: None };
-        let s = session(Harness::Claude, Surface::Cli, Status::Working, true, Some(42));
-        assert_eq!(agent_routes(&s, vec![Route::Type { pid: 42 }, peer.clone()]).unwrap(), vec![peer.clone()]);
-        let daemon = Route::Daemon { socket: "/tmp/d/control.sock".into(), key_file: "/h/daemon/control.key".into(), job: "6e07c149".into() };
-        assert_eq!(agent_routes(&s, vec![daemon.clone(), peer.clone()]).unwrap(), vec![peer]);
-        // Typing into its terminal would read as its user's words.
-        let err = agent_routes(&s, vec![Route::Type { pid: 42 }]).unwrap_err();
-        assert!(err.to_string().contains("doesn't take messages from other sessions"), "{err}");
-        let err = agent_routes(&s, vec![daemon]).unwrap_err();
-        assert!(err.to_string().contains("doesn't take messages from other sessions"), "{err}");
-        // Other harnesses have no such socket; their terminal or service takes it.
-        let codex = session(Harness::Codex, Surface::Cli, Status::Idle, true, Some(9));
-        assert_eq!(agent_routes(&codex, vec![Route::Type { pid: 9 }]).unwrap(), vec![Route::Type { pid: 9 }]);
-        let app = session(Harness::Codex, Surface::App, Status::Idle, true, None);
-        assert_eq!(agent_routes(&app, vec![Route::CodexApp]).unwrap(), vec![Route::CodexApp]);
-        let oc = session(Harness::Opencode, Surface::Cli, Status::Idle, true, Some(7));
-        assert_eq!(agent_routes(&oc, vec![Route::Opencode]).unwrap(), vec![Route::Opencode]);
-        // A message doesn't start a session again, or wait on someone to send it.
-        for (s, route) in [
-            (session(Harness::Claude, Surface::Cli, Status::Stopped, false, None), Route::Resume),
-            (session(Harness::Claude, Surface::App, Status::Idle, false, None), Route::ClaudeApp),
-            (session(Harness::Codex, Surface::Cli, Status::Stopped, false, None), Route::Resume),
-        ] {
-            let err = agent_routes(&s, vec![route]).unwrap_err();
-            assert!(err.to_string().contains("isn't running"), "{err}");
-        }
-        let ag = session(Harness::Antigravity, Surface::App, Status::Idle, true, None);
-        assert!(agent_routes(&ag, vec![Route::Antigravity]).unwrap_err().to_string().contains("clipboard"));
-    }
-
-    #[test]
     fn an_agent_waits_for_a_session_waiting_on_its_user() {
         let s = session(Harness::Claude, Surface::Cli, Status::Needs, true, Some(42));
         let err = ensure_not_waiting(&s, &Sender::Agent(None)).unwrap_err();
         assert!(err.to_string().contains("waiting on its user"), "{err}");
-    }
-
-    #[test]
-    fn an_agent_leaves_no_codex_prompt_for_someone_to_send() {
-        // No Codex app answers here, so the turn can't start; what you send would open the
-        // thread with the prompt filled in, an agent's goes nowhere.
-        let account: AccountCfg = serde_json::from_value(json!({ "name": "codex", "harness": "codex", "home": "/nonexistent/codex" })).unwrap();
-        let cfg = Config::default();
-        let place = launch::Placement { new_terminal: cfg.apps.new_terminal, near: &[] };
-        let s = session(Harness::Codex, Surface::App, Status::Idle, true, None);
-        let agent = Sender::Agent(None);
-        let msg = Message::new(&Board::default(), &cfg, "hi", &agent, false);
-        let err = attempt(&Route::CodexApp, &s, &account, &cfg, place, &msg, None).map(|_| ()).unwrap_err();
-        assert!(err.to_string().contains("nothing was sent"), "{err}");
-    }
-
-    #[test]
-    fn reaches_claude_app_sessions_only_through_their_socket() {
-        let s = session(Harness::Claude, Surface::App, Status::Unread, true, Some(42));
-        let routes = route_for(&s, Some(&registry(json!({ "entrypoint": "claude-desktop" }))), Path::new("/h"), None).unwrap();
-        assert_eq!(routes, vec![Route::Peer { socket: "/tmp/cc-socks/42.sock".into(), session_id: "abc".into(), mode: None }]);
-    }
-
-    #[test]
-    fn hands_background_jobs_to_the_daemon_first() {
-        let s = session(Harness::Claude, Surface::Cli, Status::Idle, true, Some(42));
-        let reg = registry(json!({ "kind": "bg", "jobId": "6e07c149" }));
-        let routes = route_for(&s, Some(&reg), Path::new("/h"), Some(Path::new("/tmp/d/control.sock"))).unwrap();
-        assert_eq!(
-            routes,
-            vec![
-                Route::Daemon { socket: "/tmp/d/control.sock".into(), key_file: "/h/daemon/control.key".into(), job: "6e07c149".into() },
-                Route::Peer { socket: "/tmp/cc-socks/42.sock".into(), session_id: "abc".into(), mode: None },
-            ]
-        );
-        // Without the daemon running, the job's socket still takes it.
-        let routes = route_for(&s, Some(&reg), Path::new("/h"), None).unwrap();
-        assert_eq!(routes, vec![Route::Peer { socket: "/tmp/cc-socks/42.sock".into(), session_id: "abc".into(), mode: None }]);
-    }
-
-    #[test]
-    fn skips_a_socket_of_a_protocol_it_doesnt_know() {
-        let s = session(Harness::Claude, Surface::App, Status::Idle, true, Some(42));
-        let routes = route_for(&s, Some(&registry(json!({ "peerProtocol": 2 }))), Path::new("/h"), None).unwrap();
-        assert!(routes.is_empty());
-    }
-
-    #[test]
-    fn resumes_sessions_that_arent_running() {
-        let s = session(Harness::Claude, Surface::Cli, Status::Stopped, false, None);
-        assert_eq!(route_for(&s, None, Path::new("/h"), None).unwrap(), vec![Route::Resume]);
-        let s = session(Harness::Claude, Surface::App, Status::Idle, false, None);
-        assert_eq!(route_for(&s, None, Path::new("/h"), None).unwrap(), vec![Route::ClaudeApp]);
-        let s = session(Harness::Codex, Surface::App, Status::Working, true, None);
-        assert_eq!(route_for(&s, None, Path::new("/h"), None).unwrap(), vec![Route::CodexApp]);
-        let s = session(Harness::Opencode, Surface::Cli, Status::Idle, true, Some(7));
-        assert_eq!(route_for(&s, None, Path::new("/h"), None).unwrap(), vec![Route::Opencode]);
-    }
-
-    /// A folder of its own under the system's temporary one, short enough for a socket path.
-    fn scratch(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("ca-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        dir
-    }
-
-    #[test]
-    fn offers_a_stop_only_while_a_turn_runs_where_codealong_can_reach_it() {
-        use crate::harness::stoppable;
-        let hosted = |status, live, stalled: Option<i64>| Session { hosted: true, stalled_since: stalled, ..session(Harness::Claude, Surface::Cli, status, live, None) };
-        assert!(stoppable(&hosted(Status::Working, true, None), None));
-        // Stuck mid-turn, on a command waiting for input, say.
-        assert!(stoppable(&hosted(Status::Needs, true, Some(1)), None));
-        assert!(!stoppable(&hosted(Status::Idle, true, None), None));
-        assert!(!stoppable(&hosted(Status::Working, false, None), None));
-        // A turn that ended with a command left running in the background shows as working, with
-        // no turn to stop.
-        assert!(!stoppable(&Session { background: Some("gh pr checks --watch".into()), ..hosted(Status::Working, true, None) }, None));
-
-        let home = scratch("stoppable");
-        let account = |harness: &str| -> AccountCfg { serde_json::from_value(json!({ "name": "a", "harness": harness, "home": home.to_string_lossy() })).unwrap() };
-        // The Claude app runs its sessions' turns itself, and takes no stop from outside.
-        let app = session(Harness::Claude, Surface::App, Status::Working, true, Some(1));
-        assert!(!stoppable(&app, Some(&account("claude"))));
-        assert!(!stoppable(&session(Harness::Antigravity, Surface::App, Status::Working, true, None), Some(&account("antigravity"))));
-        // A Codex app thread stops through the app's windows, while they're there to ask.
-        let thread = session(Harness::Codex, Surface::App, Status::Working, true, None);
-        assert!(!stoppable(&thread, Some(&account("codex"))));
-        std::fs::create_dir_all(home.join("ipc")).unwrap();
-        std::fs::write(home.join("ipc/ipc.sock"), "").unwrap();
-        assert!(stoppable(&thread, Some(&account("codex"))));
-        let _ = std::fs::remove_dir_all(&home);
-    }
-
-    #[test]
-    fn offers_send_now_only_while_a_turn_runs_where_its_harness_takes_one() {
-        use crate::harness::steerable;
-        let home = scratch("steerable");
-        let account = |harness: &str| -> AccountCfg { serde_json::from_value(json!({ "name": "a", "harness": harness, "home": home.to_string_lossy() })).unwrap() };
-        // The Agent Client Protocol has no way to, and the Claude app takes messages only on its
-        // socket, where none goes in sooner.
-        let hosted = Session { hosted: true, ..session(Harness::Claude, Surface::Cli, Status::Working, true, None) };
-        assert!(!steerable(&hosted, Some(&account("claude"))));
-        assert!(!steerable(&session(Harness::Claude, Surface::App, Status::Working, true, Some(1)), Some(&account("claude"))));
-        assert!(!steerable(&session(Harness::Antigravity, Surface::Cli, Status::Working, true, Some(1)), Some(&account("antigravity"))));
-        // A Codex app thread takes a steer through the app's windows, while they're there to ask,
-        // and only while its turn runs.
-        let thread = session(Harness::Codex, Surface::App, Status::Working, true, None);
-        assert!(!steerable(&thread, Some(&account("codex"))));
-        std::fs::create_dir_all(home.join("ipc")).unwrap();
-        std::fs::write(home.join("ipc/ipc.sock"), "").unwrap();
-        assert!(steerable(&thread, Some(&account("codex"))));
-        for status in [Status::Idle, Status::Unread, Status::Needs] {
-            assert!(!steerable(&Session { status, ..thread.clone() }, Some(&account("codex"))));
-        }
-        assert!(!steerable(&Session { live: false, ..thread.clone() }, Some(&account("codex"))));
-        assert!(!steerable(&thread, None));
-        // A terminal session in no terminal Codealong types into.
-        assert!(!steerable(&session(Harness::Codex, Surface::Cli, Status::Working, true, Some(u32::MAX)), Some(&account("codex"))));
-        assert!(!steerable(&session(Harness::Claude, Surface::Cli, Status::Working, true, Some(u32::MAX)), Some(&account("claude"))));
-        let _ = std::fs::remove_dir_all(&home);
-
-        // What's typed after the prompt to send it now: Claude Code's Ctrl+X Ctrl+S; Return
-        // already does for Codex's terminal UI.
-        assert_eq!(crate::harness::adapter(Harness::Claude).sends_now_with(), Some("\u{18}\u{13}"));
-        assert_eq!(crate::harness::adapter(Harness::Codex).sends_now_with(), None);
     }
 
     #[test]
@@ -879,17 +687,4 @@ mod tests {
         assert!(join("k-fail", "x", || Err(anyhow!("Ghostty said no."))).unwrap_err().to_string().contains("Ghostty said no."));
         assert_eq!(join("k-fail", "x", || sent("Sent.")).unwrap().message, "Sent.");
     }
-
-    #[test]
-    fn resumes_with_the_prompt_in_the_environment() {
-        let account = AccountCfg { name: "claude2".into(), harness: "claude".into(), home: "~/.claude2".into(), command: None, start: None, preferred: false, acp: None };
-        let (input, env) = crate::harness::adapter(Harness::Claude).resume(&account, "abc", "-v please").unwrap();
-        assert_eq!(input, format!("claude2 --resume abc \"${}\"\n", crate::start::PROMPT_VAR));
-        assert_eq!(env, vec![(crate::start::PROMPT_VAR.to_string(), " -v please".to_string())]);
-        let codex = AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: Some("codex".into()), start: None, preferred: false, acp: None };
-        let (input, env) = crate::harness::adapter(Harness::Codex).resume(&codex, "01a0e379", "-v please").unwrap();
-        assert_eq!(input, format!("codex resume -- 01a0e379 \"${}\"\n", crate::start::PROMPT_VAR));
-        assert_eq!(env, vec![(crate::start::PROMPT_VAR.to_string(), "-v please".to_string())]);
-    }
-
 }

@@ -8,8 +8,11 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
+use anyhow::Result;
 use serde_json::Value;
 
+use crate::attachments::{self, Style};
+use crate::send::{copy, opened, Delivery, Own, Sent, Way};
 use crate::util::{file_name, home, mtime_ms};
 
 /// The Claude app's bundle ID.
@@ -137,6 +140,27 @@ fn claude_app_session(records: &Path, cli_session_id: &str) -> Option<String> {
         }
         parse_record(&text, &path).filter(|r| r.cli_session_id == cli_session_id).map(|r| r.local_id)
     })
+}
+
+/// The way in for one of the app's sessions that isn't running: the app opens it, with the
+/// prompt on the clipboard for you to paste.
+#[derive(Debug, Clone, PartialEq)]
+pub struct InApp;
+
+impl Own for InApp {
+    fn way(&self) -> Way {
+        Way::ClaudeApp
+    }
+
+    fn takes_agents(&self) -> bool {
+        false
+    }
+
+    fn deliver(&self, d: &Delivery) -> Result<Sent> {
+        copy(&attachments::expand(d.text, Style::Path))?;
+        crate::launch::open_url(&claude_app_url(&d.session.id))?;
+        Ok(opened(format!("{} is open in the Claude app and the prompt is on the clipboard. Paste it there to send it.", d.title())))
+    }
 }
 
 #[cfg(test)]

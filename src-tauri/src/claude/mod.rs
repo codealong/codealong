@@ -5,7 +5,7 @@
 //! (registry.rs), transcripts (transcript.rs) and the conversation one holds (conversation.rs),
 //! the permission mode a session runs in (mode.rs), the requests the plugin's hook hands the app
 //! (asks.rs), the Claude app's own records (app.rs), the ways a prompt gets in (routes.rs, by
-//! the background service's socket in daemon.rs and a session's own in peer.rs), starting,
+//! the background service's socket in daemon.rs, a session's own in peer.rs, or the app), starting,
 //! forking and stopping (start.rs), names (names.rs), side conversations (side.rs), the folders
 //! an account trusts (trust.rs) and plan usage (usage.rs). See CLAUDE.md's *Harness facts*.
 
@@ -17,7 +17,7 @@ mod mode;
 mod names;
 pub mod peer;
 mod registry;
-pub mod routes;
+mod routes;
 mod side;
 mod start;
 mod transcript;
@@ -50,8 +50,6 @@ use transcript::{parse_transcript, reply_text, tool_request, transcript_cwd, tra
 use trust::{state_file, trust_folder};
 
 pub use conversation::conversation_items;
-#[cfg(test)]
-pub use registry::parse_registry;
 pub use registry::RegistryEntry;
 pub use transcript::TranscriptInfo;
 

@@ -121,7 +121,7 @@ impl crate::harness::Adapter for Codex {
         match (s.surface, s.pid) {
             (crate::model::Surface::Cli, Some(pid)) => vec![crate::send::Route::Type { pid }],
             (crate::model::Surface::Cli, None) => vec![crate::send::Route::Resume],
-            _ => vec![crate::send::Route::CodexApp],
+            _ => vec![ipc::InApp.into()],
         }
     }
 
@@ -646,5 +646,13 @@ mod tests {
         assert!(!reader.poll_rollouts(accounts, &look).dirty);
         assert!(reader.sessions(&account, &look).is_empty());
         drop(hidden);
+    }
+
+    #[test]
+    fn a_prompt_for_an_app_thread_goes_to_the_app() {
+        use crate::harness::Adapter as _;
+        let account = AccountCfg { name: "codex".into(), harness: "codex".into(), home: "/h".into(), command: None, start: None, preferred: false, acp: None };
+        let s = Session { surface: crate::model::Surface::App, status: crate::model::Status::Working, live: true, ..Session::new(Harness::Codex, "codex", "abc") };
+        assert_eq!(Codex.routes(&account, &s), vec![ipc::InApp.into()]);
     }
 }
