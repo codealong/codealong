@@ -2,7 +2,6 @@
 
 use crate::model::LogoStatus;
 
-#[cfg(target_os = "macos")]
 pub fn update(app: &tauri::AppHandle, status: LogoStatus) -> tauri::Result<()> {
     use objc2::{AnyThread, MainThreadMarker};
     use objc2_app_kit::{NSApplication, NSImage};
@@ -33,9 +32,4 @@ pub fn update(app: &tauri::AppHandle, status: LogoStatus) -> tauri::Result<()> {
             eprintln!("Couldn't decode the Codealong status icon: {status:?}");
         }
     })
-}
-
-#[cfg(not(target_os = "macos"))]
-pub fn update(_app: &tauri::AppHandle, _status: LogoStatus) -> tauri::Result<()> {
-    Ok(())
 }

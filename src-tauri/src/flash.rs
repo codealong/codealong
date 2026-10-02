@@ -79,7 +79,6 @@ pub fn after_focus(app: &AppHandle, from: Option<(f64, f64)>, bundle_id: &'stati
     });
 }
 
-#[cfg(target_os = "macos")]
 mod native {
     use std::cell::RefCell;
     use std::ffi::c_void;
@@ -320,31 +319,6 @@ mod native {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
-mod native {
-    use tauri::AppHandle;
-
-    use super::Frame;
-
-    pub fn ticket() -> u64 {
-        0
-    }
-    pub fn is_newest(_: u64) -> bool {
-        false
-    }
-    pub fn pointer() -> Option<(f64, f64)> {
-        None
-    }
-    pub fn screens() -> Vec<Frame> {
-        Vec::new()
-    }
-    pub fn front_window_settled(_: &str) -> Option<Frame> {
-        None
-    }
-    pub fn warp(_: (f64, f64)) {}
-    pub fn outline(_: &AppHandle, _: Frame, _: u64) {}
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -378,7 +352,7 @@ mod tests {
 
 /// Reads this Mac's screens, the pointer and Ghostty's front window, and says whether a focus now
 /// would outline it. Changes nothing: `cargo test ghosttys_front_window -- --ignored --nocapture`.
-#[cfg(all(test, target_os = "macos"))]
+#[cfg(test)]
 mod live {
     #[test]
     #[ignore]

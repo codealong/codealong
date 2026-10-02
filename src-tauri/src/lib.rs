@@ -1460,7 +1460,6 @@ pub fn run() {
         .expect("error while running Codealong")
         .run(|app, event| {
             // The Dock icon brings the main window back after it was closed.
-            #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Reopen { .. } = event {
                 let _ = front::show_main(app, None);
             }
