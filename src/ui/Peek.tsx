@@ -386,8 +386,9 @@ export function Peek({ kept = false }: { kept?: boolean }) {
           now={now}
           board={live.board}
           can={can}
-          // A session it came from, or that came of it: its menu shows it in Codealong.
-          canFor={(l, s) => ({ ...can, reveal: () => host.showSession(l, s), rename: undefined })}
+          // A session it came from, or that came of it: its menu shows it in Codealong. What's
+          // done to it leaves the peek up, which is on another session.
+          canFor={(l, s) => ({ ...can, reveal: () => host.showSession(l, s), rename: undefined, left: undefined })}
           onShowSession={showKin}
           onShowLane={host.showLane}
           onShowTodo={host.showTodo}
