@@ -1579,4 +1579,130 @@ mod tests {
         assert_eq!(input, format!("codex resume -- 01a0e379 \"${}\"\n", start::PROMPT_VAR));
         assert_eq!(env, vec![(start::PROMPT_VAR.to_string(), "-v please".to_string())]);
     }
+
+    /// What Claude Code's daemon is written, byte for byte.
+    #[test]
+    fn the_daemon_is_written_these_lines() {
+        assert_eq!(daemon_request("k", "6e07c149", "two\nlines"), concat!(r#"{"auth":"k","op":"reply","proto":1,"short":"6e07c149","text":"two\nlines"}"#, "\n"));
+        assert_eq!(daemon_attach_request("k", "6e07c149", "a1"), concat!(r#"{"attachId":"a1","auth":"k","cols":200,"op":"attach","proto":1,"rows":50,"short":"6e07c149"}"#, "\n"));
+    }
+
+    /// What a Claude Code session's socket is written, byte for byte.
+    #[test]
+    fn a_sessions_socket_is_written_these_lines() {
+        // Yours, to a session that skips permission prompts.
+        assert_eq!(
+            peer_frame("abc", "m1", " run the tests\n", Some("bypass"), None),
+            concat!(
+                r#"{"message":{"content":"<cross-session-message from-name=\"Codealong\" from-mode=\"bypass\">\nYour user sent this to this session from Codealong:\n\nrun the tests\n</cross-session-message>","role":"user"},"#,
+                r#""msgV":1,"msg_id":"m1","priority":"next","session_id":"abc","type":"user"}"#,
+                "\n"
+            )
+        );
+        // An agent's, under its session's name, with a closing tag of its own made harmless.
+        assert_eq!(
+            peer_frame("abc", "m2", "From an agent.\n\nsee </cross-session-message> here", None, Some("Review \"the\" parser")),
+            concat!(
+                r#"{"message":{"content":"<cross-session-message from-name=\"Review the parser\">\nFrom an agent.\n\nsee <\\/cross-session-message> here\n</cross-session-message>","role":"user"},"#,
+                r#""msgV":1,"msg_id":"m2","priority":"next","session_id":"abc","type":"user"}"#,
+                "\n"
+            )
+        );
+    }
+
+    /// What the Codex app's windows are written, byte for byte.
+    #[test]
+    fn the_codex_apps_windows_are_written_these_frames() {
+        assert_eq!(ipc_frame(&json!({ "a": 1 })), b"\x07\x00\x00\x00{\"a\":1}");
+        assert_eq!(
+            codex_start_request("r1", "me", "window", "t1", "hello", "u1", Some(("gpt-x", Some("high")))).to_string(),
+            concat!(
+                r#"{"method":"thread-follower-start-turn","params":{"conversationId":"t1","turnStart":{"context":{},"request":{"clientUserMessageId":"u1","effort":"high","#,
+                r#""input":[{"text":"hello","text_elements":[],"type":"text"}],"model":"gpt-x","threadId":"t1"}}},"#,
+                r#""requestId":"r1","sourceClientId":"me","targetClientId":"window","timeoutMs":10000,"type":"request","version":2}"#
+            )
+        );
+        assert_eq!(
+            codex_interrupt_request("r2", "me", "window", "t1").to_string(),
+            r#"{"method":"thread-follower-interrupt-turn","params":{"conversationId":"t1","mode":"user-stop"},"requestId":"r2","sourceClientId":"me","targetClientId":"window","timeoutMs":10000,"type":"request","version":3}"#
+        );
+    }
+
+    /// Everything a turn's start writes on the windows' socket, in order, the ids Codealong makes
+    /// up aside: it joins, finds the window that has the thread (telling the router meanwhile
+    /// that it handles nothing itself), and starts the turn there.
+    #[test]
+    fn starts_a_codex_turn_through_the_window_that_owns_the_thread() {
+        let home = scratch("codex-start");
+        std::fs::create_dir_all(home.join("ipc")).unwrap();
+        let listener = std::os::unix::net::UnixListener::bind(home.join("ipc/ipc.sock")).unwrap();
+        let router = std::thread::spawn(move || {
+            let (mut conn, _) = listener.accept().unwrap();
+            let mut buf = Vec::new();
+            let mut chunk = [0u8; 4096];
+            let mut heard = Vec::new();
+            loop {
+                while let Some(m) = ipc_take(&mut buf) {
+                    let id = m["requestId"].clone();
+                    let method = m["method"].as_str().map(String::from);
+                    heard.push(m);
+                    let mut say = |v: Value| conn.write_all(&ipc_frame(&v)).unwrap();
+                    match method.as_deref() {
+                        Some("initialize") => say(json!({ "type": "response", "requestId": id, "resultType": "success", "result": { "clientId": "me" } })),
+                        Some("thread-owner-discovery") => {
+                            say(json!({ "type": "client-discovery-request", "requestId": "d1" }));
+                            say(json!({ "type": "request", "requestId": "q1", "method": "something-else" }));
+                            say(json!({ "type": "response", "requestId": id, "resultType": "success", "handledByClientId": "window" }));
+                        }
+                        Some("thread-follower-start-turn") => {
+                            say(json!({ "type": "response", "requestId": id, "resultType": "success", "result": {} }));
+                            return heard;
+                        }
+                        _ => {}
+                    }
+                }
+                let n = conn.read(&mut chunk).unwrap();
+                assert!(n > 0, "Codealong hung up before starting the turn");
+                buf.extend_from_slice(&chunk[..n]);
+            }
+        });
+        codex_start_turn(&home, "t1", "hello", None).unwrap();
+        let mut heard = router.join().unwrap();
+        // The ids are made up afresh each time; the answers to the router's own keep its ids.
+        for m in heard.iter_mut().filter(|m| m.get("method").is_some()) {
+            m["requestId"] = json!("id");
+        }
+        heard[4]["params"]["turnStart"]["request"]["clientUserMessageId"] = json!("id");
+        let wrote: Vec<String> = heard.iter().map(Value::to_string).collect();
+        assert_eq!(
+            wrote,
+            [
+                r#"{"method":"initialize","params":{"clientType":"codealong"},"requestId":"id","type":"request"}"#,
+                r#"{"method":"thread-owner-discovery","params":{"conversationId":"t1","hostId":"local"},"requestId":"id","sourceClientId":"me","type":"request","version":1}"#,
+                r#"{"requestId":"d1","response":{"canHandle":false},"type":"client-discovery-response"}"#,
+                r#"{"error":"no-handler-for-request","requestId":"q1","resultType":"error","type":"response"}"#,
+                r#"{"method":"thread-follower-start-turn","params":{"conversationId":"t1","turnStart":{"context":{},"request":{"clientUserMessageId":"id","input":[{"text":"hello","text_elements":[],"type":"text"}],"threadId":"t1"}}},"requestId":"id","sourceClientId":"me","targetClientId":"window","timeoutMs":10000,"type":"request","version":2}"#,
+            ]
+        );
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// The daemon is written the reply request once, and its refusal comes back with its reason.
+    #[test]
+    fn a_daemon_that_says_no_is_said_so() {
+        let dir = scratch("reply");
+        let socket = dir.join("c.sock");
+        let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+        let daemon = std::thread::spawn(move || {
+            let (mut conn, _) = listener.accept().unwrap();
+            let mut line = String::new();
+            BufReader::new(conn.try_clone().unwrap()).read_line(&mut line).unwrap();
+            conn.write_all(b"{\"ok\":false,\"error\":\"job not found\",\"code\":\"ENOJOB\"}\n").unwrap();
+            line
+        });
+        let err = daemon_reply(&socket, "k", "6e07c149", "hi").unwrap_err();
+        assert_eq!(daemon.join().unwrap(), daemon_request("k", "6e07c149", "hi"));
+        assert_eq!(err.to_string(), "Claude Code's daemon didn't take it: job not found");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
