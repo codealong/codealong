@@ -70,53 +70,39 @@ fn open(path: &Path) -> Option<Connection> {
     crate::harness::open_database(path)
 }
 
+/// The columns of `session_v2` a `SessionRow` is read from, in `session_row`'s order.
+const ROW: &str = "id, directory, title, time_created, time_updated, time_idle, idle_outcome, time_archived, time_viewed";
+
+/// A row of `session_v2` (`ROW`), before its messages are read.
+fn session_row(r: &rusqlite::Row) -> rusqlite::Result<SessionRow> {
+    Ok(SessionRow {
+        id: r.get(0)?,
+        directory: r.get(1)?,
+        title: r.get::<_, Option<String>>(2)?.map(|t| t.trim().to_string()).filter(|t| !t.is_empty()),
+        created_at: r.get(3)?,
+        updated_at: r.get(4)?,
+        idle_at: r.get(5)?,
+        outcome: r.get(6)?,
+        archived_at: r.get(7)?,
+        viewed_at: r.get(8)?,
+        ..Default::default()
+    })
+}
+
 fn read_sessions_from(db: &Connection, since_ms: i64, keep: &HashSet<String>) -> rusqlite::Result<Vec<SessionRow>> {
     let mut by_id: HashMap<String, SessionRow> = HashMap::new();
-    let mut stmt = db.prepare(
-        "SELECT id, directory, title, time_created, time_updated, time_idle, idle_outcome, time_archived, time_viewed \
-         FROM session_v2 WHERE parent_id IS NULL AND (time_updated >= ?1 OR time_created >= ?1)",
-    )?;
-    let rows = stmt.query_map([since_ms], |r| {
-        Ok(SessionRow {
-            id: r.get(0)?,
-            directory: r.get(1)?,
-            title: r.get::<_, Option<String>>(2)?.map(|t| t.trim().to_string()).filter(|t| !t.is_empty()),
-            created_at: r.get(3)?,
-            updated_at: r.get(4)?,
-            idle_at: r.get(5)?,
-            outcome: r.get(6)?,
-            archived_at: r.get(7)?,
-            viewed_at: r.get(8)?,
-            ..Default::default()
-        })
-    })?;
+    let mut stmt = db.prepare(&format!("SELECT {ROW} FROM session_v2 WHERE parent_id IS NULL AND (time_updated >= ?1 OR time_created >= ?1)"))?;
+    let rows = stmt.query_map([since_ms], session_row)?;
     for row in rows.flatten() {
         by_id.insert(row.id.clone(), row);
     }
     if !keep.is_empty() {
-        let mut stmt = db.prepare(
-            "SELECT id, directory, title, time_created, time_updated, time_idle, idle_outcome, time_archived, time_viewed \
-             FROM session_v2 WHERE id = ?1",
-        )?;
+        let mut stmt = db.prepare(&format!("SELECT {ROW} FROM session_v2 WHERE id = ?1"))?;
         for id in keep {
             if by_id.contains_key(id) {
                 continue;
             }
-            let row = stmt.query_row([id], |r| {
-                Ok(SessionRow {
-                    id: r.get(0)?,
-                    directory: r.get(1)?,
-                    title: r.get::<_, Option<String>>(2)?.map(|t| t.trim().to_string()).filter(|t| !t.is_empty()),
-                    created_at: r.get(3)?,
-                    updated_at: r.get(4)?,
-                    idle_at: r.get(5)?,
-                    outcome: r.get(6)?,
-                    archived_at: r.get(7)?,
-                    viewed_at: r.get(8)?,
-                    ..Default::default()
-                })
-            });
-            if let Ok(row) = row {
+            if let Ok(row) = stmt.query_row([id], session_row) {
                 by_id.insert(row.id.clone(), row);
             }
         }
@@ -424,10 +410,14 @@ fn title_case(s: &str) -> String {
 
 /// A GET on the service. The password goes to curl on stdin, never on the command line.
 fn get(svc: &Service, path: &str) -> Option<Value> {
-    let config = format!("user = \"opencode:{}\"\n", svc.password.replace('"', "\\\""));
     let url = format!("{}{path}", svc.url);
-    let out = procs::run_stdin("/usr/bin/curl", &["-sS", "-m", "5", "-K", "-", "-H", "Accept: application/json", &url], &config, Duration::from_secs(8)).ok()?;
+    let out = procs::run_stdin("/usr/bin/curl", &["-sS", "-m", "5", "-K", "-", "-H", "Accept: application/json", &url], &sign_in(svc), Duration::from_secs(8)).ok()?;
     serde_json::from_str(&out).ok()
+}
+
+/// The line of a curl config that signs in to the service, the same for every request.
+fn sign_in(svc: &Service) -> String {
+    format!("user = \"opencode:{}\"\n", curl_quote(&svc.password))
 }
 
 /// A POST of JSON on the service. The password and the body both go to curl on stdin: the body
@@ -442,7 +432,7 @@ fn patch(svc: &Service, path: &str, body: &Value) -> anyhow::Result<Value> {
 }
 
 fn send(svc: &Service, method: &str, path: &str, body: &Value) -> anyhow::Result<Value> {
-    let config = format!("user = \"opencode:{}\"\ndata-binary = \"{}\"\n", curl_quote(&svc.password), curl_quote(&body.to_string()));
+    let config = format!("{}data-binary = \"{}\"\n", sign_in(svc), curl_quote(&body.to_string()));
     let url = format!("{}{path}", svc.url);
     let out = procs::run_stdin(
         "/usr/bin/curl",
@@ -1131,5 +1121,14 @@ mod tests {
         assert_eq!(OpenCode.routes(&account, &s), vec![Posted.into()]);
         assert_eq!(prompt_body("two\nlines", false).to_string(), r#"{"delivery":"queue","text":"two\nlines"}"#);
         assert_eq!(prompt_body("now", true).to_string(), r#"{"delivery":"steer","text":"now"}"#);
+    }
+
+    /// A password with a backslash or a quote in it signs in the same on a read as on a post:
+    /// the read used to escape only quotes, and curl took the backslash for an escape.
+    #[test]
+    fn signs_in_the_same_way_for_every_request() {
+        let svc = Service { url: "http://127.0.0.1:1".into(), pid: 1, password: r#"a\b"c"#.into() };
+        assert_eq!(sign_in(&svc), "user = \"opencode:a\\\\b\\\"c\"\n");
+        assert_eq!(curl_quote("two\nlines"), "two\\nlines");
     }
 }
