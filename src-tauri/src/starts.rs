@@ -7,18 +7,16 @@
 //! terminal or in the background. The apps choose their own worktrees.
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
-use std::sync::Mutex;
+use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 use crate::config::support_dir;
+use crate::store;
 
 /// Starts kept per repo, the latest last: habits change, so old ones drop off.
 const KEEP: usize = 20;
-
-static WRITING: Mutex<()> = Mutex::new(());
 
 #[derive(Serialize, Deserialize, Default, Debug, PartialEq)]
 struct File {
@@ -31,20 +29,18 @@ pub fn path() -> PathBuf {
     support_dir().join("starts.json")
 }
 
-fn read() -> File {
-    std::fs::read_to_string(path()).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
+/// Notes a start in a repo, in a new worktree or not. A file that doesn't parse is an error
+/// and is left as it is, not started over from this one start.
+pub fn record(repo: &str, new_worktree: bool) -> Result<()> {
+    // Nobody waits on this as a session starts, so a failure is also a notice.
+    store::noted(&path(), record_in(&path(), repo, new_worktree))
 }
 
-/// Notes a start in a repo, in a new worktree or not.
-pub fn record(repo: &str, new_worktree: bool) -> Result<()> {
-    let _held = WRITING.lock().unwrap_or_else(|e| e.into_inner());
-    let mut file = read();
-    push(&mut file, repo, new_worktree);
-    std::fs::create_dir_all(support_dir())?;
-    let p = path();
-    let tmp = p.with_extension("json.tmp");
-    std::fs::write(&tmp, serde_json::to_string_pretty(&file)?)?;
-    std::fs::rename(&tmp, &p)?;
+fn record_in(path: &Path, repo: &str, new_worktree: bool) -> Result<()> {
+    store::change(path, "a list of starts", |file: &mut File| {
+        push(file, repo, new_worktree);
+        true
+    })?;
     Ok(())
 }
 
@@ -58,7 +54,8 @@ fn push(file: &mut File, repo: &str, new_worktree: bool) {
 pub use codealong_peer::api::Habit;
 
 pub fn habit(repo: &str) -> Habit {
-    habit_in(&read(), repo)
+    // Only read here: a file that doesn't parse is no habit, and Jev's own guess stands.
+    habit_in(&store::read_or_default(&path()), repo)
 }
 
 fn habit_in(file: &File, repo: &str) -> Habit {
@@ -102,6 +99,25 @@ mod tests {
         assert_eq!(habit_in(&f, "p/web"), Habit { new: 0, of: KEEP });
         assert_eq!(habit_in(&f, "p/api"), Habit { new: 1, of: 1 });
         assert_eq!(habit_in(&f, "p/none"), Habit::default());
+    }
+
+    #[test]
+    fn a_file_that_does_not_read_is_never_written_over() {
+        let dir = store::test_dir("starts-unreadable");
+        let path = dir.join("starts.json");
+        record_in(&path, "p/web", true).unwrap();
+        record_in(&path, "p/web", false).unwrap();
+        assert_eq!(habit_in(&store::read_or_default(&path), "p/web"), Habit { new: 1, of: 2 });
+
+        // Another shape for a repo's starts, and a file cut short.
+        for bytes in [r#"{"repos":{"p/web":[{"new":true,"at":5}]}}"#, r#"{"repos":{"p/web":[true,"#] {
+            std::fs::write(&path, bytes).unwrap();
+            let e = record_in(&path, "p/web", true).unwrap_err().to_string();
+            assert!(e.starts_with("starts.json doesn't read as a list of starts"), "{e}");
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), bytes);
+            assert_eq!(habit_in(&store::read_or_default(&path), "p/web"), Habit::default());
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
