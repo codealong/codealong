@@ -143,6 +143,9 @@ fn draw_icon(app: &Path) -> Option<Vec<u8>> {
     let px = ICON_PX as isize;
     let icon = NSWorkspace::sharedWorkspace().iconForFile(&NSString::from_str(&app.to_string_lossy()));
     // 8 bits a sample, RGBA, rows packed: the layout `pixels` reads.
+    // SAFETY: with no planes given AppKit allocates the pixels itself and owns them, sized by the
+    // numbers here, which agree with each other (4 samples of 8 bits are the 32 bits of a pixel
+    // and the `px * 4` bytes of a row); the color space's name is AppKit's constant.
     let rep = unsafe { NSBitmapImageRep::initWithBitmapDataPlanes_pixelsWide_pixelsHigh_bitsPerSample_samplesPerPixel_hasAlpha_isPlanar_colorSpaceName_bytesPerRow_bitsPerPixel(NSBitmapImageRep::alloc(), std::ptr::null_mut(), px, px, 8, 4, true, false, NSDeviceRGBColorSpace, px * 4, 32) }?;
     let ctx = NSGraphicsContext::graphicsContextWithBitmapImageRep(&rep)?;
     NSGraphicsContext::saveGraphicsState_class();
@@ -157,6 +160,9 @@ fn draw_icon(app: &Path) -> Option<Vec<u8>> {
     if data.is_null() || rep.bytesPerRow() != px * 4 {
         return None;
     }
+    // SAFETY: the pixels aren't null and their rows are `px * 4` bytes, both just checked, and
+    // there are `px` rows, as asked for above: that many bytes are the rep's, which is alive until
+    // this returns and which nothing draws into again; `straight` copies them out.
     let premultiplied = unsafe { std::slice::from_raw_parts(data, ICON_PX * ICON_PX * 4) };
     Some(straight(premultiplied))
 }

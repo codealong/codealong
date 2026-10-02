@@ -169,6 +169,8 @@ mod native {
         if unsafe { CGGetActiveDisplayList(ids.len() as u32, ids.as_mut_ptr(), &mut count) } != 0 {
             return Vec::new();
         }
+        // SAFETY: a plain call that takes an ID and returns a rectangle, with the IDs the list
+        // just gave; one that names no display would get an empty rectangle.
         ids[..count as usize].iter().map(|&d| frame(unsafe { CGDisplayBounds(d) })).collect()
     }
 
@@ -200,9 +202,13 @@ mod native {
         let pid = pid as f64;
         // SAFETY: the copy is ours (+1), and a CFArray is toll-free bridged to NSArray.
         let list: Retained<AnyObject> = unsafe { Retained::from_raw(CGWindowListCopyWindowInfo(ON_SCREEN_ONLY | EXCLUDE_DESKTOP, 0))? };
+        // SAFETY: NSArray's `- (NSUInteger)count`, asked of the array just copied.
         let count: usize = unsafe { msg_send![&*list, count] };
         // Front to back: the first of the app's normal windows is the one it just brought up.
         for i in 0..count {
+            // SAFETY: `i` is under the count just read of an array that's this function's own
+            // copy, so nothing changes it meanwhile; its members are the windows' dictionaries,
+            // never nil.
             let w: Retained<AnyObject> = unsafe { msg_send![&*list, objectAtIndex: i] };
             if get(&w, "kCGWindowOwnerPID").map(|n| number(&n)) != Some(pid) {
                 continue;
@@ -282,13 +288,15 @@ mod native {
         // AppKit's origin is the bottom left of the main screen, y growing up, and the window
         // list's is that screen's top left, y growing down: the main screen is to a window there
         // what a window is to its page.
-        // SAFETY: both take and return plain values, and the main display always has an ID.
+        // SAFETY: plain calls that take and return values.
         let main = frame(unsafe { CGDisplayBounds(CGMainDisplayID()) });
         let host = Rect { x: 0.0, y: 0.0, w: main.w, h: main.h };
         let around = PageRect { x: window.x, y: window.y, w: window.w, h: window.h }.to_screen(host).outset(MARGIN);
         let rect = panel::ns_rect(around);
         // SAFETY: a borderless window made and used on the main thread, kept alive in SHOWING.
         let win = unsafe { NSWindow::initWithContentRect_styleMask_backing_defer(mtm.alloc(), rect, NSWindowStyleMask::Borderless, NSBackingStoreType::Buffered, false) };
+        // SAFETY: turns off AppKit's own release of the window as it closes, which on top of the
+        // `Retained` in SHOWING letting go of it would release it twice.
         unsafe { win.setReleasedWhenClosed(false) };
         win.setOpaque(false);
         win.setBackgroundColor(Some(&NSColor::clearColor()));

@@ -25,8 +25,9 @@ pub fn update(app: &tauri::AppHandle, status: LogoStatus) -> tauri::Result<()> {
         let Some(mtm) = MainThreadMarker::new() else { return };
         let data = NSData::with_bytes(png);
         if let Some(image) = NSImage::initWithData(NSImage::alloc(), &data) {
-            // AppKit requires the main thread and a non-null image. The bundled idle
-            // icon stays neutral; only the running application's icon changes.
+            // SAFETY: AppKit requires the main thread, which the marker says this is, and
+            // the image is one that decoded. The bundled idle icon stays neutral; only the
+            // running application's icon changes.
             unsafe { NSApplication::sharedApplication(mtm).setApplicationIconImage(Some(&image)); }
         } else {
             eprintln!("Couldn't decode the Codealong status icon: {status:?}");
