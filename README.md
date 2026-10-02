@@ -852,6 +852,7 @@ light scan (no git, PRs or visitors).
 | `src-tauri/src/appserver.rs` | Codex actions through its app-server (archiving, renaming) |
 | `src-tauri/src/claudeapp.rs` | The Claude app's session records (its IDs, what you archived there) |
 | `src-tauri/src/config.rs`, `state.rs` | `config.toml` (accounts saved in place) and `state.json` (seen, pinned, archived, account folders already read) |
+| `src-tauri/src/store.rs` | The small JSON files next to the config, read, locked and written one way: a temporary file of the write's own and a rename, a read-modify-write under the file's `.lock`, and a file that doesn't parse left as it is, with an error |
 | `src-tauri/src/reusable.rs`, `src/reusable.ts` | Reusable worktrees: the marks made by hand (`worktrees.json`); `board::reusable`, `reuse_of`, `earlier` and `looks_reusable` have the rules, `git::new_work` reads the reflog, and `src/route.ts` sends Jev's new work to them |
 | `src-tauri/src/prlinks.rs` | Sessions tied to PRs other than by branch: what their records show they did to a PR, and links made by hand (`pr-links.json`) |
 | `src/prLinks.ts`, `src/ui/PrLink.tsx` | Links to PRs in conversations and prompts: the board's PRs by link, and the card a link shows on hover (`pr_card` for a PR the board doesn't list) |

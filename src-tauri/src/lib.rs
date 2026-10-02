@@ -69,6 +69,7 @@ mod server;
 mod start;
 mod starts;
 mod state;
+mod store;
 mod tailnet;
 mod throttle;
 mod todojev;
