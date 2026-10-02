@@ -163,7 +163,19 @@ pub enum Route {
 /// opened again, and you sent what it still showed, or another window sent it too) joins that
 /// send and gets its outcome, rather than going twice.
 pub fn send(board: &Board, cfg: &Config, session_key: &str, text: &str, sender: Sender, now: bool) -> Result<Sent> {
+    // A message to a session that moved to another account would bring it back to life where it
+    // was, beside the copy that goes on: say where it went, for the sender to send there.
+    if let Some(copy) = crate::origins::current().moved_to(session_key, |k| board.session(k).is_some()) {
+        bail!("{}", moved_words(board, session_key, &copy));
+    }
     join(session_key, text.trim(), || deliver(board, cfg, session_key, text, &sender, now))
+}
+
+/// Where a moved session went, in a sentence that names the session to send to instead.
+pub fn moved_words(board: &Board, key: &str, copy: &str) -> String {
+    let title = board.session(key).map_or_else(|| key.to_string(), |(_, s)| format!("“{}”", s.title));
+    let account = copy.split(':').nth(1).unwrap_or_default();
+    format!("{title} moved to {account} and goes on there as {copy}. Send to that session instead.")
 }
 
 /// How a message from you would reach the session with this key, for its box to say before you
@@ -1396,6 +1408,9 @@ mod tests {
         assert!(stoppable(&hosted(Status::Needs, true, Some(1)), None));
         assert!(!stoppable(&hosted(Status::Idle, true, None), None));
         assert!(!stoppable(&hosted(Status::Working, false, None), None));
+        // A turn that ended with a command left running in the background shows as working, with
+        // no turn to stop.
+        assert!(!stoppable(&Session { background: Some("gh pr checks --watch".into()), ..hosted(Status::Working, true, None) }, None));
 
         let home = scratch("stoppable");
         let account = |harness: &str| -> AccountCfg { serde_json::from_value(json!({ "name": "a", "harness": harness, "home": home.to_string_lossy() })).unwrap() };

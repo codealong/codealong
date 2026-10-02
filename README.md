@@ -85,9 +85,12 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     The copy is a session of its own, with a new ID, and takes the session's place on its todos,
     among the pinned sessions, on its card on the desktop and in its kept window. Claude Code
     keeps the copy once you send it something; until then it shows the conversation it was
-    moved with, and closed before then it's gone, the session staying in Archived. Not mid-turn.
-    The first reply there reads the whole conversation again, since the old account's prompt
-    cache doesn't carry over.
+    moved with, and closed before then it's gone, the session staying in Archived. A turn it's
+    taking is stopped first, so the copy goes on from where it was interrupted; a command its
+    last turn left running in the background stays behind. A message sent to the old session
+    afterwards, from a window or another agent's `codealong session send`, is turned away with
+    the copy named, and `codealong session show` says where it moved. The first reply there
+    reads the whole conversation again, since the old account's prompt cache doesn't carry over.
     `/side <question>` (or `/btw`) asks something about a Claude Code or Codex session on the
     side: a throwaway copy of its conversation answers above the box, and the session carries
     on and never hears of it. The copy reads files and runs commands to answer, and is told to

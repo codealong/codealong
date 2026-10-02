@@ -474,8 +474,8 @@ pub fn fork_background(board: &Board, cfg: &Config, key: &str, prompt: &str) -> 
 
 /// Moves a session to `to`, another account of its harness (`Adapter::move_to`): a copy goes on
 /// from what it had written, in a new terminal in its folder under `to`, and the session itself
-/// is closed where Codealong can close it. Not mid-turn: the copy would see the turn cut off.
-/// The caller archives the session once this returns.
+/// is closed where Codealong can close it. Not mid-turn: the copy would see the turn cut off, so
+/// the caller stops a turn first (actions.rs), and archives the session once this returns.
 pub fn move_to(board: &Board, cfg: &Config, key: &str, to: &str) -> Result<Started> {
     let (s, account, lane, cwd) = to_fork(board, cfg, key)?;
     let target = move_target(cfg, s, account, to)?;
@@ -492,7 +492,7 @@ pub fn move_to(board: &Board, cfg: &Config, key: &str, to: &str) -> Result<Start
     if let Some(copy) = &copy.key {
         crate::origins::record(copy, key, crate::model::OriginHow::Fork);
     }
-    let left = if !s.live {
+    let mut left = if !s.live {
         String::new()
     } else {
         match crate::idle::close_one(board, cfg, key) {
@@ -500,6 +500,10 @@ pub fn move_to(board: &Board, cfg: &Config, key: &str, to: &str) -> Result<Start
             Err(e) => format!(" The old one is still running: {e:#}"),
         }
     };
+    // A command its last turn left running belonged to the old process, and the copy has none.
+    if s.background.is_some() {
+        left.push_str(" It had a command running in the background: ask the copy to start it again if it's still needed.");
+    }
     // Claude Code writes the copy's transcript at its first prompt: closed before then, the copy is gone.
     let message = format!("Moved “{}” to {to}: it goes on in a new terminal in {}, and {to} keeps it once you send it something.{left}", s.title, lane.callsign);
     Ok(Started { key: copy.key, message: Some(message) })

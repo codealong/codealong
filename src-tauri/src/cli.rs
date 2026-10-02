@@ -1397,6 +1397,8 @@ struct SessionDetail {
     linked_todos: Vec<TodoRow>,
     /// PRs it worked on (`owner/name#number`), as `pr show` lists their sessions.
     prs: Vec<String>,
+    /// The session it goes on as, when it moved to another account: messages go there.
+    moved_to: Option<String>,
 }
 
 fn session_show(c: &mut Client, key: &str, json: bool) -> Result<()> {
@@ -1419,6 +1421,7 @@ fn session_show(c: &mut Client, key: &str, json: bool) -> Result<()> {
         records: account.map(|a| records_for(a, s)).unwrap_or_default(),
         linked_todos: board.todos.iter().filter(|t| t.sessions.contains(&s.key)).map(|t| todo_row(t, &store_of(board), false)).collect(),
         prs: board.prs.iter().filter(|p| p.sessions.iter().any(|x| x.key == s.key)).map(|p| p.key.clone()).collect(),
+        moved_to: crate::origins::current().moved_to(&s.key, |k| board.session(k).is_some()),
         row,
     };
     if json {
@@ -1427,6 +1430,9 @@ fn session_show(c: &mut Client, key: &str, json: bool) -> Result<()> {
     let r = &out.row;
     println!("{}  {} on {}{}", r.key, r.status, r.account, if r.live { " (live)" } else { "" });
     println!("Title: {}", r.title);
+    if let Some(copy) = &out.moved_to {
+        println!("Moved to: {copy} (send there)");
+    }
     if let Some(e) = &r.excerpt {
         println!("Now: {e}");
     }

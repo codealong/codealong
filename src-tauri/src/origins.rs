@@ -62,10 +62,37 @@ impl Store {
         self.sessions.get(key).map(|e| SessionOrigin { key: e.from.clone(), how: e.how })
     }
 
+    /// The session `key` moved to (start.rs `move_to`): a fork of it into another account of its
+    /// harness that `exists` says is still there, followed on where that one moved too. A copy
+    /// closed before it was sent anything never was, and the session stays where it was.
+    pub fn moved_to(&self, key: &str, exists: impl Fn(&str) -> bool) -> Option<String> {
+        let mut at = key.to_string();
+        // Moved back again, a key comes round a second time.
+        let mut seen = HashSet::from([at.clone()]);
+        loop {
+            let next = self.sessions.iter().filter(|(k, e)| e.from == at && e.how == OriginHow::Fork && is_move(&at, k) && !seen.contains(*k) && exists(k)).max_by_key(|(_, e)| e.at);
+            let Some((next, _)) = next else { break };
+            seen.insert(next.clone());
+            at = next.clone();
+        }
+        (at != key).then_some(at)
+    }
+
     fn prune(&mut self, now: i64) {
         self.sessions.retain(|_, e| now - e.at < KEEP_MS);
         self.pending.retain(|p| now - p.at < PENDING_MS);
     }
+}
+
+/// Whether a fork from session `from` to `to` is a move: into another account of the same
+/// harness. The windows tell it the same way (lineage.ts `kinHow`).
+pub fn is_move(from: &str, to: &str) -> bool {
+    let whose = |key: &str| {
+        let mut parts = key.splitn(3, ':');
+        (parts.next().unwrap_or_default().to_string(), parts.next().unwrap_or_default().to_string())
+    };
+    let ((from_harness, from_account), (to_harness, to_account)) = (whose(from), whose(to));
+    from_harness == to_harness && from_account != to_account
 }
 
 /// A session on the board, as pending starts are matched against it.
@@ -219,6 +246,28 @@ mod tests {
 
     fn pending(from: &str, lane: &str, account: &str, at: i64) -> Pending {
         Pending { from: from.into(), how: OriginHow::Started, lane: lane.into(), account: account.into(), at }
+    }
+
+    #[test]
+    fn a_session_moved_to_another_account_names_where_it_went() {
+        let mut store = Store::default();
+        let mut entry = |key: &str, from: &str, how, at| store.sessions.insert(key.into(), Entry { from: from.into(), how, at });
+        // Moved to claude2, forked there, and moved back.
+        entry("claude:claude2:b", "claude:claude:a", OriginHow::Fork, 10);
+        entry("claude:claude2:fork", "claude:claude2:b", OriginHow::Fork, 20);
+        entry("claude:claude:c", "claude:claude2:b", OriginHow::Fork, 30);
+        // A fork in its own account and a session its agent started aren't moves.
+        entry("claude:claude:twin", "claude:claude:x", OriginHow::Fork, 10);
+        entry("claude:claude2:helper", "claude:claude:y", OriginHow::Started, 10);
+        let all = |_: &str| true;
+        assert_eq!(store.moved_to("claude:claude:a", all).as_deref(), Some("claude:claude:c"));
+        assert_eq!(store.moved_to("claude:claude2:b", all).as_deref(), Some("claude:claude:c"));
+        assert_eq!(store.moved_to("claude:claude:c", all), None);
+        assert_eq!((store.moved_to("claude:claude:x", all), store.moved_to("claude:claude:y", all)), (None, None));
+        // A copy that's gone (closed before it was sent anything) leaves the session where it was.
+        assert_eq!(store.moved_to("claude:claude:a", |k| k != "claude:claude:c").as_deref(), Some("claude:claude2:b"));
+        assert_eq!(store.moved_to("claude:claude:a", |k| k != "claude:claude2:b"), None);
+        assert!(is_move("claude:claude:a", "claude:claude2:b") && !is_move("claude:claude:a", "codex:codex:b") && !is_move("claude:claude:a", "claude:claude:b"));
     }
 
     #[test]

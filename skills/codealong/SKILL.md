@@ -135,6 +135,9 @@ ones your harness's own tools don't list: another Claude Code account, Codex, Op
   yours skips them too; otherwise it asks its user first. Nothing goes to a session that
   isn't running or is waiting on its user, and the error says so. A new session is
   `codealong start`, with your user's say-so.
+- A session moved to another account (Move to, in Codealong) goes on there as a new session
+  with a key of its own. A message to the old key is turned away with the new one named, and
+  `codealong session show` gives it as `movedTo`: send there, and use that key from then on.
 
 ## PRs
 

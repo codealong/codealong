@@ -295,8 +295,13 @@ fn fork_terminal(engine: &Handle, c: &Call) -> Result<Value, String> {
 /// the copy's, and so are the todos it was on and its place among the pinned sessions.
 fn move_session(engine: &Handle, c: &Call) -> Result<Value, String> {
     let key = c.session()?;
+    let cfg = cfg()?;
+    let stopped = stop_to_move(engine, &cfg, key)?;
     let board = engine.board();
-    let started = crate::start::move_to(&board, &cfg()?, key, &c.text("account")).map_err(words)?;
+    let mut started = crate::start::move_to(&board, &cfg, key, &c.text("account")).map_err(words)?;
+    if stopped {
+        started.message = started.message.map(|m| format!("{m} Its turn was stopped first, so the copy goes on from where it was interrupted."));
+    }
     if let Some(copy) = &started.key {
         for t in board.todos.iter().filter(|t| t.sessions.iter().any(|s| s == key)) {
             // The session stays on it too, as one that worked on it.
@@ -314,6 +319,34 @@ fn move_session(engine: &Handle, c: &Call) -> Result<Value, String> {
         eprintln!("Moved {key}, but couldn't archive it: {e:#}");
     }
     to_value(started)
+}
+
+/// Stops the turn a session is taking so it can move, as Stop does (`cancel`), and waits for the
+/// board to show the turn ended: a copy made mid-turn would see it cut off, where one made after
+/// sees it interrupted. Says whether there was a turn to stop.
+fn stop_to_move(engine: &Handle, cfg: &config::Config, key: &str) -> Result<bool, String> {
+    let running = || engine.read(|b| b.session(key).is_some_and(|(_, s)| harness::turn_running(s)));
+    if !running() {
+        return Ok(false);
+    }
+    let board = engine.board();
+    let (s, account) = harness::find(&board, cfg, key).map_err(words)?;
+    if !harness::stoppable(s, Some(account)) {
+        return Err(format!("“{}” is in the middle of a turn Codealong can't stop. Stop it where it runs, then move it.", s.title));
+    }
+    if acp::hosts(key) {
+        acp::cancel(key).map_err(words)?;
+    } else {
+        harness::adapter(s.harness).interrupt(&harness::Ctx { account }, s).map_err(words)?;
+    }
+    let until = std::time::Instant::now() + Duration::from_secs(30);
+    while running() {
+        if std::time::Instant::now() > until {
+            return Err(format!("Stopped “{}”, but its turn still hadn't ended 30 seconds later. Move it once it has.", s.title));
+        }
+        std::thread::sleep(Duration::from_millis(300));
+    }
+    Ok(true)
 }
 
 /// Closes its terminal tab, or stops it when it's a background job (idle.rs). Says what happened.

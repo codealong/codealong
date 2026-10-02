@@ -584,8 +584,10 @@ pub fn session_name(raw: &str) -> Result<String> {
 }
 
 /// Whether a session is in the middle of a turn that a Stop would end: working, or stuck mid-turn.
+/// Not a turn that ended with a command left running in the background (Claude Code's `shell`,
+/// `Session::background`), which shows as working while it runs: there's no turn to stop.
 pub fn turn_running(s: &Session) -> bool {
-    s.live && (s.status == crate::model::Status::Working || s.stalled_since.is_some())
+    s.live && s.background.is_none() && (s.status == crate::model::Status::Working || s.stalled_since.is_some())
 }
 
 /// Whether Codealong can stop the turn a session is taking: one it runs itself, or one its
