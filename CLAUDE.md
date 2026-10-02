@@ -360,6 +360,13 @@ some work is, answer with one.
   that's there but doesn't parse is an error and is never overwritten, since another build may
   have written a shape this one doesn't know; only a cache or a window's place may read as
   empty instead (`store::read_or_default`).
+- What AppKit is told about the windows that float (the bar, its peek, the quick panel, the
+  cards and sessions kept on the desktop, the lines between cards) is in `src-tauri/src/panel.rs`
+  and nowhere else: a window's module says what kind of panel it is (`panel::Config`) and when
+  it's shown, given the keyboard or hidden, and never reaches into another window's module for
+  it. Rectangles, the flip between AppKit's y (up from the bottom of the main screen) and a
+  page's (down from the top of its window) and which screen a thing is on are
+  `src-tauri/src/geometry.rs` (`Rect`, `PageRect`, `screen_for`), not arithmetic where they're used.
 - A session's, worktree's, PR's or todo's right-click menu is defined once, in `src/menus.ts`,
   and every window (main, bar, peek, quick panel, desktop cards) builds it from there, saying
   what it can do. A new item goes there, not into one window's menu.
@@ -1106,7 +1113,7 @@ Ghostty (1.3, AppleScript dictionary in the app bundle)
   `makeKeyAndOrderFront`, the second with `NSApp.activate` after it, and `focus` does the same on
   Ghostty's next turn (1.3.1's ScriptTab.swift, ScriptWindow.swift, BaseTerminalController.swift),
   so the window is raised before Ghostty is the active app, and after a click in the bar Ghostty
-  is active only once Codealong asks (`bar::bring_forward`). macOS switches desktops for a window
+  is active only once Codealong asks (`front::bring_forward`). macOS switches desktops for a window
   the active app brings forward (AppKit's notes on `moveToActiveSpace`), so `launch::follow`
   focuses the terminal a second time once its app is active, in iTerm2 and Terminal too. Nothing
   public says which desktop a window is on, or goes to one. The window server's own calls do
@@ -1305,7 +1312,8 @@ Tauri and macOS (from the Tauri 2.11 and tao 0.35 sources)
   CodeIsland does. The quick panel is one above that (27): the docked bar's window reaches well
   down the screen while it shows a session, and two windows at one level go by which was
   ordered front last, which put the notch over a quick panel opened from it. The peek and the
-  sessions kept on the desktop are still at 26 and 25.
+  sessions kept on the desktop are still at 26 and 25. `panel::Level` names every window's
+  level, and a test there holds their order.
 - The notch (read on this Mac, a 16-inch MacBook Pro, 2026-09-28): `NSScreen.safeAreaInsets.top`
   32, and `auxiliaryTopLeftArea` / `…RightArea` the menu bar on either side of the camera, 771
   and 772 points wide on a 1728-point screen, so the notch is 185 wide and half a point right of
@@ -1324,25 +1332,26 @@ Tauri and macOS (from the Tauri 2.11 and tao 0.35 sources)
   the floating bar does otherwise (no, and yes), as the peek's panel does, so the cards on the
   desktop, which share the class, never take it. A key panel hands the keyboard back to the app
   you're in when it's ordered out and at no other time AppKit offers, and the bar has to stay up,
-  so `drop_keys` orders it out and in again in one turn of the run loop; AppKit has sent a turn's
-  window changes to the screen together since 10.11, so nothing should show. Not yet checked by
-  hand (2026-10-01): that the app you were in gets its keys back at once, and that the notch
-  doesn't blink as it does. If it blinks, a second, unseen panel can take the keyboard from the
-  bar and be the one ordered out.
+  so `panel::drop_keys` orders it out and in again in one turn of the run loop; AppKit has sent
+  a turn's window changes to the screen together since 10.11, so nothing should show. Not yet
+  checked by hand (2026-10-01): that the app you were in gets its keys back at once, and that the
+  notch doesn't blink as it does. If it blinks, a second, unseen panel can take the keyboard from
+  the bar and be the one ordered out.
 - Only a non-activating NSPanel goes onto another app's full-screen Space; an ordinary window
-  doesn't, whatever its level or `fullScreenAuxiliary`. Tauri makes NSWindows, so `bar.rs` swaps
-  the bar's class to an NSPanel subclass (NSPanel adds no storage) before it's first shown: a
-  window once shown as a window stays off full-screen Spaces after the swap.
+  doesn't, whatever its level or `fullScreenAuxiliary`. Tauri makes NSWindows, so `panel::make`
+  swaps a window's class to an NSPanel subclass (NSPanel adds no storage) before it's first shown:
+  a window once shown as a window stays off full-screen Spaces after the swap.
 - WebKit key-value observes its web view's window (`contentLayoutRect`), and KVO works by
   swapping the observed object's class (`NSKVONotifying_TaoWindow`). The panel swap replaces that
   class, so when the web view leaves the window (the window is destroyed) WebKit's
   `removeObserver:` raises "Cannot remove an observer … because it is not registered", an
   Objective-C exception Rust can't unwind through: the app aborts ("Rust cannot catch foreign
-  exceptions"). A panel that goes away gets its old class back first (`bar::native::unmake_panel`,
+  exceptions"). A panel that goes away gets its old class back first (`panel::unmake`,
   used by the cards pinned to the desktop; checked 2026-09-28). The bar, the peek and the quick
   panel are never destroyed.
 - A click in a non-activating panel leaves the app inactive, and macOS may refuse an inactive
-  app's request to bring another app forward, so the bar asks after opening (`bring_forward`).
+  app's request to bring another app forward, so the bar asks after opening
+  (`front::bring_forward`).
 - WebKit treats a page as active only while its window answers yes to `isKeyWindow` (re-read
   when the window is ordered on screen). An inactive page gets mouse moves only for its
   scrollbars: no DOM mouse events, no tooltips, and `:hover` stays where the last click put it
@@ -1418,9 +1427,10 @@ Tauri and macOS (from the Tauri 2.11 and tao 0.35 sources)
   preview only shows that the page asks for it (`peek-drag-check.js`).
 - A session kept on the desktop from the peek (kept.rs) is a window of its own with the peek's
   panel class, so which panels answer truthfully about being key is a list of windows
-  (`peek::native`'s `ENGAGED`), not one flag. A kept window is destroyed when it's closed, so it
-  gets its class back first, as a desktop card does. One that loses the keyboard is ordered in
-  again saying it's key, as the peek is up from a hover, so its page still gets the pointer.
+  (`panel.rs`'s `ENGAGED`, the docked bar among them), not one flag. A kept window is destroyed
+  when it's closed, so it gets its class back first, as a desktop card does. One that loses the
+  keyboard is ordered in again saying it's key, as the peek is up from a hover, so its page still
+  gets the pointer.
   Not yet checked by hand (2026-10-01): keeping, sizing, dragging and closing one in the real
   app; the preview only shows the page and the commands it sends.
 - tauri-plugin-global-shortcut's `register` and `unregister` hand the work to the main thread and
