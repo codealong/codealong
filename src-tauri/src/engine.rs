@@ -81,8 +81,9 @@ pub enum Msg {
     /// Sessions snoozed until then, or woken now with none. The reply is the time of the board
     /// that shows it, published at once.
     Snooze(Vec<String>, Option<i64>, Sender<i64>),
-    /// Lane path → session keys whose logs mention it.
-    Visitors(HashMap<PathBuf, Vec<String>>),
+    /// Lane path → session keys whose logs mention it, from the scan of that number
+    /// (`Visitors::begin`).
+    Visitors(u64, HashMap<PathBuf, Vec<String>>),
     /// Session key → the PRs its records show it made or changed (prlinks.rs).
     PrMarks(HashMap<String, Vec<String>>),
     /// Session key → the Chrome tabs its records show it drove, their profiles looked up, and
@@ -702,8 +703,8 @@ struct Engine {
     held_worktrees: HashSet<PathBuf>,
     /// Hash of the last published board, to skip publishing when nothing changed.
     last_hash: u64,
-    /// Lane path → sessions from other lanes whose logs show they worked there.
-    visitors: HashMap<PathBuf, Vec<String>>,
+    /// Sessions from other lanes whose logs show they worked in a worktree.
+    visitors: Visitors,
     /// What to look for in logs: (lane path, text that identifies it, when it was made).
     needles: Vec<(PathBuf, String, i64)>,
     /// Session key → the PRs its records show it made or changed.
@@ -820,7 +821,7 @@ impl Engine {
             landed_at: None,
             held_worktrees: HashSet::new(),
             last_hash: 0,
-            visitors: HashMap::new(),
+            visitors: Visitors::default(),
             needles: Vec::new(),
             pr_marks: HashMap::new(),
             chrome_use: HashMap::new(),
@@ -1274,10 +1275,7 @@ impl Engine {
                     self.publish();
                     let _ = reply.send(self.board.read().map(|b| b.generated_at).unwrap_or(0));
                 }
-                Ok(Msg::Visitors(found)) => {
-                    self.visitors = found;
-                    self.dirty = true;
-                }
+                Ok(Msg::Visitors(scan, found)) => self.dirty |= self.visitors.scanned(scan, found),
                 Ok(Msg::PrMarks(found)) => {
                     // Marks read from new lines while the scan ran are kept.
                     for (key, prs) in found {
@@ -1932,6 +1930,7 @@ impl Engine {
             self.visitors.clear();
             return;
         }
+        let number = self.visitors.begin();
         let files = self.session_logs();
         let scan = move || -> HashMap<PathBuf, Vec<String>> {
             let found = parallel_map(files, |(path, key)| {
@@ -1959,11 +1958,11 @@ impl Engine {
                 .collect()
         };
         if sync {
-            self.visitors = scan();
+            self.visitors.scanned(number, scan());
         } else {
             let tx = self.tx.clone();
             std::thread::spawn(move || {
-                let _ = tx.send(Msg::Visitors(scan()));
+                let _ = tx.send(Msg::Visitors(number, scan()));
             });
         }
     }
@@ -2085,12 +2084,8 @@ impl Engine {
             self.dirty = true;
         }
         for (lane, needle, _) in &self.needles {
-            if worked_in(&text, needle) {
-                let keys = self.visitors.entry(lane.clone()).or_default();
-                if !keys.iter().any(|k| k == key) {
-                    keys.push(key.to_string());
-                    self.dirty = true;
-                }
+            if worked_in(&text, needle) && self.visitors.saw(lane, key) {
+                self.dirty = true;
             }
         }
     }
@@ -2354,7 +2349,7 @@ impl Engine {
             notices,
             loading: self.loading,
             github_at: self.github.at(),
-            visitors: &self.visitors,
+            visitors: &self.visitors.by_lane,
             pinned: &self.seen.pinned,
             github_login: self.github.login(),
             pr_links: &pr_links,
@@ -2434,6 +2429,72 @@ impl Engine {
         if let Ok(mut slot) = self.board.write() {
             *slot = board;
         }
+    }
+}
+
+/// Which sessions from other lanes worked in each worktree that no session runs in, by what
+/// their logs show: every log is scanned in the background when the worktrees to look for
+/// change, and the lines sessions write are checked as they come (`Engine::check_new_lines`).
+#[derive(Default)]
+struct Visitors {
+    /// Lane path → sessions from other lanes whose logs show they worked there.
+    by_lane: HashMap<PathBuf, Vec<String>>,
+    /// The number of the latest scan begun. A scan looks for the worktrees there were when it
+    /// began, so one that comes back after a later one began is dropped.
+    scan: u64,
+    /// What new lines have shown since that scan began, until it's back: it may have read a
+    /// log before they were written, so they're added to what it found.
+    since: Option<HashMap<PathBuf, Vec<String>>>,
+}
+
+impl Visitors {
+    /// A scan begins, for other worktrees than the last looked for. Its number comes back with
+    /// what it finds (`scanned`).
+    fn begin(&mut self) -> u64 {
+        self.scan += 1;
+        self.since = Some(HashMap::new());
+        self.scan
+    }
+
+    /// There's nothing to look for any more: a scan still out looked for worktrees that were.
+    fn clear(&mut self) {
+        self.scan += 1;
+        self.since = None;
+        self.by_lane.clear();
+    }
+
+    /// A session's new lines show it worked in a lane. True when that's news.
+    fn saw(&mut self, lane: &Path, key: &str) -> bool {
+        let add = |keys: &mut Vec<String>| {
+            let new = !keys.iter().any(|k| k == key);
+            if new {
+                keys.push(key.to_string());
+            }
+            new
+        };
+        if let Some(since) = &mut self.since {
+            add(since.entry(lane.to_path_buf()).or_default());
+        }
+        add(self.by_lane.entry(lane.to_path_buf()).or_default())
+    }
+
+    /// A scan is back with what it found, the earliest work in each lane first. What new lines
+    /// showed while it ran comes after. False when a later scan has begun, or there's nothing
+    /// to look for any more: this one changes nothing.
+    fn scanned(&mut self, scan: u64, mut found: HashMap<PathBuf, Vec<String>>) -> bool {
+        if scan != self.scan {
+            return false;
+        }
+        for (lane, keys) in self.since.take().unwrap_or_default() {
+            let have = found.entry(lane).or_default();
+            for key in keys {
+                if !have.contains(&key) {
+                    have.push(key);
+                }
+            }
+        }
+        self.by_lane = found;
+        true
     }
 }
 
@@ -3253,6 +3314,47 @@ mod tests {
         };
         assert!(has_git(&filled, &path("plain")) && !has_git(&filled, &path("stuck")));
         std::fs::write(home().join("ran"), "").unwrap();
+    }
+
+    /// The logs are scanned on a thread of its own, which takes a while, and sessions go on
+    /// writing meanwhile: the scan's answer doesn't take away what their new lines showed, and
+    /// an older scan that comes back late doesn't replace a newer one's.
+    #[test]
+    fn a_visitors_scan_keeps_what_new_lines_showed_and_an_older_one_is_dropped() {
+        use super::*;
+        let (a, b) = (PathBuf::from("/tmp/spark-a"), PathBuf::from("/tmp/spark-b"));
+        let found = |lane: &PathBuf, keys: &[&str]| HashMap::from([(lane.clone(), keys.iter().map(|k| k.to_string()).collect::<Vec<_>>())]);
+        let mut v = Visitors::default();
+
+        // While a scan runs, a session's new lines show it worked in a worktree.
+        let first = v.begin();
+        assert!(v.saw(&a, "s2"));
+        assert!(!v.saw(&a, "s2"), "said once");
+        assert!(v.saw(&a, "s1"));
+        // The scan read s2's log before those lines were written. What it found comes first,
+        // the earliest work in the lane, and what the new lines showed is kept after it.
+        assert!(v.scanned(first, found(&a, &["s0", "s1"])));
+        assert_eq!(v.by_lane[&a], ["s0", "s1", "s2"]);
+        // Lines that come once it's back add to it as before.
+        assert!(v.saw(&a, "s3") && !v.saw(&a, "s0"));
+        assert_eq!(v.by_lane[&a], ["s0", "s1", "s2", "s3"]);
+
+        // The worktrees to look for change, and again before the scan for the first change is
+        // back: that one looked for worktrees that aren't the ones looked for now.
+        let second = v.begin();
+        let third = v.begin();
+        assert!(v.saw(&b, "s4"));
+        assert!(!v.scanned(second, found(&a, &["stale"])), "the older scan changes nothing");
+        assert_eq!((v.by_lane[&a].len(), v.by_lane[&b].len()), (4, 1));
+        assert!(v.scanned(third, found(&b, &["s5"])));
+        assert_eq!(v.by_lane.get(&a), None, "what the latest scan didn't look for is gone");
+        assert_eq!(v.by_lane[&b], ["s5", "s4"]);
+
+        // Nothing to look for any more: a scan still out is dropped when it's back.
+        let fourth = v.begin();
+        v.clear();
+        assert!(!v.scanned(fourth, found(&a, &["late"])));
+        assert!(v.by_lane.is_empty());
     }
 
     #[test]
