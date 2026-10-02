@@ -19,10 +19,10 @@ import { sessionPlace } from '../harness';
 import * as menus from '../menus';
 import { liveOrLatest, sessionHomes } from '../lanes';
 import type { DesktopFeed, Label, Lane, PeekShown, Pr, PrItem, Session } from '../types';
-import { CardFace } from './card/CardFace';
+import { CardFace, CardWaiting } from './card/CardFace';
 import { SessionLine } from './card/CardPopover';
-import { cardData, sessionLine, type CardData } from './card/data';
-import { STATUS_WORD } from './primitives';
+import { cardData, cardSessions, sessionLine, type CardData } from './card/data';
+import { cx, STATUS_WORD } from './primitives';
 import { useTheme } from './ThemeSwitch';
 import { useNow } from './useNow';
 import { errorText, type Report } from '../report';
@@ -34,19 +34,6 @@ const MARGIN = 12;
 const SESSIONS = 4;
 /** How far the pointer moves with the button down before it drags the card rather than clicks it. */
 const DRAG_AFTER = 4;
-
-/** A session worth a line on a card that could list many: running, or waiting on you. */
-const current = (s: Session) => !s.archived && (s.live || (s.status !== 'idle' && s.status !== 'stopped'));
-
-/** The sessions a worktree's, todo's or PR's card lists under it: a todo's all, a worktree's and
- *  a PR's the ones running or waiting on you (they keep every session they ever had). `lanes`
- *  are the feed's: for a PR, the worktrees that hold it and its sessions'. */
-function listed(d: CardData | null, lanes: Lane[]): { lane: Lane; session: Session }[] {
-  if (d?.ref === 'worktree') return d.lane.sessions.filter((s) => !s.visitor && current(s)).map((session) => ({ lane: d.lane, session }));
-  if (d?.ref === 'todo') return d.sessions;
-  if (d?.ref === 'pr') return lanes.flatMap((lane) => lane.sessions.filter(current).map((session) => ({ lane, session })));
-  return [];
-}
 
 /** What the card's tooltip says: what it leaves out, and what a click does. */
 function tooltip(d: CardData | null, now: number, terminal: string, lines: number): string {
@@ -122,7 +109,7 @@ export function DesktopPin() {
     const labels = new Map<string, Label>(feed.labels.map((l) => [l.id, l]));
     return cardData(entities, { kind: 'ref', x: 0, y: 0, ...item }, labels);
   }, [feed, lanes, item]);
-  const sessions = listed(data, lanes);
+  const sessions = cardSessions(data, lanes);
   const terminal = feed?.terminal ?? 'Terminal';
   const icons = useEditorIcons(feed ?? undefined);
   // What's on the desktop, this card surely: it's there before the list is.
@@ -311,7 +298,7 @@ export function DesktopPin() {
     <div ref={root} className="ca-desk" onContextMenu={onContextMenu}>
       <div
         ref={card}
-        className={['ca-desk-card', data?.ref === 'session' && peeked.key === data.session.key && 'is-peeked'].filter(Boolean).join(' ')}
+        className={cx('ca-desk-card', data?.ref === 'session' && peeked.key === data.session.key && 'is-peeked')}
         role="button"
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -322,15 +309,13 @@ export function DesktopPin() {
         onClick={onClick}
       >
         {waiting ? (
-          <div className="ca-cv-card is-desk is-gone">
-            <div className="ca-cv-l2">Reading sessions…</div>
-          </div>
+          <CardWaiting className="is-desk" />
         ) : (
           <CardFace item={item} data={data} now={now} className="is-desk" onPrOpen={openPr}>
             {sessions.length > 0 && (
               <div className="ca-desk-sessions">
                 {sessions.slice(0, SESSIONS).map(({ session }) => (
-                  <div key={session.key} className={['ca-desk-session', peeked.key === session.key && 'is-peeked'].filter(Boolean).join(' ')} data-session={session.key}>
+                  <div key={session.key} className={cx('ca-desk-session', peeked.key === session.key && 'is-peeked')} data-session={session.key}>
                     <SessionLine s={session} now={now} />
                   </div>
                 ))}

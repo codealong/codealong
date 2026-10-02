@@ -10,6 +10,7 @@ import { openUrl } from '../api';
 import { prLabel, prRefOf } from '../prLinks';
 import { CodeBlock } from './CopyButton';
 import { PrLink } from './PrLink';
+import { cx } from './primitives';
 
 const WEB = /^https?:\/\//i;
 /** A bare web link in text, without the punctuation that ends a sentence around it. */
@@ -219,7 +220,7 @@ export function inline(text: string, links = true): ReactNode[] {
 /** Memoized: a thread re-renders every clock tick, and its messages' text doesn't change. */
 export const Markdown = memo(function Markdown({ text, className }: { text: string; className?: string }) {
   return (
-    <div className={['ca-md', className].filter(Boolean).join(' ')}>
+    <div className={cx('ca-md', className)}>
       {blocks(text).map((b, i) => {
         switch (b.kind) {
           case 'heading':

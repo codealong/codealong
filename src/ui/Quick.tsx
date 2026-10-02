@@ -93,7 +93,7 @@ import { AttachmentStrip } from './DescriptionEditor';
 import { sessionWhy } from './PanelSession';
 import { Picker, type PickerOption, type PickerSection } from './Picker';
 import { SessionCard } from './SessionCard';
-import { Icon, Kbd, Mark, Seg, STATUS_WORD, StatusGlyph } from './primitives';
+import { cx, Icon, Kbd, Mark, Seg, STATUS_WORD, StatusGlyph } from './primitives';
 import { projectForDigit, projectKey } from './ProjectSwitcher';
 import { usePrLinks } from './PrLink';
 import { PrGlyph } from './PrsView';
@@ -1757,7 +1757,7 @@ export function Quick() {
                             key={r.key}
                             role="option"
                             aria-selected={active === r.key}
-                            className={['ca-quick-row', 'is-suggest', active === r.key && 'is-active', held.extraClass].filter(Boolean).join(' ')}
+                            className={cx('ca-quick-row', 'is-suggest', active === r.key && 'is-active', held.extraClass)}
                             title={`${said.title}\n${said.why}\n${pct}% likely, from ${route?.model ?? 'Jev'} in ${route?.ms ?? 0} ms · ⏎ does it${r.s.kind === 'send' ? ' · ⌥⏎ shows the session in Codealong' : r.s.kind === 'open' ? ' · ⌥⏎ opens the session where it lives' : ''}`}
                             {...handlers}
                           >
@@ -1782,7 +1782,7 @@ export function Quick() {
                             key={r.key}
                             role="option"
                             aria-selected={active === r.key}
-                            className={['ca-quick-row', 'is-todo', active === r.key && 'is-active', held.extraClass].filter(Boolean).join(' ')}
+                            className={cx('ca-quick-row', 'is-todo', active === r.key && 'is-active', held.extraClass)}
                             title={`${t.title || 'Untitled'}\n⏎ ${opens} · ⌥⏎ shows the todo in Codealong`}
                             {...handlers}
                           >
@@ -1805,7 +1805,7 @@ export function Quick() {
                             key={r.key}
                             role="option"
                             aria-selected={active === r.key}
-                            className={['ca-quick-row', 'is-more', active === r.key && 'is-active', held.extraClass].filter(Boolean).join(' ')}
+                            className={cx('ca-quick-row', 'is-more', active === r.key && 'is-active', held.extraClass)}
                             {...handlers}
                           >
                             <span className="ca-quick-plus">
@@ -1827,7 +1827,7 @@ export function Quick() {
                             key={r.key}
                             role="option"
                             aria-selected={active === r.key}
-                            className={['ca-quick-row', 'is-pr', active === r.key && 'is-active', held.extraClass].filter(Boolean).join(' ')}
+                            className={cx('ca-quick-row', 'is-pr', active === r.key && 'is-active', held.extraClass)}
                             title={`${pr.title}\n${pr.repoSlug}#${pr.number} · ${pr.head}\n⏎ opens it on GitHub · ⌥⏎ shows it in Codealong`}
                             {...handlers}
                           >
@@ -1850,7 +1850,7 @@ export function Quick() {
                           key={r.key}
                           role="option"
                           aria-selected={active === r.key}
-                          className={['ca-quick-row', active === r.key && 'is-active', held.extraClass, `is-${s2.status}`].filter(Boolean).join(' ')}
+                          className={cx('ca-quick-row', active === r.key && 'is-active', held.extraClass, `is-${s2.status}`)}
                           title={`${s2.title}\n${s2.account} · ${r.lane.callsign}\n⏎ shows it in Codealong · ⇥ answers it here · ⌥⏎ opens it where it lives`}
                           {...handlers}
                         >
@@ -1885,7 +1885,7 @@ export function Quick() {
           <div
             role="option"
             aria-selected={active === COMPOSE}
-            className={['ca-quick-row', 'ca-quick-compose', active === COMPOSE && 'is-active', !ready && 'is-disabled'].filter(Boolean).join(' ')}
+            className={cx('ca-quick-row', 'ca-quick-compose', active === COMPOSE && 'is-active', !ready && 'is-disabled')}
             onMouseMove={() => active !== COMPOSE && setActiveKey(COMPOSE)}
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => start()}
@@ -1962,7 +1962,7 @@ export function Quick() {
             {picker === 'worktree' && <Picker sections={worktreeSections} value={lane?.id ?? null} placeholder="Worktree, branch or repo" onPick={(id) => { setLaneId(id); setPicker(null); refocus(); }} onClose={() => { setPicker(null); refocus(); }} />}
           </div>
           <label
-            className={['ca-check', 'ca-quick-newtree', !makesWorktree && 'is-disabled'].filter(Boolean).join(' ')}
+            className={cx('ca-check', 'ca-quick-newtree', !makesWorktree && 'is-disabled')}
             title={
               makesWorktree
                 ? `${harness ? HARNESS_WORD[harness] : 'It'} makes the worktree: its folder, branch and base.`

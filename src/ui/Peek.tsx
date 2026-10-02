@@ -33,6 +33,7 @@ import { SessionCard, type WindowCan } from './SessionCard';
 import { useTheme } from './ThemeSwitch';
 import { useNow } from './useNow';
 import { errorText } from '../report';
+import { cx } from './primitives';
 
 /** Room around the card for its shadow (`--shadow-peek`, which falls away from the bar): the
  *  window (peek.rs) is the card, this on its sides, `FAR` on the side away from the bar, and
@@ -361,7 +362,7 @@ export function Peek({ kept = false }: { kept?: boolean }) {
   const grip = (edge: Edge) => <div className={`ca-peek-grip is-${edge}`} onPointerDown={startSize(edge)} onPointerMove={moveSize} onPointerUp={endSize} onPointerCancel={endSize} />;
   return (
     <div
-      className={['ca-peek-root', !open.below && 'is-over', kept && 'is-kept', filled && 'is-filled'].filter(Boolean).join(' ')}
+      className={cx('ca-peek-root', !open.below && 'is-over', kept && 'is-kept', filled && 'is-filled')}
       style={{ padding: open.below ? `${NEAR}px ${MARGIN}px ${FAR}px` : `${FAR}px ${MARGIN}px ${NEAR}px` }}
       onMouseDown={(e) => {
         // The shadow around the card is part of the window; a click there is a click outside.

@@ -6,6 +6,7 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useDismiss } from './useDismiss';
+import { cx } from './primitives';
 
 export interface PickerOption {
   id: string;
@@ -77,7 +78,7 @@ export function Picker({ sections, value, placeholder, onPick, onClose, empty = 
   };
 
   return (
-    <div ref={box} className={['ca-picker', className].filter(Boolean).join(' ')} role="dialog">
+    <div ref={box} className={cx('ca-picker', className)} role="dialog">
       <input
         className="ca-picker-filter"
         value={filter}
@@ -124,7 +125,7 @@ export function Picker({ sections, value, placeholder, onPick, onClose, empty = 
                 aria-selected={o.id === value}
                 disabled={o.disabled}
                 title={o.title}
-                className={['ca-picker-opt', o.id === activeId && 'is-on', o.id === value && 'is-chosen'].filter(Boolean).join(' ')}
+                className={cx('ca-picker-opt', o.id === activeId && 'is-on', o.id === value && 'is-chosen')}
                 onMouseMove={() => !o.disabled && o.id !== activeId && setActive(o.id)}
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => onPick(o.id)}

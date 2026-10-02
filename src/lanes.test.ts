@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ageFiltered, bayOf, buildBays, bySession, closable, stoppable, filterByAge, homeOf, liveOrLatest, inboxCounts, narrowed, relaned, rowItems, sessionFlag, sessionHeadline, sessionPrs, withoutAccount, worktreeRow } from './lanes';
+import { ageFiltered, bayOf, branchLabel, buildBays, bySession, closable, filterByAge, homeOf, inboxCounts, liveOrLatest, narrowed, relaned, rowItems, sessionFlag, sessionHeadline, sessionPrs, stoppable, withoutAccount, worktreeRow } from './lanes';
 import * as fx from './testing/fixtures';
 import type { Lane, Pr, PrItem, Session } from './types';
 
@@ -299,5 +299,18 @@ describe('sessionPrs', () => {
     expect(sessionPrs([], onBranch('main', pr('open')), s)).toEqual([]);
     expect(sessionPrs([], onBranch('fix', null), s)).toEqual([]);
     expect(sessionPrs([], onBranch('fix', pr('open')), { ...s, branch: null }).map((p) => p.number)).toEqual([7]);
+  });
+});
+
+describe('branchLabel', () => {
+  it('is the branch, or the commit a detached HEAD is at', () => {
+    expect(branchLabel({ branch: 'fix-build', detached: null })).toBe('fix-build');
+    expect(branchLabel({ branch: null, detached: '1a2b3c4' })).toBe('detached @ 1a2b3c4');
+    // The branch wins where git gave both.
+    expect(branchLabel({ branch: 'main', detached: '1a2b3c4' })).toBe('main');
+  });
+
+  it('is nothing until git has said', () => {
+    expect(branchLabel({ branch: null, detached: null })).toBeNull();
   });
 });

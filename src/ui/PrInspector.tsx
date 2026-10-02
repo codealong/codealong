@@ -10,9 +10,9 @@ import { openUrl, prCommentAsks, prDetail } from '../api';
 import { absolute, ago, middleTruncate } from '../format';
 import { asksFor, commentPreview, commentsToAsk } from '../prStatus';
 import type { Lane, PrComment, PrDetail, PrFile, Session } from '../types';
-import { PanelSession } from './PanelSession';
+import { PanelPlace } from './PanelSession';
 import { PrPills } from './PrPills';
-import { Button, Icon, LaneGlyph } from './primitives';
+import { Button, cx, Icon } from './primitives';
 import { ChecksSummary, PrGlyph, prIsOpen, syncWords, type PrPlace, type PrRowItem } from './PrsView';
 import { errorText } from '../report';
 
@@ -49,7 +49,7 @@ const STATUS_LETTER: Record<string, string> = { added: 'A', removed: 'D', modifi
 function FileRow({ file }: { file: PrFile }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className={['ca-prfile', open && 'is-open'].filter(Boolean).join(' ')}>
+    <div className={cx('ca-prfile', open && 'is-open')}>
       <button type="button" className="ca-prfile-head" aria-expanded={open} onClick={() => setOpen(!open)} title={file.path}>
         <Icon name="chevron-right" size={12} stroke={2} />
         <span className={`ca-prfile-status is-${file.status}`}>{STATUS_LETTER[file.status] ?? '·'}</span>
@@ -104,18 +104,6 @@ function Comments({ comments, asks, now }: { comments: PrComment[]; asks: Set<st
 
 const REVIEW_WORD: Record<string, string> = { APPROVED: 'Approved', CHANGES_REQUESTED: 'Requested changes', COMMENTED: 'Commented', DISMISSED: 'Dismissed' };
 
-interface PlaceProps {
-  place: PrPlace;
-  prNumber: number;
-  head: string;
-  now: number;
-  onShowLane: (lane: Lane) => void;
-  onLaneMenu: (lane: Lane) => void;
-  onShowSession: (lane: Lane, session: Session) => void;
-  onOpenSession: (lane: Lane, session: Session) => void;
-  onSessionMenu: (lane: Lane, session: Session) => void;
-}
-
 /** What the worktree says next to its name: how it stands against GitHub when it holds the PR,
  *  otherwise what it has moved on to, when that's known. */
 function PlaceNote({ place: { lane, holds }, prNumber, head }: { place: PrPlace; prNumber: number; head: string }) {
@@ -132,35 +120,6 @@ function PlaceNote({ place: { lane, holds }, prNumber, head }: { place: PrPlace;
     );
   }
   return null;
-}
-
-/** A worktree and the PR's sessions in it, as the sidebar's tree draws them. */
-function Place({ place, prNumber, head, now, onShowLane, onLaneMenu, onShowSession, onOpenSession, onSessionMenu }: PlaceProps) {
-  const { lane, sessions } = place;
-  return (
-    <div role="treeitem" aria-expanded={sessions.length > 0 ? true : undefined}>
-      <div
-        className="ca-tree-node"
-        onContextMenu={(e) => {
-          e.preventDefault();
-          onLaneMenu(lane);
-        }}
-      >
-        <button type="button" className="ca-tree-label" title={`${lane.path}. Click to show it in Worktrees.`} onClick={() => onShowLane(lane)}>
-          <LaneGlyph lane={lane} />
-          <span className="ca-nav-label">{lane.callsign}</span>
-          <PlaceNote place={place} prNumber={prNumber} head={head} />
-        </button>
-      </div>
-      {sessions.length > 0 && (
-        <div className="ca-tree-children" role="group">
-          {sessions.map((s) => (
-            <PanelSession key={s.key} lane={lane} session={s} now={now} onShow={onShowSession} onOpen={onOpenSession} onMenu={onSessionMenu} />
-          ))}
-        </div>
-      )}
-    </div>
-  );
 }
 
 interface PrInspectorProps {
@@ -293,11 +252,11 @@ export function PrInspector({ item, now, approving, onApprove, onReview, onShowS
           <h4 className="ca-label">On this Mac</h4>
           <div className="ca-tree" role="tree" aria-label="On this Mac">
             {item.places.map((place) => (
-              <Place
+              <PanelPlace
                 key={place.lane.id}
-                place={place}
-                prNumber={pr.number}
-                head={pr.head}
+                lane={place.lane}
+                sessions={place.sessions}
+                note={<PlaceNote place={place} prNumber={pr.number} head={pr.head} />}
                 now={now}
                 onShowLane={onShowLane}
                 onLaneMenu={onLaneMenu}

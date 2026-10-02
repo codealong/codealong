@@ -10,7 +10,7 @@ import { filesToAttach, keepFiles, useFileDrop } from '../attachInput';
 import { attachmentsIn, inlines, insertAttachments, pieces, withoutAttachment } from '../todos';
 import { prLabel, prRefOf } from '../prLinks';
 import type { Attachment } from '../types';
-import { Icon } from './primitives';
+import { cx, Icon } from './primitives';
 import { PrLink } from './PrLink';
 import { errorText } from '../report';
 
@@ -241,7 +241,7 @@ export function DescriptionEditor({ value, onSave, onError }: DescriptionEditorP
 
   const attached = attachmentsIn(editing ? draft : value);
   return (
-    <div ref={boxRef} className={['ca-desc', editing && 'is-editing'].filter(Boolean).join(' ')}>
+    <div ref={boxRef} className={cx('ca-desc', editing && 'is-editing')}>
       {editing ? (
         <>
           <textarea
@@ -283,7 +283,7 @@ export function DescriptionEditor({ value, onSave, onError }: DescriptionEditorP
         </>
       ) : (
         <div
-          className={['ca-desc-view', !value.trim() && 'is-empty'].filter(Boolean).join(' ')}
+          className={cx('ca-desc-view', !value.trim() && 'is-empty')}
           role="button"
           tabIndex={0}
           title="Click to edit"

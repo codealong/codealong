@@ -8,12 +8,10 @@ import { dueWords } from '../../due';
 import { ago, duration } from '../../format';
 import type { RefItem } from '../../canvas/model';
 import type { Pr } from '../../types';
-import { BranchLabel, Drift, Icon, LaneGlyph, PR_ICON, PR_WORD, PrChip, Rich, StatusGlyph } from '../primitives';
+import { BranchLabel, cx, Drift, Icon, LaneGlyph, PR_ICON, PR_WORD, PrChip, Rich, StatusGlyph } from '../primitives';
 import { LabelDot, TodoGlyph } from '../TodoBits';
 import { DeviceBadge } from '../DeviceBadge';
 import { sessionLine, type CardData } from './data';
-
-const cx = (...parts: (string | false | null | undefined)[]) => parts.filter(Boolean).join(' ');
 
 interface CardFaceProps {
   item: Pick<RefItem, 'ref' | 'key' | 'title'>;
@@ -26,6 +24,15 @@ interface CardFaceProps {
   children?: ReactNode;
   /** A click on the worktree's PR chip opens the PR: on the desktop, where a card takes clicks. */
   onPrOpen?: (pr: Pr) => void;
+}
+
+/** A card before the board has been read: its shape, and that it's on its way. */
+export function CardWaiting({ className }: { className?: string }) {
+  return (
+    <div className={cx('ca-cv-card', className, 'is-gone')}>
+      <div className="ca-cv-l2">Reading sessions…</div>
+    </div>
+  );
 }
 
 /** A card's face: placed on the canvas, or pinned to the desktop (DesktopPin.tsx). */

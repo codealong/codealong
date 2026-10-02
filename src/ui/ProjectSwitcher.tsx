@@ -2,7 +2,7 @@
 
 import { useRef, useState } from 'react';
 import type { LogoStatus, ProjectSummary } from '../types';
-import { Icon, Mark, StatusGlyph } from './primitives';
+import { cx, Icon, Mark, StatusGlyph } from './primitives';
 import { useDismiss } from './useDismiss';
 import { LOGO_LABEL } from '../logo';
 
@@ -57,7 +57,7 @@ export function ProjectSwitcher({ logoStatus, projects, current, total, actions,
     const key = projectKey(name, projects);
     return (
       <div key={name} className="ca-projswitch-row" role="none">
-        <button type="button" role="menuitemradio" aria-checked={name === current} className={['ca-menu-item', name === current && 'is-on'].filter(Boolean).join(' ')} onClick={() => pick(name)}>
+        <button type="button" role="menuitemradio" aria-checked={name === current} className={cx('ca-menu-item', name === current && 'is-on')} onClick={() => pick(name)}>
           <Icon name={name === ALL_PROJECTS ? 'stack' : 'folder'} size={16} />
           <span className="ca-menu-label">
             <span>{name}</span>

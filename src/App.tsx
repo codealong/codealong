@@ -38,7 +38,7 @@ import { lineageOf } from './lineage';
 import { LaneRow } from './ui/LaneRow';
 import { PinnedSection } from './ui/PinnedSection';
 import { useRowDrag, type DragProps } from './ui/useRowDrag';
-import { BayHeader, Button, Icon, Kbd, Seg, StatusGlyph } from './ui/primitives';
+import { BayHeader, Button, cx, Icon, Kbd, Seg, StatusGlyph } from './ui/primitives';
 import { ALL_PROJECTS, openSwitcher, projectForDigit, ProjectSwitcher, type ActionCounts } from './ui/ProjectSwitcher';
 import { useLogo } from './logo';
 import { PrInspector } from './ui/PrInspector';
@@ -2341,7 +2341,7 @@ export function App() {
         notices={<Notices notices={notices} now={now} onDismiss={(n) => setDismissed((d) => [...d, noticeId(n)])} onOpen={() => openSettings('file')} />}
       />
       <div
-        className={['ca-win-body', sideCollapsed && 'is-railed', panelKind === 'pr' && 'is-prs', panelKind === 'todo' && 'is-todo', panelKind === 'session' && 'is-session', panelKind === 'session' && panelMax && 'is-panel-max', view === 'canvas' && 'is-canvas', view === 'canvas' && canvasPanel && 'has-panel'].filter(Boolean).join(' ')}
+        className={cx('ca-win-body', sideCollapsed && 'is-railed', panelKind === 'pr' && 'is-prs', panelKind === 'todo' && 'is-todo', panelKind === 'session' && 'is-session', panelKind === 'session' && panelMax && 'is-panel-max', view === 'canvas' && 'is-canvas', view === 'canvas' && canvasPanel && 'has-panel')}
         style={{ '--sidebar-w': widthVar(sidebarWidth), '--panel-w': widthVar(panelKind ? panelWidth[panelKind] : null) } as CSSProperties}
       >
         <Sidebar

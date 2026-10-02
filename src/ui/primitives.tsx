@@ -5,6 +5,7 @@ import { Fragment, useId, useRef } from 'react';
 import { deviceLabel } from '../devices';
 import { middleTruncate, withTimes } from '../format';
 import { sessionPlace } from '../harness';
+import { branchLabel } from '../lanes';
 import type { Bay, GitInfo, Lane, LogoStatus, Pr, PrState, Session, Status, Surface } from '../types';
 import { LOGO_LABEL } from '../logo';
 import { ICONS } from './icons';
@@ -420,7 +421,7 @@ export function HarnessChip({ session, withStatus = true, onOpen, inRow = false,
  *  color, when it's on another of yours. `short` leaves it at the one name that tells it apart,
  *  and a lane short of room does the same (see .ca-wtchip-more). */
 export function WorktreeChip({ lane, short = false }: { lane: Lane; short?: boolean }) {
-  const branch = lane.branch ?? (lane.detached ? `detached @ ${lane.detached}` : null);
+  const branch = branchLabel(lane);
   const main = lane.origin === 'main';
   const own = !main && lane.callsign !== lane.repo;
   return (

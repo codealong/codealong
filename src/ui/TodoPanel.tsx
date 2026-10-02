@@ -13,11 +13,12 @@ import { suggestTodo } from '../api';
 import { below } from '../contextMenu';
 import { dayKey, dueChoices, dueDate, dueWords } from '../due';
 import { absolute, ago, middleTruncate } from '../format';
-import { blockedBy, cantWaitOn, dependents, depsOf, newId, nextColor, SECTION_WORD, sectionOf, STATUSES, STATUS_WORD, todoSuggestions, waitsOnTodos, worthSuggesting, type TodoItem, type TodoOp, type TodoPlace } from '../todos';
+import { branchLabel } from '../lanes';
+import { blockedBy, cantWaitOn, dependents, depsOf, newId, nextColor, SECTION_WORD, sectionOf, STATUSES, STATUS_WORD, todoSuggestions, waitsOnTodos, worthSuggesting, type TodoItem, type TodoOp } from '../todos';
 import type { Label, Lane, Session, Todo, TodoHint, TodoSuggested } from '../types';
 import { DescriptionEditor } from './DescriptionEditor';
-import { PanelSession } from './PanelSession';
-import { Button, Chip, cx, Icon, Kbd, LaneGlyph, Seg } from './primitives';
+import { PanelPlace } from './PanelSession';
+import { Button, Chip, cx, Icon, Kbd, Seg } from './primitives';
 import { AddChip, LabelChip, LabelDot, TodoGlyph } from './TodoBits';
 import { useDismiss } from './useDismiss';
 
@@ -388,34 +389,11 @@ function TodoRef({ todo, onShow, onRemove }: { todo: Todo; onShow: (t: Todo) => 
   );
 }
 
-/** A worktree the todo is linked to, and its sessions, as the sidebar's tree draws them. */
-function Place({ place, now, onShowLane, onLaneMenu, onShowSession, onOpenSession, onSessionMenu }: { place: TodoPlace; now: number } & Pick<TodoPanelProps, 'onShowLane' | 'onLaneMenu' | 'onShowSession' | 'onOpenSession' | 'onSessionMenu'>) {
-  const { lane, sessions } = place;
-  const branch = lane.branch ?? (lane.detached ? `detached @ ${lane.detached}` : null);
-  return (
-    <div role="treeitem" aria-expanded={sessions.length > 0 ? true : undefined}>
-      <div
-        className="ca-tree-node"
-        onContextMenu={(e) => {
-          e.preventDefault();
-          onLaneMenu(lane, place.linked);
-        }}
-      >
-        <button type="button" className="ca-tree-label" title={`${lane.path}. Click to show it in Worktrees.`} onClick={() => onShowLane(lane)}>
-          <LaneGlyph lane={lane} />
-          <span className="ca-nav-label">{lane.callsign}</span>
-          {lane.pr ? <span className="ca-tree-note">#{lane.pr.number}</span> : branch && branch !== lane.callsign ? <span className="ca-tree-note">{middleTruncate(branch, 28)}</span> : null}
-        </button>
-      </div>
-      {sessions.length > 0 && (
-        <div className="ca-tree-children" role="group">
-          {sessions.map((s) => (
-            <PanelSession key={s.key} lane={lane} session={s} now={now} onShow={onShowSession} onOpen={onOpenSession} onMenu={onSessionMenu} />
-          ))}
-        </div>
-      )}
-    </div>
-  );
+/** What a linked worktree says after its name: its PR, else its branch when that says more. */
+function PlaceNote({ lane }: { lane: Lane }) {
+  const branch = branchLabel(lane);
+  if (lane.pr) return <span className="ca-tree-note">#{lane.pr.number}</span>;
+  return branch && branch !== lane.callsign ? <span className="ca-tree-note">{middleTruncate(branch, 28)}</span> : null;
 }
 
 interface TodoPanelProps {
@@ -636,7 +614,18 @@ export function TodoPanel({ item, todos, onShowTodo, labels, lanes, now, onRun, 
         {item.places.length > 0 && (
           <div className="ca-tree" role="tree" aria-label="Worktrees and sessions">
             {item.places.map((place) => (
-              <Place key={place.lane.id} place={place} now={now} onShowLane={onShowLane} onLaneMenu={onLaneMenu} onShowSession={onShowSession} onOpenSession={onOpenSession} onSessionMenu={onSessionMenu} />
+              <PanelPlace
+                key={place.lane.id}
+                lane={place.lane}
+                sessions={place.sessions}
+                note={<PlaceNote lane={place.lane} />}
+                now={now}
+                onShowLane={onShowLane}
+                onLaneMenu={(lane) => onLaneMenu(lane, place.linked)}
+                onShowSession={onShowSession}
+                onOpenSession={onOpenSession}
+                onSessionMenu={onSessionMenu}
+              />
             ))}
           </div>
         )}

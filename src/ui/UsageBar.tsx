@@ -13,7 +13,7 @@ import { createPortal } from 'react-dom';
 import { agoPhrase, resetsPhrase, untilShort } from '../format';
 import { usageNote } from '../harness';
 import type { Meter, Severity, Usage } from '../types';
-import { Button, Icon } from './primitives';
+import { Button, cx, Icon } from './primitives';
 import { useDismiss } from './useDismiss';
 
 /** How long the pointer rests on a chip before its card shows; moving between chips while a card
@@ -65,7 +65,7 @@ export function UsageMeter({ meter: m, now, compact = true, titled = true }: { m
       <span>{compact ? m.label : m.window}</span>
     </span>
   );
-  const cls = ['ca-meter', compact && 'is-compact', `is-${m.severity}`, m.model && 'is-model'].filter(Boolean).join(' ');
+  const cls = cx('ca-meter', compact && 'is-compact', `is-${m.severity}`, m.model && 'is-model');
   if (compact) {
     // Phrasing content only: the chip around it is a button, and names it for screen readers.
     return (
@@ -144,7 +144,7 @@ function AccountChip({ usage: u, now, collapsed = false, measure = false, onOpen
   return (
     <button
       type="button"
-      className={['ca-uchip', stale && 'is-stale'].filter(Boolean).join(' ')}
+      className={cx('ca-uchip', stale && 'is-stale')}
       title={measure || peeks ? undefined : `${about}. Open in Accounts`}
       aria-label={`${u.account}${u.plan ? `, ${u.plan}` : ''}${summary ? `. ${summary}` : ''}${stale ? `. ${plain}` : ''}`}
       onClick={onOpen}
@@ -181,14 +181,14 @@ function UsageCard({ usage: u, now, anchor }: { usage: Usage; now: number; ancho
   const stale = isStale(u);
   const asOf = asOfPhrase(u, now);
   return createPortal(
-    <div ref={ref} className={['ca-ucard', 'ca-usage-popover', stale && 'is-stale'].filter(Boolean).join(' ')} aria-hidden="true">
+    <div ref={ref} className={cx('ca-ucard', 'ca-usage-popover', stale && 'is-stale')} aria-hidden="true">
       <div className="ca-ucard-head">
         <span className="ca-uchip-name">{u.account}</span>
         {u.plan && <span className="ca-ucard-plan">{u.plan}</span>}
       </div>
       <div className="ca-ucard-meters">
         {u.meters.map((m) => (
-          <div key={m.key} className={['ca-meter', 'is-compact', `is-${m.severity}`, m.model && 'is-model'].filter(Boolean).join(' ')}>
+          <div key={m.key} className={cx('ca-meter', 'is-compact', `is-${m.severity}`, m.model && 'is-model')}>
             <span className="ca-meter-label">
               {m.model && <Icon name="sparkles" size={11} />}
               <span>{m.label}</span>
@@ -334,7 +334,7 @@ export function UsageBar({ usage, now, onRefresh, onAccounts, onSignIn, loading,
     <div className="ca-usagebar" role="region" aria-label="Plan usage">
       <div
         ref={row}
-        className={['ca-usagebar-accts', clipped.start && 'is-clip-start', clipped.end && 'is-clip-end'].filter(Boolean).join(' ')}
+        className={cx('ca-usagebar-accts', clipped.start && 'is-clip-start', clipped.end && 'is-clip-end')}
       >
         {usage.map((u) => (
           <AccountChip

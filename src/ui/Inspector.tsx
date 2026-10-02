@@ -4,10 +4,11 @@ import { Fragment, useEffect, useRef, useState } from 'react';
 import { useEditorIcons, withOtherEditors } from '../editors';
 import { absolute, ago, count, middleTruncate, tildePath } from '../format';
 import { HARNESS_APP } from '../harness';
+import { branchLabel } from '../lanes';
 import { REUSE_WORDS } from '../reusable';
 import type { Board, Lane, Origin, Session, Target, Todo } from '../types';
 import { InsightChips } from './InsightBits';
-import { BranchLabel, Button, driftWords, HarnessChip, Icon, Kbd, LaneGlyph, PrChip, Rich, StatusGlyph } from './primitives';
+import { BranchLabel, Button, cx, driftWords, HarnessChip, Icon, Kbd, LaneGlyph, PrChip, Rich, StatusGlyph } from './primitives';
 import { useDismiss } from './useDismiss';
 import { PreviewLink, PreviewSection } from './PreviewBits';
 import { TodoChips, TodoGlyph } from './TodoBits';
@@ -67,7 +68,7 @@ export function OpenInMenu({ targets, defaultId, onOpen, size = 'md' }: { target
                 <button
                   type="button"
                   role="menuitem"
-                  className={['ca-menu-item', t.id === def.id && 'is-on'].filter(Boolean).join(' ')}
+                  className={cx('ca-menu-item', t.id === def.id && 'is-on')}
                   disabled={t.disabled}
                   onClick={() => {
                     setOpen(false);
@@ -96,7 +97,7 @@ function SessionRow({ session: s, terminal, now, focused, onOpen, todos, onShowT
   const open = () => onOpen(s.openTarget);
   return (
     <div
-      className={['ca-srow', 'ca-srow--button', `is-${s.status}`, focused && 'is-focus'].filter(Boolean).join(' ')}
+      className={cx('ca-srow', 'ca-srow--button', `is-${s.status}`, focused && 'is-focus')}
       role="button"
       tabIndex={0}
       title={`${verb} in ${where}`}
@@ -172,7 +173,7 @@ export function Inspector({ lane, focusKey, apps, now, onOpen, onNewSession, tod
   }
   const g = lane.git;
   const pr = lane.pr;
-  const branch = lane.branch ?? (lane.detached ? `detached @ ${lane.detached}` : null);
+  const branch = branchLabel(lane);
   const sessions = showAll ? lane.sessions : lane.sessions.slice(0, SESSIONS_SHOWN);
   return (
     <aside className="ca-insp" aria-label={`${lane.callsign} details`}>

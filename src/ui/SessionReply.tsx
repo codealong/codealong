@@ -55,7 +55,7 @@ import { attachmentsIn, insertAttachments, withoutAttachment } from '../todos';
 import type { Answers, Pending, Question, Sent, Session, Way } from '../types';
 import { CodeBlock } from './CopyButton';
 import { AttachmentStrip } from './DescriptionEditor';
-import { Button, Chip, Icon, Rich } from './primitives';
+import { Button, Chip, cx, Icon, Rich } from './primitives';
 import { QuestionList } from './QuestionList';
 import { SideStrip } from './SideStrip';
 import { errorText } from '../report';
@@ -466,7 +466,7 @@ function Composer({ session: s, terminal, autoFocus, waiting, onSending, onSent,
         </div>
       </div>
       {said && (
-        <span className={['ca-composer-note', note?.error && 'is-error'].filter(Boolean).join(' ')} role="status">
+        <span className={cx('ca-composer-note', note?.error && 'is-error')} role="status">
           {said}
         </span>
       )}
@@ -618,7 +618,7 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onAllowNext,
       </div>
       {pending.input && pending.input !== pending.label && <CodeBlock text={pending.input} className="ca-approval-input" />}
       <div className="ca-composer-foot">
-        <span className={['ca-composer-note', note?.error && 'is-error'].filter(Boolean).join(' ')}>{busy ? 'Answering…' : (note?.text ?? (s.hosted ? 'Allows this call once. Deny tells it no, and it carries on.' : 'Allows this call once. Deny stops the turn.'))}</span>
+        <span className={cx('ca-composer-note', note?.error && 'is-error')}>{busy ? 'Answering…' : (note?.text ?? (s.hosted ? 'Allows this call once. Deny tells it no, and it carries on.' : 'Allows this call once. Deny stops the turn.'))}</span>
         <Button size="sm" disabled={busy} onClick={() => answer('deny')}>
           Deny
         </Button>
@@ -738,7 +738,7 @@ function Questions({ questions, where, onOpen, keys, busy, note, onAnswer, onDec
         </div>
       ))}
       <div className="ca-composer-foot">
-        <span className={['ca-composer-note', note?.error && 'is-error'].filter(Boolean).join(' ')}>{busy ? 'Answering…' : (note?.text ?? (questions.some((q) => q.multiSelect) ? 'Pick one or more. Decline stops the turn.' : 'Pick one, or type your own. Decline stops the turn.'))}</span>
+        <span className={cx('ca-composer-note', note?.error && 'is-error')}>{busy ? 'Answering…' : (note?.text ?? (questions.some((q) => q.multiSelect) ? 'Pick one or more. Decline stops the turn.' : 'Pick one, or type your own. Decline stops the turn.'))}</span>
         <Button size="sm" disabled={busy} onClick={onDecline}>
           Decline
         </Button>

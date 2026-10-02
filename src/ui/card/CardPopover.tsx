@@ -11,11 +11,9 @@ import { cameWord, lineageOf, originWord, type KinHow } from '../../lineage';
 import { blockedBy, sectionOf, SECTION_WORD, snippet } from '../../todos';
 import type { RefItem } from '../../canvas/model';
 import type { Lane, Pr, Session, Todo } from '../../types';
-import { BranchLabel, HarnessChip, Icon, LaneGlyph, PR_ICON, PrChip, Rich, STATUS_WORD, StatusGlyph } from '../primitives';
+import { BranchLabel, cx, HarnessChip, Icon, LaneGlyph, PR_ICON, PrChip, Rich, STATUS_WORD, StatusGlyph } from '../primitives';
 import { LabelChip, TodoGlyph } from '../TodoBits';
 import type { CardData } from './data';
-
-const cx = (...parts: (string | false | null | undefined)[]) => parts.filter(Boolean).join(' ');
 
 function Row({ icon, children }: { icon: string; children: ReactNode }) {
   return (

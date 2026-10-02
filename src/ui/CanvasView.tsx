@@ -50,7 +50,7 @@ import { CanvasCard } from './CanvasCard';
 import { CardDetail, CardPopover } from './card/CardPopover';
 import { cardData, cardSig } from './card/data';
 import { BringInPanel, TidyPanel, tidySummary } from './CanvasTidy';
-import { Icon } from './primitives';
+import { cx, Icon } from './primitives';
 
 /** At or above this zoom, cards are HTML you can read; below it, blocks on the GPU. */
 const NEAR = 0.4;
@@ -125,7 +125,6 @@ function readColors() {
   };
 }
 
-const cx = (...parts: (string | false | null | undefined)[]) => parts.filter(Boolean).join(' ');
 const clamp = (z: number) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z));
 
 export function CanvasView(props: CanvasViewProps) {

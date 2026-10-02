@@ -37,6 +37,19 @@ export function cardData(e: Entities, it: RefItem, labels: Map<string, Label>): 
   }
 }
 
+/** A session worth a line on a card that could list many: running, or waiting on you. */
+const current = (s: Session) => !s.archived && (s.live || (s.status !== 'idle' && s.status !== 'stopped'));
+
+/** The sessions a worktree's, todo's or PR's card lists under it: a todo's all, a worktree's and
+ *  a PR's the ones running or waiting on you (they keep every session they ever had). `lanes`
+ *  are the card's own feed: for a PR, the worktrees that hold it and its sessions'. */
+export function cardSessions(d: CardData | null, lanes: Lane[]): { lane: Lane; session: Session }[] {
+  if (d?.ref === 'worktree') return d.lane.sessions.filter((s) => !s.visitor && current(s)).map((session) => ({ lane: d.lane, session }));
+  if (d?.ref === 'todo') return d.sessions;
+  if (d?.ref === 'pr') return lanes.flatMap((lane) => lane.sessions.filter(current).map((session) => ({ lane, session })));
+  return [];
+}
+
 /** What a session is up to, in a line: what it runs or asks while it's busy, else the start of
  *  its last message, which agents open with where the work stands. */
 export function sessionLine(s: Session): string {

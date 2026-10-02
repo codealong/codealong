@@ -9,7 +9,7 @@ import { agentsStatus, foundAccounts, getAccounts, installAgents, saveAccounts, 
 import { agoPhrase } from '../format';
 import { HARNESSES, HARNESS_WORD } from '../harness';
 import type { AccountCfg, AccountInfo, FoundAccount, Harness, StartPlace, Usage } from '../types';
-import { Button, Icon, Rich, Seg } from './primitives';
+import { Button, cx, Icon, Rich, Seg } from './primitives';
 import { asOfPhrase, UsageMeter } from './UsageBar';
 
 interface Draft {
@@ -356,11 +356,11 @@ export function AccountsSection({ focus, usage, terminal, now, onSaved }: Accoun
         const u = usage.find((x) => x.account === a.name);
         const status = a.signedIn ? (a.email ?? 'Signed in') : a.folderExists ? 'Not signed in' : 'Not set up';
         return (
-          <div key={a.name} id={`ca-acct-${a.name}`} className={['ca-ucard', 'ca-acct', focus === a.name && 'is-focus'].filter(Boolean).join(' ')}>
+          <div key={a.name} id={`ca-acct-${a.name}`} className={cx('ca-ucard', 'ca-acct', focus === a.name && 'is-focus')}>
             <div className="ca-ucard-head">
               <button
                 type="button"
-                className={['ca-acct-star', a.preferred ? 'is-on' : ''].filter(Boolean).join(' ')}
+                className={cx('ca-acct-star', a.preferred ? 'is-on' : '')}
                 aria-pressed={!!a.preferred}
                 aria-label={`Preferred: ${a.name}`}
                 title={a.preferred ? 'Preferred: Auto starts this account while it has room. Click to stop preferring it.' : 'Prefer this account: Auto starts preferred accounts while one has room, and others only when they’re all near a limit.'}

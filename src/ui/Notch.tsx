@@ -26,7 +26,7 @@ import type { BarGroup } from '../types';
 import type { Moment } from '../mark';
 import type { LogoStatus, Status } from '../types';
 import { MarkLive } from './MarkLive';
-import { Icon, StatusGlyph } from './primitives';
+import { cx, Icon, StatusGlyph } from './primitives';
 
 /** How long the pointer rests on the closed notch before it opens, and is off it before it
  *  closes. */
@@ -297,7 +297,7 @@ export function NotchShell({ notch, logoStatus, moment, counts, room, screen, pr
 
   return (
     <div
-      className={['ca-notch', `is-${state}`, below && 'is-open', sizing && 'is-sizing', !notch.real && 'is-drawn'].filter(Boolean).join(' ')}
+      className={cx('ca-notch', `is-${state}`, below && 'is-open', sizing && 'is-sizing', !notch.real && 'is-drawn')}
       style={{ left: x, width: sizes.full.w, height: sizes.full.h, '--notch-w': `${notch.width}px`, '--notch-h': `${notch.height}px` } as CSSProperties}
     >
       <span
@@ -343,7 +343,7 @@ export function NotchShell({ notch, logoStatus, moment, counts, room, screen, pr
               ))}
               <button
                 type="button"
-                className={['ca-notch-pin', 'ca-notch-extra', keepOpen && 'is-on'].filter(Boolean).join(' ')}
+                className={cx('ca-notch-pin', 'ca-notch-extra', keepOpen && 'is-on')}
                 title={keepOpen ? 'Let it close' : 'Keep it open'}
                 aria-label={keepOpen ? 'Let the notch close' : 'Keep the notch open'}
                 aria-pressed={keepOpen}
@@ -381,7 +381,7 @@ export function NotchShell({ notch, logoStatus, moment, counts, room, screen, pr
  *  comes, and again when the number changes. Open, a group's count is a button: its first session
  *  shows under the pills, the way into working through them. */
 function Count({ kind, n, extra, pulse, open, onPick }: { kind: NotchKind; n: number; extra?: boolean; pulse?: boolean; open: boolean; onPick: (group: BarGroup) => void }) {
-  const className = ['ca-notch-count', `is-${kind}`, extra && 'ca-notch-extra', pulse && 'is-pulse'].filter(Boolean).join(' ');
+  const className = cx('ca-notch-count', `is-${kind}`, extra && 'ca-notch-extra', pulse && 'is-pulse');
   if (kind === 'reviews') {
     return (
       <span className={className} title={n === 1 ? '1 PR waits on your review' : `${n} PRs wait on your review`}>

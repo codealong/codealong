@@ -272,7 +272,7 @@ export function PrsView(props: PrsViewProps) {
       {pinned.length > 0 && <PinnedSection items={pinned} row={row} />}
       {drag.ghost}
       {sections.map((s) => (
-        <section key={s.id} className={['ca-bayblock', s.id === 'requested' && 'ca-prs-requested'].filter(Boolean).join(' ')}>
+        <section key={s.id} className={cx('ca-bayblock', s.id === 'requested' && 'ca-prs-requested')}>
           <div className="ca-bay ca-bay--section" role="heading" aria-level={3}>
             <Icon name={SECTION_ICON[s.id]} size={12} />
             <span>{s.label}</span>

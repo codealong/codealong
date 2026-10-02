@@ -127,6 +127,12 @@ export function liveOrLatest<T extends { session: Session }>(list: T[]): T | nul
   return list.reduce<T | null>((best, x) => (!best || better(x.session, best.session) ? x : best), null);
 }
 
+/** A worktree's branch as the lists and panels name it: the branch, or the commit a detached
+ *  HEAD is at; null when git hasn't said either. */
+export function branchLabel(lane: Pick<Lane, 'branch' | 'detached'>): string | null {
+  return lane.branch ?? (lane.detached ? `detached @ ${lane.detached}` : null);
+}
+
 /** A worktree's name beside its repo: `main` for the repo's main worktree, as git calls it, else
  *  its callsign. Where the repo isn't beside it, the callsign (the repo's own name, for the main
  *  worktree) says more. */

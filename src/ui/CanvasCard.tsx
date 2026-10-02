@@ -5,8 +5,7 @@ import { memo } from 'react';
 import { CARD_H, CARD_W, type RefItem } from '../canvas/model';
 import { CardFace } from './card/CardFace';
 import type { CardData } from './card/data';
-
-const cx = (...parts: (string | false | null | undefined)[]) => parts.filter(Boolean).join(' ');
+import { cx } from './primitives';
 
 interface CardProps {
   item: RefItem;

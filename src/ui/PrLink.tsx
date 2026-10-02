@@ -20,7 +20,7 @@ import { errorText } from '../report';
 import type { Lane, Pr, PrItem, Session } from '../types';
 import { PanelSession } from './PanelSession';
 import { PrPills } from './PrPills';
-import { Button, Icon, PR_ICON, PR_WORD, PrChip } from './primitives';
+import { Button, cx, Icon, PR_ICON, PR_WORD, PrChip } from './primitives';
 import { useDismiss } from './useDismiss';
 
 /** What a window does with a PR link's card: showing and opening what's on it, and menus. */
@@ -329,7 +329,7 @@ function PrCard({ anchor, prRef: ref, url, onEnter, onLeave, onClose, onFollow }
   return createPortal(
     <div ref={card} className="ca-prhover" role="dialog" aria-label={`${ref.slug}#${ref.number}`} onMouseEnter={onEnter} onMouseLeave={onLeave}>
       <div className="ca-prhover-head">
-        <span className={['ca-lane-pricon', pr && `ca-pr--${pr.state}`].filter(Boolean).join(' ')}>
+        <span className={cx('ca-lane-pricon', pr && `ca-pr--${pr.state}`)}>
           <Icon name={pr ? PR_ICON[pr.state] : 'pr'} size={14} stroke={1.75} title={pr ? PR_WORD[pr.state] : undefined} />
         </span>
         <span className="ca-prhover-ref">

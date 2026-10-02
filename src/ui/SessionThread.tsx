@@ -41,7 +41,7 @@ import type { HostedStream, Question, Session, Status, TranscriptItem, Transcrip
 import { CodeBlock } from './CopyButton';
 import { DescriptionView } from './DescriptionEditor';
 import { Link, linked, Markdown } from './Markdown';
-import { Icon, Rich, StatusGlyph } from './primitives';
+import { cx, Icon, Rich, StatusGlyph } from './primitives';
 import { QuestionList } from './QuestionList';
 import { RunContext, type RunPlace } from './RunButton';
 import { errorText } from '../report';
@@ -116,7 +116,7 @@ function ToolLine({ item, result, state, onOpen }: { item: TranscriptItem; resul
   const detail = questions || item.input || output;
   const link = item.link ?? result?.link;
   return (
-    <div className={['ca-thread-tool', failed && 'is-failed', state === 'asks' && 'is-asks'].filter(Boolean).join(' ')}>
+    <div className={cx('ca-thread-tool', failed && 'is-failed', state === 'asks' && 'is-asks')}>
       <button type="button" className="ca-thread-toolhead" aria-expanded={open} disabled={!detail} onClick={() => setOpen(!open)}>
         <Icon name={questions ? 'help' : toolIcon(item.text)} size={13} />
         <span className="ca-thread-toollabel">
@@ -162,7 +162,7 @@ function ToolLine({ item, result, state, onOpen }: { item: TranscriptItem; resul
         <div className="ca-thread-tooldetail">
           {item.input && <CodeBlock text={item.input} className="ca-thread-in" run={item.shell && state !== 'asks' ? { folder: item.cwd } : undefined} />}
           {output && (
-            <CodeBlock text={output} className={['ca-thread-out', failed && 'is-failed'].filter(Boolean).join(' ')}>
+            <CodeBlock text={output} className={cx('ca-thread-out', failed && 'is-failed')}>
               {linked(output)}
             </CodeBlock>
           )}
@@ -195,7 +195,7 @@ function ToolRun({ calls, stateOf, onOpen }: { calls: { item: TranscriptItem; re
 
 function Said({ item, now, label, onPutBack }: { item: TranscriptItem; now: number; label: ReactNode; onPutBack?: () => void }) {
   return (
-    <div className={['ca-thread-said', `is-${item.kind}`, item.withdrawn && 'is-withdrawn'].filter(Boolean).join(' ')} data-prompt={item.kind === 'you' ? keyOf(item) : undefined}>
+    <div className={cx('ca-thread-said', `is-${item.kind}`, item.withdrawn && 'is-withdrawn')} data-prompt={item.kind === 'you' ? keyOf(item) : undefined}>
       <div className="ca-thread-meta">
         <span>{label}</span>
         <span className="ca-meta" title={absolute(item.at)}>
@@ -233,7 +233,7 @@ function Unsaid({ ahead, onOpen }: { ahead: Ahead; onOpen: () => void }) {
   if (c.kind !== 'send') return null;
   const state = ahead.doneAt == null ? 'Sending…' : ahead.unconfirmed ? 'Not in the session yet' : 'Sent';
   return (
-    <div className={['ca-thread-said', 'is-you', 'is-ahead', ahead.doneAt == null && 'is-going', ahead.unconfirmed && 'is-unconfirmed'].filter(Boolean).join(' ')} data-prompt={`ahead:${ahead.id}`}>
+    <div className={cx('ca-thread-said', 'is-you', 'is-ahead', ahead.doneAt == null && 'is-going', ahead.unconfirmed && 'is-unconfirmed')} data-prompt={`ahead:${ahead.id}`}>
       <div className="ca-thread-meta">
         <span>You</span>
         <span className="ca-meta">{state}</span>

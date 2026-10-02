@@ -6,7 +6,7 @@ import { createContext, useEffect, useState } from 'react';
 import { runInTerminal } from '../api';
 import { tildePath } from '../format';
 import type { Lane, Session } from '../types';
-import { Icon } from './primitives';
+import { cx, Icon } from './primitives';
 import { errorText } from '../report';
 
 /** Where a session's commands run: its folder on this Mac, and the terminal that opens there. A
@@ -37,7 +37,7 @@ export function RunButton({ text, folder, terminal, onFailed }: { text: string; 
   return (
     <button
       type="button"
-      className={['ca-copybtn', state && `is-${state}`].filter(Boolean).join(' ')}
+      className={cx('ca-copybtn', state && `is-${state}`)}
       title={state === 'done' ? `Opened in ${terminal}` : title}
       aria-label={title}
       disabled={state === 'going'}

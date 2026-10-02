@@ -14,7 +14,7 @@ import { AgentsSection } from './AgentsSection';
 import { DevicesPane } from './DevicesSection';
 import { ChromeProfileSelect } from './PreviewBits';
 import { UpdatesFields } from './Updates';
-import { Button, Dialog, Icon, NavItem, Seg } from './primitives';
+import { Button, cx, Dialog, Icon, NavItem, Seg } from './primitives';
 import { THEMES } from './ThemeSwitch';
 import { errorText } from '../report';
 
@@ -378,7 +378,7 @@ function JevPane({ jev, disabled, onChange }: { jev: JevCfg; disabled: boolean; 
           <span>What to use it for</span>
           <div className="ca-jev-features">
             {JEV_FEATURES.map((f) => (
-              <label key={f.id} className={['ca-jev-feature', noKey && 'is-disabled'].filter(Boolean).join(' ')}>
+              <label key={f.id} className={cx('ca-jev-feature', noKey && 'is-disabled')}>
                 <span className="ca-check">
                   <input type="checkbox" checked={jev[f.id]} disabled={noKey} onChange={(e) => onChange({ ...jev, [f.id]: e.target.checked })} />
                   <span className="ca-check-box" aria-hidden="true">
@@ -445,7 +445,7 @@ function ShortcutField({ value, onChange }: { value: string; onChange: (shortcut
         <button
           ref={button}
           type="button"
-          className={['ca-shortcut', recording && 'is-recording', !label && 'is-off'].filter(Boolean).join(' ')}
+          className={cx('ca-shortcut', recording && 'is-recording', !label && 'is-off')}
           aria-label={recording ? 'Press the new shortcut' : `Quick panel shortcut: ${label ?? 'off'}. Press to change.`}
           onClick={() => record(!recording)}
           onBlur={() => recording && record(false)}

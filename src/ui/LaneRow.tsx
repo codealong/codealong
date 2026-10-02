@@ -7,7 +7,7 @@ import { DeviceBadge } from './DeviceBadge';
 import { memoRow } from './memoRow';
 import type { MouseEvent as ReactMouseEvent } from 'react';
 import { absolute, ago, agoPhrase, count, middleTruncate, untilShort } from '../format';
-import { startedOf, worktreeName, type AgentItem, type WorktreeRow } from '../lanes';
+import { branchLabel, startedOf, worktreeName, type AgentItem, type WorktreeRow } from '../lanes';
 import { untilWords } from '../snooze';
 import type { GitInfo, Lane, Session, Todo } from '../types';
 import { Chip, cx, driftWords, HarnessChip, Icon, LaneGlyph, MoreChip, PrChip, Rich, Row, selects, STATUS_WORD, StatusGlyph, WorktreeChip } from './primitives';
@@ -59,7 +59,7 @@ export function currentSessions(lane: Lane, now: number) {
 
 /** `atlas · quarry`: the repo, and the branch when the worktree's name doesn't already say it. */
 function laneSub(lane: Lane): { sub: string; branch: string | null } {
-  const branch = lane.branch ?? (lane.detached ? `detached @ ${lane.detached}` : null);
+  const branch = branchLabel(lane);
   return { branch, sub: branch && branch !== worktreeName(lane) ? `${lane.repo} · ${middleTruncate(branch, 26)}` : lane.repo };
 }
 

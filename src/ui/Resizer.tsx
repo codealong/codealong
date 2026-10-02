@@ -3,6 +3,7 @@
 // localStorage, like the view and the age filter.
 
 import { useCallback, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { cx } from './primitives';
 
 /** A panel's width as you last left it, and a setter that saves it. Null means the default. */
 export function usePanelWidth(key: string): [number | null, (width: number | null) => void] {
@@ -100,7 +101,7 @@ export function Resizer({ panel, cssVar, onResize }: ResizerProps) {
 
   return (
     <div
-      className={['ca-resizer', active && 'is-active'].filter(Boolean).join(' ')}
+      className={cx('ca-resizer', active && 'is-active')}
       role="separator"
       aria-orientation="vertical"
       title="Drag to resize, double-click to reset"

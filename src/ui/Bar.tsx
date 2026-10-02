@@ -28,7 +28,7 @@ import { ALL_PROJECTS, inProject } from '../quick';
 import { snoozeMenu, untilWords } from '../snooze';
 import type { BarFeed, BarItem, BarRecent, BarReview, BarSnoozed, BarTodo, PeekShown, Status } from '../types';
 import { MarkLive } from './MarkLive';
-import { Icon, STATUS_WORD, StatusGlyph } from './primitives';
+import { cx, Icon, STATUS_WORD, StatusGlyph } from './primitives';
 import { applyTheme } from './ThemeSwitch';
 import { NotchShell } from './Notch';
 import { NotchSession, useNotchSession } from './NotchSession';
@@ -107,7 +107,7 @@ function SessionPill({ item, now, peeked, told, onOpen, onMenu, onHover, onLeave
   return (
     <button
       type="button"
-      className={['ca-hud-pill', tone(item.status), peeked && 'is-peeked', dragged && 'is-dragged'].filter(Boolean).join(' ')}
+      className={cx('ca-hud-pill', tone(item.status), peeked && 'is-peeked', dragged && 'is-dragged')}
       aria-label={measure ? undefined : sessionLabel(item, now)}
       title={told && !measure && !peeked ? sessionLabel(item, now) : undefined}
       aria-pressed={measure ? undefined : peeked}
@@ -141,7 +141,7 @@ function FoldPill({ group, label, title, onOpen, peeked, measure }: { group: Gro
   return (
     <button
       type="button"
-      className={['ca-hud-pill', 'ca-hud-fold', `is-${group}`, peeked && 'is-peeked'].filter(Boolean).join(' ')}
+      className={cx('ca-hud-pill', 'ca-hud-fold', `is-${group}`, peeked && 'is-peeked')}
       title={title}
       data-fold={measure ? group : undefined}
       onClick={onOpen}

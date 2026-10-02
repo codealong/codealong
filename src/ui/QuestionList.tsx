@@ -4,7 +4,7 @@
 // while the questions can only be answered where the session runs.
 
 import type { Question } from '../types';
-import { Chip, Icon, Rich } from './primitives';
+import { Chip, cx, Icon, Rich } from './primitives';
 
 /** What an answer picked among a question's choices, and any words of your own. Claude Code
  *  records several picks as a list, or, in older versions, as one string joined with commas. */
@@ -43,7 +43,7 @@ export function QuestionList({ questions, answers }: { questions: Question[]; an
               <Rich text={q.question} now={0} />
             </div>
             {q.options.length > 0 && (
-              <ol className={['ca-question-list', given && 'is-answered'].filter(Boolean).join(' ')}>
+              <ol className={cx('ca-question-list', given && 'is-answered')}>
                 {q.options.map((o) => (
                   <li key={o.label} className={picked.has(o.label) ? 'is-picked' : undefined}>
                     <span className="ca-question-opt">

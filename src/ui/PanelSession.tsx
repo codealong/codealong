@@ -1,11 +1,13 @@
-// A session as the PR and todo panels list it under its worktree: its title, then who runs it and
+// A worktree and its sessions as the PR and todo panels list them, drawn like the sidebar's tree
+// (`PanelPlace`), and a session under its worktree there (`PanelSession`): its title, then who runs it and
 // what it's doing, as the Sessions view says it. A click shows it in the panel (with a way back);
 // double-click or the arrow opens it where it runs, as double-click does in every list.
 
 import { absolute, ago, withTimes } from '../format';
 import { withoutAccount } from '../lanes';
 import type { Lane, Session } from '../types';
-import { Icon, StatusGlyph } from './primitives';
+import type { ReactNode } from 'react';
+import { cx, Icon, LaneGlyph, StatusGlyph } from './primitives';
 
 /** What a session is doing or said last, for a row under its title. Its time is in the row's
  *  own column, so the detail's running time is left out. */
@@ -27,7 +29,7 @@ export function PanelSession({ lane, session: s, now, onShow, onOpen, onMenu }: 
   return (
     <div
       role="treeitem"
-      className={['ca-psess', s.visitor && 'is-visitor'].filter(Boolean).join(' ')}
+      className={cx('ca-psess', s.visitor && 'is-visitor')}
       onContextMenu={(e) => {
         e.preventDefault();
         onMenu(lane, s);
@@ -51,6 +53,49 @@ export function PanelSession({ lane, session: s, now, onShow, onOpen, onMenu }: 
       <button type="button" className="ca-psess-open" aria-label="Open where it runs" title="Open it where it runs" onClick={() => onOpen(lane, s)}>
         <Icon name="arrow-up-right" size={12} />
       </button>
+    </div>
+  );
+}
+
+interface PanelPlaceProps {
+  lane: Lane;
+  /** The sessions listed under it. */
+  sessions: Session[];
+  /** What the panel says after the worktree's name: its PR or branch, how it stands. */
+  note?: ReactNode;
+  now: number;
+  onShowLane: (lane: Lane) => void;
+  /** A right-click on the worktree. */
+  onLaneMenu: (lane: Lane) => void;
+  onShowSession: (lane: Lane, session: Session) => void;
+  onOpenSession: (lane: Lane, session: Session) => void;
+  onSessionMenu: (lane: Lane, session: Session) => void;
+}
+
+/** A worktree and its sessions in a panel, as the sidebar's tree draws them. */
+export function PanelPlace({ lane, sessions, note, now, onShowLane, onLaneMenu, onShowSession, onOpenSession, onSessionMenu }: PanelPlaceProps) {
+  return (
+    <div role="treeitem" aria-expanded={sessions.length > 0 ? true : undefined}>
+      <div
+        className="ca-tree-node"
+        onContextMenu={(e) => {
+          e.preventDefault();
+          onLaneMenu(lane);
+        }}
+      >
+        <button type="button" className="ca-tree-label" title={`${lane.path}. Click to show it in Worktrees.`} onClick={() => onShowLane(lane)}>
+          <LaneGlyph lane={lane} />
+          <span className="ca-nav-label">{lane.callsign}</span>
+          {note}
+        </button>
+      </div>
+      {sessions.length > 0 && (
+        <div className="ca-tree-children" role="group">
+          {sessions.map((s) => (
+            <PanelSession key={s.key} lane={lane} session={s} now={now} onShow={onShowSession} onOpen={onOpenSession} onMenu={onSessionMenu} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

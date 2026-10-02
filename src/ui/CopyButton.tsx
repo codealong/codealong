@@ -3,7 +3,7 @@
 // commands (RunButton.tsx).
 
 import { useContext, useEffect, useState, type ReactNode } from 'react';
-import { Icon } from './primitives';
+import { cx, Icon } from './primitives';
 import { RunButton, RunContext } from './RunButton';
 
 export function CopyButton({ text, title = 'Copy', className }: { text: string; title?: string; className?: string }) {
@@ -16,7 +16,7 @@ export function CopyButton({ text, title = 'Copy', className }: { text: string; 
   return (
     <button
       type="button"
-      className={['ca-copybtn', copied === 'yes' && 'is-copied', className].filter(Boolean).join(' ')}
+      className={cx('ca-copybtn', copied === 'yes' && 'is-copied', className)}
       title={copied === 'yes' ? 'Copied' : copied === 'no' ? 'Couldn’t copy' : title}
       aria-label={title}
       onClick={(e) => {

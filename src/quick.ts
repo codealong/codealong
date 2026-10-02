@@ -6,7 +6,7 @@
 // said in it (the engine's text search, search.rs). Kept free of React so the rules have tests.
 
 import { middleTruncate } from './format';
-import { byStatusTime, sessionHomes } from './lanes';
+import { branchLabel, byStatusTime, sessionHomes } from './lanes';
 import { sectionOf, todoItem, type TodoItem, type TodoSectionId } from './todos';
 import { prFlag } from './prStatus';
 import type { Board, Lane, PrItem, PrState, Session, Status, TextHit } from './types';
@@ -330,7 +330,7 @@ export function laneGroups(lanes: Lane[], pinned: string[]): { label: string; la
 
 /** A worktree's branch, when it says more than its name. */
 export function laneBranch(l: Lane): string | null {
-  const branch = l.branch ?? (l.detached ? `detached @ ${l.detached}` : null);
+  const branch = branchLabel(l);
   return branch && branch !== l.callsign ? middleTruncate(branch, 44) : null;
 }
 

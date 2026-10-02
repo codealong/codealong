@@ -10,7 +10,7 @@ import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, ty
 import { createPortal } from 'react-dom';
 import { dragToDesktop, onDesktopDragAway, onDesktopDragEnd } from '../api';
 import type { DesktopPinned } from '../types';
-import { Icon } from './primitives';
+import { cx, Icon } from './primitives';
 
 /** What a draggable row needs. */
 export interface DragProps {
@@ -285,7 +285,7 @@ export function useRowDrag(options: RowDragOptions) {
    *  null for a row that isn't one of them. */
   const rowProps = (key: string, index: number | null, count: number): DragProps => {
     const at = drag?.zone.at === 'order' ? drag.zone.index : -1;
-    const extraClass = [drag?.key === key && 'is-drag-source', index != null && at === index && 'is-drop-before', index != null && index === count - 1 && at === count && 'is-drop-after'].filter(Boolean).join(' ');
+    const extraClass = cx(drag?.key === key && 'is-drag-source', index != null && at === index && 'is-drop-before', index != null && index === count - 1 && at === count && 'is-drop-after');
     return { pinIndex: index ?? undefined, onPointerDown: (e) => start(e, key, index), extraClass: extraClass || undefined };
   };
 
@@ -296,7 +296,7 @@ export function useRowDrag(options: RowDragOptions) {
     const act = drag.zone.at === 'order' && !drag.inOrder ? { icon: 'pin', word: 'Pin' } : drag.zone.at === 'list' && drag.inOrder && options.onLeave ? { icon: 'pin-off', word: 'Unpin' } : null;
     const title = options.label?.(drag.key);
     held = createPortal(
-      <div ref={ghost} className={['ca-dragghost', drag.zone.at === 'out' && 'is-out', act && 'is-act'].filter(Boolean).join(' ')} style={{ transform: `translate(${d?.x ?? 0}px, ${d?.y ?? 0}px)` }} aria-hidden="true">
+      <div ref={ghost} className={cx('ca-dragghost', drag.zone.at === 'out' && 'is-out', act && 'is-act')} style={{ transform: `translate(${d?.x ?? 0}px, ${d?.y ?? 0}px)` }} aria-hidden="true">
         {act && (
           <span className="ca-dragghost-act">
             <Icon name={act.icon} size={12} />
