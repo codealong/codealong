@@ -717,9 +717,7 @@ mod tests {
     /// a read-only connection can't make them: the database must still open.
     #[test]
     fn reads_a_wal_database_whether_or_not_its_writer_is_there() {
-        let dir = std::env::temp_dir().join(format!("codealong-wal-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = crate::fixtures::scratch("wal");
         let path = dir.join("it's a db.db");
         let count = |db: &rusqlite::Connection| db.query_row("SELECT count(*) FROM t", [], |r| r.get::<_, i64>(0)).unwrap();
         let writer = rusqlite::Connection::open(&path).unwrap();
@@ -732,6 +730,5 @@ mod tests {
         assert_eq!(count(&open_database(&path).unwrap()), 2);
         assert!(!dir.join("it's a db.db-shm").exists() && !dir.join("it's a db.db-wal").exists(), "reading it left nothing beside it");
         assert!(open_database(&dir.join("missing.db")).is_none());
-        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

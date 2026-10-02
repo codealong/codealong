@@ -351,8 +351,7 @@ mod tests {
     #[test]
     fn a_worktree_with_a_relative_gitdir_is_located() {
         // As `git worktree add` writes them with `worktree.useRelativePaths` (git 2.48).
-        let root = std::env::temp_dir().join(format!("codealong-relative-gitdir-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
+        let root = crate::fixtures::scratch("relative-gitdir");
         let (main, wt) = (root.join("main"), root.join("wt"));
         let admin = main.join(".git/worktrees/wt");
         std::fs::create_dir_all(&admin).unwrap();
@@ -367,7 +366,6 @@ mod tests {
         // An absolute one reads as it's written.
         std::fs::write(wt.join(".git"), format!("gitdir: {}\n", admin.display())).unwrap();
         assert_eq!(linked_gitdir(&wt).unwrap(), admin);
-        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

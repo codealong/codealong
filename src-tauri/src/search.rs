@@ -382,8 +382,7 @@ mod tests {
 
     #[test]
     fn reads_prompts_and_replies_but_not_tools() {
-        let dir = std::env::temp_dir().join(format!("codealong-search-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = crate::fixtures::scratch("search");
         let path = dir.join("s.jsonl");
         let lines = [
             r#"{"type":"user","timestamp":"2026-09-24T10:00:00Z","origin":{"kind":"human"},"message":{"role":"user","content":"Fix the webhook retries"}}"#,
@@ -410,7 +409,6 @@ mod tests {
         assert_eq!(catch_up(&path, &mut f), std::fs::metadata(&path).unwrap().len() - before);
         let h = hit(&f.key, f.entries.iter(), &words("webhook stripe")).unwrap();
         assert_eq!(h.snippet, "Done, both webhook and stripe fixed.");
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

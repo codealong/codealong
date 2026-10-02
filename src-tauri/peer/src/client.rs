@@ -785,7 +785,7 @@ mod tests {
 
     #[test]
     fn keeps_links_and_feeds_across_launches() {
-        let dir = std::env::temp_dir().join(format!("codealong-client-{}", proto::nonce()));
+        let dir = crate::fixtures::scratch("client");
         let key = SecretKey::generate().public();
         let hex = proto::key_hex(&key);
         save_linked(&dir, &[Linked { key: hex.clone(), name: "Mac mini".into(), linked_at: 1 }]);
@@ -802,6 +802,5 @@ mod tests {
         assert!(c.ask(&hex[..10], "session-page", Value::Null, Duration::from_millis(10)).unwrap_err().contains("isn't connected"));
         c.unlink(&hex).unwrap();
         assert!(Client::new(dir.clone(), SecretKey::generate(), "iPhone".into(), "0.1.0".into(), proto::PHONE, Box::new(|| {})).devices().is_empty());
-        let _ = std::fs::remove_dir_all(dir);
     }
 }

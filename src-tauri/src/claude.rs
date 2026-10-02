@@ -2567,8 +2567,7 @@ mod tests {
 
     #[test]
     fn marks_a_prompt_taken_back_in_the_conversation() {
-        let dir = std::env::temp_dir().join(format!("codealong-taken-back-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = crate::fixtures::scratch("taken-back");
         let path = dir.join("t.jsonl");
         let write = |lines: &[String]| std::fs::write(&path, lines.iter().map(|l| format!("{l}\n")).collect::<String>()).unwrap();
         let answered = [prompt("o", Some("z"), "Earlier question"), reply("a0", "o", "Earlier answer.")];
@@ -2598,7 +2597,6 @@ mod tests {
         write(&lines);
         assert_eq!(page(Some(sent + 900)), [("you", false), ("agent", false), ("you", false), ("agent", false)]);
         assert_eq!(open_prompt_before(&path, std::fs::metadata(&path).unwrap().len()), None);
-        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
@@ -2672,7 +2670,7 @@ mod tests {
     #[test]
     fn questions_show_in_the_conversation_and_wait_where_the_session_runs() {
         use crate::harness::Adapter;
-        let home = std::env::temp_dir().join(format!("codealong-questions-{}", std::process::id()));
+        let home = crate::fixtures::scratch("questions");
         let dir = home.join("projects/-x");
         std::fs::create_dir_all(home.join("sessions")).unwrap();
         std::fs::create_dir_all(&dir).unwrap();
@@ -2715,14 +2713,12 @@ mod tests {
         let a = crate::asks::Asked { id: "ask-9".into(), session: "abc".into(), agent: None, tool: "Bash".into(), input: serde_json::json!({ "command": "touch alpha.txt" }), suggestions: vec![serde_json::json!({ "type": "setMode", "mode": "acceptEdits", "destination": "session" })], at: 1 };
         let p = asked_pending(&a);
         assert_eq!((p.id.as_str(), p.label.as_str(), p.input.as_deref(), p.cannot, p.always), ("ask-9", "Bash · `touch alpha.txt`", Some("touch alpha.txt"), None, true));
-        std::fs::remove_dir_all(&home).ok();
         assert_eq!(p.always_rule.as_deref(), Some("Switches to accepting edits for this session."));
     }
 
     #[test]
     fn reads_the_mode_the_latest_prompt_went_in() {
-        let dir = std::env::temp_dir().join(format!("codealong-mode-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = crate::fixtures::scratch("mode");
         let t = dir.join("s.jsonl");
         let lines = [
             r#"{"type":"user","permissionMode":"default","message":{"role":"user","content":"one"}}"#,
@@ -2741,7 +2737,6 @@ mod tests {
 "#;
 
     #[test]
-        let _ = std::fs::remove_dir_all(&dir);
     fn reads_identity_titles_and_pending_tools() {
         let tail = r#"{"type":"custom-title","customTitle":"Quarry daily log + photo sync","sessionId":"25b09e0e"}
 {"type":"assistant","timestamp":"2026-09-23T15:00:00.000Z","message":{"content":[{"type":"text","text":"Running the migration now."},{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"yarn mikro-orm migration:up"}}]}}
@@ -2802,8 +2797,7 @@ mod tests {
 
     #[test]
     fn finds_the_call_running_at_the_end_of_a_transcript() {
-        let dir = std::env::temp_dir().join(format!("codealong-claude-open-calls-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = crate::fixtures::scratch("claude-open-calls");
         let path = dir.join("s.jsonl");
         let call = |id: &str, command: &str| serde_json::json!({ "type": "assistant", "timestamp": "2026-09-27T16:00:00.000Z", "message": { "content": [{ "type": "tool_use", "id": id, "name": "Bash", "input": { "command": command } }] } }).to_string();
         let result = |id: &str| serde_json::json!({ "type": "user", "timestamp": "2026-09-27T16:00:01.000Z", "message": { "content": [{ "type": "tool_result", "tool_use_id": id, "content": "ok" }] } }).to_string();
@@ -2815,11 +2809,9 @@ mod tests {
 
     #[test]
     fn finds_the_first_prompt_past_huge_lines() {
-        let dir = std::env::temp_dir().join(format!("codealong-head-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = crate::fixtures::scratch("head");
         let path = dir.join("s.jsonl");
         let big = format!("{{\"type\":\"attachment\",\"blob\":\"{}\"}}\n", "x".repeat(600_000));
-        std::fs::remove_dir_all(&dir).ok();
         let text = format!("{big}{HEAD}");
         std::fs::write(&path, text).unwrap();
         let head = read_head_info(&path).unwrap();
@@ -2849,7 +2841,6 @@ mod tests {
         let tail = r#"{"type":"user","timestamp":"2026-09-23T15:00:00.000Z","origin":{"kind":"human"},"message":{"content":"<pasted_content id=\"a\">\nlog\n</pasted_content id=\"a\">\n\nwhy does this fail?"}}
 {"type":"assistant","timestamp":"2026-09-23T15:00:05.000Z","message":{"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"yarn test"}}]}}
 {"type":"user","timestamp":"2026-09-23T15:00:09.000Z","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}}
-        std::fs::remove_dir_all(&dir).unwrap();
 {"type":"user","timestamp":"2026-09-23T15:01:00.000Z","origin":{"kind":"task-notification"},"message":{"content":"<task-notification>\n<task-id>b1</task-id>\n</task-notification>"}}
 {"type":"user","timestamp":"2026-09-23T15:02:00.000Z","origin":{"kind":"peer","from":"review"},"isMeta":true,"message":{"content":"Another Claude session sent a message"}}
 {"type":"user","timestamp":"2026-09-23T15:03:00.000Z","isCompactSummary":true,"isVisibleInTranscriptOnly":true,"message":{"content":"This session is being continued from a previous conversation."}}
@@ -2889,8 +2880,7 @@ mod tests {
 
     #[test]
     fn finds_the_last_prompt_behind_a_long_turn() {
-        let dir = std::env::temp_dir().join(format!("codealong-prompt-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = crate::fixtures::scratch("prompt");
         let path = dir.join("s.jsonl");
         let prompt = r#"{"type":"user","timestamp":"2026-09-23T15:00:00.000Z","origin":{"kind":"human"},"message":{"content":"Refactor the parser"}}"#;
         let output = |i: usize| format!(r#"{{"type":"user","timestamp":"2026-09-23T15:10:00.000Z","message":{{"content":[{{"type":"tool_result","tool_use_id":"t{i}","content":"{}"}}]}}}}"#, "x".repeat(120_000));
@@ -2906,7 +2896,6 @@ mod tests {
         let e = parse_registry(r#"{"pid":22303,"sessionId":"9f62","cwd":"/x","status":"busy","kind":"interactive","entrypoint":"cli","name":"atlas-app4-4b","nameSource":"derived","startedAt":1,"statusUpdatedAt":2}"#).unwrap();
         assert_eq!(e.status, "busy");
         assert_eq!(e.name.as_deref(), Some("atlas-app4-4b"));
-        std::fs::remove_dir_all(&dir).unwrap();
         assert_eq!(e.parked_job, None);
         assert!(!e.spare);
         assert!(parse_registry(r#"{"pid":1}"#).is_none());
@@ -2931,8 +2920,7 @@ mod tests {
 
     #[test]
     fn reads_what_each_job_was_forked_from_once() {
-        let home = std::env::temp_dir().join(format!("codealong-job-forks-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&home);
+        let home = crate::fixtures::scratch("job-forks");
         let job = |name: &str, state: &str| {
             std::fs::create_dir_all(home.join("jobs").join(name)).unwrap();
             std::fs::write(home.join("jobs").join(name).join("state.json"), state).unwrap();
@@ -2963,10 +2951,9 @@ mod tests {
 
     #[test]
     fn parked_windows_and_spares_run_no_session() {
-        let home = std::env::temp_dir().join(format!("codealong-parked-{}", std::process::id()));
+        let home = crate::fixtures::scratch("parked");
         std::fs::create_dir_all(home.join("sessions")).unwrap();
         let (pid, now) = (std::process::id(), crate::util::now_ms());
-        let _ = std::fs::remove_dir_all(&home);
         let entry = |id: &str, extra: &str| format!(r#"{{"pid":{pid},"sessionId":"{id}","cwd":"/x","status":"idle","kind":"interactive","startedAt":{now}{extra}}}"#);
         std::fs::write(home.join("sessions/1.json"), entry("b664dd38", r#","parkedJobId":"398f3533""#)).unwrap();
         std::fs::write(home.join("sessions/2.json"), entry("c1456f74", "")).unwrap();
@@ -2984,7 +2971,6 @@ mod tests {
         // Moving it writes where it went, after the last turn's lines; that isn't activity.
         let moved = r#"{"type":"assistant","timestamp":"2026-09-28T18:38:00.000Z","message":{"content":[{"type":"text","text":"Landed."}]}}
 {"type":"system","subtype":"turn_duration","timestamp":"2026-09-28T18:38:07.260Z"}
-        std::fs::remove_dir_all(&home).unwrap();
 {"type":"cost-state","sessionId":"b664dd38"}
 {"type":"continued-in","timestamp":"2026-09-29T02:27:21.233Z","sessionId":"b664dd38","continuedInSessionId":"398f3533-73b3-4089-af4e-06603a870e04"}
 "#;
@@ -3023,7 +3009,7 @@ mod tests {
     fn names_a_session_where_claude_code_keeps_it() {
         use crate::harness::Adapter;
         use std::os::unix::fs::PermissionsExt;
-        let home = std::env::temp_dir().join(format!("codealong-rename-{}", std::process::id()));
+        let home = crate::fixtures::scratch("rename");
         let dir = home.join("projects/-x");
         std::fs::create_dir_all(&dir).unwrap();
         // A job that goes on from a conversation, whose transcript ends in a line cut off midway.
@@ -3066,7 +3052,6 @@ mod tests {
   "numStartups": 5,
   "projects": {
     "/r/b": {
-        std::fs::remove_dir_all(&home).ok();
       "allowedTools": [],
       "mcpServers": {},
       "hasTrustDialogAccepted": false
@@ -3286,8 +3271,7 @@ mod tests {
         use crate::harness::Reader as _;
         use std::io::Write;
 
-        let home = std::env::temp_dir().join(format!("codealong-claude-reader-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&home);
+        let home = crate::fixtures::scratch("claude-reader");
         let project = home.join("projects/-Users-me-app");
         std::fs::create_dir_all(project.join("s1/subagents")).unwrap();
         let account = AccountCfg { name: "claude9".into(), harness: "claude".into(), home: home.to_string_lossy().into_owned(), command: None, start: None, preferred: false, acp: None };
@@ -3342,7 +3326,6 @@ mod tests {
         assert_eq!(background_job(out).as_deref(), Some("34b864ad"));
         assert_eq!(background_job("backgrounded · 3a6096ed (idle — send a prompt to start)\n").as_deref(), Some("3a6096ed"));
         assert_eq!(background_job("Workspace not trusted. Run `claude` in /r/x once and accept the trust prompt, then retry.\n"), None);
-        std::fs::remove_dir_all(&home).unwrap();
         let roster = serde_json::json!({"workers": {"34b864ad": {"sessionId": "34b864ad-b397-4f98-96fe-b06f41bb2653"}, "11111111": {"sessionId": "22222222-0000-4000-8000-000000000000"}}});
         assert_eq!(background_session(&roster, "34b864ad").as_deref(), Some("34b864ad-b397-4f98-96fe-b06f41bb2653"));
         assert_eq!(background_session(&roster, "11111111"), None);

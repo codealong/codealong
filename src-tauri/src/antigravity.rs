@@ -1086,8 +1086,7 @@ mod tests {
     /// that waits, and its transcript.
     #[test]
     fn reads_a_folder_as_the_command_line_leaves_it() {
-        let root = std::env::temp_dir().join(format!("codealong-antigravity-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
+        let root = crate::fixtures::scratch("antigravity");
         let dir = root.join("antigravity-cli");
         let logs = dir.join("brain/c1/.system_generated/logs");
         std::fs::create_dir_all(&logs).unwrap();
@@ -1125,7 +1124,6 @@ mod tests {
         assert_eq!((waits.label.as_str(), waits.id.as_str(), waits.cannot.is_some()), ("Run command · `ls /definitely-not-here`", "6", true));
         assert_eq!(Antigravity.open_calls(&ctx, &session), ["ls /definitely-not-here"]);
         assert_eq!(Antigravity.records(&account, &session)[0], logs.join("transcript_full.jsonl"));
-        std::fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]

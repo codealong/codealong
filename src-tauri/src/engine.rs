@@ -3080,7 +3080,7 @@ mod tests {
     fn a_removed_worktree_rescans_the_repos() {
         use super::*;
 
-        let dir = std::env::temp_dir().join(format!("codealong-gone-worktree-{}", std::process::id()));
+        let dir = crate::fixtures::scratch("gone-worktree");
         let root = dir.join("repo");
         let git_dir = root.join(".git");
         let admin = git_dir.join("worktrees/topic");
@@ -3108,7 +3108,6 @@ mod tests {
         assert!(matches!(engine.classify_repo_path(&admin), RepoEvent::Worktrees), "its folder in .git gone");
         // The main checkout's own changes are still its own.
         assert!(is_lane(engine.classify_repo_path(&root.join("src/lib.rs")), &root));
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

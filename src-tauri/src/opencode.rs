@@ -1061,15 +1061,13 @@ mod tests {
 
     #[test]
     fn reads_the_service_state_file() {
-        let dir = std::env::temp_dir().join(format!("codealong-oc-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = crate::fixtures::scratch("oc");
         let path = dir.join("service.json");
         std::fs::write(&path, format!(r#"{{"id":"x","version":"2.0.16","url":"http://127.0.0.1:49374/","pid":{},"password":"pw"}}"#, std::process::id())).unwrap();
         let svc = service_at(&path).unwrap();
         assert_eq!(svc.url, "http://127.0.0.1:49374");
         std::fs::write(&path, r#"{"url":"http://127.0.0.1:1","pid":4000000,"password":"pw"}"#).unwrap();
         assert_eq!(service_at(&path), None);
-        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

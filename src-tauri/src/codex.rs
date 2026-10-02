@@ -1512,13 +1512,11 @@ mod tests {
 
     #[test]
     fn reads_the_app_project_folders() {
-        let home = std::env::temp_dir().join(format!("codealong-codex-state-{}", std::process::id()));
-        std::fs::create_dir_all(&home).unwrap();
+        let home = crate::fixtures::scratch("codex-state");
         assert!(app_project_roots(&home).is_empty());
         let state = r#"{"project-order":["local-a"],"local-projects":{"local-a":{"id":"local-a","name":"kestrel","rootPaths":["/r/kestrel"]},"local-b":{"id":"local-b","rootPaths":["/r/atlas"]}},"electron-saved-workspace-roots":["/r/kestrel","/r/atlas-app4"],"thread-writable-roots":{"t":["/elsewhere"]}}"#;
         std::fs::write(home.join(".codex-global-state.json"), state).unwrap();
         assert_eq!(app_project_roots(&home), vec!["/r/atlas", "/r/atlas-app4", "/r/kestrel"]);
-        let _ = std::fs::remove_dir_all(&home);
     }
 
     #[test]
@@ -1536,8 +1534,7 @@ mod tests {
         let fork = r#"{"type":"session_meta","payload":{"id":"01a0c53b","cwd":"/x","source":"vscode","thread_source":"user","forked_from_id":"01a09b67-284e"}}"#;
         assert_eq!(parse_meta(fork).unwrap().forked_from.as_deref(), Some("01a09b67-284e"));
         // A thread the app made for another's agent names it in the delegation that opens it.
-        let dir = std::env::temp_dir().join(format!("codealong-codex-delegated-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = crate::fixtures::scratch("codex-delegated");
         let path = dir.join("rollout-2026-09-09T14-07-39-01a087ff-6e3e-7832-bf7b-5caaae87716b.jsonl");
         let lines = [
             r#"{"timestamp":"2026-09-09T21:07:39.237Z","type":"session_meta","payload":{"id":"01a087ff-6e3e-7832-bf7b-5caaae87716b","cwd":"/x","originator":"Codex Desktop","source":"vscode","thread_source":"agent_created_thread"}}"#,
@@ -1551,7 +1548,6 @@ mod tests {
         // One you started names no one.
         std::fs::write(&path, format!("{META_USER}\n{}\n", lines[2])).unwrap();
         assert_eq!(parse_rollout(&path, 0, None).unwrap().0.started_by, None);
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -1651,8 +1647,7 @@ mod tests {
 
     #[test]
     fn finds_the_calls_still_running_at_the_end_of_a_rollout() {
-        let dir = std::env::temp_dir().join(format!("codealong-codex-open-calls-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = crate::fixtures::scratch("codex-open-calls");
         let path = dir.join("rollout.jsonl");
         let line = |kind: &str, payload: &str| format!(r#"{{"timestamp":"2026-09-27T16:00:00.000Z","type":"{kind}","payload":{payload}}}"#);
         let exec = r#"text(await tools.exec_command({cmd:\"codealong whoami\"}));"#;
@@ -1667,7 +1662,6 @@ mod tests {
         // Once the turn ends, nothing is running, whatever went unanswered.
         std::fs::write(&path, [lines.join("\n"), line("event_msg", r#"{"type":"turn_aborted"}"#)].join("\n") + "\n").unwrap();
         assert!(open_calls(&path).is_empty());
-        std::fs::remove_dir_all(&dir).ok();
     }
 
     /// A rollout with `head` more than 256KB before `tail`: a tool output longer than a read
@@ -1806,8 +1800,7 @@ mod tests {
 
     #[test]
     fn a_copy_runs_as_the_threads_latest_turn_did() {
-        let dir = std::env::temp_dir().join(format!("codealong-codex-ran-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = crate::fixtures::scratch("codex-ran");
         let rollout = dir.join("rollout.jsonl");
         let lines = [
             r#"{"timestamp":"2026-09-30T10:00:00.000Z","type":"session_meta","payload":{"id":"t"}}"#.to_string(),
@@ -1824,7 +1817,6 @@ mod tests {
         std::fs::write(&rollout, &lines[0]).unwrap();
         assert_eq!(last_turn(&rollout), TurnRan::default());
         assert_eq!(last_turn(&dir.join("none.jsonl")), TurnRan::default());
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -1833,7 +1825,7 @@ mod tests {
         use crate::model::Status;
         use std::io::Write;
 
-        let home = std::env::temp_dir().join(format!("codealong-codex-poll-{}", std::process::id()));
+        let home = crate::fixtures::scratch("codex-poll");
         let dir = home.join("sessions/2026/09/24");
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("rollout-2026-09-24T18-00-00-01a0d54c-7f02-7623-95b3-a3110c0f9672.jsonl");
@@ -1893,6 +1885,5 @@ mod tests {
         assert!(!reader.poll_rollouts(accounts, &look).dirty);
         assert!(reader.sessions(&account, &look).is_empty());
         drop(hidden);
-        std::fs::remove_dir_all(&home).unwrap();
     }
 }

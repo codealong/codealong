@@ -187,7 +187,7 @@ mod tests {
 
     #[test]
     fn reads_when_a_linked_worktree_last_took_new_work() {
-        let root = std::env::temp_dir().join(format!("codealong-reflog-{}", std::process::id()));
+        let root = crate::fixtures::scratch("reflog");
         let (wt, admin) = (root.join("app3"), root.join("main/.git/worktrees/app3"));
         std::fs::create_dir_all(admin.join("logs")).unwrap();
         std::fs::create_dir_all(&wt).unwrap();
@@ -197,7 +197,6 @@ mod tests {
         std::fs::write(admin.join("logs/HEAD"), log).unwrap();
         assert_eq!(new_work(&wt, Some("origin/main")), vec![100_000, 300_000]);
         assert_eq!(new_work(&root.join("nowhere"), None), Vec::<i64>::new());
-        std::fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]

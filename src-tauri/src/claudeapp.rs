@@ -119,7 +119,7 @@ mod tests {
 
     #[test]
     fn reads_archived_sessions_and_notices_changes() {
-        let root = std::env::temp_dir().join(format!("codealong-app-records-{}", std::process::id()));
+        let root = crate::fixtures::scratch("app-records");
         let org = root.join("acct").join("org");
         std::fs::create_dir_all(&org).unwrap();
         std::fs::write(org.join("local_a.json"), r#"{"sessionId":"local_a","cliSessionId":"cli-a","isArchived":true}"#).unwrap();
@@ -131,12 +131,11 @@ mod tests {
         std::fs::remove_file(org.join("local_a.json")).unwrap();
         assert!(records.refresh(&root));
         assert!(records.archived().is_empty());
-        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
     fn reads_the_permission_mode_the_app_runs_a_session_in() {
-        let root = std::env::temp_dir().join(format!("codealong-app-modes-{}", std::process::id()));
+        let root = crate::fixtures::scratch("app-modes");
         let org = root.join("acct").join("org");
         std::fs::create_dir_all(&org).unwrap();
         std::fs::write(org.join("local_7a-b2.json"), r#"{"sessionId":"local_7a-b2","cliSessionId":"cli","permissionMode":"bypassPermissions"}"#).unwrap();
@@ -147,6 +146,5 @@ mod tests {
         // Only the app's own IDs name a file: nothing reaches outside the records.
         assert_eq!(permission_mode(&root, "local_../../x"), None);
         assert_eq!(permission_mode(&root, "7a-b2"), None);
-        let _ = std::fs::remove_dir_all(&root);
     }
 }

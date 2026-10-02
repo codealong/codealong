@@ -654,8 +654,7 @@ mod tests {
 
     #[test]
     fn the_command_link_follows_the_app_that_opens() {
-        let tmp = std::env::temp_dir().join(format!("codealong-link-test-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&tmp);
+        let tmp = crate::fixtures::scratch("link-test");
         let (bin, other_bin) = (tmp.join("bin"), tmp.join("other"));
         std::fs::create_dir_all(&bin).unwrap();
         std::fs::create_dir_all(&other_bin).unwrap();
@@ -674,7 +673,6 @@ mod tests {
         assert_eq!(std::fs::read_link(bin.join("codealong")).unwrap(), dev);
         assert!(!in_a_bundle(Path::new("/Users/me/codealong-target/release/codealong")));
         assert!(in_a_bundle(Path::new("/Applications/Codealong.app/Contents/MacOS/codealong")));
-        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]
@@ -689,8 +687,7 @@ mod tests {
 
     #[test]
     fn skill_rows_say_installed_and_current() {
-        let root = std::env::temp_dir().join(format!("codealong-agents-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
+        let root = crate::fixtures::scratch("agents");
         let src = root.join("src");
         std::fs::create_dir_all(&src).unwrap();
         std::fs::write(src.join("SKILL.md"), "---\nname: codealong\n---\n").unwrap();
@@ -705,7 +702,6 @@ mod tests {
         assert_eq!(account_skill(None, &a).installed, false);
         let other = AccountCfg { name: "x".into(), harness: "other".into(), home: "~/x".into(), command: None, start: None, preferred: false, acp: None };
         assert!(account_skill(Some(&src), &other).path.is_none());
-        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
@@ -717,8 +713,7 @@ mod tests {
 
     #[test]
     fn reads_the_plugin_from_the_accounts_own_files() {
-        let root = std::env::temp_dir().join(format!("codealong-plugin-state-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
+        let root = crate::fixtures::scratch("plugin-state");
         let (home, ours) = (root.join("home"), root.join("support/plugin-marketplace"));
         std::fs::create_dir_all(home.join("plugins")).unwrap();
         std::fs::create_dir_all(&ours).unwrap();
@@ -737,13 +732,11 @@ mod tests {
         assert_eq!(enabled_entry(&home), Some(false));
         write("plugins/known_marketplaces.json", serde_json::json!({ MARKETPLACE: { "source": { "source": "github", "repo": "codealong/codealong" } } }));
         assert_eq!(plugin_state_in(&home, &ours).from.as_deref(), Some("codealong/codealong"));
-        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
     fn stages_the_marketplace_with_its_dot_folders_links_command_and_a_version_of_its_files() {
-        let root = std::env::temp_dir().join(format!("codealong-stage-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
+        let root = crate::fixtures::scratch("stage");
         let src = root.join("repo");
         for d in [".claude-plugin", "plugin/.claude-plugin", "plugin/bin", "skills/codealong"] {
             std::fs::create_dir_all(src.join(d)).unwrap();
@@ -778,7 +771,6 @@ mod tests {
         stage_marketplace_from(&src, Some(&src.join("skills/codealong")), &dst).unwrap();
         assert_eq!(std::fs::read_to_string(dst.join("plugin/skills/codealong/SKILL.md")).unwrap(), "skill, changed");
         assert!(!dst.with_extension("new").exists());
-        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
@@ -833,8 +825,7 @@ mod tests {
 
     #[test]
     fn copies_replace_only_their_own() {
-        let root = std::env::temp_dir().join(format!("codealong-install-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
+        let root = crate::fixtures::scratch("install");
         let src = root.join("src");
         std::fs::create_dir_all(src.join("references")).unwrap();
         std::fs::write(src.join("SKILL.md"), "---\nname: codealong\n---\n").unwrap();
@@ -864,6 +855,5 @@ mod tests {
         std::fs::write(theirs.join("SKILL.md"), "mine").unwrap();
         assert!(copy_skill(&src, &theirs).is_err());
         assert_eq!(std::fs::read_to_string(theirs.join("SKILL.md")).unwrap(), "mine");
-        let _ = std::fs::remove_dir_all(&root);
     }
 }

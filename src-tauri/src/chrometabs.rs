@@ -525,8 +525,7 @@ mod tests {
 
     #[test]
     fn finds_the_profile_the_tabs_are_in() {
-        let root = std::env::temp_dir().join(format!("codealong-chrometabs-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
+        let root = crate::fixtures::scratch("chrometabs");
         let store = |dir: &str, file: &str, bytes: &[u8]| {
             let d = root.join(dir).join("Local Extension Settings").join(EXTENSIONS[0]);
             std::fs::create_dir_all(&d).unwrap();
@@ -566,7 +565,6 @@ mod tests {
         assert_eq!(s.profile_of(&gone("https://both.example.com/")).as_deref(), Some("Profile 3"), "its visit came clearly nearest");
         assert_eq!(s.profile_of(&gone("https://near.example.com/")), None, "two visits too near each other to say");
         assert_eq!(s.profile_of(&gone("https://nobody.example.com/")), None);
-        let _ = std::fs::remove_dir_all(&root);
 
         let profiles = vec![
             chrome::Profile { id: "Dev".into(), name: "Dev".into(), dir: "Profile 3".into(), email: None },

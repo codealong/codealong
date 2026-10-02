@@ -187,8 +187,7 @@ mod tests {
 
     #[test]
     fn finds_editors_where_apps_are_installed_in_menu_order() {
-        let root = std::env::temp_dir().join(format!("codealong-editors-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
+        let root = crate::fixtures::scratch("editors");
         let dirs = apps_in(&root, &["Applications/Zed.app", "Applications/Visual Studio Code.app", "home/Applications/PyCharm CE.app", "Applications/Notes.app"]);
         let ids: Vec<String> = installed_in(&dirs).into_iter().map(|p| p.id).collect();
         assert_eq!(ids, ["vscode", "zed", "pycharm"]);
@@ -197,7 +196,6 @@ mod tests {
         assert_eq!(app_for(&dirs, "cursor"), "Cursor");
         // Anything else is an app's name or path, for `open -a`.
         assert_eq!(app_for(&dirs, "TextMate"), "TextMate");
-        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

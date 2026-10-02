@@ -389,8 +389,7 @@ mod tests {
 
     #[test]
     fn a_call_is_answered_once_its_result_is_written_after_the_request_came() {
-        let dir = std::env::temp_dir().join(format!("codealong-asks-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = crate::fixtures::scratch("asks");
         let record = dir.join("s.jsonl");
         let (a, _) = parse(&hook("Bash"), 0).unwrap();
         let line = |v: Value| format!("{v}\n");
@@ -411,7 +410,6 @@ mod tests {
         assert!(!call_answered(&record, &a, from));
         assert!(!call_answered(Path::new(""), &a, 0));
         assert!(!call_answered(&dir.join("missing.jsonl"), &a, 0));
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

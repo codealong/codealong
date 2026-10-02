@@ -361,12 +361,6 @@ mod tests {
 
     const PNG: &[u8] = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR";
 
-    fn temp(tag: &str) -> PathBuf {
-        let d = std::env::temp_dir().join(format!("codealong-attach-{tag}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&d);
-        d
-    }
-
     #[test]
     fn knows_images_by_their_bytes() {
         assert_eq!(image_kind(PNG), Some("png"));
@@ -409,7 +403,7 @@ mod tests {
 
     #[test]
     fn keeps_images_to_show_and_other_files_by_name() {
-        let (images, files) = (temp("i"), temp("f"));
+        let (images, files) = (crate::fixtures::scratch("attach-i"), crate::fixtures::scratch("attach-f"));
         let shot = keep_in(&images, &files, PNG, "image.png").unwrap();
         assert_eq!(shot.kind, Kind::Image);
         assert!(shot.path.starts_with("images/") && shot.path.ends_with(".png"));
@@ -426,13 +420,11 @@ mod tests {
         // An image a window can't show is a file like any other.
         let svg = keep_in(&images, &files, b"<svg xmlns='http://www.w3.org/2000/svg'/>", "logo.svg").unwrap();
         assert_eq!((svg.kind, svg.name.as_str()), (Kind::File, "logo.svg"));
-        let _ = (std::fs::remove_dir_all(&images), std::fs::remove_dir_all(&files));
     }
 
     #[test]
     fn imports_files_but_not_folders() {
-        let dir = temp("import");
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = crate::fixtures::scratch("attach-import");
         let file = dir.join("notes.md");
         std::fs::write(&file, "# Notes").unwrap();
         let (images, files) = (dir.join("images"), dir.join("files"));
@@ -441,7 +433,6 @@ mod tests {
         let a = keep_in(&images, &files, &bytes, "notes.md").unwrap();
         assert!(a.path.ends_with("/notes.md"));
         assert!(import(&dir).unwrap_err().to_string().contains("is a folder"));
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -503,7 +494,7 @@ mod tests {
 
     #[test]
     fn clears_only_old_attachments_no_todo_keeps() {
-        let (images, files) = (temp("gc-i"), temp("gc-f"));
+        let (images, files) = (crate::fixtures::scratch("attach-gc-i"), crate::fixtures::scratch("attach-gc-f"));
         let kept = keep_in(&images, &files, b"kept", "kept.txt").unwrap();
         let gone = keep_in(&images, &files, b"gone", "gone.txt").unwrap();
         let shot = keep_in(&images, &files, PNG, "s.png").unwrap();
@@ -515,6 +506,5 @@ mod tests {
         assert!(locate_in(&images, &files, &kept.path).unwrap().exists());
         assert!(!locate_in(&images, &files, &gone.path).unwrap().exists());
         assert!(!locate_in(&images, &files, &shot.path).unwrap().exists());
-        let _ = (std::fs::remove_dir_all(&images), std::fs::remove_dir_all(&files));
     }
 }
