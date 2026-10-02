@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint src",
     "test": "vitest run",
+    "checks": "scripts/checks.sh",
     "tokens": "node scripts/tokens.mjs",
     "icons": "node scripts/icons.mjs",
     "tauri": "tauri",

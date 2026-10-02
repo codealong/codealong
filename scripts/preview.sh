@@ -15,8 +15,10 @@
 #            document.title: "done: PASS 7/7", or "done: FAIL 5/7 <name>: <why>; …". The result
 #            is printed, with the commands the stub had no answer for and what the check noted
 #            on lines after it, and the run exits 0 only for a PASS: a check that fails, or
-#            never says done, exits 1. Without a check, a screenshot is written to
-#            $PREVIEW_DIR/<view>.png. scripts/checks.sh runs every check there is.
+#            never says done, exits 1, and 3 says Chrome never showed the page at all (it can
+#            hang as it starts on a busy Mac), which says nothing of the check. Without a
+#            check, a screenshot is written to $PREVIEW_DIR/<view>.png. scripts/checks.sh runs
+#            every check there is.
 #
 # PREVIEW_INIT=<file.js> runs a script in the page before either, for a screenshot of a state
 # a click gets to (a dialog, say); PREVIEW_NAME names that screenshot instead of the view.
@@ -233,13 +235,27 @@ sed -e "s#<head>#<head><script src=\"./fake-tauri.js\"></script><script>$setup</
 server=$!
 browser=""
 work=""
-trap 'kill $server $browser 2>/dev/null || true; [ -z "$browser" ] || wait $browser 2>/dev/null || true; [ -z "$work" ] || rm -rf "$work" 2>/dev/null || true' EXIT
+# A Chrome that hung may not go when asked: it gets a few seconds, since its profile can't be
+# removed from under it, and then it's made to.
+cleanup() {
+  kill $server $browser 2>/dev/null || true
+  if [ -n "$browser" ]; then
+    local n=0
+    while kill -0 "$browser" 2>/dev/null && [ $n -lt 20 ]; do
+      sleep 0.2
+      n=$((n + 1))
+    done
+    kill -9 "$browser" 2>/dev/null || true
+  fi
+  [ -z "$work" ] || rm -rf "$work" 2>/dev/null || true
+}
+trap cleanup EXIT
 sleep 1
 url="http://127.0.0.1:$port/preview.html"
 
 # Prints what a check's title says after "done: ", its result first and then, on lines of their
 # own, what prelude.js put after it. A check passes only by saying PASS; a bench says what it
-# measured, and that's all that's asked of it.
+# measured, and that's all that's asked of it. No title at all is a page Chrome never showed.
 report() {
   local title="$1" result
   case "$check" in
@@ -250,9 +266,11 @@ report() {
   esac
   case "$title" in
     done:*) result="${title#done: }" ;;
+    "") result="FAIL 0/0 no result: Chrome never showed the page" ;;
     *) result="FAIL 0/0 no result: the check never said done (the page's title is \"$title\")" ;;
   esac
   printf '%s\n' "$result" | awk '{ n = split($0, part, / ## /); for (i = 1; i <= n; i++) print part[i] }'
+  [ -n "$title" ] || return 3
   case "$result" in
     PASS\ *) return 0 ;;
     *) return 1 ;;
@@ -274,13 +292,18 @@ if [ -n "$check" ] && [ -n "${PREVIEW_WAIT:-}" ]; then
   "$chrome" --headless=new --disable-gpu --enable-unsafe-swiftshader ${scheme:+"$scheme"} --window-size="$size" --remote-debugging-port="$debug_port" --user-data-dir="$work/profile" "$url" >/dev/null 2>&1 &
   browser=$!
   title=""
+  started=$SECONDS
   deadline=$((SECONDS + PREVIEW_WAIT / 1000))
   while [ $SECONDS -lt $deadline ]; do
     sleep 1
-    title="$(curl -s "http://127.0.0.1:$debug_port/json/list" | python3 -c 'import html, json, sys; print(html.unescape(next((t["title"] for t in json.load(sys.stdin) if t.get("type") == "page"), "")))' 2>/dev/null || true)"
+    # Half a minute with no page to ask about is a Chrome that hung as it started.
+    if [ -z "$title" ] && [ $((SECONDS - started)) -gt 30 ]; then
+      break
+    fi
+    title="$(curl -s --max-time 5 "http://127.0.0.1:$debug_port/json/list" | python3 -c 'import html, json, sys; print(html.unescape(next((t["title"] for t in json.load(sys.stdin) if t.get("type") == "page"), "")))' 2>/dev/null || true)"
     case "$title" in done:*) break ;; esac
   done
-  report "$title" || exit 1
+  report "$title" || exit $?
 elif [ -n "$check" ]; then
   "$chrome" --headless=new --disable-gpu --enable-unsafe-swiftshader ${scheme:+"$scheme"} --window-size="$size" --virtual-time-budget=8000 --user-data-dir="$work/profile" --dump-dom "$url" >"$work/dom.html" 2>/dev/null &
   browser=$!
@@ -299,7 +322,7 @@ elif [ -n "$check" ]; then
   done
   wait "$browser" 2>/dev/null || true
   title="$(python3 -c 'import html, re, sys; m = re.search(r"<title>(.*?)</title>", sys.stdin.read(), re.S); print(" ".join(html.unescape(m.group(1)).split()) if m else "")' <"$work/dom.html")"
-  report "$title" || exit 1
+  report "$title" || exit $?
 else
   "$chrome" --headless=new --disable-gpu --enable-unsafe-swiftshader ${scheme:+"$scheme"} --hide-scrollbars --force-device-scale-factor=1 --window-size="$size" --virtual-time-budget=6000 --screenshot="$shot" "$url" 2>/dev/null
   echo "$shot"

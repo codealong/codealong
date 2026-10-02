@@ -18,6 +18,7 @@ npm run lint                            # eslint: only the rules of hooks and th
 npm test                                # vitest (format, lanes, pins, sections)
 (cd src-tauri && cargo test)            # engine rules, parsers, usage, config, launch scripts; codealong-peer's too
 (cd src-tauri && cargo build --release) # the engine binary; cargo test does NOT rebuild it
+scripts/checks.sh                       # every browser check (scripts/preview/*-check.js) on your real data; names run a few
 scripts/relaunch.sh                     # builds Codealong Dev, then quits and reopens it
 scripts/release.sh                      # the installer for other Macs: universal, Developer ID, notarized
 ```
@@ -120,13 +121,29 @@ The engine binary doubles as a CLI for checking behavior without a window:
 
 `scripts/preview.sh [view] [project] [check.js]` builds the UI, snapshots real data, stubs
 Tauri's IPC with `scripts/preview/fake-tauri.js`, and renders in headless Chrome: a screenshot
-in `.preview/<view>.png`, or with `check.js`, whatever the script puts in `document.title`.
+in `.preview/<view>.png`, or with `check.js`, that check's result.
 The stub records every command in `window.__calls`, so a check can click, double-click or
-right-click and assert what the app would have sent. `PREVIEW_SCHEME=dark` renders as if macOS
+right-click and assert what the app would have sent; a command it has no answer for resolves
+null and is named in `window.__unknown`. A check starts from `scripts/preview/prelude.js`, loaded
+ahead of it: `say`, `wait`, `until`, `check(name, ok, why)`, `note`, `calls(cmd)`, `q` and `all`,
+`rightClick` with `menuLabels` and `menuItem` for the menu it asked for, and `done()` (or
+`stopped(e)` from a catch), which puts the one result in `document.title`: `done: PASS 7/7`, or
+`done: FAIL 5/7 <name>: <why>; …`, then ` ## unanswered: …` (the commands that got null) and
+` ## note: …` (what the check wanted said, a step skipped for want of data). `preview.sh` prints
+those on a line each and exits 0 only for a PASS; a check that never says done fails, and 3
+says Chrome never showed the page (it can hang as it starts on a busy Mac).
+`scripts/checks.sh [name…]` builds and snapshots once, runs every `*-check.js` (or the ones
+named: `scripts/checks.sh queue rename`) and prints a line for each run, exiting 1 if any
+failed; `-v` adds what went unanswered. Each run is stopped after its wait and a minute and a
+half more, and one whose page never showed is tried again. How a check runs is in its header: each comment line
+there that is a whole command, `//   PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/queue-check.js`,
+is one run, and a line with something to fill in (`<key>`) is for running by hand. The checks
+read this Mac's board, so one can fail for want of data (no session that used Chrome) and says
+what it missed. `PREVIEW_SCHEME=dark` renders as if macOS
 were in dark mode; check UI changes in both. `PREVIEW_INIT=<file.js>` runs a script before the
 screenshot, for a state a click gets to (Settings opens on a synthetic ⌘, keydown), and
-`PREVIEW_NAME` names that screenshot. The app rewrites `document.title` as counts change, so a
-check that runs for a while should set its title on an interval. Native menus, window creation and real opens
+`PREVIEW_NAME` names that screenshot. The app rewrites `document.title` as counts change; the
+prelude puts back what a check said. Native menus, window creation and real opens
 can't be seen this way; say so rather than claiming they were checked.
 `scripts/preview.sh quick` renders the quick panel as its shortcut opens it (a `PREVIEW_INIT`
 can type into it or click its menus open).
@@ -147,8 +164,9 @@ under Settings › Accounts › Found on this Mac, and `PREVIEW_DEVICES=scripts/
 document (one project's from canvas.json) in place of a fresh tidy, and `PREVIEW_LOADING=1` shows the windows as
 they are at launch, before the engine's first scan has finished. In check mode Chrome runs on virtual time, which stands still while scripts run (`performance.now()` too), and draws no frames, so scroll events never
 arrive; and it resizes the page just before a screenshot, which closes whatever closes on resize.
-`PREVIEW_WAIT=<ms>` runs a check on the real clock with frames instead, and prints its title once
-it starts with `done: ` (or the wait runs out).
+`PREVIEW_WAIT=<ms>` runs a check on the real clock with frames instead, and reads its result once
+its title starts with `done: `; a wait that runs out fails it. A bench (`*-bench.js`) says what it
+measured in place of a result, and its title is printed as it is.
 
 ## Checking performance
 
