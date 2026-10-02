@@ -64,34 +64,19 @@ import { SESSION_READS, shownSession, useWaitingQueue } from '../useWaitingQueue
 import { prPills } from '../prStatus';
 import { ALL_PROJECTS, attachmentsNote, attentionRows, findPrs, findSessions, findTodos, FOUND_SESSIONS, inProject, laneBranch, laneGroups, macUnavailable, MAX_ROWS, projectCounts, queryWords, queueRows, readyTodos, recallList, recentRows, shortcutLabel, startTitle, stillSaid, TEXT_SEARCH_MIN, todosStayNote, worktreeCount, type PrRow, type RowGroup, type SessionRow, type TodoRow, withPrompt as historyWith } from '../quick';
 import {
-  accountFor,
   accountHeadWords,
   agentChipWords,
-  agentId,
-  agentOptions,
   agentOptionWords,
-  autoModel,
   autoOptionWords,
-  autoPick,
   effortNote,
-  initialChoice,
   isAuto,
-  modelFamily,
-  modelWords,
   newWorktreeTitle,
-  onCommandLine,
   onModelWords,
-  parseAgent,
-  placesFor,
-  placeTakesModel,
-  settledPlace,
   remember,
-  remembered,
   START_OPTIONS_NOTICE,
   startHappens,
   startingLabel,
   startOptionsFailed,
-  withLists,
   type AgentOption,
 } from '../start';
 import { clearNotice, failedNotice, reportNotice } from '../notices';
@@ -115,6 +100,7 @@ import { errorText, type Report } from '../report';
 import { openWhere, where } from '../open';
 import { asText, readStored, strings, useStored, writeStored } from '../stored';
 import { useLatest } from '../latest';
+import { useStartChoice, useStartPicks } from '../useStartChoice';
 
 declare global {
   interface Window {
@@ -252,17 +238,15 @@ export function Quick() {
   const [project, setProject] = useState<string>(() => readStored(PROJECT_KEY, asText, ALL_PROJECTS));
   const [text, setText] = useState('');
   const [laneId, setLaneId] = useState<string | null>(null);
-  // The agent menu's choice; null is the first it offers, Auto where there's one.
-  const [agent, setAgent] = useState<string | null>(null);
-  // `--effort` for the agent chosen; null is the account's own.
-  const [effort, setEffort] = useState<string | null>(null);
-  const [place, setPlace] = useState<StartPlace | null>(null);
+  // The account or Auto, model, effort and place picked for a new session, and whether it gets a
+  // new worktree (useStartChoice.ts).
+  const startPicks = useStartPicks();
+  const { effort, setEffort, newWorktree, setNewWorktree, setAgent, setPlace } = startPicks;
   // The Mac a new session starts on, by its short id; null is this one.
   const [device, setDevice] = useState<string | null>(null);
   const [devices, setDevices] = useState<DevicesView | null>(null);
   // Where accounts can start on your other Macs, asked of each once it's chosen.
   const [remoteOptions, setRemoteOptions] = useState<Record<string, { at: number; options: StartOptions | null; error: string | null }>>({});
-  const [newWorktree, setNewWorktree] = useState(false);
   // The todos a new session is for: one, or several started together on one prompt.
   const [todoIds, setTodoIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -431,8 +415,8 @@ export function Quick() {
       delete window.__quickOpen;
       offHidden();
     };
-    // Once: the refs are the same objects on every render.
-  }, [textNow, todoIdsNow]);
+    // Once: the refs and setters are the same objects on every render.
+  }, [textNow, todoIdsNow, setAgent, setEffort, setPlace, setNewWorktree]);
 
   useEffect(
     () =>
@@ -538,46 +522,32 @@ export function Quick() {
 
   // Another Mac's usage comes with its feed.
   const usage = useMemo(() => (deviceNow ? (deviceInfo?.usage ?? []) : (board?.usage ?? [])), [deviceNow, deviceInfo?.usage, board?.usage]);
-  // Stars come with the board, which is current; where accounts can start is read less often.
-  const accounts = useMemo(() => (startOptionsNow ? withLists(startOptionsNow) : []).map((a) => ({ ...a, preferred: usage.find((u) => u.account === a.name)?.preferred ?? a.preferred })), [startOptionsNow, usage]);
-  // Every account's models, for saying one by its name; each account lists its own.
-  const models = useMemo(() => accounts.flatMap((a) => a.models ?? []).filter((m, i, all) => all.findIndex((x) => x.id === m.id) === i), [accounts]);
-  // The effort levels the agent menu offers: those of the accounts that take one.
-  const efforts = useMemo(() => accounts.find((a) => (a.efforts?.length ?? 0) > 0)?.efforts ?? [], [accounts]);
-  // Auto follows usage while the panel is up, and resolves when you start.
-  const pick = useMemo(() => autoPick(accounts, usage, now), [accounts, usage, now]);
-  const agents = useMemo(() => agentOptions(accounts, models, pick), [accounts, models, pick]);
-  const first = useMemo(() => initialChoice(accounts, pick, undefined), [accounts, pick]);
-  const agentNow = agent && agents.some((o) => o.id === agent) ? agent : first ? agentId(first, null) : null;
-  const { choice, model: chosenModel } = agentNow ? parseAgent(agentNow) : { choice: null, model: null };
-  const autoFor = isAuto(choice);
-  const account = accountFor(choice, pick);
-  const accountInfo = accounts.find((a) => a.name === account);
-  const harness = accountInfo?.harness ?? null;
-  const autoModelPick = autoFor ? autoModel(accountInfo?.defaultModel ?? null, usage.find((u) => u.account === account)) : null;
-
-  // A model or effort is asked for on the command line (or of Codealong's adapter), so choosing
-  // one leaves only the places that take it; the apps pick their own.
-  const allPlaces = placesFor(choice, accounts, pick);
-  const takesEffort = (accountInfo?.efforts?.length ?? 0) > 0;
-  const tuned = !!chosenModel || (!!effort && takesEffort);
-  const places = tuned ? allPlaces.filter((p) => placeTakesModel(p.place)) : allPlaces;
-  const placeNow = [place, choice ? (settledPlace(choice, accounts, pick) ?? remembered().places?.[choice]) : undefined].map((p) => places.find((x) => x.place === p)?.place).find(Boolean) ?? places[0]?.place ?? null;
-  // A harness whose command line makes a worktree for a session (Claude Code's `--worktree`).
-  const makesWorktree = !!placeNow && onCommandLine(placeNow) && !!accountInfo?.worktree;
-  // A harness whose command line takes a model; Codealong hands it to an adapter the same way.
-  const takesAModel = !!placeNow && placeTakesModel(placeNow) && (accountInfo?.models?.length ?? 0) > 0;
-  const modelNow = takesAModel ? (autoFor ? (autoModelPick?.model ?? null) : chosenModel) : null;
-  const inNewWorktree = makesWorktree && newWorktree;
-  const defaultModel = accountInfo?.defaultModel ?? null;
-  const modelShown = modelWords(takesAModel, placeNow, harness, modelNow, defaultModel, models);
-  // It starts on the model asked for, else the account's own.
-  const startsOn = takesAModel ? (modelNow ?? defaultModel) : null;
-  // The effort goes wherever the model does, to a harness that takes one, except to Haiku,
-  // which takes none. A Mac whose Codealong doesn't know effort yet lists no levels.
-  const effortTaken = takesAModel && takesEffort && modelFamily(startsOn) !== 'haiku';
-  const effortNow = effortTaken ? effort : null;
-  const effortWord = efforts.find((e) => e.id === effortNow)?.label ?? null;
+  // The account, model, effort and place a new session starts with (useStartChoice.ts).
+  const {
+    accounts,
+    models,
+    efforts,
+    pick,
+    agents,
+    agentNow,
+    autoFor,
+    account,
+    harness,
+    places,
+    placeNow,
+    makesWorktree,
+    inNewWorktree,
+    modelNow,
+    startsOn,
+    effortModel,
+    effortNow,
+    effortWord,
+    modelShown,
+    choice,
+    pickAgent: pickAgentLine,
+    pickPlace,
+    stepEffort,
+  } = useStartChoice(startPicks, startOptionsNow, usage, now);
 
   /* ---- What for ---- */
 
@@ -1342,22 +1312,11 @@ export function Quick() {
   }, [agents, accounts, pick, usage, models, now, agentNow]);
 
   const pickAgent = (id: string) => {
-    const { choice: c, model } = parseAgent(id);
-    setAgent(id);
-    // A model is asked for on the command line; an app picks its own.
-    if (model) setPlace('terminal');
-    else setPlace(c ? (settledPlace(c, accounts, pick) ?? remembered().places?.[c] ?? null) : null);
+    pickAgentLine(id);
     setPicker(null);
     refocus();
   };
 
-  // The effort under the agent menu's models: a setting for whichever is chosen, so it stays
-  // while you look through them. It goes to Claude Code only, and not to Haiku.
-  const effortModel = (autoFor ? autoModelPick?.model : chosenModel) ?? defaultModel;
-  const effortSteps: (string | null)[] = [null, ...efforts.map((e) => e.id)];
-  // From the effort as it is, not as last drawn: a held key can repeat before the menu redraws.
-  const stepEffort = (delta: -1 | 1) =>
-    setEffort((e) => effortSteps[Math.min(effortSteps.length - 1, Math.max(0, Math.max(0, effortSteps.indexOf(e)) + delta))]);
   const effortFoot =
     efforts.length > 0 ? (
       <>
@@ -1415,12 +1374,6 @@ export function Quick() {
     }
     setPicker(null);
     refocus();
-  };
-
-  const pickPlace = (p: StartPlace) => {
-    setPlace(p);
-    // The apps choose their model: an account on a model becomes the account on its default.
-    if (p !== 'terminal' && choice && chosenModel) setAgent(agentId(choice, null));
   };
 
   /** A suggestion's row: what ⏎ does, and where. */

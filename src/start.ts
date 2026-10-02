@@ -286,6 +286,101 @@ export function placeTakesModel(place: StartPlace): boolean {
   return onCommandLine(place) || place === 'codealong';
 }
 
+/** What's picked in the quick panel's agent menu and its places, null for nothing picked. */
+export interface StartPicks {
+  /** An agent menu id (`agentId`). */
+  agent: string | null;
+  effort: string | null;
+  place: StartPlace | null;
+  newWorktree: boolean;
+}
+
+/** What the picks come to among what's offered: the account a start runs, where, on which model
+ *  and effort, and whether its harness makes the new worktree. */
+export interface ChosenStart {
+  /** The agent menu's line that's chosen: the one picked while it's offered, else the first. */
+  agentNow: string | null;
+  choice: Choice | null;
+  /** The model picked with the account; null for its own. */
+  chosenModel: string | null;
+  autoFor: boolean;
+  account: string | null;
+  accountInfo: StartAccount | undefined;
+  harness: Harness | null;
+  /** The places it can open in: only those that take a model, once a model or effort is picked. */
+  places: StartAccount['places'];
+  placeNow: StartPlace | null;
+  makesWorktree: boolean;
+  inNewWorktree: boolean;
+  takesAModel: boolean;
+  /** The model asked for: Auto's pick, or the one picked, where the place takes one. */
+  modelNow: string | null;
+  defaultModel: string | null;
+  /** What it starts on: the model asked for, else the account's own, where the place takes one. */
+  startsOn: string | null;
+  /** The model the effort row speaks of. */
+  effortModel: string | null;
+  effortNow: string | null;
+  effortWord: string | null;
+  /** What the agent chip says of the model (`modelWords`). */
+  modelShown: string | null;
+}
+
+/**
+ * What `picks` come to, given the accounts and what the agent menu offers (`agentOptions`, with
+ * Auto's `pick` and the `first` choice). A choice with no place of its own picked opens where its
+ * account's settings say, else where it last opened (`lastPlace`, read only then), else in the
+ * first place it can. A model or an effort is asked for on the command line or of Codealong's
+ * adapter, so picking one leaves only those places; the effort goes wherever the model does, to
+ * a harness that takes one, except to Haiku.
+ */
+export function startChoice(accounts: StartAccount[], models: ModelOption[], efforts: { id: string; label: string }[], usage: Usage[], pick: AutoPick | null, agents: AgentOption[], first: Choice | null, picks: StartPicks, lastPlace: (choice: Choice) => StartPlace | undefined): ChosenStart {
+  const { agent, effort, place, newWorktree } = picks;
+  const agentNow = agent && agents.some((o) => o.id === agent) ? agent : first ? agentId(first, null) : null;
+  const { choice, model: chosenModel } = agentNow ? parseAgent(agentNow) : { choice: null, model: null };
+  const autoFor = isAuto(choice);
+  const account = accountFor(choice, pick);
+  const accountInfo = accounts.find((a) => a.name === account);
+  const harness = accountInfo?.harness ?? null;
+  const autoModelPick = autoFor ? autoModel(accountInfo?.defaultModel ?? null, usage.find((u) => u.account === account)) : null;
+  const allPlaces = placesFor(choice, accounts, pick);
+  const takesEffort = (accountInfo?.efforts?.length ?? 0) > 0;
+  const tuned = !!chosenModel || (!!effort && takesEffort);
+  const places = tuned ? allPlaces.filter((p) => placeTakesModel(p.place)) : allPlaces;
+  const placeNow = [place, choice ? (settledPlace(choice, accounts, pick) ?? lastPlace(choice)) : undefined].map((p) => places.find((x) => x.place === p)?.place).find(Boolean) ?? places[0]?.place ?? null;
+  // A harness whose command line makes a worktree for a session (Claude Code's `--worktree`).
+  const makesWorktree = !!placeNow && onCommandLine(placeNow) && !!accountInfo?.worktree;
+  // A harness whose command line takes a model; Codealong hands it to an adapter the same way.
+  const takesAModel = !!placeNow && placeTakesModel(placeNow) && (accountInfo?.models?.length ?? 0) > 0;
+  const modelNow = takesAModel ? (autoFor ? (autoModelPick?.model ?? null) : chosenModel) : null;
+  const defaultModel = accountInfo?.defaultModel ?? null;
+  const startsOn = takesAModel ? (modelNow ?? defaultModel) : null;
+  // A Mac whose Codealong doesn't know effort yet lists no levels.
+  const effortTaken = takesAModel && takesEffort && modelFamily(startsOn) !== 'haiku';
+  const effortNow = effortTaken ? effort : null;
+  return {
+    agentNow,
+    choice,
+    chosenModel,
+    autoFor,
+    account,
+    accountInfo,
+    harness,
+    places,
+    placeNow,
+    makesWorktree,
+    inNewWorktree: makesWorktree && newWorktree,
+    takesAModel,
+    modelNow,
+    defaultModel,
+    startsOn,
+    effortModel: (autoFor ? autoModelPick?.model : chosenModel) ?? defaultModel,
+    effortNow,
+    effortWord: efforts.find((e) => e.id === effortNow)?.label ?? null,
+    modelShown: modelWords(takesAModel, placeNow, harness, modelNow, defaultModel, models),
+  };
+}
+
 // What the quick panel's start row, its label while it starts and the agent menu say. Each is
 // the words for one choice of account, model, effort and place, worked out from the choice.
 

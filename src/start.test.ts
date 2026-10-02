@@ -28,11 +28,13 @@ import {
   placeTakesModel,
   preferredNames,
   settledPlace,
+  startChoice,
   startHappens,
   startingLabel,
   takesModel,
   withLists,
   type AutoPick,
+  type StartPicks,
   type StartPlan,
 } from './start';
 import * as fx from './testing/fixtures';
@@ -412,5 +414,83 @@ describe('what the quick panel says of a start', () => {
       [false, false],
       [false, false],
     ]);
+  });
+});
+
+describe('startChoice', () => {
+  const models = [
+    { id: 'opus', label: 'Opus: the most capable' },
+    { id: 'haiku', label: 'Haiku: the fastest' },
+  ];
+  const efforts = [
+    { id: 'high', label: 'High' },
+    { id: 'max', label: 'Max' },
+  ];
+  const background = { place: 'background' as const, label: 'Background' };
+  const codealong = { place: 'codealong' as const, label: 'Codealong' };
+  const accounts = [
+    fx.startAccount({ name: 'claude', places: [ghostty, background, claudeApp], defaultModel: 'opus', models, efforts, worktree: true }),
+    fx.startAccount({ name: 'claude2', places: [ghostty, codealong], defaultModel: 'haiku', models, efforts, worktree: true }),
+    fx.startAccount({ name: 'codex', harness: 'codex', places: [codexApp] }),
+  ];
+  const none: StartPicks = { agent: null, effort: null, place: null, newWorktree: false };
+  const choose = (picks: Partial<StartPicks>, usage: Usage[] = [], lastPlace: (c: string) => 'terminal' | 'background' | undefined = () => undefined) => {
+    const pick = autoPick(accounts, usage, NOW);
+    return startChoice(accounts, models, efforts, usage, pick, agentOptions(accounts, models, pick), initialChoice(accounts, pick, undefined), { ...none, ...picks }, lastPlace);
+  };
+
+  it('starts with the first choice, Auto, on its account’s first place and own model', () => {
+    const c = choose({});
+    expect([c.agentNow, c.autoFor, c.account, c.placeNow, c.takesAModel, c.modelNow, c.startsOn, c.modelShown]).toEqual([AUTO, true, 'claude', 'terminal', true, null, 'opus', 'Opus']);
+    expect(c.places.map((p) => p.place)).toEqual(['terminal', 'background', 'claude-app']);
+  });
+
+  it('goes back to the first choice when the one picked isn’t offered', () => {
+    expect(choose({ agent: 'gone|' }).agentNow).toBe(AUTO);
+  });
+
+  it('keeps to the places that take a model once a model or an effort is picked', () => {
+    const c = choose({ agent: agentId('claude', 'haiku') });
+    expect([c.choice, c.chosenModel, c.autoFor, c.modelNow, c.startsOn, c.modelShown]).toEqual(['claude', 'haiku', false, 'haiku', 'haiku', 'Haiku']);
+    expect(c.places.map((p) => p.place)).toEqual(['terminal', 'background']);
+    expect(choose({ agent: agentId('claude', null), effort: 'high' }).places.map((p) => p.place)).toEqual(['terminal', 'background']);
+    expect(choose({ agent: agentId('codex', null), effort: 'high' }).places.map((p) => p.place)).toEqual(['codex-app']);
+  });
+
+  it('opens where it was picked to while that’s offered, else where it last opened, else first', () => {
+    expect(choose({ agent: agentId('claude', null), place: 'claude-app' }).placeNow).toBe('claude-app');
+    expect(choose({ agent: agentId('claude', null) }, [], (c) => (c === 'claude' ? 'background' : undefined)).placeNow).toBe('background');
+    expect(choose({ agent: agentId('claude2', null), place: 'claude-app' }).placeNow).toBe('terminal');
+  });
+
+  it('asks only where nothing settles it where it last opened', () => {
+    const settled = accounts.map((a) => (a.name === 'claude' ? { ...a, chosen: 'claude-app' as const } : a));
+    const asked: string[] = [];
+    const pick = autoPick(settled, [], NOW);
+    const c = startChoice(settled, models, efforts, [], pick, agentOptions(settled, models, pick), 'claude', { ...none, agent: agentId('claude', null) }, (ch) => {
+      asked.push(ch);
+      return 'background';
+    });
+    expect([c.placeNow, asked]).toEqual(['claude-app', []]);
+  });
+
+  it('gives the effort only where the model goes, and not to Haiku', () => {
+    expect([choose({ effort: 'max' }).effortNow, choose({ effort: 'max' }).effortWord]).toEqual(['max', 'Max']);
+    expect(choose({ agent: agentId('claude', null), place: 'claude-app', effort: 'max' }).placeNow).toBe('terminal');
+    expect(choose({ agent: agentId('claude2', null), effort: 'max' })).toMatchObject({ startsOn: 'haiku', effortModel: 'haiku', effortNow: null, effortWord: null });
+    expect(choose({ agent: agentId('codex', null), effort: 'max' })).toMatchObject({ takesAModel: false, effortNow: null, modelShown: 'model chosen in Codex', harness: 'codex' });
+  });
+
+  it('makes a new worktree only where the harness’s command line does', () => {
+    expect(choose({ newWorktree: true })).toMatchObject({ makesWorktree: true, inNewWorktree: true });
+    expect(choose({ agent: agentId('claude2', null), place: 'codealong', newWorktree: true })).toMatchObject({ placeNow: 'codealong', makesWorktree: false, inNewWorktree: false });
+    expect(choose({ agent: agentId('codex', null), newWorktree: true })).toMatchObject({ makesWorktree: false, inNewWorktree: false });
+  });
+
+  it('starts Auto on the next model when its own is nearly used, and speaks of that one', () => {
+    // Every account is near a limit, so Auto takes the least full, whose own model is nearly used.
+    const fable = [fx.usage({ account: 'claude', meters: [fx.meter({ key: 'week', percent: 10 }), fx.meter({ key: 'model:opus', model: 'Opus', percent: 95 })] }), fx.usage({ account: 'claude2', meters: [fx.meter({ key: 'week', percent: 97 })] }), fx.usage({ account: 'codex', meters: [fx.meter({ key: 'week', percent: 99 })] })];
+    const c = choose({}, fable);
+    expect([c.account, c.modelNow, c.startsOn, c.effortModel]).toEqual(['claude', 'sonnet', 'sonnet', 'sonnet']);
   });
 });
