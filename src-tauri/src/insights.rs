@@ -296,52 +296,22 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::Surface;
 
     const NOW: i64 = 30 * DAY_MS;
 
     fn session(status: Status) -> Session {
         Session {
-            key: "claude:claude:abc".into(),
-            id: "abc".into(),
-            short_id: "abc".into(),
-            harness: Harness::Claude,
-            account: "claude".into(),
-            surface: Surface::Cli,
             status,
             live: true,
             pid: Some(1),
             title: "Fix the login".into(),
             cwd: "/r".into(),
-            work: vec![],
             reply_tail: Some("…tests pass. Should I also migrate the old table?".into()),
             first_prompt: Some("Fix the login bug".into()),
-            name: None,
-            started_at: None,
-            status_since: None,
             last_activity: NOW - 60_000,
             last_prompt_at: NOW - 600_000,
             excerpt: Some("Bash · `rm -rf build`".into()),
-            resume_command: None,
-            app_account: false,
-            open_target: "focus".into(),
-            visitor: None,
-            headline: String::new(),
-            detail: None,
-            branch: None,
-            archived: false,
-            attach_command: None,
-            continues: None,
-            origin: None,
-            stalled_since: None,
-            background: None,
-            insight: None,
-            asks: false,
-            hosted: false,
-            stoppable: false,
-            snoozed_until: None,
-            earlier: false,
-            chrome: None,
+            ..Session::new(Harness::Claude, "claude", "abc")
         }
     }
 

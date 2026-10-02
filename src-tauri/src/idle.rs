@@ -227,87 +227,18 @@ pub fn parse_after(s: &str) -> Option<i64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{Bay, Lane, Origin, SessionInsight};
+    use crate::model::SessionInsight;
 
     const NOW: i64 = 100 * DAY_MS;
 
     fn session(key: &str, pid: u32, status: Status, quiet_ms: i64) -> Session {
-        Session {
-            key: key.into(),
-            id: key.into(),
-            short_id: key.into(),
-            harness: Harness::Claude,
-            account: "claude".into(),
-            surface: Surface::Cli,
-            status,
-            live: true,
-            pid: Some(pid),
-            title: format!("Session {key}"),
-            cwd: "/work".into(),
-            work: Vec::new(),
-            reply_tail: Some("Pushed it.".into()),
-            first_prompt: None,
-            name: None,
-            started_at: None,
-            status_since: None,
-            last_activity: NOW - quiet_ms,
-            last_prompt_at: 0,
-            excerpt: None,
-            resume_command: None,
-            app_account: false,
-            open_target: String::new(),
-            visitor: None,
-            headline: String::new(),
-            detail: None,
-            branch: None,
-            archived: false,
-            attach_command: None,
-            continues: None,
-            origin: None,
-            stalled_since: None,
-            background: None,
-            insight: None,
-            asks: false,
-            hosted: false,
-            stoppable: false,
-            snoozed_until: None,
-            earlier: false,
-            chrome: None,
-        }
+        Session { status, pid: Some(pid), title: format!("Session {key}"), cwd: "/work".into(), reply_tail: Some("Pushed it.".into()), last_activity: NOW - quiet_ms, ..crate::fixtures::session(key) }
     }
 
     fn board(sessions: Vec<Session>) -> Board {
-        let lane = Lane {
-            id: "/work".into(),
-            project: "p".into(),
-            repo: "r".into(),
-            repo_slug: None,
-            path: "/work".into(),
-            callsign: "work".into(),
-            origin: Origin::Main,
-            branch: None,
-            detached: None,
-            bay: Bay::Idle,
-            glyph: Status::Idle,
-            parked: false,
-            hidden: false,
-            headline: String::new(),
-            detail: None,
-            sessions,
-            pr: None,
-            git: None,
-            last_activity: 0,
-            looks_finished: false,
-            targets: Vec::new(),
-            default_target: None,
-            device: None,
-            repo_slug_now: None,
-            preview: None,
-            reuse: None,
-            looks_reusable: false,
-        };
+
         let mut b = Board::default();
-        b.lanes = vec![lane];
+        b.lanes = vec![crate::fixtures::lane("/work", sessions)];
         b
     }
 

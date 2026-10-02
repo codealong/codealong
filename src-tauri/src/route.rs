@@ -406,83 +406,13 @@ fn with_habit(mut route: Route, habit: crate::starts::Habit) -> Route {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{Bay, Harness, Surface};
 
     fn session(key: &str, title: &str, status: Status, live: bool, at: i64) -> Session {
-        Session {
-            key: key.into(),
-            id: key.into(),
-            short_id: key.into(),
-            harness: Harness::Claude,
-            account: "claude".into(),
-            surface: Surface::Cli,
-            status,
-            live,
-            pid: None,
-            title: title.into(),
-            cwd: "/r".into(),
-            work: vec![],
-            reply_tail: None,
-            first_prompt: None,
-            name: None,
-            started_at: None,
-            status_since: None,
-            last_activity: at,
-            last_prompt_at: at,
-            excerpt: Some("Ran `cargo test`".into()),
-            resume_command: None,
-            app_account: false,
-            open_target: "focus".into(),
-            visitor: None,
-            headline: String::new(),
-            detail: None,
-            branch: Some("feature".into()),
-            archived: false,
-            attach_command: None,
-            continues: None,
-            origin: None,
-            stalled_since: None,
-            background: None,
-            insight: None,
-            asks: false,
-            hosted: false,
-            stoppable: false,
-            snoozed_until: None,
-            earlier: false,
-            chrome: None,
-        }
+        Session { status, live, title: title.into(), last_activity: at, last_prompt_at: at, excerpt: Some("Ran `cargo test`".into()), branch: Some("feature".into()), ..crate::fixtures::session(key) }
     }
 
     fn lane(id: &str, project: &str, repo: &str, sessions: Vec<Session>, at: i64) -> Lane {
-        Lane {
-            id: id.into(),
-            project: project.into(),
-            repo: repo.into(),
-            repo_slug: None,
-            path: id.into(),
-            callsign: repo.into(),
-            origin: Origin::Main,
-            branch: Some("main".into()),
-            detached: None,
-            bay: Bay::Idle,
-            glyph: Status::Idle,
-            parked: false,
-            hidden: false,
-            headline: String::new(),
-            detail: None,
-            sessions,
-            pr: None,
-            git: None,
-            last_activity: at,
-            looks_finished: false,
-            targets: vec![],
-            default_target: None,
-            device: None,
-            repo_slug_now: None,
-            preview: None,
-            reuse: None,
-            looks_reusable: false,
-        }
+        Lane { project: project.into(), repo: repo.into(), callsign: repo.into(), branch: Some("main".into()), last_activity: at, ..crate::fixtures::lane(id, sessions) }
     }
 
     const NOW: i64 = 10 * 24 * 3600 * 1000;

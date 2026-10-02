@@ -388,85 +388,16 @@ pub fn suggest_read(req: &SuggestRequest, response: &Value) -> Suggested {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{Bay, Harness, Origin, Pr, Surface};
+    use crate::model::{Origin, Pr};
 
     const NOW: i64 = 100 * 24 * 3600 * 1000;
 
     fn session(key: &str, title: &str, status: Status, started: i64) -> Session {
-        Session {
-            key: key.into(),
-            id: key.into(),
-            short_id: key.into(),
-            harness: Harness::Claude,
-            account: "claude".into(),
-            surface: Surface::Cli,
-            status,
-            live: true,
-            pid: None,
-            title: title.into(),
-            cwd: "/r".into(),
-            work: vec![],
-            reply_tail: None,
-            first_prompt: None,
-            name: None,
-            started_at: Some(started),
-            status_since: None,
-            last_activity: started,
-            last_prompt_at: started,
-            excerpt: Some("All done: the export now streams.".into()),
-            resume_command: None,
-            app_account: false,
-            open_target: "focus".into(),
-            visitor: None,
-            headline: String::new(),
-            detail: None,
-            branch: None,
-            archived: false,
-            attach_command: None,
-            continues: None,
-            origin: None,
-            stalled_since: None,
-            background: None,
-            insight: None,
-            asks: false,
-            hosted: false,
-            stoppable: false,
-            snoozed_until: None,
-            earlier: false,
-            chrome: None,
-        }
+        Session { status, title: title.into(), started_at: Some(started), last_activity: started, last_prompt_at: started, excerpt: Some("All done: the export now streams.".into()), ..crate::fixtures::session(key) }
     }
 
     fn lane(id: &str, project: &str, sessions: Vec<Session>, pr: Option<Pr>) -> Lane {
-        Lane {
-            id: id.into(),
-            project: project.into(),
-            repo: "api".into(),
-            repo_slug: None,
-            path: id.into(),
-            callsign: id.trim_start_matches('/').into(),
-            origin: Origin::Script,
-            branch: Some("feature".into()),
-            detached: None,
-            bay: Bay::Idle,
-            glyph: Status::Idle,
-            parked: false,
-            hidden: false,
-            headline: String::new(),
-            detail: None,
-            sessions,
-            pr,
-            git: None,
-            last_activity: NOW,
-            targets: vec![],
-            default_target: None,
-            device: None,
-            repo_slug_now: None,
-            preview: None,
-            looks_finished: false,
-            reuse: None,
-            looks_reusable: false,
-        }
+        Lane { project: project.into(), repo: "api".into(), origin: Origin::Script, branch: Some("feature".into()), pr, last_activity: NOW, ..crate::fixtures::lane(id, sessions) }
     }
 
     fn todo(id: &str, project: &str, title: &str) -> Todo {

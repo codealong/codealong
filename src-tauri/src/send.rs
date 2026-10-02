@@ -930,48 +930,7 @@ mod tests {
     }
 
     fn session(harness: Harness, surface: Surface, status: Status, live: bool, pid: Option<u32>) -> Session {
-        Session {
-            key: "claude:claude:abc".into(),
-            id: "abc".into(),
-            short_id: "abc".into(),
-            harness,
-            account: "claude".into(),
-            surface,
-            status,
-            live,
-            pid,
-            title: "Fix the build".into(),
-            cwd: "/tmp".into(),
-            work: Vec::new(),
-            reply_tail: None,
-            first_prompt: None,
-            name: None,
-            started_at: None,
-            status_since: None,
-            last_activity: 0,
-            last_prompt_at: 0,
-            excerpt: None,
-            resume_command: None,
-            app_account: false,
-            open_target: String::new(),
-            visitor: None,
-            headline: String::new(),
-            detail: None,
-            branch: None,
-            archived: false,
-            attach_command: None,
-            continues: None,
-            origin: None,
-            stalled_since: None,
-            background: None,
-            insight: None,
-            asks: false,
-            hosted: false,
-            stoppable: false,
-            snoozed_until: None,
-            earlier: false,
-            chrome: None,
-        }
+        Session { harness, surface, status, live, pid, title: "Fix the build".into(), cwd: "/tmp".into(), ..Session::new(Harness::Claude, "claude", "abc") }
     }
 
     /// The ways `send` would try, with the registry and daemon given rather than read.
@@ -1075,15 +1034,7 @@ mod tests {
     }
 
     fn board_with(s: Session) -> Board {
-        let mut lane: crate::model::Lane = serde_json::from_value(json!({
-            "id": "/w", "project": "P", "repo": "r", "repoSlug": null, "path": "/w", "callsign": "w",
-            "origin": "main", "branch": null, "detached": null, "bay": "idle", "glyph": "idle", "parked": false,
-            "hidden": false, "headline": "", "detail": null, "sessions": [], "pr": null, "git": null,
-            "lastActivity": 0, "targets": [], "defaultTarget": null
-        }))
-        .expect("a lane");
-        lane.sessions = vec![s];
-        Board { lanes: vec![lane], ..Board::default() }
+        Board { lanes: vec![crate::fixtures::lane("/w", vec![s])], ..Board::default() }
     }
 
     #[test]

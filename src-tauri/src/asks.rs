@@ -424,48 +424,7 @@ mod tests {
     }
 
     fn session(id: &str) -> Session {
-        Session {
-            key: format!("claude:claude:{id}"),
-            id: id.into(),
-            short_id: id.into(),
-            harness: Harness::Claude,
-            account: "claude".into(),
-            surface: crate::model::Surface::Cli,
-            status: Status::Needs,
-            live: true,
-            pid: Some(1),
-            title: String::new(),
-            cwd: "/r".into(),
-            work: Vec::new(),
-            reply_tail: None,
-            first_prompt: None,
-            name: None,
-            started_at: None,
-            status_since: None,
-            last_activity: 0,
-            last_prompt_at: 0,
-            excerpt: None,
-            resume_command: None,
-            app_account: false,
-            open_target: String::new(),
-            visitor: None,
-            headline: String::new(),
-            detail: None,
-            branch: None,
-            archived: false,
-            attach_command: None,
-            continues: None,
-            origin: None,
-            stalled_since: None,
-            background: None,
-            insight: None,
-            asks: false,
-            hosted: false,
-            stoppable: false,
-            snoozed_until: None,
-            earlier: false,
-            chrome: None,
-        }
+        Session { status: Status::Needs, live: true, pid: Some(1), cwd: "/r".into(), ..Session::new(Harness::Claude, "claude", id) }
     }
 
     fn watch(record: PathBuf) -> Watch {
