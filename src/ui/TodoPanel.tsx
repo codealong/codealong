@@ -10,7 +10,6 @@
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { suggestTodo } from '../api';
-import { clearNotice, failedNotice, reportNotice } from '../notices';
 import { below } from '../contextMenu';
 import { dayKey, dueChoices, dueDate, dueWords } from '../due';
 import { absolute, ago, middleTruncate } from '../format';
@@ -39,11 +38,11 @@ function useSuggested(todo: Todo, on: boolean): TodoSuggested | null {
     const id = window.setTimeout(() => {
       const t = latest.current;
       suggestTodo(t.id, t.title, t.description, t.project)
-        .then((s) => {
-          clearNotice('jev-todos');
-          if (live) setGot({ for: key, s });
-        })
-        .catch((e: unknown) => reportNotice(failedNotice('jev-todos', 'Jev can’t suggest for todos', `Jev couldn’t suggest labels, a project or what “${t.title || 'Untitled'}” waits on`, e)));
+        .then((s) => live && setGot({ for: key, s }))
+        // The engine answers with an error when there's nothing to ask (one project, no labels,
+        // no other todos) as well as when Jev fails, so a failure can't be told from nothing to
+        // say: the chips just don't come.
+        .catch(() => {});
     }, SUGGEST_AFTER_MS);
     return () => {
       live = false;

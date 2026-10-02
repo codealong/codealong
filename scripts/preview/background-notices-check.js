@@ -1,18 +1,46 @@
-// Checks that a window's own background failures are notices in the accounts bar, and end once
-// what failed works again (notices.ts `reportNotice`, `clearNotice`): where each account can
-// start a session, read at launch for Review with (App.tsx), and Jev's suggestions for a todo
-// (TodoPanel.tsx). Both fail at first and the notices show; then they work, Jev's on the next
-// todo and the start options as a PR's menu asks for them, and the notices go.
-//   PREVIEW_WAIT=60000 PREVIEW_TODOS=scripts/preview/todos-jev-sample.json scripts/preview.sh todo '' scripts/preview/background-notices-check.js
+// Checks that a window's own background failures are notices (notices.ts `reportNotice`,
+// `clearNotice`). In a board view: where each account can start a session, read at launch for
+// Review with (App.tsx), fails, and its notice shows in the accounts bar with what failed and
+// why; once it works, a PR row's menu reads it again and the notice goes; and a notice another
+// window hands on shows there too, until that window says it's over. In the quick panel, which
+// has no accounts bar, the same failure and one reading your other devices are handed on.
+//   PREVIEW_WAIT=60000 PREVIEW_TODOS=scripts/preview/todos-sample.json scripts/preview.sh todo '' scripts/preview/background-notices-check.js
+//   PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/background-notices-check.js
 (function () {
   // This runs before the page's own scripts, so the app asks through this from the start.
-  var failing = { start_options: true, suggest_todo: true };
+  var failing = { start_options: true, devices: true };
   var tauri = window.__TAURI_INTERNALS__;
   var invoke = tauri.invoke;
   tauri.invoke = function (cmd) {
     if (failing[cmd]) return Promise.reject('the engine is busy');
     return invoke.apply(this, arguments);
   };
+  var START = 'Can’t read where sessions start';
+
+  if (window.__CODEALONG_QUICK__) {
+    // What the panel handed on.
+    var handed = function () {
+      return sent('plugin:event|emit')
+        .filter(function (a) { return a.event === 'window-notice' && a.payload.notice; })
+        .map(function (a) { return a.payload.notice; });
+    };
+    var keyed = function (key) { return handed().filter(function (n) { return n.key === key; })[0]; };
+    say('background notices check: waiting');
+    until(function () { return keyed('start-options'); }, 20000, 'the start options notice handed on')
+      .then(function () { return wait(1000); })
+      .then(function () {
+        var n = keyed('start-options');
+        check('a failed read of where sessions start is handed on', n.title === START && /: the engine is busy$/.test(n.text), JSON.stringify(n));
+        var devices = keyed('quick-devices');
+        if (devices) check('and one of your other devices', /: the engine is busy$/.test(devices.text), JSON.stringify(devices));
+        else note('your other devices are off here, so the panel didn’t read them');
+        check('each once', handed().length === (devices ? 2 : 1), JSON.stringify(handed()));
+      })
+      .then(done)
+      .catch(stopped);
+    return;
+  }
+
   // The notices' titles and texts, from their card: it opens, is read, and closes again, each
   // step once the page shows the one before.
   var read = function () {
@@ -42,24 +70,25 @@
     });
   };
   var shows = function (got, title) { return got.titles.indexOf(title) >= 0; };
-  var START = 'Can’t read where sessions start';
-  var JEV = 'Jev can’t suggest for todos';
+  var other = { key: 'conversation:x', title: 'A conversation isn’t updating', text: 'Couldn’t read what’s new in “x”: gone', until: null };
   say('background notices check: waiting');
-  once(function (got) { return shows(got, START) && shows(got, JEV); }, 'both notices')
+  once(function (got) { return shows(got, START); }, 'the start options notice')
     .then(function (got) {
       check('a failed read of where sessions start is a notice', true);
-      check('a failed suggestion from Jev is a notice', true);
-      var text = got.texts.join(' | ');
-      check('each says what failed and why', /the last answer read stands: the engine is busy/.test(text) && /Jev couldn’t suggest .*: the engine is busy/.test(text), text);
-      failing.suggest_todo = false;
-      failing.start_options = false;
-      // Another todo asks Jev again: a press selects its row.
-      all('.ca-todorow-title')[1].dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
-      return once(function (now) { return !shows(now, JEV); }, 'Jev’s notice to go');
+      check('it says what failed and why', /the last answer read stands: the engine is busy/.test(got.texts.join(' | ')), got.texts.join(' | '));
+      // Another window hands one on, and then says it's over.
+      window.__emit('window-notice', { notice: other });
+      return once(function (now) { return shows(now, other.title); }, 'the notice handed on');
+    })
+    .then(function () {
+      check('one another window hands on shows here', true);
+      window.__emit('window-notice', { clear: other.key });
+      return once(function (now) { return !shows(now, other.title); }, 'the handed-on notice to go');
     })
     .then(function (got) {
-      check('Jev’s goes once it answers', true);
-      check('the other stays until its read works', shows(got, START), got.titles.join(' | '));
+      check('and goes when that window says so', true);
+      check('the start options notice stays until its read works', shows(got, START), got.titles.join(' | '));
+      failing.start_options = false;
       var prs = all('.ca-nav').filter(function (b) { return /PRs/.test(b.textContent); })[0];
       prs.click();
       return until(function () { return q('.ca-prrow'); }, 10000, 'a PR row');
