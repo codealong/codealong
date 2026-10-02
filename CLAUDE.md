@@ -259,7 +259,12 @@ some work is, answer with one.
   `Pending`, `Answer` and `Sent`, which harness.rs and send.rs re-export), a device that only
   watches (`client`), and the worktree and session model their feeds carry (`model`; the
   engine's `model.rs` re-exports it and keeps the board). So a new field on a session or lane
-  goes in `peer/src/model.rs`. Phones and tablets are linked devices that only watch
+  goes in `peer/src/model.rs`, with its neutral value in `Session::new` or `Lane::new` there,
+  which everything that builds one starts from (a session's key is written only by
+  `Session::key_for`). Tests build sessions and lanes from the shared fixtures
+  (`peer/src/fixtures.rs`: `session`, `lane`, and `scratch` for a folder to write in), which the
+  engine's tests compile too, as `crate::fixtures`. Phones and tablets are linked devices that
+  only watch
   (`peerproto::watches`): Macs list them apart (`DevicesView.phones`), don't dial them and don't
   ask them to search. The iPhone app (codealong-ios) builds on the crate at a pinned
   `origin/main` commit and talks to Macs of other builds: a message a peer doesn't know is

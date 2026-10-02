@@ -9,10 +9,15 @@
 //! - `wire`: a connection, whatever carries it.
 //! - `api`: what devices ask each other for, and what comes back.
 //! - `client`: a device that only watches: it links, keeps feeds and asks, and answers nothing.
+//!
+//! `fixtures` is the tests' own: the sessions, lanes and scratch folders they build on, which the
+//! engine's tests compile too.
 
 pub mod api;
 pub mod client;
 pub mod feed;
+#[cfg(test)]
+pub(crate) mod fixtures;
 pub mod model;
 pub mod net;
 pub mod proto;

@@ -26,6 +26,11 @@ mod desktop;
 mod devicekey;
 mod editors;
 mod engine;
+// The tests' sessions, lanes and scratch folders are codealong-peer's, compiled here too: one
+// crate's tests can't see another's test-only code.
+#[cfg(test)]
+#[path = "../peer/src/fixtures.rs"]
+mod fixtures;
 mod flash;
 mod git;
 mod harness;

@@ -125,13 +125,7 @@ mod tests {
     use super::*;
 
     fn lane(id: &str) -> Lane {
-        serde_json::from_value(serde_json::json!({
-            "id": id, "project": "P", "repo": "r", "repoSlug": null, "path": id, "callsign": "c",
-            "origin": "main", "branch": null, "detached": null, "bay": "idle", "glyph": "idle", "parked": false,
-            "hidden": false, "headline": "", "detail": null, "sessions": [], "pr": null, "git": null,
-            "lastActivity": 0, "targets": [], "defaultTarget": null
-        }))
-        .expect("a lane")
+        crate::fixtures::lane(id, Vec::new())
     }
 
     #[test]
