@@ -68,7 +68,8 @@ const SHOWN_WAIT: Duration = Duration::from_secs(10);
 
 pub enum Msg {
     Fs(Vec<PathBuf>),
-    GitDone(PathBuf, GitInfo),
+    /// Git's word on a worktree, or none when its run fell over: the run is over either way.
+    GitDone(PathBuf, Option<GitInfo>),
     /// Something GitHub was asked in the background came back (ghpoll.rs).
     Github(ghpoll::Event),
     RefreshGithub,
@@ -91,7 +92,8 @@ pub enum Msg {
     /// then, and Chrome's profiles.
     ChromeProfile(String, Option<i64>, Option<String>, Vec<chrome::Profile>),
     RefreshUsage,
-    UsageDone(Vec<Usage>),
+    /// The usage read is over: what it read, or none when it fell over or never started.
+    UsageDone(Option<Vec<Usage>>),
     /// A harness's reader has something new that it read off this thread (`harness::Wake`).
     Read,
     /// The full pinned list, in order.
@@ -727,7 +729,7 @@ struct Engine {
     /// The thread that finds servers, told which worktrees to look in; none in a snapshot.
     servers: Option<previews::Watcher>,
     git: HashMap<PathBuf, GitInfo>,
-    git_jobs: Sender<(PathBuf, Option<String>)>,
+    git_jobs: Sender<GitJob>,
     /// Which worktrees git runs in, and which wait their turn (see throttle.rs).
     git_queue: GitQueue<PathBuf>,
     /// Checkout root → default branch ref (`origin/main`).
@@ -1183,9 +1185,23 @@ impl Engine {
         }
         self.usage_inflight = true;
         let tx = self.tx.clone();
-        let _ = std::thread::Builder::new().name("codealong-usage".into()).spawn(move || {
-            let _ = tx.send(Msg::UsageDone(usage::read_all(&accounts)));
+        // `on_usage` hears that the read is over however it ends, so usage is read again.
+        throttle::background("codealong-usage", move || usage::read_all(&accounts), move |list| {
+            let _ = tx.send(Msg::UsageDone(list));
         });
+    }
+
+    /// The usage read is over. One that fell over, or never started, read nothing: the numbers
+    /// and the backoff stay as they were, and the next read goes at its usual time.
+    fn on_usage(&mut self, list: Option<Vec<Usage>>) {
+        self.usage_inflight = false;
+        let Some(list) = list else { return };
+        self.usage_backoff = list.iter().any(|u| u.rate_limited);
+        for u in list {
+            let u = keep_last_good(self.usage.get(&u.account), u);
+            self.usage.insert(u.account.clone(), u);
+        }
+        self.dirty = true;
     }
 
     /// Everything that depends on config.toml, read again. When nothing but the theme, the
@@ -1364,15 +1380,7 @@ impl Engine {
                     let _ = reply.send(self.board.read().map(|b| b.generated_at).unwrap_or(0));
                 }
                 Ok(Msg::TodoStarted { ids, lane, session, pending }) => self.todos_started(ids, lane, session, pending),
-                Ok(Msg::UsageDone(list)) => {
-                    self.usage_inflight = false;
-                    self.usage_backoff = list.iter().any(|u| u.rate_limited);
-                    for u in list {
-                        let u = keep_last_good(self.usage.get(&u.account), u);
-                        self.usage.insert(u.account.clone(), u);
-                    }
-                    self.dirty = true;
-                }
+                Ok(Msg::UsageDone(list)) => self.on_usage(list),
                 Ok(Msg::MarkSeen(keys, reply)) => {
                     let now = now_ms();
                     for k in keys {
@@ -1648,7 +1656,10 @@ impl Engine {
 
     fn send_git(&mut self, path: PathBuf) {
         let base = self.base_for(&path);
-        let _ = self.git_jobs.send((path, base));
+        // With no worker left to take it, nothing is running there.
+        if let Err(unsent) = self.git_jobs.send((path, base)) {
+            self.git_queue.done(&unsent.0 .0, Instant::now());
+        }
     }
 
     /// Every worktree, the ones with the latest activity first: with many worktrees and a busy
@@ -1666,9 +1677,10 @@ impl Engine {
         }
     }
 
-    fn on_git(&mut self, path: PathBuf, info: GitInfo) {
+    fn on_git(&mut self, path: PathBuf, info: Option<GitInfo>) {
         self.perf.git_jobs += 1;
-        if self.seeds.iter().any(|s| s.path == path) {
+        // A run that fell over leaves what was known of the worktree as it is.
+        if let Some(info) = info.filter(|_| self.seeds.iter().any(|s| s.path == path)) {
             self.git.insert(path.clone(), info);
             self.dirty_git = true;
         }
@@ -2713,32 +2725,48 @@ fn read_worktree(path: &Path) -> WorktreeFiles {
     WorktreeFiles { gitdir, ignore: b.build().ok() }
 }
 
-fn spawn_git_workers(back: Sender<Msg>) -> Sender<(PathBuf, Option<String>)> {
-    let (jobs, rx) = channel::<(PathBuf, Option<String>)>();
+/// A worktree to run git in, and the branch its changes are counted from.
+type GitJob = (PathBuf, Option<String>);
+
+fn spawn_git_workers(back: Sender<Msg>) -> Sender<GitJob> {
+    let (jobs, rx) = channel::<GitJob>();
     let rx = Arc::new(Mutex::new(rx));
     for i in 0..GIT_WORKERS {
         let rx = rx.clone();
         let back = back.clone();
         let _ = std::thread::Builder::new().name(format!("codealong-git-{i}")).spawn(move || {
             procs::utility_thread();
-            loop {
-            let job = match rx.lock() {
-                Ok(r) => r.recv(),
-                Err(_) => return,
+            let status = |path: &Path, base: Option<&str>| {
+                let t = Instant::now();
+                let info = git::status(path, base);
+                if perf::enabled() {
+                    perf::log(&format!("git status {} ms: {}", t.elapsed().as_millis(), path.display()));
+                }
+                info
             };
-            let Ok((path, base)) = job else { return };
-            let t = Instant::now();
-            let info = git::status(&path, base.as_deref());
-            if perf::enabled() {
-                perf::log(&format!("git status {} ms: {}", t.elapsed().as_millis(), path.display()));
-            }
-            if back.send(Msg::GitDone(path, info)).is_err() {
-                return;
-            }
-            }
+            git_worker(&rx, status, |path, info| back.send(Msg::GitDone(path, info)).is_ok());
         });
     }
     jobs
+}
+
+/// One git worker: runs the jobs as they come, until there are no more to come or nobody to
+/// answer. Every job is answered, with none when its run panicked, and the worker goes on to
+/// the next: the engine counts a worktree as running until it hears (throttle.rs), so one it
+/// never heard of would get no git again, and a worker that died would take a quarter of the
+/// git with it.
+fn git_worker(jobs: &Mutex<Receiver<GitJob>>, run: impl Fn(&Path, Option<&str>) -> GitInfo, answer: impl Fn(PathBuf, Option<GitInfo>) -> bool) {
+    loop {
+        let job = match jobs.lock() {
+            Ok(r) => r.recv(),
+            Err(_) => return,
+        };
+        let Ok((path, base)) = job else { return };
+        let info = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run(&path, base.as_deref()))).ok();
+        if !answer(path, info) {
+            return;
+        }
+    }
 }
 
 /// First run: the accounts in use or signed in, then a project per GitHub owner your agents
@@ -3256,6 +3284,68 @@ mod tests {
             preferred: false,
             rate_limited: false,
         }
+    }
+
+    /// Usage is read on a thread nobody watches, and isn't read again while a read is on its
+    /// way: one that fell over has to be over too.
+    #[test]
+    fn a_usage_read_that_falls_over_is_over() {
+        use super::*;
+        let (tx, _rx) = channel();
+        let mut engine = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
+        engine.usage.insert("claude".into(), usage(None, false, 47.0));
+        (engine.usage_inflight, engine.usage_backoff) = (true, true);
+        engine.on_usage(None);
+        assert!(!engine.usage_inflight, "the next read can go");
+        assert!(engine.usage_backoff && !engine.dirty, "nothing was read: nothing else changes");
+        assert_eq!(engine.usage["claude"].meters[0].percent, 47.0);
+
+        engine.usage_inflight = true;
+        engine.on_usage(Some(vec![usage(None, false, 50.0)]));
+        assert!(!engine.usage_inflight && !engine.usage_backoff && engine.dirty);
+        assert_eq!(engine.usage["claude"].meters[0].percent, 50.0);
+    }
+
+    /// Git isn't run in a worktree while a run there is out, so every run has to answer.
+    #[test]
+    fn a_git_run_that_falls_over_still_answers() {
+        use super::*;
+        let (jobs, rx) = channel::<GitJob>();
+        let (answers, answered) = channel();
+        for name in ["first", "bad", "next"] {
+            jobs.send((PathBuf::from(name), None)).unwrap();
+        }
+        drop(jobs);
+        let run = |path: &Path, _: Option<&str>| {
+            if path == Path::new("bad") {
+                // A panic, without the hook's lines on stderr.
+                std::panic::resume_unwind(Box::new("git fell over"));
+            }
+            GitInfo::default()
+        };
+        // The worker returns once the jobs run out: it went on past the one that fell over.
+        git_worker(&Mutex::new(rx), run, |path, info| answers.send((path, info.is_some())).is_ok());
+        let all: Vec<(PathBuf, bool)> = answered.try_iter().collect();
+        assert_eq!(all, [("first".into(), true), ("bad".into(), false), ("next".into(), true)]);
+
+        // The engine has the worktree's run as over either way, and keeps what it knew of it.
+        let (tx, _rx) = channel();
+        let mut engine = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
+        let wt = PathBuf::from("/x/wt");
+        engine.seeds = vec![folder_seed(wt.clone(), "P", "repo", false)];
+        assert_eq!(engine.git_queue.request(wt.clone(), Instant::now()), Verdict::Run);
+        engine.on_git(wt.clone(), None);
+        assert_eq!(engine.git_queue.running(), 0);
+        assert!(!engine.git.contains_key(&wt) && !engine.dirty_git);
+        engine.on_git(wt.clone(), Some(GitInfo::default()));
+        assert!(engine.git.contains_key(&wt) && engine.dirty_git);
+
+        // With no worker to take a job, nothing is left running either.
+        let (gone, _) = channel::<GitJob>();
+        engine.git_jobs = gone;
+        engine.git_queue = GitQueue::default();
+        engine.queue_git(wt.clone());
+        assert_eq!(engine.git_queue.running(), 0);
     }
 
     #[test]

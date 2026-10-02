@@ -2,6 +2,9 @@
 //! starts during load by construction: agents editing files is what asks for it. So runs in
 //! one worktree are spaced out and coalesced, and results alone republish the board in
 //! batches, not once per worktree. Pure, so the rules can be tested with made-up clocks.
+//!
+//! Also how work is sent to the background so that whoever waits on it always hears it's over
+//! (`background`).
 
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
@@ -90,6 +93,40 @@ pub fn publish_now(dirty: bool, dirty_git: bool, since_last: Option<Duration>, p
     }
 }
 
+/// Runs `work` on a thread of its own, named `name`, and hands what it returned to `ended`
+/// once it's over, however that comes: None when the work panicked, and when its thread
+/// couldn't be started. Whoever marks work as on its way takes the mark off in `ended` (by a
+/// message to itself, usually). A mark that only the work's own last message took off would
+/// stay for good after a panic, and what waits on it would never run again. `ended` runs on
+/// the work's thread, or on the caller's when that thread never started.
+pub fn background<T: Send + 'static>(name: &str, work: impl FnOnce() -> T + Send + 'static, ended: impl FnOnce(Option<T>) + Send + 'static) {
+    let report = Report { result: None, ended: Some(ended) };
+    let spawned = std::thread::Builder::new().name(name.to_string()).spawn(move || {
+        let mut report = report;
+        report.result = Some(work());
+    });
+    // A thread that couldn't start drops what it was to run, and the report in it: `ended` has
+    // been told already.
+    if let Err(e) = spawned {
+        eprintln!("Couldn't start {name}: {e}");
+    }
+}
+
+/// What `background` work came to, said when this is dropped: at the end of the work, as a
+/// panic unwinds through it, or with a closure that never ran.
+struct Report<T, F: FnOnce(Option<T>)> {
+    result: Option<T>,
+    ended: Option<F>,
+}
+
+impl<T, F: FnOnce(Option<T>)> Drop for Report<T, F> {
+    fn drop(&mut self) {
+        if let Some(ended) = self.ended.take() {
+            ended(self.result.take());
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -143,5 +180,31 @@ mod tests {
         assert!(publish_now(true, false, Some(every), every), "a session change doesn't wait");
         assert!(!publish_now(true, false, Some(Duration::from_millis(100)), every));
         assert!(!publish_now(false, false, Some(Duration::from_secs(9)), every));
+    }
+
+    #[test]
+    fn background_work_says_it_is_over_however_it_ends() {
+        use std::sync::mpsc::{channel, Sender};
+        let (tx, rx) = channel::<Option<u32>>();
+        let said = |tx: &Sender<Option<u32>>| {
+            let tx = tx.clone();
+            move |result| {
+                let _ = tx.send(result);
+            }
+        };
+        let wait = Duration::from_secs(30);
+
+        background("test-returns", || 7, said(&tx));
+        assert_eq!(rx.recv_timeout(wait), Ok(Some(7)));
+        // A panic unwinds through the report. (`resume_unwind` panics without the hook's lines
+        // on stderr.)
+        background("test-panics", || -> u32 { std::panic::resume_unwind(Box::new("fell over")) }, said(&tx));
+        assert_eq!(rx.recv_timeout(wait), Ok(None));
+        // A thread that can't start drops the closure it was to run, and the report in it.
+        drop(Report { result: None::<u32>, ended: Some(said(&tx)) });
+        assert_eq!(rx.recv_timeout(wait), Ok(None));
+        // Each said so once.
+        drop(tx);
+        assert!(rx.recv_timeout(wait).is_err());
     }
 }

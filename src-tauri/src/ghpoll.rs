@@ -13,6 +13,7 @@ use crate::board::{self, LaneSeed};
 use crate::github::{self, Failure, Glance, Points, PrRaw, RepoPrs, Requested, Stamp};
 use crate::model::Notice;
 use crate::procs;
+use crate::throttle;
 use crate::util::now_ms;
 
 /// GitHub is polled this often.
@@ -51,7 +52,7 @@ pub enum Event {
     /// The poll is over, however it ended: everything it had to say has been sent.
     PollEnded,
     /// What GitHub calls each repo now, by the slug its remote has (lowercase); None where
-    /// GitHub didn't answer.
+    /// GitHub didn't answer. The asking is over: it comes empty when it fell over.
     RepoNames(Vec<(String, Option<String>)>),
 }
 
@@ -300,13 +301,11 @@ impl GhPoll {
         Some(self.schedule.start(board::polled_slugs(seeds).into_iter().collect(), busy, now))
     }
 
-    /// Runs a poll's work on a thread of its own, and says when it's over.
+    /// Runs a poll's work on a thread of its own. `Event::PollEnded` follows it however it
+    /// ends, so a poll that falls over doesn't stay on its way for good.
     fn run_poll(&self, work: impl FnOnce(&Back) + Send + 'static) {
-        let back = self.back.clone();
-        std::thread::spawn(move || {
-            work(&back);
-            back(Event::PollEnded);
-        });
+        let (back, ended) = (self.back.clone(), self.back.clone());
+        throttle::background("codealong-github", move || work(&back), move |_| ended(Event::PollEnded));
     }
 
     /// The engine's ten-second tick: the regular poll when it's due, and the names of repos
@@ -334,7 +333,8 @@ impl GhPoll {
                 })
                 .collect::<Vec<_>>()
         };
-        std::thread::spawn(move || back(Event::RepoNames(ask())));
+        // However the asking ends, it's over: one that fell over found nothing.
+        throttle::background("codealong-repo-names", ask, move |names| back(Event::RepoNames(names.unwrap_or_default())));
     }
 
     /// Takes in what came back from the background. True when the board has changed.
@@ -517,6 +517,7 @@ mod tests {
     use super::*;
     use crate::model::{Checks, Merge, Origin, PrState};
     use std::path::PathBuf;
+    use std::sync::mpsc::channel;
 
     /// A made-up time, and one so many seconds on.
     fn clock() -> Now {
@@ -746,6 +747,13 @@ mod tests {
         // Every repo has its answer, so there's nothing to ask GitHub.
         gh.ask_names(&seeds, t + NAME_RETRY * 3);
         assert!(!gh.names.inflight);
+
+        // An asking that fell over found nothing, and is over: its repos are asked about later.
+        let mut gh = quiet();
+        gh.names.to_ask(slugs(), t).unwrap();
+        assert!(!gh.on_event(Event::RepoNames(Vec::new()), &seeds, clock()));
+        assert!(!gh.names.inflight);
+        assert_eq!(gh.names.to_ask(slugs(), t + NAME_RETRY).map(|s| s.len()), Some(2));
     }
 
     #[test]
@@ -802,5 +810,29 @@ mod tests {
         gh.schedule.last = Some(after(sent, 3).at);
         gh.on_event(found(), &seeds, after(sent, 4));
         assert_eq!(gh.requested()["SparkHQ/spark"].len(), 1);
+    }
+
+    /// A poll runs on a thread nobody watches. If it fell over without a word, the poll would
+    /// stay on its way and GitHub would never be asked again.
+    #[test]
+    fn a_poll_that_falls_over_is_over() {
+        let (tx, rx) = channel();
+        let tx = std::sync::Mutex::new(tx);
+        let mut gh = GhPoll::new(Arc::new(move |event| {
+            let _ = tx.lock().unwrap().send(event);
+        }));
+        let t = clock();
+        gh.schedule.start(vec![], BTreeSet::new(), t);
+        gh.run_poll(|back| {
+            back(Event::Glance(Ok(Glance::default())));
+            // Without the hook's report on stderr, as a panic would unwind.
+            std::panic::resume_unwind(Box::new("gh fell over"));
+        });
+        let wait = Duration::from_secs(30);
+        assert!(matches!(rx.recv_timeout(wait), Ok(Event::Glance(_))));
+        let Ok(ended) = rx.recv_timeout(wait) else { panic!("the poll never said it was over") };
+        assert!(matches!(ended, Event::PollEnded));
+        gh.on_event(ended, &[], t);
+        assert!(!gh.schedule.inflight && gh.schedule.may_start(true, t.at));
     }
 }
