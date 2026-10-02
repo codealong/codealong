@@ -706,6 +706,8 @@ struct Engine {
     /// todos.json is there but doesn't read as a todo list: nothing is written over it, and
     /// changes are turned away, until it's fixed or deleted.
     todos_unreadable: bool,
+    /// Why the lock on todos.json couldn't be had, when a change was turned away for it.
+    todos_lock_warning: Option<String>,
     checkouts: Vec<(String, Checkout)>,
     seeds: Vec<LaneSeed>,
     /// `<main>/.git/worktrees/<name>` → the linked worktree's path.
@@ -855,6 +857,7 @@ impl Engine {
             todos_text: String::new(),
             todos_warning: None,
             todos_unreadable: false,
+            todos_lock_warning: None,
             checkouts: Vec::new(),
             seeds: Vec::new(),
             gitdir_to_lane: HashMap::new(),
@@ -959,7 +962,7 @@ impl Engine {
         self.jev_todos.save();
         let Some(id) = todojev::link_pick(&response, &ids) else { return };
         let lanes = self.lane_index();
-        let _lock = todos::lock().map_err(|e| eprintln!("{e:#}")).ok();
+        let Ok(_lock) = self.lock_todos() else { return };
         self.reload_todos();
         if self.todos_unreadable || self.todos.todos.iter().any(|t| t.sessions.contains(&key)) {
             return;
@@ -1400,29 +1403,7 @@ impl Engine {
                 }
                 Ok(Msg::Ping(sent)) => perf::lag("engine", sent.elapsed()),
                 Ok(Msg::Todo(op, reply)) => {
-                    let lanes = self.lane_index();
-                    // Under the lock the command takes too, and against the file as it is now, so
-                    // a change the command made a moment ago isn't written over.
-                    let lock = todos::lock().map_err(|e| eprintln!("{e:#}")).ok();
-                    self.reload_todos();
-                    let result = match self.todos_unreadable {
-                        // A change now would be lost when the file is fixed, so it's turned away.
-                        true => Err(self.todos_warning.clone().unwrap_or_default()),
-                        false => self.todos.apply(op, &lanes, now_ms()).map_err(|e| format!("{e:#}")),
-                    };
-                    let result = match result {
-                        Ok(changed) => {
-                            if changed {
-                                self.save_todos();
-                                drop(lock);
-                                // Now rather than on the next tick: the window waits for it.
-                                self.publish();
-                            }
-                            Ok(self.board.read().map(|b| b.generated_at).unwrap_or(0))
-                        }
-                        Err(e) => Err(e),
-                    };
-                    let _ = reply.send(result);
+                    let _ = reply.send(self.change_todos(op));
                 }
                 Ok(Msg::JevDone(id, answer)) => self.on_jev(id, answer),
                 Ok(Msg::DismissTodoHint(id)) => self.dismiss_todo_hint(id),
@@ -1456,21 +1437,7 @@ impl Engine {
                     self.publish();
                     let _ = reply.send(self.board.read().map(|b| b.generated_at).unwrap_or(0));
                 }
-                Ok(Msg::TodoStarted { ids, lane, session, pending }) => {
-                    let lanes = self.lane_index();
-                    let _lock = todos::lock().map_err(|e| eprintln!("{e:#}")).ok();
-                    self.reload_todos();
-                    if !self.todos_unreadable {
-                        let now = now_ms();
-                        let mut changed = false;
-                        for id in &ids {
-                            changed |= self.todos.started(id, lane.as_deref(), session.as_deref(), pending.clone(), &lanes, now);
-                        }
-                        if changed {
-                            self.save_todos();
-                        }
-                    }
-                }
+                Ok(Msg::TodoStarted { ids, lane, session, pending }) => self.todos_started(ids, lane, session, pending),
                 Ok(Msg::UsageDone(list)) => {
                     self.usage_inflight = false;
                     self.usage_backoff = list.iter().any(|u| u.rate_limited);
@@ -1891,11 +1858,12 @@ impl Engine {
     fn notices(&self) -> Vec<Notice> {
         let limited = self.gh_warning.as_deref().is_some_and(github::rate_limited);
         let held = held_warning(&self.reads.out_for(HELD_WARN_AFTER));
-        let said: [(&str, &str, Option<&String>); 9] = [
+        let said: [(&str, &str, Option<&String>); 10] = [
             ("config", "config.toml has a problem", self.config_warning.as_ref()),
             ("github", self.gh_warning.as_deref().map_or("", github::title), self.gh_warning.as_ref()),
             ("watch", "Live updates are off", self.watch_warning.as_ref()),
             ("todos", "todos.json has a problem", self.todos_warning.as_ref()),
+            ("todos-lock", "Todos can't be changed", self.todos_lock_warning.as_ref()),
             ("state", "state.json has a problem", self.state_warning.as_ref()),
             ("pr-links", "PR links weren't read", self.pr_links_warning.as_ref()),
             ("previews", "Previews weren't read", self.previews_warning.as_ref()),
@@ -2547,6 +2515,58 @@ impl Engine {
         if warning != self.state_warning {
             self.state_warning = warning;
             self.dirty = true;
+        }
+    }
+
+    /// The lock on todos.json that the `codealong` command takes too. Without it a change here
+    /// could write over one the command is making, so the change isn't made: whoever asked for
+    /// it hears why, and the board says so until the lock is had again.
+    fn lock_todos(&mut self) -> std::result::Result<todos::Lock, String> {
+        let lock = todos::lock().map_err(|e| format!("{e:#}"));
+        let warning = lock.as_ref().err().cloned();
+        if warning != self.todos_lock_warning {
+            self.todos_lock_warning = warning;
+            self.dirty = true;
+        }
+        lock
+    }
+
+    /// A change to the todos from a window or the command, and the time of the board that
+    /// shows it.
+    fn change_todos(&mut self, op: TodoOp) -> std::result::Result<i64, String> {
+        let lanes = self.lane_index();
+        // Under the lock the command takes too, and against the file as it is now, so
+        // a change the command made a moment ago isn't written over.
+        let lock = self.lock_todos()?;
+        self.reload_todos();
+        let changed = match self.todos_unreadable {
+            // A change now would be lost when the file is fixed, so it's turned away.
+            true => Err(self.todos_warning.clone().unwrap_or_default()),
+            false => self.todos.apply(op, &lanes, now_ms()).map_err(|e| format!("{e:#}")),
+        }?;
+        if changed {
+            self.save_todos();
+            drop(lock);
+            // Now rather than on the next tick: the window waits for it.
+            self.publish();
+        }
+        Ok(self.board.read().map(|b| b.generated_at).unwrap_or(0))
+    }
+
+    /// Links a session started from todos to each of them, or notes that it's still to show up.
+    fn todos_started(&mut self, ids: Vec<String>, lane: Option<String>, session: Option<String>, pending: Option<todos::PendingStart>) {
+        let lanes = self.lane_index();
+        let Ok(_lock) = self.lock_todos() else { return };
+        self.reload_todos();
+        if !self.todos_unreadable {
+            let now = now_ms();
+            let mut changed = false;
+            for id in &ids {
+                changed |= self.todos.started(id, lane.as_deref(), session.as_deref(), pending.clone(), &lanes, now);
+            }
+            if changed {
+                self.save_todos();
+            }
         }
     }
 
@@ -3475,6 +3495,61 @@ mod tests {
         e.apply_fs(vec![path.clone()]);
         assert_eq!(said(&e), None);
         assert!(std::fs::read_to_string(&path).unwrap().contains("codex:codex:c"));
+        std::fs::write(home().join("ran"), "").unwrap();
+    }
+
+    /// The app and the `codealong` command change todos.json under one lock. When the lock can't
+    /// be had, a change isn't made without it, where it could write over the command's: it's
+    /// turned away with the reason, and the board says so until the lock is had again. Runs in a
+    /// copy of this test binary with a home of its own.
+    #[test]
+    fn a_todo_change_without_the_lock_is_turned_away() {
+        use super::*;
+
+        let Some(own) = std::env::var_os("CODEALONG_TEST_HOME") else {
+            let home = std::env::temp_dir().join(format!("codealong-todos-lock-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&home);
+            std::fs::create_dir_all(&home).unwrap();
+            let run = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["engine::tests::a_todo_change_without_the_lock_is_turned_away", "--exact", "--nocapture"])
+                .env("HOME", &home)
+                .env("CODEALONG_TEST_HOME", &home)
+                .output()
+                .unwrap();
+            let ran = home.join("ran").exists();
+            std::fs::remove_dir_all(&home).unwrap();
+            assert!(run.status.success() && ran, "{}{}", String::from_utf8_lossy(&run.stdout), String::from_utf8_lossy(&run.stderr));
+            return;
+        };
+        assert_eq!(home(), PathBuf::from(own), "never the real home folder");
+
+        config::write(&Config { scan: vec![], ..Config::default() }).unwrap();
+        let (tx, _rx) = channel();
+        let mut e = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
+        e.load_config();
+        e.load_todos();
+        let said = |e: &Engine| e.notices().into_iter().find(|n| n.key == "todos-lock").map(|n| n.text);
+        let labels = |name: &str| TodoOp::Labels { labels: vec![todos::Label { id: "l1".into(), name: name.into(), color: "blue".into() }] };
+        e.change_todos(labels("first")).unwrap();
+        let before = std::fs::read_to_string(todos::path()).unwrap();
+        assert!(before.contains("first") && said(&e).is_none());
+
+        // The lock's file can't be opened: a folder is in its place.
+        let lock = todos::path().with_extension("json.lock");
+        std::fs::remove_file(&lock).unwrap();
+        std::fs::create_dir(&lock).unwrap();
+        let why = e.change_todos(labels("second")).unwrap_err();
+        assert!(why.starts_with("Couldn't lock todos.json: "), "{why}");
+        assert_eq!(said(&e), Some(why));
+        e.todos_started(vec!["t1".into()], None, Some("claude:claude:a".into()), None);
+        assert_eq!(std::fs::read_to_string(todos::path()).unwrap(), before);
+        assert_eq!(e.todos.labels[0].name, "first");
+
+        // With the lock back, changes go through and the notice goes.
+        std::fs::remove_dir(&lock).unwrap();
+        e.change_todos(labels("second")).unwrap();
+        assert!(std::fs::read_to_string(todos::path()).unwrap().contains("second"));
+        assert_eq!(said(&e), None);
         std::fs::write(home().join("ran"), "").unwrap();
     }
 
