@@ -130,6 +130,8 @@ const AGES: { id: Age; label: string; title: string; ms: number }[] = [
 ];
 
 type Row = BoardRow | PrRowItem | TodoItem;
+/** No rows, as one list, so what's keyed on the rows shown doesn't see a new one on every render. */
+const NO_ROWS: Row[] = [];
 
 function inProject(lane: Lane, project: string): boolean {
   if (project === ALL_PROJECTS) return !lane.hidden;
@@ -774,7 +776,7 @@ export function App() {
   );
   // Nothing is listed until the board is read, so nothing can be selected: not the other devices'
   // rows that come first.
-  const visible = loading ? [] : view === 'sessions' ? sessionRows : view === 'prs' ? prVisible : view === 'todo' ? todoVisible : view === 'canvas' ? [] : worktreeItems;
+  const visible = loading ? NO_ROWS : view === 'sessions' ? sessionRows : view === 'prs' ? prVisible : view === 'todo' ? todoVisible : view === 'canvas' ? NO_ROWS : worktreeItems;
   // A session listed under another worktree now (its commands moved there) stays selected. When
   // the selected agent's line goes (you marked it seen, it stopped), the selection stays
   // on its worktree rather than jumping to the top. A todo that leaves the list (marked done
@@ -791,7 +793,8 @@ export function App() {
   // With nothing picked yet (the window just opened, or you changed projects) the panel shows
   // the top row, and it holds there: a session that comes to the top later doesn't take it.
   useEffect(() => {
-    if (selectedKey === null && selected) setSelectedKey(selected.key);
+    const top = selected?.key;
+    if (selectedKey === null && top !== undefined) setSelectedKey(top);
   }, [selectedKey, selected?.key]);
   const selectedLane = selected?.lane ?? null;
   // The todos picked together, in the list's order. They hold while the keyboard stays on the
@@ -845,8 +848,11 @@ export function App() {
     document.title = counts.needs > 0 ? `${base} · ${counts.needs} need you` : base;
   }, [counts.needs, current]);
 
+  // Keyed on the row's key, which is all its id is made of: the row itself is a new object on
+  // every push, and scrolling then would pull the list back from where you'd scrolled it.
   useEffect(() => {
-    if (selected) document.getElementById(domId(selected))?.scrollIntoView({ block: 'nearest' });
+    const key = selected?.key;
+    if (key !== undefined) document.getElementById(domIdOf(key))?.scrollIntoView({ block: 'nearest' });
   }, [selected?.key]);
 
   const open = useCallback((lane: Lane | null, targetId: string | null | undefined) => {
@@ -860,7 +866,7 @@ export function App() {
       return;
     }
     openWhere(where(lane, targetId), { report, from: 'main' });
-  }, [report, markSeen]);
+  }, [report, markSeen, setView]);
 
   const openRow = useCallback(
     (row: Row | null) => {
@@ -879,7 +885,7 @@ export function App() {
       }
       open(row.lane, row.kind === 'agent' ? row.session.openTarget : row.lane.defaultTarget);
     },
-    [open],
+    [open, newSession],
   );
 
   /** Approves a PR as you, in one click. */
@@ -934,7 +940,7 @@ export function App() {
   /** On from the session in row `from` to the next that waits on you, with what was done to it, or
    *  none for a skip. With nothing left, the panel stays where it is. The next one's box takes the
    *  cursor unless `box` says to leave the keyboard where it is. */
-  const goOn = (from: string, s: Session, done: string | null, box = true) => {
+  const goOn = useCallback((from: string, s: Session, done: string | null, box = true) => {
     if (view !== 'sessions' || selectedNow.current !== from) return;
     if (done) handled.current.set(s.key, statusTime(s));
     const next = queueAfter(waitingNow.current, s.key, handled.current)[0];
@@ -942,10 +948,10 @@ export function App() {
     setQueueNote(done ? { key: next.key, text: `${s.title}: ${done}` } : null);
     if (box) setBoxFocus(next.key);
     setSelectedKey(next.key);
-  };
+  }, [view]);
   /** Back from the session in row `from` to the one before it that waits on you, the way ⌘]
    *  goes on, with the cursor in its box. */
-  const goBack = (from: string, s: Session) => {
+  const goBack = useCallback((from: string, s: Session) => {
     if (view !== 'sessions' || selectedNow.current !== from) return;
     const before = queueAfter(waitingNow.current, s.key, handled.current);
     const prev = before[before.length - 1];
@@ -953,13 +959,13 @@ export function App() {
     setQueueNote(null);
     setBoxFocus(prev.key);
     setSelectedKey(prev.key);
-  };
+  }, [view]);
   /** Marks a finished turn seen and, when it was waiting on you, goes on to the next that is. The
    *  keyboard stays where it was: on the list, `e` works down it; from a box, the next one's box
    *  takes the cursor. From a session that doesn't wait on you (it runs, say) there's nothing to
    *  mark seen, and it goes on as ⌘] does: ⌘E is done with this one. One that waits on a call
    *  to allow stays: ⌘E doesn't answer it. */
-  const seenAndOn = (from: string, s: Session, box: boolean) => {
+  const seenAndOn = useCallback((from: string, s: Session, box: boolean) => {
     const waiting = waitingNow.current.some((r) => r.session.key === s.key);
     if (!seenable(s)) {
       if (!waiting) goOn(from, s, null, box);
@@ -967,7 +973,7 @@ export function App() {
     }
     markSeen([s.key]);
     if (waiting) goOn(from, s, 'marked seen.', box);
-  };
+  }, [goOn, markSeen]);
   /** A session's menu, its chords or the strip's buttons took it off what waits on you (snoozed,
    *  closed, archived, marked seen): from the one shown in Sessions, on to the next that waits, as
    *  ⌘E goes, the keyboard staying where it was. One that didn't wait on you stays as it is:
@@ -984,8 +990,10 @@ export function App() {
     const t = window.setTimeout(() => setQueueNote(null), 4000);
     return () => window.clearTimeout(t);
   }, [queueNote]);
+  // Only when the selection moves: the row gone on to keeps its claim on the cursor until then.
   useEffect(() => {
-    if (boxFocus && selected?.key !== boxFocus) setBoxFocus(null);
+    const key = selected?.key;
+    setBoxFocus((box) => (box && key !== box ? null : box));
   }, [selected?.key]);
   // A session you click in Sessions is one you mean to answer: the cursor goes to its panel's box,
   // once the click has given the list the keyboard, as a press does. The list's chords work from
@@ -1057,14 +1065,17 @@ export function App() {
   }, [undo]);
 
   /** Opens the quick panel for a todo: in its worktree, with the todo as the prompt. */
-  const startForTodo = (r: TodoItem) => newSession({ laneId: r.lane?.id ?? selectedLane?.id ?? null, todo: r.todo.id, prompt: todoPrompt(r.todo) });
+  const startForTodo = useCallback(
+    (r: TodoItem) => newSession({ laneId: r.lane?.id ?? selectedLane?.id ?? null, todo: r.todo.id, prompt: todoPrompt(r.todo) }),
+    [newSession, selectedLane?.id],
+  );
 
   /** Opens the quick panel for one session on several todos: in the worktree of the first that
    *  has one, on a prompt that has each of them. */
-  const startForTodos = (rows: TodoItem[]) => {
+  const startForTodos = useCallback((rows: TodoItem[]) => {
     if (rows.length === 1) return startForTodo(rows[0]);
     newSession({ laneId: rows.find((r) => r.lane)?.lane?.id ?? selectedLane?.id ?? null, todos: rows.map((r) => r.todo.id), prompt: todosPrompt(rows.map((r) => r.todo)) });
-  };
+  }, [startForTodo, newSession, selectedLane?.id]);
 
   /** Selects a todo's row: alone, or with ⌘ adds it to the ones picked (or leaves it out), or
    *  with ⇧ picks the rows from the anchor to it. */
@@ -1895,7 +1906,7 @@ export function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [visible, selected, pickedRows, selectedLane, startLaneId, move, open, openRow, copy, settings, previewFor, renaming, openSettings, newSession, view, setView, toggleLanePin, sessionPins, lanePins, prPins, pinnedRows, pinnedLaneRows, pinnedPrRows, shownBays, movePinnedSession, movePinnedLane, current, setArchived, projects, toggleSidebar, panelMax, togglePanelMax]);
+  }, [visible, selected, pickedRows, selectedLane, startLaneId, move, open, openRow, copy, settings, previewFor, renaming, openSettings, newSession, startForTodo, startForTodos, view, setView, goOn, goBack, seenAndOn, markSeen, sessionPins, lanePins, prPins, pinnedRows, pinnedLaneRows, pinnedPrRows, shownBays, movePinnedSession, movePinnedLane, projects, toggleSidebar, panelMax, togglePanelMax]);
 
   // Starts this window asked the quick panel for. A spinner shows while the harness takes the
   // session; then what's next. The new session isn't selected when it shows up: by then you may
@@ -1959,6 +1970,16 @@ export function App() {
     }
   };
 
+  /** A PR as the PRs view lists it: with the worktrees that hold it and the sessions that worked on it. */
+  const prRowOf = useCallback(
+    (pr: PrItem): PrRowItem => {
+      const holding = pr.lanes.flatMap((id) => laneById.get(id) ?? []);
+      const sessions = pr.sessions.flatMap((x) => sessionIndex.get(`${x.lane}::${x.key}`) ?? []);
+      return { kind: 'pr', key: `pr:${pr.key}`, pr, lane: holding[0] ?? null, sessions, places: prPlaces(holding, sessions) };
+    },
+    [laneById, sessionIndex],
+  );
+
   /** Whether a card matches the filter at the top and the status filter, as its row would in its own view. */
   const canvasMatches = useCallback(
     (it: RefItem) => {
@@ -1983,7 +2004,7 @@ export function App() {
         }
       }
     },
-    [canvasEntities, todoItems, query, bayFilter, since],
+    [canvasEntities, todoItems, query, bayFilter, since, prRowOf],
   );
   // Picking a status, or pressing Return in the filter, brings what matches into view.
   const [canvasFit, setCanvasFit] = useState(0);
@@ -2005,13 +2026,6 @@ export function App() {
     }
     const pr = e.prs.get(it.key);
     return pr ? prMenuSpec(prRowOf(pr)) : [];
-  };
-
-  /** A PR as the PRs view lists it: with the worktrees that hold it and the sessions that worked on it. */
-  const prRowOf = (pr: PrItem): PrRowItem => {
-    const holding = pr.lanes.flatMap((id) => laneById.get(id) ?? []);
-    const sessions = pr.sessions.flatMap((x) => sessionIndex.get(`${x.lane}::${x.key}`) ?? []);
-    return { kind: 'pr', key: `pr:${pr.key}`, pr, lane: holding[0] ?? null, sessions, places: prPlaces(holding, sessions) };
   };
 
   // In the canvas's panel, a worktree or todo it links to is shown on the canvas when it's there.
