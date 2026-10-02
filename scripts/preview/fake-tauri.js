@@ -411,6 +411,8 @@ window.__TAURI_INTERNALS__ = {
         window.__past = (window.__past || []).filter(function (k) { return k.id !== open.id; });
         window.__past.push({ id: open.id, key: open.key, title: '', startedAt: Date.now(), lastAt: Date.now(), turns: open.turns.map(function (t) { return t.done ? t : Object.assign({}, t, { done: true, error: 'Closed before it answered.' }); }) });
         delete window.__sides[open.key];
+        // The engine tells every window it's closed, once it's kept.
+        setTimeout(function () { window.__emit('side', { id: open.id, key: open.key, turns: [], running: false, ended: false }); }, 0);
       }
       return Promise.resolve(null);
     }

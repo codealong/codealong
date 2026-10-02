@@ -452,6 +452,13 @@ pub fn open_on(board: &Board, lane_id: &str, target_id: &str) -> Result<Option<S
                     let cmd = s.resume_command.clone().ok_or_else(|| anyhow!("This session can't be resumed in a terminal."))?;
                     launch::terminal_open(&apps.terminal_id, place, &cwd, Some(&format!("{cmd}\n")))?;
                 }
+                // A new terminal in the folder it works in, beside the terminals already there
+                // (`place`). Nothing about the session itself was looked at.
+                "terminal" => {
+                    let folder = PathBuf::from(board::session_folder(&lane.path, &s.cwd));
+                    launch::terminal_open(&apps.terminal_id, place, if folder.is_dir() { &folder } else { &path }, None)?;
+                    return Ok(None);
+                }
                 "chrome" => chrometabs::show(s.chrome.as_ref().ok_or_else(|| anyhow!("That session hasn't used Chrome."))?)?,
                 // A window shows it in its own panel; nothing opens elsewhere.
                 "hosted" => {}

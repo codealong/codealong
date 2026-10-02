@@ -53,10 +53,26 @@ describe('editors', () => {
     const [folder] = folderMenu(apps, {}, () => {}) as MenuGroup[];
     expect((folder.items as MenuAction[]).map((i) => i.label)).toEqual(['Cursor', 'VS Code', 'Zed']);
     // With yours the only one, no submenu.
-    const [only] = folderMenu({ editor: 'Cursor', editorId: 'cursor', editors: [{ id: 'cursor', name: 'Cursor' }] }, {}, (id) => opened.push(id)) as MenuAction[];
+    const one = { editor: 'Cursor', editorId: 'cursor', editors: [{ id: 'cursor', name: 'Cursor' }] };
+    const [only] = folderMenu(one, {}, (id) => opened.push(id)) as MenuAction[];
     expect(only.label).toBe('Open folder in Cursor');
     only.run();
     expect(opened.pop()).toBe('l|editor');
+
+    // A session's folder opens in your terminal too, ahead of the editors.
+    opened.length = 0;
+    const terminal = { name: 'Ghostty', key: 'claude:c:1' };
+    const [both] = folderMenu(one, {}, (id) => opened.push(id), terminal) as MenuGroup[];
+    expect((both.items as MenuAction[]).map((i) => i.label)).toEqual(['Ghostty', 'Cursor']);
+    (both.items as MenuAction[]).forEach((i) => i.run());
+    expect(opened.splice(0)).toEqual(['s|claude:c:1|terminal', 'l|editor']);
+    const [many] = folderMenu(apps, {}, (id) => opened.push(id), terminal) as MenuGroup[];
+    expect((many.items as MenuAction[]).map((i) => i.label)).toEqual(['Ghostty', 'Cursor', 'VS Code', 'Zed']);
+    // With no editor here, the terminal alone.
+    const [alone] = folderMenu({ editor: '', editorId: '', editors: [] }, {}, (id) => opened.push(id), terminal) as MenuAction[];
+    expect(alone.label).toBe('Open folder in Ghostty');
+    alone.run();
+    expect(opened.pop()).toBe('s|claude:c:1|terminal');
   });
 
   it('opens a session’s folder in any of them', () => {
@@ -65,5 +81,9 @@ describe('editors', () => {
       ['l|editor|vscode', 'Open folder in VS Code'],
       ['l|editor|zed', 'Open folder in Zed'],
     ]);
+    // And in your terminal first, which says the folder: the session's own, inside its worktree.
+    const withTerminal = folderTargets(apps, {}, { name: 'Ghostty', key: 'claude:c:1', folder: '~/app/src-tauri' });
+    expect(withTerminal.map((x) => x.id)).toEqual(['s|claude:c:1|terminal', 'l|editor|cursor', 'l|editor|vscode', 'l|editor|zed']);
+    expect(withTerminal[0]).toMatchObject({ label: 'Open folder in Ghostty', detail: '~/app/src-tauri', icon: 'terminal', group: 'lane' });
   });
 });

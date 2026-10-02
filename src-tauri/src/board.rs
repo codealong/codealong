@@ -1421,6 +1421,15 @@ pub fn logo_status(lanes: &[Lane], prs: &[PrItem]) -> LogoStatus {
     sessions.chain(review.then_some(LogoStatus::Needs)).min().unwrap_or_default()
 }
 
+/// The folder a session works in, for a new terminal there: its own when that's its worktree's
+/// or inside it (it was started in a subfolder, or it's a chat with a folder of its own in the
+/// lane of an app's chats), else the worktree's, which is where it's shown. `runFolder` in
+/// RunButton.tsx says the same for the commands run from its conversation.
+pub fn session_folder(lane_path: &str, cwd: &str) -> String {
+    let inside = !cwd.is_empty() && Path::new(cwd).starts_with(lane_path);
+    if inside { cwd } else { lane_path }.to_string()
+}
+
 /// The folders a new terminal at `path` belongs beside, nearest first: its worktree, the other
 /// worktrees of its repo, then the rest of its project. `[apps] new_terminal = "project"` opens
 /// it as a tab in a window already showing the nearest of them. A folder elsewhere (a project of
@@ -1526,6 +1535,16 @@ mod tests {
             review_requested: false,
             requested_by: None,
         }
+    }
+
+    #[test]
+    fn a_sessions_folder_is_its_own_inside_its_worktree() {
+        assert_eq!(session_folder("/p/app", "/p/app"), "/p/app");
+        assert_eq!(session_folder("/p/app", "/p/app/src-tauri"), "/p/app/src-tauri");
+        // One that visits from another worktree, and one that says nothing of where it started.
+        assert_eq!(session_folder("/p/app", "/p/app-fix"), "/p/app");
+        assert_eq!(session_folder("/p/app", "/p/other/src"), "/p/app");
+        assert_eq!(session_folder("/p/app", ""), "/p/app");
     }
 
     #[test]

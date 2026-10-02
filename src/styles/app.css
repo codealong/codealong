@@ -6453,10 +6453,12 @@ html.is-quick body {
 .ca-sessinsp-tools > .ca-btn {
   flex: none;
 }
-/* The Open menu opens under its button toward the panel, not past the window's edge. */
+/* The Open menu opens under its button toward the panel, not past the window's edge, and keeps
+   to a width that fits the narrowest panel: a long title or folder under an item is cut short. */
 .ca-sessinsp-tools .ca-openin > .ca-menu {
   left: auto;
   right: 0;
+  max-width: 360px;
 }
 .ca-sessinsp-detailsbtn.is-on {
   background: var(--surface-selected);
@@ -6564,13 +6566,35 @@ html.is-quick body {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.ca-sessinsp-todo:hover {
+.ca-sessinsp-todo:hover,
+.ca-sessinsp-sides:hover {
   background: var(--surface-hover);
   color: var(--ink);
 }
-.ca-sessinsp-todo:focus-visible {
+.ca-sessinsp-todo:focus-visible,
+.ca-sessinsp-sides:focus-visible {
   outline: none;
   box-shadow: inset 0 0 0 2px var(--focus);
+}
+/* How many side conversations the session has: it shows them above the box, and stays lit
+   while they show. */
+.ca-sessinsp-sides {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-3);
+  font: 400 12px/16px var(--font-sans);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ca-sessinsp-sides[aria-pressed='true'] {
+  background: var(--neutral-tint);
+  color: var(--ink);
 }
 /* Expanded to the whole window (F): the sidebar and the list step aside, and the panel's parts
    keep to a readable width in the middle, their backgrounds and lines still reaching the edges. */

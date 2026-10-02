@@ -166,7 +166,7 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
   const archive = can.archive ?? ((archived: boolean) => (archived ? settle('archived')(archiveAhead(s.key, true)) : void archiveAhead(s.key, false).catch((e: unknown) => report.error(errorText(e)))));
   return {
     open: { label: openLabel(lane, s, can.terminal), run: () => can.open(lane, s.openTarget) },
-    folder: can.editors && opensInEditor(lane) ? item(folderMenu(can.editors.apps, can.editors.icons, (id) => can.open(lane, id))) : undefined,
+    folder: can.editors && opensInEditor(lane) ? item(folderMenu(can.editors.apps, can.editors.icons, (id) => can.open(lane, id), { name: can.terminal, key: s.key })) : undefined,
     pr: prItem(lane, report),
     // Its tab in Chrome, in whichever profile's window has it; Chrome here, so not for a session
     // on another device.

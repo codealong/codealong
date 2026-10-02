@@ -3,11 +3,12 @@
 // meanwhile, and Close, which ends the copy. Codealong keeps what was asked and answered, with
 // what the copy did to answer, so `/side` alone (or Earlier, beside an open one) lists the ones
 // from before, and picking one shows it to read, or to delete. None of it reaches the session.
+// The session's header says how many it has (`SidesChip`), which is the way to them that shows.
 
 import { useLayoutEffect, useRef, type ReactNode } from 'react';
-import { sideClose, sideForget } from '../api';
+import { sideClose } from '../api';
 import { agoPhrase } from '../format';
-import { keptLine, noteSide, showSides, turnState, usePast, useSide, useSideView } from '../side';
+import { forgetSide, keptLine, keptSummary, noteSide, showSides, turnState, useKept, useSide, useSideView } from '../side';
 import type { Session, SideTurn } from '../types';
 import { Markdown } from './Markdown';
 import { Icon, Rich } from './primitives';
@@ -68,10 +69,7 @@ export function SideStrip({ session }: { session: Session }) {
   const key = session.key;
   const side = useSide(key);
   const view = useSideView(key);
-  // What's kept changes as a turn ends and as a conversation closes; and it's read again as the
-  // list opens, since another window may have deleted one.
-  const ended = side ? side.turns.filter((t) => t.done).length : 0;
-  const [past, readPast] = usePast(key, `${side?.id ?? ''}:${ended}:${view ? 'kept' : ''}`);
+  const past = useKept(key);
   const earlier = past.filter((k) => k.id !== side?.id);
   const reading = view?.kind === 'past' ? past.find((k) => k.id === view.id) : undefined;
   const scroller = useRef<HTMLDivElement>(null);
@@ -101,8 +99,9 @@ export function SideStrip({ session }: { session: Session }) {
             className="ca-linkbtn"
             title="Forget this side conversation"
             onClick={() => {
-              showSides(key, { kind: 'list' });
-              void sideForget(reading.id).then(readPast, readPast);
+              // Back to the others, or away with none left.
+              showSides(key, earlier.length > 1 ? { kind: 'list' } : null);
+              forgetSide(key, reading.id);
             }}
           >
             Delete
@@ -165,5 +164,29 @@ export function SideStrip({ session }: { session: Session }) {
         <Turns turns={side.turns} current={side.turns.findIndex((t) => !t.done)} />
       </div>
     </section>
+  );
+}
+
+/** In a session's header: how many side conversations it has, kept or open. A click shows them
+ *  above its box (the list, or the only one), and another puts them away. */
+export function SidesChip({ session }: { session: Session }) {
+  const key = session.key;
+  const side = useSide(key);
+  const view = useSideView(key);
+  const summary = keptSummary(useKept(key), side);
+  if (!summary) return null;
+  const { words, show } = summary;
+  const showing = !!view && !!show;
+  return (
+    <button
+      type="button"
+      className="ca-sessinsp-sides"
+      aria-pressed={showing}
+      title={show ? (showing ? 'Put them away' : `${words} with this session, kept by Codealong. Show ${show.kind === 'past' ? 'it' : 'them'} above the box.`) : `${words} with this session: the one that’s open above the box.`}
+      onClick={() => showSides(key, showing ? null : show)}
+    >
+      <Icon name="help" size={12} />
+      <span>{words}</span>
+    </button>
   );
 }

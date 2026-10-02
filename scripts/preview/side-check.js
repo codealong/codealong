@@ -4,7 +4,8 @@
 // tells of it (the tool the copy runs, then its words, and what it did folded under the answer);
 // a second question joins the first; Close ends it and keeps it; a question that can't be asked
 // is back in the box with why; /side alone lists the ones kept, each opens to read, Delete
-// forgets one; and Earlier beside an open one lists them too.
+// forgets one; Earlier beside an open one lists them too; and the session's header says how many
+// it has, which shows the only one, or the list, and puts it away again.
 //   PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/side-check.js
 // Every step should say ok.
 (function () {
@@ -69,7 +70,8 @@
   (async function () {
     try {
       await until(box, 20000);
-      check('no side conversation shows until one is asked', !strip());
+      var chip = function () { return document.querySelector('.ca-sessinsp-head .ca-sessinsp-sides'); };
+      check('no side conversation shows until one is asked', !strip() && !chip());
       type(box(), '/s');
       await wait(50);
       check('a / and the start of its name says what /side does', /^\/side \[question\]: /.test(noteText()), noteText());
@@ -121,6 +123,15 @@
       await until(function () { return !strip(); }, 5000);
       check('Close ends it', calls('side_close').length === 1 && calls('side_close')[0][1].key === key);
 
+      await until(function () { return chip() && chip().textContent === '1 side conversation'; }, 5000);
+      check('the header says the session has one kept', chip().getAttribute('aria-pressed') === 'false');
+      chip().click();
+      await until(function () { return turns().length === 2; }, 5000);
+      check('which a click shows, to read', turns()[0].indexOf('why a queue?') === 0 && strip().textContent.indexOf('closed') > 0 && chip().getAttribute('aria-pressed') === 'true', strip().textContent.slice(0, 120));
+      chip().click();
+      await until(function () { return !strip(); }, 5000);
+      check('and another puts away', chip().getAttribute('aria-pressed') === 'false' && calls('side_ask').length === 2);
+
       // What was closed is kept, with one from before.
       window.__past.push({ id: 'old', key: key, title: 'x', startedAt: Date.now() - 7200000, lastAt: Date.now() - 7200000, turns: [{ question: 'is the queue tested?\nand where?', answer: 'In `send.rs`.', tools: ['Grep · `in_order`'], done: true }] });
       var sentBefore = calls('send_to_session').length;
@@ -132,6 +143,7 @@
       var rows = Array.prototype.map.call(strip().querySelectorAll('.ca-sidestrip-kept'), function (r) { return r.textContent; });
       check('/side alone lists the ones kept, the latest first', rows[0].indexOf('why a queue?') === 0 && rows[0].indexOf('2 questions') > 0 && rows[1].indexOf('is the queue tested?') === 0 && rows[1].indexOf('and where') < 0 && rows[1].indexOf('2h ago · 1 question') > 0, rows.join(' / '));
       check('asking and sending nothing', calls('side_ask').length === askedBefore && calls('send_to_session').length === sentBefore && box().value === '', box().value);
+      check('the header counts both, and is lit while they show', chip().textContent === '2 side conversations' && chip().getAttribute('aria-pressed') === 'true', chip().textContent);
       strip().querySelectorAll('.ca-sidestrip-kept')[1].click();
       await until(function () { return turns().length === 1; }, 5000);
       check('one opens to read', turns()[0].indexOf('is the queue tested?') === 0 && turns()[0].indexOf('In send.rs.') > 0 && strip().textContent.indexOf('closed') > 0 && !!strip().querySelector('.ca-sidestrip-steps'), strip().textContent);
@@ -141,6 +153,7 @@
       headButton('Close').click();
       await until(function () { return !strip(); }, 5000);
       check('Close puts the list away', calls('side_close').length === 1);
+      check('the header counts the one that’s left', chip().textContent === '1 side conversation' && chip().getAttribute('aria-pressed') === 'false', chip().textContent);
 
       type(box(), '/side once more?');
       await wait(50);
@@ -153,6 +166,11 @@
       headButton('Close').click();
       await until(function () { return turns().length === 1; }, 5000);
       check('and Close goes back to the open one', turns()[0].indexOf('once more?') === 0 && calls('side_close').length === 1);
+      chip().click();
+      await until(function () { return strip().querySelectorAll('.ca-sidestrip-kept').length === 1; }, 5000);
+      check('with one open, the header’s count lists the ones before it', chip().getAttribute('aria-pressed') === 'true');
+      chip().click();
+      await until(function () { return turns().length === 1; }, 5000);
       headButton('Close').click();
       await until(function () { return !strip(); }, 5000);
 

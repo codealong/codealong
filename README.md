@@ -89,7 +89,9 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     the board. Ask again to follow up; Close ends it, and a copy left idle for 15 minutes ends
     by itself. Codealong keeps what was asked and answered, with what the copy did to answer
     (`sides.json`, the latest 300): `/side` alone, or Earlier beside an open one, lists a
-    session's side conversations from before, and each opens to read, or to delete.
+    session's side conversations from before, and each opens to read, or to delete. A
+    session with any says how many in its header, beside its PRs and todo; a click there
+    shows them above the box (the only one, or the list), and another puts them away.
     Other `/…` commands go to the session as typed. The selected session's panel keeps its top
     to three lines so the conversation has the room: the title with the ways to open it, mark it
     seen, expand the panel, its details (ⓘ: account, ID, folder, times) and its menu (⋯, New
@@ -275,8 +277,10 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
   right-click menu and its Open button, any other editor installed on the Mac: VS Code,
   Cursor, Windsurf, Zed, Sublime Text, Nova, BBEdit, Xcode, the JetBrains IDEs and Android
   Studio, each with its app's icon. A session's right-click menu and Open button, and cards
-  pinned to the desktop, open its worktree's folder the same way. Picking another editor there
-  makes it yours, as Codex's Open button remembers its last.
+  pinned to the desktop, open its worktree's folder the same way, and ahead of the editors,
+  Open folder in your terminal: a new terminal in the session's own folder (the one it was
+  started in when that's inside its worktree, else the worktree's), placed as any new terminal
+  is. Picking another editor there makes it yours, as Codex's Open button remembers its last.
   A session's tab that comes forward on another screen than the pointer's is outlined for a
   moment, and `move_pointer` moves the pointer to it.
 - **Previews**: a worktree's app opens in the browser (⌘5, a double-click on the chip on its row, the link under

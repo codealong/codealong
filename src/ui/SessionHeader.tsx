@@ -1,9 +1,10 @@
 // A session's header, the same wherever the session is shown with its conversation: its panel in
 // the main window, the floating bar's peek and the quick panel's reply view (SessionPanel.tsx puts
 // it over the conversation in all three). It keeps to a few lines so the conversation has the room:
-// the title with the ways to open it and act on it, one line of where it stands and where it works,
-// and one of the PRs it worked on (each one's card on hover) and the todo it's on. The rest is in
-// Details and the ⋯ menu.
+// the title with the ways to open it and act on it (its folder in your terminal and your editors
+// among them), one line of where it stands and where it works, and one of the PRs it worked on
+// (each one's card on hover), the todo it's on, and how many side conversations it has
+// (SideStrip.tsx), which shows them above the box. The rest is in Details and the ⋯ menu.
 //
 // A session that came of another (a fork, or started by its agent) names it in a line over the
 // title, and the latest session that came of it hangs under the title with its status; a quiet
@@ -35,6 +36,8 @@ import { OpenInMenu } from './Inspector';
 import { PreviewLink } from './PreviewBits';
 import { PrChipCard } from './PrLink';
 import { BranchLabel, Button, HarnessChip, Icon, STATUS_WORD, StatusGlyph } from './primitives';
+import { runFolder } from './RunButton';
+import { SidesChip } from './SideStrip';
 import { TodoGlyph } from './TodoBits';
 
 /** PRs shown before a "+N": a long session can have made many. */
@@ -179,10 +182,11 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
 
   const icons = useEditorIcons(apps);
   const own = lane.targets.filter((t) => t.id.startsWith(`s|${s.key}|`));
-  // Under the ways to open the session, its worktree's folder in any editor installed here. A
-  // session past the few its worktree lists opens by its own target alone.
+  // Under the ways to open the session, its folder: a new terminal there, and its worktree's in
+  // any editor installed here. A session past the few its worktree lists opens by its own target
+  // alone.
   const place: Target = { id: s.openTarget, icon: 'arrow-up-right', label: `Open in ${sessionPlace(s, apps.terminal)}`, detail: null, kbd: null, disabled: false, group: 'session' };
-  const targets = opensInEditor(lane) ? [...(own.length > 0 ? own : [place]), ...folderTargets(apps, icons)] : own;
+  const targets = opensInEditor(lane) ? [...(own.length > 0 ? own : [place]), ...folderTargets(apps, icons, { name: apps.terminal, key: s.key, folder: middleTruncate(tildePath(runFolder(lane, s)), 44) })] : own;
   const since = s.statusSince ? (s.status === 'working' ? `for ${duration(s.statusSince, now)}` : agoPhrase(s.statusSince, now)) : agoPhrase(s.lastActivity, now);
   const snoozed = s.snoozedUntil ? ` · snoozed until ${untilWords(s.snoozedUntil, now)}` : '';
   const status = (s.stalledSince ? `Quiet since ${agoPhrase(s.stalledSince, now)}` : `${s.asks ? 'Asks you' : STATUS_WORD[s.status]} · ${since}`) + snoozed;
@@ -344,6 +348,7 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
             {current ? `+${listed.length - 1}` : `${listed.length} done ${listed.length === 1 ? 'todo' : 'todos'}`}
           </button>
         )}
+        <SidesChip session={s} />
       </div>
       {allTodos && (
         <div className="ca-insp-todos">

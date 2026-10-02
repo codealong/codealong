@@ -1,5 +1,6 @@
 // The editors a worktree's folder opens in (editors.rs): yours, which `l|editor` opens, and the
-// others installed on this Mac. Picking another makes it yours, as Codex's Open button does.
+// others installed on this Mac. Picking another makes it yours, as Codex's Open button does. A
+// session's folder opens in your terminal too, ahead of them (`FolderTerminal`).
 
 import { useEffect, useState } from 'react';
 import { editorIcons } from './api';
@@ -88,10 +89,26 @@ export function withOtherEditors(targets: Target[], apps: Apps, icons: AppIcons 
   return [...targets.slice(0, at), yours, ...more.map((e) => target(e, 'Open in', icons)), ...targets.slice(at + 1)];
 }
 
-/** Every editor as Open folder in <editor>, for a session's Open menu, whose other targets open
- *  the session itself. */
-export function folderTargets(apps: Apps, icons: AppIcons = {}): Target[] {
-  return allEditors(apps).map((e) => target(e, 'Open folder in', icons));
+/** A new terminal in a session's folder: the terminal's name, the session, and the folder as the
+ *  menu says it, which is the session's own when that's inside its worktree (RunButton.tsx
+ *  `runFolder`), else the worktree's. The engine opens it beside the terminals already in the
+ *  worktree, or its repo's or project's (`[apps] new_terminal`). */
+export interface FolderTerminal {
+  name: string;
+  key: string;
+  folder: string;
+}
+
+/** The target that opens a new terminal in a session's folder (engine.rs `open_on`). */
+export const terminalTarget = (key: string) => `s|${key}|terminal`;
+
+/** Your terminal, then every editor, as Open folder in <app>, for a session's Open menu, whose
+ *  other targets open the session itself. The terminal's says which folder, which can be one
+ *  inside the worktree the editors open. */
+export function folderTargets(apps: Apps, icons: AppIcons = {}, terminal?: FolderTerminal): Target[] {
+  const editors = allEditors(apps).map((e) => target(e, 'Open folder in', icons));
+  if (!terminal) return editors;
+  return [{ id: terminalTarget(terminal.key), icon: 'terminal', label: `Open folder in ${terminal.name}`, detail: terminal.folder, kbd: null, disabled: false, group: 'lane' }, ...editors];
 }
 
 /** A worktree's Open in submenu, after Open in <yours>: the other editors. `open` takes a target. */
@@ -101,11 +118,14 @@ export function openInMenu(apps: Apps, icons: AppIcons, open: (target: string) =
   return [{ label: 'Open in', items: others.map((e) => ({ label: e.name, icon: icons[e.id]?.menu, run: () => open(editorTarget(e.id)) })) }];
 }
 
-/** A session's menu opens its worktree's folder: in yours, or with others installed, from a
- *  submenu of all of them. */
-export function folderMenu(apps: Apps, icons: AppIcons, open: (target: string) => void): MenuSpec {
+/** A session's menu opens its folder: in your terminal and your editor, or with others installed,
+ *  in any of them, from a submenu. With only one app to open it in, it's an item of its own. */
+export function folderMenu(apps: Apps, icons: AppIcons, open: (target: string) => void, terminal?: Pick<FolderTerminal, 'name' | 'key'>): MenuSpec {
   const all = allEditors(apps);
-  if (all.length === 0) return [];
-  if (all.length === 1) return [{ label: `Open folder in ${all[0].name}`, run: () => open('l|editor') }];
-  return [{ label: 'Open folder in', items: all.map((e) => ({ label: e.name, icon: icons[e.id]?.menu, run: () => open(editorTarget(e.id)) })) }];
+  const inTerminal = terminal ? [{ label: terminal.name, run: () => open(terminalTarget(terminal.key)) }] : [];
+  const inEditors = all.map((e) => ({ label: e.name, icon: icons[e.id]?.menu, run: () => open(all.length === 1 ? 'l|editor' : editorTarget(e.id)) }));
+  const items = [...inTerminal, ...inEditors];
+  if (items.length === 0) return [];
+  if (items.length === 1) return [{ ...items[0], label: `Open folder in ${items[0].label}` }];
+  return [{ label: 'Open folder in', items }];
 }
