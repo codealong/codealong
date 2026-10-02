@@ -12,20 +12,27 @@
 //       renders the same board, which is what makes two of them comparable; taking them again
 //       also spends GitHub API points.
 //   node scripts/preview/style-diff.mjs record <out dir> --data <data dir> [--dist dist]
-//       [--only <words>] [--shots] [--jobs 3]
+//       [--only <words>] [--shots] [--jobs 3] [--media <feature>=<value>,…]
 //       Renders each scene from <dist> (an `npm run build` output; copy the one from before
 //       your change somewhere first) and writes <out dir>/<scene>.json.gz. --only keeps scenes
 //       whose name has one of the comma-separated words; --shots also writes a PNG a scene, to
-//       see that it shows what it should.
-//   node scripts/preview/style-diff.mjs compare <before dir> <after dir> [--max 40]
+//       see that it shows what it should; --media emulates media features besides the scene's
+//       color scheme (`--media prefers-reduced-motion=reduce`).
+//   node scripts/preview/style-diff.mjs compare <before dir> <after dir> [--max 40] [--ignore <regex>]
 //       Prints, a scene, how many elements were compared and each property that differs, and
-//       exits 1 if any does or if the two pages aren't the same elements.
-//   node scripts/preview/style-diff.mjs built <dist before> <dist after>
+//       exits 1 if any does or if the two pages aren't the same elements. --ignore leaves out
+//       the properties whose names match: new tokens (`--ignore '^--type-'`), which every
+//       element inherits from the root and the recording from before has none of.
+//   node scripts/preview/style-diff.mjs built <dist before> <dist after> [--resolve]
 //       Compares the stylesheets two builds wrote (dist folders, or the .css files): byte for
 //       byte the same, the same rules in the same order, the same rules moved, or the rules only
 //       one has. A change that only moves text between files without reordering it should build
 //       byte for byte the same; Vite inlines the index's imports in order and minifies, so
-//       comments and spacing never show.
+//       comments and spacing never show. --resolve first puts in each var() of a token defined
+//       once, on :root (spacing, type, durations, stacking; not the themed colors), its value,
+//       writes times in ms, puts each rule's declarations in order of property name, and leaves
+//       out of :root the tokens the other sheet doesn't define: so putting tokens in place of
+//       the values they hold compares as the same rules.
 //   node scripts/preview/style-diff.mjs coverage <dir> [--list]
 //       Says how many of the stylesheets' selectors had an element to match in some scene of a
 //       recording, and with --list which didn't: what a comparison says nothing about.
@@ -419,7 +426,8 @@ async function recordScene(browser, base, scene, out, shots) {
     await s('Page.enable');
     await s('Runtime.enable');
     await s('Emulation.setDeviceMetricsOverride', { width: size[0], height: size[1], deviceScaleFactor: 1, mobile: false });
-    await s('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: scene.scheme }] });
+    const media = (flag('media', '') || '').split(',').filter(Boolean).map((f) => ({ name: f.split('=')[0], value: f.split('=')[1] ?? '' }));
+    await s('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: scene.scheme }, ...media] });
     await s('Page.navigate', { url: `${base.url}/s/${encodeURIComponent(scene.name)}/preview.html` });
     await run(`new Promise((r) => (document.readyState === 'complete' ? r() : addEventListener('load', r)))`);
     await run(helpers);
@@ -528,6 +536,7 @@ async function recordAll(out) {
 
 function compare(before, after) {
   const max = Number(flag('max', 40));
+  const ignore = flag('ignore', '') ? new RegExp(flag('ignore', '')) : null;
   const load = (dir, name) => JSON.parse(gunzipSync(readFileSync(join(dir, name))).toString());
   const names = (dir) => readdirSync(dir).filter((f) => f.endsWith('.json.gz')).sort();
   const a = names(before);
@@ -546,7 +555,7 @@ function compare(before, after) {
     const y = load(after, name);
     const lines = [];
     // Properties go by name: a custom property only one recording has reads as unset in the other.
-    const props = [...new Set([...x.props, ...y.props])].sort();
+    const props = [...new Set([...x.props, ...y.props])].filter((p) => !ignore || !ignore.test(p)).sort();
     const rows = (p) => {
       const at = new Map(p.props.map((name, i) => [name, i]));
       return p.styles.map((s) => {
@@ -657,6 +666,42 @@ function builtCss(at) {
   return readFileSync(join(assets, files[0]), 'utf8');
 }
 
+// Two sheets' rules with their plain tokens put in (see `built --resolve`).
+function resolveTokens(x, y) {
+  const decls = (body) => body.split(/;(?![^(]*\))/).filter((d) => d.trim());
+  const tokens = (rules) => {
+    const seen = new Map();
+    for (const r of rules) {
+      const m = /^(.*?)\{(.*)\}$/.exec(r);
+      if (!m) continue;
+      for (const d of decls(m[2])) {
+        const at = d.indexOf(':');
+        const name = d.slice(0, at).trim();
+        if (name.startsWith('--')) seen.set(name, seen.has(name) ? null : m[1] === ':root' ? d.slice(at + 1).trim() : null);
+      }
+    }
+    return new Map([...seen].filter(([, v]) => v !== null));
+  };
+  const ms = (text) => text.replace(/(?<![\w.#-])(\d*\.?\d+)(ms|s)\b/g, (_, n, u) => `${+(parseFloat(n) * (u === 's' ? 1000 : 1)).toFixed(3)}ms`);
+  const tx = tokens(x);
+  const ty = tokens(y);
+  const resolve = (rules, own, other) =>
+    rules.map((r) => {
+      let out = r;
+      for (let i = 0; i < 5 && /var\(--/.test(out); i++) out = out.replace(/var\((--[\w-]+)\)/g, (all, name) => own.get(name) ?? all);
+      const m = /^:root\{(.*)\}$/.exec(out);
+      if (m) out = `:root{${decls(m[1]).filter((d) => !d.trim().startsWith('--') || other.has(d.slice(0, d.indexOf(':')).trim())).join(';')}}`;
+      // The minifier orders a rule's declarations by what it can parse, and a var() it can't
+      // moves one: so they go by property name (keeping the order of two of one property).
+      const block = /^([^{}]*)\{([^{}]*)\}$/.exec(out);
+      if (block) out = `${block[1]}{${decls(block[2]).map((d) => d.trim()).sort((p, q) => (p.split(':')[0] < q.split(':')[0] ? -1 : p.split(':')[0] > q.split(':')[0] ? 1 : 0)).join(';')}}`;
+      return ms(out);
+    });
+  const only = [...ty.keys()].filter((k) => !tx.has(k));
+  if (only.length) console.log(`tokens only after: ${only.join(' ')}`);
+  return [resolve(x, tx, ty), resolve(y, ty, tx)];
+}
+
 function built(before, after) {
   const a = builtCss(before);
   const b = builtCss(after);
@@ -664,8 +709,9 @@ function built(before, after) {
     console.log(`byte for byte the same (${a.length} bytes)`);
     return;
   }
-  const x = topLevel(a);
-  const y = topLevel(b);
+  let x = topLevel(a);
+  let y = topLevel(b);
+  if (has('resolve')) [x, y] = resolveTokens(x, y);
   const count = (list) => list.reduce((m, r) => m.set(r, (m.get(r) || 0) + 1), new Map());
   const cx = count(x);
   const cy = count(y);
@@ -694,6 +740,6 @@ else if (mode === 'coverage' && rest[0]) coverage(resolve(rest[0]));
 else if (mode === 'record' && rest[0]) await recordAll(resolve(rest[0]));
 else if (mode === 'compare' && rest[1]) compare(resolve(rest[0]), resolve(rest[1]));
 else {
-  console.error('usage: style-diff.mjs data <dir> | record <out> --data <dir> [--dist dist] [--only words] [--shots] [--jobs n] | compare <before> <after> | built <dist before> <dist after> | coverage <dir> [--list]');
+  console.error('usage: style-diff.mjs data <dir> | record <out> --data <dir> [--dist dist] [--only words] [--shots] [--jobs n] [--media feature=value,…] | compare <before> <after> [--ignore regex] | built <dist before> <dist after> [--resolve] | coverage <dir> [--list]');
   process.exit(2);
 }
