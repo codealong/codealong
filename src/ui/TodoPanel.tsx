@@ -17,8 +17,8 @@ import { blockedBy, cantWaitOn, dependents, depsOf, newId, nextColor, SECTION_WO
 import type { Label, Lane, Session, Todo, TodoHint, TodoSuggested } from '../types';
 import { DescriptionEditor } from './DescriptionEditor';
 import { PanelSession } from './PanelSession';
-import { Button, Icon, Kbd, LaneGlyph, Seg } from './primitives';
-import { LabelDot, TodoGlyph } from './TodoBits';
+import { Button, Chip, cx, Icon, Kbd, LaneGlyph, Seg } from './primitives';
+import { LabelChip, LabelDot, TodoGlyph } from './TodoBits';
 
 /** How long the title and description have to rest before Jev is asked about them. */
 const SUGGEST_AFTER_MS = 800;
@@ -383,17 +383,12 @@ function DuePicker({ due, now, onPick, onClose }: { due: string | null; now: num
 function TodoRef({ todo, onShow, onRemove }: { todo: Todo; onShow: (t: Todo) => void; onRemove?: () => void }) {
   const title = todo.title || 'Untitled';
   return (
-    <span className={`ca-labelchip ca-todoref is-${todo.status}`}>
+    <Chip kind="label" className={`ca-todoref is-${todo.status}`} remove={onRemove && { label: `Stop waiting on ${title}`, title: 'Stop waiting on it', run: onRemove }}>
       <button type="button" className="ca-todoref-show" title={`${STATUS_WORD[todo.status]}: ${title}. Click to show it.`} onClick={() => onShow(todo)}>
         <TodoGlyph status={todo.status} size={11} />
         <span className="ca-todoref-title">{title}</span>
       </button>
-      {onRemove && (
-        <button type="button" aria-label={`Stop waiting on ${title}`} title="Stop waiting on it" onClick={onRemove}>
-          <Icon name="x" size={10} stroke={2.25} />
-        </button>
-      )}
-    </span>
+    </Chip>
   );
 }
 
@@ -538,20 +533,10 @@ export function TodoPanel({ item, todos, onShowTodo, labels, lanes, now, onRun, 
         <h4 className="ca-label">Labels</h4>
         <div className="ca-todoinsp-labels">
           {shownLabels.map((l) => (
-            <span key={l.id} className="ca-labelchip">
-              <LabelDot label={l} />
-              <span>{l.name}</span>
-              <button type="button" aria-label={`Remove ${l.name}`} title={`Remove ${l.name}`} onClick={() => toggleLabel(l.id)}>
-                <Icon name="x" size={10} stroke={2.25} />
-              </button>
-            </span>
+            <LabelChip key={l.id} label={l} remove={() => toggleLabel(l.id)} />
           ))}
           {offer?.labels.map((l) => (
-            <button key={l.id} type="button" className="ca-labelchip ca-labelchip--button ca-suggestchip" title={`Suggested by Jev. Click to add “${l.name}”.`} onClick={() => toggleLabel(l.id)}>
-              <Icon name="sparkles" size={11} />
-              <LabelDot label={l} />
-              <span>{l.name}?</span>
-            </button>
+            <LabelChip key={l.id} label={l} suggested title={`Suggested by Jev. Click to add “${l.name}”.`} onClick={() => toggleLabel(l.id)} />
           ))}
           <span className="ca-labelpick-anchor">
             <button type="button" className="ca-labelchip ca-labelchip--add" aria-expanded={picking} onClick={() => setPicking(!picking)}>
@@ -582,15 +567,12 @@ export function TodoPanel({ item, todos, onShowTodo, labels, lanes, now, onRun, 
         <div className="ca-todoinsp-labels">
           <span className="ca-labelpick-anchor ca-duepick-anchor">
             {due ? (
-              <span className={['ca-labelchip', 'ca-duenote', todo.status !== 'done' && `is-${due.tone}`].filter(Boolean).join(' ')}>
+              <Chip kind="label" className={cx('ca-duenote', todo.status !== 'done' && `is-${due.tone}`)} remove={{ label: 'Remove the due date', title: 'Remove the due date', run: () => update({ due: null }) }}>
                 <button type="button" className="ca-duenote-show" aria-expanded={pickingDue} title="Change the due date (D)" onClick={() => setPickingDue(!pickingDue)}>
                   <Icon name="calendar" size={12} />
                   <span>{due.long}</span>
                 </button>
-                <button type="button" aria-label="Remove the due date" title="Remove the due date" onClick={() => update({ due: null })}>
-                  <Icon name="x" size={10} stroke={2.25} />
-                </button>
-              </span>
+              </Chip>
             ) : (
               <button type="button" className="ca-labelchip ca-labelchip--add" aria-expanded={pickingDue} title="Add a due date (D)" onClick={() => setPickingDue(!pickingDue)}>
                 <Icon name="calendar" size={12} />
@@ -609,22 +591,21 @@ export function TodoPanel({ item, todos, onShowTodo, labels, lanes, now, onRun, 
             <TodoRef key={t.id} todo={t} onShow={onShowTodo} onRemove={() => setDeps(depsOf(todo).filter((d) => d !== t.id))} />
           ))}
           {todo.waiting && (
-            <span
-              className="ca-labelchip ca-waitnote"
+            <Chip
+              kind="label"
+              className="ca-waitnote"
               title={`Marked as waiting${todo.waiting.since > 0 ? ` ${ago(todo.waiting.since, now)} ago` : ''}. It stays under Waiting until you say it’s ready, start it, or finish it.`}
+              remove={{ label: 'Stop waiting', title: 'Stop waiting', run: () => update({ waiting: null }) }}
             >
               <Icon name="hourglass" size={12} />
               <span className="ca-waitnote-text">{todo.waiting.note || 'Marked as waiting'}</span>
-              <button type="button" aria-label="Stop waiting" title="Stop waiting" onClick={() => update({ waiting: null })}>
-                <Icon name="x" size={10} stroke={2.25} />
-              </button>
-            </span>
+            </Chip>
           )}
           {offer?.dependsOn.map((t) => (
-            <button key={t.id} type="button" className="ca-labelchip ca-labelchip--button ca-suggestchip" title={`Suggested by Jev: it may need “${t.title || 'Untitled'}” done first. Click to wait on it.`} onClick={() => setDeps([...depsOf(todo), t.id])}>
+            <Chip key={t.id} kind="label" className="ca-suggestchip" title={`Suggested by Jev: it may need “${t.title || 'Untitled'}” done first. Click to wait on it.`} act={() => setDeps([...depsOf(todo), t.id])}>
               <Icon name="sparkles" size={11} />
               <span className="ca-waitnote-text">{middleTruncate(t.title || 'Untitled', 40)}?</span>
-            </button>
+            </Chip>
           ))}
           <span className="ca-labelpick-anchor ca-waitpick-anchor">
             <button type="button" className="ca-labelchip ca-labelchip--add" aria-expanded={pickingWait} onClick={() => setPickingWait(!pickingWait)}>

@@ -11,7 +11,7 @@ import { forwardRef, type ReactNode } from 'react';
 import { absolute, ago, middleTruncate } from '../format';
 import { attachmentsIn, blockedBy, SECTION_WORD, snippet, todoPr, type TodoItem, type TodoSection, type TodoSectionId } from '../todos';
 import type { Label, Lane, Session, Todo, TodoHint, TodoStatus } from '../types';
-import { HarnessChip, Icon, Kbd, PrChip, selects, WorktreeChip } from './primitives';
+import { Chip, HarnessChip, Icon, Kbd, MoreChip, PrChip, selects, WorktreeChip } from './primitives';
 import { DueChip, LabelChip, TodoGlyph } from './TodoBits';
 import { useRowDrag, type DragProps } from './useRowDrag';
 
@@ -62,13 +62,10 @@ export const TodoComposer = forwardRef<HTMLInputElement, ComposerProps>(function
         }}
       />
       {context && (
-        <span className="ca-chip ca-todonew-ctx" title={`The new todo is linked to ${context.label}`}>
+        <Chip className="ca-todonew-ctx" title={`The new todo is linked to ${context.label}`} remove={{ label: "Don't link it", run: onClearContext }}>
           <Icon name="link" size={12} />
           <span>{middleTruncate(context.label, 32)}</span>
-          <button type="button" aria-label="Don't link it" onClick={onClearContext}>
-            <Icon name="x" size={10} stroke={2.25} />
-          </button>
-        </span>
+        </Chip>
       )}
       {where && <span className="ca-todonew-where">in {where}</span>}
       {value.trim() ? <Kbd keys={['⏎']} /> : !context && <Kbd keys={['N']} />}
@@ -107,7 +104,6 @@ function TodoRow({ item, section, domId, now, selected, showProject, onSelect, o
   const pr = todoPr(item);
   const detail = snippet(todo.description);
   const sessions = item.sessions.slice(0, CHIPS_SHOWN);
-  const more = item.sessions.length - sessions.length;
   const lanes = item.places.map((p) => p.lane);
   const waiting = todo.pending.length > 0;
   const attached = attachmentsIn(todo.description);
@@ -154,53 +150,45 @@ function TodoRow({ item, section, domId, now, selected, showProject, onSelect, o
               <LabelChip key={l.id} label={l} title={`Double-click to show only “${l.name}”`} onClick={() => onFilterLabel(l)} inRow />
             ))}
             {todo.waiting && todo.status !== 'done' && (
-              <span className="ca-chip ca-todorow-blocked" title={`Marked as waiting${todo.waiting.since > 0 ? ` ${ago(todo.waiting.since, now)} ago` : ''}${todo.waiting.note ? `: ${todo.waiting.note}` : '.'}`}>
+              <Chip className="ca-todorow-blocked" title={`Marked as waiting${todo.waiting.since > 0 ? ` ${ago(todo.waiting.since, now)} ago` : ''}${todo.waiting.note ? `: ${todo.waiting.note}` : '.'}`}>
                 <Icon name="hourglass" size={12} />
                 <span className="ca-todorow-blocked-text">{todo.waiting.note ? `Waiting for ${todo.waiting.note}` : 'Marked as waiting'}</span>
-              </span>
+              </Chip>
             )}
             {blocked.length > 0 && todo.status !== 'done' && (
-              <span className="ca-chip ca-todorow-blocked" title={`Waits on ${blocked.map((t) => `“${t.title || 'Untitled'}”`).join(', ')}, not done yet.`}>
+              <Chip className="ca-todorow-blocked" title={`Waits on ${blocked.map((t) => `“${t.title || 'Untitled'}”`).join(', ')}, not done yet.`}>
                 <Icon name="lock" size={12} />
                 <span className="ca-todorow-blocked-text">{blocked.length === 1 ? `Waiting on ${blocked[0].title || 'Untitled'}` : `Waiting on ${blocked.length} todos`}</span>
-              </span>
+              </Chip>
             )}
             {hint && todo.status !== 'done' && (
-              <span className="ca-chip ca-todorow-done" title={`Looks done: ${hint.why}. Mark it done, or say not yet, in the panel.`}>
+              <Chip className="ca-todorow-done" title={`Looks done: ${hint.why}. Mark it done, or say not yet, in the panel.`}>
                 <Icon name="check" size={12} />
                 Looks done
-              </span>
+              </Chip>
             )}
             {attached.length > 0 && (
-              <span className="ca-chip ca-todorow-attached" title={attached.map((a) => (a.kind === 'image' ? 'Image' : a.name)).join('\n')}>
+              <Chip className="ca-todorow-attached" title={attached.map((a) => (a.kind === 'image' ? 'Image' : a.name)).join('\n')}>
                 <Icon name="paperclip" size={12} />
                 {attached.length}
-              </span>
+              </Chip>
             )}
             {sessions.map(({ lane, session }) => (
               <HarnessChip key={session.key} session={session} onOpen={() => onOpenSession(lane, session)} />
             ))}
-            {more > 0 && (
-              <span className="ca-chip ca-chip--more" title={item.sessions.slice(CHIPS_SHOWN).map(({ session }) => `${session.account} · ${session.title}`).join('\n')}>
-                +{more}
-              </span>
-            )}
+            <MoreChip names={item.sessions.slice(CHIPS_SHOWN).map(({ session }) => `${session.account} · ${session.title}`)} />
             {waiting && (
-              <span className="ca-chip ca-todorow-waiting" title="Started in an app. The session is linked when it shows up.">
+              <Chip className="ca-todorow-waiting" title="Started in an app. The session is linked when it shows up.">
                 <Icon name="clock" size={12} />
                 Waiting for the session
-              </span>
+              </Chip>
             )}
           </span>
           <span className="ca-lane-right">
             {lanes.slice(0, 2).map((l) => (
               <WorktreeChip key={l.id} lane={l} short />
             ))}
-            {lanes.length > 2 && (
-              <span className="ca-chip ca-chip--more" title={lanes.slice(2).map((l) => l.callsign).join('\n')}>
-                +{lanes.length - 2}
-              </span>
-            )}
+            <MoreChip names={lanes.slice(2).map((l) => l.callsign)} />
             {pr && <PrChip pr={pr} compact />}
           </span>
         </div>

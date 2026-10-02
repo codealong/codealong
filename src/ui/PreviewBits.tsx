@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react';
 import { getConfig, setPreview } from '../api';
 import { absolute, duration } from '../format';
 import type { ChromeProfile, Lane, Preview } from '../types';
-import { Button, Icon, inRowOpen } from './primitives';
+import { Button, Chip, cx, Icon } from './primitives';
 import { errorText } from '../report';
 
 /** A URL as rows show it: `feature.app.test`, `localhost:5173/admin`. */
@@ -60,14 +60,10 @@ export function ChromeProfileSelect({ value, profiles, none, onChange }: { value
 export function PreviewChip({ preview: p, now, onOpen }: { preview: Preview | undefined; now: number; onOpen: () => void }) {
   if (!p) return null;
   return (
-    <span
-      className={['ca-chip', 'ca-previewchip', p.server ? 'is-up' : 'is-down'].join(' ')}
-      title={`${p.url}. ${previewState(p, now)}${profileNote(p)} Double-click to open it.`}
-      onDoubleClick={inRowOpen(onOpen)}
-    >
+    <Chip className={cx('ca-previewchip', p.server ? 'is-up' : 'is-down')} title={`${p.url}. ${previewState(p, now)}${profileNote(p)} Double-click to open it.`} act={onOpen} inRow>
       <Icon name="world" size={12} />
       <span className="ca-previewchip-host">{previewHost(p.url)}</span>
-    </span>
+    </Chip>
   );
 }
 

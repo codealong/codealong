@@ -10,7 +10,7 @@ import { absolute, ago, agoPhrase, count, middleTruncate, untilShort } from '../
 import { startedOf, worktreeName, type AgentItem, type WorktreeRow } from '../lanes';
 import { untilWords } from '../snooze';
 import type { GitInfo, Lane, Session, Todo } from '../types';
-import { driftWords, HarnessChip, Icon, LaneGlyph, PrChip, Rich, selects, STATUS_WORD, StatusGlyph, WorktreeChip } from './primitives';
+import { Chip, driftWords, HarnessChip, Icon, LaneGlyph, MoreChip, PrChip, Rich, selects, STATUS_WORD, StatusGlyph, WorktreeChip } from './primitives';
 import { FlagChip, InsightChips, LooksFinished } from './InsightBits';
 import { PreviewChip } from './PreviewBits';
 import { TodoChips } from './TodoBits';
@@ -162,9 +162,9 @@ export function ReuseMark({ lane }: { lane: Lane }) {
 function FreeChip({ lane }: { lane: Lane }) {
   if (lane.reuse !== 'free') return null;
   return (
-    <span className="ca-chip ca-reusechip" title={REUSE_WORDS.free}>
+    <Chip className="ca-reusechip" title={REUSE_WORDS.free}>
       Free
-    </span>
+    </Chip>
   );
 }
 
@@ -173,12 +173,7 @@ function FreeChip({ lane }: { lane: Lane }) {
  * more (the panel lists them all).
  */
 function SessionChips({ sessions, max, onOpen }: { sessions: Session[]; max: number; onOpen: (s: Session) => void }) {
-  const more = (from: number, cls: string) =>
-    sessions.length > from && (
-      <span className={`ca-chip ca-chip--more ${cls}`} title={sessions.slice(from).map((s) => `${s.account} · ${s.title}`).join('\n')}>
-        +{sessions.length - from}
-      </span>
-    );
+  const more = (from: number, cls: string) => <MoreChip className={cls} names={sessions.slice(from).map((s) => `${s.account} · ${s.title}`)} />;
   return (
     <>
       {sessions.slice(0, max).map((s, i) => (
@@ -482,10 +477,10 @@ interface AgentRowProps {
 function SnoozeChip({ session: s, now }: { session: Session; now: number }) {
   if (s.snoozedUntil == null) return null;
   return (
-    <span className="ca-chip ca-snoozechip" title={`Snoozed until ${untilWords(s.snoozedUntil, now)}: off the floating bar until then, then back`}>
+    <Chip className="ca-snoozechip" title={`Snoozed until ${untilWords(s.snoozedUntil, now)}: off the floating bar until then, then back`}>
       <Icon name="zzz" size={12} />
       {untilShort(s.snoozedUntil, now)}
-    </span>
+    </Chip>
   );
 }
 

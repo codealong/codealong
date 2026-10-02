@@ -5,12 +5,12 @@
 import { dueWords } from '../due';
 import type { Label, Todo, TodoStatus } from '../types';
 import { STATUS_WORD } from '../todos';
-import { Icon, inRowOpen } from './primitives';
+import { Chip, cx, Icon, MoreChip } from './primitives';
 
 export function TodoGlyph({ status, waiting = false, size = 12, title }: { status: TodoStatus; waiting?: boolean; size?: number; title?: string }) {
   const word = waiting ? (status === 'in-progress' ? 'In progress, waiting' : 'Waiting') : STATUS_WORD[status];
   return (
-    <svg className={['ca-todoglyph', `is-${status}`, waiting && 'is-waiting'].filter(Boolean).join(' ')} width={size} height={size} viewBox="0 0 12 12" role="img" aria-label={title ?? word}>
+    <svg className={cx('ca-todoglyph', `is-${status}`, waiting && 'is-waiting')} width={size} height={size} viewBox="0 0 12 12" role="img" aria-label={title ?? word}>
       <rect className="ca-tg-box" x="1.5" y="1.5" width="9" height="9" rx="2.25" />
       {status === 'in-progress' &&
         // Inside a dashed box the fill keeps clear of the dashes, so they still read as dashes.
@@ -25,32 +25,18 @@ export function LabelDot({ label }: { label: Label }) {
 }
 
 /** A label. With `onClick`, a click runs it; with `inRow` too, it's on a list's row, where a click
- *  selects the row, so a double-click does. */
-export function LabelChip({ label, onClick, title, inRow = false }: { label: Label; onClick?: () => void; title?: string; inRow?: boolean }) {
-  const inner = (
-    <>
-      <LabelDot label={label} />
-      <span>{label.name}</span>
-    </>
-  );
-  if (!onClick || inRow) {
-    return (
-      <span className="ca-labelchip" title={title} onDoubleClick={onClick && inRowOpen(onClick)}>
-        {inner}
-      </span>
-    );
-  }
+ *  selects the row, so a double-click does. `remove` gives it a ✕ that takes it off; `suggested`
+ *  is one Jev offers, which reads as a question until it's clicked. */
+export function LabelChip({ label, onClick, title, inRow = false, remove, suggested = false }: { label: Label; onClick?: () => void; title?: string; inRow?: boolean; remove?: () => void; suggested?: boolean }) {
   return (
-    <button
-      type="button"
-      className="ca-labelchip ca-labelchip--button"
-      title={title}
-      onMouseDown={(e) => e.stopPropagation()}
-      onDoubleClick={(e) => e.stopPropagation()}
-      onClick={onClick}
-    >
-      {inner}
-    </button>
+    <Chip kind="label" className={suggested ? 'ca-suggestchip' : undefined} title={title} act={onClick} inRow={inRow} remove={remove && { label: `Remove ${label.name}`, title: `Remove ${label.name}`, run: remove }}>
+      {suggested && <Icon name="sparkles" size={11} />}
+      <LabelDot label={label} />
+      <span>
+        {label.name}
+        {suggested && '?'}
+      </span>
+    </Chip>
   );
 }
 
@@ -58,27 +44,11 @@ export function LabelChip({ label, onClick, title, inRow = false }: { label: Lab
  *  `inRow`, on a list's row, where a click selects the row. */
 export function TodoChip({ todo, onShow, inRow = false }: { todo: Todo; onShow?: (todo: Todo) => void; inRow?: boolean }) {
   const title = todo.title || 'Untitled todo';
-  const tip = `Todo · ${STATUS_WORD[todo.status]}: ${title}`;
-  if (!onShow || inRow) {
-    return (
-      <span className="ca-chip ca-todochip" title={onShow ? `${tip}. Double-click to show it in Todo.` : tip} onDoubleClick={onShow && inRowOpen(() => onShow(todo))}>
-        <TodoGlyph status={todo.status} size={10} />
-        <span className="ca-todochip-title">{title}</span>
-      </span>
-    );
-  }
   return (
-    <button
-      type="button"
-      className="ca-chip ca-chip--button ca-todochip"
-      title={`${tip}. Click to show it in Todo.`}
-      onMouseDown={(e) => e.stopPropagation()}
-      onDoubleClick={(e) => e.stopPropagation()}
-      onClick={() => onShow(todo)}
-    >
+    <Chip className="ca-todochip" title={`Todo · ${STATUS_WORD[todo.status]}: ${title}`} does="show it in Todo" act={onShow && (() => onShow(todo))} inRow={inRow}>
       <TodoGlyph status={todo.status} size={10} />
       <span className="ca-todochip-title">{title}</span>
-    </button>
+    </Chip>
   );
 }
 
@@ -89,11 +59,7 @@ export function TodoChips({ todos, onShow, inRow = false }: { todos: Todo[] | un
   return (
     <>
       <TodoChip todo={sorted[0]} onShow={onShow} inRow={inRow} />
-      {sorted.length > 1 && (
-        <span className="ca-chip ca-chip--more" title={sorted.slice(1).map((t) => t.title || 'Untitled todo').join('\n')}>
-          +{sorted.length - 1}
-        </span>
-      )}
+      <MoreChip names={sorted.slice(1).map((t) => t.title || 'Untitled todo')} />
     </>
   );
 }
@@ -104,9 +70,9 @@ export function DueChip({ todo, now, className }: { todo: Todo; now: number; cla
   const said = todo.due && todo.status !== 'done' ? dueWords(todo.due, now) : null;
   if (!said) return null;
   return (
-    <span className={['ca-chip', 'ca-duechip', `is-${said.tone}`, className].filter(Boolean).join(' ')} title={`Due ${said.long}`}>
+    <Chip className={cx('ca-duechip', `is-${said.tone}`, className)} title={`Due ${said.long}`}>
       <Icon name="calendar" size={12} />
       {said.text}
-    </span>
+    </Chip>
   );
 }

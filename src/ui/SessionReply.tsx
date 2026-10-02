@@ -55,7 +55,7 @@ import { attachmentsIn, insertAttachments, withoutAttachment } from '../todos';
 import type { Answers, Pending, Question, Sent, Session, Way } from '../types';
 import { CodeBlock } from './CopyButton';
 import { AttachmentStrip } from './DescriptionEditor';
-import { Button, Icon, Rich } from './primitives';
+import { Button, Chip, Icon, Rich } from './primitives';
 import { QuestionList } from './QuestionList';
 import { SideStrip } from './SideStrip';
 import { errorText } from '../report';
@@ -708,7 +708,7 @@ function Questions({ questions, where, onOpen, keys, busy, note, onAnswer, onDec
       {questions.map((q) => (
         <div key={q.question} className="ca-question">
           <div className="ca-approval-label">
-            {q.header && <span className="ca-chip ca-question-header">{q.header}</span>}
+            {q.header && <Chip className="ca-question-header">{q.header}</Chip>}
             <Rich text={q.question} now={0} />
           </div>
           <div className="ca-question-choices" role={q.multiSelect ? 'group' : 'radiogroup'} aria-label={q.question}>

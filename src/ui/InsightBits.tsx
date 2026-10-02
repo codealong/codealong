@@ -5,19 +5,20 @@
 import { landingLabel, riskLabel, type InsightLabel } from '../insights';
 import { sessionFlag } from '../lanes';
 import type { Lane, Session } from '../types';
+import { Chip } from './primitives';
 
-function Chip({ l }: { l: InsightLabel }) {
+function Insight({ l }: { l: InsightLabel }) {
   return (
-    <span className={`ca-chip ca-insight is-${l.tone}`} title={l.title}>
+    <Chip className={`ca-insight is-${l.tone}`} title={l.title}>
       {l.label}
-    </span>
+    </Chip>
   );
 }
 
 /** What the session waits on you for: asks you, needs approval, stuck, or an error. */
 export function FlagChip({ session }: { session: Session }) {
   const l = sessionFlag(session);
-  return l ? <Chip l={l} /> : null;
+  return l ? <Insight l={l} /> : null;
 }
 
 /** The session's risk while it waits on you, else how far its work got. */
@@ -25,10 +26,10 @@ export function InsightChips({ session }: { session: Session }) {
   const risk = riskLabel(session);
   const landing = risk ? null : landingLabel(session.insight);
   const l = risk ?? landing;
-  return l ? <Chip l={l} /> : null;
+  return l ? <Insight l={l} /> : null;
 }
 
 export function LooksFinished({ lane }: { lane: Lane }) {
   if (!lane.looksFinished) return null;
-  return <Chip l={{ label: 'Looks finished', tone: 'quiet', title: 'Jev reads every session here as done, and nothing is running. It may be ready to clean up.' }} />;
+  return <Insight l={{ label: 'Looks finished', tone: 'quiet', title: 'Jev reads every session here as done, and nothing is running. It may be ready to clean up.' }} />;
 }

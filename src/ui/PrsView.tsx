@@ -9,7 +9,7 @@ import { prFlag } from '../prStatus';
 import type { Checks, GitInfo, Lane, PrItem, Session } from '../types';
 import { PinnedSection } from './PinnedSection';
 import { PrPills } from './PrPills';
-import { HarnessChip, Icon, PR_ICON, PR_WORD, selects, WorktreeChip } from './primitives';
+import { HarnessChip, Icon, MoreChip, PR_ICON, PR_WORD, selects, WorktreeChip } from './primitives';
 import { useRowDrag, type DragProps } from './useRowDrag';
 
 export interface PrRowItem {
@@ -185,11 +185,7 @@ function PrRow({ item, domId, now, selected, approving, onSelect, onOpen, onAppr
                 {shown.map(({ lane, session }) => (
                   <HarnessChip key={session.key} session={session} onOpen={() => onOpenSession(lane, session)} inRow />
                 ))}
-                {item.sessions.length > shown.length && (
-                  <span className="ca-chip ca-chip--more" title={item.sessions.slice(shown.length).map(({ session }) => `${session.account} · ${session.title}`).join('\n')}>
-                    +{item.sessions.length - shown.length}
-                  </span>
-                )}
+                <MoreChip names={item.sessions.slice(shown.length).map(({ session }) => `${session.account} · ${session.title}`)} />
               </span>
             )}
             {item.lane && <WorktreeChip lane={item.lane} short />}

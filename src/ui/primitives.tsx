@@ -234,39 +234,109 @@ export function Seg<T extends string | number | null>({ options, value, onPick, 
   );
 }
 
-/** A session's account and where it runs. With `onOpen`, a click opens it where it runs; with
- *  `inRow` too, it's on a list's row, where a click selects the row, so a double-click opens it. */
-export function HarnessChip({ session, withStatus = true, onOpen, inRow = false, className }: { session: Session; withStatus?: boolean; onOpen?: () => void; inRow?: boolean; className?: string }) {
-  const where = sessionPlace(session, 'terminal');
-  const title = `${session.account} · ${session.title} · ${STATUS_WORD[session.status]}`;
+/** What a chip that does something answers to, by where it is. On a list's row (`inRow`) a
+ *  click is the row's, which it selects, so a double-click does the chip's thing, in place of
+ *  the row's own. Anywhere else the chip is a button: a click does its thing and nothing of
+ *  what it's on (a card that takes clicks, a row that selects), once, however many clicks came
+ *  in a run, so a double-click that lands on it doesn't do it twice. */
+export function chipHandlers(act: (() => void) | undefined, inRow: boolean): { onMouseDown?: (e: Pick<ReactMouseEvent, 'stopPropagation'>) => void; onClick?: (e: Pick<ReactMouseEvent, 'stopPropagation' | 'detail'>) => void; onDoubleClick?: (e: Pick<ReactMouseEvent, 'stopPropagation'>) => void } {
+  if (!act) return {};
+  if (inRow) {
+    return {
+      onDoubleClick: (e) => {
+        e.stopPropagation();
+        act();
+      },
+    };
+  }
+  return {
+    onMouseDown: (e) => e.stopPropagation(),
+    onDoubleClick: (e) => e.stopPropagation(),
+    // WebKit counts a run's clicks in `detail`: the second of a double-click is 2. A key's is 0.
+    onClick: (e) => {
+      e.stopPropagation();
+      if (e.detail < 2) act();
+    },
+  };
+}
+
+/** The classes of the three chips that are drawn alike but named apart in the styles. */
+const CHIP_CLASS = { chip: 'ca-chip', label: 'ca-labelchip', pr: 'ca-pr' } as const;
+
+interface ChipProps {
+  /** Which styles it takes: a chip's (the default), a todo label's, or a PR's. */
+  kind?: keyof typeof CHIP_CLASS;
+  className?: string;
+  /** Its tooltip. With `does`, a chip that acts ends it with how: "… Click to open it on GitHub." */
+  title?: string;
+  /** What `act` does, in the tooltip's words: `open it on GitHub`. */
+  does?: string;
+  /** What a click on it does, or on a list's row (`inRow`) a double-click: see `chipHandlers`. */
+  act?: () => void;
+  inRow?: boolean;
+  /** A right-click on it shows its own menu, in place of the menu of the row it's on. */
+  onMenu?: () => void;
+  /** A small ✕ at its end, which takes it away: on a chip that doesn't act itself. */
+  remove?: { label: string; title?: string; run: () => void };
+  children?: ReactNode;
+}
+
+/** A chip: one shape and size wherever it shows, and one answer to clicks (`chipHandlers`). The
+ *  named chips below and in TodoBits.tsx say what's in one; anything else a row labels goes
+ *  through this too, with its own class for its fill. */
+export function Chip({ kind = 'chip', className, title, does, act, inRow = false, onMenu, remove, children }: ChipProps) {
+  const base = CHIP_CLASS[kind];
+  const tip = title && act && does ? `${title}. ${inRow ? 'Double-click' : 'Click'} to ${does}.` : title;
+  const onContextMenu = onMenu
+    ? (e: ReactMouseEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onMenu();
+      }
+    : undefined;
   const inner = (
     <>
-      {withStatus && <StatusGlyph status={session.status} size={10} />}
-      <Icon name={SURFACE_ICON[session.surface]} size={12} />
-      <span>{session.account}</span>
+      {children}
+      {remove && (
+        <button type="button" aria-label={remove.label} title={remove.title} onClick={remove.run}>
+          <Icon name="x" size={10} stroke={2.25} />
+        </button>
+      )}
     </>
   );
-  if (!onOpen || inRow) {
+  if (!act || inRow) {
     return (
-      <span className={cx('ca-chip', className)} title={onOpen ? `${title}. Double-click to open in ${where}.` : title} onDoubleClick={onOpen && inRowOpen(onOpen)}>
+      <span className={cx(base, className)} title={tip} onContextMenu={onContextMenu} {...chipHandlers(act, inRow)}>
         {inner}
       </span>
     );
   }
   return (
-    <button
-      type="button"
-      className={cx('ca-chip', 'ca-chip--button', className)}
-      title={`${title}. Click to open in ${where}.`}
-      onMouseDown={(e) => e.stopPropagation()}
-      onDoubleClick={(e) => e.stopPropagation()}
-      // A double-click on a row often lands here: open once, not in two terminals.
-      onClick={(e) => {
-        if (e.detail < 2) onOpen();
-      }}
-    >
+    <button type="button" className={cx(base, `${base}--button`, className)} title={tip} onContextMenu={onContextMenu} {...chipHandlers(act, false)}>
       {inner}
     </button>
+  );
+}
+
+/** How many more there are than the chips a row shows, with their names on hover: `+3`. */
+export function MoreChip({ names, className }: { names: string[]; className?: string }) {
+  if (names.length === 0) return null;
+  return (
+    <span className={cx('ca-chip', 'ca-chip--more', className)} title={names.join('\n')}>
+      +{names.length}
+    </span>
+  );
+}
+
+/** A session's account and where it runs. With `onOpen`, a click opens it where it runs; with
+ *  `inRow` too, it's on a list's row, where a click selects the row, so a double-click opens it. */
+export function HarnessChip({ session, withStatus = true, onOpen, inRow = false, className }: { session: Session; withStatus?: boolean; onOpen?: () => void; inRow?: boolean; className?: string }) {
+  return (
+    <Chip className={className} title={`${session.account} · ${session.title} · ${STATUS_WORD[session.status]}`} does={`open in ${sessionPlace(session, 'terminal')}`} act={onOpen} inRow={inRow}>
+      {withStatus && <StatusGlyph status={session.status} size={10} />}
+      <Icon name={SURFACE_ICON[session.surface]} size={12} />
+      <span>{session.account}</span>
+    </Chip>
   );
 }
 
@@ -279,7 +349,7 @@ export function WorktreeChip({ lane, short = false }: { lane: Lane; short?: bool
   const main = lane.origin === 'main';
   const own = !main && lane.callsign !== lane.repo;
   return (
-    <span className="ca-chip ca-wtchip" title={`${lane.device ? `On ${lane.device.name}: ` : ''}${lane.path}${branch ? `\nOn ${branch}` : ''}`}>
+    <Chip className="ca-wtchip" title={`${lane.device ? `On ${lane.device.name}: ` : ''}${lane.path}${branch ? `\nOn ${branch}` : ''}`}>
       <Icon name="folder" size={12} />
       {lane.device && (
         <span className="ca-wtchip-device">
@@ -290,7 +360,7 @@ export function WorktreeChip({ lane, short = false }: { lane: Lane; short?: bool
       {own && !short && <span className="ca-wtchip-more">{lane.repo} /</span>}
       <span className="ca-wtchip-name">{main ? lane.repo : lane.callsign}</span>
       {main && !short && <span className="ca-wtchip-more">/ main</span>}
-    </span>
+    </Chip>
   );
 }
 
@@ -298,15 +368,6 @@ export function WorktreeChip({ lane, short = false }: { lane: Lane; short?: bool
  *  as a right-click. A right-click opens the row's menu and leaves the selection where it was. */
 export function selects(e: { button: number; ctrlKey: boolean }): boolean {
   return e.button === 0 && !e.ctrlKey;
-}
-
-/** A chip's double-click on a list's row, where a click selects the row: it does the chip's own
- *  thing in place of the row's (opening the row's session). */
-export function inRowOpen(act: () => void) {
-  return (e: ReactMouseEvent) => {
-    e.stopPropagation();
-    act();
-  };
 }
 
 /** A PR's number, state and checks. With `onMenu`, a right-click on it shows the PR's own menu
@@ -317,15 +378,8 @@ export function PrChip({ pr, compact = false, titled = true, onMenu, onOpen, inR
   const c = pr.checks;
   const open = pr.state !== 'merged' && pr.state !== 'closed';
   const title = `#${pr.number} ${PR_WORD[pr.state]}: ${pr.title}`;
-  const onContextMenu = onMenu
-    ? (e: ReactMouseEvent) => {
-        e.preventDefault();
-        e.stopPropagation();
-        onMenu();
-      }
-    : undefined;
-  const inner = (
-    <>
+  return (
+    <Chip kind="pr" className={`ca-pr--${pr.state}`} title={titled ? title : undefined} does="open it on GitHub" act={onOpen} inRow={inRow} onMenu={onMenu}>
       <Icon name={PR_ICON[pr.state]} size={12} stroke={1.75} />
       <span>#{pr.number}</span>
       {!compact && <span className="ca-pr-word">{PR_WORD[pr.state]}</span>}
@@ -347,31 +401,7 @@ export function PrChip({ pr, compact = false, titled = true, onMenu, onOpen, inR
           {c.passed}
         </span>
       )}
-    </>
-  );
-  if (!onOpen || inRow) {
-    return (
-      <span className={cx('ca-pr', `ca-pr--${pr.state}`)} title={titled ? (onOpen ? `${title}. Double-click to open it on GitHub.` : title) : undefined} onContextMenu={onContextMenu} onDoubleClick={onOpen && inRowOpen(onOpen)}>
-        {inner}
-      </span>
-    );
-  }
-  return (
-    <button
-      type="button"
-      className={cx('ca-pr', `ca-pr--${pr.state}`, 'ca-pr--button')}
-      title={titled ? `${title}. Click to open it on GitHub.` : undefined}
-      onContextMenu={onContextMenu}
-      onMouseDown={(e) => e.stopPropagation()}
-      onDoubleClick={(e) => e.stopPropagation()}
-      // A double-click on a row often lands here: open once, not in two tabs.
-      onClick={(e) => {
-        e.stopPropagation();
-        if (e.detail < 2) onOpen();
-      }}
-    >
-      {inner}
-    </button>
+    </Chip>
   );
 }
 

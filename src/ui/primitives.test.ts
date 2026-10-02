@@ -1,9 +1,9 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import * as fx from '../testing/fixtures';
 import type { GitInfo } from '../types';
-import { driftWords, Seg } from './primitives';
+import { Chip, chipHandlers, driftWords, HarnessChip, MoreChip, PrChip, Seg } from './primitives';
 
 describe('driftWords', () => {
   const git = (g: Partial<GitInfo>): GitInfo => fx.git({ base: 'origin/main', baseAhead: 0, baseBehind: 0, ...g });
@@ -53,5 +53,97 @@ describe('Seg', () => {
   it('turns every choice off when it is disabled, or one by itself', () => {
     expect(html({ disabled: true }).match(/disabled=""/g)).toHaveLength(2);
     expect(html({ options: [options[0], { ...options[1], disabled: true }] }).match(/disabled=""/g)).toHaveLength(1);
+  });
+});
+
+describe('chipHandlers', () => {
+  const event = (detail = 1) => ({ detail, stopPropagation: vi.fn() });
+
+  it('leaves a chip that does nothing to what it is on', () => {
+    expect(chipHandlers(undefined, false)).toEqual({});
+    expect(chipHandlers(undefined, true)).toEqual({});
+  });
+
+  it('acts once on a click, however many came in the run', () => {
+    const act = vi.fn();
+    const h = chipHandlers(act, false);
+    // A double-click: two clicks, then the double-click itself.
+    h.onClick?.(event(1));
+    h.onClick?.(event(2));
+    h.onDoubleClick?.(event(2));
+    expect(act).toHaveBeenCalledTimes(1);
+    // A third in the same run is no new click either.
+    h.onClick?.(event(3));
+    expect(act).toHaveBeenCalledTimes(1);
+    // Return or Space on the chip is a click that counts none.
+    h.onClick?.(event(0));
+    expect(act).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps a click on a button chip from what the chip is on', () => {
+    const h = chipHandlers(() => {}, false);
+    for (const on of [h.onMouseDown, h.onClick, h.onDoubleClick]) {
+      const e = event();
+      on?.(e);
+      expect(e.stopPropagation).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it("on a list's row leaves the click to the row and acts on a double-click, in the row's place", () => {
+    const act = vi.fn();
+    const h = chipHandlers(act, true);
+    // The press and the click reach the row, which selects.
+    expect(h.onMouseDown).toBeUndefined();
+    expect(h.onClick).toBeUndefined();
+    const e = event(2);
+    h.onDoubleClick?.(e);
+    expect(act).toHaveBeenCalledTimes(1);
+    expect(e.stopPropagation).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('Chip', () => {
+  const html = (props: object, children?: string) => renderToStaticMarkup(createElement(Chip, props, children));
+
+  it('is a span until it acts off a row, then a button', () => {
+    expect(html({ className: 'ca-reusechip', title: 'Free' }, 'Free')).toBe('<span class="ca-chip ca-reusechip" title="Free">Free</span>');
+    expect(html({ act: () => {}, inRow: true }, 'x')).toBe('<span class="ca-chip">x</span>');
+    expect(html({ act: () => {} }, 'x')).toBe('<button type="button" class="ca-chip ca-chip--button">x</button>');
+  });
+
+  it('takes the classes of the chip it is', () => {
+    expect(html({ kind: 'label', act: () => {} }, 'x')).toContain('class="ca-labelchip ca-labelchip--button"');
+    expect(html({ kind: 'pr', className: 'ca-pr--open', act: () => {} }, 'x')).toContain('class="ca-pr ca-pr--button ca-pr--open"');
+  });
+
+  it('says in its tooltip how it acts', () => {
+    expect(html({ title: 'A todo', does: 'show it in Todo' }, 'x')).toContain('title="A todo"');
+    expect(html({ title: 'A todo', does: 'show it in Todo', act: () => {} }, 'x')).toContain('title="A todo. Click to show it in Todo."');
+    expect(html({ title: 'A todo', does: 'show it in Todo', act: () => {}, inRow: true }, 'x')).toContain('title="A todo. Double-click to show it in Todo."');
+  });
+
+  it('ends with a button that takes it away', () => {
+    expect(html({ kind: 'label', remove: { label: 'Remove Bug', title: 'Remove Bug', run: () => {} } }, 'Bug')).toMatch(/^<span class="ca-labelchip">Bug<button type="button" aria-label="Remove Bug" title="Remove Bug"><svg/);
+  });
+});
+
+describe('the named chips', () => {
+  it('say how a session and a PR open, by where they are', () => {
+    const s = fx.session({ account: 'claude2', title: 'Fix the build', status: 'idle' });
+    const chip = (props: object) => renderToStaticMarkup(createElement(HarnessChip, { session: s, ...props }));
+    expect(chip({})).toContain('title="claude2 · Fix the build · Idle"');
+    expect(chip({ onOpen: () => {}, inRow: true })).toMatch(/^<span class="ca-chip" title="claude2 · Fix the build · Idle\. Double-click to open in [^"]+\.">/);
+    expect(chip({ onOpen: () => {}, className: 'is-extra' })).toMatch(/^<button type="button" class="ca-chip ca-chip--button is-extra" title="claude2 · Fix the build · Idle\. Click to open in [^"]+\.">/);
+    const pr = fx.pr({ number: 12, title: 'Add it', state: 'open' });
+    const prChip = (props: object) => renderToStaticMarkup(createElement(PrChip, { pr, ...props }));
+    expect(prChip({ onOpen: () => {} })).toMatch(/^<button type="button" class="ca-pr ca-pr--button ca-pr--open" title="#12 Open: Add it\. Click to open it on GitHub\.">/);
+    expect(prChip({ onOpen: () => {}, inRow: true, titled: false })).toMatch(/^<span class="ca-pr ca-pr--open">/);
+  });
+});
+
+describe('MoreChip', () => {
+  it('counts what a row left out and names it on hover', () => {
+    expect(renderToStaticMarkup(createElement(MoreChip, { names: ['a', 'b'], className: 'is-wide' }))).toBe('<span class="ca-chip ca-chip--more is-wide" title="a\nb">+2</span>');
+    expect(renderToStaticMarkup(createElement(MoreChip, { names: [] }))).toBe('');
   });
 });
