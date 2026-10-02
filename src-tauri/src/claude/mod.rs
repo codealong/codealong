@@ -82,6 +82,16 @@ fn keys_reach(ctx: &crate::harness::Ctx, s: &Session) -> bool {
 /// waiting on that prompt and its transcript that the call is the one you saw.
 pub struct ClaudeCode;
 
+impl ClaudeCode {
+    /// The transcript a move goes on from: a session resumed from another folder can have one
+    /// in each, and the newest goes on.
+    fn newest_record(&self, ctx: &crate::harness::Ctx, s: &Session) -> anyhow::Result<PathBuf> {
+        use crate::harness::Adapter;
+        let newest = self.records(ctx.account, s).into_iter().max_by_key(|p| std::fs::metadata(p).and_then(|m| m.modified()).ok());
+        newest.ok_or_else(|| anyhow::anyhow!(if s.live { "Nothing's been said in it yet, so there's nothing to move." } else { "Its transcript isn't on this Mac any more." }))
+    }
+}
+
 impl crate::harness::Adapter for ClaudeCode {
     fn harness(&self) -> crate::model::Harness {
         crate::model::Harness::Claude
@@ -288,7 +298,7 @@ impl crate::harness::Adapter for ClaudeCode {
     }
 
     fn fork(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> anyhow::Result<crate::harness::Typed> {
-        Ok(fork_as(ctx.account, &shell_word(&resume_from(ctx.account, s)), &crate::start::new_session_id()))
+        Ok(fork_as(ctx.account, &shell_word(&resume_from(ctx.account, s)), &crate::start::new_session_id(), ""))
     }
 
     /// A background job under the account's service, whichever way the session runs: Claude
@@ -305,13 +315,21 @@ impl crate::harness::Adapter for ClaudeCode {
     /// conversation from one org's account, resumed under another's in a terminal and with
     /// `-p`). Its first reply there reads the whole conversation uncached, since a prompt cache
     /// is its org's own.
-    fn move_to(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, to: &AccountCfg) -> anyhow::Result<crate::harness::Typed> {
-        // A session resumed from another folder can have a transcript in each; the newest goes on.
-        let newest = self.records(ctx.account, s).into_iter().max_by_key(|p| std::fs::metadata(p).and_then(|m| m.modified()).ok());
-        let Some(from) = newest else {
-            anyhow::bail!(if s.live { "Nothing's been said in it yet, so there's nothing to move." } else { "Its transcript isn't on this Mac any more." });
-        };
-        Ok(fork_as(to, &crate::util::sh_quote(&from.to_string_lossy()), &crate::start::new_session_id()))
+    fn move_to(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, to: &AccountCfg, prompt: &str) -> anyhow::Result<crate::harness::Typed> {
+        Ok(fork_as(to, &crate::util::sh_quote(&self.newest_record(ctx, s)?.to_string_lossy()), &crate::start::new_session_id(), prompt))
+    }
+
+    fn moves_accounts(&self) -> bool {
+        true
+    }
+
+    /// A background job takes the transcript's path too: `--bg --resume <path> --fork-session`
+    /// under the other account starts a job there that goes on from it (checked on 2.1.287,
+    /// 2026-10-02), its session ID the service's choice, as any `--bg` start's is.
+    fn move_to_background(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, to: &AccountCfg, cwd: &Path, prompt: &str) -> anyhow::Result<Option<String>> {
+        let command = fork_command(to, &crate::util::sh_quote(&self.newest_record(ctx, s)?.to_string_lossy()), prompt);
+        let (_, id) = start_background(to, cwd, &command)?;
+        Ok(id.map(|id| Session::key_for(Harness::Claude, &to.name, &id)))
     }
 
     /// Claude Code run headless on a fork of the session that keeps no record (checked on
@@ -903,6 +921,10 @@ impl crate::harness::Reader for Reader {
             let reg = moved.as_ref().or(reg);
             let seen_at = from.as_ref().map(|f| look.seen.seen_at(&f.key)).unwrap_or(0).max(look.seen.seen_at(&key));
             let info = tr.map(|(_, t)| t);
+            // A limit in the conversation it goes on from stopped that session's turn, maybe on
+            // another account; this one hasn't taken a turn yet.
+            let unlimited = from.as_ref().and(info).filter(|t| t.limit.is_some()).map(|t| TranscriptInfo { limit: None, ..t.clone() });
+            let info = unlimited.as_ref().or(info);
             // Only a busy session that's gone quiet costs a look outside its transcript,
             // and one whose turn left a command running in the background (read once
             // per status change).

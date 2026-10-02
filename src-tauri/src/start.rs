@@ -12,7 +12,7 @@ use crate::config::{self, AccountCfg, Config};
 use crate::engine::Handle;
 use crate::harness::{Adapter, StartAsk};
 use crate::launch;
-use crate::model::{Board, Harness, Meter, Severity, Usage};
+use crate::model::{Board, Harness, Meter, Session, Severity, Usage};
 use crate::todos::PendingStart;
 use crate::util::{home, now_ms, tilde};
 
@@ -169,6 +169,60 @@ pub struct Candidate<'a> {
 /// An account this close to any limit could stall a new session.
 const NEAR_LIMIT: f64 = 90.0;
 
+/// A limit with no room to start or move a session onto.
+fn near(m: &Meter) -> bool {
+    m.severity == Severity::Critical || m.percent >= NEAR_LIMIT
+}
+
+/// Whether an account's meters say it's near a limit a session on `model` spends.
+pub fn near_limit(u: &Usage, model: Option<&str>) -> bool {
+    u.meters.iter().any(|m| spends(model, m.model.as_deref()) && near(m))
+}
+
+/// How long a refusal at a limit counts as word that its account is out: a month covers a
+/// monthly spend limit, which says nothing of when it lifts.
+const REFUSED_FOR: i64 = 31 * 24 * 3_600_000;
+
+/// The accounts a usage limit has stopped, by what their sessions' last turns say: a session of
+/// it was refused (`Session::limit`), the limit hasn't lifted by its harness's word, and no
+/// session of it has ended a turn without one since. The meters can't say this alone: a spend
+/// limit has none, and they're read every few minutes.
+pub fn refused_accounts(sessions: &[Session], now: i64) -> std::collections::HashSet<String> {
+    let mut refused: std::collections::HashMap<&str, i64> = std::collections::HashMap::new();
+    for s in sessions {
+        let Some(l) = s.limit.as_ref().filter(|l| !l.resets_at.is_some_and(|r| r <= now) && now - l.at < REFUSED_FOR) else { continue };
+        let at = refused.entry(s.account.as_str()).or_insert(l.at);
+        *at = (*at).max(l.at);
+    }
+    // A working session hasn't said yet whether it got through.
+    let through = |acct: &str, at: i64| sessions.iter().any(|s| s.account == acct && s.limit.is_none() && s.status != crate::model::Status::Working && s.last_activity > at);
+    refused.into_iter().filter(|&(acct, at)| !through(acct, at)).map(|(acct, _)| acct.to_string()).collect()
+}
+
+/// For each session a usage limit stopped, the account it could move to and go on
+/// (`SessionLimit::move_to`): another of its harness's accounts, chosen as Auto chooses
+/// (`auto_pick`) among those with room for its model by their meters and that no limit has
+/// stopped by what their sessions say (`refused_accounts`). None when no account has room,
+/// its harness can't move sessions (`moves`), or the limit has lifted, when it can go on where it is.
+pub fn limit_moves(sessions: &mut [Session], accounts: &[AccountCfg], usages: &[Usage], moves: impl Fn(Harness) -> bool, now: i64) {
+    let refused = refused_accounts(sessions, now);
+    for s in sessions.iter_mut() {
+        let Some(limit) = s.limit.as_mut() else { continue };
+        limit.move_to = None;
+        if !moves(s.harness) || limit.resets_at.is_some_and(|r| r <= now) {
+            continue;
+        }
+        let model = limit.model.as_deref();
+        let candidates: Vec<Candidate> = accounts
+            .iter()
+            .filter(|a| a.name != s.account && Harness::from_config(&a.harness) == s.harness && !refused.contains(&a.name))
+            .filter(|a| !usages.iter().any(|u| u.account == a.name && near_limit(u, model)))
+            .map(|a| Candidate { name: &a.name, preferred: a.preferred, model })
+            .collect();
+        limit.move_to = auto_pick(&candidates, usages, now).map(|p| p.account);
+    }
+}
+
 /// The accounts Auto prefers among those that can start sessions (`startable`, in config
 /// order): the ones config.toml marks `preferred`, else those of the first account's harness,
 /// so that without a star Auto keeps to one agent until its accounts are out of room.
@@ -208,7 +262,6 @@ pub fn auto_pick(candidates: &[Candidate], usages: &[Usage], now: i64) -> Option
         near: bool,
         reset: Option<i64>,
     }
-    let near = |m: &Meter| m.severity == Severity::Critical || m.percent >= NEAR_LIMIT;
     let mut measured: Vec<Measured> = Vec::new();
     let mut unknown: Vec<&Candidate> = Vec::new();
     for c in candidates {
@@ -545,29 +598,40 @@ pub fn fork_background(board: &Board, cfg: &Config, key: &str, prompt: &str) -> 
 }
 
 /// Moves a session to `to`, another account of its harness (`Adapter::move_to`): a copy goes on
-/// from what it had written, in a new terminal in its folder under `to`, and the session itself
-/// is closed where Codealong can close it. Not mid-turn: the copy would see the turn cut off, so
-/// the caller stops a turn first (actions.rs), and archives the session once this returns.
-pub fn move_to(board: &Board, cfg: &Config, key: &str, to: &str) -> Result<Started> {
+/// from what it had written, in a new terminal in its folder under `to` (a background job's copy
+/// as a job there, `Adapter::move_to_background`), on `prompt` when there's one, and the
+/// session itself is closed where Codealong can close it. Not mid-turn: the copy would see the
+/// turn cut off, so the caller stops a turn first (actions.rs), and archives the session once
+/// this returns.
+pub fn move_to(board: &Board, cfg: &Config, key: &str, to: &str, prompt: &str) -> Result<Started> {
     let (s, account, lane, cwd) = to_fork(board, cfg, key)?;
     let target = move_target(cfg, s, account, to)?;
     if crate::harness::turn_running(s) {
         bail!("“{}” is in the middle of a turn. Stop it or let it finish, then move it.", s.title);
     }
     let adapter = crate::harness::adapter(s.harness);
-    let copy = adapter.move_to(&crate::harness::Ctx { account }, s, target)?;
-    adapter.before_start(target, &cwd);
-    let near = crate::board::terminal_neighbours(&board.lanes, &cwd);
-    launch::terminal_run(&cfg.apps.terminal, launch::Placement { new_terminal: cfg.apps.new_terminal, near: &near }, &cwd, &copy.input, &copy.env)?;
+    let ctx = crate::harness::Ctx { account };
+    let in_background = s.attach_command.is_some();
+    let copy = if in_background {
+        adapter.before_start(target, &cwd);
+        adapter.move_to_background(&ctx, s, target, &cwd, prompt)?
+    } else {
+        let copy = adapter.move_to(&ctx, s, target, prompt)?;
+        adapter.before_start(target, &cwd);
+        let near = crate::board::terminal_neighbours(&board.lanes, &cwd);
+        launch::terminal_run(&cfg.apps.terminal, launch::Placement { new_terminal: cfg.apps.new_terminal, near: &near }, &cwd, &copy.input, &copy.env)?;
+        copy.key
+    };
     // A fork from another account is how the windows tell a move (lineage.ts), so the shared
     // model needs no word for it that older devices wouldn't read.
-    if let Some(copy) = &copy.key {
+    if let Some(copy) = &copy {
         crate::origins::record(copy, key, crate::model::OriginHow::Fork);
     }
     let mut left = if !s.live {
         String::new()
     } else {
         match crate::idle::close_one(board, cfg, key) {
+            Ok(_) if in_background => " The old job is stopped.".to_string(),
             Ok(_) => " Its old terminal is closed.".to_string(),
             Err(e) => format!(" The old one is still running: {e:#}"),
         }
@@ -576,10 +640,15 @@ pub fn move_to(board: &Board, cfg: &Config, key: &str, to: &str) -> Result<Start
     if s.background.is_some() {
         left.push_str(" It had a command running in the background: ask the copy to start it again if it's still needed.");
     }
+    let place = if in_background { "as a background job".to_string() } else { format!("in a new terminal in {}", lane.callsign) };
     // Claude Code writes the copy's transcript at its first prompt: closed before then, the copy is gone.
-    let message = format!("Moved “{}” to {to}: it goes on in a new terminal in {}, and {to} keeps it once you send it something.{left}", s.title, lane.callsign);
-    Ok(Started { key: copy.key, message: Some(message) })
+    let goes = if prompt.trim().is_empty() { format!("it goes on {place}, and {to} keeps it once you send it something") } else { format!("it carries on {place}") };
+    let message = format!("Moved “{}” to {to}: {goes}.{left}", s.title);
+    Ok(Started { key: copy, message: Some(message) })
 }
+
+/// What a session stopped at its usage limit is told as it goes on under another account.
+pub const GO_ON: &str = "Your last turn was stopped by a usage limit, and this conversation has moved to another account that has room. Carry on where you left off.";
 
 /// The account a session can move to by that name: another account of the session's harness.
 fn move_target<'a>(cfg: &'a Config, s: &crate::model::Session, account: &AccountCfg, to: &str) -> Result<&'a AccountCfg> {
@@ -631,6 +700,7 @@ mod tests {
         assert_eq!(linked(&spec(Place::ClaudeApp, true, &["t-1"]), &unknown, "claude", NOW).unwrap().lane.as_deref(), Some("/r/app"));
     }
     const HOUR: i64 = 3_600_000;
+    const MIN: i64 = 60_000;
 
     /// An account's 5-hour and weekly use, and in how many hours its week resets.
     fn usage(account: &str, session: f64, week: f64, week_resets_in: Option<i64>) -> Usage {
@@ -646,6 +716,64 @@ mod tests {
             preferred: false,
             rate_limited: false,
         }
+    }
+
+    fn limited(key: &str, at: i64, resets_at: Option<i64>) -> Session {
+        let limit = crate::model::SessionLimit { at, resets_at, model: Some("claude-opus-5-5".into()), ..Default::default() };
+        Session { status: crate::model::Status::Error, last_activity: at, limit: Some(limit), ..on(key, crate::model::Status::Error, at) }
+    }
+
+    /// A session of the account its key names (`claude:claude2:b` is claude2's).
+    fn on(key: &str, status: crate::model::Status, last_activity: i64) -> Session {
+        let account = key.split(':').nth(1).unwrap_or("claude").to_string();
+        Session { status, last_activity, account, ..crate::fixtures::session(key) }
+    }
+
+    fn claude_accounts() -> Vec<AccountCfg> {
+        ["claude", "claude2", "claude3"].iter().map(|n| account(n, "claude", &format!("~/.{n}"), Some(n))).chain([account("codex", "codex", "~/.codex", None)]).collect()
+    }
+
+    fn moves_of(sessions: &mut [Session], usages: &[Usage]) -> Vec<Option<String>> {
+        limit_moves(sessions, &claude_accounts(), usages, |h| h == Harness::Claude, NOW);
+        sessions.iter().map(|s| s.limit.as_ref().and_then(|l| l.move_to.clone())).collect()
+    }
+
+    #[test]
+    fn a_limited_session_moves_to_another_account_of_its_harness_with_room() {
+        let mut s = [limited("claude:claude:a", NOW - MIN, Some(NOW + HOUR))];
+        // claude3's week resets soonest, as Auto would start it; codex isn't Claude's.
+        let usages = [usage("claude", 100.0, 60.0, Some(30)), usage("claude2", 20.0, 40.0, Some(100)), usage("claude3", 10.0, 50.0, Some(20))];
+        assert_eq!(moves_of(&mut s, &usages), [Some("claude3".to_string())]);
+        // One near a limit by its meters has no room: claude3's session is at 95%.
+        let usages = [usage("claude2", 20.0, 40.0, Some(100)), usage("claude3", 95.0, 50.0, Some(20))];
+        assert_eq!(moves_of(&mut s, &usages), [Some("claude2".to_string())]);
+        // None has room: nothing's offered.
+        let usages = [usage("claude2", 92.0, 40.0, Some(100)), usage("claude3", 95.0, 50.0, Some(20))];
+        assert_eq!(moves_of(&mut s, &usages), [None]);
+        // A limit that has lifted goes on where it is.
+        let mut lifted = [limited("claude:claude:a", NOW - 3 * HOUR, Some(NOW - HOUR))];
+        assert_eq!(moves_of(&mut lifted, &[usage("claude2", 20.0, 40.0, None)]), [None]);
+        // A harness that can't move sessions isn't offered one.
+        let mut codex = [Session { harness: Harness::Codex, account: "codex".into(), ..limited("codex:codex:t", NOW - MIN, None) }];
+        assert_eq!(moves_of(&mut codex, &[]), [None]);
+    }
+
+    #[test]
+    fn an_account_its_own_sessions_say_is_out_isnt_offered() {
+        // A spend limit shows on no meter: claude2's meters have room, but a session of its own
+        // was refused after claude's was, and nothing of claude2's has got through since.
+        let usages = [usage("claude2", 20.0, 40.0, Some(100)), usage("claude3", 30.0, 50.0, Some(120))];
+        let mut s = [limited("claude:claude:a", NOW - 10 * MIN, None), limited("claude:claude2:b", NOW - 5 * MIN, None)];
+        assert_eq!(moves_of(&mut s, &usages), [Some("claude3".to_string()), Some("claude3".to_string())]);
+        // A turn of claude2's that ended since without one says it has room again; one still
+        // working says nothing yet.
+        let mut s = [limited("claude:claude:a", NOW - 10 * MIN, None), limited("claude:claude2:b", NOW - 5 * MIN, None), on("claude:claude2:c", crate::model::Status::Working, NOW - MIN)];
+        assert_eq!(moves_of(&mut s, &usages)[0].as_deref(), Some("claude3"));
+        let mut s = [limited("claude:claude:a", NOW - 10 * MIN, None), limited("claude:claude2:b", NOW - 5 * MIN, None), on("claude:claude2:c", crate::model::Status::Unread, NOW - MIN)];
+        assert_eq!(moves_of(&mut s, &usages)[0].as_deref(), Some("claude2"));
+        // Word of a refusal lasts until its limit lifts, or a month when it didn't say.
+        let lifted = [limited("claude:claude2:b", NOW - 2 * HOUR, Some(NOW - HOUR)), limited("claude:claude2:c", NOW - 32 * 24 * HOUR, None)];
+        assert!(refused_accounts(&lifted, NOW).is_empty());
     }
 
     fn cand(name: &str, preferred: bool) -> Candidate<'_> {

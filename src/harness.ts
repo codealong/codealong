@@ -32,8 +32,8 @@ export function renames(s: { key: string; archived?: boolean }): boolean {
   return h === 'claude' || h === 'opencode' || (h === 'codex' && !s.archived);
 }
 
-/** The harnesses whose sessions move to another of their accounts (harness.rs `move_to`): Claude
- *  Code, which resumes another account's transcript by its path. */
+/** The harnesses whose sessions move to another of their accounts (harness.rs `move_to`,
+ *  `moves_accounts`): Claude Code, which resumes another account's transcript by its path. */
 export const MOVES_ACCOUNTS: readonly Harness[] = ['claude'];
 
 /** Where a harness keeps a name given here, in a few words for the rename box. */

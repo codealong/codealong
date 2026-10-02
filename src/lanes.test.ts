@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ageFiltered, bayOf, branchLabel, buildBays, bySession, closable, filterByAge, homeOf, inboxCounts, liveOrLatest, narrowed, relaned, rowItems, sessionFlag, sessionHeadline, sessionPrs, stoppable, withoutAccount, worktreeRow } from './lanes';
+import { ageFiltered, bayOf, branchLabel, buildBays, bySession, closable, filterByAge, homeOf, inboxCounts, limitWords, liveOrLatest, narrowed, relaned, rowItems, sessionFlag, sessionHeadline, sessionPrs, stoppable, withoutAccount, worktreeRow } from './lanes';
 import * as fx from './testing/fixtures';
 import type { Lane, Pr, PrItem, Session } from './types';
 
@@ -226,6 +226,21 @@ describe('sessionFlag', () => {
     expect(flag({ excerpt: 'Asks you · Which color?' })).toBe('Asks you');
     expect(flag({ stalledSince: NOW - 3_600_000, excerpt: 'No activity for {for:1}' })).toBe('Stuck');
     expect(sessionFlag(s({ status: 'error', excerpt: 'API error' }))).toMatchObject({ label: 'Error', tone: 'bad' });
+  });
+
+  it('says which usage limit stopped a session, when it lifts and where it could go on', () => {
+    const limit = { meter: 'week', resetsAt: NOW + 3 * 3_600_000, spendCapped: true, at: NOW - 60_000, moveTo: 'claude' };
+    const stopped = s({ status: 'error', limit, excerpt: 'You’ve hit your monthly spend limit' });
+    expect(sessionFlag(stopped)).toMatchObject({ label: 'Limit', tone: 'bad' });
+    expect(sessionHeadline(stopped)).toEqual(['`claude2` hit its usage limit · Fix the test', 'You’ve hit your monthly spend limit']);
+    expect(limitWords('claude2', limit, NOW)).toBe('It stopped at claude2’s weekly limit, with no extra usage to carry it. It lifts in 3h. claude has room: move it there to go on now.');
+    // Beside a button that offers the move, the move goes unsaid.
+    expect(limitWords('claude2', { ...limit, spendCapped: false, meter: 'session' }, NOW, true)).toBe('It stopped at claude2’s 5-hour limit. It lifts in 3h.');
+    expect(limitWords('claude2', { ...limit, meter: 'model:Opus', spendCapped: false, resetsAt: null, moveTo: null }, NOW)).toBe('It stopped at claude2’s weekly Opus limit. No other account has room.');
+    expect(limitWords('claude2', { ...limit, spendCapped: false, resetsAt: NOW - 1 }, NOW)).toBe('It stopped at claude2’s weekly limit. It has lifted since: send it something to go on.');
+    // Seen, it rests with the limit still said; tried again, it's working and says nothing of it.
+    expect(flag({ status: 'idle', limit })).toBe('Limit');
+    expect(flag({ status: 'working', limit })).toBeNull();
   });
 
   it('leaves out what the glyph and bay already say', () => {

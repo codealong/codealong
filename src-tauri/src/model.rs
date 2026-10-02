@@ -74,7 +74,7 @@ pub struct AccountInfo {
 #[serde(rename_all = "camelCase")]
 pub struct Notice {
     /// What it's about (`config`, `github`, `watch`, `todos`, `pr-links`, `previews`,
-    /// `reusable`, `held`), one of each at most. A window knows one it has dismissed by this
+    /// `reusable`, `held`, `limits`), one of each at most. A window knows one it has dismissed by this
     /// and its title.
     pub key: String,
     /// A few words, for where there's room for no more.
@@ -135,6 +135,10 @@ pub struct Board {
     /// device's projects (peers.rs). The windows get the projects as `projects`.
     #[serde(skip)]
     pub project_rules: Vec<crate::config::ProjectCfg>,
+    /// `[limits] when_hit`: whether a session a usage limit stopped is moved by itself
+    /// (limits.rs) or only offered a move.
+    #[serde(default)]
+    pub when_limited: crate::config::WhenLimited,
 }
 
 impl Board {

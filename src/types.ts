@@ -10,6 +10,20 @@ export type PrState = 'draft' | 'open' | 'approved' | 'changes' | 'merged' | 'cl
 /** Whether GitHub would merge an open PR now (its `mergeStateStatus`); `unknown` once it's closed. */
 export type Merge = 'clean' | 'conflicts' | 'behind' | 'blocked' | 'unstable' | 'unknown';
 
+/** The usage limit a session's last turn ended on (peer model.rs `SessionLimit`). */
+export interface SessionLimit {
+  /** The limit, as its account's meters key it (`session`, `week`, `model:<name>`), when said. */
+  meter: string | null;
+  /** When it lifts, when said. */
+  resetsAt: number | null;
+  /** The account's extra usage was refused too, so raising its spend limit would also do. */
+  spendCapped?: boolean;
+  /** When it was refused. */
+  at: number;
+  /** Another account of its harness with room, to move it to and go on (start.rs `limit_moves`). */
+  moveTo: string | null;
+}
+
 export interface Session {
   key: string;
   id: string;
@@ -69,6 +83,8 @@ export interface Session {
   earlier?: boolean;
   /** The Chrome tabs it drives through Claude in Chrome, to bring back (chrometabs.rs). */
   chrome?: ChromeTabs;
+  /** Its last turn ended on its account's usage limit, and nothing has been said since. */
+  limit?: SessionLimit;
   resumeCommand: string | null;
   /** The Claude app is signed into this session's account. */
   appAccount: boolean;
@@ -310,6 +326,8 @@ export interface Config {
   devices?: DevicesCfg;
   /** Automatic updates. Older files have none: on. */
   updates?: { check: boolean };
+  /** What's done about a session a usage limit stopped. Older files have none: suggest. */
+  limits?: { when_hit: WhenLimited };
   debug: { perf_log: boolean };
 }
 
@@ -574,6 +592,8 @@ export interface Board {
   todoHints?: Record<string, TodoHint>;
   /** `[devices]` from config.toml. Missing on older boards. */
   devices?: DevicesCfg;
+  /** `[limits] when_hit`: whether a session a usage limit stopped is moved by itself. */
+  whenLimited?: WhenLimited;
 }
 
 /** Why a todo looks done: how sure Jev is, and what showed it. */
@@ -588,6 +608,9 @@ export interface TodoSuggested {
   labels: [string, number][];
   dependsOn: [string, number][];
 }
+
+/** `suggest` offers to move a session a usage limit stopped; `move` moves it by itself. */
+export type WhenLimited = 'suggest' | 'move';
 
 /** `[jev]` in config.toml: the model, and each feature's switch. */
 export interface JevCfg {

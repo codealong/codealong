@@ -24,7 +24,7 @@ import { below } from '../contextMenu';
 import { folderTargets, opensInEditor, useEditorIcons } from '../editors';
 import { absolute, ago, agoPhrase, duration, middleTruncate, tildePath } from '../format';
 import { HARNESS_WORD, sessionName, sessionPlace } from '../harness';
-import { seenable } from '../lanes';
+import { limitWords, seenable } from '../lanes';
 import { cameWord, originWord, type Kin, type Lineage } from '../lineage';
 import type { SessionActions } from '../menus';
 import { untilWords } from '../snooze';
@@ -311,6 +311,17 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
           </>
         )}
       </div>
+      {s.limit && s.status !== 'working' && (
+        <div className="ca-sessinsp-limit" role="note">
+          <Icon name="alert" size={12} />
+          <span className="ca-sessinsp-limit-words">{limitWords(s.account, s.limit, now, !!actions?.moveOn)}</span>
+          {actions?.moveOn && (
+            <Button size="sm" title="Its conversation goes on under that account, told to carry on where it stopped; this one is closed and archived" onClick={() => actions.moveOn?.run()}>
+              {actions.moveOn.label}
+            </Button>
+          )}
+        </div>
+      )}
       {/* Hidden when it has nothing to show (app.css), Jev's chip included. */}
       <div className="ca-sessinsp-links">
         {(allPrs ? prs : prs.slice(0, PRS_SHOWN)).map((pr) => (

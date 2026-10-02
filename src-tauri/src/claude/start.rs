@@ -151,14 +151,19 @@ pub(super) fn stop_command(account: &crate::config::AccountCfg, attach: &str) ->
 /// Forks session `from` (its ID, or its transcript's path quoted for the shell) into a new one
 /// named `new_id` under `account`: `--fork-session` copies the transcript, and takes
 /// `--session-id` for the copy's ID (resuming takes it only with `--fork-session`), so the
-/// copy's key is known before it's written, as a start's is.
-pub(super) fn fork_as(account: &crate::config::AccountCfg, from: &str, new_id: &str) -> crate::harness::Typed {
+/// copy's key is known before it's written, as a start's is. With a prompt the copy starts on
+/// it at once (it comes in the environment, as a resume's does); without one it waits for one.
+pub(super) fn fork_as(account: &crate::config::AccountCfg, from: &str, new_id: &str, prompt: &str) -> crate::harness::Typed {
     let key = Session::key_for(Harness::Claude, &account.name, new_id);
-    crate::harness::Typed {
-        input: format!("{} --resume {from} --fork-session --session-id {new_id}\n", account.command()),
-        env: vec![(crate::start::SESSION_VAR.to_string(), key.clone())],
-        key: Some(key),
+    let mut input = format!("{} --resume {from} --fork-session --session-id {new_id}", account.command());
+    let mut env = vec![(crate::start::SESSION_VAR.to_string(), key.clone())];
+    let prompt = prompt.trim();
+    if !prompt.is_empty() {
+        input.push_str(&format!(" \"${}\"", crate::start::PROMPT_VAR));
+        env.push((crate::start::PROMPT_VAR.to_string(), crate::start::as_argument(prompt)));
     }
+    input.push('\n');
+    crate::harness::Typed { input, env, key: Some(key) }
 }
 
 /// The terminal input that resumes a Claude Code session with a prompt, and the environment
@@ -194,7 +199,7 @@ mod tests {
     #[test]
     fn forks_under_an_id_it_picks() {
         let a = crate::config::AccountCfg { name: "claude2".into(), harness: "claude".into(), home: "~/.claude2".into(), command: None, start: None, preferred: false, acp: None };
-        let f = fork_as(&a, "4f1c2a9e-0b7d-4e21-9c55-1a2b3c4d5e6f", "9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a");
+        let f = fork_as(&a, "4f1c2a9e-0b7d-4e21-9c55-1a2b3c4d5e6f", "9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a", "");
         assert_eq!(f.input, "claude2 --resume 4f1c2a9e-0b7d-4e21-9c55-1a2b3c4d5e6f --fork-session --session-id 9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a\n");
         assert_eq!(f.key.as_deref(), Some("claude:claude2:9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a"));
         assert_eq!(f.env, vec![("CODEALONG_SESSION".to_string(), "claude:claude2:9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a".to_string())]);
@@ -216,16 +221,22 @@ mod tests {
         let from = crate::config::AccountCfg { name: "claude".into(), harness: "claude".into(), home: home.to_string_lossy().into(), command: None, start: None, preferred: false, acp: None };
         let to = crate::config::AccountCfg { name: "claude2".into(), harness: "claude".into(), home: "~/.claude2".into(), command: None, start: None, preferred: false, acp: None };
         let ctx = crate::harness::Ctx { account: &from };
-        let moved = super::super::ClaudeCode.move_to(&ctx, &Session::new(Harness::Claude, "claude", id), &to).unwrap();
+        let moved = super::super::ClaudeCode.move_to(&ctx, &Session::new(Harness::Claude, "claude", id), &to, "").unwrap();
         let path = new.join(format!("{id}.jsonl")).to_string_lossy().replace('\'', "'\\''");
         let key = moved.key.clone().unwrap();
         let copy = key.strip_prefix("claude:claude2:").unwrap();
         assert_ne!(copy, id);
         assert_eq!(moved.input, format!("claude2 --resume '{path}' --fork-session --session-id {copy}\n"));
-        assert_eq!(moved.env, vec![("CODEALONG_SESSION".to_string(), key)]);
+        assert_eq!(moved.env, vec![("CODEALONG_SESSION".to_string(), key.clone())]);
+        // Moved with a prompt, the copy starts on it, which comes in the environment.
+        let going = super::super::ClaudeCode.move_to(&ctx, &Session::new(Harness::Claude, "claude", id), &to, "-go on").unwrap();
+        let copy = going.key.clone().unwrap();
+        let copy_id = copy.strip_prefix("claude:claude2:").unwrap();
+        assert_eq!(going.input, format!("claude2 --resume '{path}' --fork-session --session-id {copy_id} \"$CODEALONG_PROMPT\"\n"));
+        assert_eq!(going.env, vec![("CODEALONG_SESSION".to_string(), copy.clone()), ("CODEALONG_PROMPT".to_string(), " -go on".to_string())]);
         // A live session that hasn't said anything has no transcript yet.
         let quiet = Session { live: true, ..Session::new(Harness::Claude, "claude", "0f5e1d2c") };
-        assert!(super::super::ClaudeCode.move_to(&ctx, &quiet, &to).unwrap_err().to_string().contains("Nothing's been said"));
+        assert!(super::super::ClaudeCode.move_to(&ctx, &quiet, &to, "").unwrap_err().to_string().contains("Nothing's been said"));
     }
 
     #[test]

@@ -46,6 +46,7 @@ use codealong_peer::net as irohnet;
 mod jev;
 mod kept;
 mod launch;
+mod limits;
 mod lineage;
 mod logo;
 mod model;
@@ -1356,6 +1357,7 @@ pub fn run() {
             };
             let publishes = peers.clone();
             let emitter = app.handle().clone();
+            let (mover, moves_with) = (std::sync::Mutex::new(limits::Mover::default()), engine_slot.clone());
             let engine = engine::start(move |board| {
                 if let Ok(mut shown) = shown_logo.lock() {
                     if *shown != board.logo_status {
@@ -1385,6 +1387,13 @@ pub fn run() {
                 desktop::publish(&emitter, board);
                 lineage::publish(&emitter, board);
                 publishes.publish(board);
+                // Only once there's a handle to move them with, so a board before that leaves them due.
+                if let (Some(engine), Ok(mut mover)) = (moves_with.get(), mover.lock()) {
+                    for (key, to) in mover.due(board, board.generated_at) {
+                        let engine = engine.clone();
+                        std::thread::spawn(move || limits::move_now(&engine, &key, &to));
+                    }
+                }
             });
             let _ = engine_slot.set(engine.clone());
             // Sessions Codealong runs itself: a turn's start and end recompose the board, and

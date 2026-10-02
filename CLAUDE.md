@@ -681,12 +681,27 @@ Claude Code
   the conversation so far included, at once; without one it prints `(idle — send a prompt to
   start)` and has none until its first prompt, so the board shows it with the conversation it
   copies (`claude::registry::resumed_from`).
+- A turn refused at a usage limit ends with an `assistant` line that says so (read from 131 on
+  this Mac, 2.1.257 to 2.1.287, 2026-10-02): `isApiErrorMessage: true`, `error: "rate_limit"`,
+  `apiErrorStatus: 429`, `message.model: "<synthetic>"`, its text Claude Code's words ("You've
+  hit your session limit · resets 6:10pm (America/Los_Angeles)", "You've hit your monthly spend
+  limit · raise it at claude.ai/settings/usage"), and `quotaLimits: {status: "rejected",
+  rateLimitType: "five_hour"|"seven_day", resetsAt: <seconds>, overageStatus,
+  overageDisabledReason: "out_of_credits"|"org_level_disabled_until", isUsingOverage}`. The
+  "monthly spend limit" text means extra usage couldn't carry a plan limit that was hit, so the
+  turn can go on at `resetsAt` too. A model that's unavailable is a `rate_limit` without the 429.
+  Nothing else is written: no line says the limit lifted, and a background task's notification
+  wakes the session into another refusal each time. The usage endpoint's meters show no spend
+  limit. `claude::transcript::limit_of` reads the line.
 - `--resume` takes a transcript's path as well as an ID (2.1.287: an argument ending in `.jsonl`
   is read as a file), from any account's folder, and the copy is written under the account that
   runs it, `--fork-session --session-id` naming it as above. That's how Codealong moves a
   session to another account (`ClaudeCode::move_to`). In a terminal the copy writes its transcript
   only at its first prompt (checked in tmux): until then the registry has it, and the board
-  shows it with the conversation it was moved with (`Reader::moved_copy`, from origins.json). Checked 2026-10-02 between two accounts in
+  shows it with the conversation it was moved with (`Reader::moved_copy`, from origins.json).
+  `--bg --resume <path> --fork-session` under the other account starts a job there that goes on
+  from it (checked 2026-10-02: the roster's `dispatch.launch` was `{mode: "resume", sessionId:
+  <the path>, fork: true, restoresTranscript: true}`). Checked 2026-10-02 between two accounts in
   different orgs, in a terminal and with `-p`: a Sonnet conversation with signed thinking blocks
   went on under the other account and remembered what it had said, and Haiku took it on too.
   Its first reply there wrote the whole conversation to the cache (about 20k of 30k tokens read

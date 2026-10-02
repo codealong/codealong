@@ -572,14 +572,17 @@ fn fork_terminal(engine: &Handle, c: &Call) -> Result<Value, String> {
 
 /// Moves it to another account of its harness, `account` (`start::move_to`): the copy goes on
 /// in a new terminal, and the session is closed and archived: from here on the conversation is
-/// the copy's, and so are the todos it was on and its place among the pinned sessions.
+/// the copy's, and so are the todos it was on and its place among the pinned sessions. A session
+/// its account's usage limit stopped is moved to go on, so the copy is told to.
 fn move_session(engine: &Handle, c: &Call) -> Result<Value, String> {
     let key = c.session()?;
     let account = c.read::<params::Move>()?.account;
     let cfg = cfg()?;
     let stopped = stop_to_move(engine, &cfg, key)?;
     let board = engine.board();
-    let mut started = crate::start::move_to(&board, &cfg, key, &account).map_err(words)?;
+    let limited = board.session(key).is_some_and(|(_, s)| s.limit.is_some());
+    let prompt = if limited { crate::start::GO_ON } else { "" };
+    let mut started = crate::start::move_to(&board, &cfg, key, &account, prompt).map_err(words)?;
     if stopped {
         started.message = started.message.map(|m| format!("{m} Its turn was stopped first, so the copy goes on from where it was interrupted."));
     }

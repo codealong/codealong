@@ -81,7 +81,8 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     Whatever follows `/fork` is the copy's first prompt; with nothing, the copy waits for one.
     Move to, in a Claude Code session's right-click menu, moves it to another of your Claude
     Code accounts (one that's signed in): the conversation goes on in a new terminal under that
-    account, and the session is closed and archived; its panel and the copy's say where it went.
+    account (a background job's as a job there), and the session is closed and archived; its
+    panel and the copy's say where it went.
     The copy is a session of its own, with a new ID, and takes the session's place on its todos,
     among the pinned sessions, on its card on the desktop and in its kept window. Claude Code
     keeps the copy once you send it something; until then it shows the conversation it was
@@ -91,6 +92,13 @@ https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc
     afterwards, from a window or another agent's `codealong session send`, is turned away with
     the copy named, and `codealong session show` says where it moved. The first reply there
     reads the whole conversation again, since the old account's prompt cache doesn't carry over.
+    A session whose turn its account's usage limit stopped says so (Limit, with which limit and
+    when it lifts, from what Claude Code wrote), and its panel offers to move it to the account
+    with room: one of its harness's other accounts, chosen as Auto chooses, that isn't near a
+    limit by its meters and whose own sessions weren't refused since they last got through (a
+    spend limit shows on no meter). Moved, it's told to carry on where it stopped. `[limits]
+    when_hit = "move"` (Settings › Accounts) moves it there by itself, as soon as it stops; a
+    session moved there that stops again is offered a move rather than moved back.
     `/side <question>` (or `/btw`) asks something about a Claude Code or Codex session on the
     side: a throwaway copy of its conversation answers above the box, and the session carries
     on and never hears of it. The copy reads files and runs commands to answer, and is told to
@@ -723,6 +731,9 @@ enabled = false
 tailscale = true               # find them on your tailnet
 iroh = true                    # reach linked devices anywhere
 remote_control = false         # let linked devices act on sessions here
+
+[limits]
+when_hit = "suggest"           # a session stopped at its usage limit offers a move; "move" moves it (Settings › Accounts)
 
 [debug]
 perf_log = false               # true logs timings to ~/Library/Logs/Codealong/perf.log (Settings › Advanced)

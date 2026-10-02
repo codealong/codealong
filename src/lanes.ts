@@ -8,7 +8,8 @@
 import { shortOf } from './devices';
 import { withTimes } from './format';
 import type { InsightLabel } from './insights';
-import type { Bay, Lane, Pr, PrItem, Session, Status } from './types';
+import { resetsPhrase } from './format';
+import type { Bay, Lane, Pr, PrItem, Session, SessionLimit, Status } from './types';
 
 export const BAYS: Bay[] = ['needs', 'working', 'unread', 'review', 'idle', 'merged'];
 /** The status filter an agent falls under, for the statuses that have one. */
@@ -228,6 +229,7 @@ export function sessionHeadline(s: Session): [string, string | null] {
       if (s.harness === 'claude') return [`${acct} is waiting for approval · ${s.title}`, s.excerpt];
       return [`${acct} asks for approval · ${s.title}`, s.excerpt];
     case 'error':
+      if (s.limit) return [`${acct} hit its usage limit · ${s.title}`, s.excerpt];
       return [`${acct} stopped with an error · ${s.title}`, s.excerpt];
     case 'working': {
       // How long it has worked on what you last asked, as the engine counts it.
@@ -245,6 +247,24 @@ export function sessionHeadline(s: Session): [string, string | null] {
   }
 }
 
+/** The words of a meter's key: `session` is the 5-hour limit, `model:Opus` Opus's own week. */
+function limitName(meter: string | null): string {
+  if (meter === 'session') return '5-hour limit';
+  if (meter === 'week') return 'weekly limit';
+  if (meter?.startsWith('model:')) return `weekly ${meter.slice('model:'.length)} limit`;
+  return 'usage limit';
+}
+
+/** What a usage limit that stopped a session comes to, in a sentence or two: which limit, when it
+ *  lifts, and where it could go on (left out where a button beside it offers the move). */
+export function limitWords(account: string, limit: SessionLimit, now: number, offered = false): string {
+  const lifted = limit.resetsAt != null && limit.resetsAt <= now;
+  const spent = limit.spendCapped ? ', with no extra usage to carry it' : '';
+  const when = lifted ? ' It has lifted since: send it something to go on.' : limit.resetsAt != null ? ` It lifts ${resetsPhrase(limit.resetsAt, now)}.` : '';
+  const where = lifted || offered ? '' : limit.moveTo ? ` ${limit.moveTo} has room: move it there to go on now.` : ' No other account has room.';
+  return `It stopped at ${account}’s ${limitName(limit.meter)}${spent}.${when}${where}`;
+}
+
 /**
  * What a session waits on you for, as a label beside its title: the words its headline puts
  * before the title. A session's row leads with its title, and its glyph and bay already say it
@@ -252,6 +272,7 @@ export function sessionHeadline(s: Session): [string, string | null] {
  */
 export function sessionFlag(s: Session): InsightLabel | null {
   if (s.stalledSince != null) return { label: 'Stuck', tone: 'warn', title: 'It says it’s busy, but nothing has happened for a while. It may be waiting on something.' };
+  if (s.limit && s.status !== 'working') return { label: 'Limit', tone: 'bad', title: limitWords(s.account, s.limit, Date.now()) };
   if (s.status === 'error') return { label: 'Error', tone: 'bad', title: 'It stopped with an error.' };
   if (s.status !== 'needs') return null;
   if (s.asks) return { label: 'Asks you', tone: 'warn', title: 'Its last reply asks you something.' };

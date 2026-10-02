@@ -93,6 +93,8 @@ pub enum Msg {
     /// then, and Chrome's profiles.
     ChromeProfile(String, Option<i64>, Option<String>, Vec<chrome::Profile>),
     RefreshUsage,
+    /// A move of a session a usage limit stopped, and why it didn't work if it didn't.
+    LimitMoved(Option<String>),
     /// The usage read is over: what it read, or none when it fell over or never started.
     UsageDone(Option<Vec<Usage>>),
     /// A harness's reader has something new that it read off this thread (`harness::Wake`).
@@ -220,6 +222,12 @@ impl Handle {
 
     pub fn refresh_usage(&self) {
         let _ = self.tx.send(Msg::RefreshUsage);
+    }
+
+    /// How moving a session a usage limit stopped went, when Codealong moved it itself
+    /// (limits.rs): a failure is a notice until a later move works.
+    pub fn limit_moved(&self, result: std::result::Result<(), String>) {
+        let _ = self.tx.send(Msg::LimitMoved(result.err()));
     }
 
     pub fn set_pinned(&self, keys: Vec<String>) {
@@ -726,6 +734,8 @@ struct Engine {
     /// Worktrees marked reusable or not by hand (`worktrees.json`), by path.
     reusable: HashMap<String, bool>,
     reusable_warning: Option<String>,
+    /// Why moving a session a usage limit stopped didn't work, when Codealong moved it itself.
+    limit_move_warning: Option<String>,
     /// The files changed in the background whose last change couldn't be made, by name with
     /// why (`store::problems`), as of the last board.
     store_warnings: Vec<(String, String)>,
@@ -835,6 +845,7 @@ impl Engine {
             previews_warning: None,
             reusable: HashMap::new(),
             reusable_warning: None,
+            limit_move_warning: None,
             store_warnings: Vec::new(),
             servers: None,
             git: HashMap::new(),
@@ -1073,6 +1084,15 @@ impl Engine {
         sessions
     }
 
+    /// Sessions a usage limit stopped, each with the account it could move to and go on
+    /// (`start::limit_moves`).
+    fn with_limits(&self, mut sessions: Vec<Session>, usage: &[Usage], now: i64) -> Vec<Session> {
+        if sessions.iter().any(|s| s.limit.is_some()) {
+            crate::start::limit_moves(&mut sessions, &self.cfg.accounts, usage, |h| harness::adapter(h).moves_accounts(), now);
+        }
+        sessions
+    }
+
     /// Sessions with their snoozes applied (board::apply_snooze). A snooze's time coming changes
     /// nothing on disk: the 30-second heartbeat's publish brings it back.
     fn with_snoozes(&self, mut sessions: Vec<Session>, now: i64) -> Vec<Session> {
@@ -1301,6 +1321,10 @@ impl Engine {
                     }
                 }
                 Ok(Msg::RefreshUsage) => self.fetch_usage(),
+                Ok(Msg::LimitMoved(why)) => {
+                    self.limit_move_warning = why;
+                    self.dirty = true;
+                }
                 Ok(Msg::Hosted) | Ok(Msg::Read) => self.dirty = true,
                 Ok(Msg::SetArchived(key, archived, reply)) => {
                     self.seen.set_archived(&key, archived, now_ms());
@@ -1710,6 +1734,7 @@ impl Engine {
             said("previews", "Previews weren't read", self.previews_warning.as_ref()),
             said("reusable", "Reusable worktrees weren't read", self.reusable_warning.as_ref()),
             said("held", "Waiting to open a folder", held.as_ref()),
+            said("limits", "A session didn't move", self.limit_move_warning.as_ref()),
         ]
         .into_iter()
         .flatten()
@@ -2338,13 +2363,14 @@ impl Engine {
         };
         let order: Vec<String> = self.cfg.projects.iter().map(|p| p.name.clone()).collect();
         let notices = self.notices();
+        let usage = self.compose_usage(now);
         let (worked, unlinked) = prlinks::resolve(&self.pr_marks, &self.pr_store);
         let pr_links = board::PrLinks { worked, unlinked };
         let mut board = board::compose(board::Inputs {
             now,
             apps: &apps,
             seeds: &self.seeds,
-            sessions: self.with_snoozes(self.with_insights(self.with_chrome(self.with_origins(self.build_sessions(now))), now), now),
+            sessions: self.with_limits(self.with_snoozes(self.with_insights(self.with_chrome(self.with_origins(self.build_sessions(now))), now), now), &usage, now),
             git: &self.git,
             prs: self.github.prs(),
             requested: self.github.requested(),
@@ -2359,7 +2385,8 @@ impl Engine {
             previews: &self.previews,
             reusable: &self.reusable,
         });
-        board.usage = self.compose_usage(now);
+        board.usage = usage;
+        board.when_limited = self.cfg.limits.when_hit;
         board.pinned_worktrees = self.seen.pinned_worktrees.clone();
         board.pinned_prs = self.seen.pinned_prs.clone();
         board.theme = self.cfg.appearance.theme;

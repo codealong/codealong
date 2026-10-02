@@ -38,6 +38,8 @@ pub struct Config {
     #[serde(default)]
     pub updates: UpdatesCfg,
     #[serde(default)]
+    pub limits: LimitsCfg,
+    #[serde(default)]
     pub debug: DebugCfg,
 }
 
@@ -55,6 +57,7 @@ impl Default for Config {
             search: SearchCfg::default(),
             devices: DevicesCfg::default(),
             updates: UpdatesCfg::default(),
+            limits: LimitsCfg::default(),
             debug: DebugCfg::default(),
         }
     }
@@ -183,6 +186,32 @@ fn default_devices_port() -> u16 {
 
 fn yes() -> bool {
     true
+}
+
+/// What Codealong does about a session its account's usage limit stopped (`start::limit_moves`).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct LimitsCfg {
+    #[serde(default)]
+    pub when_hit: WhenLimited,
+}
+
+/// `suggest`: the session says which account has room and offers to move it there. `move`:
+/// Codealong moves it there itself, as soon as it stops, and it carries on.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum WhenLimited {
+    #[default]
+    Suggest,
+    Move,
+}
+
+impl WhenLimited {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            WhenLimited::Suggest => "suggest",
+            WhenLimited::Move => "move",
+        }
+    }
 }
 
 /// Automatic updates (updates.rs). Only release builds update themselves.
@@ -508,6 +537,7 @@ const JEV_COMMENT: &str = "# What Codealong asks TypeSafe's Jev, feature by feat
 const SEARCH_COMMENT: &str = "# The quick panel and `codealong sessions find` search what was said in sessions active in the\n# last `days` days, not just their titles. 0 turns it off; 14, the board's reach, is the most.\n";
 const DEVICES_COMMENT: &str = "# Your other devices: Codealong on each shows the others' sessions and can read and search them.\n# tailscale finds them on your tailnet; iroh reaches devices you link with a code, anywhere.\n# remote_control lets your linked devices send prompts, answer approvals and start sessions here.\n";
 const UPDATES_COMMENT: &str = "# check: look for a newer Codealong now and then, and put it in place for the next launch.\n# The app menu's Check for updates… works either way.\n";
+const LIMITS_COMMENT: &str = "# When a session stops at its account's usage limit. when_hit: \"suggest\" offers to move it to an account\n# of its harness that has room; \"move\" moves it there by itself, and it carries on where it stopped.\n";
 const DEBUG_COMMENT: &str = "# Timings for finding what makes the app slow, in ~/Library/Logs/Codealong/perf.log.\n";
 const SHORTCUTS_COMMENT: &str = "# Shortcuts that work in any app, such as \"Option+Cmd+/\" or \"Cmd+Ctrl+K\". \"\" turns one off.\n# quick_panel opens the quick panel: find a session, or start one.\n";
 
@@ -793,6 +823,18 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
         set_value(&mut doc["updates"]["check"], Value::from(cfg.updates.check));
     }
 
+    // Like [updates]: only a file that has the table or moves by itself gets it.
+    if cfg.limits != LimitsCfg::default() || doc.get("limits").is_some() {
+        if !doc.get("limits").is_some_and(toml_edit::Item::is_table_like) {
+            let mut t = Table::new();
+            t.decor_mut().set_prefix(format!("\n{LIMITS_COMMENT}"));
+            doc.insert("limits", Item::Table(t));
+            let after = ["updates", "devices", "search", "jev", "shortcuts"].into_iter().find(|k| doc.get(k).is_some()).unwrap_or("shortcuts");
+            place_after(&mut doc, "limits", after);
+        }
+        set_value(&mut doc["limits"]["when_hit"], Value::from(cfg.limits.when_hit.as_str()));
+    }
+
     ensure_table(&mut doc, "debug", DEBUG_COMMENT);
     set_value(&mut doc["debug"]["perf_log"], Value::from(cfg.debug.perf_log));
 
@@ -949,6 +991,12 @@ pub fn render(cfg: &Config) -> String {
         s.push_str("[updates]\n");
         s.push_str(&format!("check = {}\n", cfg.updates.check));
     }
+    if cfg.limits != LimitsCfg::default() {
+        s.push('\n');
+        s.push_str(LIMITS_COMMENT);
+        s.push_str("[limits]\n");
+        s.push_str(&format!("when_hit = {}\n", q(cfg.limits.when_hit.as_str())));
+    }
     s.push_str("\n# Harness accounts. `name` is what you type and what the board shows.\n# `start` is where new sessions start: \"terminal\", \"background\", \"claude-app\", \"codex-app\" or \"codealong\".\n# `acp`: the command that runs the account's Agent Client Protocol adapter, for sessions Codealong runs itself.\n# `preferred = true`: Auto starts this account over ones without it while it has room.\n");
     for a in &cfg.accounts {
         s.push_str("\n[[accounts]]\n");
@@ -1011,6 +1059,7 @@ mod tests {
             search: SearchCfg { days: 7 },
             devices: DevicesCfg { enabled: true, name: "Studio".into(), tailscale: true, iroh: false, remote_control: true, port: 47000 },
             updates: UpdatesCfg { check: false },
+            limits: LimitsCfg { when_hit: WhenLimited::Move },
             debug: DebugCfg::default(),
         };
         let parsed: Config = toml::from_str(&render(&cfg)).unwrap();
@@ -1164,8 +1213,24 @@ mod tests {
             search: SearchCfg::default(),
             devices: DevicesCfg::default(),
             updates: UpdatesCfg::default(),
+            limits: LimitsCfg::default(),
             debug: DebugCfg { perf_log: true },
         }
+    }
+
+    #[test]
+    fn a_limit_is_suggested_unless_the_file_says_to_move() {
+        assert_eq!(toml::from_str::<Config>("").unwrap().limits.when_hit, WhenLimited::Suggest);
+        let old = render(&full());
+        assert!(!old.contains("[limits]"), "{old}");
+        assert!(!with_config(&old, &full()).unwrap().contains("[limits]"));
+        let moving = Config { limits: LimitsCfg { when_hit: WhenLimited::Move }, ..full() };
+        let out = with_config(&old, &moving).unwrap();
+        assert!(out.contains("[limits]\nwhen_hit = \"move\"\n"), "{out}");
+        assert_eq!(parse(&out).unwrap().limits.when_hit, WhenLimited::Move);
+        // Back to suggesting keeps the table, the value changed in place.
+        assert!(with_config(&out, &full()).unwrap().contains("[limits]\nwhen_hit = \"suggest\""));
+        assert!(parse(&"[limits]\nwhen_hit = \"wait\"\n".to_string()).is_err());
     }
 
     #[test]

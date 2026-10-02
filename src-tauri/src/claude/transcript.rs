@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 
 use super::conversation::{line_peer, sent_from_codealong};
+use crate::model::SessionLimit;
 use crate::util::{code, command_dir, file_name, mtime_ms, note_work, one_line, parse_rfc3339_ms, read_head, read_tail, resolve, scan_lines_back, without_cd};
 
 /// What the start of a transcript says. It never changes, so the engine reads it once.
@@ -61,6 +62,10 @@ pub struct TranscriptInfo {
     /// The session the conversation went on in when it moved to the background (a
     /// `continued-in` line), while nothing has been said here since.
     pub continued_in: Option<String>,
+    /// The usage limit the last turn ended on, until a reply or a prompt of yours comes after.
+    pub limit: Option<SessionLimit>,
+    /// The model the latest reply came from.
+    pub model: Option<String>,
 }
 
 /// Transcript files modified since `since_ms`, one level below `<home>/projects`.
@@ -262,6 +267,11 @@ pub fn apply_tail(info: &mut TranscriptInfo, state: &mut TailState, tail: &str) 
                 info.last_prompt = str_of(&v, "lastPrompt").map(|p| one_line(&p, 140));
             }
             Some("assistant") => {
+                // A limit's refusal is written as a reply; any other reply means it went on.
+                info.limit = limit_of(&v).map(|l| SessionLimit { model: info.model.clone(), ..l });
+                if let Some(m) = v.pointer("/message/model").and_then(Value::as_str).filter(|m| !m.starts_with('<')) {
+                    info.model = Some(m.to_string());
+                }
                 let Some(items) = v.pointer("/message/content").and_then(Value::as_array) else { continue };
                 // The shell's folder when the call was made: a `cd` inside the session's
                 // folders carries over to later commands, and shows up here.
@@ -302,6 +312,7 @@ pub fn apply_tail(info: &mut TranscriptInfo, state: &mut TailState, tail: &str) 
                     open_tools.clear();
                 }
                 if you_typed(&v) {
+                    info.limit = None;
                     if let Some(ts) = str_of(&v, "timestamp").as_deref().and_then(parse_rfc3339_ms) {
                         info.last_prompt_at = Some(ts);
                     }
@@ -311,6 +322,38 @@ pub fn apply_tail(info: &mut TranscriptInfo, state: &mut TailState, tail: &str) 
         }
     }
     info.pending_tool = open_tools.last().map(|(_, req)| req.clone());
+}
+
+/// The usage limit an assistant line says the API refused the turn on: Claude Code writes the
+/// refusal as a reply with `isApiErrorMessage`, `error: "rate_limit"` and `apiErrorStatus: 429`,
+/// and from 2.1.257 a `quotaLimits` object (`rateLimitType` `five_hour` or `seven_day`,
+/// `resetsAt` in seconds, and `overageStatus` `rejected` when extra usage couldn't carry it; its
+/// `overageDisabledReason` is why: `out_of_credits`, or `org_level_disabled_until` behind the
+/// "monthly spend limit" message). Read from 131 refusals on this Mac, 2026-10-02. A model
+/// that's unavailable is a `rate_limit` too, but not a 429, and moving wouldn't help it.
+pub(super) fn limit_of(v: &Value) -> Option<SessionLimit> {
+    let refused = v.get("isApiErrorMessage").and_then(Value::as_bool) == Some(true)
+        && v.get("error").and_then(Value::as_str) == Some("rate_limit")
+        && v.get("apiErrorStatus").and_then(Value::as_i64) == Some(429);
+    if !refused {
+        return None;
+    }
+    let q = v.get("quotaLimits");
+    let field = |k: &str| q.and_then(|q| q.get(k));
+    let meter = field("rateLimitType").and_then(Value::as_str).and_then(|t| match t {
+        "five_hour" => Some("session".to_string()),
+        "seven_day" => Some("week".to_string()),
+        // `seven_day_opus` and the like, as the usage endpoint's per-model weeks are keyed.
+        _ => t.strip_prefix("seven_day_").filter(|m| !m.is_empty()).map(|m| format!("model:{}", crate::usage::title(m))),
+    });
+    Some(SessionLimit {
+        meter,
+        resets_at: field("resetsAt").and_then(Value::as_i64).map(|s| s * 1000),
+        spend_capped: field("overageStatus").and_then(Value::as_str) == Some("rejected"),
+        at: str_of(v, "timestamp").as_deref().and_then(parse_rfc3339_ms).unwrap_or(0),
+        move_to: None,
+        model: None,
+    })
 }
 
 fn str_of(v: &Value, key: &str) -> Option<String> {
@@ -649,6 +692,44 @@ mod tests {
         // Taken back to its window and talked to, it's here again.
         let back = format!("{moved}{}\n", r#"{"type":"user","timestamp":"2026-09-29T02:30:00.000Z","origin":{"kind":"human"},"message":{"content":"One more thing"}}"#);
         assert_eq!(parse_lines(HEAD, &back).continued_in, None);
+    }
+
+    // A refusal as Claude Code 2.1.287 wrote it, cut to the fields that matter here.
+    const SPEND_CAPPED: &str = r#"{"type":"assistant","timestamp":"2026-10-02T20:06:19.504Z","quotaLimits":{"status":"rejected","resetsAt":1791007200,"unifiedRateLimitFallbackAvailable":false,"rateLimitType":"seven_day","overageStatus":"rejected","overageDisabledReason":"org_level_disabled_until","isUsingOverage":false},"error":"rate_limit","isApiErrorMessage":true,"apiErrorStatus":429,"message":{"model":"<synthetic>","role":"assistant","content":[{"type":"text","text":"You've hit your monthly spend limit · raise it at claude.ai/settings/usage?from=cc_cli_lim"}]}}"#;
+
+    #[test]
+    fn a_turn_refused_at_a_limit_says_which_and_when_it_lifts() {
+        let reply = r#"{"type":"assistant","timestamp":"2026-10-02T20:00:00.000Z","message":{"model":"claude-opus-5-5","content":[{"type":"text","text":"On it."}]}}"#;
+        let info = parse_lines(HEAD, &format!("{reply}\n{SPEND_CAPPED}\n"));
+        let limit = info.limit.expect("a limit");
+        assert_eq!(limit.meter.as_deref(), Some("week"));
+        assert_eq!(limit.resets_at, Some(1_791_007_200_000));
+        assert!(limit.spend_capped);
+        assert_eq!(limit.at, parse_rfc3339_ms("2026-10-02T20:06:19.504Z").unwrap());
+        // The refusal's own model is Claude Code's stand-in; the session's is the reply's before.
+        assert_eq!(limit.model.as_deref(), Some("claude-opus-5-5"));
+        assert_eq!(info.last_text.as_deref(), Some("You've hit your monthly spend limit · raise it at claude.ai/settings/usage?from=cc_cli_lim"));
+
+        let session = r#"{"type":"assistant","timestamp":"2026-09-08T23:46:12.959Z","quotaLimits":{"status":"rejected","resetsAt":1757378400,"rateLimitType":"five_hour","overageStatus":"rejected","overageDisabledReason":"out_of_credits"},"error":"rate_limit","isApiErrorMessage":true,"apiErrorStatus":429,"message":{"model":"<synthetic>","content":[{"type":"text","text":"You've hit your session limit · resets 6:10pm (America/Los_Angeles)"}]}}"#;
+        assert_eq!(parse_lines(HEAD, session).limit.and_then(|l| l.meter).as_deref(), Some("session"));
+        let opus = SPEND_CAPPED.replace(r#""seven_day""#, r#""seven_day_opus""#).replace(r#""overageStatus":"rejected""#, r#""overageStatus":"allowed""#);
+        let limit = parse_lines(HEAD, &opus).limit.unwrap();
+        assert_eq!((limit.meter.as_deref(), limit.spend_capped), (Some("model:Opus"), false));
+    }
+
+    #[test]
+    fn only_a_429_is_a_limit_and_what_comes_after_lifts_it() {
+        // A model that's unavailable is a rate_limit with no 429: no account would do better.
+        let unavailable = r#"{"type":"assistant","timestamp":"2026-07-01T14:46:02.917Z","error":"rate_limit","isApiErrorMessage":true,"message":{"model":"<synthetic>","content":[{"type":"text","text":"Claude Fable 5 is currently unavailable."}]}}"#;
+        assert_eq!(parse_lines(HEAD, unavailable).limit, None);
+        // A background task's notice starts a turn that's refused again: still limited.
+        let notice = r#"{"type":"user","timestamp":"2026-10-02T20:06:25.178Z","origin":{"kind":"task-notification"},"message":{"content":"<task-notification>done</task-notification>"}}"#;
+        assert!(parse_lines(HEAD, &format!("{SPEND_CAPPED}\n{notice}\n")).limit.is_some());
+        // A prompt you send lifts it while it's tried, and a reply that isn't refused for good.
+        let prompt = r#"{"type":"user","timestamp":"2026-10-02T21:00:00.000Z","origin":{"kind":"human"},"message":{"content":"go on"}}"#;
+        assert_eq!(parse_lines(HEAD, &format!("{SPEND_CAPPED}\n{prompt}\n")).limit, None);
+        let reply = r#"{"type":"assistant","timestamp":"2026-10-02T21:00:05.000Z","message":{"model":"claude-opus-5-5","content":[{"type":"text","text":"Going on."}]}}"#;
+        assert_eq!(parse_lines(HEAD, &format!("{SPEND_CAPPED}\n{notice}\n{reply}\n")).limit, None);
     }
 
     #[test]

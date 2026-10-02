@@ -212,6 +212,9 @@ pub fn claude_session(
             _ => Status::Idle,
         },
     };
+    // A turn the account's limit refused is stopped, not done: what to do about it waits on you.
+    let limit = tr.and_then(|t| t.limit.clone()).filter(|_| status != Status::Working);
+    let status = if limit.is_some() && status == Status::Unread { Status::Error } else { status };
     let entrypoint = reg.and_then(|r| r.entrypoint.clone()).or_else(|| tr.and_then(|t| t.entrypoint.clone())).unwrap_or_default();
     let surface = if entrypoint.contains("desktop") { Surface::App } else { Surface::Cli };
     let user_named = reg
@@ -292,6 +295,7 @@ pub fn claude_session(
         stalled_since,
         background: background.then(|| quiet.running.unwrap_or_default().to_string()),
         app_account: account.home_path() == crate::util::home().join(".claude"),
+        limit,
         ..known
     })
 }
@@ -1013,6 +1017,7 @@ pub fn session_headline(s: &Session) -> (String, Option<String>) {
             (Some(ex), Harness::Codex | Harness::Opencode | Harness::Antigravity) => (format!("{acct} asks for approval · {title}"), Some(ex.clone())),
             (None, _) => (format!("{acct} needs you · {title}"), None),
         },
+        Status::Error if s.limit.is_some() => (format!("{acct} hit its usage limit · {title}"), s.excerpt.clone()),
         Status::Error => (format!("{acct} stopped with an error · {title}"), s.excerpt.clone()),
         Status::Working => {
             // How long it has worked on what you last asked. Claude Code doesn't restart a busy
@@ -1399,6 +1404,7 @@ pub fn compose(inp: Inputs) -> Board {
         todo_hints: Default::default(),
         devices: Default::default(),
         project_rules: Vec::new(),
+        when_limited: Default::default(),
     }
 }
 
@@ -2024,6 +2030,22 @@ mod tests {
         assert_eq!(stopped.resume_command.as_deref(), Some("claude2 --resume abc1234567"));
         assert_eq!(stopped.open_target, "s|claude:claude2:abc1234567|resume");
         assert_eq!(stopped.title, "Portal daily log + photo sync");
+    }
+
+    #[test]
+    fn a_turn_a_usage_limit_stopped_needs_you_until_seen() {
+        let a = acct("claude2");
+        let limit = crate::model::SessionLimit { meter: Some("session".into()), at: NOW - 10, ..Default::default() };
+        let t = TranscriptInfo { limit: Some(limit.clone()), last_text: Some("You've hit your session limit · resets 6:10pm".into()), ..tr() };
+        let s = |status: &str, seen: i64| claude_session(&a, Some(&reg(status, NOW - 10)), Some(&t), seen, NOW, &Quiet::default()).unwrap();
+        let unseen = s("idle", NOW - 100);
+        assert_eq!((unseen.status, unseen.limit.as_ref()), (Status::Error, Some(&limit)));
+        assert_eq!(session_headline(&unseen), ("`claude2` hit its usage limit · Portal daily log + photo sync".to_string(), Some("You've hit your session limit · resets 6:10pm".to_string())));
+        // Seen, it's at rest with the limit still said; tried again, it's working and isn't limited.
+        let seen = s("idle", NOW);
+        assert_eq!((seen.status, seen.limit.is_some()), (Status::Idle, true));
+        let busy = s("busy", NOW - 100);
+        assert_eq!((busy.status, busy.limit), (Status::Working, None));
     }
 
     #[test]

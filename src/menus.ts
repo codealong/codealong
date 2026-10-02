@@ -154,6 +154,8 @@ export interface SessionActions {
   newSession?: MenuAction;
   fork?: MenuAction;
   move?: MenuAction | MenuGroup;
+  /** The move a usage limit's stop suggests: to the account with room (`Session.limit`). */
+  moveOn?: MenuAction;
   stop?: MenuAction;
   rename?: MenuAction;
   seen?: MenuAction;
@@ -194,6 +196,9 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
       })
       .catch((e: unknown) => report.error(errorText(e)));
   const moveItem = (to: string, label: string): MenuAction => ({ label, run: () => void move(to) });
+  // A session a usage limit stopped is told to go on where it moves (actions.rs), so it says so.
+  const goesOn = s.limit && s.status !== 'working' ? ' and go on' : '';
+  const suggested = s.limit?.moveTo && moveTo.includes(s.limit.moveTo) && goesOn ? s.limit.moveTo : null;
   const archive = can.archive ?? ((archived: boolean) => (archived ? settle('archived')(archiveAhead(s.key, true)) : void archiveAhead(s.key, false).catch((e: unknown) => report.error(errorText(e)))));
   return {
     open: { label: openLabel(lane, s, can.terminal), run: () => can.open(lane, s.openTarget) },
@@ -207,7 +212,13 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
     newSession: newSessionItem(lane, can.newSession),
     // Forks open in a terminal, where only sessions that resume in one can go.
     fork: s.resumeCommand ? { label: 'Fork in terminal', run: () => void fork() } : undefined,
-    move: moveTo.length > 1 ? { label: 'Move to', items: moveTo.map((to) => moveItem(to, to)) } : moveTo.length === 1 ? moveItem(moveTo[0], `Move to ${moveTo[0]}`) : undefined,
+    move:
+      moveTo.length > 1
+        ? { label: `Move${goesOn} to`, items: moveTo.map((to) => moveItem(to, to === suggested ? `${to} (has room)` : to)) }
+        : moveTo.length === 1
+          ? moveItem(moveTo[0], `Move to ${moveTo[0]}${goesOn}`)
+          : undefined,
+    moveOn: suggested ? moveItem(suggested, `Move to ${suggested} and go on`) : undefined,
     // The session carries on, waiting for you.
     stop: stoppable(s) ? { label: 'Stop turn', run: () => void said(`Stopping ${s.title}…`, sessionCancel(s.key)) } : undefined,
     rename: can.rename && renames(s) ? { label: 'Rename…', run: can.rename } : undefined,

@@ -238,6 +238,9 @@ pub struct Session {
     /// The Chrome tabs it drives through Claude in Chrome (chrometabs.rs), to bring back.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chrome: Option<ChromeTabs>,
+    /// Its last turn ended on its account's usage limit, and nothing has been said since.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<SessionLimit>,
 }
 
 /// A session's id as lists show it: its first seven characters.
@@ -300,8 +303,31 @@ impl Session {
             snoozed_until: None,
             earlier: false,
             chrome: None,
+            limit: None,
         }
     }
+}
+
+/// The usage limit a session's last turn ended on, as its harness recorded it.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionLimit {
+    /// The limit, as its account's `Meter` keys it (`session`, `week`, `model:<name>`), when
+    /// the harness said which.
+    pub meter: Option<String>,
+    /// When the limit lifts, when the harness said.
+    pub resets_at: Option<i64>,
+    /// The account's extra usage was refused too (spent or turned off), so raising its spend
+    /// limit would also let it go on.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub spend_capped: bool,
+    /// When it was refused.
+    pub at: i64,
+    /// Another account of its harness with room for it, to move it to (`board::limit_moves`).
+    pub move_to: Option<String>,
+    /// The model its last reply came from, which decides which of an account's limits it spends.
+    #[serde(skip)]
+    pub model: Option<String>,
 }
 
 /// Where a session came from: the session it was forked from or started by.

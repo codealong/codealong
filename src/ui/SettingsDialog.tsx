@@ -6,9 +6,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getConfig, onQuickShortcut, openUrl, pauseQuickShortcut, quickShortcut, jevKey, saveConfig, saveConfigText, setJevKey, setReusable, testJev } from '../api';
 import { shortcutFromKey, shortcutLabel, TAKEN } from '../quick';
+import { HARNESS_WORD, MOVES_ACCOUNTS } from '../harness';
 import { worktreeName } from '../lanes';
 import { REUSE_WORDS } from '../reusable';
-import type { ChromeProfile, Config, ConfigView, JevCfg, Lane, NewTerminal, Profile, ProjectCfg, Reuse, ShortcutStatus, Theme, Usage } from '../types';
+import type { ChromeProfile, Config, ConfigView, JevCfg, Lane, NewTerminal, Profile, ProjectCfg, Reuse, ShortcutStatus, Theme, Usage, WhenLimited } from '../types';
 import { AccountsSection } from './AccountsSection';
 import { AgentsSection } from './AgentsSection';
 import { DevicesPane } from './DevicesSection';
@@ -35,6 +36,11 @@ const NEW_TERMINALS: { id: NewTerminal; label: string; says: string }[] = [
   { id: 'project', label: 'Tab beside its project', says: 'A tab in the window already showing that worktree, repo or project, or a new window when none does.' },
   { id: 'tab', label: 'Tab in front window', says: 'A tab in the terminal window in front.' },
   { id: 'window', label: 'New window', says: 'A window of its own every time.' },
+];
+
+const WHEN_LIMITED: { id: WhenLimited; label: string; says: string }[] = [
+  { id: 'suggest', label: 'Suggest a move', says: 'The session says which account has room, with a button that moves it there to carry on.' },
+  { id: 'move', label: 'Move it', says: 'Codealong moves it to the account with room as soon as it stops, and it carries on there: in a new terminal, or as a background job if it was one.' },
 ];
 
 interface SettingsDialogProps {
@@ -107,7 +113,12 @@ export function SettingsDialog({ section, onSection, focus, usage, apps, theme, 
 
   let pane: React.ReactNode = null;
   if (section === 'accounts') {
-    pane = <AccountsSection focus={focus} usage={usage} terminal={apps.terminal} now={now} onSaved={() => void load()} />;
+    pane = (
+      <>
+        <AccountsSection focus={focus} usage={usage} terminal={apps.terminal} now={now} onSaved={() => void load()} />
+        {cfg && <LimitsField cfg={cfg} disabled={!!broken} onSave={save} />}
+      </>
+    );
   } else if (section === 'agents') {
     pane = <AgentsSection />;
   } else if (view === null) {
@@ -232,6 +243,23 @@ function GeneralPane({ cfg, view, theme, onPickTheme, disabled, onSave, now }: P
         <UpdatesFields cfg={cfg} onSave={(next) => void onSave(next)} now={now} />
       </fieldset>
     </>
+  );
+}
+
+/** `[limits] when_hit`: what's done about a session its account's usage limit stopped. */
+function LimitsField({ cfg, disabled, onSave }: PaneProps) {
+  const value = cfg.limits?.when_hit ?? 'suggest';
+  const agents = MOVES_ACCOUNTS.map((h) => HARNESS_WORD[h]).join(', ');
+  return (
+    <fieldset className="ca-settings-fields" disabled={disabled}>
+      <div className="ca-field">
+        <span>When a session hits its usage limit</span>
+        <Seg className="ca-settings-theme" label="When a session hits its usage limit" options={WHEN_LIMITED} value={value} onPick={(id) => id !== value && void onSave({ ...cfg, limits: { when_hit: id } })} />
+        <small>
+          {WHEN_LIMITED.find((w) => w.id === value)?.says} It goes to another account of its agent ({agents}) that has room by its meters and by what its own sessions last heard. The first reply there reads the whole conversation again, since a prompt cache is an account’s own.
+        </small>
+      </div>
+    </fieldset>
   );
 }
 

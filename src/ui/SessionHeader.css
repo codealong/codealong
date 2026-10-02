@@ -89,6 +89,28 @@
   flex: 0 1 auto;
   min-width: 0;
 }
+.ca-sessinsp-limit {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--alert-tint);
+  color: var(--alert);
+  font: 400 12px/16px var(--font-sans);
+}
+.ca-sessinsp-limit > .ca-icon {
+  flex: none;
+}
+.ca-sessinsp-limit-words {
+  flex: 1 1 200px;
+  min-width: 0;
+  color: var(--ink-2);
+}
+.ca-sessinsp-limit > .ca-btn {
+  flex: none;
+}
 .ca-sessinsp-lane {
   display: inline-flex;
   align-items: center;
